@@ -29,11 +29,24 @@ import {
   type RefundFirstContactConfig,
   resolveRefundFirstContactConfig,
 } from "../_shared/refund-first-contact.ts";
+import {
+  classifyRefundGmailStorageDelete,
+  classifyRefundGmailStorageUpload,
+  getRefundGmailRetentionRuntimeConfig,
+  isRefundGmailQuarantineStorageTarget,
+  isRefundGmailWorkflowRunKey,
+  redactedRefundGmailRetentionSummary,
+  refundGmailRetentionLedgerRunKey,
+  type RefundGmailRetentionSummary,
+} from "../_shared/refund-gmail-retention.ts";
 import { sendRefundManagerActionNotice } from "../_shared/refund-manager-notification.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const syncSecret = (Deno.env.get("REFUND_GMAIL_SYNC_SECRET") ?? "").trim();
+const retentionRuntime = getRefundGmailRetentionRuntimeConfig((name) =>
+  Deno.env.get(name)
+);
 
 const supabase = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -683,15 +696,11 @@ const sendGmailCaseActionNotice = async ({
 const quarantinePendingAttachments = async ({
   config,
   providerMessageId,
-  messageId,
-  caseId,
   descriptors,
   attachmentRows,
 }: {
   config: NonNullable<ReturnType<typeof getRefundGmailConfig>>;
   providerMessageId: string;
-  messageId: string;
-  caseId: string;
   descriptors: AttachmentDescriptor[];
   attachmentRows: Array<Record<string, unknown>>;
 }) => {
@@ -712,6 +721,8 @@ const quarantinePendingAttachments = async ({
       !attachmentId || !descriptor || !descriptor.allowed ||
       !["pending", "error"].includes(status)
     ) continue;
+    let intentId = "";
+    let intentToken = "";
     try {
       const attachment = await getRefundGmailAttachment(
         config,
@@ -722,71 +733,256 @@ const quarantinePendingAttachments = async ({
         attachment.bytes.length <= 0 ||
         attachment.bytes.length > REFUND_GMAIL_MAX_ATTACHMENT_BYTES
       ) {
-        await rpc("service_mark_refund_gmail_attachment", {
+        await rpc("service_record_refund_gmail_attachment_not_uploaded", {
           p_attachment_id: attachmentId,
           p_status: "rejected",
-          p_storage_bucket: null,
-          p_storage_path: null,
           p_rejection_code: "attachment_download_size_rejected",
         });
         continue;
       }
-      const storagePath = `${caseId}/${messageId}/${attachmentId}.${
-        extensionForType(descriptor.contentType)
-      }`;
-      const { error } = await supabase.storage
-        .from("refund-gmail-quarantine")
-        .upload(storagePath, attachment.bytes, {
-          contentType: descriptor.contentType,
-          upsert: true,
+      // The database records and derives the only permitted object target
+      // before any Storage transport begins. A lost response after upload
+      // therefore leaves durable, provider-independent deletion coordinates.
+      const reservation = await rpc(
+        "service_reserve_refund_gmail_attachment_upload",
+        {
+          p_attachment_id: attachmentId,
+        },
+      );
+      intentId = sanitizeText(reservation?.intentId, 80);
+      intentToken = sanitizeText(reservation?.claimToken, 80);
+      const storageBucket = sanitizeText(reservation?.storageBucket, 160);
+      const storagePath = sanitizeText(reservation?.storagePath, 1024);
+      if (
+        reservation?.claimed !== true ||
+        !intentId ||
+        !intentToken ||
+        !isRefundGmailQuarantineStorageTarget(storageBucket, storagePath)
+      ) {
+        throw new Error("quarantine_reservation_invalid");
+      }
+
+      let uploadOutcome: "uploaded" | "upload_failed" | "upload_unknown" =
+        "upload_unknown";
+      try {
+        const { data, error } = await supabase.storage
+          .from(storageBucket)
+          .upload(storagePath, attachment.bytes, {
+            contentType: descriptor.contentType,
+            upsert: false,
+          });
+        uploadOutcome = classifyRefundGmailStorageUpload({
+          data,
+          error,
+          expectedPath: storagePath,
         });
-      if (error) throw new Error("quarantine_upload_failed");
-      await rpc("service_mark_refund_gmail_attachment", {
-        p_attachment_id: attachmentId,
-        p_status: "quarantined",
-        p_storage_bucket: "refund-gmail-quarantine",
-        p_storage_path: storagePath,
-        p_rejection_code: "malware_scan_pending",
-      });
-      quarantined += 1;
+      } catch {
+        // A transport exception may occur after Storage accepted the bytes.
+        // The reservation remains the durable deletion source of truth.
+        uploadOutcome = "upload_unknown";
+      }
+
+      const settlement = await rpc(
+        "service_settle_refund_gmail_attachment_upload",
+        {
+          p_intent_id: intentId,
+          p_claim_token: intentToken,
+          p_outcome: uploadOutcome,
+        },
+      );
+      if (settlement?.status === "uploaded") quarantined += 1;
+      else failed += 1;
     } catch {
       failed += 1;
-      await rpc("service_mark_refund_gmail_attachment", {
-        p_attachment_id: attachmentId,
-        p_status: "error",
-        p_storage_bucket: null,
-        p_storage_path: null,
-        p_rejection_code: "attachment_quarantine_failed",
-      }).catch(() => null);
+      if (intentId && intentToken) {
+        await rpc("service_settle_refund_gmail_attachment_upload", {
+          p_intent_id: intentId,
+          p_claim_token: intentToken,
+          p_outcome: "upload_unknown",
+        }).catch(() => null);
+      } else {
+        // No reservation token means Storage transport was never authorized.
+        // This narrow RPC refuses to clear any existing upload intent.
+        await rpc("service_record_refund_gmail_attachment_not_uploaded", {
+          p_attachment_id: attachmentId,
+          p_status: "error",
+          p_rejection_code: "attachment_quarantine_failed",
+        }).catch(() => null);
+      }
     }
   }
   return { quarantined, failed };
 };
 
-const runRetentionSweep = async () => {
-  if (!supabase) return;
-  const expired = await rpc("service_list_refund_gmail_expired_attachments", {
-    p_limit: 50,
-  });
-  const items = Array.isArray(expired) ? expired : [];
-  for (const item of items as Array<Record<string, unknown>>) {
-    const attachmentId = sanitizeText(item.attachmentId, 80);
-    const bucket = sanitizeText(item.storageBucket, 160);
-    const path = sanitizeText(item.storagePath, 1024);
-    if (!attachmentId || !bucket || !path) continue;
-    const { error } = await supabase.storage.from(bucket).remove([path]);
-    if (error) continue;
-    await rpc("service_mark_refund_gmail_attachment", {
-      p_attachment_id: attachmentId,
-      p_status: "deleted",
-      p_storage_bucket: null,
-      p_storage_path: null,
-      p_rejection_code: "retention_expired",
-    });
+const runRetentionSweep = async ({
+  runKey,
+  triggerSource,
+}: {
+  runKey: string;
+  triggerSource: "retention" | "pre_sync";
+}): Promise<RefundGmailRetentionSummary & { payloadRedacted: true }> => {
+  if (!supabase) {
+    throw new RefundGmailError(
+      "service_configuration_missing",
+      "Refund Gmail retention service is unavailable.",
+    );
   }
-  await rpc("service_purge_refund_gmail_expired_message_content", {
-    p_limit: 200,
+
+  const start = await rpc("service_claim_refund_gmail_retention_run", {
+    p_run_key: runKey,
+    p_trigger_source: triggerSource,
+    p_worker_enabled: retentionRuntime.workerEnabled,
+    p_policy_version: retentionRuntime.policyVersion,
   });
+  const startSummary = redactedRefundGmailRetentionSummary(start);
+  if (start?.claimed !== true) {
+    if (startSummary.status === "succeeded") return startSummary;
+    throw new RefundGmailError(
+      startSummary.errorCode ?? "gmail_retention_not_claimed",
+      "Refund Gmail retention was not claimed.",
+    );
+  }
+
+  const runId = sanitizeText(start.runId, 80);
+  const runToken = sanitizeText(start.claimToken, 80);
+  if (!runId || !runToken) {
+    throw new RefundGmailError(
+      "gmail_retention_claim_invalid",
+      "Refund Gmail retention claim was invalid.",
+    );
+  }
+
+  let requestedOutcome: "succeeded" | "retry_required" | "manual_review" =
+    "succeeded";
+  let failureCode: string | null = null;
+  try {
+    let claimsProcessed = 0;
+    const maxClaimsPerRun = 200;
+    while (claimsProcessed < maxClaimsPerRun) {
+      const claim = await rpc(
+        "service_claim_refund_gmail_retention_attachment",
+        {
+          p_run_id: runId,
+          p_run_token: runToken,
+        },
+      );
+      if (claim?.claimed !== true) break;
+      claimsProcessed += 1;
+
+      const actionId = sanitizeText(claim.actionId, 80);
+      const actionToken = sanitizeText(claim.claimToken, 80);
+      const storageBucket = sanitizeText(claim.storageBucket, 160);
+      const storagePath = sanitizeText(claim.storagePath, 1024);
+      let outcome: "deleted" | "delete_failed" | "delete_unknown" =
+        "delete_unknown";
+
+      if (
+        actionId &&
+        actionToken &&
+        isRefundGmailQuarantineStorageTarget(storageBucket, storagePath)
+      ) {
+        try {
+          const { data, error } = await supabase.storage.from(storageBucket)
+            .remove([storagePath]);
+          outcome = classifyRefundGmailStorageDelete({
+            data,
+            error,
+            expectedPath: storagePath,
+          });
+        } catch {
+          // A thrown transport exception can occur before or after provider
+          // acceptance. Its outcome is unknown and must never auto-retry.
+          outcome = "delete_unknown";
+        }
+      }
+
+      if (!actionId || !actionToken) {
+        requestedOutcome = "manual_review";
+        failureCode = "storage_delete_outcome_unknown";
+        break;
+      }
+
+      const settlement = await rpc(
+        "service_settle_refund_gmail_retention_attachment",
+        {
+          p_action_id: actionId,
+          p_claim_token: actionToken,
+          p_outcome: outcome,
+        },
+      );
+      const settlementStatus = sanitizeText(settlement?.status, 80);
+      if (settlementStatus === "manual_review") {
+        requestedOutcome = "manual_review";
+        failureCode = "storage_delete_outcome_unknown";
+      } else if (
+        settlementStatus === "retry_required" &&
+        requestedOutcome !== "manual_review"
+      ) {
+        requestedOutcome = "retry_required";
+        failureCode = "storage_delete_failed";
+      } else if (settlementStatus !== "deleted") {
+        requestedOutcome = "manual_review";
+        failureCode = "storage_delete_outcome_unknown";
+      }
+    }
+
+    if (
+      claimsProcessed >= maxClaimsPerRun && requestedOutcome === "succeeded"
+    ) {
+      requestedOutcome = "retry_required";
+      failureCode = "cleanup_batch_incomplete";
+    }
+
+    const purge = await rpc("service_purge_refund_gmail_retention_content", {
+      p_run_id: runId,
+      p_run_token: runToken,
+      p_limit: 500,
+    });
+    if (purge?.purged !== true && requestedOutcome !== "manual_review") {
+      requestedOutcome = "retry_required";
+      failureCode = "cleanup_batch_incomplete";
+    }
+
+    const settlement = await rpc("service_settle_refund_gmail_retention_run", {
+      p_run_id: runId,
+      p_run_token: runToken,
+      p_outcome: requestedOutcome,
+      p_failure_code: failureCode,
+    });
+    const summary = redactedRefundGmailRetentionSummary(settlement);
+    if (summary.status !== "succeeded") {
+      throw new RefundGmailError(
+        summary.errorCode ?? "gmail_retention_failed",
+        "Refund Gmail retention did not complete safely.",
+      );
+    }
+    return summary;
+  } catch (error) {
+    await rpc("service_abandon_refund_gmail_retention_run", {
+      p_run_id: runId,
+      p_run_token: runToken,
+    }).catch(() => null);
+    if (error instanceof RefundGmailError) throw error;
+    throw new RefundGmailError(
+      "gmail_retention_failed",
+      "Refund Gmail retention failed.",
+    );
+  }
+};
+
+const authorizeNewGmailCopies = async () => {
+  const gate = await rpc("service_authorize_refund_gmail_copy", {
+    p_worker_enabled: retentionRuntime.workerEnabled,
+    p_policy_version: retentionRuntime.policyVersion,
+    p_scanner_enabled: retentionRuntime.scannerEnabled,
+    p_scanner_version: retentionRuntime.scannerVersion,
+  });
+  if (gate?.allowed !== true) {
+    throw new RefundGmailError(
+      sanitizeText(gate?.status, 80) || "gmail_copy_safety_gate_closed",
+      "Refund Gmail copy safety gate is closed.",
+    );
+  }
 };
 
 serve(async (request) => {
@@ -802,18 +998,72 @@ serve(async (request) => {
     string,
     unknown
   >;
-  const triggerSource = sanitizeText(body.trigger, 40).toLowerCase() ||
+  const requestedTrigger = sanitizeText(body.trigger, 40).toLowerCase() ||
     "scheduled";
   const runKey = sanitizeText(body.runKey, 255);
-  if (
-    !runKey || !["scheduled", "manual", "failure_test"].includes(triggerSource)
-  ) {
+  if (!isRefundGmailWorkflowRunKey(runKey, requestedTrigger)) {
     return jsonResponse(
       { error: "Valid run key and trigger are required." },
       400,
     );
   }
+  const triggerSource = requestedTrigger;
 
+  if (triggerSource === "retention") {
+    try {
+      const summary = await runRetentionSweep({
+        runKey: refundGmailRetentionLedgerRunKey(runKey, "retention"),
+        triggerSource: "retention",
+      });
+      console.info("refund-gmail retention completed", summary);
+      return jsonResponse({
+        ...summary,
+        retentionOnly: true,
+      });
+    } catch (error) {
+      const errorCode = error instanceof RefundGmailError
+        ? error.code
+        : "gmail_retention_failed";
+      console.error("refund-gmail retention failed", {
+        errorCode,
+        payloadRedacted: true,
+      });
+      return jsonResponse({
+        status: "failed",
+        retentionOnly: true,
+        errorCode,
+        payloadRedacted: true,
+      }, 503);
+    }
+  }
+
+  if (triggerSource !== "failure_test") {
+    try {
+      const summary = await runRetentionSweep({
+        runKey: refundGmailRetentionLedgerRunKey(runKey, triggerSource),
+        triggerSource: "pre_sync",
+      });
+      console.info("refund-gmail pre-sync retention completed", summary);
+      await authorizeNewGmailCopies();
+    } catch (error) {
+      const errorCode = error instanceof RefundGmailError
+        ? error.code
+        : "gmail_copy_safety_gate_closed";
+      console.error("refund-gmail pre-sync retention failed", {
+        errorCode,
+        payloadRedacted: true,
+      });
+      return jsonResponse({
+        status: "failed",
+        retentionOnly: false,
+        errorCode,
+        payloadRedacted: true,
+      }, 503);
+    }
+  }
+
+  // Gmail configuration and OAuth are intentionally unavailable until local
+  // cleanup succeeds and the owner/scanner/copy-health gate authorizes copying.
   const config = getRefundGmailConfig();
   const firstContact = getFirstContactConfig();
   const mailboxHash = config
@@ -894,8 +1144,6 @@ serve(async (request) => {
   let profileHistoryId: string | null = null;
   let fatalError: RefundGmailError | null = null;
   try {
-    // Retention is a local privacy obligation and must not depend on Google authorization remaining healthy.
-    await runRetentionSweep();
     if (firstContact.mode === "blocked") {
       counters.firstContactFailed += 1;
       counters.messagesFailed += 1;
@@ -1067,8 +1315,6 @@ serve(async (request) => {
                 const attachmentResult = await quarantinePendingAttachments({
                   config,
                   providerMessageId,
-                  messageId: internalMessageId,
-                  caseId,
                   descriptors: attachmentDescriptors,
                   attachmentRows,
                 });

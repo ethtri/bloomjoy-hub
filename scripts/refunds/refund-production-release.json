@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
-  "releaseId": "refund-ops-2026-08-03-gmail-manager-step-up-aging-uat",
+  "releaseId": "refund-ops-2026-08-04-gmail-manager-step-up-aging-retention-uat",
   "sourceGitCommit": "pending",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
@@ -37,6 +37,7 @@
     "202608030004_refund_manager_action_step_up.sql",
     "202608030005_refund_deterministic_follow_up_cycles.sql",
     "202608040001_refund_manager_aging_reminders.sql",
+    "202608040002_refund_gmail_retention_safety.sql",
     "202608040003_refund_first_contact_manager_cc.sql"
   ],
   "migrationFilesSha256": "b22b6506d26b1ed7f57b1ee7ac53b890afb1d854aaac90ef81b194bbdf3e74b8",
@@ -95,7 +96,7 @@
     {
       "slug": "refund-gmail-sync",
       "verifyJwt": false,
-      "sourceSha256": "714c632d9bfbfae552c07b2a6504b7411068ab3d8a6b79f25d06ea4ce38e9c30",
+      "sourceSha256": "c34d3eba534ad762fedf1691c2deaf264715b145bb955b3938859afa5f07779a",
       "production": {
         "version": 1,
         "ezbrSha256": "83a3f0a745e8433d4a700259de047eb8e0304e73dc40264313679a63a9561d87",
