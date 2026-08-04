@@ -1,12 +1,14 @@
 # Refund GPT Triage
 
-Last updated: 2026-07-22
+Last updated: 2026-08-03
 
 ## Purpose and current state
 
 GPT assistance is a narrow, human-reviewed aid for refund inbox triage. It may classify a message, extract a strict set of refund facts, identify missing information, summarize the request, and prepare a reply that asks only for those missing facts.
 
 The policy, server-only OpenAI Responses API runner, content-free job ledger, manager review UI, and sanitized evaluation suite are implemented for issue `#635`. The production provider credential is not configured and all three production controls default off: the GitHub schedule, the Edge Function, and the database setting. The existing deterministic missing-information reply remains available when no GPT suggestion exists.
+
+The sponsor direction in `#683` permits only explicitly approved, versioned deterministic templates to become automatic after their separate implementation and rollout gates pass. It does not authorize GPT-authored or materially free-form text to send automatically. GPT output remains a human-reviewed draft even when the same case is eligible for a deterministic acknowledgement, missing-field request, or reminder.
 
 ## Safety boundary
 
@@ -27,7 +29,9 @@ GPT may not:
 - process legal, safety, threat, chargeback, abusive/escalated, prompt-injection, high-value, wallet-payment, prohibited-payment-data, low-confidence, unrelated, uncertain, or non-English input without a person; or
 - create any payment or refund action.
 
-The database requires human review and has a check constraint that permanently rejects `auto_send_enabled=true`. Changing that boundary requires a reviewed migration and an explicit sponsor decision; it is not a runtime toggle.
+GPT also cannot prepare, receive, consume, or settle a manager step-up proof, official-action authorization, provider-attempt claim, provider outcome, case-completion claim, or reporting-completion token. Those capabilities are not model tools and cannot be delegated through prose.
+
+The database requires human review and has a check constraint that permanently rejects `auto_send_enabled=true`. The deterministic-template decision in `#683` does not satisfy or remove that GPT-specific boundary. Changing it would require a separate reviewed migration and explicit sponsor decision; it is not a runtime toggle.
 
 ## Data flow and minimization
 
@@ -39,7 +43,7 @@ The database requires human review and has a check constraint that permanently r
 6. Deterministic checks recompute missing fields and policy flags. A flagged or low-confidence result is routed to a person with no draft.
 7. Only the derived result is written to the service-only review ledger. The separate idempotency ledger contains source IDs, model/version metadata, fingerprints, and sanitized failure codes only. Raw model input and raw provider output are not stored.
 8. Failed jobs do not automatically retry. A newer customer message can create a new job and supersedes any older unreviewed suggestion after successful validation.
-9. An authorized manager may edit and approve a safe draft or reject it with a reason. Email is delivered before the review ledger records approval, preventing the system from claiming an unsent reply was sent.
+9. An authorized manager may edit and approve a safe draft or reject it with a reason. Send-time delivery still requires the resolved machine's full current active mapped-manager CC set. Email is delivered before the review ledger records approval, preventing the system from claiming an unsent reply was sent.
 
 Derived summary and draft content is retained for 30 days and then cleared by `service_purge_refund_gpt_triage_expired_content`. The canonical refund case and redacted audit outcome remain governed by their existing retention rules.
 
