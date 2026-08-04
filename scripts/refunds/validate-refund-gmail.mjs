@@ -1041,65 +1041,70 @@ assert(
 );
 
 if (evidenceDirectory) {
-  const killSwitchEvidence = {
-    schemaVersion: 1,
-    evidenceVersion: 1,
-    synthetic: true,
-    containsProductionData: false,
-    credentialsConfigured: true,
-    gmailEnabled: false,
-    firstContactClaimCalls: 0,
-    linkedManualClaimCalls: 0,
-    oauthCalls: 0,
-    gmailCalls: 0,
-    nonGmailRouteAvailable: true,
-    portalReviewAvailable: true,
-    automaticContactGateIndependent: true,
-    deliveryUncertain: false,
-  };
   const mimeRoleEvidence = {
     schemaVersion: 1,
-    evidenceVersion: 1,
-    synthetic: true,
-    containsProductionData: false,
-    recipientRoles: ['customer', 'machine_manager', 'machine_manager'],
-    customerToCount: 1,
-    managerCcCount: 2,
-    outboundClaimCalls: 1,
-    gmailSendCalls: 1,
-    sameProviderThread: true,
-    inReplyToPresent: true,
-    referencesPresent: true,
-    automaticHeadersPresent: true,
-    internalCaseLinkPresent: false,
-    refundCaseCount: 1,
-    gmailThreadCount: 1,
-    acknowledgementOperationCount: 1,
-    sentOutboundCount: 1,
-    duplicateReplaySendCount: 0,
-    laterReplySendCount: 0,
+    evidenceType: 'gmail_mime_roles',
+    evidenceMode: 'synthetic_unit_tests',
+    passed: true,
+    roleCounts: {
+      customerTo: 1,
+      managerCc: 2,
+      mailboxTo: 0,
+      unrelatedTo: 0,
+      unrelatedCc: 0,
+    },
+    sourceThreadPinned: true,
+    duplicateMessageCount: 0,
   };
-  const allowedRoleLabels = new Set(['customer', 'machine_manager']);
+  const killSwitchEvidence = {
+    schemaVersion: 1,
+    evidenceType: 'kill_switches',
+    evidenceMode: 'synthetic_fake_transport',
+    passed: true,
+    switches: {
+      gmailOutbound: {
+        disabled: true,
+        deliveryClaimCount: 0,
+        providerFetchCount: 0,
+        providerSendCount: 0,
+      },
+      customerContact: {
+        disabled: true,
+        deliveryClaimCount: 0,
+        providerFetchCount: 0,
+        providerSendCount: 0,
+      },
+      managerAging: {
+        disabled: true,
+        deliveryClaimCount: 0,
+        providerFetchCount: 0,
+        providerSendCount: 0,
+      },
+    },
+    intakeAvailable: true,
+    portalAvailable: true,
+  };
+  const serializedEvidence = JSON.stringify([mimeRoleEvidence, killSwitchEvidence]);
+  assert(!serializedEvidence.includes('@'), 'Gmail evidence must not contain addresses');
+  assert(!/https?:\/\//i.test(serializedEvidence), 'Gmail evidence must not contain URLs');
   assert(
-    mimeRoleEvidence.recipientRoles.every((role) => allowedRoleLabels.has(role)),
-    'Gmail MIME evidence may contain only approved role labels',
+    !/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i.test(serializedEvidence),
+    'Gmail evidence must not contain UUIDs',
   );
-  assert(
-    !JSON.stringify([killSwitchEvidence, mimeRoleEvidence]).includes('@'),
-    'Gmail evidence must not contain addresses or provider identifiers',
-  );
+  assert(!/\b\d{12,19}\b/.test(serializedEvidence), 'Gmail evidence must not contain payment-like digits');
+  assert(Buffer.byteLength(serializedEvidence, 'utf8') < 16 * 1024, 'Gmail evidence must remain below 16 KiB');
   await mkdir(evidenceDirectory, { recursive: true });
   await writeFile(
-    `${evidenceDirectory}/refund-kill-switch-evidence.json`,
-    `${JSON.stringify(killSwitchEvidence, null, 2)}\n`,
-    'utf8',
-  );
-  await writeFile(
-    `${evidenceDirectory}/refund-mime-role-evidence.json`,
+    `${evidenceDirectory}/refund-gmail-mime-roles.json`,
     `${JSON.stringify(mimeRoleEvidence, null, 2)}\n`,
     'utf8',
   );
-  console.log('Wrote sanitized refund-kill-switch-evidence.json and refund-mime-role-evidence.json.');
+  await writeFile(
+    `${evidenceDirectory}/refund-kill-switches.json`,
+    `${JSON.stringify(killSwitchEvidence, null, 2)}\n`,
+    'utf8',
+  );
+  console.log('Wrote sanitized refund-gmail-mime-roles.json and refund-kill-switches.json.');
 }
 
 console.log('Refund Gmail validation passed: default-off zero-call transport shutdown, label-only intake, idempotent exactly-once first contact, participant-safe original threading, current mapped-manager CC, deterministic follow-ups, bounce recovery, quarantine, retention, health, and least-privilege boundaries are present.');
