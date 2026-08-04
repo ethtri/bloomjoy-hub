@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-03-manager-aging",
-  "sourceGitCommit": "ea54ca88bd74e049648e46c2d1fc76559e8a1f22",
+  "sourceGitCommit": "bbf8bfc0a8743a0af146cd16ff8c525d192755d4",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -35,13 +35,13 @@
     "202608030005_refund_deterministic_follow_up_cycles.sql",
     "202608040001_refund_manager_aging_reminders.sql"
   ],
-  "migrationFilesSha256": "bfe2edb696eaf84b7bd5b3fe1faa98194ad2f1837204855b9c614481e97af895",
+  "migrationFilesSha256": "ffe128ff732d33993bf25e45744d08d48caab854ec7412a1e19f198200b4467f",
   "migrationVersionSetSha256": "b6c99d2a171b272ad3275d73c25ec706a7affe9129a5b4d534081a835d9a49f9",
   "functions": [
     {
       "slug": "refund-case-intake",
       "verifyJwt": false,
-      "sourceSha256": "c3f3f56a615e7f3cd63b3fd5d10add6c15f46a07c5afdd200797f9c6583c713f",
+      "sourceSha256": "f67b2a11ef6043c4bb0b69bc0b818c9eef82042eb4bd400d5ed6ce613d3d39c5",
       "production": {
         "version": 2,
         "ezbrSha256": "0099bdc13bb03dfa996c9dfad3ebc856a66f89ef6797238bd88b4b5b87728987",
@@ -81,7 +81,7 @@
     {
       "slug": "refund-case-automation-sweep",
       "verifyJwt": false,
-      "sourceSha256": "aa2f5d6315abe6bc0fa3283fe9b8465f4f2fa9eaf111f1ee18550cce4dad9245",
+      "sourceSha256": "9faf76f67262892ccff3bac9927554b6242bfd48dc9fbc9dd6b75c66af099f41",
       "production": {
         "version": 2,
         "ezbrSha256": "90e95bd7d4b11ff50bb608003c8fd9795647275fef23af59d0d0c6cf263b06ee",
@@ -91,7 +91,7 @@
     {
       "slug": "refund-gmail-sync",
       "verifyJwt": false,
-      "sourceSha256": "4be94d221e91dc1c8320151d54c10200f971e3303e9d87a33a82f48cb83d70bc",
+      "sourceSha256": "8024acf016cbdb26eec060ab509578ba64b7850aad472f62231b2fbdd01d11db",
       "production": {
         "version": 1,
         "ezbrSha256": "83a3f0a745e8433d4a700259de047eb8e0304e73dc40264313679a63a9561d87",
