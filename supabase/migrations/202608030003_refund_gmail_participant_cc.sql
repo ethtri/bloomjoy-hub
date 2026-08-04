@@ -836,20 +836,8 @@ begin
     metadata
   ) values (
     p_refund_case_id,
-    case
-      when recipient_resolution ->> 'status' = 'resolved'
-        then 'gmail_manager_cc_resolved'
-      else 'gmail_manager_cc_exception'
-    end,
-    case
-      when recipient_resolution ->> 'status' = 'resolved'
-        then 'Current mapped Machine Managers were included on the customer Gmail reply.'
-      when recipient_resolution ->> 'status' = 'machine_unresolved'
-        then 'The customer Gmail reply has no manager CC because the machine is not resolved; operations triage is required.'
-      when recipient_resolution ->> 'status' = 'no_active_managers'
-        then 'The customer Gmail reply has no manager CC because the machine has no active manager mapping.'
-      else 'The customer Gmail reply excluded invalid manager mappings; manager setup recovery is required.'
-    end,
+    'gmail_manager_cc_resolved',
+    'Current mapped Machine Managers were included on the customer Gmail reply.',
     jsonb_build_object(
       'recipient_resolution_status', recipient_resolution ->> 'status',
       'manager_cc_count', cardinality(manager_cc_emails),

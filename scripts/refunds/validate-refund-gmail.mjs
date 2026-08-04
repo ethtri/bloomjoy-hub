@@ -36,6 +36,7 @@ const [
   evidenceHarness,
   packageJson,
   envExample,
+  qaChecklist,
 ] =
   await Promise.all([
     read('supabase/migrations/202607210006_refund_gmail_thread_linkage.sql'),
@@ -64,6 +65,7 @@ const [
     read('scripts/refunds/generate-refund-gmail-evidence.ts'),
     read('package.json'),
     read('.env.example'),
+    read('Docs/QA_SMOKE_TEST_CHECKLIST.md'),
   ]);
 
 const requiredTables = [
@@ -1166,6 +1168,10 @@ assert(
     !outboundClaim.includes('resolved_with_exclusions') &&
     outboundClaim.includes('cardinality(manager_cc_emails) = 0') &&
     outboundClaim.includes("'status', 'manager_cc_required'") &&
+    outboundClaim.includes("'gmail_manager_cc_resolved'") &&
+    !outboundClaim.includes("'gmail_manager_cc_exception'") &&
+    !outboundClaim.includes('The customer Gmail reply has no manager CC because') &&
+    !outboundClaim.includes('excluded invalid manager mappings') &&
     outboundClaim.indexOf("'status', 'manager_cc_required'") <
       outboundClaim.indexOf('insert into public.refund_gmail_messages'),
   'The database claim must block unresolved, zero-manager, and invalid routes before creating outbound Gmail state',
@@ -1174,7 +1180,8 @@ assert(
   firstContactCcMigration.includes("if resolution_status is distinct from 'resolved'") &&
     !firstContactCcMigration.includes("not in ('resolved', 'resolved_with_exclusions')") &&
     followUpMigration.includes("recipient_resolution ->> 'status' is distinct from 'resolved'") &&
-    !followUpMigration.includes("'resolved_with_exclusions'"),
+    !followUpMigration.includes("'resolved_with_exclusions'") &&
+    !followUpMigration.includes('unsafe or duplicate recipients were excluded'),
   'First-contact and deterministic follow-up sends must require the exact complete manager route',
 );
 const recoveryStart = participantMigration.indexOf(
@@ -1345,6 +1352,15 @@ assert(
   walletReadyManagerNotice.includes('found one high-confidence transaction') &&
     !walletReadyManagerNotice.includes('Confidence class:'),
   'Wallet-ready action notices must keep the raw confidence class behind the authenticated portal link',
+);
+assert(
+  qaChecklist.includes('complete current assigned Machine Manager route') &&
+    qaChecklist.includes('amount, incident time, payment method, and raw confidence remain in the authenticated portal') &&
+    qaChecklist.includes('whenever the complete current manager route cannot be safely resolved') &&
+    qaChecklist.includes('Duplicate normalized valid rows appear once only when every distinct active identity remains covered') &&
+    qaChecklist.includes('mixed malformed, customer, or mailbox-colliding mappings make the complete route fail closed') &&
+    !qaChecklist.includes('with reference, machine, amount, incident time, payment method, case link, and status only'),
+  'QA guidance must preserve private manager-notice fields and exact complete-route fallback semantics',
 );
 assert(
   intakeFunction.includes('dispatchRefundCaseGmailReply') &&

@@ -1734,11 +1734,7 @@ begin
   ) values (
     p_refund_case_id,
     'gmail_manager_cc_resolved',
-    case
-      when delivery_authorization ->> 'recipientResolutionStatus' = 'resolved'
-        then 'Current mapped Machine Managers were included on the customer Gmail reply.'
-      else 'Current mapped Machine Managers were included after unsafe or duplicate recipients were excluded.'
-    end,
+    'Current mapped Machine Managers were included on the customer Gmail reply.',
     jsonb_build_object(
       'recipient_resolution_status',
         delivery_authorization ->> 'recipientResolutionStatus',
