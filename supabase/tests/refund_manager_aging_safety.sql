@@ -32,6 +32,18 @@ insert into auth.users (
   '{}'::jsonb,
   now(),
   now()
+), (
+  '00000000-0000-0000-0000-000000000000',
+  '91000000-0000-4000-8000-000000000002',
+  'authenticated',
+  'authenticated',
+  'aging-manager-b@example.test',
+  '',
+  now(),
+  '{}'::jsonb,
+  '{}'::jsonb,
+  now(),
+  now()
 );
 
 insert into public.customer_accounts (id, name, account_type)
@@ -186,7 +198,7 @@ select ok(
 select ok(
   not has_function_privilege(
     'authenticated',
-    'public.service_begin_refund_manager_aging_notice_attempt(uuid,bigint,text,timestamp with time zone,text,integer,integer,text,text,text,integer,integer,text)',
+    'public.service_begin_refund_manager_aging_notice_attempt(uuid,bigint,text,timestamp with time zone,text,integer,integer,text,text,text[],text[])',
     'execute'
   ),
   'Browser roles cannot reserve a manager notice attempt'
@@ -195,7 +207,7 @@ select ok(
 select ok(
   has_function_privilege(
     'service_role',
-    'public.service_begin_refund_manager_aging_notice_attempt(uuid,bigint,text,timestamp with time zone,text,integer,integer,text,text,text,integer,integer,text)',
+    'public.service_begin_refund_manager_aging_notice_attempt(uuid,bigint,text,timestamp with time zone,text,integer,integer,text,text,text[],text[])',
     'execute'
   ),
   'Only the service workflow can create the pre-send hold'
@@ -285,25 +297,34 @@ select ok(
       '91500000-0000-4000-8000-000000000001', 1, 'reminder',
       '2026-08-05 17:00:00+00', 'America/Los_Angeles', 2, 5,
       'refund_manager_aging_v1',
-      'manager_aging:reminder:91500000-0000-4000-8000-000000000001:v1',
-      'delivered', 0, 1, 'resolved'
+      'manager_aging:reminder:91500000-0000-4000-8000-000000000001:v999',
+      array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+      array['ops-refunds@example.test']
     )
-  $test$) like '%require mapped-manager recipients only%',
-  'A mapped-manager reservation cannot bind a non-manager route'
+  $test$) like '%not bound to this milestone%',
+  'A reservation cannot use an action key from another attention version'
 );
 
-select is(
+select ok(
   (
-    public.service_begin_refund_manager_aging_notice_attempt(
-      '91500000-0000-4000-8000-000000000001', 1, 'reminder',
-      '2026-08-05 17:00:00+00', 'America/Los_Angeles', 2, 5,
-      'refund_manager_aging_v1',
-      'manager_aging:reminder:91500000-0000-4000-8000-000000000001:v1',
-      'delivered', 1, 1, 'resolved'
-    ) ->> 'authorized'
-  )::boolean,
-  true,
-  'The final send-time gate reserves the bound attempt'
+    with attempt as (
+      select public.service_begin_refund_manager_aging_notice_attempt(
+        '91500000-0000-4000-8000-000000000001', 1, 'reminder',
+        '2026-08-05 17:00:00+00', 'America/Los_Angeles', 2, 5,
+        'refund_manager_aging_v1',
+        'manager_aging:reminder:91500000-0000-4000-8000-000000000001:v1',
+        array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+        array['ops-refunds@example.test']
+      ) result
+    )
+    select (result ->> 'authorized')::boolean
+      and result #>> '{recipientRoute,routeType}' = 'manager'
+      and result #>> '{recipientRoute,recipients,0}' =
+        'aging-manager@example.test'
+      and result #>> '{recipientRoute,mappingFingerprint}' ~ '^[a-f0-9]{64}$'
+    from attempt
+  ),
+  'The final send-time gate resolves and returns only the current manager route'
 );
 
 select ok(
@@ -312,6 +333,7 @@ select ok(
         'manager_aging:reminder:91500000-0000-4000-8000-000000000001:v1'
       and delivery_review_reason = 'notice_attempt_in_flight'
       and reminder_sent_at is null
+      and notice_attempt_mapping_fingerprint ~ '^[a-f0-9]{64}$'
     from public.refund_manager_attention_states
     where refund_case_id = '91500000-0000-4000-8000-000000000001'
   ),
@@ -563,7 +585,8 @@ select is(
       '2026-08-10 17:00:00+00', 'America/Los_Angeles', 2, 5,
       'refund_manager_aging_v1',
       'manager_aging:escalation:91500000-0000-4000-8000-000000000001:v5',
-      'delivered', 1, 1, 'resolved'
+      array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+      array['ops-refunds@example.test']
     ) ->> 'attemptStarted'
   )::boolean,
   true,
@@ -668,7 +691,8 @@ select is(
       '2026-08-10 17:00:00+00', 'America/Los_Angeles', 2, 5,
       'refund_manager_aging_v1',
       'manager_aging:escalation:91500000-0000-4000-8000-000000000001:v7',
-      'delivered', 1, 1, 'resolved'
+      array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+      array['ops-refunds@example.test']
     ) ->> 'attemptStarted'
   )::boolean,
   true,
@@ -754,7 +778,8 @@ select is(
       '2026-08-05 17:00:00+00', 'America/Los_Angeles', 2, 5,
       'refund_manager_aging_v1',
       'manager_aging:reminder:91500000-0000-4000-8000-000000000001:v8',
-      'delivered', 1, 1, 'resolved'
+      array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+      array['ops-refunds@example.test']
     ) ->> 'attemptStarted'
   )::boolean,
   true,
@@ -791,18 +816,29 @@ update public.refund_manager_attention_states
 set attention_started_at = '2026-08-03 17:00:00+00'
 where refund_case_id = '91500000-0000-4000-8000-000000000001';
 
-update public.reporting_machine_refund_managers
-set status = 'revoked', revoked_at = now(), revoke_reason = 'Synthetic ops route'
-where id = '91400000-0000-4000-8000-000000000001';
-
 select is(
   public.service_resolve_refund_customer_manager_cc(
     '91500000-0000-4000-8000-000000000001',
     'aging-customer@example.test',
     array['info@bloomjoysweets.com', 'support@bloomjoysweets.com']
-  ) ->> 'status',
-  'no_active_managers',
-  'No current mapping is an explicit routing exception'
+  ) #>> '{managerCcEmails,0}',
+  'aging-manager@example.test',
+  'An earlier, stale manager lookup resolves manager A'
+);
+
+update public.reporting_machine_refund_managers
+set status = 'revoked', revoked_at = now(), revoke_reason = 'Synthetic A-to-B remap'
+where id = '91400000-0000-4000-8000-000000000001';
+
+insert into public.reporting_machine_refund_managers (
+  id, reporting_machine_id, manager_user_id, manager_email, status, grant_reason
+) values (
+  '91400000-0000-4000-8000-000000000002',
+  '91300000-0000-4000-8000-000000000001',
+  '91000000-0000-4000-8000-000000000002',
+  'aging-manager-b@example.test',
+  'active',
+  'Synthetic A-to-B manager remap'
 );
 
 select is(
@@ -813,39 +849,111 @@ select is(
   'The version-nine reminder receives its deterministic claim'
 );
 
-select is(
+select ok(
   (
-    public.service_begin_refund_manager_aging_notice_attempt(
-      '91500000-0000-4000-8000-000000000001', 9, 'reminder',
-      '2026-08-05 17:00:00+00', 'America/Los_Angeles', 2, 5,
-      'refund_manager_aging_v1',
-      'manager_aging:reminder:91500000-0000-4000-8000-000000000001:v9',
-      'operations_exception', 0, 1, 'no_active_managers'
-    ) ->> 'attemptStarted'
-  )::boolean,
-  true,
-  'A bounded redacted operations route can reserve the due milestone'
+    with attempt as (
+      select public.service_begin_refund_manager_aging_notice_attempt(
+        '91500000-0000-4000-8000-000000000001', 9, 'reminder',
+        '2026-08-05 17:00:00+00', 'America/Los_Angeles', 2, 5,
+        'refund_manager_aging_v1',
+        'manager_aging:reminder:91500000-0000-4000-8000-000000000001:v9',
+        array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+        array['ops-refunds@example.test']
+      ) result
+    )
+    select (result ->> 'attemptStarted')::boolean
+      and result #>> '{recipientRoute,routeType}' = 'manager'
+      and result #>> '{recipientRoute,recipients,0}' =
+        'aging-manager-b@example.test'
+      and jsonb_array_length(result #> '{recipientRoute,recipients}') = 1
+      and result #> '{recipientRoute,recipients}' @>
+        '["aging-manager@example.test"]'::jsonb is false
+      and result #>> '{recipientRoute,mappingFingerprint}' ~ '^[a-f0-9]{64}$'
+    from attempt
+  ),
+  'The final reservation re-resolves manager B and manager A cannot reach transport'
 );
 
 select is(
   public.service_complete_refund_manager_aging_notice(
     '91500000-0000-4000-8000-000000000001',
     'manager_aging:reminder:91500000-0000-4000-8000-000000000001:v9',
+    'delivered'
+  ),
+  true,
+  'The manager-B reservation settles only its reminder milestone'
+);
+
+update public.reporting_machine_refund_managers
+set status = 'revoked', revoked_at = now(), revoke_reason = 'Synthetic ops route'
+where id = '91400000-0000-4000-8000-000000000002';
+
+select is(
+  pg_temp.claim_aging_action(
+    '91500000-0000-4000-8000-000000000001', 9, 'escalation'
+  ),
+  true,
+  'The version-nine escalation receives its deterministic claim'
+);
+
+select is(
+  public.service_begin_refund_manager_aging_notice_attempt(
+    '91500000-0000-4000-8000-000000000001', 9, 'escalation',
+    '2026-08-10 17:00:00+00', 'America/Los_Angeles', 2, 5,
+    'refund_manager_aging_v1',
+    'manager_aging:escalation:91500000-0000-4000-8000-000000000001:v9',
+    array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+    array[
+      'ops-1@example.test', 'ops-2@example.test', 'ops-3@example.test',
+      'ops-4@example.test', 'ops-5@example.test', 'ops-6@example.test'
+    ]
+  ) ->> 'reason',
+  'ops_fallback_policy_invalid',
+  'An over-cap operations route fails closed before reserving delivery'
+);
+
+select ok(
+  (
+    with attempt as (
+      select public.service_begin_refund_manager_aging_notice_attempt(
+        '91500000-0000-4000-8000-000000000001', 9, 'escalation',
+        '2026-08-10 17:00:00+00', 'America/Los_Angeles', 2, 5,
+        'refund_manager_aging_v1',
+        'manager_aging:escalation:91500000-0000-4000-8000-000000000001:v9',
+        array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+        array['ops-refunds@example.test']
+      ) result
+    )
+    select (result ->> 'attemptStarted')::boolean
+      and result #>> '{recipientRoute,routeType}' = 'operations'
+      and result #>> '{recipientRoute,recipients,0}' =
+        'ops-refunds@example.test'
+      and result #>> '{recipientRoute,managerRecipientCount}' = '0'
+      and result #>> '{recipientRoute,mappingFingerprint}' ~ '^[a-f0-9]{64}$'
+    from attempt
+  ),
+  'No active manager returns one bounded transient operations route'
+);
+
+select is(
+  public.service_complete_refund_manager_aging_notice(
+    '91500000-0000-4000-8000-000000000001',
+    'manager_aging:escalation:91500000-0000-4000-8000-000000000001:v9',
     'operations_exception'
   ),
   true,
-  'The sent operations exception settles only its reminder milestone'
+  'The sent operations exception settles only its escalation milestone'
 );
 
 insert into public.reporting_machine_refund_managers (
   id, reporting_machine_id, manager_user_id, manager_email, status, grant_reason
 ) values (
-  '91400000-0000-4000-8000-000000000002',
+  '91400000-0000-4000-8000-000000000003',
   '91300000-0000-4000-8000-000000000001',
-  '91000000-0000-4000-8000-000000000001',
-  'aging-manager@example.test',
+  '91000000-0000-4000-8000-000000000002',
+  'aging-manager-b@example.test',
   'active',
-  'Synthetic manager mapping repair'
+  'Synthetic manager B mapping repair'
 );
 
 insert into public.refund_gmail_messages (
@@ -886,7 +994,8 @@ select is(
       '2026-08-10 17:00:00+00', 'America/Los_Angeles', 2, 5,
       'refund_manager_aging_v1',
       'manager_aging:escalation:91500000-0000-4000-8000-000000000001:v11',
-      'delivered', 1, 1, 'resolved'
+      array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+      array['ops-refunds@example.test']
     ) ->> 'attemptStarted'
   )::boolean,
   true,
@@ -1015,10 +1124,8 @@ select is(
         'manager_aging:escalation:%s:v1',
         md5('refund-aging-bulk-101')::uuid
       ),
-      'delivered',
-      1,
-      1,
-      'resolved'
+      array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+      array['ops-refunds@example.test']
     ) ->> 'attemptStarted'
   )::boolean,
   true,
@@ -1036,6 +1143,53 @@ select is(
   ),
   true,
   'Known-not-sent recovery closes the processed 101st milestone without claiming delivery'
+);
+
+select ok(
+  not exists (
+    select 1
+    from public.refund_case_events event
+    where event.event_type like 'refund_manager_aging%'
+      and event.metadata::text ilike any(array[
+        '%aging-customer@example.test%',
+        '%aging-manager@example.test%',
+        '%aging-manager-b@example.test%',
+        '%ops-refunds@example.test%'
+      ])
+  ),
+  'All manager-aging audits omit customer, manager, and operations addresses'
+);
+
+select ok(
+  not exists (
+    select 1
+    from public.refund_case_events event
+    where event.event_type like 'refund_manager_aging%'
+      and event.metadata ? 'mapping_fingerprint'
+      and event.metadata ->> 'mapping_fingerprint' in (
+        select encode(
+          extensions.digest(convert_to(address, 'UTF8'), 'sha256'),
+          'hex'
+        )
+        from unnest(array[
+          'aging-manager@example.test',
+          'aging-manager-b@example.test',
+          'ops-refunds@example.test'
+        ]) address
+      )
+  ),
+  'Persisted mapping fingerprints are not unsalted hashes of recipient addresses'
+);
+
+select ok(
+  not exists (
+    select 1
+    from public.refund_case_events event
+    where event.event_type = 'refund_manager_aging_notice_attempt_started'
+      and coalesce(event.metadata ->> 'mapping_fingerprint', '') !~
+        '^[a-f0-9]{64}$'
+  ),
+  'Every reserved route has a canonical non-PII mapping fingerprint'
 );
 
 select * from finish();

@@ -3,7 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
 import { sendInternalEmail } from "../_shared/internal-email.ts";
 import {
-  resolveRefundManagerActionNoticeRouting,
+  bindRefundManagerNoticeReservationRouting,
+  getRefundManagerNoticeReservationRouteInputs,
   sendRefundManagerActionNotice,
 } from "../_shared/refund-manager-notification.ts";
 import {
@@ -2433,13 +2434,10 @@ const runManagerAgingSweep = async (
     let beginRequested = false;
     let attemptReserved = false;
     try {
-      // Resolve and bind the current machine-manager mapping immediately before
-      // the atomic pre-send reservation. The bound routing is used once only.
-      const resolvedRouting = await resolveRefundManagerActionNoticeRouting({
-        supabase,
-        refundCaseId: refundCase.id,
-        customerEmail: refundCase.customer_email,
-      });
+      const reservationRouteInputs =
+        getRefundManagerNoticeReservationRouteInputs({
+          customerEmail: refundCase.customer_email,
+        });
       const publicLabels = resolveRefundPublicLabels({
         locationName: refundCase.reporting_locations?.name,
         publicMachineLabel:
@@ -2454,9 +2452,6 @@ const runManagerAgingSweep = async (
         businessDayAge,
         status: refundCase.status,
       });
-      const expectedOutcome = resolvedRouting.usedOpsFallback
-        ? "operations_exception"
-        : "delivered";
       beginRequested = true;
       const { data: attempt, error: attemptError } = await supabase.rpc(
         "service_begin_refund_manager_aging_notice_attempt",
@@ -2470,10 +2465,9 @@ const runManagerAgingSweep = async (
           p_escalation_business_days: managerEscalationBusinessDays,
           p_template_version: message.templateVersion,
           p_action_key: actionKey,
-          p_expected_outcome: expectedOutcome,
-          p_manager_recipient_count: resolvedRouting.managerRecipientCount,
-          p_recipient_count: resolvedRouting.recipientCount,
-          p_resolution_status: resolvedRouting.resolutionStatus,
+          p_mailbox_identities: reservationRouteInputs.mailboxIdentities,
+          p_ops_fallback_recipients:
+            reservationRouteInputs.opsFallbackRecipients,
         },
       );
       if (attemptError) throw attemptError;
@@ -2490,13 +2484,22 @@ const runManagerAgingSweep = async (
         );
         continue;
       }
+      // From this point forward, uncertainty preserves the global delivery
+      // hold. Parse and use only the exact route returned by this reservation.
       attemptReserved = true;
+      const reservedRouting = bindRefundManagerNoticeReservationRouting({
+        refundCaseId: refundCase.id,
+        customerEmail: refundCase.customer_email,
+        mailboxIdentities: reservationRouteInputs.mailboxIdentities,
+        reservation: attemptResult,
+      });
       const authorizedBusinessAge = integerValue(
         attemptResult.businessDayAge ?? attemptResult.business_day_age,
       );
       if (authorizedBusinessAge !== businessDayAge) {
         // A milestone can only age forward between selection and reservation.
-        // Rebuild from the final authorized evidence without changing routing.
+        // Rebuild from the final authorized evidence without changing the
+        // database-bound recipient route.
         message.summaryText = buildRefundManagerAgingNotice({
           milestone,
           publicReference: refundCase.public_reference,
@@ -2512,7 +2515,7 @@ const runManagerAgingSweep = async (
         customerEmail: refundCase.customer_email,
         subject: message.subject,
         summaryText: message.summaryText,
-        resolvedRouting,
+        resolvedRouting: reservedRouting,
       });
       const outcome = notice.usedOpsFallback ? "operations_exception" : "delivered";
       const { data: completed, error: completionError } = await supabase.rpc(

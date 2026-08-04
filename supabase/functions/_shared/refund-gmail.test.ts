@@ -8,7 +8,10 @@ import {
   sendRefundGmailReply,
 } from "./refund-gmail.ts";
 import { requireRefundCustomerManagerCcResolution } from "./refund-gmail-transport.ts";
-import { resolveRefundOpsFallbackRecipients } from "./refund-manager-notification.ts";
+import {
+  bindRefundManagerNoticeReservationRouting,
+  resolveRefundOpsFallbackRecipients,
+} from "./refund-manager-notification.ts";
 
 const assertEquals = (actual: unknown, expected: unknown, message: string) => {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -34,6 +37,15 @@ const assertNotIncludes = (
   if (actual.includes(expected)) {
     throw new Error(`${message}: unexpectedly included ${expected}`);
   }
+};
+
+const assertThrows = (callback: () => unknown, message: string) => {
+  try {
+    callback();
+  } catch {
+    return;
+  }
+  throw new Error(`${message}: expected callback to throw`);
 };
 
 const decodeBase64Url = (value: string) => {
@@ -138,6 +150,96 @@ Deno.test("ops action-notice fallback fails closed above its explicit recipient 
     [],
     "over-cap ops fallback",
   );
+});
+
+Deno.test("manager aging transport binds only the canonical route returned by reservation", () => {
+  const route = bindRefundManagerNoticeReservationRouting({
+    refundCaseId: "case-remapped",
+    customerEmail: "customer@example.test",
+    mailboxIdentities: ["info@bloomjoysweets.com"],
+    reservation: {
+      recipientRoute: {
+        recipients: ["aging-manager-b@example.test"],
+        routeType: "manager",
+        managerRecipientCount: 1,
+        recipientCount: 1,
+        resolutionStatus: "resolved",
+        mappingFingerprint: "a".repeat(64),
+      },
+    },
+  });
+  assertEquals(
+    route,
+    {
+      refundCaseId: "case-remapped",
+      customerEmail: "customer@example.test",
+      recipients: ["aging-manager-b@example.test"],
+      managerRecipientCount: 1,
+      recipientCount: 1,
+      resolutionStatus: "resolved",
+      usedOpsFallback: false,
+      mappingFingerprint: "a".repeat(64),
+    },
+    "reservation-bound manager B route",
+  );
+  assertNotIncludes(
+    JSON.stringify(route),
+    "aging-manager@example.test",
+    "stale manager A cannot reach transport",
+  );
+});
+
+Deno.test("manager aging reservation accepts a bounded operations exception route", () => {
+  const route = bindRefundManagerNoticeReservationRouting({
+    refundCaseId: "case-ops",
+    customerEmail: "customer@example.test",
+    mailboxIdentities: ["info@bloomjoysweets.com"],
+    reservation: {
+      recipientRoute: {
+        recipients: ["ops-refunds@example.test"],
+        routeType: "operations",
+        managerRecipientCount: 0,
+        recipientCount: 1,
+        resolutionStatus: "no_active_managers",
+        mappingFingerprint: "b".repeat(64),
+      },
+    },
+  });
+  assertEquals(route.usedOpsFallback, true, "operations route type");
+  assertEquals(route.managerRecipientCount, 0, "operations manager count");
+});
+
+Deno.test("manager aging reservation fails closed on noncanonical or mismatched evidence", () => {
+  const baseRoute = {
+    recipients: ["aging-manager-b@example.test"],
+    routeType: "manager",
+    managerRecipientCount: 1,
+    recipientCount: 1,
+    resolutionStatus: "resolved",
+    mappingFingerprint: "c".repeat(64),
+  };
+  for (const recipientRoute of [
+    { ...baseRoute, recipients: ["AGING-MANAGER-B@example.test"] },
+    { ...baseRoute, recipientCount: 2 },
+    { ...baseRoute, mappingFingerprint: "not-a-fingerprint" },
+    {
+      ...baseRoute,
+      recipients: ["aging-manager@example.test", "aging-manager-b@example.test"],
+      managerRecipientCount: 2,
+      recipientCount: 2,
+    },
+  ]) {
+    assertThrows(
+      () =>
+        bindRefundManagerNoticeReservationRouting({
+          refundCaseId: "case-remapped",
+          customerEmail: "customer@example.test",
+          mailboxIdentities: ["info@bloomjoysweets.com"],
+          reservation: { recipientRoute },
+        }),
+      "invalid reservation route",
+    );
+  }
 });
 
 Deno.test("customer manager CC resolution accepts only owned nonempty routes", () => {

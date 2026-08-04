@@ -1461,6 +1461,7 @@ export default function AdminRefundsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<QueueFilter>('needs_action');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectionOrigin, setSelectionOrigin] = useState<'case_link' | 'queue' | null>(null);
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [isMobileQueueExpanded, setIsMobileQueueExpanded] = useState(true);
   const [editor, setEditor] = useState<EditorState | null>(null);
@@ -1751,8 +1752,12 @@ export default function AdminRefundsPage() {
     [isLookingUpNayax, nayaxCandidates, nayaxLookupNotice, nayaxLookupSummary, selectedCase]
   );
 
-  const handleSelectCase = (refundCase: RefundCaseRecord) => {
+  const handleSelectCase = (
+    refundCase: RefundCaseRecord,
+    origin: 'case_link' | 'queue' = 'queue'
+  ) => {
     setSelectedId(refundCase.id);
+    setSelectionOrigin(origin);
     setSelectionRevision((current) => current + 1);
     setIsMobileQueueExpanded(false);
     setEditor(toEditorState(refundCase));
@@ -2176,7 +2181,7 @@ export default function AdminRefundsPage() {
       setStatusFilter('all');
       setSearch('');
     }
-    handleSelectCase(caseFromUrl);
+    handleSelectCase(caseFromUrl, 'case_link');
     // The selector intentionally runs once per loaded overview/query-string case.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overview.cases]);
@@ -2184,6 +2189,10 @@ export default function AdminRefundsPage() {
   useEffect(() => {
     if (!selectedCase) return;
     if (isUsingDemoData) return;
+    // A manager-notice link is navigation only. Selecting the exact case from
+    // the URL must not invoke Nayax or any other official workflow. A later
+    // deliberate queue selection changes the origin and restores normal lookup.
+    if (selectionOrigin === 'case_link') return;
     if (!shouldAutoRunNayaxLookup(selectedCase, nayaxCandidates)) return;
     if (autoLookupAttemptedRef.current.has(selectedCase.id)) return;
 
@@ -2194,6 +2203,7 @@ export default function AdminRefundsPage() {
   }, [
     isUsingDemoData,
     nayaxCandidates.length,
+    selectionOrigin,
     selectedCase?.correlationStatus,
     selectedCase?.hasMatchedNayaxTransaction,
     selectedCase?.id,

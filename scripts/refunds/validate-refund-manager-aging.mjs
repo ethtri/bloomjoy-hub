@@ -12,6 +12,7 @@ const databaseTest = read('supabase/tests/refund_manager_aging_safety.sql');
 const sweep = read('supabase/functions/refund-case-automation-sweep/index.ts');
 const agingTemplate = read('supabase/functions/_shared/refund-manager-aging.ts');
 const managerNotification = read('supabase/functions/_shared/refund-manager-notification.ts');
+const portalUi = read('src/pages/admin/Refunds.tsx');
 const environmentExample = read('.env.example');
 const portalUat = read('scripts/refunds/validate-refund-portal-uat.mjs');
 const decisions = read('Docs/DECISIONS.md');
@@ -27,17 +28,26 @@ const managerSweepEnd = sweep.indexOf('const runHealthCheck = async', managerSwe
 const managerSweep = managerSweepStart >= 0 && managerSweepEnd > managerSweepStart
   ? sweep.slice(managerSweepStart, managerSweepEnd)
   : '';
-const routingIndex = managerSweep.indexOf(
-  'const resolvedRouting = await resolveRefundManagerActionNoticeRouting',
+const routeInputsIndex = managerSweep.indexOf(
+  'getRefundManagerNoticeReservationRouteInputs',
 );
 const finalAuthorizationIndex = managerSweep.indexOf(
   '"service_begin_refund_manager_aging_notice_attempt"',
-  routingIndex,
+  routeInputsIndex,
+);
+const reservationBindingIndex = managerSweep.indexOf(
+  'bindRefundManagerNoticeReservationRouting',
+  finalAuthorizationIndex,
 );
 const sendIndex = managerSweep.indexOf(
   'const notice = await sendRefundManagerActionNotice',
-  finalAuthorizationIndex,
+  reservationBindingIndex,
 );
+const fingerprintStart = migration.indexOf("fingerprint_material := concat_ws(");
+const fingerprintEnd = migration.indexOf("mapping_fingerprint := encode(", fingerprintStart);
+const fingerprintMaterial = fingerprintStart >= 0 && fingerprintEnd > fingerprintStart
+  ? migration.slice(fingerprintStart, fingerprintEnd)
+  : '';
 
 check(
   'Manager aging delivery has its own default-off switch and business-day thresholds',
@@ -101,29 +111,47 @@ check(
 );
 
 check(
-  'Current mapped recipients are bound before the atomic pre-send hold and provider send',
-  routingIndex >= 0 &&
-    finalAuthorizationIndex > routingIndex &&
-    sendIndex > finalAuthorizationIndex &&
-    managerSweep.includes('resolvedRouting,') &&
+  'The final reservation resolves and binds the only route accepted by provider transport',
+  routeInputsIndex >= 0 &&
+    finalAuthorizationIndex > routeInputsIndex &&
+    reservationBindingIndex > finalAuthorizationIndex &&
+    sendIndex > reservationBindingIndex &&
+    !managerSweep.includes('resolveRefundManagerActionNoticeRouting') &&
+    managerSweep.includes('resolvedRouting: reservedRouting') &&
+    managerNotification.includes('No earlier manager lookup is accepted here') &&
     managerNotification.includes('routing.refundCaseId !== refundCaseId') &&
     managerNotification.includes('routing.customerEmail !== normalizedCustomerEmail')
 );
 
 check(
-  'Zero-manager routes use a bounded internal exception and mapping changes are re-resolved',
+  'The reservation locks, re-resolves, and fingerprints the current mapping without address-derived evidence',
+  migration.includes("hashtext('machine_manager:' || case_row.reporting_machine_id::text)") &&
+    migration.includes('order by manager.id\n  for update') &&
+    migration.includes('service_resolve_refund_customer_manager_cc(') &&
+    migration.includes("'recipientRoute', jsonb_build_object(") &&
+    migration.includes('notice_attempt_mapping_fingerprint = mapping_fingerprint') &&
+    migration.includes('extensions.digest(convert_to(fingerprint_material') &&
+    fingerprintMaterial.includes("'mapping_ids=' ||") &&
+    !fingerprintMaterial.includes('manager_email') &&
+    !fingerprintMaterial.includes('route_recipients') &&
+    databaseTest.includes('An earlier, stale manager lookup resolves manager A') &&
+    databaseTest.includes('final reservation re-resolves manager B and manager A cannot reach transport') &&
+    databaseTest.includes('not unsalted hashes of recipient addresses')
+);
+
+check(
+  'Zero-manager routes use a bounded transient internal exception and fail closed over cap',
   managerNotification.includes('MAX_OPS_FALLBACK_RECIPIENTS = 5') &&
-    managerNotification.includes('usedOpsFallback = managerRecipients.length === 0') &&
-    migration.includes("p_expected_outcome = 'operations_exception'") &&
-    migration.includes('Operations exceptions require bounded internal recipients only') &&
-    databaseTest.includes('No current mapping is an explicit routing exception') &&
-    databaseTest.includes('bounded redacted operations route can reserve')
+    migration.includes("expected_outcome := 'operations_exception'") &&
+    migration.includes("'ops_fallback_policy_invalid'") &&
+    databaseTest.includes('over-cap operations route fails closed before reserving delivery') &&
+    databaseTest.includes('No active manager returns one bounded transient operations route')
 );
 
 check(
   'Delivery settlement uses a durable global hold and supports auditable cross-version recovery',
-    migration.includes('p_recipient_count < p_manager_recipient_count') &&
-    migration.includes('Delivered manager notices require mapped-manager recipients only') &&
+    migration.includes('notice_attempt_recipient_count >= notice_attempt_manager_recipient_count') &&
+    migration.includes('notice_attempt_mapping_fingerprint') &&
     migration.includes("delivery_review_reason = 'notice_attempt_in_flight'") &&
     migration.includes("delivery_review_reason = 'delivery_unknown'") &&
     migration.includes("'delivery_review_required'") &&
@@ -156,10 +184,14 @@ check(
 check(
   'Canonical case links are encoded and browser-tested as navigation-only',
   managerNotification.includes('/refunds?case=${encodeURIComponent(refundCaseId)}') &&
-    portalUat.includes("/refunds?case=${encodeURIComponent('case-cash-1')}") &&
-    portalUat.includes('officialActionCallsAfterLinkNavigation === officialActionCallsBeforeLinkNavigation') &&
-    portalUat.includes("name === 'nayax-card-refund' || name === 'refund-case-admin-update'") &&
-    portalUat.includes('A later queue search is not overridden by the original case-link query')
+    portalUi.includes("selectionOrigin === 'case_link'") &&
+    portalUi.includes("handleSelectCase(caseFromUrl, 'case_link')") &&
+    portalUat.includes("/refunds?case=${encodeURIComponent('case-card-pending')}") &&
+    portalUat.includes("name === 'nayax-transaction-lookup'") &&
+    portalUat.includes("name === 'nayax-card-refund'") &&
+    portalUat.includes("name === 'refund-case-admin-update'") &&
+    portalUat.includes('Eligible card case link is navigation-only with no lookup or official action') &&
+    portalUat.includes('Search and filter changes remain independent after an eligible case link')
 );
 
 check(

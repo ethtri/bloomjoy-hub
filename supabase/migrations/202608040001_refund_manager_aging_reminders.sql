@@ -1,6 +1,8 @@
 -- Manager-only refund aging notices. This migration does not enable schedules,
 -- customer contact, Gmail delivery, or official refund actions.
 
+create extension if not exists pgcrypto with schema extensions;
+
 alter table public.refund_automation_actions
   drop constraint if exists refund_automation_actions_type_check;
 
@@ -149,6 +151,7 @@ create table if not exists public.refund_manager_attention_states (
   notice_attempt_manager_recipient_count integer,
   notice_attempt_recipient_count integer,
   notice_attempt_resolution_status text,
+  notice_attempt_mapping_fingerprint text,
   delivery_review_required_at timestamptz,
   delivery_review_reason text,
   created_at timestamptz not null default statement_timestamp(),
@@ -192,6 +195,7 @@ create table if not exists public.refund_manager_attention_states (
         and notice_attempt_manager_recipient_count is null
         and notice_attempt_recipient_count is null
         and notice_attempt_resolution_status is null
+        and notice_attempt_mapping_fingerprint is null
       )
       or (
         length(notice_attempt_key) between 8 and 220
@@ -206,6 +210,8 @@ create table if not exists public.refund_manager_attention_states (
         and notice_attempt_recipient_count >= notice_attempt_manager_recipient_count
         and length(notice_attempt_resolution_status) between 1 and 80
         and notice_attempt_resolution_status ~ '^[a-z0-9_]+$'
+        and length(notice_attempt_mapping_fingerprint) = 64
+        and notice_attempt_mapping_fingerprint ~ '^[a-f0-9]{64}$'
         and (
           (
             notice_attempt_expected_outcome = 'delivered'
@@ -796,6 +802,11 @@ begin
 end;
 $$;
 
+drop function if exists public.service_begin_refund_manager_aging_notice_attempt(
+  uuid, bigint, text, timestamptz, text, integer, integer, text, text,
+  text, integer, integer, text
+);
+
 create or replace function public.service_begin_refund_manager_aging_notice_attempt(
   p_refund_case_id uuid,
   p_attention_version bigint,
@@ -806,10 +817,8 @@ create or replace function public.service_begin_refund_manager_aging_notice_atte
   p_escalation_business_days integer,
   p_template_version text,
   p_action_key text,
-  p_expected_outcome text,
-  p_manager_recipient_count integer,
-  p_recipient_count integer,
-  p_resolution_status text
+  p_mailbox_identities text[],
+  p_ops_fallback_recipients text[]
 )
 returns jsonb
 language plpgsql
@@ -818,6 +827,20 @@ set search_path = public
 as $$
 declare
   authorization_result jsonb;
+  case_row public.refund_cases;
+  recipient_resolution jsonb;
+  mailbox_identities text[];
+  manager_recipients text[] := '{}'::text[];
+  ops_recipients text[] := '{}'::text[];
+  route_recipients text[] := '{}'::text[];
+  active_mapping_ids uuid[] := '{}'::uuid[];
+  expected_outcome text;
+  route_type text;
+  manager_recipient_count integer := 0;
+  recipient_count integer := 0;
+  resolution_status text;
+  mapping_fingerprint text;
+  fingerprint_material text;
   expected_action_key text;
   updated_count integer;
 begin
@@ -832,28 +855,6 @@ begin
   );
   if p_action_key is distinct from expected_action_key then
     raise exception 'The manager aging attempt key is not bound to this milestone';
-  end if;
-  if p_expected_outcome not in ('delivered', 'operations_exception')
-    or p_manager_recipient_count not between 0 and 3
-    or p_recipient_count not between 1 and 5
-    or p_recipient_count < p_manager_recipient_count
-    or length(coalesce(p_resolution_status, '')) not between 1 and 80
-    or p_resolution_status !~ '^[a-z0-9_]+$' then
-    raise exception 'Safe redacted manager notice routing evidence is required';
-  end if;
-  if p_expected_outcome = 'delivered'
-    and not (
-      p_manager_recipient_count between 1 and 3
-      and p_recipient_count = p_manager_recipient_count
-    ) then
-    raise exception 'Delivered manager notices require mapped-manager recipients only';
-  end if;
-  if p_expected_outcome = 'operations_exception'
-    and not (
-      p_manager_recipient_count = 0
-      and p_recipient_count between 1 and 5
-    ) then
-    raise exception 'Operations exceptions require bounded internal recipients only';
   end if;
   if not exists (
     select 1
@@ -885,17 +886,149 @@ begin
     return authorization_result;
   end if;
 
+  select * into case_row
+  from public.refund_cases
+  where id = p_refund_case_id;
+  if case_row.id is null or case_row.reporting_machine_id is null then
+    return jsonb_build_object(
+      'authorized', false,
+      'reason', 'manager_route_machine_missing'
+    );
+  end if;
+
+  mailbox_identities := public.normalize_refund_mailbox_identities(
+    p_mailbox_identities
+  );
+  if cardinality(mailbox_identities) not between 1 and 10 then
+    return jsonb_build_object(
+      'authorized', false,
+      'reason', 'mailbox_identity_policy_invalid'
+    );
+  end if;
+
+  -- The same advisory and parent-row lock order used by the manager-assignment
+  -- RPC makes the active mapping snapshot canonical. The parent lock also
+  -- blocks new FK-backed mappings until this short reservation commits.
+  perform pg_advisory_xact_lock(
+    hashtext('machine_manager:' || case_row.reporting_machine_id::text)
+  );
+  perform 1
+  from public.reporting_machines machine
+  where machine.id = case_row.reporting_machine_id
+  for update;
+  if not found then
+    return jsonb_build_object(
+      'authorized', false,
+      'reason', 'manager_route_machine_missing'
+    );
+  end if;
+
+  -- Lock all existing mapping rows in one deterministic order. Direct mapping
+  -- updates are serialized even if they did not use the assignment RPC.
+  perform 1
+  from public.reporting_machine_refund_managers manager
+  where manager.reporting_machine_id = case_row.reporting_machine_id
+  order by manager.id
+  for update;
+
+  select coalesce(array_agg(manager.id order by manager.id), '{}'::uuid[])
+  into active_mapping_ids
+  from public.reporting_machine_refund_managers manager
+  where manager.reporting_machine_id = case_row.reporting_machine_id
+    and manager.status = 'active'
+    and manager.revoked_at is null;
+
+  recipient_resolution := public.service_resolve_refund_customer_manager_cc(
+    p_refund_case_id,
+    case_row.customer_email,
+    mailbox_identities
+  );
+  resolution_status := lower(btrim(coalesce(
+    recipient_resolution ->> 'status',
+    'resolution_failed'
+  )));
+  if length(resolution_status) not between 1 and 80
+    or resolution_status !~ '^[a-z0-9_]+$' then
+    resolution_status := 'resolution_contract_invalid';
+  end if;
+
+  if jsonb_typeof(recipient_resolution -> 'managerCcEmails') = 'array' then
+    select coalesce(array_agg(candidate.email order by candidate.email), '{}'::text[])
+    into manager_recipients
+    from (
+      select distinct lower(btrim(value)) as email
+      from jsonb_array_elements_text(
+        recipient_resolution -> 'managerCcEmails'
+      ) value
+      where public.refund_email_address_is_valid(value)
+        and lower(btrim(value)) <> lower(btrim(case_row.customer_email))
+        and not (lower(btrim(value)) = any(mailbox_identities))
+    ) candidate;
+  end if;
+
+  if cardinality(manager_recipients) between 1 and 3
+    and coalesce((recipient_resolution ->> 'managerCcCount')::integer, -1) =
+      cardinality(manager_recipients) then
+    route_recipients := manager_recipients;
+    route_type := 'manager';
+    expected_outcome := 'delivered';
+    manager_recipient_count := cardinality(manager_recipients);
+  else
+    manager_recipients := '{}'::text[];
+    manager_recipient_count := 0;
+
+    select coalesce(array_agg(candidate.email order by candidate.email), '{}'::text[])
+    into ops_recipients
+    from (
+      select distinct lower(btrim(entry)) as email
+      from unnest(coalesce(p_ops_fallback_recipients, '{}'::text[])) entry
+      where public.refund_email_address_is_valid(entry)
+        and lower(btrim(entry)) <> lower(btrim(case_row.customer_email))
+        and not (lower(btrim(entry)) = any(mailbox_identities))
+    ) candidate;
+
+    if cardinality(ops_recipients) not between 1 and 5 then
+      return authorization_result || jsonb_build_object(
+        'authorized', false,
+        'reason', 'ops_fallback_policy_invalid'
+      );
+    end if;
+    route_recipients := ops_recipients;
+    route_type := 'operations';
+    expected_outcome := 'operations_exception';
+  end if;
+
+  recipient_count := cardinality(route_recipients);
+  fingerprint_material := concat_ws(
+    '|',
+    'refund_manager_route_v1',
+    'case=' || p_refund_case_id::text,
+    'attention=' || p_attention_version::text,
+    'milestone=' || p_milestone,
+    'template=' || p_template_version,
+    'mapping_ids=' || coalesce(array_to_string(active_mapping_ids, ','), ''),
+    'route_type=' || route_type,
+    'resolution=' || resolution_status,
+    'manager_count=' || manager_recipient_count::text,
+    'recipient_count=' || recipient_count::text
+  );
+  mapping_fingerprint := encode(
+    extensions.digest(convert_to(fingerprint_material, 'UTF8'), 'sha256'),
+    'hex'
+  );
+
   update public.refund_manager_attention_states
   set
     notice_attempt_key = p_action_key,
     notice_attempt_attention_version = p_attention_version,
     notice_attempt_milestone = p_milestone,
     notice_attempt_started_at = statement_timestamp(),
-    notice_attempt_expected_outcome = p_expected_outcome,
+    notice_attempt_expected_outcome = expected_outcome,
     notice_attempt_business_day_age = (authorization_result ->> 'businessDayAge')::integer,
-    notice_attempt_manager_recipient_count = p_manager_recipient_count,
-    notice_attempt_recipient_count = p_recipient_count,
-    notice_attempt_resolution_status = p_resolution_status,
+    notice_attempt_manager_recipient_count = manager_recipient_count,
+    notice_attempt_recipient_count = recipient_count,
+    notice_attempt_resolution_status = resolution_status,
+    notice_attempt_mapping_fingerprint = mapping_fingerprint,
     delivery_review_required_at = statement_timestamp(),
     delivery_review_reason = 'notice_attempt_in_flight',
     updated_at = statement_timestamp()
@@ -925,17 +1058,27 @@ begin
       'attention_version', p_attention_version,
       'template_version', p_template_version,
       'business_day_age', (authorization_result ->> 'businessDayAge')::integer,
-      'expected_outcome', p_expected_outcome,
-      'recipient_count', p_recipient_count,
-      'machine_manager_recipient_count', p_manager_recipient_count,
-      'manager_resolution_status', p_resolution_status,
+      'expected_outcome', expected_outcome,
+      'route_type', route_type,
+      'recipient_count', recipient_count,
+      'machine_manager_recipient_count', manager_recipient_count,
+      'manager_resolution_status', resolution_status,
+      'mapping_fingerprint', mapping_fingerprint,
       'payload_redacted', true
     )
   );
 
   return authorization_result || jsonb_build_object(
     'attemptStarted', true,
-    'attemptKey', p_action_key
+    'attemptKey', p_action_key,
+    'recipientRoute', jsonb_build_object(
+      'recipients', to_jsonb(route_recipients),
+      'routeType', route_type,
+      'managerRecipientCount', manager_recipient_count,
+      'recipientCount', recipient_count,
+      'resolutionStatus', resolution_status,
+      'mappingFingerprint', mapping_fingerprint
+    )
   );
 end;
 $$;
@@ -1065,6 +1208,10 @@ begin
       when p_outcome = 'delivery_unknown' then notice_attempt_resolution_status
       else null
     end,
+    notice_attempt_mapping_fingerprint = case
+      when p_outcome = 'delivery_unknown' then notice_attempt_mapping_fingerprint
+      else null
+    end,
     delivery_review_required_at = case
       when p_outcome = 'delivery_unknown'
         then coalesce(delivery_review_required_at, statement_timestamp())
@@ -1108,6 +1255,7 @@ begin
       'recipient_count', attention_row.notice_attempt_recipient_count,
       'machine_manager_recipient_count', attention_row.notice_attempt_manager_recipient_count,
       'manager_resolution_status', attention_row.notice_attempt_resolution_status,
+      'mapping_fingerprint', attention_row.notice_attempt_mapping_fingerprint,
       'delivery_outcome', p_outcome,
       'used_ops_fallback', attention_row.notice_attempt_expected_outcome = 'operations_exception',
       'payload_redacted', true
@@ -1129,7 +1277,7 @@ revoke execute on function public.service_list_due_refund_manager_aging_notices(
   from public, anon, authenticated;
 revoke execute on function public.service_authorize_refund_manager_aging_notice(uuid, bigint, text, timestamptz, text, integer, integer, text)
   from public, anon, authenticated;
-revoke execute on function public.service_begin_refund_manager_aging_notice_attempt(uuid, bigint, text, timestamptz, text, integer, integer, text, text, text, integer, integer, text)
+revoke execute on function public.service_begin_refund_manager_aging_notice_attempt(uuid, bigint, text, timestamptz, text, integer, integer, text, text, text[], text[])
   from public, anon, authenticated;
 revoke execute on function public.service_complete_refund_manager_aging_notice(uuid, text, text)
   from public, anon, authenticated;
@@ -1142,7 +1290,7 @@ grant execute on function public.service_list_due_refund_manager_aging_notices(t
   to service_role;
 grant execute on function public.service_authorize_refund_manager_aging_notice(uuid, bigint, text, timestamptz, text, integer, integer, text)
   to service_role;
-grant execute on function public.service_begin_refund_manager_aging_notice_attempt(uuid, bigint, text, timestamptz, text, integer, integer, text, text, text, integer, integer, text)
+grant execute on function public.service_begin_refund_manager_aging_notice_attempt(uuid, bigint, text, timestamptz, text, integer, integer, text, text, text[], text[])
   to service_role;
 grant execute on function public.service_complete_refund_manager_aging_notice(uuid, text, text)
   to service_role;
@@ -1153,7 +1301,7 @@ comment on function public.service_list_due_refund_manager_aging_notices(timesta
   'Returns only due, current, unclaimed manager aging milestones before applying the bounded scheduler limit, preventing completed or non-due rows from starving later cases.';
 comment on function public.service_authorize_refund_manager_aging_notice(uuid, bigint, text, timestamptz, text, integer, integer, text) is
   'Fail-closed send-time authorization for one versioned manager-only reminder or escalation. Rechecks state, business-day age, terminal/waiting state, and case-wide bounce holds.';
-comment on function public.service_begin_refund_manager_aging_notice_attempt(uuid, bigint, text, timestamptz, text, integer, integer, text, text, text, integer, integer, text) is
-  'Atomically reauthorizes and reserves a bound manager notice before provider invocation. The global hold survives attention-version changes until explicit settlement.';
+comment on function public.service_begin_refund_manager_aging_notice_attempt(uuid, bigint, text, timestamptz, text, integer, integer, text, text, text[], text[]) is
+  'Atomically reauthorizes, locks and re-resolves the current manager mapping, binds non-address route evidence, and returns the exact transient service-only recipient route before provider invocation. The global hold survives attention-version changes until explicit settlement.';
 comment on function public.service_complete_refund_manager_aging_notice(uuid, text, text) is
   'Settles one exact reserved attempt with redacted evidence. Known sent/not-sent outcomes clear the global hold; unknown delivery remains held. An old attempt never marks a newer attention version.';

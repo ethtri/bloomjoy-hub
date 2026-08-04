@@ -2007,6 +2007,40 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
   const page = await context.newPage();
   await signInRefundUser(page, appUrl);
   await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
+
+  const providerOrOfficialCalls = () => functionCalls.filter((name) =>
+    name === 'nayax-transaction-lookup' ||
+    name === 'nayax-card-refund' ||
+    name === 'refund-case-admin-update'
+  );
+  await page.goto(`${appUrl}/refunds?case=${encodeURIComponent('case-card-pending')}`, {
+    waitUntil: 'networkidle',
+  });
+  await page.getByRole('heading', { name: 'RF-UAT-PENDING' }).waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Eligible card case link is navigation-only with no lookup or official action',
+    new URL(page.url()).searchParams.get('case') === 'case-card-pending' &&
+      providerOrOfficialCalls().length === 0,
+    JSON.stringify({ url: page.url(), providerOrOfficialCalls: providerOrOfficialCalls() })
+  );
+
+  await page.getByLabel('Search refund cases').fill('NO-SUCH-REFUND');
+  await page.getByText('0 visible of 1 total cases').waitFor({ timeout: 10000 });
+  await page.getByLabel('Search refund cases').fill('');
+  await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
+  await page.getByLabel('Filter refund cases by status').selectOption('waiting_on_customer');
+  await page.getByText('0 visible of 1 total cases').waitFor({ timeout: 10000 });
+  await page.getByLabel('Filter refund cases by status').selectOption('needs_action');
+  await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Search and filter changes remain independent after an eligible case link',
+    providerOrOfficialCalls().length === 0 &&
+      await page.locator('tr', { hasText: 'RF-UAT-PENDING' }).isVisible(),
+    providerOrOfficialCalls().join(', ')
+  );
+
+  // Deliberately selecting the row changes the selection origin from the URL to
+  // the queue, so the established user-driven automatic lookup remains intact.
   await page.locator('tr', { hasText: 'RF-UAT-PENDING' }).click();
   await page.getByTestId('nayax-result-card').getByText('Setup needed before Nayax can check this card refund.').first().waitFor({
     timeout: 10000,
