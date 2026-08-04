@@ -18,13 +18,14 @@ This document is the production-enable gate for Refund Operations Gmail intake (
 ## Outbound and participant boundary
 
 - Gmail-linked customer communication stays in the original provider thread. The automation scheduler must use the Gmail transport for these cases rather than starting a second Resend conversation.
+- Configured Info/Support aliases are treated as Bloomjoy mailbox-origin only when the approved mailbox configuration and Gmail `SENT`-label evidence agree; an alias-looking From address alone is not trusted.
 - An approved deterministic template may send automatically only for the bounded classes and rollout gates in `Docs/REFUND_EMAIL_ASSISTANT_RUNBOOK.md`. GPT-authored or materially free-form copy remains manager-reviewed under `Docs/REFUND_GPT_TRIAGE.md`.
 - One durable thread operation key protects the first-contact acknowledgement. Replays and later replies cannot create a second acknowledgement, and the legacy responder must be disabled before the Hub responder becomes authoritative.
-- Once a machine is resolved, visible CC includes only active, non-revoked Machine Managers returned by the authoritative portal mapping at send time. Before machine resolution, the message sends without a guessed manager and creates an internal triage signal.
+- Every manual or automatic customer-facing refund message requires a resolved machine and one to three active, non-revoked Machine Managers returned by the authoritative portal mapping at send time. Unresolved, zero-manager, invalid/over-cap, empty, or changed routes fail closed before Gmail or transactional provider delivery and create a redacted internal routing exception. The capped operations fallback is internal-only and can never replace the required customer-message CC.
 - Gmail ingestion classifies every sender as customer, assigned manager, Bloomjoy mailbox, automated system, or unknown. A mapped manager's Reply All remains manager correspondence and cannot change customer-provided facts.
 - An unknown, forwarded, alias, spoof-suspected, revoked-manager, or other non-verified-customer participant cannot update customer facts, clear waiting state, start customer GPT triage, or trigger automatic follow-up.
 - Customer-visible messages never contain the internal portal URL. Managers receive a separate sanitized notice with the canonical `/refunds?case=<case-id>` link.
-- Hard bounce or uncertain delivery places the customer-contact lane on hold. The system exposes a safe exception and never retries blindly.
+- An authenticated permanent hard bounce for the exact case customer pauses automatic contact case-wide, including newer linked threads. Recovery requires an authenticated manager to verify the exact customer address and clear every linked pause atomically; service, scheduler, ingest, replay, and partial-clear paths cannot resume it. Uncertain delivery exposes a safe exception and is never retried blindly.
 
 ## Required approvals before production enablement
 
