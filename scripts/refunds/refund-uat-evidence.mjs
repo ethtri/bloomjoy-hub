@@ -20,6 +20,8 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-portal-uat-confirmation.png',
   'refund-portal-uat-desktop.png',
   'refund-portal-uat-lookup-failed.png',
+  'refund-portal-uat-mapped-scoped-admin-review-only.png',
+  'refund-portal-uat-mapped-super-admin-review-only.png',
   'refund-portal-uat-mobile.png',
   'refund-portal-uat-multiple-candidates.png',
   'refund-portal-uat-no-match.png',

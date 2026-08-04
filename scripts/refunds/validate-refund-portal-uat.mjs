@@ -1793,7 +1793,11 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
     'Cash approval email is previewable before the approval action',
     await page.getByText('Your Bloomjoy refund request RF-UAT-CASH-REVIEW was approved').isVisible()
   );
+  const approvalResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith('/functions/v1/refund-case-admin-update')
+  );
   await page.getByTestId('refund-cash-primary-action').click();
+  await approvalResponse;
   await page.getByTestId('refund-cash-completion-panel').waitFor({ timeout: 10000 });
 
   const approvalBodies = functionBodies
@@ -2441,7 +2445,11 @@ const runReviewOnlyOfficialActionChecks = async ({ browser, appUrl, artifactDir,
     `${scenario.name} can explicitly refresh transaction evidence`,
     await refreshResultButton.isEnabled()
   );
+  const lookupResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith('/functions/v1/nayax-transaction-lookup')
+  );
   await refreshResultButton.click();
+  await lookupResponse;
   await page.getByTestId('nayax-lookup-notice').waitFor({ timeout: 10000 });
   recorder.assert(
     `${scenario.name} evidence refresh does not perform an official refund action`,
