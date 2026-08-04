@@ -328,7 +328,24 @@ set search_path = public
 as $$
 declare
   settlement_attempt_id uuid;
+  settlement_provider_claim text;
+  settlement_provider_claim_digest text;
 begin
+  settlement_provider_claim := nullif(
+    current_setting('bloomjoy.nayax_settlement_provider_claim', true),
+    ''
+  );
+  settlement_provider_claim_digest := case
+    when settlement_provider_claim is null then null
+    else encode(
+      extensions.digest(
+        convert_to(settlement_provider_claim, 'UTF8'),
+        'sha256'
+      ),
+      'hex'
+    )
+  end;
+
   if new.payment_method = 'card'
     and new.status = 'completed'
     and old.status is distinct from 'completed' then
@@ -337,6 +354,7 @@ begin
       ''
     )::uuid;
     if settlement_attempt_id is null
+      or settlement_provider_claim_digest is null
       or old.nayax_refund_execution_status is distinct from 'requested'
       or not exists (
         select 1
@@ -350,6 +368,8 @@ begin
           and attempt.status = 'in_progress'
           and attempt.provider_outcome is null
           and attempt.provider_claim_consumed_at is null
+          and attempt.provider_claim_expires_at > statement_timestamp()
+          and attempt.provider_claim_digest = settlement_provider_claim_digest
           and action_authorization.status = 'consumed'
           and action_authorization.verified_totp_at is not null
           and intent.status = 'consumed'
@@ -385,12 +405,17 @@ begin
       ''
     )::uuid;
     if settlement_attempt_id is null
+      or settlement_provider_claim_digest is null
       or not exists (
         select 1
         from public.refund_case_nayax_refund_attempts attempt
         where attempt.id = settlement_attempt_id
           and attempt.refund_case_id = old.id
           and attempt.status = 'in_progress'
+          and attempt.provider_outcome is null
+          and attempt.provider_claim_consumed_at is null
+          and attempt.provider_claim_expires_at > statement_timestamp()
+          and attempt.provider_claim_digest = settlement_provider_claim_digest
       ) then
       raise exception 'An active Nayax provider attempt must settle before another official mutation';
     end if;
@@ -905,6 +930,11 @@ begin
   perform set_config(
     'bloomjoy.nayax_settlement_attempt_id',
     attempt_row.id::text,
+    true
+  );
+  perform set_config(
+    'bloomjoy.nayax_settlement_provider_claim',
+    p_provider_claim_token,
     true
   );
 

@@ -92,6 +92,7 @@ insert into public.refund_cases (
   payment_method,
   payment_amount_cents,
   card_last4,
+  zelle_payment_contact,
   status,
   automation_state
 ) values (
@@ -102,9 +103,10 @@ insert into public.refund_cases (
   'aging-customer@example.test',
   'Synthetic complaint text must never enter reminder evidence.',
   now() - interval '3 days',
-  'card',
-  725,
-  '4242',
+  'cash',
+  987654,
+  null,
+  'aging-cash-contact@example.test',
   'needs_review',
   'under_review'
 );
@@ -404,7 +406,8 @@ select ok(
       and (
         event.metadata::text ilike '%aging-customer@example.test%'
         or event.metadata::text ilike '%aging-manager@example.test%'
-        or event.metadata::text ilike '%4242%'
+        or event.metadata::text ilike '%aging-cash-contact@example.test%'
+        or event.metadata::text ilike '%987654%'
         or event.metadata::text ilike '%synthetic complaint%'
       )
   ),

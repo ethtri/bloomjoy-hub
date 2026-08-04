@@ -1,11 +1,12 @@
 import {
-  orchestrateNayaxRefund,
   type NayaxAttemptSnapshot,
   type NayaxProviderOutcomeKind,
   type NayaxRefundOrchestrationResult,
+  orchestrateNayaxRefund,
 } from "./nayax-refund-orchestration.ts";
-import { createAuthenticatedEvidenceFragment } from
-  "../../../scripts/refunds/refund-uat-fragment-provenance.mjs";
+import {
+  createAuthenticatedEvidenceFragment,
+} from "../../../scripts/refunds/refund-uat-fragment-provenance.mjs";
 
 const parseArgs = () => {
   let outputDir = "output/refund-uat-fragments";
@@ -63,28 +64,31 @@ for (const [index, outcomeKind] of outcomeKinds.entries()) {
         });
       },
     },
-    reserveAndConsumeAttempt: () => Promise.resolve({
-      managerAction: {
-        authorizationId: `b3000000-0000-4000-8000-${suffix}`,
-        caseId: request.caseId,
-        action: "nayax_execute" as const,
-        targetFunction: "nayax-card-refund" as const,
-        status: "consumed" as const,
-        stepUpIntentId: `b4000000-0000-4000-8000-${suffix}`,
-        verifiedTotpAt: "2026-08-03T12:00:00.000Z",
-      },
-      attempt: terminalAttempt ?? {
-        attemptId,
-        status: "in_progress",
-        providerOutcome: null,
-        shouldExecute: true,
-        reconciliationRequired: false,
-        reportingAdjustmentPresent: false,
-        caseFinalizationCommitted: false,
-      },
-      providerClaimToken: terminalAttempt ? null : "a".repeat(64),
-    }),
-    settleProviderOutcome: ({ outcome }: { outcome: { kind: NayaxProviderOutcomeKind } }) => {
+    reserveAndConsumeAttempt: () =>
+      Promise.resolve({
+        managerAction: {
+          authorizationId: `b3000000-0000-4000-8000-${suffix}`,
+          caseId: request.caseId,
+          action: "nayax_execute" as const,
+          targetFunction: "nayax-card-refund" as const,
+          status: "consumed" as const,
+          stepUpIntentId: `b4000000-0000-4000-8000-${suffix}`,
+          verifiedTotpAt: "2026-08-03T12:00:00.000Z",
+        },
+        attempt: terminalAttempt ?? {
+          attemptId,
+          status: "in_progress",
+          providerOutcome: null,
+          shouldExecute: true,
+          reconciliationRequired: false,
+          reportingAdjustmentPresent: false,
+          caseFinalizationCommitted: false,
+        },
+        providerClaimToken: terminalAttempt ? null : "a".repeat(64),
+      }),
+    settleProviderOutcome: (
+      { outcome }: { outcome: { kind: NayaxProviderOutcomeKind } },
+    ) => {
       const success = outcome.kind === "success";
       if (success) caseReportingCompletionCount += 1;
       terminalAttempt = {
@@ -147,18 +151,20 @@ for (const [index, outcomeKind] of outcomeKinds.entries()) {
 }
 
 const counts: Record<NayaxProviderOutcomeKind, number> = {
-  success: firstResults.filter((result) =>
-    result.executed && result.status === "succeeded"
-  ).length,
-  rejected: firstResults.filter((result) =>
-    result.errorCode === "provider_rejected"
-  ).length,
-  timeout: firstResults.filter((result) =>
-    result.errorCode === "provider_timeout"
-  ).length,
-  unknown: firstResults.filter((result) =>
-    result.errorCode === "provider_outcome_unknown"
-  ).length,
+  success:
+    firstResults.filter((result) =>
+      result.executed && result.status === "succeeded"
+    ).length,
+  rejected:
+    firstResults.filter((result) => result.errorCode === "provider_rejected")
+      .length,
+  timeout:
+    firstResults.filter((result) => result.errorCode === "provider_timeout")
+      .length,
+  unknown:
+    firstResults.filter((result) =>
+      result.errorCode === "provider_outcome_unknown"
+    ).length,
 };
 
 const passed = outcomeKinds.every((kind) => counts[kind] === 1) &&
@@ -172,7 +178,9 @@ const passed = outcomeKinds.every((kind) => counts[kind] === 1) &&
   fallbackNoticeCount === 0 &&
   managerCompletionNoticeCount === 0;
 
-if (!passed) throw new Error("Injected provider outcome evidence did not pass.");
+if (!passed) {
+  throw new Error("Injected provider outcome evidence did not pass.");
+}
 
 const evidence = {
   schemaVersion: 1,

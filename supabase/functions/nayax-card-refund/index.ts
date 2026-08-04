@@ -359,13 +359,19 @@ serve(async (req) => {
       dependencies: {
         provider: disabledNayaxProviderAdapter,
         reserveAndConsumeAttempt: () => {
-          throw new Error("Disabled production adapter cannot reserve an attempt.");
+          throw new Error(
+            "Disabled production adapter cannot reserve an attempt.",
+          );
         },
         settleProviderOutcome: () => {
-          throw new Error("Disabled production adapter cannot settle an attempt.");
+          throw new Error(
+            "Disabled production adapter cannot settle an attempt.",
+          );
         },
         deliverCustomerCompletion: () => {
-          throw new Error("Disabled production adapter cannot contact a customer.");
+          throw new Error(
+            "Disabled production adapter cannot contact a customer.",
+          );
         },
       },
     });

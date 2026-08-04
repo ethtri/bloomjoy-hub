@@ -161,7 +161,8 @@ const incompleteResult = ({
   replayed: boolean;
 }): NayaxRefundOrchestrationResult => {
   const outcome = attempt.providerOutcome ?? "unknown";
-  const reconciliationRequired = outcome === "timeout" || outcome === "unknown" ||
+  const reconciliationRequired = outcome === "timeout" ||
+    outcome === "unknown" ||
     attempt.reconciliationRequired;
   return {
     executed: false,
@@ -229,10 +230,11 @@ const deliverCommittedCompletion = async (
 
 export const disabledNayaxProviderAdapter: NayaxProviderAdapter = {
   mode: "disabled",
-  execute: () => Promise.resolve({
-    kind: "unknown",
-    errorCode: "provider_execution_not_yet_enabled",
-  }),
+  execute: () =>
+    Promise.resolve({
+      kind: "unknown",
+      errorCode: "provider_execution_not_yet_enabled",
+    }),
 };
 
 export const orchestrateNayaxRefund = async ({
@@ -272,19 +274,18 @@ export const orchestrateNayaxRefund = async ({
         fallbackIssued: false,
         reportingAdjustmentPresent: attempt.reportingAdjustmentPresent,
         customerCompletion,
-        message: "The already-confirmed refund was reconciled without another provider call.",
+        message:
+          "The already-confirmed refund was reconciled without another provider call.",
       };
     }
 
     return incompleteResult({
-      attempt: attempt.providerOutcome
-        ? attempt
-        : {
-          ...attempt,
-          status: "ambiguous",
-          providerOutcome: "unknown",
-          reconciliationRequired: true,
-        },
+      attempt: attempt.providerOutcome ? attempt : {
+        ...attempt,
+        status: "ambiguous",
+        providerOutcome: "unknown",
+        reconciliationRequired: true,
+      },
       providerAttempted: false,
       replayed: true,
     });

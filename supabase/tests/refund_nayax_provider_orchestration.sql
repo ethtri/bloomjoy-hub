@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(44);
+select plan(50);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -14,6 +14,50 @@ begin
   return null;
 exception when others then
   return sqlstate || ':' || sqlerrm;
+end;
+$$;
+
+-- Reproduces the class of bypass a separate SECURITY DEFINER wrapper could
+-- otherwise create by setting transaction-local settlement context before a
+-- raw case update. The production trigger must require both the exact attempt
+-- and the raw one-time provider claim, never the imitable attempt ID alone.
+create function pg_temp.try_raw_nayax_case_mutation(
+  p_case_id uuid,
+  p_attempt_id uuid,
+  p_provider_claim_token text,
+  p_complete boolean
+)
+returns void
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+begin
+  perform set_config(
+    'bloomjoy.nayax_settlement_attempt_id',
+    p_attempt_id::text,
+    true
+  );
+  perform set_config(
+    'bloomjoy.nayax_settlement_provider_claim',
+    coalesce(p_provider_claim_token, ''),
+    true
+  );
+
+  if p_complete then
+    update public.refund_cases
+    set
+      status = 'completed',
+      decision = 'approved',
+      manual_refund_reference = 'UNSAFE-RAW-NAYAX-SETTLEMENT',
+      refund_completed_at = statement_timestamp(),
+      nayax_refund_execution_status = 'approved'
+    where id = p_case_id;
+  else
+    update public.refund_cases
+    set manual_refund_reference = 'UNSAFE-RAW-NAYAX-MUTATION'
+    where id = p_case_id;
+  end if;
 end;
 $$;
 
@@ -348,6 +392,84 @@ select ok(
 );
 
 set local role service_role;
+select ok(
+  pg_temp.capture_error(format(
+    'select pg_temp.try_raw_nayax_case_mutation(%L,%L,null,true)',
+    '9a600000-0000-4000-8000-000000000001',
+    (select result #>> '{attempt,attemptId}'
+     from pg_temp.nayax_provider_results where result_key = 'success-reserve')
+  )) like '%token-bound confirmed provider settlement%',
+  'Attempt ID alone cannot authorize a raw card completion through a SECURITY DEFINER wrapper'
+);
+select ok(
+  pg_temp.capture_error(format(
+    'select pg_temp.try_raw_nayax_case_mutation(%L,%L,null,false)',
+    '9a600000-0000-4000-8000-000000000001',
+    (select result #>> '{attempt,attemptId}'
+     from pg_temp.nayax_provider_results where result_key = 'success-reserve')
+  )) like '%must settle before another official mutation%',
+  'Attempt ID alone cannot authorize another raw official mutation through a SECURITY DEFINER wrapper'
+);
+reset role;
+select ok(
+  (select status = 'card_refund_pending'
+      and manual_refund_reference is null
+      and refund_completed_at is null
+      and reporting_adjustment_id is null
+   from public.refund_cases where id = '9a600000-0000-4000-8000-000000000001')
+  and (select status = 'in_progress'
+      and provider_outcome is null
+      and provider_claim_consumed_at is null
+   from public.refund_case_nayax_refund_attempts
+   where refund_case_id = '9a600000-0000-4000-8000-000000000001')
+  and not exists (
+    select 1 from public.sales_adjustment_facts
+    where refund_case_id = '9a600000-0000-4000-8000-000000000001'
+  ),
+  'ID-only trigger bypass attempts leave case, provider attempt, and reporting state unchanged'
+);
+
+set local role service_role;
+select ok(
+  pg_temp.capture_error(format(
+    'select pg_temp.try_raw_nayax_case_mutation(%L,%L,%L,true)',
+    '9a600000-0000-4000-8000-000000000001',
+    (select result #>> '{attempt,attemptId}'
+     from pg_temp.nayax_provider_results where result_key = 'success-reserve'),
+    repeat('f', 64)
+  )) like '%token-bound confirmed provider settlement%',
+  'A wrong raw provider claim cannot authorize card completion through a SECURITY DEFINER wrapper'
+);
+select ok(
+  pg_temp.capture_error(format(
+    'select pg_temp.try_raw_nayax_case_mutation(%L,%L,%L,false)',
+    '9a600000-0000-4000-8000-000000000001',
+    (select result #>> '{attempt,attemptId}'
+     from pg_temp.nayax_provider_results where result_key = 'success-reserve'),
+    repeat('f', 64)
+  )) like '%must settle before another official mutation%',
+  'A wrong raw provider claim cannot authorize another official mutation through a SECURITY DEFINER wrapper'
+);
+reset role;
+select ok(
+  (select status = 'card_refund_pending'
+      and manual_refund_reference is null
+      and refund_completed_at is null
+      and reporting_adjustment_id is null
+   from public.refund_cases where id = '9a600000-0000-4000-8000-000000000001')
+  and (select status = 'in_progress'
+      and provider_outcome is null
+      and provider_claim_consumed_at is null
+   from public.refund_case_nayax_refund_attempts
+   where refund_case_id = '9a600000-0000-4000-8000-000000000001')
+  and not exists (
+    select 1 from public.sales_adjustment_facts
+    where refund_case_id = '9a600000-0000-4000-8000-000000000001'
+  ),
+  'Wrong-token trigger bypass attempts leave case, provider attempt, and reporting state unchanged'
+);
+
+set local role service_role;
 insert into pg_temp.nayax_provider_results (result_key, result)
 select 'success-reserve-replay', public.service_reserve_and_consume_nayax_refund_attempt(
   'provider-test-executor', '9a800000-0000-4000-8000-000000000001',
@@ -405,7 +527,7 @@ select ok(
       and result #>> '{attempt,status}' = 'succeeded'
       and (result #>> '{attempt,caseFinalizationCommitted}')::boolean
    from pg_temp.nayax_provider_results where result_key = 'success-settle'),
-  'Token-bound success atomically proves terminal attempt, case finalization, and reporting'
+  'The correct raw claim through the settlement wrapper atomically proves terminal attempt, case finalization, and reporting'
 );
 select ok(
   (select status = 'completed' and refund_completed_at is not null
@@ -437,7 +559,7 @@ $sql$,
    from pg_temp.nayax_provider_results where result_key = 'success-reserve'),
   (select result ->> 'providerClaimToken' from pg_temp.nayax_provider_results
    where result_key = 'success-reserve'))) like '%already terminal%',
-  'Terminal provider outcome cannot be rewritten or settled twice');
+  'The consumed provider claim cannot be reused and a terminal provider outcome cannot be rewritten');
 select ok(pg_temp.capture_error(format(
   'select public.service_claim_nayax_refund_completion(%L,%L)',
   'gmail-gpt-scheduler',

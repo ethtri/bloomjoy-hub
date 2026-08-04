@@ -16,6 +16,7 @@ const files = {
   providerOrchestration: 'supabase/functions/_shared/nayax-refund-orchestration.ts',
   providerOrchestrationTest: 'supabase/functions/_shared/nayax-refund-orchestration.test.ts',
   providerEvidenceProducer: 'supabase/functions/_shared/nayax-refund-orchestration-evidence.ts',
+  providerOrchestrationDatabaseTest: 'supabase/tests/refund_nayax_provider_orchestration.sql',
   officialActionHelper: 'supabase/functions/_shared/refund-official-action.ts',
   function: 'supabase/functions/nayax-card-refund/index.ts',
   config: 'supabase/config.toml',
@@ -48,6 +49,7 @@ const providerOrchestrationMigration = read(files.providerOrchestrationMigration
 const providerOrchestration = read(files.providerOrchestration);
 const providerOrchestrationTest = read(files.providerOrchestrationTest);
 const providerEvidenceProducer = read(files.providerEvidenceProducer);
+const providerOrchestrationDatabaseTest = read(files.providerOrchestrationDatabaseTest);
 const officialActionHelper = read(files.officialActionHelper);
 const fn = read(files.function);
 const config = read(files.config);
@@ -158,13 +160,42 @@ assert(
 );
 assert(
   providerOrchestrationMigration.includes('service_reserve_and_consume_nayax_refund_attempt') &&
-    providerOrchestrationMigration.includes('service_settle_nayax_refund_attempt') &&
+  providerOrchestrationMigration.includes('service_settle_nayax_refund_attempt') &&
     providerOrchestrationMigration.includes('provider_claim_digest') &&
+    providerOrchestrationMigration.includes("current_setting('bloomjoy.nayax_settlement_provider_claim', true)") &&
+    providerOrchestrationMigration.includes("perform set_config(\n    'bloomjoy.nayax_settlement_provider_claim'") &&
+    (providerOrchestrationMigration.match(
+      /attempt\.provider_claim_digest = settlement_provider_claim_digest/g
+    ) ?? []).length === 2 &&
     providerOrchestrationMigration.includes('assert_nayax_provider_executor') &&
     providerOrchestrationMigration.includes('Card completion requires token-bound confirmed provider settlement') &&
     providerOrchestrationMigration.includes('from public, anon, authenticated, service_role') &&
     providerOrchestrationMigration.includes('service_consume_nayax_refund_official_action'),
   'Local proof must use assertion-scoped atomic reservation/settlement and revoke the legacy service consumer.'
+);
+assert(
+  providerOrchestrationMigration.indexOf(
+    "perform set_config(\n    'bloomjoy.nayax_settlement_provider_claim'"
+  ) > providerOrchestrationMigration.indexOf('Valid unused attempt-scoped provider claim required') &&
+    providerOrchestrationDatabaseTest.includes(
+      'Attempt ID alone cannot authorize a raw card completion through a SECURITY DEFINER wrapper'
+    ) &&
+    providerOrchestrationDatabaseTest.includes(
+      'A wrong raw provider claim cannot authorize another official mutation through a SECURITY DEFINER wrapper'
+    ) &&
+    providerOrchestrationDatabaseTest.includes(
+      'ID-only trigger bypass attempts leave case, provider attempt, and reporting state unchanged'
+    ) &&
+    providerOrchestrationDatabaseTest.includes(
+      'Wrong-token trigger bypass attempts leave case, provider attempt, and reporting state unchanged'
+    ) &&
+    providerOrchestrationDatabaseTest.includes(
+      'The correct raw claim through the settlement wrapper atomically proves terminal attempt, case finalization, and reporting'
+    ) &&
+    providerOrchestrationDatabaseTest.includes(
+      'The consumed provider claim cannot be reused and a terminal provider outcome cannot be rewritten'
+    ),
+  'The trigger capability must be claim-bound only after wrapper validation and regression-tested against ID-only, wrong-token, replay, and terminal rewrites.'
 );
 assert(
   providerOrchestration.includes('deliverCommittedCompletion') &&
