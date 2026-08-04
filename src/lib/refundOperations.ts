@@ -627,6 +627,19 @@ export type NayaxCardRefundExecutionResponse = {
   refundReference?: string | null;
   providerReference?: string | null;
   manualRefundReference?: string | null;
+  providerAttempted?: boolean;
+  replayed?: boolean;
+  reconciliationRequired?: boolean;
+  fallbackIssued?: boolean;
+  reportingAdjustmentPresent?: boolean;
+  customerCompletion?: {
+    status: 'sent' | 'failed' | 'delivery_unknown' | 'already_sent';
+    transport: 'gmail_thread' | null;
+    managerCcCount: number;
+    originalThread: boolean;
+    operationApplied: boolean;
+    managerCompletionNoticeSent: false;
+  } | null;
 };
 
 export type NayaxCardRefundExecutionError =

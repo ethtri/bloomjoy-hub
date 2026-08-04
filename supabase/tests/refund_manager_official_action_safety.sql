@@ -1544,23 +1544,16 @@ select
 reset role;
 
 set local role service_role;
-select public.service_consume_nayax_refund_official_action(
-  (select authorization_id from pg_temp.official_action_test_receipts where receipt_key = 'nayax_execute'),
-  '79600000-0000-4000-8000-000000000007', 'card_refund_pending', 'approved', 500, null
+select ok(
+  pg_temp.capture_error($sql$
+    select public.service_consume_nayax_refund_official_action(
+      (select authorization_id from pg_temp.official_action_test_receipts where receipt_key = 'nayax_execute'),
+      '79600000-0000-4000-8000-000000000007', 'card_refund_pending', 'approved', 500, null
+    )
+  $sql$) like '%permission denied%',
+  'Legacy service-role Nayax receipt consumption is revoked in favor of the assertion-scoped atomic wrapper'
 );
 reset role;
-
-select ok(
-  exists (
-    select 1
-    from public.refund_case_events
-    where refund_case_id = '79600000-0000-4000-8000-000000000007'
-      and event_type = 'nayax_official_action_revalidated'
-      and actor_user_id = '79000000-0000-4000-8000-000000000001'
-      and metadata ->> 'payload_redacted' = 'true'
-  ),
-  'Nayax provider preparation consumes and audits the mapped-manager receipt'
-);
 
 select ok(
   (
@@ -1568,7 +1561,7 @@ select ok(
       and refund_case.decision = 'approved'
       and refund_case.refund_completed_at is null
       and refund_case.reporting_adjustment_id is null
-      and action_authorization.status = 'consumed'
+      and action_authorization.status = 'authorized'
     from public.refund_cases refund_case
     join public.refund_case_official_action_authorizations action_authorization
       on action_authorization.id = (select authorization_id from pg_temp.official_action_test_receipts where receipt_key = 'nayax_execute')
@@ -1578,9 +1571,13 @@ select ok(
     select 1
     from public.refund_case_events
     where refund_case_id = '79600000-0000-4000-8000-000000000007'
-      and event_type in ('nayax_official_action_finalized', 'refund_completed')
+      and event_type in (
+        'nayax_official_action_revalidated',
+        'nayax_official_action_finalized',
+        'refund_completed'
+      )
   ),
-  'Nayax receipt consumption records preparation only and cannot mark provider success or completion'
+  'Denied legacy consumption leaves manager authority and card case untouched'
 );
 
 set local role authenticated;

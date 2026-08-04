@@ -1162,7 +1162,6 @@ const primaryActionConfig = (
           : 'Save this reviewed sale. One-click refund stays unavailable unless every server-side safety rule passes.',
         targetStatus: 'card_refund_pending',
         targetDecision: 'approved',
-        messageType: 'approved',
         mode: 'case_update',
       };
     }
@@ -1188,10 +1187,9 @@ const primaryActionConfig = (
 
     return {
       label: 'Confirm this card sale',
-      helper: 'Confirm the card sale and send the approval email. The next step is card refund execution in Bloomjoy Hub.',
+      helper: 'Confirm the card sale and record the reviewed approval. The customer is contacted only after a confirmed provider refund.',
       targetStatus: 'card_refund_pending',
       targetDecision: 'approved',
-      messageType: 'approved',
       mode: 'case_update',
     };
   }
@@ -1374,6 +1372,11 @@ const getCoherentStatusOptions = (
   const options = statusesByDecision[decisionKey].filter((status) => {
     if (status === 'card_refund_pending') return selectedCase.paymentMethod === 'card';
     if (status === 'cash_zelle_pending') return selectedCase.paymentMethod !== 'card';
+    if (
+      status === 'completed' &&
+      selectedCase.paymentMethod === 'card' &&
+      selectedCase.status !== 'completed'
+    ) return false;
     return true;
   });
 
@@ -1995,6 +1998,99 @@ export default function AdminRefundsPage() {
     }
   };
 
+  const applyNayaxExecutionResult = async (
+    result: NayaxCardRefundExecutionResponse
+  ) => {
+    const reference = getNayaxExecutionReference(result);
+    const completion = result.customerCompletion ?? null;
+    const hasCommittedSuccess =
+      result.executed === true &&
+      result.status === 'succeeded' &&
+      result.reportingAdjustmentPresent === true &&
+      result.reconciliationRequired !== true &&
+      result.fallbackIssued !== true;
+
+    setIsRefundConfirmationOpen(false);
+
+    if (hasCommittedSuccess) {
+      const deliverySucceeded = Boolean(
+        completion &&
+        (completion.status === 'sent' || completion.status === 'already_sent') &&
+        completion.transport === 'gmail_thread' &&
+        completion.originalThread === true &&
+        completion.managerCcCount > 0 &&
+        completion.managerCompletionNoticeSent === false
+      );
+      const deliveryFailed = completion?.status === 'failed';
+      setNayaxExecutionNotice(null);
+      setRefundActionReceipt({
+        tone: deliverySucceeded ? 'success' : 'warning',
+        title: deliverySucceeded
+          ? 'Refund completed'
+          : deliveryFailed
+            ? 'Refund completed; customer email needs attention'
+            : 'Refund completed; email delivery needs reconciliation',
+        message: deliverySucceeded
+          ? `Nayax confirmed the refund, Bloomjoy Hub finalized the case and reporting together, and the customer was notified in the original email thread with ${completion?.managerCcCount === 1 ? 'the mapped Machine Manager' : `${completion?.managerCcCount} mapped Machine Managers`} copied.`
+          : deliveryFailed
+            ? 'The refund, case, and reporting record are complete. Do not retry the payment. Retry only the controlled customer completion email.'
+            : 'The refund, case, and reporting record are complete. Do not retry the payment. Reconcile only the customer email delivery before sending anything else.',
+        reference,
+      });
+      if (deliverySucceeded) {
+        toast.success('Nayax confirmed the refund and the customer was notified.');
+      } else {
+        toast.error('The refund is complete, but the customer email still needs attention.');
+      }
+      await refresh();
+      return;
+    }
+
+    const corruptSuccess = result.executed === true || result.status === 'succeeded';
+    const ambiguous =
+      corruptSuccess ||
+      result.reconciliationRequired === true ||
+      result.errorCode === 'provider_timeout' ||
+      result.errorCode === 'provider_outcome_unknown' ||
+      result.errorCode === 'success_finalization_incomplete' ||
+      result.status === 'ambiguous';
+    const rejected = result.errorCode === 'provider_rejected' || result.status === 'declined';
+    const timedOut = result.errorCode === 'provider_timeout';
+    const outcomeUnknown = result.errorCode === 'provider_outcome_unknown';
+    const message = formatNayaxExecutionBlockedMessage(result);
+
+    setNayaxExecutionNotice({ tone: 'warning', message });
+    setRefundActionReceipt({
+      tone: 'warning',
+      title: ambiguous
+        ? timedOut
+          ? 'Provider request timed out'
+          : outcomeUnknown
+            ? 'Provider outcome unknown'
+            : 'Refund outcome needs reconciliation'
+        : rejected
+          ? 'Refund rejected by Nayax'
+          : 'Refund not sent',
+      message: ambiguous
+        ? `${message} Keep the case open and do not retry the payment until Nayax is reconciled. No fallback or customer completion email was sent.`
+        : rejected
+          ? `${message} The case remains open for a Machine Manager. No fallback or customer completion email was sent.`
+          : `${message} The case remains open and no customer completion email was sent.`,
+      reference,
+    });
+    toast.error(
+      ambiguous
+        ? 'The card refund outcome needs reconciliation. Do not retry it.'
+        : rejected
+          ? 'Nayax rejected the refund. The case remains open.'
+          : 'Card refund execution was blocked. The case remains open.'
+    );
+
+    if (result.providerAttempted === true || result.replayed === true) {
+      await refresh();
+    }
+  };
+
   const handleRunNayaxRefund = async () => {
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return;
     if (selectedCaseIsReviewOnly) {
@@ -2047,54 +2143,7 @@ export default function AdminRefundsPage() {
     };
     try {
       const result = await executeNayaxCardRefund(executionInput);
-
-      if (!result.executed) {
-        setNayaxExecutionNotice({
-          tone: 'warning',
-          message: formatNayaxExecutionBlockedMessage(result),
-        });
-        setRefundActionReceipt({
-          tone: 'warning',
-          title: 'Refund not sent',
-          message: `${formatNayaxExecutionBlockedMessage(result)} The case is still open and no customer completion email was sent.`,
-        });
-        toast.error('Card refund was blocked by safety controls. The case was not completed.');
-        return;
-      }
-
-      const completedEditor: EditorState = {
-        ...executionEditor,
-        manualRefundReference: getNayaxExecutionReference(result) ?? editor.manualRefundReference,
-      };
-      setEditor(completedEditor);
-      const saveResult = await handleSaveCase(completedEditor, 'completed');
-      const reference = getNayaxExecutionReference(result);
-      if (saveResult === 'step_up_pending') {
-        return;
-      }
-      if (!saveResult) {
-        setRefundActionReceipt({
-          tone: 'warning',
-          title: 'Refund sent; follow-up needs attention',
-          message:
-            'Nayax reported success, but Bloomjoy Hub could not finish the case or customer email. Do not retry the payment. Reconcile this case against Nayax and retry only the customer follow-up.',
-          reference,
-        });
-        return;
-      }
-
-      setRefundActionReceipt({
-        tone: 'success',
-        title: 'Refund completed',
-        message:
-          saveResult.customerMessage?.status === 'failed'
-            ? 'Nayax reported success and the case was completed, but the customer email needs a retry.'
-            : saveResult.customerMessage?.status === 'sent'
-              ? 'Nayax reported success, the case was completed, and the customer was notified.'
-              : 'Nayax reported success, the case was completed, and the customer email is queued for delivery.',
-        reference,
-      });
-      setIsRefundConfirmationOpen(false);
+      await applyNayaxExecutionResult(result);
     } catch (executionError) {
       const stepUpRequest = getRefundManagerStepUpRequest(executionError, executionInput);
       if (stepUpRequest) {
@@ -2104,23 +2153,20 @@ export default function AdminRefundsPage() {
       const response = isNayaxCardRefundExecutionError(executionError)
         ? executionError.data
         : null;
-      const message = response
-        ? formatNayaxExecutionBlockedMessage(response)
-        : executionError instanceof Error
+      if (response) {
+        await applyNayaxExecutionResult(response);
+      } else {
+        const message = executionError instanceof Error
           ? executionError.message
-          : 'Card refund execution was blocked or could not be prepared.';
-      setNayaxExecutionNotice({
-        tone: 'warning',
-        message,
-      });
-      setRefundActionReceipt({
-        tone: 'warning',
-        title: response ? 'Refund not sent' : 'Refund outcome needs verification',
-        message: response
-          ? `${message} The case remains open and the customer was not emailed.`
-          : `${message} Do not retry until the Nayax transaction is checked, because the provider outcome was not confirmed.`,
-      });
-      toast.error('Card refund was not completed. The customer was not contacted.');
+          : 'The provider outcome could not be confirmed.';
+        setNayaxExecutionNotice({ tone: 'warning', message });
+        setRefundActionReceipt({
+          tone: 'warning',
+          title: 'Refund outcome needs reconciliation',
+          message: `${message} Keep the case open and do not retry until the Nayax transaction is reconciled. The customer was not contacted.`,
+        });
+        toast.error('The card refund outcome needs reconciliation. Do not retry it.');
+      }
     } finally {
       setIsRunningNayaxRefund(false);
     }
@@ -2284,20 +2330,7 @@ export default function AdminRefundsPage() {
         pendingManagerStepUp,
         managerStepUpCode
       );
-      if (!result.executed) {
-        setNayaxExecutionNotice({
-          tone: 'warning',
-          message: formatNayaxExecutionBlockedMessage(result),
-        });
-        setRefundActionReceipt({
-          tone: 'warning',
-          title: 'Refund not sent',
-          message: `${formatNayaxExecutionBlockedMessage(result)} The case remains open.`,
-        });
-      } else {
-        toast.success('Nayax confirmed the reviewed refund action.');
-        await refresh();
-      }
+      await applyNayaxExecutionResult(result);
       clearManagerStepUp();
     } catch (stepUpError) {
       const nayaxResponse = isNayaxCardRefundExecutionError(stepUpError)
@@ -2314,13 +2347,7 @@ export default function AdminRefundsPage() {
         nayaxResponse &&
         isNayaxTargetResult
       ) {
-        const message = formatNayaxExecutionBlockedMessage(nayaxResponse);
-        setNayaxExecutionNotice({ tone: 'warning', message });
-        setRefundActionReceipt({
-          tone: 'warning',
-          title: 'Refund not sent',
-          message: `${message} The case remains open and the customer was not emailed.`,
-        });
+        await applyNayaxExecutionResult(nayaxResponse);
         clearManagerStepUp();
         return;
       }
@@ -2882,6 +2909,14 @@ export default function AdminRefundsPage() {
     const recommendedCandidate = nayaxCandidates.find((candidate) => candidate.isRecommended === true) ?? null;
     const alternateCandidates = nayaxCandidates.filter((candidate) => candidate !== recommendedCandidate);
     const selectedCandidate = selectedNayaxCandidate(editor, nayaxCandidates);
+    const hasLookupResult = Boolean(
+      selectedCase.hasMatchedNayaxTransaction ||
+      selectedCase.nayaxLookupSummary ||
+      nayaxLookupSummary ||
+      nayaxCandidates.length > 0 ||
+      (nayaxLookupNotice && !isLookingUpNayax)
+    );
+    const showPrimaryTransactionCheck = !hasSelectedMatch && !hasLookupResult;
     const needsDisagreementReason = Boolean(selectedCandidate && selectedCandidate.isRecommended !== true);
     const selectCandidate = (candidate: NayaxLookupCandidate) => {
       if (candidate.selectionAllowed === false) return;
@@ -2941,6 +2976,28 @@ export default function AdminRefundsPage() {
 
     return (
       <div className="mt-3 space-y-3">
+        {showPrimaryTransactionCheck && (
+          <div className="rounded-md border border-sky-200 bg-sky-50 p-3">
+            <p className="text-sm font-medium text-sky-950">Find the payment before deciding this case</p>
+            <p className="mt-1 text-xs leading-5 text-sky-800">
+              This read-only check compares recent Nayax sales with the machine, amount, and reported time. It never issues a refund.
+            </p>
+            <Button
+              data-testid="nayax-check-transaction"
+              type="button"
+              className="mt-3"
+              onClick={() => void handleNayaxLookup()}
+              disabled={isLookingUpNayax || isUsingDemoData}
+            >
+              {isLookingUpNayax ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="mr-2 h-4 w-4" />
+              )}
+              Check Nayax transaction
+            </Button>
+          </div>
+        )}
         {nayaxLookupNotice && !selectedCase.hasMatchedNayaxTransaction && (
           <div data-testid="nayax-lookup-notice" className={nayaxLookupNoticeClass(nayaxLookupNotice.tone)}>
             {nayaxLookupNotice.message}
@@ -3014,20 +3071,22 @@ export default function AdminRefundsPage() {
               Use these only if the selected card sale looks wrong or stale.
             </p>
             <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => void handleNayaxLookup()}
-                disabled={isLookingUpNayax || isUsingDemoData}
-              >
-                {isLookingUpNayax ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                )}
-                Refresh result
-              </Button>
+              {hasLookupResult && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleNayaxLookup()}
+                  disabled={isLookingUpNayax || isUsingDemoData}
+                >
+                  {isLookingUpNayax ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                  )}
+                  Refresh result
+                </Button>
+              )}
               {hasSelectedMatch && (
                 <Button
                   type="button"

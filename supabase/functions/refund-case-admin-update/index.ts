@@ -725,6 +725,18 @@ serve(async (req) => {
       }, 400);
     }
     if (
+      beforeRow.payment_method === "card" &&
+      (requestedStatus === "completed" ||
+        requestedMessageType === "approved" ||
+        requestedMessageType === "completed")
+    ) {
+      return jsonResponse({
+        error:
+          "Card completion and customer success email require token-bound confirmed provider settlement. Use the guarded Nayax refund action.",
+        errorCode: "provider_settlement_required",
+      }, 409);
+    }
+    if (
       requestedMessageType !== "more_info" &&
       suppliedCustomerMissingFields.length > 0
     ) {
@@ -974,9 +986,13 @@ serve(async (req) => {
       }, 500);
     }
 
-    const messageType = updateApplied
+    const resolvedMessageType = updateApplied
       ? requestedMessageType ?? resolveMessageType(beforeRow, afterRow)
       : null;
+    const messageType = beforeRow.payment_method === "card" &&
+        (resolvedMessageType === "approved" || resolvedMessageType === "completed")
+      ? null
+      : resolvedMessageType;
     const customerMessage = messageType
       ? await sendAndLogCustomerMessage(
         afterRow,

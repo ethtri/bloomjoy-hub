@@ -3,12 +3,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
-  authorizeRefundOfficialAction,
-  RefundOfficialActionAuthorizationError,
-} from "../_shared/refund-official-action.ts";
+  disabledNayaxProviderAdapter,
+  orchestrateNayaxRefund,
+} from "../_shared/nayax-refund-orchestration.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
-const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
 const supabase = supabaseUrl && supabaseServiceRoleKey
@@ -124,16 +123,6 @@ const safeNayaxReference = (value: string | null | undefined) =>
 const resolveRefundAmountCents = (refundCase: RefundCaseForExecution) =>
   refundCase.refund_amount_cents ?? 0;
 
-const sha256Hex = async (value: string) => {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(value),
-  );
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-};
-
 const hmacSha256Hex = async (secret: string, value: string) => {
   const key = await crypto.subtle.importKey(
     "raw",
@@ -235,45 +224,6 @@ const getPreflightBlocks = ({
   return Array.from(new Set(blocks));
 };
 
-const getDailyCapBlocks = async (amountCents: number) => {
-  const blocks: string[] = [];
-  const dailyAmountCap = envInt("NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS", 0);
-  const dailyCountCap = envInt("NAYAX_REFUND_DAILY_COUNT_CAP", 0);
-
-  if (dailyAmountCap <= 0 && dailyCountCap <= 0) return blocks;
-  if (!supabase) return blocks;
-
-  const dayStart = new Date();
-  dayStart.setUTCHours(0, 0, 0, 0);
-
-  const { data, error } = await supabase
-    .from("refund_case_nayax_refund_attempts")
-    .select("amount_cents,status")
-    .gte("created_at", dayStart.toISOString())
-    .in("status", ["in_progress", "requested", "approved", "succeeded"]);
-
-  if (error) throw error;
-
-  const attempts = (data ?? []) as Array<
-    { amount_cents: number | null; status: string | null }
-  >;
-  if (dailyCountCap > 0 && attempts.length + 1 > dailyCountCap) {
-    blocks.push("daily_count_cap_exceeded");
-  }
-
-  const committedAmountCents = attempts.reduce(
-    (total, attempt) => total + Math.max(0, Number(attempt.amount_cents ?? 0)),
-    0,
-  );
-  if (
-    dailyAmountCap > 0 && committedAmountCents + amountCents > dailyAmountCap
-  ) {
-    blocks.push("daily_amount_cap_exceeded");
-  }
-
-  return blocks;
-};
-
 const getDuplicateTransactionBlocks = async (
   refundCase: RefundCaseForExecution,
 ) => {
@@ -289,67 +239,6 @@ const getDuplicateTransactionBlocks = async (
     .maybeSingle();
   if (error) throw error;
   return data?.id ? ["duplicate_transaction"] : [];
-};
-
-const recordAttempt = async ({
-  refundCase,
-  actorUserId,
-  status,
-  errorCode,
-  idempotencyKey,
-  executionMode,
-}: {
-  refundCase: RefundCaseForExecution;
-  actorUserId: string;
-  status: string;
-  errorCode: string | null;
-  idempotencyKey: string;
-  executionMode: string;
-}) => {
-  if (!supabase) return null;
-
-  const amountCents = resolveRefundAmountCents(refundCase);
-  const machine = refundCase.reporting_machines;
-  const requestFingerprint = await sha256Hex([
-    refundCase.id,
-    refundCase.matched_nayax_transaction_id ?? "",
-    amountCents,
-    refundCase.matched_nayax_currency_code ?? "",
-  ].join("|"));
-
-  const { data, error } = await supabase
-    .from("refund_case_nayax_refund_attempts")
-    .upsert({
-      refund_case_id: refundCase.id,
-      actor_user_id: actorUserId,
-      execution_mode: executionMode,
-      status,
-      idempotency_key: idempotencyKey,
-      amount_cents: amountCents,
-      transaction_id_present: safeNayaxReference(
-        refundCase.matched_nayax_transaction_id,
-      ),
-      site_id_present: refundCase.matched_nayax_site_id !== null,
-      machine_auth_time_present: Boolean(
-        refundCase.matched_nayax_machine_auth_time,
-      ),
-      error_code: errorCode,
-      sanitized_request: {
-        request_fingerprint: requestFingerprint,
-        refund_case_reference: refundCase.public_reference,
-        amount_cents: amountCents,
-        currency_code: refundCase.matched_nayax_currency_code,
-        account_key_present: Boolean(machine?.nayax_account_key),
-        nayax_machine_id_present: Boolean(machine?.nayax_machine_id),
-        payload_redacted: true,
-      },
-      sanitized_response: {},
-    }, { onConflict: "idempotency_key" })
-    .select("id, status, error_code")
-    .single();
-
-  if (error) throw error;
-  return data;
 };
 
 serve(async (req) => {
@@ -401,9 +290,6 @@ serve(async (req) => {
       refundCase,
       actorCanManageCase: Boolean(actorCanPerformOfficialAction),
     });
-    const dailyCapBlocks = await getDailyCapBlocks(
-      resolveRefundAmountCents(refundCase),
-    );
     const duplicateTransactionBlocks = await getDuplicateTransactionBlocks(
       refundCase,
     );
@@ -428,152 +314,72 @@ serve(async (req) => {
       dryRun ? "feature_disabled" : null,
     ].filter(Boolean) as string[];
 
-    const allBlocks = Array.from(
+    const preExecutionBlocks = Array.from(
       new Set([
         ...preflightBlocks,
-        ...dailyCapBlocks,
         ...duplicateTransactionBlocks,
-        ...configBlocks,
       ]),
     );
-    if (allBlocks.length > 0) {
-      const preferredError = allBlocks.includes("kill_switch_active")
-        ? "kill_switch_active"
-        : allBlocks.includes("authorization_failed")
+    if (preExecutionBlocks.length > 0) {
+      const preferredError = preExecutionBlocks.includes("authorization_failed")
         ? "authorization_failed"
-        : allBlocks.includes("already_refunded")
+        : preExecutionBlocks.includes("already_refunded")
         ? "already_refunded"
-        : allBlocks.includes("amount_cap_exceeded")
+        : preExecutionBlocks.includes("amount_cap_exceeded")
         ? "amount_cap_exceeded"
-        : allBlocks.includes("daily_amount_cap_exceeded")
-        ? "amount_cap_exceeded"
-        : allBlocks.includes("daily_count_cap_exceeded")
-        ? "amount_cap_exceeded"
-        : allBlocks.includes("duplicate_transaction")
+        : preExecutionBlocks.includes("duplicate_transaction")
         ? "manual_review"
-        : allBlocks.includes("manual_review")
+        : preExecutionBlocks.includes("manual_review")
         ? "manual_review"
-        : allBlocks.includes("configuration_missing")
-        ? "configuration_missing"
-        : allBlocks.includes("feature_disabled")
-        ? "feature_disabled"
         : "validation_rejected";
-      const attempt = await recordAttempt({
-        refundCase,
-        actorUserId: user.id,
+
+      return jsonResponse({
+        executed: false,
         status: preferredError === "manual_review"
           ? "manual_review"
           : "preflight_blocked",
         errorCode: preferredError,
-        idempotencyKey,
-        executionMode: "preflight",
-      });
-
-      return jsonResponse({
-        executed: false,
-        status: attempt?.status ?? "preflight_blocked",
-        errorCode: preferredError,
-        blocks: allBlocks,
+        blocks: preExecutionBlocks,
         dryRun,
         killSwitchActive,
       }, 409);
     }
 
-    if (!providerContractConfirmed) {
-      const attempt = await recordAttempt({
-        refundCase,
-        actorUserId: user.id,
-        status: "manual_review",
-        errorCode: "provider_contract_unconfirmed",
-        idempotencyKey,
-        executionMode: "preflight",
-      });
-
-      return jsonResponse({
-        executed: false,
-        status: attempt?.status ?? "manual_review",
-        errorCode: "provider_contract_unconfirmed",
-        message:
-          "Nayax refund execution is gated until Bloomjoy validates the live provider contract.",
-      }, 409);
-    }
-
-    const authorization = await authorizeRefundOfficialAction({
-      supabaseUrl,
-      supabaseAnonKey,
-      accessToken,
-      context: {
+    // There is deliberately no environment, request-body, or user-selectable
+    // adapter switch. Even if every legacy rollout flag is set, the real HTTP
+    // function imports the disabled adapter and stops before consuming manager
+    // evidence, reserving an attempt, or making a provider call.
+    const result = await orchestrateNayaxRefund({
+      request: {
         caseId: refundCase.id,
-        action: "nayax_execute",
-        targetFunction: "nayax-card-refund",
-        stepUpIntentId: sanitizeText(body?.stepUpIntentId, 80) || null,
-        stepUpFactorProof: sanitizeText(body?.stepUpFactorProof, 80) || null,
-        expectedCaseVersion: Number(body?.expectedOfficialActionVersion),
-        targetStatus: "card_refund_pending",
-        targetDecision: "approved",
-        refundAmountCents: resolveRefundAmountCents(refundCase),
+        idempotencyKey,
+        amountCents: resolveRefundAmountCents(refundCase),
+        currencyCode: "USD",
       },
-    });
-
-    const { error: revalidationError } = await supabase.rpc(
-      "service_consume_nayax_refund_official_action",
-      {
-        p_authorization_id: authorization.authorizationId,
-        p_case_id: refundCase.id,
-        p_status: "card_refund_pending",
-        p_decision: "approved",
-        p_refund_amount_cents: resolveRefundAmountCents(refundCase),
-        p_matched_nayax_candidate_token: null,
+      dependencies: {
+        provider: disabledNayaxProviderAdapter,
+        reserveAndConsumeAttempt: () => {
+          throw new Error("Disabled production adapter cannot reserve an attempt.");
+        },
+        settleProviderOutcome: () => {
+          throw new Error("Disabled production adapter cannot settle an attempt.");
+        },
+        deliverCustomerCompletion: () => {
+          throw new Error("Disabled production adapter cannot contact a customer.");
+        },
       },
-    );
-    if (revalidationError) {
-      const message = sanitizeText(revalidationError.message, 240);
-      if (message.toLowerCase().includes("changed")) {
-        return jsonResponse({
-          error:
-            "This case changed during review. Reload it before refunding the card.",
-          errorCode: "validation_rejected",
-        }, 409);
-      }
-      if (message.toLowerCase().includes("mapping")) {
-        return jsonResponse({
-          error: "A currently mapped Machine Manager must perform this action.",
-          errorCode: "authorization_failed",
-        }, 403);
-      }
-      throw revalidationError;
-    }
-
-    const attempt = await recordAttempt({
-      refundCase,
-      actorUserId: user.id,
-      status: "manual_review",
-      errorCode: "provider_execution_not_yet_enabled",
-      idempotencyKey,
-      executionMode: "request_and_approve",
     });
 
     return jsonResponse({
-      executed: false,
-      status: attempt?.status ?? "manual_review",
-      errorCode: "provider_execution_not_yet_enabled",
-      message:
-        "Provider execution is intentionally stopped before a live Nayax refund call in this release slice.",
+      ...result,
+      blocks: [
+        ...configBlocks,
+        providerContractConfirmed ? null : "provider_contract_unconfirmed",
+      ].filter(Boolean),
+      dryRun,
+      killSwitchActive,
     }, 409);
   } catch (error) {
-    if (error instanceof RefundOfficialActionAuthorizationError) {
-      return jsonResponse(
-        {
-          error: error.message,
-          errorCode: error.code,
-          stepUpIntentId: error.stepUpIntentId,
-          stepUpExpiresAt: error.stepUpExpiresAt,
-          officialAction: error.action,
-          targetFunction: error.targetFunction,
-        },
-        error.status,
-      );
-    }
     console.error("nayax-card-refund error", {
       errorType: error instanceof Error ? error.name : typeof error,
     });
