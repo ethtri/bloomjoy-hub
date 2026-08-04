@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
-import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -41,7 +41,172 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-qr-intake-retired.png',
 ];
 
+export const EXPECTED_MACHINE_READABLE_ARTIFACTS = [
+  'refund-portal-assertions.json',
+  'refund-database-counts.json',
+  'refund-gmail-mime-roles.json',
+  'refund-kill-switches.json',
+];
+
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const MAX_MACHINE_ARTIFACT_BYTES = 16 * 1024;
+
+const isPlainObject = (value) =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const assertExactKeys = (value, expectedKeys, label) => {
+  if (!isPlainObject(value)) {
+    throw new Error(`${label} must be an object.`);
+  }
+  const actualKeys = Object.keys(value).sort();
+  const sortedExpected = [...expectedKeys].sort();
+  if (JSON.stringify(actualKeys) !== JSON.stringify(sortedExpected)) {
+    throw new Error(`${label} contains unsupported or missing fields.`);
+  }
+};
+
+const assertLiteral = (actual, expected, label) => {
+  if (actual !== expected) throw new Error(`${label} is invalid.`);
+};
+
+const assertCount = (value, label, { min = 0, max = 1_000_000 } = {}) => {
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
+    throw new Error(`${label} must be a bounded aggregate count.`);
+  }
+};
+
+const validatePortalAssertions = (payload) => {
+  assertExactKeys(payload, [
+    'schemaVersion',
+    'evidenceType',
+    'evidenceMode',
+    'passed',
+    'assertionCount',
+    'failedAssertionCount',
+    'navigationProviderCallCount',
+    'navigationOfficialActionCallCount',
+  ], 'Portal assertion evidence');
+  assertLiteral(payload.schemaVersion, 1, 'Portal assertion schemaVersion');
+  assertLiteral(payload.evidenceType, 'portal_assertions', 'Portal assertion evidenceType');
+  assertLiteral(payload.evidenceMode, 'synthetic_browser_mocks', 'Portal assertion evidenceMode');
+  assertLiteral(payload.passed, true, 'Portal assertion passed flag');
+  assertCount(payload.assertionCount, 'Portal assertion count', { min: 1 });
+  assertLiteral(payload.failedAssertionCount, 0, 'Portal failed assertion count');
+  assertLiteral(payload.navigationProviderCallCount, 0, 'Portal navigation provider call count');
+  assertLiteral(payload.navigationOfficialActionCallCount, 0, 'Portal navigation official-action call count');
+};
+
+const validateDatabaseCounts = (payload) => {
+  assertExactKeys(payload, [
+    'schemaVersion',
+    'evidenceType',
+    'evidenceMode',
+    'passed',
+    'migrationCount',
+    'testFileCount',
+    'assertionCount',
+    'failedAssertionCount',
+  ], 'Database count evidence');
+  assertLiteral(payload.schemaVersion, 1, 'Database count schemaVersion');
+  assertLiteral(payload.evidenceType, 'database_counts', 'Database count evidenceType');
+  assertLiteral(payload.evidenceMode, 'disposable_local_database', 'Database count evidenceMode');
+  assertLiteral(payload.passed, true, 'Database count passed flag');
+  assertCount(payload.migrationCount, 'Migration count', { min: 1 });
+  assertCount(payload.testFileCount, 'Database test-file count', { min: 1 });
+  assertCount(payload.assertionCount, 'Database assertion count', { min: 1 });
+  assertLiteral(payload.failedAssertionCount, 0, 'Database failed assertion count');
+};
+
+const validateMimeRoles = (payload) => {
+  assertExactKeys(payload, [
+    'schemaVersion',
+    'evidenceType',
+    'evidenceMode',
+    'passed',
+    'roleCounts',
+    'sourceThreadPinned',
+    'duplicateMessageCount',
+  ], 'Gmail MIME-role evidence');
+  assertLiteral(payload.schemaVersion, 1, 'Gmail MIME-role schemaVersion');
+  assertLiteral(payload.evidenceType, 'gmail_mime_roles', 'Gmail MIME-role evidenceType');
+  assertLiteral(payload.evidenceMode, 'synthetic_unit_tests', 'Gmail MIME-role evidenceMode');
+  assertLiteral(payload.passed, true, 'Gmail MIME-role passed flag');
+  assertExactKeys(payload.roleCounts, [
+    'customerTo',
+    'managerCc',
+    'mailboxTo',
+    'unrelatedTo',
+    'unrelatedCc',
+  ], 'Gmail MIME role counts');
+  assertLiteral(payload.roleCounts.customerTo, 1, 'Gmail customer To role count');
+  assertCount(payload.roleCounts.managerCc, 'Gmail manager CC role count', { min: 1, max: 3 });
+  assertLiteral(payload.roleCounts.mailboxTo, 0, 'Gmail mailbox To role count');
+  assertLiteral(payload.roleCounts.unrelatedTo, 0, 'Gmail unrelated To role count');
+  assertLiteral(payload.roleCounts.unrelatedCc, 0, 'Gmail unrelated CC role count');
+  assertLiteral(payload.sourceThreadPinned, true, 'Gmail source-thread pin');
+  assertLiteral(payload.duplicateMessageCount, 0, 'Gmail duplicate-message count');
+};
+
+const validateKillSwitchCounts = (value, label) => {
+  assertExactKeys(value, [
+    'disabled',
+    'deliveryClaimCount',
+    'providerFetchCount',
+    'providerSendCount',
+  ], label);
+  assertLiteral(value.disabled, true, `${label} disabled flag`);
+  assertLiteral(value.deliveryClaimCount, 0, `${label} delivery-claim count`);
+  assertLiteral(value.providerFetchCount, 0, `${label} provider-fetch count`);
+  assertLiteral(value.providerSendCount, 0, `${label} provider-send count`);
+};
+
+const validateKillSwitches = (payload) => {
+  assertExactKeys(payload, [
+    'schemaVersion',
+    'evidenceType',
+    'evidenceMode',
+    'passed',
+    'switches',
+    'intakeAvailable',
+    'portalAvailable',
+  ], 'Kill-switch evidence');
+  assertLiteral(payload.schemaVersion, 1, 'Kill-switch schemaVersion');
+  assertLiteral(payload.evidenceType, 'kill_switches', 'Kill-switch evidenceType');
+  assertLiteral(payload.evidenceMode, 'synthetic_fake_transport', 'Kill-switch evidenceMode');
+  assertLiteral(payload.passed, true, 'Kill-switch passed flag');
+  assertExactKeys(payload.switches, [
+    'gmailOutbound',
+    'customerContact',
+    'managerAging',
+  ], 'Kill-switch count groups');
+  validateKillSwitchCounts(payload.switches.gmailOutbound, 'Gmail outbound kill switch');
+  validateKillSwitchCounts(payload.switches.customerContact, 'Customer-contact kill switch');
+  validateKillSwitchCounts(payload.switches.managerAging, 'Manager-aging kill switch');
+  assertLiteral(payload.intakeAvailable, true, 'Kill-switch intake availability');
+  assertLiteral(payload.portalAvailable, true, 'Kill-switch portal availability');
+};
+
+const machineArtifactValidators = new Map([
+  ['refund-portal-assertions.json', validatePortalAssertions],
+  ['refund-database-counts.json', validateDatabaseCounts],
+  ['refund-gmail-mime-roles.json', validateMimeRoles],
+  ['refund-kill-switches.json', validateKillSwitches],
+]);
+
+export function validateMachineReadableEvidence(name, payload) {
+  const validate = machineArtifactValidators.get(name);
+  if (!validate) throw new Error(`Unsupported machine-readable evidence artifact: ${name}`);
+  validate(payload);
+  const serialized = JSON.stringify(payload);
+  if (
+    serialized.includes('@') ||
+    /\b(?:https?:\/\/|[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})\b/i.test(serialized) ||
+    /\b\d{12,19}\b/.test(serialized)
+  ) {
+    throw new Error(`${name} contains identity, provider, or payment-like data.`);
+  }
+  return payload.evidenceType;
+}
 
 export function parseArgs(argv) {
   const args = {
@@ -90,13 +255,14 @@ export function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`Build sanitized Refund Operations browser-UAT evidence
+  console.log(`Build sanitized Refund Operations UAT evidence
 
 Usage:
   npm run refunds:build-uat-evidence -- --artifact-dir output/refund-uat-evidence --source-commit <sha>
 
-The input directory must contain all expected synthetic screenshots. The output
-manifest contains filenames, sizes, SHA-256 digests, and no customer data.`);
+The input directory must contain every expected synthetic screenshot and all
+four strict machine-readable evidence files. The output manifest contains only
+filenames, evidence types, sizes, SHA-256 digests, and no customer data.`);
 }
 
 function isPng(buffer) {
@@ -117,42 +283,86 @@ export async function buildEvidence({
   const availableFiles = new Set(
     directoryEntries.filter((entry) => entry.isFile()).map((entry) => entry.name)
   );
-  const missing = EXPECTED_SCREENSHOTS.filter((name) => !availableFiles.has(name));
+  const missingScreenshots = EXPECTED_SCREENSHOTS.filter((name) => !availableFiles.has(name));
+  const missingMachineArtifacts = EXPECTED_MACHINE_READABLE_ARTIFACTS.filter(
+    (name) => !availableFiles.has(name)
+  );
   const unexpectedPngs = [...availableFiles].filter(
     (name) => name.toLowerCase().endsWith('.png') && !EXPECTED_SCREENSHOTS.includes(name)
   );
 
-  if (missing.length > 0) {
-    throw new Error(`Missing expected synthetic UAT screenshots: ${missing.join(', ')}`);
+  if (missingScreenshots.length > 0) {
+    throw new Error(`Missing expected synthetic UAT screenshots: ${missingScreenshots.join(', ')}`);
+  }
+  if (missingMachineArtifacts.length > 0) {
+    throw new Error(`Missing expected machine-readable UAT evidence: ${missingMachineArtifacts.join(', ')}`);
   }
   if (unexpectedPngs.length > 0) {
     throw new Error(`Unreviewed UAT screenshots are not included in the manifest: ${unexpectedPngs.join(', ')}`);
   }
 
+  const outputIsInArtifactDirectory = path.dirname(output) === artifactDir;
+  const allowedFiles = new Set([
+    ...EXPECTED_SCREENSHOTS,
+    ...EXPECTED_MACHINE_READABLE_ARTIFACTS,
+    ...(outputIsInArtifactDirectory ? [path.basename(output)] : []),
+  ]);
+  const unexpectedEntries = directoryEntries
+    .filter((entry) => !entry.isFile() || !allowedFiles.has(entry.name))
+    .map((entry) => entry.name);
+  if (unexpectedEntries.length > 0) {
+    throw new Error(`Unreviewed UAT artifacts are not included in the manifest: ${unexpectedEntries.join(', ')}`);
+  }
+
   const screenshots = [];
   for (const name of EXPECTED_SCREENSHOTS) {
-    const filePath = path.join(artifactDir, name);
-    const [contents, fileStat] = await Promise.all([readFile(filePath), stat(filePath)]);
-
+    const contents = await readFile(path.join(artifactDir, name));
     if (!isPng(contents)) {
       throw new Error(`Expected a valid PNG signature for ${name}.`);
     }
-
     screenshots.push({
       name,
-      bytes: fileStat.size,
+      bytes: contents.length,
+      sha256: createHash('sha256').update(contents).digest('hex'),
+    });
+  }
+
+  const machineReadableArtifacts = [];
+  for (const name of EXPECTED_MACHINE_READABLE_ARTIFACTS) {
+    const contents = await readFile(path.join(artifactDir, name));
+    if (contents.length === 0 || contents.length > MAX_MACHINE_ARTIFACT_BYTES) {
+      throw new Error(`${name} must be a nonempty bounded JSON artifact.`);
+    }
+    let payload;
+    try {
+      payload = JSON.parse(contents.toString('utf8'));
+    } catch {
+      throw new Error(`${name} must contain valid JSON.`);
+    }
+    const evidenceType = validateMachineReadableEvidence(name, payload);
+    const canonical = `${JSON.stringify(payload, null, 2)}\n`;
+    if (contents.toString('utf8') !== canonical) {
+      throw new Error(`${name} must use canonical pretty-printed JSON with one trailing newline.`);
+    }
+    machineReadableArtifacts.push({
+      name,
+      evidenceType,
+      schemaVersion: payload.schemaVersion,
+      bytes: contents.length,
       sha256: createHash('sha256').update(contents).digest('hex'),
     });
   }
 
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt,
     sourceCommit,
-    evidenceMode: 'synthetic_browser_mocks',
+    evidenceMode: 'synthetic_and_disposable_local_only',
     containsProductionData: false,
     screenshotCount: screenshots.length,
     screenshots,
+    machineReadableArtifactCount: machineReadableArtifacts.length,
+    machineReadableArtifacts,
   };
 
   await writeFile(output, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
@@ -169,6 +379,7 @@ async function run() {
   const manifest = await buildEvidence(args);
   console.log('Refund UAT evidence manifest built.');
   console.log(`- Synthetic screenshots: ${manifest.screenshotCount}`);
+  console.log(`- Machine-readable artifacts: ${manifest.machineReadableArtifactCount}`);
   console.log(`- Contains production data: ${manifest.containsProductionData ? 'yes' : 'no'}`);
   console.log(`- Source commit: ${manifest.sourceCommit}`);
   console.log(`- Manifest: ${args.output}`);

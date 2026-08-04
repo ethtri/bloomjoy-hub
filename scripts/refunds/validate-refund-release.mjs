@@ -15,6 +15,7 @@ import {
   compareCaptureState,
   compareProductionState,
   discoverRefundMigrationFiles,
+  manifestPath,
   parseFunctionDeploymentConfig,
   requiredFunctionSlugs,
   sanitizeProductionMetadata,
@@ -25,6 +26,48 @@ const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-relea
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
 
 try {
+  assert.equal(requiredFunctionSlugs.length, 10, 'Refund release inventory must cover exactly ten functions');
+  assert.deepEqual(
+    requiredFunctionSlugs.slice(-2),
+    ['refund-manager-action-step-up', 'refund-manager-totp-enrollment'],
+    'Manager step-up and TOTP enrollment must be in the release inventory'
+  );
+  const repositoryManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  validateManifestShape(repositoryManifest, { allowPending: true });
+  assert.equal(
+    repositoryManifest.sourceGitCommit,
+    'pending',
+    'Integrated release source commit must remain pending until all functional slices are merged'
+  );
+  for (const managerSlug of ['refund-manager-action-step-up', 'refund-manager-totp-enrollment']) {
+    const localEntry = repositoryManifest.functions.find((entry) => entry.slug === managerSlug);
+    const baselineEntry = repositoryManifest.preDeploymentProduction.find(
+      (entry) => entry.slug === managerSlug
+    );
+    const restoreEntry = repositoryManifest.approvedRestoreSource.functions.find(
+      (entry) => entry.slug === managerSlug
+    );
+    assert.deepEqual(
+      localEntry,
+      {
+        slug: managerSlug,
+        verifyJwt: false,
+        sourceSha256: 'pending',
+        production: null,
+      },
+      `${managerSlug} must remain an undeployed pending local release entry`
+    );
+    assert.deepEqual(
+      baselineEntry,
+      { slug: managerSlug, status: 'MISSING' },
+      `${managerSlug} must retain an explicit missing pre-deployment baseline`
+    );
+    assert.deepEqual(
+      restoreEntry,
+      { slug: managerSlug, restoreAction: 'disable' },
+      `${managerSlug} rollback must disable the newly introduced function`
+    );
+  }
   fs.mkdirSync(path.join(functionsRoot, 'example'), { recursive: true });
   fs.mkdirSync(path.join(functionsRoot, '_shared'), { recursive: true });
   fs.writeFileSync(
@@ -128,6 +171,22 @@ try {
     restoreAction: 'disable',
   };
   validateManifestShape(disableOnlyRestoreManifest);
+
+  for (const managerSlug of ['refund-manager-action-step-up', 'refund-manager-totp-enrollment']) {
+    const managerIndex = requiredFunctionSlugs.indexOf(managerSlug);
+    assert.notEqual(managerIndex, -1, `${managerSlug} must be covered by the refund release allowlist`);
+    const managerDisableManifest = structuredClone(shapeManifest);
+    managerDisableManifest.approvedRestoreSource.functions[managerIndex] = {
+      slug: managerSlug,
+      restoreAction: 'disable',
+    };
+    validateManifestShape(managerDisableManifest);
+    assert.equal(
+      managerDisableManifest.preDeploymentProduction[managerIndex].status,
+      'MISSING',
+      `${managerSlug} must retain an explicit missing pre-deployment baseline`
+    );
+  }
 
   const invalidDisableRestoreManifest = structuredClone(disableOnlyRestoreManifest);
   invalidDisableRestoreManifest.approvedRestoreSource.functions[disableOnlyIndex].sourceSha256 =

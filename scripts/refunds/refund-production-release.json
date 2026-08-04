@@ -122,6 +122,18 @@
         "ezbrSha256": "94a9f0132e43d048c2de1f39f7fbc6f9f7651d1e62e812c992ac53db356a076d",
         "sourceSha256": "22fd4e70c28e196761f82dc11ea9f9aa17c175cbbf49d7e3eec4681f1eb428b9"
       }
+    },
+    {
+      "slug": "refund-manager-action-step-up",
+      "verifyJwt": false,
+      "sourceSha256": "pending",
+      "production": null
+    },
+    {
+      "slug": "refund-manager-totp-enrollment",
+      "verifyJwt": false,
+      "sourceSha256": "pending",
+      "production": null
     }
   ],
   "preDeploymentCapturedAt": "2026-07-22T20:54:45.684Z",
@@ -182,6 +194,14 @@
       "importMap": false,
       "ezbrSha256": "de849884070120b8ea2e6937bcb0e5eb658bac7205826a9d9bccb02433069747",
       "sourceSha256": "a8a4dbd8890cc4e9c2d9ecc37a66b58eae7ecb5cac160ff9e3ddcce235593787"
+    },
+    {
+      "slug": "refund-manager-action-step-up",
+      "status": "MISSING"
+    },
+    {
+      "slug": "refund-manager-totp-enrollment",
+      "status": "MISSING"
     }
   ],
   "approvedRestoreSource": {
@@ -221,6 +241,14 @@
       {
         "slug": "nayax-card-refund",
         "sourceSha256": "93684a718ead89e0a14c83eb719efe447478d27e0d26161f02eb9b01dbb0162b"
+      },
+      {
+        "slug": "refund-manager-action-step-up",
+        "restoreAction": "disable"
+      },
+      {
+        "slug": "refund-manager-totp-enrollment",
+        "restoreAction": "disable"
       }
     ]
   }

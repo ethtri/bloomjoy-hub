@@ -22,6 +22,8 @@ export const requiredFunctionSlugs = [
   'refund-gmail-sync',
   'refund-gpt-triage',
   'nayax-card-refund',
+  'refund-manager-action-step-up',
+  'refund-manager-totp-enrollment',
 ];
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
