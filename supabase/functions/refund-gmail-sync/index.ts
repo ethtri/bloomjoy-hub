@@ -18,11 +18,18 @@ import {
   type GmailMessage,
   type GmailMessagePart,
 } from "../_shared/refund-gmail.ts";
+import {
+  classifyRefundGmailStorageDelete,
+  getRefundGmailRetentionRuntimeConfig,
+  redactedRefundGmailRetentionSummary,
+  type RefundGmailRetentionSummary,
+} from "../_shared/refund-gmail-retention.ts";
 import { sendRefundManagerActionNotice } from "../_shared/refund-manager-notification.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const syncSecret = (Deno.env.get("REFUND_GMAIL_SYNC_SECRET") ?? "").trim();
+const retentionRuntime = getRefundGmailRetentionRuntimeConfig((name) => Deno.env.get(name));
 
 const supabase = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, { auth: { persistSession: false } })
@@ -292,26 +299,157 @@ const quarantinePendingAttachments = async ({
   return { quarantined, failed };
 };
 
-const runRetentionSweep = async () => {
-  if (!supabase) return;
-  const expired = await rpc("service_list_refund_gmail_expired_attachments", { p_limit: 50 });
-  const items = Array.isArray(expired) ? expired : [];
-  for (const item of items as Array<Record<string, unknown>>) {
-    const attachmentId = sanitizeText(item.attachmentId, 80);
-    const bucket = sanitizeText(item.storageBucket, 160);
-    const path = sanitizeText(item.storagePath, 1024);
-    if (!attachmentId || !bucket || !path) continue;
-    const { error } = await supabase.storage.from(bucket).remove([path]);
-    if (error) continue;
-    await rpc("service_mark_refund_gmail_attachment", {
-      p_attachment_id: attachmentId,
-      p_status: "deleted",
-      p_storage_bucket: null,
-      p_storage_path: null,
-      p_rejection_code: "retention_expired",
-    });
+const runRetentionSweep = async ({
+  runKey,
+  triggerSource,
+}: {
+  runKey: string;
+  triggerSource: "retention" | "pre_sync";
+}): Promise<RefundGmailRetentionSummary & { payloadRedacted: true }> => {
+  if (!supabase) {
+    throw new RefundGmailError(
+      "service_configuration_missing",
+      "Refund Gmail retention service is unavailable.",
+    );
   }
-  await rpc("service_purge_refund_gmail_expired_message_content", { p_limit: 200 });
+
+  const start = await rpc("service_claim_refund_gmail_retention_run", {
+    p_run_key: runKey,
+    p_trigger_source: triggerSource,
+    p_worker_enabled: retentionRuntime.workerEnabled,
+    p_policy_version: retentionRuntime.policyVersion,
+  });
+  const startSummary = redactedRefundGmailRetentionSummary(start);
+  if (start?.claimed !== true) {
+    if (startSummary.status === "succeeded") return startSummary;
+    throw new RefundGmailError(
+      startSummary.errorCode ?? "gmail_retention_not_claimed",
+      "Refund Gmail retention was not claimed.",
+    );
+  }
+
+  const runId = sanitizeText(start.runId, 80);
+  const runToken = sanitizeText(start.claimToken, 80);
+  if (!runId || !runToken) {
+    throw new RefundGmailError(
+      "gmail_retention_claim_invalid",
+      "Refund Gmail retention claim was invalid.",
+    );
+  }
+
+  let requestedOutcome: "succeeded" | "retry_required" | "manual_review" = "succeeded";
+  let failureCode: string | null = null;
+  try {
+    let claimsProcessed = 0;
+    const maxClaimsPerRun = 200;
+    while (claimsProcessed < maxClaimsPerRun) {
+      const claim = await rpc("service_claim_refund_gmail_retention_attachment", {
+        p_run_id: runId,
+        p_run_token: runToken,
+      });
+      if (claim?.claimed !== true) break;
+      claimsProcessed += 1;
+
+      const actionId = sanitizeText(claim.actionId, 80);
+      const actionToken = sanitizeText(claim.claimToken, 80);
+      const storageBucket = sanitizeText(claim.storageBucket, 160);
+      const storagePath = sanitizeText(claim.storagePath, 1024);
+      let outcome: "deleted" | "delete_failed" | "delete_unknown" = "delete_unknown";
+
+      if (actionId && actionToken && storageBucket && storagePath) {
+        try {
+          const { data, error } = await supabase.storage.from(storageBucket).remove([storagePath]);
+          outcome = classifyRefundGmailStorageDelete({
+            data,
+            error,
+            expectedPath: storagePath,
+          });
+        } catch {
+          // A thrown transport exception can occur before or after provider
+          // acceptance. Its outcome is unknown and must never auto-retry.
+          outcome = "delete_unknown";
+        }
+      }
+
+      if (!actionId || !actionToken) {
+        requestedOutcome = "manual_review";
+        failureCode = "storage_delete_outcome_unknown";
+        break;
+      }
+
+      const settlement = await rpc("service_settle_refund_gmail_retention_attachment", {
+        p_action_id: actionId,
+        p_claim_token: actionToken,
+        p_outcome: outcome,
+      });
+      const settlementStatus = sanitizeText(settlement?.status, 80);
+      if (settlementStatus === "manual_review") {
+        requestedOutcome = "manual_review";
+        failureCode = "storage_delete_outcome_unknown";
+      } else if (settlementStatus === "retry_required" && requestedOutcome !== "manual_review") {
+        requestedOutcome = "retry_required";
+        failureCode = "storage_delete_failed";
+      } else if (settlementStatus !== "deleted") {
+        requestedOutcome = "manual_review";
+        failureCode = "storage_delete_outcome_unknown";
+      }
+    }
+
+    if (claimsProcessed >= maxClaimsPerRun && requestedOutcome === "succeeded") {
+      requestedOutcome = "retry_required";
+      failureCode = "cleanup_batch_incomplete";
+    }
+
+    const purge = await rpc("service_purge_refund_gmail_retention_content", {
+      p_run_id: runId,
+      p_run_token: runToken,
+      p_limit: 500,
+    });
+    if (purge?.purged !== true && requestedOutcome !== "manual_review") {
+      requestedOutcome = "retry_required";
+      failureCode = "cleanup_batch_incomplete";
+    }
+
+    const settlement = await rpc("service_settle_refund_gmail_retention_run", {
+      p_run_id: runId,
+      p_run_token: runToken,
+      p_outcome: requestedOutcome,
+      p_failure_code: failureCode,
+    });
+    const summary = redactedRefundGmailRetentionSummary(settlement);
+    if (summary.status !== "succeeded") {
+      throw new RefundGmailError(
+        summary.errorCode ?? "gmail_retention_failed",
+        "Refund Gmail retention did not complete safely.",
+      );
+    }
+    return summary;
+  } catch (error) {
+    await rpc("service_abandon_refund_gmail_retention_run", {
+      p_run_id: runId,
+      p_run_token: runToken,
+    }).catch(() => null);
+    if (error instanceof RefundGmailError) throw error;
+    throw new RefundGmailError(
+      "gmail_retention_failed",
+      "Refund Gmail retention failed.",
+    );
+  }
+};
+
+const authorizeNewGmailCopies = async () => {
+  const gate = await rpc("service_authorize_refund_gmail_copy", {
+    p_worker_enabled: retentionRuntime.workerEnabled,
+    p_policy_version: retentionRuntime.policyVersion,
+    p_scanner_enabled: retentionRuntime.scannerEnabled,
+    p_scanner_version: retentionRuntime.scannerVersion,
+  });
+  if (gate?.allowed !== true) {
+    throw new RefundGmailError(
+      sanitizeText(gate?.status, 80) || "gmail_copy_safety_gate_closed",
+      "Refund Gmail copy safety gate is closed.",
+    );
+  }
 };
 
 serve(async (request) => {
@@ -322,10 +460,65 @@ serve(async (request) => {
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   const triggerSource = sanitizeText(body.trigger, 40).toLowerCase() || "scheduled";
   const runKey = sanitizeText(body.runKey, 255);
-  if (!runKey || !["scheduled", "manual", "failure_test"].includes(triggerSource)) {
+  if (!runKey || !["scheduled", "manual", "failure_test", "retention"].includes(triggerSource)) {
     return jsonResponse({ error: "Valid run key and trigger are required." }, 400);
   }
 
+  if (triggerSource === "retention") {
+    try {
+      const summary = await runRetentionSweep({
+        runKey: `retention:${runKey}`,
+        triggerSource: "retention",
+      });
+      console.info("refund-gmail retention completed", summary);
+      return jsonResponse({
+        ...summary,
+        retentionOnly: true,
+      });
+    } catch (error) {
+      const errorCode = error instanceof RefundGmailError
+        ? error.code
+        : "gmail_retention_failed";
+      console.error("refund-gmail retention failed", {
+        errorCode,
+        payloadRedacted: true,
+      });
+      return jsonResponse({
+        status: "failed",
+        retentionOnly: true,
+        errorCode,
+        payloadRedacted: true,
+      }, 503);
+    }
+  }
+
+  if (triggerSource !== "failure_test") {
+    try {
+      const summary = await runRetentionSweep({
+        runKey: `pre-sync:${runKey}`,
+        triggerSource: "pre_sync",
+      });
+      console.info("refund-gmail pre-sync retention completed", summary);
+      await authorizeNewGmailCopies();
+    } catch (error) {
+      const errorCode = error instanceof RefundGmailError
+        ? error.code
+        : "gmail_copy_safety_gate_closed";
+      console.error("refund-gmail pre-sync retention failed", {
+        errorCode,
+        payloadRedacted: true,
+      });
+      return jsonResponse({
+        status: "failed",
+        retentionOnly: false,
+        errorCode,
+        payloadRedacted: true,
+      }, 503);
+    }
+  }
+
+  // Gmail configuration and OAuth are intentionally unavailable until local
+  // cleanup succeeds and the owner/scanner/copy-health gate authorizes copying.
   const config = getRefundGmailConfig();
   const mailboxHash = config ? await sha256Hex(config.mailbox) : await sha256Hex("not-configured");
   const labelHash = config ? await sha256Hex(config.labelId) : await sha256Hex("not-configured");
@@ -385,8 +578,6 @@ serve(async (request) => {
   let profileHistoryId: string | null = null;
   let fatalError: RefundGmailError | null = null;
   try {
-    // Retention is a local privacy obligation and must not depend on Google authorization remaining healthy.
-    await runRetentionSweep();
     const profile = await verifyRefundGmailMailbox(config);
     profileHistoryId = sanitizeText(profile.historyId, 255) || null;
     const maxThreads = Math.min(

@@ -6,7 +6,9 @@ const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8
 const [
   migration,
   participantMigration,
+  retentionMigration,
   gmailHelper,
+  retentionHelper,
   gmailTransport,
   refundEmail,
   managerNotification,
@@ -23,7 +25,9 @@ const [
   await Promise.all([
     read('supabase/migrations/202607210006_refund_gmail_thread_linkage.sql'),
     read('supabase/migrations/202608030003_refund_gmail_participant_cc.sql'),
+    read('supabase/migrations/202608040002_refund_gmail_retention_safety.sql'),
     read('supabase/functions/_shared/refund-gmail.ts'),
+    read('supabase/functions/_shared/refund-gmail-retention.ts'),
     read('supabase/functions/_shared/refund-gmail-transport.ts'),
     read('supabase/functions/_shared/refund-email.ts'),
     read('supabase/functions/_shared/refund-manager-notification.ts'),
@@ -133,8 +137,38 @@ assert(syncFunction.includes('collectAttachmentDescriptors'), 'Attachment type, 
 assert(syncFunction.includes('refund-gmail-quarantine'), 'Permitted attachments must be quarantined privately');
 assert(syncFunction.includes('payloadRedacted: true'), 'Gmail logs and responses must be aggregate-only');
 assert(
-  syncFunction.indexOf('await runRetentionSweep();') < syncFunction.indexOf('verifyRefundGmailMailbox(config)'),
-  'Local retention cleanup must run before Google authorization can fail',
+  syncFunction.indexOf('const summary = await runRetentionSweep({') >= 0 &&
+    syncFunction.indexOf('const summary = await runRetentionSweep({') <
+      syncFunction.indexOf('await authorizeNewGmailCopies()') &&
+    syncFunction.indexOf('await authorizeNewGmailCopies()') <
+      syncFunction.indexOf('const config = getRefundGmailConfig()') &&
+    syncFunction.indexOf('const config = getRefundGmailConfig()') <
+      syncFunction.indexOf('verifyRefundGmailMailbox(config)'),
+  'Claimed local retention and copy-health authorization must run before Gmail configuration or OAuth access',
+);
+assert(
+  syncFunction.includes('triggerSource === "retention"') &&
+    syncFunction.includes('triggerSource: "retention"') &&
+    syncFunction.includes('retentionOnly: true'),
+  'Retention-only cleanup must be callable without the provider sync path',
+);
+assert(
+  syncFunction.includes('service_claim_refund_gmail_retention_run') &&
+    syncFunction.includes('service_claim_refund_gmail_retention_attachment') &&
+    syncFunction.includes('service_settle_refund_gmail_retention_attachment') &&
+    syncFunction.includes('service_purge_refund_gmail_retention_content') &&
+    syncFunction.includes('service_settle_refund_gmail_retention_run') &&
+    syncFunction.includes('service_abandon_refund_gmail_retention_run') &&
+    !syncFunction.includes('service_list_refund_gmail_expired_attachments') &&
+    !syncFunction.includes('service_purge_refund_gmail_expired_message_content'),
+  'Retention must use the durable claim/settle boundary and reject the legacy unclaimed deletion path',
+);
+assert(
+  syncFunction.includes('classifyRefundGmailStorageDelete') &&
+    syncFunction.includes('outcome = "delete_unknown"') &&
+    syncFunction.indexOf('p_outcome: outcome') <
+      syncFunction.indexOf('service_purge_refund_gmail_retention_content'),
+  'Storage bytes must have a known per-item outcome before copied metadata can purge',
 );
 assert(
   !syncFunction.includes('console.log(message)') && !syncFunction.includes('console.error(error)'),
@@ -161,6 +195,13 @@ assert(
 );
 
 assert(workflow.includes('vars.REFUND_GMAIL_SYNC_ENABLED'), 'Scheduled Gmail sync must be disabled by default');
+assert(
+  workflow.includes('vars.REFUND_GMAIL_RETENTION_ENABLED') &&
+    workflow.includes('vars.REFUND_GMAIL_SYNC_ENABLED !=') &&
+    workflow.includes('\\"trigger\\":\\"retention\\"') &&
+    workflow.includes('github.run_attempt'),
+  'A default-off independent retention job must remain retry-safe while provider sync is disabled',
+);
 assert(workflow.includes('secrets.REFUND_GMAIL_SYNC_URL'), 'Gmail sync URL must be encrypted');
 assert(workflow.includes('secrets.REFUND_GMAIL_SYNC_TOKEN'), 'Gmail sync token must be encrypted');
 assert(workflow.includes('cancel-in-progress: false'), 'A running Gmail sync must not be cancelled mid-delivery');
@@ -179,6 +220,82 @@ assert(ui.includes('refund-gmail-thread'), 'The safe Gmail conversation must app
 assert(ui.includes('refund-gmail-health'), 'Gmail sync failures must be visible to managers');
 assert(preflight.includes('VITE_GMAIL_'), 'Gmail preflight must reject browser-exposed secret names');
 assert(preflight.includes("'REFUND_GMAIL_ENABLED'"), 'Gmail preflight must verify the server enable switch');
+
+assert(
+  retentionMigration.includes('add column if not exists copied_at timestamptz') &&
+    retentionMigration.includes('preserve_refund_gmail_copied_at') &&
+    retentionMigration.includes('make_interval(days => run_row.retention_days)'),
+  'Retention eligibility must use a database-trusted immutable local copied timestamp',
+);
+for (const table of [
+  'refund_gmail_retention_settings',
+  'refund_gmail_retention_runs',
+  'refund_gmail_retention_actions',
+  'refund_gmail_retention_state',
+]) {
+  assert(retentionMigration.includes(`create table if not exists public.${table}`), `${table} must exist`);
+  assert(
+    retentionMigration.includes(`alter table public.${table} enable row level security`),
+    `${table} must use RLS`,
+  );
+  assert(
+    retentionMigration.includes(`revoke all on table public.${table} from public, anon, authenticated, service_role`),
+    `${table} must be inaccessible outside guarded service RPCs`,
+  );
+}
+assert(
+  retentionMigration.includes("cleanup_enabled boolean not null default false") &&
+    retentionMigration.includes('approved_retention_days integer') &&
+    retentionMigration.includes('owner_approved_at timestamptz') &&
+    retentionMigration.includes('attachment_quarantine_approved boolean not null default false'),
+  'Retention duration and attachment safety policy must remain owner-unapproved and default off',
+);
+assert(
+  retentionMigration.includes("run_key ~ '^[a-zA-Z0-9:_-]{8,255}$'") &&
+    retentionMigration.includes("normalized_key !~ '^[a-zA-Z0-9:_-]{8,255}$'") &&
+    !retentionMigration.includes("left(btrim(coalesce(p_run_key"),
+  'Caller run keys must be strictly allowlisted and must never persist arbitrary truncated text',
+);
+assert(
+  retentionMigration.includes("settings_row.policy_version,") &&
+    !retentionMigration.includes("coalesce(nullif(normalized_policy, ''), settings_row.policy_version)"),
+  'A policy mismatch may persist only the configured policy version and a redacted code',
+);
+assert(
+  retentionMigration.includes("action.status = 'manual_review'") &&
+    retentionMigration.includes("action.status = 'delete_failed'") &&
+    retentionMigration.includes("when global_manual_count > 0 then 'manual_review'") &&
+    retentionMigration.includes("when global_retry_count > 0 then 'retry_required'"),
+  'Older unresolved outcomes must remain durable in global cleanup health and block a false healthy state',
+);
+const retentionAuthorizeBlock = retentionMigration.slice(
+  retentionMigration.indexOf('create or replace function public.service_authorize_refund_gmail_copy'),
+  retentionMigration.indexOf('create or replace function public.service_get_refund_gmail_retention_health'),
+);
+const retentionHealthBlock = retentionMigration.slice(
+  retentionMigration.indexOf('create or replace function public.service_get_refund_gmail_retention_health'),
+  retentionMigration.indexOf('-- Disable the legacy unclaimed cleanup surface'),
+);
+assert(
+  !retentionAuthorizeBlock.includes('\nstable\n') &&
+    !retentionHealthBlock.includes('\nstable\n'),
+  'Clock- and global-state retention health gates must not be declared STABLE',
+);
+assert(
+  retentionMigration.includes("normalized_status not in ('rejected', 'quarantined', 'clean', 'error')") &&
+    retentionMigration.includes('revoke execute on function public.service_list_refund_gmail_expired_attachments(integer)') &&
+    retentionMigration.includes('revoke execute on function public.service_purge_refund_gmail_expired_message_content(integer)'),
+  'An old worker cannot bypass byte-delete claims or finalize deleted metadata',
+);
+assert(
+  retentionHelper.includes('classifyRefundGmailStorageDelete') &&
+    retentionHelper.includes('? "deleted"') &&
+    retentionHelper.includes(': "delete_unknown"') &&
+    retentionHelper.includes('redactedRefundGmailRetentionSummary') &&
+    !retentionHelper.includes('storagePath:') &&
+    !retentionHelper.includes('recipientEmail:'),
+  'The worker helper must require exact delete evidence and emit only allowlisted aggregate fields',
+);
 assert(
   migration.includes('or public.is_scoped_admin(p_user_id)') &&
     !migration.includes("refund_case.status = 'draft'\n            and (\n              public.is_super_admin(p_user_id)\n              or public.user_is_refund_manager(p_user_id)"),

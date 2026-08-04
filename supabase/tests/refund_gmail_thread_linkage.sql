@@ -484,29 +484,26 @@ set
   storage_path = 'synthetic/expired-receipt.pdf',
   retention_expires_at = now() - interval '1 minute';
 
-select is(
-  public.service_mark_refund_gmail_attachment(
+select ok(
+  pg_temp.capture_error(format(
+    'select public.service_mark_refund_gmail_attachment(%L::uuid, %L, null, null, %L)',
     (select id from public.refund_gmail_attachments limit 1),
     'deleted',
-    null,
-    null,
     'retention_expired'
-  ),
-  true,
-  'Retention cleanup can mark a quarantined attachment deleted'
+  )) like '%Unsupported attachment status%',
+  'The legacy attachment marker cannot bypass claimed byte deletion'
 );
 select ok(
   (
-    select provider_attachment_id like 'deleted-%'
-      and file_name = '[Deleted after Gmail retention period]'
-      and content_type = 'application/octet-stream'
-      and byte_size = 0
-      and storage_bucket is null
-      and storage_path is null
+    select provider_attachment_id not like 'retention-deleted:%'
+      and file_name <> '[Deleted after Gmail retention period]'
+      and storage_bucket = 'refund-gmail-quarantine'
+      and storage_path = 'synthetic/expired-receipt.pdf'
+      and deleted_at is null
     from public.refund_gmail_attachments
     limit 1
   ),
-  'Deleted Gmail attachment metadata no longer retains provider IDs, filenames, types, sizes, or storage paths'
+  'Blocked legacy deletion leaves quarantine metadata intact until storage success is settled'
 );
 
 update public.refund_gmail_messages
@@ -514,28 +511,22 @@ set retention_expires_at = now() - interval '1 minute';
 update public.refund_gmail_threads
 set retention_expires_at = now() - interval '1 minute';
 
-select is(
-  public.service_purge_refund_gmail_expired_message_content(200),
-  4,
-  'Expired Gmail message content is purged in a bounded retention pass'
+select ok(
+  not has_function_privilege(
+    'service_role',
+    'public.service_purge_refund_gmail_expired_message_content(integer)',
+    'execute'
+  ),
+  'The service worker cannot invoke the legacy unclaimed message purge'
 );
 select ok(
-  not exists (
+  exists (
     select 1
     from public.refund_gmail_messages
     where content_deleted_at is null
-      or subject <> '[Deleted after Gmail retention period]'
-      or plain_body <> '[Deleted after Gmail retention period]'
-      or sender_email is not null
-      or recipient_email is not null
-      or cardinality(recipient_cc_emails) <> 0
-  )
-  and not exists (
-    select 1
-    from public.refund_gmail_threads
-    where thread_subject <> '[Deleted after Gmail retention period]'
+      and subject <> '[Deleted after Gmail retention period]'
   ),
-  'Expired Gmail messages and thread subjects no longer retain copied customer content'
+  'Revoking the legacy purge prevents metadata deletion ahead of attachment-byte settlement'
 );
 
 select set_config('request.jwt.claim.sub', '', true);

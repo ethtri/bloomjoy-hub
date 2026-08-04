@@ -67,7 +67,7 @@
     "refunds:smoke-nayax-mapping": "node scripts/refunds/nayax-mapping-smoke.mjs",
     "refunds:validate-nayax-mapping-smoke": "node scripts/refunds/validate-nayax-mapping-smoke.mjs",
     "refunds:validate-automation": "node scripts/refunds/validate-refund-automation.mjs",
-    "refunds:validate-gmail": "deno test --no-lock supabase/functions/_shared/refund-gmail.test.ts && node scripts/refunds/validate-refund-gmail.mjs",
+    "refunds:validate-gmail": "deno test --no-lock supabase/functions/_shared/refund-gmail.test.ts supabase/functions/_shared/refund-gmail-retention.test.ts && node scripts/refunds/validate-refund-gmail.mjs",
     "refunds:validate-gpt-triage": "node scripts/refunds/validate-refund-gpt-triage.mjs",
     "refunds:preflight-gmail": "node scripts/refunds/refund-gmail-preflight.mjs",
     "refunds:preflight-gpt-triage": "node scripts/refunds/refund-gpt-triage-preflight.mjs",
