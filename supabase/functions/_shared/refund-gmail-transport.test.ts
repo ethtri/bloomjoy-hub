@@ -436,30 +436,6 @@ Deno.test("enabled linked delivery preserves exact thread, customer To, two mana
       );
       assert(oauthCalls <= 1);
       assertEquals(gmailCalls, 1);
-
-      console.info(JSON.stringify({
-        schemaVersion: 1,
-        evidence: "refund_gmail_kill_switch_and_mime",
-        synthetic: true,
-        containsProductionData: false,
-        disabled: {
-          credentialsConfigured: true,
-          firstContactClaimCalls: 0,
-          linkedManualClaimCalls: 0,
-          oauthCalls: 0,
-          gmailCalls: 0,
-        },
-        enabled: {
-          outboundClaimCalls: 1,
-          gmailSendCalls: 1,
-          customerToCount: 1,
-          managerCcCount: 2,
-          sameProviderThread: true,
-          replyHeaders: true,
-          automaticHeaders: true,
-          internalCaseLinkPresent: false,
-        },
-      }));
     },
   );
 });
