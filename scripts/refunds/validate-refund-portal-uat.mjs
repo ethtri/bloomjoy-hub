@@ -595,6 +595,7 @@ const installMockSupabaseRoutes = async (
   {
     refundOverview = buildMockRefundOverview,
     rpcCalls = [],
+    rpcBodies = [],
     functionCalls = [],
     functionBodies = [],
     nayaxLookupResponse = null,
@@ -607,6 +608,8 @@ const installMockSupabaseRoutes = async (
     gmailHealth = null,
     gmailContext = null,
     gptTriageSuggestion = undefined,
+    reconciliationContext = null,
+    reconciliationResolveResponse = null,
   } = {}
 ) => {
   await context.route('**/auth/v1/**', async (route) => {
@@ -766,6 +769,15 @@ const installMockSupabaseRoutes = async (
     const url = route.request().url();
     const rpcName = new URL(url).pathname.split('/').pop() ?? '';
     rpcCalls.push(rpcName);
+    if (route.request().method() !== 'GET') {
+      let rpcBody = null;
+      try {
+        rpcBody = route.request().postDataJSON();
+      } catch {
+        rpcBody = route.request().postData();
+      }
+      rpcBodies.push({ rpcName, body: rpcBody });
+    }
 
     if (url.includes('/get_my_admin_access_context')) {
       return route.fulfill(
@@ -902,6 +914,26 @@ const installMockSupabaseRoutes = async (
 
     if (url.includes('/admin_get_refund_operations_overview')) {
       return route.fulfill(jsonResponse(refundOverview()));
+    }
+
+    if (url.includes('/admin_get_refund_case_reconciliation')) {
+      return route.fulfill(jsonResponse(reconciliationContext ?? {
+        caseId: 'case-card-1',
+        duplicateOfCaseId: null,
+        duplicateOfPublicReference: null,
+        actionBlocked: false,
+        reviews: [],
+      }));
+    }
+
+    if (url.includes('/admin_resolve_refund_case_reconciliation')) {
+      return route.fulfill(jsonResponse(reconciliationResolveResponse ?? {
+        caseId: 'case-card-1',
+        duplicateOfCaseId: null,
+        duplicateOfPublicReference: null,
+        actionBlocked: false,
+        reviews: [],
+      }));
     }
 
     if (url.includes('/admin_update_refund_case')) {
@@ -2296,6 +2328,125 @@ const runNayaxExecutionSuccessChecks = async ({ browser, appUrl, artifactDir, re
   await context.close();
 };
 
+const runReconciliationChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  const rpcCalls = [];
+  const rpcBodies = [];
+  const consoleErrors = [];
+  const reconciliationContext = {
+    caseId: 'case-card-1',
+    duplicateOfCaseId: null,
+    duplicateOfPublicReference: null,
+    actionBlocked: true,
+    reviews: [
+      {
+        id: '93000000-0000-4000-8000-000000000001',
+        status: 'pending',
+        matchClass: 'exact',
+        reasonCodes: [
+          'customer_email_exact',
+          'machine_exact',
+          'incident_within_15_minutes',
+          'amount_exact',
+          'payment_method_exact',
+          'card_last4_exact',
+          'wallet_state_exact',
+        ],
+        policyVersion: '2026-08-04.v1',
+        otherCaseId: 'case-gmail-duplicate-1',
+        otherPublicReference: 'RF-UAT-GMAIL-DUP',
+        otherIntakeSource: 'gmail',
+        otherStatus: 'needs_review',
+        canonicalCaseId: null,
+        resolutionReasonCode: null,
+        createdAt: isoHoursAgo(0.5),
+        resolvedAt: null,
+      },
+    ],
+  };
+
+  await installMockSupabaseRoutes(context, {
+    rpcCalls,
+    rpcBodies,
+    reconciliationContext,
+  });
+
+  const page = await context.newPage();
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text());
+  });
+  page.on('pageerror', (error) => consoleErrors.push(error.message));
+
+  await signInRefundUser(page, appUrl);
+  await page.getByText('2 visible of 2 total cases').waitFor({ timeout: 10000 });
+  await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
+  await page.getByTestId('refund-reconciliation-panel').waitFor({ timeout: 10000 });
+
+  recorder.assert(
+    'Exact cross-channel candidate is visible in the manager workbench',
+    await page.getByText('Strong duplicate candidate').isVisible()
+  );
+  recorder.assert(
+    'Duplicate panel names the linked source and exact case reference',
+    await page.getByText(/Email · RF-UAT-GMAIL-DUP/).isVisible() &&
+      await page.getByRole('link', { name: 'Open RF-UAT-GMAIL-DUP' }).isVisible()
+  );
+  recorder.assert(
+    'Duplicate panel explains only bounded comparison reasons',
+    await page.getByText('same customer email').isVisible() &&
+      await page.getByText('reported times within 15 minutes').isVisible() &&
+      await page.getByText('same last four').isVisible()
+  );
+  recorder.assert(
+    'Pending duplicate review disables the official card action',
+    await page.getByTestId('refund-run-nayax-refund').isDisabled()
+  );
+  recorder.assert(
+    'Manager receives explicit distinct and canonical-case choices',
+    await page.getByRole('button', { name: 'These are different purchases' }).isVisible() &&
+      await page.getByRole('button', { name: 'Keep RF-UAT-CARD' }).isVisible() &&
+      await page.getByRole('button', { name: 'Keep RF-UAT-GMAIL-DUP' }).isVisible()
+  );
+
+  await page.getByRole('button', { name: 'Keep RF-UAT-CARD' }).click();
+  await page.getByText('Duplicate decision saved. Only the canonical case can continue.').waitFor({ timeout: 10000 });
+  const resolutionCall = rpcBodies.find((call) => call.rpcName === 'admin_resolve_refund_case_reconciliation');
+  recorder.assert(
+    'Keeping a case sends one explicit, non-provider reconciliation decision',
+    rpcCalls.filter((name) => name === 'admin_resolve_refund_case_reconciliation').length === 1 &&
+      resolutionCall?.body?.p_resolution === 'duplicate' &&
+      resolutionCall?.body?.p_canonical_refund_case_id === 'case-card-1' &&
+      resolutionCall?.body?.p_reason_code === 'same_incident',
+    JSON.stringify(resolutionCall?.body ?? {})
+  );
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobileOverflow = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    bodyScrollWidth: document.body.scrollWidth,
+    innerWidth: window.innerWidth,
+  }));
+  recorder.assert(
+    'Duplicate review panel has no mobile document overflow',
+    mobileOverflow.scrollWidth <= mobileOverflow.innerWidth &&
+      mobileOverflow.bodyScrollWidth <= mobileOverflow.innerWidth,
+    JSON.stringify(mobileOverflow)
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-cross-channel-reconciliation-mobile.png'),
+    fullPage: true,
+  });
+  recorder.assert(
+    'No browser console/page errors during cross-channel reconciliation UAT',
+    consoleErrors.length === 0,
+    consoleErrors.slice(0, 3).join(' | ')
+  );
+
+  await context.close();
+};
+
 const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
@@ -2434,6 +2585,12 @@ const run = async () => {
       recorder,
     });
     await runNayaxExecutionSuccessChecks({
+      browser,
+      appUrl: args.appUrl,
+      artifactDir: args.artifactDir,
+      recorder,
+    });
+    await runReconciliationChecks({
       browser,
       appUrl: args.appUrl,
       artifactDir: args.artifactDir,

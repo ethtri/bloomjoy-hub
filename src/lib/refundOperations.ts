@@ -262,7 +262,7 @@ export type RefundCaseRecord = {
   attachments: RefundCaseAttachment[];
   events: RefundCaseEvent[];
   messages: RefundCaseMessage[];
-  intakeSource?: 'form' | 'gmail';
+  intakeSource?: 'form' | 'gmail' | 'sms_google_form';
   intakeComplete?: boolean;
   hasGmailThread?: boolean;
   customerCommunicationStatus?: RefundCustomerCommunicationStatus;
@@ -288,6 +288,47 @@ export type RefundOperationsOverview = {
   cases: RefundCaseRecord[];
   machines: RefundAdminMachine[];
   managerAssignments: RefundManagerAssignment[];
+};
+
+export type RefundReconciliationReviewStatus =
+  | 'pending'
+  | 'confirmed_duplicate'
+  | 'confirmed_distinct';
+
+export type RefundReconciliationReview = {
+  id: string;
+  status: RefundReconciliationReviewStatus;
+  matchClass: 'exact' | 'possible';
+  reasonCodes: string[];
+  policyVersion: string;
+  otherCaseId: string;
+  otherPublicReference: string;
+  otherIntakeSource: 'form' | 'gmail' | 'sms_google_form';
+  otherStatus: RefundCaseStatus;
+  canonicalCaseId: string | null;
+  resolutionReasonCode: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+};
+
+export type RefundCaseReconciliation = {
+  caseId: string;
+  duplicateOfCaseId: string | null;
+  duplicateOfPublicReference: string | null;
+  actionBlocked: boolean;
+  reviews: RefundReconciliationReview[];
+};
+
+export type ResolveRefundCaseReconciliationInput = {
+  reviewId: string;
+  resolution: 'duplicate' | 'distinct';
+  canonicalRefundCaseId?: string | null;
+  reasonCode:
+    | 'same_incident'
+    | 'source_replay'
+    | 'customer_confirmed'
+    | 'different_purchase'
+    | 'incorrect_match';
 };
 
 export type RefundAutomationHealthStatus =
@@ -989,6 +1030,45 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
     ...overview,
     cases: [...gmailDrafts, ...overview.cases],
   };
+};
+
+export const fetchRefundCaseReconciliation = async (
+  caseId: string
+): Promise<RefundCaseReconciliation> => {
+  const { data, error } = await supabaseClient.rpc('admin_get_refund_case_reconciliation', {
+    p_refund_case_id: caseId,
+  });
+  if (error) {
+    throw new Error(error.message || 'Unable to load possible duplicate cases.');
+  }
+
+  const context = (data ?? {}) as Partial<RefundCaseReconciliation>;
+  return {
+    caseId: typeof context.caseId === 'string' ? context.caseId : caseId,
+    duplicateOfCaseId:
+      typeof context.duplicateOfCaseId === 'string' ? context.duplicateOfCaseId : null,
+    duplicateOfPublicReference:
+      typeof context.duplicateOfPublicReference === 'string'
+        ? context.duplicateOfPublicReference
+        : null,
+    actionBlocked: context.actionBlocked === true,
+    reviews: Array.isArray(context.reviews) ? context.reviews : [],
+  };
+};
+
+export const resolveRefundCaseReconciliation = async (
+  input: ResolveRefundCaseReconciliationInput
+): Promise<RefundCaseReconciliation> => {
+  const { data, error } = await supabaseClient.rpc('admin_resolve_refund_case_reconciliation', {
+    p_review_id: input.reviewId,
+    p_resolution: input.resolution,
+    p_canonical_refund_case_id: input.canonicalRefundCaseId ?? null,
+    p_reason_code: input.reasonCode,
+  });
+  if (error) {
+    throw new Error(error.message || 'Unable to save the duplicate review.');
+  }
+  return data as RefundCaseReconciliation;
 };
 
 export const fetchRefundAutomationHealth = async (): Promise<RefundAutomationHealth> => {

@@ -37,12 +37,14 @@ import {
   createRefundAttachmentSignedUrl,
   executeNayaxCardRefund,
   fetchRefundAutomationHealth,
+  fetchRefundCaseReconciliation,
   fetchRefundGmailCaseContext,
   fetchRefundGmailHealth,
   fetchRefundOperationsOverview,
   isLocalUatDemoForced,
   lookupNayaxTransactions,
   rejectRefundGptTriage,
+  resolveRefundCaseReconciliation,
   sendRefundCaseMessage,
   updateRefundCaseAdmin,
   isNayaxCardRefundExecutionError,
@@ -54,6 +56,7 @@ import {
   type RefundGmailHealth,
   type RefundNayaxLookupStatus,
   type RefundNayaxLookupSummary,
+  type RefundReconciliationReview,
   type RefundCaseStatus,
   type RefundCustomerPortalMessageType,
   type RefundDecision,
@@ -92,6 +95,26 @@ const openStatuses = new Set<RefundCaseStatus>([
   'card_refund_pending',
   'cash_zelle_pending',
 ]);
+
+const refundIntakeSourceLabel = (source: RefundReconciliationReview['otherIntakeSource']) => {
+  if (source === 'gmail') return 'Email';
+  if (source === 'sms_google_form') return 'SMS Google Form';
+  return 'Website form';
+};
+
+const reconciliationReasonLabel = (reason: string) => {
+  const labels: Record<string, string> = {
+    customer_email_exact: 'same customer email',
+    machine_exact: 'same machine',
+    incident_within_15_minutes: 'reported times within 15 minutes',
+    incident_within_6_hours: 'reported times within 6 hours',
+    amount_exact: 'same amount',
+    payment_method_exact: 'same payment method',
+    card_last4_exact: 'same last four',
+    wallet_state_exact: 'same wallet answer',
+  };
+  return labels[reason] ?? reason.replaceAll('_', ' ');
+};
 
 const customerMessageOptions: Array<{
   value: RefundCustomerPortalMessageType;
@@ -1409,6 +1432,7 @@ export default function AdminRefundsPage() {
   const [appliedTriageSuggestionId, setAppliedTriageSuggestionId] = useState<string | null>(null);
   const [isTriageRejectOpen, setIsTriageRejectOpen] = useState(false);
   const [isRejectingTriage, setIsRejectingTriage] = useState(false);
+  const [isResolvingReconciliation, setIsResolvingReconciliation] = useState(false);
   const [triageRejectReason, setTriageRejectReason] = useState('wrong_missing_fields');
   const [triageRejectNote, setTriageRejectNote] = useState('');
   const forceDemoData = isLocalUatDemoForced();
@@ -1457,6 +1481,7 @@ export default function AdminRefundsPage() {
       queryClient.invalidateQueries({ queryKey: ['refund-automation-health'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-gmail-health'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-gmail-case-context'] }),
+      queryClient.invalidateQueries({ queryKey: ['refund-case-reconciliation'] }),
     ]);
   };
   const isUsingDemoData = canUseLocalRefundDemoData();
@@ -1595,6 +1620,16 @@ export default function AdminRefundsPage() {
     enabled: !forceDemoData && Boolean(selectedCase?.hasGmailThread && selectedCase?.id),
     staleTime: 1000 * 30,
   });
+  const {
+    data: reconciliationContext,
+    isLoading: reconciliationIsLoading,
+    error: reconciliationError,
+  } = useQuery({
+    queryKey: ['refund-case-reconciliation', selectedCase?.id],
+    queryFn: () => fetchRefundCaseReconciliation(selectedCase?.id ?? ''),
+    enabled: !forceDemoData && Boolean(selectedCase?.id),
+    staleTime: 1000 * 15,
+  });
   useEffect(() => {
     const suggestion = gmailContext?.triageSuggestion;
     if (
@@ -1622,15 +1657,28 @@ export default function AdminRefundsPage() {
     () => (editor && primaryAction ? editorForPrimaryAction(editor, primaryAction) : editor),
     [editor, primaryAction]
   );
-  const primaryActionIssues = useMemo(
-    () =>
-      primaryAction?.mode === 'retry_message'
-        ? []
-        : selectedCase && primaryActionEditor
-          ? getCaseSaveIssues(selectedCase, primaryActionEditor)
-          : [],
-    [primaryAction, primaryActionEditor, selectedCase]
-  );
+  const reconciliationActionIssue = useMemo(() => {
+    if (!selectedCase || forceDemoData) return null;
+    if (reconciliationIsLoading) return 'Checking this case for cross-channel duplicates.';
+    if (reconciliationError) {
+      return 'Duplicate safety status is unavailable. Refresh before taking an official action.';
+    }
+    if (reconciliationContext?.duplicateOfCaseId) {
+      return `This case is a confirmed duplicate of ${reconciliationContext.duplicateOfPublicReference ?? 'another refund case'}.`;
+    }
+    if (reconciliationContext?.actionBlocked) {
+      return 'Resolve the possible duplicate case below before taking an official action.';
+    }
+    return null;
+  }, [forceDemoData, reconciliationContext, reconciliationError, reconciliationIsLoading, selectedCase]);
+  const primaryActionIssues = useMemo(() => {
+    const caseIssues = primaryAction?.mode === 'retry_message'
+      ? []
+      : selectedCase && primaryActionEditor
+        ? getCaseSaveIssues(selectedCase, primaryActionEditor)
+        : [];
+    return reconciliationActionIssue ? [reconciliationActionIssue, ...caseIssues] : caseIssues;
+  }, [primaryAction, primaryActionEditor, reconciliationActionIssue, selectedCase]);
   const selectedNayaxSummary = useMemo(
     () =>
       selectedCase
@@ -1667,6 +1715,41 @@ export default function AdminRefundsPage() {
 
   };
 
+  const handleResolveReconciliation = async ({
+    review,
+    resolution,
+    canonicalRefundCaseId,
+  }: {
+    review: RefundReconciliationReview;
+    resolution: 'duplicate' | 'distinct';
+    canonicalRefundCaseId?: string | null;
+  }) => {
+    if (!selectedCase || isUsingDemoData) return;
+
+    setIsResolvingReconciliation(true);
+    try {
+      await resolveRefundCaseReconciliation({
+        reviewId: review.id,
+        resolution,
+        canonicalRefundCaseId: canonicalRefundCaseId ?? null,
+        reasonCode: resolution === 'duplicate' ? 'same_incident' : 'different_purchase',
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['refund-case-reconciliation'] }),
+        queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] }),
+      ]);
+      toast.success(
+        resolution === 'duplicate'
+          ? 'Duplicate decision saved. Only the canonical case can continue.'
+          : 'The cases are recorded as separate customer incidents.'
+      );
+    } catch (resolveError) {
+      toast.error(resolveError instanceof Error ? resolveError.message : 'Unable to save the duplicate review.');
+    } finally {
+      setIsResolvingReconciliation(false);
+    }
+  };
+
   const handleSaveCase = async (
     editorOverride?: EditorState,
     customerMessageType?: RefundCustomerPortalMessageType | null
@@ -1675,6 +1758,10 @@ export default function AdminRefundsPage() {
     const nextEditor = editorOverride ?? editor;
     if (isUsingDemoData) {
       toast.info('Demo cases are read-only. Seed local Supabase fixtures to test saving workflow changes.');
+      return null;
+    }
+    if (reconciliationActionIssue) {
+      toast.error(reconciliationActionIssue);
       return null;
     }
 
@@ -3833,6 +3920,114 @@ export default function AdminRefundsPage() {
                         {formatCurrency(selectedCase.paymentAmountCents)}
                       </p>
                     </div>
+
+                    {!forceDemoData && (reconciliationIsLoading || reconciliationError || reconciliationContext?.reviews.length || reconciliationContext?.duplicateOfCaseId) ? (
+                      <section
+                        data-testid="refund-reconciliation-panel"
+                        className={cn(
+                          'space-y-3 rounded-xl border p-4',
+                          reconciliationActionIssue
+                            ? 'border-orange-300 bg-orange-50 text-orange-950'
+                            : 'border-border bg-muted/20 text-foreground'
+                        )}
+                      >
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+                          <div className="min-w-0">
+                            <h3 className="font-semibold">Cross-channel duplicate check</h3>
+                            <p className="mt-1 text-sm leading-6">
+                              {reconciliationIsLoading
+                                ? 'Checking the website, email, and SMS form case records.'
+                                : reconciliationError
+                                  ? 'The duplicate safety check could not load. Refresh before continuing.'
+                                  : reconciliationContext?.duplicateOfCaseId
+                                    ? `This case is recorded as a duplicate of ${reconciliationContext.duplicateOfPublicReference ?? 'another refund case'}. Official actions stay disabled here.`
+                                    : reconciliationContext?.actionBlocked
+                                      ? 'One customer incident may have arrived through more than one channel. Compare the linked cases before approving or completing a refund.'
+                                      : 'This review has been resolved. You can change the decision before an official action if new evidence appears.'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {reconciliationContext?.reviews.map((review) => (
+                          <article
+                            key={review.id}
+                            data-testid="refund-reconciliation-review"
+                            className="rounded-lg border border-current/15 bg-background/80 p-3 text-foreground"
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div>
+                                <p className="text-sm font-semibold">
+                                  {review.matchClass === 'exact' ? 'Strong duplicate candidate' : 'Possible duplicate'}
+                                </p>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {refundIntakeSourceLabel(review.otherIntakeSource)} · {review.otherPublicReference} · {review.otherStatus.replaceAll('_', ' ')}
+                                </p>
+                              </div>
+                              <Badge variant="outline" className="capitalize">
+                                {review.status.replaceAll('_', ' ')}
+                              </Badge>
+                            </div>
+                            <div className="mt-3 flex flex-wrap gap-1.5">
+                              {review.reasonCodes.map((reason) => (
+                                <Badge key={reason} variant="secondary" className="font-normal">
+                                  {reconciliationReasonLabel(reason)}
+                                </Badge>
+                              ))}
+                            </div>
+                            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                              <Button asChild type="button" size="sm" variant="outline">
+                                <a
+                                  href={`/refunds?case=${encodeURIComponent(review.otherCaseId)}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  <ExternalLink className="mr-2 h-4 w-4" />
+                                  Open {review.otherPublicReference}
+                                </a>
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={isResolvingReconciliation}
+                                onClick={() => void handleResolveReconciliation({ review, resolution: 'distinct' })}
+                              >
+                                These are different purchases
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                disabled={isResolvingReconciliation}
+                                onClick={() => void handleResolveReconciliation({
+                                  review,
+                                  resolution: 'duplicate',
+                                  canonicalRefundCaseId: selectedCase.id,
+                                })}
+                              >
+                                Keep {selectedCase.publicReference}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                disabled={isResolvingReconciliation}
+                                onClick={() => void handleResolveReconciliation({
+                                  review,
+                                  resolution: 'duplicate',
+                                  canonicalRefundCaseId: review.otherCaseId,
+                                })}
+                              >
+                                Keep {review.otherPublicReference}
+                              </Button>
+                            </div>
+                            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                              “Keep” makes that reference the actionable case and blocks the other from provider or settlement actions. No refund is sent by this decision.
+                            </p>
+                          </article>
+                        ))}
+                      </section>
+                    ) : null}
 
                     {selectedCase.status === 'draft' || selectedCase.paymentMethod === 'unknown'
                       ? renderGmailDraftWorkbench()

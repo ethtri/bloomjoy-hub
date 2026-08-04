@@ -2,8 +2,8 @@
   "schemaVersion": 2,
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
-  "releaseId": "refund-ops-2026-08-04-google-form-bridge",
-  "sourceGitCommit": "db644515da4956cb731e729f71da023cb1deef20",
+  "releaseId": "refund-ops-2026-08-04-cross-channel-reconciliation",
+  "sourceGitCommit": "8a001e330212f28076ecea7584dbe4a8e3e1301e",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -31,10 +31,11 @@
     "202607260001_refund_qr_claim_context.sql",
     "202607260002_refund_qr_aware_nayax_recommendation.sql",
     "202607270001_refund_wallet_correction.sql",
-    "202608040005_refund_google_form_case_bridge.sql"
+    "202608040005_refund_google_form_case_bridge.sql",
+    "202608040006_refund_cross_channel_case_reconciliation.sql"
   ],
-  "migrationFilesSha256": "110ad0f66ce2ac91661c7b7c6fc24e1fb7ccab116acf51cca75485c50d8d9629",
-  "migrationVersionSetSha256": "eb94ffa5a9cc0dbb579f47024db2a30a5cf36a3ea28cd20b1873d3fd278e4a0b",
+  "migrationFilesSha256": "8a5d142414822f967dbd47f7fb62c7f7a271a2da056fc75a78fa61686413de88",
+  "migrationVersionSetSha256": "a97c771619962e3bfb2b76310553d4a42279bd801573843a06991d8078cba10c",
   "functions": [
     {
       "slug": "refund-case-intake",
