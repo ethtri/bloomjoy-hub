@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock3,
+  Copy,
   ExternalLink,
   Info,
   Loader2,
@@ -100,6 +101,12 @@ const refundIntakeSourceLabel = (source: RefundReconciliationReview['otherIntake
   if (source === 'gmail') return 'Email';
   if (source === 'sms_google_form') return 'SMS Google Form';
   return 'Website form';
+};
+
+const refundIntakeSourceBadgeClass = (source: RefundCaseRecord['intakeSource']) => {
+  if (source === 'gmail') return 'border-sky-200 bg-sky-50 text-sky-800';
+  if (source === 'sms_google_form') return 'border-violet-200 bg-violet-50 text-violet-800';
+  return 'border-emerald-200 bg-emerald-50 text-emerald-800';
 };
 
 const reconciliationReasonLabel = (reason: string) => {
@@ -202,7 +209,19 @@ type NayaxLookupNotice = {
   message: string;
 };
 
-type QueueFilter = 'needs_action' | 'waiting_on_customer' | 'ready_to_pay' | 'blocked' | 'completed' | 'all';
+type QueueFilter =
+  | 'needs_action'
+  | 'missing_information'
+  | 'unmapped_machine'
+  | 'import_failure'
+  | 'possible_duplicate'
+  | 'aging'
+  | 'provider_hold'
+  | 'waiting_on_customer'
+  | 'ready_to_pay'
+  | 'blocked'
+  | 'completed'
+  | 'all';
 
 type CustomerMessageResult = {
   type: string;
@@ -589,6 +608,22 @@ const caseUrgencyRank = (refundCase: RefundCaseRecord) => {
 
 const getOperationalSignals = (refundCase: RefundCaseRecord) => {
   const signals: Array<{ label: string; className: string }> = [];
+  if (refundCase.providerReconciliationHold) {
+    signals.push({ label: 'Provider hold', className: 'border-destructive/30 bg-destructive/10 text-destructive' });
+  }
+  if (refundCase.hasPendingDuplicate) {
+    signals.push({ label: 'Possible duplicate', className: 'border-orange-200 bg-orange-50 text-orange-900' });
+  }
+  if (refundCase.ingestionState === 'import_failure') {
+    signals.push({ label: 'Import failure', className: 'border-destructive/30 bg-destructive/10 text-destructive' });
+  } else if (refundCase.ingestionState === 'unmapped_machine') {
+    signals.push({ label: 'Machine unmapped', className: 'border-orange-200 bg-orange-50 text-orange-900' });
+  } else if (refundCase.ingestionState === 'missing_information') {
+    signals.push({ label: 'Missing details', className: 'border-orange-200 bg-orange-50 text-orange-900' });
+  }
+  if (refundCase.isAging) {
+    signals.push({ label: 'Aging', className: 'border-orange-200 bg-orange-50 text-orange-900' });
+  }
   if (getLatestCustomerMessage(refundCase)?.status === 'failed') {
     signals.push({ label: 'Email failed', className: 'border-destructive/30 bg-destructive/10 text-destructive' });
   }
@@ -617,7 +652,7 @@ const getOperationalSignals = (refundCase: RefundCaseRecord) => {
   if (isReadyToPayCase(refundCase)) {
     signals.push({ label: 'Ready to refund', className: 'border-sky-200 bg-sky-50 text-sky-700' });
   }
-  return signals.slice(0, 3);
+  return signals.slice(0, 4);
 };
 
 const formatCandidateSummary = (candidate: NayaxLookupCandidate) =>
@@ -1182,6 +1217,8 @@ const getCustomerMessageDraft = (
 };
 
 const shouldAutoRunNayaxLookup = (refundCase: RefundCaseRecord, candidates: NayaxLookupCandidate[]) =>
+  refundCase.status !== 'draft' &&
+  refundCase.intakeComplete !== false &&
   refundCase.paymentMethod === 'card' &&
   (candidates.some((candidate) => !candidate.policyVersion) ||
     (!refundCase.hasMatchedNayaxTransaction &&
@@ -1497,6 +1534,12 @@ export default function AdminRefundsPage() {
 
     return overview.cases.filter((refundCase) => {
       if (statusFilter === 'needs_action' && !openStatuses.has(refundCase.status)) return false;
+      if (statusFilter === 'missing_information' && refundCase.ingestionState !== 'missing_information') return false;
+      if (statusFilter === 'unmapped_machine' && refundCase.ingestionState !== 'unmapped_machine') return false;
+      if (statusFilter === 'import_failure' && refundCase.ingestionState !== 'import_failure') return false;
+      if (statusFilter === 'possible_duplicate' && !refundCase.hasPendingDuplicate) return false;
+      if (statusFilter === 'aging' && !refundCase.isAging) return false;
+      if (statusFilter === 'provider_hold' && !refundCase.providerReconciliationHold) return false;
       if (statusFilter === 'waiting_on_customer' && refundCase.status !== 'waiting_on_customer') return false;
       if (statusFilter === 'ready_to_pay' && !isReadyToPayCase(refundCase)) return false;
       if (statusFilter === 'blocked' && !isBlockedCase(refundCase)) return false;
@@ -1547,6 +1590,14 @@ export default function AdminRefundsPage() {
   const systemHealthSummary = systemHealthItems.filter(
     (item) => item.presentation.tone !== 'warning'
   );
+  const sourceSnapshot = overview.sourceSnapshot;
+  const sourceAttentionCount = (sourceSnapshot?.sources ?? []).filter((source) =>
+    ['stale', 'failing', 'revoked'].includes(source.status) ||
+    source.failedCount > 0 ||
+    source.unmappedCount > 0 ||
+    source.possibleDuplicateCount > 0
+  ).length;
+  const sourceReconciliationHealthy = sourceSnapshot?.reconciliation?.reconciled === true;
   const hasAnyCases = overview.cases.length > 0;
   const emptyQueueTitle = hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
   const emptyQueueDescription = hasAnyCases
@@ -1659,6 +1710,9 @@ export default function AdminRefundsPage() {
   );
   const reconciliationActionIssue = useMemo(() => {
     if (!selectedCase || forceDemoData) return null;
+    if (selectedCase.providerReconciliationHold) {
+      return 'Reconcile the pending provider outcome before taking another official action.';
+    }
     if (reconciliationIsLoading) return 'Checking this case for cross-channel duplicates.';
     if (reconciliationError) {
       return 'Duplicate safety status is unavailable. Refresh before taking an official action.';
@@ -1713,6 +1767,16 @@ export default function AdminRefundsPage() {
     setTriageRejectReason('wrong_missing_fields');
     setTriageRejectNote('');
 
+  };
+
+  const handleCopyCaseLink = async (refundCase: RefundCaseRecord) => {
+    const path = refundCase.canonicalCasePath ?? `/refunds?case=${encodeURIComponent(refundCase.id)}`;
+    try {
+      await navigator.clipboard.writeText(new URL(path, window.location.origin).toString());
+      toast.success('Exact case link copied. Opening it does not take a refund action.');
+    } catch {
+      toast.error('Unable to copy the case link. You can open it and copy the browser address.');
+    }
   };
 
   const handleResolveReconciliation = async ({
@@ -2472,6 +2536,62 @@ export default function AdminRefundsPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+      </div>
+    );
+  };
+
+  const renderSourceDraftWorkbench = () => {
+    if (!selectedCase) return null;
+    if (selectedCase.hasGmailThread) return renderGmailDraftWorkbench();
+
+    return (
+      <div data-testid="refund-source-draft-workbench" className="space-y-4">
+        <section className="overflow-hidden rounded-xl border border-violet-200 bg-slate-950 text-white shadow-sm">
+          <div className="flex flex-col gap-4 px-4 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="border-violet-300/30 bg-violet-300/15 text-violet-100">SMS Google Form</Badge>
+                <span className="text-xs text-slate-300">{selectedCase.publicReference}</span>
+              </div>
+              <h3 className="mt-3 text-xl font-semibold">
+                {selectedCase.intakeComplete ? 'Review imported details' : 'Confirm the missing purchase details'}
+              </h3>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+                The Sheet is transport and audit evidence only. Continue in this Hub case; no refund or provider action occurs from opening or reviewing it.
+              </p>
+            </div>
+            {!selectedCase.intakeComplete && (
+              <Button
+                type="button"
+                data-testid="refund-source-ask-for-details"
+                data-dominant-action="true"
+                onClick={() => void handleSendCustomerMessage('more_info')}
+                disabled={isSendingCustomerMessage || isUsingDemoData}
+                className="min-h-11 shrink-0 bg-white text-slate-950 hover:bg-slate-100"
+              >
+                {isSendingCustomerMessage ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="mr-2 h-4 w-4" />
+                )}
+                Email customer for details
+              </Button>
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-border bg-card p-4">
+          <p className="text-sm font-semibold text-foreground">Imported request</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {selectedCase.correlationSummary ?? 'Review the submitted details before advancing this draft.'}
+          </p>
+          <p className="mt-3 whitespace-pre-line break-words rounded-lg bg-muted/35 p-3 text-sm leading-6 text-foreground">
+            {selectedCase.issueSummary}
+          </p>
+          <p className="mt-3 text-xs leading-5 text-muted-foreground">
+            Never request a full card number, expiration date, CVV, PIN, bank login, or account number.
+          </p>
+        </section>
       </div>
     );
   };
@@ -3633,6 +3753,83 @@ export default function AdminRefundsPage() {
             </div>
           )}
 
+          {!isUsingDemoData && sourceSnapshot && (
+            <section
+              data-testid="refund-source-health"
+              className={cn(
+                'mt-3 rounded-xl border p-4',
+                sourceAttentionCount > 0 || !sourceReconciliationHealthy
+                  ? 'border-orange-200 bg-orange-50/60'
+                  : 'border-border bg-card'
+              )}
+            >
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">Intake source readiness</h2>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    One authorized view of website, support email, and SMS Google Form intake. Counts are aggregate and contain no customer content.
+                  </p>
+                </div>
+                <Badge
+                  data-testid="refund-source-reconciliation-status"
+                  className={cn(
+                    'shrink-0',
+                    sourceReconciliationHealthy && sourceAttentionCount === 0
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                      : 'border-orange-200 bg-orange-100 text-orange-950'
+                  )}
+                >
+                  {sourceReconciliationHealthy && sourceAttentionCount === 0
+                    ? 'Sources reconciled'
+                    : 'Review source health'}
+                </Badge>
+              </div>
+              <div className="mt-3 grid gap-2 md:grid-cols-3">
+                {sourceSnapshot.sources.map((source) => {
+                  const needsAttention = ['stale', 'failing', 'revoked'].includes(source.status) ||
+                    source.failedCount > 0 || source.unmappedCount > 0 || source.possibleDuplicateCount > 0;
+                  return (
+                    <article
+                      key={source.source}
+                      data-testid={`refund-source-health-${source.source}`}
+                      className="rounded-lg border border-border bg-background/80 p-3"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-foreground">{source.label}</p>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            'capitalize',
+                            needsAttention ? 'border-orange-300 text-orange-900' : 'border-emerald-200 text-emerald-800'
+                          )}
+                        >
+                          {source.status}
+                        </Badge>
+                      </div>
+                      <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                        {source.importedCount} represented · {source.failedCount} failed · {source.unmappedCount} unmapped · {source.possibleDuplicateCount} possible duplicate
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {source.oldestUnprocessedAt
+                          ? `Oldest open item: ${formatAge(source.oldestUnprocessedAt)}`
+                          : 'No unprocessed item recorded'}
+                      </p>
+                    </article>
+                  );
+                })}
+              </div>
+              {sourceSnapshot.reconciliation && (
+                <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                  Last 24 hours: {sourceSnapshot.reconciliation.sourceSubmissionCount} accepted source submissions ={' '}
+                  {sourceSnapshot.reconciliation.representedItemCount} Hub cases or authorized quarantine items
+                  {sourceSnapshot.reconciliation.delta === 0
+                    ? '.'
+                    : ` (${sourceSnapshot.reconciliation.delta} item delta).`}
+                </p>
+              )}
+            </section>
+          )}
+
           {error && !isUsingDemoData && (
             <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               Failed to load refund operations.
@@ -3695,6 +3892,12 @@ export default function AdminRefundsPage() {
               className="h-11 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <option value="needs_action">Needs action</option>
+              <option value="missing_information">Missing information</option>
+              <option value="unmapped_machine">Unmapped machine</option>
+              <option value="import_failure">Import failure</option>
+              <option value="possible_duplicate">Possible duplicate</option>
+              <option value="aging">Aging</option>
+              <option value="provider_hold">Provider reconciliation hold</option>
               <option value="waiting_on_customer">Waiting on customer</option>
               <option value="ready_to_pay">Ready to refund</option>
               <option value="blocked">Blocked / failed</option>
@@ -3753,6 +3956,12 @@ export default function AdminRefundsPage() {
                           <div className="truncate text-sm font-semibold text-foreground">
                             {refundCase.publicReference}
                           </div>
+                          <Badge
+                            data-testid="refund-intake-source-badge"
+                            className={cn('mt-1 rounded-md text-[11px]', refundIntakeSourceBadgeClass(refundCase.intakeSource))}
+                          >
+                            {refundIntakeSourceLabel(refundCase.intakeSource ?? 'form')}
+                          </Badge>
                         </div>
                         <Badge className={cn('shrink-0 whitespace-normal rounded-md text-left leading-tight', taskBadgeClass(refundCase))}>
                           {taskLabel(refundCase)}
@@ -3857,6 +4066,12 @@ export default function AdminRefundsPage() {
                           <div className="truncate text-sm font-semibold text-foreground">
                             {refundCase.publicReference}
                           </div>
+                          <Badge
+                            data-testid="refund-intake-source-badge"
+                            className={cn('mt-1 rounded-md text-[11px]', refundIntakeSourceBadgeClass(refundCase.intakeSource))}
+                          >
+                            {refundIntakeSourceLabel(refundCase.intakeSource ?? 'form')}
+                          </Badge>
                           <div className="mt-1 truncate text-xs text-muted-foreground">
                             {refundCase.customerEmail}
                           </div>
@@ -3914,11 +4129,38 @@ export default function AdminRefundsPage() {
                         <Badge className={taskBadgeClass(selectedCase)}>
                           {taskLabel(selectedCase)}
                         </Badge>
+                        <Badge
+                          data-testid="refund-detail-source-badge"
+                          className={refundIntakeSourceBadgeClass(selectedCase.intakeSource)}
+                        >
+                          {refundIntakeSourceLabel(selectedCase.intakeSource ?? 'form')}
+                        </Badge>
                       </div>
                       <p className="mt-1 break-words text-xs text-muted-foreground">
                         {selectedCase.customerEmail} / {selectedCase.paymentMethod} /{' '}
                         {formatCurrency(selectedCase.paymentAmountCents)}
                       </p>
+                      <div className="mt-3 flex flex-wrap gap-2" data-testid="refund-canonical-case-link">
+                        <Button asChild type="button" size="sm" variant="outline">
+                          <a
+                            href={selectedCase.canonicalCasePath ?? `/refunds?case=${encodeURIComponent(selectedCase.id)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <ExternalLink className="mr-2 h-4 w-4" />
+                            Open exact case link
+                          </a>
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void handleCopyCaseLink(selectedCase)}
+                        >
+                          <Copy className="mr-2 h-4 w-4" />
+                          Copy case link
+                        </Button>
+                      </div>
                     </div>
 
                     {!forceDemoData && (reconciliationIsLoading || reconciliationError || reconciliationContext?.reviews.length || reconciliationContext?.duplicateOfCaseId) ? (
@@ -4030,7 +4272,7 @@ export default function AdminRefundsPage() {
                     ) : null}
 
                     {selectedCase.status === 'draft' || selectedCase.paymentMethod === 'unknown'
-                      ? renderGmailDraftWorkbench()
+                      ? renderSourceDraftWorkbench()
                       : selectedCase.paymentMethod === 'card'
                         ? renderCardDecisionWorkbench()
                         : renderCashDecisionWorkbench()}

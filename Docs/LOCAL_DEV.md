@@ -436,6 +436,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - Gmail intake static safety check: `npm run refunds:validate-gmail`
    - Gmail server-secret presence/format check: `npm run refunds:preflight-gmail`
    - SMS Google Form bridge contract/safety check: `npm run refunds:validate-google-form-bridge`
+   - Unified source queue and daily reconciliation safety check: `npm run refunds:validate-source-aware-queue`
 4) Run functions locally:
    - `supabase functions serve stripe-sugar-checkout --no-verify-jwt`
    - `supabase functions serve stripe-sticks-checkout --no-verify-jwt`

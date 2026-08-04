@@ -31,7 +31,7 @@ Epic `#628` owns the production-ready outcome. Issue `#427` owns the pilot evide
 
 - [x] Review and approve the single integrated release candidate in `#644`. Draft PRs `#636` through `#643` were superseded and closed without merging.
 - [x] Sync `#644` with current `main` as needed, then rerun its full verification profile before merge.
-- [x] On the final integrated release, regenerate and review the Refund Operations manifest with all eight approved functions, all 23 required migrations, and each final transitive source digest.
+- [ ] On the final integrated release, regenerate and review the Refund Operations manifest with all ten approved functions, all 29 required migrations, and each final transitive source digest.
 - [x] Run the repository verification suite, migration validation, release-tooling checks, and refund validators on that final release. The verified result is 115 migrations and 209 database tests.
 - [x] Confirm production migrations and Edge Functions match the final reviewed release; the post-deploy migration dry run shows no pending or unexpected migration.
 - [x] Confirm Bubble Planet and every other production option has a distinct customer-facing label and an unambiguous canonical machine/location mapping.

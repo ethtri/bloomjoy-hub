@@ -66,6 +66,8 @@ Set the following values before launch.
 | `GMAIL_REFUND_MAX_THREADS_PER_RUN` | Server-only, optional | `refund-gmail-sync` | Default `100`, maximum `500`; bounds one sync run | Technical owner |
 | `REFUND_GMAIL_SYNC_SECRET` | Server-only | `refund-gmail-sync` | Dedicated scheduler secret; never a service-role key | Technical owner |
 | `REFUND_GMAIL_ENABLED` | Server-only | `refund-gmail-sync` | Default `false`; enable only for approved synthetic/shadow validation | Release owner |
+| `REFUND_SOURCE_RECONCILIATION_SECRET` | Server-only | `refund-source-reconciliation` | Dedicated daily aggregate-monitor bearer secret; never a service-role key | Technical owner |
+| `REFUND_SOURCE_RECONCILIATION_ENABLED` | Server-only | `refund-source-reconciliation` | Default `false`; enable only after aggregate failure-test evidence | Release owner |
 | `OPENAI_API_KEY` | Server-only | `refund-gpt-triage` | Production project-scoped OpenAI key; never supplied to the browser or GitHub Actions | Technical owner |
 | `OPENAI_REFUND_TRIAGE_SAFETY_SALT` | Server-only | `refund-gpt-triage` | Random 32+ character salt for one-way safety identifiers | Privacy/security owner |
 | `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED` | Server-only | `refund-gpt-triage` | Default `false`; set `true` only after `#635` records the exact OpenAI project retention mode and privacy/security approval | Privacy/security owner |
@@ -89,6 +91,9 @@ Set the following values before launch.
 | `REFUND_GMAIL_SYNC_URL` | GitHub Actions secret | Refund Gmail Sync workflow | Supabase `refund-gmail-sync` function URL | Technical owner |
 | `REFUND_GMAIL_SYNC_TOKEN` | GitHub Actions secret | Refund Gmail Sync workflow | Same value as `REFUND_GMAIL_SYNC_SECRET`; never a service-role key | Technical owner |
 | `REFUND_GMAIL_SYNC_ENABLED` | GitHub Actions variable | Refund Gmail Sync workflow | Default `false`; controls scheduled workflow dispatch only | Release owner |
+| `REFUND_SOURCE_RECONCILIATION_URL` | GitHub Actions secret | Refund Source Reconciliation workflow | Supabase `refund-source-reconciliation` function URL | Technical owner |
+| `REFUND_SOURCE_RECONCILIATION_TOKEN` | GitHub Actions secret | Refund Source Reconciliation workflow | Same dedicated monitor secret; never a service-role key | Technical owner |
+| `REFUND_SOURCE_RECONCILIATION_ENABLED` | GitHub Actions variable | Refund Source Reconciliation workflow | Default `false`; controls daily dispatch only | Release owner |
 | `REFUND_GPT_TRIAGE_SYNC_URL` | GitHub Actions secret | Refund GPT Triage workflow | Supabase `refund-gpt-triage` function URL | Technical owner |
 | `REFUND_GPT_TRIAGE_SYNC_TOKEN` | GitHub Actions secret | Refund GPT Triage workflow | Same value as `REFUND_GPT_TRIAGE_SYNC_SECRET`; never an OpenAI or service-role key | Technical owner |
 | `REFUND_GPT_TRIAGE_SYNC_ENABLED` | GitHub Actions variable | Refund GPT Triage workflow | Default `false`; controls scheduled dispatch only | Release owner |
@@ -271,7 +276,7 @@ After deploying the eight Refund Operations functions:
    - `npm run refunds:release:capture-production -- --project-ref <project-ref> --confirm-project-ref <project-ref> --output output/refund-production-release.json`
 7. Review each function's `ACTIVE` status, version, `verify_jwt`, bundle digest, and approved source digest.
 8. Update `scripts/refunds/refund-production-release.json` through a reviewed PR. Do not treat the capture as automatic approval.
-9. Run `npm run refunds:release:check-production -- --project-ref <project-ref>` and require all eight functions to pass.
+9. Run `npm run refunds:release:check-production -- --project-ref <project-ref>` and require all ten approved functions to pass after this release is deployed.
 10. Run the remaining refund production smoke rows in `Docs/QA_SMOKE_TEST_CHECKLIST.md` using sanitized evidence only.
 
 Before clean-manager UAT, run the read-only role audit with exact project confirmation. It queries only aggregate counts and refuses unexpected result columns:
@@ -313,6 +318,14 @@ Refund Gmail intake validation:
 - Send allowed and rejected synthetic attachments. PDF/JPEG/PNG files at or below 5 MB and within the three-file limit must remain private and quarantined; unsupported, oversized, or excess files must be rejected without exposing content or paths.
 - Revoke the test refresh token. Gmail health must show authorization failure while hosted-form cases, queue access, and manual non-Gmail replies continue to work. Reauthorize before any scheduled pilot.
 - Enable `REFUND_GMAIL_SYNC_ENABLED=true` only after every check above passes. Quick disable order is the GitHub variable first and Edge secret second; this must not disable form intake or existing case handling.
+
+Refund source-aware queue and daily reconciliation validation:
+- Apply `202608040007_refund_source_aware_queue.sql`, deploy `refund-source-reconciliation`, and deploy the updated portal while both reconciliation enable switches remain `false`.
+- Run `npm run refunds:validate-source-aware-queue`, the database suite, RPC-surface validation, and rendered Refund portal UAT. Confirm Machine Managers see only current machine mappings while central admins can see unassigned Gmail drafts and aggregate quarantine counts.
+- Manually dispatch **Refund Source Reconciliation** with `failure_test=true`. Require one aggregate warning, no case rows, and no customer, Gmail, Sheet, payment, provider, source-row, or secret content in logs.
+- Configure the dedicated URL/token secrets. Never copy the Supabase service-role key into GitHub Actions.
+- With synthetic website, labeled Gmail, and SMS Google Form submissions, run a live 24-hour check. Require `accepted source submissions = Hub cases + authorized quarantine items`, a zero delta, stable source badges, exact `/refunds?case=<id>` links, and an owner for every stale/failing/unmapped/quarantined/duplicate/aging/provider-hold signal.
+- Enable the Edge switch first and the GitHub variable second only after source-specific approvals and the synthetic check pass. Quick disable order is GitHub variable then Edge switch; preserve cases and audit ledgers.
 
 Refund GPT triage validation:
 - Apply both GPT triage migrations and deploy `refund-gpt-triage`, the updated refund message function, and the frontend while `REFUND_GPT_TRIAGE_SYNC_ENABLED=false`, `REFUND_GPT_TRIAGE_ENABLED=false`, and `refund_gpt_triage_settings.enabled=false`.
@@ -437,7 +450,7 @@ GPT-only rollback: set `REFUND_GPT_TRIAGE_SYNC_ENABLED=false`, then `REFUND_GPT_
 Post-rollback:
 - [ ] Confirm site/checkout baseline health.
 - [ ] Run `npm run refunds:release:capture-production` and update the approved manifest through review.
-- [ ] Confirm all eight refund routes respond and both `refund-gpt-triage` and `nayax-card-refund` remain fail-closed.
+- [ ] Confirm all ten refund routes respond and `refund-source-reconciliation`, `refund-gpt-triage`, and `nayax-card-refund` remain fail-closed.
 - [ ] Log incident summary and root cause.
 - [ ] Create follow-up issue before reattempting launch.
 

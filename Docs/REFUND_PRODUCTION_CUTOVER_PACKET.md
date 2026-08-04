@@ -27,7 +27,7 @@ Use this packet to move epic `#628` from individually verified PRs to one tested
 1. Freeze unrelated Refund Operations changes for the release window.
 2. Review the single integrated release candidate in `#644`. Draft PRs `#636` through `#643` are superseded and must not be merged separately.
 3. If `main` changed after the final `#644` verification, sync the branch with current `main`, resolve overlap, run `npm run refunds:release:write-local`, review and commit any valid manifest update, and rerun the full verification profile.
-4. Confirm the reviewed manifest covers all eight approved refund functions and all 23 required migrations, including `refund-gmail-sync`, `refund-gpt-triage`, and `202607220001_refund_gpt_triage_runner.sql`.
+4. Confirm the reviewed manifest covers all ten approved refund functions and all 29 required migrations, including `refund-gmail-sync`, `refund-google-form-sync`, `refund-source-reconciliation`, and the newest source-aware migration.
 5. Merge only the approved `#644` head. Do not deploy from a superseded PR, an unreviewed branch head, or a local-only commit.
 6. Use the final integrated `main` commit for every deployment and evidence record.
 7. On that final commit, require:
@@ -78,7 +78,7 @@ Check switch values without printing secrets. A code deploy must not silently en
 ## Production smoke order
 
 1. Verify the production drift check against the final manifest.
-2. Run `npm run refunds:smoke-routes -- --project-ref <project-ref> --confirm-project-ref <project-ref>`; all eight no-auth, no-body `OPTIONS` probes must return their exact safe status and the manual/retry email route must not return `404`.
+2. Run `npm run refunds:smoke-routes -- --project-ref <project-ref> --confirm-project-ref <project-ref>`; all ten no-auth, no-body `OPTIONS` probes must return their exact safe status and the manual/retry email route must not return `404`.
 3. Run `npm run refunds:smoke-public-options -- --project-ref <project-ref> --confirm-project-ref <project-ref>`; require zero internal labels/duplicates and at least one Atlanta, DC, and Seattle option before sharing the form.
 4. Run `npm run refunds:smoke-intake-email` first in read-only preflight mode for the privately approved machine, then—with explicit production-email authorization and an owner-controlled test inbox—run its guarded synthetic card submission. Require sanitized PASS rows for the customer acknowledgement and assigned-manager/operations-fallback notification. Submit the separate cash case through the hosted form and verify its acknowledgement; do not reuse the card smoke as cash-correlation evidence.
 5. Run the aggregate-only manager readiness command with the exact project ref and approved pilot machine IDs, then use the privately selected eligible account to prove assigned-only queue access and Admin denial.

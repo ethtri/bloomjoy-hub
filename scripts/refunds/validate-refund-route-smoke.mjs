@@ -48,8 +48,8 @@ const success = await runRefundRouteSmoke({
   fetchImpl: successfulFetch,
   timeoutMs: 2_500,
 });
-assert.equal(success.length, 9, 'Every approved Refund Operations function must be probed.');
-assert.equal(requests.length, 9);
+assert.equal(success.length, 10, 'Every approved Refund Operations function must be probed.');
+assert.equal(requests.length, 10);
 for (const request of requests) {
   assert.equal(request.options.method, 'OPTIONS', 'Production route smoke must be non-mutating.');
   assert.equal(request.options.body, undefined, 'Production route smoke must send no body.');
@@ -98,4 +98,4 @@ await assert.rejects(
   'Network uncertainty must fail closed without exposing a response body.',
 );
 
-console.log('Refund route smoke validation passed: nine no-auth OPTIONS probes, exact safe statuses, and missing/unexpected/network failures are enforced.');
+console.log('Refund route smoke validation passed: ten no-auth OPTIONS probes, exact safe statuses, and missing/unexpected/network failures are enforced.');

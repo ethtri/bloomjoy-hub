@@ -2,8 +2,8 @@
   "schemaVersion": 2,
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
-  "releaseId": "refund-ops-2026-08-04-cross-channel-reconciliation",
-  "sourceGitCommit": "8a001e330212f28076ecea7584dbe4a8e3e1301e",
+  "releaseId": "refund-ops-2026-08-04-source-aware-queue",
+  "sourceGitCommit": "32cd2eaa2a4790100fc40f82d6066f54c4493565",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -32,10 +32,11 @@
     "202607260002_refund_qr_aware_nayax_recommendation.sql",
     "202607270001_refund_wallet_correction.sql",
     "202608040005_refund_google_form_case_bridge.sql",
-    "202608040006_refund_cross_channel_case_reconciliation.sql"
+    "202608040006_refund_cross_channel_case_reconciliation.sql",
+    "202608040007_refund_source_aware_queue.sql"
   ],
-  "migrationFilesSha256": "8a5d142414822f967dbd47f7fb62c7f7a271a2da056fc75a78fa61686413de88",
-  "migrationVersionSetSha256": "a97c771619962e3bfb2b76310553d4a42279bd801573843a06991d8078cba10c",
+  "migrationFilesSha256": "07b1c0bfc67898335d2001aa41fd53869c28f7207b72cf91a0c38732e259afd4",
+  "migrationVersionSetSha256": "36ab65d439d968d5de2684f12dc8d08540eeafdec79221193d0fedc17eb70134",
   "functions": [
     {
       "slug": "refund-case-intake",
@@ -101,6 +102,12 @@
       "slug": "refund-google-form-sync",
       "verifyJwt": false,
       "sourceSha256": "b696ee4fbbe7d9db60e3575904a43e59b843c8bcb0be66b7710b6e97d259f415",
+      "production": null
+    },
+    {
+      "slug": "refund-source-reconciliation",
+      "verifyJwt": false,
+      "sourceSha256": "c19cfe35e2647995d0d3a3b17555482e74c2b601693f7d4c26ff598614e8234a",
       "production": null
     },
     {
@@ -185,6 +192,10 @@
       "status": "MISSING"
     },
     {
+      "slug": "refund-source-reconciliation",
+      "status": "MISSING"
+    },
+    {
       "slug": "refund-gpt-triage",
       "status": "ACTIVE",
       "version": 1,
@@ -235,6 +246,10 @@
       },
       {
         "slug": "refund-google-form-sync",
+        "restoreAction": "disable"
+      },
+      {
+        "slug": "refund-source-reconciliation",
         "restoreAction": "disable"
       },
       {

@@ -1,0 +1,97 @@
+name: Refund Source Reconciliation
+
+on:
+  schedule:
+    # Default-off daily pilot check, away from common top-of-hour provider load.
+    - cron: '17 17 * * *'
+  workflow_dispatch:
+    inputs:
+      failure_test:
+        description: 'Return a synthetic aggregate mismatch without reading customer data'
+        required: false
+        default: 'true'
+      window_hours:
+        description: 'Bounded reconciliation window (1-168 hours)'
+        required: false
+        default: '24'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refund-source-reconciliation
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      REFUND_SOURCE_RECONCILIATION_URL: ${{ secrets.REFUND_SOURCE_RECONCILIATION_URL }}
+      REFUND_SOURCE_RECONCILIATION_TOKEN: ${{ secrets.REFUND_SOURCE_RECONCILIATION_TOKEN }}
+      REFUND_SOURCE_RECONCILIATION_ENABLED: ${{ vars.REFUND_SOURCE_RECONCILIATION_ENABLED || 'false' }}
+      FAILURE_TEST: ${{ inputs.failure_test || 'false' }}
+      WINDOW_HOURS: ${{ inputs.window_hours || '24' }}
+    steps:
+      - name: Run aggregate-only source reconciliation
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" && "$REFUND_SOURCE_RECONCILIATION_ENABLED" != "true" ]]; then
+            echo "Skipping scheduled reconciliation because REFUND_SOURCE_RECONCILIATION_ENABLED is not true."
+            exit 0
+          fi
+
+          if [[ "$FAILURE_TEST" != "true" && "$REFUND_SOURCE_RECONCILIATION_ENABLED" != "true" ]]; then
+            echo "A live reconciliation requires REFUND_SOURCE_RECONCILIATION_ENABLED=true."
+            exit 1
+          fi
+
+          if [[ -z "$REFUND_SOURCE_RECONCILIATION_URL" || -z "$REFUND_SOURCE_RECONCILIATION_TOKEN" ]]; then
+            echo "Missing dedicated reconciliation URL or token."
+            exit 1
+          fi
+
+          node --input-type=module <<'NODE'
+          const response = await fetch(process.env.REFUND_SOURCE_RECONCILIATION_URL, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${process.env.REFUND_SOURCE_RECONCILIATION_TOKEN}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              failureTest: process.env.FAILURE_TEST === 'true',
+              windowHours: Math.max(1, Math.min(Number(process.env.WINDOW_HOURS || 24), 168)),
+            }),
+          });
+          const raw = await response.text();
+          let body;
+          try {
+            body = raw ? JSON.parse(raw) : {};
+          } catch {
+            body = { error: 'Reconciliation endpoint returned a non-JSON response.' };
+          }
+
+          const safeSummary = {
+            httpStatus: response.status,
+            status: body.status ?? null,
+            generatedAt: body.generatedAt ?? null,
+            sources: Array.isArray(body.sources) ? body.sources : [],
+            reconciliation: body.reconciliation ?? null,
+            reasonCodes: Array.isArray(body.reasonCodes) ? body.reasonCodes : [],
+            payloadRedacted: body.payloadRedacted === true,
+          };
+          console.log(JSON.stringify(safeSummary, null, 2));
+
+          if (!response.ok || body.error || body.payloadRedacted !== true) {
+            console.error(body.error || 'Reconciliation response failed the aggregate-only contract.');
+            process.exit(1);
+          }
+          if (body.status === 'disabled') {
+            console.log('Source reconciliation is disabled at the Edge Function.');
+            process.exit(0);
+          }
+          if (body.status === 'attention') {
+            console.log(`::warning title=Refund source reconciliation needs attention::${safeSummary.reasonCodes.join(', ') || 'Review aggregate source health.'}`);
+            process.exit(process.env.FAILURE_TEST === 'true' ? 0 : 1);
+          }
+          NODE

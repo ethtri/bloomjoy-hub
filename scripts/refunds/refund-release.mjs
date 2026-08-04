@@ -21,6 +21,7 @@ export const requiredFunctionSlugs = [
   'refund-case-automation-sweep',
   'refund-gmail-sync',
   'refund-google-form-sync',
+  'refund-source-reconciliation',
   'refund-gpt-triage',
   'nayax-card-refund',
 ];

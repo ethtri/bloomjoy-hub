@@ -311,6 +311,84 @@ const buildMockGmailDraftCases = () => ([
   },
 ]);
 
+const buildMockSmsGoogleFormDraftCases = () => ([
+  {
+    id: 'case-sms-google-form-draft-1',
+    publicReference: 'RF-UAT-SMS-FORM',
+    status: 'draft',
+    priority: 'normal',
+    correlationStatus: 'manual_review',
+    correlationSource: null,
+    correlationConfidence: 0,
+    correlationSummary: 'The customer needs to confirm the purchase time and amount.',
+    machineLabel: 'Cotton Candy 01',
+    locationName: 'Mall Atrium',
+    customerEmail: 'customer-sms-form@example.test',
+    customerName: null,
+    customerPhone: null,
+    zellePaymentContact: null,
+    issueSummary: 'Synthetic SMS Google Form refund request.',
+    incidentAt: isoHoursAgo(28),
+    paymentMethod: 'card',
+    paymentAmountCents: null,
+    cardLast4: null,
+    cardWalletUsed: true,
+    hasMatchedSalesFact: false,
+    hasMatchedNayaxTransaction: false,
+    matchedNayaxMachineAuthTime: null,
+    matchedNayaxAmountCents: null,
+    matchedNayaxCardLast4: null,
+    matchedNayaxCurrencyCode: null,
+    nayaxLookupCandidates: [],
+    assignedManagerEmail: 'machine-manager@example.test',
+    decision: null,
+    decisionReason: null,
+    decidedAt: null,
+    refundAmountCents: null,
+    manualRefundReference: null,
+    hasReportingAdjustment: false,
+    createdAt: isoHoursAgo(28),
+    updatedAt: isoHoursAgo(27),
+    attachments: [],
+    events: [],
+    messages: [],
+    intakeSource: 'sms_google_form',
+    intakeComplete: false,
+    hasGmailThread: false,
+  },
+]);
+
+const buildMockSourceSnapshot = (caseStates = []) => ({
+  generatedAt: new Date().toISOString(),
+  cases: caseStates,
+  sources: [
+    {
+      source: 'form', label: 'Website form', status: 'healthy', lastSuccessfulAt: isoHoursAgo(1),
+      oldestUnprocessedAt: null, lagMinutes: 0, importedCount: 3, failedCount: 0,
+      unmappedCount: 0, quarantinedCount: 0, possibleDuplicateCount: 0,
+      stale: false, quarantineVisible: true, payloadRedacted: true,
+    },
+    {
+      source: 'gmail', label: 'Support email', status: 'healthy', lastSuccessfulAt: isoHoursAgo(0.1),
+      oldestUnprocessedAt: null, lagMinutes: 6, importedCount: 1, failedCount: 0,
+      unmappedCount: 0, quarantinedCount: 0, possibleDuplicateCount: 0,
+      stale: false, quarantineVisible: true, payloadRedacted: true,
+    },
+    {
+      source: 'sms_google_form', label: 'SMS Google Form', status: 'healthy', lastSuccessfulAt: isoHoursAgo(0.1),
+      oldestUnprocessedAt: isoHoursAgo(28), lagMinutes: 6, importedCount: 1, failedCount: 0,
+      unmappedCount: 0, quarantinedCount: 0, possibleDuplicateCount: 1,
+      stale: false, quarantineVisible: true, payloadRedacted: true,
+    },
+  ],
+  reconciliation: {
+    windowStart: isoHoursAgo(24), windowEnd: new Date().toISOString(), sourceSubmissionCount: 5,
+    representedItemCount: 5, visibleQuarantineCount: 0, delta: 0, reconciled: true,
+    quarantineVisible: true, payloadRedacted: true,
+  },
+  payloadRedacted: true,
+});
+
 const buildMockGmailContext = () => ({
   connected: true,
   subject: 'Refund help',
@@ -605,6 +683,8 @@ const installMockSupabaseRoutes = async (
     adminUpdateDelayMs = 0,
     adminUpdateResponse = null,
     gmailDraftCases = [],
+    sourceDraftCases = gmailDraftCases,
+    sourceSnapshot = buildMockSourceSnapshot(),
     gmailHealth = null,
     gmailContext = null,
     gptTriageSuggestion = undefined,
@@ -892,8 +972,12 @@ const installMockSupabaseRoutes = async (
       );
     }
 
-    if (url.includes('/admin_get_refund_gmail_draft_cases')) {
-      return route.fulfill(jsonResponse(gmailDraftCases));
+    if (url.includes('/admin_get_refund_source_draft_cases')) {
+      return route.fulfill(jsonResponse(sourceDraftCases));
+    }
+
+    if (url.includes('/get_refund_source_queue_snapshot')) {
+      return route.fulfill(jsonResponse(sourceSnapshot));
     }
 
     if (url.includes('/admin_get_refund_gmail_case_context')) {
@@ -1581,6 +1665,123 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       (await humanReviewPage.locator('[data-dominant-action="true"]:visible').count()) === 0
   );
   await humanReviewContext.close();
+};
+
+const runSourceAwareQueueChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1050 } });
+  const functionCalls = [];
+  const functionBodies = [];
+  const smsDrafts = buildMockSmsGoogleFormDraftCases();
+  const sourceSnapshot = buildMockSourceSnapshot([
+    {
+      caseId: 'case-sms-google-form-draft-1',
+      intakeSource: 'sms_google_form',
+      ingestionState: 'missing_information',
+      sourceSubmittedAt: isoHoursAgo(28),
+      canonicalCasePath: '/refunds?case=case-sms-google-form-draft-1',
+      isAging: true,
+      providerReconciliationHold: false,
+      hasPendingDuplicate: true,
+      duplicateOfCaseId: null,
+      payloadRedacted: true,
+    },
+  ]);
+  await installMockSupabaseRoutes(context, {
+    refundOverview: buildEmptyRefundOverview,
+    sourceDraftCases: smsDrafts,
+    sourceSnapshot,
+    functionCalls,
+    functionBodies,
+  });
+
+  const page = await context.newPage();
+  const consoleErrors = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text());
+  });
+  page.on('pageerror', (error) => consoleErrors.push(error.message));
+
+  await signInRefundUser(page, appUrl);
+  await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
+  recorder.assert(
+    'All three intake sources and the daily equation appear in one authorized view',
+    await page.getByTestId('refund-source-health-form').isVisible() &&
+      await page.getByTestId('refund-source-health-gmail').isVisible() &&
+      await page.getByTestId('refund-source-health-sms_google_form').isVisible() &&
+      await page.getByText('5 accepted source submissions = 5 Hub cases or authorized quarantine items').isVisible()
+  );
+
+  const filter = page.getByLabel('Filter refund cases by status');
+  await filter.selectOption('missing_information');
+  recorder.assert(
+    'Missing-information saved filter finds the SMS Google Form draft',
+    await page.getByText('1 visible of 1 total cases').isVisible()
+  );
+  await filter.selectOption('possible_duplicate');
+  recorder.assert(
+    'Possible-duplicate saved filter uses the source-aware case state',
+    await page.getByText('1 visible of 1 total cases').isVisible()
+  );
+  await filter.selectOption('aging');
+  recorder.assert(
+    'Aging saved filter uses the source-aware case state',
+    await page.getByText('1 visible of 1 total cases').isVisible()
+  );
+  await filter.selectOption('all');
+
+  await page.locator('tr', { hasText: 'RF-UAT-SMS-FORM' }).click();
+  await page.getByTestId('refund-source-draft-workbench').waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Queue and detail keep a stable non-editable SMS Google Form source badge',
+    (await page.getByTestId('refund-intake-source-badge').filter({ hasText: 'SMS Google Form' }).count()) >= 1 &&
+      await page.getByTestId('refund-detail-source-badge').getByText('SMS Google Form', { exact: true }).isVisible()
+  );
+  recorder.assert(
+    'Exact case link targets the canonical case and exposes no action side effect',
+    (await page.getByTestId('refund-canonical-case-link').locator('a').getAttribute('href')) ===
+      '/refunds?case=case-sms-google-form-draft-1' &&
+      (await page.getByTestId('refund-run-nayax-refund').count()) === 0
+  );
+  recorder.assert(
+    'Incomplete SMS Google Form draft offers one friendly information-request action',
+    await page.getByTestId('refund-source-ask-for-details').getByText('Email customer for details').isVisible()
+  );
+
+  await page.getByTestId('refund-source-ask-for-details').click();
+  await page.waitForTimeout(250);
+  const messageBody = functionBodies.find((entry) => entry.functionName === 'refund-case-message-send')?.body ?? {};
+  recorder.assert(
+    'SMS Google Form follow-up uses the reviewed customer-message path exactly once',
+    functionCalls.filter((name) => name === 'refund-case-message-send').length === 1 &&
+      !functionCalls.includes('nayax-transaction-lookup') &&
+      messageBody.caseId === 'case-sms-google-form-draft-1' &&
+      messageBody.messageType === 'more_info',
+    JSON.stringify({ functionCalls, messageBody })
+  );
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${appUrl}/refunds?case=case-sms-google-form-draft-1`, { waitUntil: 'networkidle' });
+  await page.getByTestId('refund-source-draft-workbench').waitFor({ timeout: 10000 });
+  const overflow = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    bodyScrollWidth: document.body.scrollWidth,
+    innerWidth: window.innerWidth,
+  }));
+  recorder.assert(
+    'Source-aware queue and exact case link have no mobile document overflow',
+    overflow.scrollWidth <= overflow.innerWidth + 1 && overflow.bodyScrollWidth <= overflow.innerWidth + 1,
+    JSON.stringify(overflow)
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-source-aware-queue-mobile.png'),
+    fullPage: true,
+  });
+  recorder.assert(
+    'No browser console or page errors during source-aware queue QA',
+    consoleErrors.length === 0,
+    consoleErrors.slice(0, 3).join(' | ')
+  );
+  await context.close();
 };
 
 const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
@@ -2556,6 +2757,12 @@ const run = async () => {
       recorder,
     });
     await runGmailDraftChecks({
+      browser,
+      appUrl: args.appUrl,
+      artifactDir: args.artifactDir,
+      recorder,
+    });
+    await runSourceAwareQueueChecks({
       browser,
       appUrl: args.appUrl,
       artifactDir: args.artifactDir,

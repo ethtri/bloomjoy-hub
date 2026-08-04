@@ -52,6 +52,9 @@ verify_jwt = false
 [functions.refund-google-form-sync]
 verify_jwt = false
 
+[functions.refund-source-reconciliation]
+verify_jwt = false
+
 [functions.refund-case-intake]
 verify_jwt = false
 

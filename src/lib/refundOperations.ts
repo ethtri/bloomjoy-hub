@@ -270,6 +270,13 @@ export type RefundCaseRecord = {
   latestCustomerMessageType?: string | null;
   latestCustomerMessageAt?: string | null;
   nayaxLookupSummary?: RefundNayaxLookupSummary | null;
+  ingestionState?: RefundCaseIngestionState;
+  sourceSubmittedAt?: string | null;
+  canonicalCasePath?: string;
+  isAging?: boolean;
+  providerReconciliationHold?: boolean;
+  hasPendingDuplicate?: boolean;
+  duplicateOfCaseId?: string | null;
 };
 
 export type RefundAdminMachine = {
@@ -288,6 +295,63 @@ export type RefundOperationsOverview = {
   cases: RefundCaseRecord[];
   machines: RefundAdminMachine[];
   managerAssignments: RefundManagerAssignment[];
+  sourceSnapshot?: RefundSourceQueueSnapshot;
+};
+
+export type RefundCaseIngestionState =
+  | 'ready'
+  | 'missing_information'
+  | 'unmapped_machine'
+  | 'import_failure';
+
+export type RefundSourceCaseState = {
+  caseId: string;
+  intakeSource: 'form' | 'gmail' | 'sms_google_form';
+  ingestionState: RefundCaseIngestionState;
+  sourceSubmittedAt: string | null;
+  canonicalCasePath: string;
+  isAging: boolean;
+  providerReconciliationHold: boolean;
+  hasPendingDuplicate: boolean;
+  duplicateOfCaseId: string | null;
+  payloadRedacted: boolean;
+};
+
+export type RefundSourceHealth = {
+  source: 'form' | 'gmail' | 'sms_google_form';
+  label: string;
+  status: 'healthy' | 'stale' | 'failing' | 'paused' | 'revoked' | 'waiting' | 'running';
+  lastSuccessfulAt: string | null;
+  oldestUnprocessedAt: string | null;
+  lagMinutes: number | null;
+  importedCount: number;
+  failedCount: number;
+  unmappedCount: number;
+  quarantinedCount: number;
+  possibleDuplicateCount: number;
+  stale: boolean;
+  quarantineVisible: boolean;
+  payloadRedacted: boolean;
+};
+
+export type RefundSourceReconciliation = {
+  windowStart: string;
+  windowEnd: string;
+  sourceSubmissionCount: number;
+  representedItemCount: number;
+  visibleQuarantineCount: number;
+  delta: number;
+  reconciled: boolean;
+  quarantineVisible: boolean;
+  payloadRedacted: boolean;
+};
+
+export type RefundSourceQueueSnapshot = {
+  generatedAt: string | null;
+  cases: RefundSourceCaseState[];
+  sources: RefundSourceHealth[];
+  reconciliation: RefundSourceReconciliation | null;
+  payloadRedacted: boolean;
 };
 
 export type RefundReconciliationReviewStatus =
@@ -1006,29 +1070,46 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
 };
 
 export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsOverview> => {
-  const [overviewResult, gmailDraftResult] = await Promise.all([
+  const [overviewResult, sourceDraftResult, sourceSnapshotResult] = await Promise.all([
     supabaseClient.rpc('admin_get_refund_operations_overview'),
-    supabaseClient.rpc('admin_get_refund_gmail_draft_cases'),
+    supabaseClient.rpc('admin_get_refund_source_draft_cases'),
+    supabaseClient.rpc('get_refund_source_queue_snapshot'),
   ]);
 
   if (overviewResult.error) {
     throw new Error(overviewResult.error.message || 'Unable to load refund operations.');
   }
-  if (gmailDraftResult.error) {
-    throw new Error(gmailDraftResult.error.message || 'Unable to load Gmail refund drafts.');
+  if (sourceDraftResult.error) {
+    throw new Error(sourceDraftResult.error.message || 'Unable to load source refund drafts.');
+  }
+  if (sourceSnapshotResult.error) {
+    throw new Error(sourceSnapshotResult.error.message || 'Unable to load refund source health.');
   }
 
   const overview = {
     ...emptyOverview,
     ...((overviewResult.data as Partial<RefundOperationsOverview> | null) ?? {}),
   };
-  const gmailDrafts = Array.isArray(gmailDraftResult.data)
-    ? (gmailDraftResult.data as RefundCaseRecord[])
+  const sourceDrafts = Array.isArray(sourceDraftResult.data)
+    ? (sourceDraftResult.data as RefundCaseRecord[])
     : [];
+  const rawSnapshot = (sourceSnapshotResult.data ?? {}) as Partial<RefundSourceQueueSnapshot>;
+  const sourceSnapshot: RefundSourceQueueSnapshot = {
+    generatedAt: typeof rawSnapshot.generatedAt === 'string' ? rawSnapshot.generatedAt : null,
+    cases: Array.isArray(rawSnapshot.cases) ? rawSnapshot.cases : [],
+    sources: Array.isArray(rawSnapshot.sources) ? rawSnapshot.sources : [],
+    reconciliation: rawSnapshot.reconciliation ?? null,
+    payloadRedacted: rawSnapshot.payloadRedacted === true,
+  };
+  const stateByCaseId = new Map(sourceSnapshot.cases.map((caseState) => [caseState.caseId, caseState]));
 
   return {
     ...overview,
-    cases: [...gmailDrafts, ...overview.cases],
+    cases: [...sourceDrafts, ...overview.cases].map((refundCase) => ({
+      ...refundCase,
+      ...(stateByCaseId.get(refundCase.id) ?? {}),
+    })),
+    sourceSnapshot,
   };
 };
 

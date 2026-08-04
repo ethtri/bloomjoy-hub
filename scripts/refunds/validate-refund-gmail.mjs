@@ -114,7 +114,7 @@ assert(workflow.includes('secrets.REFUND_GMAIL_SYNC_URL'), 'Gmail sync URL must 
 assert(workflow.includes('secrets.REFUND_GMAIL_SYNC_TOKEN'), 'Gmail sync token must be encrypted');
 assert(workflow.includes('cancel-in-progress: false'), 'A running Gmail sync must not be cancelled mid-delivery');
 
-assert(client.includes('admin_get_refund_gmail_draft_cases'), 'Gmail draft cases must join the manager queue');
+assert(client.includes('admin_get_refund_source_draft_cases'), 'Gmail draft cases must join the unified manager queue');
 assert(client.includes('admin_get_refund_gmail_case_context'), 'Managers must be able to load safe thread context');
 assert(client.includes('get_refund_gmail_health'), 'Managers must be able to see Gmail sync health');
 assert(ui.includes('refund-gmail-draft-workbench'), 'Gmail draft cases need a simple dedicated workbench');
