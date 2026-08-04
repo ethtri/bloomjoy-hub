@@ -14,16 +14,18 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
 const migrationsDir = path.join(repoRoot, 'supabase', 'migrations');
 const testsDir = path.join(repoRoot, 'supabase', 'tests');
+export const DATABASE_EVIDENCE_FILENAME = 'refund-database-counts.json';
 
 function printHelp() {
-  console.log(`Usage: npm run db:validate-migrations [-- --keep-temp] [-- --debug]
+  console.log(`Usage: npm run db:validate-migrations [-- --keep-temp] [--debug] [--evidence-dir <path>]
 
 Validates Supabase migrations by applying them to a disposable local database.
 
 Options:
-  --debug      Pass --debug to Supabase CLI commands.
-  --keep-temp  Leave the temporary Supabase project on disk for troubleshooting.
-  --help       Show this help text.
+  --debug                Pass --debug to Supabase CLI commands.
+  --evidence-dir <path>  Write sanitized aggregate test evidence after a complete pass.
+  --keep-temp            Leave the temporary Supabase project on disk for troubleshooting.
+  --help                 Show this help text.
 `);
 }
 
@@ -31,16 +33,28 @@ function log(message = '') {
   process.stderr.write(`${message}\n`);
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const options = {
     debug: false,
+    evidenceDir: null,
     keepTemp: false,
     help: false,
   };
 
-  for (const arg of argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
     if (arg === '--debug') {
       options.debug = true;
+      continue;
+    }
+
+    if (arg === '--evidence-dir') {
+      const value = argv[index + 1];
+      if (!value || value.startsWith('--')) {
+        throw new Error('--evidence-dir requires a path.');
+      }
+      options.evidenceDir = path.resolve(process.cwd(), value);
+      index += 1;
       continue;
     }
 
@@ -60,13 +74,22 @@ function parseArgs(argv) {
   return options;
 }
 
-function run(command, args, { allowFailure = false, stdio = 'pipe' } = {}) {
+function run(
+  command,
+  args,
+  { allowFailure = false, relayOutput = false, stdio = 'pipe' } = {}
+) {
   const result = spawnSync(command, args, {
     cwd: repoRoot,
     encoding: 'utf8',
     stdio,
     shell: false,
   });
+
+  if (relayOutput && stdio === 'pipe') {
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+  }
 
   if (result.error) {
     if (allowFailure) {
@@ -110,6 +133,69 @@ function getMigrationFiles() {
     .filter((entry) => entry.isFile() && entry.name.endsWith('.sql'))
     .map((entry) => entry.name)
     .sort();
+}
+
+function getSqlFiles(directory) {
+  if (!fs.existsSync(directory)) return [];
+
+  return fs
+    .readdirSync(directory, { withFileTypes: true })
+    .flatMap((entry) => {
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) return getSqlFiles(entryPath);
+      return entry.isFile() && entry.name.endsWith('.sql') ? [entryPath] : [];
+    })
+    .sort();
+}
+
+export function parseDatabaseTestSummary(output) {
+  const summaries = [...output.matchAll(/\bFiles=(\d+),\s*Tests=(\d+)\b/g)];
+  if (summaries.length !== 1) {
+    throw new Error('Supabase database test output must contain exactly one aggregate Files/Tests summary.');
+  }
+
+  const testFileCount = Number.parseInt(summaries[0][1], 10);
+  const assertionCount = Number.parseInt(summaries[0][2], 10);
+  if (!Number.isSafeInteger(testFileCount) || testFileCount < 1) {
+    throw new Error('Supabase database test summary contains an invalid file count.');
+  }
+  if (!Number.isSafeInteger(assertionCount) || assertionCount < 1) {
+    throw new Error('Supabase database test summary contains an invalid assertion count.');
+  }
+
+  return { testFileCount, assertionCount };
+}
+
+export function buildDatabaseEvidence({ migrationCount, discoveredTestFileCount, testSummary }) {
+  if (!Number.isSafeInteger(migrationCount) || migrationCount < 1) {
+    throw new Error('Database evidence requires a positive migration count.');
+  }
+  if (!Number.isSafeInteger(discoveredTestFileCount) || discoveredTestFileCount < 1) {
+    throw new Error('Database evidence requires at least one discovered SQL test file.');
+  }
+  if (testSummary.testFileCount !== discoveredTestFileCount) {
+    throw new Error(
+      `Supabase database test summary covered ${testSummary.testFileCount} file(s), but ${discoveredTestFileCount} SQL test file(s) were discovered.`
+    );
+  }
+
+  return {
+    schemaVersion: 1,
+    evidenceType: 'database_counts',
+    evidenceMode: 'disposable_local_database',
+    passed: true,
+    migrationCount,
+    testFileCount: testSummary.testFileCount,
+    assertionCount: testSummary.assertionCount,
+    failedAssertionCount: 0,
+  };
+}
+
+export function writeDatabaseEvidence(evidenceDir, evidence) {
+  fs.mkdirSync(evidenceDir, { recursive: true });
+  const evidencePath = path.join(evidenceDir, DATABASE_EVIDENCE_FILENAME);
+  fs.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
+  return evidencePath;
 }
 
 function getFreePort() {
@@ -197,6 +283,7 @@ async function main() {
   }
 
   const migrationFiles = getMigrationFiles();
+  const testFiles = getSqlFiles(testsDir);
   if (migrationFiles.length === 0) {
     throw new Error('No Supabase migration files found.');
   }
@@ -221,6 +308,7 @@ async function main() {
   log(`Validating ${migrationFiles.length} migration file(s) in disposable project ${projectId}.`);
   log(`Temporary workdir: ${tempRoot}`);
 
+  let databaseEvidence = null;
   let validationError;
 
   try {
@@ -234,14 +322,24 @@ async function main() {
     run('supabase', args, { stdio: 'inherit' });
     log('\nSupabase migration apply validation passed.');
 
-    if (fs.existsSync(testsDir)) {
+    if (testFiles.length > 0) {
       const testArgs = ['test', 'db', '--workdir', tempRoot];
       if (options.debug) {
         testArgs.push('--debug');
       }
 
-      run('supabase', testArgs, { stdio: 'inherit' });
+      const testResult = run('supabase', testArgs, { relayOutput: true });
+      const testSummary = parseDatabaseTestSummary(
+        `${testResult.stdout ?? ''}\n${testResult.stderr ?? ''}`
+      );
+      databaseEvidence = buildDatabaseEvidence({
+        migrationCount: migrationFiles.length,
+        discoveredTestFileCount: testFiles.length,
+        testSummary,
+      });
       log('Supabase database persona tests passed.');
+    } else if (options.evidenceDir) {
+      throw new Error('Database evidence requires at least one SQL test file.');
     }
   } catch (error) {
     validationError = error;
@@ -258,10 +356,20 @@ async function main() {
   if (validationError) {
     throw validationError;
   }
+
+  if (options.evidenceDir) {
+    if (!databaseEvidence) {
+      throw new Error('Database evidence was not produced by the disposable test run.');
+    }
+    const evidencePath = writeDatabaseEvidence(options.evidenceDir, databaseEvidence);
+    log(`Sanitized database evidence written: ${evidencePath}`);
+  }
 }
 
-main().catch((error) => {
-  console.error('\nSupabase migration apply validation failed.');
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+if (path.resolve(process.argv[1] ?? '') === __filename) {
+  main().catch((error) => {
+    console.error('\nSupabase migration apply validation failed.');
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+}

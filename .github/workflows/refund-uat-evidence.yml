@@ -23,7 +23,7 @@ concurrency:
 jobs:
   screenshots:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -34,8 +34,14 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v2
+        with:
+          version: 2.67.1
       - name: Install dependencies
         run: npm ci
+      - name: Run disposable database validation
+        run: npm run db:validate-migrations -- --evidence-dir output/refund-uat-evidence
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Start synthetic UAT app
@@ -76,7 +82,7 @@ jobs:
           echo "- Artifact: ${{ steps.upload.outputs.artifact-url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Digest: ${{ steps.upload.outputs.artifact-digest }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Screenshots: 31 synthetic states; no production data" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Machine-readable evidence: 4 strict, sanitized, hashed JSON artifacts" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Machine-readable evidence: 5 strict, sanitized, hashed JSON artifacts" >> "$GITHUB_STEP_SUMMARY"
       - name: Stop synthetic UAT app
         if: always()
         run: |

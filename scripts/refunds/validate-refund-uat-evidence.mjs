@@ -11,6 +11,12 @@ import {
   parseArgs,
   validateMachineReadableEvidence,
 } from './refund-uat-evidence.mjs';
+import {
+  DATABASE_EVIDENCE_FILENAME,
+  buildDatabaseEvidence,
+  parseArgs as parseDatabaseArgs,
+  parseDatabaseTestSummary,
+} from '../validate-supabase-migrations.mjs';
 
 const PNG_FIXTURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
 const sourceCommit = 'a'.repeat(40);
@@ -27,6 +33,10 @@ const machineFixtures = {
     failedAssertionCount: 0,
     navigationProviderCallCount: 0,
     navigationOfficialActionCallCount: 0,
+    explicitLookupProviderCallCountBefore: 0,
+    explicitLookupProviderCallCountAfter: 1,
+    providerSuccessStateCount: 1,
+    providerNonSuccessStateCount: 3,
   },
   'refund-database-counts.json': {
     schemaVersion: 1,
@@ -52,6 +62,10 @@ const machineFixtures = {
     },
     sourceThreadPinned: true,
     duplicateMessageCount: 0,
+    replyHeadersPresent: true,
+    automaticHeadersPresent: true,
+    internalLinkCount: 0,
+    providerSendCount: 1,
   },
   'refund-kill-switches.json': {
     schemaVersion: 1,
@@ -81,6 +95,22 @@ const machineFixtures = {
     intakeAvailable: true,
     portalAvailable: true,
   },
+  'refund-provider-outcomes.json': {
+    schemaVersion: 1,
+    evidenceType: 'provider_outcomes',
+    evidenceMode: 'local_injected_provider_adapter',
+    passed: true,
+    successCount: 1,
+    rejectionCount: 1,
+    timeoutCount: 1,
+    unknownCount: 1,
+    totalProviderAttempts: 4,
+    replayProviderAttempts: 0,
+    caseReportingCompletionCount: 1,
+    originalThreadCompletionCount: 1,
+    fallbackNoticeCount: 0,
+    managerCompletionNoticeCount: 0,
+  },
 };
 
 const writeCanonicalJson = (filePath, value) =>
@@ -91,7 +121,43 @@ try {
   assert.deepEqual(
     EXPECTED_MACHINE_READABLE_ARTIFACTS,
     Object.keys(machineFixtures),
-    'Evidence must enumerate the four strict machine-readable artifacts in canonical order'
+    'Evidence must enumerate the five strict machine-readable artifacts in canonical order'
+  );
+  assert.equal(DATABASE_EVIDENCE_FILENAME, 'refund-database-counts.json');
+  const databaseArgs = parseDatabaseArgs(['--evidence-dir', tempDir]);
+  assert.equal(databaseArgs.evidenceDir, tempDir);
+  assert.throws(
+    () => parseDatabaseArgs(['--evidence-dir']),
+    /requires a path/,
+    'Database evidence output requires an explicit directory'
+  );
+  const databaseSummary = parseDatabaseTestSummary(
+    'All tests successful.\nFiles=18, Tests=852, 29 wallclock secs'
+  );
+  assert.deepEqual(databaseSummary, { testFileCount: 18, assertionCount: 852 });
+  assert.throws(
+    () => parseDatabaseTestSummary('All tests successful.'),
+    /exactly one aggregate/,
+    'Database evidence fails if the pgTAP aggregate summary is absent'
+  );
+  assert.throws(
+    () =>
+      buildDatabaseEvidence({
+        migrationCount: 126,
+        discoveredTestFileCount: 17,
+        testSummary: databaseSummary,
+      }),
+    /covered 18 file\(s\), but 17 SQL test file\(s\) were discovered/,
+    'Database evidence fails if the executed and discovered test-file counts differ'
+  );
+  assert.deepEqual(
+    buildDatabaseEvidence({
+      migrationCount: 126,
+      discoveredTestFileCount: 18,
+      testSummary: databaseSummary,
+    }),
+    machineFixtures['refund-database-counts.json'],
+    'Database evidence producer and strict manifest fixture must stay aligned'
   );
 
   const parsed = parseArgs([
@@ -209,12 +275,21 @@ try {
     /unsupported or missing fields/,
     'Provider identifiers must fail the exact portal schema'
   );
-  const mimeWithAddress = structuredClone(machineFixtures['refund-gmail-mime-roles.json']);
-  mimeWithAddress.roleCounts.managerCc = 4;
+  const invalidMimeRoles = structuredClone(machineFixtures['refund-gmail-mime-roles.json']);
+  invalidMimeRoles.roleCounts.managerCc = 1;
   assert.throws(
-    () => validateMachineReadableEvidence('refund-gmail-mime-roles.json', mimeWithAddress),
-    /bounded aggregate count/,
-    'MIME evidence must contain only bounded role counts'
+    () => validateMachineReadableEvidence('refund-gmail-mime-roles.json', invalidMimeRoles),
+    /role count is invalid/,
+    'MIME evidence must prove the exact two-manager #409 fixture'
+  );
+  const replayedProviderOutcome = {
+    ...machineFixtures['refund-provider-outcomes.json'],
+    replayProviderAttempts: 1,
+  };
+  assert.throws(
+    () => validateMachineReadableEvidence('refund-provider-outcomes.json', replayedProviderOutcome),
+    /replay-attempt count is invalid/,
+    'Provider-outcome evidence must prove zero replay attempts'
   );
 
   await writeFile(

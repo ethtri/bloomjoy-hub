@@ -46,6 +46,7 @@ export const EXPECTED_MACHINE_READABLE_ARTIFACTS = [
   'refund-database-counts.json',
   'refund-gmail-mime-roles.json',
   'refund-kill-switches.json',
+  'refund-provider-outcomes.json',
 ];
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -85,15 +86,31 @@ const validatePortalAssertions = (payload) => {
     'failedAssertionCount',
     'navigationProviderCallCount',
     'navigationOfficialActionCallCount',
+    'explicitLookupProviderCallCountBefore',
+    'explicitLookupProviderCallCountAfter',
+    'providerSuccessStateCount',
+    'providerNonSuccessStateCount',
   ], 'Portal assertion evidence');
   assertLiteral(payload.schemaVersion, 1, 'Portal assertion schemaVersion');
   assertLiteral(payload.evidenceType, 'portal_assertions', 'Portal assertion evidenceType');
   assertLiteral(payload.evidenceMode, 'synthetic_browser_mocks', 'Portal assertion evidenceMode');
   assertLiteral(payload.passed, true, 'Portal assertion passed flag');
-  assertCount(payload.assertionCount, 'Portal assertion count', { min: 1 });
+  assertCount(payload.assertionCount, 'Portal assertion count', { min: 101 });
   assertLiteral(payload.failedAssertionCount, 0, 'Portal failed assertion count');
   assertLiteral(payload.navigationProviderCallCount, 0, 'Portal navigation provider call count');
   assertLiteral(payload.navigationOfficialActionCallCount, 0, 'Portal navigation official-action call count');
+  assertLiteral(
+    payload.explicitLookupProviderCallCountBefore,
+    0,
+    'Portal explicit-lookup pre-action provider call count'
+  );
+  assertLiteral(
+    payload.explicitLookupProviderCallCountAfter,
+    1,
+    'Portal explicit-lookup post-action provider call count'
+  );
+  assertLiteral(payload.providerSuccessStateCount, 1, 'Portal provider success-state count');
+  assertLiteral(payload.providerNonSuccessStateCount, 3, 'Portal provider non-success-state count');
 };
 
 const validateDatabaseCounts = (payload) => {
@@ -126,6 +143,10 @@ const validateMimeRoles = (payload) => {
     'roleCounts',
     'sourceThreadPinned',
     'duplicateMessageCount',
+    'replyHeadersPresent',
+    'automaticHeadersPresent',
+    'internalLinkCount',
+    'providerSendCount',
   ], 'Gmail MIME-role evidence');
   assertLiteral(payload.schemaVersion, 1, 'Gmail MIME-role schemaVersion');
   assertLiteral(payload.evidenceType, 'gmail_mime_roles', 'Gmail MIME-role evidenceType');
@@ -139,12 +160,16 @@ const validateMimeRoles = (payload) => {
     'unrelatedCc',
   ], 'Gmail MIME role counts');
   assertLiteral(payload.roleCounts.customerTo, 1, 'Gmail customer To role count');
-  assertCount(payload.roleCounts.managerCc, 'Gmail manager CC role count', { min: 1, max: 3 });
+  assertLiteral(payload.roleCounts.managerCc, 2, 'Gmail manager CC role count');
   assertLiteral(payload.roleCounts.mailboxTo, 0, 'Gmail mailbox To role count');
   assertLiteral(payload.roleCounts.unrelatedTo, 0, 'Gmail unrelated To role count');
   assertLiteral(payload.roleCounts.unrelatedCc, 0, 'Gmail unrelated CC role count');
   assertLiteral(payload.sourceThreadPinned, true, 'Gmail source-thread pin');
   assertLiteral(payload.duplicateMessageCount, 0, 'Gmail duplicate-message count');
+  assertLiteral(payload.replyHeadersPresent, true, 'Gmail reply-header assertion');
+  assertLiteral(payload.automaticHeadersPresent, true, 'Gmail automatic-header assertion');
+  assertLiteral(payload.internalLinkCount, 0, 'Gmail internal-link count');
+  assertLiteral(payload.providerSendCount, 1, 'Gmail provider-send count');
 };
 
 const validateKillSwitchCounts = (value, label) => {
@@ -186,11 +211,61 @@ const validateKillSwitches = (payload) => {
   assertLiteral(payload.portalAvailable, true, 'Kill-switch portal availability');
 };
 
+const validateProviderOutcomes = (payload) => {
+  assertExactKeys(payload, [
+    'schemaVersion',
+    'evidenceType',
+    'evidenceMode',
+    'passed',
+    'successCount',
+    'rejectionCount',
+    'timeoutCount',
+    'unknownCount',
+    'totalProviderAttempts',
+    'replayProviderAttempts',
+    'caseReportingCompletionCount',
+    'originalThreadCompletionCount',
+    'fallbackNoticeCount',
+    'managerCompletionNoticeCount',
+  ], 'Provider-outcome evidence');
+  assertLiteral(payload.schemaVersion, 1, 'Provider-outcome schemaVersion');
+  assertLiteral(payload.evidenceType, 'provider_outcomes', 'Provider-outcome evidenceType');
+  assertLiteral(
+    payload.evidenceMode,
+    'local_injected_provider_adapter',
+    'Provider-outcome evidenceMode'
+  );
+  assertLiteral(payload.passed, true, 'Provider-outcome passed flag');
+  assertLiteral(payload.successCount, 1, 'Provider success count');
+  assertLiteral(payload.rejectionCount, 1, 'Provider rejection count');
+  assertLiteral(payload.timeoutCount, 1, 'Provider timeout count');
+  assertLiteral(payload.unknownCount, 1, 'Provider unknown count');
+  assertLiteral(payload.totalProviderAttempts, 4, 'Provider total-attempt count');
+  assertLiteral(payload.replayProviderAttempts, 0, 'Provider replay-attempt count');
+  assertLiteral(
+    payload.caseReportingCompletionCount,
+    1,
+    'Provider case/reporting completion count'
+  );
+  assertLiteral(
+    payload.originalThreadCompletionCount,
+    1,
+    'Provider original-thread completion count'
+  );
+  assertLiteral(payload.fallbackNoticeCount, 0, 'Provider fallback-notice count');
+  assertLiteral(
+    payload.managerCompletionNoticeCount,
+    0,
+    'Provider manager-completion notice count'
+  );
+};
+
 const machineArtifactValidators = new Map([
   ['refund-portal-assertions.json', validatePortalAssertions],
   ['refund-database-counts.json', validateDatabaseCounts],
   ['refund-gmail-mime-roles.json', validateMimeRoles],
   ['refund-kill-switches.json', validateKillSwitches],
+  ['refund-provider-outcomes.json', validateProviderOutcomes],
 ]);
 
 export function validateMachineReadableEvidence(name, payload) {
@@ -261,7 +336,7 @@ Usage:
   npm run refunds:build-uat-evidence -- --artifact-dir output/refund-uat-evidence --source-commit <sha>
 
 The input directory must contain every expected synthetic screenshot and all
-four strict machine-readable evidence files. The output manifest contains only
+five strict machine-readable evidence files. The output manifest contains only
 filenames, evidence types, sizes, SHA-256 digests, and no customer data.`);
 }
 
