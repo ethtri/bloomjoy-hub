@@ -11,6 +11,8 @@ export const REFUND_GMAIL_MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 export const REFUND_GMAIL_MAX_ATTACHMENTS_PER_MESSAGE = 3;
 export const REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE =
   "Gmail delivery could not be confirmed. Check the original thread before retrying.";
+export const REFUND_GMAIL_DISABLED_CODE = "gmail_integration_disabled";
+export const REFUND_GMAIL_DISABLED_MESSAGE = "Gmail delivery is disabled.";
 
 export type RefundGmailConfig = {
   clientId: string;
@@ -56,6 +58,28 @@ export class RefundGmailError extends Error {
     this.deliveryUncertain = deliveryUncertain;
   }
 }
+
+export const refundGmailEnabled = (
+  value = Deno.env.get("REFUND_GMAIL_ENABLED"),
+) => ["1", "true", "yes", "on"].includes((value ?? "").trim().toLowerCase());
+
+export const requireRefundGmailEnabled = (
+  value = Deno.env.get("REFUND_GMAIL_ENABLED"),
+) => {
+  if (!refundGmailEnabled(value)) {
+    throw new RefundGmailError(
+      REFUND_GMAIL_DISABLED_CODE,
+      REFUND_GMAIL_DISABLED_MESSAGE,
+    );
+  }
+};
+
+export const claimRefundGmailDeliveryWhenEnabled = async <T>(
+  claimDelivery: () => Promise<T>,
+) => {
+  requireRefundGmailEnabled();
+  return await claimDelivery();
+};
 
 const cleanEnv = (name: string, maxLength: number) =>
   (Deno.env.get(name) ?? "").trim().slice(0, maxLength);
@@ -848,6 +872,7 @@ export const sendRefundGmailReply = async ({
   references?: string | null;
   automatic?: boolean;
 }) => {
+  requireRefundGmailEnabled();
   const effectiveDeliveryKind = automatic ? "automatic" : deliveryKind;
   if (!isEmail(recipientEmail.toLowerCase())) {
     throw new RefundGmailError(

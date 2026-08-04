@@ -3,17 +3,31 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(13);
+select plan(19);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
   raw_app_meta_data, raw_user_meta_data, created_at, updated_at
-) values (
+) values
+(
   '00000000-0000-0000-0000-000000000000',
   '79800000-0000-4000-8000-000000000001',
   'authenticated',
   'authenticated',
-  'first-contact-manager@example.test',
+  'first-contact-manager-a@example.test',
+  '',
+  now(),
+  '{}'::jsonb,
+  '{}'::jsonb,
+  now(),
+  now()
+),
+(
+  '00000000-0000-0000-0000-000000000000',
+  '79800000-0000-4000-8000-000000000002',
+  'authenticated',
+  'authenticated',
+  'first-contact-manager-b@example.test',
   '',
   now(),
   '{}'::jsonb,
@@ -47,11 +61,20 @@ values (
 
 insert into public.reporting_machine_refund_managers (
   id, reporting_machine_id, manager_user_id, manager_email, status, grant_reason
-) values (
+) values
+(
   '79840000-0000-4000-8000-000000000001',
   '79830000-0000-4000-8000-000000000001',
   '79800000-0000-4000-8000-000000000001',
-  'first-contact-manager@example.test',
+  'first-contact-manager-a@example.test',
+  'active',
+  'Exactly-once first-contact CC test'
+),
+(
+  '79840000-0000-4000-8000-000000000002',
+  '79830000-0000-4000-8000-000000000001',
+  '79800000-0000-4000-8000-000000000002',
+  'first-contact-manager-b@example.test',
   'active',
   'Exactly-once first-contact CC test'
 );
@@ -80,7 +103,7 @@ select public.service_ingest_refund_gmail_message_v2(
   'first-contact-cc-thread-one',
   'first-contact-cc-message-one',
   '<first-contact-cc-message-one@example.test>',
-  null,
+  '<prior-first-contact@example.test>',
   'inbound',
   false,
   'first-contact-customer-one@example.test',
@@ -144,14 +167,17 @@ select is(
 
 select is(
   (select result -> 'managerCcEmails' from first_prepared),
-  '["first-contact-manager@example.test"]'::jsonb,
-  'The preparation returns only the current mapped Machine Manager'
+  '["first-contact-manager-a@example.test", "first-contact-manager-b@example.test"]'::jsonb,
+  'The preparation returns exactly the two current mapped Machine Managers'
 );
 
 select ok(
   (
-    select recipient_cc_emails = array['first-contact-manager@example.test']
-      and recipient_cc_count = 1
+    select recipient_cc_emails = array[
+        'first-contact-manager-a@example.test',
+        'first-contact-manager-b@example.test'
+      ]
+      and recipient_cc_count = 2
       and recipient_resolution_status = 'resolved'
       and delivery_kind = 'automatic'
       and participant_role = 'mailbox'
@@ -160,6 +186,24 @@ select ok(
     where id = (select (result ->> 'transportMessageId')::uuid from first_claim)
   ),
   'The pending exactly-once transport persists the visible CC and participant evidence'
+);
+
+select ok(
+  (
+    select result ->> 'providerThreadId' = 'first-contact-cc-thread-one'
+      and result ->> 'recipientEmail' = 'first-contact-customer-one@example.test'
+      and result ->> 'inReplyTo' = '<first-contact-cc-message-one@example.test>'
+      and result ->> 'references' = '<prior-first-contact@example.test> <first-contact-cc-message-one@example.test>'
+      and position('/refunds?case=' in lower(result ->> 'subject')) = 0
+    from first_claim
+  )
+  and not exists (
+    select 1
+    from public.refund_gmail_messages
+    where id = (select (result ->> 'transportMessageId')::uuid from first_claim)
+      and plain_body ~* '/refunds\?case='
+  ),
+  'The acknowledgement targets the customer on the original thread with reply headers and no internal case link'
 );
 
 select is(
@@ -187,6 +231,129 @@ select is(
   ),
   1,
   'Replaying preparation with the same route does not duplicate audit evidence'
+);
+
+select ok(
+  public.service_finish_refund_gmail_first_contact(
+    (select (result ->> 'operationId')::uuid from first_claim),
+    'sent',
+    'first-contact-provider-send-one',
+    (
+      select '<refund-' || left(
+        regexp_replace(result ->> 'operationKey', '[^a-zA-Z0-9._-]', '', 'g'),
+        80
+      ) || '@bloomjoyusa.com>'
+      from first_claim
+    ),
+    null
+  ),
+  'The synthetic provider completion confirms the one first-contact send'
+);
+
+select ok(
+  (
+    select status = 'sent'
+    from public.refund_gmail_first_contact_operations
+    where id = (select (result ->> 'operationId')::uuid from first_claim)
+  )
+  and (
+    select count(*) = 1
+    from public.refund_gmail_messages
+    where gmail_thread_id = (
+      select id
+      from public.refund_gmail_threads
+      where provider_thread_id = 'first-contact-cc-thread-one'
+    )
+      and direction = 'outbound'
+      and status = 'sent'
+  ),
+  'One case and thread contain exactly one sent acknowledgement operation and outbound message'
+);
+
+create temporary table first_replay as
+select public.service_claim_refund_gmail_first_contact(
+  (select (result ->> 'messageId')::uuid from first_source),
+  'active',
+  '2026-08-03 18:00:00+00'::timestamptz,
+  'refund_first_contact_v1',
+  'info@bloomjoysweets.com',
+  'Synthetic deterministic first-contact body.'
+) as result;
+
+select ok(
+  (select (result ->> 'eligible')::boolean from first_replay)
+  and not (select (result ->> 'claimed')::boolean from first_replay)
+  and (select result ->> 'reason' from first_replay) = 'operation_already_exists'
+  and (select result ->> 'status' from first_replay) = 'sent',
+  'Replaying the original provider message creates no second acknowledgement or send'
+);
+
+create temporary table later_reply as
+select public.service_ingest_refund_gmail_message_v2(
+  repeat('8', 64),
+  'first-contact-cc-thread-one',
+  'first-contact-cc-message-later',
+  '<first-contact-cc-message-later@example.test>',
+  '<first-contact-cc-message-one@example.test>',
+  'inbound',
+  false,
+  'first-contact-customer-one@example.test',
+  'Synthetic Customer One',
+  'info@bloomjoysweets.com',
+  'Re: Synthetic first-contact CC request',
+  'Synthetic later reply.',
+  false,
+  '2026-08-03 18:05:01+00'::timestamptz,
+  null,
+  '[]'::jsonb,
+  '{}'::text[],
+  array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+  'direct_human',
+  false,
+  false,
+  '{}'::text[]
+) as result;
+
+create temporary table later_reply_claim as
+select public.service_claim_refund_gmail_first_contact(
+  (select (result ->> 'messageId')::uuid from later_reply),
+  'active',
+  '2026-08-03 18:00:00+00'::timestamptz,
+  'refund_first_contact_v1',
+  'info@bloomjoysweets.com',
+  'Synthetic deterministic first-contact body.'
+) as result;
+
+select is(
+  (select result ->> 'reason' from later_reply_claim),
+  'later_thread_message',
+  'A later verified customer reply creates no second acknowledgement or outbound send'
+);
+
+select ok(
+  (
+    select count(*) = 1
+    from public.refund_cases
+    where id = (select (result ->> 'caseId')::uuid from first_source)
+  )
+  and (
+    select count(*) = 1
+    from public.refund_gmail_threads
+    where provider_thread_id = 'first-contact-cc-thread-one'
+  )
+  and (
+    select count(*) = 1
+    from public.refund_gmail_first_contact_operations
+    where refund_case_id = (select (result ->> 'caseId')::uuid from first_source)
+  )
+  and (
+    select count(*) = 1
+    from public.refund_gmail_messages
+    where refund_case_id = (select (result ->> 'caseId')::uuid from first_source)
+      and direction = 'outbound'
+      and status = 'sent'
+  ),
+  'Replay and later reply leave exactly one case, thread, acknowledgement operation, and sent outbound message'
 );
 
 create temporary table second_source as
@@ -237,7 +404,7 @@ select is(
 
 update public.reporting_machine_refund_managers
 set status = 'revoked', revoked_at = now(), revoke_reason = 'Synthetic race'
-where id = '79840000-0000-4000-8000-000000000001';
+where reporting_machine_id = '79830000-0000-4000-8000-000000000001';
 
 create temporary table blocked_preparation as
 select public.service_prepare_refund_gmail_first_contact_delivery(

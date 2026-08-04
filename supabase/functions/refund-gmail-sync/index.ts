@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import {
+  claimRefundGmailDeliveryWhenEnabled,
   extractPlainTextBody,
   getGmailHeader,
   getRefundGmailAttachment,
@@ -15,7 +16,9 @@ import {
   REFUND_GMAIL_ALLOWED_MIME_TYPES,
   REFUND_GMAIL_MAX_ATTACHMENT_BYTES,
   REFUND_GMAIL_MAX_ATTACHMENTS_PER_MESSAGE,
+  refundGmailEnabled,
   RefundGmailError,
+  requireRefundGmailEnabled,
   sendRefundGmailReply,
   sha256Hex,
   verifyRefundGmailMailbox,
@@ -66,10 +69,7 @@ const sanitizeText = (value: unknown, maxLength: number) =>
     ? String(value).trim().slice(0, maxLength)
     : "";
 
-const isEnabled = () =>
-  ["1", "true", "yes", "on"].includes(
-    (Deno.env.get("REFUND_GMAIL_ENABLED") ?? "").trim().toLowerCase(),
-  );
+const isEnabled = () => refundGmailEnabled();
 
 const safeEqual = (left: string, right: string) => {
   const encoder = new TextEncoder();
@@ -478,6 +478,9 @@ const processFirstContact = async ({
   let managerCcEmails: string[] = [];
   if (firstContact.shouldSend) {
     try {
+      // Never create a customer-delivery claim while the shared Gmail
+      // shutdown switch is closed, even if credentials remain configured.
+      requireRefundGmailEnabled();
       const resolution = await rpc<Record<string, unknown>>(
         "service_resolve_refund_customer_manager_cc",
         {
@@ -497,17 +500,20 @@ const processFirstContact = async ({
     }
   }
 
-  const claim = await rpc<Record<string, unknown> | null>(
-    "service_claim_refund_gmail_first_contact",
-    {
-      p_source_message_id: sourceMessageId,
-      p_mode: firstContact.mode,
-      p_cutover_at: firstContact.cutoverAt,
-      p_template_key: REFUND_FIRST_CONTACT_TEMPLATE_KEY,
-      p_sender_email: config.mailbox,
-      p_plain_body: email.text,
-      p_thread_has_outbound: threadHasOutbound,
-    },
+  const claim = await claimRefundGmailDeliveryWhenEnabled(
+    () =>
+      rpc<Record<string, unknown> | null>(
+        "service_claim_refund_gmail_first_contact",
+        {
+          p_source_message_id: sourceMessageId,
+          p_mode: firstContact.mode,
+          p_cutover_at: firstContact.cutoverAt,
+          p_template_key: REFUND_FIRST_CONTACT_TEMPLATE_KEY,
+          p_sender_email: config.mailbox,
+          p_plain_body: email.text,
+          p_thread_has_outbound: threadHasOutbound,
+        },
+      ),
   );
 
   if (!claim?.eligible) {

@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
+assert.equal(
+  process.argv.length,
+  2,
+  'Static Gmail validation does not write evidence; use npm run refunds:evidence-gmail.',
+);
+
 const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8');
 
 const [
@@ -24,6 +30,10 @@ const [
   ui,
   client,
   preflight,
+  transportTest,
+  firstContactCcTest,
+  evidenceHarness,
+  packageJson,
 ] =
   await Promise.all([
     read('supabase/migrations/202607210006_refund_gmail_thread_linkage.sql'),
@@ -46,6 +56,10 @@ const [
     read('src/pages/admin/Refunds.tsx'),
     read('src/lib/refundOperations.ts'),
     read('scripts/refunds/refund-gmail-preflight.mjs'),
+    read('supabase/functions/_shared/refund-gmail-transport.test.ts'),
+    read('supabase/tests/refund_gmail_first_contact_manager_cc.sql'),
+    read('scripts/refunds/generate-refund-gmail-evidence.ts'),
+    read('package.json'),
   ]);
 
 const requiredTables = [
@@ -531,8 +545,23 @@ assert(
 );
 assert(gmailHelper.includes('threadId: providerThreadId'), 'Gmail sends must pin the original provider thread');
 assert(gmailHelper.includes('internal_case_link_blocked'), 'Customer-visible Gmail must reject internal case links');
+const lowLevelGmailSender = gmailHelper.slice(
+  gmailHelper.indexOf('export const sendRefundGmailReply'),
+  gmailHelper.indexOf('export const findRefundGmailReplyByMessageHeader'),
+);
+assert(
+  gmailHelper.includes('REFUND_GMAIL_DISABLED_CODE = "gmail_integration_disabled"') &&
+    gmailHelper.includes('REFUND_GMAIL_DISABLED_MESSAGE = "Gmail delivery is disabled."') &&
+    lowLevelGmailSender.indexOf('requireRefundGmailEnabled();') >= 0 &&
+    lowLevelGmailSender.indexOf('requireRefundGmailEnabled();') <
+      lowLevelGmailSender.indexOf('await gmailRequest<{ id?: string; threadId?: string }>'),
+  'The low-level Gmail sender must fail with one redacted disabled error before OAuth or provider access',
+);
 
-assert(syncFunction.includes('REFUND_GMAIL_ENABLED'), 'Server-side Gmail enable flag must default closed');
+assert(
+  syncFunction.includes('refundGmailEnabled') && gmailHelper.includes('Deno.env.get("REFUND_GMAIL_ENABLED")'),
+  'Server-side Gmail enable flag must use the shared default-closed parser',
+);
 assert(syncFunction.includes('REFUND_GMAIL_SYNC_SECRET'), 'Scheduled Gmail sync must authenticate independently');
 assert(syncFunction.includes('failure_test'), 'A PII-free Gmail failure test must exist');
 assert(
@@ -734,6 +763,108 @@ assert(
 );
 
 assert(gmailTransport.includes('dispatchRefundCaseGmailReply'), 'Case-aware Gmail transport must exist');
+const transportKillSwitchCall = gmailTransport.indexOf('requireRefundGmailEnabled();');
+assert(
+  transportKillSwitchCall > gmailTransport.indexOf('if (!link)') &&
+    transportKillSwitchCall < gmailTransport.indexOf('service_claim_refund_gmail_outbound_v3'),
+  'The shared Gmail-only transport must preserve the non-Gmail route and stop before any Gmail delivery claim',
+);
+const firstContactProcess = syncFunction.slice(
+  syncFunction.indexOf('const processFirstContact'),
+  syncFunction.indexOf('const sendGmailCaseActionNotice'),
+);
+assert(
+  firstContactProcess.indexOf('requireRefundGmailEnabled();') >= 0 &&
+    firstContactProcess.indexOf('requireRefundGmailEnabled();') <
+      firstContactProcess.indexOf('service_claim_refund_gmail_first_contact') &&
+    firstContactProcess.includes('claimRefundGmailDeliveryWhenEnabled'),
+  'First-contact send mode must obey the same Gmail switch before creating its delivery claim',
+);
+assert(
+  transportTest.includes('assertEquals(claimCalls, 0)') &&
+    transportTest.includes('assertEquals(firstContactClaimCalls, 0)') &&
+    transportTest.includes('assertEquals(fetchCalls, 0)') &&
+    transportTest.includes('deliveryKind: "manual"') &&
+    transportTest.includes('assertEquals(caught.code, "automatic_contact_disabled")') &&
+    transportTest.includes('assertEquals(providerRequest.threadId, providerThreadId)') &&
+    transportTest.includes('assertEquals(result.managerCcCount, 2)') &&
+    transportTest.includes('assert(!mime.includes("/refunds?case="))'),
+  'Synthetic transport evidence must cover disabled zero-call shutdown and enabled two-manager original-thread MIME',
+);
+assert(
+  firstContactCcTest.includes('first-contact-manager-a@example.test') &&
+    firstContactCcTest.includes('first-contact-manager-b@example.test') &&
+    firstContactCcTest.includes('service_finish_refund_gmail_first_contact') &&
+    firstContactCcTest.includes('operation_already_exists') &&
+    firstContactCcTest.includes('later_thread_message') &&
+    firstContactCcTest.includes('exactly one case, thread, acknowledgement operation, and sent outbound message'),
+  'The database fixture must prove one two-manager first contact and no replay or later-reply duplicate',
+);
+assert(
+  packageJson.includes('"refunds:evidence-gmail"') &&
+    packageJson.includes('generate-refund-gmail-evidence.ts') &&
+    packageJson.includes('--allow-write') &&
+    evidenceHarness.includes('refund-gmail-kill-fragment.json') &&
+    !evidenceHarness.includes('refund-kill-switches.json'),
+  'Evidence generation must use the dedicated executable Deno harness',
+);
+const executableFirstContactHarness = evidenceHarness.slice(
+  evidenceHarness.indexOf('const runFirstContactMimeAssertions'),
+  evidenceHarness.indexOf('const collectStringValues'),
+);
+assert(
+  executableFirstContactHarness.includes('service_claim_refund_gmail_first_contact') &&
+    executableFirstContactHarness.includes('service_prepare_refund_gmail_first_contact_delivery') &&
+    executableFirstContactHarness.includes('service_finish_refund_gmail_first_contact') &&
+    !executableFirstContactHarness.includes('service_claim_refund_gmail_outbound_v3') &&
+    executableFirstContactHarness.includes('FIRST_CONTACT_FIXTURE.providerThreadId') &&
+    evidenceHarness.includes('assertSqlFixtureAlignment') &&
+    executableFirstContactHarness.includes('operation_already_exists') &&
+    executableFirstContactHarness.includes('later_thread_message'),
+  'The executable MIME harness must correlate one SQL-aligned first-contact claim, prepare, send, finalize, replay, and later reply',
+);
+assert(
+  evidenceHarness.includes('managerCcCount: ccRecipients.length') &&
+    evidenceHarness.includes('replyHeadersPresent,') &&
+    evidenceHarness.includes('automaticHeadersPresent,') &&
+    evidenceHarness.includes('internalLinkCount,') &&
+    evidenceHarness.includes('providerSendCount,') &&
+    evidenceHarness.includes('duplicateMessageCount,') &&
+    evidenceHarness.includes('assertEquals(providerSendCount, 1)') &&
+    evidenceHarness.includes('assertEquals(duplicateMessageCount, 0)'),
+  'The MIME artifact must report measured recipient, reply-header, automatic-header, source-thread, link, provider-send, and duplicate outcomes',
+);
+assert(
+  evidenceHarness.includes('deliveryClaimCount += 1') &&
+    evidenceHarness.includes('firstContactClaimCount += 1') &&
+    evidenceHarness.includes('providerFetchCount += 1') &&
+    evidenceHarness.includes('providerSendCount += 1') &&
+    evidenceHarness.includes('assertEquals(deliveryClaimCount, 0)') &&
+    evidenceHarness.includes('assertEquals(firstContactClaimCount, 0)') &&
+    evidenceHarness.includes('assertEquals(providerFetchCount, 0)') &&
+    evidenceHarness.includes('managerAging: false') &&
+    evidenceHarness.includes('requiresIntegrationAggregation: true') &&
+    !evidenceHarness.includes('intakeAvailable: true') &&
+    !evidenceHarness.includes('portalAvailable: true'),
+  'Kill-switch evidence must use executable counters and declare aging/intake/portal as integration-only coverage',
+);
+const evidenceAssertionCall = evidenceHarness.indexOf('await runRefundGmailEvidenceHarness();');
+const firstEvidenceWrite = evidenceHarness.indexOf('await Deno.writeTextFile(');
+const evidenceSanitization = evidenceHarness.indexOf(
+  'assertEvidenceIsSanitized(mimeRoleAssertions);',
+);
+const passedMarker = evidenceHarness.indexOf(
+  'mimeRoleEvidence: { ...mimeRoleAssertions, passed: true }',
+);
+assert(
+  evidenceAssertionCall >= 0 &&
+    firstEvidenceWrite > evidenceAssertionCall &&
+    evidenceHarness.includes('assertEvidenceIsSanitized(killSwitchAssertions)') &&
+    evidenceSanitization >= 0 &&
+    passedMarker > evidenceSanitization &&
+    evidenceHarness.includes('{ createNew: true }'),
+  'No Gmail evidence file may be written until every executable and sanitization assertion passes',
+);
 assert(sendFunction.includes('dispatchRefundCaseGmailReply'), 'Manual portal replies must use linked Gmail threads');
 assert(adminUpdate.includes('dispatchRefundCaseGmailReply'), 'Status-action replies must use linked Gmail threads');
 assert(
@@ -1135,4 +1266,4 @@ assert(
   'Completion and ordinary customer-message paths must not emit a duplicate manager-only completion notice',
 );
 
-console.log('Refund Gmail validation passed: label-only intake, idempotent exactly-once first contact, participant-safe original threading, current mapped-manager CC, deterministic follow-ups, bounce recovery, quarantine, retention, health, and least-privilege boundaries are present.');
+console.log('Refund Gmail validation passed: default-off zero-call transport shutdown, label-only intake, idempotent exactly-once first contact, participant-safe original threading, current mapped-manager CC, deterministic follow-ups, bounce recovery, quarantine, retention, health, and least-privilege boundaries are present.');
