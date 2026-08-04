@@ -1362,6 +1362,38 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'Machine setup controls are hidden from the refund workflow',
     (await page.getByText('Machine Managers').count()) === 0
   );
+
+  const officialActionCallsBeforeLinkNavigation = functionCalls.filter((name) =>
+    name === 'nayax-card-refund' || name === 'refund-case-admin-update'
+  ).length;
+  await page.goto(`${appUrl}/refunds?case=${encodeURIComponent('case-cash-1')}`, {
+    waitUntil: 'networkidle',
+  });
+  await page.getByRole('heading', { name: 'RF-UAT-WAIT' }).waitFor({ timeout: 10000 });
+  const linkedCaseUrl = new URL(page.url());
+  const officialActionCallsAfterLinkNavigation = functionCalls.filter((name) =>
+    name === 'nayax-card-refund' || name === 'refund-case-admin-update'
+  ).length;
+  recorder.assert(
+    'Canonical manager case link opens the exact authenticated case without an official action',
+    linkedCaseUrl.pathname === '/refunds' &&
+      linkedCaseUrl.searchParams.get('case') === 'case-cash-1' &&
+      officialActionCallsAfterLinkNavigation === officialActionCallsBeforeLinkNavigation,
+    JSON.stringify({
+      url: page.url(),
+      officialActionCallsBeforeLinkNavigation,
+      officialActionCallsAfterLinkNavigation,
+    })
+  );
+  await page.getByLabel('Search refund cases').fill('RF-UAT-CARD');
+  await page.getByText('1 visible of 2 total cases').waitFor({ timeout: 10000 });
+  recorder.assert(
+    'A later queue search is not overridden by the original case-link query',
+    (await page.getByRole('heading', { name: 'RF-UAT-WAIT' }).count()) === 0 &&
+      await page.locator('tr', { hasText: 'RF-UAT-CARD' }).isVisible()
+  );
+  await page.getByLabel('Search refund cases').fill('');
+  await page.getByText('2 visible of 2 total cases').waitFor({ timeout: 10000 });
   recorder.assert(
     'Refund queue count renders',
     await page.getByText('2 visible of 2 total cases').isVisible()
@@ -1936,6 +1968,14 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
   await approvalResponse;
   await page.getByTestId('refund-cash-completion-panel').waitFor({ timeout: 10000 });
 
+  const approvalDeadline = Date.now() + 5000;
+  while (
+    !functionBodies.some((entry) => entry.functionName === 'refund-case-admin-update') &&
+    Date.now() < approvalDeadline
+  ) {
+    await page.waitForTimeout(50);
+  }
+
   const approvalBodies = functionBodies
     .filter((entry) => entry.functionName === 'refund-case-admin-update')
     .map((entry) => entry.body ?? {});
@@ -2144,15 +2184,52 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
 
   const page = await context.newPage();
   await signInRefundUser(page, appUrl);
-  await page.goto(`${appUrl}/refunds?case=case-card-pending`, { waitUntil: 'domcontentloaded' });
-  await page.getByRole('heading', { name: 'RF-UAT-PENDING' }).waitFor({ timeout: 10000 });
+  await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
 
+  const providerOrOfficialCalls = () => functionCalls.filter((name) =>
+    name === 'nayax-transaction-lookup' ||
+    name === 'nayax-card-refund' ||
+    name === 'refund-case-admin-update'
+  );
+  await page.goto(`${appUrl}/refunds?case=${encodeURIComponent('case-card-pending')}`, {
+    waitUntil: 'networkidle',
+  });
+  await page.getByRole('heading', { name: 'RF-UAT-PENDING' }).waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Eligible card case link is navigation-only with no lookup or official action',
+    new URL(page.url()).searchParams.get('case') === 'case-card-pending' &&
+      providerOrOfficialCalls().length === 0,
+    JSON.stringify({ url: page.url(), providerOrOfficialCalls: providerOrOfficialCalls() })
+  );
   recorder.assert(
     'Refund case deep link selects the case without automatically querying Nayax',
     functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0,
     functionCalls.join(', ')
   );
 
+  await page.getByLabel('Search refund cases').fill('NO-SUCH-REFUND');
+  await page.getByText('0 visible of 1 total cases').waitFor({ timeout: 10000 });
+  await page.getByLabel('Search refund cases').fill('');
+  await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
+  await page.getByLabel('Filter refund cases by status').selectOption('waiting_on_customer');
+  await page.getByText('0 visible of 1 total cases').waitFor({ timeout: 10000 });
+  await page.getByLabel('Filter refund cases by status').selectOption('needs_action');
+  await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Search and filter changes remain independent after an eligible case link',
+    providerOrOfficialCalls().length === 0 &&
+      await page.locator('tr', { hasText: 'RF-UAT-PENDING' }).isVisible(),
+    providerOrOfficialCalls().join(', ')
+  );
+
+  // Case and queue selection are navigation-only. Provider lookup remains a
+  // separate, explicit manager request through the advanced tools.
+  await page.locator('tr', { hasText: 'RF-UAT-PENDING' }).click();
+  recorder.assert(
+    'Queue selection remains navigation-only until the manager explicitly requests lookup',
+    providerOrOfficialCalls().length === 0,
+    providerOrOfficialCalls().join(', ')
+  );
   await page.getByText('Advanced lookup tools (optional)').click();
   await page.getByRole('button', { name: 'Refresh result' }).click();
   await page.getByTestId('nayax-result-card').getByText('Setup needed before Nayax can check this card refund.').first().waitFor({

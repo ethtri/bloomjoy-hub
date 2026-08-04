@@ -13,6 +13,7 @@ const check = (name, condition) => checks.push({ name, pass: Boolean(condition) 
 
 const migration = read('supabase/migrations/202607210005_refund_automation_scheduler_health.sql');
 const followUpMigration = read('supabase/migrations/202608030005_refund_deterministic_follow_up_cycles.sql');
+const managerAgingMigration = read('supabase/migrations/202608040001_refund_manager_aging_reminders.sql');
 const sweep = read('supabase/functions/refund-case-automation-sweep/index.ts');
 const intake = read('supabase/functions/refund-case-intake/index.ts');
 const deterministicFollowUp = read('supabase/functions/_shared/refund-deterministic-follow-up.ts');
@@ -122,7 +123,9 @@ check(
   sweep.includes('service_claim_refund_automation_action') &&
     sweep.includes('nayax_lookup:') &&
     sweep.includes('reminder:') &&
-    sweep.includes('escalation:') &&
+    sweep.includes('manager_aging:') &&
+    managerAgingMigration.includes("'manager_reminder'") &&
+    managerAgingMigration.includes("'manager_escalation'") &&
     sweep.includes('ops_alert:')
 );
 check(

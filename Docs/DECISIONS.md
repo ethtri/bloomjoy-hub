@@ -1,5 +1,22 @@
 # Decisions
 
+## 2026-08-03 - Manager aging notices use business-day attention versions (`#685`)
+Refund cases that are ready for Machine Manager action may generate a deterministic internal reminder after two business days and an internal escalation after five business days. This lane helps the current manager reach the case; it never contacts the customer or performs an official refund action.
+
+**Canonical behavior**
+- A business day is Monday through Friday in `America/Los_Angeles`, measured at the local clock time when attention began. No holiday calendar is inferred. The proposed 30-minute first-triage target remains a staffing/planning target and is not customer-facing policy.
+- One attention version begins when a case becomes manager-actionable. Waiting for the customer, a verified customer reply, or a terminal state pauses and invalidates pending notices. A reply cannot restart aging by itself; a later manager-relevant case re-evaluation starts a fresh version. Verified replies are ordered and deduplicated by their trusted database `created_at`/message-ID tuple; provider timestamps are clamped evidence and cannot advance the version by themselves.
+- Each attention version can send at most one reminder and one escalation. Before provider delivery, the service atomically records a bound in-flight attempt that blocks every milestone and every newer attention version for the case. The hold survives replies and case changes until the exact attempt is reconciled as known sent, known not sent, or delivery unknown. Settling an old attempt never marks a newer version's milestone. Unknown delivery stays in durable review and is never retried blindly.
+- The scheduler filters for due, current, unresolved, unclaimed milestones in the database before applying its 100-row processing cap. Completed, held, stale, and not-yet-due rows cannot starve later due cases.
+- Immediately before sending, the final reservation transaction reauthorizes the case, serializes against manager-assignment changes, locks and re-resolves the current active mapping, and returns the exact transient service-only recipient route used by transport. The worker cannot reuse an earlier lookup. A mapping repair or revocation therefore applies at reservation time. If no eligible manager exists, one bounded, redacted operations routing exception replaces that milestone; it is never sent to the customer or support mailbox identities.
+- Notices include only the public case reference, safe public machine/location labels, business-day age, safe workflow state, one recommended next step, and the encoded authenticated `/refunds?case=` link. Opening that link and selecting a queue row are navigation-only: neither may automatically invoke Nayax lookup, approval, denial, completion, compensation, or Nayax execution. Nayax lookup requires a separate explicit manager request through the advanced tools.
+- Notice and audit evidence omit customer identity, recipient addresses, complaint text, card digits, transaction/provider identifiers, and raw payloads. Stored route evidence is a non-address SHA-256 fingerprint built from random mapping-row IDs plus case/version/milestone/policy facts; exact addresses exist only in the transient service-only reservation response. Delivery remains disabled by default behind `REFUND_MANAGER_AGING_NOTICES_ENABLED`, independently of customer-contact automation.
+
+**Why this choice**
+- Managers receive a direct, actionable path without granting the inbox assistant payment authority or adding customer email noise.
+- Versioning, send-time routing, and fail-closed recovery prevent stale reminders after replies or ownership changes.
+- A separate switch and synthetic-only rollout allow the team to validate staffing and timing before making the workflow operational.
+
 ## 2026-08-03 - Refund follow-up may auto-send only deterministic, bounded messages (`#687`)
 Bloomjoy may automatically send a small set of versioned refund follow-up messages after deterministic state checks. This narrow exception supersedes the `#634` requirement for manager approval of every Gmail reply; GPT-written or manager-authored prose still requires human review.
 

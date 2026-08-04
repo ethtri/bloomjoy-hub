@@ -1510,6 +1510,7 @@ export default function AdminRefundsPage() {
   const queryClient = useQueryClient();
   const detailPanelRef = useRef<HTMLDivElement>(null);
   const cashCompletionInFlightRef = useRef(false);
+  const handledCaseQueryRef = useRef<string | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<QueueFilter>('needs_action');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -2493,22 +2494,24 @@ export default function AdminRefundsPage() {
   };
 
   useEffect(() => {
-    if (selectedId || overview.cases.length === 0) return;
+    if (overview.cases.length === 0) return;
     if (typeof window === 'undefined') return;
 
     const caseIdFromUrl = new URLSearchParams(window.location.search).get('case');
-    if (!caseIdFromUrl) return;
+    if (!caseIdFromUrl || handledCaseQueryRef.current === caseIdFromUrl) return;
 
     const caseFromUrl = overview.cases.find((refundCase) => refundCase.id === caseIdFromUrl);
     if (!caseFromUrl) return;
+    handledCaseQueryRef.current = caseIdFromUrl;
 
     if (!filteredCases.some((refundCase) => refundCase.id === caseFromUrl.id)) {
       setStatusFilter('all');
+      setSearch('');
     }
     handleSelectCase(caseFromUrl);
     // The selector intentionally runs once per loaded overview/query-string case.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overview.cases, selectedId]);
+  }, [overview.cases]);
 
   const handleOpenAttachment = async (attachmentId: string) => {
     const attachment = selectedCase?.attachments.find((item) => item.id === attachmentId);
