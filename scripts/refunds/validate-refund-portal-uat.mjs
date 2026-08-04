@@ -1198,6 +1198,29 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'Machine setup controls are hidden from the refund workflow',
     (await page.getByText('Machine Managers').count()) === 0
   );
+
+  const officialActionCallsBeforeLinkNavigation = functionCalls.filter((name) =>
+    name === 'nayax-card-refund' || name === 'refund-case-admin-update'
+  ).length;
+  await page.goto(`${appUrl}/refunds?case=${encodeURIComponent('case-wait')}`, {
+    waitUntil: 'networkidle',
+  });
+  await page.getByRole('heading', { name: 'RF-UAT-WAIT' }).waitFor({ timeout: 10000 });
+  const linkedCaseUrl = new URL(page.url());
+  const officialActionCallsAfterLinkNavigation = functionCalls.filter((name) =>
+    name === 'nayax-card-refund' || name === 'refund-case-admin-update'
+  ).length;
+  recorder.assert(
+    'Canonical manager case link opens the exact authenticated case without an official action',
+    linkedCaseUrl.pathname === '/refunds' &&
+      linkedCaseUrl.searchParams.get('case') === 'case-wait' &&
+      officialActionCallsAfterLinkNavigation === officialActionCallsBeforeLinkNavigation,
+    JSON.stringify({
+      url: page.url(),
+      officialActionCallsBeforeLinkNavigation,
+      officialActionCallsAfterLinkNavigation,
+    })
+  );
   recorder.assert(
     'Refund queue count renders',
     await page.getByText('2 visible of 2 total cases').isVisible()

@@ -55,25 +55,28 @@ export type RefundManagerNoticeResult = {
   usedOpsFallback: boolean;
 };
 
-export const sendRefundManagerActionNotice = async ({
+export type RefundManagerNoticeRouting = RefundManagerNoticeResult & {
+  refundCaseId: string;
+  customerEmail: string;
+  recipients: string[];
+};
+
+export const resolveRefundManagerActionNoticeRouting = async ({
   supabase,
   refundCaseId,
   customerEmail,
-  subject,
-  summaryText,
 }: {
   supabase: SupabaseClient;
   refundCaseId: string;
   customerEmail: string;
-  subject: string;
-  summaryText: string;
-}): Promise<RefundManagerNoticeResult> => {
+}): Promise<RefundManagerNoticeRouting> => {
+  const normalizedCustomerEmail = customerEmail.trim().toLowerCase();
   const mailboxIdentities = getRefundGmailMailboxIdentities();
   const { data, error } = await supabase.rpc(
     "service_resolve_refund_customer_manager_cc",
     {
       p_refund_case_id: refundCaseId,
-      p_customer_email: customerEmail,
+      p_customer_email: normalizedCustomerEmail,
       p_mailbox_identities: mailboxIdentities,
     },
   );
@@ -86,7 +89,7 @@ export const sendRefundManagerActionNotice = async ({
     ? resolution.status.slice(0, 80)
     : "resolution_failed";
   const excludedManagerRecipients = new Set([
-    ...sanitizeEmailList([customerEmail]),
+    ...sanitizeEmailList([normalizedCustomerEmail]),
     ...sanitizeEmailList(mailboxIdentities),
   ]);
   const rawManagerRecipients = sanitizeEmailList(resolution.managerCcEmails);
@@ -96,13 +99,13 @@ export const sendRefundManagerActionNotice = async ({
   const managerRecipients =
     resolvedManagerRecipients.length === rawManagerRecipients.length &&
       resolvedManagerRecipients.length <= MAX_MANAGER_CC_RECIPIENTS
-    ? resolvedManagerRecipients
-    : [];
+      ? resolvedManagerRecipients
+      : [];
   const usedOpsFallback = managerRecipients.length === 0;
   const recipients = usedOpsFallback
     ? resolveRefundOpsFallbackRecipients({
       recipients: getInternalNotificationRecipients(),
-      customerEmail,
+      customerEmail: normalizedCustomerEmail,
       mailboxIdentities,
     })
     : managerRecipients;
@@ -112,12 +115,52 @@ export const sendRefundManagerActionNotice = async ({
     );
   }
 
-  const routingNote = usedOpsFallback
+  return {
+    refundCaseId,
+    customerEmail: normalizedCustomerEmail,
+    recipients,
+    managerRecipientCount: managerRecipients.length,
+    recipientCount: recipients.length,
+    resolutionStatus,
+    usedOpsFallback,
+  };
+};
+
+export const sendRefundManagerActionNotice = async ({
+  supabase,
+  refundCaseId,
+  customerEmail,
+  subject,
+  summaryText,
+  resolvedRouting,
+}: {
+  supabase: SupabaseClient;
+  refundCaseId: string;
+  customerEmail: string;
+  subject: string;
+  summaryText: string;
+  resolvedRouting?: RefundManagerNoticeRouting;
+}): Promise<RefundManagerNoticeResult> => {
+  const normalizedCustomerEmail = customerEmail.trim().toLowerCase();
+  const routing = resolvedRouting ??
+    await resolveRefundManagerActionNoticeRouting({
+      supabase,
+      refundCaseId,
+      customerEmail: normalizedCustomerEmail,
+    });
+  if (
+    routing.refundCaseId !== refundCaseId ||
+    routing.customerEmail !== normalizedCustomerEmail
+  ) {
+    throw new Error("Refund action-notice routing does not match the case.");
+  }
+
+  const routingNote = routing.usedOpsFallback
     ? "Routing exception: no eligible active Machine Manager was resolved, so Bloomjoy operations is receiving this action notice."
     : "This action notice was routed only to the currently assigned Machine Managers.";
 
   await sendTransactionalEmail({
-    to: recipients,
+    to: routing.recipients,
     subject,
     text: [
       summaryText.trim(),
@@ -130,9 +173,9 @@ export const sendRefundManagerActionNotice = async ({
   });
 
   return {
-    managerRecipientCount: managerRecipients.length,
-    recipientCount: recipients.length,
-    resolutionStatus,
-    usedOpsFallback,
+    managerRecipientCount: routing.managerRecipientCount,
+    recipientCount: routing.recipientCount,
+    resolutionStatus: routing.resolutionStatus,
+    usedOpsFallback: routing.usedOpsFallback,
   };
 };

@@ -1,5 +1,21 @@
 # Decisions
 
+## 2026-08-03 - Manager aging notices use business-day attention versions (`#685`)
+Refund cases that are ready for Machine Manager action may generate a deterministic internal reminder after two business days and an internal escalation after five business days. This lane helps the current manager reach the case; it never contacts the customer or performs an official refund action.
+
+**Canonical behavior**
+- A business day is Monday through Friday in `America/Los_Angeles`, measured at the local clock time when attention began. No holiday calendar is inferred. The proposed 30-minute first-triage target remains a staffing/planning target and is not customer-facing policy.
+- One attention version begins when a case becomes manager-actionable. Waiting for the customer, a verified customer reply, or a terminal state pauses and invalidates pending notices. A reply cannot restart aging by itself; a later manager-relevant case re-evaluation starts a fresh version.
+- Each attention version can send at most one reminder and one escalation. Unknown delivery creates durable review work and is never retried blindly.
+- Immediately before sending, the service resolves the current active mapped Machine Managers and then reauthorizes the case state. A mapping repair or revocation applies to the next milestone. If no eligible manager exists, one bounded, redacted operations routing exception replaces that milestone; it is never sent to the customer or support mailbox identities.
+- Notices include only the public case reference, safe public machine/location labels, business-day age, safe workflow state, one recommended next step, and the encoded authenticated `/refunds?case=` link. Opening that link is navigation-only: approval, denial, completion, compensation, and Nayax execution still require the current mapped manager in the portal.
+- Notice and audit evidence omit customer identity, complaint text, card digits, transaction/provider identifiers, and raw payloads. Delivery remains disabled by default behind `REFUND_MANAGER_AGING_NOTICES_ENABLED`, independently of customer-contact automation.
+
+**Why this choice**
+- Managers receive a direct, actionable path without granting the inbox assistant payment authority or adding customer email noise.
+- Versioning, send-time routing, and fail-closed recovery prevent stale reminders after replies or ownership changes.
+- A separate switch and synthetic-only rollout allow the team to validate staffing and timing before making the workflow operational.
+
 ## 2026-08-03 - Refund follow-up may auto-send only deterministic, bounded messages (`#687`)
 Bloomjoy may automatically send a small set of versioned refund follow-up messages after deterministic state checks. This narrow exception supersedes the `#634` requirement for manager approval of every Gmail reply; GPT-written or manager-authored prose still requires human review.
 
