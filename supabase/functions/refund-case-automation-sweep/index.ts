@@ -30,7 +30,6 @@ import {
 } from "../_shared/refund-deterministic-follow-up.ts";
 import {
   buildRefundManagerAgingNotice,
-  refundBusinessDaysElapsed,
   REFUND_MANAGER_AGING_TEMPLATE_VERSION,
   type RefundManagerAgingMilestone,
 } from "../_shared/refund-manager-aging.ts";
@@ -256,8 +255,8 @@ type RefundManagerAttentionState = {
   refund_case_id: string;
   attention_version: number;
   attention_started_at: string;
-  reminder_sent_at: string | null;
-  escalation_sent_at: string | null;
+  milestone: RefundManagerAgingMilestone;
+  business_day_age: number;
 };
 
 const createCounters = (): SweepCounters => ({
@@ -2381,67 +2380,33 @@ const runManagerAgingSweep = async (
     return;
   }
 
-  const { data: attentionStates, error: attentionError } = await supabase
-    .from("refund_manager_attention_states")
-    .select(
-      "refund_case_id,attention_version,attention_started_at,reminder_sent_at,escalation_sent_at",
-    )
-    .not("attention_started_at", "is", null)
-    .is("delivery_review_required_at", null)
-    .order("attention_started_at", { ascending: true })
-    .limit(100);
+  // The database applies all due/current/pending filters before this cap. A
+  // backlog of resolved or not-yet-due rows therefore cannot starve later work.
+  const { data: attentionStates, error: attentionError } = await supabase.rpc(
+    "service_list_due_refund_manager_aging_notices",
+    {
+      p_observed_at: new Date().toISOString(),
+      p_timezone: automationTimezone,
+      p_reminder_business_days: managerReminderBusinessDays,
+      p_escalation_business_days: managerEscalationBusinessDays,
+      p_template_version: REFUND_MANAGER_AGING_TEMPLATE_VERSION,
+      p_limit: 100,
+    },
+  );
   if (attentionError) throw attentionError;
 
   for (const state of (attentionStates ?? []) as RefundManagerAttentionState[]) {
     const attentionStartedAt = new Date(state.attention_started_at);
     const attentionVersion = integerValue(state.attention_version);
-    if (!Number.isFinite(attentionStartedAt.getTime()) || attentionVersion < 1) {
+    const businessDayAge = integerValue(state.business_day_age);
+    const milestone = state.milestone;
+    if (
+      !Number.isFinite(attentionStartedAt.getTime()) || attentionVersion < 1 ||
+      businessDayAge < 0 ||
+      (milestone !== "reminder" && milestone !== "escalation")
+    ) {
       counters.actionsFailed += 1;
       addReason(counters, "manager_attention_contract_invalid");
-      continue;
-    }
-    const observedAt = new Date();
-    const businessDayAge = refundBusinessDaysElapsed({
-      startedAt: attentionStartedAt,
-      observedAt,
-      timeZone: automationTimezone,
-    });
-    const milestone: RefundManagerAgingMilestone | null =
-      businessDayAge >= managerEscalationBusinessDays &&
-        !state.escalation_sent_at
-        ? "escalation"
-        : businessDayAge >= managerReminderBusinessDays &&
-            !state.reminder_sent_at && !state.escalation_sent_at
-          ? "reminder"
-          : null;
-    if (!milestone) continue;
-
-    const authorizeNotice = async () => {
-      const { data, error } = await supabase.rpc(
-        "service_authorize_refund_manager_aging_notice",
-        {
-          p_refund_case_id: state.refund_case_id,
-          p_attention_version: attentionVersion,
-          p_milestone: milestone,
-          p_observed_at: new Date().toISOString(),
-          p_timezone: automationTimezone,
-          p_reminder_business_days: managerReminderBusinessDays,
-          p_escalation_business_days: managerEscalationBusinessDays,
-          p_template_version: REFUND_MANAGER_AGING_TEMPLATE_VERSION,
-        },
-      );
-      if (error) throw error;
-      return data && typeof data === "object"
-        ? data as Record<string, unknown>
-        : {};
-    };
-
-    const preauthorization = await authorizeNotice();
-    if (preauthorization.authorized !== true) {
-      addReason(
-        counters,
-        `manager_notice_${textValue(preauthorization.reason) || "suppressed"}`,
-      );
       continue;
     }
 
@@ -2452,10 +2417,12 @@ const runManagerAgingSweep = async (
       continue;
     }
     counters.evaluatedCaseIds.add(refundCase.id);
+    const actionKey =
+      `manager_aging:${milestone}:${refundCase.id}:v${attentionVersion}`;
     const action = await claimAction(
       runId,
       refundCase.id,
-      `manager_aging:${milestone}:${refundCase.id}:v${attentionVersion}`,
+      actionKey,
       milestone === "reminder" ? "manager_reminder" : "manager_escalation",
       refundCase.status,
       policyWindowStart,
@@ -2463,28 +2430,16 @@ const runManagerAgingSweep = async (
     );
     if (!action.claimed) continue;
 
+    let beginRequested = false;
+    let attemptReserved = false;
     try {
-      // Bind recipients from the current mapping immediately before the final
-      // case authorization. The bound routing is then used for this send only.
+      // Resolve and bind the current machine-manager mapping immediately before
+      // the atomic pre-send reservation. The bound routing is used once only.
       const resolvedRouting = await resolveRefundManagerActionNoticeRouting({
         supabase,
         refundCaseId: refundCase.id,
         customerEmail: refundCase.customer_email,
       });
-      const authorization = await authorizeNotice();
-      if (authorization.authorized !== true) {
-        await finishAction(
-          action,
-          "suppressed",
-          `manager_notice_${textValue(authorization.reason) || "stale"}`,
-          null,
-          counters,
-        );
-        continue;
-      }
-      const authorizedBusinessAge = integerValue(
-        authorization.businessDayAge ?? authorization.business_day_age,
-      );
       const publicLabels = resolveRefundPublicLabels({
         locationName: refundCase.reporting_locations?.name,
         publicMachineLabel:
@@ -2496,9 +2451,61 @@ const runManagerAgingSweep = async (
         publicReference: refundCase.public_reference,
         machineLabel: publicLabels.machineLabel,
         locationName: publicLabels.locationName,
-        businessDayAge: authorizedBusinessAge,
-        status: textValue(authorization.caseStatus) || refundCase.status,
+        businessDayAge,
+        status: refundCase.status,
       });
+      const expectedOutcome = resolvedRouting.usedOpsFallback
+        ? "operations_exception"
+        : "delivered";
+      beginRequested = true;
+      const { data: attempt, error: attemptError } = await supabase.rpc(
+        "service_begin_refund_manager_aging_notice_attempt",
+        {
+          p_refund_case_id: refundCase.id,
+          p_attention_version: attentionVersion,
+          p_milestone: milestone,
+          p_observed_at: new Date().toISOString(),
+          p_timezone: automationTimezone,
+          p_reminder_business_days: managerReminderBusinessDays,
+          p_escalation_business_days: managerEscalationBusinessDays,
+          p_template_version: message.templateVersion,
+          p_action_key: actionKey,
+          p_expected_outcome: expectedOutcome,
+          p_manager_recipient_count: resolvedRouting.managerRecipientCount,
+          p_recipient_count: resolvedRouting.recipientCount,
+          p_resolution_status: resolvedRouting.resolutionStatus,
+        },
+      );
+      if (attemptError) throw attemptError;
+      const attemptResult = attempt && typeof attempt === "object"
+        ? attempt as Record<string, unknown>
+        : {};
+      if (attemptResult.authorized !== true) {
+        await finishAction(
+          action,
+          "suppressed",
+          `manager_notice_${textValue(attemptResult.reason) || "stale"}`,
+          null,
+          counters,
+        );
+        continue;
+      }
+      attemptReserved = true;
+      const authorizedBusinessAge = integerValue(
+        attemptResult.businessDayAge ?? attemptResult.business_day_age,
+      );
+      if (authorizedBusinessAge !== businessDayAge) {
+        // A milestone can only age forward between selection and reservation.
+        // Rebuild from the final authorized evidence without changing routing.
+        message.summaryText = buildRefundManagerAgingNotice({
+          milestone,
+          publicReference: refundCase.public_reference,
+          machineLabel: publicLabels.machineLabel,
+          locationName: publicLabels.locationName,
+          businessDayAge: authorizedBusinessAge,
+          status: textValue(attemptResult.caseStatus) || refundCase.status,
+        }).summaryText;
+      }
       const notice = await sendRefundManagerActionNotice({
         supabase,
         refundCaseId: refundCase.id,
@@ -2507,21 +2514,13 @@ const runManagerAgingSweep = async (
         summaryText: message.summaryText,
         resolvedRouting,
       });
-      const outcome = notice.usedOpsFallback
-        ? "operations_exception"
-        : "delivered";
+      const outcome = notice.usedOpsFallback ? "operations_exception" : "delivered";
       const { data: completed, error: completionError } = await supabase.rpc(
         "service_complete_refund_manager_aging_notice",
         {
           p_refund_case_id: refundCase.id,
-          p_attention_version: attentionVersion,
-          p_milestone: milestone,
+          p_action_key: actionKey,
           p_outcome: outcome,
-          p_template_version: message.templateVersion,
-          p_business_day_age: authorizedBusinessAge,
-          p_manager_recipient_count: notice.managerRecipientCount,
-          p_recipient_count: notice.recipientCount,
-          p_resolution_status: notice.resolutionStatus,
         },
       );
       if (completionError) throw completionError;
@@ -2550,25 +2549,22 @@ const runManagerAgingSweep = async (
     } catch (error) {
       counters.managerNoticesFailed += 1;
       if (milestone === "escalation") counters.escalationsFailed += 1;
-      try {
-        const { error: deliveryReviewError } = await supabase.rpc(
-          "service_complete_refund_manager_aging_notice",
-          {
-          p_refund_case_id: refundCase.id,
-          p_attention_version: attentionVersion,
-          p_milestone: milestone,
-          p_outcome: "delivery_unknown",
-          p_template_version: REFUND_MANAGER_AGING_TEMPLATE_VERSION,
-          p_business_day_age: businessDayAge,
-          p_manager_recipient_count: 0,
-          p_recipient_count: 0,
-          p_resolution_status: "delivery_unknown",
-          },
-        );
-        if (deliveryReviewError) throw deliveryReviewError;
-      } catch {
-        // The once-only automation action still blocks a blind retry if durable
-        // delivery-review settlement is itself unavailable.
+      if (attemptReserved) {
+        try {
+          const { error: deliveryReviewError } = await supabase.rpc(
+            "service_complete_refund_manager_aging_notice",
+            {
+              p_refund_case_id: refundCase.id,
+              p_action_key: actionKey,
+              p_outcome: "delivery_unknown",
+            },
+          );
+          if (deliveryReviewError) throw deliveryReviewError;
+        } catch {
+          // The pre-send reservation already committed a durable global hold.
+          // A settlement outage therefore cannot permit a blind retry or a
+          // newer escalation for this case.
+        }
       }
       console.error("refund-case-automation-sweep manager aging notice failed", {
         errorType: error instanceof Error ? error.name : typeof error,
@@ -2576,7 +2572,11 @@ const runManagerAgingSweep = async (
       await finishAction(
         action,
         "failed",
-        "manager_notice_delivery_unknown",
+        attemptReserved
+          ? "manager_notice_delivery_unknown"
+          : beginRequested
+          ? "manager_notice_attempt_state_unknown"
+          : "manager_notice_pre_send_failed",
         null,
         counters,
       );

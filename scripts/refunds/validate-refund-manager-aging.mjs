@@ -31,7 +31,7 @@ const routingIndex = managerSweep.indexOf(
   'const resolvedRouting = await resolveRefundManagerActionNoticeRouting',
 );
 const finalAuthorizationIndex = managerSweep.indexOf(
-  'const authorization = await authorizeNotice()',
+  '"service_begin_refund_manager_aging_notice_attempt"',
   routingIndex,
 );
 const sendIndex = managerSweep.indexOf(
@@ -60,7 +60,10 @@ check(
     migration.includes('refund_cases_sync_manager_attention') &&
     migration.includes('refund_gmail_messages_sync_manager_attention') &&
     migration.includes('attention_started_at = null') &&
-    migration.includes('new.received_at > coalesce')
+    migration.includes('source_customer_message_created_at timestamptz') &&
+    migration.includes('where (safe_created_at, new.id) >') &&
+    databaseTest.includes('same provider timestamp advances by trusted created_at and id') &&
+    databaseTest.includes('same future-dated provider message does not create another version')
 );
 
 check(
@@ -85,19 +88,20 @@ check(
 
 check(
   'Reminder and escalation milestones are once-only per attention version',
-  migration.includes("'manager_reminder'") &&
+    migration.includes("'manager_reminder'") &&
     migration.includes("'manager_escalation'") &&
-    migration.includes("'reminder_already_sent'") &&
-    migration.includes("'escalation_already_sent'") &&
-    migration.includes("'higher_milestone_already_sent'") &&
+    migration.includes("'reminder_already_resolved'") &&
+    migration.includes("'escalation_already_resolved'") &&
+    migration.includes("'higher_milestone_already_resolved'") &&
     managerSweep.includes('`manager_aging:${milestone}:${refundCase.id}:v${attentionVersion}`') &&
-    managerSweep.includes('!state.reminder_sent_at && !state.escalation_sent_at') &&
-    databaseTest.includes('Replaying the schedule cannot duplicate the manager escalation action') &&
-    databaseTest.includes('A direct escalation suppresses a late lower-priority reminder')
+    migration.includes('reminder_resolved_at') &&
+    migration.includes('escalation_resolved_at') &&
+    databaseTest.includes('settled attempt key cannot be replayed') &&
+    databaseTest.includes('resolved escalation suppresses a late lower-priority reminder')
 );
 
 check(
-  'Current mapped recipients are bound before the final case authorization and provider send',
+  'Current mapped recipients are bound before the atomic pre-send hold and provider send',
   routingIndex >= 0 &&
     finalAuthorizationIndex > routingIndex &&
     sendIndex > finalAuthorizationIndex &&
@@ -110,20 +114,34 @@ check(
   'Zero-manager routes use a bounded internal exception and mapping changes are re-resolved',
   managerNotification.includes('MAX_OPS_FALLBACK_RECIPIENTS = 5') &&
     managerNotification.includes('usedOpsFallback = managerRecipients.length === 0') &&
-    migration.includes("p_outcome = 'operations_exception'") &&
+    migration.includes("p_expected_outcome = 'operations_exception'") &&
     migration.includes('Operations exceptions require bounded internal recipients only') &&
-    databaseTest.includes('A mapping repair is used by the next send-time resolution') &&
-    databaseTest.includes('Revocation is reflected immediately')
+    databaseTest.includes('No current mapping is an explicit routing exception') &&
+    databaseTest.includes('bounded redacted operations route can reserve')
 );
 
 check(
-  'Delivery settlement enforces recipient/outcome consistency and never blindly retries uncertainty',
-  migration.includes('p_recipient_count < p_manager_recipient_count') &&
+  'Delivery settlement uses a durable global hold and supports auditable cross-version recovery',
+    migration.includes('p_recipient_count < p_manager_recipient_count') &&
     migration.includes('Delivered manager notices require mapped-manager recipients only') &&
-    migration.includes('Unknown delivery evidence cannot assert recipients') &&
+    migration.includes("delivery_review_reason = 'notice_attempt_in_flight'") &&
     migration.includes("delivery_review_reason = 'delivery_unknown'") &&
     migration.includes("'delivery_review_required'") &&
-    databaseTest.includes('Unknown delivery is never retried automatically')
+    migration.includes("'known_not_sent'") &&
+    databaseTest.includes('old in-flight attempt blocks every newer attention version') &&
+    databaseTest.includes('Old-attempt settlement clears the hold without marking the newer milestone') &&
+    databaseTest.includes('Unknown recovery also leaves the newer attention version untouched') &&
+    databaseTest.includes('Known-not-sent recovery does not consume the newer version milestone')
+);
+
+check(
+  'The bounded scheduler cap is applied after due/pending filtering',
+  managerSweep.includes('"service_list_due_refund_manager_aging_notices"') &&
+    !managerSweep.includes('.from("refund_manager_attention_states")') &&
+    migration.includes('where eligible.milestone is not null') &&
+    migration.includes('limit p_limit') &&
+    databaseTest.includes('101st due case is returned even when 100 earlier rows are resolved') &&
+    databaseTest.includes('worker contract processes the 101st case through its durable pre-send hold')
 );
 
 check(
@@ -138,9 +156,10 @@ check(
 check(
   'Canonical case links are encoded and browser-tested as navigation-only',
   managerNotification.includes('/refunds?case=${encodeURIComponent(refundCaseId)}') &&
-    portalUat.includes("/refunds?case=${encodeURIComponent('case-wait')}") &&
+    portalUat.includes("/refunds?case=${encodeURIComponent('case-cash-1')}") &&
     portalUat.includes('officialActionCallsAfterLinkNavigation === officialActionCallsBeforeLinkNavigation') &&
-    portalUat.includes("name === 'nayax-card-refund' || name === 'refund-case-admin-update'")
+    portalUat.includes("name === 'nayax-card-refund' || name === 'refund-case-admin-update'") &&
+    portalUat.includes('A later queue search is not overridden by the original case-link query')
 );
 
 check(

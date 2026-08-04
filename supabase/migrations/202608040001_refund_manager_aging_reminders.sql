@@ -132,11 +132,23 @@ create table if not exists public.refund_manager_attention_states (
   source_customer_message_id uuid
     references public.refund_gmail_messages (id) on delete set null,
   source_customer_message_received_at timestamptz,
+  source_customer_message_created_at timestamptz,
   reminder_sent_at timestamptz,
   escalation_sent_at timestamptz,
+  reminder_resolved_at timestamptz,
+  escalation_resolved_at timestamptz,
   last_notice_milestone text,
   last_notice_outcome text,
   last_notice_at timestamptz,
+  notice_attempt_key text,
+  notice_attempt_attention_version bigint,
+  notice_attempt_milestone text,
+  notice_attempt_started_at timestamptz,
+  notice_attempt_expected_outcome text,
+  notice_attempt_business_day_age integer,
+  notice_attempt_manager_recipient_count integer,
+  notice_attempt_recipient_count integer,
+  notice_attempt_resolution_status text,
   delivery_review_required_at timestamptz,
   delivery_review_reason text,
   created_at timestamptz not null default statement_timestamp(),
@@ -146,21 +158,78 @@ create table if not exists public.refund_manager_attention_states (
   constraint refund_manager_attention_source_check
     check (
       source_customer_message_id is null
-      or source_customer_message_received_at is not null
+      or (
+        source_customer_message_received_at is not null
+        and source_customer_message_created_at is not null
+      )
     ),
   constraint refund_manager_attention_milestone_check
     check (last_notice_milestone is null or last_notice_milestone in ('reminder', 'escalation')),
   constraint refund_manager_attention_outcome_check
     check (
       last_notice_outcome is null
-      or last_notice_outcome in ('delivered', 'operations_exception', 'delivery_unknown')
+      or last_notice_outcome in (
+        'delivered',
+        'operations_exception',
+        'delivery_unknown',
+        'known_not_sent'
+      )
+    ),
+  constraint refund_manager_attention_resolution_check
+    check (
+      (reminder_sent_at is null or reminder_resolved_at is not null)
+      and (escalation_sent_at is null or escalation_resolved_at is not null)
+    ),
+  constraint refund_manager_attention_attempt_check
+    check (
+      (
+        notice_attempt_key is null
+        and notice_attempt_attention_version is null
+        and notice_attempt_milestone is null
+        and notice_attempt_started_at is null
+        and notice_attempt_expected_outcome is null
+        and notice_attempt_business_day_age is null
+        and notice_attempt_manager_recipient_count is null
+        and notice_attempt_recipient_count is null
+        and notice_attempt_resolution_status is null
+      )
+      or (
+        length(notice_attempt_key) between 8 and 220
+        and notice_attempt_key ~ '^[A-Za-z0-9:._-]+$'
+        and notice_attempt_attention_version >= 1
+        and notice_attempt_milestone in ('reminder', 'escalation')
+        and notice_attempt_started_at is not null
+        and notice_attempt_expected_outcome in ('delivered', 'operations_exception')
+        and notice_attempt_business_day_age between 0 and 3650
+        and notice_attempt_manager_recipient_count between 0 and 3
+        and notice_attempt_recipient_count between 1 and 5
+        and notice_attempt_recipient_count >= notice_attempt_manager_recipient_count
+        and length(notice_attempt_resolution_status) between 1 and 80
+        and notice_attempt_resolution_status ~ '^[a-z0-9_]+$'
+        and (
+          (
+            notice_attempt_expected_outcome = 'delivered'
+            and notice_attempt_manager_recipient_count between 1 and 3
+            and notice_attempt_recipient_count = notice_attempt_manager_recipient_count
+          )
+          or (
+            notice_attempt_expected_outcome = 'operations_exception'
+            and notice_attempt_manager_recipient_count = 0
+          )
+        )
+      )
     ),
   constraint refund_manager_attention_delivery_review_check
     check (
-      (delivery_review_required_at is null and delivery_review_reason is null)
+      (
+        delivery_review_required_at is null
+        and delivery_review_reason is null
+        and notice_attempt_key is null
+      )
       or (
         delivery_review_required_at is not null
-        and delivery_review_reason = 'delivery_unknown'
+        and delivery_review_reason in ('notice_attempt_in_flight', 'delivery_unknown')
+        and notice_attempt_key is not null
       )
     )
 );
@@ -169,6 +238,10 @@ create index if not exists refund_manager_attention_due_idx
   on public.refund_manager_attention_states (attention_started_at, attention_version)
   where attention_started_at is not null
     and delivery_review_required_at is null;
+
+create unique index if not exists refund_manager_attention_attempt_key_idx
+  on public.refund_manager_attention_states (notice_attempt_key)
+  where notice_attempt_key is not null;
 
 alter table public.refund_manager_attention_states enable row level security;
 revoke all on table public.refund_manager_attention_states from public, anon, authenticated;
@@ -199,7 +272,8 @@ insert into public.refund_manager_attention_states (
   decision,
   deterministic_fact_version,
   source_customer_message_id,
-  source_customer_message_received_at
+  source_customer_message_received_at,
+  source_customer_message_created_at
 )
 select
   refund_case.id,
@@ -209,7 +283,7 @@ select
       then greatest(
         refund_case.created_at,
         refund_case.deterministic_facts_updated_at,
-        coalesce(latest_customer.received_at, '-infinity'::timestamptz)
+        coalesce(latest_customer.safe_created_at, '-infinity'::timestamptz)
       )
     else null
   end,
@@ -218,17 +292,21 @@ select
   refund_case.decision,
   refund_case.deterministic_fact_version,
   latest_customer.id,
-  latest_customer.received_at
+  latest_customer.safe_received_at,
+  latest_customer.safe_created_at
 from public.refund_cases refund_case
 left join lateral (
-  select message.id, message.received_at
+  select
+    message.id,
+    least(message.received_at, message.created_at, statement_timestamp()) as safe_received_at,
+    least(message.created_at, statement_timestamp()) as safe_created_at
   from public.refund_gmail_messages message
   where message.refund_case_id = refund_case.id
     and message.direction = 'inbound'
     and message.message_kind = 'message'
     and message.participant_role = 'customer'
     and message.participant_trust = 'verified'
-  order by message.received_at desc, message.id desc
+  order by message.created_at desc, message.id desc
   limit 1
 ) latest_customer on true
 on conflict (refund_case_id) do nothing;
@@ -304,11 +382,21 @@ begin
       deterministic_fact_version = excluded.deterministic_fact_version,
       reminder_sent_at = null,
       escalation_sent_at = null,
+      reminder_resolved_at = null,
+      escalation_resolved_at = null,
       last_notice_milestone = null,
       last_notice_outcome = null,
       last_notice_at = null,
-      delivery_review_required_at = null,
-      delivery_review_reason = null,
+      -- An attempt hold is global to the case, not the attention version. A
+      -- reply or manager re-evaluation cannot make an uncertain send safe to retry.
+      delivery_review_required_at = case
+        when public.refund_manager_attention_states.notice_attempt_key is null then null
+        else public.refund_manager_attention_states.delivery_review_required_at
+      end,
+      delivery_review_reason = case
+        when public.refund_manager_attention_states.notice_attempt_key is null then null
+        else public.refund_manager_attention_states.delivery_review_reason
+      end,
       updated_at = statement_timestamp();
   end if;
 
@@ -345,6 +433,7 @@ as $$
 declare
   case_row public.refund_cases;
   safe_received_at timestamptz;
+  safe_created_at timestamptz;
 begin
   if new.direction <> 'inbound'
     or new.message_kind <> 'message'
@@ -358,7 +447,10 @@ begin
   where id = new.refund_case_id;
   if case_row.id is null then return new; end if;
 
-  safe_received_at := least(new.received_at, statement_timestamp());
+  -- Provider timestamps are evidence only. The database-created tuple is the
+  -- trusted monotonic replay key, and both timestamps are clamped before use.
+  safe_created_at := least(new.created_at, statement_timestamp());
+  safe_received_at := least(new.received_at, safe_created_at);
   insert into public.refund_manager_attention_states (
     refund_case_id,
     attention_version,
@@ -368,7 +460,8 @@ begin
     decision,
     deterministic_fact_version,
     source_customer_message_id,
-    source_customer_message_received_at
+    source_customer_message_received_at,
+    source_customer_message_created_at
   ) values (
     case_row.id,
     1,
@@ -378,7 +471,8 @@ begin
     case_row.decision,
     case_row.deterministic_fact_version,
     new.id,
-    safe_received_at
+    safe_received_at,
+    safe_created_at
   )
   on conflict (refund_case_id) do update
   set
@@ -392,17 +486,32 @@ begin
     deterministic_fact_version = case_row.deterministic_fact_version,
     source_customer_message_id = new.id,
     source_customer_message_received_at = safe_received_at,
+    source_customer_message_created_at = safe_created_at,
     reminder_sent_at = null,
     escalation_sent_at = null,
+    reminder_resolved_at = null,
+    escalation_resolved_at = null,
     last_notice_milestone = null,
     last_notice_outcome = null,
     last_notice_at = null,
-    delivery_review_required_at = null,
-    delivery_review_reason = null,
+    delivery_review_required_at = case
+      when public.refund_manager_attention_states.notice_attempt_key is null then null
+      else public.refund_manager_attention_states.delivery_review_required_at
+    end,
+    delivery_review_reason = case
+      when public.refund_manager_attention_states.notice_attempt_key is null then null
+      else public.refund_manager_attention_states.delivery_review_reason
+    end,
     updated_at = statement_timestamp()
-  where new.received_at > coalesce(
-    public.refund_manager_attention_states.source_customer_message_received_at,
-    '-infinity'::timestamptz
+  where (safe_created_at, new.id) > (
+    coalesce(
+      public.refund_manager_attention_states.source_customer_message_created_at,
+      '-infinity'::timestamptz
+    ),
+    coalesce(
+      public.refund_manager_attention_states.source_customer_message_id,
+      '00000000-0000-0000-0000-000000000000'::uuid
+    )
   );
 
   return new;
@@ -459,6 +568,117 @@ begin
     elapsed := elapsed - 1;
   end if;
   return greatest(0, elapsed);
+end;
+$$;
+
+create or replace function public.service_list_due_refund_manager_aging_notices(
+  p_observed_at timestamptz,
+  p_timezone text,
+  p_reminder_business_days integer,
+  p_escalation_business_days integer,
+  p_template_version text,
+  p_limit integer default 100
+)
+returns table (
+  refund_case_id uuid,
+  attention_version bigint,
+  attention_started_at timestamptz,
+  milestone text,
+  business_day_age integer
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if p_template_version <> 'refund_manager_aging_v1' then
+    raise exception 'Unsupported manager aging template';
+  end if;
+  if p_reminder_business_days not between 1 and 10
+    or p_escalation_business_days not between 2 and 20
+    or p_escalation_business_days <= p_reminder_business_days then
+    raise exception 'Safe manager aging thresholds are required';
+  end if;
+  if p_limit not between 1 and 500 then
+    raise exception 'A bounded manager aging candidate limit is required';
+  end if;
+  if length(coalesce(p_timezone, '')) not between 1 and 80
+    or not exists (select 1 from pg_timezone_names where name = p_timezone) then
+    raise exception 'A supported automation timezone is required';
+  end if;
+
+  return query
+  with eligible as (
+    select
+      attention.refund_case_id,
+      attention.attention_version,
+      attention.attention_started_at,
+      age.business_day_age,
+      case
+        when attention.escalation_resolved_at is null
+          and age.business_day_age >= p_escalation_business_days
+          then 'escalation'
+        when attention.reminder_resolved_at is null
+          and attention.escalation_resolved_at is null
+          and age.business_day_age >= p_reminder_business_days
+          then 'reminder'
+        else null
+      end as milestone
+    from public.refund_manager_attention_states attention
+    join public.refund_cases refund_case
+      on refund_case.id = attention.refund_case_id
+    cross join lateral (
+      select public.service_refund_business_days_elapsed(
+        attention.attention_started_at,
+        coalesce(p_observed_at, statement_timestamp()),
+        p_timezone
+      ) as business_day_age
+    ) age
+    where attention.attention_started_at is not null
+      and attention.delivery_review_required_at is null
+      and attention.notice_attempt_key is null
+      and public.refund_case_requires_manager_attention(refund_case.status)
+      and refund_case.status not in (
+        'draft', 'waiting_on_customer', 'denied', 'completed', 'closed'
+      )
+      and attention.case_status = refund_case.status
+      and attention.correlation_status = refund_case.correlation_status
+      and attention.decision is not distinct from refund_case.decision
+      and attention.deterministic_fact_version = refund_case.deterministic_fact_version
+      and not exists (
+        select 1
+        from public.refund_gmail_threads gmail_thread
+        where gmail_thread.refund_case_id = refund_case.id
+          and gmail_thread.automatic_customer_contact_paused_at is not null
+      )
+  ), due as (
+    select eligible.*
+    from eligible
+    where eligible.milestone is not null
+      and not exists (
+        select 1
+        from public.refund_automation_actions automation_action
+        where automation_action.action_key = format(
+          'manager_aging:%s:%s:v%s',
+          eligible.milestone,
+          eligible.refund_case_id,
+          eligible.attention_version
+        )
+      )
+  )
+  select
+    due.refund_case_id,
+    due.attention_version,
+    due.attention_started_at,
+    due.milestone,
+    due.business_day_age
+  from due
+  order by
+    (due.milestone = 'escalation') desc,
+    due.attention_started_at,
+    due.refund_case_id
+  limit p_limit;
 end;
 $$;
 
@@ -537,14 +757,14 @@ begin
   ) then
     return jsonb_build_object('authorized', false, 'reason', 'customer_bounce_hold');
   end if;
-  if p_milestone = 'reminder' and attention_row.reminder_sent_at is not null then
-    return jsonb_build_object('authorized', false, 'reason', 'reminder_already_sent');
+  if p_milestone = 'reminder' and attention_row.reminder_resolved_at is not null then
+    return jsonb_build_object('authorized', false, 'reason', 'reminder_already_resolved');
   end if;
-  if p_milestone = 'reminder' and attention_row.escalation_sent_at is not null then
-    return jsonb_build_object('authorized', false, 'reason', 'higher_milestone_already_sent');
+  if p_milestone = 'reminder' and attention_row.escalation_resolved_at is not null then
+    return jsonb_build_object('authorized', false, 'reason', 'higher_milestone_already_resolved');
   end if;
-  if p_milestone = 'escalation' and attention_row.escalation_sent_at is not null then
-    return jsonb_build_object('authorized', false, 'reason', 'escalation_already_sent');
+  if p_milestone = 'escalation' and attention_row.escalation_resolved_at is not null then
+    return jsonb_build_object('authorized', false, 'reason', 'escalation_already_resolved');
   end if;
 
   business_age := public.service_refund_business_days_elapsed(
@@ -576,16 +796,154 @@ begin
 end;
 $$;
 
-create or replace function public.service_complete_refund_manager_aging_notice(
+create or replace function public.service_begin_refund_manager_aging_notice_attempt(
   p_refund_case_id uuid,
   p_attention_version bigint,
   p_milestone text,
-  p_outcome text,
+  p_observed_at timestamptz,
+  p_timezone text,
+  p_reminder_business_days integer,
+  p_escalation_business_days integer,
   p_template_version text,
-  p_business_day_age integer,
+  p_action_key text,
+  p_expected_outcome text,
   p_manager_recipient_count integer,
   p_recipient_count integer,
   p_resolution_status text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  authorization_result jsonb;
+  expected_action_key text;
+  updated_count integer;
+begin
+  if p_milestone not in ('reminder', 'escalation') then
+    raise exception 'Unsupported manager aging milestone';
+  end if;
+  expected_action_key := format(
+    'manager_aging:%s:%s:v%s',
+    p_milestone,
+    p_refund_case_id,
+    p_attention_version
+  );
+  if p_action_key is distinct from expected_action_key then
+    raise exception 'The manager aging attempt key is not bound to this milestone';
+  end if;
+  if p_expected_outcome not in ('delivered', 'operations_exception')
+    or p_manager_recipient_count not between 0 and 3
+    or p_recipient_count not between 1 and 5
+    or p_recipient_count < p_manager_recipient_count
+    or length(coalesce(p_resolution_status, '')) not between 1 and 80
+    or p_resolution_status !~ '^[a-z0-9_]+$' then
+    raise exception 'Safe redacted manager notice routing evidence is required';
+  end if;
+  if p_expected_outcome = 'delivered'
+    and not (
+      p_manager_recipient_count between 1 and 3
+      and p_recipient_count = p_manager_recipient_count
+    ) then
+    raise exception 'Delivered manager notices require mapped-manager recipients only';
+  end if;
+  if p_expected_outcome = 'operations_exception'
+    and not (
+      p_manager_recipient_count = 0
+      and p_recipient_count between 1 and 5
+    ) then
+    raise exception 'Operations exceptions require bounded internal recipients only';
+  end if;
+  if not exists (
+    select 1
+    from public.refund_automation_actions automation_action
+    where automation_action.action_key = p_action_key
+      and automation_action.refund_case_id = p_refund_case_id
+      and automation_action.action_type = case
+        when p_milestone = 'reminder' then 'manager_reminder'
+        else 'manager_escalation'
+      end
+      and automation_action.status = 'claimed'
+  ) then
+    raise exception 'A claimed manager aging automation action is required';
+  end if;
+
+  -- The authorization row lock remains held for this transaction, so the
+  -- delivery hold below is the final atomic gate before provider invocation.
+  authorization_result := public.service_authorize_refund_manager_aging_notice(
+    p_refund_case_id,
+    p_attention_version,
+    p_milestone,
+    p_observed_at,
+    p_timezone,
+    p_reminder_business_days,
+    p_escalation_business_days,
+    p_template_version
+  );
+  if coalesce((authorization_result ->> 'authorized')::boolean, false) is not true then
+    return authorization_result;
+  end if;
+
+  update public.refund_manager_attention_states
+  set
+    notice_attempt_key = p_action_key,
+    notice_attempt_attention_version = p_attention_version,
+    notice_attempt_milestone = p_milestone,
+    notice_attempt_started_at = statement_timestamp(),
+    notice_attempt_expected_outcome = p_expected_outcome,
+    notice_attempt_business_day_age = (authorization_result ->> 'businessDayAge')::integer,
+    notice_attempt_manager_recipient_count = p_manager_recipient_count,
+    notice_attempt_recipient_count = p_recipient_count,
+    notice_attempt_resolution_status = p_resolution_status,
+    delivery_review_required_at = statement_timestamp(),
+    delivery_review_reason = 'notice_attempt_in_flight',
+    updated_at = statement_timestamp()
+  where refund_case_id = p_refund_case_id
+    and attention_version = p_attention_version
+    and notice_attempt_key is null
+    and delivery_review_required_at is null;
+  get diagnostics updated_count = row_count;
+  if updated_count <> 1 then
+    return jsonb_build_object(
+      'authorized', false,
+      'reason', 'notice_attempt_conflict'
+    );
+  end if;
+
+  insert into public.refund_case_events (
+    refund_case_id,
+    event_type,
+    message,
+    metadata
+  ) values (
+    p_refund_case_id,
+    'refund_manager_aging_notice_attempt_started',
+    'A manager aging notice attempt was reserved before provider delivery; later notices are held until settlement.',
+    jsonb_build_object(
+      'milestone', p_milestone,
+      'attention_version', p_attention_version,
+      'template_version', p_template_version,
+      'business_day_age', (authorization_result ->> 'businessDayAge')::integer,
+      'expected_outcome', p_expected_outcome,
+      'recipient_count', p_recipient_count,
+      'machine_manager_recipient_count', p_manager_recipient_count,
+      'manager_resolution_status', p_resolution_status,
+      'payload_redacted', true
+    )
+  );
+
+  return authorization_result || jsonb_build_object(
+    'attemptStarted', true,
+    'attemptKey', p_action_key
+  );
+end;
+$$;
+
+create or replace function public.service_complete_refund_manager_aging_notice(
+  p_refund_case_id uuid,
+  p_action_key text,
+  p_outcome text
 )
 returns boolean
 language plpgsql
@@ -594,43 +952,22 @@ set search_path = public
 as $$
 declare
   attention_row public.refund_manager_attention_states;
+  settles_current_version boolean;
+  is_known_sent boolean;
   event_type text;
   event_message text;
 begin
-  if p_milestone not in ('reminder', 'escalation') then
-    raise exception 'Unsupported manager aging milestone';
-  end if;
-  if p_outcome not in ('delivered', 'operations_exception', 'delivery_unknown') then
+  if p_outcome not in (
+    'delivered',
+    'operations_exception',
+    'delivery_unknown',
+    'known_not_sent'
+  ) then
     raise exception 'Unsupported manager aging delivery outcome';
   end if;
-  if p_template_version <> 'refund_manager_aging_v1' then
-    raise exception 'Unsupported manager aging template';
-  end if;
-  if p_business_day_age not between 0 and 3650
-    or p_manager_recipient_count not between 0 and 3
-    or p_recipient_count not between 0 and 5
-    or p_recipient_count < p_manager_recipient_count
-    or length(coalesce(p_resolution_status, '')) not between 1 and 80
-    or p_resolution_status !~ '^[a-z0-9_]+$' then
-    raise exception 'Safe redacted manager notice evidence is required';
-  end if;
-  if p_outcome = 'delivered'
-    and not (
-      p_manager_recipient_count between 1 and 3
-      and p_recipient_count = p_manager_recipient_count
-    ) then
-    raise exception 'Delivered manager notices require mapped-manager recipients only';
-  end if;
-  if p_outcome = 'operations_exception'
-    and not (
-      p_manager_recipient_count = 0
-      and p_recipient_count between 1 and 5
-    ) then
-    raise exception 'Operations exceptions require bounded internal recipients only';
-  end if;
-  if p_outcome = 'delivery_unknown'
-    and not (p_manager_recipient_count = 0 and p_recipient_count = 0) then
-    raise exception 'Unknown delivery evidence cannot assert recipients';
+  if length(coalesce(p_action_key, '')) not between 8 and 220
+    or p_action_key !~ '^[A-Za-z0-9:._-]+$' then
+    raise exception 'A safe manager aging attempt key is required';
   end if;
 
   select * into attention_row
@@ -638,36 +975,104 @@ begin
   where refund_case_id = p_refund_case_id
   for update;
   if attention_row.refund_case_id is null
-    or attention_row.attention_version <> p_attention_version
-    or attention_row.attention_started_at is null
-    or attention_row.delivery_review_required_at is not null
-    or (p_milestone = 'reminder' and attention_row.reminder_sent_at is not null)
-    or (p_milestone = 'escalation' and attention_row.escalation_sent_at is not null) then
+    or attention_row.notice_attempt_key is distinct from p_action_key then
     return false;
   end if;
+  if p_outcome in ('delivered', 'operations_exception')
+    and p_outcome is distinct from attention_row.notice_attempt_expected_outcome then
+    raise exception 'Known-sent settlement must match the reserved recipient route';
+  end if;
+  if p_outcome = 'delivery_unknown'
+    and attention_row.delivery_review_reason = 'delivery_unknown' then
+    return true;
+  end if;
+
+  settles_current_version :=
+    attention_row.attention_version = attention_row.notice_attempt_attention_version;
+  is_known_sent := p_outcome in ('delivered', 'operations_exception');
 
   update public.refund_manager_attention_states
   set
     reminder_sent_at = case
-      when p_milestone = 'reminder' and p_outcome <> 'delivery_unknown'
-        then statement_timestamp()
+      when settles_current_version
+        and attention_row.notice_attempt_milestone = 'reminder'
+        and is_known_sent then statement_timestamp()
       else reminder_sent_at
     end,
     escalation_sent_at = case
-      when p_milestone = 'escalation' and p_outcome <> 'delivery_unknown'
-        then statement_timestamp()
+      when settles_current_version
+        and attention_row.notice_attempt_milestone = 'escalation'
+        and is_known_sent then statement_timestamp()
       else escalation_sent_at
     end,
-    last_notice_milestone = p_milestone,
-    last_notice_outcome = p_outcome,
-    last_notice_at = statement_timestamp(),
+    reminder_resolved_at = case
+      when settles_current_version
+        and attention_row.notice_attempt_milestone = 'reminder'
+        and p_outcome <> 'delivery_unknown' then statement_timestamp()
+      else reminder_resolved_at
+    end,
+    escalation_resolved_at = case
+      when settles_current_version
+        and attention_row.notice_attempt_milestone = 'escalation'
+        and p_outcome <> 'delivery_unknown' then statement_timestamp()
+      else escalation_resolved_at
+    end,
+    last_notice_milestone = case
+      when settles_current_version then attention_row.notice_attempt_milestone
+      else last_notice_milestone
+    end,
+    last_notice_outcome = case
+      when settles_current_version then p_outcome
+      else last_notice_outcome
+    end,
+    last_notice_at = case
+      when settles_current_version then statement_timestamp()
+      else last_notice_at
+    end,
+    notice_attempt_key = case
+      when p_outcome = 'delivery_unknown' then notice_attempt_key
+      else null
+    end,
+    notice_attempt_attention_version = case
+      when p_outcome = 'delivery_unknown' then notice_attempt_attention_version
+      else null
+    end,
+    notice_attempt_milestone = case
+      when p_outcome = 'delivery_unknown' then notice_attempt_milestone
+      else null
+    end,
+    notice_attempt_started_at = case
+      when p_outcome = 'delivery_unknown' then notice_attempt_started_at
+      else null
+    end,
+    notice_attempt_expected_outcome = case
+      when p_outcome = 'delivery_unknown' then notice_attempt_expected_outcome
+      else null
+    end,
+    notice_attempt_business_day_age = case
+      when p_outcome = 'delivery_unknown' then notice_attempt_business_day_age
+      else null
+    end,
+    notice_attempt_manager_recipient_count = case
+      when p_outcome = 'delivery_unknown' then notice_attempt_manager_recipient_count
+      else null
+    end,
+    notice_attempt_recipient_count = case
+      when p_outcome = 'delivery_unknown' then notice_attempt_recipient_count
+      else null
+    end,
+    notice_attempt_resolution_status = case
+      when p_outcome = 'delivery_unknown' then notice_attempt_resolution_status
+      else null
+    end,
     delivery_review_required_at = case
-      when p_outcome = 'delivery_unknown' then statement_timestamp()
-      else delivery_review_required_at
+      when p_outcome = 'delivery_unknown'
+        then coalesce(delivery_review_required_at, statement_timestamp())
+      else null
     end,
     delivery_review_reason = case
       when p_outcome = 'delivery_unknown' then 'delivery_unknown'
-      else delivery_review_reason
+      else null
     end,
     updated_at = statement_timestamp()
   where refund_case_id = p_refund_case_id;
@@ -675,11 +1080,13 @@ begin
   event_type := case
     when p_outcome = 'delivered' then 'refund_manager_aging_notice_sent'
     when p_outcome = 'operations_exception' then 'refund_manager_aging_routing_exception'
+    when p_outcome = 'known_not_sent' then 'refund_manager_aging_notice_not_sent'
     else 'refund_manager_aging_delivery_uncertain'
   end;
   event_message := case
     when p_outcome = 'delivered' then 'A manager aging notice was sent to the current mapped Machine Managers.'
     when p_outcome = 'operations_exception' then 'A redacted operations exception was sent because no eligible current Machine Manager was resolved.'
+    when p_outcome = 'known_not_sent' then 'The reserved manager aging notice is confirmed not sent; its global delivery hold was cleared without an automatic retry.'
     else 'Manager aging notice delivery is uncertain and requires review; no automatic retry will occur.'
   end;
   insert into public.refund_case_events (
@@ -692,14 +1099,17 @@ begin
     event_type,
     event_message,
     jsonb_build_object(
-      'milestone', p_milestone,
-      'attention_version', p_attention_version,
-      'template_version', p_template_version,
-      'business_day_age', p_business_day_age,
-      'recipient_count', p_recipient_count,
-      'machine_manager_recipient_count', p_manager_recipient_count,
-      'manager_resolution_status', p_resolution_status,
-      'used_ops_fallback', p_outcome = 'operations_exception',
+      'milestone', attention_row.notice_attempt_milestone,
+      'attempt_attention_version', attention_row.notice_attempt_attention_version,
+      'current_attention_version', attention_row.attention_version,
+      'settled_current_attention_version', settles_current_version,
+      'template_version', 'refund_manager_aging_v1',
+      'business_day_age', attention_row.notice_attempt_business_day_age,
+      'recipient_count', attention_row.notice_attempt_recipient_count,
+      'machine_manager_recipient_count', attention_row.notice_attempt_manager_recipient_count,
+      'manager_resolution_status', attention_row.notice_attempt_resolution_status,
+      'delivery_outcome', p_outcome,
+      'used_ops_fallback', attention_row.notice_attempt_expected_outcome = 'operations_exception',
       'payload_redacted', true
     )
   );
@@ -715,23 +1125,35 @@ revoke execute on function public.sync_refund_manager_attention_from_customer_me
   from public, anon, authenticated;
 revoke execute on function public.service_refund_business_days_elapsed(timestamptz, timestamptz, text)
   from public, anon, authenticated;
+revoke execute on function public.service_list_due_refund_manager_aging_notices(timestamptz, text, integer, integer, text, integer)
+  from public, anon, authenticated;
 revoke execute on function public.service_authorize_refund_manager_aging_notice(uuid, bigint, text, timestamptz, text, integer, integer, text)
   from public, anon, authenticated;
-revoke execute on function public.service_complete_refund_manager_aging_notice(uuid, bigint, text, text, text, integer, integer, integer, text)
+revoke execute on function public.service_begin_refund_manager_aging_notice_attempt(uuid, bigint, text, timestamptz, text, integer, integer, text, text, text, integer, integer, text)
+  from public, anon, authenticated;
+revoke execute on function public.service_complete_refund_manager_aging_notice(uuid, text, text)
   from public, anon, authenticated;
 
 grant execute on function public.refund_case_requires_manager_attention(text)
   to service_role;
 grant execute on function public.service_refund_business_days_elapsed(timestamptz, timestamptz, text)
   to service_role;
+grant execute on function public.service_list_due_refund_manager_aging_notices(timestamptz, text, integer, integer, text, integer)
+  to service_role;
 grant execute on function public.service_authorize_refund_manager_aging_notice(uuid, bigint, text, timestamptz, text, integer, integer, text)
   to service_role;
-grant execute on function public.service_complete_refund_manager_aging_notice(uuid, bigint, text, text, text, integer, integer, integer, text)
+grant execute on function public.service_begin_refund_manager_aging_notice_attempt(uuid, bigint, text, timestamptz, text, integer, integer, text, text, text, integer, integer, text)
+  to service_role;
+grant execute on function public.service_complete_refund_manager_aging_notice(uuid, text, text)
   to service_role;
 
 comment on table public.refund_manager_attention_states is
-  'Service-only manager-attention clock and bounded reminder/escalation delivery state. Contains no customer content, payment details, provider identifiers, or recipient addresses.';
+  'Service-only manager-attention clock, bounded reminder/escalation state, and global pre-send attempt hold. Contains no customer content, payment details, provider identifiers, or recipient addresses.';
+comment on function public.service_list_due_refund_manager_aging_notices(timestamptz, text, integer, integer, text, integer) is
+  'Returns only due, current, unclaimed manager aging milestones before applying the bounded scheduler limit, preventing completed or non-due rows from starving later cases.';
 comment on function public.service_authorize_refund_manager_aging_notice(uuid, bigint, text, timestamptz, text, integer, integer, text) is
   'Fail-closed send-time authorization for one versioned manager-only reminder or escalation. Rechecks state, business-day age, terminal/waiting state, and case-wide bounce holds.';
-comment on function public.service_complete_refund_manager_aging_notice(uuid, bigint, text, text, text, integer, integer, integer, text) is
-  'Records only redacted delivery evidence. Unknown delivery requires manual review and is never retried automatically.';
+comment on function public.service_begin_refund_manager_aging_notice_attempt(uuid, bigint, text, timestamptz, text, integer, integer, text, text, text, integer, integer, text) is
+  'Atomically reauthorizes and reserves a bound manager notice before provider invocation. The global hold survives attention-version changes until explicit settlement.';
+comment on function public.service_complete_refund_manager_aging_notice(uuid, text, text) is
+  'Settles one exact reserved attempt with redacted evidence. Known sent/not-sent outcomes clear the global hold; unknown delivery remains held. An old attempt never marks a newer attention version.';

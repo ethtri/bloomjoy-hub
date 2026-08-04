@@ -1202,7 +1202,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   const officialActionCallsBeforeLinkNavigation = functionCalls.filter((name) =>
     name === 'nayax-card-refund' || name === 'refund-case-admin-update'
   ).length;
-  await page.goto(`${appUrl}/refunds?case=${encodeURIComponent('case-wait')}`, {
+  await page.goto(`${appUrl}/refunds?case=${encodeURIComponent('case-cash-1')}`, {
     waitUntil: 'networkidle',
   });
   await page.getByRole('heading', { name: 'RF-UAT-WAIT' }).waitFor({ timeout: 10000 });
@@ -1213,7 +1213,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   recorder.assert(
     'Canonical manager case link opens the exact authenticated case without an official action',
     linkedCaseUrl.pathname === '/refunds' &&
-      linkedCaseUrl.searchParams.get('case') === 'case-wait' &&
+      linkedCaseUrl.searchParams.get('case') === 'case-cash-1' &&
       officialActionCallsAfterLinkNavigation === officialActionCallsBeforeLinkNavigation,
     JSON.stringify({
       url: page.url(),
@@ -1221,6 +1221,15 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       officialActionCallsAfterLinkNavigation,
     })
   );
+  await page.getByLabel('Search refund cases').fill('RF-UAT-CARD');
+  await page.getByText('1 visible of 2 total cases').waitFor({ timeout: 10000 });
+  recorder.assert(
+    'A later queue search is not overridden by the original case-link query',
+    (await page.getByRole('heading', { name: 'RF-UAT-WAIT' }).count()) === 0 &&
+      await page.locator('tr', { hasText: 'RF-UAT-CARD' }).isVisible()
+  );
+  await page.getByLabel('Search refund cases').fill('');
+  await page.getByText('2 visible of 2 total cases').waitFor({ timeout: 10000 });
   recorder.assert(
     'Refund queue count renders',
     await page.getByText('2 visible of 2 total cases').isVisible()
@@ -1782,6 +1791,14 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
   );
   await page.getByTestId('refund-cash-primary-action').click();
   await page.getByTestId('refund-cash-completion-panel').waitFor({ timeout: 10000 });
+
+  const approvalDeadline = Date.now() + 5000;
+  while (
+    !functionBodies.some((entry) => entry.functionName === 'refund-case-admin-update') &&
+    Date.now() < approvalDeadline
+  ) {
+    await page.waitForTimeout(50);
+  }
 
   const approvalBodies = functionBodies
     .filter((entry) => entry.functionName === 'refund-case-admin-update')
