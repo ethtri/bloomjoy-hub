@@ -2,8 +2,8 @@
   "schemaVersion": 2,
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
-  "releaseId": "refund-ops-2026-08-03-deterministic-followups",
-  "sourceGitCommit": "88e8fbce14abf98152e82389989613b936efae6c",
+  "releaseId": "refund-ops-2026-08-04-retention-safety",
+  "sourceGitCommit": "d926424e278897ee7604539295dc735284521ccb",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -32,10 +32,11 @@
     "202607260002_refund_qr_aware_nayax_recommendation.sql",
     "202607270001_refund_wallet_correction.sql",
     "202608030003_refund_gmail_participant_cc.sql",
-    "202608030005_refund_deterministic_follow_up_cycles.sql"
+    "202608030005_refund_deterministic_follow_up_cycles.sql",
+    "202608040002_refund_gmail_retention_safety.sql"
   ],
-  "migrationFilesSha256": "6c491757971cf04691566c775c6b0344fea0af90466a33725285f5cbcabc822f",
-  "migrationVersionSetSha256": "25f508679c310b8ce91a9a1c70443fff1317059851c908dd978a29691fcb0a73",
+  "migrationFilesSha256": "de908628bd59683f755b45053623c464ff3126ee5249d2520ed5e99d6909c303",
+  "migrationVersionSetSha256": "390759202467fa1f101ecc98a77a91d63d858aa2a7b50d9ec5be9ce73ba01d00",
   "functions": [
     {
       "slug": "refund-case-intake",
@@ -90,7 +91,7 @@
     {
       "slug": "refund-gmail-sync",
       "verifyJwt": false,
-      "sourceSha256": "d62f1a0d0bd92890ab07d37bc453c7e22f8135a773816faa888e3a137e10b15a",
+      "sourceSha256": "6ba55ce6f6e382d4a14c885e8caf7b14fe667f541fd519ffb32e39ea493e0256",
       "production": {
         "version": 1,
         "ezbrSha256": "83a3f0a745e8433d4a700259de047eb8e0304e73dc40264313679a63a9561d87",
