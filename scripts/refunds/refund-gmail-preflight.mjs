@@ -138,6 +138,20 @@ const run = () => {
     } else if (enabled === 'true') {
       warnings.push('REFUND_GMAIL_ENABLED is true; confirm all approvals and synthetic shadow checks before continuing.');
     }
+    const aliases = String(env.GMAIL_SUPPORT_SEND_AS_ALIASES ?? '')
+      .split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+    const invalidAliases = aliases.filter((value) => !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value));
+    if (invalidAliases.length > 0) {
+      errors.push('GMAIL_SUPPORT_SEND_AS_ALIASES must contain only valid comma-separated addresses.');
+    }
+    if (new Set(aliases).size !== aliases.length) {
+      errors.push('GMAIL_SUPPORT_SEND_AS_ALIASES must not contain duplicate addresses.');
+    }
+    if (enabled === 'true' && aliases.length === 0) {
+      errors.push('GMAIL_SUPPORT_SEND_AS_ALIASES must list every approved send-as alias before Gmail is enabled.');
+    }
     if (env.GMAIL_REFUND_START_AT && !Number.isFinite(new Date(env.GMAIL_REFUND_START_AT).getTime())) {
       errors.push('GMAIL_REFUND_START_AT must be a valid ISO timestamp when provided.');
     }
@@ -188,7 +202,6 @@ const run = () => {
       if (String(env.REFUND_GMAIL_FIRST_CONTACT_CUTOVER_APPROVED ?? '').trim().toLowerCase() !== 'true') {
         errors.push('Active first-contact sending requires REFUND_GMAIL_FIRST_CONTACT_CUTOVER_APPROVED=true.');
       }
-      errors.push('Active first-contact sending remains code-blocked until #686 participant classification and mapped-manager CC are installed.');
     } else if (firstContactMode === 'isolated_test') {
       warnings.push('First-contact isolated test mode is selected; use only a synthetic mailbox or label excluded from the legacy responder.');
     } else if (firstContactMode === 'shadow') {
@@ -222,7 +235,8 @@ const run = () => {
   console.log(`INFO: Refund Gmail preflight source: ${remote ? `remote Supabase secrets (${args.projectRef})` : 'local environment'}`);
   if (loaded.length > 0) console.log(`INFO: Loaded env files: ${loaded.join(', ')}`);
   printList('Required Gmail controls', [
-    'Exact designated mailbox, send-as aliases, and explicit refund label configured',
+    'Exact designated mailbox and explicit refund label configured',
+    'Approved send-as aliases inventoried for participant, first-contact, and CC boundaries',
     'OAuth client and refresh token kept server-only',
     'Dedicated scheduler secret configured',
     'Supabase service credentials available to the Edge Function',

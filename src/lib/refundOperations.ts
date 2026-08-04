@@ -162,6 +162,12 @@ export type RefundCaseMessage = {
   sentAt: string | null;
   errorMessage: string | null;
   createdAt: string;
+  contentSource?: 'deterministic_template' | 'manager_reviewed_gpt' | 'manager_authored' | null;
+  deliveryKind?: 'automatic' | 'manual' | null;
+  reasonCode?: 'missing_information' | 'no_safe_match' | null;
+  templateVersion?: string | null;
+  requestedFields?: RefundMissingField[];
+  followUpCycleId?: string | null;
 };
 
 export type RefundCustomerCommunicationStatus =
@@ -235,6 +241,8 @@ export type RefundCaseRecord = {
   zellePaymentContact: string | null;
   issueSummary: string;
   incidentAt: string;
+  structuredIncidentAt?: string | null;
+  incidentTimeResolution?: string | null;
   qrClaimOpenedAt?: string | null;
   paymentMethod: RefundPaymentMethod;
   paymentAmountCents: number | null;
@@ -352,8 +360,18 @@ export type RefundGmailMessage = {
   direction: 'inbound' | 'outbound' | 'system';
   kind: 'message' | 'bounce';
   status: 'received' | 'pending_send' | 'sent' | 'failed' | 'delivery_unknown';
-  senderEmail: string | null;
-  recipientEmail: string | null;
+  participantRole: 'customer' | 'assigned_manager' | 'mailbox' | 'automated_system' | 'unknown';
+  participantTrust: 'verified' | 'unverified' | 'forwarded' | 'spoof_suspected' | 'automated';
+  senderLabel: string;
+  recipientSummary: string;
+  managerCcCount: number;
+  recipientResolutionStatus:
+    | 'resolved'
+    | 'resolved_with_exclusions'
+    | 'machine_unresolved'
+    | 'no_active_managers'
+    | 'invalid_manager_mapping'
+    | null;
   subject: string;
   body: string;
   receivedAt: string;
@@ -400,8 +418,18 @@ export type RefundGmailCaseContext = {
   connected: boolean;
   subject?: string;
   latestMessageAt?: string;
+  automaticCustomerContactPaused: boolean;
+  automaticCustomerContactPauseReason: 'hard_bounce' | null;
+  automaticCustomerContactPausedAt: string | null;
+  pausedThreadCount: number;
   messages: RefundGmailMessage[];
   triageSuggestion: RefundGptTriageSuggestion | null;
+};
+
+export type RefundGmailContactRecovery = {
+  recovered: boolean;
+  status: 'recovered' | 'not_paused';
+  clearedThreadCount: number;
 };
 
 export type RefundManagerSetupMachine = {
@@ -440,6 +468,7 @@ export type UpdateRefundCaseInput = {
   matchedNayaxCurrencyCode?: string | null;
   nayaxDisagreementReason?: NayaxDisagreementReason | null;
   customerMessageType?: RefundCustomerPortalMessageType | null;
+  customerMissingFields?: RefundMissingField[];
 };
 
 export type NayaxDisagreementReason =
@@ -579,7 +608,16 @@ export type SendRefundCaseMessageInput = {
   subject?: string;
   body?: string;
   triageSuggestionId?: string;
+  missingFields?: RefundMissingField[];
 };
+
+export type RefundMissingField =
+  | 'location_or_machine'
+  | 'incident_date'
+  | 'incident_time'
+  | 'payment_method'
+  | 'amount'
+  | 'card_last4';
 
 export const fetchRefundMachineOptions = async (): Promise<RefundMachineOption[]> => {
   const { data, error } = await supabaseClient.rpc('public_refund_machine_options');
@@ -759,6 +797,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         zellePaymentContact: null,
         issueSummary: 'Machine spun but product did not dispense correctly.',
         incidentAt: demoIsoHoursAgo(5),
+        incidentTimeResolution: 'exact',
         paymentMethod: 'card',
         paymentAmountCents: 700,
         cardLast4: '4242',
@@ -857,6 +896,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         zellePaymentContact: 'cash-customer@example.test',
         issueSummary: 'Paid cash and the machine did not start.',
         incidentAt: demoIsoHoursAgo(12),
+        incidentTimeResolution: 'exact',
         paymentMethod: 'cash',
         paymentAmountCents: 500,
         cardLast4: null,
@@ -923,6 +963,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         zellePaymentContact: 'zelle-customer@example.test',
         issueSummary: 'Paid cash, product started, but did not finish correctly.',
         incidentAt: demoIsoHoursAgo(28),
+        incidentTimeResolution: 'exact',
         paymentMethod: 'cash',
         paymentAmountCents: 600,
         cardLast4: null,
@@ -1095,8 +1136,40 @@ export const fetchRefundGmailCaseContext = async (
     subject: typeof context.subject === 'string' ? context.subject : undefined,
     latestMessageAt:
       typeof context.latestMessageAt === 'string' ? context.latestMessageAt : undefined,
+    automaticCustomerContactPaused: context.automaticCustomerContactPaused === true,
+    automaticCustomerContactPauseReason:
+      context.automaticCustomerContactPauseReason === 'hard_bounce' ? 'hard_bounce' : null,
+    automaticCustomerContactPausedAt:
+      typeof context.automaticCustomerContactPausedAt === 'string'
+        ? context.automaticCustomerContactPausedAt
+        : null,
+    pausedThreadCount: Number.isFinite(Number(context.pausedThreadCount))
+      ? Math.max(0, Number(context.pausedThreadCount))
+      : 0,
     messages: Array.isArray(context.messages) ? context.messages : [],
     triageSuggestion,
+  };
+};
+
+export const recoverRefundGmailCustomerContact = async (
+  caseId: string,
+  verifiedCustomerEmail: string
+): Promise<RefundGmailContactRecovery> => {
+  const { data, error } = await supabaseClient.rpc('admin_recover_refund_gmail_customer_contact', {
+    p_refund_case_id: caseId,
+    p_verified_customer_email: verifiedCustomerEmail,
+    p_confirmation: 'customer_address_verified',
+  });
+  if (error) {
+    throw new Error(error.message || 'Unable to resume automatic customer email.');
+  }
+  const recovery = (data ?? {}) as Partial<RefundGmailContactRecovery>;
+  return {
+    recovered: recovery.recovered === true,
+    status: recovery.status === 'recovered' ? 'recovered' : 'not_paused',
+    clearedThreadCount: Number.isFinite(Number(recovery.clearedThreadCount))
+      ? Math.max(0, Number(recovery.clearedThreadCount))
+      : 0,
   };
 };
 

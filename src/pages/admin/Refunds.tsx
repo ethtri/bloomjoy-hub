@@ -42,6 +42,7 @@ import {
   fetchRefundOperationsOverview,
   isLocalUatDemoForced,
   lookupNayaxTransactions,
+  recoverRefundGmailCustomerContact,
   rejectRefundGptTriage,
   resolveRefundGmailDeliveryNotFound,
   sendRefundCaseMessage,
@@ -58,6 +59,7 @@ import {
   type RefundCaseStatus,
   type RefundCustomerPortalMessageType,
   type RefundDecision,
+  type RefundMissingField,
 } from '@/lib/refundOperations';
 import { cn } from '@/lib/utils';
 
@@ -102,7 +104,7 @@ const customerMessageOptions: Array<{
   {
     value: 'more_info',
     label: 'Ask for more information',
-    helper: 'Use when the transaction cannot be matched yet and the customer can help clarify details.',
+    helper: 'Use only when the case is missing specific structured purchase details.',
   },
   {
     value: 'status_update',
@@ -408,6 +410,55 @@ const formatRefundMachineLocation = (locationName: string, machineLabel: string)
   return `${normalizedLocationName} - ${normalizedMachineLabel}`;
 };
 
+const isMissingRefundLabel = (value: string | null | undefined) => {
+  const normalized = value?.trim().toLowerCase() ?? '';
+  return !normalized || normalized.startsWith('unknown') || normalized.startsWith('unmapped');
+};
+
+const derivePortalRefundMissingFields = (refundCase: RefundCaseRecord): RefundMissingField[] => {
+  const missing: RefundMissingField[] = [];
+  if (isMissingRefundLabel(refundCase.machineLabel) && isMissingRefundLabel(refundCase.locationName)) {
+    missing.push('location_or_machine');
+  }
+  const structuredIncidentAt = typeof refundCase.structuredIncidentAt === 'undefined'
+    ? refundCase.incidentAt
+    : refundCase.structuredIncidentAt;
+  const incidentAtIsStructured = Boolean(structuredIncidentAt);
+  if (!incidentAtIsStructured) missing.push('incident_date');
+  if (
+    !incidentAtIsStructured
+    || !['exact', 'legacy_absolute'].includes(refundCase.incidentTimeResolution ?? '')
+  ) {
+    missing.push('incident_time');
+  }
+  if (!['card', 'cash'].includes(refundCase.paymentMethod ?? '')) missing.push('payment_method');
+  if (!Number.isInteger(refundCase.paymentAmountCents) || Number(refundCase.paymentAmountCents) <= 0) {
+    missing.push('amount');
+  }
+  if (
+    refundCase.paymentMethod === 'card' &&
+    !/^\d{4}$/.test(refundCase.cardLast4 ?? '') &&
+    refundCase.cardWalletUsed !== true
+  ) {
+    missing.push('card_last4');
+  }
+  return missing;
+};
+
+const missingFieldCustomerLabel: Record<RefundMissingField, string> = {
+  location_or_machine: 'the machine or Bloomjoy location',
+  incident_date: 'the purchase date',
+  incident_time: 'the approximate purchase time, including AM or PM',
+  payment_method: 'whether payment was by card, Apple Pay, Google Pay, or cash',
+  amount: 'the exact amount charged',
+  card_last4: 'only the last four digits shown on the card charge (not wallet or device-card digits)',
+};
+
+const sanitizePortalMissingFields = (fields: string[]): RefundMissingField[] =>
+  Object.keys(missingFieldCustomerLabel).filter(
+    (field): field is RefundMissingField => fields.includes(field),
+  );
+
 const formatMessageAmount = (refundCase: RefundCaseRecord) =>
   formatCurrency(refundCase.refundAmountCents ?? refundCase.paymentAmountCents);
 
@@ -466,16 +517,16 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
     return 'Review the Gmail message, then ask for the missing location, purchase time, payment method, and transaction details.';
   }
   if (refundCase.status === 'waiting_on_customer') {
-    return 'Waiting on customer details. Send a quick note if the customer needs another nudge.';
+    return 'Waiting on customer details. The bounded follow-up workflow handles the single approved reminder; review the case if delivery fails or it ages.';
   }
 
   if (refundCase.paymentMethod === 'card' && !refundCase.hasMatchedNayaxTransaction) {
     if (candidates.length > 0) {
-      return 'Review the recommended Nayax sale candidate, confirm the right match, then approve or ask for more information.';
+      return 'Review the recommended Nayax sale candidate and confirm the right match. Keep ambiguous evidence in manager review.';
     }
 
     if (refundCase.correlationStatus === 'no_match') {
-      return 'No card-sale match is recorded. Ask the customer for more detail before deciding.';
+      return 'No card-sale match is recorded. Keep the case in manager review; only the bounded automatic workflow may send confirmed no-safe-match copy.';
     }
 
       return 'The card sale check runs when this case opens. Confirm a candidate before completion.';
@@ -491,7 +542,7 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
     return 'This case is complete. Review history only unless a follow-up note is needed.';
   }
 
-  return 'Review the evidence, choose approve/deny or request more information, then save the case.';
+  return 'Review the evidence and choose an available manager action. Customer questions are available only when a specific structured detail is missing.';
 };
 
 const taskLabel = (refundCase: RefundCaseRecord) => {
@@ -680,7 +731,7 @@ const getFallbackNayaxLookupSummary = (
       providerWindowRecordCount: null,
       candidateCount: candidates.length,
       summary: notice.message,
-      recommendedAction: 'Retry the transaction check or ask the customer for more detail.',
+      recommendedAction: 'Retry the transaction check when the provider is healthy. Keep the case in manager review and do not send provider-failure copy to the customer.',
     };
   }
 
@@ -740,7 +791,7 @@ const getFallbackNayaxLookupSummary = (
       providerWindowRecordCount: null,
       candidateCount: 0,
       summary: 'No matching card sale is selected yet.',
-      recommendedAction: 'Ask the customer for one more detail before deciding.',
+      recommendedAction: 'Keep the case in manager review. Only fresh confirmed no-safe-match evidence may authorize the bounded customer message.',
     };
   }
 
@@ -926,7 +977,7 @@ const transactionMatchSummary = (
     }
 
     if (refundCase.correlationStatus === 'no_match') {
-      return 'No matching card sale is selected yet. Ask the customer for one more detail before deciding.';
+      return 'No matching card sale is selected. Keep the case in manager review; only confirmed no-safe-match evidence may authorize customer contact.';
     }
 
     return 'The card sale check uses the reported machine and time window. A manager confirms the match before completion.';
@@ -937,7 +988,7 @@ const transactionMatchSummary = (
   }
 
   if (refundCase.correlationStatus === 'no_match') {
-    return 'No conservative cash sale match was found. Ask the customer for more detail before refunding.';
+    return 'No conservative cash sale match was found. Keep the case in manager review; the bounded workflow owns any confirmed no-safe-match message.';
   }
 
   return 'Cash transaction review is still in progress.';
@@ -978,6 +1029,13 @@ const primaryActionConfig = (
         mode: 'retry_message',
       };
     }
+    if (latestMessage.deliveryKind === 'automatic' || latestMessage.messageType === 'no_safe_match') {
+      return {
+        label: 'Manager review required',
+        helper: 'The automatic customer message did not complete. Review the Gmail thread and case evidence before taking another step; automatic messages are not retried from the portal.',
+        disabled: true,
+      };
+    }
     return {
       label: 'Retry customer email',
       helper: `The last ${statusLabel(latestMessage.messageType)} email failed. Retry it before treating the customer as contacted.`,
@@ -1016,10 +1074,12 @@ const primaryActionConfig = (
 
   const matched = hasTransactionMatch(refundCase, editor);
   const noMatch = refundCase.correlationStatus === 'no_match' || (!matched && candidates.length === 0);
+  const missingFields = derivePortalRefundMissingFields(refundCase);
   const waitingOnCustomer = refundCase.status === 'waiting_on_customer' || editor.status === 'waiting_on_customer';
   const customerAlreadyAsked =
     waitingOnCustomer &&
-    latestMessage?.messageType === 'more_info' &&
+    latestMessage &&
+    ['more_info', 'no_safe_match'].includes(latestMessage.messageType) &&
     ['sent', 'pending'].includes(latestMessage.status);
 
   if (customerAlreadyAsked) {
@@ -1031,9 +1091,17 @@ const primaryActionConfig = (
   }
 
   if (waitingOnCustomer || noMatch) {
+    const canAskForExactMissingFields = missingFields.length > 0;
+    if (!canAskForExactMissingFields) {
+      return {
+        label: 'Manager review required',
+        helper: 'No structured purchase detail is missing. A no-safe-match message may be sent only by the bounded automatic workflow after fresh server evidence.',
+        disabled: true,
+      };
+    }
     return {
-      label: 'Ask customer for details',
-      helper: 'Move this case to customer follow-up and send the friendly detail-request email in one step.',
+      label: 'Ask for missing details',
+      helper: 'Ask only for the specific structured details that are absent from this case.',
       targetStatus: 'waiting_on_customer',
       targetDecision: null,
       messageType: 'more_info',
@@ -1134,14 +1202,18 @@ const getCustomerMessageDraft = (
     editor?.decisionReason.trim() ||
     refundCase.decisionReason ||
     'If any of the details were submitted incorrectly, please reply and we will take another careful look.';
+  const missingFields = derivePortalRefundMissingFields(refundCase);
+  const missingFieldList = missingFields.map((field) => `- ${missingFieldCustomerLabel[field]}`);
   switch (messageType) {
     case 'more_info':
       return {
         subject: `A quick detail check for your Bloomjoy refund request ${refundCase.publicReference}`,
         body: [
-          'Thank you again for reaching out. We want to review this carefully, and we need one more detail before we can confidently match the request to a machine transaction.',
-          'Please reply with anything that may help, such as the exact purchase time, amount paid, card last 4 shown on the charge, or a photo of the machine/payment screen.',
-          'Once we have that, our team will continue the review. Our target is to complete refund reviews within 5 business days.',
+          'Thank you again for reaching out. We are sorry this needs another step, and we want to make sure we review the right transaction.',
+          missingFieldList.length > 0
+            ? ['Please reply with only the missing details below:', '', ...missingFieldList].join('\n')
+            : 'No specific missing detail is available to request. Please return to manager review before contacting the customer.',
+          'Please do not send a full card number, security code, expiration date, PIN, password, wallet digits, or payment-screen screenshot. Once we receive the requested details, we will continue the review and keep ownership of the next step.',
         ].join('\n\n'),
       };
     case 'approved':
@@ -1442,6 +1514,9 @@ export default function AdminRefundsPage() {
   const [isRejectingTriage, setIsRejectingTriage] = useState(false);
   const [triageRejectReason, setTriageRejectReason] = useState('wrong_missing_fields');
   const [triageRejectNote, setTriageRejectNote] = useState('');
+  const [isGmailRecoveryOpen, setIsGmailRecoveryOpen] = useState(false);
+  const [gmailRecoveryVerified, setGmailRecoveryVerified] = useState(false);
+  const [isRecoveringGmailContact, setIsRecoveringGmailContact] = useState(false);
   const forceDemoData = isLocalUatDemoForced();
   const showLegacyCashWorkbench =
     import.meta.env.DEV &&
@@ -1648,6 +1723,40 @@ export default function AdminRefundsPage() {
     setMessageBody(suggestion.draftBody);
     setAppliedTriageSuggestionId(suggestion.id);
   }, [appliedTriageSuggestionId, gmailContext?.triageSuggestion]);
+
+  const handleRecoverGmailCustomerContact = async () => {
+    if (!selectedCase || !gmailRecoveryVerified || isRecoveringGmailContact) return;
+    if (isUsingDemoData) {
+      toast.info('Demo cases are read-only. Use a seeded local case to test Gmail recovery.');
+      return;
+    }
+
+    setIsRecoveringGmailContact(true);
+    try {
+      const recovery = await recoverRefundGmailCustomerContact(
+        selectedCase.id,
+        selectedCase.customerEmail
+      );
+      setIsGmailRecoveryOpen(false);
+      setGmailRecoveryVerified(false);
+      if (recovery.recovered) {
+        toast.success(
+          `Automatic customer email resumed across ${recovery.clearedThreadCount} linked ${recovery.clearedThreadCount === 1 ? 'thread' : 'threads'}.`
+        );
+      } else {
+        toast.info('Automatic customer email was already active.');
+      }
+      await refresh();
+    } catch (recoveryError) {
+      toast.error(
+        recoveryError instanceof Error
+          ? recoveryError.message
+          : 'Unable to resume automatic customer email.'
+      );
+    } finally {
+      setIsRecoveringGmailContact(false);
+    }
+  };
   const primaryAction = useMemo(
     () => (selectedCase && editor ? primaryActionConfig(selectedCase, editor, nayaxCandidates) : null),
     [editor, nayaxCandidates, selectedCase]
@@ -1698,6 +1807,8 @@ export default function AdminRefundsPage() {
     setIsTriageRejectOpen(false);
     setTriageRejectReason('wrong_missing_fields');
     setTriageRejectNote('');
+    setIsGmailRecoveryOpen(false);
+    setGmailRecoveryVerified(false);
 
   };
 
@@ -1758,6 +1869,9 @@ export default function AdminRefundsPage() {
         matchedNayaxCurrencyCode: nextEditor.matchedNayaxCurrencyCode.trim().toUpperCase() || null,
         nayaxDisagreementReason: nextEditor.nayaxDisagreementReason || null,
         customerMessageType,
+        customerMissingFields: customerMessageType === 'more_info'
+          ? derivePortalRefundMissingFields(selectedCase)
+          : [],
       });
       if (result.customerMessage?.status === 'failed') {
         toast.error('Case updated, but the customer email failed. Retry before treating the customer as contacted.');
@@ -2034,7 +2148,7 @@ export default function AdminRefundsPage() {
           result.recommendedAction ||
           ((result.candidates?.length ?? 0) > 0
             ? 'Confirm the correct card sale before completing the case.'
-            : 'Ask the customer for one more detail before deciding this card case.'),
+            : 'Keep the case in manager review until fresh server evidence authorizes the next step.'),
         recommendationState: result.recommendationState,
         confidenceClass: result.confidenceClass,
         reasonCodes: result.reasonCodes,
@@ -2059,10 +2173,10 @@ export default function AdminRefundsPage() {
         const providerWindowRecordCount = result.providerWindowRecordCount ?? 0;
         const noMatchMessage =
           providerWindowRecordCount > 0
-            ? `Nayax returned ${providerWindowRecordCount} sale records in the +/- 6 hour window, but none produced selectable evidence. Ask the customer for one more detail before deciding.`
+            ? `Nayax returned ${providerWindowRecordCount} sale records in the +/- 6 hour window, but none produced selectable evidence. Keep the case in manager review until fresh server evidence authorizes the next step.`
             : providerRecordCount > 0
-              ? `Nayax returned ${providerRecordCount} recent sale records, but none matched the +/- 6 hour window. Ask the customer for one more detail before deciding.`
-              : 'No Nayax candidates returned for the +/- 6 hour window. Use the customer message section to request more detail.';
+              ? `Nayax returned ${providerRecordCount} recent sale records, but none matched the +/- 6 hour window. Keep the case in manager review until fresh server evidence authorizes the next step.`
+              : 'No Nayax candidates returned for the +/- 6 hour window. Keep the case in manager review; provider state alone cannot authorize customer contact.';
         setNayaxLookupNotice({
           tone: 'info',
           message: result.summary || noMatchMessage,
@@ -2090,12 +2204,12 @@ export default function AdminRefundsPage() {
         windowHours: 6,
         providerWindowRecordCount: null,
         candidateCount: 0,
-        summary: `${message} Keep the case in review or ask the customer for more detail, then try again.`,
-        recommendedAction: 'Retry the transaction check or ask the customer for more detail.',
+        summary: `${message} Keep the case in manager review and retry the transaction check only after the provider path is healthy.`,
+        recommendedAction: 'Do not send correction or success copy based on a provider failure.',
       });
       setNayaxLookupNotice({
         tone: 'error',
-        message: `${message} Keep the case in review or ask the customer for more detail, then try again.`,
+        message: `${message} Keep the case in manager review and retry the transaction check only after the provider path is healthy.`,
       });
       if (!silent) {
         toast.error(message);
@@ -2195,20 +2309,20 @@ export default function AdminRefundsPage() {
       .reverse()
       .find((message) => message.direction === 'inbound' && message.kind === 'message');
     const triageSuggestion = gmailContext?.triageSuggestion ?? null;
-    const triageDraftReady =
+    const triageDraftCandidate =
       triageSuggestion?.status === 'ready_for_review' &&
       triageSuggestion.route === 'draft_reply' &&
       !triageSuggestion.contentDeleted;
+    const triageDraftReady = triageDraftCandidate && triageSuggestion.missingFields.length > 0;
     const triageNeedsHuman =
-      triageSuggestion?.route === 'human_review' &&
-      ['human_review', 'ready_for_review'].includes(triageSuggestion.status);
+      (
+        triageSuggestion?.route === 'human_review' &&
+        ['human_review', 'ready_for_review'].includes(triageSuggestion.status)
+      ) || (triageDraftCandidate && triageSuggestion.missingFields.length === 0);
     const missingDetails = triageDraftReady
       ? triageSuggestion.missingFields.map((field) => gptMissingFieldLabels[field] ?? statusLabel(field))
-      : [
-          'Machine location',
-          'Purchase date and time',
-          'Payment method, amount, and card last 4 if applicable',
-        ];
+      : derivePortalRefundMissingFields(selectedCase).map((field) => missingFieldCustomerLabel[field]);
+    const draftFollowUpType: RefundCustomerPortalMessageType = 'more_info';
 
     return (
       <div data-testid="refund-gmail-draft-workbench" className="space-y-4">
@@ -2234,12 +2348,12 @@ export default function AdminRefundsPage() {
                     : 'This request is safely linked to its Gmail conversation, but it is not ready for transaction matching or a refund decision yet.'}
               </p>
             </div>
-            {!triageNeedsHuman && !triageDraftReady && (
+            {!triageNeedsHuman && !triageDraftReady && missingDetails.length > 0 && (
               <Button
                 type="button"
                 data-testid="refund-gmail-ask-for-details"
                 data-dominant-action="true"
-                onClick={() => void handleSendCustomerMessage('more_info')}
+                onClick={() => void handleSendCustomerMessage(draftFollowUpType)}
                 disabled={isSendingCustomerMessage || isUsingDemoData || customerDeliveryNeedsReconciliation}
                 className="min-h-11 shrink-0 bg-white text-slate-950 hover:bg-slate-100"
               >
@@ -2485,6 +2599,11 @@ export default function AdminRefundsPage() {
         subject: subject.trim(),
         body: body.trim(),
         triageSuggestionId: usesReviewedTriageDraft ? triageSuggestion?.id : undefined,
+        missingFields: nextMessageType === 'more_info'
+          ? usesReviewedTriageDraft
+            ? sanitizePortalMissingFields(triageSuggestion?.missingFields ?? [])
+            : derivePortalRefundMissingFields(selectedCase)
+          : [],
       });
       toast.success(
         sentMessage.transport === 'gmail_thread'
@@ -2738,8 +2857,10 @@ export default function AdminRefundsPage() {
       !primaryAction ||
       primaryAction.disabled === true ||
       primaryActionIssues.length > 0;
+    const canAskForCustomerDetails = derivePortalRefundMissingFields(selectedCase).length > 0;
 
     const chooseCustomerFollowUp = () => {
+      if (!canAskForCustomerDetails) return;
       setEditor((current) =>
         current
           ? {
@@ -3000,7 +3121,7 @@ export default function AdminRefundsPage() {
             <details className="text-sm sm:text-right">
               <summary className="cursor-pointer font-medium text-muted-foreground">Other decisions</summary>
               <div className="mt-3 flex flex-wrap gap-2 sm:justify-end">
-                {primaryAction?.label !== 'Ask customer for details' && (
+                {canAskForCustomerDetails && primaryAction?.messageType !== 'more_info' && (
                   <Button type="button" size="sm" variant="outline" disabled={isUsingDemoData} onClick={chooseCustomerFollowUp}>
                     Ask customer for details
                   </Button>
@@ -3120,8 +3241,10 @@ export default function AdminRefundsPage() {
       primaryAction.disabled === true ||
       primaryActionIssues.length > 0;
     const cashMatchReady = selectedCase.hasMatchedSalesFact && selectedCase.correlationStatus === 'matched';
+    const canAskForCustomerDetails = derivePortalRefundMissingFields(selectedCase).length > 0;
 
     const chooseCustomerFollowUp = () => {
+      if (!canAskForCustomerDetails) return;
       setEditor((current) =>
         current
           ? {
@@ -3269,7 +3392,9 @@ export default function AdminRefundsPage() {
                 {selectedCase.correlationSummary ||
                   (cashMatchReady
                     ? 'A conservative cash sale match is linked to this request.'
-                    : 'Ask the customer for the missing purchase details before approving a payout.')}
+                    : canAskForCustomerDetails
+                      ? 'Ask only for the specific structured purchase details that are still missing.'
+                      : 'No structured purchase detail is missing. Keep the case in manager review until the next safe action is confirmed.')}
               </p>
               <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3 text-sm">
                 <p className="text-xs text-slate-400">Manual payment destination</p>
@@ -3450,7 +3575,7 @@ export default function AdminRefundsPage() {
                     Approve refund
                   </Button>
                 )}
-                {primaryAction?.messageType !== 'more_info' && (
+                {canAskForCustomerDetails && primaryAction?.messageType !== 'more_info' && (
                   <Button type="button" variant="outline" size="sm" onClick={chooseCustomerFollowUp} disabled={isUsingDemoData}>
                     Ask customer for details
                   </Button>
@@ -4251,7 +4376,8 @@ export default function AdminRefundsPage() {
                           </p>
                           <p className="mt-1 text-sm text-muted-foreground">{primaryAction.helper}</p>
                           <div className="mt-3 flex flex-wrap gap-2">
-                            {primaryAction.label !== 'Ask customer for details' && (
+                            {derivePortalRefundMissingFields(selectedCase).length > 0
+                              && primaryAction.messageType !== 'more_info' && (
                               <Button
                                 type="button"
                                 variant="outline"
@@ -4642,6 +4768,31 @@ export default function AdminRefundsPage() {
                           Gmail conversation ({gmailContext?.messages.length ?? 0})
                         </summary>
                         <div className="mt-3 space-y-3">
+                          {gmailContext?.automaticCustomerContactPaused && (
+                            <div
+                              data-testid="refund-gmail-contact-paused"
+                              className="rounded-lg border border-orange-300 bg-orange-50 p-3 text-sm text-orange-950"
+                            >
+                              <p className="font-semibold">Automatic customer email is paused</p>
+                              <p className="mt-1">
+                                Gmail reported a hard delivery failure. This pause protects every Gmail conversation linked to the case, including newer threads.
+                              </p>
+                              <p className="mt-1">
+                                Verify the customer address and original conversation before resuming automation. A manual response remains available for deliberate recovery.
+                              </p>
+                              <Button
+                                data-testid="refund-gmail-open-recovery"
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="mt-3 border-orange-400 bg-white text-orange-950 hover:bg-orange-100"
+                                disabled={isUsingDemoData || isRecoveringGmailContact}
+                                onClick={() => setIsGmailRecoveryOpen(true)}
+                              >
+                                Review and resume automatic email
+                              </Button>
+                            </div>
+                          )}
                           {gmailContextIsLoading && (
                             <p className="text-sm text-muted-foreground">Loading the linked conversation…</p>
                           )}
@@ -4667,8 +4818,18 @@ export default function AdminRefundsPage() {
                             >
                               <div className="flex flex-wrap items-center gap-2">
                                 <Badge variant="outline" className="capitalize">
-                                  {message.kind === 'bounce' ? 'Delivery notice' : message.direction}
+                                  {message.kind === 'bounce' ? 'Delivery notice' : message.senderLabel}
                                 </Badge>
+                                {message.participantRole === 'unknown' && (
+                                  <Badge variant="outline" className="border-orange-200 bg-orange-50 text-orange-900">
+                                    Not customer evidence
+                                  </Badge>
+                                )}
+                                {message.participantRole === 'assigned_manager' && (
+                                  <Badge variant="outline" className="border-violet-200 bg-violet-50 text-violet-900">
+                                    Manager correspondence
+                                  </Badge>
+                                )}
                                 <span className="text-xs text-muted-foreground">
                                   {formatDate(message.sentAt ?? message.receivedAt)}
                                 </span>
@@ -4679,6 +4840,12 @@ export default function AdminRefundsPage() {
                                 )}
                               </div>
                               <p className="mt-2 break-words text-sm font-medium text-foreground">{message.subject}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {message.recipientSummary}
+                                {message.direction === 'outbound' && message.managerCcCount > 0
+                                  ? ` · ${message.managerCcCount} current mapped manager${message.managerCcCount === 1 ? '' : 's'} copied`
+                                  : ''}
+                              </p>
                               <p className="mt-2 whitespace-pre-line break-words text-sm leading-6 text-muted-foreground">
                                 {message.body}
                               </p>
@@ -4745,7 +4912,29 @@ export default function AdminRefundsPage() {
                                   <Badge className={cn('capitalize', messageStatusBadgeClass(message.status))}>
                                     {message.status}
                                   </Badge>
+                                  {message.deliveryKind && (
+                                    <Badge variant="secondary" className="capitalize">
+                                      {message.deliveryKind === 'automatic' ? 'Automatic' : 'Manager sent'}
+                                    </Badge>
+                                  )}
                                 </div>
+                                {(message.reasonCode || message.templateVersion || (message.requestedFields?.length ?? 0) > 0) && (
+                                  <div className="mt-2 rounded-md border border-sky-200 bg-sky-50 p-2 text-xs leading-5 text-sky-950">
+                                    <p className="font-medium">
+                                      {message.reasonCode === 'missing_information'
+                                        ? 'Reason: exact purchase details were missing'
+                                        : message.reasonCode === 'no_safe_match'
+                                          ? 'Reason: no single safe transaction match was found'
+                                          : 'Customer communication evidence'}
+                                    </p>
+                                    {message.requestedFields && message.requestedFields.length > 0 && (
+                                      <p>
+                                        Requested: {message.requestedFields.map((field) => missingFieldCustomerLabel[field]).join('; ')}
+                                      </p>
+                                    )}
+                                    {message.templateVersion && <p>Template: {message.templateVersion}</p>}
+                                  </div>
+                                )}
                                 <p className="mt-2 break-words text-sm font-medium text-foreground">
                                   {message.subject}
                                 </p>
@@ -4804,6 +4993,53 @@ export default function AdminRefundsPage() {
             >
               {isResolvingGmailDelivery && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               I checked; no message was sent
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={isGmailRecoveryOpen}
+        onOpenChange={(open) => {
+          if (isRecoveringGmailContact) return;
+          setIsGmailRecoveryOpen(open);
+          if (!open) setGmailRecoveryVerified(false);
+        }}
+      >
+        <AlertDialogContent data-testid="refund-gmail-recovery-dialog" className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Resume automatic customer email?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the hard-bounce pause from every Gmail conversation linked to this refund case. The action is recorded in the case history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950">
+            <p className="font-medium">Verify before continuing</p>
+            <p className="mt-1">
+              Confirm that {selectedCase?.customerEmail ?? 'the customer address'} is correct and that the original Gmail delivery problem has been reviewed.
+            </p>
+            <label className="mt-3 flex cursor-pointer items-start gap-2">
+              <Checkbox
+                data-testid="refund-gmail-recovery-verified"
+                checked={gmailRecoveryVerified}
+                onCheckedChange={(checked) => setGmailRecoveryVerified(checked === true)}
+                disabled={isRecoveringGmailContact}
+              />
+              <span>I verified the customer address and reviewed the delivery failure.</span>
+            </label>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isRecoveringGmailContact}>Keep paused</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="refund-gmail-confirm-recovery"
+              disabled={!gmailRecoveryVerified || isRecoveringGmailContact}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleRecoverGmailCustomerContact();
+              }}
+            >
+              {isRecoveringGmailContact && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Resume all linked threads
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

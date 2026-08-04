@@ -8,6 +8,11 @@ import {
   sendRefundCustomerEmail,
   type RefundCustomerMessageType,
 } from "../_shared/refund-email.ts";
+import {
+  deriveRefundMissingFields,
+  sanitizeRefundMissingFields,
+  type RefundMissingField,
+} from "../_shared/refund-deterministic-follow-up.ts";
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import {
@@ -62,8 +67,12 @@ type RefundCaseRow = {
   payment_method: string | null;
   refund_amount_cents: number | null;
   payment_amount_cents: number | null;
+  card_wallet_used: boolean;
+  card_last4: string | null;
   reporting_machine_id: string;
   reporting_location_id: string;
+  incident_at: string | null;
+  incident_time_resolution: string | null;
   reporting_machines?: {
     machine_label: string | null;
     refund_public_display_label: string | null;
@@ -101,8 +110,12 @@ const selectCaseQuery = `
   payment_method,
   refund_amount_cents,
   payment_amount_cents,
+  card_wallet_used,
+  card_last4,
   reporting_machine_id,
   reporting_location_id,
+  incident_at,
+  incident_time_resolution,
   reporting_machines(machine_label, refund_public_display_label),
   reporting_locations(name)
 `;
@@ -127,6 +140,9 @@ const getRefundCase = async (caseId: string): Promise<RefundCaseRow | null> => {
   if (error) throw error;
   return data as RefundCaseRow | null;
 };
+
+const sameMissingFields = (left: RefundMissingField[], right: RefundMissingField[]) =>
+  left.length === right.length && left.every((field, index) => field === right[index]);
 
 const getNayaxLookupCandidate = async (
   caseId: string,
@@ -169,10 +185,6 @@ const resolveMessageType = (
   beforeRow: RefundCaseRow,
   afterRow: RefundCaseRow,
 ): RefundCustomerMessageType | null => {
-  if (afterRow.status === "waiting_on_customer" && beforeRow.status !== "waiting_on_customer") {
-    return "more_info";
-  }
-
   if (afterRow.status === "denied" && beforeRow.status !== "denied") {
     return "denied";
   }
@@ -200,12 +212,16 @@ const syncAutomationState = async (
 
   const nextAutomationState = {
     more_info: "more_info_needed",
+    no_safe_match: "more_info_needed",
+    information_received: "under_review",
     reminder: "more_info_needed",
     approved: "approved",
     denied: "denied",
     completed: "completed",
     confirmation: "submitted",
     status_update: "under_review",
+    wallet_correction: "more_info_needed",
+    wallet_correction_reminder: "more_info_needed",
   }[messageType];
 
   const { error } = await supabase
@@ -214,9 +230,7 @@ const syncAutomationState = async (
       automation_state: nextAutomationState,
       customer_last_contacted_at: new Date().toISOString(),
       last_customer_message_type: messageType,
-      automation_follow_up_due_at: messageType === "more_info"
-        ? new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString()
-        : null,
+      automation_follow_up_due_at: null,
     })
     .eq("id", refundCaseId);
 
@@ -228,11 +242,13 @@ const logCustomerMessage = async ({
   messageType,
   status,
   errorMessage,
+  missingFields,
 }: {
   refundCase: RefundCaseRow;
   messageType: RefundCustomerMessageType;
   status: "pending" | "sent" | "failed" | "skipped";
   errorMessage?: string | null;
+  missingFields: RefundMissingField[];
 }) => {
   if (!supabase) return null;
 
@@ -252,6 +268,8 @@ const logCustomerMessage = async ({
     refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
     paymentMethod: refundCase.payment_method,
     decisionReason: refundCase.decision_reason,
+    missingFields,
+    cardWalletUsed: refundCase.card_wallet_used,
   });
 
   const { data, error } = await supabase
@@ -266,6 +284,11 @@ const logCustomerMessage = async ({
       template_key: `refund_${messageType}_v1`,
       sent_at: status === "sent" ? new Date().toISOString() : null,
       error_message: errorMessage ?? null,
+      content_source: "manager_authored",
+      delivery_kind: "manual",
+      reason_code: messageType === "more_info" ? "missing_information" : null,
+      template_version: null,
+      requested_fields: messageType === "more_info" ? missingFields : [],
     })
     .select("id")
     .single();
@@ -277,6 +300,7 @@ const logCustomerMessage = async ({
 const sendAndLogCustomerMessage = async (
   refundCase: RefundCaseRow,
   messageType: RefundCustomerMessageType,
+  missingFields: RefundMissingField[],
 ) => {
   if (!supabase) return { type: messageType, status: "failed" };
 
@@ -286,6 +310,7 @@ const sendAndLogCustomerMessage = async (
       messageType,
       status: "skipped",
       errorMessage: "missing_customer_email",
+      missingFields,
     });
     return { type: messageType, status: "skipped" };
   }
@@ -309,6 +334,7 @@ const sendAndLogCustomerMessage = async (
     refundCase,
     messageType,
     status: "pending",
+    missingFields,
   });
 
   try {
@@ -322,19 +348,29 @@ const sendAndLogCustomerMessage = async (
       refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
       paymentMethod: refundCase.payment_method,
       decisionReason: refundCase.decision_reason,
+      missingFields,
+      cardWalletUsed: refundCase.card_wallet_used,
     };
     const email = buildRefundCustomerEmail(emailInput);
-    const gmailDelivery = messageId
-      ? await dispatchRefundCaseGmailReply({
-        supabase,
-        refundCaseId: refundCase.id,
-        refundCaseMessageId: messageId,
-        recipientEmail: refundCase.customer_email,
-        email,
-      })
-      : { usedGmail: false as const };
+    if (!messageId) {
+      throw new RefundGmailError(
+        "customer_message_record_required",
+        "Customer delivery requires a tracked refund message.",
+      );
+    }
+    const gmailDelivery = await dispatchRefundCaseGmailReply({
+      supabase,
+      refundCaseId: refundCase.id,
+      refundCaseMessageId: messageId,
+      recipientEmail: refundCase.customer_email,
+      email,
+      deliveryKind: "manual",
+    });
     if (!gmailDelivery.usedGmail) {
-      await sendRefundCustomerEmail(emailInput);
+      await sendRefundCustomerEmail({
+        ...emailInput,
+        managerCcEmails: gmailDelivery.managerCcEmails,
+      });
     }
 
     if (messageId) {
@@ -356,11 +392,13 @@ const sendAndLogCustomerMessage = async (
       event_type: "customer_message_sent",
       message: gmailDelivery.usedGmail
         ? `Manager-approved ${messageType.replaceAll("_", " ")} reply sent in the linked Gmail thread.`
-        : `Automated ${messageType.replaceAll("_", " ")} email sent.`,
+        : `Manager-approved ${messageType.replaceAll("_", " ")} email sent.`,
       metadata: {
         message_type: messageType,
         message_id: messageId,
         transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
+        manager_cc_count: gmailDelivery.managerCcCount,
+        recipient_resolution_status: gmailDelivery.recipientResolutionStatus,
         payload_redacted: true,
       },
     });
@@ -502,8 +540,35 @@ serve(async (req) => {
 
     const requestedStatus = sanitizeText(body?.status, 80) || null;
     const requestedMessageType = sanitizeRefundMessageType(body?.customerMessageType);
+    const suppliedCustomerMissingFields = sanitizeRefundMissingFields(body?.customerMissingFields);
+    let customerMissingFields: RefundMissingField[] = [];
     if (requestedMessageType && !managerActionMessageTypes.has(requestedMessageType)) {
       return jsonResponse({ error: "Choose an approved customer message type for this action." }, 400);
+    }
+    if (requestedMessageType !== "more_info" && suppliedCustomerMissingFields.length > 0) {
+      return jsonResponse({ error: "Missing-detail fields apply only to the missing-information template." }, 400);
+    }
+    if (requestedMessageType === "more_info") {
+      const derived = deriveRefundMissingFields({
+        reportingMachineId: beforeRow.reporting_machine_id,
+        reportingLocationId: beforeRow.reporting_location_id,
+        incidentAt: beforeRow.incident_at,
+        incidentTimeResolution: beforeRow.incident_time_resolution,
+        paymentMethod: beforeRow.payment_method,
+        paymentAmountCents: beforeRow.payment_amount_cents,
+        cardLast4: beforeRow.card_last4,
+        cardWalletUsed: beforeRow.card_wallet_used,
+      });
+      if (derived.requiresSecureWalletCorrection) {
+        return jsonResponse({ error: "Use the secure mobile-wallet correction link instead of requesting wallet information by email." }, 409);
+      }
+      if (derived.missingFields.length === 0) {
+        return jsonResponse({ error: "This case has no structured purchase detail to request. Return it to manager review." }, 409);
+      }
+      if (!sameMissingFields(suppliedCustomerMissingFields, derived.missingFields)) {
+        return jsonResponse({ error: "The case facts changed. Refresh before asking for the exact missing purchase details." }, 409);
+      }
+      customerMissingFields = derived.missingFields;
     }
 
     const isCashCompletion = beforeRow.payment_method === "cash" && requestedStatus === "completed";
@@ -626,7 +691,7 @@ serve(async (req) => {
       ? requestedMessageType ?? resolveMessageType(beforeRow, afterRow)
       : null;
     const customerMessage = messageType
-      ? await sendAndLogCustomerMessage(afterRow, messageType)
+      ? await sendAndLogCustomerMessage(afterRow, messageType, customerMissingFields)
       : null;
 
     return jsonResponse({

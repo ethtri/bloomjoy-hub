@@ -73,9 +73,9 @@ Deno.test("active and isolated modes require explicit bounded gates", () => {
     REFUND_GMAIL_LEGACY_RESPONDER_DISABLED: "true",
     REFUND_GMAIL_FIRST_CONTACT_CUTOVER_APPROVED: "true",
   });
-  assertEquals(active.mode, "blocked");
-  assertEquals(active.shouldSend, false);
-  assertEquals(active.errorCode, "first_contact_active_dependencies_pending");
+  assertEquals(active.mode, "active");
+  assertEquals(active.shouldSend, true);
+  assertEquals(active.errorCode, null);
 
   const isolated = resolveRefundFirstContactConfig({
     REFUND_GMAIL_FIRST_CONTACT_MODE: "isolated_test",
@@ -204,7 +204,7 @@ Deno.test("automatic Gmail replies carry loop-suppression headers", () => {
       (char) => char.charCodeAt(0),
     ),
   );
-  assertMatch(decoded, /Auto-Submitted: auto-replied/);
+  assertMatch(decoded, /Auto-Submitted: auto-generated/);
   assertMatch(decoded, /X-Auto-Response-Suppress: All/);
 });
 

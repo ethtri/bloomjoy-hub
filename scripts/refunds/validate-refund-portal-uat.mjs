@@ -110,6 +110,7 @@ const buildMockRefundOverview = () => ({
       zellePaymentContact: null,
       issueSummary: 'Machine spun but product did not dispense correctly.',
       incidentAt: isoHoursAgo(5),
+      incidentTimeResolution: 'exact',
       paymentMethod: 'card',
       paymentAmountCents: 700,
       cardLast4: '4242',
@@ -206,6 +207,7 @@ const buildMockRefundOverview = () => ({
       zellePaymentContact: 'customer-waiting@example.test',
       issueSummary: 'Paid cash and the machine did not start.',
       incidentAt: isoHoursAgo(12),
+      incidentTimeResolution: 'exact',
       paymentMethod: 'cash',
       paymentAmountCents: 500,
       cardLast4: null,
@@ -282,6 +284,7 @@ const buildMockGmailDraftCases = () => ([
     zellePaymentContact: null,
     issueSummary: 'My card was charged and ends in 4242. Please help.',
     incidentAt: isoHoursAgo(1),
+    incidentTimeResolution: 'exact',
     paymentMethod: 'unknown',
     paymentAmountCents: null,
     cardLast4: '4242',
@@ -315,14 +318,22 @@ const buildMockGmailContext = () => ({
   connected: true,
   subject: 'Refund help',
   latestMessageAt: isoHoursAgo(0.5),
+  automaticCustomerContactPaused: true,
+  automaticCustomerContactPauseReason: 'hard_bounce',
+  automaticCustomerContactPausedAt: isoHoursAgo(0.25),
+  pausedThreadCount: 2,
   messages: [
     {
       id: 'gmail-message-inbound-1',
       direction: 'inbound',
       kind: 'message',
       status: 'received',
-      senderEmail: 'customer-gmail@example.test',
-      recipientEmail: 'support@example.test',
+      participantRole: 'customer',
+      participantTrust: 'verified',
+      senderLabel: 'Customer',
+      recipientSummary: 'Bloomjoy support',
+      managerCcCount: 0,
+      recipientResolutionStatus: null,
       subject: 'Refund help',
       body: 'My card was charged and ends in 4242. Please help.',
       receivedAt: isoHoursAgo(1),
@@ -345,11 +356,91 @@ const buildMockGmailContext = () => ({
       direction: 'inbound',
       kind: 'message',
       status: 'received',
-      senderEmail: 'customer-gmail@example.test',
-      recipientEmail: 'support@example.test',
+      participantRole: 'customer',
+      participantTrust: 'verified',
+      senderLabel: 'Customer',
+      recipientSummary: 'Bloomjoy support',
+      managerCcCount: 0,
+      recipientResolutionStatus: null,
       subject: 'Re: Refund help',
       body: 'Following up with the last four only: 4242.',
       receivedAt: isoHoursAgo(0.5),
+      sentAt: null,
+      sensitiveDataRedacted: false,
+      contentDeleted: false,
+      attachments: [],
+    },
+    {
+      id: 'gmail-message-manager-1',
+      direction: 'system',
+      kind: 'message',
+      status: 'received',
+      participantRole: 'assigned_manager',
+      participantTrust: 'verified',
+      senderLabel: 'Machine Manager',
+      recipientSummary: 'Bloomjoy support',
+      managerCcCount: 0,
+      recipientResolutionStatus: null,
+      subject: 'Re: Refund help',
+      body: 'I will review the machine record.',
+      receivedAt: isoHoursAgo(0.4),
+      sentAt: null,
+      sensitiveDataRedacted: false,
+      contentDeleted: false,
+      attachments: [],
+    },
+    {
+      id: 'gmail-message-unknown-1',
+      direction: 'system',
+      kind: 'message',
+      status: 'received',
+      participantRole: 'unknown',
+      participantTrust: 'forwarded',
+      senderLabel: 'Unverified participant',
+      recipientSummary: 'Bloomjoy support',
+      managerCcCount: 0,
+      recipientResolutionStatus: null,
+      subject: 'Fwd: Refund help',
+      body: 'Forwarded context retained for manager review only.',
+      receivedAt: isoHoursAgo(0.3),
+      sentAt: null,
+      sensitiveDataRedacted: false,
+      contentDeleted: false,
+      attachments: [],
+    },
+    {
+      id: 'gmail-message-outbound-1',
+      direction: 'outbound',
+      kind: 'message',
+      status: 'sent',
+      participantRole: 'mailbox',
+      participantTrust: 'verified',
+      senderLabel: 'Bloomjoy support',
+      recipientSummary: 'Customer + 2 mapped Machine Managers',
+      managerCcCount: 2,
+      recipientResolutionStatus: 'resolved',
+      subject: 'Re: Refund help',
+      body: 'Thank you for your patience. We are sorry for the trouble and are reviewing this carefully.',
+      receivedAt: isoHoursAgo(0.2),
+      sentAt: isoHoursAgo(0.2),
+      sensitiveDataRedacted: false,
+      contentDeleted: false,
+      attachments: [],
+    },
+    {
+      id: 'gmail-message-bounce-1',
+      direction: 'system',
+      kind: 'bounce',
+      status: 'received',
+      participantRole: 'automated_system',
+      participantTrust: 'automated',
+      senderLabel: 'Automated delivery system',
+      recipientSummary: 'Bloomjoy support',
+      managerCcCount: 0,
+      recipientResolutionStatus: null,
+      subject: 'Delivery Status Notification (Failure)',
+      body: 'Delivery failed. Review the customer address before another automatic message.',
+      receivedAt: isoHoursAgo(0.1),
       sentAt: null,
       sensitiveDataRedacted: false,
       contentDeleted: false,
@@ -477,6 +568,7 @@ const buildCashRefundReviewOverview = () => ({
       zellePaymentContact: 'synthetic-zelle-contact',
       issueSummary: 'Customer paid cash and the machine stopped before dispensing.',
       incidentAt: isoHoursAgo(3),
+      incidentTimeResolution: 'exact',
       paymentMethod: 'cash',
       paymentAmountCents: 800,
       cardLast4: null,
@@ -556,6 +648,7 @@ const buildPendingNayaxRefundOverview = () => ({
       zellePaymentContact: null,
       issueSummary: 'Card was charged but cotton candy was not dispensed.',
       incidentAt: isoHoursAgo(3),
+      incidentTimeResolution: 'exact',
       qrClaimOpenedAt: isoHoursAgo(2.9),
       paymentMethod: 'card',
       paymentAmountCents: 700,
@@ -886,6 +979,10 @@ const installMockSupabaseRoutes = async (
 
     if (url.includes('/admin_get_refund_gmail_case_context')) {
       return route.fulfill(jsonResponse(gmailContext ?? { connected: false, messages: [] }));
+    }
+
+    if (url.includes('/admin_recover_refund_gmail_customer_contact')) {
+      return route.fulfill(jsonResponse({ recovered: true, status: 'recovered', clearedThreadCount: 2 }));
     }
 
     if (url.includes('/admin_get_refund_gpt_triage')) {
@@ -1363,8 +1460,10 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   });
   const functionCalls = [];
   const functionBodies = [];
+  const rpcCalls = [];
   await installMockSupabaseRoutes(context, {
     refundOverview: buildEmptyRefundOverview,
+    rpcCalls,
     functionCalls,
     functionBodies,
     gmailDraftCases: buildMockGmailDraftCases(),
@@ -1444,6 +1543,41 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       await page.getByTestId('refund-gmail-thread').getByText('held for security review').isVisible() &&
       (await page.getByTestId('refund-gmail-thread').locator('a').count()) === 0
   );
+  recorder.assert(
+    'Participant-safe Gmail view labels managers and unverified senders without raw addresses',
+    await page.getByTestId('refund-gmail-thread').getByText('Manager correspondence').isVisible() &&
+      await page.getByTestId('refund-gmail-thread').getByText('Not customer evidence').isVisible() &&
+      (await page.getByTestId('refund-gmail-thread').getByText(/@example\.test/).count()) === 0
+  );
+  recorder.assert(
+    'Mapped-manager CC is summarized without exposing recipient addresses',
+    await page.getByTestId('refund-gmail-thread').getByText('2 current mapped managers copied').isVisible()
+  );
+  recorder.assert(
+    'A hard bounce creates a clear manager recovery state',
+    await page.getByTestId('refund-gmail-contact-paused').getByText('Automatic customer email is paused').isVisible() &&
+      await page.getByTestId('refund-gmail-contact-paused').getByText(/protects every Gmail conversation/).isVisible()
+  );
+  await page.getByTestId('refund-gmail-open-recovery').click();
+  const recoveryDialog = page.getByTestId('refund-gmail-recovery-dialog');
+  recorder.assert(
+    'Case-wide recovery requires deliberate customer-address verification',
+    await recoveryDialog.isVisible() &&
+      await recoveryDialog.getByText(/removes the hard-bounce pause from every Gmail conversation/).isVisible() &&
+      await page.getByTestId('refund-gmail-confirm-recovery').isDisabled()
+  );
+  await page.getByTestId('refund-gmail-recovery-verified').click();
+  recorder.assert(
+    'Verified manager can submit one audited all-thread recovery',
+    await page.getByTestId('refund-gmail-confirm-recovery').isEnabled()
+  );
+  await page.getByTestId('refund-gmail-confirm-recovery').click();
+  await recoveryDialog.waitFor({ state: 'hidden', timeout: 5000 });
+  recorder.assert(
+    'Portal recovery uses the authenticated case-wide RPC',
+    rpcCalls.includes('admin_recover_refund_gmail_customer_contact') && !(await recoveryDialog.isVisible()),
+    rpcCalls.join(', ')
+  );
 
   const threadMessageBodies = await page
     .getByTestId('refund-gmail-thread')
@@ -1451,9 +1585,10 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     .allTextContents();
   recorder.assert(
     'Gmail replies render oldest to newest',
-    threadMessageBodies.length === 2 &&
+    threadMessageBodies.length === 6 &&
       threadMessageBodies[0].includes('My card was charged') &&
-      threadMessageBodies[1].includes('Following up'),
+      threadMessageBodies[1].includes('Following up') &&
+      threadMessageBodies[5].includes('Delivery failed'),
     JSON.stringify(threadMessageBodies)
   );
 
@@ -1588,11 +1723,10 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
       await alternativesPage.getByTestId('refund-cash-primary-action').getByText('Deny request').isVisible()
   );
 
-  await alternativesPage.getByRole('button', { name: 'Ask customer for details', exact: true }).click();
   recorder.assert(
-    'Cash missing-information path previews the appropriate customer email',
-    await alternativesPage.getByText('A quick detail check for your Bloomjoy refund request RF-UAT-CASH-REVIEW').isVisible() &&
-      await alternativesPage.getByTestId('refund-cash-primary-action').getByText('Ask customer for details').isVisible()
+    'Complete cash evidence does not offer a misleading missing-information path',
+    (await alternativesPage.getByRole('button', { name: 'Ask customer for details', exact: true }).count()) === 0 &&
+      (await alternativesPage.getByText('A quick detail check for your Bloomjoy refund request RF-UAT-CASH-REVIEW').count()) === 0
   );
   await alternativesContext.close();
 
@@ -1848,8 +1982,9 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
     await page.getByTestId('nayax-result-card').getByText('Setup needed before Nayax can check this card refund.').first().isVisible()
   );
   recorder.assert(
-    'No-match card case defaults to customer follow-up action',
-    (await page.getByText('Ask customer for details').count()) >= 1
+    'Provider setup state stays manager-only and cannot trigger customer correction copy',
+    (await page.getByText('Manager review required', { exact: true }).count()) >= 1 &&
+      (await page.getByText('Ask customer for details', { exact: true }).count()) === 0
   );
   recorder.assert(
     'Pending Nayax result explains setup state',
@@ -1887,11 +2022,11 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         candidateCount: 0,
         windowHours: 6,
         summary: 'Nayax found 1 sale record in the +/- 6 hour window, but none matched the submitted details closely enough.',
-        recommendedAction: 'Ask the customer for one more detail before deciding this card case.',
+        recommendedAction: 'Keep the case in manager review. Only fresh confirmed no-safe-match evidence may authorize the bounded customer message.',
         candidates: [],
       },
       expectedBadge: 'No match found',
-      expectedAction: 'Ask customer for details',
+      expectedAction: 'Manager review required',
     },
     {
       name: 'multiple candidates',
@@ -1977,6 +2112,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         policyVersion: '2026-07-26.v2',
         oneClickEligible: false,
         incidentAt: isoHoursAgo(3),
+        incidentTimeResolution: 'exact',
         qrClaimOpenedAt: isoHoursAgo(2.9),
         qrClaimEvidenceStatus: 'verified',
         maximumUniqueQrLagMinutes: 30,
@@ -2038,11 +2174,11 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         candidateCount: 0,
         windowHours: 6,
         summary: 'Nayax lookup failed. No raw provider details were exposed.',
-        recommendedAction: 'Retry the transaction check or ask the customer for more detail.',
+        recommendedAction: 'Do not send correction or success copy based on a provider failure.',
         candidates: [],
       },
       expectedBadge: 'Lookup failed',
-      expectedAction: 'Ask customer for details',
+      expectedAction: 'Manager review required',
     },
     {
       name: 'wallet manual review',

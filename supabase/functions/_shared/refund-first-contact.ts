@@ -36,7 +36,7 @@ const DEFAULT_SUPPORT_URL =
   "https://www.bloomjoyusa.com/resources#support-boundaries";
 const REFUND_HOSTS = new Set(["bloomjoyusa.com", "www.bloomjoyusa.com"]);
 const LEGACY_FORM_HOSTS = new Set(["forms.gle", "docs.google.com"]);
-const ACTIVE_DELIVERY_POLICY_INSTALLED = false;
+const ACTIVE_DELIVERY_POLICY_INSTALLED = true;
 
 const sanitizeText = (value: unknown, maxLength: number) =>
   typeof value === "string" || typeof value === "number" ||
