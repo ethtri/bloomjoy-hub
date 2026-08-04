@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-03-gmail-manager-step-up-uat",
-  "sourceGitCommit": "pending",
+  "sourceGitCommit": "43e0940f878b9b153b0fdae506328b64dd6deda3",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -38,8 +38,8 @@
     "202608030005_refund_deterministic_follow_up_cycles.sql",
     "202608040003_refund_first_contact_manager_cc.sql"
   ],
-  "migrationFilesSha256": "429d71cbc1a01564b9a920f1c3425ea87e279995cc283e71fa0e13f7ba59ae51",
-  "migrationVersionSetSha256": "170283521c54d7d872f662040538ba5c4024486cfeadb2a19e66e85ee97526e2",
+  "migrationFilesSha256": "b22b6506d26b1ed7f57b1ee7ac53b890afb1d854aaac90ef81b194bbdf3e74b8",
+  "migrationVersionSetSha256": "44cbeaa6a84b1dbd714ddd8d353feee9fea287efa5373d7f3f24f0604c686838",
   "functions": [
     {
       "slug": "refund-case-intake",
@@ -64,7 +64,7 @@
     {
       "slug": "refund-case-admin-update",
       "verifyJwt": false,
-      "sourceSha256": "07529d31b9e55ba45c90d7ecb1f81f639f62371419d0608a1ee01a5fed054652",
+      "sourceSha256": "dfbed42b7f1c2cad3fbeeebda5c0c0e6fdffc8cc0e31516d0f9a961ab6d46725",
       "production": {
         "version": 2,
         "ezbrSha256": "37563a7c377d35c1da6cc4bc717510b4ba3709c81c4e7ee103763756aabcddfe",
