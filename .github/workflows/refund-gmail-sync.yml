@@ -45,7 +45,8 @@ jobs:
           SYNC_URL: ${{ secrets.REFUND_GMAIL_SYNC_URL }}
           SYNC_TOKEN: ${{ secrets.REFUND_GMAIL_SYNC_TOKEN }}
           REQUESTED_MODE: ${{ inputs.mode || 'run' }}
-          RUN_KEY: github:${{ github.run_id }}:${{ github.run_attempt }}
+          GITHUB_RUN_ID_SAFE: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT_SAFE: ${{ github.run_attempt }}
         run: |
           TRIGGER="scheduled"
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
@@ -54,6 +55,11 @@ jobs:
           if [ "$REQUESTED_MODE" = "failure_test" ]; then
             TRIGGER="failure_test"
           fi
+          KEY_TRIGGER="$TRIGGER"
+          if [ "$TRIGGER" = "failure_test" ]; then
+            KEY_TRIGGER="failure-test"
+          fi
+          RUN_KEY="github-${KEY_TRIGGER}:${GITHUB_RUN_ID_SAFE}:${GITHUB_RUN_ATTEMPT_SAFE}"
           curl --fail-with-body --silent --show-error \
             --request POST \
             --header "Authorization: Bearer $SYNC_TOKEN" \
@@ -84,8 +90,10 @@ jobs:
         env:
           SYNC_URL: ${{ secrets.REFUND_GMAIL_SYNC_URL }}
           SYNC_TOKEN: ${{ secrets.REFUND_GMAIL_SYNC_TOKEN }}
-          RUN_KEY: github-retention:${{ github.run_id }}:${{ github.run_attempt }}
+          GITHUB_RUN_ID_SAFE: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT_SAFE: ${{ github.run_attempt }}
         run: |
+          RUN_KEY="github-retention:${GITHUB_RUN_ID_SAFE}:${GITHUB_RUN_ATTEMPT_SAFE}"
           curl --fail-with-body --silent --show-error \
             --request POST \
             --header "Authorization: Bearer $SYNC_TOKEN" \

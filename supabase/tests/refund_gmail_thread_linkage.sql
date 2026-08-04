@@ -427,7 +427,7 @@ select ok(
 
 select is(
   (public.service_start_refund_gmail_sync(
-    'scheduled:refund-gmail-test-1',
+    'github-scheduled:2001:1',
     'scheduled',
     now(),
     repeat('a', 64),
@@ -439,7 +439,7 @@ select is(
 );
 select is(
   (public.service_start_refund_gmail_sync(
-    'scheduled:refund-gmail-test-1',
+    'github-scheduled:2001:1',
     'scheduled',
     now(),
     repeat('a', 64),
@@ -451,7 +451,7 @@ select is(
 );
 select is(
   public.service_finish_refund_gmail_sync(
-    (select id from public.refund_gmail_sync_runs where run_key = 'scheduled:refund-gmail-test-1'),
+    (select id from public.refund_gmail_sync_runs where run_key = 'github-scheduled:2001:1'),
     'succeeded',
     2,
     4,
@@ -477,33 +477,25 @@ select is(
   'Gmail health output is explicitly aggregate-only and redacted'
 );
 
-update public.refund_gmail_attachments
-set
-  status = 'quarantined',
-  storage_bucket = 'refund-gmail-quarantine',
-  storage_path = 'synthetic/expired-receipt.pdf',
-  retention_expires_at = now() - interval '1 minute';
-
 select ok(
-  pg_temp.capture_error(format(
-    'select public.service_mark_refund_gmail_attachment(%L::uuid, %L, null, null, %L)',
-    (select id from public.refund_gmail_attachments limit 1),
-    'deleted',
-    'retention_expired'
-  )) like '%Unsupported attachment status%',
-  'The legacy attachment marker cannot bypass claimed byte deletion'
+  not has_function_privilege(
+    'service_role',
+    'public.service_mark_refund_gmail_attachment(uuid,text,text,text,text)',
+    'execute'
+  ),
+  'The legacy caller-shaped attachment marker is unavailable to the service worker'
 );
 select ok(
   (
     select provider_attachment_id not like 'retention-deleted:%'
       and file_name <> '[Deleted after Gmail retention period]'
-      and storage_bucket = 'refund-gmail-quarantine'
-      and storage_path = 'synthetic/expired-receipt.pdf'
+      and storage_bucket is null
+      and storage_path is null
       and deleted_at is null
     from public.refund_gmail_attachments
     limit 1
   ),
-  'Blocked legacy deletion leaves quarantine metadata intact until storage success is settled'
+  'Revoking the legacy marker preserves attachment linkage and cannot fabricate deletion'
 );
 
 update public.refund_gmail_messages

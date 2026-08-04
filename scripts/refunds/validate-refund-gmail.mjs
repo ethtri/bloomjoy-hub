@@ -134,7 +134,11 @@ assert(
   'The PII-free failure test must run without enabling real Gmail access',
 );
 assert(syncFunction.includes('collectAttachmentDescriptors'), 'Attachment type, extension, size, and count must be checked');
-assert(syncFunction.includes('refund-gmail-quarantine'), 'Permitted attachments must be quarantined privately');
+assert(
+  syncFunction.includes('service_reserve_refund_gmail_attachment_upload') &&
+    syncFunction.includes('isRefundGmailQuarantineStorageTarget'),
+  'Permitted attachments must use a DB-derived private quarantine target',
+);
 assert(syncFunction.includes('payloadRedacted: true'), 'Gmail logs and responses must be aggregate-only');
 assert(
   syncFunction.indexOf('const summary = await runRetentionSweep({') >= 0 &&
@@ -151,6 +155,15 @@ assert(
     syncFunction.includes('triggerSource: "retention"') &&
     syncFunction.includes('retentionOnly: true'),
   'Retention-only cleanup must be callable without the provider sync path',
+);
+assert(
+  syncFunction.indexOf('service_reserve_refund_gmail_attachment_upload') <
+      syncFunction.indexOf('.upload(storagePath, attachment.bytes') &&
+    syncFunction.indexOf('.upload(storagePath, attachment.bytes') <
+      syncFunction.indexOf('service_settle_refund_gmail_attachment_upload') &&
+    syncFunction.includes('p_outcome: "upload_unknown"') &&
+    !syncFunction.includes('service_mark_refund_gmail_attachment'),
+  'A durable tokenized upload intent must exist before Storage transport and uncertain outcomes must retain it',
 );
 assert(
   syncFunction.includes('service_claim_refund_gmail_retention_run') &&
@@ -186,7 +199,8 @@ assert(
 assert(
   syncFunction.includes('p_provider_sent: providerSentEvidence') &&
     syncFunction.includes('p_is_hard_bounce: isHardBounce') &&
-    syncFunction.includes('p_failed_recipient_emails: participantSignals.failedRecipientEmails'),
+    syncFunction.includes('p_failed_recipient_emails:') &&
+    syncFunction.includes('participantSignals.failedRecipientEmails'),
   'Gmail sync must pass provider Sent proof and DSN recipient proof into participant-safe ingestion',
 );
 assert(
@@ -199,7 +213,9 @@ assert(
   workflow.includes('vars.REFUND_GMAIL_RETENTION_ENABLED') &&
     workflow.includes('vars.REFUND_GMAIL_SYNC_ENABLED !=') &&
     workflow.includes('\\"trigger\\":\\"retention\\"') &&
-    workflow.includes('github.run_attempt'),
+    workflow.includes('github.run_attempt') &&
+    workflow.includes('RUN_KEY="github-${KEY_TRIGGER}:') &&
+    workflow.includes('RUN_KEY="github-retention:'),
   'A default-off independent retention job must remain retry-safe while provider sync is disabled',
 );
 assert(workflow.includes('secrets.REFUND_GMAIL_SYNC_URL'), 'Gmail sync URL must be encrypted');
@@ -230,6 +246,7 @@ assert(
 for (const table of [
   'refund_gmail_retention_settings',
   'refund_gmail_retention_runs',
+  'refund_gmail_quarantine_upload_intents',
   'refund_gmail_retention_actions',
   'refund_gmail_retention_state',
 ]) {
@@ -251,10 +268,23 @@ assert(
   'Retention duration and attachment safety policy must remain owner-unapproved and default off',
 );
 assert(
-  retentionMigration.includes("run_key ~ '^[a-zA-Z0-9:_-]{8,255}$'") &&
-    retentionMigration.includes("normalized_key !~ '^[a-zA-Z0-9:_-]{8,255}$'") &&
+  retentionMigration.includes('refund_gmail_workflow_run_key_is_valid') &&
+    retentionMigration.includes('refund_gmail_retention_run_key_is_valid') &&
+    retentionMigration.includes("'^github-scheduled:[1-9][0-9]{0,19}:[1-9][0-9]{0,5}$'") &&
+    retentionMigration.includes("'^retention:github-retention:[1-9][0-9]{0,19}:[1-9][0-9]{0,5}$'") &&
+    retentionMigration.includes("'^pre-sync:github-(scheduled|manual):") &&
+    syncFunction.includes('isRefundGmailWorkflowRunKey') &&
     !retentionMigration.includes("left(btrim(coalesce(p_run_key"),
-  'Caller run keys must be strictly allowlisted and must never persist arbitrary truncated text',
+  'Edge and SQL run keys must bind numeric GitHub run/attempt values to the exact trigger',
+);
+const syncRunKeyConstraintBlock = retentionMigration.slice(
+  retentionMigration.indexOf('drop constraint if exists refund_gmail_sync_runs_trigger_key_check'),
+  retentionMigration.indexOf('create or replace function public.service_start_refund_gmail_sync'),
+);
+assert(
+  syncRunKeyConstraintBlock.includes('add constraint refund_gmail_sync_runs_trigger_key_check') &&
+    !syncRunKeyConstraintBlock.includes('not valid'),
+  'Exact trigger-bound sync run keys must be validated against every legacy ledger row',
 );
 assert(
   retentionMigration.includes("settings_row.policy_version,") &&
@@ -282,13 +312,32 @@ assert(
   'Clock- and global-state retention health gates must not be declared STABLE',
 );
 assert(
-  retentionMigration.includes("normalized_status not in ('rejected', 'quarantined', 'clean', 'error')") &&
+  retentionMigration.includes('service_record_refund_gmail_attachment_not_uploaded') &&
+    retentionMigration.includes('service_reserve_refund_gmail_attachment_upload') &&
+    retentionMigration.includes('service_settle_refund_gmail_attachment_upload') &&
+    retentionMigration.includes("'legacy_upload_state_unknown'") &&
+    retentionMigration.includes('refund_gmail_quarantine_upload_intents_target_check') &&
+    retentionMigration.includes('refund_gmail_attachments_quarantine_location_check') &&
+    retentionMigration.includes('revoke execute on function public.service_mark_refund_gmail_attachment') &&
     retentionMigration.includes('revoke execute on function public.service_list_refund_gmail_expired_attachments(integer)') &&
     retentionMigration.includes('revoke execute on function public.service_purge_refund_gmail_expired_message_content(integer)'),
-  'An old worker cannot bypass byte-delete claims or finalize deleted metadata',
+  'An old worker or corrupt target cannot bypass tokenized quarantine and byte-delete claims',
 );
 assert(
-  retentionHelper.includes('classifyRefundGmailStorageDelete') &&
+  retentionMigration.includes("intent.status in ('reserved', 'uploaded', 'upload_failed', 'upload_unknown')") &&
+    retentionMigration.includes("intent.storage_bucket = 'refund-gmail-quarantine'") &&
+    retentionMigration.includes('attachment.storage_path = intent.storage_path') &&
+    retentionMigration.includes('and attachment.storage_bucket is null') &&
+    retentionMigration.includes('and attachment.storage_path is null') &&
+    retentionMigration.includes("intent.status <> 'deleted'") &&
+    !retentionMigration.includes("'attachment_cleanup_incomplete'"),
+  'Retention deletes only canonical intent targets while unrelated storage-free metadata purges independently',
+);
+assert(
+  retentionHelper.includes('classifyRefundGmailStorageUpload') &&
+    retentionHelper.includes('return "uploaded"') &&
+    retentionHelper.includes('return "upload_unknown"') &&
+    retentionHelper.includes('classifyRefundGmailStorageDelete') &&
     retentionHelper.includes('? "deleted"') &&
     retentionHelper.includes(': "delete_unknown"') &&
     retentionHelper.includes('redactedRefundGmailRetentionSummary') &&

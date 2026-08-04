@@ -67,6 +67,174 @@ create trigger refund_gmail_attachments_preserve_copied_at
 before insert or update on public.refund_gmail_attachments
 for each row execute function public.preserve_refund_gmail_copied_at();
 
+create or replace function public.refund_gmail_workflow_run_key_is_valid(
+  p_run_key text,
+  p_trigger_source text
+)
+returns boolean
+language sql
+immutable
+set search_path = public
+as $$
+  select case lower(btrim(coalesce(p_trigger_source, '')))
+    when 'scheduled' then btrim(coalesce(p_run_key, ''))
+      ~ '^github-scheduled:[1-9][0-9]{0,19}:[1-9][0-9]{0,5}$'
+    when 'manual' then btrim(coalesce(p_run_key, ''))
+      ~ '^github-manual:[1-9][0-9]{0,19}:[1-9][0-9]{0,5}$'
+    when 'failure_test' then btrim(coalesce(p_run_key, ''))
+      ~ '^github-failure-test:[1-9][0-9]{0,19}:[1-9][0-9]{0,5}$'
+    else false
+  end;
+$$;
+
+create or replace function public.refund_gmail_retention_run_key_is_valid(
+  p_run_key text,
+  p_trigger_source text
+)
+returns boolean
+language sql
+immutable
+set search_path = public
+as $$
+  select case lower(btrim(coalesce(p_trigger_source, '')))
+    when 'retention' then btrim(coalesce(p_run_key, ''))
+      ~ '^retention:github-retention:[1-9][0-9]{0,19}:[1-9][0-9]{0,5}$'
+    when 'pre_sync' then btrim(coalesce(p_run_key, ''))
+      ~ '^pre-sync:github-(scheduled|manual):[1-9][0-9]{0,19}:[1-9][0-9]{0,5}$'
+    else false
+  end;
+$$;
+
+create or replace function public.refund_gmail_quarantine_path(
+  p_refund_case_id uuid,
+  p_gmail_message_id uuid,
+  p_gmail_attachment_id uuid,
+  p_extension text
+)
+returns text
+language sql
+immutable
+strict
+set search_path = public
+as $$
+  select p_refund_case_id::text || '/' || p_gmail_message_id::text || '/' ||
+    p_gmail_attachment_id::text || '.' || lower(p_extension)
+  where lower(p_extension) in ('pdf', 'jpg', 'png', 'bin');
+$$;
+
+alter table public.refund_gmail_sync_runs
+  drop constraint if exists refund_gmail_sync_runs_trigger_key_check;
+-- Production Gmail is still disabled and unconfigured, so there are no
+-- authorized legacy run-key shapes to grandfather. Validate every existing
+-- row: a surprise legacy value blocks this migration for reviewed redaction
+-- instead of remaining a caller-controlled identifier in the audit ledger.
+alter table public.refund_gmail_sync_runs
+  add constraint refund_gmail_sync_runs_trigger_key_check
+  check (public.refund_gmail_workflow_run_key_is_valid(run_key, trigger_source));
+
+create or replace function public.service_start_refund_gmail_sync(
+  p_run_key text,
+  p_trigger_source text,
+  p_started_at timestamptz,
+  p_mailbox_hash text,
+  p_label_hash text,
+  p_enabled boolean
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  run_row public.refund_gmail_sync_runs;
+  state_row public.refund_gmail_sync_state;
+  normalized_key text := btrim(coalesce(p_run_key, ''));
+  normalized_trigger text := lower(btrim(coalesce(p_trigger_source, '')));
+begin
+  if not public.refund_gmail_workflow_run_key_is_valid(normalized_key, normalized_trigger) then
+    raise exception 'Valid trigger-bound Gmail sync run key required';
+  end if;
+
+  if coalesce(p_mailbox_hash, '') !~ '^[a-f0-9]{64}$'
+    or coalesce(p_label_hash, '') !~ '^[a-f0-9]{64}$' then
+    raise exception 'Redacted Gmail configuration fingerprints required';
+  end if;
+
+  insert into public.refund_gmail_sync_runs (
+    run_key,
+    trigger_source,
+    status,
+    started_at,
+    finished_at,
+    error_code
+  )
+  values (
+    normalized_key,
+    normalized_trigger,
+    case when p_enabled then 'running' else 'suppressed' end,
+    coalesce(p_started_at, now()),
+    case when p_enabled then null else coalesce(p_started_at, now()) end,
+    case when p_enabled then null else 'integration_disabled' end
+  )
+  on conflict (run_key) do nothing
+  returning * into run_row;
+
+  if run_row.id is null then
+    select * into run_row
+    from public.refund_gmail_sync_runs
+    where run_key = normalized_key;
+
+    return jsonb_build_object(
+      'claimed', false,
+      'runId', run_row.id,
+      'status', run_row.status,
+      'reason', 'duplicate_run_key'
+    );
+  end if;
+
+  select * into state_row
+  from public.refund_gmail_sync_state
+  where singleton
+  for update;
+
+  if p_enabled
+    and state_row.connection_status = 'running'
+    and state_row.last_attempt_at > coalesce(p_started_at, now()) - interval '20 minutes' then
+    update public.refund_gmail_sync_runs
+    set
+      status = 'suppressed',
+      finished_at = now(),
+      error_code = 'sync_already_running'
+    where id = run_row.id;
+
+    return jsonb_build_object(
+      'claimed', false,
+      'runId', run_row.id,
+      'status', 'suppressed',
+      'reason', 'sync_already_running'
+    );
+  end if;
+
+  update public.refund_gmail_sync_state
+  set
+    mailbox_hash = p_mailbox_hash,
+    label_hash = p_label_hash,
+    enabled = p_enabled,
+    connection_status = case when p_enabled then 'running' else 'paused' end,
+    last_attempt_at = coalesce(p_started_at, now()),
+    last_run_id = run_row.id,
+    last_error_code = case when p_enabled then null else 'integration_disabled' end
+  where singleton;
+
+  return jsonb_build_object(
+    'claimed', p_enabled,
+    'runId', run_row.id,
+    'status', case when p_enabled then 'running' else 'suppressed' end,
+    'lastHistoryId', state_row.last_history_id
+  );
+end;
+$$;
+
 create table if not exists public.refund_gmail_retention_settings (
   singleton boolean primary key default true check (singleton),
   cleanup_enabled boolean not null default false,
@@ -135,10 +303,8 @@ create table if not exists public.refund_gmail_retention_runs (
   payload_redacted boolean not null default true check (payload_redacted),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint refund_gmail_retention_runs_run_key_length
-    check (length(run_key) between 8 and 255),
-  constraint refund_gmail_retention_runs_run_key_format
-    check (run_key ~ '^[a-zA-Z0-9:_-]{8,255}$'),
+  constraint refund_gmail_retention_runs_trigger_key_check
+    check (public.refund_gmail_retention_run_key_is_valid(run_key, trigger_source)),
   constraint refund_gmail_retention_runs_policy_version_length
     check (length(policy_version) between 3 and 80),
   constraint refund_gmail_retention_runs_failure_code_check
@@ -163,12 +329,184 @@ create trigger refund_gmail_retention_runs_set_updated_at
 before update on public.refund_gmail_retention_runs
 for each row execute function public.set_updated_at();
 
+create unique index if not exists refund_gmail_attachments_exact_linkage_idx
+  on public.refund_gmail_attachments (id, refund_case_id, gmail_message_id);
+
+create table if not exists public.refund_gmail_quarantine_upload_intents (
+  id uuid primary key default gen_random_uuid(),
+  gmail_attachment_id uuid not null unique,
+  refund_case_id uuid not null,
+  gmail_message_id uuid not null,
+  claim_token uuid not null default gen_random_uuid(),
+  storage_extension text not null
+    check (storage_extension in ('pdf', 'jpg', 'png', 'bin')),
+  storage_bucket text,
+  storage_path text,
+  status text not null
+    check (status in ('reserved', 'uploaded', 'upload_failed', 'upload_unknown', 'deleted')),
+  reserved_at timestamptz not null default clock_timestamp(),
+  settled_at timestamptz,
+  failure_code text,
+  payload_redacted boolean not null default true check (payload_redacted),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint refund_gmail_quarantine_upload_intents_attachment_linkage_fk
+    foreign key (gmail_attachment_id, refund_case_id, gmail_message_id)
+    references public.refund_gmail_attachments (id, refund_case_id, gmail_message_id)
+    on delete restrict,
+  constraint refund_gmail_quarantine_upload_intents_failure_code_check
+    check (failure_code is null or failure_code ~ '^[a-z0-9_]{3,80}$'),
+  constraint refund_gmail_quarantine_upload_intents_target_check
+    check (
+      (
+        status <> 'deleted'
+        and storage_bucket = 'refund-gmail-quarantine'
+        and storage_path = public.refund_gmail_quarantine_path(
+          refund_case_id,
+          gmail_message_id,
+          gmail_attachment_id,
+          storage_extension
+        )
+      )
+      or (status = 'deleted' and storage_bucket is null and storage_path is null)
+    ),
+  constraint refund_gmail_quarantine_upload_intents_lifecycle_check
+    check (
+      (status = 'reserved' and settled_at is null)
+      or (status <> 'reserved' and settled_at is not null)
+    )
+);
+
+create index if not exists refund_gmail_quarantine_upload_intents_status_idx
+  on public.refund_gmail_quarantine_upload_intents (status, reserved_at, id);
+
+drop trigger if exists refund_gmail_quarantine_upload_intents_set_updated_at
+  on public.refund_gmail_quarantine_upload_intents;
+create trigger refund_gmail_quarantine_upload_intents_set_updated_at
+before update on public.refund_gmail_quarantine_upload_intents
+for each row execute function public.set_updated_at();
+
+-- The superseded worker used the same UUID-derived path but wrote it only
+-- after Storage accepted the upload. Backfill an unknown intent for every
+-- legacy active row so an accepted-before-crash object remains
+-- discoverable without Gmail. Noncanonical historical coordinates stay
+-- untouched and fail closed into aggregate manual-review health.
+insert into public.refund_gmail_quarantine_upload_intents (
+  gmail_attachment_id,
+  refund_case_id,
+  gmail_message_id,
+  storage_extension,
+  storage_bucket,
+  storage_path,
+  status,
+  settled_at,
+  failure_code
+)
+select
+  attachment.id,
+  attachment.refund_case_id,
+  attachment.gmail_message_id,
+  case lower(attachment.content_type)
+    when 'application/pdf' then 'pdf'
+    when 'image/jpeg' then 'jpg'
+    when 'image/png' then 'png'
+    else 'bin'
+  end,
+  'refund-gmail-quarantine',
+  public.refund_gmail_quarantine_path(
+    attachment.refund_case_id,
+    attachment.gmail_message_id,
+    attachment.id,
+    case lower(attachment.content_type)
+      when 'application/pdf' then 'pdf'
+      when 'image/jpeg' then 'jpg'
+      when 'image/png' then 'png'
+      else 'bin'
+    end
+  ),
+  case
+    when attachment.status in ('quarantined', 'clean')
+      and attachment.storage_bucket = 'refund-gmail-quarantine'
+      and attachment.storage_path = public.refund_gmail_quarantine_path(
+        attachment.refund_case_id,
+        attachment.gmail_message_id,
+        attachment.id,
+        case lower(attachment.content_type)
+          when 'application/pdf' then 'pdf'
+          when 'image/jpeg' then 'jpg'
+          when 'image/png' then 'png'
+          else 'bin'
+        end
+      ) then 'uploaded'
+    else 'upload_unknown'
+  end,
+  clock_timestamp(),
+  case
+    when attachment.status in ('quarantined', 'clean')
+      and attachment.storage_bucket = 'refund-gmail-quarantine'
+      and attachment.storage_path = public.refund_gmail_quarantine_path(
+        attachment.refund_case_id,
+        attachment.gmail_message_id,
+        attachment.id,
+        case lower(attachment.content_type)
+          when 'application/pdf' then 'pdf'
+          when 'image/jpeg' then 'jpg'
+          when 'image/png' then 'png'
+          else 'bin'
+        end
+      ) then null
+    else 'legacy_upload_state_unknown'
+  end
+from public.refund_gmail_attachments attachment
+where attachment.deleted_at is null
+  and (
+    attachment.storage_bucket is not null
+    or attachment.storage_path is not null
+    or attachment.status in ('pending', 'error', 'quarantined', 'clean')
+  )
+on conflict (gmail_attachment_id) do nothing;
+
+update public.refund_gmail_attachments attachment
+set
+  storage_bucket = intent.storage_bucket,
+  storage_path = intent.storage_path,
+  rejection_code = 'legacy_upload_state_unknown'
+from public.refund_gmail_quarantine_upload_intents intent
+where intent.gmail_attachment_id = attachment.id
+  and intent.status = 'upload_unknown'
+  and attachment.storage_bucket is null
+  and attachment.storage_path is null;
+
+alter table public.refund_gmail_attachments
+  drop constraint if exists refund_gmail_attachments_quarantine_location_check;
+alter table public.refund_gmail_attachments
+  add constraint refund_gmail_attachments_quarantine_location_check
+  check (
+    (storage_bucket is null and storage_path is null)
+    or (
+      storage_bucket = 'refund-gmail-quarantine'
+      and storage_path = public.refund_gmail_quarantine_path(
+        refund_case_id,
+        gmail_message_id,
+        id,
+        case lower(content_type)
+          when 'application/pdf' then 'pdf'
+          when 'image/jpeg' then 'jpg'
+          when 'image/png' then 'png'
+          else 'bin'
+        end
+      )
+    )
+  ) not valid;
+
 create table if not exists public.refund_gmail_retention_actions (
   id uuid primary key default gen_random_uuid(),
   retention_run_id uuid not null
     references public.refund_gmail_retention_runs (id) on delete restrict,
   gmail_attachment_id uuid not null
     references public.refund_gmail_attachments (id) on delete restrict,
+  quarantine_upload_intent_id uuid not null
+    references public.refund_gmail_quarantine_upload_intents (id) on delete restrict,
   claim_token uuid not null default gen_random_uuid(),
   status text not null
     check (status in ('claimed', 'deleted', 'delete_failed', 'manual_review')),
@@ -184,6 +522,8 @@ create table if not exists public.refund_gmail_retention_actions (
   updated_at timestamptz not null default now(),
   constraint refund_gmail_retention_actions_run_attachment_unique
     unique (retention_run_id, gmail_attachment_id),
+  constraint refund_gmail_retention_actions_run_intent_unique
+    unique (retention_run_id, quarantine_upload_intent_id),
   constraint refund_gmail_retention_actions_failure_code_check
     check (failure_code is null or failure_code ~ '^[a-z0-9_]{3,80}$'),
   constraint refund_gmail_retention_actions_lifecycle_check
@@ -234,11 +574,13 @@ for each row execute function public.set_updated_at();
 
 alter table public.refund_gmail_retention_settings enable row level security;
 alter table public.refund_gmail_retention_runs enable row level security;
+alter table public.refund_gmail_quarantine_upload_intents enable row level security;
 alter table public.refund_gmail_retention_actions enable row level security;
 alter table public.refund_gmail_retention_state enable row level security;
 
 revoke all on table public.refund_gmail_retention_settings from public, anon, authenticated, service_role;
 revoke all on table public.refund_gmail_retention_runs from public, anon, authenticated, service_role;
+revoke all on table public.refund_gmail_quarantine_upload_intents from public, anon, authenticated, service_role;
 revoke all on table public.refund_gmail_retention_actions from public, anon, authenticated, service_role;
 revoke all on table public.refund_gmail_retention_state from public, anon, authenticated, service_role;
 
@@ -249,11 +591,9 @@ revoke insert, update, delete on table public.refund_gmail_attachments from serv
 grant select on table public.refund_gmail_messages to service_role;
 grant select on table public.refund_gmail_attachments to service_role;
 
-create or replace function public.service_mark_refund_gmail_attachment(
+create or replace function public.service_record_refund_gmail_attachment_not_uploaded(
   p_attachment_id uuid,
   p_status text,
-  p_storage_bucket text,
-  p_storage_path text,
   p_rejection_code text
 )
 returns boolean
@@ -264,36 +604,229 @@ as $$
 declare
   normalized_status text := lower(btrim(coalesce(p_status, '')));
 begin
-  -- Retention deletion is deliberately excluded. Only a successful external
-  -- byte-delete claim may finalize deleted metadata.
-  if normalized_status not in ('rejected', 'quarantined', 'clean', 'error') then
-    raise exception 'Unsupported attachment status';
+  if normalized_status not in ('rejected', 'error') then
+    raise exception 'Valid pre-upload attachment status required';
   end if;
 
-  if normalized_status in ('quarantined', 'clean') and (
-    nullif(btrim(coalesce(p_storage_bucket, '')), '') is null
-    or nullif(btrim(coalesce(p_storage_path, '')), '') is null
-  ) then
-    raise exception 'Quarantine storage evidence is required';
+  -- This path is valid only before a durable upload reservation exists. It
+  -- never clears coordinates after Storage transport may have started.
+  update public.refund_gmail_attachments attachment
+  set
+    status = normalized_status,
+    rejection_code = nullif(left(btrim(coalesce(p_rejection_code, '')), 120), '')
+  where attachment.id = p_attachment_id
+    and attachment.deleted_at is null
+    and attachment.storage_bucket is null
+    and attachment.storage_path is null
+    and attachment.status in ('pending', 'rejected', 'error')
+    and not exists (
+      select 1
+      from public.refund_gmail_quarantine_upload_intents intent
+      where intent.gmail_attachment_id = attachment.id
+    );
+
+  return found;
+end;
+$$;
+
+create or replace function public.service_reserve_refund_gmail_attachment_upload(
+  p_attachment_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  attachment_row public.refund_gmail_attachments;
+  intent_row public.refund_gmail_quarantine_upload_intents;
+  extension text;
+  expected_path text;
+begin
+  select * into attachment_row
+  from public.refund_gmail_attachments attachment
+  where attachment.id = p_attachment_id
+  for update;
+
+  if attachment_row.id is null
+    or attachment_row.deleted_at is not null
+    or attachment_row.status not in ('pending', 'error') then
+    return jsonb_build_object(
+      'claimed', false,
+      'status', 'attachment_not_reservable',
+      'payloadRedacted', true
+    );
   end if;
+
+  extension := case lower(attachment_row.content_type)
+    when 'application/pdf' then 'pdf'
+    when 'image/jpeg' then 'jpg'
+    when 'image/png' then 'png'
+    else null
+  end;
+  if extension is null then
+    return jsonb_build_object(
+      'claimed', false,
+      'status', 'attachment_type_not_allowed',
+      'payloadRedacted', true
+    );
+  end if;
+
+  select * into intent_row
+  from public.refund_gmail_quarantine_upload_intents intent
+  where intent.gmail_attachment_id = attachment_row.id;
+  if intent_row.id is not null then
+    return jsonb_build_object(
+      'claimed', false,
+      'status', intent_row.status,
+      'payloadRedacted', true
+    );
+  end if;
+
+  expected_path := public.refund_gmail_quarantine_path(
+    attachment_row.refund_case_id,
+    attachment_row.gmail_message_id,
+    attachment_row.id,
+    extension
+  );
+
+  insert into public.refund_gmail_quarantine_upload_intents (
+    gmail_attachment_id,
+    refund_case_id,
+    gmail_message_id,
+    storage_extension,
+    storage_bucket,
+    storage_path,
+    status
+  ) values (
+    attachment_row.id,
+    attachment_row.refund_case_id,
+    attachment_row.gmail_message_id,
+    extension,
+    'refund-gmail-quarantine',
+    expected_path,
+    'reserved'
+  )
+  returning * into intent_row;
 
   update public.refund_gmail_attachments
   set
-    status = normalized_status,
-    rejection_code = nullif(left(btrim(coalesce(p_rejection_code, '')), 120), ''),
-    storage_bucket = case
-      when normalized_status in ('quarantined', 'clean') then nullif(btrim(p_storage_bucket), '')
-      else storage_bucket
-    end,
-    storage_path = case
-      when normalized_status in ('quarantined', 'clean') then nullif(btrim(p_storage_path), '')
-      else storage_path
-    end
-  where id = p_attachment_id
-    and deleted_at is null
-    and status in ('pending', 'rejected', 'quarantined', 'clean', 'error');
+    storage_bucket = intent_row.storage_bucket,
+    storage_path = intent_row.storage_path,
+    rejection_code = 'attachment_quarantine_reserved'
+  where id = attachment_row.id;
 
-  return found;
+  return jsonb_build_object(
+    'claimed', true,
+    'status', 'reserved',
+    'intentId', intent_row.id,
+    'claimToken', intent_row.claim_token,
+    'storageBucket', intent_row.storage_bucket,
+    'storagePath', intent_row.storage_path,
+    'payloadRedacted', true
+  );
+end;
+$$;
+
+create or replace function public.service_settle_refund_gmail_attachment_upload(
+  p_intent_id uuid,
+  p_claim_token uuid,
+  p_outcome text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  intent_row public.refund_gmail_quarantine_upload_intents;
+  attachment_row public.refund_gmail_attachments;
+  normalized_outcome text := lower(btrim(coalesce(p_outcome, '')));
+begin
+  if normalized_outcome not in ('uploaded', 'upload_failed', 'upload_unknown') then
+    raise exception 'Valid quarantine upload outcome required';
+  end if;
+
+  select * into intent_row
+  from public.refund_gmail_quarantine_upload_intents intent
+  where intent.id = p_intent_id
+    and intent.claim_token = p_claim_token
+  for update;
+
+  if intent_row.id is null then
+    return jsonb_build_object(
+      'settled', false,
+      'status', 'intent_not_found',
+      'payloadRedacted', true
+    );
+  end if;
+  if intent_row.status <> 'reserved' then
+    return jsonb_build_object(
+      'settled', false,
+      'status', intent_row.status,
+      'reconciled', true,
+      'payloadRedacted', true
+    );
+  end if;
+
+  select * into attachment_row
+  from public.refund_gmail_attachments attachment
+  where attachment.id = intent_row.gmail_attachment_id
+  for update;
+
+  if attachment_row.id is null
+    or attachment_row.deleted_at is not null
+    or attachment_row.refund_case_id <> intent_row.refund_case_id
+    or attachment_row.gmail_message_id <> intent_row.gmail_message_id
+    or attachment_row.storage_bucket is distinct from 'refund-gmail-quarantine'
+    or attachment_row.storage_bucket is distinct from intent_row.storage_bucket
+    or attachment_row.storage_path is distinct from intent_row.storage_path
+    or intent_row.storage_path is distinct from public.refund_gmail_quarantine_path(
+      intent_row.refund_case_id,
+      intent_row.gmail_message_id,
+      intent_row.gmail_attachment_id,
+      intent_row.storage_extension
+    ) then
+    update public.refund_gmail_quarantine_upload_intents
+    set
+      status = 'upload_unknown',
+      settled_at = clock_timestamp(),
+      failure_code = 'quarantine_target_mismatch'
+    where id = intent_row.id;
+
+    return jsonb_build_object(
+      'settled', true,
+      'status', 'upload_unknown',
+      'payloadRedacted', true
+    );
+  end if;
+
+  update public.refund_gmail_quarantine_upload_intents
+  set
+    status = normalized_outcome,
+    settled_at = clock_timestamp(),
+    failure_code = case normalized_outcome
+      when 'upload_failed' then 'storage_upload_failed'
+      when 'upload_unknown' then 'storage_upload_outcome_unknown'
+      else null
+    end
+  where id = intent_row.id;
+
+  update public.refund_gmail_attachments
+  set
+    status = case when normalized_outcome = 'uploaded' then 'quarantined' else 'error' end,
+    rejection_code = case normalized_outcome
+      when 'uploaded' then 'malware_scan_pending'
+      when 'upload_failed' then 'attachment_quarantine_failed'
+      else 'attachment_quarantine_unknown'
+    end
+  where id = attachment_row.id;
+
+  return jsonb_build_object(
+    'settled', true,
+    'status', normalized_outcome,
+    'payloadRedacted', true
+  );
 end;
 $$;
 
@@ -318,12 +851,11 @@ declare
   normalized_policy text := left(btrim(coalesce(p_policy_version, '')), 80);
   suppression_code text;
 begin
-  if length(normalized_key) not between 8 and 255
-    or normalized_key !~ '^[a-zA-Z0-9:_-]{8,255}$' then
-    raise exception 'Valid retention run key required';
-  end if;
-  if normalized_trigger not in ('retention', 'pre_sync') then
-    raise exception 'Valid retention trigger required';
+  if not public.refund_gmail_retention_run_key_is_valid(
+    normalized_key,
+    normalized_trigger
+  ) then
+    raise exception 'Valid trigger-bound retention run key required';
   end if;
 
   select * into settings_row
@@ -468,6 +1000,7 @@ as $$
 declare
   run_row public.refund_gmail_retention_runs;
   attachment_row public.refund_gmail_attachments;
+  intent_row public.refund_gmail_quarantine_upload_intents;
   action_row public.refund_gmail_retention_actions;
 begin
   select * into run_row
@@ -485,11 +1018,22 @@ begin
     );
   end if;
 
-  select attachment.* into attachment_row
-  from public.refund_gmail_attachments attachment
+  select intent.* into intent_row
+  from public.refund_gmail_quarantine_upload_intents intent
+  join public.refund_gmail_attachments attachment
+    on attachment.id = intent.gmail_attachment_id
   where attachment.deleted_at is null
-    and attachment.storage_bucket is not null
-    and attachment.storage_path is not null
+    and intent.status in ('reserved', 'uploaded', 'upload_failed', 'upload_unknown')
+    and intent.storage_bucket = 'refund-gmail-quarantine'
+    and attachment.storage_bucket = 'refund-gmail-quarantine'
+    and attachment.storage_bucket = intent.storage_bucket
+    and attachment.storage_path = intent.storage_path
+    and intent.storage_path = public.refund_gmail_quarantine_path(
+      intent.refund_case_id,
+      intent.gmail_message_id,
+      intent.gmail_attachment_id,
+      intent.storage_extension
+    )
     and attachment.copied_at
       + make_interval(days => run_row.retention_days) <= clock_timestamp()
     and not exists (
@@ -507,9 +1051,9 @@ begin
     )
   order by attachment.copied_at, attachment.id
   limit 1
-  for update skip locked;
+  for update of intent skip locked;
 
-  if attachment_row.id is null then
+  if intent_row.id is null then
     return jsonb_build_object(
       'claimed', false,
       'status', 'empty',
@@ -517,10 +1061,17 @@ begin
     );
   end if;
 
+  select * into attachment_row
+  from public.refund_gmail_attachments attachment
+  where attachment.id = intent_row.gmail_attachment_id
+  for update;
+
   insert into public.refund_gmail_retention_actions (
-    retention_run_id, gmail_attachment_id, status, claimed_at, lease_expires_at
+    retention_run_id, gmail_attachment_id, quarantine_upload_intent_id,
+    status, claimed_at, lease_expires_at
   ) values (
-    run_row.id, attachment_row.id, 'claimed', clock_timestamp(), run_row.lease_expires_at
+    run_row.id, attachment_row.id, intent_row.id,
+    'claimed', clock_timestamp(), run_row.lease_expires_at
   ) returning * into action_row;
 
   update public.refund_gmail_retention_runs
@@ -534,8 +1085,13 @@ begin
     'status', 'claimed',
     'actionId', action_row.id,
     'claimToken', action_row.claim_token,
-    'storageBucket', attachment_row.storage_bucket,
-    'storagePath', attachment_row.storage_path,
+    'storageBucket', 'refund-gmail-quarantine',
+    'storagePath', public.refund_gmail_quarantine_path(
+      intent_row.refund_case_id,
+      intent_row.gmail_message_id,
+      intent_row.gmail_attachment_id,
+      intent_row.storage_extension
+    ),
     'payloadRedacted', true
   );
 end;
@@ -553,6 +1109,8 @@ set search_path = public
 as $$
 declare
   action_row public.refund_gmail_retention_actions;
+  intent_row public.refund_gmail_quarantine_upload_intents;
+  attachment_row public.refund_gmail_attachments;
   normalized_outcome text := lower(btrim(coalesce(p_outcome, '')));
   updated_attachment_count integer := 0;
 begin
@@ -583,6 +1141,48 @@ begin
     );
   end if;
 
+  select * into intent_row
+  from public.refund_gmail_quarantine_upload_intents intent
+  where intent.id = action_row.quarantine_upload_intent_id
+  for update;
+  select * into attachment_row
+  from public.refund_gmail_attachments attachment
+  where attachment.id = action_row.gmail_attachment_id
+  for update;
+
+  if intent_row.id is null
+    or attachment_row.id is null
+    or intent_row.gmail_attachment_id <> attachment_row.id
+    or attachment_row.refund_case_id <> intent_row.refund_case_id
+    or attachment_row.gmail_message_id <> intent_row.gmail_message_id
+    or intent_row.storage_bucket is distinct from 'refund-gmail-quarantine'
+    or attachment_row.storage_bucket is distinct from 'refund-gmail-quarantine'
+    or attachment_row.storage_bucket is distinct from intent_row.storage_bucket
+    or attachment_row.storage_path is distinct from intent_row.storage_path
+    or intent_row.storage_path is distinct from public.refund_gmail_quarantine_path(
+      intent_row.refund_case_id,
+      intent_row.gmail_message_id,
+      intent_row.gmail_attachment_id,
+      intent_row.storage_extension
+    ) then
+    update public.refund_gmail_retention_actions
+    set
+      status = 'manual_review',
+      settled_at = clock_timestamp(),
+      failure_code = 'attachment_metadata_state_changed'
+    where id = action_row.id;
+
+    update public.refund_gmail_retention_runs
+    set attachments_manual_review = attachments_manual_review + 1
+    where id = action_row.retention_run_id;
+
+    return jsonb_build_object(
+      'settled', true,
+      'status', 'manual_review',
+      'payloadRedacted', true
+    );
+  end if;
+
   if normalized_outcome = 'deleted' then
     update public.refund_gmail_attachments attachment
     set
@@ -597,8 +1197,9 @@ begin
       deleted_at = clock_timestamp()
     where attachment.id = action_row.gmail_attachment_id
       and attachment.deleted_at is null
-      and attachment.storage_bucket is not null
-      and attachment.storage_path is not null;
+      and attachment.storage_bucket = 'refund-gmail-quarantine'
+      and attachment.storage_bucket = intent_row.storage_bucket
+      and attachment.storage_path = intent_row.storage_path;
 
     get diagnostics updated_attachment_count = row_count;
     if updated_attachment_count <> 1 then
@@ -619,6 +1220,15 @@ begin
         'payloadRedacted', true
       );
     end if;
+
+    update public.refund_gmail_quarantine_upload_intents
+    set
+      status = 'deleted',
+      storage_bucket = null,
+      storage_path = null,
+      settled_at = clock_timestamp(),
+      failure_code = null
+    where id = intent_row.id;
 
     update public.refund_gmail_retention_actions
     set
@@ -703,7 +1313,6 @@ as $$
 declare
   run_row public.refund_gmail_retention_runs;
   purge_limit integer := least(greatest(coalesce(p_limit, 200), 1), 500);
-  blocked_count integer := 0;
   attachment_count integer := 0;
   message_count integer := 0;
 begin
@@ -721,28 +1330,20 @@ begin
     );
   end if;
 
-  select count(*)::integer into blocked_count
-  from public.refund_gmail_attachments attachment
-  where attachment.deleted_at is null
-    and attachment.storage_path is not null
-    and attachment.copied_at
-      + make_interval(days => run_row.retention_days) <= clock_timestamp();
-
-  if blocked_count > 0 then
-    return jsonb_build_object(
-      'purged', false,
-      'status', 'attachment_cleanup_incomplete',
-      'payloadRedacted', true
-    );
-  end if;
-
   with expired as (
     select attachment.id
     from public.refund_gmail_attachments attachment
     where attachment.deleted_at is null
+      and attachment.storage_bucket is null
       and attachment.storage_path is null
       and attachment.copied_at
         + make_interval(days => run_row.retention_days) <= clock_timestamp()
+      and not exists (
+        select 1
+        from public.refund_gmail_quarantine_upload_intents intent
+        where intent.gmail_attachment_id = attachment.id
+          and intent.status <> 'deleted'
+      )
     order by attachment.copied_at, attachment.id
     limit purge_limit
     for update skip locked
@@ -843,6 +1444,8 @@ declare
   open_claim_count integer := 0;
   global_manual_count integer := 0;
   global_retry_count integer := 0;
+  unresolved_upload_manual_count integer := 0;
+  unresolved_upload_retry_count integer := 0;
 begin
   if normalized_outcome not in ('succeeded', 'retry_required', 'manual_review') then
     raise exception 'Valid retention run outcome required';
@@ -908,6 +1511,43 @@ begin
   select count(*)::integer into global_retry_count
   from public.refund_gmail_retention_actions action
   where action.status = 'delete_failed';
+
+  select count(*)::integer into unresolved_upload_manual_count
+  from public.refund_gmail_attachments attachment
+  left join public.refund_gmail_quarantine_upload_intents intent
+    on intent.gmail_attachment_id = attachment.id
+  where attachment.deleted_at is null
+    and (
+      intent.status in ('reserved', 'upload_unknown')
+      or (
+        (
+          attachment.storage_bucket is not null
+          or attachment.storage_path is not null
+          or intent.id is not null
+        )
+        and (
+          intent.id is null
+          or intent.status = 'deleted'
+          or intent.storage_bucket is distinct from 'refund-gmail-quarantine'
+          or attachment.storage_bucket is distinct from 'refund-gmail-quarantine'
+          or attachment.storage_bucket is distinct from intent.storage_bucket
+          or attachment.storage_path is distinct from intent.storage_path
+          or intent.storage_path is distinct from public.refund_gmail_quarantine_path(
+            intent.refund_case_id,
+            intent.gmail_message_id,
+            intent.gmail_attachment_id,
+            intent.storage_extension
+          )
+        )
+      )
+    );
+
+  select count(*)::integer into unresolved_upload_retry_count
+  from public.refund_gmail_quarantine_upload_intents intent
+  where intent.status = 'upload_failed';
+
+  global_manual_count := global_manual_count + unresolved_upload_manual_count;
+  global_retry_count := global_retry_count + unresolved_upload_retry_count;
 
   final_status := case
     when open_claim_count > 0 then 'manual_review'
@@ -1108,6 +1748,35 @@ begin
     select 1
     from public.refund_gmail_retention_actions action
     where action.status in ('claimed', 'delete_failed', 'manual_review')
+  ) or exists (
+    select 1
+    from public.refund_gmail_quarantine_upload_intents intent
+    where intent.status in ('reserved', 'upload_failed', 'upload_unknown')
+  ) or exists (
+    select 1
+    from public.refund_gmail_attachments attachment
+    left join public.refund_gmail_quarantine_upload_intents intent
+      on attachment.id = intent.gmail_attachment_id
+    where attachment.deleted_at is null
+      and (
+        attachment.storage_bucket is not null
+        or attachment.storage_path is not null
+        or intent.id is not null
+      )
+      and (
+        intent.id is null
+        or intent.status = 'deleted'
+        or intent.storage_bucket is distinct from 'refund-gmail-quarantine'
+        or attachment.storage_bucket is distinct from 'refund-gmail-quarantine'
+        or attachment.storage_bucket is distinct from intent.storage_bucket
+        or attachment.storage_path is distinct from intent.storage_path
+        or intent.storage_path is distinct from public.refund_gmail_quarantine_path(
+          intent.refund_case_id,
+          intent.gmail_message_id,
+          intent.gmail_attachment_id,
+          intent.storage_extension
+        )
+      )
   ) then
     gate_status := 'cleanup_unhealthy';
   end if;
@@ -1132,6 +1801,8 @@ declare
   run_row public.refund_gmail_retention_runs;
   global_manual_count integer := 0;
   global_retry_count integer := 0;
+  unresolved_upload_manual_count integer := 0;
+  unresolved_upload_retry_count integer := 0;
 begin
   select * into settings_row
   from public.refund_gmail_retention_settings
@@ -1148,6 +1819,41 @@ begin
   select count(*)::integer into global_retry_count
   from public.refund_gmail_retention_actions action
   where action.status = 'delete_failed';
+  select count(*)::integer into unresolved_upload_manual_count
+  from public.refund_gmail_attachments attachment
+  left join public.refund_gmail_quarantine_upload_intents intent
+    on intent.gmail_attachment_id = attachment.id
+  where attachment.deleted_at is null
+    and (
+      intent.status in ('reserved', 'upload_unknown')
+      or (
+        (
+          attachment.storage_bucket is not null
+          or attachment.storage_path is not null
+          or intent.id is not null
+        )
+        and (
+          intent.id is null
+          or intent.status = 'deleted'
+          or intent.storage_bucket is distinct from 'refund-gmail-quarantine'
+          or attachment.storage_bucket is distinct from 'refund-gmail-quarantine'
+          or attachment.storage_bucket is distinct from intent.storage_bucket
+          or attachment.storage_path is distinct from intent.storage_path
+          or intent.storage_path is distinct from public.refund_gmail_quarantine_path(
+            intent.refund_case_id,
+            intent.gmail_message_id,
+            intent.gmail_attachment_id,
+            intent.storage_extension
+          )
+        )
+      )
+    );
+  select count(*)::integer into unresolved_upload_retry_count
+  from public.refund_gmail_quarantine_upload_intents intent
+  where intent.status = 'upload_failed';
+
+  global_manual_count := global_manual_count + unresolved_upload_manual_count;
+  global_retry_count := global_retry_count + unresolved_upload_retry_count;
 
   return jsonb_build_object(
     'status', case
@@ -1181,6 +1887,20 @@ revoke execute on function public.service_purge_refund_gmail_expired_message_con
 
 revoke execute on function public.preserve_refund_gmail_copied_at()
   from public, anon, authenticated, service_role;
+revoke execute on function public.refund_gmail_workflow_run_key_is_valid(text,text)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.refund_gmail_retention_run_key_is_valid(text,text)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.refund_gmail_quarantine_path(uuid,uuid,uuid,text)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.service_mark_refund_gmail_attachment(uuid,text,text,text,text)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.service_record_refund_gmail_attachment_not_uploaded(uuid,text,text)
+  from public, anon, authenticated;
+revoke execute on function public.service_reserve_refund_gmail_attachment_upload(uuid)
+  from public, anon, authenticated;
+revoke execute on function public.service_settle_refund_gmail_attachment_upload(uuid,uuid,text)
+  from public, anon, authenticated;
 revoke execute on function public.service_claim_refund_gmail_retention_run(text,text,boolean,text)
   from public, anon, authenticated;
 revoke execute on function public.service_claim_refund_gmail_retention_attachment(uuid,uuid)
@@ -1199,6 +1919,12 @@ revoke execute on function public.service_get_refund_gmail_retention_health()
   from public, anon, authenticated;
 
 grant execute on function public.service_claim_refund_gmail_retention_run(text,text,boolean,text)
+  to service_role;
+grant execute on function public.service_record_refund_gmail_attachment_not_uploaded(uuid,text,text)
+  to service_role;
+grant execute on function public.service_reserve_refund_gmail_attachment_upload(uuid)
+  to service_role;
+grant execute on function public.service_settle_refund_gmail_attachment_upload(uuid,uuid,text)
   to service_role;
 grant execute on function public.service_claim_refund_gmail_retention_attachment(uuid,uuid)
   to service_role;
@@ -1219,8 +1945,10 @@ comment on table public.refund_gmail_retention_settings is
   'Owner-controlled, default-off local Gmail-copy retention and attachment quarantine policy.';
 comment on table public.refund_gmail_retention_runs is
   'Service-only aggregate retention run ledger. It contains no customer, mailbox, provider, payment, or object-key data.';
+comment on table public.refund_gmail_quarantine_upload_intents is
+  'Service-only pre-upload intent ledger. The exact UUID-derived quarantine target is durable before Storage transport and never reaches logs, health, GitHub, or browser roles.';
 comment on table public.refund_gmail_retention_actions is
-  'Service-only attachment deletion outcome ledger. Storage coordinates are never persisted here.';
+  'Service-only attachment deletion outcome ledger bound to one durable quarantine intent. Storage coordinates are never duplicated here.';
 comment on function public.service_authorize_refund_gmail_copy(boolean,text,boolean,text) is
   'Service-only pre-copy health gate. New local Gmail copies fail closed when cleanup or scanner policy is not healthy.';
 

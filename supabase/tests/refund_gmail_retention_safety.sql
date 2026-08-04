@@ -19,6 +19,7 @@ $$;
 
 select has_table('public', 'refund_gmail_retention_settings', 'Default-off owner retention policy exists');
 select has_table('public', 'refund_gmail_retention_runs', 'Aggregate cleanup run ledger exists');
+select has_table('public', 'refund_gmail_quarantine_upload_intents', 'Durable pre-upload intent ledger exists');
 select has_table('public', 'refund_gmail_retention_actions', 'Attachment outcome ledger exists');
 select has_table('public', 'refund_gmail_retention_state', 'Cleanup health state exists');
 select has_column('public', 'refund_gmail_threads', 'copied_at', 'Threads have a trusted local copy time');
@@ -32,6 +33,10 @@ select ok(
 select ok(
   not has_table_privilege('service_role', 'public.refund_gmail_retention_actions', 'select'),
   'Service workers cannot bypass guarded retention action RPCs'
+);
+select ok(
+  not has_table_privilege('service_role', 'public.refund_gmail_quarantine_upload_intents', 'select'),
+  'Service workers cannot bypass guarded pre-upload intent RPCs'
 );
 select ok(
   not has_table_privilege('service_role', 'public.refund_gmail_attachments', 'update'),
@@ -52,6 +57,30 @@ select ok(
     'execute'
   ),
   'Only the service worker can claim cleanup runs'
+);
+select ok(
+  has_function_privilege(
+    'service_role',
+    'public.service_reserve_refund_gmail_attachment_upload(uuid)',
+    'execute'
+  ),
+  'The service worker can reserve one DB-derived upload target'
+);
+select ok(
+  has_function_privilege(
+    'service_role',
+    'public.service_settle_refund_gmail_attachment_upload(uuid,uuid,text)',
+    'execute'
+  ),
+  'The service worker can settle one token-bound upload outcome'
+);
+select ok(
+  not has_function_privilege(
+    'service_role',
+    'public.service_mark_refund_gmail_attachment(uuid,text,text,text,text)',
+    'execute'
+  ),
+  'The legacy caller-supplied attachment target RPC is revoked'
 );
 select ok(
   has_function_privilege(
@@ -85,6 +114,15 @@ select ok(
   ),
   'The legacy unclaimed message purge is revoked'
 );
+select ok(
+  (
+    select constraint_row.convalidated
+    from pg_catalog.pg_constraint constraint_row
+    where constraint_row.conrelid = 'public.refund_gmail_sync_runs'::regclass
+      and constraint_row.conname = 'refund_gmail_sync_runs_trigger_key_check'
+  ),
+  'The exact sync trigger/run-key constraint validates every legacy row'
+);
 
 select is(
   (select cleanup_enabled from public.refund_gmail_retention_settings where singleton),
@@ -106,13 +144,61 @@ select ok(
     select public.service_claim_refund_gmail_retention_run(
       'customer@example.test', 'retention', true, 'refund_gmail_retention_v1'
     )
-  $capture$) like '%Valid retention run key required%',
+  $capture$) like '%Valid trigger-bound retention run key required%',
   'Caller-supplied addresses cannot enter the retention run-key ledger'
+);
+select ok(
+  pg_temp.capture_error($capture$
+    select public.service_claim_refund_gmail_retention_run(
+      '550e8400-e29b-41d4-a716-446655440000', 'retention', true, 'refund_gmail_retention_v1'
+    )
+  $capture$) like '%Valid trigger-bound retention run key required%',
+  'Generic UUID run keys are rejected'
+);
+select ok(
+  pg_temp.capture_error($capture$
+    select public.service_claim_refund_gmail_retention_run(
+      'RF-2026-000123', 'retention', true, 'refund_gmail_retention_v1'
+    )
+  $capture$) like '%Valid trigger-bound retention run key required%',
+  'Refund references cannot enter the run ledger'
+);
+select ok(
+  pg_temp.capture_error($capture$
+    select public.service_claim_refund_gmail_retention_run(
+      '18c7aProviderMessageToken', 'retention', true, 'refund_gmail_retention_v1'
+    )
+  $capture$) like '%Valid trigger-bound retention run key required%',
+  'Provider-like alphanumeric identifiers cannot enter the run ledger'
+);
+select ok(
+  pg_temp.capture_error($capture$
+    select public.service_claim_refund_gmail_retention_run(
+      '18005551212', 'retention', true, 'refund_gmail_retention_v1'
+    )
+  $capture$) like '%Valid trigger-bound retention run key required%',
+  'Digit and phone-like values cannot enter the run ledger'
+);
+select ok(
+  pg_temp.capture_error($capture$
+    select public.service_claim_refund_gmail_retention_run(
+      'retention:github-manual:1000:1', 'retention', true, 'refund_gmail_retention_v1'
+    )
+  $capture$) like '%Valid trigger-bound retention run key required%',
+  'A wrong trigger prefix is rejected by the retention SQL boundary'
+);
+select ok(
+  pg_temp.capture_error($capture$
+    select public.service_start_refund_gmail_sync(
+      'github-scheduled:1000:1', 'manual', clock_timestamp(), repeat('a', 64), repeat('b', 64), false
+    )
+  $capture$) like '%Valid trigger-bound Gmail sync run key required%',
+  'The SQL sync boundary independently rejects a trigger/key mismatch'
 );
 
 create temporary table default_off_run as
 select public.service_claim_refund_gmail_retention_run(
-  'retention_default_off_1',
+  'retention:github-retention:1001:1',
   'retention',
   true,
   'refund_gmail_retention_v1'
@@ -124,21 +210,21 @@ select is(
   'Cleanup is suppressed until the owner policy is approved'
 );
 select is(
-  (select failure_code from public.refund_gmail_retention_runs where run_key = 'retention_default_off_1'),
+  (select failure_code from public.refund_gmail_retention_runs where run_key = 'retention:github-retention:1001:1'),
   'retention_policy_not_approved',
   'Default-off suppression stores only a redacted reason code'
 );
 select is(
   (
     public.service_claim_refund_gmail_retention_run(
-      'retention_default_off_1', 'retention', true, 'refund_gmail_retention_v1'
+      'retention:github-retention:1001:1', 'retention', true, 'refund_gmail_retention_v1'
     ) ->> 'claimed'
   )::boolean,
   false,
   'Replaying a suppressed run key is an idempotent no-op'
 );
 select is(
-  (select count(*)::integer from public.refund_gmail_retention_runs where run_key = 'retention_default_off_1'),
+  (select count(*)::integer from public.refund_gmail_retention_runs where run_key = 'retention:github-retention:1001:1'),
   1,
   'A replay creates one durable run row'
 );
@@ -159,7 +245,7 @@ where singleton;
 
 select is(
   public.service_claim_refund_gmail_retention_run(
-    'retention_policy_mismatch_1',
+    'retention:github-retention:1002:1',
     'retention',
     true,
     'unsafe@example.test'
@@ -171,7 +257,7 @@ select is(
   (
     select policy_version
     from public.refund_gmail_retention_runs
-    where run_key = 'retention_policy_mismatch_1'
+    where run_key = 'retention:github-retention:1002:1'
   ),
   'refund_gmail_retention_v1',
   'A policy mismatch persists only the configured policy version'
@@ -221,24 +307,54 @@ select public.service_ingest_refund_gmail_message_v2(
   '{}'::text[]
 ) as result;
 
-select ok(
-  public.service_mark_refund_gmail_attachment(
+create temporary table success_upload_intent as
+select public.service_reserve_refund_gmail_attachment_upload(
+  ((select result from success_ingest) -> 'attachments' -> 0 ->> 'attachmentId')::uuid
+) as result;
+select is(
+  (select (result ->> 'claimed')::boolean from success_upload_intent),
+  true,
+  'The database durably reserves an attachment target before Storage transport'
+);
+select is(
+  (select result ->> 'storageBucket' from success_upload_intent),
+  'refund-gmail-quarantine',
+  'The upload reservation fixes the exact quarantine bucket'
+);
+select is(
+  (select result ->> 'storagePath' from success_upload_intent),
+  public.refund_gmail_quarantine_path(
+    ((select result from success_ingest) ->> 'caseId')::uuid,
+    ((select result from success_ingest) ->> 'messageId')::uuid,
     ((select result from success_ingest) -> 'attachments' -> 0 ->> 'attachmentId')::uuid,
-    'quarantined',
-    'refund-gmail-quarantine',
-    'synthetic/success/object.pdf',
-    'malware_scan_pending'
+    'pdf'
   ),
-  'Synthetic attachment enters private quarantine through the non-delete RPC'
+  'The upload path is derived only from database UUID linkage'
+);
+select is(
+  public.service_settle_refund_gmail_attachment_upload(
+    ((select result from success_upload_intent) ->> 'intentId')::uuid,
+    ((select result from success_upload_intent) ->> 'claimToken')::uuid,
+    'upload_failed'
+  ) ->> 'status',
+  'upload_failed',
+  'An explicit upload failure settles without discarding its reserved coordinates'
 );
 select ok(
   pg_temp.capture_error(format(
-    'select public.service_mark_refund_gmail_attachment(%L::uuid, %L, null, null, %L)',
-    ((select result from success_ingest) -> 'attachments' -> 0 ->> 'attachmentId'),
-    'deleted',
-    'retention_expired'
-  )) like '%Unsupported attachment status%',
-  'The ordinary attachment RPC cannot fabricate retention deletion'
+    'update public.refund_gmail_attachments set storage_bucket = %L where id = %L::uuid',
+    'another-bucket',
+    ((select result from success_ingest) -> 'attachments' -> 0 ->> 'attachmentId')
+  )) like '%refund_gmail_attachments_quarantine_location_check%',
+  'Even owner-level corrupt metadata cannot redirect a new attachment to another bucket'
+);
+select ok(
+  pg_temp.capture_error(format(
+    'update public.refund_gmail_quarantine_upload_intents set storage_path = %L where id = %L::uuid',
+    'another/object.pdf',
+    ((select result from success_upload_intent) ->> 'intentId')
+  )) like '%refund_gmail_quarantine_upload_intents_target_check%',
+  'The durable intent cannot be redirected to a caller-shaped path'
 );
 
 create temporary table trusted_copy_time as
@@ -276,7 +392,7 @@ alter table public.refund_gmail_attachments enable trigger refund_gmail_attachme
 
 create temporary table first_cleanup_run as
 select public.service_claim_refund_gmail_retention_run(
-  'retention_success_first_1', 'retention', true, 'refund_gmail_retention_v1'
+  'retention:github-retention:1003:1', 'retention', true, 'refund_gmail_retention_v1'
 ) as result;
 select is(
   (select (result ->> 'claimed')::boolean from first_cleanup_run),
@@ -286,7 +402,7 @@ select is(
 select is(
   (
     public.service_claim_refund_gmail_retention_run(
-      'retention_success_first_1', 'retention', true, 'refund_gmail_retention_v1'
+      'retention:github-retention:1003:1', 'retention', true, 'refund_gmail_retention_v1'
     ) ->> 'claimed'
   )::boolean,
   false,
@@ -294,7 +410,7 @@ select is(
 );
 select is(
   public.service_claim_refund_gmail_retention_run(
-    'retention_parallel_run_1', 'retention', true, 'refund_gmail_retention_v1'
+    'retention:github-retention:1004:1', 'retention', true, 'refund_gmail_retention_v1'
   ) ->> 'errorCode',
   'cleanup_already_running',
   'A different concurrent run is suppressed by the singleton lease'
@@ -325,7 +441,12 @@ select is(
     from public.refund_gmail_attachments
     where provider_attachment_id = 'retention-success-attachment'
   ),
-  'synthetic/success/object.pdf',
+  public.refund_gmail_quarantine_path(
+    ((select result from success_ingest) ->> 'caseId')::uuid,
+    ((select result from success_ingest) ->> 'messageId')::uuid,
+    ((select result from success_ingest) -> 'attachments' -> 0 ->> 'attachmentId')::uuid,
+    'pdf'
+  ),
   'A failed byte delete leaves quarantine metadata intact'
 );
 select is(
@@ -345,7 +466,7 @@ where status = 'delete_failed';
 
 create temporary table retry_cleanup_run as
 select public.service_claim_refund_gmail_retention_run(
-  'retention_success_retry_1', 'retention', true, 'refund_gmail_retention_v1'
+  'retention:github-retention:1005:1', 'retention', true, 'refund_gmail_retention_v1'
 ) as result;
 select is(
   (select (result ->> 'claimed')::boolean from retry_cleanup_run),
@@ -430,9 +551,163 @@ select ok(
   'The prior explicit failure remains auditable and points to its known-success reconciliation'
 );
 
+-- Simulate Storage accepting an upload and the worker stopping before it can
+-- settle the upload RPC. No Gmail/provider configuration is present or used.
+create temporary table crash_ingest as
+select public.service_ingest_refund_gmail_message_v2(
+  repeat('d', 64),
+  'retention-crash-thread',
+  'retention-crash-message',
+  '<retention-crash-message@example.test>',
+  null,
+  'inbound',
+  false,
+  'retention-crash-customer@example.test',
+  'Synthetic Customer',
+  'info@bloomjoysweets.com',
+  'Synthetic accepted upload crash',
+  'Synthetic accepted-before-settle fixture.',
+  false,
+  clock_timestamp(),
+  null,
+  jsonb_build_array(jsonb_build_object(
+    'providerAttachmentId', 'retention-crash-attachment',
+    'fileName', 'synthetic-crash.pdf',
+    'contentType', 'application/pdf',
+    'byteSize', 192,
+    'disposition', 'attachment',
+    'allowed', true,
+    'rejectionCode', null
+  )),
+  '{}'::text[],
+  array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+  'direct_human',
+  false,
+  false,
+  '{}'::text[]
+) as result;
+create temporary table crash_upload_intent as
+select public.service_reserve_refund_gmail_attachment_upload(
+  ((select result from crash_ingest) -> 'attachments' -> 0 ->> 'attachmentId')::uuid
+) as result;
+select is(
+  current_setting('app.refund_gmail_provider_config', true),
+  null,
+  'Accepted-upload crash recovery fixture has no Gmail configuration'
+);
+select is(
+  (
+    select status
+    from public.refund_gmail_quarantine_upload_intents
+    where id = ((select result from crash_upload_intent) ->> 'intentId')::uuid
+  ),
+  'reserved',
+  'A crash before upload settlement leaves a durable tokenized intent'
+);
+
+alter table public.refund_gmail_messages disable trigger refund_gmail_messages_preserve_copied_at;
+alter table public.refund_gmail_attachments disable trigger refund_gmail_attachments_preserve_copied_at;
+update public.refund_gmail_messages
+set copied_at = clock_timestamp() - interval '181 days'
+where provider_message_id = 'retention-crash-message';
+update public.refund_gmail_attachments
+set copied_at = clock_timestamp() - interval '181 days'
+where provider_attachment_id = 'retention-crash-attachment';
+alter table public.refund_gmail_messages enable trigger refund_gmail_messages_preserve_copied_at;
+alter table public.refund_gmail_attachments enable trigger refund_gmail_attachments_preserve_copied_at;
+
+create temporary table crash_cleanup_run as
+select public.service_claim_refund_gmail_retention_run(
+  'retention:github-retention:1010:1', 'retention', true, 'refund_gmail_retention_v1'
+) as result;
+create temporary table crash_delete_claim as
+select public.service_claim_refund_gmail_retention_attachment(
+  ((select result from crash_cleanup_run) ->> 'runId')::uuid,
+  ((select result from crash_cleanup_run) ->> 'claimToken')::uuid
+) as result;
+select is(
+  (select result ->> 'storagePath' from crash_delete_claim),
+  (select result ->> 'storagePath' from crash_upload_intent),
+  'Retention recovers the exact pre-recorded target without Gmail access'
+);
+select is(
+  public.service_purge_refund_gmail_retention_content(
+    ((select result from crash_cleanup_run) ->> 'runId')::uuid,
+    ((select result from crash_cleanup_run) ->> 'claimToken')::uuid,
+    200
+  ) ->> 'status',
+  'purged',
+  'Per-message purge completes while the crash-held message remains protected'
+);
+select ok(
+  exists (
+    select 1
+    from public.refund_gmail_messages
+    where id = ((select result from crash_ingest) ->> 'messageId')::uuid
+      and content_deleted_at is null
+  ),
+  'Crash-held message metadata cannot purge before exact byte deletion settles'
+);
+select is(
+  public.service_settle_refund_gmail_retention_attachment(
+    ((select result from crash_delete_claim) ->> 'actionId')::uuid,
+    ((select result from crash_delete_claim) ->> 'claimToken')::uuid,
+    'deleted'
+  ) ->> 'status',
+  'deleted',
+  'Exact local-byte deletion settles the crash-held intent'
+);
+select is(
+  (
+    select status
+    from public.refund_gmail_quarantine_upload_intents
+    where id = ((select result from crash_upload_intent) ->> 'intentId')::uuid
+  ),
+  'deleted',
+  'Known byte deletion finalizes the durable upload intent'
+);
+select ok(
+  exists (
+    select 1
+    from public.refund_gmail_quarantine_upload_intents
+    where id = ((select result from crash_upload_intent) ->> 'intentId')::uuid
+      and storage_bucket is null
+      and storage_path is null
+  ),
+  'Intent coordinates clear only after exact local-byte deletion'
+);
+select is(
+  public.service_purge_refund_gmail_retention_content(
+    ((select result from crash_cleanup_run) ->> 'runId')::uuid,
+    ((select result from crash_cleanup_run) ->> 'claimToken')::uuid,
+    200
+  ) ->> 'status',
+  'purged',
+  'Crash-held message becomes purgeable only after byte settlement'
+);
+select ok(
+  exists (
+    select 1
+    from public.refund_gmail_messages
+    where id = ((select result from crash_ingest) ->> 'messageId')::uuid
+      and content_deleted_at is not null
+  ),
+  'Crash-held copied message content purges after its exact byte is settled'
+);
+select is(
+  public.service_settle_refund_gmail_retention_run(
+    ((select result from crash_cleanup_run) ->> 'runId')::uuid,
+    ((select result from crash_cleanup_run) ->> 'claimToken')::uuid,
+    'succeeded',
+    null
+  ) ->> 'status',
+  'succeeded',
+  'Provider-independent crash recovery can complete healthy'
+);
+
 create temporary table healthy_cleanup_run as
 select public.service_claim_refund_gmail_retention_run(
-  'retention_success_health_1', 'retention', true, 'refund_gmail_retention_v1'
+  'retention:github-retention:1006:1', 'retention', true, 'refund_gmail_retention_v1'
 ) as result;
 select is(
   public.service_purge_refund_gmail_retention_content(
@@ -472,14 +747,14 @@ select is(
 select is(
   (
     public.service_claim_refund_gmail_retention_run(
-      'retention_success_health_1', 'retention', true, 'refund_gmail_retention_v1'
+      'retention:github-retention:1006:1', 'retention', true, 'refund_gmail_retention_v1'
     ) ->> 'claimed'
   )::boolean,
   false,
   'A completed scheduler key replays without another cleanup'
 );
 select is(
-  (select count(*)::integer from public.refund_gmail_retention_runs where run_key = 'retention_success_health_1'),
+  (select count(*)::integer from public.refund_gmail_retention_runs where run_key = 'retention:github-retention:1006:1'),
   1,
   'Completed replay retains exactly one run row'
 );
@@ -528,27 +803,94 @@ select public.service_ingest_refund_gmail_message_v2(
   false,
   '{}'::text[]
 ) as result;
-select public.service_mark_refund_gmail_attachment(
-  ((select result from unknown_ingest) -> 'attachments' -> 0 ->> 'attachmentId')::uuid,
-  'quarantined',
-  'refund-gmail-quarantine',
-  'synthetic/unknown/object.pdf',
-  'malware_scan_pending'
+create temporary table unknown_upload_intent as
+select public.service_reserve_refund_gmail_attachment_upload(
+  ((select result from unknown_ingest) -> 'attachments' -> 0 ->> 'attachmentId')::uuid
+) as result;
+select is(
+  public.service_settle_refund_gmail_attachment_upload(
+    ((select result from unknown_upload_intent) ->> 'intentId')::uuid,
+    ((select result from unknown_upload_intent) ->> 'claimToken')::uuid,
+    'uploaded'
+  ) ->> 'status',
+  'uploaded',
+  'The isolation fixture starts with one exact quarantined object'
+);
+
+create temporary table storage_free_ingest as
+select public.service_ingest_refund_gmail_message_v2(
+  repeat('d', 64),
+  'retention-storage-free-thread',
+  'retention-storage-free-message',
+  '<retention-storage-free-message@example.test>',
+  null,
+  'inbound',
+  false,
+  'retention-storage-free-customer@example.test',
+  'Synthetic Customer',
+  'info@bloomjoysweets.com',
+  'Synthetic storage-free retention request',
+  'Synthetic unrelated storage-free fixture.',
+  false,
+  clock_timestamp(),
+  null,
+  jsonb_build_array(jsonb_build_object(
+    'providerAttachmentId', 'retention-storage-free-attachment',
+    'fileName', 'synthetic-rejected.txt',
+    'contentType', 'text/plain',
+    'byteSize', 64,
+    'disposition', 'attachment',
+    'allowed', false,
+    'rejectionCode', 'attachment_type_rejected'
+  )),
+  '{}'::text[],
+  array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+  'direct_human',
+  false,
+  false,
+  '{}'::text[]
+) as result;
+select ok(
+  public.service_record_refund_gmail_attachment_not_uploaded(
+    ((select result from storage_free_ingest) -> 'attachments' -> 0 ->> 'attachmentId')::uuid,
+    'rejected',
+    'attachment_type_rejected'
+  ),
+  'The unrelated rejected attachment is provably storage-free'
+);
+select is(
+  (
+    select count(*)::integer
+    from public.refund_gmail_quarantine_upload_intents
+    where gmail_attachment_id =
+      ((select result from storage_free_ingest) -> 'attachments' -> 0 ->> 'attachmentId')::uuid
+  ),
+  0,
+  'Known-not-uploaded evidence has no Storage intent or coordinates'
+);
+
+select ok(
+  not public.service_record_refund_gmail_attachment_not_uploaded(
+    ((select result from unknown_ingest) -> 'attachments' -> 0 ->> 'attachmentId')::uuid,
+    'error',
+    'attachment_quarantine_failed'
+  ),
+  'The storage-free marker cannot clear or rewrite an existing upload intent'
 );
 alter table public.refund_gmail_messages disable trigger refund_gmail_messages_preserve_copied_at;
 alter table public.refund_gmail_attachments disable trigger refund_gmail_attachments_preserve_copied_at;
 update public.refund_gmail_messages
 set copied_at = clock_timestamp() - interval '181 days'
-where provider_message_id = 'retention-unknown-message';
+where provider_message_id in ('retention-unknown-message', 'retention-storage-free-message');
 update public.refund_gmail_attachments
 set copied_at = clock_timestamp() - interval '181 days'
-where provider_attachment_id = 'retention-unknown-attachment';
+where provider_attachment_id in ('retention-unknown-attachment', 'retention-storage-free-attachment');
 alter table public.refund_gmail_messages enable trigger refund_gmail_messages_preserve_copied_at;
 alter table public.refund_gmail_attachments enable trigger refund_gmail_attachments_preserve_copied_at;
 
 create temporary table unknown_cleanup_run as
 select public.service_claim_refund_gmail_retention_run(
-  'retention_unknown_first_1', 'retention', true, 'refund_gmail_retention_v1'
+  'retention:github-retention:1007:1', 'retention', true, 'refund_gmail_retention_v1'
 ) as result;
 create temporary table unknown_delete_claim as
 select public.service_claim_refund_gmail_retention_attachment(
@@ -570,7 +912,7 @@ select is(
     from public.refund_gmail_attachments
     where provider_attachment_id = 'retention-unknown-attachment'
   ),
-  'synthetic/unknown/object.pdf',
+  (select result ->> 'storagePath' from unknown_upload_intent),
   'Unknown deletion never finalizes object metadata'
 );
 select is(
@@ -579,8 +921,36 @@ select is(
     ((select result from unknown_cleanup_run) ->> 'claimToken')::uuid,
     200
   ) ->> 'status',
-  'attachment_cleanup_incomplete',
-  'Unknown attachment outcome blocks message-content purge'
+  'purged',
+  'An unknown attachment does not block unrelated safe purge work'
+);
+select ok(
+  exists (
+    select 1
+    from public.refund_gmail_attachments attachment
+    join public.refund_gmail_messages message
+      on message.id = attachment.gmail_message_id
+    where attachment.id =
+        ((select result from unknown_ingest) -> 'attachments' -> 0 ->> 'attachmentId')::uuid
+      and attachment.deleted_at is null
+      and attachment.storage_path = (select result ->> 'storagePath' from unknown_upload_intent)
+      and message.content_deleted_at is null
+  ),
+  'The unknown object preserves only its own attachment and message metadata'
+);
+select ok(
+  exists (
+    select 1
+    from public.refund_gmail_attachments attachment
+    join public.refund_gmail_messages message
+      on message.id = attachment.gmail_message_id
+    where attachment.id =
+        ((select result from storage_free_ingest) -> 'attachments' -> 0 ->> 'attachmentId')::uuid
+      and attachment.deleted_at is not null
+      and message.content_deleted_at is not null
+      and message.provider_message_id is null
+  ),
+  'The unrelated due storage-free attachment and message purge in the same run'
 );
 select is(
   public.service_settle_refund_gmail_retention_run(
@@ -612,7 +982,7 @@ select is(
 
 create temporary table later_cleanup_run as
 select public.service_claim_refund_gmail_retention_run(
-  'retention_unknown_later_1', 'retention', true, 'refund_gmail_retention_v1'
+  'retention:github-retention:1008:1', 'retention', true, 'refund_gmail_retention_v1'
 ) as result;
 select is(
   (
