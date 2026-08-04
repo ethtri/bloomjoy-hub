@@ -1,19 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 
-const args = process.argv.slice(2);
-let evidenceDirectory = (process.env.REFUND_GMAIL_EVIDENCE_DIR ?? '').trim() || null;
-for (let index = 0; index < args.length; index += 1) {
-  if (args[index] !== '--evidence-dir') {
-    throw new Error(`Unknown argument: ${args[index]}`);
-  }
-  const requestedDirectory = args[index + 1]?.trim();
-  if (!requestedDirectory || requestedDirectory.startsWith('--')) {
-    throw new Error('--evidence-dir requires an artifact directory.');
-  }
-  evidenceDirectory = requestedDirectory;
-  index += 1;
-}
+assert.equal(
+  process.argv.length,
+  2,
+  'Static Gmail validation does not write evidence; use npm run refunds:evidence-gmail.',
+);
 
 const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8');
 
@@ -38,6 +30,8 @@ const [
   preflight,
   transportTest,
   firstContactCcTest,
+  evidenceHarness,
+  packageJson,
 ] =
   await Promise.all([
     read('supabase/migrations/202607210006_refund_gmail_thread_linkage.sql'),
@@ -60,6 +54,8 @@ const [
     read('scripts/refunds/refund-gmail-preflight.mjs'),
     read('supabase/functions/_shared/refund-gmail-transport.test.ts'),
     read('supabase/tests/refund_gmail_first_contact_manager_cc.sql'),
+    read('scripts/refunds/generate-refund-gmail-evidence.ts'),
+    read('package.json'),
   ]);
 
 const requiredTables = [
@@ -757,6 +753,71 @@ assert(
     firstContactCcTest.includes('exactly one case, thread, acknowledgement operation, and sent outbound message'),
   'The database fixture must prove one two-manager first contact and no replay or later-reply duplicate',
 );
+assert(
+  packageJson.includes('"refunds:evidence-gmail"') &&
+    packageJson.includes('generate-refund-gmail-evidence.ts') &&
+    packageJson.includes('--allow-write') &&
+    evidenceHarness.includes('refund-gmail-kill-fragment.json') &&
+    !evidenceHarness.includes('refund-kill-switches.json'),
+  'Evidence generation must use the dedicated executable Deno harness',
+);
+const executableFirstContactHarness = evidenceHarness.slice(
+  evidenceHarness.indexOf('const runFirstContactMimeAssertions'),
+  evidenceHarness.indexOf('const collectStringValues'),
+);
+assert(
+  executableFirstContactHarness.includes('service_claim_refund_gmail_first_contact') &&
+    executableFirstContactHarness.includes('service_prepare_refund_gmail_first_contact_delivery') &&
+    executableFirstContactHarness.includes('service_finish_refund_gmail_first_contact') &&
+    !executableFirstContactHarness.includes('service_claim_refund_gmail_outbound_v3') &&
+    executableFirstContactHarness.includes('FIRST_CONTACT_FIXTURE.providerThreadId') &&
+    evidenceHarness.includes('assertSqlFixtureAlignment') &&
+    executableFirstContactHarness.includes('operation_already_exists') &&
+    executableFirstContactHarness.includes('later_thread_message'),
+  'The executable MIME harness must correlate one SQL-aligned first-contact claim, prepare, send, finalize, replay, and later reply',
+);
+assert(
+  evidenceHarness.includes('managerCcCount: ccRecipients.length') &&
+    evidenceHarness.includes('replyHeadersPresent,') &&
+    evidenceHarness.includes('automaticHeadersPresent,') &&
+    evidenceHarness.includes('internalLinkCount,') &&
+    evidenceHarness.includes('providerSendCount,') &&
+    evidenceHarness.includes('duplicateMessageCount,') &&
+    evidenceHarness.includes('assertEquals(providerSendCount, 1)') &&
+    evidenceHarness.includes('assertEquals(duplicateMessageCount, 0)'),
+  'The MIME artifact must report measured recipient, reply-header, automatic-header, source-thread, link, provider-send, and duplicate outcomes',
+);
+assert(
+  evidenceHarness.includes('deliveryClaimCount += 1') &&
+    evidenceHarness.includes('firstContactClaimCount += 1') &&
+    evidenceHarness.includes('providerFetchCount += 1') &&
+    evidenceHarness.includes('providerSendCount += 1') &&
+    evidenceHarness.includes('assertEquals(deliveryClaimCount, 0)') &&
+    evidenceHarness.includes('assertEquals(firstContactClaimCount, 0)') &&
+    evidenceHarness.includes('assertEquals(providerFetchCount, 0)') &&
+    evidenceHarness.includes('managerAging: false') &&
+    evidenceHarness.includes('requiresIntegrationAggregation: true') &&
+    !evidenceHarness.includes('intakeAvailable: true') &&
+    !evidenceHarness.includes('portalAvailable: true'),
+  'Kill-switch evidence must use executable counters and declare aging/intake/portal as integration-only coverage',
+);
+const evidenceAssertionCall = evidenceHarness.indexOf('await runRefundGmailEvidenceHarness();');
+const firstEvidenceWrite = evidenceHarness.indexOf('await Deno.writeTextFile(');
+const evidenceSanitization = evidenceHarness.indexOf(
+  'assertEvidenceIsSanitized(mimeRoleAssertions);',
+);
+const passedMarker = evidenceHarness.indexOf(
+  'mimeRoleEvidence: { ...mimeRoleAssertions, passed: true }',
+);
+assert(
+  evidenceAssertionCall >= 0 &&
+    firstEvidenceWrite > evidenceAssertionCall &&
+    evidenceHarness.includes('assertEvidenceIsSanitized(killSwitchAssertions)') &&
+    evidenceSanitization >= 0 &&
+    passedMarker > evidenceSanitization &&
+    evidenceHarness.includes('{ createNew: true }'),
+  'No Gmail evidence file may be written until every executable and sanitization assertion passes',
+);
 assert(sendFunction.includes('dispatchRefundCaseGmailReply'), 'Manual portal replies must use linked Gmail threads');
 assert(adminUpdate.includes('dispatchRefundCaseGmailReply'), 'Status-action replies must use linked Gmail threads');
 assert(
@@ -1039,72 +1100,5 @@ assert(
     !sendFunction.includes('sendRefundManagerActionNotice'),
   'Completion and ordinary customer-message paths must not emit a duplicate manager-only completion notice',
 );
-
-if (evidenceDirectory) {
-  const mimeRoleEvidence = {
-    schemaVersion: 1,
-    evidenceType: 'gmail_mime_roles',
-    evidenceMode: 'synthetic_unit_tests',
-    passed: true,
-    roleCounts: {
-      customerTo: 1,
-      managerCc: 2,
-      mailboxTo: 0,
-      unrelatedTo: 0,
-      unrelatedCc: 0,
-    },
-    sourceThreadPinned: true,
-    duplicateMessageCount: 0,
-  };
-  const killSwitchEvidence = {
-    schemaVersion: 1,
-    evidenceType: 'kill_switches',
-    evidenceMode: 'synthetic_fake_transport',
-    passed: true,
-    switches: {
-      gmailOutbound: {
-        disabled: true,
-        deliveryClaimCount: 0,
-        providerFetchCount: 0,
-        providerSendCount: 0,
-      },
-      customerContact: {
-        disabled: true,
-        deliveryClaimCount: 0,
-        providerFetchCount: 0,
-        providerSendCount: 0,
-      },
-      managerAging: {
-        disabled: true,
-        deliveryClaimCount: 0,
-        providerFetchCount: 0,
-        providerSendCount: 0,
-      },
-    },
-    intakeAvailable: true,
-    portalAvailable: true,
-  };
-  const serializedEvidence = JSON.stringify([mimeRoleEvidence, killSwitchEvidence]);
-  assert(!serializedEvidence.includes('@'), 'Gmail evidence must not contain addresses');
-  assert(!/https?:\/\//i.test(serializedEvidence), 'Gmail evidence must not contain URLs');
-  assert(
-    !/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i.test(serializedEvidence),
-    'Gmail evidence must not contain UUIDs',
-  );
-  assert(!/\b\d{12,19}\b/.test(serializedEvidence), 'Gmail evidence must not contain payment-like digits');
-  assert(Buffer.byteLength(serializedEvidence, 'utf8') < 16 * 1024, 'Gmail evidence must remain below 16 KiB');
-  await mkdir(evidenceDirectory, { recursive: true });
-  await writeFile(
-    `${evidenceDirectory}/refund-gmail-mime-roles.json`,
-    `${JSON.stringify(mimeRoleEvidence, null, 2)}\n`,
-    'utf8',
-  );
-  await writeFile(
-    `${evidenceDirectory}/refund-kill-switches.json`,
-    `${JSON.stringify(killSwitchEvidence, null, 2)}\n`,
-    'utf8',
-  );
-  console.log('Wrote sanitized refund-gmail-mime-roles.json and refund-kill-switches.json.');
-}
 
 console.log('Refund Gmail validation passed: default-off zero-call transport shutdown, label-only intake, idempotent exactly-once first contact, participant-safe original threading, current mapped-manager CC, deterministic follow-ups, bounce recovery, quarantine, retention, health, and least-privilege boundaries are present.');
