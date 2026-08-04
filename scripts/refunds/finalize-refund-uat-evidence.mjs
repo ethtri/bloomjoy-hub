@@ -7,6 +7,10 @@ import {
   EXPECTED_MACHINE_READABLE_ARTIFACTS,
   validateMachineReadableEvidence,
 } from './refund-uat-evidence.mjs';
+import {
+  EVIDENCE_PRODUCERS_BY_FILENAME,
+  verifyAuthenticatedEvidenceFragment,
+} from './refund-uat-fragment-provenance.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const MAX_FRAGMENT_BYTES = 16 * 1024;
@@ -181,7 +185,12 @@ export function composeKillSwitchEvidence({ gmail, managerAging, portal }) {
 }
 
 export function parseFinalizeArgs(argv) {
-  const args = { fragmentDir: '', artifactDir: '', freshAfter: '', help: false };
+  const args = {
+    fragmentDir: '',
+    artifactDir: '',
+    freshAfter: '',
+    help: false,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     const next = argv[index + 1];
@@ -206,7 +215,10 @@ export function parseFinalizeArgs(argv) {
     }
     throw new Error(`Unknown or incomplete argument: ${arg}`);
   }
-  if (!args.help && (!args.fragmentDir || !args.artifactDir || !args.freshAfter)) {
+  if (
+    !args.help &&
+    (!args.fragmentDir || !args.artifactDir || !args.freshAfter)
+  ) {
     throw new Error('--fragment-dir, --artifact-dir, and --fresh-after are required.');
   }
   args.fragmentDir = args.fragmentDir ? path.resolve(process.cwd(), args.fragmentDir) : '';
@@ -241,7 +253,12 @@ const readCanonicalFragment = async (fragmentDir, name, freshAfterMs) => {
   return payload;
 };
 
-export async function finalizeRefundUatEvidence({ fragmentDir, artifactDir, freshAfter }) {
+export async function finalizeRefundUatEvidence({
+  fragmentDir,
+  artifactDir,
+  freshAfter,
+  runToken,
+}) {
   const freshAfterMs = Date.parse(freshAfter);
   if (!Number.isFinite(freshAfterMs)) {
     throw new Error('Evidence freshness boundary must be a valid ISO timestamp.');
@@ -260,13 +277,34 @@ export async function finalizeRefundUatEvidence({ fragmentDir, artifactDir, fres
     throw new Error('Fragment directory must contain exactly the six reviewed evidence inputs.');
   }
 
-  const fragments = Object.fromEntries(
+  const envelopes = Object.fromEntries(
     await Promise.all(
       EXPECTED_FRAGMENT_ARTIFACTS.map(async (name) => [
         name,
         await readCanonicalFragment(fragmentDir, name, freshAfterMs),
       ])
     )
+  );
+  const observedProducers = Object.values(envelopes).map((fragment) => fragment?.producer);
+  const expectedProducers = EXPECTED_FRAGMENT_ARTIFACTS.map(
+    (name) => EVIDENCE_PRODUCERS_BY_FILENAME[name]
+  );
+  if (
+    new Set(observedProducers).size !== EXPECTED_FRAGMENT_ARTIFACTS.length ||
+    JSON.stringify([...observedProducers].sort()) !== JSON.stringify([...expectedProducers].sort())
+  ) {
+    throw new Error('Evidence fragments must come from the six distinct reviewed producers.');
+  }
+  const fragments = Object.fromEntries(
+    EXPECTED_FRAGMENT_ARTIFACTS.map((name) => [
+      name,
+      verifyAuthenticatedEvidenceFragment({
+        filename: name,
+        fragment: envelopes[name],
+        runToken,
+        freshAfter,
+      }),
+    ])
   );
   validateMachineReadableEvidence(
     'refund-portal-assertions.json',
@@ -340,7 +378,10 @@ async function run() {
     printHelp();
     return;
   }
-  const finalArtifacts = await finalizeRefundUatEvidence(args);
+  const finalArtifacts = await finalizeRefundUatEvidence({
+    ...args,
+    runToken: process.env.REFUND_UAT_EVIDENCE_RUN_TOKEN ?? '',
+  });
   console.log(`Finalized ${Object.keys(finalArtifacts).length} strict Refund UAT JSON artifacts.`);
 }
 

@@ -2,6 +2,10 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 export const RUN_TOKEN_PATTERN = /^[a-f0-9]{64}$/;
 
+// The per-run token prevents accidental or stale fragment reuse across CI runs.
+// It is not a trust boundary against code in the same pull request, which can
+// execute in the job and read the environment-owned token.
+
 export const EVIDENCE_PRODUCERS_BY_FILENAME = Object.freeze({
   'refund-portal-assertions.json': 'refund-portal-uat',
   'refund-database-counts.json': 'refund-database-validation',
@@ -64,7 +68,11 @@ export function createAuthenticatedEvidenceFragment({
   const producer = EVIDENCE_PRODUCERS_BY_FILENAME[filename];
   if (!producer) throw new Error('Evidence filename is not in the reviewed producer registry.');
   if (!isPlainObject(evidence)) throw new Error('Evidence payload must be an object.');
-  if (!Number.isFinite(Date.parse(generatedAt))) {
+  const generatedAtMs = Date.parse(generatedAt);
+  if (
+    !Number.isFinite(generatedAtMs) ||
+    new Date(generatedAtMs).toISOString() !== generatedAt
+  ) {
     throw new Error('Evidence generatedAt must be a valid ISO timestamp.');
   }
   const authenticated = { schemaVersion: 1, producer, generatedAt, evidence };
@@ -100,7 +108,11 @@ export function verifyAuthenticatedEvidenceFragment({
   }
   const generatedAtMs = Date.parse(fragment.generatedAt);
   const freshAfterMs = Date.parse(freshAfter);
-  if (!Number.isFinite(generatedAtMs) || !Number.isFinite(freshAfterMs)) {
+  if (
+    !Number.isFinite(generatedAtMs) ||
+    new Date(generatedAtMs).toISOString() !== fragment.generatedAt ||
+    !Number.isFinite(freshAfterMs)
+  ) {
     throw new Error(`${filename} authenticated timestamps are invalid.`);
   }
   if (generatedAtMs < freshAfterMs) {

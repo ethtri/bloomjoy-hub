@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { deflateSync } from 'node:zlib';
 import {
   EXPECTED_MACHINE_READABLE_ARTIFACTS,
   EXPECTED_SCREENSHOTS,
@@ -19,6 +20,10 @@ import {
   validateManagerAgingKillFragment,
 } from './finalize-refund-uat-evidence.mjs';
 import {
+  createAuthenticatedEvidenceFragment,
+  verifyAuthenticatedEvidenceFragment,
+} from './refund-uat-fragment-provenance.mjs';
+import {
   DATABASE_EVIDENCE_FILENAME,
   buildDatabaseEvidence,
   getDatabaseEvidenceExpectations,
@@ -27,14 +32,68 @@ import {
   writeDatabaseEvidence,
 } from '../validate-supabase-migrations.mjs';
 
-const PNG_FIXTURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const PNG_CRC_TABLE = Array.from({ length: 256 }, (_, index) => {
+  let value = index;
+  for (let bit = 0; bit < 8; bit += 1) {
+    value = (value & 1) !== 0 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+  }
+  return value >>> 0;
+});
+const pngCrc32 = (buffer) => {
+  let crc = 0xffffffff;
+  for (const byte of buffer) crc = PNG_CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+};
+const pngChunk = (type, data) => {
+  const typeBytes = Buffer.from(type, 'ascii');
+  const chunk = Buffer.alloc(12 + data.length);
+  chunk.writeUInt32BE(data.length, 0);
+  typeBytes.copy(chunk, 4);
+  data.copy(chunk, 8);
+  chunk.writeUInt32BE(pngCrc32(Buffer.concat([typeBytes, data])), 8 + data.length);
+  return chunk;
+};
+const buildPngFixture = (seed, ancillaryText = '', filterByte = 0) => {
+  const width = 320;
+  const height = 240;
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  const raw = Buffer.alloc((width * 3 + 1) * height);
+  let state = (seed * 0x9e3779b1) >>> 0;
+  for (let row = 0; row < height; row += 1) {
+    const rowStart = row * (width * 3 + 1);
+    raw[rowStart] = filterByte;
+    for (let offset = rowStart + 1; offset < rowStart + width * 3 + 1; offset += 1) {
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      raw[offset] = state & 0xff;
+    }
+  }
+  return Buffer.concat([
+    PNG_SIGNATURE,
+    pngChunk('IHDR', ihdr),
+    ...(ancillaryText ? [pngChunk('tEXt', Buffer.from(`Comment\0${ancillaryText}`))] : []),
+    pngChunk('IDAT', deflateSync(raw)),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+};
 const sourceCommit = 'a'.repeat(40);
 const freshAfter = '2026-07-21T00:00:00.000Z';
 const generatedAt = '2026-07-22T00:00:00.000Z';
+const runToken = 'a'.repeat(64);
+const alternateRunToken = 'b'.repeat(64);
 const tempDir = await mkdtemp(path.join(os.tmpdir(), 'refund-uat-evidence-'));
 const fragmentDir = path.join(tempDir, 'fragments');
 const artifactDir = path.join(tempDir, 'final');
 const databaseExpectations = getDatabaseEvidenceExpectations();
+const screenshotFixtures = Object.fromEntries(
+  EXPECTED_SCREENSHOTS.map((name, index) => [name, buildPngFixture(index + 1)])
+);
 
 const machineFixtures = {
   'refund-portal-assertions.json': {
@@ -151,7 +210,7 @@ const machineFixtures = {
   },
 };
 
-const fragmentFixtures = {
+const rawFragmentFixtures = {
   'refund-portal-assertions.json': machineFixtures['refund-portal-assertions.json'],
   'refund-database-counts.json': machineFixtures['refund-database-counts.json'],
   'refund-gmail-mime-roles.json': machineFixtures['refund-gmail-mime-roles.json'],
@@ -198,12 +257,38 @@ const fragmentFixtures = {
   'refund-provider-outcomes.json': machineFixtures['refund-provider-outcomes.json'],
 };
 
+const fragmentFixtures = Object.fromEntries(
+  Object.entries(rawFragmentFixtures).map(([filename, evidence]) => [
+    filename,
+    createAuthenticatedEvidenceFragment({
+      filename,
+      evidence,
+      runToken,
+      generatedAt,
+    }),
+  ])
+);
+
 const writeCanonicalJson = (filePath, value) =>
   writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 
 try {
   await mkdir(fragmentDir, { recursive: true });
   await mkdir(artifactDir, { recursive: true });
+  const workflowSource = await readFile(
+    new URL('../../.github/workflows/refund-uat-evidence.yml', import.meta.url),
+    'utf8'
+  );
+  assert.match(workflowSource, /denoland\/setup-deno@v2/);
+  assert.match(workflowSource, /deno-version: v2\.6\.3/);
+  assert.match(workflowSource, /crypto\.randomBytes\(32\)/);
+  assert.match(workflowSource, /::add-mask::/);
+  assert.match(workflowSource, /REFUND_UAT_EVIDENCE_RUN_TOKEN/);
+  assert.doesNotMatch(
+    workflowSource,
+    /--run-token/,
+    'The per-run HMAC token must remain environment-only and masked'
+  );
   assert.equal(EXPECTED_SCREENSHOTS.length, 34, 'Evidence must enumerate all 34 reviewed screenshots');
   assert.deepEqual(
     EXPECTED_MACHINE_READABLE_ARTIFACTS,
@@ -257,17 +342,21 @@ try {
   const databaseWriterDir = path.join(tempDir, 'database-writer');
   const databaseEvidencePath = writeDatabaseEvidence(
     databaseWriterDir,
-    machineFixtures['refund-database-counts.json']
+    machineFixtures['refund-database-counts.json'],
+    runToken,
+    generatedAt
   );
   assert.equal(
-    JSON.parse(await readFile(databaseEvidencePath, 'utf8')).assertionCount,
+    JSON.parse(await readFile(databaseEvidencePath, 'utf8')).evidence.assertionCount,
     machineFixtures['refund-database-counts.json'].assertionCount
   );
   assert.throws(
     () =>
       writeDatabaseEvidence(
         databaseWriterDir,
-        machineFixtures['refund-database-counts.json']
+        machineFixtures['refund-database-counts.json'],
+        runToken,
+        generatedAt
       ),
     /EEXIST/,
     'Database evidence producer refuses to overwrite a prior run fragment'
@@ -297,7 +386,7 @@ try {
   );
 
   for (const name of EXPECTED_SCREENSHOTS) {
-    await writeFile(path.join(artifactDir, name), PNG_FIXTURE);
+    await writeFile(path.join(artifactDir, name), screenshotFixtures[name]);
   }
   for (const [name, payload] of Object.entries(fragmentFixtures)) {
     await writeCanonicalJson(path.join(fragmentDir, name), payload);
@@ -320,7 +409,7 @@ try {
     'Finalization requires explicit isolated directories and a freshness boundary'
   );
   const invalidAgingFragment = {
-    ...fragmentFixtures['refund-manager-aging-kill-fragment.json'],
+    ...rawFragmentFixtures['refund-manager-aging-kill-fragment.json'],
     fetchCallCount: 1,
   };
   assert.throws(
@@ -328,27 +417,110 @@ try {
     /fetch-call count is invalid/,
     'Manager-aging evidence must prove shutdown before its first fetch'
   );
+  const forgedPortalFragment = structuredClone(
+    fragmentFixtures['refund-portal-assertions.json']
+  );
+  forgedPortalFragment.evidence.assertionCount += 1;
+  assert.throws(
+    () =>
+      verifyAuthenticatedEvidenceFragment({
+        filename: 'refund-portal-assertions.json',
+        fragment: forgedPortalFragment,
+        runToken,
+        freshAfter,
+      }),
+    /HMAC does not match/,
+    'Changed evidence cannot reuse a producer HMAC'
+  );
+  assert.throws(
+    () =>
+      verifyAuthenticatedEvidenceFragment({
+        filename: 'refund-portal-assertions.json',
+        fragment: rawFragmentFixtures['refund-portal-assertions.json'],
+        runToken,
+        freshAfter,
+      }),
+    /authenticated envelope contains unsupported or missing fields/,
+    'Fresh hand-written payloads are not accepted without producer provenance'
+  );
+  assert.throws(
+    () =>
+      createAuthenticatedEvidenceFragment({
+        filename: 'refund-portal-assertions.json',
+        evidence: rawFragmentFixtures['refund-portal-assertions.json'],
+        runToken: '',
+        generatedAt,
+      }),
+    /run token/,
+    'Producers fail closed without the environment-owned run token'
+  );
+  const stalePortalFragment = createAuthenticatedEvidenceFragment({
+    filename: 'refund-portal-assertions.json',
+    evidence: rawFragmentFixtures['refund-portal-assertions.json'],
+    runToken,
+    generatedAt: '2026-07-20T23:59:59.000Z',
+  });
+  assert.throws(
+    () =>
+      verifyAuthenticatedEvidenceFragment({
+        filename: 'refund-portal-assertions.json',
+        fragment: stalePortalFragment,
+        runToken,
+        freshAfter,
+      }),
+    /predates this evidence run/,
+    'Authenticated fragments still must be generated after this run started'
+  );
+  assert.throws(
+    () =>
+      verifyAuthenticatedEvidenceFragment({
+        filename: 'refund-portal-assertions.json',
+        fragment: fragmentFixtures['refund-provider-outcomes.json'],
+        runToken,
+        freshAfter,
+      }),
+    /producer is invalid/,
+    'A valid fragment from one producer cannot be substituted for another filename'
+  );
+  const mixedRunPortalFragment = createAuthenticatedEvidenceFragment({
+    filename: 'refund-portal-assertions.json',
+    evidence: rawFragmentFixtures['refund-portal-assertions.json'],
+    runToken: alternateRunToken,
+    generatedAt,
+  });
+  assert.throws(
+    () =>
+      verifyAuthenticatedEvidenceFragment({
+        filename: 'refund-portal-assertions.json',
+        fragment: mixedRunPortalFragment,
+        runToken,
+        freshAfter,
+      }),
+    /current run/,
+    'Fragments authenticated by another run token cannot be mixed into this run'
+  );
   await assert.rejects(
     finalizeRefundUatEvidence({
       fragmentDir,
       artifactDir,
       freshAfter: '2999-01-01T00:00:00.000Z',
+      runToken,
     }),
     /was not freshly generated/,
     'Finalization rejects producer evidence from before the workflow boundary'
   );
-  const finalized = await finalizeRefundUatEvidence(finalizedArgs);
+  const finalized = await finalizeRefundUatEvidence({ ...finalizedArgs, runToken });
   assert.deepEqual(finalized, machineFixtures);
   assert.deepEqual(
     composeKillSwitchEvidence({
-      gmail: fragmentFixtures['refund-gmail-kill-fragment.json'],
-      managerAging: fragmentFixtures['refund-manager-aging-kill-fragment.json'],
-      portal: fragmentFixtures['refund-portal-assertions.json'],
+      gmail: rawFragmentFixtures['refund-gmail-kill-fragment.json'],
+      managerAging: rawFragmentFixtures['refund-manager-aging-kill-fragment.json'],
+      portal: rawFragmentFixtures['refund-portal-assertions.json'],
     }),
     machineFixtures['refund-kill-switches.json']
   );
   await assert.rejects(
-    finalizeRefundUatEvidence(finalizedArgs),
+    finalizeRefundUatEvidence({ ...finalizedArgs, runToken }),
     /Refusing to overwrite an existing final evidence file/,
     'Finalization uses create-new output semantics'
   );
@@ -385,8 +557,12 @@ try {
     manifest.screenshots.map((screenshot) => screenshot.name),
     EXPECTED_SCREENSHOTS
   );
-  assert.ok(manifest.screenshots.every((screenshot) => screenshot.bytes === PNG_FIXTURE.length));
+  assert.ok(manifest.screenshots.every((screenshot) => screenshot.bytes >= 4 * 1024));
   assert.ok(manifest.screenshots.every((screenshot) => /^[a-f0-9]{64}$/.test(screenshot.sha256)));
+  assert.equal(
+    new Set(manifest.screenshots.map((screenshot) => screenshot.sha256)).size,
+    EXPECTED_SCREENSHOTS.length
+  );
   assert.equal(manifest.machineReadableArtifactCount, EXPECTED_MACHINE_READABLE_ARTIFACTS.length);
   assert.deepEqual(
     manifest.machineReadableArtifacts.map((artifact) => artifact.name),
@@ -407,14 +583,65 @@ try {
     buildEvidence({ artifactDir, output, sourceCommit, generatedAt }),
     /Missing expected synthetic UAT screenshots/
   );
-  await writeFile(path.join(artifactDir, EXPECTED_SCREENSHOTS[0]), Buffer.from('not a png'));
+  await writeFile(path.join(artifactDir, EXPECTED_SCREENSHOTS[0]), PNG_SIGNATURE);
+  await assert.rejects(
+    buildEvidence({ artifactDir, output, sourceCommit, generatedAt }),
+    /too small/,
+    'Signature-only screenshots must fail the minimum-size check'
+  );
+  await writeFile(
+    path.join(artifactDir, EXPECTED_SCREENSHOTS[0]),
+    Buffer.alloc(screenshotFixtures[EXPECTED_SCREENSHOTS[0]].length)
+  );
   await assert.rejects(
     buildEvidence({ artifactDir, output, sourceCommit, generatedAt }),
     /valid PNG signature/
   );
-  await writeFile(path.join(artifactDir, EXPECTED_SCREENSHOTS[0]), PNG_FIXTURE);
+  await writeFile(
+    path.join(artifactDir, EXPECTED_SCREENSHOTS[0]),
+    screenshotFixtures[EXPECTED_SCREENSHOTS[0]].subarray(
+      0,
+      screenshotFixtures[EXPECTED_SCREENSHOTS[0]].length - 6
+    )
+  );
+  await assert.rejects(
+    buildEvidence({ artifactDir, output, sourceCommit, generatedAt }),
+    /truncated PNG chunk/,
+    'Truncated screenshots must fail structural validation'
+  );
+  await writeFile(
+    path.join(artifactDir, EXPECTED_SCREENSHOTS[0]),
+    buildPngFixture(1, '', 5)
+  );
+  await assert.rejects(
+    buildEvidence({ artifactDir, output, sourceCommit, generatedAt }),
+    /invalid PNG scanline filter/,
+    'Invalid PNG scanline filters must fail before pixel comparison'
+  );
+  await writeFile(
+    path.join(artifactDir, EXPECTED_SCREENSHOTS[0]),
+    screenshotFixtures[EXPECTED_SCREENSHOTS[0]]
+  );
+  await writeFile(
+    path.join(artifactDir, EXPECTED_SCREENSHOTS[1]),
+    buildPngFixture(1, 'alternate-metadata')
+  );
+  assert.notDeepEqual(
+    screenshotFixtures[EXPECTED_SCREENSHOTS[0]],
+    buildPngFixture(1, 'alternate-metadata'),
+    'The duplicate-pixel fixture must use a different PNG byte encoding'
+  );
+  await assert.rejects(
+    buildEvidence({ artifactDir, output, sourceCommit, generatedAt }),
+    /distinct decoded pixels/,
+    'Pixel-identical state screenshots must fail even when PNG bytes differ'
+  );
+  await writeFile(
+    path.join(artifactDir, EXPECTED_SCREENSHOTS[1]),
+    screenshotFixtures[EXPECTED_SCREENSHOTS[1]]
+  );
 
-  await writeFile(path.join(artifactDir, 'unreviewed-state.png'), PNG_FIXTURE);
+  await writeFile(path.join(artifactDir, 'unreviewed-state.png'), buildPngFixture(999));
   await assert.rejects(
     buildEvidence({ artifactDir, output, sourceCommit, generatedAt }),
     /Unreviewed UAT screenshots/
@@ -516,6 +743,7 @@ try {
 console.log('Refund UAT evidence validator passed.');
 console.log(`- ${EXPECTED_SCREENSHOTS.length} required synthetic state screenshots`);
 console.log(`- ${EXPECTED_MACHINE_READABLE_ARTIFACTS.length} strict machine-readable artifacts`);
-console.log('- PNG/JSON schema, canonical encoding, and SHA-256 manifest checks');
-console.log('- missing, corrupt, free-text, identity, and provider-ID evidence fails closed');
+console.log('- PNG structure, decoded-pixel uniqueness, JSON schema, and SHA-256 manifest checks');
+console.log('- six masked-run HMAC producer envelopes are verified and stripped before upload');
+console.log('- missing, stale, forged, corrupt, free-text, identity, and provider-ID evidence fails closed');
 console.log('- manifest excludes production and identity data');

@@ -1,11 +1,27 @@
 import { runRefundManagerAgingWhenEnabled } from "../../supabase/functions/_shared/refund-manager-aging.ts";
+import { createAuthenticatedEvidenceFragment } from "./refund-uat-fragment-provenance.mjs";
 
 const OUTPUT_FILENAME = "refund-manager-aging-kill-fragment.json";
 
-if (Deno.args.length !== 2 || Deno.args[0] !== "--output") {
-  throw new Error(`Usage: --output <evidence-directory>/${OUTPUT_FILENAME}`);
+let outputPath = "";
+for (let index = 0; index < Deno.args.length; index += 1) {
+  const arg = Deno.args[index];
+  const next = Deno.args[index + 1]?.trim() ?? "";
+  if (arg === "--output" && next) {
+    outputPath = next;
+    index += 1;
+    continue;
+  }
+  throw new Error(
+    `Usage: --output <evidence-directory>/${OUTPUT_FILENAME}`,
+  );
 }
-const outputPath = Deno.args[1].trim();
+if (!outputPath) {
+  throw new Error(
+    `Usage: --output <evidence-directory>/${OUTPUT_FILENAME}`,
+  );
+}
+const runToken = Deno.env.get("REFUND_UAT_EVIDENCE_RUN_TOKEN") ?? "";
 const normalizedOutputPath = outputPath.replaceAll("\\", "/");
 if (
   !outputPath ||
@@ -25,12 +41,12 @@ const outputDirectory = outputSeparatorIndex >= 0
 const rawEnabled = (Deno.env.get("REFUND_MANAGER_AGING_NOTICES_ENABLED") ?? "")
   .trim()
   .toLowerCase();
+const managerAgingEnabled = rawEnabled === "true";
 if (rawEnabled !== "false") {
   throw new Error(
     "Manager-aging kill evidence requires REFUND_MANAGER_AGING_NOTICES_ENABLED=false.",
   );
 }
-const managerAgingEnabled = rawEnabled === "true";
 
 const calls = {
   fetchCallCount: 0,
@@ -62,11 +78,16 @@ const fragment = {
   disabled: true,
   ...calls,
 };
+const authenticatedFragment = createAuthenticatedEvidenceFragment({
+  filename: OUTPUT_FILENAME,
+  evidence: fragment,
+  runToken,
+});
 
 await Deno.mkdir(outputDirectory, { recursive: true });
 await Deno.writeTextFile(
   outputPath,
-  `${JSON.stringify(fragment, null, 2)}\n`,
+  `${JSON.stringify(authenticatedFragment, null, 2)}\n`,
   { createNew: true },
 );
 console.log(`Wrote sanitized ${OUTPUT_FILENAME}.`);

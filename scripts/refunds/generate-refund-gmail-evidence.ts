@@ -19,6 +19,7 @@ import {
   sendRefundGmailReply,
 } from "../../supabase/functions/_shared/refund-gmail.ts";
 import { requireRefundCustomerManagerCcResolution } from "../../supabase/functions/_shared/refund-gmail-transport.ts";
+import { createAuthenticatedEvidenceFragment } from "./refund-uat-fragment-provenance.mjs";
 
 const SYNTHETIC_ENV = {
   GMAIL_SUPPORT_CLIENT_ID: "synthetic-client-id",
@@ -703,15 +704,23 @@ const assertEvidenceIsSanitized = (evidence: unknown) => {
   );
 };
 
-const parseEvidenceDirectory = () => {
-  if (Deno.args.length === 0) return null;
-  if (
-    Deno.args.length !== 2 || Deno.args[0] !== "--evidence-dir" ||
-    !Deno.args[1]?.trim()
-  ) {
-    throw new Error("Usage: --evidence-dir <artifact-directory>");
+const parseEvidenceOptions = () => {
+  if (Deno.args.length === 0) {
+    return { evidenceDirectory: null };
   }
-  return Deno.args[1].trim();
+  let evidenceDirectory = "";
+  for (let index = 0; index < Deno.args.length; index += 1) {
+    const arg = Deno.args[index];
+    const next = Deno.args[index + 1]?.trim() ?? "";
+    if (arg === "--evidence-dir" && next) {
+      evidenceDirectory = next;
+      index += 1;
+      continue;
+    }
+    throw new Error("Usage: --evidence-dir <fragment-directory>");
+  }
+  if (!evidenceDirectory) throw new Error("Usage: --evidence-dir <fragment-directory>");
+  return { evidenceDirectory };
 };
 
 const requireFreshEvidenceTargets = async (paths: string[]) => {
@@ -740,10 +749,11 @@ export const runRefundGmailEvidenceHarness = async () => {
 };
 
 if (import.meta.main) {
-  const evidenceDirectory = parseEvidenceDirectory();
+  const { evidenceDirectory } = parseEvidenceOptions();
   const { killSwitchEvidence, mimeRoleEvidence } =
     await runRefundGmailEvidenceHarness();
   if (evidenceDirectory) {
+    const runToken = Deno.env.get("REFUND_UAT_EVIDENCE_RUN_TOKEN") ?? "";
     await Deno.mkdir(evidenceDirectory, { recursive: true });
     const mimeEvidencePath = join(
       evidenceDirectory,
@@ -754,14 +764,27 @@ if (import.meta.main) {
       "refund-gmail-kill-fragment.json",
     );
     await requireFreshEvidenceTargets([mimeEvidencePath, killEvidencePath]);
+    const generatedAt = new Date().toISOString();
+    const mimeFragment = createAuthenticatedEvidenceFragment({
+      filename: "refund-gmail-mime-roles.json",
+      evidence: mimeRoleEvidence,
+      runToken,
+      generatedAt,
+    });
+    const killFragment = createAuthenticatedEvidenceFragment({
+      filename: "refund-gmail-kill-fragment.json",
+      evidence: killSwitchEvidence,
+      runToken,
+      generatedAt,
+    });
     await Deno.writeTextFile(
       mimeEvidencePath,
-      `${JSON.stringify(mimeRoleEvidence, null, 2)}\n`,
+      `${JSON.stringify(mimeFragment, null, 2)}\n`,
       { createNew: true },
     );
     await Deno.writeTextFile(
       killEvidencePath,
-      `${JSON.stringify(killSwitchEvidence, null, 2)}\n`,
+      `${JSON.stringify(killFragment, null, 2)}\n`,
       { createNew: true },
     );
     console.log(

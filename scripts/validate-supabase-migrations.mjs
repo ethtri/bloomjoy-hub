@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { createAuthenticatedEvidenceFragment } from './refunds/refund-uat-fragment-provenance.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -198,10 +199,21 @@ export function buildDatabaseEvidence({ migrationCount, discoveredTestFileCount,
   };
 }
 
-export function writeDatabaseEvidence(evidenceDir, evidence) {
+export function writeDatabaseEvidence(
+  evidenceDir,
+  evidence,
+  runToken,
+  generatedAt = new Date().toISOString()
+) {
   fs.mkdirSync(evidenceDir, { recursive: true });
   const evidencePath = path.join(evidenceDir, DATABASE_EVIDENCE_FILENAME);
-  fs.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, {
+  const fragment = createAuthenticatedEvidenceFragment({
+    filename: DATABASE_EVIDENCE_FILENAME,
+    evidence,
+    runToken,
+    generatedAt,
+  });
+  fs.writeFileSync(evidencePath, `${JSON.stringify(fragment, null, 2)}\n`, {
     encoding: 'utf8',
     flag: 'wx',
   });
@@ -371,7 +383,11 @@ async function main() {
     if (!databaseEvidence) {
       throw new Error('Database evidence was not produced by the disposable test run.');
     }
-    const evidencePath = writeDatabaseEvidence(options.evidenceDir, databaseEvidence);
+    const evidencePath = writeDatabaseEvidence(
+      options.evidenceDir,
+      databaseEvidence,
+      process.env.REFUND_UAT_EVIDENCE_RUN_TOKEN ?? ''
+    );
     log(`Sanitized database evidence written: ${evidencePath}`);
   }
 }
