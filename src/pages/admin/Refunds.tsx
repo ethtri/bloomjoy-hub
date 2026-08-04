@@ -516,16 +516,16 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
     return 'Review the Gmail message, then ask for the missing location, purchase time, payment method, and transaction details.';
   }
   if (refundCase.status === 'waiting_on_customer') {
-    return 'Waiting on customer details. Send a quick note if the customer needs another nudge.';
+    return 'Waiting on customer details. The bounded follow-up workflow handles the single approved reminder; review the case if delivery fails or it ages.';
   }
 
   if (refundCase.paymentMethod === 'card' && !refundCase.hasMatchedNayaxTransaction) {
     if (candidates.length > 0) {
-      return 'Review the recommended Nayax sale candidate, confirm the right match, then approve or ask for more information.';
+      return 'Review the recommended Nayax sale candidate and confirm the right match. Keep ambiguous evidence in manager review.';
     }
 
     if (refundCase.correlationStatus === 'no_match') {
-      return 'No card-sale match is recorded. Ask the customer for more detail before deciding.';
+      return 'No card-sale match is recorded. Keep the case in manager review; only the bounded automatic workflow may send confirmed no-safe-match copy.';
     }
 
       return 'The card sale check runs when this case opens. Confirm a candidate before completion.';
@@ -541,7 +541,7 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
     return 'This case is complete. Review history only unless a follow-up note is needed.';
   }
 
-  return 'Review the evidence, choose approve/deny or request more information, then save the case.';
+  return 'Review the evidence and choose an available manager action. Customer questions are available only when a specific structured detail is missing.';
 };
 
 const taskLabel = (refundCase: RefundCaseRecord) => {
@@ -730,7 +730,7 @@ const getFallbackNayaxLookupSummary = (
       providerWindowRecordCount: null,
       candidateCount: candidates.length,
       summary: notice.message,
-      recommendedAction: 'Retry the transaction check or ask the customer for more detail.',
+      recommendedAction: 'Retry the transaction check when the provider is healthy. Keep the case in manager review and do not send provider-failure copy to the customer.',
     };
   }
 
@@ -790,7 +790,7 @@ const getFallbackNayaxLookupSummary = (
       providerWindowRecordCount: null,
       candidateCount: 0,
       summary: 'No matching card sale is selected yet.',
-      recommendedAction: 'Ask the customer for one more detail before deciding.',
+      recommendedAction: 'Keep the case in manager review. Only fresh confirmed no-safe-match evidence may authorize the bounded customer message.',
     };
   }
 
@@ -976,7 +976,7 @@ const transactionMatchSummary = (
     }
 
     if (refundCase.correlationStatus === 'no_match') {
-      return 'No matching card sale is selected yet. Ask the customer for one more detail before deciding.';
+      return 'No matching card sale is selected. Keep the case in manager review; only confirmed no-safe-match evidence may authorize customer contact.';
     }
 
     return 'The card sale check uses the reported machine and time window. A manager confirms the match before completion.';
@@ -987,7 +987,7 @@ const transactionMatchSummary = (
   }
 
   if (refundCase.correlationStatus === 'no_match') {
-    return 'No conservative cash sale match was found. Ask the customer for more detail before refunding.';
+    return 'No conservative cash sale match was found. Keep the case in manager review; the bounded workflow owns any confirmed no-safe-match message.';
   }
 
   return 'Cash transaction review is still in progress.';
@@ -2089,7 +2089,7 @@ export default function AdminRefundsPage() {
           result.recommendedAction ||
           ((result.candidates?.length ?? 0) > 0
             ? 'Confirm the correct card sale before completing the case.'
-            : 'Ask the customer for one more detail before deciding this card case.'),
+            : 'Keep the case in manager review until fresh server evidence authorizes the next step.'),
         recommendationState: result.recommendationState,
         confidenceClass: result.confidenceClass,
         reasonCodes: result.reasonCodes,
@@ -2114,10 +2114,10 @@ export default function AdminRefundsPage() {
         const providerWindowRecordCount = result.providerWindowRecordCount ?? 0;
         const noMatchMessage =
           providerWindowRecordCount > 0
-            ? `Nayax returned ${providerWindowRecordCount} sale records in the +/- 6 hour window, but none produced selectable evidence. Ask the customer for one more detail before deciding.`
+            ? `Nayax returned ${providerWindowRecordCount} sale records in the +/- 6 hour window, but none produced selectable evidence. Keep the case in manager review until fresh server evidence authorizes the next step.`
             : providerRecordCount > 0
-              ? `Nayax returned ${providerRecordCount} recent sale records, but none matched the +/- 6 hour window. Ask the customer for one more detail before deciding.`
-              : 'No Nayax candidates returned for the +/- 6 hour window. Use the customer message section to request more detail.';
+              ? `Nayax returned ${providerRecordCount} recent sale records, but none matched the +/- 6 hour window. Keep the case in manager review until fresh server evidence authorizes the next step.`
+              : 'No Nayax candidates returned for the +/- 6 hour window. Keep the case in manager review; provider state alone cannot authorize customer contact.';
         setNayaxLookupNotice({
           tone: 'info',
           message: result.summary || noMatchMessage,
@@ -2145,12 +2145,12 @@ export default function AdminRefundsPage() {
         windowHours: 6,
         providerWindowRecordCount: null,
         candidateCount: 0,
-        summary: `${message} Keep the case in review or ask the customer for more detail, then try again.`,
-        recommendedAction: 'Retry the transaction check or ask the customer for more detail.',
+        summary: `${message} Keep the case in manager review and retry the transaction check only after the provider path is healthy.`,
+        recommendedAction: 'Do not send correction or success copy based on a provider failure.',
       });
       setNayaxLookupNotice({
         tone: 'error',
-        message: `${message} Keep the case in review or ask the customer for more detail, then try again.`,
+        message: `${message} Keep the case in manager review and retry the transaction check only after the provider path is healthy.`,
       });
       if (!silent) {
         toast.error(message);
@@ -3327,7 +3327,9 @@ export default function AdminRefundsPage() {
                 {selectedCase.correlationSummary ||
                   (cashMatchReady
                     ? 'A conservative cash sale match is linked to this request.'
-                    : 'Ask the customer for the missing purchase details before approving a payout.')}
+                    : canAskForCustomerDetails
+                      ? 'Ask only for the specific structured purchase details that are still missing.'
+                      : 'No structured purchase detail is missing. Keep the case in manager review until the next safe action is confirmed.')}
               </p>
               <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3 text-sm">
                 <p className="text-xs text-slate-400">Manual payment destination</p>

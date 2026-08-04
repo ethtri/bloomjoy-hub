@@ -1723,11 +1723,10 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
       await alternativesPage.getByTestId('refund-cash-primary-action').getByText('Deny request').isVisible()
   );
 
-  await alternativesPage.getByRole('button', { name: 'Ask customer for details', exact: true }).click();
   recorder.assert(
-    'Cash missing-information path previews the appropriate customer email',
-    await alternativesPage.getByText('A quick detail check for your Bloomjoy refund request RF-UAT-CASH-REVIEW').isVisible() &&
-      await alternativesPage.getByTestId('refund-cash-primary-action').getByText('Ask customer for details').isVisible()
+    'Complete cash evidence does not offer a misleading missing-information path',
+    (await alternativesPage.getByRole('button', { name: 'Ask customer for details', exact: true }).count()) === 0 &&
+      (await alternativesPage.getByText('A quick detail check for your Bloomjoy refund request RF-UAT-CASH-REVIEW').count()) === 0
   );
   await alternativesContext.close();
 
@@ -1983,8 +1982,9 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
     await page.getByTestId('nayax-result-card').getByText('Setup needed before Nayax can check this card refund.').first().isVisible()
   );
   recorder.assert(
-    'No-match card case defaults to customer follow-up action',
-    (await page.getByText('Ask customer for details').count()) >= 1
+    'Provider setup state stays manager-only and cannot trigger customer correction copy',
+    (await page.getByText('Manager review required', { exact: true }).count()) >= 1 &&
+      (await page.getByText('Ask customer for details', { exact: true }).count()) === 0
   );
   recorder.assert(
     'Pending Nayax result explains setup state',
@@ -2022,11 +2022,11 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         candidateCount: 0,
         windowHours: 6,
         summary: 'Nayax found 1 sale record in the +/- 6 hour window, but none matched the submitted details closely enough.',
-        recommendedAction: 'Ask the customer for one more detail before deciding this card case.',
+        recommendedAction: 'Keep the case in manager review. Only fresh confirmed no-safe-match evidence may authorize the bounded customer message.',
         candidates: [],
       },
       expectedBadge: 'No match found',
-      expectedAction: 'Ask customer for details',
+      expectedAction: 'Manager review required',
     },
     {
       name: 'multiple candidates',
@@ -2174,11 +2174,11 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         candidateCount: 0,
         windowHours: 6,
         summary: 'Nayax lookup failed. No raw provider details were exposed.',
-        recommendedAction: 'Retry the transaction check or ask the customer for more detail.',
+        recommendedAction: 'Do not send correction or success copy based on a provider failure.',
         candidates: [],
       },
       expectedBadge: 'Lookup failed',
-      expectedAction: 'Ask customer for details',
+      expectedAction: 'Manager review required',
     },
     {
       name: 'wallet manual review',
