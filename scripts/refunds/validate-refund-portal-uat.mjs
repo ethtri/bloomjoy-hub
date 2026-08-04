@@ -1,14 +1,25 @@
 import { chromium } from 'playwright';
-import { mkdir } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
+import {
+  createAuthenticatedEvidenceFragment,
+  requireEvidenceRunToken,
+} from './refund-uat-fragment-provenance.mjs';
 
 const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
-const DEFAULT_ARTIFACT_DIR = 'output/playwright';
+const DEFAULT_EVIDENCE_DIR = 'output/refund-uat-evidence';
+const DEFAULT_FRAGMENT_DIR = 'output/refund-uat-fragments';
+const execFileAsync = promisify(execFile);
 
 const parseArgs = (argv) => {
   const args = {
     appUrl: process.env.REFUND_PORTAL_UAT_APP_URL || DEFAULT_APP_URL,
-    artifactDir: process.env.REFUND_PORTAL_UAT_ARTIFACT_DIR || DEFAULT_ARTIFACT_DIR,
+    artifactDir: process.env.REFUND_PORTAL_UAT_EVIDENCE_DIR ||
+      process.env.REFUND_PORTAL_UAT_ARTIFACT_DIR || DEFAULT_EVIDENCE_DIR,
+    fragmentDir: process.env.REFUND_PORTAL_UAT_FRAGMENT_DIR || DEFAULT_FRAGMENT_DIR,
+    runToken: process.env.REFUND_UAT_EVIDENCE_RUN_TOKEN || '',
     headed: false,
     managerStepUpOnly: false,
   };
@@ -45,11 +56,37 @@ const parseArgs = (argv) => {
 
     if (arg.startsWith('--artifact-dir=')) {
       args.artifactDir = arg.slice('--artifact-dir='.length) || args.artifactDir;
+      continue;
     }
+
+    if (arg === '--evidence-dir') {
+      args.artifactDir = argv[index + 1] || args.artifactDir;
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith('--evidence-dir=')) {
+      args.artifactDir = arg.slice('--evidence-dir='.length) || args.artifactDir;
+      continue;
+    }
+
+    if (arg === '--fragment-dir') {
+      args.fragmentDir = argv[index + 1] || args.fragmentDir;
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith('--fragment-dir=')) {
+      args.fragmentDir = arg.slice('--fragment-dir='.length) || args.fragmentDir;
+      continue;
+    }
+
   }
 
   args.appUrl = args.appUrl.replace(/\/+$/, '');
   args.artifactDir = path.resolve(process.cwd(), args.artifactDir);
+  args.fragmentDir = path.resolve(process.cwd(), args.fragmentDir);
+  if (!args.managerStepUpOnly) requireEvidenceRunToken(args.runToken);
   return args;
 };
 
@@ -621,7 +658,8 @@ const buildCashRefundReviewOverview = () => ({
   ],
 });
 
-const buildPendingNayaxRefundOverview = () => ({
+const buildPendingNayaxRefundOverview = () => {
+  const overview = {
   machines: [
     {
       id: 'machine-unconfigured',
@@ -681,7 +719,17 @@ const buildPendingNayaxRefundOverview = () => ({
       messages: [],
     },
   ],
-});
+  };
+  overview.cases.push({
+    ...overview.cases[0],
+    id: 'case-card-pending-alt',
+    publicReference: 'RF-UAT-PENDING-ALT',
+    customerEmail: 'customer-pending-alt@example.test',
+    customerName: 'Alternate Pending Card Customer',
+    createdAt: isoHoursAgo(5),
+  });
+  return overview;
+};
 
 const buildReviewOnlyRefundOverview = () => {
   const overview = buildMockRefundOverview();
@@ -1235,6 +1283,9 @@ const createRecorder = () => {
     failed() {
       return results.filter((result) => !result.pass);
     },
+    count() {
+      return results.length;
+    },
   };
 };
 
@@ -1293,7 +1344,7 @@ const pathname = (page) => new URL(page.url()).pathname;
 const countLinksByName = async (page, name) =>
   page.getByRole('link', { name }).count();
 
-const runUnauthenticatedChecks = async ({ browser, appUrl, recorder }) => {
+const runUnauthenticatedChecks = async ({ browser, appUrl, recorder, evidence }) => {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
   });
@@ -1306,6 +1357,11 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, recorder }) => {
     pathname(page) === '/login',
     page.url()
   );
+
+  await page.goto(`${appUrl}/refunds/request?demo=on`, { waitUntil: 'domcontentloaded' });
+  evidence.intakeAvailable = await page.getByRole('heading', { name: 'Let us make this right' })
+    .waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
+  recorder.assert('Public refund intake is available', evidence.intakeAvailable);
 
   await context.close();
 };
@@ -1525,7 +1581,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
 
   await page.getByTestId('refund-run-nayax-refund').click();
   await page.getByTestId('refund-confirm-nayax-refund').click();
-  await page.waitForTimeout(400);
+  await page.getByTestId('refund-action-receipt').waitFor({ timeout: 10000 });
 
   const saveBodies = functionBodies.filter((entry) => entry.functionName === 'refund-case-admin-update');
   const lastSaveBody = saveBodies.at(-1)?.body ?? {};
@@ -1536,7 +1592,9 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'Primary action attempts guarded card refund before completion',
     functionCalls.includes('nayax-card-refund') &&
       !saveBodies.some((entry) => entry.body?.status === 'completed') &&
-      await confirmationDialog.getByText('Card refund execution is disabled for this pilot environment.').isVisible(),
+      await page.getByTestId('refund-action-receipt')
+        .getByText('Card refund execution is disabled for this pilot environment.', { exact: false })
+        .isVisible(),
     JSON.stringify({ functionCalls, lastSaveBody })
   );
   recorder.assert(
@@ -1559,15 +1617,16 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'Blocked Nayax execution leaves customer uncontacted',
     !saveBodies.some((entry) => entry.body?.customerMessageType === 'completed') &&
       !functionCalls.includes('refund-case-message-send') &&
-      await page.getByText('Card refund was not completed. The customer was not contacted.').isVisible(),
+      await page.getByTestId('refund-action-receipt')
+        .getByText('no customer completion email was sent', { exact: false })
+        .isVisible(),
     JSON.stringify({ functionCalls, saveBodies })
   );
-  await page.getByRole('button', { name: 'Go back' }).click();
   recorder.assert(
     'Blocked provider result leaves a visible recoverable case receipt',
     await page.getByTestId('refund-action-receipt').isVisible() &&
       await page.getByText('Refund not sent', { exact: true }).isVisible() &&
-      await page.getByText(/case (is still|remains) open/i).isVisible()
+      await page.getByTestId('refund-action-receipt').getByText(/case (is still|remains) open/i).isVisible()
   );
 
   await page.screenshot({
@@ -2158,14 +2217,16 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
   await context.close();
 };
 
-const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, recorder, evidence }) => {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
   });
   const functionCalls = [];
+  const rpcCalls = [];
   await installMockSupabaseRoutes(context, {
     refundOverview: buildPendingNayaxRefundOverview,
     functionCalls,
+    rpcCalls,
     nayaxLookupResponse: {
       configured: false,
       lookupStatus: 'setup_needed',
@@ -2184,7 +2245,49 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
 
   const page = await context.newPage();
   await signInRefundUser(page, appUrl);
-  await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
+  await page.goto(`${appUrl}/refunds?case=case-card-pending`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'RF-UAT-PENDING' }).waitFor({ timeout: 10000 });
+  await page.getByLabel('Filter refund cases by status').selectOption('all');
+  await page.waitForTimeout(250);
+  await page.locator('tr', { hasText: 'RF-UAT-PENDING-ALT' }).click();
+  await page.getByRole('heading', { name: 'RF-UAT-PENDING-ALT' }).waitFor({ timeout: 10000 });
+  await page.waitForTimeout(250);
+  await page.locator('tr')
+    .filter({ hasText: 'RF-UAT-PENDING' })
+    .filter({ hasNotText: 'RF-UAT-PENDING-ALT' })
+    .click();
+  await page.getByRole('heading', { name: 'RF-UAT-PENDING' }).waitFor({ timeout: 10000 });
+  await page.waitForTimeout(400);
+
+  const navigationOfficialFunctions = new Set([
+    'nayax-card-refund',
+    'refund-case-admin-update',
+    'refund-case-message-send',
+    'refund-manager-action-step-up',
+  ]);
+  const navigationReadOnlyRpcs = new Set([
+    'resolve_my_technician_entitlements',
+    'get_my_admin_access_context',
+    'get_my_plus_access',
+    'get_my_operator_timekeeping_context',
+    'get_my_portal_access_context',
+    'get_my_reporting_access_context',
+    'get_refund_automation_health',
+    'get_refund_gmail_health',
+    'admin_get_refund_gmail_draft_cases',
+    'admin_get_refund_operations_overview',
+  ]);
+  evidence.navigationProviderCallCount = functionCalls.filter((name) => name === 'nayax-card-refund').length;
+  evidence.navigationOfficialActionCallCount = functionCalls.filter((name) => navigationOfficialFunctions.has(name)).length;
+  evidence.navigationLookupCallCount = functionCalls.filter((name) => name === 'nayax-transaction-lookup').length;
+  evidence.navigationNayaxCardRefundCallCount = evidence.navigationProviderCallCount;
+  evidence.navigationAdminUpdateCallCount = functionCalls.filter((name) => name === 'refund-case-admin-update').length;
+  evidence.navigationCustomerMessageCallCount = functionCalls.filter((name) => name === 'refund-case-message-send').length;
+  evidence.navigationStepUpCallCount = functionCalls.filter((name) => name === 'refund-manager-action-step-up').length;
+  evidence.navigationMutatingRpcCallCount = rpcCalls.filter(
+    (name) => !navigationReadOnlyRpcs.has(name)
+  ).length;
+  evidence.portalAvailable = await page.getByRole('heading', { name: 'RF-UAT-PENDING' }).isVisible();
 
   const providerOrOfficialCalls = () => functionCalls.filter((name) =>
     name === 'nayax-transaction-lookup' ||
@@ -2202,43 +2305,44 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
     JSON.stringify({ url: page.url(), providerOrOfficialCalls: providerOrOfficialCalls() })
   );
   recorder.assert(
-    'Refund case deep link selects the case without automatically querying Nayax',
-    functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0,
-    functionCalls.join(', ')
+    'Refund navigation remains read-only after the post-render delay',
+    evidence.navigationProviderCallCount === 0 &&
+      evidence.navigationOfficialActionCallCount === 0 &&
+      evidence.navigationLookupCallCount === 0 &&
+      evidence.navigationNayaxCardRefundCallCount === 0 &&
+      evidence.navigationAdminUpdateCallCount === 0 &&
+      evidence.navigationCustomerMessageCallCount === 0 &&
+      evidence.navigationStepUpCallCount === 0 &&
+      evidence.navigationMutatingRpcCallCount === 0,
+    JSON.stringify({ functionCalls, rpcCalls })
+  );
+  recorder.assert(
+    'Deep link, status filter, and queue-row selection make no lookup or official-action call',
+    evidence.navigationLookupCallCount === 0 &&
+      evidence.navigationOfficialActionCallCount === 0 &&
+      evidence.navigationMutatingRpcCallCount === 0
   );
 
-  await page.getByLabel('Search refund cases').fill('NO-SUCH-REFUND');
-  await page.getByText('0 visible of 1 total cases').waitFor({ timeout: 10000 });
-  await page.getByLabel('Search refund cases').fill('');
-  await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
-  await page.getByLabel('Filter refund cases by status').selectOption('waiting_on_customer');
-  await page.getByText('0 visible of 1 total cases').waitFor({ timeout: 10000 });
-  await page.getByLabel('Filter refund cases by status').selectOption('needs_action');
-  await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
+  evidence.primaryCheckLookupCallCountBefore = functionCalls.filter(
+    (name) => name === 'nayax-transaction-lookup'
+  ).length;
   recorder.assert(
-    'Search and filter changes remain independent after an eligible case link',
-    providerOrOfficialCalls().length === 0 &&
-      await page.locator('tr', { hasText: 'RF-UAT-PENDING' }).isVisible(),
-    providerOrOfficialCalls().join(', ')
+    'Primary Check Nayax transaction is visible before any lookup and Refresh result is not',
+    await page.getByTestId('nayax-check-transaction').isVisible() &&
+      !(await page.getByRole('button', { name: 'Refresh result' }).isVisible())
   );
-
-  // Case and queue selection are navigation-only. Provider lookup remains a
-  // separate, explicit manager request through the advanced tools.
-  await page.locator('tr', { hasText: 'RF-UAT-PENDING' }).click();
-  recorder.assert(
-    'Queue selection remains navigation-only until the manager explicitly requests lookup',
-    providerOrOfficialCalls().length === 0,
-    providerOrOfficialCalls().join(', ')
-  );
-  await page.getByText('Advanced lookup tools (optional)').click();
-  await page.getByRole('button', { name: 'Refresh result' }).click();
+  await page.getByTestId('nayax-check-transaction').click();
   await page.getByTestId('nayax-result-card').getByText('Setup needed before Nayax can check this card refund.').first().waitFor({
     timeout: 10000,
   });
+  evidence.primaryCheckLookupCallCountAfter = functionCalls.filter(
+    (name) => name === 'nayax-transaction-lookup'
+  ).length;
 
   recorder.assert(
     'Explicit manager request runs Nayax lookup once when evidence is pending',
-    functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 1,
+    evidence.primaryCheckLookupCallCountBefore === 0 &&
+      evidence.primaryCheckLookupCallCountAfter === 1,
     functionCalls.join(', ')
   );
   recorder.assert(
@@ -2508,7 +2612,9 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     });
     const page = await context.newPage();
     await signInRefundUser(page, appUrl);
-    const pendingRow = page.locator('tr', { hasText: 'RF-UAT-PENDING' });
+    const pendingRow = page.locator('tr')
+      .filter({ hasText: 'RF-UAT-PENDING' })
+      .filter({ hasNotText: 'RF-UAT-PENDING-ALT' });
     await pendingRow.waitFor({ state: 'visible', timeout: 10000 });
     await pendingRow.click();
     recorder.assert(
@@ -2516,8 +2622,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0,
       functionCalls.join(', ')
     );
-    await page.getByText('Advanced lookup tools (optional)').click();
-    await page.getByRole('button', { name: 'Refresh result' }).click();
+    await page.getByTestId('nayax-check-transaction').click();
     await page.getByTestId('nayax-result-card').getByText(scenario.expectedBadge, { exact: true }).waitFor({ timeout: 10000 });
 
     recorder.assert(
@@ -2994,76 +3099,144 @@ const runManagerStepUpChecks = async ({ browser, appUrl, artifactDir, recorder }
   await enrollmentContext.close();
 };
 
-const runNayaxExecutionSuccessChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
-  const context = await browser.newContext({
-    viewport: { width: 1440, height: 1000 },
-  });
-  const functionCalls = [];
-  const functionBodies = [];
-  await installMockSupabaseRoutes(context, {
-    functionCalls,
-    functionBodies,
-    nayaxCardRefundStatus: 200,
-    nayaxCardRefundDelayMs: 800,
-    nayaxCardRefundResponse: {
-      executed: true,
-      status: 'succeeded',
-      providerReference: 'NAYAX-PROVIDER-REF-1',
-      message: 'Card refund completed.',
+const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, recorder, evidence }) => {
+  const scenarios = [
+    {
+      name: 'success',
+      screenshot: 'refund-provider-success.png',
+      expectedTitle: 'Refund completed',
+      response: {
+        executed: true,
+        status: 'succeeded',
+        providerReference: 'NAYAX-PROVIDER-REF-1',
+        providerAttempted: true,
+        replayed: false,
+        reconciliationRequired: false,
+        fallbackIssued: false,
+        reportingAdjustmentPresent: true,
+        customerCompletion: {
+          status: 'sent',
+          transport: 'gmail_thread',
+          managerCcCount: 2,
+          originalThread: true,
+          operationApplied: true,
+          managerCompletionNoticeSent: false,
+        },
+        message: 'Card refund completed and the customer was notified in the original Gmail thread.',
+      },
     },
-  });
+    {
+      name: 'rejected',
+      screenshot: 'refund-provider-rejected.png',
+      expectedTitle: 'Refund rejected by Nayax',
+      response: {
+        executed: false,
+        status: 'declined',
+        errorCode: 'provider_rejected',
+        providerAttempted: true,
+        replayed: false,
+        reconciliationRequired: false,
+        fallbackIssued: false,
+        reportingAdjustmentPresent: false,
+        customerCompletion: null,
+        message: 'Nayax did not accept the refund. The case remains open for manager review.',
+      },
+    },
+    {
+      name: 'timeout',
+      screenshot: 'refund-provider-timeout.png',
+      expectedTitle: 'Provider request timed out',
+      response: {
+        executed: false,
+        status: 'ambiguous',
+        errorCode: 'provider_timeout',
+        providerAttempted: true,
+        replayed: false,
+        reconciliationRequired: true,
+        fallbackIssued: false,
+        reportingAdjustmentPresent: false,
+        customerCompletion: null,
+        message: 'The provider request timed out before Bloomjoy could confirm the outcome.',
+      },
+    },
+    {
+      name: 'unknown',
+      screenshot: 'refund-provider-unknown.png',
+      expectedTitle: 'Provider outcome unknown',
+      response: {
+        executed: false,
+        status: 'ambiguous',
+        errorCode: 'provider_outcome_unknown',
+        providerAttempted: true,
+        replayed: false,
+        reconciliationRequired: true,
+        fallbackIssued: false,
+        reportingAdjustmentPresent: false,
+        customerCompletion: null,
+        message: 'Nayax returned an outcome Bloomjoy cannot safely classify.',
+      },
+    },
+  ];
 
-  const page = await context.newPage();
-  await signInRefundUser(page, appUrl);
-  await page.getByText('2 visible of 2 total cases').waitFor({ timeout: 10000 });
-  await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
-  await page.getByTestId('refund-run-nayax-refund').click();
-  await page.getByTestId('refund-confirm-nayax-refund').click();
-  await page.getByTestId('refund-confirm-nayax-refund').waitFor({ state: 'visible' });
-  recorder.assert(
-    'Processing state disables confirmation to prevent double submit',
-    await page.getByTestId('refund-confirm-nayax-refund').isDisabled()
-  );
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-portal-uat-processing.png'),
-    fullPage: false,
-  });
-  await page.getByTestId('refund-action-receipt').waitFor({ state: 'visible', timeout: 10000 });
+  for (const scenario of scenarios) {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    const functionCalls = [];
+    const functionBodies = [];
+    await installMockSupabaseRoutes(context, {
+      functionCalls,
+      functionBodies,
+      nayaxCardRefundStatus: 200,
+      nayaxCardRefundDelayMs: scenario.name === 'success' ? 800 : 0,
+      nayaxCardRefundResponse: scenario.response,
+    });
 
-  const adminUpdateBodies = functionBodies
-    .filter((entry) => entry.functionName === 'refund-case-admin-update')
-    .map((entry) => entry.body ?? {});
-  const completionBody = adminUpdateBodies.find((body) => body.status === 'completed') ?? {};
-  const nayaxExecutionBody = functionBodies.find(
-    (entry) => entry.functionName === 'nayax-card-refund'
-  )?.body ?? {};
+    const page = await context.newPage();
+    await signInRefundUser(page, appUrl);
+    await page.getByText('2 visible of 2 total cases').waitFor({ timeout: 10000 });
+    await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
+    await page.getByTestId('refund-run-nayax-refund').click();
+    await page.getByTestId('refund-confirm-nayax-refund').click();
 
-  recorder.assert(
-    'Successful guarded card refund execution completes case through admin update',
-    functionCalls.filter((name) => name === 'nayax-card-refund').length === 1 &&
-      completionBody.status === 'completed' &&
-      completionBody.manualRefundReference === 'NAYAX-PROVIDER-REF-1' &&
-      completionBody.customerMessageType === 'completed' &&
-      completionBody.expectedOfficialActionVersion === 1 &&
-      nayaxExecutionBody.expectedOfficialActionVersion === 1,
-    JSON.stringify({ functionCalls, completionBody })
-  );
-  recorder.assert(
-    'Successful guarded card refund execution still avoids standalone customer message send',
-    !functionCalls.includes('refund-case-message-send'),
-    functionCalls.join(', ')
-  );
-  recorder.assert(
-    'Successful execution shows an auditable success receipt',
-    await page.getByText('Refund completed', { exact: true }).isVisible() &&
-      await page.getByText('Confirmation: NAYAX-PROVIDER-REF-1').isVisible()
-  );
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-portal-uat-success.png'),
-    fullPage: true,
-  });
+    if (scenario.name === 'success') {
+      await page.getByTestId('refund-confirm-nayax-refund').waitFor({ state: 'visible' });
+      recorder.assert(
+        'Processing state disables confirmation to prevent double submit',
+        await page.getByTestId('refund-confirm-nayax-refund').isDisabled()
+      );
+      await page.screenshot({
+        path: path.join(artifactDir, 'refund-portal-uat-processing.png'),
+        fullPage: false,
+      });
+    }
 
-  await context.close();
+    await page.getByTestId('refund-action-receipt').waitFor({ state: 'visible', timeout: 10000 });
+    const nayaxExecutionBody = functionBodies.find(
+      (entry) => entry.functionName === 'nayax-card-refund'
+    )?.body ?? {};
+    recorder.assert(
+      `Synthetic browser ${scenario.name} submits exactly one reviewed Nayax action`,
+      functionCalls.filter((name) => name === 'nayax-card-refund').length === 1 &&
+        nayaxExecutionBody.expectedOfficialActionVersion === 1,
+      JSON.stringify({ functionCalls, nayaxExecutionBody })
+    );
+    recorder.assert(
+      `Synthetic browser ${scenario.name} trusts atomic settlement without secondary mutations`,
+      !functionCalls.includes('refund-case-admin-update') &&
+        !functionCalls.includes('refund-case-message-send'),
+      functionCalls.join(', ')
+    );
+    recorder.assert(
+      `Synthetic browser ${scenario.name} renders the settled domain outcome`,
+      await page.getByText(scenario.expectedTitle, { exact: true }).isVisible() &&
+        (scenario.name !== 'success' ||
+          await page.getByText('Confirmation: NAYAX-PROVIDER-REF-1').isVisible())
+    );
+
+    if (scenario.name === 'success') evidence.providerSuccessStateCount += 1;
+    else evidence.providerNonSuccessStateCount += 1;
+    await page.screenshot({ path: path.join(artifactDir, scenario.screenshot), fullPage: true });
+    await context.close();
+  }
 };
 
 const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
@@ -3161,8 +3334,25 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
 const run = async () => {
   const args = parseArgs(process.argv.slice(2));
   const recorder = createRecorder();
+  const evidence = {
+    navigationProviderCallCount: 0,
+    navigationOfficialActionCallCount: 0,
+    navigationLookupCallCount: 0,
+    navigationNayaxCardRefundCallCount: 0,
+    navigationAdminUpdateCallCount: 0,
+    navigationCustomerMessageCallCount: 0,
+    navigationStepUpCallCount: 0,
+    navigationMutatingRpcCallCount: 0,
+    primaryCheckLookupCallCountBefore: 0,
+    primaryCheckLookupCallCountAfter: 0,
+    providerSuccessStateCount: 0,
+    providerNonSuccessStateCount: 0,
+    intakeAvailable: false,
+    portalAvailable: false,
+  };
 
   await mkdir(args.artifactDir, { recursive: true });
+  if (!args.managerStepUpOnly) await mkdir(args.fragmentDir, { recursive: true });
   await waitForServer(args.appUrl);
 
   const browser = await chromium.launch({ headless: !args.headed });
@@ -3175,7 +3365,7 @@ const run = async () => {
         recorder,
       });
     } else {
-    await runUnauthenticatedChecks({ browser, appUrl: args.appUrl, recorder });
+    await runUnauthenticatedChecks({ browser, appUrl: args.appUrl, recorder, evidence });
     await runRefundOnlyChecks({
       browser,
       appUrl: args.appUrl,
@@ -3199,6 +3389,7 @@ const run = async () => {
       appUrl: args.appUrl,
       artifactDir: args.artifactDir,
       recorder,
+      evidence,
     });
     await runNayaxLookupStatusMatrixChecks({
       browser,
@@ -3228,11 +3419,12 @@ const run = async () => {
       artifactDir: args.artifactDir,
       recorder,
     });
-    await runNayaxExecutionSuccessChecks({
+    await runNayaxExecutionOutcomeChecks({
       browser,
       appUrl: args.appUrl,
       artifactDir: args.artifactDir,
       recorder,
+      evidence,
     });
     await runDemoFallbackChecks({
       browser,
@@ -3245,14 +3437,71 @@ const run = async () => {
     await browser.close();
   }
 
+  if (!args.managerStepUpOnly) {
+    recorder.assert(
+      'Portal evidence counters match the executable navigation, lookup, and provider-outcome matrix',
+      evidence.navigationProviderCallCount === 0 &&
+        evidence.navigationOfficialActionCallCount === 0 &&
+        evidence.navigationLookupCallCount === 0 &&
+        evidence.navigationNayaxCardRefundCallCount === 0 &&
+        evidence.navigationAdminUpdateCallCount === 0 &&
+        evidence.navigationCustomerMessageCallCount === 0 &&
+        evidence.navigationStepUpCallCount === 0 &&
+        evidence.navigationMutatingRpcCallCount === 0 &&
+        evidence.primaryCheckLookupCallCountBefore === 0 &&
+        evidence.primaryCheckLookupCallCountAfter === 1 &&
+        evidence.providerSuccessStateCount === 1 &&
+        evidence.providerNonSuccessStateCount === 3 &&
+        evidence.intakeAvailable === true &&
+        evidence.portalAvailable === true,
+      JSON.stringify(evidence)
+    );
+  }
+
   const failed = recorder.failed();
   if (failed.length > 0) {
     console.error(`\nRefund portal UAT validation failed: ${failed.length} check(s).`);
     process.exit(1);
   }
 
+  if (!args.managerStepUpOnly) {
+    if (recorder.count() < 101) {
+      throw new Error(`Portal assertion count ${recorder.count()} is below the required 101.`);
+    }
+    const portalArtifact = {
+      schemaVersion: 1,
+      evidenceType: 'portal_assertions',
+      evidenceMode: 'synthetic_browser_mocks',
+      passed: true,
+      assertionCount: recorder.count(),
+      failedAssertionCount: 0,
+      ...evidence,
+    };
+    const portalEnvelope = createAuthenticatedEvidenceFragment({
+      filename: 'refund-portal-assertions.json',
+      evidence: portalArtifact,
+      runToken: args.runToken,
+    });
+    await writeFile(
+      path.join(args.fragmentDir, 'refund-portal-assertions.json'),
+      `${JSON.stringify(portalEnvelope, null, 2)}\n`,
+      { flag: 'wx' }
+    );
+
+    await execFileAsync('deno', [
+      'run',
+      '--no-lock',
+      '--allow-env=REFUND_UAT_EVIDENCE_RUN_TOKEN',
+      `--allow-write=${args.fragmentDir}`,
+      path.resolve('supabase/functions/_shared/nayax-refund-orchestration-evidence.ts'),
+      '--output-dir',
+      args.fragmentDir,
+    ]);
+  }
+
   console.log('\nRefund portal UAT validation passed.');
   console.log(`Screenshots written to ${args.artifactDir}`);
+  if (!args.managerStepUpOnly) console.log(`Evidence fragments written to ${args.fragmentDir}`);
 };
 
 run().catch((error) => {

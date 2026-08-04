@@ -12,6 +12,10 @@ const files = {
   migration: 'supabase/migrations/202605120002_refund_full_automation_foundation.sql',
   managerAuthorizationMigration: 'supabase/migrations/202605160001_refund_nayax_execution_manager_authorization.sql',
   officialActionMigration: 'supabase/migrations/202608030002_refund_manager_official_action_boundary.sql',
+  providerOrchestrationMigration: 'supabase/migrations/202608040004_refund_nayax_provider_orchestration.sql',
+  providerOrchestration: 'supabase/functions/_shared/nayax-refund-orchestration.ts',
+  providerOrchestrationTest: 'supabase/functions/_shared/nayax-refund-orchestration.test.ts',
+  providerEvidenceProducer: 'supabase/functions/_shared/nayax-refund-orchestration-evidence.ts',
   officialActionHelper: 'supabase/functions/_shared/refund-official-action.ts',
   function: 'supabase/functions/nayax-card-refund/index.ts',
   config: 'supabase/config.toml',
@@ -40,6 +44,10 @@ const assert = (condition, message) => {
 const migration = read(files.migration);
 const managerAuthorizationMigration = read(files.managerAuthorizationMigration);
 const officialActionMigration = read(files.officialActionMigration);
+const providerOrchestrationMigration = read(files.providerOrchestrationMigration);
+const providerOrchestration = read(files.providerOrchestration);
+const providerOrchestrationTest = read(files.providerOrchestrationTest);
+const providerEvidenceProducer = read(files.providerEvidenceProducer);
 const officialActionHelper = read(files.officialActionHelper);
 const fn = read(files.function);
 const config = read(files.config);
@@ -108,22 +116,22 @@ assert(
     fn.includes('NAYAX_REFUND_EXECUTION_ENABLED') &&
     fn.includes('NAYAX_REFUND_EXECUTION_DRY_RUN') &&
     fn.includes('NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO') &&
-    fn.includes('NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED') &&
-    fn.includes('NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS') &&
-    fn.includes('NAYAX_REFUND_DAILY_COUNT_CAP'),
-  'Nayax execution function must be gated by all fail-closed execution flags.'
+    fn.includes('NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED'),
+  'The hard-off HTTP boundary must continue reporting every legacy rollout gate.'
 );
 assert(
   fn.includes('can_perform_refund_official_action') &&
-    fn.includes('authorizeRefundOfficialAction') &&
-    fn.includes('service_consume_nayax_refund_official_action') &&
+    fn.includes('provider: disabledNayaxProviderAdapter') &&
+    fn.includes('orchestrateNayaxRefund') &&
+    !fn.includes('authorizeRefundOfficialAction') &&
+    !fn.includes('service_consume_nayax_refund_official_action') &&
     !fn.includes('can_manage_refund_case') &&
     !fn.includes('actorIsSuperAdmin'),
-  'Nayax execution must require and revalidate a browser-authenticated, currently mapped Machine Manager receipt.'
+  'The real HTTP function must authorize visibility but stay hard-off before manager evidence, reservation, or provider execution.'
 );
 assert(
   officialActionHelper.includes('p_expected_case_version: context.expectedCaseVersion') &&
-    fn.includes('expectedOfficialActionVersion') &&
+    refundOperationsUi.includes('expectedOfficialActionVersion: officialActionVersion') &&
     officialActionMigration.includes('authorization_row.expected_case_version') &&
     officialActionMigration.includes("authorization_row.status <> 'authorized'") &&
     officialActionMigration.includes('authorization_row.expires_at <= statement_timestamp()') &&
@@ -141,10 +149,37 @@ assert(
   'Nayax execution must use the server-stored refund amount and must not let callers override the execution amount.'
 );
 assert(
-  fn.includes('provider_execution_not_yet_enabled') &&
+  providerOrchestration.includes('provider_execution_not_yet_enabled') &&
+    fn.includes('Disabled production adapter cannot reserve an attempt') &&
+    !fn.includes('mode: "synthetic"') &&
     !fn.includes('/payment/refund-request') &&
     !fn.includes('/payment/refund-approve'),
-  'This release must not call live Nayax refund endpoints.'
+  'This release must expose no live or synthetic HTTP execution switch.'
+);
+assert(
+  providerOrchestrationMigration.includes('service_reserve_and_consume_nayax_refund_attempt') &&
+    providerOrchestrationMigration.includes('service_settle_nayax_refund_attempt') &&
+    providerOrchestrationMigration.includes('provider_claim_digest') &&
+    providerOrchestrationMigration.includes('assert_nayax_provider_executor') &&
+    providerOrchestrationMigration.includes('Card completion requires token-bound confirmed provider settlement') &&
+    providerOrchestrationMigration.includes('from public, anon, authenticated, service_role') &&
+    providerOrchestrationMigration.includes('service_consume_nayax_refund_official_action'),
+  'Local proof must use assertion-scoped atomic reservation/settlement and revoke the legacy service consumer.'
+);
+assert(
+  providerOrchestration.includes('deliverCommittedCompletion') &&
+    providerOrchestration.includes('status: "delivery_unknown"') &&
+    providerOrchestrationTest.includes('delivery failure must never cause a second provider attempt') &&
+    providerEvidenceProducer.includes('local_injected_provider_adapter') &&
+    providerEvidenceProducer.includes('replayProviderAttempts'),
+  'Injected local proof must measure all outcomes and replay safety without representing browser mocks as real handler success.'
+);
+assert(
+  refundAdminUpdate.includes('provider_settlement_required') &&
+    refundAdminUpdate.includes('Card completion and customer success email require token-bound confirmed provider settlement') &&
+    refundOperationsUi.includes('applyNayaxExecutionResult') &&
+    !refundOperationsUi.includes("handleSaveCase(completedEditor, 'completed')"),
+  'Card completion/success copy must be provider-settlement-owned and the UI must not chain an admin completion mutation.'
 );
 assert(
   fn.includes('card_wallet_used') &&
