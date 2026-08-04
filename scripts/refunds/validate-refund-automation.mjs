@@ -16,6 +16,7 @@ const followUpMigration = read('supabase/migrations/202608030005_refund_determin
 const sweep = read('supabase/functions/refund-case-automation-sweep/index.ts');
 const intake = read('supabase/functions/refund-case-intake/index.ts');
 const deterministicFollowUp = read('supabase/functions/_shared/refund-deterministic-follow-up.ts');
+const gmailTransport = read('supabase/functions/_shared/refund-gmail-transport.ts');
 const managerNotification = read('supabase/functions/_shared/refund-manager-notification.ts');
 const schedulerWorkflow = read('.github/workflows/refund-automation-sweep.yml');
 const healthWorkflow = read('.github/workflows/refund-automation-health.yml');
@@ -65,6 +66,30 @@ check(
     followUpMigration.includes('service_claim_due_refund_follow_up_reminders') &&
     followUpMigration.includes('service_claim_refund_follow_up_customer_reply') &&
     followUpMigration.includes('from public, anon, authenticated')
+);
+check(
+  'Automatic delivery revalidates kill switch, terminal state, manager CC, and source Gmail thread at transport time',
+  followUpMigration.includes('service_authorize_refund_customer_outbound') &&
+    followUpMigration.includes('service_claim_refund_gmail_outbound_v3') &&
+    followUpMigration.includes("'source_thread_required'") &&
+    followUpMigration.includes("'automatic_contact_disabled'") &&
+    followUpMigration.includes("'terminal_case'") &&
+    followUpMigration.includes('p_target_gmail_thread_id') &&
+    followUpMigration.includes('from public, anon, authenticated, service_role') &&
+    gmailTransport.includes('service_claim_refund_gmail_outbound_v3') &&
+    gmailTransport.includes('p_target_gmail_thread_id: gmailThreadId') &&
+    sweep.includes('resolveFollowUpGmailThreadId')
+);
+check(
+  'Abandoned customer-delivery claims fail closed into durable manager review without blind resend',
+  followUpMigration.includes('service_settle_stale_refund_follow_up_claims') &&
+    followUpMigration.includes("status = 'delivery_unknown'") &&
+    followUpMigration.includes("'refund_follow_up_delivery_reconciled'") &&
+    followUpMigration.includes("'known_gmail_delivery_reconciled'") &&
+    followUpMigration.includes("status = 'manual_review'") &&
+    followUpMigration.includes("'refund_follow_up_claim_settled'") &&
+    sweep.includes('settleStaleFollowUpClaims(counters)') &&
+    sweep.includes('stale_follow_up_claim_settled')
 );
 check(
   'Reminder and verified-customer reply workers consume the exact database contract',

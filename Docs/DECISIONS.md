@@ -1,5 +1,21 @@
 # Decisions
 
+## 2026-08-03 - Refund follow-up may auto-send only deterministic, bounded messages (`#687`)
+Bloomjoy may automatically send a small set of versioned refund follow-up messages after deterministic state checks. This narrow exception supersedes the `#634` requirement for manager approval of every Gmail reply; GPT-written or manager-authored prose still requires human review.
+
+**Canonical behavior**
+- Automatic contact is limited to the approved first-contact, exact-missing-information, secure wallet-correction, confirmed no-safe-match, one-reminder, information-received, and confirmed-success templates. A follow-up cycle has at most one request, one reminder, and one receipt, and at most two cycles may exist for one case.
+- Every new automatic send requires both the Edge and database switches, an open undecided case, the exact case customer as the sole To recipient, and one to three current active mapped Machine Managers in visible CC. Missing, invalid, or changed routing fails closed before provider delivery.
+- Gmail replies bind to the exact source conversation that authorized that message. A newer linked conversation cannot silently become the reply target, and a permanent authenticated bounce on any linked conversation pauses automatic contact case-wide.
+- A stopped worker never blindly resends an old claim. Durable Gmail `sent` evidence reconciles the local milestone once; absent or uncertain delivery evidence routes the case and any independently abandoned recheck to manager review with a redacted audit event and the authenticated case link.
+- Provider setup, rejection, outage, timeout, unknown result, stale facts, terminal decisions, and unresolved matching stay internal. They cannot produce correction or success copy. GPT remains human-reviewed, and no email, scheduler, or model gains approval, denial, compensation, or payment authority.
+- Customer copy must thank or empathize, take ownership without blame, ask for one clear next step, avoid provider jargon and unsupported promises, and close warmly. Internal authenticated case links never appear in customer mail.
+
+**Why this choice**
+- Exact, versioned messages can remove repetitive collection work without delegating judgment or payment authority.
+- Send-time routing, source-thread binding, and fail-closed crash recovery preserve manager visibility and prevent duplicate or misthreaded customer contact.
+- Independent switches keep inbox intake and portal work available while automatic contact is disabled or under review.
+
 ## 2026-07-26 - Verified refunds use one manager approval and automatic fulfillment (`#674`)
 Bloomjoy will make every bounded, safe effort to identify the correct transaction before asking a Machine Manager to decide a refund. The normal high-confidence path is one manager approval followed by automatic provider execution and confirmation, not a second manual workflow in Nayax.
 

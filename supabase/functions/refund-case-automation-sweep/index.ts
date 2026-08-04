@@ -41,6 +41,10 @@ const automationEnabled = (Deno.env.get("REFUND_AUTOMATION_ENABLED") || "false")
 const automaticCustomerContactEnabled = automaticRefundCustomerContactEnabled();
 const reminderDelayDays = Number(Deno.env.get("REFUND_MORE_INFO_REMINDER_DAYS") || 2);
 const escalationDays = Number(Deno.env.get("REFUND_ESCALATION_DAYS") || 5);
+const followUpClaimStaleMinutes = Math.min(
+  Math.max(Number(Deno.env.get("REFUND_FOLLOW_UP_CLAIM_STALE_MINUTES") || 30), 10),
+  24 * 60,
+);
 const automationTimezone = Deno.env.get("REFUND_AUTOMATION_TIMEZONE") || "America/Los_Angeles";
 const policyStartHour = Number(Deno.env.get("REFUND_AUTOMATION_START_HOUR") || 8);
 const policyEndHour = Number(Deno.env.get("REFUND_AUTOMATION_END_HOUR") || 20);
@@ -441,6 +445,8 @@ type RefundFollowUpCycleContext = {
   caseFactVersion: number;
   status: string;
   sourceCustomerMessageId: string | null;
+  requestMessageId: string | null;
+  replyCustomerMessageId: string | null;
   reminderDueAt: string | null;
 };
 
@@ -513,6 +519,12 @@ const normalizeFollowUpCycle = (
     status: textValue(value.status) || "claimed",
     sourceCustomerMessageId: textValue(
       value.sourceCustomerMessageId ?? value.source_customer_message_id,
+    ) || null,
+    requestMessageId: textValue(
+      value.requestMessageId ?? value.request_message_id,
+    ) || null,
+    replyCustomerMessageId: textValue(
+      value.replyCustomerMessageId ?? value.reply_customer_message_id,
     ) || null,
     reminderDueAt: textValue(value.reminderDueAt ?? value.reminder_due_at) || null,
   };
@@ -598,6 +610,7 @@ const sendDeterministicFollowUpMessage = async (
   const messageType = messageTypeForFollowUp(cycle, messageClass);
   const emailInput = buildFollowUpEmailInput(refundCase, cycle, messageClass);
   const email = buildRefundCustomerEmail(emailInput);
+  const gmailThreadId = await resolveFollowUpGmailThreadId(cycle, messageClass);
   let messageId: string | null = null;
 
   try {
@@ -614,8 +627,15 @@ const sendDeterministicFollowUpMessage = async (
       recipientEmail: refundCase.customer_email,
       email,
       deliveryKind: "automatic",
+      gmailThreadId,
     });
     if (!gmailDelivery.usedGmail) {
+      if (!(await automaticCustomerContactAllowed())) {
+        throw new RefundGmailError(
+          "automatic_contact_disabled",
+          "Automatic customer contact was disabled before provider delivery.",
+        );
+      }
       await sendRefundCustomerEmail({
         ...emailInput,
         managerCcEmails: gmailDelivery.managerCcEmails,
@@ -698,11 +718,11 @@ const getSweepCase = async (refundCaseId: string) => {
     : null;
 };
 
-const getLatestVerifiedCustomerMessageId = async (refundCaseId: string) => {
+const getLatestVerifiedCustomerMessage = async (refundCaseId: string) => {
   if (!supabase) return null;
   const { data, error } = await supabase
     .from("refund_gmail_messages")
-    .select("id")
+    .select("id,gmail_thread_id")
     .eq("refund_case_id", refundCaseId)
     .eq("direction", "inbound")
     .eq("participant_role", "customer")
@@ -714,7 +734,52 @@ const getLatestVerifiedCustomerMessageId = async (refundCaseId: string) => {
     .limit(1)
     .maybeSingle();
   if (error) throw error;
-  return textValue(data?.id) || null;
+  const id = textValue(data?.id);
+  const gmailThreadId = textValue(data?.gmail_thread_id);
+  return id && gmailThreadId ? { id, gmailThreadId } : null;
+};
+
+const getLatestVerifiedCustomerMessageId = async (refundCaseId: string) =>
+  (await getLatestVerifiedCustomerMessage(refundCaseId))?.id ?? null;
+
+const getGmailThreadIdForMessage = async (gmailMessageId: string | null) => {
+  if (!supabase || !gmailMessageId) return null;
+  const { data, error } = await supabase
+    .from("refund_gmail_messages")
+    .select("gmail_thread_id")
+    .eq("id", gmailMessageId)
+    .maybeSingle();
+  if (error) throw error;
+  return textValue(data?.gmail_thread_id) || null;
+};
+
+const getGmailThreadIdForCaseMessage = async (
+  refundCaseMessageId: string | null,
+) => {
+  if (!supabase || !refundCaseMessageId) return null;
+  const { data, error } = await supabase
+    .from("refund_gmail_messages")
+    .select("gmail_thread_id")
+    .eq("refund_case_message_id", refundCaseMessageId)
+    .eq("direction", "outbound")
+    .order("received_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return textValue(data?.gmail_thread_id) || null;
+};
+
+const resolveFollowUpGmailThreadId = async (
+  cycle: RefundFollowUpCycleContext,
+  messageClass: RefundFollowUpMessageClass,
+) => {
+  if (messageClass === "request") {
+    return getGmailThreadIdForMessage(cycle.sourceCustomerMessageId);
+  }
+  if (messageClass === "reminder") {
+    return getGmailThreadIdForCaseMessage(cycle.requestMessageId);
+  }
+  return getGmailThreadIdForMessage(cycle.replyCustomerMessageId);
 };
 
 const claimFollowUpCycle = async ({
@@ -817,6 +882,54 @@ const sendFollowUpManagerNotice = async ({
   });
   if (eventError) throw eventError;
   return notice;
+};
+
+const settleStaleFollowUpClaims = async (counters: SweepCounters) => {
+  if (!supabase || !Number.isFinite(followUpClaimStaleMinutes)) return;
+  const staleBefore = new Date(
+    Date.now() - followUpClaimStaleMinutes * 60 * 1000,
+  ).toISOString();
+  const { data, error } = await supabase.rpc(
+    "service_settle_stale_refund_follow_up_claims",
+    { p_stale_before: staleBefore, p_limit: 25 },
+  );
+  if (error) throw error;
+  const result = data && typeof data === "object"
+    ? data as Record<string, unknown>
+    : {};
+  const caseIds = Array.isArray(result.caseIds)
+    ? result.caseIds.map(textValue).filter(Boolean)
+    : [];
+  const settledCount = integerValue(result.settledCount);
+  const reconciledCount = integerValue(result.reconciledCount);
+  const deliveryUnknownCount = integerValue(result.deliveryUnknownCount);
+  if (settledCount > 0) {
+    addReason(counters, "stale_follow_up_claim_settled", settledCount);
+  }
+  if (deliveryUnknownCount > 0) {
+    addReason(counters, "follow_up_delivery_unknown", deliveryUnknownCount);
+  }
+  if (reconciledCount > 0) {
+    addReason(counters, "known_gmail_delivery_reconciled", reconciledCount);
+  }
+  for (const refundCaseId of caseIds) {
+    const refundCase = await getSweepCase(refundCaseId);
+    if (!refundCase) continue;
+    counters.evaluatedCaseIds.add(refundCase.id);
+    try {
+      await sendFollowUpManagerNotice({
+        refundCase,
+        noticeKind: "follow_up_manual_review",
+      });
+      counters.actionsSucceeded += 1;
+    } catch (noticeError) {
+      counters.actionsFailed += 1;
+      addReason(counters, "stale_follow_up_manager_notice_failed");
+      console.error("refund-case-automation-sweep stale-claim notice failed", {
+        errorType: noticeError instanceof Error ? noticeError.name : typeof noticeError,
+      });
+    }
+  }
 };
 
 const classifyProviderException = (
@@ -929,6 +1042,27 @@ const getPortalBaseUrl = () =>
     "https://app.bloomjoyusa.com"
   ).replace(/\/+$/, "");
 
+const resolveWalletCorrectionGmailThreadId = async (
+  refundCaseId: string,
+  reminder: boolean,
+) => {
+  if (!supabase) return null;
+  if (!reminder) {
+    return (await getLatestVerifiedCustomerMessage(refundCaseId))?.gmailThreadId ?? null;
+  }
+  const { data: originalMessage, error } = await supabase
+    .from("refund_case_messages")
+    .select("id")
+    .eq("refund_case_id", refundCaseId)
+    .eq("message_type", "wallet_correction")
+    .eq("status", "sent")
+    .order("sent_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return getGmailThreadIdForCaseMessage(textValue(originalMessage?.id) || null);
+};
+
 const sendWalletCorrectionMessage = async (
   refundCase: RefundSweepCase,
   reminder: boolean,
@@ -961,6 +1095,10 @@ const sendWalletCorrectionMessage = async (
     reminder,
   };
   const email = buildRefundWalletCorrectionEmail(emailInput);
+  const gmailThreadId = await resolveWalletCorrectionGmailThreadId(
+    refundCase.id,
+    reminder,
+  );
 
   const { error: issueError } = await supabase.rpc(
     "service_issue_refund_wallet_correction",
@@ -1014,8 +1152,15 @@ const sendWalletCorrectionMessage = async (
       recipientEmail: refundCase.customer_email,
       email,
       deliveryKind: "automatic",
+      gmailThreadId,
     });
     if (!gmailDelivery.usedGmail) {
+      if (!(await automaticCustomerContactAllowed())) {
+        throw new RefundGmailError(
+          "automatic_contact_disabled",
+          "Automatic customer contact was disabled before provider delivery.",
+        );
+      }
       await sendRefundWalletCorrectionEmail({
         ...emailInput,
         managerCcEmails: gmailDelivery.managerCcEmails,
@@ -1147,7 +1292,7 @@ const getFollowUpCycle = async (cycleId: string) => {
   const { data, error } = await supabase
     .from("refund_follow_up_cycles")
     .select(
-      "id,refund_case_id,cycle_number,reason_code,requested_fields,template_version,case_fact_version,status,source_customer_message_id,reminder_due_at",
+      "id,refund_case_id,cycle_number,reason_code,requested_fields,template_version,case_fact_version,status,source_customer_message_id,request_message_id,reply_customer_message_id,reminder_due_at",
     )
     .eq("id", cycleId)
     .maybeSingle();
@@ -1338,10 +1483,13 @@ const runCashNoSafeMatchSweep = async (
       });
       continue;
     }
+    const sourceCustomerMessageId = await getLatestVerifiedCustomerMessageId(
+      refundCase.id,
+    );
     const cycleClaim = await claimFollowUpCycle({
       refundCase,
       reasonCode: "no_safe_match",
-      sourceCustomerMessageId: null,
+      sourceCustomerMessageId,
       requestedFields: [],
     });
     if (!cycleClaim.claimed || !cycleClaim.cycle) {
@@ -1465,6 +1613,14 @@ const runCustomerReplyFollowUpSweep = async (
       }
     }
 
+    if (!receiptAction.claimed && receiptAction.status === "claimed") {
+      // Another worker owns the receipt delivery. Do not complete the recheck
+      // first: its immutable sent/failed result will make this cycle eligible
+      // for a later, unambiguous pass.
+      addReason(counters, "information_received_delivery_in_progress");
+      continue;
+    }
+
     const recheckAction = await claimAction(
       runId,
       refundCase.id,
@@ -1479,10 +1635,22 @@ const runCustomerReplyFollowUpSweep = async (
         ["completed", "failed", "suppressed"].includes(recheckAction.status ?? "")
         && receiptOutcome !== "in_progress"
       ) {
+        const recheckCompleted = recheckAction.status === "completed";
+        const settledAt = new Date().toISOString();
         const { error: closeError } = await supabase.from("refund_follow_up_cycles")
           .update({
-            recheck_claimed_at: new Date().toISOString(),
-            status: receiptOutcome === "sent" ? "closed" : "manual_review",
+            recheck_claimed_at: settledAt,
+            status: recheckCompleted && receiptOutcome === "sent"
+              ? "closed"
+              : "manual_review",
+            failed_at: recheckCompleted && receiptOutcome === "sent"
+              ? null
+              : settledAt,
+            failure_code: recheckCompleted && receiptOutcome === "sent"
+              ? null
+              : recheckCompleted
+              ? "information_receipt_not_sent"
+              : "customer_reply_recheck_failed",
           })
           .eq("id", cycle.id)
           .is("recheck_claimed_at", null);
@@ -1562,10 +1730,31 @@ const runCustomerReplyFollowUpSweep = async (
       if (closeError) throw closeError;
     } catch (recheckError) {
       await finishAction(recheckAction, "failed", "customer_reply_recheck_failed", null, counters);
-      await supabase.from("refund_follow_up_cycles")
-        .update({ recheck_claimed_at: new Date().toISOString() })
+      const failedAt = new Date().toISOString();
+      const { error: settleError } = await supabase.from("refund_follow_up_cycles")
+        .update({
+          recheck_claimed_at: failedAt,
+          status: "manual_review",
+          failed_at: failedAt,
+          failure_code: "customer_reply_recheck_failed",
+        })
         .eq("id", cycle.id)
         .is("recheck_claimed_at", null);
+      if (settleError) throw settleError;
+      await supabase.from("refund_case_events").insert({
+        refund_case_id: refundCase.id,
+        event_type: "refund_customer_reply_recheck_failed",
+        message: "The verified customer reply recheck failed closed and requires manager review.",
+        metadata: {
+          follow_up_cycle_id: cycle.id,
+          source_message_id: sourceMessageId,
+          payload_redacted: true,
+        },
+      });
+      await sendFollowUpManagerNotice({
+        refundCase,
+        noticeKind: "customer_reply_review",
+      });
       throw recheckError;
     }
   }
@@ -1886,10 +2075,13 @@ const runCardNayaxLookupSweep = async (
         status: "needs_review",
         automation_state: "under_review",
       };
+      const sourceCustomerMessageId = await getLatestVerifiedCustomerMessageId(
+        refundCase.id,
+      );
       const cycleClaim = await claimFollowUpCycle({
         refundCase: noMatchCase,
         reasonCode: "no_safe_match",
-        sourceCustomerMessageId: null,
+        sourceCustomerMessageId,
         requestedFields: [],
       });
 
@@ -2416,6 +2608,7 @@ serve(async (req) => {
     if (!automaticCustomerContactEnabled) {
       addReason(counters, "automatic_customer_contact_disabled");
     }
+    await settleStaleFollowUpClaims(counters);
     await runCustomerReplyFollowUpSweep(runId, counters, policyWindowStart);
     await runMissingInformationSweep(runId, counters, policyWindowStart);
     await runCashNoSafeMatchSweep(runId, counters, policyWindowStart);

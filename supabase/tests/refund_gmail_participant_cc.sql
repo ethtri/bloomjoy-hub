@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(80);
+select plan(92);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -959,6 +959,184 @@ select is(
   (select count(*)::integer from public.refund_case_events where event_type = 'gmail_customer_message_bounced'),
   2,
   'Each exact-customer hard bounce creates redacted manager-visible recovery evidence'
+);
+
+select ok(
+  not has_function_privilege(
+    'service_role',
+    'public.service_claim_refund_gmail_outbound_v2(uuid,uuid,text,text,text,text,text[],text)',
+    'execute'
+  ),
+  'The legacy v2 outbound claim is revoked so service workers cannot bypass v3 gates'
+);
+
+insert into public.refund_case_messages (
+  id, refund_case_id, message_type, status, recipient_email, subject, body,
+  template_key
+) values
+  (
+    '78650000-0000-4000-8000-000000000013',
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    'confirmation', 'pending', 'customer@example.test',
+    'Source-bound automatic reply', 'A source-bound synthetic automatic reply.',
+    'refund_confirmation_v1'
+  ),
+  (
+    '78650000-0000-4000-8000-000000000014',
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    'confirmation', 'pending', 'customer@example.test',
+    'Terminal automatic reply', 'This automatic reply must not reach a terminal case.',
+    'refund_confirmation_v1'
+  ),
+  (
+    '78650000-0000-4000-8000-000000000015',
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    'confirmation', 'pending', 'customer@example.test',
+    'Newer source-bound reply', 'A synthetic reply for the newer source thread.',
+    'refund_confirmation_v1'
+  );
+
+select is(
+  public.service_claim_refund_gmail_outbound_v3(
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    '78650000-0000-4000-8000-000000000013',
+    'participant-v3-disabled', 'info@bloomjoysweets.com',
+    'customer@example.test', 'A source-bound synthetic automatic reply.',
+    array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+    'automatic',
+    (select id from public.refund_gmail_threads where provider_thread_id = 'participant-thread')
+  ) ->> 'status',
+  'automatic_contact_disabled',
+  'The transport-time database switch blocks a new automatic Gmail claim'
+);
+select is(
+  (select count(*)::integer from public.refund_gmail_messages where operation_key = 'participant-v3-disabled'),
+  0,
+  'A disabled transport gate creates no outbound Gmail milestone'
+);
+
+update public.refund_customer_contact_settings
+set automatic_customer_contact_enabled = true
+where singleton;
+
+select is(
+  public.service_claim_refund_gmail_outbound_v3(
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    '78650000-0000-4000-8000-000000000013',
+    'participant-v3-no-source', 'info@bloomjoysweets.com',
+    'customer@example.test', 'A source-bound synthetic automatic reply.',
+    array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+    'automatic', null
+  ) ->> 'status',
+  'source_thread_required',
+  'Automatic Gmail delivery fails closed without the exact source conversation'
+);
+
+create temporary table v3_source_claim as
+select public.service_claim_refund_gmail_outbound_v3(
+  (select (result ->> 'caseId')::uuid from first_customer_ingest),
+  '78650000-0000-4000-8000-000000000013',
+  'participant-v3-source-bound', 'info@bloomjoysweets.com',
+  'customer@example.test', 'A source-bound synthetic automatic reply.',
+  array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+  'automatic',
+  (select id from public.refund_gmail_threads where provider_thread_id = 'participant-thread')
+) as result;
+
+select is(
+  (select (result ->> 'claimed')::boolean from v3_source_claim),
+  true,
+  'A valid automatic message claims exactly one source-bound Gmail milestone'
+);
+select is(
+  (select result ->> 'providerThreadId' from v3_source_claim),
+  'participant-thread',
+  'The source-bound claim keeps the older triggering conversation even when a newer thread exists'
+);
+select is(
+  (
+    select gmail_thread_id
+    from public.refund_gmail_messages
+    where operation_key = 'participant-v3-source-bound'
+  ),
+  (select id from public.refund_gmail_threads where provider_thread_id = 'participant-thread'),
+  'The durable outbound milestone stores the exact triggering Gmail thread'
+);
+
+select public.service_finish_refund_gmail_outbound(
+  (select (result ->> 'transportMessageId')::uuid from v3_source_claim),
+  'sent',
+  'participant-v3-provider-sent',
+  '<participant-v3-provider-sent@example.test>',
+  null
+);
+update public.refund_customer_contact_settings
+set automatic_customer_contact_enabled = false
+where singleton;
+
+select is(
+  (
+    public.service_claim_refund_gmail_outbound_v3(
+      (select (result ->> 'caseId')::uuid from first_customer_ingest),
+      '78650000-0000-4000-8000-000000000013',
+      'participant-v3-source-bound', 'info@bloomjoysweets.com',
+      'customer@example.test', 'A source-bound synthetic automatic reply.',
+      array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+      'automatic',
+      (select id from public.refund_gmail_threads where provider_thread_id = 'participant-thread')
+    ) ->> 'reconciled'
+  )::boolean,
+  true,
+  'A known provider-sent milestone reconciles locally without a second send even after the switch closes'
+);
+select is(
+  (select status from public.refund_case_messages where id = '78650000-0000-4000-8000-000000000013'),
+  'sent',
+  'Known Gmail sent evidence advances the tracked customer-message milestone'
+);
+
+update public.refund_customer_contact_settings
+set automatic_customer_contact_enabled = true
+where singleton;
+update public.refund_cases
+set decision = 'denied'
+where id = (select (result ->> 'caseId')::uuid from first_customer_ingest);
+select is(
+  public.service_claim_refund_gmail_outbound_v3(
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    '78650000-0000-4000-8000-000000000014',
+    'participant-v3-terminal', 'info@bloomjoysweets.com',
+    'customer@example.test', 'This automatic reply must not reach a terminal case.',
+    array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+    'automatic',
+    (select id from public.refund_gmail_threads where provider_thread_id = 'participant-thread-newer')
+  ) ->> 'status',
+  'terminal_case',
+  'A decision recorded after message creation blocks automatic transport delivery'
+);
+update public.refund_cases
+set decision = null
+where id = (select (result ->> 'caseId')::uuid from first_customer_ingest);
+
+create temporary table v3_newer_source_claim as
+select public.service_claim_refund_gmail_outbound_v3(
+  (select (result ->> 'caseId')::uuid from first_customer_ingest),
+  '78650000-0000-4000-8000-000000000015',
+  'participant-v3-newer-source', 'info@bloomjoysweets.com',
+  'customer@example.test', 'A synthetic reply for the newer source thread.',
+  array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+  'automatic',
+  (select id from public.refund_gmail_threads where provider_thread_id = 'participant-thread-newer')
+) as result;
+select is(
+  (select (result ->> 'claimed')::boolean from v3_newer_source_claim),
+  true,
+  'A second automatic message can bind independently to the newer triggering conversation'
+);
+select is(
+  (select result ->> 'providerThreadId' from v3_newer_source_claim),
+  'participant-thread-newer',
+  'The newer source-bound claim remains on its own Gmail conversation'
 );
 
 select * from finish();

@@ -5,6 +5,7 @@ import {
   sendRefundGmailReply,
   sha256Hex,
 } from "./refund-gmail.ts";
+import { automaticRefundCustomerContactEnabled } from "./refund-deterministic-follow-up.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 
 type RefundEmailPayload = {
@@ -101,6 +102,7 @@ export const dispatchRefundCaseGmailReply = async ({
   recipientEmail,
   email,
   deliveryKind = "manual",
+  gmailThreadId = null,
 }: {
   supabase: SupabaseClient;
   refundCaseId: string;
@@ -108,7 +110,17 @@ export const dispatchRefundCaseGmailReply = async ({
   recipientEmail: string;
   email: RefundEmailPayload;
   deliveryKind?: "manual" | "automatic";
+  gmailThreadId?: string | null;
 }) => {
+  if (
+    deliveryKind === "automatic" &&
+    !automaticRefundCustomerContactEnabled()
+  ) {
+    throw new RefundGmailError(
+      "automatic_contact_disabled",
+      "Automatic customer contact is disabled.",
+    );
+  }
   if (/\/refunds\?case=/i.test(`${email.text}\n${email.html}`)) {
     throw new RefundGmailError(
       "internal_case_link_blocked",
@@ -116,11 +128,14 @@ export const dispatchRefundCaseGmailReply = async ({
     );
   }
 
-  const { data: link, error: linkError } = await supabase
+  let linkQuery = supabase
     .from("refund_gmail_threads")
     .select("id,mailbox_hash")
-    .eq("refund_case_id", refundCaseId)
-    .order("latest_message_at", { ascending: false })
+    .eq("refund_case_id", refundCaseId);
+  linkQuery = gmailThreadId
+    ? linkQuery.eq("id", gmailThreadId)
+    : linkQuery.order("latest_message_at", { ascending: false });
+  const { data: link, error: linkError } = await linkQuery
     .limit(1)
     .maybeSingle();
 
@@ -128,13 +143,20 @@ export const dispatchRefundCaseGmailReply = async ({
     throw new RefundGmailError("gmail_link_lookup_failed", "Unable to resolve Gmail thread transport.");
   }
   if (!link) {
+    if (gmailThreadId) {
+      throw new RefundGmailError(
+        "gmail_source_thread_invalid",
+        "The source Gmail conversation is no longer linked to this refund case.",
+      );
+    }
     const mailboxIdentities = getRefundGmailMailboxIdentities();
-    const { data: recipientResolution, error: recipientResolutionError } = await supabase.rpc(
-      "service_resolve_refund_customer_manager_cc",
+    const { data: deliveryAuthorization, error: recipientResolutionError } = await supabase.rpc(
+      "service_authorize_refund_customer_outbound",
       {
         p_refund_case_id: refundCaseId,
-        p_customer_email: recipientEmail,
+        p_recipient_email: recipientEmail,
         p_mailbox_identities: mailboxIdentities,
+        p_delivery_kind: deliveryKind,
       },
     );
     if (recipientResolutionError) {
@@ -143,8 +165,27 @@ export const dispatchRefundCaseGmailReply = async ({
         "Unable to resolve the current Machine Manager recipients.",
       );
     }
+    const authorization = deliveryAuthorization && typeof deliveryAuthorization === "object"
+      ? deliveryAuthorization as Record<string, unknown>
+      : {};
+    if (authorization.allowed !== true) {
+      const status = typeof authorization.status === "string"
+        ? authorization.status
+        : "customer_delivery_not_authorized";
+      throw new RefundGmailError(
+        status,
+        status === "terminal_case"
+          ? "Automatic customer contact stopped because the refund case is already decided."
+          : status === "automatic_contact_disabled"
+          ? "Automatic customer contact is disabled."
+          : "Customer contact requires at least one current active mapped Machine Manager in CC.",
+      );
+    }
     const managerResolution = requireRefundCustomerManagerCcResolution({
-      resolution: recipientResolution,
+      resolution: {
+        status: authorization.recipientResolutionStatus,
+        managerCcEmails: authorization.managerCcEmails,
+      },
       customerEmail: recipientEmail,
       mailboxIdentities,
     });
@@ -165,7 +206,7 @@ export const dispatchRefundCaseGmailReply = async ({
 
   const operationKey = `refund-case-message:${refundCaseMessageId}`;
   const { data: claim, error: claimError } = await supabase.rpc(
-    "service_claim_refund_gmail_outbound_v2",
+    "service_claim_refund_gmail_outbound_v3",
     {
       p_refund_case_id: refundCaseId,
       p_refund_case_message_id: refundCaseMessageId,
@@ -175,6 +216,7 @@ export const dispatchRefundCaseGmailReply = async ({
       p_plain_body: email.text,
       p_mailbox_identities: config.mailboxIdentities,
       p_delivery_kind: deliveryKind,
+      p_target_gmail_thread_id: gmailThreadId,
     },
   );
   if (claimError) {
@@ -185,6 +227,24 @@ export const dispatchRefundCaseGmailReply = async ({
       "gmail_link_changed",
       "The linked Gmail thread changed before delivery. Review the case before sending again.",
     );
+  }
+  if (claim.reconciled === true && claim.status === "sent") {
+    const reconciledResolution = requireRefundCustomerManagerCcResolution({
+      resolution: {
+        status: claim.recipientResolutionStatus,
+        managerCcEmails: claim.managerCcEmails,
+      },
+      customerEmail: recipientEmail,
+      mailboxIdentities: config.mailboxIdentities,
+    });
+    return {
+      usedGmail: true as const,
+      subject: typeof claim.subject === "string" && claim.subject.trim()
+        ? claim.subject.trim()
+        : email.subject,
+      ...reconciledResolution,
+      reconciled: true as const,
+    };
   }
   if (!claim.claimed) {
     if (claim.status === "automatic_contact_paused") {
@@ -197,6 +257,30 @@ export const dispatchRefundCaseGmailReply = async ({
       throw new RefundGmailError(
         "manager_cc_required",
         "Customer contact requires at least one current active mapped Machine Manager in CC.",
+      );
+    }
+    if (claim.status === "automatic_contact_disabled") {
+      throw new RefundGmailError(
+        "automatic_contact_disabled",
+        "Automatic customer contact is disabled.",
+      );
+    }
+    if (claim.status === "terminal_case") {
+      throw new RefundGmailError(
+        "terminal_case",
+        "Automatic customer contact stopped because the refund case is already decided.",
+      );
+    }
+    if (claim.status === "source_thread_required") {
+      throw new RefundGmailError(
+        "gmail_source_thread_required",
+        "Automatic Gmail contact requires the exact source conversation.",
+      );
+    }
+    if (["unsafe_automatic_message", "delivery_kind_mismatch"].includes(claim.status)) {
+      throw new RefundGmailError(
+        "gmail_delivery_evidence_invalid",
+        "The tracked customer message is not authorized for this delivery kind.",
       );
     }
     throw new RefundGmailError(

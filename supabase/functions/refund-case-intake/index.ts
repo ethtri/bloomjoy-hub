@@ -1662,6 +1662,12 @@ serve(async (req) => {
         deliveryKind: "automatic",
       });
       if (!gmailDelivery.usedGmail) {
+        if (!(await automaticCustomerContactAllowed())) {
+          throw new RefundGmailError(
+            "automatic_contact_disabled",
+            "Automatic customer contact was disabled before provider delivery.",
+          );
+        }
         await sendTransactionalEmail({
           to: [customerEmail],
           cc: gmailDelivery.managerCcEmails,

@@ -467,6 +467,56 @@ update public.refund_customer_contact_settings
 set automatic_customer_contact_enabled = true
 where singleton;
 
+select lives_ok(
+  $sql$
+    insert into public.refund_case_messages (
+      id, refund_case_id, message_type, status, recipient_email, subject, body,
+      content_source, delivery_kind, reason_code, requested_fields
+    ) values (
+      '87000000-0000-4000-8000-000000000092',
+      '84000000-0000-4000-8000-000000000001',
+      'more_info', 'pending', 'incomplete-customer@example.test',
+      'Exact missing details', 'Please share the exact missing purchase details.',
+      'manager_authored', 'manual', 'missing_information',
+      array['location_or_machine','incident_date','incident_time','payment_method','amount']
+    )
+  $sql$,
+  'A manager-authored missing-information message accepts the exact current server-derived fields'
+);
+select ok(
+  pg_temp.capture_error($sql$
+    insert into public.refund_case_messages (
+      id, refund_case_id, message_type, status, recipient_email, subject, body,
+      content_source, delivery_kind, reason_code, requested_fields
+    ) values (
+      '87000000-0000-4000-8000-000000000093',
+      '84000000-0000-4000-8000-000000000001',
+      'more_info', 'pending', 'incomplete-customer@example.test',
+      'Stale missing details', 'This stale request omits current missing facts.',
+      'manager_authored', 'manual', 'missing_information',
+      array['amount']
+    )
+  $sql$) like '%current exact server-derived fields%',
+  'A manual missing-information message with stale or partial fields fails closed'
+);
+select ok(
+  pg_temp.capture_error($sql$
+    insert into public.refund_case_messages (
+      id, refund_case_id, message_type, status, recipient_email, subject, body,
+      content_source, delivery_kind, requested_fields
+    ) values (
+      '87000000-0000-4000-8000-000000000093',
+      '84000000-0000-4000-8000-000000000001',
+      'no_safe_match', 'pending', 'incomplete-customer@example.test',
+      'No match', 'A manual no-safe-match message must not be allowed.',
+      'manager_authored', 'manual', '{}'::text[]
+    )
+  $sql$) like '%Reserved deterministic follow-up class%',
+  'Manual no-safe-match customer copy is reserved to the deterministic automatic evidence path'
+);
+delete from public.refund_case_messages
+where id = '87000000-0000-4000-8000-000000000092';
+
 create temporary table first_cycle_claim as
 select public.service_claim_refund_follow_up_cycle(
   '84000000-0000-4000-8000-000000000001',
@@ -868,6 +918,20 @@ select is(
   'Pending receipt does not close the cycle before delivery'
 );
 
+update public.refund_follow_up_cycles
+set recheck_claimed_at = statement_timestamp()
+where id = (select (result #>> '{cycle,id}')::uuid from first_cycle_claim);
+
+select is(
+  (
+    select status
+    from public.refund_follow_up_cycles
+    where id = (select (result #>> '{cycle,id}')::uuid from first_cycle_claim)
+  ),
+  'customer_replied',
+  'A recheck that finishes while the receipt worker is in flight does not close early'
+);
+
 update public.refund_case_messages
 set status = 'sent', sent_at = statement_timestamp()
 where id = '87000000-0000-4000-8000-000000000004';
@@ -878,24 +942,8 @@ select is(
     from public.refund_follow_up_cycles
     where id = (select (result #>> '{cycle,id}')::uuid from first_cycle_claim)
   ),
-  'customer_replied',
-  'Delivered information receipt does not close the cycle before its internal recheck completes'
-);
-
-update public.refund_follow_up_cycles
-set
-  recheck_claimed_at = statement_timestamp(),
-  status = 'closed'
-where id = (select (result #>> '{cycle,id}')::uuid from first_cycle_claim);
-
-select is(
-  (
-    select status
-    from public.refund_follow_up_cycles
-    where id = (select (result #>> '{cycle,id}')::uuid from first_cycle_claim)
-  ),
   'closed',
-  'One completed recheck closes the cycle after its information receipt is delivered'
+  'A late receipt atomically closes the cycle once recheck evidence already exists'
 );
 select ok(
   pg_temp.capture_error(format(
@@ -1565,7 +1613,404 @@ select ok(
   'Manager overview omits private trigger, model, and provider evidence'
 );
 
+update public.refund_cases
+set
+  incident_at = '2026-08-03T19:15:00Z'::timestamptz,
+  incident_time_resolution = 'exact',
+  payment_method = 'cash',
+  payment_amount_cents = 650,
+  zelle_payment_contact = 'incomplete-customer@example.test'
+where id = '84000000-0000-4000-8000-000000000001';
+
+create temporary table gmail_draft_overview as
+select public.admin_get_refund_gmail_draft_cases() as result;
+
+select ok(
+  exists (
+    select 1
+    from gmail_draft_overview overview,
+      lateral jsonb_array_elements(overview.result) draft_case
+    where draft_case ->> 'id' = '84000000-0000-4000-8000-000000000001'
+      and draft_case ->> 'locationName' = 'Follow-up test location'
+      and draft_case ->> 'machineLabel' = 'Needs location'
+      and draft_case ->> 'paymentMethod' = 'cash'
+      and (draft_case ->> 'paymentAmountCents')::integer = 650
+  ),
+  'Gmail draft projection uses persisted structured location and payment facts instead of legacy placeholders'
+);
+select ok(
+  exists (
+    select 1
+    from gmail_draft_overview overview,
+      lateral jsonb_array_elements(overview.result) draft_case
+    where draft_case ->> 'id' = '84000000-0000-4000-8000-000000000001'
+      and draft_case ->> 'structuredIncidentAt' = '2026-08-03T19:15:00+00:00'
+      and draft_case ->> 'incidentTimeResolution' = 'exact'
+  ),
+  'Gmail draft projection exposes the exact structured incident timestamp used by server field derivation'
+);
+
 select set_config('request.jwt.claim.sub', '', true);
+
+update public.refund_customer_contact_settings
+set automatic_customer_contact_enabled = true
+where singleton;
+
+insert into public.refund_cases (
+  id, customer_email, issue_summary, status, intake_source, automation_state
+) values
+  (
+    '84000000-0000-4000-8000-000000000009',
+    'stale-pending@example.test',
+    'Synthetic stale pending follow-up claim.',
+    'draft', 'gmail', 'under_review'
+  ),
+  (
+    '84000000-0000-4000-8000-000000000010',
+    'stale-empty@example.test',
+    'Synthetic stale claim abandoned before message creation.',
+    'draft', 'gmail', 'under_review'
+  ),
+  (
+    '84000000-0000-4000-8000-000000000011',
+    'known-sent@example.test',
+    'Synthetic provider-sent milestone awaiting local reconciliation.',
+    'draft', 'gmail', 'under_review'
+  ),
+  (
+    '84000000-0000-4000-8000-000000000012',
+    'known-receipt-stale-recheck@example.test',
+    'Synthetic provider-sent receipt with a separately abandoned recheck.',
+    'draft', 'gmail', 'under_review'
+  );
+
+insert into public.refund_follow_up_cycles (
+  id, refund_case_id, cycle_number, trigger_fingerprint, reason_code,
+  requested_fields, template_version, case_fact_version,
+  reminder_delay_hours, created_at
+) values
+  (
+    '88000000-0000-4000-8000-000000000009',
+    '84000000-0000-4000-8000-000000000009',
+    1, repeat('d', 64), 'missing_information',
+    array['location_or_machine','incident_date','incident_time','payment_method','amount'],
+    'refund_follow_up_v1', 1, 72,
+    statement_timestamp() - interval '2 hours'
+  ),
+  (
+    '88000000-0000-4000-8000-000000000010',
+    '84000000-0000-4000-8000-000000000010',
+    1, repeat('e', 64), 'missing_information',
+    array['location_or_machine','incident_date','incident_time','payment_method','amount'],
+    'refund_follow_up_v1', 1, 72,
+    statement_timestamp() - interval '2 hours'
+  ),
+  (
+    '88000000-0000-4000-8000-000000000011',
+    '84000000-0000-4000-8000-000000000011',
+    1, repeat('f', 64), 'missing_information',
+    array['location_or_machine','incident_date','incident_time','payment_method','amount'],
+    'refund_follow_up_v1', 1, 72,
+    statement_timestamp() - interval '2 hours'
+  ),
+  (
+    '88000000-0000-4000-8000-000000000012',
+    '84000000-0000-4000-8000-000000000012',
+    1, repeat('1', 64), 'missing_information',
+    array['location_or_machine','incident_date','incident_time','payment_method','amount'],
+    'refund_follow_up_v1', 1, 72,
+    statement_timestamp() - interval '3 hours'
+  );
+
+insert into public.refund_case_messages (
+  id, refund_case_id, message_type, status, recipient_email, subject, body,
+  template_key, content_source, delivery_kind, reason_code, template_version,
+  follow_up_cycle_id, requested_fields, created_at
+) values
+  (
+    '87000000-0000-4000-8000-000000000009',
+    '84000000-0000-4000-8000-000000000009',
+    'more_info', 'pending', 'stale-pending@example.test',
+    'A few details will help us continue',
+    'This synthetic deterministic message was claimed but never delivered.',
+    'refund_missing_information_request_v1',
+    'deterministic_template', 'automatic', 'missing_information',
+    'refund_follow_up_v1',
+    '88000000-0000-4000-8000-000000000009',
+    array['location_or_machine','incident_date','incident_time','payment_method','amount'],
+    statement_timestamp() - interval '2 hours'
+  ),
+  (
+    '87000000-0000-4000-8000-000000000011',
+    '84000000-0000-4000-8000-000000000011',
+    'more_info', 'pending', 'known-sent@example.test',
+    'A few details will help us continue',
+    'This synthetic message has durable provider-sent evidence.',
+    'refund_missing_information_request_v1',
+    'deterministic_template', 'automatic', 'missing_information',
+    'refund_follow_up_v1',
+    '88000000-0000-4000-8000-000000000011',
+    array['location_or_machine','incident_date','incident_time','payment_method','amount'],
+    statement_timestamp() - interval '2 hours'
+  ),
+  (
+    '87000000-0000-4000-8000-000000000012',
+    '84000000-0000-4000-8000-000000000012',
+    'more_info', 'pending', 'known-receipt-stale-recheck@example.test',
+    'A few details will help us continue',
+    'This request establishes the synthetic customer-reply cycle.',
+    'refund_missing_information_request_v1',
+    'deterministic_template', 'automatic', 'missing_information',
+    'refund_follow_up_v1',
+    '88000000-0000-4000-8000-000000000012',
+    array['location_or_machine','incident_date','incident_time','payment_method','amount'],
+    statement_timestamp() - interval '3 hours'
+  );
+
+update public.refund_case_messages
+set
+  status = 'sent',
+  sent_at = statement_timestamp() - interval '3 hours'
+where id = '87000000-0000-4000-8000-000000000012';
+
+insert into public.refund_gmail_threads (
+  id, refund_case_id, mailbox_hash, provider_thread_id, thread_subject,
+  first_message_at, latest_message_at, retention_expires_at
+) values
+  (
+    '85000000-0000-4000-8000-000000000011',
+    '84000000-0000-4000-8000-000000000011',
+    repeat('f', 64), 'known-sent-thread', 'Known sent reconciliation',
+    statement_timestamp() - interval '3 hours',
+    statement_timestamp() - interval '2 hours',
+    statement_timestamp() + interval '30 days'
+  ),
+  (
+    '85000000-0000-4000-8000-000000000012',
+    '84000000-0000-4000-8000-000000000012',
+    repeat('1', 64), 'known-receipt-stale-recheck-thread',
+    'Known receipt with abandoned recheck',
+    statement_timestamp() - interval '3 hours',
+    statement_timestamp() - interval '2 hours',
+    statement_timestamp() + interval '30 days'
+  );
+
+insert into public.refund_gmail_messages (
+  id, gmail_thread_id, refund_case_id, provider_message_id, direction,
+  message_kind, status, sender_email, recipient_email, participant_role,
+  participant_trust, subject, plain_body, received_at, retention_expires_at
+) values (
+  '86000000-0000-4000-8000-000000000012',
+  '85000000-0000-4000-8000-000000000012',
+  '84000000-0000-4000-8000-000000000012',
+  'known-receipt-customer-reply', 'inbound', 'message', 'received',
+  'known-receipt-stale-recheck@example.test', 'info@bloomjoysweets.com',
+  'customer', 'verified', 'Re: A few details will help us continue',
+  'Here are the additional details for my request.',
+  statement_timestamp() - interval '2 hours',
+  statement_timestamp() + interval '30 days'
+);
+
+select public.service_claim_refund_follow_up_customer_reply(
+  '84000000-0000-4000-8000-000000000012',
+  '88000000-0000-4000-8000-000000000012'
+);
+
+insert into public.refund_case_messages (
+  id, refund_case_id, message_type, status, recipient_email, subject, body,
+  template_key, content_source, delivery_kind, reason_code, template_version,
+  follow_up_cycle_id, requested_fields, created_at
+) values (
+  '87000000-0000-4000-8000-000000000013',
+  '84000000-0000-4000-8000-000000000012',
+  'information_received', 'pending',
+  'known-receipt-stale-recheck@example.test',
+  'We received your information',
+  'Thank you. We received your reply and will continue the review.',
+  'refund_information_received_v1',
+  'deterministic_template', 'automatic', 'missing_information',
+  'refund_follow_up_v1',
+  '88000000-0000-4000-8000-000000000012',
+  array['location_or_machine','incident_date','incident_time','payment_method','amount'],
+  statement_timestamp() - interval '2 hours'
+);
+
+insert into public.refund_gmail_messages (
+  id, gmail_thread_id, refund_case_id, refund_case_message_id,
+  provider_message_id, provider_message_header, operation_key,
+  direction, message_kind, status, sender_email, recipient_email,
+  recipient_cc_emails, recipient_cc_count, recipient_resolution_status,
+  delivery_kind, participant_role, participant_trust, subject, plain_body,
+  received_at, sent_at, retention_expires_at
+) values
+  (
+    '86000000-0000-4000-8000-000000000099',
+    '85000000-0000-4000-8000-000000000011',
+    '84000000-0000-4000-8000-000000000011',
+    '87000000-0000-4000-8000-000000000011',
+    'known-sent-provider-id', '<known-sent-provider@example.test>',
+    'known-sent-operation', 'outbound', 'message', 'sent',
+    'info@bloomjoysweets.com', 'known-sent@example.test',
+    array['manager@example.test'], 1, 'resolved', 'automatic',
+    'mailbox', 'verified', 'Known sent reconciliation',
+    'Provider-confirmed synthetic follow-up.',
+    statement_timestamp() - interval '2 hours',
+    statement_timestamp() - interval '2 hours',
+    statement_timestamp() + interval '30 days'
+  ),
+  (
+    '86000000-0000-4000-8000-000000000098',
+    '85000000-0000-4000-8000-000000000012',
+    '84000000-0000-4000-8000-000000000012',
+    '87000000-0000-4000-8000-000000000013',
+    'known-receipt-provider-id', '<known-receipt-provider@example.test>',
+    'known-receipt-operation', 'outbound', 'message', 'sent',
+    'info@bloomjoysweets.com',
+    'known-receipt-stale-recheck@example.test',
+    array['manager@example.test'], 1, 'resolved', 'automatic',
+    'mailbox', 'verified', 'Known receipt with abandoned recheck',
+    'Provider-confirmed synthetic information-received receipt.',
+    statement_timestamp() - interval '2 hours',
+    statement_timestamp() - interval '2 hours',
+    statement_timestamp() + interval '30 days'
+  );
+
+insert into public.refund_automation_actions (
+  id, run_id, refund_case_id, action_key, action_type, case_state,
+  status, metadata, attempted_at, created_at, updated_at
+) values
+  (
+    '89000000-0000-4000-8000-000000000012',
+    '88000000-0000-4000-8000-000000000001',
+    '84000000-0000-4000-8000-000000000012',
+    'customer-information-received:88000000-0000-4000-8000-000000000012',
+    'customer_information_received', 'customer_replied', 'claimed',
+    '{"payload_redacted":true}'::jsonb,
+    statement_timestamp() - interval '2 hours',
+    statement_timestamp() - interval '2 hours',
+    statement_timestamp() - interval '2 hours'
+  ),
+  (
+    '89000000-0000-4000-8000-000000000013',
+    '88000000-0000-4000-8000-000000000001',
+    '84000000-0000-4000-8000-000000000012',
+    'customer-reply-recheck:88000000-0000-4000-8000-000000000012',
+    'customer_reply_recheck', 'customer_replied', 'claimed',
+    '{"payload_redacted":true}'::jsonb,
+    statement_timestamp() - interval '2 hours',
+    statement_timestamp() - interval '2 hours',
+    statement_timestamp() - interval '2 hours'
+  );
+
+create temporary table stale_claim_settlement as
+select public.service_settle_stale_refund_follow_up_claims(
+  statement_timestamp() - interval '30 minutes',
+  10
+) as result;
+
+select is(
+  (select (result ->> 'settledCount')::integer from stale_claim_settlement),
+  3,
+  'A bounded stale-claim pass settles every abandoned follow-up state once'
+);
+select is(
+  (select (result ->> 'reconciledCount')::integer from stale_claim_settlement),
+  2,
+  'Provider-confirmed split commits are reconciled instead of failed or resent'
+);
+select is(
+  (select status from public.refund_case_messages where id = '87000000-0000-4000-8000-000000000009'),
+  'failed',
+  'A stale pending customer message is failed closed instead of resent'
+);
+select is(
+  (select error_message from public.refund_case_messages where id = '87000000-0000-4000-8000-000000000009'),
+  'delivery_unknown_abandoned_claim',
+  'Stale pending delivery records an explicit delivery-unknown reason'
+);
+select is(
+  (select status from public.refund_follow_up_cycles where id = '88000000-0000-4000-8000-000000000009'),
+  'failed',
+  'Immutable failed-message evidence terminalizes a stale request cycle'
+);
+select is(
+  (select status from public.refund_follow_up_cycles where id = '88000000-0000-4000-8000-000000000010'),
+  'manual_review',
+  'A claim abandoned before message creation becomes manager-review work'
+);
+select is(
+  (select status from public.refund_case_messages where id = '87000000-0000-4000-8000-000000000011'),
+  'sent',
+  'Known provider-sent evidence advances the local customer-message milestone'
+);
+select is(
+  (select status from public.refund_follow_up_cycles where id = '88000000-0000-4000-8000-000000000011'),
+  'waiting',
+  'Known provider-sent request evidence advances its cycle without a duplicate send'
+);
+select is(
+  (select status from public.refund_case_messages where id = '87000000-0000-4000-8000-000000000013'),
+  'sent',
+  'Known provider-sent information-received evidence advances only its local message milestone'
+);
+select is(
+  (
+    select status
+    from public.refund_automation_actions
+    where id = '89000000-0000-4000-8000-000000000012'
+  ),
+  'completed',
+  'Known receipt delivery completes only the matching information-received action'
+);
+select is(
+  (
+    select status
+    from public.refund_automation_actions
+    where id = '89000000-0000-4000-8000-000000000013'
+  ),
+  'failed',
+  'A separately abandoned customer-reply recheck is failed rather than synthesized as complete'
+);
+select is(
+  (select status from public.refund_follow_up_cycles where id = '88000000-0000-4000-8000-000000000012'),
+  'manual_review',
+  'Known receipt delivery plus an abandoned recheck routes the cycle to manager review instead of closing it'
+);
+select is(
+  (
+    select count(*)::integer
+    from public.refund_case_events
+    where refund_case_id = '84000000-0000-4000-8000-000000000011'
+      and event_type = 'refund_follow_up_delivery_reconciled'
+      and (metadata ->> 'provider_delivery_confirmed')::boolean
+  ),
+  1,
+  'Known delivery reconciliation writes one durable redacted milestone event'
+);
+select is(
+  (
+    select count(*)::integer
+    from public.refund_case_events
+    where event_type = 'refund_follow_up_claim_settled'
+      and refund_case_id in (
+        '84000000-0000-4000-8000-000000000009',
+        '84000000-0000-4000-8000-000000000010',
+        '84000000-0000-4000-8000-000000000012'
+      )
+  ),
+  3,
+  'Every stale settlement writes one redacted manager-visible audit event'
+);
+select is(
+  (
+    public.service_settle_stale_refund_follow_up_claims(
+      statement_timestamp() - interval '30 minutes',
+      10
+    ) ->> 'settledCount'
+  )::integer,
+  0,
+  'Stale-claim settlement is idempotent and never creates a blind retry'
+);
 
 select * from finish();
 rollback;
