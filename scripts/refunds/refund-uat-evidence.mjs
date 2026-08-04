@@ -10,6 +10,11 @@ const __filename = fileURLToPath(import.meta.url);
 export const EXPECTED_SCREENSHOTS = [
   'admin-machines-machine-managers.png',
   'refund-direct-intake-desktop.png',
+  'refund-manager-enrollment-closed.png',
+  'refund-manager-step-up-bad-code.png',
+  'refund-manager-step-up-expired.png',
+  'refund-manager-step-up-mobile.png',
+  'refund-manager-step-up-required.png',
   'refund-portal-demo-fallback.png',
   'refund-portal-gmail-draft-desktop.png',
   'refund-portal-gmail-draft-mobile.png',
