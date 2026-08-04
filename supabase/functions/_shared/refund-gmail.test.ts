@@ -3,8 +3,8 @@ import {
   type GmailMessage,
   inspectRefundGmailParticipantSignals,
   parseEmailAddressList,
-  RefundGmailError,
   type RefundGmailConfig,
+  RefundGmailError,
   sendRefundGmailReply,
 } from "./refund-gmail.ts";
 import { requireRefundCustomerManagerCcResolution } from "./refund-gmail-transport.ts";
@@ -174,7 +174,9 @@ Deno.test("customer manager CC resolution accepts only owned nonempty routes", (
         mailboxIdentities: ["info@bloomjoysweets.com"],
       });
     } catch (error) {
-      errorCode = error instanceof RefundGmailError ? error.code : "unexpected_error";
+      errorCode = error instanceof RefundGmailError
+        ? error.code
+        : "unexpected_error";
     }
     assertEquals(
       errorCode,
@@ -371,7 +373,11 @@ Deno.test("hard bounce requires failed action and permanent 5.x status in one re
     mailboxIdentities: ["info@bloomjoysweets.com"],
   });
   assertEquals(delayed.isHardBounce, false, "delayed 4.x result");
-  assertEquals(delayed.failedRecipientEmails, [], "delayed recipient exclusion");
+  assertEquals(
+    delayed.failedRecipientEmails,
+    [],
+    "delayed recipient exclusion",
+  );
 
   for (const action of ["delivered", "relayed", "expanded"]) {
     const nonterminal = inspectRefundGmailParticipantSignals({
@@ -406,8 +412,16 @@ Deno.test("an authenticated transient DSN for the exact customer never emits pau
     }),
     mailboxIdentities: ["info@bloomjoysweets.com"],
   });
-  assertEquals(transientFailure.isBounce, true, "delivery notice classification");
-  assertEquals(transientFailure.isHardBounce, false, "transient failure is not permanent");
+  assertEquals(
+    transientFailure.isBounce,
+    true,
+    "delivery notice classification",
+  );
+  assertEquals(
+    transientFailure.isHardBounce,
+    false,
+    "transient failure is not permanent",
+  );
   assertEquals(
     transientFailure.failedRecipientEmails,
     [],
@@ -461,7 +475,11 @@ Deno.test("hard bounce rejects subject, X-Failed-Recipients, and report-type wit
   });
   assertEquals(signals.isBounce, true, "weak delivery notice classification");
   assertEquals(signals.isHardBounce, false, "weak delivery evidence");
-  assertEquals(signals.failedRecipientEmails, [], "header-only recipient exclusion");
+  assertEquals(
+    signals.failedRecipientEmails,
+    [],
+    "header-only recipient exclusion",
+  );
 });
 
 Deno.test("forwarded and spoof-suspected messages never look like direct customer replies", () => {
@@ -541,7 +559,8 @@ Deno.test("automatic Gmail replies suppress responder loops without changing man
     cc: ["manager@example.test"],
     deliveryKind: "automatic",
     subject: "We received your refund request",
-    text: "Thank you for contacting us. We are reviewing your request carefully.",
+    text:
+      "Thank you for contacting us. We are reviewing your request carefully.",
     html: "<p>Thank you for contacting us.</p>",
     operationKey: "refund-case-message:synthetic-automatic",
   });
@@ -561,6 +580,8 @@ Deno.test("automatic Gmail replies suppress responder loops without changing man
 
 Deno.test("Gmail send pins the provider thread and preserves the resolved CC set", async () => {
   const originalFetch = globalThis.fetch;
+  const originalEnabled = Deno.env.get("REFUND_GMAIL_ENABLED");
+  Deno.env.set("REFUND_GMAIL_ENABLED", "true");
   let sentPayload: { threadId?: unknown; raw?: unknown } = {};
   globalThis.fetch = async (input, init) => {
     const url = String(input);
@@ -629,5 +650,7 @@ Deno.test("Gmail send pins the provider thread and preserves the resolved CC set
     );
   } finally {
     globalThis.fetch = originalFetch;
+    if (originalEnabled === undefined) Deno.env.delete("REFUND_GMAIL_ENABLED");
+    else Deno.env.set("REFUND_GMAIL_ENABLED", originalEnabled);
   }
 });

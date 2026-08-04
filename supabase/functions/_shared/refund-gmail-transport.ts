@@ -3,6 +3,7 @@ import {
   getRefundGmailMailboxIdentities,
   REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE,
   RefundGmailError,
+  requireRefundGmailEnabled,
   sendRefundGmailReply,
   sha256Hex,
 } from "./refund-gmail.ts";
@@ -200,6 +201,11 @@ export const dispatchRefundCaseGmailReply = async ({
       ...managerResolution,
     };
   }
+
+  // This is the shared Gmail-only shutdown boundary. Keep it after the
+  // non-Gmail fallback branch so hosted-form intake can continue, but before
+  // configuration, delivery claims, OAuth, or provider access.
+  requireRefundGmailEnabled();
 
   const config = getRefundGmailConfig();
   if (!config) {

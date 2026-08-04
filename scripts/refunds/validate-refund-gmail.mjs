@@ -22,6 +22,8 @@ const [
   ui,
   client,
   preflight,
+  transportTest,
+  firstContactCcTest,
 ] =
   await Promise.all([
     read('supabase/migrations/202607210006_refund_gmail_thread_linkage.sql'),
@@ -42,6 +44,8 @@ const [
     read('src/pages/admin/Refunds.tsx'),
     read('src/lib/refundOperations.ts'),
     read('scripts/refunds/refund-gmail-preflight.mjs'),
+    read('supabase/functions/_shared/refund-gmail-transport.test.ts'),
+    read('supabase/tests/refund_gmail_first_contact_manager_cc.sql'),
   ]);
 
 const requiredTables = [
@@ -527,8 +531,23 @@ assert(
 );
 assert(gmailHelper.includes('threadId: providerThreadId'), 'Gmail sends must pin the original provider thread');
 assert(gmailHelper.includes('internal_case_link_blocked'), 'Customer-visible Gmail must reject internal case links');
+const lowLevelGmailSender = gmailHelper.slice(
+  gmailHelper.indexOf('export const sendRefundGmailReply'),
+  gmailHelper.indexOf('export const findRefundGmailReplyByMessageHeader'),
+);
+assert(
+  gmailHelper.includes('REFUND_GMAIL_DISABLED_CODE = "gmail_integration_disabled"') &&
+    gmailHelper.includes('REFUND_GMAIL_DISABLED_MESSAGE = "Gmail delivery is disabled."') &&
+    lowLevelGmailSender.indexOf('requireRefundGmailEnabled();') >= 0 &&
+    lowLevelGmailSender.indexOf('requireRefundGmailEnabled();') <
+      lowLevelGmailSender.indexOf('await gmailRequest<{ id?: string; threadId?: string }>'),
+  'The low-level Gmail sender must fail with one redacted disabled error before OAuth or provider access',
+);
 
-assert(syncFunction.includes('REFUND_GMAIL_ENABLED'), 'Server-side Gmail enable flag must default closed');
+assert(
+  syncFunction.includes('refundGmailEnabled') && gmailHelper.includes('Deno.env.get("REFUND_GMAIL_ENABLED")'),
+  'Server-side Gmail enable flag must use the shared default-closed parser',
+);
 assert(syncFunction.includes('REFUND_GMAIL_SYNC_SECRET'), 'Scheduled Gmail sync must authenticate independently');
 assert(syncFunction.includes('failure_test'), 'A PII-free Gmail failure test must exist');
 assert(
@@ -687,6 +706,43 @@ assert(
 );
 
 assert(gmailTransport.includes('dispatchRefundCaseGmailReply'), 'Case-aware Gmail transport must exist');
+const transportKillSwitchCall = gmailTransport.indexOf('requireRefundGmailEnabled();');
+assert(
+  transportKillSwitchCall > gmailTransport.indexOf('if (!link)') &&
+    transportKillSwitchCall < gmailTransport.indexOf('service_claim_refund_gmail_outbound_v3'),
+  'The shared Gmail-only transport must preserve the non-Gmail route and stop before any Gmail delivery claim',
+);
+const firstContactProcess = syncFunction.slice(
+  syncFunction.indexOf('const processFirstContact'),
+  syncFunction.indexOf('const sendGmailCaseActionNotice'),
+);
+assert(
+  firstContactProcess.indexOf('requireRefundGmailEnabled();') >= 0 &&
+    firstContactProcess.indexOf('requireRefundGmailEnabled();') <
+      firstContactProcess.indexOf('service_claim_refund_gmail_first_contact') &&
+    firstContactProcess.includes('claimRefundGmailDeliveryWhenEnabled'),
+  'First-contact send mode must obey the same Gmail switch before creating its delivery claim',
+);
+assert(
+  transportTest.includes('assertEquals(claimCalls, 0)') &&
+    transportTest.includes('assertEquals(firstContactClaimCalls, 0)') &&
+    transportTest.includes('assertEquals(fetchCalls, 0)') &&
+    transportTest.includes('deliveryKind: "manual"') &&
+    transportTest.includes('assertEquals(caught.code, "automatic_contact_disabled")') &&
+    transportTest.includes('assertEquals(providerRequest.threadId, providerThreadId)') &&
+    transportTest.includes('managerCcCount: 2') &&
+    transportTest.includes('internalCaseLinkPresent: false'),
+  'Synthetic transport evidence must cover disabled zero-call shutdown and enabled two-manager original-thread MIME',
+);
+assert(
+  firstContactCcTest.includes('first-contact-manager-a@example.test') &&
+    firstContactCcTest.includes('first-contact-manager-b@example.test') &&
+    firstContactCcTest.includes('service_finish_refund_gmail_first_contact') &&
+    firstContactCcTest.includes('operation_already_exists') &&
+    firstContactCcTest.includes('later_thread_message') &&
+    firstContactCcTest.includes('exactly one case, thread, acknowledgement operation, and sent outbound message'),
+  'The database fixture must prove one two-manager first contact and no replay or later-reply duplicate',
+);
 assert(sendFunction.includes('dispatchRefundCaseGmailReply'), 'Manual portal replies must use linked Gmail threads');
 assert(adminUpdate.includes('dispatchRefundCaseGmailReply'), 'Status-action replies must use linked Gmail threads');
 assert(
@@ -970,4 +1026,4 @@ assert(
   'Completion and ordinary customer-message paths must not emit a duplicate manager-only completion notice',
 );
 
-console.log('Refund Gmail validation passed: label-only intake, idempotent exactly-once first contact, participant-safe original threading, current mapped-manager CC, deterministic follow-ups, bounce recovery, quarantine, retention, health, and least-privilege boundaries are present.');
+console.log('Refund Gmail validation passed: default-off zero-call transport shutdown, label-only intake, idempotent exactly-once first contact, participant-safe original threading, current mapped-manager CC, deterministic follow-ups, bounce recovery, quarantine, retention, health, and least-privilege boundaries are present.');
