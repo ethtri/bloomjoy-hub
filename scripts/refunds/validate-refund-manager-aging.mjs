@@ -195,8 +195,7 @@ check(
     portalUat.includes("name === 'nayax-card-refund'") &&
     portalUat.includes("name === 'refund-case-admin-update'") &&
     portalUat.includes('Eligible card case link is navigation-only with no lookup or official action') &&
-    portalUat.includes('Search and filter changes remain independent after an eligible case link') &&
-    portalUat.includes('Queue selection remains navigation-only until the manager explicitly requests lookup')
+    portalUat.includes('Deep link, status filter, and queue-row selection make no lookup or official-action call')
 );
 
 check(

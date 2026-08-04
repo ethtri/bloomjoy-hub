@@ -73,7 +73,7 @@ jobs:
           sed -n '1,120p' /tmp/refund-uat-server.log
           exit 1
       - name: Run Refund portal synthetic UAT
-        run: npm run refunds:validate-portal-uat -- --artifact-dir output/refund-uat-evidence
+        run: npm run refunds:validate-portal-uat -- --artifact-dir output/refund-uat-evidence --fragment-dir output/refund-uat-fragments
       - name: Run Refund QR intake synthetic UAT
         run: npm run refunds:validate-qr-intake-uat -- --artifact-dir output/refund-uat-evidence
       - name: Run Machine Manager synthetic UAT

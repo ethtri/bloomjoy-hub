@@ -21,6 +21,9 @@ const assert = (condition, message) => {
 const migration = read(
   'supabase/migrations/202608030002_refund_manager_official_action_boundary.sql'
 );
+const providerOrchestrationMigration = read(
+  'supabase/migrations/202608040004_refund_nayax_provider_orchestration.sql'
+);
 const stepUpMigration = read(
   'supabase/migrations/202608030004_refund_manager_action_step_up.sql'
 );
@@ -150,7 +153,7 @@ assert(
     databaseTests.includes('A raw service identity cannot insert a pre-approved refund case') &&
     databaseTests.includes('Approved match and correlation evidence cannot be swapped') &&
     databaseTests.includes('cannot spoof manager evidence or a provider-success event') &&
-    databaseTests.includes('cannot mark provider success or completion'),
+    databaseTests.includes('Denied legacy consumption leaves manager authority and card case untouched'),
   'Raw service writes must not create official state, rewrite frozen evidence, spoof audit events, or finalize provider success.'
 );
 
@@ -195,9 +198,16 @@ assert(
     adminUpdate.includes('service_apply_refund_official_case_update') &&
     adminUpdate.includes('service_complete_cash_refund_official') &&
     adminUpdate.includes('expectedOfficialActionVersion') &&
-    nayaxExecution.includes('authorizeRefundOfficialAction') &&
-    nayaxExecution.includes('service_consume_nayax_refund_official_action') &&
-    nayaxExecution.includes('expectedOfficialActionVersion'),
+    nayaxExecution.includes('disabledNayaxProviderAdapter') &&
+    nayaxExecution.includes('Disabled production adapter cannot reserve an attempt.') &&
+    providerOrchestrationMigration.includes(
+      'create or replace function public.service_reserve_and_consume_nayax_refund_attempt'
+    ) &&
+    providerOrchestrationMigration.includes(
+      'authorization_context := public.service_consume_nayax_refund_official_action('
+    ) &&
+    providerOrchestrationMigration.includes('p_authorization_id uuid') &&
+    providerOrchestrationMigration.includes("authorization_row.action is distinct from 'nayax_execute'"),
   'All portal official-action paths must authorize and consume the exact browser-reviewed action.'
 );
 
@@ -319,7 +329,7 @@ assert(
   portalUat.includes("name: 'mapped Super Admin'") &&
     portalUat.includes("name: 'mapped Scoped Admin'") &&
     portalUat.includes('A case with a missing review version cannot inherit the previous case version') &&
-    portalUat.includes('Refund case deep link selects the case without automatically querying Nayax') &&
+    portalUat.includes('Deep link, status filter, and queue-row selection make no lookup or official-action call') &&
     portalUat.includes('Cancelling step-up invalidates the pending intent and takes no official action') &&
     portalUat.includes('A bad authenticator code leaves the reviewed action pending') &&
     portalUat.includes('Expired step-up fails before authenticator verification or target execution') &&

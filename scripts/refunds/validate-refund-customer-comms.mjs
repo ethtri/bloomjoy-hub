@@ -83,9 +83,9 @@ const run = async () => {
       'runCustomerCommsFailureChecks',
       'refund-case-message-send',
       'nayax-card-refund',
-      'Successful guarded card refund execution completes case through admin update',
+      'Synthetic browser ${scenario.name} trusts atomic settlement without secondary mutations',
       'messageType ===',
-      'customer was not contacted',
+      'Blocked Nayax execution leaves customer uncontacted',
     ])
   );
   assert(
