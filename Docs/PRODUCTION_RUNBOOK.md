@@ -194,7 +194,7 @@ supabase secrets set REFUND_GPT_TRIAGE_ENABLED=false
 
 Do not set `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` during shadow-mode setup. It stays unset until a separate live card-refund execution pilot is explicitly approved.
 
-Gmail and GPT credentials are enablement-time secrets, not prerequisites for the initial all-switches-off core deployment. Do not configure Gmail OAuth/mailbox secrets before the approvals in `#634`, and do not configure the production OpenAI key before the privacy/data-control approval in `#635`. Both functions deploy safely without provider credentials and remain inaccessible/disabled until their dedicated scheduler secret and enablement gates are configured.
+Gmail and GPT credentials are enablement-time secrets, not prerequisites for the initial all-switches-off core deployment. Do not configure Gmail OAuth/mailbox secrets before the approvals in `#634`, and do not configure the production OpenAI key before the privacy/data-control approval in `#635`. Both functions deploy safely without Gmail or OpenAI credentials and remain inaccessible/disabled until their dedicated scheduler secret and enablement gates are configured.
 
 Before continuing, run:
 
