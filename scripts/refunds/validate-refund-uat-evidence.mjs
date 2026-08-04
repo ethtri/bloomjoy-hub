@@ -14,14 +14,17 @@ import {
 import {
   DATABASE_EVIDENCE_FILENAME,
   buildDatabaseEvidence,
+  getDatabaseEvidenceExpectations,
   parseArgs as parseDatabaseArgs,
   parseDatabaseTestSummary,
 } from '../validate-supabase-migrations.mjs';
 
 const PNG_FIXTURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
 const sourceCommit = 'a'.repeat(40);
+const freshAfter = '2026-07-21T00:00:00.000Z';
 const generatedAt = '2026-07-22T00:00:00.000Z';
 const tempDir = await mkdtemp(path.join(os.tmpdir(), 'refund-uat-evidence-'));
+const databaseExpectations = getDatabaseEvidenceExpectations();
 
 const machineFixtures = {
   'refund-portal-assertions.json': {
@@ -33,18 +36,26 @@ const machineFixtures = {
     failedAssertionCount: 0,
     navigationProviderCallCount: 0,
     navigationOfficialActionCallCount: 0,
-    explicitLookupProviderCallCountBefore: 0,
-    explicitLookupProviderCallCountAfter: 1,
+    navigationLookupCallCount: 0,
+    navigationNayaxCardRefundCallCount: 0,
+    navigationAdminUpdateCallCount: 0,
+    navigationCustomerMessageCallCount: 0,
+    navigationStepUpCallCount: 0,
+    navigationMutatingRpcCallCount: 0,
+    primaryCheckLookupCallCountBefore: 0,
+    primaryCheckLookupCallCountAfter: 1,
     providerSuccessStateCount: 1,
     providerNonSuccessStateCount: 3,
+    intakeAvailable: true,
+    portalAvailable: true,
   },
   'refund-database-counts.json': {
     schemaVersion: 1,
     evidenceType: 'database_counts',
     evidenceMode: 'disposable_local_database',
     passed: true,
-    migrationCount: 126,
-    testFileCount: 18,
+    migrationCount: databaseExpectations.migrationCount,
+    testFileCount: databaseExpectations.testFileCount,
     assertionCount: 852,
     failedAssertionCount: 0,
   },
@@ -117,7 +128,7 @@ const writeCanonicalJson = (filePath, value) =>
   writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 
 try {
-  assert.equal(EXPECTED_SCREENSHOTS.length, 31, 'Evidence must enumerate all 31 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 34, 'Evidence must enumerate all 34 reviewed screenshots');
   assert.deepEqual(
     EXPECTED_MACHINE_READABLE_ARTIFACTS,
     Object.keys(machineFixtures),
@@ -132,9 +143,12 @@ try {
     'Database evidence output requires an explicit directory'
   );
   const databaseSummary = parseDatabaseTestSummary(
-    'All tests successful.\nFiles=18, Tests=852, 29 wallclock secs'
+    `All tests successful.\nFiles=${databaseExpectations.testFileCount}, Tests=852, 29 wallclock secs`
   );
-  assert.deepEqual(databaseSummary, { testFileCount: 18, assertionCount: 852 });
+  assert.deepEqual(databaseSummary, {
+    testFileCount: databaseExpectations.testFileCount,
+    assertionCount: 852,
+  });
   assert.throws(
     () => parseDatabaseTestSummary('All tests successful.'),
     /exactly one aggregate/,
@@ -143,17 +157,17 @@ try {
   assert.throws(
     () =>
       buildDatabaseEvidence({
-        migrationCount: 126,
-        discoveredTestFileCount: 17,
+        migrationCount: databaseExpectations.migrationCount,
+        discoveredTestFileCount: databaseExpectations.testFileCount - 1,
         testSummary: databaseSummary,
       }),
-    /covered 18 file\(s\), but 17 SQL test file\(s\) were discovered/,
+    /SQL test file\(s\) were discovered/,
     'Database evidence fails if the executed and discovered test-file counts differ'
   );
   assert.deepEqual(
     buildDatabaseEvidence({
-      migrationCount: 126,
-      discoveredTestFileCount: 18,
+      migrationCount: databaseExpectations.migrationCount,
+      discoveredTestFileCount: databaseExpectations.testFileCount,
       testSummary: databaseSummary,
     }),
     machineFixtures['refund-database-counts.json'],
@@ -165,10 +179,13 @@ try {
     tempDir,
     '--source-commit',
     sourceCommit,
+    '--fresh-after',
+    freshAfter,
   ]);
   assert.equal(parsed.artifactDir, path.resolve(tempDir));
   assert.equal(parsed.output, path.join(path.resolve(tempDir), 'refund-uat-evidence.json'));
   assert.equal(parsed.sourceCommit, sourceCommit);
+  assert.equal(parsed.freshAfter, freshAfter);
   assert.throws(() => parseArgs(['--unknown']), /Unknown or incomplete argument/);
   await assert.rejects(
     buildEvidence({
@@ -192,12 +209,14 @@ try {
     artifactDir: tempDir,
     output,
     sourceCommit,
+    freshAfter,
     generatedAt,
   });
 
   assert.deepEqual(Object.keys(manifest), [
     'schemaVersion',
     'generatedAt',
+    'evidenceRunStartedAt',
     'sourceCommit',
     'evidenceMode',
     'containsProductionData',
@@ -208,6 +227,7 @@ try {
   ]);
   assert.equal(manifest.schemaVersion, 2);
   assert.equal(manifest.generatedAt, generatedAt);
+  assert.equal(manifest.evidenceRunStartedAt, freshAfter);
   assert.equal(manifest.sourceCommit, sourceCommit);
   assert.equal(manifest.evidenceMode, 'synthetic_and_disposable_local_only');
   assert.equal(manifest.containsProductionData, false);
@@ -310,6 +330,29 @@ try {
   await assert.rejects(
     buildEvidence({ artifactDir: tempDir, output, sourceCommit, generatedAt }),
     /Unreviewed UAT artifacts/
+  );
+  await rm(path.join(tempDir, 'unreviewed-details.json'));
+  await assert.rejects(
+    buildEvidence({
+      artifactDir: tempDir,
+      output,
+      sourceCommit,
+      freshAfter: 'not-an-iso-timestamp',
+      generatedAt,
+    }),
+    /freshness boundary/,
+    'Invalid evidence freshness boundaries must fail closed'
+  );
+  await assert.rejects(
+    buildEvidence({
+      artifactDir: tempDir,
+      output,
+      sourceCommit,
+      freshAfter: '2999-01-01T00:00:00.000Z',
+      generatedAt,
+    }),
+    /not freshly generated in this run/,
+    'Artifacts older than the run boundary must fail closed'
   );
 } finally {
   await rm(tempDir, { recursive: true, force: true });

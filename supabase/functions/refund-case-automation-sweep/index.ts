@@ -32,6 +32,7 @@ import {
 import {
   buildRefundManagerAgingNotice,
   REFUND_MANAGER_AGING_TEMPLATE_VERSION,
+  runRefundManagerAgingWhenEnabled,
   type RefundManagerAgingMilestone,
 } from "../_shared/refund-manager-aging.ts";
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
@@ -2359,16 +2360,12 @@ const runReminderSweep = async (
   }
 };
 
-const runManagerAgingSweep = async (
+const runEnabledManagerAgingSweep = async (
   runId: string,
   counters: SweepCounters,
   policyWindowStart: string,
 ) => {
   if (!supabase) return;
-  if (!managerAgingNoticesEnabled) {
-    addReason(counters, "manager_aging_notices_disabled");
-    return;
-  }
   if (
     !Number.isInteger(managerReminderBusinessDays) ||
     managerReminderBusinessDays < 1 || managerReminderBusinessDays > 10 ||
@@ -2585,6 +2582,19 @@ const runManagerAgingSweep = async (
       );
     }
   }
+};
+
+const runManagerAgingSweep = async (
+  runId: string,
+  counters: SweepCounters,
+  policyWindowStart: string,
+) => {
+  if (!supabase) return;
+  const gated = await runRefundManagerAgingWhenEnabled({
+    enabled: managerAgingNoticesEnabled,
+    run: () => runEnabledManagerAgingSweep(runId, counters, policyWindowStart),
+  });
+  if (!gated.executed) addReason(counters, "manager_aging_notices_disabled");
 };
 
 const runHealthCheck = async (

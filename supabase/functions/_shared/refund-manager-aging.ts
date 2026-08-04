@@ -2,6 +2,26 @@ export const REFUND_MANAGER_AGING_TEMPLATE_VERSION = "refund_manager_aging_v1";
 
 export type RefundManagerAgingMilestone = "reminder" | "escalation";
 
+export type RefundManagerAgingGateResult<T> =
+  | { executed: false; value: null }
+  | { executed: true; value: T };
+
+/**
+ * Keeps every manager-aging side effect behind one dependency-injected gate.
+ * The caller must place selection, claim, reservation, and delivery inside
+ * `run`; disabled mode never invokes that dependency.
+ */
+export const runRefundManagerAgingWhenEnabled = async <T>({
+  enabled,
+  run,
+}: {
+  enabled: boolean;
+  run: () => Promise<T>;
+}): Promise<RefundManagerAgingGateResult<T>> => {
+  if (!enabled) return { executed: false, value: null };
+  return { executed: true, value: await run() };
+};
+
 type ZonedDateTimeParts = {
   year: number;
   month: number;

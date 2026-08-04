@@ -148,6 +148,13 @@ function getSqlFiles(directory) {
     .sort();
 }
 
+export function getDatabaseEvidenceExpectations() {
+  return {
+    migrationCount: getMigrationFiles().length,
+    testFileCount: getSqlFiles(testsDir).length,
+  };
+}
+
 export function parseDatabaseTestSummary(output) {
   const summaries = [...output.matchAll(/\bFiles=(\d+),\s*Tests=(\d+)\b/g)];
   if (summaries.length !== 1) {

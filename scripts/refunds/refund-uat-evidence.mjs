@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
-import { readFile, readdir, writeFile } from 'node:fs/promises';
+import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getDatabaseEvidenceExpectations } from '../validate-supabase-migrations.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -32,9 +33,12 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-portal-uat-no-match.png',
   'refund-portal-uat-processing.png',
   'refund-portal-uat-setup-needed.png',
-  'refund-portal-uat-success.png',
   'refund-portal-uat-unique-qr-wallet-recommendation.png',
   'refund-portal-uat-wallet-manual-review.png',
+  'refund-provider-rejected.png',
+  'refund-provider-success.png',
+  'refund-provider-timeout.png',
+  'refund-provider-unknown.png',
   'refund-qr-intake-desktop.png',
   'refund-qr-intake-mobile.png',
   'refund-qr-intake-mobile-wallet.png',
@@ -86,10 +90,18 @@ const validatePortalAssertions = (payload) => {
     'failedAssertionCount',
     'navigationProviderCallCount',
     'navigationOfficialActionCallCount',
-    'explicitLookupProviderCallCountBefore',
-    'explicitLookupProviderCallCountAfter',
+    'navigationLookupCallCount',
+    'navigationNayaxCardRefundCallCount',
+    'navigationAdminUpdateCallCount',
+    'navigationCustomerMessageCallCount',
+    'navigationStepUpCallCount',
+    'navigationMutatingRpcCallCount',
+    'primaryCheckLookupCallCountBefore',
+    'primaryCheckLookupCallCountAfter',
     'providerSuccessStateCount',
     'providerNonSuccessStateCount',
+    'intakeAvailable',
+    'portalAvailable',
   ], 'Portal assertion evidence');
   assertLiteral(payload.schemaVersion, 1, 'Portal assertion schemaVersion');
   assertLiteral(payload.evidenceType, 'portal_assertions', 'Portal assertion evidenceType');
@@ -99,18 +111,38 @@ const validatePortalAssertions = (payload) => {
   assertLiteral(payload.failedAssertionCount, 0, 'Portal failed assertion count');
   assertLiteral(payload.navigationProviderCallCount, 0, 'Portal navigation provider call count');
   assertLiteral(payload.navigationOfficialActionCallCount, 0, 'Portal navigation official-action call count');
+  assertLiteral(payload.navigationLookupCallCount, 0, 'Portal navigation lookup-call count');
   assertLiteral(
-    payload.explicitLookupProviderCallCountBefore,
+    payload.navigationNayaxCardRefundCallCount,
     0,
-    'Portal explicit-lookup pre-action provider call count'
+    'Portal navigation Nayax-refund call count'
+  );
+  assertLiteral(payload.navigationAdminUpdateCallCount, 0, 'Portal navigation admin-update call count');
+  assertLiteral(
+    payload.navigationCustomerMessageCallCount,
+    0,
+    'Portal navigation customer-message call count'
+  );
+  assertLiteral(payload.navigationStepUpCallCount, 0, 'Portal navigation step-up call count');
+  assertLiteral(
+    payload.navigationMutatingRpcCallCount,
+    0,
+    'Portal navigation mutating-RPC call count'
   );
   assertLiteral(
-    payload.explicitLookupProviderCallCountAfter,
+    payload.primaryCheckLookupCallCountBefore,
+    0,
+    'Portal primary-check pre-action lookup call count'
+  );
+  assertLiteral(
+    payload.primaryCheckLookupCallCountAfter,
     1,
-    'Portal explicit-lookup post-action provider call count'
+    'Portal primary-check post-action lookup call count'
   );
   assertLiteral(payload.providerSuccessStateCount, 1, 'Portal provider success-state count');
   assertLiteral(payload.providerNonSuccessStateCount, 3, 'Portal provider non-success-state count');
+  assertLiteral(payload.intakeAvailable, true, 'Portal intake-availability assertion');
+  assertLiteral(payload.portalAvailable, true, 'Portal availability assertion');
 };
 
 const validateDatabaseCounts = (payload) => {
@@ -128,9 +160,10 @@ const validateDatabaseCounts = (payload) => {
   assertLiteral(payload.evidenceType, 'database_counts', 'Database count evidenceType');
   assertLiteral(payload.evidenceMode, 'disposable_local_database', 'Database count evidenceMode');
   assertLiteral(payload.passed, true, 'Database count passed flag');
-  assertCount(payload.migrationCount, 'Migration count', { min: 1 });
-  assertCount(payload.testFileCount, 'Database test-file count', { min: 1 });
-  assertCount(payload.assertionCount, 'Database assertion count', { min: 1 });
+  const expected = getDatabaseEvidenceExpectations();
+  assertLiteral(payload.migrationCount, expected.migrationCount, 'Migration count');
+  assertLiteral(payload.testFileCount, expected.testFileCount, 'Database test-file count');
+  assertCount(payload.assertionCount, 'Database assertion count', { min: 850 });
   assertLiteral(payload.failedAssertionCount, 0, 'Database failed assertion count');
 };
 
@@ -288,6 +321,7 @@ export function parseArgs(argv) {
     artifactDir: 'output/refund-uat-evidence',
     output: '',
     sourceCommit: process.env.GITHUB_SHA || 'local',
+    freshAfter: process.env.REFUND_UAT_EVIDENCE_STARTED_AT || null,
     help: false,
   };
 
@@ -318,6 +352,12 @@ export function parseArgs(argv) {
       continue;
     }
 
+    if (arg === '--fresh-after' && next) {
+      args.freshAfter = next.trim();
+      index += 1;
+      continue;
+    }
+
     throw new Error(`Unknown or incomplete argument: ${arg}`);
   }
 
@@ -333,7 +373,7 @@ function printHelp() {
   console.log(`Build sanitized Refund Operations UAT evidence
 
 Usage:
-  npm run refunds:build-uat-evidence -- --artifact-dir output/refund-uat-evidence --source-commit <sha>
+  npm run refunds:build-uat-evidence -- --artifact-dir output/refund-uat-evidence --source-commit <sha> --fresh-after <ISO timestamp>
 
 The input directory must contain every expected synthetic screenshot and all
 five strict machine-readable evidence files. The output manifest contains only
@@ -348,10 +388,15 @@ export async function buildEvidence({
   artifactDir,
   output,
   sourceCommit,
+  freshAfter = null,
   generatedAt = new Date().toISOString(),
 }) {
   if (!/^(?:[a-f0-9]{7,40}|local|working-tree)$/.test(sourceCommit)) {
     throw new Error('Source commit must be a Git SHA or the explicit local/working-tree marker.');
+  }
+  const freshAfterMs = freshAfter === null ? null : Date.parse(freshAfter);
+  if (freshAfter !== null && !Number.isFinite(freshAfterMs)) {
+    throw new Error('Evidence freshness boundary must be a valid ISO timestamp.');
   }
 
   const directoryEntries = await readdir(artifactDir, { withFileTypes: true });
@@ -387,6 +432,17 @@ export async function buildEvidence({
     .map((entry) => entry.name);
   if (unexpectedEntries.length > 0) {
     throw new Error(`Unreviewed UAT artifacts are not included in the manifest: ${unexpectedEntries.join(', ')}`);
+  }
+
+  if (freshAfterMs !== null) {
+    const staleFiles = [];
+    for (const name of [...EXPECTED_SCREENSHOTS, ...EXPECTED_MACHINE_READABLE_ARTIFACTS]) {
+      const fileStat = await stat(path.join(artifactDir, name));
+      if (fileStat.mtimeMs < freshAfterMs) staleFiles.push(name);
+    }
+    if (staleFiles.length > 0) {
+      throw new Error(`UAT artifacts were not freshly generated in this run: ${staleFiles.join(', ')}`);
+    }
   }
 
   const screenshots = [];
@@ -431,6 +487,7 @@ export async function buildEvidence({
   const manifest = {
     schemaVersion: 2,
     generatedAt,
+    evidenceRunStartedAt: freshAfter,
     sourceCommit,
     evidenceMode: 'synthetic_and_disposable_local_only',
     containsProductionData: false,

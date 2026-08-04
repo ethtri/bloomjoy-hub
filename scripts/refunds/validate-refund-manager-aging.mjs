@@ -11,6 +11,8 @@ const migration = read('supabase/migrations/202608040001_refund_manager_aging_re
 const databaseTest = read('supabase/tests/refund_manager_aging_safety.sql');
 const sweep = read('supabase/functions/refund-case-automation-sweep/index.ts');
 const agingTemplate = read('supabase/functions/_shared/refund-manager-aging.ts');
+const agingTest = read('supabase/functions/_shared/refund-manager-aging.test.ts');
+const agingKillFragment = read('scripts/refunds/build-refund-manager-aging-kill-fragment.ts');
 const managerNotification = read('supabase/functions/_shared/refund-manager-notification.ts');
 const portalUi = read('src/pages/admin/Refunds.tsx');
 const environmentExample = read('.env.example');
@@ -19,11 +21,12 @@ const decisions = read('Docs/DECISIONS.md');
 const currentStatus = read('Docs/CURRENT_STATUS.md');
 const qaChecklist = read('Docs/QA_SMOKE_TEST_CHECKLIST.md');
 const productionRunbook = read('Docs/PRODUCTION_RUNBOOK.md');
+const evidenceWorkflow = read('.github/workflows/refund-uat-evidence.yml');
 
 const checks = [];
 const check = (name, condition) => checks.push({ name, pass: Boolean(condition) });
 
-const managerSweepStart = sweep.indexOf('const runManagerAgingSweep = async');
+const managerSweepStart = sweep.indexOf('const runEnabledManagerAgingSweep = async');
 const managerSweepEnd = sweep.indexOf('const runHealthCheck = async', managerSweepStart);
 const managerSweep = managerSweepStart >= 0 && managerSweepEnd > managerSweepStart
   ? sweep.slice(managerSweepStart, managerSweepEnd)
@@ -194,6 +197,21 @@ check(
     portalUat.includes('Eligible card case link is navigation-only with no lookup or official action') &&
     portalUat.includes('Search and filter changes remain independent after an eligible case link') &&
     portalUat.includes('Queue selection remains navigation-only until the manager explicitly requests lookup')
+);
+
+check(
+  'Disabled manager aging is executable and gates every side-effect dependency',
+  agingTemplate.includes('runRefundManagerAgingWhenEnabled') &&
+    agingTemplate.includes('if (!enabled) return { executed: false, value: null }') &&
+    sweep.includes('run: () => runEnabledManagerAgingSweep(runId, counters, policyWindowStart)') &&
+    (sweep.match(/runEnabledManagerAgingSweep\(/g) ?? []).length === 1 &&
+    agingTest.includes('disabled manager aging gate invokes no fetch, claim, reservation, or send dependency') &&
+    agingTest.includes('assertEquals(calls, { fetch: 0, claim: 0, reservation: 0, send: 0 })') &&
+    agingKillFragment.includes('REFUND_MANAGER_AGING_NOTICES_ENABLED') &&
+    agingKillFragment.includes('enabled: managerAgingEnabled') &&
+    agingKillFragment.includes('{ createNew: true }') &&
+    agingKillFragment.includes('Object.values(calls).some((count) => count !== 0)') &&
+    evidenceWorkflow.includes('npm run refunds:build-manager-aging-kill-fragment -- --output')
 );
 
 check(

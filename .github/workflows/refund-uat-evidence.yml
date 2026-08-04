@@ -40,8 +40,14 @@ jobs:
           version: 2.67.1
       - name: Install dependencies
         run: npm ci
+      - name: Record evidence run start
+        run: node -e "require('fs').appendFileSync(process.env.GITHUB_ENV, 'REFUND_UAT_EVIDENCE_STARTED_AT=' + new Date().toISOString() + '\n')"
       - name: Run disposable database validation
         run: npm run db:validate-migrations -- --evidence-dir output/refund-uat-evidence
+      - name: Prove manager-aging shutdown before side effects
+        env:
+          REFUND_MANAGER_AGING_NOTICES_ENABLED: 'false'
+        run: npm run refunds:build-manager-aging-kill-fragment -- --output output/refund-uat-fragments/refund-manager-aging-kill-fragment.json
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Start synthetic UAT app
@@ -66,7 +72,7 @@ jobs:
       - name: Run Machine Manager synthetic UAT
         run: npm run refunds:validate-machine-manager-uat -- --artifact-dir output/refund-uat-evidence
       - name: Build evidence manifest
-        run: npm run refunds:build-uat-evidence -- --artifact-dir output/refund-uat-evidence --source-commit "${{ github.event.pull_request.head.sha || github.sha }}"
+        run: npm run refunds:build-uat-evidence -- --artifact-dir output/refund-uat-evidence --source-commit "${{ github.event.pull_request.head.sha || github.sha }}" --fresh-after "${REFUND_UAT_EVIDENCE_STARTED_AT}"
       - name: Upload sanitized evidence
         id: upload
         uses: actions/upload-artifact@v4
@@ -81,7 +87,7 @@ jobs:
           echo "### Refund Operations synthetic UAT evidence" >> "$GITHUB_STEP_SUMMARY"
           echo "- Artifact: ${{ steps.upload.outputs.artifact-url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Digest: ${{ steps.upload.outputs.artifact-digest }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Screenshots: 31 synthetic states; no production data" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Screenshots: 34 synthetic states; no production data" >> "$GITHUB_STEP_SUMMARY"
           echo "- Machine-readable evidence: 5 strict, sanitized, hashed JSON artifacts" >> "$GITHUB_STEP_SUMMARY"
       - name: Stop synthetic UAT app
         if: always()
