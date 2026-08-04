@@ -28,6 +28,7 @@ const files = {
   refundCaseMessageSend: 'supabase/functions/refund-case-message-send/index.ts',
   refundOperationsLib: 'src/lib/refundOperations.ts',
   refundOperationsUi: 'src/pages/admin/Refunds.tsx',
+  refundPortalUat: 'scripts/refunds/validate-refund-portal-uat.mjs',
   nayaxCandidateTokenMigration: 'supabase/migrations/202605130001_refund_nayax_lookup_candidate_tokens.sql',
   nayaxRecommendationMigration: 'supabase/migrations/202607210003_refund_nayax_recommendation_state.sql',
 };
@@ -61,6 +62,7 @@ const refundAdminUpdate = read(files.refundAdminUpdate);
 const refundCaseMessageSend = read(files.refundCaseMessageSend);
 const refundOperationsLib = read(files.refundOperationsLib);
 const refundOperationsUi = read(files.refundOperationsUi);
+const refundPortalUat = read(files.refundPortalUat);
 const nayaxCandidateTokenMigration = read(files.nayaxCandidateTokenMigration);
 const nayaxRecommendationMigration = read(files.nayaxRecommendationMigration);
 
@@ -204,6 +206,13 @@ assert(
     providerEvidenceProducer.includes('local_injected_provider_adapter') &&
     providerEvidenceProducer.includes('replayProviderAttempts'),
   'Injected local proof must measure all outcomes and replay safety without representing browser mocks as real handler success.'
+);
+assert(
+  refundPortalUat.includes('functionCalls.length === 0') &&
+    refundPortalUat.includes("functionCalls: ['future-mutating-edge-function']") &&
+    refundPortalUat.includes('Navigation safety proof fails closed for an unknown Edge Function call') &&
+    refundPortalUat.includes('rpcCalls.every((name) => NAVIGATION_READ_ONLY_RPCS.has(name))'),
+  'Portal navigation evidence must fail closed on every Edge Function call and every non-allowlisted RPC, including an unknown-function negative self-check.'
 );
 assert(
   refundAdminUpdate.includes('provider_settlement_required') &&

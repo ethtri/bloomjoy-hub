@@ -13,6 +13,23 @@ const DEFAULT_EVIDENCE_DIR = 'output/refund-uat-evidence';
 const DEFAULT_FRAGMENT_DIR = 'output/refund-uat-fragments';
 const execFileAsync = promisify(execFile);
 
+const NAVIGATION_READ_ONLY_RPCS = new Set([
+  'resolve_my_technician_entitlements',
+  'get_my_admin_access_context',
+  'get_my_plus_access',
+  'get_my_operator_timekeeping_context',
+  'get_my_portal_access_context',
+  'get_my_reporting_access_context',
+  'get_refund_automation_health',
+  'get_refund_gmail_health',
+  'admin_get_refund_gmail_draft_cases',
+  'admin_get_refund_operations_overview',
+]);
+
+const isReadOnlyNavigationActivity = ({ functionCalls, rpcCalls }) =>
+  functionCalls.length === 0 &&
+  rpcCalls.every((name) => NAVIGATION_READ_ONLY_RPCS.has(name));
+
 const parseArgs = (argv) => {
   const args = {
     appUrl: process.env.REFUND_PORTAL_UAT_APP_URL || DEFAULT_APP_URL,
@@ -2265,18 +2282,6 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
     'refund-case-message-send',
     'refund-manager-action-step-up',
   ]);
-  const navigationReadOnlyRpcs = new Set([
-    'resolve_my_technician_entitlements',
-    'get_my_admin_access_context',
-    'get_my_plus_access',
-    'get_my_operator_timekeeping_context',
-    'get_my_portal_access_context',
-    'get_my_reporting_access_context',
-    'get_refund_automation_health',
-    'get_refund_gmail_health',
-    'admin_get_refund_gmail_draft_cases',
-    'admin_get_refund_operations_overview',
-  ]);
   evidence.navigationProviderCallCount = functionCalls.filter((name) => name === 'nayax-card-refund').length;
   evidence.navigationOfficialActionCallCount = functionCalls.filter((name) => navigationOfficialFunctions.has(name)).length;
   evidence.navigationLookupCallCount = functionCalls.filter((name) => name === 'nayax-transaction-lookup').length;
@@ -2285,9 +2290,10 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
   evidence.navigationCustomerMessageCallCount = functionCalls.filter((name) => name === 'refund-case-message-send').length;
   evidence.navigationStepUpCallCount = functionCalls.filter((name) => name === 'refund-manager-action-step-up').length;
   evidence.navigationMutatingRpcCallCount = rpcCalls.filter(
-    (name) => !navigationReadOnlyRpcs.has(name)
+    (name) => !NAVIGATION_READ_ONLY_RPCS.has(name)
   ).length;
   evidence.portalAvailable = await page.getByRole('heading', { name: 'RF-UAT-PENDING' }).isVisible();
+  const navigationActivityIsReadOnly = isReadOnlyNavigationActivity({ functionCalls, rpcCalls });
 
   const providerOrOfficialCalls = () => functionCalls.filter((name) =>
     name === 'nayax-transaction-lookup' ||
@@ -2306,7 +2312,8 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
   );
   recorder.assert(
     'Refund navigation remains read-only after the post-render delay',
-    evidence.navigationProviderCallCount === 0 &&
+    navigationActivityIsReadOnly &&
+      evidence.navigationProviderCallCount === 0 &&
       evidence.navigationOfficialActionCallCount === 0 &&
       evidence.navigationLookupCallCount === 0 &&
       evidence.navigationNayaxCardRefundCallCount === 0 &&
@@ -2318,7 +2325,8 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
   );
   recorder.assert(
     'Deep link, status filter, and queue-row selection make no lookup or official-action call',
-    evidence.navigationLookupCallCount === 0 &&
+    navigationActivityIsReadOnly &&
+      evidence.navigationLookupCallCount === 0 &&
       evidence.navigationOfficialActionCallCount === 0 &&
       evidence.navigationMutatingRpcCallCount === 0
   );
@@ -3350,6 +3358,14 @@ const run = async () => {
     intakeAvailable: false,
     portalAvailable: false,
   };
+
+  recorder.assert(
+    'Navigation safety proof fails closed for an unknown Edge Function call',
+    !isReadOnlyNavigationActivity({
+      functionCalls: ['future-mutating-edge-function'],
+      rpcCalls: [],
+    })
+  );
 
   await mkdir(args.artifactDir, { recursive: true });
   if (!args.managerStepUpOnly) await mkdir(args.fragmentDir, { recursive: true });
