@@ -1,0 +1,170 @@
+name: Refund Google Form Case Sync
+
+on:
+  schedule:
+    # Default-off 10-minute bridge cadence. Avoid the top of the hour.
+    - cron: '3,13,23,33,43,53 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Fetch and validate the Form/Sheet contract without writing cases'
+        required: false
+        default: 'true'
+      run_key:
+        description: 'Optional synthetic replay key; leave blank for normal runs'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refund-google-form-case-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      REFUND_GOOGLE_FORM_SYNC_URL: ${{ secrets.REFUND_GOOGLE_FORM_SYNC_URL }}
+      REFUND_GOOGLE_FORM_SYNC_TOKEN: ${{ secrets.REFUND_GOOGLE_FORM_SYNC_TOKEN }}
+      REFUND_GOOGLE_FORM_SYNC_ENABLED: ${{ vars.REFUND_GOOGLE_FORM_SYNC_ENABLED || 'false' }}
+      REFUND_GOOGLE_FORM_SYNC_ROW_LIMIT: ${{ vars.REFUND_GOOGLE_FORM_SYNC_ROW_LIMIT || '50' }}
+      DRY_RUN: ${{ inputs.dry_run || 'false' }}
+      REQUESTED_RUN_KEY: ${{ inputs.run_key || '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Google Form bridge safety
+        run: npm run refunds:validate-google-form-bridge
+
+      - name: Sync Google Form responses into draft cases
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" && "$REFUND_GOOGLE_FORM_SYNC_ENABLED" != "true" ]]; then
+            echo "Skipping scheduled Google Form case sync because REFUND_GOOGLE_FORM_SYNC_ENABLED is not true."
+            exit 0
+          fi
+
+          if [[ "$DRY_RUN" != "true" && "$REFUND_GOOGLE_FORM_SYNC_ENABLED" != "true" ]]; then
+            echo "Non-dry-run Google Form case sync requires REFUND_GOOGLE_FORM_SYNC_ENABLED=true."
+            exit 1
+          fi
+
+          if [[ -z "$REFUND_GOOGLE_FORM_SYNC_URL" || -z "$REFUND_GOOGLE_FORM_SYNC_TOKEN" ]]; then
+            echo "Missing REFUND_GOOGLE_FORM_SYNC_URL or REFUND_GOOGLE_FORM_SYNC_TOKEN."
+            exit 1
+          fi
+
+          node --input-type=module <<'NODE'
+          const url = process.env.REFUND_GOOGLE_FORM_SYNC_URL;
+          const token = process.env.REFUND_GOOGLE_FORM_SYNC_TOKEN;
+          const dryRun = process.env.DRY_RUN === 'true';
+          const rowLimit = Math.max(1, Math.min(Number(process.env.REFUND_GOOGLE_FORM_SYNC_ROW_LIMIT || 50), 100));
+          const requestedRunKey = String(process.env.REQUESTED_RUN_KEY || '').trim();
+          const defaultRunKey = `${process.env.GITHUB_EVENT_NAME}:${process.env.GITHUB_RUN_ID}:${process.env.GITHUB_RUN_ATTEMPT}`;
+          const baseRunKey = requestedRunKey || defaultRunKey;
+          const triggerSource = process.env.GITHUB_EVENT_NAME === 'schedule' ? 'scheduled' : 'manual';
+          const aggregate = {
+            rowsSeen: 0,
+            rowsImported: 0,
+            rowsUpdated: 0,
+            rowsDuplicate: 0,
+            rowsQuarantined: 0,
+            rowsRejected: 0,
+            rowsSkipped: 0,
+            rowsFailed: 0,
+          };
+          let rowOffset = 0;
+          let chunks = 0;
+          let sourceRowsTotal = null;
+
+          while (true) {
+            chunks += 1;
+            const response = await fetch(url, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                dryRun,
+                rowOffset,
+                rowLimit,
+                triggerSource,
+                runKey: `${baseRunKey}:offset:${rowOffset}`,
+              }),
+            });
+            const raw = await response.text();
+            let body = {};
+            try {
+              body = raw ? JSON.parse(raw) : {};
+            } catch {
+              body = { error: 'Google Form case sync returned a non-JSON response.' };
+            }
+
+            const summary = {
+              chunk: chunks,
+              httpStatus: response.status,
+              status: body.status ?? null,
+              dryRun: body.dryRun ?? null,
+              sourceRowsTotal: body.sourceRowsTotal ?? null,
+              rowOffset: body.rowOffset ?? rowOffset,
+              rowLimit: body.rowLimit ?? rowLimit,
+              hasMore: Boolean(body.hasMore),
+              rowsSeen: body.rowsSeen ?? 0,
+              rowsImported: body.rowsImported ?? 0,
+              rowsUpdated: body.rowsUpdated ?? 0,
+              rowsDuplicate: body.rowsDuplicate ?? 0,
+              rowsQuarantined: body.rowsQuarantined ?? 0,
+              rowsRejected: body.rowsRejected ?? 0,
+              rowsSkipped: body.rowsSkipped ?? 0,
+              rowsFailed: body.rowsFailed ?? 0,
+            };
+            console.log(JSON.stringify(summary, null, 2));
+
+            if (!response.ok || body.error || body.status === 'failed') {
+              console.error(body.error || 'Google Form case sync failed.');
+              process.exit(1);
+            }
+            if (body.status === 'disabled') {
+              console.log('Google Form case sync is disabled at the Edge Function.');
+              break;
+            }
+
+            for (const key of Object.keys(aggregate)) aggregate[key] += Number(body[key] ?? 0);
+            sourceRowsTotal = body.sourceRowsTotal ?? sourceRowsTotal;
+            if (!body.hasMore || body.status === 'duplicate_suppressed') break;
+
+            const nextOffset = Number(body.nextRowOffset ?? rowOffset + rowLimit);
+            if (!Number.isFinite(nextOffset) || nextOffset <= rowOffset) {
+              console.error('Google Form case sync did not return a valid next row offset.');
+              process.exit(1);
+            }
+            rowOffset = nextOffset;
+          }
+
+          console.log(JSON.stringify({
+            status: 'completed',
+            dryRun,
+            sourceRowsTotal,
+            chunks,
+            ...aggregate,
+          }, null, 2));
+          if (aggregate.rowsQuarantined > 0 || aggregate.rowsRejected > 0) {
+            console.log(`::warning title=Refund intake review needed::${aggregate.rowsQuarantined} quarantined and ${aggregate.rowsRejected} rejected Google Form responses require authorized review.`);
+          }
+          NODE

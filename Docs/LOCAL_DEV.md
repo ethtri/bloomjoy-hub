@@ -62,6 +62,7 @@
    - Refund automation run/action ledger and manager health: `supabase/migrations/202607210005_refund_automation_scheduler_health.sql`
    - Gmail refund draft/thread linkage, quarantine metadata, health, and retention: `supabase/migrations/202607210006_refund_gmail_thread_linkage.sql`
    - Machine QR identifiers and short-lived server-timestamped refund claim contexts: `supabase/migrations/202607260001_refund_qr_claim_context.sql`
+   - SMS Google Form-to-Hub draft intake, idempotency, and PII-free quarantine: `supabase/migrations/202608040005_refund_google_form_case_bridge.sql`
    - Scoped Admin entitlements: `supabase/migrations/202604270004_scoped_admin_entitlements.sql`
    - Technician entitlement resolver production repair: `supabase/migrations/202604270006_restore_technician_entitlement_resolution_rpc.sql`
    - Scoped Admin reporting visibility repair: `supabase/migrations/202604280008_scoped_admin_reporting_visibility.sql`
@@ -434,6 +435,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - Scheduled production drift checks use the dedicated `SUPABASE_EDGE_FUNCTIONS_READ_TOKEN` GitHub secret. Grant only Edge Function read access. Checks print only function names, versions, and short bundle-digest prefixes.
    - Gmail intake static safety check: `npm run refunds:validate-gmail`
    - Gmail server-secret presence/format check: `npm run refunds:preflight-gmail`
+   - SMS Google Form bridge contract/safety check: `npm run refunds:validate-google-form-bridge`
 4) Run functions locally:
    - `supabase functions serve stripe-sugar-checkout --no-verify-jwt`
    - `supabase functions serve stripe-sticks-checkout --no-verify-jwt`
@@ -455,6 +457,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase functions serve refund-case-message-send --no-verify-jwt`
    - `supabase functions serve refund-case-automation-sweep --no-verify-jwt`
    - `supabase functions serve refund-gmail-sync --no-verify-jwt`
+   - `supabase functions serve refund-google-form-sync --no-verify-jwt`
    - `supabase functions serve nayax-card-refund --no-verify-jwt`
    - `supabase functions serve nayax-transaction-lookup --no-verify-jwt`
 5) Ensure `.env` has `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` for the SPA.
@@ -463,6 +466,12 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
 Keep Gmail credentials server-only; never use a `VITE_` variable. The Gmail functions require `GMAIL_SUPPORT_CLIENT_ID`, `GMAIL_SUPPORT_CLIENT_SECRET`, `GMAIL_SUPPORT_REFRESH_TOKEN`, `GMAIL_SUPPORT_MAILBOX`, `GMAIL_REFUND_LABEL_ID`, and a dedicated `REFUND_GMAIL_SYNC_SECRET`. `REFUND_GMAIL_ENABLED` defaults to `false`. Optional `GMAIL_REFUND_START_AT` limits the first import to messages received on or after an ISO timestamp.
 
 Use a test mailbox and synthetic messages only. The connected account must exactly match `GMAIL_SUPPORT_MAILBOX`, and its OAuth grant must contain only Gmail read-only and send permissions. Run `npm run refunds:validate-gmail` and the database validation before serving or deploying the sync function. The attachment path is quarantine-only until a malware scanner marks an object clean.
+
+### Refund Google Form bridge local configuration
+
+Follow `Docs/REFUND_GOOGLE_FORM_BRIDGE.md`. Keep the service-account JSON, sync secret, Sheet ID, and HMAC salt server-only. The bridge defaults off and a live run additionally requires an ISO `REFUND_GOOGLE_FORM_START_AT` boundary. Use a synthetic Sheet copy for local validation, give the service account Viewer access only, and never paste raw response rows into terminal, workflow, issue, or PR output.
+
+Run `npm run refunds:validate-google-form-bridge` and `npm run db:validate-migrations` before serving or deploying. A manual GitHub workflow dispatch defaults to dry-run; the scheduled path stays disabled until repository variable `REFUND_GOOGLE_FORM_SYNC_ENABLED=true` and the Edge switch are both explicitly set.
 
 ## Stripe order backfill helper
 Use this when a paid Stripe checkout must be imported into `public.orders` because webhook replay is unavailable or the webhook failed before persistence.

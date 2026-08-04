@@ -13,6 +13,7 @@ export const refundRouteSmokeExpectations = Object.freeze([
   { slug: 'refund-case-message-send', expectedStatus: 200 },
   { slug: 'refund-case-automation-sweep', expectedStatus: 200 },
   { slug: 'refund-gmail-sync', expectedStatus: 405 },
+  { slug: 'refund-google-form-sync', expectedStatus: 200 },
   { slug: 'refund-gpt-triage', expectedStatus: 405 },
   { slug: 'nayax-card-refund', expectedStatus: 200 },
 ]);

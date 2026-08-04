@@ -1,5 +1,21 @@
 # Decisions
 
+## 2026-08-04 - Refund pilot uses two customer entry points and one Hub queue (`#702`)
+
+Bloomjoy may soft-cut over refund intake by directing email customers to the hosted Hub form while SMS customers continue to receive the existing Google Form. The customer entry point may differ temporarily, but every pilot request must become one governed Hub Refund Operations case.
+
+**Canonical behavior**
+- The Google response Sheet is a read-only intake transport, not a manager queue or system of record. New eligible rows after an explicit pilot boundary create incomplete `draft` Hub cases through a default-off server bridge.
+- Exact source and payload fingerprints make retries, Sheet row reordering, and draft edits idempotent. Ambiguous/unmapped locations and invalid rows fail closed to a PII-free quarantine view; the system does not guess a machine.
+- Google Form cases, hosted-form cases, and Gmail cases use the same Hub queue and existing machine-to-manager authorization. Machine Managers take official actions, including Nayax refund execution, only in the portal.
+- The bridge cannot contact customers, select a Nayax transaction, approve or deny a request, or execute a refund. Customer communication and cross-channel deduplication remain separately reviewed workflow gates.
+- The bridge and schedule are disabled by default. Live enablement requires a recorded start boundary, read-only service-account access to the approved Sheet, synthetic UAT, privacy/readiness approval, and a documented kill switch.
+
+**Why this choice**
+- SMS customers keep an instantaneous familiar path while Bloomjoy tests the hosted experience without forcing managers to monitor two operational queues.
+- A narrow, reversible transport bridge reduces cutover risk while preserving the Hub's authorization, audit, and official-action boundaries.
+- Exact mapping and PII-minimized quarantine favor a missed automation over assigning a customer request to the wrong machine or manager.
+
 ## 2026-07-26 - Verified refunds use one manager approval and automatic fulfillment (`#674`)
 Bloomjoy will make every bounded, safe effort to identify the correct transaction before asking a Machine Manager to decide a refund. The normal high-confidence path is one manager approval followed by automatic provider execution and confirmation, not a second manual workflow in Nayax.
 
