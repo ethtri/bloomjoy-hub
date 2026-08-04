@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-03-manager-official-action-boundary",
-  "sourceGitCommit": "4cc163dd982bc52c44e1acabb1bea8df145c7638",
+  "sourceGitCommit": "db12ff3c3baf95725259dcfa96bb834464a2202b",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -31,10 +31,11 @@
     "202607260001_refund_qr_claim_context.sql",
     "202607260002_refund_qr_aware_nayax_recommendation.sql",
     "202607270001_refund_wallet_correction.sql",
-    "202608030002_refund_manager_official_action_boundary.sql"
+    "202608030002_refund_manager_official_action_boundary.sql",
+    "202608030004_refund_manager_action_step_up.sql"
   ],
-  "migrationFilesSha256": "439ca7270b8014575f6a41c8aad951e8a377f53e123d8cf1afd0bf4d0ecdf866",
-  "migrationVersionSetSha256": "f5a9d0074305afdcec7034c06d927d73c38e580af3b7174038003deb83f41900",
+  "migrationFilesSha256": "ab1045f6a415b22ecd3bc1a1a8d046d870bb25cc44caa42d4c4a740d2e7b0917",
+  "migrationVersionSetSha256": "5c04954ece3675db7d0935702db15efeb4b20aad7ed5554bbc4ecd99b8b0c4e5",
   "functions": [
     {
       "slug": "refund-case-intake",
@@ -59,7 +60,7 @@
     {
       "slug": "refund-case-admin-update",
       "verifyJwt": false,
-      "sourceSha256": "fafa4bc320e482b57032653544acd72bfd4e6a95e07bea78e94cc69eec9c5218",
+      "sourceSha256": "8f462535f35b96bf28861d7767ce3151118583d8a4d6216f44e069dff10fedb4",
       "production": {
         "version": 2,
         "ezbrSha256": "37563a7c377d35c1da6cc4bc717510b4ba3709c81c4e7ee103763756aabcddfe",
@@ -109,7 +110,7 @@
     {
       "slug": "nayax-card-refund",
       "verifyJwt": false,
-      "sourceSha256": "58a3c5eda99311fff73b63fd44004b1e62bf0f2f215731c5d24d459d098ae192",
+      "sourceSha256": "6dc1d39814eb61c0ecf97555b525636521bd29770962809e665510f1e973dc90",
       "production": {
         "version": 2,
         "ezbrSha256": "94a9f0132e43d048c2de1f39f7fbc6f9f7651d1e62e812c992ac53db356a076d",
