@@ -403,8 +403,8 @@ select is(
 );
 
 update public.reporting_machine_refund_managers
-set status = 'revoked', revoked_at = now(), revoke_reason = 'Synthetic race'
-where reporting_machine_id = '79830000-0000-4000-8000-000000000001';
+set manager_email = 'not-an-email'
+where id = '79840000-0000-4000-8000-000000000002';
 
 create temporary table blocked_preparation as
 select public.service_prepare_refund_gmail_first_contact_delivery(
@@ -414,14 +414,14 @@ select public.service_prepare_refund_gmail_first_contact_delivery(
 
 select is(
   (select result ->> 'status' from blocked_preparation),
-  'no_active_managers',
-  'A mapping revoked after claim blocks provider delivery at preparation time'
+  'invalid_manager_mapping',
+  'A mixed valid and malformed mapping after claim blocks first-contact delivery at preparation time'
 );
 
 select is(
   (select (result ->> 'allowed')::boolean from blocked_preparation),
   false,
-  'The revoked route fails closed instead of sending without a manager CC'
+  'The mixed invalid route fails closed instead of sending a partial manager CC set'
 );
 
 select is(
@@ -431,7 +431,7 @@ select is(
     where id = (select (result ->> 'transportMessageId')::uuid from second_claim)
   ),
   0,
-  'A blocked first-contact transport contains no stale manager recipient'
+  'A blocked first-contact transport contains no partial manager recipient'
 );
 
 select * from finish();

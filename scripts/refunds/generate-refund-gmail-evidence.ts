@@ -379,6 +379,25 @@ const runFirstContactMimeAssertions = async () => {
       let claimAttemptCount = 0;
       let providerRequest: Record<string, unknown> = {};
       const rpcCalls: string[] = [];
+      let partialManagerRouteRejected = false;
+
+      try {
+        requireRefundCustomerManagerCcResolution({
+          resolution: {
+            status: "resolved_with_exclusions",
+            managerCcEmails: [FIRST_CONTACT_FIXTURE.managers[0]],
+          },
+          customerEmail: FIRST_CONTACT_FIXTURE.customerEmail,
+          mailboxIdentities: gmailConfig.mailboxIdentities,
+        });
+      } catch (error) {
+        partialManagerRouteRejected = error instanceof RefundGmailError &&
+          error.code === "manager_cc_required";
+      }
+      assert(
+        partialManagerRouteRejected,
+        "Partial current-manager routes must fail closed before provider access",
+      );
 
       const rpc = async <T>(
         name: string,
@@ -623,7 +642,7 @@ const runFirstContactMimeAssertions = async () => {
       ]);
 
       return {
-        schemaVersion: 2,
+        schemaVersion: 3,
         evidenceType: "gmail_mime_roles",
         evidenceMode: "synthetic_executable_first_contact",
         roleCounts: {
@@ -645,6 +664,7 @@ const runFirstContactMimeAssertions = async () => {
             ccRecipients.filter((recipient) => !managers.has(recipient)).length,
         },
         managerCcCount: ccRecipients.length,
+        partialManagerRouteRejected,
         sourceThreadPinned,
         replyHeadersPresent,
         automaticHeadersPresent,
@@ -719,7 +739,9 @@ const parseEvidenceOptions = () => {
     }
     throw new Error("Usage: --evidence-dir <fragment-directory>");
   }
-  if (!evidenceDirectory) throw new Error("Usage: --evidence-dir <fragment-directory>");
+  if (!evidenceDirectory) {
+    throw new Error("Usage: --evidence-dir <fragment-directory>");
+  }
   return { evidenceDirectory };
 };
 

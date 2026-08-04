@@ -1396,10 +1396,8 @@ begin
     coalesce(recipient_resolution -> 'managerCcEmails', '[]'::jsonb)
   ) value;
 
-  if recipient_resolution ->> 'status' not in (
-    'resolved',
-    'resolved_with_exclusions'
-  ) or cardinality(manager_cc_emails) = 0 then
+  if recipient_resolution ->> 'status' is distinct from 'resolved'
+    or cardinality(manager_cc_emails) = 0 then
     return jsonb_build_object(
       'allowed', false,
       'status', 'manager_cc_required',

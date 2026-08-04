@@ -966,7 +966,8 @@ begin
     ) candidate;
   end if;
 
-  if cardinality(manager_recipients) between 1 and 3
+  if resolution_status = 'resolved'
+    and cardinality(manager_recipients) between 1 and 3
     and coalesce((recipient_resolution ->> 'managerCcCount')::integer, -1) =
       cardinality(manager_recipients) then
     route_recipients := manager_recipients;
@@ -1232,7 +1233,7 @@ begin
   end;
   event_message := case
     when p_outcome = 'delivered' then 'A manager aging notice was sent to the current mapped Machine Managers.'
-    when p_outcome = 'operations_exception' then 'A redacted operations exception was sent because no eligible current Machine Manager was resolved.'
+    when p_outcome = 'operations_exception' then 'A redacted operations exception was sent because the complete current Machine Manager route could not be safely resolved.'
     when p_outcome = 'known_not_sent' then 'The reserved manager aging notice is confirmed not sent; its global delivery hold was cleared without an automatic retry.'
     else 'Manager aging notice delivery is uncertain and requires review; no automatic retry will occur.'
   end;

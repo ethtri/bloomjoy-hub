@@ -667,7 +667,7 @@ const sendGmailCaseActionNotice = async ({
         ? "gmail_bounce_action_notice_sent"
         : "gmail_customer_action_notice_sent",
       message: notice.usedOpsFallback
-        ? "Gmail action-needed work was routed to operations because no eligible current Machine Manager was resolved."
+        ? "Gmail action-needed work was routed to operations because the complete current Machine Manager route could not be safely resolved."
         : "Gmail action-needed notice sent only to the currently assigned Machine Managers.",
       metadata: {
         notice_reason: reason,

@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(50);
+select plan(51);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -650,7 +650,23 @@ set
     'provider-manager-two@example.test',
     'provider-manager@example.test'
   ],
-  recipient_cc_count = 2
+  recipient_cc_count = 2,
+  recipient_resolution_status = 'resolved_with_exclusions'
+where id = '9ab00000-0000-4000-8000-000000000001';
+
+set local role service_role;
+select ok(pg_temp.capture_error(format(
+  'select public.service_finish_nayax_refund_completion(%L,%L,%L)',
+  'provider-test-executor',
+  (select result #>> '{attempt,attemptId}'
+   from pg_temp.nayax_provider_results where result_key = 'success-reserve'),
+  'sent'
+)) like '%current mapped manager CC%',
+  'Provider completion rejects an exclusion-status route even when its visible CC count otherwise matches');
+reset role;
+
+update public.refund_gmail_messages
+set recipient_resolution_status = 'resolved'
 where id = '9ab00000-0000-4000-8000-000000000001';
 
 set local role service_role;

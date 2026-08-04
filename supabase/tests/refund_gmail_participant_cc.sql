@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(92);
+select plan(94);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -519,8 +519,8 @@ select is(
     'customer@example.test',
     array['info@bloomjoysweets.com', 'support@bloomjoysweets.com']
   ) ->> 'status',
-  'resolved_with_exclusions',
-  'Duplicate mapped addresses are deduplicated and surfaced as a redacted exception'
+  'resolved',
+  'Duplicate normalized manager addresses remain resolved when no distinct active identity is omitted'
 );
 select is(
   jsonb_array_length(public.service_resolve_refund_customer_manager_cc(
@@ -541,9 +541,39 @@ select is(
     'customer@example.test',
     array['info@bloomjoysweets.com', 'support@bloomjoysweets.com']
   ) ->> 'status',
-  'resolved_with_exclusions',
-  'Malformed mapped addresses are excluded without blocking customer service'
+  'invalid_manager_mapping',
+  'A mixed valid and malformed active mapping fails closed'
 );
+
+create temporary table mixed_invalid_claim as
+select public.service_claim_refund_gmail_outbound_v2(
+  (select (result ->> 'caseId')::uuid from first_customer_ingest),
+  '78650000-0000-4000-8000-000000000020',
+  'participant-mixed-invalid-route',
+  'info@bloomjoysweets.com',
+  'customer@example.test',
+  'This customer message must not be claimed with a partial manager route.',
+  array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+  'manual'
+) as result;
+select is(
+  (select result ->> 'status' from mixed_invalid_claim),
+  'manager_cc_required',
+  'A mixed valid and malformed manager route blocks the customer outbound claim'
+);
+select is(
+  (
+    select count(*)::integer
+    from public.refund_gmail_messages
+    where operation_key = 'participant-mixed-invalid-route'
+  ),
+  0,
+  'A mixed invalid manager route creates no outbound Gmail row'
+);
+
+update public.reporting_machine_refund_managers
+set manager_email = 'manager-three@example.test'
+where id = '78640000-0000-4000-8000-000000000003';
 
 update public.reporting_machine_refund_managers
 set manager_email = 'customer@example.test'
@@ -554,8 +584,8 @@ select is(
     'customer@example.test',
     array['info@bloomjoysweets.com', 'support@bloomjoysweets.com']
   ) ->> 'status',
-  'resolved_with_exclusions',
-  'A customer address in manager mapping drift is surfaced as an exclusion'
+  'invalid_manager_mapping',
+  'A customer-address collision in the active manager mapping fails closed'
 );
 select is(
   public.service_resolve_refund_customer_manager_cc(
@@ -563,7 +593,7 @@ select is(
     'customer@example.test',
     array['info@bloomjoysweets.com', 'support@bloomjoysweets.com']
   ) -> 'managerCcEmails',
-  '["manager-one@example.test"]'::jsonb,
+  '[]'::jsonb,
   'The case customer never appears in visible manager CC'
 );
 
@@ -576,8 +606,8 @@ select is(
     'customer@example.test',
     array['info@bloomjoysweets.com', 'support@bloomjoysweets.com']
   ) ->> 'status',
-  'resolved_with_exclusions',
-  'A mailbox identity in manager mapping drift is surfaced as an exclusion'
+  'invalid_manager_mapping',
+  'A mailbox-address collision in the active manager mapping fails closed'
 );
 select is(
   public.service_resolve_refund_customer_manager_cc(
@@ -585,9 +615,13 @@ select is(
     'customer@example.test',
     array['info@bloomjoysweets.com', 'support@bloomjoysweets.com']
   ) -> 'managerCcEmails',
-  '["manager-one@example.test"]'::jsonb,
+  '[]'::jsonb,
   'A Bloomjoy mailbox identity never appears in visible manager CC'
 );
+
+update public.reporting_machine_refund_managers
+set manager_email = 'manager-three@example.test'
+where id = '78640000-0000-4000-8000-000000000003';
 
 update public.refund_cases
 set reporting_machine_id = null, reporting_location_id = null, incident_at = null, payment_method = null, status = 'draft'

@@ -888,8 +888,12 @@ select is(
 );
 
 update public.reporting_machine_refund_managers
-set status = 'revoked', revoked_at = now(), revoke_reason = 'Synthetic ops route'
-where id = '91400000-0000-4000-8000-000000000002';
+set
+  manager_email = 'not-an-email',
+  status = 'active',
+  revoked_at = null,
+  revoke_reason = null
+where id = '91400000-0000-4000-8000-000000000001';
 
 select is(
   pg_temp.claim_aging_action(
@@ -935,7 +939,7 @@ select ok(
       and result #>> '{recipientRoute,mappingFingerprint}' ~ '^[a-f0-9]{64}$'
     from attempt
   ),
-  'No active manager returns one bounded transient operations route'
+  'A mixed valid and malformed active-manager route uses the bounded operations fallback without a partial manager notice'
 );
 
 select is(
@@ -948,16 +952,12 @@ select is(
   'The sent operations exception settles only its escalation milestone'
 );
 
-insert into public.reporting_machine_refund_managers (
-  id, reporting_machine_id, manager_user_id, manager_email, status, grant_reason
-) values (
-  '91400000-0000-4000-8000-000000000003',
-  '91300000-0000-4000-8000-000000000001',
-  '91000000-0000-4000-8000-000000000002',
-  'aging-manager-b@example.test',
-  'active',
-  'Synthetic manager B mapping repair'
-);
+update public.reporting_machine_refund_managers
+set
+  status = 'revoked',
+  revoked_at = now(),
+  revoke_reason = 'Synthetic malformed mapping repair'
+where id = '91400000-0000-4000-8000-000000000001';
 
 insert into public.refund_gmail_messages (
   id, gmail_thread_id, refund_case_id, provider_message_id, direction,

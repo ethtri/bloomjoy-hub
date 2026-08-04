@@ -121,6 +121,13 @@ check(
     sendIndex > reservationBindingIndex &&
     !managerSweep.includes('resolveRefundManagerActionNoticeRouting') &&
     managerSweep.includes('resolvedRouting: reservedRouting') &&
+    migration.includes("if resolution_status = 'resolved'") &&
+    migration.includes(
+      'the complete current Machine Manager route could not be safely resolved',
+    ) &&
+    !migration.includes('no eligible current Machine Manager was resolved') &&
+    managerNotification.includes('resolutionStatus === "resolved"') &&
+    managerNotification.includes('resolutionStatus !== "resolved"') &&
     managerNotification.includes('No earlier manager lookup is accepted here') &&
     managerNotification.includes('routing.refundCaseId !== refundCaseId') &&
     managerNotification.includes('routing.customerEmail !== normalizedCustomerEmail')
@@ -143,12 +150,12 @@ check(
 );
 
 check(
-  'Zero-manager routes use a bounded transient internal exception and fail closed over cap',
+  'Invalid or zero-manager routes use a bounded transient internal exception and fail closed over cap',
   managerNotification.includes('MAX_OPS_FALLBACK_RECIPIENTS = 5') &&
     migration.includes("expected_outcome := 'operations_exception'") &&
     migration.includes("'ops_fallback_policy_invalid'") &&
     databaseTest.includes('over-cap operations route fails closed before reserving delivery') &&
-    databaseTest.includes('No active manager returns one bounded transient operations route')
+    databaseTest.includes('mixed valid and malformed active-manager route uses the bounded operations fallback')
 );
 
 check(
@@ -223,11 +230,15 @@ check(
 
 check(
   'Owner-facing documentation records the contract, production-off gate, and synthetic rollout proof',
-  decisions.includes('Manager aging notices use business-day attention versions') &&
-    currentStatus.includes('manager aging reminder') &&
-    qaChecklist.includes('REFUND_MANAGER_AGING_NOTICES_ENABLED') &&
-    productionRunbook.includes('REFUND_MANAGER_REMINDER_BUSINESS_DAYS') &&
-    productionRunbook.includes('No holiday calendar is inferred')
+  decisions.includes('Managers receive a separate sanitized notice') &&
+    currentStatus.includes('manager aging') &&
+    qaChecklist.includes('two business days') &&
+    qaChecklist.includes('five business days') &&
+    qaChecklist.includes('Monday-Friday') &&
+    productionRunbook.includes('REFUND_MANAGER_AGING_NOTICES_ENABLED=false') &&
+    productionRunbook.includes(
+      'two and one escalation at five Los Angeles business days',
+    )
 );
 
 for (const result of checks) {

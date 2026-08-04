@@ -171,16 +171,22 @@ begin
   ) eligible;
 
   eligible_mapping_count := cardinality(manager_cc_emails);
-  invalid_mapping_count := greatest(active_mapping_count - eligible_mapping_count, 0);
+  -- Multiple active rows with the same normalized address represent one
+  -- visible recipient identity. They may deduplicate only when the complete
+  -- distinct active identity set survives every safety exclusion.
+  invalid_mapping_count := greatest(
+    distinct_active_mapping_count - eligible_mapping_count,
+    0
+  );
   resolution_status := case
     when distinct_active_mapping_count > 3 or eligible_mapping_count > 3 then 'invalid_manager_mapping'
     when active_mapping_count = 0 then 'no_active_managers'
     when eligible_mapping_count = 0 then 'invalid_manager_mapping'
-    when invalid_mapping_count > 0 then 'resolved_with_exclusions'
+    when invalid_mapping_count > 0 then 'invalid_manager_mapping'
     else 'resolved'
   end;
 
-  if distinct_active_mapping_count > 3 or eligible_mapping_count > 3 then
+  if resolution_status = 'invalid_manager_mapping' then
     manager_cc_emails := '{}'::text[];
     eligible_mapping_count := 0;
   end if;
@@ -740,7 +746,7 @@ begin
   -- outbound delivery claim unless the send-time mapping yields at least one
   -- safe current manager recipient. This intentionally suppresses even a
   -- missing-machine request until routing and ownership are repaired.
-  if recipient_resolution ->> 'status' not in ('resolved', 'resolved_with_exclusions')
+  if recipient_resolution ->> 'status' is distinct from 'resolved'
     or cardinality(manager_cc_emails) = 0 then
     return jsonb_build_object(
       'linked', true,
@@ -831,15 +837,13 @@ begin
   ) values (
     p_refund_case_id,
     case
-      when recipient_resolution ->> 'status' in ('resolved', 'resolved_with_exclusions')
+      when recipient_resolution ->> 'status' = 'resolved'
         then 'gmail_manager_cc_resolved'
       else 'gmail_manager_cc_exception'
     end,
     case
       when recipient_resolution ->> 'status' = 'resolved'
         then 'Current mapped Machine Managers were included on the customer Gmail reply.'
-      when recipient_resolution ->> 'status' = 'resolved_with_exclusions'
-        then 'Current mapped Machine Managers were included after unsafe or duplicate recipients were excluded.'
       when recipient_resolution ->> 'status' = 'machine_unresolved'
         then 'The customer Gmail reply has no manager CC because the machine is not resolved; operations triage is required.'
       when recipient_resolution ->> 'status' = 'no_active_managers'

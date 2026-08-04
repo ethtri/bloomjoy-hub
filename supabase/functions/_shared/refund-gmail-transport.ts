@@ -17,10 +17,7 @@ type RefundEmailPayload = {
 };
 
 const EMAIL_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
-const CUSTOMER_MANAGER_CC_ALLOWED_STATUSES = new Set([
-  "resolved",
-  "resolved_with_exclusions",
-]);
+const CUSTOMER_MANAGER_CC_ALLOWED_STATUS = "resolved";
 
 const parseManagerCc = (
   value: unknown,
@@ -81,7 +78,7 @@ export const requireRefundCustomerManagerCcResolution = ({
   );
 
   if (
-    !CUSTOMER_MANAGER_CC_ALLOWED_STATUSES.has(recipientResolutionStatus) ||
+    recipientResolutionStatus !== CUSTOMER_MANAGER_CC_ALLOWED_STATUS ||
     managerCcEmails.length === 0
   ) {
     throw new RefundGmailError(

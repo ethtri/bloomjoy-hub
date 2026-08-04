@@ -315,6 +315,7 @@ const validateMimeRoles = (payload) => {
     'evidenceMode',
     'roleCounts',
     'managerCcCount',
+    'partialManagerRouteRejected',
     'sourceThreadPinned',
     'replyHeadersPresent',
     'automaticHeadersPresent',
@@ -330,7 +331,7 @@ const validateMimeRoles = (payload) => {
     'laterReplySuppressed',
     'passed',
   ], 'Gmail MIME-role evidence');
-  assertLiteral(payload.schemaVersion, 2, 'Gmail MIME-role schemaVersion');
+  assertLiteral(payload.schemaVersion, 3, 'Gmail MIME-role schemaVersion');
   assertLiteral(payload.evidenceType, 'gmail_mime_roles', 'Gmail MIME-role evidenceType');
   assertLiteral(
     payload.evidenceMode,
@@ -351,6 +352,11 @@ const validateMimeRoles = (payload) => {
   assertLiteral(payload.roleCounts.unrelatedTo, 0, 'Gmail unrelated To role count');
   assertLiteral(payload.roleCounts.unrelatedCc, 0, 'Gmail unrelated CC role count');
   assertLiteral(payload.managerCcCount, 2, 'Gmail manager CC count');
+  assertLiteral(
+    payload.partialManagerRouteRejected,
+    true,
+    'Gmail partial-manager route rejection'
+  );
   assertLiteral(payload.sourceThreadPinned, true, 'Gmail source-thread pin');
   assertLiteral(payload.replyHeadersPresent, true, 'Gmail reply-header assertion');
   assertLiteral(payload.automaticHeadersPresent, true, 'Gmail automatic-header assertion');

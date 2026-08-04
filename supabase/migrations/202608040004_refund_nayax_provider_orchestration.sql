@@ -1405,9 +1405,7 @@ begin
       or outbound_row.sent_at is null
       or outbound_row.provider_message_id is null
       or outbound_row.delivery_kind is distinct from 'manual'
-      or outbound_row.recipient_resolution_status not in (
-        'resolved', 'resolved_with_exclusions'
-      )
+      or outbound_row.recipient_resolution_status is distinct from 'resolved'
       or outbound_row.recipient_cc_count not between 1 and 3
       or total_active_manager_count not between 1 and 3
       or cardinality(outbound_row.recipient_cc_emails) is distinct from

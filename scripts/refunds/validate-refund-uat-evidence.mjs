@@ -129,7 +129,7 @@ const machineFixtures = {
     failedAssertionCount: 0,
   },
   'refund-gmail-mime-roles.json': {
-    schemaVersion: 2,
+    schemaVersion: 3,
     evidenceType: 'gmail_mime_roles',
     evidenceMode: 'synthetic_executable_first_contact',
     roleCounts: {
@@ -140,6 +140,7 @@ const machineFixtures = {
       unrelatedCc: 0,
     },
     managerCcCount: 2,
+    partialManagerRouteRejected: true,
     sourceThreadPinned: true,
     replyHeadersPresent: true,
     automaticHeadersPresent: true,
@@ -570,7 +571,7 @@ try {
   );
   assert.deepEqual(
     manifest.machineReadableArtifacts.map((artifact) => artifact.schemaVersion),
-    [1, 1, 2, 2, 1]
+    [1, 1, 3, 2, 1]
   );
   assert.ok(manifest.machineReadableArtifacts.every((artifact) => /^[a-f0-9]{64}$/.test(artifact.sha256)));
 
@@ -683,6 +684,13 @@ try {
     () => validateMachineReadableEvidence('refund-gmail-mime-roles.json', invalidMimeRoles),
     /role count is invalid/,
     'MIME evidence must prove the exact two-manager #409 fixture'
+  );
+  const partialRouteAccepted = structuredClone(machineFixtures['refund-gmail-mime-roles.json']);
+  partialRouteAccepted.partialManagerRouteRejected = false;
+  assert.throws(
+    () => validateMachineReadableEvidence('refund-gmail-mime-roles.json', partialRouteAccepted),
+    /partial-manager route rejection is invalid/,
+    'MIME evidence must prove partial current-manager routes fail before provider access'
   );
   const replayedProviderOutcome = {
     ...machineFixtures['refund-provider-outcomes.json'],

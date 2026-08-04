@@ -199,6 +199,24 @@ assert(
     ),
   'The trigger capability must be claim-bound only after wrapper validation and regression-tested against ID-only, wrong-token, replay, and terminal rewrites.'
 );
+const providerCompletionFinish = providerOrchestrationMigration.slice(
+  providerOrchestrationMigration.indexOf(
+    'create or replace function public.service_finish_nayax_refund_completion'
+  ),
+  providerOrchestrationMigration.indexOf(
+    'revoke execute on function public.assert_nayax_provider_executor'
+  )
+);
+assert(
+  providerCompletionFinish.includes(
+    "outbound_row.recipient_resolution_status is distinct from 'resolved'"
+  ) &&
+    !providerCompletionFinish.includes("'resolved_with_exclusions'") &&
+    providerOrchestrationDatabaseTest.includes(
+      'Provider completion rejects an exclusion-status route even when its visible CC count otherwise matches'
+    ),
+  'Provider completion must require exact complete current-manager routing and reject partial exclusion-status proof.'
+);
 assert(
   providerOrchestration.includes('deliverCommittedCompletion') &&
     providerOrchestration.includes('status: "delivery_unknown"') &&

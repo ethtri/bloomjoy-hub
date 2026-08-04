@@ -10,6 +10,7 @@ import {
 import { requireRefundCustomerManagerCcResolution } from "./refund-gmail-transport.ts";
 import {
   bindRefundManagerNoticeReservationRouting,
+  resolveRefundManagerActionNoticeRouting,
   resolveRefundOpsFallbackRecipients,
 } from "./refund-manager-notification.ts";
 
@@ -152,6 +153,35 @@ Deno.test("ops action-notice fallback fails closed above its explicit recipient 
   );
 });
 
+Deno.test("partial manager resolution uses the capped operations action-notice fallback", async () => {
+  const route = await resolveRefundManagerActionNoticeRouting({
+    supabase: {
+      rpc: () =>
+        Promise.resolve({
+          data: {
+            status: "resolved_with_exclusions",
+            managerCcEmails: ["partial-manager@example.test"],
+          },
+          error: null,
+        }),
+    } as never,
+    refundCaseId: "case-partial-manager-route",
+    customerEmail: "customer@example.test",
+  });
+
+  assertEquals(route.usedOpsFallback, true, "operations fallback selected");
+  assertEquals(
+    route.managerRecipientCount,
+    0,
+    "partial manager route discarded",
+  );
+  assertNotIncludes(
+    JSON.stringify(route.recipients),
+    "partial-manager@example.test",
+    "partial manager recipient cannot reach the action notice",
+  );
+});
+
 Deno.test("manager aging transport binds only the canonical route returned by reservation", () => {
   const route = bindRefundManagerNoticeReservationRouting({
     refundCaseId: "case-remapped",
@@ -218,17 +248,23 @@ Deno.test("manager aging reservation fails closed on noncanonical or mismatched 
     resolutionStatus: "resolved",
     mappingFingerprint: "c".repeat(64),
   };
-  for (const recipientRoute of [
-    { ...baseRoute, recipients: ["AGING-MANAGER-B@example.test"] },
-    { ...baseRoute, recipientCount: 2 },
-    { ...baseRoute, mappingFingerprint: "not-a-fingerprint" },
-    {
-      ...baseRoute,
-      recipients: ["aging-manager@example.test", "aging-manager-b@example.test"],
-      managerRecipientCount: 2,
-      recipientCount: 2,
-    },
-  ]) {
+  for (
+    const recipientRoute of [
+      { ...baseRoute, recipients: ["AGING-MANAGER-B@example.test"] },
+      { ...baseRoute, recipientCount: 2 },
+      { ...baseRoute, mappingFingerprint: "not-a-fingerprint" },
+      { ...baseRoute, resolutionStatus: "resolved_with_exclusions" },
+      {
+        ...baseRoute,
+        recipients: [
+          "aging-manager@example.test",
+          "aging-manager-b@example.test",
+        ],
+        managerRecipientCount: 2,
+        recipientCount: 2,
+      },
+    ]
+  ) {
     assertThrows(
       () =>
         bindRefundManagerNoticeReservationRouting({
@@ -246,7 +282,7 @@ Deno.test("customer manager CC resolution accepts only owned nonempty routes", (
   assertEquals(
     requireRefundCustomerManagerCcResolution({
       resolution: {
-        status: "resolved_with_exclusions",
+        status: "resolved",
         managerCcEmails: ["MANAGER@example.test"],
       },
       customerEmail: "customer@example.test",
@@ -255,7 +291,7 @@ Deno.test("customer manager CC resolution accepts only owned nonempty routes", (
     {
       managerCcEmails: ["manager@example.test"],
       managerCcCount: 1,
-      recipientResolutionStatus: "resolved_with_exclusions",
+      recipientResolutionStatus: "resolved",
     },
     "nonempty current manager route",
   );
@@ -265,6 +301,10 @@ Deno.test("customer manager CC resolution accepts only owned nonempty routes", (
       { status: "machine_unresolved", managerCcEmails: [] },
       { status: "no_active_managers", managerCcEmails: [] },
       { status: "invalid_manager_mapping", managerCcEmails: [] },
+      {
+        status: "resolved_with_exclusions",
+        managerCcEmails: ["manager@example.test"],
+      },
       { status: "resolved", managerCcEmails: [] },
     ]
   ) {

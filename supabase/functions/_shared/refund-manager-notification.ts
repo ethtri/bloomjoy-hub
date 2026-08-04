@@ -126,7 +126,9 @@ export const bindRefundManagerNoticeReservationRouting = ({
     ...sanitizeEmailList(mailboxIdentities),
   ]);
   if (canonicalRecipients.some((email) => excludedRecipients.has(email))) {
-    throw new Error("Refund manager reservation contains an excluded recipient.");
+    throw new Error(
+      "Refund manager reservation contains an excluded recipient.",
+    );
   }
 
   const routeType = route.routeType ?? route.route_type;
@@ -155,10 +157,12 @@ export const bindRefundManagerNoticeReservationRouting = ({
 
   const usedOpsFallback = routeType === "operations";
   const managerRouteIsValid = routeType === "manager" &&
+    resolutionStatus === "resolved" &&
     managerRecipientCount >= 1 &&
     managerRecipientCount <= MAX_MANAGER_CC_RECIPIENTS &&
     recipientCount === managerRecipientCount;
   const operationsRouteIsValid = usedOpsFallback &&
+    resolutionStatus !== "resolved" &&
     managerRecipientCount === 0 &&
     recipientCount >= 1 &&
     recipientCount <= MAX_OPS_FALLBACK_RECIPIENTS;
@@ -213,11 +217,11 @@ export const resolveRefundManagerActionNoticeRouting = async ({
   const resolvedManagerRecipients = rawManagerRecipients.filter((email) =>
     !excludedManagerRecipients.has(email)
   );
-  const managerRecipients =
-    resolvedManagerRecipients.length === rawManagerRecipients.length &&
+  const managerRecipients = resolutionStatus === "resolved" &&
+      resolvedManagerRecipients.length === rawManagerRecipients.length &&
       resolvedManagerRecipients.length <= MAX_MANAGER_CC_RECIPIENTS
-      ? resolvedManagerRecipients
-      : [];
+    ? resolvedManagerRecipients
+    : [];
   const usedOpsFallback = managerRecipients.length === 0;
   const recipients = usedOpsFallback
     ? resolveRefundOpsFallbackRecipients({
@@ -273,7 +277,7 @@ export const sendRefundManagerActionNotice = async ({
   }
 
   const routingNote = routing.usedOpsFallback
-    ? "Routing exception: no eligible active Machine Manager was resolved, so Bloomjoy operations is receiving this action notice."
+    ? "Routing exception: the complete current Machine Manager route could not be safely resolved, so Bloomjoy operations is receiving this action notice."
     : "This action notice was routed only to the currently assigned Machine Managers.";
 
   await sendTransactionalEmail({

@@ -14,6 +14,7 @@ const [
   firstContactMigration,
   participantMigration,
   firstContactCcMigration,
+  followUpMigration,
   firstContactHelper,
   retentionMigration,
   gmailHelper,
@@ -34,12 +35,14 @@ const [
   firstContactCcTest,
   evidenceHarness,
   packageJson,
+  envExample,
 ] =
   await Promise.all([
     read('supabase/migrations/202607210006_refund_gmail_thread_linkage.sql'),
     read('supabase/migrations/202608030001_refund_gmail_first_contact.sql'),
     read('supabase/migrations/202608030003_refund_gmail_participant_cc.sql'),
     read('supabase/migrations/202608040003_refund_first_contact_manager_cc.sql'),
+    read('supabase/migrations/202608030005_refund_deterministic_follow_up_cycles.sql'),
     read('supabase/functions/_shared/refund-first-contact.ts'),
     read('supabase/migrations/202608040002_refund_gmail_retention_safety.sql'),
     read('supabase/functions/_shared/refund-gmail.ts'),
@@ -60,6 +63,7 @@ const [
     read('supabase/tests/refund_gmail_first_contact_manager_cc.sql'),
     read('scripts/refunds/generate-refund-gmail-evidence.ts'),
     read('package.json'),
+    read('.env.example'),
   ]);
 
 const requiredTables = [
@@ -825,6 +829,9 @@ assert(
 );
 assert(
   evidenceHarness.includes('managerCcCount: ccRecipients.length') &&
+    evidenceHarness.includes('partialManagerRouteRejected,') &&
+    evidenceHarness.includes('status: "resolved_with_exclusions"') &&
+    evidenceHarness.includes('error.code === "manager_cc_required"') &&
     evidenceHarness.includes('replyHeadersPresent,') &&
     evidenceHarness.includes('automaticHeadersPresent,') &&
     evidenceHarness.includes('internalLinkCount,') &&
@@ -1083,11 +1090,15 @@ assert(
     participantMigration.includes("lower(btrim(manager.manager_email)) <> normalized_customer") &&
     participantMigration.includes('not (lower(btrim(manager.manager_email)) = any(mailbox_identities))') &&
     participantMigration.includes('distinct_active_mapping_count > 3 or eligible_mapping_count > 3') &&
+    participantMigration.includes('distinct_active_mapping_count - eligible_mapping_count') &&
+    participantMigration.includes("when invalid_mapping_count > 0 then 'invalid_manager_mapping'") &&
+    participantMigration.includes("if resolution_status = 'invalid_manager_mapping' then") &&
     participantMigration.includes("manager_cc_emails := '{}'::text[]"),
-  'Customer, mailbox, revoked, duplicate, malformed, and over-cap mappings must be excluded from manager CC',
+  'Distinct invalid, customer, mailbox, revoked, malformed, and over-cap mappings must fail closed while exact duplicate identities may deduplicate',
 );
 assert(
-  gmailTransport.includes('CUSTOMER_MANAGER_CC_ALLOWED_STATUSES') &&
+  gmailTransport.includes('CUSTOMER_MANAGER_CC_ALLOWED_STATUS = "resolved"') &&
+    gmailTransport.includes('recipientResolutionStatus !== CUSTOMER_MANAGER_CC_ALLOWED_STATUS') &&
     gmailTransport.includes('managerCcEmails.length === 0') &&
     gmailTransport.includes('"manager_cc_required"') &&
     gmailTransport.includes('requireRefundCustomerManagerCcResolution'),
@@ -1151,12 +1162,20 @@ assert(
   'Every automatic outbound claim must lock and enforce hard-bounce pauses across all case-linked threads',
 );
 assert(
-  outboundClaim.includes("recipient_resolution ->> 'status' not in ('resolved', 'resolved_with_exclusions')") &&
+  outboundClaim.includes("recipient_resolution ->> 'status' is distinct from 'resolved'") &&
+    !outboundClaim.includes('resolved_with_exclusions') &&
     outboundClaim.includes('cardinality(manager_cc_emails) = 0') &&
     outboundClaim.includes("'status', 'manager_cc_required'") &&
     outboundClaim.indexOf("'status', 'manager_cc_required'") <
       outboundClaim.indexOf('insert into public.refund_gmail_messages'),
   'The database claim must block unresolved, zero-manager, and invalid routes before creating outbound Gmail state',
+);
+assert(
+  firstContactCcMigration.includes("if resolution_status is distinct from 'resolved'") &&
+    !firstContactCcMigration.includes("not in ('resolved', 'resolved_with_exclusions')") &&
+    followUpMigration.includes("recipient_resolution ->> 'status' is distinct from 'resolved'") &&
+    !followUpMigration.includes("'resolved_with_exclusions'"),
+  'First-contact and deterministic follow-up sends must require the exact complete manager route',
 );
 const recoveryStart = participantMigration.indexOf(
   'create or replace function public.admin_recover_refund_gmail_customer_contact',
@@ -1241,9 +1260,61 @@ assert(
     !managerNotification.includes('/portal/refunds?case=') &&
     managerNotification.includes('usedOpsFallback') &&
     managerNotification.includes('resolveRefundOpsFallbackRecipients') &&
+    managerNotification.includes('resolutionStatus === "resolved"') &&
+    managerNotification.includes('resolutionStatus !== "resolved"') &&
     managerNotification.includes('!excluded.has(email)') &&
-    managerNotification.includes('MAX_OPS_FALLBACK_RECIPIENTS'),
+    managerNotification.includes('MAX_OPS_FALLBACK_RECIPIENTS') &&
+    managerNotification.includes(
+      'the complete current Machine Manager route could not be safely resolved',
+    ) &&
+    intakeFunction.includes(
+      'the complete current Machine Manager route could not be safely resolved',
+    ) &&
+    syncFunction.includes(
+      'the complete current Machine Manager route could not be safely resolved',
+    ) &&
+    !managerNotification.includes('no eligible active Machine Manager was resolved') &&
+    !intakeFunction.includes('no eligible current Machine Manager was resolved') &&
+    !syncFunction.includes('no eligible current Machine Manager was resolved'),
   'Action notices must re-resolve current managers, use the canonical case link, and use a customer/mailbox-excluding capped ops fallback only for routing exceptions',
+);
+
+const canonicalGmailEnvironmentNames = [
+  'GMAIL_SUPPORT_CLIENT_ID',
+  'GMAIL_SUPPORT_CLIENT_SECRET',
+  'GMAIL_SUPPORT_REFRESH_TOKEN',
+  'GMAIL_SUPPORT_MAILBOX',
+  'GMAIL_SUPPORT_SEND_AS_ALIASES',
+  'GMAIL_REFUND_LABEL_ID',
+  'GMAIL_REFUND_START_AT',
+  'GMAIL_REFUND_MAX_THREADS_PER_RUN',
+  'REFUND_GMAIL_SYNC_SECRET',
+  'REFUND_GMAIL_ENABLED',
+  'REFUND_GMAIL_SYNC_ENABLED',
+  'REFUND_GMAIL_RETENTION_ENABLED',
+  'REFUND_GMAIL_RETENTION_POLICY_VERSION',
+  'REFUND_GMAIL_ATTACHMENT_SCANNER_ENABLED',
+  'REFUND_GMAIL_ATTACHMENT_SCANNER_VERSION',
+  'REFUND_GMAIL_FIRST_CONTACT_MODE',
+  'REFUND_GMAIL_FIRST_CONTACT_CUTOVER_AT',
+  'REFUND_GMAIL_FIRST_CONTACT_PRODUCTION_LABEL_ID',
+  'REFUND_GMAIL_FIRST_CONTACT_ISOLATED_LABEL_ID',
+  'REFUND_GMAIL_FIRST_CONTACT_ISOLATED_SENDERS',
+  'REFUND_GMAIL_FIRST_CONTACT_ISOLATED_CONFIRMED',
+  'REFUND_GMAIL_LEGACY_RESPONDER_DISABLED',
+  'REFUND_GMAIL_FIRST_CONTACT_CUTOVER_APPROVED',
+  'REFUND_GMAIL_FIRST_CONTACT_REFUND_URL',
+  'REFUND_GMAIL_FIRST_CONTACT_LEGACY_URL',
+  'REFUND_GMAIL_FIRST_CONTACT_SUPPORT_URL',
+];
+for (const name of canonicalGmailEnvironmentNames) {
+  const matches = envExample.match(new RegExp(`^${name}=`, 'gm')) ?? [];
+  assert.equal(matches.length, 1, `.env.example must define ${name} exactly once`);
+}
+assert(
+  /^GMAIL_SUPPORT_SEND_AS_ALIASES=$/m.test(envExample) &&
+    !/^GMAIL_SUPPORT_SEND_AS_ALIASES=.+$/m.test(envExample),
+  'Unverified Gmail send-as aliases must not be implied by .env.example defaults',
 );
 assert(
   intakeFunction.includes('sendRefundManagerActionNotice') &&
@@ -1251,6 +1322,29 @@ assert(
     syncFunction.includes('sendGmailCaseActionNotice') &&
     syncFunction.includes('participantRole === "customer" || automaticContactPaused'),
   'New intake, Gmail action-needed work, delivery exceptions, and aging cases must emit the separate canonical-link notice',
+);
+const intakeManagerSummary = intakeFunction.slice(
+  intakeFunction.indexOf('const buildManagerNotificationSummary'),
+  intakeFunction.indexOf('const sendManagerIntakeNotification')
+);
+assert(
+  intakeManagerSummary.includes('`Reference: ${publicReference}`') &&
+    intakeManagerSummary.includes('`Machine: ${machineLabel}`') &&
+    intakeManagerSummary.includes('`Location: ${locationName}`') &&
+    intakeManagerSummary.includes('`Current status: ${status}`') &&
+    !intakeManagerSummary.includes('Reported amount:') &&
+    !intakeManagerSummary.includes('Incident time:') &&
+    !intakeManagerSummary.includes('Payment method:'),
+  'Intake action notices must keep payment amount, incident timestamp, and payment method behind the authenticated portal link',
+);
+const walletReadyManagerNotice = intakeFunction.slice(
+  intakeFunction.indexOf('const sendWalletMatchReadyNotification'),
+  intakeFunction.indexOf('const persistWalletCorrectionLookup')
+);
+assert(
+  walletReadyManagerNotice.includes('found one high-confidence transaction') &&
+    !walletReadyManagerNotice.includes('Confidence class:'),
+  'Wallet-ready action notices must keep the raw confidence class behind the authenticated portal link',
 );
 assert(
   intakeFunction.includes('dispatchRefundCaseGmailReply') &&

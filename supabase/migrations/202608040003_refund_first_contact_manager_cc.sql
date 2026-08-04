@@ -132,7 +132,7 @@ begin
     coalesce(recipient_resolution -> 'managerCcEmails', '[]'::jsonb)
   ) value;
 
-  if resolution_status not in ('resolved', 'resolved_with_exclusions')
+  if resolution_status is distinct from 'resolved'
     or cardinality(manager_cc_emails) not between 1 and 3 then
     update public.refund_gmail_messages
     set

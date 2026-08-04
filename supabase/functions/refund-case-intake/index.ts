@@ -230,29 +230,15 @@ const decodeBase64 = (value: string) => {
   }
 };
 
-const formatCurrency = (cents: number | null) => {
-  if (typeof cents !== "number") return "not provided";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(cents / 100);
-};
-
 const buildManagerNotificationSummary = ({
   publicReference,
   machineLabel,
   locationName,
-  amountCents,
-  paymentMethod,
-  incidentAt,
   status,
 }: {
   publicReference: string;
   machineLabel: string;
   locationName: string;
-  amountCents: number | null;
-  paymentMethod: string;
-  incidentAt: Date;
   status: string;
 }) => [
   "A new Bloomjoy refund request is ready for manager review.",
@@ -260,9 +246,6 @@ const buildManagerNotificationSummary = ({
   `Reference: ${publicReference}`,
   `Machine: ${machineLabel}`,
   `Location: ${locationName}`,
-  `Reported amount: ${formatCurrency(amountCents)}`,
-  `Incident time: ${incidentAt.toISOString()}`,
-  `Payment method: ${paymentMethod}`,
   `Current status: ${status}`,
 ].join("\n");
 
@@ -272,9 +255,6 @@ const sendManagerIntakeNotification = async ({
   customerEmail,
   machineLabel,
   locationName,
-  amountCents,
-  paymentMethod,
-  incidentAt,
   status,
 }: {
   refundCaseId: string;
@@ -282,9 +262,6 @@ const sendManagerIntakeNotification = async ({
   customerEmail: string;
   machineLabel: string;
   locationName: string;
-  amountCents: number | null;
-  paymentMethod: string;
-  incidentAt: Date;
   status: string;
 }) => {
   if (!supabase) return;
@@ -294,9 +271,6 @@ const sendManagerIntakeNotification = async ({
       publicReference,
       machineLabel,
       locationName,
-      amountCents,
-      paymentMethod,
-      incidentAt,
       status,
     });
 
@@ -312,7 +286,7 @@ const sendManagerIntakeNotification = async ({
       refund_case_id: refundCaseId,
       event_type: "manager_notification_sent",
       message: notice.usedOpsFallback
-        ? "New refund request created an operations routing-exception notice because no eligible current Machine Manager was resolved."
+        ? "New refund request created an operations routing-exception notice because the complete current Machine Manager route could not be safely resolved."
         : "New refund request action notice sent only to the currently assigned Machine Managers.",
       metadata: {
         recipient_count: notice.recipientCount,
@@ -777,7 +751,6 @@ const sendWalletMatchReadyNotification = async ({
       `Reference: ${publicReference}`,
       `Machine: ${machineLabel}`,
       `Location: ${locationName}`,
-      `Confidence class: ${confidenceClass}`,
     ].join("\n"),
   });
 
@@ -785,7 +758,7 @@ const sendWalletMatchReadyNotification = async ({
     refund_case_id: refundCaseId,
     event_type: "wallet_correction_match_ready_notification_sent",
     message: notice.usedOpsFallback
-      ? "High-confidence wallet correction match created an operations routing-exception notice because no eligible current Machine Manager was resolved."
+      ? "High-confidence wallet correction match created an operations routing-exception notice because the complete current Machine Manager route could not be safely resolved."
       : "High-confidence wallet correction action notice sent only to the currently assigned Machine Managers.",
     metadata: {
       recipient_count: notice.recipientCount,
@@ -1558,9 +1531,6 @@ serve(async (req) => {
       customerEmail,
       machineLabel: publicLabels.machineLabel,
       locationName: publicLabels.locationName,
-      amountCents,
-      paymentMethod,
-      incidentAt,
       status,
     });
 
