@@ -115,12 +115,53 @@ serve(async (req) => {
       }, 409);
     }
 
-    const verifiedAccessToken = await verifyRefundManagerTotp({
+    const verification = await verifyRefundManagerTotp({
       supabaseUrl,
       supabaseAnonKey,
       accessToken: originalAccessToken,
       code,
     });
+
+    const verifiedUserClient = userClientFor(verification.accessToken);
+    if (!verifiedUserClient) {
+      return jsonResponse({ error: "Manager verification is unavailable." }, 500);
+    }
+    const { data: factorApproved, error: factorApprovalError } = await verifiedUserClient.rpc(
+      "admin_refund_manager_step_up_factor_is_approved",
+      {
+        p_intent_id: intentId,
+        p_factor_binding_hash: verification.factorBindingHash,
+      },
+    );
+    if (factorApprovalError || factorApproved !== true) {
+      throw new RefundManagerTotpError(
+        "This authenticator is not the refund-specific factor approved by the owner.",
+        409,
+        "factor_required",
+      );
+    }
+
+    const { data: proofMarker, error: proofMarkerError } = await serviceClient.rpc(
+      "service_mark_refund_manager_step_up_factor_verified",
+      {
+        p_actor_user_id: authData.user.id,
+        p_intent_id: intentId,
+        p_factor_binding_hash: verification.factorBindingHash,
+      },
+    );
+    const stepUpFactorProof = proofMarker && typeof proofMarker === "object" &&
+        typeof (proofMarker as { factorVerificationProof?: unknown })
+            .factorVerificationProof === "string"
+      ? (proofMarker as { factorVerificationProof: string })
+        .factorVerificationProof
+      : "";
+    if (proofMarkerError || !/^[a-f0-9]{64}$/.test(stepUpFactorProof)) {
+      throw new RefundManagerTotpError(
+        "The verified action could not be bound to this authenticator challenge. Review it and try again.",
+        409,
+        "verification_failed",
+      );
+    }
 
     const targetResponse = await fetch(
       `${supabaseUrl}/functions/v1/${targetFunction}`,
@@ -129,12 +170,13 @@ serve(async (req) => {
         headers: {
           apikey: supabaseAnonKey,
           Authorization: `Bearer ${supabaseAnonKey}`,
-          "x-supabase-auth-token": verifiedAccessToken,
+          "x-supabase-auth-token": verification.accessToken,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           ...frozenPayload,
           stepUpIntentId: intentId,
+          stepUpFactorProof,
         }),
       },
     );

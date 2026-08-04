@@ -624,6 +624,20 @@ select ok(
 );
 reset role;
 
+insert into public.refund_manager_totp_enrollments (
+  actor_user_id,
+  approved_factor_binding_hash,
+  owner_approved_by_user_id,
+  owner_approval_version,
+  enrollment_version
+) values (
+  '79000000-0000-4000-8000-000000000001',
+  repeat('c', 64),
+  '79000000-0000-4000-8000-000000000002',
+  1,
+  1
+);
+
 -- The remaining #689 regression assertions need receipts. Route their legacy
 -- test helper through the new #692 prepare/verify/consume protocol. This
 -- transaction-local replacement rolls back with the test.
@@ -645,10 +659,13 @@ create or replace function public.admin_authorize_refund_official_action(
 )
 returns jsonb
 language plpgsql
+security definer
 set search_path = public, auth, pg_temp
 as $$
 declare
+  actor_user_id uuid := auth.uid();
   intent jsonb;
+  factor_marker jsonb;
   target_function text := case
     when lower(btrim(coalesce(p_action, ''))) = 'nayax_execute'
       then 'nayax-card-refund'
@@ -672,8 +689,16 @@ begin
     p_matched_nayax_candidate_token,
     p_nayax_disagreement_reason
   );
+  perform set_config('request.jwt.claim.sub', '', true);
+  perform set_config('request.jwt.claim.role', 'service_role', true);
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  factor_marker := public.service_mark_refund_manager_step_up_factor_verified(
+    actor_user_id,
+    (intent ->> 'intentId')::uuid,
+    repeat('c', 64)
+  );
   perform pg_temp.set_auth_claims(
-    auth.uid(),
+    actor_user_id,
     'aal2',
     'totp',
     extract(epoch from statement_timestamp() + interval '1 second')
@@ -694,7 +719,8 @@ begin
     p_cash_payout_sent_at,
     p_cash_payment_confirmed,
     p_matched_nayax_candidate_token,
-    p_nayax_disagreement_reason
+    p_nayax_disagreement_reason,
+    factor_marker ->> 'factorVerificationProof'
   );
 end;
 $$;

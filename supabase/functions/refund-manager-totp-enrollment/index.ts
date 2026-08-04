@@ -4,6 +4,7 @@ import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
   beginRefundManagerTotpEnrollment,
+  bestEffortCompensateRefundManagerTotpEnrollment,
   cancelRefundManagerTotpEnrollment,
   RefundManagerTotpError,
   verifyRefundManagerTotpEnrollment,
@@ -40,6 +41,8 @@ const userClientFor = (accessToken: string) => {
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
   });
 };
+
+type VerifiedEnrollment = Awaited<ReturnType<typeof verifyRefundManagerTotpEnrollment>>;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -102,20 +105,53 @@ serve(async (req) => {
     }
     if (operation === "verify") {
       const code = typeof body?.code === "string" ? body.code.trim() : "";
-      const verifiedAccessToken = await verifyRefundManagerTotpEnrollment({
-        supabaseUrl,
-        supabaseAnonKey,
-        accessToken,
-        code,
-      });
-      const verifiedUserClient = userClientFor(verifiedAccessToken);
-      if (!verifiedUserClient) throw new Error("Verified client unavailable");
-      const { error: auditError } = await verifiedUserClient.rpc(
-        "admin_record_refund_manager_totp_enrollment",
-      );
-      if (auditError) {
+      let verification: VerifiedEnrollment | null = null;
+      try {
+        verification = await verifyRefundManagerTotpEnrollment({
+          supabaseUrl,
+          supabaseAnonKey,
+          accessToken,
+          code,
+        });
+        const { data: recorded, error: recordingError } = await serviceClient.rpc(
+          "service_record_refund_manager_totp_enrollment",
+          {
+            p_actor_user_id: authData.user.id,
+            p_factor_binding_hash: verification.factorBindingHash,
+          },
+        );
+        if (
+          recordingError ||
+          !recorded ||
+          typeof recorded !== "object" ||
+          (recorded as { recorded?: unknown }).recorded !== true
+        ) {
+          throw new Error("Durable refund authenticator enrollment was not recorded");
+        }
+      } catch (error) {
+        if (!verification && error instanceof RefundManagerTotpError) throw error;
+        if (verification) {
+          await bestEffortCompensateRefundManagerTotpEnrollment({
+            supabaseUrl,
+            supabaseAnonKey,
+            verifiedAccessToken: verification.accessToken,
+            factorId: verification.factorId,
+            factorBindingHash: verification.factorBindingHash,
+            compensateDurableState: async (factorBindingHash) => {
+              const { error: compensationError } = await serviceClient.rpc(
+                "service_compensate_refund_manager_totp_enrollment",
+                {
+                  p_actor_user_id: authData.user.id,
+                  p_factor_binding_hash: factorBindingHash,
+                },
+              );
+              if (compensationError) throw compensationError;
+            },
+          });
+        }
         return jsonResponse({
-          error: "Enrollment was verified, but owner review is still required before official actions.",
+          error:
+            "Enrollment could not be safely completed. The new authenticator was removed when possible; ask the owner to reopen enrollment.",
           errorCode: "verification_failed",
         }, 409);
       }

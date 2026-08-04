@@ -53,6 +53,9 @@ const databaseTests = read(
 const stepUpDatabaseTests = read(
   'supabase/tests/refund_manager_action_step_up_safety.sql'
 );
+const stepUpConcurrencyTests = read(
+  'supabase/tests/refund_manager_action_step_up_concurrency.sql'
+);
 const totpTests = read(
   'supabase/functions/_shared/refund-manager-totp.test.ts'
 );
@@ -181,6 +184,7 @@ assert(
     authorizationHelper.includes('global: { headers: { Authorization: `Bearer ${accessToken}` } }') &&
     authorizationHelper.includes('"admin_prepare_refund_action_step_up_intent"') &&
     authorizationHelper.includes('"admin_consume_refund_action_step_up_intent"') &&
+    authorizationHelper.includes('p_factor_verification_proof: context.stepUpFactorProof') &&
     !authorizationHelper.includes('"admin_authorize_refund_official_action"') &&
     authorizationHelper.includes('p_expected_case_version: context.expectedCaseVersion'),
   'Edge Functions must create and consume action-bound intents through the caller-derived bearer token and exact reviewed case revision.'
@@ -212,18 +216,62 @@ assert(
 );
 
 assert(
+  stepUpMigration.includes('refund_manager_totp_enrollments') &&
+    stepUpMigration.includes('approved_factor_binding_hash') &&
+    stepUpMigration.includes('manager_totp_enrollment_version') &&
+    stepUpMigration.includes('totp_enrollment_approved_manager_user_id') &&
+    stepUpMigration.includes('service_record_refund_manager_totp_enrollment') &&
+    stepUpMigration.includes('admin_refund_manager_step_up_factor_is_approved') &&
+    stepUpMigration.includes('service_mark_refund_manager_step_up_factor_verified') &&
+    stepUpMigration.includes('factor_verification_proof_hash') &&
+    stepUpMigration.includes("'bloomjoy-refund-manager-step-up-proof-v1:'") &&
+    stepUpDatabaseTests.includes('generic pre-existing Auth TOTP cannot prepare') &&
+    stepUpDatabaseTests.includes('fresh generic-factor AAL2 token cannot bypass') &&
+    stepUpDatabaseTests.includes('caller cannot guess or substitute') &&
+    stepUpDatabaseTests.includes('Enrollment revocation or replacement invalidates'),
+  'Only a durable, owner-targeted, exact-factor enrollment and trusted one-use Edge proof may consume refund step-up intents.'
+);
+
+assert(
+  stepUpMigration.includes('refund_nayax_execution_evidence_hash') &&
+    stepUpMigration.includes("'refund_nayax_execution_evidence_v1'") &&
+    stepUpMigration.includes('nayax_execution_evidence_hash') &&
+    stepUpMigration.includes('for share;') &&
+    stepUpMigration.includes('Nayax execution evidence changed after manager verification') &&
+    stepUpDatabaseTests.includes('Valid-to-valid Nayax account configuration drift') &&
+    stepUpDatabaseTests.includes('Service consumption revalidates locked Nayax evidence'),
+  'Nayax verification must bind and revalidate locked persisted match, amount, and provider configuration evidence.'
+);
+
+assert(
+  stepUpConcurrencyTests.includes("dblink_send_query(") &&
+    stepUpConcurrencyTests.includes('Two independent database sessions') &&
+    stepUpConcurrencyTests.includes('Exactly one of two concurrent sessions can consume') &&
+    stepUpConcurrencyTests.includes('Concurrent regression restores the production hard-off gate'),
+  'Database regression coverage must exercise real two-session prepare and consume races.'
+);
+
+assert(
   stepUpEdge.includes('verifyRefundManagerTotp') &&
+    stepUpEdge.includes('admin_refund_manager_step_up_factor_is_approved') &&
+    stepUpEdge.includes('service_mark_refund_manager_step_up_factor_verified') &&
     stepUpEdge.includes('x-supabase-auth-token') &&
     stepUpEdge.includes('stepUpIntentId: intentId') &&
+    stepUpEdge.includes('stepUpFactorProof') &&
     totpHelper.includes('body: { challenge_id: challengeId, code }') &&
     totpHelper.includes('cancelRefundManagerTotpEnrollment') &&
     enrollmentEdge.includes('operation === "cancel"') &&
     enrollmentEdge.includes('can_enroll_refund_manager_totp_current_user') &&
+    enrollmentEdge.includes('service_record_refund_manager_totp_enrollment') &&
+    enrollmentEdge.includes('bestEffortCompensateRefundManagerTotpEnrollment') &&
+    enrollmentEdge.includes('service_compensate_refund_manager_totp_enrollment') &&
     !stepUpEdge.includes('console.log') &&
     !enrollmentEdge.includes('console.log') &&
     totpTests.includes('malformed codes fail before any Auth request') &&
-    totpTests.includes("cancelling enrollment removes only the caller's unfinished TOTP factor"),
-  'The trusted Edge flow must keep codes and factor details server-side, support safe enrollment cancellation, and avoid sensitive success logging.'
+    totpTests.includes("cancelling enrollment removes only the caller's unfinished TOTP factor") &&
+    totpTests.includes('enrollment verification rejects a second TOTP') &&
+    totpTests.includes('compensation still removes Auth factor when durable rollback fails'),
+  'The trusted Edge flow must bind the exact approved factor, compensate failed durable enrollment, keep secrets server-side, and avoid sensitive success logging.'
 );
 
 assert(

@@ -15,6 +15,7 @@ export type RefundOfficialActionContext = {
   action: RefundOfficialAction;
   targetFunction: RefundOfficialActionTarget;
   stepUpIntentId?: string | null;
+  stepUpFactorProof?: string | null;
   expectedCaseVersion: number;
   targetStatus: string | null;
   targetDecision: string | null;
@@ -98,7 +99,8 @@ const classifyAuthorizationError = (message: string) => {
   }
   if (
     normalized.includes("fresh authenticator verification is required") ||
-    normalized.includes("new authenticator code entered after reviewing")
+    normalized.includes("new authenticator code entered after reviewing") ||
+    normalized.includes("authenticator verification proof is required")
   ) {
     return new RefundOfficialActionAuthorizationError(
       "Verify with your authenticator immediately before taking this official action.",
@@ -226,10 +228,19 @@ export const authorizeRefundOfficialAction = async ({
     );
   }
 
+  if (!/^[a-f0-9]{64}$/.test(context.stepUpFactorProof ?? "")) {
+    throw new RefundOfficialActionAuthorizationError(
+      "Verify with your authenticator immediately before taking this official action.",
+      403,
+      "manager_verification_required",
+    );
+  }
+
   const { data, error } = await userClient.rpc(
     "admin_consume_refund_action_step_up_intent",
     {
       p_intent_id: context.stepUpIntentId,
+      p_factor_verification_proof: context.stepUpFactorProof,
       ...rpcArguments,
     },
   );

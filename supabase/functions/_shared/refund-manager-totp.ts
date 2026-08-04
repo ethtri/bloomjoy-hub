@@ -35,6 +35,18 @@ type AuthSessionResponse = {
   access_token?: unknown;
 };
 
+const factorBindingDomain = "bloomjoy-refund-manager-totp-factor-v1\0";
+
+export const refundManagerTotpFactorBindingHash = async (factorId: string) => {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`${factorBindingDomain}${factorId}`),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+};
+
 const safeJson = async (response: Response): Promise<Record<string, unknown>> => {
   try {
     const value = await response.json();
@@ -134,7 +146,7 @@ const onlyTotpFactorId = (
   return matches[0].id as string;
 };
 
-const removeUnverifiedTotpFactor = async ({
+export const removeRefundManagerTotpFactor = async ({
   supabaseUrl,
   supabaseAnonKey,
   accessToken,
@@ -157,11 +169,53 @@ const removeUnverifiedTotpFactor = async ({
   });
   if (!removal.response.ok) {
     throw new RefundManagerTotpError(
-      "The unfinished authenticator setup could not be cancelled. Ask the owner to review the account factors.",
+      "The authenticator setup could not be removed. Ask the owner to review the account factors.",
       409,
       "verification_failed",
     );
   }
+};
+
+export const bestEffortCompensateRefundManagerTotpEnrollment = async ({
+  supabaseUrl,
+  supabaseAnonKey,
+  verifiedAccessToken,
+  factorId,
+  factorBindingHash,
+  compensateDurableState,
+  fetchImpl,
+}: {
+  supabaseUrl: string | undefined;
+  supabaseAnonKey: string | undefined;
+  verifiedAccessToken: string;
+  factorId: string;
+  factorBindingHash: string;
+  compensateDurableState: (factorBindingHash: string) => Promise<void>;
+  fetchImpl?: FetchLike;
+}) => {
+  let durableCompensated = false;
+  let factorRemoved = false;
+  try {
+    await compensateDurableState(factorBindingHash);
+    durableCompensated = true;
+  } catch {
+    // The active durable row remains the true gate and is checked at consumption.
+  }
+  if (supabaseUrl && supabaseAnonKey) {
+    try {
+      await removeRefundManagerTotpFactor({
+        supabaseUrl,
+        supabaseAnonKey,
+        accessToken: verifiedAccessToken,
+        factorId,
+        fetchImpl,
+      });
+      factorRemoved = true;
+    } catch {
+      // A remaining Auth factor is not sufficient without its durable approval.
+    }
+  }
+  return { durableCompensated, factorRemoved };
 };
 
 const verifyFactor = async ({
@@ -257,7 +311,8 @@ export const verifyRefundManagerTotp = async ({
     fetchImpl,
   });
   const factorId = onlyTotpFactorId(factors, "verified");
-  return verifyFactor({
+  const factorBindingHash = await refundManagerTotpFactorBindingHash(factorId);
+  const verifiedAccessToken = await verifyFactor({
     supabaseUrl,
     supabaseAnonKey,
     accessToken,
@@ -265,6 +320,7 @@ export const verifyRefundManagerTotp = async ({
     code,
     fetchImpl,
   });
+  return { accessToken: verifiedAccessToken, factorBindingHash };
 };
 
 export const beginRefundManagerTotpEnrollment = async ({
@@ -316,7 +372,7 @@ export const beginRefundManagerTotpEnrollment = async ({
     );
   }
   if (unfinishedFactorIds.length === 1) {
-    await removeUnverifiedTotpFactor({
+    await removeRefundManagerTotpFactor({
       supabaseUrl,
       supabaseAnonKey,
       accessToken,
@@ -396,7 +452,7 @@ export const cancelRefundManagerTotpEnrollment = async ({
       "factor_ambiguous",
     );
   }
-  await removeUnverifiedTotpFactor({
+  await removeRefundManagerTotpFactor({
     supabaseUrl,
     supabaseAnonKey,
     accessToken,
@@ -432,8 +488,18 @@ export const verifyRefundManagerTotpEnrollment = async ({
     accessToken,
     fetchImpl,
   });
+  if (factors.some((factor) =>
+    factor.factor_type === "totp" && factor.status === "verified"
+  )) {
+    throw new RefundManagerTotpError(
+      "A verified authenticator is already enrolled for this account.",
+      409,
+      "factor_ambiguous",
+    );
+  }
   const factorId = onlyTotpFactorId(factors, "unverified");
-  return verifyFactor({
+  const factorBindingHash = await refundManagerTotpFactorBindingHash(factorId);
+  const verifiedAccessToken = await verifyFactor({
     supabaseUrl,
     supabaseAnonKey,
     accessToken,
@@ -441,4 +507,9 @@ export const verifyRefundManagerTotpEnrollment = async ({
     code,
     fetchImpl,
   });
+  return {
+    accessToken: verifiedAccessToken,
+    factorId,
+    factorBindingHash,
+  };
 };

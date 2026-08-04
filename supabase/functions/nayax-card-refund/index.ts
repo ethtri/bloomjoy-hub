@@ -507,6 +507,7 @@ serve(async (req) => {
         action: "nayax_execute",
         targetFunction: "nayax-card-refund",
         stepUpIntentId: sanitizeText(body?.stepUpIntentId, 80) || null,
+        stepUpFactorProof: sanitizeText(body?.stepUpFactorProof, 80) || null,
         expectedCaseVersion: Number(body?.expectedOfficialActionVersion),
         targetStatus: "card_refund_pending",
         targetDecision: "approved",

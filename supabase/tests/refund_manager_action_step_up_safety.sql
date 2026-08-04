@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(36);
+select plan(49);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -46,6 +46,18 @@ create temporary table step_up_test_intents (
   intent_id uuid not null
 );
 grant all on table pg_temp.step_up_test_intents to authenticated, service_role;
+
+create temporary table step_up_test_results (
+  result_key text primary key,
+  result jsonb not null
+);
+grant all on table pg_temp.step_up_test_results to authenticated, service_role;
+
+create temporary table step_up_test_factor_proofs (
+  intent_key text primary key,
+  proof text not null
+);
+grant all on table pg_temp.step_up_test_factor_proofs to authenticated, service_role;
 
 create function pg_temp.intent_not_before(p_intent_id uuid)
 returns timestamptz
@@ -165,7 +177,31 @@ values
    '8a300000-0000-4000-8000-000000000001', '8a200000-0000-4000-8000-000000000001',
    'step-up-two@example.test', 'synthetic-contact', 'Step-up two', now() - interval '2 hours',
    'cash', 650, 'needs_review', 'matched', 'sunze', 0.95,
-   '8a500000-0000-4000-8000-000000000001', 650, false);
+   '8a500000-0000-4000-8000-000000000001', 650, false),
+  ('8a600000-0000-4000-8000-000000000003', 'RF-STEP-UP-NAYAX',
+   '8a300000-0000-4000-8000-000000000001', '8a200000-0000-4000-8000-000000000001',
+   'step-up-nayax@example.test', null, 'Step-up Nayax execution', now() - interval '1 hour',
+   'card', 600, 'card_refund_pending', 'matched', 'nayax', 1,
+   null, 600, false);
+
+update public.refund_cases
+set
+  decision = 'approved',
+  decided_by = '8a000000-0000-4000-8000-000000000001',
+  decided_at = statement_timestamp(),
+  card_last4 = '4242',
+  card_wallet_used = false,
+  matched_nayax_transaction_id = 'STEP-UP-NAYAX-TX-001',
+  matched_nayax_site_id = 101,
+  matched_nayax_machine_auth_time = statement_timestamp() - interval '1 hour',
+  matched_nayax_amount_cents = 600,
+  matched_nayax_card_last4 = '4242',
+  matched_nayax_currency_code = 'USD',
+  nayax_recommendation_state = 'high_confidence',
+  nayax_recommendation_policy_version = 'step-up-test-v1',
+  nayax_recommendation_evaluated_at = statement_timestamp(),
+  nayax_match_execution_eligible = true
+where id = '8a600000-0000-4000-8000-000000000003';
 
 select ok(not public.refund_official_actions_enabled(),
   'Production official-action gate remains hard false');
@@ -174,6 +210,8 @@ select ok(not public.refund_manager_totp_enrollment_window_enabled(),
 select ok(
   not has_table_privilege('authenticated', 'public.refund_manager_action_step_up_intents', 'select')
   and not has_table_privilege('service_role', 'public.refund_manager_action_step_up_intents', 'insert')
+  and not has_table_privilege('authenticated', 'public.refund_manager_totp_enrollments', 'select')
+  and not has_table_privilege('service_role', 'public.refund_manager_totp_enrollments', 'insert')
   and not has_table_privilege('authenticated', 'public.refund_manager_step_up_audit', 'select')
   and not has_table_privilege('service_role', 'public.refund_manager_security_config', 'update'),
   'Intent, audit, and security config tables are private from browsers and services');
@@ -181,10 +219,18 @@ select ok(
   has_function_privilege('authenticated',
     'public.admin_prepare_refund_action_step_up_intent(uuid,text,text,bigint,text,text,text,text,text,integer,text,timestamp with time zone,boolean,uuid,text)', 'execute')
   and has_function_privilege('authenticated',
-    'public.admin_consume_refund_action_step_up_intent(uuid,uuid,text,text,bigint,text,text,text,text,text,integer,text,timestamp with time zone,boolean,uuid,text)', 'execute')
+    'public.admin_consume_refund_action_step_up_intent(uuid,uuid,text,text,bigint,text,text,text,text,text,integer,text,timestamp with time zone,boolean,uuid,text,text)', 'execute')
+  and not has_function_privilege('authenticated',
+    'public.service_mark_refund_manager_step_up_factor_verified(uuid,uuid,text)', 'execute')
+  and has_function_privilege('service_role',
+    'public.service_mark_refund_manager_step_up_factor_verified(uuid,uuid,text)', 'execute')
+  and not has_function_privilege('authenticated',
+    'public.service_record_refund_manager_totp_enrollment(uuid,text)', 'execute')
+  and has_function_privilege('service_role',
+    'public.service_record_refund_manager_totp_enrollment(uuid,text)', 'execute')
   and not has_function_privilege('service_role',
-    'public.admin_consume_refund_action_step_up_intent(uuid,uuid,text,text,bigint,text,text,text,text,text,integer,text,timestamp with time zone,boolean,uuid,text)', 'execute'),
-  'Only authenticated humans receive prepare and consume RPC grants');
+    'public.admin_consume_refund_action_step_up_intent(uuid,uuid,text,text,bigint,text,text,text,text,text,integer,text,timestamp with time zone,boolean,uuid,text,text)', 'execute'),
+  'Only authenticated humans consume intents, while only the trusted service can mint factor proofs');
 
 set local role authenticated;
 select pg_temp.set_auth_claims('8a000000-0000-4000-8000-000000000001', 'aal2',
@@ -200,6 +246,32 @@ reset role;
 
 create or replace function public.refund_official_actions_enabled()
 returns boolean language sql immutable set search_path = public as $$ select true; $$;
+
+set local role authenticated;
+select pg_temp.set_auth_claims('8a000000-0000-4000-8000-000000000001', 'aal1',
+  jsonb_build_array(jsonb_build_object('method', 'password', 'timestamp', extract(epoch from statement_timestamp()))));
+select ok(pg_temp.capture_error($sql$
+  select public.admin_prepare_refund_action_step_up_intent(
+    '8a600000-0000-4000-8000-000000000001', 'approve', 'refund-case-admin-update',
+    (select official_action_version from public.refund_cases where id = '8a600000-0000-4000-8000-000000000001'),
+    'cash_zelle_pending', 'approved', null, null, null, 700, null, null, false, null, null)
+$sql$) like '%Owner-approved refund authenticator enrollment is required%',
+  'A generic pre-existing Auth TOTP cannot prepare an action without durable owner approval');
+reset role;
+
+insert into public.refund_manager_totp_enrollments (
+  actor_user_id,
+  approved_factor_binding_hash,
+  owner_approved_by_user_id,
+  owner_approval_version,
+  enrollment_version
+) values (
+  '8a000000-0000-4000-8000-000000000001',
+  repeat('a', 64),
+  '8a000000-0000-4000-8000-000000000002',
+  1,
+  1
+);
 
 set local role authenticated;
 select pg_temp.set_auth_claims('8a000000-0000-4000-8000-000000000001', 'aal1',
@@ -220,12 +292,28 @@ select ok((
     and action = 'approve'
     and target_function = 'refund-case-admin-update'
     and manager_mapping_version > 0
+    and manager_totp_enrollment_version = 1
     and expected_case_version > 0
     and action_context_hash ~ '^[a-f0-9]{64}$'
     and expires_at <= not_before + interval '2 minutes 5 seconds'
   from public.refund_manager_action_step_up_intents
   where id = (select intent_id from pg_temp.step_up_test_intents where intent_key = 'first')
 ), 'Intent binds actor, case, action, target, mapping, version, context, and two-minute expiry');
+
+set local role authenticated;
+select pg_temp.set_auth_claims('8a000000-0000-4000-8000-000000000001', 'aal2',
+  jsonb_build_array(jsonb_build_object('method', 'totp', 'timestamp', extract(epoch from statement_timestamp()))));
+select ok(
+  public.admin_refund_manager_step_up_factor_is_approved(
+    (select intent_id from pg_temp.step_up_test_intents where intent_key = 'first'),
+    repeat('a', 64)
+  )
+  and not public.admin_refund_manager_step_up_factor_is_approved(
+    (select intent_id from pg_temp.step_up_test_intents where intent_key = 'first'),
+    repeat('b', 64)
+  ),
+  'Only the exact owner-approved factor binding is accepted for the pending intent');
+reset role;
 
 set local role authenticated;
 select pg_temp.set_auth_claims('8a000000-0000-4000-8000-000000000001', 'aal1', '[]'::jsonb);
@@ -330,12 +418,48 @@ select pg_temp.set_auth_claims('8a000000-0000-4000-8000-000000000001', 'aal2',
   jsonb_build_array(jsonb_build_object('method', 'totp', 'timestamp',
     pg_temp.intent_totp_epoch(
       (select intent_id from pg_temp.step_up_test_intents where intent_key = 'second'), 20))));
+select ok(pg_temp.capture_error(format($sql$
+  select public.admin_consume_refund_action_step_up_intent(%L,
+    '8a600000-0000-4000-8000-000000000002', 'approve', 'refund-case-admin-update',
+    (select official_action_version from public.refund_cases where id = '8a600000-0000-4000-8000-000000000002'),
+    'cash_zelle_pending', 'approved', null, null, null, 650, null, null, false, null, null)
+$sql$, (select intent_id from pg_temp.step_up_test_intents where intent_key = 'second')))
+  like '%authenticator verification proof is required%',
+  'A fresh generic-factor AAL2 token cannot bypass the trusted exact-factor Edge proof');
+reset role;
+
+select set_config('request.jwt.claim.role', 'service_role', true);
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+insert into pg_temp.step_up_test_factor_proofs (intent_key, proof)
+select
+  'second',
+  public.service_mark_refund_manager_step_up_factor_verified(
+    '8a000000-0000-4000-8000-000000000001',
+    (select intent_id from pg_temp.step_up_test_intents where intent_key = 'second'),
+    repeat('a', 64)
+  ) ->> 'factorVerificationProof';
+
+set local role authenticated;
+select pg_temp.set_auth_claims('8a000000-0000-4000-8000-000000000001', 'aal2',
+  jsonb_build_array(jsonb_build_object('method', 'totp', 'timestamp',
+    pg_temp.intent_totp_epoch(
+      (select intent_id from pg_temp.step_up_test_intents where intent_key = 'second'), 20))));
+select ok(pg_temp.capture_error(format($sql$
+  select public.admin_consume_refund_action_step_up_intent(%L,
+    '8a600000-0000-4000-8000-000000000002', 'approve', 'refund-case-admin-update',
+    (select official_action_version from public.refund_cases where id = '8a600000-0000-4000-8000-000000000002'),
+    'cash_zelle_pending', 'approved', null, null, null, 650, null, null, false, null, null,
+    repeat('f', 64))
+$sql$, (select intent_id from pg_temp.step_up_test_intents where intent_key = 'second')))
+  like '%authenticator verification proof is required%',
+  'A caller cannot guess or substitute the one-use internal factor proof');
 insert into pg_temp.step_up_test_intents (intent_key, intent_id)
 select 'authorization', (public.admin_consume_refund_action_step_up_intent(
   (select intent_id from pg_temp.step_up_test_intents where intent_key = 'second'),
   '8a600000-0000-4000-8000-000000000002', 'approve', 'refund-case-admin-update',
   (select official_action_version from public.refund_cases where id = '8a600000-0000-4000-8000-000000000002'),
-  'cash_zelle_pending', 'approved', null, null, null, 650, null, null, false, null, null
+  'cash_zelle_pending', 'approved', null, null, null, 650, null, null, false, null, null,
+  (select proof from pg_temp.step_up_test_factor_proofs where intent_key = 'second')
 ) ->> 'authorizationId')::uuid;
 reset role;
 select is((select status from public.refund_manager_action_step_up_intents
@@ -413,6 +537,28 @@ $sql$, (select intent_id from pg_temp.step_up_test_intents where intent_key = 'r
   'Case version drift invalidates the intent');
 
 insert into pg_temp.step_up_test_intents (intent_key, intent_id)
+select 'enrollment-drift', (public.admin_prepare_refund_action_step_up_intent(
+  '8a600000-0000-4000-8000-000000000002', 'approve', 'refund-case-admin-update',
+  (select official_action_version from public.refund_cases where id = '8a600000-0000-4000-8000-000000000002'),
+  'cash_zelle_pending', 'approved', null, null, null, 650, null, null, false, null, null
+) ->> 'intentId')::uuid;
+reset role;
+update public.refund_manager_totp_enrollments
+set enrollment_version = enrollment_version + 1,
+    updated_at = statement_timestamp()
+where actor_user_id = '8a000000-0000-4000-8000-000000000001';
+set local role authenticated;
+select pg_temp.set_auth_claims('8a000000-0000-4000-8000-000000000001', 'aal2',
+  jsonb_build_array(jsonb_build_object('method', 'totp', 'timestamp', extract(epoch from statement_timestamp() + interval '2 seconds'))));
+select ok(pg_temp.capture_error(format($sql$
+  select public.admin_consume_refund_action_step_up_intent(%L,
+    '8a600000-0000-4000-8000-000000000002', 'approve', 'refund-case-admin-update',
+    (select official_action_version from public.refund_cases where id = '8a600000-0000-4000-8000-000000000002'),
+    'cash_zelle_pending', 'approved', null, null, null, 650, null, null, false, null, null)
+$sql$, (select intent_id from pg_temp.step_up_test_intents where intent_key = 'enrollment-drift'))) like '%enrollment changed%',
+  'Enrollment revocation or replacement invalidates an already prepared intent at consumption');
+
+insert into pg_temp.step_up_test_intents (intent_key, intent_id)
 select 'mapping-drift', (public.admin_prepare_refund_action_step_up_intent(
   '8a600000-0000-4000-8000-000000000002', 'approve', 'refund-case-admin-update',
   (select official_action_version from public.refund_cases where id = '8a600000-0000-4000-8000-000000000002'),
@@ -431,6 +577,95 @@ select ok(pg_temp.capture_error(format($sql$
     'cash_zelle_pending', 'approved', null, null, null, 650, null, null, false, null, null)
 $sql$, (select intent_id from pg_temp.step_up_test_intents where intent_key = 'mapping-drift'))) like '%changed%',
   'Manager mapping revision drift invalidates the intent');
+
+insert into pg_temp.step_up_test_intents (intent_key, intent_id)
+select 'nayax', (public.admin_prepare_refund_action_step_up_intent(
+  '8a600000-0000-4000-8000-000000000003', 'nayax_execute', 'nayax-card-refund',
+  (select official_action_version from public.refund_cases where id = '8a600000-0000-4000-8000-000000000003'),
+  'card_refund_pending', 'approved', null, null, null, 600, null, null, false, null, null
+) ->> 'intentId')::uuid;
+reset role;
+select ok((
+  select nayax_execution_evidence_hash ~ '^[a-f0-9]{64}$'
+    and candidate_evidence_hash is null
+  from public.refund_manager_action_step_up_intents
+  where id = (select intent_id from pg_temp.step_up_test_intents where intent_key = 'nayax')
+), 'Nayax execution intent persists a locked canonical match and provider-config fingerprint');
+
+select set_config('request.jwt.claim.role', 'service_role', true);
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+insert into pg_temp.step_up_test_factor_proofs (intent_key, proof)
+select
+  'nayax',
+  public.service_mark_refund_manager_step_up_factor_verified(
+    '8a000000-0000-4000-8000-000000000001',
+    (select intent_id from pg_temp.step_up_test_intents where intent_key = 'nayax'),
+    repeat('a', 64)
+  ) ->> 'factorVerificationProof';
+
+update public.reporting_machines
+set nayax_account_key = 'STEP-UP-ACCOUNT-CHANGED'
+where id = '8a300000-0000-4000-8000-000000000001';
+set local role authenticated;
+select pg_temp.set_auth_claims('8a000000-0000-4000-8000-000000000001', 'aal2',
+  jsonb_build_array(jsonb_build_object('method', 'totp', 'timestamp', extract(epoch from statement_timestamp() + interval '2 seconds'))));
+select ok(pg_temp.capture_error(format($sql$
+  select public.admin_consume_refund_action_step_up_intent(%L,
+    '8a600000-0000-4000-8000-000000000003', 'nayax_execute', 'nayax-card-refund',
+    (select official_action_version from public.refund_cases where id = '8a600000-0000-4000-8000-000000000003'),
+    'card_refund_pending', 'approved', null, null, null, 600, null, null, false, null, null)
+$sql$, (select intent_id from pg_temp.step_up_test_intents where intent_key = 'nayax'))) like '%changed%',
+  'Valid-to-valid Nayax account configuration drift invalidates the human step-up intent');
+reset role;
+
+update public.reporting_machines
+set nayax_account_key = 'STEP-UP-ACCOUNT'
+where id = '8a300000-0000-4000-8000-000000000001';
+set local role authenticated;
+select pg_temp.set_auth_claims('8a000000-0000-4000-8000-000000000001', 'aal2',
+  jsonb_build_array(jsonb_build_object('method', 'totp', 'timestamp',
+    pg_temp.intent_totp_epoch(
+      (select intent_id from pg_temp.step_up_test_intents where intent_key = 'nayax'), 25))));
+insert into pg_temp.step_up_test_intents (intent_key, intent_id)
+select 'nayax-authorization', (public.admin_consume_refund_action_step_up_intent(
+  (select intent_id from pg_temp.step_up_test_intents where intent_key = 'nayax'),
+  '8a600000-0000-4000-8000-000000000003', 'nayax_execute', 'nayax-card-refund',
+  (select official_action_version from public.refund_cases where id = '8a600000-0000-4000-8000-000000000003'),
+  'card_refund_pending', 'approved', null, null, null, 600, null, null, false, null, null,
+  (select proof from pg_temp.step_up_test_factor_proofs where intent_key = 'nayax')
+) ->> 'authorizationId')::uuid;
+reset role;
+select ok((
+  select action_authorization.nayax_execution_evidence_hash = intent.nayax_execution_evidence_hash
+  from public.refund_case_official_action_authorizations action_authorization
+  join public.refund_manager_action_step_up_intents intent
+    on intent.id = action_authorization.step_up_intent_id
+  where action_authorization.id = (
+    select intent_id from pg_temp.step_up_test_intents where intent_key = 'nayax-authorization'
+  )
+), 'Nayax authorization carries the exact human-reviewed execution fingerprint');
+
+update public.reporting_machines
+set nayax_machine_id = 'STEP-UP-MACHINE-CHANGED'
+where id = '8a300000-0000-4000-8000-000000000001';
+select ok(
+  pg_temp.capture_error(format($sql$
+    select public.service_consume_nayax_refund_official_action(
+      %L,
+      '8a600000-0000-4000-8000-000000000003',
+      'card_refund_pending', 'approved', 600, null)
+  $sql$, (select intent_id from pg_temp.step_up_test_intents where intent_key = 'nayax-authorization')))
+    like '%execution evidence changed%'
+  and (select status from public.refund_case_official_action_authorizations where id =
+    (select intent_id from pg_temp.step_up_test_intents where intent_key = 'nayax-authorization')) = 'authorized',
+  'Service consumption revalidates locked Nayax evidence and rolls receipt use back on drift');
+update public.reporting_machines
+set nayax_machine_id = 'STEP-UP-MACHINE'
+where id = '8a300000-0000-4000-8000-000000000001';
+
+set local role authenticated;
+select pg_temp.set_auth_claims('8a000000-0000-4000-8000-000000000001', 'aal2',
+  jsonb_build_array(jsonb_build_object('method', 'totp', 'timestamp', extract(epoch from statement_timestamp() + interval '2 seconds'))));
 
 insert into pg_temp.step_up_test_intents (intent_key, intent_id)
 select 'cancel', (public.admin_prepare_refund_action_step_up_intent(
@@ -520,6 +755,77 @@ select pg_temp.set_auth_claims('8a000000-0000-4000-8000-000000000001', 'aal1', '
 select ok(not public.can_enroll_refund_manager_totp_current_user(),
   'Manager enrollment remains closed until an owner-controlled database and Auth window is opened');
 reset role;
+
+update public.refund_manager_security_config
+set
+  totp_enrollment_enabled = true,
+  totp_enrollment_approved_manager_user_id = '8a000000-0000-4000-8000-000000000001',
+  totp_enrollment_approved_by_owner_user_id = '8a000000-0000-4000-8000-000000000002',
+  totp_enrollment_approval_expires_at = statement_timestamp() + interval '5 minutes',
+  totp_enrollment_approval_version = 1,
+  updated_at = statement_timestamp()
+where singleton = true;
+set local role authenticated;
+select pg_temp.set_auth_claims('8a000000-0000-4000-8000-000000000001', 'aal1', '[]'::jsonb);
+select ok(public.can_enroll_refund_manager_totp_current_user(),
+  'Owner-targeted enrollment window admits only its approved Machine Manager');
+select pg_temp.set_auth_claims('8a000000-0000-4000-8000-000000000003', 'aal1', '[]'::jsonb);
+select ok(not public.can_enroll_refund_manager_totp_current_user(),
+  'An authenticated user outside the owner-targeted enrollment grant remains blocked');
+reset role;
+
+select set_config('request.jwt.claim.role', 'service_role', true);
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+insert into pg_temp.step_up_test_results (result_key, result)
+select 'record-enrollment', public.service_record_refund_manager_totp_enrollment(
+  '8a000000-0000-4000-8000-000000000001', repeat('b', 64)
+);
+select ok(
+  (select (result ->> 'recorded')::boolean from pg_temp.step_up_test_results
+    where result_key = 'record-enrollment')
+  and exists (
+    select 1
+    from public.refund_manager_totp_enrollments enrollment
+    where enrollment.actor_user_id = '8a000000-0000-4000-8000-000000000001'
+      and enrollment.status = 'active'
+      and enrollment.approved_factor_binding_hash = repeat('b', 64)
+      and enrollment.owner_approved_by_user_id = '8a000000-0000-4000-8000-000000000002'
+      and enrollment.enrollment_version = 3
+  )
+  and not public.refund_manager_totp_enrollment_window_enabled()
+  and exists (
+    select 1 from public.refund_manager_step_up_audit
+    where actor_user_id = '8a000000-0000-4000-8000-000000000001'
+      and event_type = 'totp_enrollment_verified'
+  ),
+  'Trusted enrollment atomically records durable owner approval and closes the one-use window');
+
+insert into pg_temp.step_up_test_results (result_key, result)
+select 'compensate-enrollment', public.service_compensate_refund_manager_totp_enrollment(
+  '8a000000-0000-4000-8000-000000000001', repeat('b', 64)
+);
+select ok(
+  (select (result ->> 'compensated')::boolean from pg_temp.step_up_test_results
+    where result_key = 'compensate-enrollment')
+  and exists (
+    select 1
+    from public.refund_manager_totp_enrollments enrollment
+    where enrollment.actor_user_id = '8a000000-0000-4000-8000-000000000001'
+      and enrollment.status = 'revoked'
+      and enrollment.revoked_at is not null
+      and enrollment.enrollment_version = 4
+  )
+  and not exists (
+    select 1 from public.refund_manager_action_step_up_intents
+    where actor_user_id = '8a000000-0000-4000-8000-000000000001'
+      and status = 'pending'
+  )
+  and exists (
+    select 1 from public.refund_manager_step_up_audit
+    where actor_user_id = '8a000000-0000-4000-8000-000000000001'
+      and event_type = 'totp_enrollment_compensated'
+  ),
+  'Enrollment compensation revokes durable approval and cancels every pending intent');
 
 select * from finish();
 rollback;

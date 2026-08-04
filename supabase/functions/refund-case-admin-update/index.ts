@@ -713,6 +713,7 @@ serve(async (req) => {
       body?.expectedOfficialActionVersion,
     );
     const stepUpIntentId = sanitizeText(body?.stepUpIntentId, 80) || null;
+    const stepUpFactorProof = sanitizeText(body?.stepUpFactorProof, 80) || null;
 
     const officialAuthorization = officialAction
       ? await authorizeRefundOfficialAction({
@@ -724,6 +725,7 @@ serve(async (req) => {
           action: officialAction,
           targetFunction: "refund-case-admin-update",
           stepUpIntentId,
+          stepUpFactorProof,
           expectedCaseVersion: expectedOfficialActionVersion,
           targetStatus: requestedStatus,
           targetDecision: requestedDecision,

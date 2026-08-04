@@ -7,8 +7,23 @@
 create table if not exists public.refund_manager_security_config (
   singleton boolean primary key default true check (singleton),
   totp_enrollment_enabled boolean not null default false,
+  totp_enrollment_approved_manager_user_id uuid references auth.users (id) on delete restrict,
+  totp_enrollment_approved_by_owner_user_id uuid references auth.users (id) on delete restrict,
+  totp_enrollment_approval_expires_at timestamptz,
+  totp_enrollment_approval_version bigint not null default 0 check (
+    totp_enrollment_approval_version >= 0
+  ),
   created_at timestamptz not null default statement_timestamp(),
-  updated_at timestamptz not null default statement_timestamp()
+  updated_at timestamptz not null default statement_timestamp(),
+  constraint refund_manager_security_config_enrollment_window_valid check (
+    not totp_enrollment_enabled
+    or (
+      totp_enrollment_approved_manager_user_id is not null
+      and totp_enrollment_approved_by_owner_user_id is not null
+      and totp_enrollment_approval_expires_at is not null
+      and totp_enrollment_approval_version > 0
+    )
+  )
 );
 
 insert into public.refund_manager_security_config (
@@ -42,6 +57,10 @@ set search_path = public
 as $$
   select coalesce((
     select config.totp_enrollment_enabled
+      and config.totp_enrollment_approved_manager_user_id is not null
+      and config.totp_enrollment_approved_by_owner_user_id is not null
+      and config.totp_enrollment_approval_expires_at > statement_timestamp()
+      and config.totp_enrollment_approval_version > 0
     from public.refund_manager_security_config config
     where config.singleton = true
   ), false);
@@ -92,8 +111,42 @@ as $$
   select auth.role() = 'authenticated'
     and auth.uid() is not null
     and public.refund_manager_totp_enrollment_window_enabled()
+    and exists (
+      select 1
+      from public.refund_manager_security_config config
+      where config.singleton = true
+        and config.totp_enrollment_approved_manager_user_id = auth.uid()
+    )
     and public.user_is_active_refund_manager_only(auth.uid());
 $$;
+
+-- This is the durable authorization boundary between a generic Auth TOTP
+-- factor and the refund-specific factor that an owner approved during a
+-- short, single-manager enrollment window. Only a purpose-bound one-way hash
+-- of the Auth factor identifier is persisted; the identifier itself is never
+-- stored in public application tables, events, or audit rows.
+create table if not exists public.refund_manager_totp_enrollments (
+  actor_user_id uuid primary key references auth.users (id) on delete restrict,
+  approved_factor_binding_hash text not null check (
+    approved_factor_binding_hash ~ '^[a-f0-9]{64}$'
+  ),
+  owner_approved_by_user_id uuid not null references auth.users (id) on delete restrict,
+  owner_approval_version bigint not null check (owner_approval_version > 0),
+  enrollment_version bigint not null default 1 check (enrollment_version > 0),
+  status text not null default 'active' check (status in ('active', 'revoked')),
+  approved_at timestamptz not null default statement_timestamp(),
+  last_step_up_verified_at timestamptz,
+  revoked_at timestamptz,
+  updated_at timestamptz not null default statement_timestamp(),
+  constraint refund_manager_totp_enrollments_lifecycle_valid check (
+    (status = 'active' and revoked_at is null)
+    or (status = 'revoked' and revoked_at is not null)
+  )
+);
+
+alter table public.refund_manager_totp_enrollments enable row level security;
+revoke all on table public.refund_manager_totp_enrollments
+  from public, anon, authenticated, service_role;
 
 create table if not exists public.refund_manager_action_step_up_intents (
   id uuid primary key default gen_random_uuid(),
@@ -105,29 +158,56 @@ create table if not exists public.refund_manager_action_step_up_intents (
   ),
   manager_mapping_id uuid not null references public.reporting_machine_refund_managers (id) on delete restrict,
   manager_mapping_version bigint not null check (manager_mapping_version > 0),
+  manager_totp_enrollment_version bigint not null check (manager_totp_enrollment_version > 0),
   expected_case_version bigint not null check (expected_case_version > 0),
   action_context_hash text not null check (action_context_hash ~ '^[a-f0-9]{64}$'),
   candidate_evidence_hash text check (
     candidate_evidence_hash is null or candidate_evidence_hash ~ '^[a-f0-9]{64}$'
+  ),
+  nayax_execution_evidence_hash text check (
+    nayax_execution_evidence_hash is null
+    or nayax_execution_evidence_hash ~ '^[a-f0-9]{64}$'
   ),
   status text not null default 'pending' check (
     status in ('pending', 'consumed', 'cancelled', 'superseded', 'expired')
   ),
   not_before timestamptz not null default statement_timestamp(),
   expires_at timestamptz not null default (statement_timestamp() + interval '2 minutes'),
+  factor_verified_at timestamptz,
+  factor_verification_proof_hash text check (
+    factor_verification_proof_hash is null
+    or factor_verification_proof_hash ~ '^[a-f0-9]{64}$'
+  ),
   verified_totp_at timestamptz,
   consumed_at timestamptz,
   cancelled_at timestamptz,
   created_at timestamptz not null default statement_timestamp(),
   constraint refund_manager_action_step_up_intents_expiry_valid
     check (expires_at > not_before and expires_at <= not_before + interval '2 minutes 5 seconds'),
+  constraint refund_manager_action_step_up_intents_factor_proof_valid
+    check (
+      (factor_verified_at is null and factor_verification_proof_hash is null)
+      or (
+        factor_verified_at is not null
+        and factor_verified_at >= not_before
+        and factor_verified_at <= expires_at
+        and (
+          factor_verification_proof_hash is null
+          or status = 'pending'
+        )
+      )
+    ),
   constraint refund_manager_action_step_up_intents_lifecycle_valid
     check (
       (status = 'pending' and verified_totp_at is null and consumed_at is null and cancelled_at is null)
       or (status = 'consumed' and verified_totp_at is not null and consumed_at is not null and cancelled_at is null)
       or (status = 'cancelled' and consumed_at is null and cancelled_at is not null)
       or (status in ('superseded', 'expired') and consumed_at is null)
-    )
+    ),
+  constraint refund_manager_action_step_up_intents_nayax_evidence_valid check (
+    (action = 'nayax_execute' and nayax_execution_evidence_hash is not null)
+    or (action <> 'nayax_execute' and nayax_execution_evidence_hash is null)
+  )
 );
 
 create unique index if not exists refund_manager_action_step_up_one_live_actor_idx
@@ -156,7 +236,13 @@ create table if not exists public.refund_manager_step_up_audit (
   intent_id uuid references public.refund_manager_action_step_up_intents (id) on delete restrict,
   action text check (action is null or action in ('approve', 'decline', 'cash_complete', 'nayax_execute')),
   event_type text not null check (
-    event_type in ('intent_created', 'intent_cancelled', 'intent_consumed', 'totp_enrollment_verified')
+    event_type in (
+      'intent_created',
+      'intent_cancelled',
+      'intent_consumed',
+      'totp_enrollment_verified',
+      'totp_enrollment_compensated'
+    )
   ),
   verified_totp_at timestamptz,
   created_at timestamptz not null default statement_timestamp(),
@@ -176,6 +262,18 @@ alter table public.refund_case_official_action_authorizations
 
 alter table public.refund_case_official_action_authorizations
   add column if not exists verified_totp_at timestamptz;
+
+alter table public.refund_case_official_action_authorizations
+  add column if not exists nayax_execution_evidence_hash text check (
+    nayax_execution_evidence_hash is null
+    or nayax_execution_evidence_hash ~ '^[a-f0-9]{64}$'
+  );
+
+alter table public.refund_case_official_action_authorizations
+  add constraint refund_case_official_action_nayax_evidence_valid check (
+    (action = 'nayax_execute' and nayax_execution_evidence_hash is not null)
+    or (action <> 'nayax_execute' and nayax_execution_evidence_hash is null)
+  );
 
 create unique index if not exists refund_case_official_action_step_up_intent_idx
   on public.refund_case_official_action_authorizations (step_up_intent_id)
@@ -246,6 +344,63 @@ as $$
   from summary;
 $$;
 
+-- Freeze the persisted transaction match and the machine/provider controls
+-- that the Nayax endpoint will use. The digest is stored on the intent and is
+-- recomputed from locked rows at consumption, so a configuration or evidence
+-- swap always requires a new human review and TOTP proof.
+create or replace function public.refund_nayax_execution_evidence_hash(
+  p_case public.refund_cases,
+  p_machine public.reporting_machines
+)
+returns text
+language sql
+immutable
+strict
+set search_path = public
+as $$
+  select encode(
+    extensions.digest(
+      jsonb_build_array(
+        'refund_nayax_execution_evidence_v1',
+        p_case.id,
+        p_case.official_action_version,
+        p_case.reporting_machine_id,
+        p_case.status,
+        p_case.decision,
+        p_case.payment_method,
+        p_case.incident_at,
+        p_case.incident_local_datetime,
+        p_case.card_last4,
+        p_case.payment_amount_cents,
+        p_case.refund_amount_cents,
+        p_case.card_wallet_used,
+        p_case.correlation_status,
+        p_case.correlation_source,
+        p_case.nayax_recommendation_state,
+        p_case.nayax_recommendation_policy_version,
+        p_case.nayax_recommendation_evaluated_at,
+        p_case.nayax_match_execution_eligible,
+        p_case.matched_nayax_transaction_id,
+        p_case.matched_nayax_site_id,
+        p_case.matched_nayax_machine_auth_time,
+        p_case.matched_nayax_amount_cents,
+        p_case.matched_nayax_card_last4,
+        p_case.matched_nayax_currency_code,
+        p_case.reporting_adjustment_id,
+        p_case.nayax_refund_execution_status,
+        p_machine.id,
+        p_machine.status,
+        p_machine.nayax_machine_id,
+        p_machine.nayax_account_key,
+        p_machine.nayax_refunds_enabled,
+        p_machine.nayax_refund_max_amount_cents
+      )::text,
+      'sha256'
+    ),
+    'hex'
+  );
+$$;
+
 create or replace function public.refund_validate_official_action_context(
   p_actor_user_id uuid,
   p_case_id uuid,
@@ -272,10 +427,12 @@ declare
   refund_case public.refund_cases%rowtype;
   manager_mapping public.reporting_machine_refund_managers%rowtype;
   nayax_candidate public.refund_nayax_lookup_candidates%rowtype;
+  nayax_machine public.reporting_machines%rowtype;
   normalized_action text := lower(btrim(coalesce(p_action, '')));
   normalized_status text := lower(btrim(coalesce(p_target_status, '')));
   normalized_decision text := lower(btrim(coalesce(p_target_decision, '')));
   candidate_evidence_hash text;
+  nayax_execution_evidence_hash text;
   context_hash text;
 begin
   perform public.assert_refund_official_action_payload_shape(
@@ -347,6 +504,27 @@ begin
     raise exception 'Active Machine Manager mapping required; admin identities are review-only';
   end if;
 
+  if normalized_action = 'nayax_execute' then
+    select machine.*
+    into nayax_machine
+    from public.reporting_machines machine
+    where machine.id = refund_case.reporting_machine_id
+    for share;
+
+    if not found then
+      raise exception 'Nayax machine configuration is unavailable';
+    end if;
+
+    if not public.can_prepare_nayax_refund_execution(p_actor_user_id, refund_case.id) then
+      raise exception 'Nayax refund preparation is no longer safe for this case';
+    end if;
+
+    nayax_execution_evidence_hash := public.refund_nayax_execution_evidence_hash(
+      refund_case,
+      nayax_machine
+    );
+  end if;
+
   if p_matched_nayax_candidate_token is not null then
     if normalized_action <> 'approve'
       or refund_case.payment_method <> 'card'
@@ -405,6 +583,7 @@ begin
     'mappingId', manager_mapping.id,
     'mappingVersion', manager_mapping.mapping_version,
     'candidateEvidenceHash', candidate_evidence_hash,
+    'nayaxExecutionEvidenceHash', nayax_execution_evidence_hash,
     'contextHash', context_hash
   );
 end;
@@ -436,6 +615,7 @@ declare
   authenticated_actor_user_id uuid := auth.uid();
   normalized_target text := lower(btrim(coalesce(p_target_function, '')));
   context jsonb;
+  manager_totp_enrollment public.refund_manager_totp_enrollments%rowtype;
   intent public.refund_manager_action_step_up_intents%rowtype;
 begin
   if auth.role() is distinct from 'authenticated' or authenticated_actor_user_id is null then
@@ -475,8 +655,23 @@ begin
     p_nayax_disagreement_reason
   );
 
+  select enrollment.*
+  into manager_totp_enrollment
+  from public.refund_manager_totp_enrollments enrollment
+  where enrollment.actor_user_id = authenticated_actor_user_id
+    and enrollment.status = 'active'
+    and enrollment.revoked_at is null
+  for share;
+
+  if not found then
+    raise exception 'Owner-approved refund authenticator enrollment is required';
+  end if;
+
   update public.refund_manager_action_step_up_intents existing
-  set status = case when existing.expires_at <= statement_timestamp() then 'expired' else 'superseded' end
+  set
+    status = case when existing.expires_at <= statement_timestamp() then 'expired' else 'superseded' end,
+    factor_verified_at = null,
+    factor_verification_proof_hash = null
   where existing.actor_user_id = authenticated_actor_user_id
     and existing.status = 'pending';
 
@@ -487,9 +682,11 @@ begin
     target_function,
     manager_mapping_id,
     manager_mapping_version,
+    manager_totp_enrollment_version,
     expected_case_version,
     action_context_hash,
     candidate_evidence_hash,
+    nayax_execution_evidence_hash,
     not_before,
     expires_at
   )
@@ -500,9 +697,11 @@ begin
     normalized_target,
     (context ->> 'mappingId')::uuid,
     (context ->> 'mappingVersion')::bigint,
+    manager_totp_enrollment.enrollment_version,
     (context ->> 'expectedCaseVersion')::bigint,
     context ->> 'contextHash',
     context ->> 'candidateEvidenceHash',
+    context ->> 'nayaxExecutionEvidenceHash',
     statement_timestamp(),
     statement_timestamp() + interval '2 minutes'
   )
@@ -585,7 +784,11 @@ begin
   perform pg_advisory_xact_lock(hashtextextended(authenticated_actor_user_id::text, 692));
 
   update public.refund_manager_action_step_up_intents existing
-  set status = 'cancelled', cancelled_at = statement_timestamp()
+  set
+    status = 'cancelled',
+    cancelled_at = statement_timestamp(),
+    factor_verified_at = null,
+    factor_verification_proof_hash = null
   where existing.id = p_intent_id
     and existing.actor_user_id = authenticated_actor_user_id
     and existing.status = 'pending'
@@ -629,7 +832,8 @@ create or replace function public.admin_consume_refund_action_step_up_intent(
   p_cash_payout_sent_at timestamptz default null,
   p_cash_payment_confirmed boolean default false,
   p_matched_nayax_candidate_token uuid default null,
-  p_nayax_disagreement_reason text default null
+  p_nayax_disagreement_reason text default null,
+  p_factor_verification_proof text default null
 )
 returns jsonb
 language plpgsql
@@ -640,6 +844,7 @@ declare
   authenticated_actor_user_id uuid := auth.uid();
   normalized_target text := lower(btrim(coalesce(p_target_function, '')));
   intent public.refund_manager_action_step_up_intents%rowtype;
+  manager_totp_enrollment public.refund_manager_totp_enrollments%rowtype;
   context jsonb;
   verified_at_value timestamptz;
   authorization_row public.refund_case_official_action_authorizations%rowtype;
@@ -668,9 +873,26 @@ begin
 
   if intent.expires_at <= statement_timestamp() then
     update public.refund_manager_action_step_up_intents
-    set status = 'expired'
+    set
+      status = 'expired',
+      factor_verified_at = null,
+      factor_verification_proof_hash = null
     where id = intent.id;
     raise exception 'Manager verification request expired; review the action again';
+  end if;
+
+  select enrollment.*
+  into manager_totp_enrollment
+  from public.refund_manager_totp_enrollments enrollment
+  where enrollment.actor_user_id = authenticated_actor_user_id
+    and enrollment.status = 'active'
+    and enrollment.revoked_at is null
+  for update;
+
+  if not found
+    or manager_totp_enrollment.enrollment_version
+      is distinct from intent.manager_totp_enrollment_version then
+    raise exception 'Owner-approved refund authenticator enrollment changed; review with the owner';
   end if;
 
   verified_at_value := public.refund_verified_totp_after_intent(intent.not_before);
@@ -713,16 +935,44 @@ begin
     or intent.manager_mapping_version is distinct from (context ->> 'mappingVersion')::bigint
     or intent.expected_case_version is distinct from (context ->> 'expectedCaseVersion')::bigint
     or intent.action_context_hash is distinct from context ->> 'contextHash'
-    or intent.candidate_evidence_hash is distinct from context ->> 'candidateEvidenceHash' then
+    or intent.candidate_evidence_hash is distinct from context ->> 'candidateEvidenceHash'
+    or intent.nayax_execution_evidence_hash
+      is distinct from context ->> 'nayaxExecutionEvidenceHash' then
     raise exception 'Reviewed official action changed; review it and verify again';
+  end if;
+
+  if not coalesce(p_factor_verification_proof ~ '^[a-f0-9]{64}$', false)
+    or intent.factor_verified_at is null
+    or intent.factor_verified_at < intent.not_before
+    or intent.factor_verified_at > intent.expires_at
+    or intent.factor_verification_proof_hash is distinct from encode(
+      extensions.digest(
+        convert_to(
+          'bloomjoy-refund-manager-step-up-proof-v1:' || p_factor_verification_proof,
+          'UTF8'
+        ),
+        'sha256'
+      ),
+      'hex'
+    ) then
+    raise exception 'Exact owner-approved authenticator verification proof is required';
   end if;
 
   update public.refund_manager_action_step_up_intents
   set
     status = 'consumed',
+    factor_verification_proof_hash = null,
     verified_totp_at = verified_at_value,
     consumed_at = statement_timestamp()
   where id = intent.id;
+
+  update public.refund_manager_totp_enrollments
+  set
+    last_step_up_verified_at = verified_at_value,
+    updated_at = statement_timestamp()
+  where actor_user_id = authenticated_actor_user_id
+    and enrollment_version = intent.manager_totp_enrollment_version
+    and status = 'active';
 
   insert into public.refund_case_official_action_authorizations (
     refund_case_id,
@@ -735,7 +985,8 @@ begin
     status,
     expires_at,
     step_up_intent_id,
-    verified_totp_at
+    verified_totp_at,
+    nayax_execution_evidence_hash
   ) values (
     intent.refund_case_id,
     intent.action,
@@ -747,7 +998,8 @@ begin
     'authorized',
     least(intent.expires_at, statement_timestamp() + interval '30 seconds'),
     intent.id,
-    verified_at_value
+    verified_at_value,
+    intent.nayax_execution_evidence_hash
   )
   returning * into authorization_row;
 
@@ -777,34 +1029,386 @@ begin
 end;
 $$;
 
-create or replace function public.admin_record_refund_manager_totp_enrollment()
+create or replace function public.admin_refund_manager_step_up_factor_is_approved(
+  p_intent_id uuid,
+  p_factor_binding_hash text
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, auth
+as $$
+  select auth.role() = 'authenticated'
+    and auth.uid() is not null
+    and coalesce(p_factor_binding_hash ~ '^[a-f0-9]{64}$', false)
+    and public.user_is_active_refund_manager_only(auth.uid())
+    and exists (
+      select 1
+      from public.refund_manager_action_step_up_intents intent
+      join public.refund_manager_totp_enrollments enrollment
+        on enrollment.actor_user_id = intent.actor_user_id
+       and enrollment.enrollment_version = intent.manager_totp_enrollment_version
+      where intent.id = p_intent_id
+        and intent.actor_user_id = auth.uid()
+        and intent.status = 'pending'
+        and intent.expires_at > statement_timestamp()
+        and enrollment.status = 'active'
+        and enrollment.revoked_at is null
+        and enrollment.approved_factor_binding_hash = p_factor_binding_hash
+    );
+$$;
+
+-- The trusted step-up Edge Function calls this only after Auth accepts a new
+-- challenge from the exact owner-approved factor. The raw random proof is
+-- returned once to that Edge Function and forwarded only on its internal
+-- request to the frozen target. Browsers can call target functions directly,
+-- but cannot mint or read this proof; the database stores only its digest.
+create or replace function public.service_mark_refund_manager_step_up_factor_verified(
+  p_actor_user_id uuid,
+  p_intent_id uuid,
+  p_factor_binding_hash text
+)
 returns jsonb
 language plpgsql
 security definer
 set search_path = public, auth
 as $$
 declare
-  authenticated_actor_user_id uuid := auth.uid();
+  intent public.refund_manager_action_step_up_intents%rowtype;
+  manager_totp_enrollment public.refund_manager_totp_enrollments%rowtype;
+  verification_proof text;
+  marked_at timestamptz := statement_timestamp();
 begin
-  if auth.role() is distinct from 'authenticated'
-    or authenticated_actor_user_id is null
-    or not public.refund_manager_totp_enrollment_window_enabled()
-    or not public.user_is_active_refund_manager_only(authenticated_actor_user_id)
-    or not public.refund_official_action_has_recent_human_step_up() then
+  if auth.role() is distinct from 'service_role'
+    or p_actor_user_id is null
+    or p_intent_id is null
+    or not coalesce(p_factor_binding_hash ~ '^[a-f0-9]{64}$', false) then
+    raise exception 'Refund authenticator verification marker is not authorized';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(p_actor_user_id::text, 692));
+
+  select existing.*
+  into intent
+  from public.refund_manager_action_step_up_intents existing
+  where existing.id = p_intent_id
+  for update;
+
+  if not found
+    or intent.actor_user_id is distinct from p_actor_user_id
+    or intent.status <> 'pending'
+    or intent.expires_at <= marked_at then
+    raise exception 'Manager verification request is invalid or expired';
+  end if;
+
+  select enrollment.*
+  into manager_totp_enrollment
+  from public.refund_manager_totp_enrollments enrollment
+  where enrollment.actor_user_id = p_actor_user_id
+    and enrollment.status = 'active'
+    and enrollment.revoked_at is null
+  for update;
+
+  if not found
+    or manager_totp_enrollment.enrollment_version
+      is distinct from intent.manager_totp_enrollment_version
+    or manager_totp_enrollment.approved_factor_binding_hash
+      is distinct from p_factor_binding_hash
+    or not public.user_is_active_refund_manager_only(p_actor_user_id) then
+    raise exception 'Owner-approved refund authenticator enrollment changed; review with the owner';
+  end if;
+
+  verification_proof := encode(extensions.gen_random_bytes(32), 'hex');
+
+  update public.refund_manager_action_step_up_intents
+  set
+    factor_verified_at = marked_at,
+    factor_verification_proof_hash = encode(
+      extensions.digest(
+        convert_to(
+          'bloomjoy-refund-manager-step-up-proof-v1:' || verification_proof,
+          'UTF8'
+        ),
+        'sha256'
+      ),
+      'hex'
+    )
+  where id = intent.id;
+
+  return jsonb_build_object(
+    'factorVerificationProof', verification_proof,
+    'expiresAt', intent.expires_at
+  );
+end;
+$$;
+
+-- Only the trusted enrollment Edge Function can convert an owner-targeted,
+-- unexpired enrollment window into an active refund-specific factor binding.
+-- State and sanitized audit evidence commit atomically, and the one-manager
+-- window closes on success so it cannot be reused for another factor.
+create or replace function public.service_record_refund_manager_totp_enrollment(
+  p_actor_user_id uuid,
+  p_factor_binding_hash text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  enrollment_config public.refund_manager_security_config%rowtype;
+  manager_totp_enrollment public.refund_manager_totp_enrollments%rowtype;
+begin
+  if auth.role() is distinct from 'service_role'
+    or p_actor_user_id is null
+    or not coalesce(p_factor_binding_hash ~ '^[a-f0-9]{64}$', false) then
     raise exception 'Supervised Machine Manager authenticator enrollment is not authorized';
   end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(p_actor_user_id::text, 692));
+
+  select config.*
+  into enrollment_config
+  from public.refund_manager_security_config config
+  where config.singleton = true
+  for update;
+
+  if not found
+    or enrollment_config.totp_enrollment_enabled is distinct from true
+    or enrollment_config.totp_enrollment_approved_manager_user_id is distinct from p_actor_user_id
+    or enrollment_config.totp_enrollment_approved_by_owner_user_id is null
+    or enrollment_config.totp_enrollment_approval_expires_at <= statement_timestamp()
+    or enrollment_config.totp_enrollment_approval_version <= 0
+    or not public.user_is_active_refund_manager_only(p_actor_user_id) then
+    raise exception 'Supervised Machine Manager authenticator enrollment is not authorized';
+  end if;
+
+  insert into public.refund_manager_totp_enrollments as existing_enrollment (
+    actor_user_id,
+    approved_factor_binding_hash,
+    owner_approved_by_user_id,
+    owner_approval_version,
+    enrollment_version,
+    status,
+    approved_at,
+    last_step_up_verified_at,
+    revoked_at,
+    updated_at
+  ) values (
+    p_actor_user_id,
+    p_factor_binding_hash,
+    enrollment_config.totp_enrollment_approved_by_owner_user_id,
+    enrollment_config.totp_enrollment_approval_version,
+    1,
+    'active',
+    statement_timestamp(),
+    null,
+    null,
+    statement_timestamp()
+  )
+  on conflict (actor_user_id) do update
+  set
+    approved_factor_binding_hash = excluded.approved_factor_binding_hash,
+    owner_approved_by_user_id = excluded.owner_approved_by_user_id,
+    owner_approval_version = excluded.owner_approval_version,
+    enrollment_version = existing_enrollment.enrollment_version + 1,
+    status = 'active',
+    approved_at = statement_timestamp(),
+    last_step_up_verified_at = null,
+    revoked_at = null,
+    updated_at = statement_timestamp()
+  returning * into manager_totp_enrollment;
 
   insert into public.refund_manager_step_up_audit (
     actor_user_id,
     event_type,
     verified_totp_at
   ) values (
-    authenticated_actor_user_id,
+    p_actor_user_id,
     'totp_enrollment_verified',
     statement_timestamp()
   );
 
-  return jsonb_build_object('recorded', true);
+  update public.refund_manager_security_config
+  set
+    totp_enrollment_enabled = false,
+    totp_enrollment_approved_manager_user_id = null,
+    totp_enrollment_approved_by_owner_user_id = null,
+    totp_enrollment_approval_expires_at = null,
+    updated_at = statement_timestamp()
+  where singleton = true;
+
+  return jsonb_build_object(
+    'recorded', true,
+    'enrollmentVersion', manager_totp_enrollment.enrollment_version
+  );
+end;
+$$;
+
+-- If Auth enrollment succeeded but the Edge Function did not receive a
+-- trustworthy state/audit result, invalidate any matching durable approval.
+-- Deleting the Auth factor is attempted separately by the Edge Function.
+create or replace function public.service_compensate_refund_manager_totp_enrollment(
+  p_actor_user_id uuid,
+  p_factor_binding_hash text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  compensated_enrollment public.refund_manager_totp_enrollments%rowtype;
+begin
+  if auth.role() is distinct from 'service_role'
+    or p_actor_user_id is null
+    or not coalesce(p_factor_binding_hash ~ '^[a-f0-9]{64}$', false) then
+    raise exception 'Refund authenticator compensation is not authorized';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(p_actor_user_id::text, 692));
+
+  update public.refund_manager_totp_enrollments enrollment
+  set
+    status = 'revoked',
+    enrollment_version = enrollment.enrollment_version + 1,
+    revoked_at = statement_timestamp(),
+    updated_at = statement_timestamp()
+  where enrollment.actor_user_id = p_actor_user_id
+    and enrollment.status = 'active'
+    and enrollment.approved_factor_binding_hash = p_factor_binding_hash
+  returning * into compensated_enrollment;
+
+  if not found then
+    return jsonb_build_object('compensated', false);
+  end if;
+
+  update public.refund_manager_action_step_up_intents intent
+  set
+    status = 'cancelled',
+    cancelled_at = statement_timestamp(),
+    factor_verified_at = null,
+    factor_verification_proof_hash = null
+  where intent.actor_user_id = p_actor_user_id
+    and intent.status = 'pending';
+
+  insert into public.refund_manager_step_up_audit (
+    actor_user_id,
+    event_type
+  ) values (
+    p_actor_user_id,
+    'totp_enrollment_compensated'
+  );
+
+  return jsonb_build_object('compensated', true);
+end;
+$$;
+
+-- Carry the frozen Nayax evidence through the short-lived authorization and
+-- compare it again inside the service-consumption transaction. A valid-to-
+-- valid provider configuration change (for example, changing account keys)
+-- therefore cannot redirect an already verified refund.
+create or replace function public.service_consume_nayax_refund_official_action(
+  p_authorization_id uuid,
+  p_case_id uuid,
+  p_status text,
+  p_decision text,
+  p_refund_amount_cents integer,
+  p_matched_nayax_candidate_token uuid default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  authorization_context jsonb;
+  authorization_row public.refund_case_official_action_authorizations%rowtype;
+  refund_case public.refund_cases%rowtype;
+  nayax_machine public.reporting_machines%rowtype;
+  actor_user_id uuid;
+  current_execution_evidence_hash text;
+begin
+  if p_matched_nayax_candidate_token is not null then
+    raise exception 'Nayax execution uses the persisted approved match and does not accept a candidate token';
+  end if;
+
+  authorization_context := public.consume_refund_official_action_authorization(
+    p_authorization_id,
+    p_case_id,
+    'nayax_execute',
+    p_status,
+    p_decision,
+    null,
+    null,
+    null,
+    p_refund_amount_cents,
+    null,
+    null,
+    false,
+    p_matched_nayax_candidate_token,
+    null
+  );
+
+  select action_authorization.*
+  into authorization_row
+  from public.refund_case_official_action_authorizations action_authorization
+  where action_authorization.id = p_authorization_id
+  for update;
+
+  select case_row.*
+  into refund_case
+  from public.refund_cases case_row
+  where case_row.id = p_case_id
+  for update;
+
+  select machine.*
+  into nayax_machine
+  from public.reporting_machines machine
+  where machine.id = refund_case.reporting_machine_id
+  for share;
+
+  if not found then
+    raise exception 'Nayax machine configuration changed after manager verification';
+  end if;
+
+  current_execution_evidence_hash := public.refund_nayax_execution_evidence_hash(
+    refund_case,
+    nayax_machine
+  );
+
+  if authorization_row.nayax_execution_evidence_hash is distinct from
+      current_execution_evidence_hash then
+    raise exception 'Nayax execution evidence changed after manager verification; review and verify again';
+  end if;
+
+  actor_user_id := (authorization_context ->> 'actorUserId')::uuid;
+  if not public.can_prepare_nayax_refund_execution(actor_user_id, p_case_id) then
+    raise exception 'Nayax refund preparation is no longer safe for this case';
+  end if;
+
+  insert into public.refund_case_events (
+    refund_case_id,
+    actor_user_id,
+    event_type,
+    message,
+    metadata
+  )
+  values (
+    p_case_id,
+    actor_user_id,
+    'nayax_official_action_revalidated',
+    'Mapped Machine Manager authority and frozen execution evidence were revalidated immediately before Nayax preparation.',
+    jsonb_build_object(
+      'action', 'nayax_execute',
+      'manager_mapping_id', authorization_context ->> 'managerMappingId',
+      'manager_mapping_version', (authorization_context ->> 'managerMappingVersion')::bigint,
+      'payload_redacted', true
+    )
+  );
+
+  return authorization_context;
 end;
 $$;
 
@@ -842,6 +1446,9 @@ revoke execute on function public.user_is_active_refund_manager_only(uuid)
   from public, anon, authenticated, service_role;
 revoke execute on function public.refund_verified_totp_after_intent(timestamptz)
   from public, anon, authenticated, service_role;
+revoke execute on function public.refund_nayax_execution_evidence_hash(
+  public.refund_cases, public.reporting_machines
+) from public, anon, authenticated, service_role;
 revoke execute on function public.refund_validate_official_action_context(
   uuid, uuid, text, bigint, text, text, text, text, text, integer, text,
   timestamptz, boolean, uuid, text
@@ -873,28 +1480,54 @@ revoke execute on function public.admin_cancel_refund_action_step_up_intent(uuid
 grant execute on function public.admin_cancel_refund_action_step_up_intent(uuid)
   to authenticated;
 
+revoke execute on function public.admin_refund_manager_step_up_factor_is_approved(uuid, text)
+  from public, anon, authenticated, service_role;
+grant execute on function public.admin_refund_manager_step_up_factor_is_approved(uuid, text)
+  to authenticated;
+
 revoke execute on function public.admin_consume_refund_action_step_up_intent(
   uuid, uuid, text, text, bigint, text, text, text, text, text, integer, text,
-  timestamptz, boolean, uuid, text
+  timestamptz, boolean, uuid, text, text
 ) from public, anon, authenticated, service_role;
 grant execute on function public.admin_consume_refund_action_step_up_intent(
   uuid, uuid, text, text, bigint, text, text, text, text, text, integer, text,
-  timestamptz, boolean, uuid, text
+  timestamptz, boolean, uuid, text, text
 ) to authenticated;
 
-revoke execute on function public.admin_record_refund_manager_totp_enrollment()
+revoke execute on function public.service_mark_refund_manager_step_up_factor_verified(
+  uuid, uuid, text
+) from public, anon, authenticated, service_role;
+grant execute on function public.service_mark_refund_manager_step_up_factor_verified(
+  uuid, uuid, text
+) to service_role;
+
+revoke execute on function public.service_record_refund_manager_totp_enrollment(uuid, text)
   from public, anon, authenticated, service_role;
-grant execute on function public.admin_record_refund_manager_totp_enrollment()
-  to authenticated;
+grant execute on function public.service_record_refund_manager_totp_enrollment(uuid, text)
+  to service_role;
+
+revoke execute on function public.service_compensate_refund_manager_totp_enrollment(uuid, text)
+  from public, anon, authenticated, service_role;
+grant execute on function public.service_compensate_refund_manager_totp_enrollment(uuid, text)
+  to service_role;
+
+revoke execute on function public.service_consume_nayax_refund_official_action(
+  uuid, uuid, text, text, integer, uuid
+) from public, anon, authenticated, service_role;
+grant execute on function public.service_consume_nayax_refund_official_action(
+  uuid, uuid, text, text, integer, uuid
+) to service_role;
 
 comment on table public.refund_manager_security_config is
-  'Owner-controlled refund security flags. Defaults closed; no authenticated or service setter exists.';
+  'Owner-targeted refund security approvals. Defaults closed; no authenticated or service setter can open an enrollment window.';
+comment on table public.refund_manager_totp_enrollments is
+  'Private durable owner approvals for refund-specific Auth TOTP factor bindings. Stores only purpose-bound one-way hashes, never raw factor identifiers.';
 comment on table public.refund_manager_action_step_up_intents is
-  'Two-minute, single-use human TOTP intents bound to one exact official refund action.';
+  'Two-minute, single-use human TOTP intents bound to one owner-approved enrollment, one exact official refund action, and one internal factor-verification proof.';
 comment on table public.refund_manager_step_up_audit is
   'Sanitized manager step-up evidence. Never stores codes, factor identifiers, secrets, QR material, JWTs, customer text, payment payloads, or recipient addresses.';
 comment on function public.admin_consume_refund_action_step_up_intent(
   uuid, uuid, text, text, bigint, text, text, text, text, text, integer, text,
-  timestamptz, boolean, uuid, text
+  timestamptz, boolean, uuid, text, text
 ) is
-  'Atomically consumes one exact intent only when the caller JWT contains an unambiguous TOTP AMR strictly newer than the intent.';
+  'Atomically consumes one exact intent only when the owner-approved enrollment remains active, a trusted Edge flow supplied its one-use opaque proof, and the caller JWT contains an unambiguous TOTP AMR strictly newer than the intent.';
