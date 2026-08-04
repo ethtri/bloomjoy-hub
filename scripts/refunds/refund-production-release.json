@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-04-retention-safety",
-  "sourceGitCommit": "d926424e278897ee7604539295dc735284521ccb",
+  "sourceGitCommit": "41844e613ae68201b84baed3552a091550bc8cf7",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -35,7 +35,7 @@
     "202608030005_refund_deterministic_follow_up_cycles.sql",
     "202608040002_refund_gmail_retention_safety.sql"
   ],
-  "migrationFilesSha256": "de908628bd59683f755b45053623c464ff3126ee5249d2520ed5e99d6909c303",
+  "migrationFilesSha256": "88be8eadc52478e02e509b5c89239990b40859626eceedf8fe4151a031e9238a",
   "migrationVersionSetSha256": "390759202467fa1f101ecc98a77a91d63d858aa2a7b50d9ec5be9ce73ba01d00",
   "functions": [
     {
@@ -91,7 +91,7 @@
     {
       "slug": "refund-gmail-sync",
       "verifyJwt": false,
-      "sourceSha256": "6ba55ce6f6e382d4a14c885e8caf7b14fe667f541fd519ffb32e39ea493e0256",
+      "sourceSha256": "c34d3eba534ad762fedf1691c2deaf264715b145bb955b3938859afa5f07779a",
       "production": {
         "version": 1,
         "ezbrSha256": "83a3f0a745e8433d4a700259de047eb8e0304e73dc40264313679a63a9561d87",
