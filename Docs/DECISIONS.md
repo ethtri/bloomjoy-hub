@@ -1,5 +1,22 @@
 # Decisions
 
+## 2026-08-05 - First refund assistant pilot is email-only (`#707`)
+
+Bloomjoy's first live refund-assistant pilot is limited to the designated support-email channel. The existing EasyText-to-Google-Form experience remains untouched and outside the pilot; switching SMS vendors or importing SMS Google Form responses is future scope, not a launch dependency.
+
+**Canonical behavior**
+- An eligible first customer email receives one immediate, humble acknowledgement linking the hosted Bloomjoy Hub refund form. Replies, bots, bounces, bulk/list mail, and later messages do not receive it again.
+- The completed hosted form creates the actionable Hub case. Direct Gmail triage must not create a second unflagged actionable case for the same request.
+- The email assistant may classify, request missing information, prepare approved low-risk replies, route reminders, and include the currently assigned Machine Manager. It cannot approve, decline, select a provider transaction, execute a refund, or communicate success before confirmed official action.
+- Admin > Machines is the canonical machine-to-manager mapping. Links, CC routing, reminders, authorization, reassignment, and revocation checks resolve that current portal mapping; no parallel manager roster is maintained.
+- Before any production switch is enabled, the sponsor receives a staged walkthrough covering synthetic email journeys, manager experience, access failures, communication safeguards, aggregate evidence, and independent rollback. A controlled test-inbox run follows only with explicit approval.
+- EasyText remains the currently reported SMS vendor, but this decision does not authorize inspecting or changing its live account, migrating to Twilio, importing the SMS Google Form, or enabling any SMS integration.
+
+**Why this choice**
+- Email volume and the number of current Machine Managers are small enough for a focused pilot with clearer ownership and fewer external dependencies.
+- Leaving EasyText untouched avoids coupling the first pilot to a vendor migration or an unverified text-message workflow.
+- A sponsor-visible pre-production demonstration provides confidence before live traffic is introduced.
+
 ## 2026-08-03 - Refund email assistance is deterministic and bounded; official actions stay portal-only (`#683`)
 Bloomjoy will use the designated Info/Support mailbox as a customer-service transport for refund intake, clarification, and status communication. Machine Managers remain the only business decision-makers, and every official refund action happens in the authenticated Refunds portal.
 

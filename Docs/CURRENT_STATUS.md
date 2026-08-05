@@ -1,6 +1,6 @@
 # Current Status
 
-Last compacted: 2026-08-03
+Last compacted: 2026-08-05
 
 GitHub Issues and the Bloomjoy Project board are the operational source of truth for active work, priority, blockers, acceptance criteria, and closeout evidence.
 
@@ -21,6 +21,7 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 ## Current Themes
 
+- **Email-only first pilot:** the sponsor narrowed `#707` to the designated support-email channel. EasyText and the SMS Google Form remain untouched and outside the launch-critical path. Admin > Machines remains the canonical manager mapping, and no production switch may be enabled until the sponsor reviews the complete synthetic walkthrough and separately approves a controlled test-inbox proof.
 - **Deployed refund baseline:** Refund Operations PR `#644` merged and the sponsor-authorized safe core deployed on 2026-07-22. Production includes the 23 migrations and eight reviewed Edge Functions in that release, deterministic Nayax recommendation, the simplified manager card/cash workbench, automation health, Gmail thread linkage, and the human-review-only GPT triage runner. Live Nayax execution, automation schedules, Gmail, automatic customer contact, manager aging, retention cleanup, official manager actions, and GPT remain disabled; the legacy Google Form/Sheet/AppSheet workflow remains the fallback.
 - **Unmerged refund integration candidate:** the `#409` release train combines the first-contact, participant/CC, deterministic follow-up, manager-aging, Gmail-retention, mapped-manager official-action, and fresh-TOTP slices for review. Its release manifest tracks ten Refund Operations functions, adding `refund-manager-action-step-up` and `refund-manager-totp-enrollment` to the eight deployed-baseline routes. It is not merged or deployed. The final migration/test totals, evidence SHA, and release commit remain **Pending** until the combined branch completes independent review and its strict evidence workflow.
 - Machine-QR refund intake (`#662`) is merged, and the source matcher now uses policy `2026-07-26.v2` (`#663`) to keep customer-reported time separate from verified QR-open time. It can recommend either a strong card match or exactly one machine/amount/QR/time match; no recommendation is delivery-failure proof or refund approval. The current unique QR/time path remains manual-only until the new `#674` execution eligibility is implemented and tested.
