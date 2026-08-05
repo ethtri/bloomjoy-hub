@@ -1,5 +1,24 @@
 # Decisions
 
+## 2026-08-05 - First refund assistant pilot is email-only (`#707`)
+
+Bloomjoy's first live refund-assistant pilot is limited to the designated support-email channel. The existing EasyText-to-Google-Form experience remains untouched and outside the pilot; switching SMS vendors or importing SMS Google Form responses is future scope, not a launch dependency.
+
+**Canonical behavior**
+- A customer's eligible first email receives one immediate, humble acknowledgement linking the hosted Bloomjoy Hub refund form. Replies, bots, bounces, and later messages do not receive the acknowledgement again.
+- The completed hosted form creates the actionable Hub case. Direct Gmail intake may create only the reviewed draft/triage state allowed by `#634`; it must not create a second unflagged actionable case for the same request.
+- The email assistant may classify, request missing information, prepare approved low-risk replies, route reminders, and include the currently assigned Machine Manager. It cannot approve, decline, select a provider transaction, execute a refund, or communicate success before confirmed official action.
+- Admin > Machines is the canonical machine-to-manager mapping. Links, CC routing, reminders, authorization, reassignment, and revocation checks resolve that current portal mapping; no parallel manager roster is maintained.
+- Before any production switch is enabled, the sponsor receives a staged walkthrough with synthetic email journeys, the manager experience, failure/rollback states, aggregate evidence, and the exact switches proposed for activation. A separate controlled test-inbox run follows only with explicit approval.
+- The SMS Google Form bridge, SMS responder audit, and SMS-specific reconciliation remain disabled and may be retained as future-ready work. EasyText remains the current reported vendor, but this decision does not authorize inspecting or changing its live account, migrating to Twilio, or enabling any SMS integration.
+
+**Why this choice**
+- Email volume and the number of current Machine Managers are small enough for a focused pilot with clearer ownership and fewer external dependencies.
+- Leaving EasyText untouched avoids coupling the first pilot to a vendor migration or an unverified text-message workflow.
+- A sponsor-visible pre-production demonstration provides confidence in customer copy, manager routing, safeguards, failure handling, and rollback before live traffic is introduced.
+
+This decision supersedes SMS as a launch-critical entry point in the 2026-08-04 two-entry-point decision below. The SMS bridge may remain implemented and default-off for a later separately approved pilot.
+
 ## 2026-08-04 - Refund pilot uses two customer entry points and one Hub queue (`#702`)
 
 Bloomjoy may soft-cut over refund intake by directing email customers to the hosted Hub form while SMS customers continue to receive the existing Google Form. The customer entry point may differ temporarily, but every pilot request must become one governed Hub Refund Operations case.
