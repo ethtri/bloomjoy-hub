@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-04-gmail-manager-step-up-aging-retention-uat",
-  "sourceGitCommit": "2ecf29fcc6676e9240ee7fcdbde0ad516fc9ca82",
+  "sourceGitCommit": "34a214ec97edd76c48f527d19d11d65ea4b07388",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
