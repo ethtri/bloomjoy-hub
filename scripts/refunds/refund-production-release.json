@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-04-google-form-bridge",
-  "sourceGitCommit": "db644515da4956cb731e729f71da023cb1deef20",
+  "sourceGitCommit": "8a001e330212f28076ecea7584dbe4a8e3e1301e",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
