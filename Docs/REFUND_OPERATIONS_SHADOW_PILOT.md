@@ -53,7 +53,7 @@ This eight-function/23-migration checkpoint is historical evidence for `#644`, n
 - [ ] Exactly-once acknowledgement, deterministic missing-information/follow-up, human-reviewed denial after a valid official denial, provider-success-only completion, known-send-failure recovery, and uncertain-delivery reconciliation pass with synthetic evidence. Card approval alone never sends success copy, and no uncertain delivery or provider outcome is retried blindly.
 - [ ] Customer messages keep the customer as sole To and the full send-time current active mapped-manager set in visible CC or fail closed. Action-needed/aging/exception notices reach the current managers with the exact navigation-only case link; the operations fallback is internal routing repair only and never substitutes for customer-message CC.
 - [ ] Automation is deployed with both controls off, then proves one synthetic action, duplicate suppression, PII-free failure alerting, visible health, and quick disable before scheduled enablement.
-- [ ] Gmail retention, attachment quarantine, OAuth scope, mailbox ownership, and security review are approved before either Gmail switch is enabled.
+- [ ] Gmail-copy retention, visible-CC privacy, attachment-off pilot behavior, OAuth scope, mailbox ownership, and security review are approved before either Gmail switch is enabled. Any later attachment ingestion needs a separate quarantine and malware-scanning review.
 - [ ] GPT evaluation uses only the approved schema and sanitized test set; the GitHub, Edge, and database switches are separately controlled; it cannot match a transaction, decide a refund, send mail, or execute payment.
 
 ## Proposed pilot cohort

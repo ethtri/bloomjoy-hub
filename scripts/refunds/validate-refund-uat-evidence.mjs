@@ -129,24 +129,36 @@ const machineFixtures = {
     failedAssertionCount: 0,
   },
   'refund-gmail-mime-roles.json': {
-    schemaVersion: 3,
+    schemaVersion: 4,
     evidenceType: 'gmail_mime_roles',
-    evidenceMode: 'synthetic_executable_first_contact',
-    roleCounts: {
+    evidenceMode: 'synthetic_executable_email_pilot',
+    firstContactRoleCounts: {
+      customerTo: 1,
+      managerCc: 0,
+      mailboxTo: 0,
+      unrelatedTo: 0,
+      unrelatedCc: 0,
+    },
+    firstContactManagerCcCount: 0,
+    caseSpecificRoleCounts: {
       customerTo: 1,
       managerCc: 2,
       mailboxTo: 0,
       unrelatedTo: 0,
       unrelatedCc: 0,
     },
-    managerCcCount: 2,
+    caseSpecificManagerCcCount: 2,
     partialManagerRouteRejected: true,
     sourceThreadPinned: true,
+    caseSpecificSourceThreadPinned: true,
     replyHeadersPresent: true,
+    caseSpecificReplyHeadersPresent: true,
     automaticHeadersPresent: true,
+    caseSpecificAutomaticHeadersAbsent: true,
     internalLinkCount: 0,
-    providerFetchCount: 2,
-    providerSendCount: 1,
+    providerFetchCount: 3,
+    providerSendCount: 2,
+    caseSpecificOutboundCount: 1,
     firstContactOperationCount: 1,
     firstContactPrepareCount: 1,
     firstContactFinalizeCount: 1,
@@ -290,7 +302,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 34, 'Evidence must enumerate all 34 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 38, 'Evidence must enumerate all 38 reviewed screenshots');
   assert.deepEqual(
     EXPECTED_MACHINE_READABLE_ARTIFACTS,
     Object.keys(machineFixtures),
@@ -571,7 +583,7 @@ try {
   );
   assert.deepEqual(
     manifest.machineReadableArtifacts.map((artifact) => artifact.schemaVersion),
-    [1, 1, 3, 2, 1]
+    [1, 1, 4, 2, 1]
   );
   assert.ok(manifest.machineReadableArtifacts.every((artifact) => /^[a-f0-9]{64}$/.test(artifact.sha256)));
 
@@ -679,7 +691,7 @@ try {
     'Provider identifiers must fail the exact portal schema'
   );
   const invalidMimeRoles = structuredClone(machineFixtures['refund-gmail-mime-roles.json']);
-  invalidMimeRoles.roleCounts.managerCc = 1;
+  invalidMimeRoles.caseSpecificRoleCounts.managerCc = 1;
   assert.throws(
     () => validateMachineReadableEvidence('refund-gmail-mime-roles.json', invalidMimeRoles),
     /role count is invalid/,

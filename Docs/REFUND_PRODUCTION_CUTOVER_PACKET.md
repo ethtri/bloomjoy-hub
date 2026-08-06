@@ -17,7 +17,7 @@ Use this packet to move epic `#628` from individually verified PRs to one tested
 | `#632` automation | One due action, replay suppression, PII-free alert, visible health, and quick disable | Operations and release owners |
 | `#430` live Nayax execution | Provider contract, machine allowlist, caps, kill switch, idempotency, success/failure/unknown proof | Executive sponsor and technical owner |
 | `#435` clean manager account | Aggregate-only role audit, privately selected manager-only identity, assigned-only visibility, and Admin denial using an account with no broader role | Access owner and QA owner |
-| `#634` Gmail | Approved OAuth/mailbox/retention/quarantine policy plus synthetic thread, replay, reply, attachment, revocation evidence | Operations, auth, and privacy/security owners |
+| `#634` Gmail | Approved OAuth/mailbox/retention/visible-CC and attachment-off pilot policy plus synthetic thread, replay, reply, and revocation evidence | Operations, auth, and privacy/security owners |
 | `#635` GPT triage | Secure server-side key destination, sanitized evaluation metrics, strict schema, human-review proof, rollback control | Technical, support, privacy/security, and sponsor owners |
 | `#427` shadow pilot | Complete lane evidence, manager friction, timing/decision comparison, defects, and recommendation | Pilot owner and QA owner |
 | `#409` legacy cutover | All required evidence above, staffed rollback window, and explicit fallback-retirement decision | Executive sponsor |

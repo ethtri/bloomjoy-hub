@@ -63,8 +63,8 @@ const gmailConfig: RefundGmailConfig = {
 const email = buildRefundFirstContactEmail({
   publicReference: "RF-SYNTHETIC1",
   customerName: "Synthetic Customer One",
-  refundRequestUrl: "https://www.bloomjoyusa.com/refunds/request",
-  legacyRefundUrl: "https://forms.gle/synthetic-test",
+  refundRequestUrl:
+    "https://www.bloomjoyusa.com/refunds/request?emailContext=synthetic-context",
   supportUrl: "https://www.bloomjoyusa.com/resources#support-boundaries",
 });
 
@@ -377,7 +377,10 @@ const runFirstContactMimeAssertions = async () => {
       let firstContactFinalizeCount = 0;
       let sentOutboundCount = 0;
       let claimAttemptCount = 0;
-      let providerRequest: Record<string, unknown> = {};
+      let firstContactProviderSendCount = 0;
+      let caseSpecificProviderSendCount = 0;
+      let firstContactProviderRequest: Record<string, unknown> = {};
+      let caseSpecificProviderRequest: Record<string, unknown> = {};
       const rpcCalls: string[] = [];
       let partialManagerRouteRejected = false;
 
@@ -447,6 +450,13 @@ const runFirstContactMimeAssertions = async () => {
             reason: "later_thread_message",
           } as T;
         }
+        if (name === "service_register_refund_gmail_intake_link") {
+          assertEquals(
+            args.p_operation_id,
+            FIRST_CONTACT_FIXTURE.operationId,
+          );
+          return true as T;
+        }
         if (name === "service_prepare_refund_gmail_first_contact_delivery") {
           firstContactPrepareCount += 1;
           assertEquals(
@@ -454,8 +464,9 @@ const runFirstContactMimeAssertions = async () => {
             FIRST_CONTACT_FIXTURE.operationId,
           );
           return {
-            status: "resolved",
-            managerCcEmails: FIRST_CONTACT_FIXTURE.managers,
+            allowed: true,
+            status: "premapping_acknowledgement",
+            managerCcEmails: [],
           } as T;
         }
         if (name === "service_finish_refund_gmail_first_contact") {
@@ -491,10 +502,19 @@ const runFirstContactMimeAssertions = async () => {
             url.includes("gmail.googleapis.com/gmail/v1/users/me/messages/send")
           ) {
             providerSendCount += 1;
-            providerRequest = JSON.parse(String(init?.body ?? "{}"));
+            const request = JSON.parse(String(init?.body ?? "{}"));
+            if (providerSendCount === 1) {
+              firstContactProviderSendCount += 1;
+              firstContactProviderRequest = request;
+            } else {
+              caseSpecificProviderSendCount += 1;
+              caseSpecificProviderRequest = request;
+            }
             return new Response(
               JSON.stringify({
-                id: "synthetic-first-contact-provider-send",
+                id: providerSendCount === 1
+                  ? "synthetic-first-contact-provider-send"
+                  : "synthetic-case-specific-provider-send",
                 threadId: FIRST_CONTACT_FIXTURE.providerThreadId,
               }),
               { status: 200, headers: { "Content-Type": "application/json" } },
@@ -504,20 +524,6 @@ const runFirstContactMimeAssertions = async () => {
         },
         async () => {
           requireRefundGmailEnabled();
-          const initialResolution = await rpc<Record<string, unknown>>(
-            "service_resolve_refund_customer_manager_cc",
-            {
-              p_refund_case_id: "79850000-0000-4000-8000-000000000031",
-              p_customer_email: FIRST_CONTACT_FIXTURE.customerEmail,
-              p_mailbox_identities: gmailConfig.mailboxIdentities,
-            },
-          );
-          requireRefundCustomerManagerCcResolution({
-            resolution: initialResolution,
-            customerEmail: FIRST_CONTACT_FIXTURE.customerEmail,
-            mailboxIdentities: gmailConfig.mailboxIdentities,
-          });
-
           const claim = await claimRefundGmailDeliveryWhenEnabled(() =>
             rpc<Record<string, unknown>>(
               "service_claim_refund_gmail_first_contact",
@@ -533,6 +539,15 @@ const runFirstContactMimeAssertions = async () => {
           );
           assertEquals(claim.claimed, true);
 
+          assertEquals(
+            await rpc<boolean>("service_register_refund_gmail_intake_link", {
+              p_operation_id: claim.operationId,
+              p_token_hash: "synthetic-token-hash",
+              p_expires_at: "2026-08-17T18:00:00Z",
+            }),
+            true,
+          );
+
           const prepared = await rpc<Record<string, unknown>>(
             "service_prepare_refund_gmail_first_contact_delivery",
             {
@@ -540,23 +555,20 @@ const runFirstContactMimeAssertions = async () => {
               p_mailbox_identities: gmailConfig.mailboxIdentities,
             },
           );
-          const managerResolution = requireRefundCustomerManagerCcResolution({
-            resolution: prepared,
-            customerEmail: String(claim.recipientEmail),
-            mailboxIdentities: gmailConfig.mailboxIdentities,
-          });
+          assertEquals(prepared.allowed, true);
           const sent = await sendRefundGmailReply({
             config: gmailConfig,
             providerThreadId: String(claim.providerThreadId),
             operationKey: String(claim.operationKey),
             recipientEmail: String(claim.recipientEmail),
-            ccEmails: managerResolution.managerCcEmails,
+            ccEmails: [],
             deliveryKind: "automatic",
             subject: String(claim.subject),
             text: email.text,
             html: email.html,
             inReplyTo: String(claim.inReplyTo),
             references: String(claim.references),
+            recipientPolicy: "premapping_acknowledgement",
           });
           const finalized = await rpc<boolean>(
             "service_finish_refund_gmail_first_contact",
@@ -587,18 +599,34 @@ const runFirstContactMimeAssertions = async () => {
           );
           assertEquals(laterReply.claimed, false);
           assertEquals(laterReply.reason, "later_thread_message");
+
+          await sendRefundGmailReply({
+            config: gmailConfig,
+            providerThreadId: FIRST_CONTACT_FIXTURE.providerThreadId,
+            operationKey: "refund-case-message:synthetic-missing-info",
+            recipientEmail: FIRST_CONTACT_FIXTURE.customerEmail,
+            ccEmails: FIRST_CONTACT_FIXTURE.managers,
+            deliveryKind: "manual",
+            subject: "A quick detail check for your Bloomjoy refund request",
+            text: "Thank you for reaching out. Please reply with the missing purchase time so our team can continue carefully.",
+            html: "<p>Thank you for reaching out. Please reply with the missing purchase time so our team can continue carefully.</p>",
+            inReplyTo: FIRST_CONTACT_FIXTURE.sourceMessageHeader,
+            references:
+              `${FIRST_CONTACT_FIXTURE.priorMessageHeader} ${FIRST_CONTACT_FIXTURE.sourceMessageHeader}`,
+            recipientPolicy: "manager_cc_required",
+          });
         },
       );
 
-      const raw = typeof providerRequest.raw === "string"
-        ? providerRequest.raw
+      const raw = typeof firstContactProviderRequest.raw === "string"
+        ? firstContactProviderRequest.raw
         : "";
       const mime = decodeRawMime(raw);
       const toRecipients = parseEmailAddressList(headerValue(mime, "To"));
       const ccRecipients = parseEmailAddressList(headerValue(mime, "Cc"));
       const mailboxIdentities = new Set(gmailConfig.mailboxIdentities);
       const managers = new Set(FIRST_CONTACT_FIXTURE.managers);
-      const sourceThreadPinned = providerRequest.threadId ===
+      const sourceThreadPinned = firstContactProviderRequest.threadId ===
         FIRST_CONTACT_FIXTURE.providerThreadId;
       const replyHeadersPresent = headerValue(mime, "In-Reply-To") ===
           FIRST_CONTACT_FIXTURE.sourceMessageHeader &&
@@ -612,19 +640,51 @@ const runFirstContactMimeAssertions = async () => {
           /\/refunds\?case=/gi,
         ) ?? []
       ).length;
-      const duplicateMessageCount = Math.max(0, providerSendCount - 1);
+      const caseSpecificRaw = typeof caseSpecificProviderRequest.raw === "string"
+        ? caseSpecificProviderRequest.raw
+        : "";
+      const caseSpecificMime = decodeRawMime(caseSpecificRaw);
+      const caseSpecificToRecipients = parseEmailAddressList(
+        headerValue(caseSpecificMime, "To"),
+      );
+      const caseSpecificCcRecipients = parseEmailAddressList(
+        headerValue(caseSpecificMime, "Cc"),
+      );
+      const caseSpecificSourceThreadPinned =
+        caseSpecificProviderRequest.threadId ===
+          FIRST_CONTACT_FIXTURE.providerThreadId;
+      const caseSpecificReplyHeadersPresent =
+        headerValue(caseSpecificMime, "In-Reply-To") ===
+          FIRST_CONTACT_FIXTURE.sourceMessageHeader &&
+        headerValue(caseSpecificMime, "References") ===
+          `${FIRST_CONTACT_FIXTURE.priorMessageHeader} ${FIRST_CONTACT_FIXTURE.sourceMessageHeader}`;
+      const caseSpecificAutomaticHeadersAbsent =
+        headerValue(caseSpecificMime, "Auto-Submitted") === "" &&
+        headerValue(caseSpecificMime, "X-Auto-Response-Suppress") === "";
+      const duplicateMessageCount = Math.max(
+        0,
+        firstContactProviderSendCount - 1,
+      );
       const replaySuppressed = claimAttemptCount >= 2 &&
-        providerSendCount === 1;
+        firstContactProviderSendCount === 1;
       const laterReplySuppressed = claimAttemptCount >= 3 &&
-        providerSendCount === 1;
+        firstContactProviderSendCount === 1;
 
       assertEquals(toRecipients, [FIRST_CONTACT_FIXTURE.customerEmail]);
-      assertEquals(ccRecipients, FIRST_CONTACT_FIXTURE.managers);
+      assertEquals(ccRecipients, []);
+      assertEquals(caseSpecificToRecipients, [FIRST_CONTACT_FIXTURE.customerEmail]);
+      assertEquals(caseSpecificCcRecipients, FIRST_CONTACT_FIXTURE.managers);
       assert(sourceThreadPinned);
+      assert(caseSpecificSourceThreadPinned);
       assert(replyHeadersPresent);
+      assert(caseSpecificReplyHeadersPresent);
       assert(automaticHeadersPresent);
+      assert(caseSpecificAutomaticHeadersAbsent);
       assertEquals(internalLinkCount, 0);
-      assertEquals(providerSendCount, 1);
+      assertEquals(providerFetchCount, 3);
+      assertEquals(providerSendCount, 2);
+      assertEquals(firstContactProviderSendCount, 1);
+      assertEquals(caseSpecificProviderSendCount, 1);
       assertEquals(firstContactOperationCount, 1);
       assertEquals(firstContactPrepareCount, 1);
       assertEquals(firstContactFinalizeCount, 1);
@@ -633,8 +693,8 @@ const runFirstContactMimeAssertions = async () => {
       assert(replaySuppressed);
       assert(laterReplySuppressed);
       assertEquals(rpcCalls, [
-        "service_resolve_refund_customer_manager_cc",
         "service_claim_refund_gmail_first_contact",
+        "service_register_refund_gmail_intake_link",
         "service_prepare_refund_gmail_first_contact_delivery",
         "service_finish_refund_gmail_first_contact",
         "service_claim_refund_gmail_first_contact",
@@ -642,10 +702,10 @@ const runFirstContactMimeAssertions = async () => {
       ]);
 
       return {
-        schemaVersion: 3,
+        schemaVersion: 4,
         evidenceType: "gmail_mime_roles",
-        evidenceMode: "synthetic_executable_first_contact",
-        roleCounts: {
+        evidenceMode: "synthetic_executable_email_pilot",
+        firstContactRoleCounts: {
           customerTo:
             toRecipients.filter((recipient) =>
               recipient === FIRST_CONTACT_FIXTURE.customerEmail
@@ -663,14 +723,42 @@ const runFirstContactMimeAssertions = async () => {
           unrelatedCc:
             ccRecipients.filter((recipient) => !managers.has(recipient)).length,
         },
-        managerCcCount: ccRecipients.length,
+        firstContactManagerCcCount: ccRecipients.length,
+        caseSpecificRoleCounts: {
+          customerTo:
+            caseSpecificToRecipients.filter((recipient) =>
+              recipient === FIRST_CONTACT_FIXTURE.customerEmail
+            ).length,
+          managerCc:
+            caseSpecificCcRecipients.filter((recipient) =>
+              managers.has(recipient)
+            ).length,
+          mailboxTo:
+            caseSpecificToRecipients.filter((recipient) =>
+              mailboxIdentities.has(recipient)
+            ).length,
+          unrelatedTo:
+            caseSpecificToRecipients.filter((recipient) =>
+              recipient !== FIRST_CONTACT_FIXTURE.customerEmail &&
+              !mailboxIdentities.has(recipient)
+            ).length,
+          unrelatedCc:
+            caseSpecificCcRecipients.filter((recipient) =>
+              !managers.has(recipient)
+            ).length,
+        },
+        caseSpecificManagerCcCount: caseSpecificCcRecipients.length,
         partialManagerRouteRejected,
         sourceThreadPinned,
+        caseSpecificSourceThreadPinned,
         replyHeadersPresent,
+        caseSpecificReplyHeadersPresent,
         automaticHeadersPresent,
+        caseSpecificAutomaticHeadersAbsent,
         internalLinkCount,
         providerFetchCount,
         providerSendCount,
+        caseSpecificOutboundCount: caseSpecificProviderSendCount,
         firstContactOperationCount,
         firstContactPrepareCount,
         firstContactFinalizeCount,
@@ -710,7 +798,7 @@ const assertEvidenceIsSanitized = (evidence: unknown) => {
   );
   const allowedStrings = new Set([
     "gmail_mime_roles",
-    "synthetic_executable_first_contact",
+    "synthetic_executable_email_pilot",
     "gmail_kill_switch_fragment",
     "synthetic_executable_transport",
   ]);

@@ -10,7 +10,8 @@ Read-only verification on 2026-08-03 confirmed that the connected support-mail p
 - Replayed ingestion, scheduler replay, duplicate messages, and later replies do not send another acknowledgement.
 - Bounces, automated messages, outbound messages from the mailbox or any configured Gmail send-as alias, and messages that do not match the case customer are ineligible.
 - The reply stays in the original Gmail thread and carries `Auto-Submitted: auto-generated` plus `X-Auto-Response-Suppress: All`.
-- The customer is the sole To recipient, and one to three current active mapped Machine Managers are visible in CC. Verified direct-customer evidence, open-case state, case-wide delivery pauses, and the manager route are revalidated and persisted immediately before provider delivery; unresolved or invalid routing sends nothing.
+- The customer is the sole To recipient. The generic first-contact form-link acknowledgement is the one narrow pre-mapping exception and has no manager CC because the machine is not known yet. It carries one private, expiring, one-time hosted-form context that completes the original Gmail draft instead of creating a second case.
+- After the hosted form resolves the machine, every case-specific customer message requires one to three current active mapped Machine Managers in visible CC. Verified direct-customer evidence, open-case state, case-wide delivery pauses, and the manager route are revalidated immediately before delivery; unresolved or invalid routing sends nothing.
 - Customer copy is deterministic, humble, and safety-focused. It includes only public self-service links and the public refund reference; it never includes `/refunds?case=...` or asks for complete card or wallet credentials.
 - An uncertain Gmail outcome is never retried blindly. Every portal and automated reply path for that thread remains blocked until deterministic Message-ID reconciliation confirms the original delivery. Reconciliation uses a five-minute in-flight lease and an incrementing attempt version, so a delayed older positive or negative result cannot overwrite a newer check. If repeated automatic checks find no matching message, an authorized portal user must inspect the original thread and record the audited **I checked; no message was sent** resolution before a controlled follow-up becomes available.
 - The legacy responder and Hub responder must never be authoritative for the same thread population at the same time.
@@ -41,10 +42,9 @@ Never use `VITE_` for any setting below.
 - `REFUND_GMAIL_LEGACY_RESPONDER_DISABLED`
 - `REFUND_GMAIL_FIRST_CONTACT_CUTOVER_APPROVED`
 - `REFUND_GMAIL_FIRST_CONTACT_REFUND_URL`
-- `REFUND_GMAIL_FIRST_CONTACT_LEGACY_URL`
 - `REFUND_GMAIL_FIRST_CONTACT_SUPPORT_URL`
 
-The isolated label must differ from the production refund label, and the isolated sender allowlist must contain only owner-controlled synthetic addresses. The URLs must use approved public HTTPS hosts: Bloomjoy for current refund/support pages and Google Forms for the temporary backup. The customer template defaults to the Bloomjoy refund request page, the existing backup Google Form, and the public support resources page.
+The isolated label must differ from the production refund label, and the isolated sender allowlist must contain only owner-controlled synthetic addresses. Both URLs must use approved Bloomjoy public HTTPS hosts. Email customers receive one refund CTA: the Bloomjoy hosted request form. EasyText/SMS may continue using the Google Form outside this pilot, but the email template must never include it.
 
 ## Inventory the legacy sender
 
@@ -64,10 +64,12 @@ Record only the mechanism, owner, enabled/disabled state, affected label/populat
 2. Run `npm run refunds:validate-gmail`, the focused database suite, and the Gmail preflight. Confirm replay and later replies produce no second shadow operation.
 3. Create a dedicated isolated Gmail label that differs from the production label and that every legacy sender explicitly excludes. Use synthetic names and content only.
 4. Point `GMAIL_REFUND_LABEL_ID` to the isolated label for the test deployment, record both isolated and production label IDs, allowlist only the owner-controlled synthetic senders, set an exact UTC cutover timestamp, set `REFUND_GMAIL_FIRST_CONTACT_ISOLATED_CONFIRMED=true`, and use `isolated_test`.
-5. Send one new synthetic customer thread mapped to one to three synthetic managers. Confirm one linked case and one acknowledgement in the original thread, with the customer as sole To and only the current mapped managers in visible CC. Replay the scheduler, replay ingestion, and add a later reply; confirm no duplicate acknowledgement. Revoke the mapping between claim and preparation in a separate case and confirm provider delivery is blocked with no stale CC evidence.
-6. Test a separate new thread, an automated response, a bounce, and an outbound mailbox message. Only the separate eligible customer thread may receive an acknowledgement.
-7. Simulate a known send failure and an uncertain outcome. Confirm both are visible in case history, every guided and advanced reply control is disabled during uncertainty, and sync health stays degraded while rotating through all unresolved operations until deterministic Gmail reconciliation succeeds. For a synthetic genuine no-send outcome, require the latest versioned Gmail search to complete with exactly zero results, inspect the original thread, use the explicit not-delivered confirmation, confirm the actor and redacted resolution event are recorded, and only then send one controlled follow-up. Provider errors, ambiguous results, and stale or in-flight search versions must not permit that confirmation.
-8. Return Hub mode to `disabled` after the isolated window unless the owner has approved the production cutover below.
+5. Send one new synthetic customer thread with no machine identified. Confirm one acknowledgement in the original thread, with the customer as sole To, no CC, exactly one Bloomjoy hosted-form CTA, and no Google Form CTA. Replay the scheduler, replay ingestion, and add a later reply; confirm no duplicate acknowledgement.
+6. Submit the hosted form from that private link. Confirm the existing Gmail draft becomes one manager-ready case rather than creating a second case, the context cannot be replayed, and photos/attachments are unavailable.
+7. Send one case-specific synthetic follow-up after machine resolution. Confirm the full current mapped-manager set is visible in CC. Revoke or corrupt a mapping between claim and preparation in a separate case and confirm the case-specific message is blocked with no stale or partial CC evidence.
+8. Test a separate new thread, an automated response, a bounce, and an outbound mailbox message. Only the separate eligible customer thread may receive an acknowledgement.
+9. Simulate a known send failure and an uncertain outcome. Confirm both are visible in case history, every guided and advanced reply control is disabled during uncertainty, and sync health stays degraded while rotating through all unresolved operations until deterministic Gmail reconciliation succeeds. For a synthetic genuine no-send outcome, require the latest versioned Gmail search to complete with exactly zero results, inspect the original thread, use the explicit not-delivered confirmation, confirm the actor and redacted resolution event are recorded, and only then send one controlled follow-up. Provider errors, ambiguous results, and stale or in-flight search versions must not permit that confirmation.
+10. Return Hub mode to `disabled` after the isolated window unless the owner has approved the production cutover below.
 
 ## Atomic production cutover
 

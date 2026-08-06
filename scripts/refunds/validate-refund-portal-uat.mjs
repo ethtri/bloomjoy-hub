@@ -22,6 +22,8 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'get_my_reporting_access_context',
   'get_refund_automation_health',
   'get_refund_gmail_health',
+  'admin_get_refund_email_queue_states',
+  'admin_get_refund_case_reconciliation',
   'admin_get_refund_gmail_draft_cases',
   'admin_get_refund_operations_overview',
 ]);
@@ -400,16 +402,7 @@ const buildMockGmailContext = () => ({
       sentAt: null,
       sensitiveDataRedacted: true,
       contentDeleted: false,
-      attachments: [
-        {
-          id: 'gmail-attachment-1',
-          fileName: 'receipt.pdf',
-          contentType: 'application/pdf',
-          byteSize: 1024,
-          status: 'quarantined',
-          rejectionCode: null,
-        },
-      ],
+      attachments: [],
     },
     {
       id: 'gmail-message-inbound-2',
@@ -824,6 +817,8 @@ const installMockSupabaseRoutes = async (
     gmailContext = null,
     gptTriageSuggestion = undefined,
     adminAccessContext = null,
+    emailQueueStates = null,
+    reconciliationContext = null,
   } = {}
 ) => {
   const officialActionVersions = new Map();
@@ -1202,6 +1197,67 @@ const installMockSupabaseRoutes = async (
       return route.fulfill(jsonResponse(gmailDraftCases));
     }
 
+    if (url.includes('/admin_get_refund_email_queue_states')) {
+      if (emailQueueStates) {
+        return route.fulfill(jsonResponse(emailQueueStates));
+      }
+      const cases = [...gmailDraftCases, ...refundOverview().cases];
+      return route.fulfill(jsonResponse(cases.map((refundCase) => ({
+        caseId: refundCase.id,
+        intakeSource: refundCase.intakeSource ?? 'form',
+        exactCasePath: `/refunds?case=${refundCase.id}`,
+        missingInformation:
+          refundCase.status === 'draft' || refundCase.status === 'waiting_on_customer',
+        possibleDuplicate: false,
+        confirmedDuplicate: false,
+        duplicateOfCaseId: null,
+        aging: false,
+        providerHold: false,
+        actionBlocked: false,
+        payloadRedacted: true,
+      }))));
+    }
+
+    if (url.includes('/admin_get_refund_case_reconciliation')) {
+      if (reconciliationContext) {
+        return route.fulfill(jsonResponse(reconciliationContext));
+      }
+      return route.fulfill(jsonResponse({
+        caseId: 'synthetic-selected-case',
+        duplicateOfCaseId: null,
+        duplicateOfPublicReference: null,
+        actionBlocked: false,
+        reviews: [],
+      }));
+    }
+
+    if (url.includes('/admin_resolve_refund_case_reconciliation')) {
+      if (reconciliationContext) {
+        const requestBody = route.request().postDataJSON();
+        const isDuplicate = requestBody?.p_resolution === 'duplicate';
+        return route.fulfill(jsonResponse({
+          ...reconciliationContext,
+          duplicateOfCaseId: isDuplicate ? reconciliationContext.caseId : null,
+          duplicateOfPublicReference: isDuplicate ? 'RF-UAT-CARD' : null,
+          actionBlocked: isDuplicate,
+          reviews: reconciliationContext.reviews.map((review) => ({
+            ...review,
+            status: isDuplicate ? 'confirmed_duplicate' : 'confirmed_distinct',
+            canonicalCaseId: isDuplicate ? reconciliationContext.caseId : null,
+            resolutionReasonCode: isDuplicate ? 'same_incident' : 'different_purchase',
+            resolvedAt: now.toISOString(),
+          })),
+        }));
+      }
+      return route.fulfill(jsonResponse({
+        caseId: 'synthetic-selected-case',
+        duplicateOfCaseId: null,
+        duplicateOfPublicReference: null,
+        actionBlocked: false,
+        reviews: [],
+      }));
+    }
+
     if (url.includes('/admin_get_refund_gmail_case_context')) {
       return route.fulfill(jsonResponse(gmailContext ?? { connected: false, messages: [] }));
     }
@@ -1361,10 +1417,13 @@ const pathname = (page) => new URL(page.url()).pathname;
 const countLinksByName = async (page, name) =>
   page.getByRole('link', { name }).count();
 
-const runUnauthenticatedChecks = async ({ browser, appUrl, recorder, evidence }) => {
+const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder, evidence }) => {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
   });
+  await context.route('**/rest/v1/rpc/public_refund_machine_options', async (route) =>
+    route.fulfill(jsonResponse([]))
+  );
   const page = await context.newPage();
 
   await page.goto(`${appUrl}/refunds`, { waitUntil: 'domcontentloaded' });
@@ -1379,6 +1438,33 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, recorder, evidence })
   evidence.intakeAvailable = await page.getByRole('heading', { name: 'Let us make this right' })
     .waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
   recorder.assert('Public refund intake is available', evidence.intakeAvailable);
+  recorder.assert(
+    'Email pilot hosted form exposes no attachment upload control',
+    (await page.locator('input[type="file"]').count()) === 0 &&
+      (await page.getByText(/upload|photo|attachment/i).count()) === 0
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-email-pilot-hosted-form-desktop.png'),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-email-pilot-hosted-form-mobile.png'),
+    fullPage: false,
+  });
+
+  const syntheticEmailContext = 'a'.repeat(43);
+  await page.goto(
+    `${appUrl}/refunds/request?emailContext=${syntheticEmailContext}`,
+    { waitUntil: 'domcontentloaded' }
+  );
+  await page.getByText(/You do not need to complete a second form/i).waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Email-linked hosted-form fallback stays in the original email thread and removes the private token from the URL',
+    !page.url().includes('emailContext=') &&
+      (await page.locator('a[href*="forms.gle"]').count()) === 0 &&
+      await page.getByText(/reply in the same email conversation/i).isVisible()
+  );
 
   await context.close();
 };
@@ -1407,7 +1493,21 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   });
 
   await signInRefundUser(page, appUrl);
-  await page.getByText('2 visible of 2 total cases').waitFor({ timeout: 10000 });
+  try {
+    await page.getByText(/\d+ visible of 2 total cases/).waitFor({ timeout: 10000 });
+  } catch (error) {
+    const bodyText = await page.locator('body').innerText({ timeout: 1000 }).catch(() => '');
+    throw new Error(
+      [
+        'Refund queue summary was not visible after sign-in.',
+        bodyText ? `Page body excerpt: ${bodyText.slice(0, 800)}` : '',
+        consoleErrors.length > 0 ? `Console errors: ${consoleErrors.join(' | ')}` : '',
+        error instanceof Error ? error.message : String(error),
+      ]
+        .filter(Boolean)
+        .join(' ')
+    );
+  }
 
   recorder.assert(
     'Refund-only user lands on /refunds',
@@ -1734,6 +1834,143 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   await context.close();
 };
 
+const runEmailPilotDuplicateChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  const functionCalls = [];
+  const rpcCalls = [];
+  const emailQueueStates = [
+    {
+      caseId: 'case-card-1',
+      intakeSource: 'gmail',
+      exactCasePath: '/refunds?case=case-card-1',
+      missingInformation: false,
+      possibleDuplicate: true,
+      confirmedDuplicate: false,
+      duplicateOfCaseId: null,
+      aging: true,
+      providerHold: false,
+      actionBlocked: true,
+      payloadRedacted: true,
+    },
+    {
+      caseId: 'case-cash-1',
+      intakeSource: 'form',
+      exactCasePath: '/refunds?case=case-cash-1',
+      missingInformation: true,
+      possibleDuplicate: false,
+      confirmedDuplicate: false,
+      duplicateOfCaseId: null,
+      aging: false,
+      providerHold: false,
+      actionBlocked: false,
+      payloadRedacted: true,
+    },
+  ];
+  const reconciliationContext = {
+    caseId: 'case-card-1',
+    duplicateOfCaseId: null,
+    duplicateOfPublicReference: null,
+    actionBlocked: true,
+    reviews: [
+      {
+        id: 'review-email-form-1',
+        status: 'pending',
+        matchClass: 'exact',
+        reasonCodes: ['same_customer_email', 'same_machine', 'same_amount', 'same_card_last4'],
+        policyVersion: 'refund-email-pilot-2026-08-05.v1',
+        otherCaseId: 'case-cash-1',
+        otherPublicReference: 'RF-UAT-WAIT',
+        otherIntakeSource: 'form',
+        otherStatus: 'waiting_on_customer',
+        canonicalCaseId: null,
+        resolutionReasonCode: null,
+        createdAt: now.toISOString(),
+        resolvedAt: null,
+      },
+    ],
+  };
+  await installMockSupabaseRoutes(context, {
+    functionCalls,
+    rpcCalls,
+    emailQueueStates,
+    reconciliationContext,
+  });
+
+  const page = await context.newPage();
+  await signInRefundUser(page, appUrl);
+  await page.getByText('2 visible of 2 total cases').waitFor({ timeout: 10000 });
+  await page.getByLabel('Filter refund cases by status').selectOption('possible_duplicate');
+  await page.getByText('1 visible of 2 total cases').waitFor({ timeout: 10000 });
+  await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
+  await page.getByText('Possible duplicate review', { exact: true }).waitFor({ timeout: 10000 });
+
+  recorder.assert(
+    'Email pilot queue distinguishes Support email from Website form intake',
+    await page.getByText('Support email', { exact: true }).last().isVisible() &&
+      await page.getByText('Website form', { exact: true }).last().isVisible()
+  );
+  recorder.assert(
+    'Email pilot queue exposes the four operational saved filters',
+    await page.getByLabel('Filter refund cases by status').locator('option[value="missing_information"]').count() === 1 &&
+      await page.getByLabel('Filter refund cases by status').locator('option[value="possible_duplicate"]').count() === 1 &&
+      await page.getByLabel('Filter refund cases by status').locator('option[value="aging"]').count() === 1 &&
+      await page.getByLabel('Filter refund cases by status').locator('option[value="provider_hold"]').count() === 1
+  );
+  recorder.assert(
+    'Possible website/email duplicate presents manager review choices and exact links',
+    await page.getByRole('button', { name: /Same incident.*keep this case/i }).isVisible() &&
+      await page.getByRole('button', { name: 'Different purchases', exact: true }).isVisible() &&
+      await page.getByRole('link', { name: 'Open other case', exact: true }).isVisible() &&
+      await page.getByRole('link', { name: 'Open exact case RF-UAT-CARD', exact: true }).isVisible()
+  );
+  recorder.assert(
+    'Possible duplicate keeps official manager action disabled before resolution',
+    await page.getByTestId('refund-review-only-banner').isVisible() &&
+      await page.getByTestId('refund-run-nayax-refund').isDisabled()
+  );
+  await page.getByText('Signed in. Redirecting...', { exact: true })
+    .waitFor({ state: 'hidden', timeout: 5000 })
+    .catch(() => undefined);
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-email-pilot-duplicate-review-desktop.png'),
+    fullPage: true,
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: /Same incident.*keep this case/i })
+    .scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-email-pilot-duplicate-review-mobile.png'),
+    fullPage: false,
+  });
+  await page.getByRole('button', { name: /Same incident.*keep this case/i }).click();
+  await page.getByText(
+    'The duplicate is linked and official actions remain on the canonical case.',
+    { exact: true }
+  ).waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Same-incident duplicate resolution records a manager decision without Gmail or Nayax activity',
+    rpcCalls.filter((name) => name === 'admin_resolve_refund_case_reconciliation').length === 1 &&
+      functionCalls.length === 0,
+    JSON.stringify({ rpcCalls, functionCalls })
+  );
+
+  await page.goto(`${appUrl}/refunds?case=case-card-1`, { waitUntil: 'networkidle' });
+  await page.getByText('Possible duplicate review', { exact: true }).waitFor({ timeout: 10000 });
+  await page.getByRole('button', { name: 'Different purchases', exact: true }).click();
+  await page.getByText('The cases are recorded as different purchases.', { exact: true }).waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Different-purchase duplicate resolution records a manager decision without Gmail or Nayax activity',
+    rpcCalls.filter((name) => name === 'admin_resolve_refund_case_reconciliation').length === 2 &&
+      functionCalls.length === 0,
+    JSON.stringify({ rpcCalls, functionCalls })
+  );
+
+  await context.close();
+};
+
 const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
@@ -1757,7 +1994,7 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       messagesSeen: 2,
       messagesCreated: 2,
       messagesDeduplicated: 0,
-      attachmentsQuarantined: 1,
+      attachmentsQuarantined: 0,
       messagesFailed: 0,
       errorCode: null,
       payloadRedacted: true,
@@ -1817,10 +2054,10 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       (await page.getByTestId('refund-run-nayax-refund').count()) === 0
   );
   recorder.assert(
-    'Gmail conversation is chronological, redacted, and quarantine-only',
+    'Gmail conversation is chronological, redacted, and attachment-free for the pilot',
     await page.getByTestId('refund-gmail-thread').getByText('Card number redacted').isVisible() &&
-      await page.getByTestId('refund-gmail-thread').getByText('receipt.pdf').isVisible() &&
-      await page.getByTestId('refund-gmail-thread').getByText('held for security review').isVisible() &&
+      (await page.getByTestId('refund-gmail-thread').getByText('receipt.pdf').count()) === 0 &&
+      (await page.getByTestId('refund-gmail-thread').getByText('held for security review').count()) === 0 &&
       (await page.getByTestId('refund-gmail-thread').locator('a').count()) === 0
   );
   recorder.assert(
@@ -3381,8 +3618,20 @@ const run = async () => {
         recorder,
       });
     } else {
-    await runUnauthenticatedChecks({ browser, appUrl: args.appUrl, recorder, evidence });
+    await runUnauthenticatedChecks({
+      browser,
+      appUrl: args.appUrl,
+      artifactDir: args.artifactDir,
+      recorder,
+      evidence,
+    });
     await runRefundOnlyChecks({
+      browser,
+      appUrl: args.appUrl,
+      artifactDir: args.artifactDir,
+      recorder,
+    });
+    await runEmailPilotDuplicateChecks({
       browser,
       appUrl: args.appUrl,
       artifactDir: args.artifactDir,

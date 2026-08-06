@@ -12,6 +12,10 @@ const __filename = fileURLToPath(import.meta.url);
 export const EXPECTED_SCREENSHOTS = [
   'admin-machines-machine-managers.png',
   'refund-direct-intake-desktop.png',
+  'refund-email-pilot-duplicate-review-desktop.png',
+  'refund-email-pilot-duplicate-review-mobile.png',
+  'refund-email-pilot-hosted-form-desktop.png',
+  'refund-email-pilot-hosted-form-mobile.png',
   'refund-manager-enrollment-closed.png',
   'refund-manager-step-up-bad-code.png',
   'refund-manager-step-up-expired.png',
@@ -313,15 +317,21 @@ const validateMimeRoles = (payload) => {
     'schemaVersion',
     'evidenceType',
     'evidenceMode',
-    'roleCounts',
-    'managerCcCount',
+    'firstContactRoleCounts',
+    'firstContactManagerCcCount',
+    'caseSpecificRoleCounts',
+    'caseSpecificManagerCcCount',
     'partialManagerRouteRejected',
     'sourceThreadPinned',
+    'caseSpecificSourceThreadPinned',
     'replyHeadersPresent',
+    'caseSpecificReplyHeadersPresent',
     'automaticHeadersPresent',
+    'caseSpecificAutomaticHeadersAbsent',
     'internalLinkCount',
     'providerFetchCount',
     'providerSendCount',
+    'caseSpecificOutboundCount',
     'firstContactOperationCount',
     'firstContactPrepareCount',
     'firstContactFinalizeCount',
@@ -331,38 +341,55 @@ const validateMimeRoles = (payload) => {
     'laterReplySuppressed',
     'passed',
   ], 'Gmail MIME-role evidence');
-  assertLiteral(payload.schemaVersion, 3, 'Gmail MIME-role schemaVersion');
+  assertLiteral(payload.schemaVersion, 4, 'Gmail MIME-role schemaVersion');
   assertLiteral(payload.evidenceType, 'gmail_mime_roles', 'Gmail MIME-role evidenceType');
   assertLiteral(
     payload.evidenceMode,
-    'synthetic_executable_first_contact',
+    'synthetic_executable_email_pilot',
     'Gmail MIME-role evidenceMode'
   );
   assertLiteral(payload.passed, true, 'Gmail MIME-role passed flag');
-  assertExactKeys(payload.roleCounts, [
+  assertExactKeys(payload.firstContactRoleCounts, [
     'customerTo',
     'managerCc',
     'mailboxTo',
     'unrelatedTo',
     'unrelatedCc',
-  ], 'Gmail MIME role counts');
-  assertLiteral(payload.roleCounts.customerTo, 1, 'Gmail customer To role count');
-  assertLiteral(payload.roleCounts.managerCc, 2, 'Gmail manager CC role count');
-  assertLiteral(payload.roleCounts.mailboxTo, 0, 'Gmail mailbox To role count');
-  assertLiteral(payload.roleCounts.unrelatedTo, 0, 'Gmail unrelated To role count');
-  assertLiteral(payload.roleCounts.unrelatedCc, 0, 'Gmail unrelated CC role count');
-  assertLiteral(payload.managerCcCount, 2, 'Gmail manager CC count');
+  ], 'Gmail first-contact MIME role counts');
+  assertLiteral(payload.firstContactRoleCounts.customerTo, 1, 'Gmail first-contact customer To role count');
+  assertLiteral(payload.firstContactRoleCounts.managerCc, 0, 'Gmail first-contact manager CC role count');
+  assertLiteral(payload.firstContactRoleCounts.mailboxTo, 0, 'Gmail first-contact mailbox To role count');
+  assertLiteral(payload.firstContactRoleCounts.unrelatedTo, 0, 'Gmail first-contact unrelated To role count');
+  assertLiteral(payload.firstContactRoleCounts.unrelatedCc, 0, 'Gmail first-contact unrelated CC role count');
+  assertLiteral(payload.firstContactManagerCcCount, 0, 'Gmail first-contact manager CC count');
+  assertExactKeys(payload.caseSpecificRoleCounts, [
+    'customerTo',
+    'managerCc',
+    'mailboxTo',
+    'unrelatedTo',
+    'unrelatedCc',
+  ], 'Gmail case-specific MIME role counts');
+  assertLiteral(payload.caseSpecificRoleCounts.customerTo, 1, 'Gmail case-specific customer To role count');
+  assertLiteral(payload.caseSpecificRoleCounts.managerCc, 2, 'Gmail case-specific manager CC role count');
+  assertLiteral(payload.caseSpecificRoleCounts.mailboxTo, 0, 'Gmail case-specific mailbox To role count');
+  assertLiteral(payload.caseSpecificRoleCounts.unrelatedTo, 0, 'Gmail case-specific unrelated To role count');
+  assertLiteral(payload.caseSpecificRoleCounts.unrelatedCc, 0, 'Gmail case-specific unrelated CC role count');
+  assertLiteral(payload.caseSpecificManagerCcCount, 2, 'Gmail case-specific manager CC count');
   assertLiteral(
     payload.partialManagerRouteRejected,
     true,
     'Gmail partial-manager route rejection'
   );
   assertLiteral(payload.sourceThreadPinned, true, 'Gmail source-thread pin');
+  assertLiteral(payload.caseSpecificSourceThreadPinned, true, 'Gmail case-specific source-thread pin');
   assertLiteral(payload.replyHeadersPresent, true, 'Gmail reply-header assertion');
+  assertLiteral(payload.caseSpecificReplyHeadersPresent, true, 'Gmail case-specific reply-header assertion');
   assertLiteral(payload.automaticHeadersPresent, true, 'Gmail automatic-header assertion');
+  assertLiteral(payload.caseSpecificAutomaticHeadersAbsent, true, 'Gmail case-specific manual-header assertion');
   assertLiteral(payload.internalLinkCount, 0, 'Gmail internal-link count');
-  assertLiteral(payload.providerFetchCount, 2, 'Gmail provider-fetch count');
-  assertLiteral(payload.providerSendCount, 1, 'Gmail provider-send count');
+  assertLiteral(payload.providerFetchCount, 3, 'Gmail provider-fetch count');
+  assertLiteral(payload.providerSendCount, 2, 'Gmail provider-send count');
+  assertLiteral(payload.caseSpecificOutboundCount, 1, 'Gmail case-specific outbound count');
   assertLiteral(payload.firstContactOperationCount, 1, 'Gmail first-contact operation count');
   assertLiteral(payload.firstContactPrepareCount, 1, 'Gmail first-contact prepare count');
   assertLiteral(payload.firstContactFinalizeCount, 1, 'Gmail first-contact finalize count');

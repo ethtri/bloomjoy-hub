@@ -210,16 +210,13 @@ const run = () => {
 
     for (const key of [
       'REFUND_GMAIL_FIRST_CONTACT_REFUND_URL',
-      'REFUND_GMAIL_FIRST_CONTACT_LEGACY_URL',
       'REFUND_GMAIL_FIRST_CONTACT_SUPPORT_URL',
     ]) {
       const value = String(env[key] ?? '').trim();
       if (!value) continue;
       try {
         const parsed = new URL(value);
-        const allowedHosts = key === 'REFUND_GMAIL_FIRST_CONTACT_LEGACY_URL'
-          ? new Set(['forms.gle', 'docs.google.com'])
-          : new Set(['bloomjoyusa.com', 'www.bloomjoyusa.com']);
+        const allowedHosts = new Set(['bloomjoyusa.com', 'www.bloomjoyusa.com']);
         if (parsed.protocol !== 'https:' || parsed.username || parsed.password ||
           !allowedHosts.has(parsed.hostname.toLowerCase())) {
           errors.push(`${key} must use an approved public HTTPS host without embedded credentials.`);

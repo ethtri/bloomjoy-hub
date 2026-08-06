@@ -103,6 +103,7 @@ export type RefundAttachmentInput = {
 export type SubmitRefundRequestInput = {
   machineId: string;
   qrClaimToken?: string;
+  emailContextToken?: string;
   customerName?: string;
   customerEmail: string;
   customerPhone?: string;
@@ -278,6 +279,14 @@ export type RefundCaseRecord = {
   events: RefundCaseEvent[];
   messages: RefundCaseMessage[];
   intakeSource?: 'form' | 'gmail';
+  exactCasePath?: string;
+  missingInformation?: boolean;
+  possibleDuplicate?: boolean;
+  confirmedDuplicate?: boolean;
+  duplicateOfCaseId?: string | null;
+  aging?: boolean;
+  providerHold?: boolean;
+  reconciliationActionBlocked?: boolean;
   intakeComplete?: boolean;
   hasGmailThread?: boolean;
   customerCommunicationStatus?: RefundCustomerCommunicationStatus;
@@ -303,6 +312,61 @@ export type RefundOperationsOverview = {
   cases: RefundCaseRecord[];
   machines: RefundAdminMachine[];
   managerAssignments: RefundManagerAssignment[];
+};
+
+export type RefundEmailQueueState = {
+  caseId: string;
+  intakeSource: 'form' | 'gmail';
+  exactCasePath: string;
+  missingInformation: boolean;
+  possibleDuplicate: boolean;
+  confirmedDuplicate: boolean;
+  duplicateOfCaseId: string | null;
+  aging: boolean;
+  providerHold: boolean;
+  actionBlocked: boolean;
+  payloadRedacted: true;
+};
+
+export type RefundReconciliationReviewStatus =
+  | 'pending'
+  | 'confirmed_duplicate'
+  | 'confirmed_distinct';
+
+export type RefundReconciliationReview = {
+  id: string;
+  status: RefundReconciliationReviewStatus;
+  matchClass: 'exact' | 'possible';
+  reasonCodes: string[];
+  policyVersion: string;
+  otherCaseId: string;
+  otherPublicReference: string;
+  otherIntakeSource: 'form' | 'gmail';
+  otherStatus: RefundCaseStatus;
+  canonicalCaseId: string | null;
+  resolutionReasonCode: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+};
+
+export type RefundCaseReconciliation = {
+  caseId: string;
+  duplicateOfCaseId: string | null;
+  duplicateOfPublicReference: string | null;
+  actionBlocked: boolean;
+  reviews: RefundReconciliationReview[];
+};
+
+export type ResolveRefundCaseReconciliationInput = {
+  reviewId: string;
+  resolution: 'duplicate' | 'distinct';
+  canonicalRefundCaseId?: string | null;
+  reasonCode:
+    | 'same_incident'
+    | 'source_replay'
+    | 'customer_confirmed'
+    | 'different_purchase'
+    | 'incorrect_match';
 };
 
 export type RefundAutomationHealthStatus =
@@ -1062,9 +1126,10 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
 };
 
 export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsOverview> => {
-  const [overviewResult, gmailDraftResult] = await Promise.all([
+  const [overviewResult, gmailDraftResult, queueStateResult] = await Promise.all([
     supabaseClient.rpc('admin_get_refund_operations_overview'),
     supabaseClient.rpc('admin_get_refund_gmail_draft_cases'),
+    supabaseClient.rpc('admin_get_refund_email_queue_states'),
   ]);
 
   if (overviewResult.error) {
@@ -1072,6 +1137,9 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   }
   if (gmailDraftResult.error) {
     throw new Error(gmailDraftResult.error.message || 'Unable to load Gmail refund drafts.');
+  }
+  if (queueStateResult.error) {
+    throw new Error(queueStateResult.error.message || 'Unable to load refund queue state.');
   }
 
   const overview = {
@@ -1081,11 +1149,71 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   const gmailDrafts = Array.isArray(gmailDraftResult.data)
     ? (gmailDraftResult.data as RefundCaseRecord[])
     : [];
+  const queueStates = Array.isArray(queueStateResult.data)
+    ? (queueStateResult.data as RefundEmailQueueState[])
+    : [];
+  const queueStateByCaseId = new Map(
+    queueStates.map((state) => [state.caseId, state] as const)
+  );
+  const cases = [...gmailDrafts, ...overview.cases].map((refundCase) => {
+    const state = queueStateByCaseId.get(refundCase.id);
+    if (!state) return refundCase;
+    return {
+      ...refundCase,
+      intakeSource: state.intakeSource,
+      exactCasePath: state.exactCasePath,
+      missingInformation: state.missingInformation,
+      possibleDuplicate: state.possibleDuplicate,
+      confirmedDuplicate: state.confirmedDuplicate,
+      duplicateOfCaseId: state.duplicateOfCaseId,
+      aging: state.aging,
+      providerHold: state.providerHold,
+      reconciliationActionBlocked: state.actionBlocked,
+    };
+  });
 
   return {
     ...overview,
-    cases: [...gmailDrafts, ...overview.cases],
+    cases,
   };
+};
+
+export const fetchRefundCaseReconciliation = async (
+  caseId: string
+): Promise<RefundCaseReconciliation> => {
+  const { data, error } = await supabaseClient.rpc('admin_get_refund_case_reconciliation', {
+    p_refund_case_id: caseId,
+  });
+  if (error) {
+    throw new Error(error.message || 'Unable to load possible duplicate cases.');
+  }
+  const context = (data ?? {}) as Partial<RefundCaseReconciliation>;
+  return {
+    caseId: typeof context.caseId === 'string' ? context.caseId : caseId,
+    duplicateOfCaseId:
+      typeof context.duplicateOfCaseId === 'string' ? context.duplicateOfCaseId : null,
+    duplicateOfPublicReference:
+      typeof context.duplicateOfPublicReference === 'string'
+        ? context.duplicateOfPublicReference
+        : null,
+    actionBlocked: context.actionBlocked === true,
+    reviews: Array.isArray(context.reviews) ? context.reviews : [],
+  };
+};
+
+export const resolveRefundCaseReconciliation = async (
+  input: ResolveRefundCaseReconciliationInput
+): Promise<RefundCaseReconciliation> => {
+  const { data, error } = await supabaseClient.rpc('admin_resolve_refund_case_reconciliation', {
+    p_review_id: input.reviewId,
+    p_resolution: input.resolution,
+    p_canonical_refund_case_id: input.canonicalRefundCaseId ?? null,
+    p_reason_code: input.reasonCode,
+  });
+  if (error) {
+    throw new Error(error.message || 'Unable to save the duplicate review.');
+  }
+  return data as RefundCaseReconciliation;
 };
 
 export const fetchRefundAutomationHealth = async (): Promise<RefundAutomationHealth> => {

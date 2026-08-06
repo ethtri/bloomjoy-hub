@@ -9,6 +9,10 @@ import {
 import { automaticRefundCustomerContactEnabled } from "../_shared/refund-deterministic-follow-up.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
+import {
+  RefundEmailContextUnavailableError,
+  requireLinkedRefundEmailCase,
+} from "../_shared/refund-email-context.ts";
 import { sendRefundManagerActionNotice } from "../_shared/refund-manager-notification.ts";
 import {
   lookupNayaxCandidatesForRefundCase,
@@ -52,6 +56,7 @@ const maxAttachmentBytes = 5 * 1024 * 1024;
 const maxRequestBytes = 18 * 1024 * 1024;
 const allowedContentTypes = new Set(["image/png", "image/jpeg", "image/webp"]);
 const automaticCustomerContactEnabled = automaticRefundCustomerContactEnabled();
+const refundEmailPilotAttachmentsEnabled = false;
 
 const supabase = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -88,11 +93,31 @@ type PreparedRefundAttachment = {
   bytes: Uint8Array;
 };
 
+type SubmittedRefundCase = {
+  id: string;
+  public_reference: string;
+  status: string;
+  correlation_status: string;
+};
+
 type VerifiedRefundQrClaim = {
   id: string;
   reportingMachineId: string;
   openedAt: string;
   expiresAt: string;
+};
+
+const isRefundEmailContextToken = (value: string) =>
+  /^[A-Za-z0-9_-]{43}$/.test(value);
+
+const hashRefundEmailContextToken = async (value: string) => {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 };
 
 type RefundWalletCorrectionContext = {
@@ -1126,6 +1151,7 @@ serve(async (req) => {
     const requestedMachineId = sanitizeText(body?.machineId, 80);
     let machineId = requestedMachineId;
     const qrClaimToken = sanitizeText(body?.qrClaimToken, 80);
+    const emailContextToken = sanitizeText(body?.emailContextToken, 80);
     const customerEmail = sanitizeEmail(body?.customerEmail);
     const customerName = sanitizeText(body?.customerName, 160);
     const customerPhone = sanitizeText(body?.customerPhone, 80);
@@ -1146,6 +1172,18 @@ serve(async (req) => {
     const rawAttachments = Array.isArray(body?.attachments)
       ? body.attachments as RefundAttachmentInput[]
       : [];
+
+    if (!refundEmailPilotAttachmentsEnabled && rawAttachments.length > 0) {
+      throw new RequestValidationError(
+        "Photo attachments are not available during the email refund pilot.",
+      );
+    }
+
+    if (emailContextToken && !isRefundEmailContextToken(emailContextToken)) {
+      throw new RequestValidationError(
+        "This email refund link is not valid. Open the latest link from your Bloomjoy email or submit the form without it.",
+      );
+    }
 
     if (!qrClaimToken && !isUuid(machineId)) {
       return new Response(JSON.stringify({ error: "Please choose a machine location." }), {
@@ -1256,7 +1294,9 @@ serve(async (req) => {
       machineId = verifiedQrClaim.reportingMachineId;
     }
 
-    const attachments = prepareAttachments(rawAttachments);
+    const attachments = refundEmailPilotAttachmentsEnabled
+      ? prepareAttachments(rawAttachments)
+      : [];
 
     const { data: machine, error: machineError } = await supabase
       .from("reporting_machines")
@@ -1412,94 +1452,142 @@ serve(async (req) => {
     });
     const selectedRefundCaseColumns =
       "id, public_reference, status, correlation_status";
+    const intakeMeta = {
+      source: "hosted_refund_intake",
+      intake_path: verifiedQrClaim ? "machine_qr" : "direct_form",
+      qr_claim_present: Boolean(verifiedQrClaim),
+      qr_claim_opened_at: verifiedQrClaim?.openedAt ?? null,
+      qr_claim_expires_at: verifiedQrClaim?.expiresAt ?? null,
+      incident_time_resolution: incidentResolution.resolution,
+      incident_possible_instant_count: incidentResolution.possibleInstantCount,
+      candidate_sales_fact_ids: candidateIds,
+      user_agent: req.headers.get("user-agent")?.slice(0, 300) ?? null,
+    };
+    const insertValues = {
+      reporting_machine_id: machineRecord.id,
+      reporting_location_id: machineRecord.location_id,
+      customer_email: customerEmail,
+      customer_name: customerName || null,
+      customer_phone: customerPhone || null,
+      zelle_payment_contact: paymentMethod === "cash" ? zellePaymentContact : null,
+      issue_summary: issueSummary,
+      incident_at: incidentAt.toISOString(),
+      incident_local_datetime: hasLocalIncidentInput ? `${incidentDate}T${incidentTime}` : null,
+      incident_timezone: locationRecord?.timezone ?? null,
+      incident_time_resolution: incidentResolution.resolution,
+      payment_method: paymentMethod,
+      payment_amount_cents: amountCents,
+      card_last4: paymentMethod === "card" ? cardLast4 : null,
+      card_wallet_used: cardWalletUsed,
+      status,
+      correlation_status: correlationStatus,
+      correlation_source: correlationSource,
+      correlation_confidence: correlationConfidence,
+      correlation_summary: correlationSummary,
+      matched_sales_fact_id: matchedSalesFactId,
+      cash_match_evaluated_fact_version: paymentMethod === "cash" ? 1 : null,
+      refund_amount_cents: amountCents,
+      refund_qr_claim_context_id: verifiedQrClaim?.id ?? null,
+      intake_meta: intakeMeta,
+      server_dedupe_key: serverDedupeKey,
+      server_dedupe_window_started_at: serverDedupeWindowStartedAt.toISOString(),
+    };
 
-    const { data: insertedRefundCase, error: insertError } = await supabase
-      .from("refund_cases")
-      .insert({
-        reporting_machine_id: machineRecord.id,
-        reporting_location_id: machineRecord.location_id,
-        customer_email: customerEmail,
-        customer_name: customerName || null,
-        customer_phone: customerPhone || null,
-        zelle_payment_contact: paymentMethod === "cash" ? zellePaymentContact : null,
-        issue_summary: issueSummary,
-        incident_at: incidentAt.toISOString(),
-        incident_local_datetime: hasLocalIncidentInput ? `${incidentDate}T${incidentTime}` : null,
-        incident_timezone: locationRecord?.timezone ?? null,
-        incident_time_resolution: incidentResolution.resolution,
-        payment_method: paymentMethod,
-        payment_amount_cents: amountCents,
-        card_last4: paymentMethod === "card" ? cardLast4 : null,
-        card_wallet_used: cardWalletUsed,
-        status,
-        correlation_status: correlationStatus,
-        correlation_source: correlationSource,
-        correlation_confidence: correlationConfidence,
-        correlation_summary: correlationSummary,
-        matched_sales_fact_id: matchedSalesFactId,
-        cash_match_evaluated_fact_version: paymentMethod === "cash" ? 1 : null,
-        refund_amount_cents: amountCents,
-        refund_qr_claim_context_id: verifiedQrClaim?.id ?? null,
-        intake_meta: {
-          source: "hosted_refund_intake",
-          intake_path: verifiedQrClaim ? "machine_qr" : "direct_form",
-          qr_claim_present: Boolean(verifiedQrClaim),
-          qr_claim_opened_at: verifiedQrClaim?.openedAt ?? null,
-          qr_claim_expires_at: verifiedQrClaim?.expiresAt ?? null,
-          incident_time_resolution: incidentResolution.resolution,
-          incident_possible_instant_count: incidentResolution.possibleInstantCount,
-          candidate_sales_fact_ids: candidateIds,
-          user_agent: req.headers.get("user-agent")?.slice(0, 300) ?? null,
-        },
-        server_dedupe_key: serverDedupeKey,
-        server_dedupe_window_started_at: serverDedupeWindowStartedAt.toISOString(),
-      })
-      .select(selectedRefundCaseColumns)
-      .single();
-
-    const refundCase = insertedRefundCase;
-    if (insertError) {
-      if (insertError.code !== "23505") {
-        if (verifiedQrClaim && insertError.code === "23514") {
-          return refundQrUnavailableResponse();
-        }
-        throw new Error(insertError.message || "Unable to create refund case.");
-      }
-
-      const { data: dedupedRefundCase, error: dedupeLookupError } = await supabase
-        .from("refund_cases")
-        .select(selectedRefundCaseColumns)
-        .eq("server_dedupe_key", serverDedupeKey)
-        .maybeSingle();
-
-      if (dedupeLookupError || !dedupedRefundCase) {
-        if (verifiedQrClaim) {
-          return new Response(
-            JSON.stringify({
-              error:
-                "This QR session has already been used. Scan the code again or use the regular refund form.",
-              errorCode: "refund_qr_claim_used",
-            }),
-            {
-              status: 409,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            },
-          );
-        }
-        throw new Error("Unable to create refund case.");
-      }
-
-      return new Response(
-        JSON.stringify({
-          refundCase: {
-            id: dedupedRefundCase.id,
-            publicReference: dedupedRefundCase.public_reference,
-            status: dedupedRefundCase.status,
-            correlationStatus: dedupedRefundCase.correlation_status,
+    let refundCase: SubmittedRefundCase | null = null;
+    if (emailContextToken) {
+      const { data: linkedRefundCase, error: linkError } = await supabase.rpc(
+        "service_link_refund_gmail_draft_from_hosted_form",
+        {
+          p_token_hash: await hashRefundEmailContextToken(emailContextToken),
+          p_customer_email: customerEmail,
+          p_case_values: {
+            reportingMachineId: insertValues.reporting_machine_id,
+            reportingLocationId: insertValues.reporting_location_id,
+            customerName: insertValues.customer_name,
+            customerPhone: insertValues.customer_phone,
+            zellePaymentContact: insertValues.zelle_payment_contact,
+            issueSummary: insertValues.issue_summary,
+            incidentAt: insertValues.incident_at,
+            incidentLocalDateTime: insertValues.incident_local_datetime,
+            incidentTimezone: insertValues.incident_timezone,
+            incidentTimeResolution: insertValues.incident_time_resolution,
+            paymentMethod: insertValues.payment_method,
+            paymentAmountCents: insertValues.payment_amount_cents,
+            cardLast4: insertValues.card_last4,
+            cardWalletUsed: insertValues.card_wallet_used,
+            status: insertValues.status,
+            correlationStatus: insertValues.correlation_status,
+            correlationSource: insertValues.correlation_source,
+            correlationConfidence: insertValues.correlation_confidence,
+            correlationSummary: insertValues.correlation_summary,
+            matchedSalesFactId: insertValues.matched_sales_fact_id,
+            intakeMeta,
+            serverDedupeKey,
+            serverDedupeWindowStartedAt:
+              serverDedupeWindowStartedAt.toISOString(),
           },
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        },
       );
+      if (linkError) {
+        throw new RefundEmailContextUnavailableError();
+      }
+      refundCase = requireLinkedRefundEmailCase(
+        emailContextToken,
+        linkedRefundCase as SubmittedRefundCase | null,
+      );
+    }
+
+    if (!refundCase) {
+      const { data: insertedRefundCase, error: insertError } = await supabase
+        .from("refund_cases")
+        .insert(insertValues)
+        .select(selectedRefundCaseColumns)
+        .single();
+
+      if (insertError) {
+        if (insertError.code !== "23505") {
+          if (verifiedQrClaim && insertError.code === "23514") {
+            return refundQrUnavailableResponse();
+          }
+          throw new Error(insertError.message || "Unable to create refund case.");
+        }
+
+        const { data: dedupedRefundCase, error: dedupeLookupError } = await supabase
+          .from("refund_cases")
+          .select(selectedRefundCaseColumns)
+          .eq("server_dedupe_key", serverDedupeKey)
+          .maybeSingle();
+
+        if (dedupeLookupError || !dedupedRefundCase) {
+          if (verifiedQrClaim) {
+            return new Response(
+              JSON.stringify({
+                error:
+                  "This QR session has already been used. Scan the code again or use the regular refund form.",
+                errorCode: "refund_qr_claim_used",
+              }),
+              {
+                status: 409,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              },
+            );
+          }
+          throw new Error("Unable to create refund case.");
+        }
+
+        return new Response(
+          JSON.stringify({
+            refundCase: {
+              id: dedupedRefundCase.id,
+              publicReference: dedupedRefundCase.public_reference,
+              status: dedupedRefundCase.status,
+              correlationStatus: dedupedRefundCase.correlation_status,
+            },
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      refundCase = insertedRefundCase as SubmittedRefundCase | null;
     }
 
     if (!refundCase) {
@@ -1685,6 +1773,16 @@ serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
+    if (error instanceof RefundEmailContextUnavailableError) {
+      console.warn("refund-case-intake email context unavailable");
+      return new Response(
+        JSON.stringify({ error: error.message, errorCode: error.code }),
+        {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
     if (error instanceof RequestValidationError) {
       console.warn("refund-case-intake validation error", { message: error.message });
       return new Response(JSON.stringify({ error: error.message }), {

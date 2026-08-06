@@ -24,7 +24,6 @@ import {
   verifyRefundGmailMailbox,
 } from "../_shared/refund-gmail.ts";
 import { ingestRefundGmailThreadBeforeFirstContact } from "../_shared/refund-gmail-orchestration.ts";
-import { requireRefundCustomerManagerCcResolution } from "../_shared/refund-gmail-transport.ts";
 import {
   buildRefundFirstContactEmail,
   isRefundFirstContactSenderAllowed,
@@ -50,6 +49,7 @@ const syncSecret = (Deno.env.get("REFUND_GMAIL_SYNC_SECRET") ?? "").trim();
 const retentionRuntime = getRefundGmailRetentionRuntimeConfig((name) =>
   Deno.env.get(name)
 );
+const refundEmailPilotAttachmentsEnabled = false;
 
 const supabase = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -238,9 +238,6 @@ const getFirstContactConfig = () =>
     REFUND_GMAIL_FIRST_CONTACT_REFUND_URL: Deno.env.get(
       "REFUND_GMAIL_FIRST_CONTACT_REFUND_URL",
     ),
-    REFUND_GMAIL_FIRST_CONTACT_LEGACY_URL: Deno.env.get(
-      "REFUND_GMAIL_FIRST_CONTACT_LEGACY_URL",
-    ),
     REFUND_GMAIL_FIRST_CONTACT_SUPPORT_URL: Deno.env.get(
       "REFUND_GMAIL_FIRST_CONTACT_SUPPORT_URL",
     ),
@@ -260,6 +257,20 @@ type FirstContactCandidate = {
   publicReference: string;
   customerName: string;
   customerEmail: string;
+};
+
+const createRefundGmailIntakeContextToken = () => {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...bytes))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/g, "");
+};
+
+const refundRequestUrlWithEmailContext = (baseUrl: string, token: string) => {
+  const url = new URL(baseUrl);
+  url.searchParams.set("emailContext", token);
+  return url.toString();
 };
 
 type FirstContactReconciliationRow = {
@@ -461,13 +472,22 @@ const processFirstContact = async ({
     return { failed: false };
   }
 
+  const intakeContextToken = firstContact.shouldSend
+    ? createRefundGmailIntakeContextToken()
+    : "";
+  const refundRequestUrl = intakeContextToken
+    ? refundRequestUrlWithEmailContext(
+      firstContact.refundRequestUrl,
+      intakeContextToken,
+    )
+    : firstContact.refundRequestUrl;
+
   let email: ReturnType<typeof buildRefundFirstContactEmail>;
   try {
     email = buildRefundFirstContactEmail({
       publicReference,
       customerName,
-      refundRequestUrl: firstContact.refundRequestUrl,
-      legacyRefundUrl: firstContact.legacyRefundUrl,
+      refundRequestUrl,
       supportUrl: firstContact.supportUrl,
     });
   } catch {
@@ -475,25 +495,11 @@ const processFirstContact = async ({
     return { failed: true };
   }
 
-  let managerCcEmails: string[] = [];
   if (firstContact.shouldSend) {
     try {
       // Never create a customer-delivery claim while the shared Gmail
       // shutdown switch is closed, even if credentials remain configured.
       requireRefundGmailEnabled();
-      const resolution = await rpc<Record<string, unknown>>(
-        "service_resolve_refund_customer_manager_cc",
-        {
-          p_refund_case_id: refundCaseId,
-          p_customer_email: customerEmail,
-          p_mailbox_identities: config.mailboxIdentities,
-        },
-      );
-      managerCcEmails = requireRefundCustomerManagerCcResolution({
-        resolution,
-        customerEmail,
-        mailboxIdentities: config.mailboxIdentities,
-      }).managerCcEmails;
     } catch {
       counters.firstContactFailed += 1;
       return { failed: true };
@@ -541,6 +547,21 @@ const processFirstContact = async ({
 
   let sent: Awaited<ReturnType<typeof sendRefundGmailReply>>;
   try {
+    const intakeLinkRegistered = await rpc<boolean>(
+      "service_register_refund_gmail_intake_link",
+      {
+        p_operation_id: operationId,
+        p_token_hash: await sha256Hex(intakeContextToken),
+        p_expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
+          .toISOString(),
+      },
+    );
+    if (!intakeLinkRegistered) {
+      throw new RefundGmailError(
+        "gmail_first_contact_intake_link_failed",
+        "Unable to prepare the refund request link.",
+      );
+    }
     const preparedDelivery = await rpc<Record<string, unknown>>(
       "service_prepare_refund_gmail_first_contact_delivery",
       {
@@ -548,23 +569,25 @@ const processFirstContact = async ({
         p_mailbox_identities: config.mailboxIdentities,
       },
     );
-    managerCcEmails = requireRefundCustomerManagerCcResolution({
-      resolution: preparedDelivery,
-      customerEmail: recipientEmail,
-      mailboxIdentities: config.mailboxIdentities,
-    }).managerCcEmails;
+    if (preparedDelivery.allowed !== true) {
+      throw new RefundGmailError(
+        "gmail_first_contact_preparation_blocked",
+        "First-contact acknowledgement was not eligible for delivery.",
+      );
+    }
     sent = await sendRefundGmailReply({
       config,
       providerThreadId,
       operationKey,
       recipientEmail,
-      ccEmails: managerCcEmails,
+      ccEmails: [],
       deliveryKind: "automatic",
       subject,
       text: email.text,
       html: email.html,
       inReplyTo: sanitizeText(claim.inReplyTo, 998) || null,
       references: sanitizeText(claim.references, 4000) || null,
+      recipientPolicy: "premapping_acknowledgement",
     });
   } catch (error) {
     const gmailError = error instanceof RefundGmailError
@@ -1250,7 +1273,8 @@ serve(async (request) => {
               const rawBody = extractPlainTextBody(message.payload);
               const redactedSubject = redactPaymentCardNumbers(rawSubject);
               const redactedBody = redactPaymentCardNumbers(rawBody);
-              const attachmentDescriptors = direction === "inbound" && !isBounce
+              const attachmentDescriptors = refundEmailPilotAttachmentsEnabled &&
+                  direction === "inbound" && !isBounce
                 ? collectAttachmentDescriptors(message.payload)
                 : [];
               const ingestion = await rpc(

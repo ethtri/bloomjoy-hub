@@ -14,6 +14,7 @@ const [
   firstContactMigration,
   participantMigration,
   firstContactCcMigration,
+  pilotLinkageMigration,
   followUpMigration,
   firstContactHelper,
   retentionMigration,
@@ -43,6 +44,7 @@ const [
     read('supabase/migrations/202608030001_refund_gmail_first_contact.sql'),
     read('supabase/migrations/202608030003_refund_gmail_participant_cc.sql'),
     read('supabase/migrations/202608040003_refund_first_contact_manager_cc.sql'),
+    read('supabase/migrations/202608050001_refund_email_pilot_linkage.sql'),
     read('supabase/migrations/202608030005_refund_deterministic_follow_up_cycles.sql'),
     read('supabase/functions/_shared/refund-first-contact.ts'),
     read('supabase/migrations/202608040002_refund_gmail_retention_safety.sql'),
@@ -472,7 +474,8 @@ assert(
 );
 assert(
   firstContactHelper.includes('If you already submitted a form, there is no need to submit it again.') &&
-    firstContactHelper.includes('current backup refund form') &&
+    !firstContactHelper.includes('forms.gle') &&
+    !firstContactHelper.includes('backup refund form') &&
     firstContactHelper.includes('never email complete payment-card details'),
   'First-contact copy must be humble, preserve transitional links, and discourage sensitive-data email',
 );
@@ -627,25 +630,24 @@ assert(
 assert(
   syncFunction.includes('processFirstContact') &&
     syncFunction.includes('service_claim_refund_gmail_first_contact') &&
-    syncFunction.includes('service_resolve_refund_customer_manager_cc') &&
+    syncFunction.includes('service_register_refund_gmail_intake_link') &&
     syncFunction.includes('service_prepare_refund_gmail_first_contact_delivery') &&
-    syncFunction.includes('ccEmails: managerCcEmails') &&
+    syncFunction.includes('ccEmails: []') &&
     syncFunction.includes('deliveryKind: "automatic"') &&
     syncFunction.indexOf('service_prepare_refund_gmail_first_contact_delivery') <
       syncFunction.indexOf('sent = await sendRefundGmailReply'),
-  'Gmail sync must claim and deliver first contact through the original thread with current mapped-manager CC',
+  'Gmail sync must claim one private hosted-form link and deliver the no-CC pre-mapping acknowledgement on the original thread',
 );
 assert(
-  firstContactCcMigration.includes('service_prepare_refund_gmail_first_contact_delivery') &&
-    firstContactCcMigration.includes("source_row.participant_role <> 'customer'") &&
-    firstContactCcMigration.includes("source_row.participant_trust <> 'verified'") &&
-    firstContactCcMigration.includes('automatic_customer_contact_paused_at is not null') &&
-    firstContactCcMigration.includes('service_resolve_refund_customer_manager_cc') &&
-    firstContactCcMigration.includes('recipient_cc_emails = manager_cc_emails') &&
-    firstContactCcMigration.includes("delivery_kind = 'automatic'") &&
-    firstContactCcMigration.includes("participant_role = 'mailbox'") &&
-    firstContactCcMigration.includes('to service_role'),
-  'First-contact delivery preparation must atomically preserve participant trust, case-wide pause, and mapped-manager CC evidence',
+  pilotLinkageMigration.includes('service_prepare_refund_gmail_first_contact_delivery') &&
+    pilotLinkageMigration.includes("source_row.participant_role <> 'customer'") &&
+    pilotLinkageMigration.includes("source_row.participant_trust <> 'verified'") &&
+    pilotLinkageMigration.includes('automatic_customer_contact_paused_at is not null') &&
+    pilotLinkageMigration.includes("recipient_cc_emails = '{}'::text[]") &&
+    pilotLinkageMigration.includes("recipient_resolution_status = 'premapping_acknowledgement'") &&
+    pilotLinkageMigration.includes('service_link_refund_gmail_draft_from_hosted_form') &&
+    pilotLinkageMigration.includes('to service_role'),
+  'First-contact preparation must preserve verified-customer and pause gates while limiting the sole pre-mapping exception to a private hosted-form link with no CC',
 );
 assert(
   syncFunction.includes('ingestRefundGmailThreadBeforeFirstContact') &&
@@ -800,11 +802,14 @@ assert(
 assert(
   firstContactCcTest.includes('first-contact-manager-a@example.test') &&
     firstContactCcTest.includes('first-contact-manager-b@example.test') &&
+    firstContactCcTest.includes('service_register_refund_gmail_intake_link') &&
+    firstContactCcTest.includes('service_link_refund_gmail_draft_from_hosted_form') &&
+    firstContactCcTest.includes("'premapping_acknowledgement'") &&
     firstContactCcTest.includes('service_finish_refund_gmail_first_contact') &&
     firstContactCcTest.includes('operation_already_exists') &&
     firstContactCcTest.includes('later_thread_message') &&
     firstContactCcTest.includes('exactly one case, thread, acknowledgement operation, and sent outbound message'),
-  'The database fixture must prove one two-manager first contact and no replay or later-reply duplicate',
+  'The database fixture must prove one no-CC pre-mapping acknowledgement, one linked Gmail case, and no replay or later-reply duplicate',
 );
 assert(
   packageJson.includes('"refunds:evidence-gmail"') &&
@@ -820,6 +825,7 @@ const executableFirstContactHarness = evidenceHarness.slice(
 );
 assert(
   executableFirstContactHarness.includes('service_claim_refund_gmail_first_contact') &&
+    executableFirstContactHarness.includes('service_register_refund_gmail_intake_link') &&
     executableFirstContactHarness.includes('service_prepare_refund_gmail_first_contact_delivery') &&
     executableFirstContactHarness.includes('service_finish_refund_gmail_first_contact') &&
     !executableFirstContactHarness.includes('service_claim_refund_gmail_outbound_v3') &&
@@ -830,7 +836,8 @@ assert(
   'The executable MIME harness must correlate one SQL-aligned first-contact claim, prepare, send, finalize, replay, and later reply',
 );
 assert(
-  evidenceHarness.includes('managerCcCount: ccRecipients.length') &&
+  evidenceHarness.includes('firstContactManagerCcCount: ccRecipients.length') &&
+    evidenceHarness.includes('caseSpecificManagerCcCount: caseSpecificCcRecipients.length') &&
     evidenceHarness.includes('partialManagerRouteRejected,') &&
     evidenceHarness.includes('status: "resolved_with_exclusions"') &&
     evidenceHarness.includes('error.code === "manager_cc_required"') &&
@@ -838,10 +845,13 @@ assert(
     evidenceHarness.includes('automaticHeadersPresent,') &&
     evidenceHarness.includes('internalLinkCount,') &&
     evidenceHarness.includes('providerSendCount,') &&
+    evidenceHarness.includes('caseSpecificOutboundCount: caseSpecificProviderSendCount') &&
     evidenceHarness.includes('duplicateMessageCount,') &&
-    evidenceHarness.includes('assertEquals(providerSendCount, 1)') &&
+    evidenceHarness.includes('assertEquals(providerSendCount, 2)') &&
+    evidenceHarness.includes('assertEquals(firstContactProviderSendCount, 1)') &&
+    evidenceHarness.includes('assertEquals(caseSpecificProviderSendCount, 1)') &&
     evidenceHarness.includes('assertEquals(duplicateMessageCount, 0)'),
-  'The MIME artifact must report measured recipient, reply-header, automatic-header, source-thread, link, provider-send, and duplicate outcomes',
+  'The MIME artifact must separately prove the no-CC pre-mapping acknowledgement and the mapped-manager case-specific reply',
 );
 assert(
   evidenceHarness.includes('deliveryClaimCount += 1') &&
@@ -1177,12 +1187,11 @@ assert(
   'The database claim must block unresolved, zero-manager, and invalid routes before creating outbound Gmail state',
 );
 assert(
-  firstContactCcMigration.includes("if resolution_status is distinct from 'resolved'") &&
-    !firstContactCcMigration.includes("not in ('resolved', 'resolved_with_exclusions')") &&
+  pilotLinkageMigration.includes("'case_specific_message', false") &&
     followUpMigration.includes("recipient_resolution ->> 'status' is distinct from 'resolved'") &&
     !followUpMigration.includes("'resolved_with_exclusions'") &&
     !followUpMigration.includes('unsafe or duplicate recipients were excluded'),
-  'First-contact and deterministic follow-up sends must require the exact complete manager route',
+  'The generic first-contact exception must be explicitly non-case-specific, while every deterministic follow-up requires the exact complete manager route',
 );
 const recoveryStart = participantMigration.indexOf(
   'create or replace function public.admin_recover_refund_gmail_customer_contact',
@@ -1311,7 +1320,6 @@ const canonicalGmailEnvironmentNames = [
   'REFUND_GMAIL_LEGACY_RESPONDER_DISABLED',
   'REFUND_GMAIL_FIRST_CONTACT_CUTOVER_APPROVED',
   'REFUND_GMAIL_FIRST_CONTACT_REFUND_URL',
-  'REFUND_GMAIL_FIRST_CONTACT_LEGACY_URL',
   'REFUND_GMAIL_FIRST_CONTACT_SUPPORT_URL',
 ];
 for (const name of canonicalGmailEnvironmentNames) {
@@ -1376,4 +1384,4 @@ assert(
   'Completion and ordinary customer-message paths must not emit a duplicate manager-only completion notice',
 );
 
-console.log('Refund Gmail validation passed: default-off zero-call transport shutdown, label-only intake, idempotent exactly-once first contact, participant-safe original threading, current mapped-manager CC, deterministic follow-ups, bounce recovery, quarantine, retention, health, and least-privilege boundaries are present.');
+console.log('Refund Gmail validation passed: default-off zero-call transport shutdown, label-only intake, idempotent no-CC pre-mapping acknowledgement, private email-to-form linkage, participant-safe original threading, current mapped-manager CC for case-specific mail, deterministic follow-ups, bounce recovery, retention, health, and least-privilege boundaries are present.');

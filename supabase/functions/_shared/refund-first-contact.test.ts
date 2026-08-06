@@ -152,8 +152,8 @@ Deno.test("first-contact copy is versioned, customer-first, and contains only pu
   const email = buildRefundFirstContactEmail({
     publicReference: "RF-SYNTH01",
     customerName: "Synthetic <Customer>",
-    refundRequestUrl: "https://www.bloomjoyusa.com/refunds/request",
-    legacyRefundUrl: "https://forms.gle/synthetic-test",
+    refundRequestUrl:
+      "https://www.bloomjoyusa.com/refunds/request?emailContext=synthetic-email-context",
     supportUrl: "https://www.bloomjoyusa.com/resources#support-boundaries",
   });
   assertEquals(email.templateKey, REFUND_FIRST_CONTACT_TEMPLATE_KEY);
@@ -164,7 +164,8 @@ Deno.test("first-contact copy is versioned, customer-first, and contains only pu
     email.text,
     "https://www.bloomjoyusa.com/refunds/request",
   );
-  assertStringIncludes(email.text, "https://forms.gle/synthetic-test");
+  assert(!email.text.includes("forms.gle"));
+  assert(!email.html.includes("backup refund form"));
   assertStringIncludes(
     email.text,
     "https://www.bloomjoyusa.com/resources#support-boundaries",
@@ -179,7 +180,6 @@ Deno.test("first-contact copy safely omits an unavailable public reference", () 
     publicReference: "not-a-reference",
     customerName: null,
     refundRequestUrl: "https://www.bloomjoyusa.com/refunds/request",
-    legacyRefundUrl: "https://forms.gle/synthetic-test",
     supportUrl: "https://www.bloomjoyusa.com/resources#support-boundaries",
   });
   assertEquals(email.subject, "We received your Bloomjoy message");

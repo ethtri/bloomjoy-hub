@@ -42,6 +42,7 @@ import {
   createRefundAttachmentSignedUrl,
   executeNayaxCardRefund,
   fetchRefundAutomationHealth,
+  fetchRefundCaseReconciliation,
   fetchRefundGmailCaseContext,
   fetchRefundGmailHealth,
   fetchRefundOperationsOverview,
@@ -51,6 +52,7 @@ import {
   recoverRefundGmailCustomerContact,
   rejectRefundGptTriage,
   resolveRefundGmailDeliveryNotFound,
+  resolveRefundCaseReconciliation,
   sendRefundCaseMessage,
   updateRefundCaseAdmin,
   verifyRefundManagerTotpEnrollment,
@@ -192,7 +194,17 @@ type NayaxLookupNotice = {
   message: string;
 };
 
-type QueueFilter = 'needs_action' | 'waiting_on_customer' | 'ready_to_pay' | 'blocked' | 'completed' | 'all';
+type QueueFilter =
+  | 'needs_action'
+  | 'missing_information'
+  | 'possible_duplicate'
+  | 'aging'
+  | 'provider_hold'
+  | 'waiting_on_customer'
+  | 'ready_to_pay'
+  | 'blocked'
+  | 'completed'
+  | 'all';
 
 type CustomerMessageResult = {
   type: string;
@@ -626,6 +638,8 @@ const isBlockedCase = (refundCase: RefundCaseRecord) => {
   const lookupStatus = refundCase.nayaxLookupSummary?.lookupStatus;
   return (
     getLatestCustomerMessage(refundCase)?.status === 'failed' ||
+    refundCase.reconciliationActionBlocked === true ||
+    refundCase.providerHold === true ||
     refundCase.correlationStatus === 'nayax_not_configured' ||
     refundCase.correlationStatus === 'needs_nayax' ||
     lookupStatus === 'setup_needed' ||
@@ -635,6 +649,7 @@ const isBlockedCase = (refundCase: RefundCaseRecord) => {
 };
 
 const caseUrgencyRank = (refundCase: RefundCaseRecord) => {
+  if (refundCase.possibleDuplicate || refundCase.confirmedDuplicate) return 0;
   if (getLatestCustomerMessage(refundCase)?.status === 'failed') return 0;
   if (isReadyToPayCase(refundCase)) return 1;
   if (refundCase.status === 'draft') return 2;
@@ -650,6 +665,18 @@ const caseUrgencyRank = (refundCase: RefundCaseRecord) => {
 
 const getOperationalSignals = (refundCase: RefundCaseRecord) => {
   const signals: Array<{ label: string; className: string }> = [];
+  if (refundCase.possibleDuplicate) {
+    signals.push({ label: 'Possible duplicate', className: 'border-rose-200 bg-rose-50 text-rose-900' });
+  }
+  if (refundCase.confirmedDuplicate) {
+    signals.push({ label: 'Confirmed duplicate', className: 'border-rose-200 bg-rose-50 text-rose-900' });
+  }
+  if (refundCase.aging) {
+    signals.push({ label: 'Aging', className: 'border-amber-200 bg-amber-50 text-amber-900' });
+  }
+  if (refundCase.providerHold) {
+    signals.push({ label: 'Provider hold', className: 'border-orange-200 bg-orange-50 text-orange-900' });
+  }
   if (getLatestCustomerMessage(refundCase)?.status === 'failed') {
     signals.push({ label: 'Email failed', className: 'border-destructive/30 bg-destructive/10 text-destructive' });
   }
@@ -680,6 +707,14 @@ const getOperationalSignals = (refundCase: RefundCaseRecord) => {
   }
   return signals.slice(0, 3);
 };
+
+const intakeSourceLabel = (refundCase: RefundCaseRecord) =>
+  refundCase.intakeSource === 'gmail' ? 'Support email' : 'Website form';
+
+const intakeSourceBadgeClass = (refundCase: RefundCaseRecord) =>
+  refundCase.intakeSource === 'gmail'
+    ? 'border-sky-200 bg-sky-50 text-sky-800'
+    : 'border-violet-200 bg-violet-50 text-violet-800';
 
 const formatCandidateSummary = (candidate: NayaxLookupCandidate) =>
   `${formatCurrency(candidate.amountCents)} card sale, ${candidate.cardBrand || 'card'} ending ${
@@ -1554,6 +1589,7 @@ export default function AdminRefundsPage() {
   const [isGmailRecoveryOpen, setIsGmailRecoveryOpen] = useState(false);
   const [gmailRecoveryVerified, setGmailRecoveryVerified] = useState(false);
   const [isRecoveringGmailContact, setIsRecoveringGmailContact] = useState(false);
+  const [isResolvingReconciliation, setIsResolvingReconciliation] = useState(false);
   const forceDemoData = isLocalUatDemoForced();
   const showLegacyCashWorkbench =
     import.meta.env.DEV &&
@@ -1615,6 +1651,10 @@ export default function AdminRefundsPage() {
 
     return overview.cases.filter((refundCase) => {
       if (statusFilter === 'needs_action' && !openStatuses.has(refundCase.status)) return false;
+      if (statusFilter === 'missing_information' && !refundCase.missingInformation) return false;
+      if (statusFilter === 'possible_duplicate' && !refundCase.possibleDuplicate && !refundCase.confirmedDuplicate) return false;
+      if (statusFilter === 'aging' && !refundCase.aging) return false;
+      if (statusFilter === 'provider_hold' && !refundCase.providerHold) return false;
       if (statusFilter === 'waiting_on_customer' && refundCase.status !== 'waiting_on_customer') return false;
       if (statusFilter === 'ready_to_pay' && !isReadyToPayCase(refundCase)) return false;
       if (statusFilter === 'blocked' && !isBlockedCase(refundCase)) return false;
@@ -1733,9 +1773,12 @@ export default function AdminRefundsPage() {
   );
   const selectedCaseOfficialActionBlockReason = selectedCase?.officialActionBlockReason ??
     (selectedCase?.canPerformOfficialAction !== true ? 'manager_mapping_required' : null);
-  const selectedCaseIsReviewOnly = selectedCase?.canPerformOfficialAction !== true &&
-    selectedCaseOfficialActionBlockReason !== 'manager_verification_required';
-  const selectedCaseOfficialActionBlockMessage = selectedCaseOfficialActionBlockReason ===
+  const selectedCaseIsReviewOnly = selectedCase?.reconciliationActionBlocked === true ||
+    (selectedCase?.canPerformOfficialAction !== true &&
+      selectedCaseOfficialActionBlockReason !== 'manager_verification_required');
+  const selectedCaseOfficialActionBlockMessage = selectedCase?.reconciliationActionBlocked === true
+    ? 'Resolve the possible duplicate review before approving, declining, completing, or issuing this refund.'
+    : selectedCaseOfficialActionBlockReason ===
       'manager_verification_required'
     ? 'Verify with your authenticator immediately before taking this official action. Agent-controlled or shared sessions cannot approve, decline, complete, or issue refunds.'
     : selectedCaseOfficialActionBlockReason === 'official_actions_disabled'
@@ -1756,6 +1799,59 @@ export default function AdminRefundsPage() {
     enabled: !forceDemoData && Boolean(selectedCase?.hasGmailThread && selectedCase?.id),
     staleTime: 1000 * 30,
   });
+  const {
+    data: reconciliationContext,
+    isLoading: reconciliationIsLoading,
+    error: reconciliationError,
+  } = useQuery({
+    queryKey: ['refund-case-reconciliation', selectedCase?.id],
+    queryFn: () => fetchRefundCaseReconciliation(selectedCase?.id ?? ''),
+    enabled: !forceDemoData && Boolean(selectedCase?.id),
+    staleTime: 1000 * 30,
+  });
+
+  const resolveReconciliation = async (
+    reviewId: string,
+    resolution: 'duplicate' | 'distinct'
+  ) => {
+    if (!selectedCase) return;
+    setIsResolvingReconciliation(true);
+    try {
+      await resolveRefundCaseReconciliation({
+        reviewId,
+        resolution,
+        canonicalRefundCaseId: resolution === 'duplicate' ? selectedCase.id : null,
+        reasonCode: resolution === 'duplicate' ? 'same_incident' : 'different_purchase',
+      });
+      toast.success(
+        resolution === 'duplicate'
+          ? 'The duplicate is linked and official actions remain on the canonical case.'
+          : 'The cases are recorded as different purchases.'
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] }),
+        queryClient.invalidateQueries({ queryKey: ['refund-case-reconciliation'] }),
+      ]);
+    } catch (resolutionError) {
+      toast.error(
+        resolutionError instanceof Error
+          ? resolutionError.message
+          : 'Unable to save the duplicate review.'
+      );
+    } finally {
+      setIsResolvingReconciliation(false);
+    }
+  };
+
+  const copyExactCaseLink = async (casePath: string) => {
+    const absoluteUrl = new URL(casePath, window.location.origin).toString();
+    try {
+      await navigator.clipboard.writeText(absoluteUrl);
+      toast.success('Exact case link copied.');
+    } catch {
+      toast.error('Unable to copy the case link.');
+    }
+  };
   useEffect(() => {
     const suggestion = gmailContext?.triageSuggestion;
     if (
@@ -4122,6 +4218,10 @@ export default function AdminRefundsPage() {
               className="h-11 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <option value="needs_action">Needs action</option>
+              <option value="missing_information">Missing information</option>
+              <option value="possible_duplicate">Possible duplicates</option>
+              <option value="aging">Aging cases</option>
+              <option value="provider_hold">Provider holds</option>
               <option value="waiting_on_customer">Waiting on customer</option>
               <option value="ready_to_pay">Ready to refund</option>
               <option value="blocked">Blocked / failed</option>
@@ -4180,6 +4280,9 @@ export default function AdminRefundsPage() {
                           <div className="truncate text-sm font-semibold text-foreground">
                             {refundCase.publicReference}
                           </div>
+                          <Badge className={cn('mt-1 rounded-md text-[11px]', intakeSourceBadgeClass(refundCase))}>
+                            {intakeSourceLabel(refundCase)}
+                          </Badge>
                         </div>
                         <Badge className={cn('shrink-0 whitespace-normal rounded-md text-left leading-tight', taskBadgeClass(refundCase))}>
                           {taskLabel(refundCase)}
@@ -4284,6 +4387,9 @@ export default function AdminRefundsPage() {
                           <div className="truncate text-sm font-semibold text-foreground">
                             {refundCase.publicReference}
                           </div>
+                          <Badge className={cn('mt-1 rounded-md text-[11px]', intakeSourceBadgeClass(refundCase))}>
+                            {intakeSourceLabel(refundCase)}
+                          </Badge>
                           <div className="mt-1 truncate text-xs text-muted-foreground">
                             {refundCase.customerEmail}
                           </div>
@@ -4331,7 +4437,7 @@ export default function AdminRefundsPage() {
               <div className="min-w-0 rounded-xl border border-border bg-card p-4 sm:p-5">
                 {!selectedCase || !editor ? (
                   <div className="text-sm text-muted-foreground">
-                    Select a refund case to review evidence, photos, and decision controls.
+                    Select a refund case to review evidence and decision controls.
                   </div>
                 ) : (
                   <div className="space-y-5">
@@ -4341,11 +4447,35 @@ export default function AdminRefundsPage() {
                         <Badge className={taskBadgeClass(selectedCase)}>
                           {taskLabel(selectedCase)}
                         </Badge>
+                        <Badge className={cn('rounded-md', intakeSourceBadgeClass(selectedCase))}>
+                          {intakeSourceLabel(selectedCase)}
+                        </Badge>
                       </div>
                       <p className="mt-1 break-words text-xs text-muted-foreground">
                         {selectedCase.customerEmail} / {selectedCase.paymentMethod} /{' '}
                         {formatCurrency(selectedCase.paymentAmountCents)}
                       </p>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <Button asChild type="button" size="sm" variant="outline">
+                          <a
+                            href={selectedCase.exactCasePath ?? `/refunds?case=${selectedCase.id}`}
+                            aria-label={`Open exact case ${selectedCase.publicReference}`}
+                          >
+                            <ExternalLink className="mr-2 h-4 w-4" />
+                            Open exact case
+                          </a>
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void copyExactCaseLink(
+                            selectedCase.exactCasePath ?? `/refunds?case=${selectedCase.id}`
+                          )}
+                        >
+                          Copy exact link
+                        </Button>
+                      </div>
                     </div>
 
                     {selectedCaseIsReviewOnly && (
@@ -4371,6 +4501,71 @@ export default function AdminRefundsPage() {
                               {selectedCaseOfficialActionBlockMessage} You can still review the case, check
                               transactions, and request information from the customer.
                             </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {(reconciliationIsLoading || reconciliationError ||
+                      reconciliationContext?.reviews.some((review) => review.status === 'pending')) && (
+                      <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-950">
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <p className="font-semibold">Possible duplicate review</p>
+                            <p className="mt-1 leading-6">
+                              Compare the linked cases before any official action. This review never issues a refund.
+                            </p>
+                            {reconciliationIsLoading && (
+                              <p className="mt-3 text-xs">Loading duplicate evidence...</p>
+                            )}
+                            {reconciliationError && (
+                              <p className="mt-3 text-xs font-medium">
+                                Duplicate evidence is unavailable, so official actions remain blocked.
+                              </p>
+                            )}
+                            <div className="mt-3 space-y-3">
+                              {reconciliationContext?.reviews
+                                .filter((review) => review.status === 'pending')
+                                .map((review) => (
+                                  <div key={review.id} className="rounded-md border border-rose-200 bg-white p-3">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <Badge className="border-rose-200 bg-rose-50 text-rose-900">
+                                        {review.matchClass === 'exact' ? 'Strong possible match' : 'Possible match'}
+                                      </Badge>
+                                      <span className="font-semibold">{review.otherPublicReference}</span>
+                                      <Badge className="border-slate-200 bg-slate-50 text-slate-700">
+                                        {review.otherIntakeSource === 'gmail' ? 'Support email' : 'Website form'}
+                                      </Badge>
+                                    </div>
+                                    <p className="mt-2 text-xs leading-5 text-rose-900">
+                                      Shared signals: {review.reasonCodes.join(', ').replaceAll('_', ' ')}.
+                                    </p>
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        onClick={() => void resolveReconciliation(review.id, 'duplicate')}
+                                        disabled={isResolvingReconciliation}
+                                      >
+                                        Same incident — keep this case
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => void resolveReconciliation(review.id, 'distinct')}
+                                        disabled={isResolvingReconciliation}
+                                      >
+                                        Different purchases
+                                      </Button>
+                                      <Button asChild type="button" size="sm" variant="ghost">
+                                        <a href={`/refunds?case=${review.otherCaseId}`}>Open other case</a>
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
+                            </div>
                           </div>
                         </div>
                       </div>

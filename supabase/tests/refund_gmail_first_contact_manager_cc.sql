@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(19);
+select plan(25);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -123,10 +123,6 @@ select public.service_ingest_refund_gmail_message_v2(
   '{}'::text[]
 ) as result;
 
-update public.refund_cases
-set reporting_machine_id = '79830000-0000-4000-8000-000000000001'
-where id = (select (result ->> 'caseId')::uuid from first_source);
-
 select is(
   (
     select participant_role
@@ -153,6 +149,15 @@ select is(
   'The verified first customer message claims one exactly-once operation'
 );
 
+select ok(
+  public.service_register_refund_gmail_intake_link(
+    (select (result ->> 'operationId')::uuid from first_claim),
+    repeat('a', 64),
+    now() + interval '14 days'
+  ),
+  'The service registers one private hosted-form context before delivery'
+);
+
 create temporary table first_prepared as
 select public.service_prepare_refund_gmail_first_contact_delivery(
   (select (result ->> 'operationId')::uuid from first_claim),
@@ -162,30 +167,27 @@ select public.service_prepare_refund_gmail_first_contact_delivery(
 select is(
   (select (result ->> 'allowed')::boolean from first_prepared),
   true,
-  'A current mapped-manager route authorizes first-contact delivery'
+  'The generic acknowledgement is allowed before a machine is mapped'
 );
 
 select is(
   (select result -> 'managerCcEmails' from first_prepared),
-  '["first-contact-manager-a@example.test", "first-contact-manager-b@example.test"]'::jsonb,
-  'The preparation returns exactly the two current mapped Machine Managers'
+  '[]'::jsonb,
+  'The pre-mapping acknowledgement exposes no manager recipient'
 );
 
 select ok(
   (
-    select recipient_cc_emails = array[
-        'first-contact-manager-a@example.test',
-        'first-contact-manager-b@example.test'
-      ]
-      and recipient_cc_count = 2
-      and recipient_resolution_status = 'resolved'
+    select recipient_cc_emails = '{}'::text[]
+      and recipient_cc_count = 0
+      and recipient_resolution_status = 'premapping_acknowledgement'
       and delivery_kind = 'automatic'
       and participant_role = 'mailbox'
       and participant_trust = 'verified'
     from public.refund_gmail_messages
     where id = (select (result ->> 'transportMessageId')::uuid from first_claim)
   ),
-  'The pending exactly-once transport persists the visible CC and participant evidence'
+  'The transport persists the narrow no-CC pre-mapping policy and participant evidence'
 );
 
 select ok(
@@ -211,10 +213,10 @@ select is(
     select count(*)::integer
     from public.refund_case_events
     where refund_case_id = (select (result ->> 'caseId')::uuid from first_source)
-      and event_type = 'gmail_first_contact_manager_cc_resolved'
+      and event_type = 'gmail_first_contact_premapping_ready'
   ),
   1,
-  'The first resolved route writes one redacted audit event'
+  'The pre-mapping exception writes one redacted audit event'
 );
 
 select public.service_prepare_refund_gmail_first_contact_delivery(
@@ -227,10 +229,78 @@ select is(
     select count(*)::integer
     from public.refund_case_events
     where refund_case_id = (select (result ->> 'caseId')::uuid from first_source)
-      and event_type = 'gmail_first_contact_manager_cc_resolved'
+      and event_type = 'gmail_first_contact_premapping_ready'
   ),
   1,
-  'Replaying preparation with the same route does not duplicate audit evidence'
+  'Replaying preparation does not duplicate pre-mapping audit evidence'
+);
+
+create temporary table linked_form_case as
+select public.service_link_refund_gmail_draft_from_hosted_form(
+  repeat('a', 64),
+  'first-contact-customer-one@example.test',
+  jsonb_build_object(
+    'reportingMachineId', '79830000-0000-4000-8000-000000000001',
+    'reportingLocationId', '79820000-0000-4000-8000-000000000001',
+    'customerName', 'Synthetic Customer One',
+    'customerPhone', '',
+    'zellePaymentContact', '',
+    'issueSummary', 'Synthetic hosted-form details.',
+    'incidentAt', '2026-08-03T17:45:00Z',
+    'incidentLocalDateTime', '2026-08-03T10:45',
+    'incidentTimezone', 'America/Los_Angeles',
+    'incidentTimeResolution', 'exact',
+    'paymentMethod', 'card',
+    'paymentAmountCents', 900,
+    'cardLast4', '4242',
+    'cardWalletUsed', false,
+    'status', 'needs_review',
+    'correlationStatus', 'needs_nayax',
+    'correlationSource', '',
+    'correlationConfidence', 0,
+    'correlationSummary', 'Synthetic manager review required.',
+    'matchedSalesFactId', '',
+    'intakeMeta', jsonb_build_object('payload_redacted', true),
+    'serverDedupeKey', repeat('c', 64),
+    'serverDedupeWindowStartedAt', '2026-08-03T17:40:00Z'
+  )
+) as result;
+
+select is(
+  (select result ->> 'id' from linked_form_case),
+  (select result ->> 'caseId' from first_source),
+  'The hosted form completes the original Gmail case instead of creating a second case'
+);
+
+select ok(
+  (
+    select reporting_machine_id = '79830000-0000-4000-8000-000000000001'
+      and status = 'needs_review'
+      and intake_source = 'gmail'
+      and intake_meta ->> 'intake_path' = 'email_context_form'
+    from public.refund_cases
+    where id = (select (result ->> 'caseId')::uuid from first_source)
+  ),
+  'The linked Gmail draft contains the validated hosted-form operational fields'
+);
+
+select ok(
+  (
+    select used_at is not null
+    from public.refund_gmail_intake_links
+    where token_hash = repeat('a', 64)
+  ),
+  'The private email context is consumed exactly once'
+);
+
+select is(
+  public.service_link_refund_gmail_draft_from_hosted_form(
+    repeat('a', 64),
+    'first-contact-customer-one@example.test',
+    '{}'::jsonb
+  ),
+  null,
+  'A consumed email context cannot be replayed'
 );
 
 select ok(
@@ -382,10 +452,6 @@ select public.service_ingest_refund_gmail_message_v2(
   '{}'::text[]
 ) as result;
 
-update public.refund_cases
-set reporting_machine_id = '79830000-0000-4000-8000-000000000001'
-where id = (select (result ->> 'caseId')::uuid from second_source);
-
 create temporary table second_claim as
 select public.service_claim_refund_gmail_first_contact(
   (select (result ->> 'messageId')::uuid from second_source),
@@ -406,6 +472,15 @@ update public.reporting_machine_refund_managers
 set manager_email = 'not-an-email'
 where id = '79840000-0000-4000-8000-000000000002';
 
+select ok(
+  public.service_register_refund_gmail_intake_link(
+    (select (result ->> 'operationId')::uuid from second_claim),
+    repeat('b', 64),
+    now() + interval '14 days'
+  ),
+  'A second thread receives its own private hosted-form context'
+);
+
 create temporary table blocked_preparation as
 select public.service_prepare_refund_gmail_first_contact_delivery(
   (select (result ->> 'operationId')::uuid from second_claim),
@@ -414,14 +489,14 @@ select public.service_prepare_refund_gmail_first_contact_delivery(
 
 select is(
   (select result ->> 'status' from blocked_preparation),
-  'invalid_manager_mapping',
-  'A mixed valid and malformed mapping after claim blocks first-contact delivery at preparation time'
+  'premapping_acknowledgement',
+  'Malformed manager mappings do not deadlock the sole generic form-link acknowledgement'
 );
 
 select is(
   (select (result ->> 'allowed')::boolean from blocked_preparation),
-  false,
-  'The mixed invalid route fails closed instead of sending a partial manager CC set'
+  true,
+  'The generic acknowledgement remains sendable while case-specific mail stays separately gated'
 );
 
 select is(
@@ -431,7 +506,7 @@ select is(
     where id = (select (result ->> 'transportMessageId')::uuid from second_claim)
   ),
   0,
-  'A blocked first-contact transport contains no partial manager recipient'
+  'The generic first-contact transport contains no manager recipient'
 );
 
 select * from finish();

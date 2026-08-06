@@ -1,6 +1,6 @@
 # Refund Email Assistant Operating Runbook
 
-Last updated: 2026-08-03
+Last updated: 2026-08-05
 
 Status: approved operating direction. The safety slices described below are implemented for review in an unmerged integration candidate; production Gmail, automatic customer follow-up, manager CC, manager aging, retention cleanup, GPT, official manager actions, and live Nayax execution remain disabled until their separate release gates pass.
 
@@ -17,7 +17,7 @@ The assistant is not a refund approver and is not a payment operator. The target
 - Gmail is the customer conversation transport.
 - Bloomjoy Hub is the system of record for the refund case, status, matching evidence, manager decision, provider attempt, reporting adjustment, and audit history.
 - Nayax/Lynx is the card-transaction and refund provider, subject to the account-specific production gate in `#430`.
-- The legacy Google Form/Sheet/AppSheet process remains the fallback until its separate cutover approval.
+- The legacy Google Form/Sheet/AppSheet process remains available to EasyText/SMS during the email-only pilot. Email customers use only the Bloomjoy hosted form.
 - Agents use an owner-approved direct OAuth/delegated connection to the designated mailbox; they do not receive a forwarded copy in a personal inbox. That connection may let an authorized agent read, search, label, and prepare drafts within the approved refund scope, but it does not configure or enable the production Hub Gmail integration in `#634`.
 - Info/Support aliases may route into the same designated mailbox. Treat a configured alias as Bloomjoy-mailbox-origin only when the alias is in the approved mailbox configuration and Gmail `SENT`-label evidence confirms the outbound message; an address string alone is not proof. The proposed `support@bloomjoysweets.com` alias and send-as state are currently **Pending**, not assumed.
 - Sending from an alias requires the mailbox owner to configure and verify that Gmail send-as identity. Agents may prepare approved drafts, but they do not add or self-verify aliases or treat browser sign-in as production OAuth proof.
@@ -39,7 +39,8 @@ Do not forward the designated support mailbox into a personal inbox. Agents and 
 | Read a labeled refund thread | Yes, within approved mailbox access | Through the linked case when authorized | Yes, through label-scoped Gmail sync |
 | Create or link an incomplete case | Yes, through the intake service | No manual copy/paste required | Yes, idempotently |
 | Extract permitted refund facts | Yes, under strict schema and policy | May correct/confirm in the portal | Yes, deterministically and through reviewed GPT assistance |
-| Send an approved deterministic acknowledgement/correction request | Yes, only for the allowed classes below and only after the current mapped-manager CC route passes | Can see the result | Yes, with send-time authorization, idempotency, and kill switch |
+| Send the generic first-contact form link | Yes, once per eligible thread after the pre-mapping safety gates pass | Sees the linked case after the form identifies the machine | Yes, with one private context, no manager CC, idempotency, and kill switch |
+| Send a case-specific acknowledgement/correction request | Yes, only after the current mapped-manager CC route passes | Can see the result | Yes, with send-time authorization, idempotency, and kill switch |
 | Send GPT-authored or free-form text | Draft only | Reviews, edits, and sends | Must enforce human approval |
 | Start a Nayax transaction lookup | No | Explicitly chooses **Check Nayax transaction** in the portal | Performs no lookup from a link, filter, or row selection; may recommend one safe candidate after the explicit check |
 | Approve or decline a refund | No | Only the current mapped Machine Manager, personally completing the fresh per-action TOTP step-up in the authenticated portal | Enforces scope, step-up, audit, and coherent state; production controls stay hard-off |
@@ -75,7 +76,7 @@ Each lane is separately disabled. Enabling or disabling one does not silently en
 | Deterministic customer contact | Edge `REFUND_AUTOMATIC_CUSTOMER_CONTACT_ENABLED`; database `refund_customer_contact_settings.automatic_customer_contact_enabled` | Both off; Gmail may be connected without automatic customer contact |
 | Manager aging | GitHub `REFUND_AUTOMATION_SWEEP_ENABLED`; Edge `REFUND_AUTOMATION_ENABLED`; Edge `REFUND_MANAGER_AGING_NOTICES_ENABLED` | All off; disabling aging must produce zero fetch, claim, reservation, or send work for that lane |
 | Gmail-copy retention | GitHub and Edge `REFUND_GMAIL_RETENTION_ENABLED`; database `refund_gmail_retention_settings.cleanup_enabled` plus recorded owner approval | Independent of sync/OAuth; cleanup stays off until approved but must still be able to purge eligible local copies after OAuth revocation |
-| Attachment scanning | Edge `REFUND_GMAIL_ATTACHMENT_SCANNER_ENABLED`; approved scanner version in retention settings | Off; quarantined bytes remain unavailable while scanning is absent |
+| Attachments | Pilot code gate in hosted form and Gmail ingestion; later scanner/version policy if attachments are introduced | Disabled for the email pilot; no attachment bytes are accepted or copied |
 | GPT triage | GitHub `REFUND_GPT_TRIAGE_SYNC_ENABLED`; Edge `REFUND_GPT_TRIAGE_ENABLED`; database `refund_gpt_triage_settings.enabled`; `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED` | All off; GPT never auto-sends and never receives payment authority |
 | Official manager actions | Immutable database gate returned by `refund_official_actions_enabled()` | Statically false in the candidate; only a later reviewed migration may change it |
 | Live Nayax execution | Statically disabled production adapter plus the documented Nayax execution safety values | No local synthetic selector and no live call until `#430` and owner gates pass |
@@ -85,16 +86,17 @@ Each lane is separately disabled. Enabling or disabling one does not silently en
 1. Gmail receives a message at the designated Info/Support/Refunds mailbox.
 2. A mailbox-owned rule applies the permanent refund intake label. The production integration does not reorganize unrelated mail.
 3. Label-scoped Gmail sync creates one draft case or appends the message to the existing case/thread.
-4. The first eligible customer message in a Gmail thread may claim one approved acknowledgement. Delivery occurs only after a resolved machine has one to three valid current mapped managers for visible CC; unresolved, zero-manager, invalid, or over-cap routing creates an internal exception and sends no customer message. Replays and later replies do not create another acknowledgement.
-5. The case is checked for the required transaction facts.
-6. If facts are missing, an approved deterministic template asks only for those facts. Each follow-up cycle permits at most one request, one reminder, and one information-received confirmation, with at most two cycles per case. If safe content or routing cannot be determined, the case routes to a person; a human-reviewed draft still cannot send until the mapped-manager CC route passes.
-7. If wallet/device digits may be the problem, the existing short-lived secure wallet-correction flow is used. The customer is never asked to email a full card number or wallet screenshot.
-8. When a case is ready for transaction review, or is aging, blocked by setup/mapping, delivery-held, no-match, or otherwise needs a person, the currently mapped Machine Managers receive one sanitized notice with the canonical `/refunds?case=<case-id>` link and the correct next action.
-9. The Machine Manager opens the portal. That navigation performs no lookup or mutation. The manager explicitly chooses **Check Nayax transaction**; the deterministic matcher then recommends one safe transaction or returns a clear manual/no-safe-match state.
-10. The Machine Manager reviews the customer request and match evidence and chooses the official action.
-11. The portal freezes the exact action context in a two-minute intent and asks the manager to personally complete a fresh challenge for the owner-approved TOTP factor. One live intent and one receipt are allowed per actor; cancellation, expiry, replay, concurrent consume, reused/same-second authentication, enrollment change, mapping/case/evidence change, or a shared/agent session fails closed.
-12. After the action-bound manager verification, the guarded backend may attempt Nayax execution only when the separate `#430` provider contract, reviewed gate-on migration, manager enrollment, recovery, privacy/security, and owner-UAT gates pass. Current official-action and Nayax controls remain hard-off. The case completes only after confirmed provider success.
-13. Token-bound confirmed provider success atomically completes the case and reporting before it creates one deterministic customer-facing completion-message operation in the original thread with the active mapped-manager set CC'd. It does not create a second internal manager completion email. Rejection, timeout, or unknown leaves the case open and sends no success or fallback message.
+4. The first eligible customer message in a Gmail thread may claim one generic acknowledgement. It contains exactly one Bloomjoy hosted-form CTA, no Google Form CTA, a private one-time context, and no manager CC because the machine is not known yet. Replays and later replies do not create another acknowledgement.
+5. The hosted form uses that private context to complete the existing Gmail draft as one case. If the context cannot be validated, a separate form case is allowed only with duplicate review held before official action. Attachments are disabled.
+6. The case is checked for required transaction facts and for a possible website/email duplicate.
+7. If facts are missing, an approved deterministic template asks only for those facts. Each follow-up cycle permits at most one request, one reminder, and one information-received confirmation, with at most two cycles per case. If safe content or routing cannot be determined, the case routes to a person; a human-reviewed draft still cannot send until the mapped-manager CC route passes.
+8. If wallet/device digits may be the problem, the existing short-lived secure wallet-correction flow is used. The customer is never asked to email a full card number or wallet screenshot.
+9. When a case is ready for transaction review, or is aging, duplicate-held, blocked by setup/mapping, delivery-held, no-match, or otherwise needs a person, the currently mapped Machine Managers receive one sanitized notice with the canonical `/refunds?case=<case-id>` link and the correct next action.
+10. The Machine Manager opens the portal. That navigation performs no lookup or mutation. A possible duplicate must be resolved as the same incident or different purchases before any official action. The manager explicitly chooses **Check Nayax transaction**; the deterministic matcher then recommends one safe transaction or returns a clear manual/no-safe-match state.
+11. The Machine Manager reviews the customer request and match evidence and chooses the official action.
+12. The portal freezes the exact action context in a two-minute intent and asks the manager to personally complete a fresh challenge for the owner-approved TOTP factor. One live intent and one receipt are allowed per actor; cancellation, expiry, replay, concurrent consume, reused/same-second authentication, enrollment change, mapping/case/evidence/duplicate-state change, or a shared/agent session fails closed.
+13. After the action-bound manager verification, the guarded backend may attempt Nayax execution only when the separate `#430` provider contract, reviewed gate-on migration, manager enrollment, recovery, privacy/security, and owner-UAT gates pass. Current official-action and Nayax controls remain hard-off. The case completes only after confirmed provider success.
+14. Token-bound confirmed provider success atomically completes the case and reporting before it creates one deterministic customer-facing completion-message operation in the original thread with the active mapped-manager set CC'd. It does not create a second internal manager completion email. Rejection, timeout, or unknown leaves the case open and sends no success or fallback message.
 
 ## Required refund facts
 
@@ -147,7 +149,7 @@ Every automatic message uses a versioned deterministic template, a durable opera
 
 | Template/version | Audience and use | Automatic-send boundary |
 | --- | --- | --- |
-| `refund_first_contact_v1` | Customer acknowledgement for the first eligible inbound Gmail message | Once per source thread; original-thread Gmail only; current mapped-manager CC required |
+| `refund_first_contact_v1` | Generic Bloomjoy hosted-form link for the first eligible inbound Gmail message | Once per source thread; original-thread Gmail only; one private context; no manager CC; not case-specific |
 | `refund_follow_up_v1` | Exact missing-information request, one bounded reminder, safe no-match confirmation, and one received-information confirmation per correction cycle | Deterministic fields only; maximum two cycles; current mapped-manager CC and contact gates required |
 | `refund_manager_aging_v1` | Internal mapped-manager reminder/escalation with the exact authenticated case link | Manager-only; one reminder at two and one escalation at five business days per attention version; independent aging gate |
 | `refund_nayax_completion_v1` | Humble original-thread customer confirmation after card refund success | Claimable only after token-bound confirmed provider success and atomic case/reporting completion; all current managers CC'd; no manager-only duplicate |
@@ -182,11 +184,11 @@ Preferred language is short, plain, humble, and specific. For example, use "We w
 
 ## Manager CC and participant safety
 
-Every customer-facing refund message requires a resolved machine and one to three currently active, non-revoked Machine Managers returned by the authoritative portal mapping at send time. This applies to manual and automatic Gmail delivery and to the transactional fallback path.
+Every case-specific customer-facing refund message requires a resolved machine and one to three currently active, non-revoked Machine Managers returned by the authoritative portal mapping at send time. This applies to manual and automatic Gmail delivery and to the transactional fallback path. The generic first-contact hosted-form link is the sole exception: it is sent before mapping, contains no case-specific facts, and has no manager CC.
 
 - The customer remains the To recipient.
 - Visible CC may expose manager work addresses to the customer and other mapped managers; production requires an approved recipient/privacy review and synthetic pilot identities.
-- Before the machine is resolved, or when the route has zero managers, an invalid/over-cap mapping, or an empty safe recipient set, no customer message is delivered. The system creates a redacted internal routing exception; even a request asking which machine was used waits until ownership is repaired. Never guess a manager.
+- Before the machine is resolved, no case-specific message is delivered. The only allowed message is the once-per-thread generic form link. After mapping, a zero-manager, invalid/over-cap, or empty safe recipient set blocks all customer delivery and creates a redacted internal routing exception. Never guess a manager.
 - The capped operations fallback is internal-only for routing repair. It excludes the customer and mailbox identities and can never substitute for the required customer-message CC.
 - Customer-visible messages contain no internal case URL, internal note, provider identifier, or complaint analysis.
 - Current mapped managers receive a separate deterministic, versioned notice containing only the public reference, public machine/location, business-day age, safe status, one recommended portal step, and canonical authenticated `/refunds?case=<case-id>` link for action-needed, aging, or exception work. It contains no card digits, complaint text, provider IDs, or provider payloads. A routing exception may instead use the capped internal operations fallback. Completion uses the single customer-facing message with manager CC and does not duplicate that confirmation.
@@ -200,7 +202,7 @@ Every customer-facing refund message requires a resolved machine and one to thre
 "First contact" means the first eligible inbound customer message in one provider Gmail thread.
 
 - Claim one durable operation key for the thread before sending.
-- Re-resolve the machine and one-to-three-manager route immediately before provider delivery; a claimed acknowledgement does not override the CC fail-closed rule.
+- Register and revalidate the private hosted-form context immediately before generic first-contact delivery. That one non-case-specific message has no manager CC. Re-resolve the machine and one-to-three-manager route immediately before every later case-specific delivery.
 - Do not trigger on bounces, mailing lists, bulk/automated messages, outbound messages, or later replies.
 - Use standard automatic-response suppression headers.
 - A known send failure becomes visible retry work. Uncertain delivery is reconciled and never retried blindly.
@@ -226,7 +228,7 @@ Agents should work the Hub queue and labeled mailbox rather than scanning all ma
 
 ## Proposed pilot cadence and service targets
 
-No refund inbox cadence is live today. The values below are proposed planning targets only and may start only after the applicable OAuth, privacy, recipient, template, kill-switch, synthetic-UAT, and owner go/no-go gates pass. The 30-minute business-hours target requires an Operations owner and staffing coverage decision and must not appear in customer copy. Customer waiting reminders belong to the bounded `#687` follow-up cycle; manager-only aging notices belong to `#685` and require scheduler implementation and fixture proof before enablement.
+No refund inbox cadence is live today. The current candidate is a scheduled poll, not an instant webhook: when enabled, a new email should normally be acknowledged within the ten-minute poll interval plus workflow startup time. Calling it “instantaneous” would be inaccurate. A faster event-driven responder is deferred unless the sponsor makes it a pilot requirement. The values below are proposed planning targets only and may start only after the applicable OAuth, privacy, recipient, template, kill-switch, synthetic-UAT, and owner go/no-go gates pass. The 30-minute business-hours target requires an Operations owner and staffing coverage decision and must not appear in customer copy. Customer waiting reminders belong to the bounded `#687` follow-up cycle; manager-only aging notices belong to `#685` and require scheduler implementation and fixture proof before enablement.
 
 - Gmail ingestion: every 10 minutes, 24/7, when enabled.
 - GPT draft preparation: every 10 minutes, staggered after ingestion, when enabled.
@@ -257,7 +259,7 @@ For `#685`, a business day is Monday through Friday in `America/Los_Angeles`, pr
 
 ## Integrated synthetic evidence contract
 
-Before this candidate can be considered release-ready, the same fresh workflow run must create exactly 34 reviewed synthetic screenshots plus these five strict, sanitized JSON artifacts:
+Before this candidate can be considered release-ready, the same fresh workflow run must create exactly 38 reviewed synthetic screenshots plus these five strict, sanitized JSON artifacts:
 
 - `refund-portal-assertions.json`;
 - `refund-database-counts.json`;
@@ -288,7 +290,7 @@ The evidence finalizer must reject stale, missing, extra, malformed, duplicate-i
 3. Participant-safe thread transport and mapped-manager CC: `#686`.
 4. Deterministic customer follow-up and versioned copy: `#687`.
 5. Mapped-manager aging reminders and canonical links: `#685` plus scheduler foundation `#632`.
-6. Designated production Gmail connection and retention/quarantine approval: `#634`.
+6. Designated production Gmail connection, copied-content retention, visible-CC privacy, and attachment-off approval: `#634`.
 7. Human-reviewed GPT evaluation and data controls: `#635`.
 8. Mapped Machine Manager-only official-action enforcement: `#689`.
 9. Owner-supervised manager-only TOTP enrollment, recovery, privacy/security review, fresh per-action challenge, and owner UAT: `#692`.
@@ -299,7 +301,7 @@ The evidence finalizer must reject stale, missing, extra, malformed, duplicate-i
 ## Success measures
 
 - zero duplicate first-contact acknowledgements;
-- zero customer messages delivered without one to three current active mapped managers in visible CC;
+- zero case-specific customer messages delivered without one to three current active mapped managers in visible CC, with the generic pre-mapping form link as the sole zero-CC exception;
 - zero email-originated refund decisions or Nayax calls;
 - zero unauthorized manager recipients;
 - zero manager Reply All messages misclassified as customer replies;
@@ -315,7 +317,7 @@ The evidence finalizer must reject stale, missing, extra, malformed, duplicate-i
 
 - designated production Gmail OAuth, label ownership, and synthetic smoke (`#634`);
 - mailbox-filter population, legacy responder inventory/cutover, and any verified `support@bloomjoysweets.com` alias/send-as plus matching Gmail `SENT` evidence;
-- 180-day copied-content retention and attachment quarantine approval;
+- 180-day copied-content retention, visible-CC privacy, and attachment-off approval;
 - visible CC recipient/privacy review and participant-classification UAT (`#686`);
 - merge and integrated UAT for the mapped Machine Manager-only boundary in `#689`; no break-glass policy is approved;
 - owner-supervised clean-manager TOTP enrollment and recovery ownership, privacy/security review, owner UAT, enrollment-window closure after the cohort is verified, and a separate reviewed gate-on migration for `#692`; official actions remain hard-off;

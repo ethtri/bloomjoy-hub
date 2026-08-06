@@ -858,6 +858,7 @@ export const sendRefundGmailReply = async ({
   inReplyTo,
   references,
   automatic = false,
+  recipientPolicy = "manager_cc_required",
 }: {
   config: RefundGmailConfig;
   providerThreadId: string;
@@ -871,6 +872,7 @@ export const sendRefundGmailReply = async ({
   inReplyTo?: string | null;
   references?: string | null;
   automatic?: boolean;
+  recipientPolicy?: "manager_cc_required" | "premapping_acknowledgement";
 }) => {
   requireRefundGmailEnabled();
   const effectiveDeliveryKind = automatic ? "automatic" : deliveryKind;
@@ -892,8 +894,14 @@ export const sendRefundGmailReply = async ({
   const mailboxIdentities = new Set(
     config.mailboxIdentities.map((value) => value.trim().toLowerCase()),
   );
+  const premappingNoCcAllowed =
+    recipientPolicy === "premapping_acknowledgement" &&
+    effectiveDeliveryKind === "automatic" &&
+    operationKey.startsWith("refund-first-contact:") &&
+    normalizedCc.length === 0 &&
+    ccEmails.length === 0;
   if (
-    normalizedCc.length === 0 ||
+    (!premappingNoCcAllowed && normalizedCc.length === 0) ||
     normalizedCc.length > 3 ||
     ccEmails.some((value) =>
       !isEmail(value.trim().toLowerCase()) ||

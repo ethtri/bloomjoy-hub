@@ -17,7 +17,6 @@ export type RefundFirstContactConfig = {
   errorCode: string | null;
   isolatedSenderEmails: string[];
   refundRequestUrl: string;
-  legacyRefundUrl: string;
   supportUrl: string;
 };
 
@@ -25,17 +24,14 @@ export type RefundFirstContactEmailInput = {
   publicReference: string;
   customerName?: string | null;
   refundRequestUrl: string;
-  legacyRefundUrl: string;
   supportUrl: string;
 };
 
 const DEFAULT_REFUND_REQUEST_URL =
   "https://www.bloomjoyusa.com/refunds/request";
-const DEFAULT_LEGACY_REFUND_URL = "https://forms.gle/qQDt2V7dFBFPqjyW6";
 const DEFAULT_SUPPORT_URL =
   "https://www.bloomjoyusa.com/resources#support-boundaries";
 const REFUND_HOSTS = new Set(["bloomjoyusa.com", "www.bloomjoyusa.com"]);
-const LEGACY_FORM_HOSTS = new Set(["forms.gle", "docs.google.com"]);
 const ACTIVE_DELIVERY_POLICY_INSTALLED = true;
 
 const sanitizeText = (value: unknown, maxLength: number) =>
@@ -90,7 +86,7 @@ const blockedConfig = (
   errorCode: string,
   links: Pick<
     RefundFirstContactConfig,
-    "refundRequestUrl" | "legacyRefundUrl" | "supportUrl"
+    "refundRequestUrl" | "supportUrl"
   >,
 ): RefundFirstContactConfig => ({
   mode: "blocked",
@@ -110,18 +106,13 @@ export const resolveRefundFirstContactConfig = (
     DEFAULT_REFUND_REQUEST_URL,
     REFUND_HOSTS,
   );
-  const legacyRefundUrl = httpsUrl(
-    env.REFUND_GMAIL_FIRST_CONTACT_LEGACY_URL,
-    DEFAULT_LEGACY_REFUND_URL,
-    LEGACY_FORM_HOSTS,
-  );
   const supportUrl = httpsUrl(
     env.REFUND_GMAIL_FIRST_CONTACT_SUPPORT_URL,
     DEFAULT_SUPPORT_URL,
     REFUND_HOSTS,
   );
-  const links = { refundRequestUrl, legacyRefundUrl, supportUrl };
-  if (!refundRequestUrl || !legacyRefundUrl || !supportUrl) {
+  const links = { refundRequestUrl, supportUrl };
+  if (!refundRequestUrl || !supportUrl) {
     return blockedConfig("first_contact_public_url_invalid", links);
   }
 
@@ -257,13 +248,8 @@ export const buildRefundFirstContactEmail = (
     : "";
   const customerName = sanitizeText(input.customerName, 160);
   const refundRequestUrl = httpsUrl(input.refundRequestUrl, "", REFUND_HOSTS);
-  const legacyRefundUrl = httpsUrl(
-    input.legacyRefundUrl,
-    "",
-    LEGACY_FORM_HOSTS,
-  );
   const supportUrl = httpsUrl(input.supportUrl, "", REFUND_HOSTS);
-  if (!refundRequestUrl || !legacyRefundUrl || !supportUrl) {
+  if (!refundRequestUrl || !supportUrl) {
     throw new Error("Valid public first-contact links are required.");
   }
 
@@ -278,9 +264,6 @@ export const buildRefundFirstContactEmail = (
     "",
     "For a refund review, please use our short request form:",
     refundRequestUrl,
-    "",
-    "While we finish this transition, the current backup refund form is still available here:",
-    legacyRefundUrl,
     "",
     "For troubleshooting or other support information, you can also visit:",
     supportUrl,
@@ -319,10 +302,6 @@ export const buildRefundFirstContactEmail = (
                     <p style="margin:0 0 18px;"><a href="${
     escapeHtml(refundRequestUrl)
   }" style="color:#b83262;font-weight:800;">Open the refund request form</a></p>
-                    <p style="font-size:14px;line-height:22px;margin:0 0 10px;color:#756877;">While we finish this transition, the current backup refund form remains available:</p>
-                    <p style="margin:0 0 18px;"><a href="${
-    escapeHtml(legacyRefundUrl)
-  }" style="color:#b83262;font-weight:700;">Open the backup refund form</a></p>
                     <p style="font-size:14px;line-height:22px;margin:0 0 18px;color:#756877;">For troubleshooting or other support information, <a href="${
     escapeHtml(supportUrl)
   }" style="color:#b83262;font-weight:700;">visit Bloomjoy support resources</a>.</p>
