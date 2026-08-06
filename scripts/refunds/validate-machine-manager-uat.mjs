@@ -588,6 +588,8 @@ const run = async () => {
     );
     const machineRow = page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' });
     await machineRow.getByText(secondManagerEmail).waitFor({ timeout: 10000 });
+    await machineRow.getByText(/Intake enabled/i).waitFor({ timeout: 10000 });
+    await machineRow.getByText(/Card lookup ready/i).waitFor({ timeout: 10000 });
     recorder.assert(
       'Saved Machine Managers are visible in the Machines list',
       await machineRow.getByText(secondManagerEmail).isVisible()
