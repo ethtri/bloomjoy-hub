@@ -6,6 +6,7 @@ export const CUSTOM_STICKS_FIRST_ORDER_PLATE_FEE = 750;
 export const BLANK_STICKS_BUSINESS_SHIPPING_PER_BOX = 35;
 export const BLANK_STICKS_RESIDENTIAL_SHIPPING_PER_BOX = 40;
 export const BLANK_STICKS_FREE_SHIPPING_BOX_THRESHOLD = 5;
+export const MAX_STICKS_BOXES_PER_CHECKOUT = 1000;
 
 export const STICK_SIZE_OPTIONS = [
   {
@@ -45,7 +46,7 @@ export const normalizeStickBoxCount = (value: number): number => {
     return 1;
   }
 
-  return Math.max(1, Math.floor(value));
+  return Math.min(MAX_STICKS_BOXES_PER_CHECKOUT, Math.max(1, Math.floor(value)));
 };
 
 export const shouldUseBlankSticksDirectCheckout = (boxCount: number): boolean =>

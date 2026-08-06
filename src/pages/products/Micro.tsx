@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { AlertCircle, ArrowRight, BookOpen, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
@@ -7,6 +7,7 @@ import { ProductImageGallery } from '@/components/products/ProductImageGallery';
 import { trackEvent } from '@/lib/analytics';
 import { trackBuyerFlowPlaybookLinkClick } from '@/lib/businessPlaybookAnalytics';
 import { MACHINE_NAMES } from '@/lib/machineNames';
+import { useCart } from '@/lib/cart';
 import microMain from '@/assets/real/micro-main.webp';
 import microGallery1 from '@/assets/real/micro-gallery-1.webp';
 import microGallery2 from '@/assets/real/micro-gallery-2.webp';
@@ -30,18 +31,28 @@ const microFitNotes = [
 ];
 
 const microPlanningNotes = [
-  'Micro is listed at $2,200 before shipping and final configuration.',
-  'Orders remain quote-led so Bloomjoy can confirm fit, delivery, and operator expectations.',
+  'The $2,200 Micro Machine purchase price is collected securely through Stripe checkout.',
+  'Bloomjoy follows up after payment to coordinate delivery and operator expectations.',
   'Operators should plan for sugar and paper-stick supplies through the Bloomjoy supplies flow.',
 ];
 
 export default function MicroPage() {
+  const navigate = useNavigate();
+  const { addItem } = useCart();
+
   useEffect(() => {
     trackEvent('view_product_micro');
   }, []);
 
-  const handleQuoteRequest = () => {
-    trackEvent('click_quote_micro');
+  const handleBuyMicro = () => {
+    addItem({
+      sku: 'micro',
+      name: `Bloomjoy Sweets ${MACHINE_NAMES.micro}`,
+      price: 2200,
+      type: 'machine',
+    });
+    trackEvent('add_to_cart', { sku: 'micro', quantity: 1 });
+    navigate('/cart');
   };
 
   return (
@@ -79,14 +90,15 @@ export default function MicroPage() {
               </p>
 
               <div className="mt-8 space-y-4">
-                <Button asChild variant="hero" size="xl" className="w-full">
-                  <Link
-                    to="/contact?type=quote&interest=micro&source=%2Fmachines%2Fmicro"
-                    onClick={handleQuoteRequest}
-                  >
-                    Request a Quote
+                <Button
+                  type="button"
+                  variant="hero"
+                  size="xl"
+                  className="w-full"
+                  onClick={handleBuyMicro}
+                >
+                    Buy Micro Machine
                     <ArrowRight className="ml-2 h-5 w-5" />
-                  </Link>
                 </Button>
                 <Button asChild variant="hero-outline" size="lg" className="w-full">
                   <Link to="/supplies">

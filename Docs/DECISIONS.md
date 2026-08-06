@@ -804,3 +804,27 @@ Bloomjoy Hub authentication emails for partner activation, passwordless sign-in,
 - Corporate email-security products may prefetch links and consume one-time confirmation URLs before a recipient clicks them.
 - Manual code submission proves the human recipient initiated verification and keeps credentials out of URLs, browser history, logs, and analytics.
 - A temporary session makes abandoned or reloaded invitation setup fail closed instead of leaving authenticated portal access active before password creation.
+
+## 2026-08-06 - Payment-first storefront and Commercial-only quote policy (`#715`)
+
+Bloomjoy will collect payment on the website before beginning fulfillment or sending new-sale operations alerts. The BloomDirect Commercial Machine is the only product that uses a quote/request flow.
+
+**Canonical purchase paths**
+- Sugar: direct Stripe checkout with server-selected member or standard pricing.
+- Bloomjoy branded sticks: direct Stripe checkout for 1-1000 boxes; 1-4 boxes use the existing business/residential per-box shipping rule and 5+ boxes ship free.
+- Micro Machine: direct Stripe checkout at the server-configured Price ID; a server-configured Stripe Shipping Rate is required and checkout fails closed if either is missing.
+- Bloomjoy Plus: direct Stripe subscription checkout.
+- Commercial Machine: quote request; variable configuration and delivery remain offline.
+- Mini Machine and custom sticks: visibly unavailable, with no quote/procurement form, until a complete payment-first checkout is ready. Custom sticks must account for artwork proofing and the first-order plate fee before reopening.
+
+**Payment and notification safeguards**
+- Client prices are display-only. Stripe Price IDs, Micro shipping, stick shipping, allowed SKUs, and quantity limits are enforced server-side.
+- Stripe Checkout enables Automatic Tax. Production tax collection remains gated on the appropriate Stripe Tax registrations, product tax codes/tax behavior, and owner/tax-advisor approval; enabling the calculation path does not create a registration.
+- Physical order rows and notifications are created only when Stripe reports `payment_status=paid`. Delayed-payment success uses the same idempotent path.
+- Paid physical orders send idempotent internal email to Ethan and Ian (plus configured recipients), customer confirmation, and a non-blocking WeCom alert. Paid Plus activation sends idempotent Ethan/Ian email and WeCom alert.
+- Checkout return pages verify the server-side Stripe session before claiming payment success or clearing the cart.
+
+**Production rollout gates**
+- Configure and verify `STRIPE_MICRO_PRICE_ID` and `STRIPE_MICRO_SHIPPING_RATE_ID` in test mode, then production.
+- Confirm Stripe Tax registrations, product tax codes, Price tax behavior, and checkout tax results with the business owner/tax advisor.
+- Apply the order-type migration, deploy the reviewed Edge Functions, and capture test-mode evidence for paid, canceled, unpaid/delayed, replayed, and mixed-cart cases before go-live.

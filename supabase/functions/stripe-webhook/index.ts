@@ -8,6 +8,10 @@ import {
 } from "../_shared/internal-email.ts";
 import { sendWeComAlertResult } from "../_shared/wecom-alert.ts";
 import { buildCustomerOrderEmail } from "../_shared/customer-order-email.ts";
+import {
+  buildOrderEmailIdempotencyKey,
+  shouldFulfillCheckoutSession,
+} from "../_shared/paid-checkout.mjs";
 
 export const config = {
   verify_jwt: false,
@@ -58,7 +62,7 @@ type StripeLineItemSummary = {
   metadata?: Record<string, unknown>;
 };
 
-type OrderType = "sugar" | "blank_sticks" | "unknown";
+type OrderType = "sugar" | "blank_sticks" | "micro_machine" | "mixed" | "unknown";
 type PricingTier = "plus_member" | "standard" | null;
 
 type AddressSnapshot = {
@@ -88,6 +92,10 @@ type BlankSticksSummary = {
   free_shipping: boolean;
 };
 
+type MicroMachineSummary = {
+  quantity: number;
+};
+
 type PersistedOrderRow = {
   id: string;
   internal_notification_sent_at: string | null;
@@ -113,6 +121,7 @@ type OrderContext = {
   lineItems: StripeLineItemSummary[];
   sugarMix: SugarMixSummary;
   blankSticks: BlankSticksSummary | null;
+  microMachine: MicroMachineSummary | null;
   existingInternalNotificationSentAt: string | null;
   existingCustomerConfirmationSentAt: string | null;
   existingWeComAlertSentAt: string | null;
@@ -121,14 +130,16 @@ type OrderContext = {
 const claimDispatch = async (
   eventKey: string,
   sourceId: string,
-  meta: Record<string, unknown>
+  meta: Record<string, unknown>,
+  dispatchType = "order_checkout",
+  sourceTable = "orders",
 ): Promise<boolean> => {
   if (!supabase) return false;
 
   const { error } = await supabase.from("internal_notification_dispatches").insert({
     event_key: eventKey,
-    dispatch_type: "order_checkout",
-    source_table: "orders",
+    dispatch_type: dispatchType,
+    source_table: sourceTable,
     source_id: sourceId,
     meta,
   });
@@ -231,6 +242,10 @@ const formatOrderType = (orderType: OrderType) => {
       return "Sugar";
     case "blank_sticks":
       return "Bloomjoy branded sticks";
+    case "micro_machine":
+      return "Micro Machine";
+    case "mixed":
+      return "Mixed storefront";
     default:
       return "Unknown";
   }
@@ -412,10 +427,24 @@ const buildLineItemSummary = (lineItems: StripeLineItemSummary[]) =>
 const coerceOrderType = (
   value: string | null | undefined,
   sugarMix: SugarMixSummary,
-  blankSticks: BlankSticksSummary
+  blankSticks: BlankSticksSummary,
+  microMachine: MicroMachineSummary
 ): OrderType => {
-  if (value === "sugar" || value === "blank_sticks") {
+  if (
+    value === "sugar" ||
+    value === "blank_sticks" ||
+    value === "micro_machine" ||
+    value === "mixed"
+  ) {
     return value;
+  }
+
+  if (sugarMix.total_kg > 0 && microMachine.quantity > 0) {
+    return "mixed";
+  }
+
+  if (microMachine.quantity > 0) {
+    return "micro_machine";
   }
 
   if (sugarMix.total_kg > 0) {
@@ -431,9 +460,10 @@ const coerceOrderType = (
 
 const buildInternalOrderEmail = (context: OrderContext) => {
   const lineItemSummary = buildLineItemSummary(context.lineItems);
-  const detailSection =
-    context.orderType === "blank_sticks"
-      ? [
+  let detailSection: string[];
+
+  if (context.orderType === "blank_sticks") {
+    detailSection = [
         "",
         "Bloomjoy Branded Stick Details:",
         `- Boxes: ${context.blankSticks?.box_count ?? "n/a"}`,
@@ -446,8 +476,15 @@ const buildInternalOrderEmail = (context: OrderContext) => {
             : "USD 0.00"
         }`,
         `- Free shipping: ${context.blankSticks?.free_shipping ? "Yes" : "No"}`,
-      ]
-      : [
+      ];
+  } else if (context.orderType === "micro_machine") {
+    detailSection = [
+      "",
+      "Micro Machine Details:",
+      `- Quantity: ${context.microMachine?.quantity ?? "n/a"}`,
+    ];
+  } else {
+    detailSection = [
         "",
         "Sugar Breakdown (KG):",
         `- White: ${context.sugarMix.white_kg}`,
@@ -456,6 +493,15 @@ const buildInternalOrderEmail = (context: OrderContext) => {
         `- Red: ${context.sugarMix.red_kg}`,
         `- Total: ${context.sugarMix.total_kg}`,
       ];
+
+    if (context.orderType === "mixed") {
+      detailSection.push(
+        "",
+        "Micro Machine Details:",
+        `- Quantity: ${context.microMachine?.quantity ?? "n/a"}`,
+      );
+    }
+  }
 
   return {
     subject: `New ${formatOrderType(context.orderType).toLowerCase()} order: ${context.session.id}`,
@@ -492,6 +538,19 @@ const buildInternalOrderEmail = (context: OrderContext) => {
   };
 };
 
+const buildWeComProductSummary = (context: OrderContext): string => {
+  if (context.orderType === "blank_sticks") {
+    return `Boxes / Pieces per box: ${context.blankSticks?.box_count ?? "n/a"} / ${context.blankSticks?.pieces_per_box ?? "n/a"}`;
+  }
+  if (context.orderType === "micro_machine") {
+    return `Micro Machines: ${context.microMachine?.quantity ?? "n/a"}`;
+  }
+  if (context.orderType === "mixed") {
+    return `Sugar KG: ${context.sugarMix.total_kg}; Micro Machines: ${context.microMachine?.quantity ?? "n/a"}`;
+  }
+  return `Sugar KG (W/B/O/R/T): ${context.sugarMix.white_kg}/${context.sugarMix.blue_kg}/${context.sugarMix.orange_kg}/${context.sugarMix.red_kg}/${context.sugarMix.total_kg}`;
+};
+
 const buildWeComAlertLines = (context: OrderContext): string[] => [
   `Checkout Session ID: ${context.session.id}`,
   `Order Type: ${formatOrderType(context.orderType)}`,
@@ -502,9 +561,7 @@ const buildWeComAlertLines = (context: OrderContext): string[] => [
   `Customer Name: ${context.customerName ?? "n/a"}`,
   `Shipping Name: ${context.shippingName ?? "n/a"}`,
   `Admin Orders: ${adminOrdersUrl}`,
-  context.orderType === "blank_sticks"
-    ? `Boxes / Pieces per box: ${context.blankSticks?.box_count ?? "n/a"} / ${context.blankSticks?.pieces_per_box ?? "n/a"}`
-    : `Sugar KG (W/B/O/R/T): ${context.sugarMix.white_kg}/${context.sugarMix.blue_kg}/${context.sugarMix.orange_kg}/${context.sugarMix.red_kg}/${context.sugarMix.total_kg}`,
+  buildWeComProductSummary(context),
 ];
 
 const updateOrderNotificationState = async (
@@ -552,6 +609,10 @@ async function upsertOrder(session: Stripe.Checkout.Session): Promise<OrderConte
     free_shipping: String(expanded.metadata?.sticks_free_shipping ?? "false") === "true",
   };
 
+  const microMachine: MicroMachineSummary = {
+    quantity: parseNumber(expanded.metadata?.micro_machine_quantity),
+  };
+
   if (sugarMix.total_kg > 0) {
     lineItems.push({
       description: "Sugar mix breakdown",
@@ -574,7 +635,23 @@ async function upsertOrder(session: Stripe.Checkout.Session): Promise<OrderConte
     });
   }
 
-  const orderType = coerceOrderType(expanded.metadata?.order_type, sugarMix, blankSticks);
+  if (microMachine.quantity > 0) {
+    lineItems.push({
+      description: "Micro Machine order details",
+      quantity: microMachine.quantity,
+      amount_total: null,
+      currency: expanded.currency,
+      price_id: null,
+      metadata: microMachine,
+    });
+  }
+
+  const orderType = coerceOrderType(
+    expanded.metadata?.order_type,
+    sugarMix,
+    blankSticks,
+    microMachine,
+  );
   const pricingTier =
     expanded.metadata?.pricing_tier === "plus_member" || expanded.metadata?.pricing_tier === "standard"
       ? expanded.metadata.pricing_tier
@@ -666,6 +743,7 @@ async function upsertOrder(session: Stripe.Checkout.Session): Promise<OrderConte
     sugarMix,
     blankSticks:
       blankSticks.box_count > 0 || blankSticks.pieces_per_box > 0 ? blankSticks : null,
+    microMachine: microMachine.quantity > 0 ? microMachine : null,
     existingInternalNotificationSentAt: persistedOrder.internal_notification_sent_at,
     existingCustomerConfirmationSentAt: persistedOrder.customer_confirmation_sent_at,
     existingWeComAlertSentAt: persistedOrder.wecom_alert_sent_at,
@@ -691,7 +769,10 @@ const sendInternalOrderNotification = async (context: OrderContext) => {
   const email = buildInternalOrderEmail(context);
 
   try {
-    await sendInternalEmail(email);
+    await sendInternalEmail({
+      ...email,
+      idempotencyKey: buildOrderEmailIdempotencyKey("internal", context.session.id),
+    });
     await updateOrderNotificationState(context.orderId, {
       internal_notification_sent_at: new Date().toISOString(),
       internal_notification_error: null,
@@ -709,6 +790,7 @@ const sendInternalOrderNotification = async (context: OrderContext) => {
       internal_notification_error: message,
     });
     await releaseDispatch(eventKey);
+    throw new Error(`Internal order notification failed: ${message}`);
   }
 };
 
@@ -754,6 +836,7 @@ const sendCustomerConfirmation = async (context: OrderContext) => {
     receiptUrl: context.receiptUrl,
     sugarMix: context.sugarMix,
     blankSticks: context.blankSticks,
+    microMachine: context.microMachine,
   });
 
   try {
@@ -762,6 +845,7 @@ const sendCustomerConfirmation = async (context: OrderContext) => {
       subject: email.subject,
       text: email.text,
       html: email.html,
+      idempotencyKey: buildOrderEmailIdempotencyKey("customer", context.session.id),
     });
     await updateOrderNotificationState(context.orderId, {
       customer_confirmation_sent_at: new Date().toISOString(),
@@ -780,6 +864,7 @@ const sendCustomerConfirmation = async (context: OrderContext) => {
       customer_confirmation_error: message,
     });
     await releaseDispatch(eventKey);
+    throw new Error(`Customer order confirmation failed: ${message}`);
   }
 };
 
@@ -828,9 +913,131 @@ const sendWeComOrderAlert = async (context: OrderContext) => {
 const sendOrderNotifications = async (context: OrderContext | null) => {
   if (!context) return;
 
-  await sendInternalOrderNotification(context);
-  await sendCustomerConfirmation(context);
-  await sendWeComOrderAlert(context);
+  const [internalResult, customerResult] = await Promise.allSettled([
+    sendInternalOrderNotification(context),
+    sendCustomerConfirmation(context),
+    sendWeComOrderAlert(context),
+  ]);
+
+  const retryableFailures = [internalResult, customerResult]
+    .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+    .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason));
+
+  if (retryableFailures.length) {
+    throw new Error(retryableFailures.join("; "));
+  }
+};
+
+const sendPlusActivationNotifications = async (session: Stripe.Checkout.Session) => {
+  if (!supabase) return;
+
+  const customerEmail = normalizeString(session.customer_details?.email) ||
+    normalizeString(session.customer_email);
+  const customerName = normalizeString(session.customer_details?.name);
+  const amount = formatCurrency(session.amount_total, session.currency);
+  const internalEventKey = `plus_subscription:internal:${session.id}`;
+  const weComEventKey = `plus_subscription:wecom:${session.id}`;
+  const claimMeta = {
+    checkout_session_id: session.id,
+    channel: "internal_email",
+  };
+
+  const sendInternal = async () => {
+    const claimed = await claimDispatch(
+      internalEventKey,
+      session.id,
+      claimMeta,
+      "plus_subscription_activated",
+      "stripe_checkout_sessions",
+    );
+    if (!claimed) return;
+
+    try {
+      await sendInternalEmail({
+        subject: `New Bloomjoy Plus subscription: ${session.id}`,
+        text: [
+          "A paid Bloomjoy Plus subscription checkout completed.",
+          "",
+          `Checkout Session ID: ${session.id}`,
+          `Payment Status: ${session.payment_status || "unpaid"}`,
+          `Amount: ${amount}`,
+          `Customer Email: ${customerEmail ?? "n/a"}`,
+          `Customer Name: ${customerName ?? "n/a"}`,
+          `User ID: ${normalizeString(session.metadata?.user_id) ?? "n/a"}`,
+          "",
+          "Next step: confirm Plus access is active in the Bloomjoy admin account console.",
+        ].join("\n"),
+        idempotencyKey: buildOrderEmailIdempotencyKey("plus-internal", session.id),
+      });
+      await markDispatchSent(internalEventKey, {
+        ...claimMeta,
+        customer_email: customerEmail,
+      });
+    } catch (error) {
+      await releaseDispatch(internalEventKey);
+      throw error;
+    }
+  };
+
+  const sendWeCom = async () => {
+    const claimed = await claimDispatch(
+      weComEventKey,
+      session.id,
+      { ...claimMeta, channel: "wecom_alert" },
+      "plus_subscription_activated",
+      "stripe_checkout_sessions",
+    );
+    if (!claimed) return;
+
+    const result = await sendWeComAlertResult({
+      tag: "Bloomjoy Plus",
+      title: `New paid Plus subscription: ${session.id}`,
+      lines: [
+        `Payment Status: ${session.payment_status || "unpaid"}`,
+        `Amount: ${amount}`,
+        `Customer Email: ${customerEmail ?? "n/a"}`,
+        `Customer Name: ${customerName ?? "n/a"}`,
+      ],
+    });
+
+    if (result.ok) {
+      await markDispatchSent(weComEventKey, {
+        ...claimMeta,
+        channel: "wecom_alert",
+        customer_email: customerEmail,
+      });
+      return;
+    }
+
+    await releaseDispatch(weComEventKey);
+  };
+
+  const [internalResult] = await Promise.allSettled([sendInternal(), sendWeCom()]);
+  if (internalResult.status === "rejected") {
+    throw internalResult.reason;
+  }
+};
+
+const processPaidCheckoutSession = async (
+  eventType: string,
+  session: Stripe.Checkout.Session,
+) => {
+  if (shouldFulfillCheckoutSession(eventType, session, "subscription")) {
+    await sendPlusActivationNotifications(session);
+    return;
+  }
+
+  if (!shouldFulfillCheckoutSession(eventType, session)) {
+    console.info("Skipping unpaid checkout fulfillment", {
+      event_type: eventType,
+      checkout_session_id: session.id,
+      payment_status: session.payment_status,
+    });
+    return;
+  }
+
+  const orderContext = await upsertOrder(session);
+  await sendOrderNotifications(orderContext);
 };
 
 serve(async (req) => {
@@ -873,10 +1080,12 @@ serve(async (req) => {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
-        if (session.mode === "payment") {
-          const orderContext = await upsertOrder(session);
-          await sendOrderNotifications(orderContext);
-        }
+        await processPaidCheckoutSession(event.type, session);
+        break;
+      }
+      case "checkout.session.async_payment_succeeded": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        await processPaidCheckoutSession(event.type, session);
         break;
       }
       case "customer.subscription.created":

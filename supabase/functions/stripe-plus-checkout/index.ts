@@ -138,17 +138,21 @@ serve(async (req) => {
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       line_items: [{ price: plusPriceId, quantity: 1 }],
+      automatic_tax: { enabled: true },
       success_url: successUrl,
       cancel_url: cancelUrl,
+      billing_address_collection: "required",
       customer_email: authResult.user.email ?? undefined,
       client_reference_id: authResult.user.id,
       allow_promotion_codes: true,
       metadata: {
+        order_type: "plus_subscription",
         billing_model: "flat_monthly",
         user_id: authResult.user.id,
       },
       subscription_data: {
         metadata: {
+          order_type: "plus_subscription",
           billing_model: "flat_monthly",
           user_id: authResult.user.id,
         },

@@ -1,4 +1,4 @@
-type OrderType = "sugar" | "blank_sticks" | "unknown";
+type OrderType = "sugar" | "blank_sticks" | "micro_machine" | "mixed" | "unknown";
 type PricingTier = "plus_member" | "standard" | null;
 
 type AddressSnapshot = {
@@ -25,6 +25,10 @@ type BlankSticksSummary = {
   address_type: string | null;
 };
 
+type MicroMachineSummary = {
+  quantity: number;
+};
+
 export type CustomerOrderEmailContext = {
   orderReference: string;
   orderPlacedAt: string;
@@ -41,6 +45,7 @@ export type CustomerOrderEmailContext = {
   receiptUrl: string | null;
   sugarMix: SugarMixSummary;
   blankSticks: BlankSticksSummary | null;
+  microMachine: MicroMachineSummary | null;
 };
 
 export type CustomerOrderEmailPayload = {
@@ -117,6 +122,10 @@ const formatOrderType = (orderType: OrderType) => {
       return "Sugar";
     case "blank_sticks":
       return "Bloomjoy branded paper sticks";
+    case "micro_machine":
+      return "Micro Machine";
+    case "mixed":
+      return "Bloomjoy storefront order";
     default:
       return "Order";
   }
@@ -128,6 +137,10 @@ const formatOrderTypeNoun = (orderType: OrderType) => {
       return "sugar";
     case "blank_sticks":
       return "branded paper sticks";
+    case "micro_machine":
+      return "Micro Machine";
+    case "mixed":
+      return "storefront";
     default:
       return "order";
   }
@@ -195,6 +208,21 @@ const buildOrderSpecificRows = (context: CustomerOrderEmailContext): DetailRow[]
       ["Pieces per box", String(context.blankSticks?.pieces_per_box ?? "n/a")],
       ["Stick size", formatStickSize(context.blankSticks?.stick_size)],
       ["Address type", formatAddressType(context.blankSticks?.address_type)],
+    ];
+  }
+
+  if (context.orderType === "micro_machine") {
+    return [
+      ["Product", "Bloomjoy Sweets Micro Machine"],
+      ["Quantity", String(context.microMachine?.quantity ?? "n/a")],
+    ];
+  }
+
+  if (context.orderType === "mixed") {
+    return [
+      ["Products", "Premium cotton candy sugar and Bloomjoy Sweets Micro Machine"],
+      ["Sugar total", `${context.sugarMix.total_kg} KG`],
+      ["Micro Machine quantity", String(context.microMachine?.quantity ?? "n/a")],
     ];
   }
 
@@ -270,6 +298,8 @@ export const buildCustomerOrderEmail = (
       ? "Your Bloomjoy branded paper sticks order is confirmed"
       : context.orderType === "sugar"
         ? "Your Bloomjoy sugar order is confirmed"
+        : context.orderType === "micro_machine"
+          ? "Your Bloomjoy Micro Machine order is confirmed"
         : "Your Bloomjoy order is confirmed";
 
   const text = [

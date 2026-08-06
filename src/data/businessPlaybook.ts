@@ -226,8 +226,8 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
       ],
     },
     primaryCta: {
-      label: "Request a machine quote",
-      href: "/contact?type=quote&source=%2Fresources%2Fbusiness-playbook%2Fhow-to-start-cotton-candy-vending-business",
+      label: "Request a Commercial quote",
+      href: "/contact?type=quote&interest=commercial&source=%2Fresources%2Fbusiness-playbook%2Fhow-to-start-cotton-candy-vending-business",
     },
     secondaryCta: {
       label: "Compare machines",
@@ -912,8 +912,8 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
       ],
     },
     primaryCta: {
-      label: "Request a personalized quote",
-      href: "/contact?type=quote&source=%2Fresources%2Fbusiness-playbook%2Fstartup-budget-checklist-cotton-candy-machine-business",
+      label: "Request a Commercial quote",
+      href: "/contact?type=quote&interest=commercial&source=%2Fresources%2Fbusiness-playbook%2Fstartup-budget-checklist-cotton-candy-machine-business",
     },
     secondaryCta: {
       label: "Shop opening supplies",
@@ -2111,8 +2111,8 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
       ],
     },
     primaryCta: {
-      label: "Request a quote when ready",
-      href: "/contact?type=quote&source=%2Fresources%2Fbusiness-playbook%2Fbusiness-setup-basics-llc-ein-insurance-permits",
+      label: "Request a Commercial quote when ready",
+      href: "/contact?type=quote&interest=commercial&source=%2Fresources%2Fbusiness-playbook%2Fbusiness-setup-basics-llc-ein-insurance-permits",
     },
     secondaryCta: {
       label: "Read the startup budget checklist",

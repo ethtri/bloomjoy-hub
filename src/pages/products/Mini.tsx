@@ -42,9 +42,9 @@ const miniFitNotes = [
 ];
 
 const miniPlanningNotes = [
-  'Mini is available now at a $4,000 baseline machine price.',
-  'Shipping and final configuration are confirmed during quote review.',
-  'Use the quote form to confirm venue fit, operator handoff, and opening supplies.',
+  'Mini is coming soon and is not currently available to order.',
+  'Payment-first online ordering will open after the final price and shipping policy are ready.',
+  'No quote or unpaid order request is accepted while Mini remains unavailable.',
 ];
 
 const specHighlights = [
@@ -71,7 +71,7 @@ const proofClips = [
   {
     title: 'Real operation cycle',
     description:
-      'A public Mini operation clip so buyers can see the machine rhythm, movement, and output style before a quote call.',
+      'A public Mini operation clip so buyers can see the machine rhythm, movement, and output style before ordering launches.',
     src: '/media/mini/mini-operation-proof.mp4',
     poster: '/media/mini/mini-operation-poster.jpg',
   },
@@ -94,7 +94,7 @@ const proofClips = [
 const throughputNotes = [
   'Plan from roughly one candy every 90 seconds, or about 40 candies per hour of machine-cycle capacity.',
   'Real serving throughput changes with manual stick feeding, guest/payment flow, pattern choice, staffing, setup, and how much conversation is part of the experience.',
-  'For compact or lower-volume environments, quote review should confirm whether the service model is a staffed amenity, scheduled pop-up, or occasional guest surprise.',
+  'For compact or lower-volume environments, launch planning should confirm whether the service model is a staffed amenity, scheduled pop-up, or occasional guest surprise.',
 ];
 
 const compactFitNotes = [
@@ -124,7 +124,7 @@ const planningEstimates = [
     label: 'Curated service planning',
     value: 'Below staffed event pace',
     basis:
-      'Use the 90-second machine cycle as the ceiling, then discount for manual stick handling, guest interaction, payment flow, pattern choice, and resets. Confirm the target service window during quote review.',
+      'Use the 90-second machine cycle as the ceiling, then discount for manual stick handling, guest interaction, payment flow, pattern choice, and resets. Confirm the target service window during launch planning.',
   },
   {
     label: 'Initial staff ramp',
@@ -209,7 +209,7 @@ const operationalFit = [
 
 const reliabilityNotes = [
   'Mini sits in the same core operating and support family as the Commercial Machine, packaged into a smaller cabinet and manual-stick service model.',
-  'Machine warranty coverage follows the same public posture as Commercial: up to 1.5 years, with final terms confirmed during quote and handoff.',
+  'Machine warranty coverage follows the same public posture as Commercial: up to 1.5 years, with final terms confirmed when payment-first ordering launches and during handoff.',
   'Manufacturer support provides 24/7 first-line remote technical support via WeChat for diagnostics, troubleshooting, warranty service, and replacement-part workflow.',
   'Manufacturer remote response timing depends on channel availability, time zone, and issue context; Bloomjoy concierge support helps triage, translate, escalate, and coordinate parts during US business hours.',
   'Common operator checks include dry sugar feed, sugar fill level and cap seal, paper-stick position, output path debris, sugar pickup or sensor areas, and burner/spinner residue.',
@@ -226,10 +226,6 @@ export default function MiniPage() {
   useEffect(() => {
     trackEvent('view_product_mini');
   }, []);
-
-  const handleRequestQuote = () => {
-    trackEvent('click_request_quote_mini');
-  };
 
   return (
     <Layout>
@@ -251,8 +247,8 @@ export default function MiniPage() {
             </div>
 
             <div>
-              <span className="rounded-full bg-sage-light px-3 py-1 text-sm font-semibold text-sage">
-                Available Now
+              <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">
+                Coming Soon
               </span>
               <h1 className="mt-4 font-display text-3xl font-bold text-foreground sm:text-4xl">
                 Bloomjoy Sweets {MACHINE_NAMES.mini}
@@ -261,14 +257,14 @@ export default function MiniPage() {
                 $4,000
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Baseline machine price; shipping and final configuration are quoted separately.
+                Expected baseline price; final payment-first launch details are still being prepared.
               </p>
 
               <p className="mt-6 text-lg leading-relaxed text-muted-foreground">
                 Portable robotic cotton candy machine at 1/5 the size of our commercial unit.
-                Mini is available now for operators who want Bloomjoy pattern capability in a
-                smaller footprint, with quote review used to confirm configuration, shipping, and
-                onboarding before finalizing the order.
+                Mini is being prepared for operators who want Bloomjoy pattern capability in a
+                smaller footprint. Ordering will open only when the complete payment-first flow is
+                ready.
               </p>
 
               <div className="mt-6 rounded-lg border border-sage/20 bg-sage-light/40 p-4">
@@ -281,18 +277,11 @@ export default function MiniPage() {
               </div>
 
               <div className="mt-8 space-y-4">
-                <Link
-                  to="/contact?type=quote&interest=mini&source=%2Fmachines%2Fmini"
-                  onClick={handleRequestQuote}
-                >
-                  <Button variant="hero" size="xl" className="w-full">
-                    Request a Quote
-                    <ArrowRight className="ml-2 h-5 w-5" />
-                  </Button>
-                </Link>
+                <Button variant="hero" size="xl" className="w-full" disabled>
+                  Coming Soon
+                </Button>
                 <p className="text-center text-sm text-muted-foreground">
-                  Mini orders are handled through our quote flow so we can confirm fit, shipping,
-                  and operator handoff details before invoicing.
+                  Mini orders will use online payment when the product launches.
                 </p>
               </div>
 
@@ -497,7 +486,7 @@ export default function MiniPage() {
           <div className="mt-6 overflow-hidden rounded-xl border border-border bg-background">
             <div className="border-b border-border bg-muted/30 px-4 py-3">
               <h3 className="font-display text-lg font-semibold text-foreground">
-                Operating assumptions for quote review
+                Operating assumptions for launch planning
               </h3>
               <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
                 Use these inputs to size staffing, cleaning, service flow, and placement.
@@ -553,7 +542,7 @@ export default function MiniPage() {
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
               Use these short clips to evaluate service rhythm, manual stick handling, cabinet
-              access, and guest-facing motion before the quote conversation.
+              access, and guest-facing motion before payment-first ordering launches.
             </p>
           </div>
 
@@ -731,8 +720,8 @@ export default function MiniPage() {
                     Reliability and Support
                   </h2>
                   <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                    Component, warranty, and support details should be confirmed during quote
-                    review, but the public support posture is aligned with the Commercial Machine.
+                    Component, warranty, and support details will be confirmed when payment-first
+                    ordering launches, but the public support posture is aligned with the Commercial Machine.
                   </p>
                 </div>
               </div>

@@ -7,6 +7,13 @@ interface CheckoutResponse {
   error?: string;
 }
 
+interface CheckoutStatusResponse {
+  paymentStatus?: string;
+  checkoutStatus?: string;
+  orderType?: string;
+  error?: string;
+}
+
 interface BlankSticksCheckoutInput {
   boxCount: number;
   stickSize: StickSize;
@@ -17,7 +24,7 @@ export async function startPlusCheckout(origin: string) {
   const data = await invokeEdgeFunction<CheckoutResponse>(
     'stripe-plus-checkout',
     {
-      successUrl: `${origin}/plus?checkout=success`,
+      successUrl: `${origin}/plus?checkout=return&session_id={CHECKOUT_SESSION_ID}`,
       cancelUrl: `${origin}/plus?checkout=cancel`,
     },
     {
@@ -52,7 +59,7 @@ export async function openCustomerPortal(origin: string) {
   return data.url;
 }
 
-export async function startSugarCheckout(items: CartItem[], origin: string) {
+export async function startStorefrontCheckout(items: CartItem[], origin: string) {
   const data = await invokeEdgeFunction<CheckoutResponse>(
     'stripe-sugar-checkout',
     {
@@ -61,7 +68,7 @@ export async function startSugarCheckout(items: CartItem[], origin: string) {
         quantity: item.quantity,
         type: item.type,
       })),
-      successUrl: `${origin}/cart?checkout=success`,
+      successUrl: `${origin}/cart?checkout=return&session_id={CHECKOUT_SESSION_ID}`,
       cancelUrl: `${origin}/cart?checkout=cancel`,
     },
     {
@@ -86,7 +93,7 @@ export async function startBlankSticksCheckout(
       boxCount,
       stickSize,
       addressType,
-      successUrl: `${origin}/supplies?sticksCheckout=success`,
+      successUrl: `${origin}/supplies?sticksCheckout=return&session_id={CHECKOUT_SESSION_ID}`,
       cancelUrl: `${origin}/supplies?sticksCheckout=cancel`,
     },
     {
@@ -99,4 +106,21 @@ export async function startBlankSticksCheckout(
   }
 
   return data.url;
+}
+
+export async function getCheckoutStatus(sessionId: string) {
+  const data = await invokeEdgeFunction<CheckoutStatusResponse>(
+    'stripe-checkout-status',
+    { sessionId }
+  );
+
+  if (!data?.paymentStatus) {
+    throw new Error(data?.error || 'Checkout status is unavailable.');
+  }
+
+  return {
+    paymentStatus: data.paymentStatus,
+    checkoutStatus: data.checkoutStatus ?? null,
+    orderType: data.orderType ?? 'unknown',
+  };
 }

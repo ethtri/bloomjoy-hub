@@ -53,8 +53,8 @@ export const products: Record<string, Product> = {
     limitations: [
       'No automatic stick dispenser—operator manually feeds each stick'
     ],
-    ctaType: 'quote',
-    inStock: true,
+    ctaType: 'waitlist',
+    inStock: false,
   },
   'micro': {
     sku: 'micro',
@@ -165,8 +165,8 @@ export const products: Record<string, Product> = {
     type: 'supply',
     price: STICKS_PRICE_PER_BOX,
     description:
-      'Custom logo/image paper sticks, 2000 pieces per box. Artwork proofing is required before fulfillment and the first custom order adds a plate fee.',
-    shortDescription: `${STICKS_PIECES_PER_BOX} custom paper sticks per box`,
+      'Custom logo/image paper sticks are being prepared for a payment-first checkout with artwork proofing and first-order plate-fee handling.',
+    shortDescription: 'Payment-first custom sticks checkout coming soon',
     features: [
       'Compatible with all Bloomjoy machines',
       'Custom logo/image branding support',
@@ -174,8 +174,8 @@ export const products: Record<string, Product> = {
       `${STICKS_PIECES_PER_BOX} sticks per box`,
       `$${CUSTOM_STICKS_FIRST_ORDER_PLATE_FEE} first-order plate fee`
     ],
-    ctaType: 'buy',
-    inStock: true,
+    ctaType: 'waitlist',
+    inStock: false,
   },
 };
 

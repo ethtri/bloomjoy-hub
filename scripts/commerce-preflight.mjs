@@ -184,6 +184,8 @@ function run() {
   const requiredKeys = [
     'STRIPE_SECRET_KEY',
     'STRIPE_STICKS_PRICE_ID',
+    'STRIPE_MICRO_PRICE_ID',
+    'STRIPE_MICRO_SHIPPING_RATE_ID',
     'STRIPE_PLUS_PRICE_ID',
     'STRIPE_WEBHOOK_SECRET',
     'SUPABASE_URL',
@@ -326,6 +328,7 @@ function run() {
   printList('Required commerce checks', [
     'Webhook secret present',
     'Member and non-member sugar price IDs configured',
+    'Standard/member branded sticks and Micro Machine price IDs configured',
     'Internal email sender configured; Ethan/Ian are default admin recipients',
     'WeCom alert secrets configured',
     'Supabase service-role and anon keys configured',

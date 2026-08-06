@@ -19,6 +19,7 @@ const allowedStickSizes = new Set(["commercial_10x300", "mini_10x220"]);
 const allowedAddressTypes = new Set(["business", "residential"]);
 const freeShippingBoxThreshold = 5;
 const piecesPerBox = 2000;
+const maxBoxesPerCheckout = 1000;
 
 type StickPricingTier = "member" | "standard";
 
@@ -199,7 +200,7 @@ serve(async (req) => {
 
     if (variant !== "plain") {
       return new Response(
-        JSON.stringify({ error: "Custom sticks must be handled through procurement review." }),
+        JSON.stringify({ error: "Custom sticks are unavailable until payment-first checkout is ready." }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -207,9 +208,9 @@ serve(async (req) => {
       );
     }
 
-    if (!Number.isSafeInteger(boxCount) || boxCount <= 0) {
+    if (!Number.isSafeInteger(boxCount) || boxCount <= 0 || boxCount > maxBoxesPerCheckout) {
       return new Response(
-        JSON.stringify({ error: "Invalid box count." }),
+        JSON.stringify({ error: `Box count must be between 1 and ${maxBoxesPerCheckout}.` }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -252,6 +253,7 @@ serve(async (req) => {
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: [{ price: selectedSticksPriceId, quantity: boxCount }],
+      automatic_tax: { enabled: true },
       shipping_options: [
         {
           shipping_rate_data: {
@@ -270,6 +272,7 @@ serve(async (req) => {
       shipping_address_collection: {
         allowed_countries: ["US"],
       },
+      phone_number_collection: { enabled: true },
       customer_email: authResult.user?.email ?? undefined,
       client_reference_id: authResult.user?.id ?? undefined,
       metadata: {

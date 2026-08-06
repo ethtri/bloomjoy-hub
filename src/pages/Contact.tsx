@@ -13,13 +13,12 @@ import {
   trackContactSubmitFromPlaybook,
 } from '@/lib/businessPlaybookAnalytics';
 import { createLeadSubmission } from '@/lib/leadSubmissions';
-import { MACHINE_INTEREST_OPTIONS, normalizeMachineInterest } from '@/lib/machineNames';
+import { MACHINE_NAMES, normalizeMachineInterest } from '@/lib/machineNames';
 
 const validInquiryTypes = new Set(['quote', 'demo', 'procurement', 'general']);
 
 const machineInterestOptions = [
-  ...MACHINE_INTEREST_OPTIONS,
-  'Not sure yet',
+  MACHINE_NAMES.commercial,
 ];
 
 const getPostSubmitPlaybookLinks = (interest: string) => {
@@ -77,8 +76,18 @@ export default function ContactPage() {
   const [searchParams] = useSearchParams();
   const queryType = searchParams.get('type');
   const querySource = searchParams.get('source');
-  const initialType = queryType && validInquiryTypes.has(queryType) ? queryType : 'quote';
-  const initialInterest = normalizeMachineInterest(searchParams.get('interest'));
+  const normalizedInterest = normalizeMachineInterest(searchParams.get('interest'));
+  const requestedType = queryType && validInquiryTypes.has(queryType) ? queryType : 'general';
+  const initialType = requestedType === 'quote' &&
+      normalizedInterest &&
+      normalizedInterest !== MACHINE_NAMES.commercial
+    ? 'general'
+    : requestedType;
+  const initialInterest = initialType === 'quote' && normalizedInterest === MACHINE_NAMES.commercial
+    ? MACHINE_NAMES.commercial
+    : initialType === 'quote'
+      ? MACHINE_NAMES.commercial
+      : '';
   const sourcePage = getNormalizedInternalSourcePage(querySource) ?? '/contact';
   const playbookSourcePage = getNormalizedBusinessPlaybookSourcePage(querySource);
 
@@ -123,7 +132,7 @@ export default function ContactPage() {
     try {
       const cleanedMessage = formData.message.trim();
       const submittedMachineInterest =
-        formData.type === 'quote' ? formData.interest.trim() : '';
+        formData.type === 'quote' ? MACHINE_NAMES.commercial : '';
 
       await createLeadSubmission({
         submissionType: formData.type as 'quote' | 'demo' | 'procurement' | 'general',
@@ -281,7 +290,13 @@ export default function ContactPage() {
                     id="contact-type"
                     name="type"
                     value={formData.type}
-                    onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        type: e.target.value,
+                        interest: e.target.value === 'quote' ? MACHINE_NAMES.commercial : '',
+                      })
+                    }
                     className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
                   >
                     <option value="quote">Request a Quote</option>
@@ -305,7 +320,6 @@ export default function ContactPage() {
                       onChange={(e) => setFormData({ ...formData, interest: e.target.value })}
                       className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
                     >
-                      <option value="">Select a machine (optional)</option>
                       {machineInterestOptions.map((option) => (
                         <option key={option} value={option}>
                           {option}

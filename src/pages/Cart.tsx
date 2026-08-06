@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Layout } from '@/components/layout/Layout';
 import { useCart } from '@/lib/cart';
 import { trackEvent } from '@/lib/analytics';
-import { startSugarCheckout } from '@/lib/stripeCheckout';
+import { getCheckoutStatus, startStorefrontCheckout } from '@/lib/stripeCheckout';
 import {
   SUGAR_COLOR_OPTIONS,
   getSugarColorBreakdown,
@@ -23,6 +23,7 @@ export default function CartPage() {
   const sugarPricePerKg = getSugarPricePerKg(hasMemberSupplyPricing);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const sugarBreakdown = getSugarColorBreakdown(items);
+  const hasMicroMachine = items.some((item) => item.sku === 'micro');
   const sugarTotalKg = Object.values(sugarBreakdown).reduce((sum, quantity) => sum + quantity, 0);
   const getDisplayUnitPrice = (sku: string, fallbackPrice: number) =>
     isSugarSku(sku) ? sugarPricePerKg : fallbackPrice;
@@ -36,39 +37,64 @@ export default function CartPage() {
     const checkoutStatus = params.get('checkout');
     if (!checkoutStatus) return;
 
-    if (checkoutStatus === 'success') {
-      toast.success('Thanks! Your order is being processed.');
-      clearCart();
-    }
-
     if (checkoutStatus === 'cancel') {
-      toast.info('Checkout canceled.');
+      toast.info('Checkout canceled. Your cart has been kept.');
+      window.history.replaceState({}, '', '/cart');
+      return;
     }
 
-    window.history.replaceState({}, '', '/cart');
+    const sessionId = params.get('session_id');
+    if (checkoutStatus !== 'return' || !sessionId) {
+      toast.error('We could not verify this checkout return. Your cart has been kept.');
+      window.history.replaceState({}, '', '/cart');
+      return;
+    }
+
+    let cancelled = false;
+    void getCheckoutStatus(sessionId)
+      .then((status) => {
+        if (cancelled) return;
+        const isStorefrontOrder = ['sugar', 'micro_machine', 'mixed'].includes(status.orderType);
+        if (status.paymentStatus === 'paid' && isStorefrontOrder) {
+          clearCart();
+          toast.success('Payment confirmed. Your order is ready for fulfillment.');
+          return;
+        }
+        toast.info('Payment is not yet confirmed. Your cart has been kept.');
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        toast.error(
+          error instanceof Error
+            ? `${error.message} Your cart has been kept.`
+            : 'Checkout could not be verified. Your cart has been kept.'
+        );
+      })
+      .finally(() => {
+        if (!cancelled) window.history.replaceState({}, '', '/cart');
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [clearCart]);
 
   const handleCheckout = async () => {
     trackEvent('start_checkout');
 
-    if (items.some((item) => item.type !== 'supply')) {
-      toast.error('Checkout currently supports sugar only. Remove machines to continue.');
-      return;
-    }
-
-    if (items.some((item) => !isSugarSku(item.sku))) {
-      toast.error('Checkout currently supports sugar only. Remove non-sugar items to continue.');
+    if (items.some((item) => !isSugarSku(item.sku) && item.sku !== 'micro')) {
+      toast.error('Remove unavailable items before checkout.');
       return;
     }
 
     if (items.length === 0) {
-      toast.error('Add sugar to your cart to continue.');
+      toast.error('Add an item to your cart to continue.');
       return;
     }
 
     try {
       setIsCheckingOut(true);
-      const checkoutUrl = await startSugarCheckout(items, window.location.origin);
+      const checkoutUrl = await startStorefrontCheckout(items, window.location.origin);
       window.location.assign(checkoutUrl);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to start checkout.';
@@ -88,8 +114,7 @@ export default function CartPage() {
                 Your cart is empty
               </h1>
               <p className="mt-2 text-muted-foreground">
-                Checkout is available for sugar supplies. Machines are reviewed through the
-                quote process.
+                Shop sugar supplies or purchase the Micro Machine to continue.
               </p>
               <div className="mt-8 flex flex-wrap justify-center gap-4">
                 <Link to="/supplies">
@@ -243,7 +268,13 @@ export default function CartPage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Shipping</span>
-                    <span className="text-muted-foreground">Calculated at checkout</span>
+                    <span className="text-muted-foreground">
+                      {hasMicroMachine ? 'Shown at checkout' : 'No charge'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Tax</span>
+                    <span className="text-muted-foreground">Calculated by Stripe</span>
                   </div>
                 </div>
                 <div className="mt-4 border-t border-border pt-4">

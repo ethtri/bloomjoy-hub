@@ -69,11 +69,11 @@ export const commercialMachineFaqs = [
 export const miniMachineFaqs = [
   {
     q: "How many servings can the Mini Machine make per hour?",
-    a: "Owner-provided guidance is roughly one candy every 90 seconds, or about 40 candies per hour of machine-cycle capacity. For planning, use about 25-35 served candies per hour with a trained staff member. For quieter or more curated service, model a slower operator-paced service window during quote review rather than relying on a fixed public throughput claim. These are estimates, not guaranteed throughput.",
+    a: "Owner-provided guidance is roughly one candy every 90 seconds, or about 40 candies per hour of machine-cycle capacity. For planning, use about 25-35 served candies per hour with a trained staff member. For quieter or more curated service, model a slower operator-paced service window rather than relying on a fixed public throughput claim. These are estimates, not guaranteed throughput.",
   },
   {
     q: "What are the Mini Machine dimensions and power requirements?",
-    a: "Mini specs are 430 x 555 x 1582 mm, 83.9 kg, AC 110V/220V rated voltage, 2400W maximum power, and 100W standby power. Final placement and power details should be confirmed during quote review.",
+    a: "Mini specs are 430 x 555 x 1582 mm, 83.9 kg, AC 110V/220V rated voltage, 2400W maximum power, and 100W standby power. Final placement and power details will be confirmed when payment-first ordering launches.",
   },
   {
     q: "Can the Mini Machine work in compact, quiet, or hospitality environments?",
@@ -104,7 +104,7 @@ export const machineBuyerFaqs = [
   },
   {
     q: "Are Bloomjoy machines sold through checkout or quote?",
-    a: "Machine purchases are quote-led so Bloomjoy can confirm configuration, shipping, operator handoff, and support expectations before invoicing.",
+    a: "The available Micro Machine is purchased through online checkout. The Mini Machine is coming soon and does not accept orders yet. Only the BloomDirect Commercial Machine uses a quote request because its final configuration, shipping, and delivery requirements vary.",
   },
   {
     q: "Do all machines support complex cotton candy patterns?",
@@ -112,16 +112,16 @@ export const machineBuyerFaqs = [
   },
   {
     q: "What supplies do I need after buying a machine?",
-    a: "Bloomjoy machines run on cotton candy sugar and paper sticks. The supplies page supports bulk sugar orders, Bloomjoy branded sticks, and custom stick requests.",
+    a: "Bloomjoy machines run on cotton candy sugar and paper sticks. The supplies page supports paid bulk sugar and Bloomjoy branded stick orders. Custom sticks will return when their payment-first artwork and plate-fee checkout is ready.",
   },
 ];
 
 export const resourcesFaqs = [
   {
     q: "What startup costs should I expect to launch an operation?",
-    a: "Plan for several setup categories rather than one fixed all-in number: the machine purchase, opening consumables like sugar and paper sticks, shipping or freight, optional Bloomjoy Plus membership, venue or site setup needs, payment and operations supplies, and permits, insurance, or other local requirements where applicable. Bloomjoy uses the quote/contact flow to confirm machine fit, delivery assumptions, opening supplies, and support options so you can get a personalized launch estimate before invoicing.",
-    ctaLabel: "Request a personalized quote",
-    ctaHref: "/contact?type=quote&source=%2Fresources%23faq",
+    a: "Plan for several setup categories rather than one fixed all-in number: the machine purchase, opening consumables like sugar and paper sticks, shipping or freight, optional Bloomjoy Plus membership, venue or site setup needs, payment and operations supplies, and permits, insurance, or other local requirements where applicable. Micro and available supplies use online checkout; only the Commercial Machine uses quote review for variable configuration and delivery costs.",
+    ctaLabel: "Request a Commercial quote",
+    ctaHref: "/contact?type=quote&interest=commercial&source=%2Fresources%23faq",
   },
   {
     q: "What support is included with machine purchase?",
@@ -137,7 +137,7 @@ export const resourcesFaqs = [
   },
   {
     q: "Can Mini fit compact, quiet, or hospitality settings?",
-    a: "Mini can be evaluated for staffed hospitality activations where a compact footprint matters. Confirm the 430 x 555 x 1582 mm cabinet, 2400W maximum power, cleaning path, operator staffing, guest flow, and sensitivity to operating sound and cotton-candy aroma during quote review. Quiet venues should review clips and test placement before purchase because Bloomjoy does not have measured in-room sound data yet.",
+    a: "Mini can be evaluated for staffed hospitality activations where a compact footprint matters. Plan around the 430 x 555 x 1582 mm cabinet, 2400W maximum power, cleaning path, operator staffing, guest flow, and sensitivity to operating sound and cotton-candy aroma. Quiet venues should review clips and test placement before purchase because Bloomjoy does not have measured in-room sound data yet.",
   },
   {
     q: "How should I think about Mini throughput and cost per serving?",
@@ -153,7 +153,7 @@ export const resourcesFaqs = [
   },
   {
     q: "Which sugar and stick supplies are available?",
-    a: "Bloomjoy sells bulk cotton candy sugar in core colors, Bloomjoy branded paper sticks by box, and custom stick requests with artwork proofing.",
+    a: "Bloomjoy sells bulk cotton candy sugar in core colors and Bloomjoy branded paper sticks by box through paid checkout. Custom sticks are temporarily unavailable until payment-first artwork proofing and plate-fee handling are ready.",
   },
 ];
 
@@ -240,7 +240,7 @@ export const publicRoutes: RouteSeo[] = [
     path: "/machines",
     title: "Robotic Cotton Candy Machines for Operators | Bloomjoy",
     description:
-      "Compare Bloomjoy commercial, Mini, and Micro robotic cotton candy machines by footprint, pattern capability, use case, support, and quote path.",
+      "Compare Bloomjoy Commercial, Mini, and Micro robotic cotton candy machines by footprint, pattern capability, use case, support, and purchase path.",
     robots: PUBLIC_ROBOTS,
     surface: "marketing",
     ogImagePath: "/seo/machines-lineup.jpg",
@@ -276,7 +276,7 @@ export const publicRoutes: RouteSeo[] = [
     path: "/machines/mini",
     title: "Mini Robotic Cotton Candy Machine | Bloomjoy",
     description:
-      "Explore Bloomjoy Mini Machine specs, proof clips, 90-second cycle guidance, compact venue fit, support, and quote-led ordering.",
+      "Explore Bloomjoy Mini Machine specs, proof clips, 90-second cycle guidance, compact venue fit, support, and coming-soon availability.",
     robots: PUBLIC_ROBOTS,
     surface: "marketing",
     ogImagePath: "/seo/mini-machine.jpg",
@@ -294,7 +294,7 @@ export const publicRoutes: RouteSeo[] = [
     path: "/machines/micro",
     title: "Micro Robotic Cotton Candy Machine | Bloomjoy",
     description:
-      "Explore the Bloomjoy Micro Machine for compact, low-volume robotic cotton candy applications with basic shapes and quote-led ordering.",
+      "Explore and purchase the Bloomjoy Micro Machine for compact, low-volume robotic cotton candy applications with basic shapes.",
     robots: PUBLIC_ROBOTS,
     surface: "marketing",
     ogImagePath: "/seo/micro-machine.jpg",

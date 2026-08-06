@@ -22,9 +22,9 @@ const productCards = [
   {
     title: MACHINE_NAMES.mini,
     price: '$4,000',
-    description: 'Portable at 1/5 the size. Most complex patterns supported. Manual stick feeding.',
+    description: 'Portable at 1/5 the size. Payment-first ordering will open when Mini launches.',
     href: '/machines/mini',
-    badge: 'Available Now',
+    badge: 'Coming Soon',
     image: miniMain,
   },
   {
@@ -63,9 +63,9 @@ export default function HomePage() {
                 Commercial-grade robotic cotton candy machines and premium supplies. Built for operators who demand consistency, throughput, and reliable support.
               </p>
               <div className="mt-8 flex flex-wrap gap-4">
-                <Link to="/contact">
+                <Link to="/contact?type=quote&interest=commercial">
                   <Button variant="hero" size="xl">
-                    Request a Quote
+                    Request Commercial Quote
                     <ArrowRight className="ml-1 h-5 w-5" />
                   </Button>
                 </Link>
@@ -249,9 +249,9 @@ export default function HomePage() {
             Whether you're exploring options or ready to purchase, we're here to help.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-4">
-            <Link to="/contact">
+            <Link to="/contact?type=quote&interest=commercial">
               <Button variant="hero" size="xl">
-                Request a Quote
+                Request Commercial Quote
               </Button>
             </Link>
             <Link to="/resources">

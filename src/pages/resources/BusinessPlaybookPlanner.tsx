@@ -78,13 +78,14 @@ const getSelectedChoice = (
   answers: PlannerAnswers
 ) => question.choices.find((choice) => choice.id === answers[question.id]);
 
-const getQuoteHref = (machine: PlannerMachineId) =>
-  `/contact?type=quote&interest=${plannerMachineProfiles[machine].contactInterest}&source=${encodeURIComponent(
-    plannerPath
-  )}`;
+const getPurchaseHref = (machine: PlannerMachineId) => {
+  if (machine === "commercial") {
+    return `/contact?type=quote&interest=commercial&source=${encodeURIComponent(plannerPath)}`;
+  }
+  return machine === "micro" ? "/machines/micro" : "/machines/mini";
+};
 
-const getGeneralQuoteHref = () =>
-  `/contact?type=quote&source=${encodeURIComponent(plannerPath)}`;
+const getGeneralPurchaseHref = () => "/machines";
 
 export default function BusinessPlaybookPlannerPage() {
   const [answers, setAnswers] = useState(getInitialAnswers);
@@ -131,7 +132,16 @@ export default function BusinessPlaybookPlannerPage() {
   const budgetTotal = budgetKeys.reduce((sum, key) => sum + budget[key], 0);
   const isCommercialQuoteNeeded = budgetMachine === "commercial" && budget.machine === 0;
   const quoteMachine = budgetMachine ?? recommendedMachine?.id;
-  const finalQuoteHref = quoteMachine ? getQuoteHref(quoteMachine) : getGeneralQuoteHref();
+  const finalQuoteHref = quoteMachine
+    ? getPurchaseHref(quoteMachine)
+    : getGeneralPurchaseHref();
+  const finalCtaLabel = quoteMachine === "commercial"
+    ? "Request Commercial quote"
+    : quoteMachine === "micro"
+      ? "Buy Micro Machine"
+      : quoteMachine === "mini"
+        ? "View Mini launch status"
+        : "Compare purchase paths";
   const selectedAnswerRows = useMemo(
     () =>
       plannerQuestions.map((question) => ({
@@ -775,7 +785,7 @@ export default function BusinessPlaybookPlannerPage() {
                       })
                     }
                   >
-                    Request a quote
+                    {finalCtaLabel}
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
                 </Button>
