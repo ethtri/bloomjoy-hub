@@ -5,7 +5,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import {
   sendInternalEmail,
   sendTransactionalEmail,
-} from "../_shared/internal-email.ts";
+} from "../_shared/storefront-email.ts";
 import { sendWeComAlertResult } from "../_shared/wecom-alert.ts";
 import { buildCustomerOrderEmail } from "../_shared/customer-order-email.ts";
 import {

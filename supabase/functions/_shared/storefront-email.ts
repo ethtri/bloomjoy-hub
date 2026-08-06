@@ -22,6 +22,7 @@ export const getInternalNotificationRecipients = (): string[] => {
 export type InternalEmailInput = {
   subject: string;
   text: string;
+  idempotencyKey?: string;
 };
 
 export type TransactionalEmailInput = {
@@ -30,6 +31,7 @@ export type TransactionalEmailInput = {
   text: string;
   html?: string;
   replyTo?: string | string[] | null;
+  idempotencyKey?: string;
 };
 
 const getResendConfig = () => {
@@ -56,6 +58,7 @@ export async function sendTransactionalEmail({
   text,
   html,
   replyTo,
+  idempotencyKey,
 }: TransactionalEmailInput) {
   const { resendApiKey, fromEmail } = getResendConfig();
 
@@ -92,12 +95,18 @@ export async function sendTransactionalEmail({
     payload.reply_to = replyToRecipients;
   }
 
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${resendApiKey}`,
+    "Content-Type": "application/json",
+  };
+
+  if (idempotencyKey) {
+    headers["Idempotency-Key"] = idempotencyKey;
+  }
+
   const response = await fetch(RESEND_API_BASE_URL, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${resendApiKey}`,
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify(payload),
   });
 
@@ -109,7 +118,7 @@ export async function sendTransactionalEmail({
   }
 }
 
-export async function sendInternalEmail({ subject, text }: InternalEmailInput) {
+export async function sendInternalEmail({ subject, text, idempotencyKey }: InternalEmailInput) {
   const recipients = getInternalNotificationRecipients();
 
   if (!recipients.length) {
@@ -120,5 +129,6 @@ export async function sendInternalEmail({ subject, text }: InternalEmailInput) {
     to: recipients,
     subject,
     text,
+    idempotencyKey,
   });
 }
