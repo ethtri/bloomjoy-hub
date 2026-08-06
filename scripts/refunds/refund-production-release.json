@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-05-email-only-pilot-readiness",
-  "sourceGitCommit": "719f28f13c1d1e4a6061cf4b4ba5af699b7e51a1",
+  "sourceGitCommit": "946f067b586a97b017ef2ad67e8e92c2f1cad9f9",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
