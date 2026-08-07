@@ -233,9 +233,9 @@ Refund source note:
 Deploy all current checkout, submission, invite, and reporting functions:
 
 Commerce cutover order is fail-closed and must precede the frontend merge:
-1. Record the cutover UTC timestamp and the current production function versions/commit.
-2. Deploy `stripe-sugar-checkout`, `stripe-sticks-checkout`, and `stripe-plus-checkout` first so every newly created Checkout Session receives the server marker.
-3. Before deploying the stricter webhook, list open or pending Checkout Sessions created before the cutover timestamp. Let them expire or cancel them only after confirming no payment is pending; reconcile any paid session through the existing webhook/backfill procedure. Require zero unresolved pre-cutover sessions.
+1. Record the current production function versions/commit.
+2. Deploy `stripe-sugar-checkout`, `stripe-sticks-checkout`, and `stripe-plus-checkout` first. After all three deployments succeed, record the marker-enforcement UTC timestamp.
+3. Before deploying the stricter webhook, list every open or pending Checkout Session without `checkout_source=bloomjoy_storefront`, including any created before the marker-enforcement timestamp. Let unpaid sessions expire, and manually expire one only after confirming no payment is pending; reconcile any paid session through the existing webhook/backfill procedure. Require zero unresolved unmarked sessions.
 4. Audit active/trialing Plus subscriptions at the approved Plus Price. Before the stricter webhook is deployed, add `checkout_source=bloomjoy_storefront`, `order_type=plus_subscription`, and the correct `user_id` metadata to every verified existing Bloomjoy Plus subscription. Stop if any subscription cannot be safely matched.
 5. Deploy `stripe-checkout-status` and `stripe-webhook`, update the live Stripe event selection, and complete backend smoke checks before merging `main`.
 
@@ -432,9 +432,9 @@ Rollback order:
    - Re-deploy previous known-good function versions for:
      - `stripe-sugar-checkout`
      - `stripe-sticks-checkout`
-      - `stripe-plus-checkout`
-      - `stripe-customer-portal`
-      - `stripe-webhook`
+     - `stripe-plus-checkout`
+     - `stripe-customer-portal`
+     - `stripe-webhook`
      - `support-request-intake`
      - `access-invite`
      - `refund-case-intake`
@@ -447,8 +447,8 @@ Rollback order:
      - `nayax-card-refund`
    - Restore refund functions from a clean worktree at the `approvedRestoreSource` commit recorded in the refund production release manifest. Use `preDeploymentProduction` only to compare against the exact old live state; do not recreate its missing message endpoint.
    - Reconfirm the four Nayax fail-closed values and the absence of sponsor go/no-go before redeploying.
-    - Never delete `refund-case-message-send` as a rollback step. Restore a known-good implementation instead.
-    - `stripe-checkout-status` has no pre-release production version. After a frontend rollback, leave the now-unused endpoint deployed unless a separate approved incident procedure explicitly disables or deletes it.
+   - Never delete `refund-case-message-send` as a rollback step. Restore a known-good implementation instead.
+   - `stripe-checkout-status` has no pre-release production version. After a frontend rollback, leave the now-unused endpoint deployed unless a separate approved incident procedure explicitly disables or deletes it.
 3) Secrets:
    - Restore prior secrets only if rotation caused failure.
 4) Database:
