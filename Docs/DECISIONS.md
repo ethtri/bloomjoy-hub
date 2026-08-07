@@ -812,7 +812,7 @@ Bloomjoy will collect payment on the website before beginning fulfillment or sen
 **Canonical purchase paths**
 - Sugar: direct Stripe checkout with server-selected member or standard pricing.
 - Bloomjoy branded sticks: direct Stripe checkout for 1-1000 boxes; 1-4 boxes use the existing business/residential per-box shipping rule and 5+ boxes ship free.
-- Micro Machine: direct Stripe checkout at the server-configured Price ID; a server-configured Stripe Shipping Rate is required and checkout fails closed if either is missing.
+- Micro Machine: direct Stripe checkout at the server-configured Price ID once enabled; a server-configured Stripe Shipping Rate is required and checkout fails closed if either is missing. Shipping pricing is an open executive decision tracked in `#717`, so the browser purchase CTA defaults off unless `VITE_MICRO_CHECKOUT_ENABLED=true`; Micro does not fall back to a quote/request form.
 - Bloomjoy Plus: direct Stripe subscription checkout.
 - Commercial Machine: quote request; variable configuration and delivery remain offline.
 - Mini Machine and custom sticks: visibly unavailable, with no quote/procurement form, until a complete payment-first checkout is ready. Custom sticks must account for artwork proofing and the first-order plate fee before reopening.
@@ -825,6 +825,6 @@ Bloomjoy will collect payment on the website before beginning fulfillment or sen
 - Checkout return pages verify the server-side Stripe session before claiming payment success or clearing the cart.
 
 **Production rollout gates**
-- Configure and verify `STRIPE_MICRO_PRICE_ID` and `STRIPE_MICRO_SHIPPING_RATE_ID` in test mode, then production.
+- Resolve `#717`, configure and verify `STRIPE_MICRO_PRICE_ID` and `STRIPE_MICRO_SHIPPING_RATE_ID` in test mode and production, then explicitly enable `VITE_MICRO_CHECKOUT_ENABLED=true`.
 - Confirm Stripe Tax registrations, product tax codes, Price tax behavior, and checkout tax results with the business owner/tax advisor.
 - Apply the order-type migration, deploy the reviewed Edge Functions, and capture test-mode evidence for paid, canceled, unpaid/delayed, replayed, and mixed-cart cases before go-live.

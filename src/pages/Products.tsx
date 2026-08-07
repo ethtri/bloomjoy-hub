@@ -7,6 +7,7 @@ import { trackEvent } from '@/lib/analytics';
 import { trackBuyerFlowPlaybookLinkClick } from '@/lib/businessPlaybookAnalytics';
 import { MACHINE_NAMES } from '@/lib/machineNames';
 import { machineBuyerFaqs } from '@/lib/seoRoutes';
+import { isMicroCheckoutEnabled } from '@/lib/commerceAvailability';
 import commercialMain from '@/assets/real/commercial-main.jpg';
 import miniMain from '@/assets/real/mini-main.webp';
 import microMain from '@/assets/real/micro-main.webp';
@@ -37,7 +38,7 @@ const machineProducts = [
     description: 'Entry-level machine for basic shapes. Perfect for low-volume applications.',
     href: '/machines/micro',
     image: microMain,
-    badge: null,
+    badge: isMicroCheckoutEnabled ? 'Buy Online' : 'Checkout Pending',
   },
 ];
 
@@ -58,13 +59,17 @@ const comparisonRows = [
     model: MACHINE_NAMES.micro,
     fit: 'Basic-shape, low-volume applications where compact size matters most',
     capability: 'Entry-level robotic cotton candy operation for simple shapes',
-    buyingPath: 'Pay the $2,200 machine price online before fulfillment follow-up',
+    buyingPath: isMicroCheckoutEnabled
+      ? 'Pay the $2,200 machine price online before fulfillment follow-up'
+      : 'Checkout opens after the shipping policy is approved; no request is collected',
   },
 ];
 
 const buyerSteps = [
   'Compare the commercial, Mini, and Micro machines by venue type, throughput expectations, footprint, and pattern needs.',
-  'Buy the available Micro Machine online, or request a quote only for the Commercial Machine.',
+  isMicroCheckoutEnabled
+    ? 'Buy the available Micro Machine online, or request a quote only for the Commercial Machine.'
+    : 'Micro checkout opens after its shipping policy is approved; only the Commercial Machine uses a quote request.',
   'Bloomjoy follows up after payment for sellable products; Mini remains unavailable until launch.',
 ];
 
@@ -143,8 +148,8 @@ export default function ProductsPage() {
               Choose the machine that fits your operation
             </h2>
             <p className="mt-3 text-muted-foreground">
-              The Micro Machine is payment-first, Mini is coming soon, and the Commercial Machine
-              is the only model that uses a quote request.
+              Micro is payment-first once shipping is approved, Mini is coming soon, and the
+              Commercial Machine is the only model that uses a quote request.
             </p>
           </div>
           <div className="mt-8 grid gap-8 md:grid-cols-3">
@@ -201,8 +206,8 @@ export default function ProductsPage() {
                 Machine buyer comparison
               </h2>
               <p className="mt-3 max-w-3xl text-muted-foreground">
-                Use this comparison to choose the correct path: checkout for Micro, coming soon for
-                Mini, or quote review for the Commercial Machine.
+                Use this comparison to choose the correct path: payment-first Micro when enabled,
+                coming-soon Mini, or quote review for the Commercial Machine.
               </p>
               <div className="mt-6 grid gap-3 md:hidden">
                 {comparisonRows.map((row) => (

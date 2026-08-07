@@ -141,7 +141,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Mini page shows the expected `$4,000` baseline as coming-soon planning context, with a disabled `Coming Soon` CTA and no order form
 - [ ] Mini page shows readable specs, `~90 seconds per candy`, `~40 candies/hour` planning guidance, staffed-throughput estimates, public proof video clips with controls/posters, compact/hospitality fit notes, serving-cost assumptions, and no ROI/payback guarantees
 - [ ] Micro machine page shows the updated target/list price (`$2,200`)
-- [ ] Micro page primary CTA adds the `$2,200` Micro Machine to the cart and opens `/cart`
+- [ ] With `VITE_MICRO_CHECKOUT_ENABLED` unset/false, the Micro page keeps the `$2,200` planning price but shows a disabled `Checkout Pending` CTA, has no quote/request form, and a stale Micro cart item blocks checkout until removed
+- [ ] After `#717` is resolved and `VITE_MICRO_CHECKOUT_ENABLED=true`, the Micro page primary CTA adds the `$2,200` Micro Machine to the cart and opens `/cart`
 - [ ] Micro checkout uses only the server-configured Stripe Price and Shipping Rate IDs, collects phone/billing/shipping details, and fails closed when either ID is missing
 - [ ] `/supplies` product images render professional white-background product shots without black background artifacts or awkward clipping on desktop and mobile
 - [ ] `/supplies` defaults to Sugar ordering; `/supplies?order=sugar`, `/supplies?order=sticks`, and `/supplies?order=custom` direct-load with the matching selected flow
@@ -156,7 +157,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Bloomjoy branded sticks flow requires machine size and delivery location type before direct checkout, for every allowed quantity from 1-1000 boxes
 - [ ] Bloomjoy branded sticks checkout charges the server-enforced business/residential shipping rule for 1-4 boxes and free shipping for 5+ boxes
 - [ ] Custom sticks page is visibly unavailable and has no unpaid artwork/procurement request form until plate fee, shipping, tax, payment, and proofing are integrated
-- [ ] Shared cart accepts only sugar and Micro; legacy/unknown items cannot start checkout
+- [ ] Shared cart accepts sugar and, only when the public Micro checkout flag is enabled, Micro; legacy/unknown/unavailable items cannot start checkout
 - [ ] Cart has no horizontal overflow on mobile viewports (`360x800`, `390x844`, `414x896`)
 - [ ] Cart line-item title, quantity controls, price, and remove action stack cleanly on mobile
 - [ ] Plus page: pricing and boundaries are visible and clear
@@ -165,10 +166,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Resources page leads with the Bloomjoy Business Playbook, shows visual article cards, and still exposes FAQ and Support Boundaries anchors
 - [ ] `/resources/business-playbook` direct-loads and shows category navigation plus all public playbook guides
 - [ ] `/resources/business-playbook/planner` direct-loads and shows the Machine Fit + Startup Budget Planner with no login, no data collection, and no ROI/profit claims
-- [ ] Business Playbook planner routes Commercial to quote, Micro to checkout, and Mini to coming-soon status without horizontal overflow
+- [ ] Business Playbook planner routes Commercial to quote, Mini to coming-soon status, and Micro to its availability-aware purchase/status page without horizontal overflow
 - [ ] `/resources/business-playbook/payback-planner` direct-loads and shows the Payback Scenario Planner with Commercial, Mini, and Micro paths, landed-cost fields for import fees/tariffs/shipping/duties/brokerage/accessories/supplies, fictional presets that are not loaded by default, and no earnings or payback promises
 - [ ] Payback Scenario Planner math handles Commercial foot traffic/family-presence/capacity/rent/revenue share, Mini/Micro event attendance/competition/event costs, and zero or negative contribution scenarios without showing `NaN`, `Infinity`, or guaranteed-result language
-- [ ] Payback Scenario Planner routes Commercial to quote, Micro to purchase, Mini to coming-soon status, and logs only scenario labels, bands, and booleans rather than exact dollar or sales inputs
+- [ ] Payback Scenario Planner routes Commercial to quote, Mini to coming-soon status, and Micro to its availability-aware purchase/status page, and logs only scenario labels, bands, and booleans rather than exact dollar or sales inputs
 - [ ] ROI/payback and revenue-share/rent article routes direct-load, show Article JSON-LD, source links, useful tables/scripts/checklists, and backlinks to the planner and related playbook content
 - [ ] Business Playbook article routes direct-load, show a real Bloomjoy image, useful visual blocks (tables/checklists/scorecards/scripts), source links, related articles, and quote/machine CTAs
 - [ ] Business Playbook article routes are readable on mobile widths (`360x800`, `390x844`, `414x896`) with no clipped tables or horizontal page overflow
@@ -424,7 +425,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Bloomjoy branded sticks checkout completed webhook sends internal order summary email to Ethan/Ian and any configured additional recipients with box count, machine size, address type, shipping total, and fulfillment next steps
 - [ ] Bloomjoy branded sticks checkout sends customer confirmation email with branded HTML layout, shipping address, and receipt link
 - [ ] Bloomjoy branded sticks checkout completed webhook sends a WeCom internal alert with order ID, customer, and stick-order summary
-- [ ] Micro-only and mixed sugar+Micro checkouts complete with test card, persist the correct `micro_machine`/`mixed` order type and line-item metadata, and render correct customer/internal summaries
+- [ ] After `#717` is resolved and Micro checkout is explicitly enabled, Micro-only and mixed sugar+Micro checkouts complete with test card, persist the correct `micro_machine`/`mixed` order type and line-item metadata, and render correct customer/internal summaries
 - [ ] Checkout return pages clear the cart or show success only after server-side Stripe session verification; canceled, unpaid, invalid, and mismatched session returns keep the cart and do not claim fulfillment started
 - [ ] Unpaid `checkout.session.completed` produces no order or notifications; `checkout.session.async_payment_succeeded` produces one order and one dispatch per channel
 - [ ] Replayed/concurrent paid webhook deliveries remain idempotent for the order, Ethan/Ian email, customer email, and WeCom alert

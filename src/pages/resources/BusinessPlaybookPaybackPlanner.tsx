@@ -21,6 +21,7 @@ import {
   trackBusinessPlaybookPaybackPlannerInteraction,
 } from "@/lib/businessPlaybookAnalytics";
 import { type PlannerBudget, type PlannerBudgetKey } from "@/data/businessPlaybookPlanner";
+import { isMicroCheckoutEnabled } from "@/lib/commerceAvailability";
 import {
   blankPaybackInputs,
   blankStartupCosts,
@@ -473,7 +474,9 @@ export default function BusinessPlaybookPaybackPlannerPage() {
   const purchaseCtaLabel = scenario === "commercial"
     ? "Request Commercial quote"
     : scenario === "micro"
-      ? "Buy Micro Machine"
+      ? isMicroCheckoutEnabled
+        ? "Buy Micro Machine"
+        : "View Micro checkout status"
       : scenario === "mini"
         ? "View Mini launch status"
         : "Compare purchase paths";

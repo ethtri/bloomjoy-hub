@@ -8,6 +8,7 @@ import { trackEvent } from '@/lib/analytics';
 import { trackBuyerFlowPlaybookLinkClick } from '@/lib/businessPlaybookAnalytics';
 import { MACHINE_NAMES } from '@/lib/machineNames';
 import { useCart } from '@/lib/cart';
+import { isMicroCheckoutEnabled } from '@/lib/commerceAvailability';
 import microMain from '@/assets/real/micro-main.webp';
 import microGallery1 from '@/assets/real/micro-gallery-1.webp';
 import microGallery2 from '@/assets/real/micro-gallery-2.webp';
@@ -31,8 +32,12 @@ const microFitNotes = [
 ];
 
 const microPlanningNotes = [
-  'The $2,200 Micro Machine purchase price is collected securely through Stripe checkout.',
-  'Bloomjoy follows up after payment to coordinate delivery and operator expectations.',
+  isMicroCheckoutEnabled
+    ? 'The $2,200 Micro Machine purchase price is collected securely through Stripe checkout.'
+    : 'Online checkout will open after Bloomjoy approves the shipping policy and completes payment setup.',
+  isMicroCheckoutEnabled
+    ? 'Bloomjoy follows up after payment to coordinate delivery and operator expectations.'
+    : 'No quote or unpaid request is collected while checkout is unavailable.',
   'Operators should plan for sugar and paper-stick supplies through the Bloomjoy supplies flow.',
 ];
 
@@ -45,6 +50,8 @@ export default function MicroPage() {
   }, []);
 
   const handleBuyMicro = () => {
+    if (!isMicroCheckoutEnabled) return;
+
     addItem({
       sku: 'micro',
       name: `Bloomjoy Sweets ${MACHINE_NAMES.micro}`,
@@ -96,10 +103,17 @@ export default function MicroPage() {
                   size="xl"
                   className="w-full"
                   onClick={handleBuyMicro}
+                  disabled={!isMicroCheckoutEnabled}
                 >
-                    Buy Micro Machine
-                    <ArrowRight className="ml-2 h-5 w-5" />
+                    {isMicroCheckoutEnabled ? 'Buy Micro Machine' : 'Checkout Pending'}
+                    {isMicroCheckoutEnabled && <ArrowRight className="ml-2 h-5 w-5" />}
                 </Button>
+                {!isMicroCheckoutEnabled && (
+                  <p className="text-center text-sm text-muted-foreground">
+                    The $2,200 price remains visible for planning. Checkout will open after the
+                    shipping decision is approved; no request form is used.
+                  </p>
+                )}
                 <Button asChild variant="hero-outline" size="lg" className="w-full">
                   <Link to="/supplies">
                     Shop Supplies

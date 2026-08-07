@@ -15,6 +15,7 @@ import {
 } from '@/lib/sugar';
 import { useAuth } from '@/contexts/auth-context';
 import { toast } from 'sonner';
+import { isMicroCheckoutEnabled } from '@/lib/commerceAvailability';
 
 export default function CartPage() {
   const { user } = useAuth();
@@ -24,6 +25,7 @@ export default function CartPage() {
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const sugarBreakdown = getSugarColorBreakdown(items);
   const hasMicroMachine = items.some((item) => item.sku === 'micro');
+  const hasUnavailableMicro = hasMicroMachine && !isMicroCheckoutEnabled;
   const sugarTotalKg = Object.values(sugarBreakdown).reduce((sum, quantity) => sum + quantity, 0);
   const getDisplayUnitPrice = (sku: string, fallbackPrice: number) =>
     isSugarSku(sku) ? sugarPricePerKg : fallbackPrice;
@@ -82,6 +84,11 @@ export default function CartPage() {
   const handleCheckout = async () => {
     trackEvent('start_checkout');
 
+    if (hasUnavailableMicro) {
+      toast.error('Micro checkout is pending a shipping decision. Remove it to continue.');
+      return;
+    }
+
     if (items.some((item) => !isSugarSku(item.sku) && item.sku !== 'micro')) {
       toast.error('Remove unavailable items before checkout.');
       return;
@@ -114,7 +121,7 @@ export default function CartPage() {
                 Your cart is empty
               </h1>
               <p className="mt-2 text-muted-foreground">
-                Shop sugar supplies or purchase the Micro Machine to continue.
+                Shop available sugar supplies to continue.
               </p>
               <div className="mt-8 flex flex-wrap justify-center gap-4">
                 <Link to="/supplies">
@@ -140,6 +147,12 @@ export default function CartPage() {
           <div className="mt-8 grid gap-8 lg:grid-cols-3">
             {/* Cart Items */}
             <div className="lg:col-span-2">
+              {hasUnavailableMicro && (
+                <div className="mb-4 rounded-lg border border-amber/30 bg-amber/5 p-4 text-sm text-muted-foreground">
+                  Micro checkout is pending an executive shipping decision. Remove the Micro
+                  Machine to check out other available items.
+                </div>
+              )}
               <div className="divide-y divide-border rounded-xl border border-border bg-card">
                 {items.map((item) => (
                   <div
@@ -269,7 +282,11 @@ export default function CartPage() {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Shipping</span>
                     <span className="text-muted-foreground">
-                      {hasMicroMachine ? 'Shown at checkout' : 'No charge'}
+                      {hasUnavailableMicro
+                        ? 'Decision pending'
+                        : hasMicroMachine
+                          ? 'Shown at checkout'
+                          : 'No charge'}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -290,7 +307,7 @@ export default function CartPage() {
                   size="lg"
                   className="mt-6 w-full"
                   onClick={handleCheckout}
-                  disabled={isCheckingOut}
+                  disabled={isCheckingOut || hasUnavailableMicro}
                 >
                   {isCheckingOut ? 'Redirecting…' : 'Checkout'}
                   <ArrowRight className="ml-2 h-4 w-4" />

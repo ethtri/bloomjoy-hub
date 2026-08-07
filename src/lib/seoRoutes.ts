@@ -1,6 +1,7 @@
 import type { AppSurface } from "@/lib/appSurface";
 import { businessPlaybookArticles } from "@/data/businessPlaybook";
 import { paybackPlannerPath } from "@/data/businessPlaybookPaybackPlanner";
+import { isMicroCheckoutEnabled } from "@/lib/commerceAvailability";
 
 export type RouteSeo = {
   path: string;
@@ -104,7 +105,9 @@ export const machineBuyerFaqs = [
   },
   {
     q: "Are Bloomjoy machines sold through checkout or quote?",
-    a: "The available Micro Machine is purchased through online checkout. The Mini Machine is coming soon and does not accept orders yet. Only the BloomDirect Commercial Machine uses a quote request because its final configuration, shipping, and delivery requirements vary.",
+    a: isMicroCheckoutEnabled
+      ? "The available Micro Machine is purchased through online checkout. The Mini Machine is coming soon and does not accept orders yet. Only the BloomDirect Commercial Machine uses a quote request because its final configuration, shipping, and delivery requirements vary."
+      : "The Micro Machine will use online checkout after its shipping policy is approved. The Mini Machine is coming soon and does not accept orders yet. Only the BloomDirect Commercial Machine uses a quote request because its final configuration, shipping, and delivery requirements vary.",
   },
   {
     q: "Do all machines support complex cotton candy patterns?",
@@ -119,7 +122,7 @@ export const machineBuyerFaqs = [
 export const resourcesFaqs = [
   {
     q: "What startup costs should I expect to launch an operation?",
-    a: "Plan for several setup categories rather than one fixed all-in number: the machine purchase, opening consumables like sugar and paper sticks, shipping or freight, optional Bloomjoy Plus membership, venue or site setup needs, payment and operations supplies, and permits, insurance, or other local requirements where applicable. Micro and available supplies use online checkout; only the Commercial Machine uses quote review for variable configuration and delivery costs.",
+    a: "Plan for several setup categories rather than one fixed all-in number: the machine purchase, opening consumables like sugar and paper sticks, shipping or freight, optional Bloomjoy Plus membership, venue or site setup needs, payment and operations supplies, and permits, insurance, or other local requirements where applicable. Available supplies use online checkout, Micro will use checkout once shipping is approved, and only the Commercial Machine uses quote review for variable configuration and delivery costs.",
     ctaLabel: "Request a Commercial quote",
     ctaHref: "/contact?type=quote&interest=commercial&source=%2Fresources%23faq",
   },
@@ -293,8 +296,9 @@ export const publicRoutes: RouteSeo[] = [
   {
     path: "/machines/micro",
     title: "Micro Robotic Cotton Candy Machine | Bloomjoy",
-    description:
-      "Explore and purchase the Bloomjoy Micro Machine for compact, low-volume robotic cotton candy applications with basic shapes.",
+    description: isMicroCheckoutEnabled
+      ? "Explore and purchase the Bloomjoy Micro Machine for compact, low-volume robotic cotton candy applications with basic shapes."
+      : "Explore the $2,200 Bloomjoy Micro Machine for compact, low-volume robotic cotton candy applications; checkout opens after shipping is approved.",
     robots: PUBLIC_ROBOTS,
     surface: "marketing",
     ogImagePath: "/seo/micro-machine.jpg",

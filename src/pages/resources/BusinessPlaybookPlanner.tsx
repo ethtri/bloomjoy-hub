@@ -28,6 +28,7 @@ import {
   type PlannerMachineId,
 } from "@/data/businessPlaybookPlanner";
 import { cn } from "@/lib/utils";
+import { isMicroCheckoutEnabled } from "@/lib/commerceAvailability";
 
 const budgetKeys: PlannerBudgetKey[] = [
   "machine",
@@ -138,7 +139,9 @@ export default function BusinessPlaybookPlannerPage() {
   const finalCtaLabel = quoteMachine === "commercial"
     ? "Request Commercial quote"
     : quoteMachine === "micro"
-      ? "Buy Micro Machine"
+      ? isMicroCheckoutEnabled
+        ? "Buy Micro Machine"
+        : "View Micro checkout status"
       : quoteMachine === "mini"
         ? "View Mini launch status"
         : "Compare purchase paths";

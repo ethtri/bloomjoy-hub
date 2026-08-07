@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
 import { trackEvent } from '@/lib/analytics';
 import { MACHINE_NAMES } from '@/lib/machineNames';
+import { isMicroCheckoutEnabled } from '@/lib/commerceAvailability';
 import landingHero from '@/assets/real/landing-hero.jpg';
 import commercialMain from '@/assets/real/commercial-main.jpg';
 import miniMain from '@/assets/real/mini-main.webp';
@@ -32,7 +33,7 @@ const productCards = [
     price: '$2,200',
     description: 'Entry-level machine for basic shapes. Perfect for low-volume applications.',
     href: '/machines/micro',
-    badge: null,
+    badge: isMicroCheckoutEnabled ? 'Buy Online' : 'Checkout Pending',
     image: microMain,
   },
 ];

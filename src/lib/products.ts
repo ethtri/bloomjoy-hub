@@ -3,6 +3,7 @@ import {
   STICKS_PIECES_PER_BOX,
   STICKS_PRICE_PER_BOX,
 } from '@/lib/sticks';
+import { isMicroCheckoutEnabled } from '@/lib/commerceAvailability';
 
 export interface Product {
   sku: string;
@@ -71,8 +72,8 @@ export const products: Record<string, Product> = {
     limitations: [
       'Basic shapes only—not suitable for complex patterns'
     ],
-    ctaType: 'buy',
-    inStock: true,
+    ctaType: isMicroCheckoutEnabled ? 'buy' : 'waitlist',
+    inStock: isMicroCheckoutEnabled,
   },
   'sugar-white-1kg': {
     sku: 'sugar-white-1kg',
