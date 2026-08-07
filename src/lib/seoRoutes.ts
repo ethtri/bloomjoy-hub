@@ -144,15 +144,15 @@ export const resourcesFaqs = [
   },
   {
     q: "How should I think about Mini throughput and cost per serving?",
-    a: "Use roughly one candy every 90 seconds as the machine-cycle planning input, then model about 25-35 served candies per hour for staffed service. For quieter or more curated service, model a slower operator-paced service window during quote review rather than relying on a fixed public throughput claim. As a worksheet input, use roughly $0.35-$0.50 consumables per serving before payment fees, labor, venue costs, and machine cost. Bloomjoy does not promise sales volume, ROI, or payback dates.",
+    a: "Use roughly one candy every 90 seconds as the machine-cycle planning input, then model about 25-35 served candies per hour for staffed service. For quieter or more curated service, model a slower operator-paced service window during launch planning rather than relying on a fixed public throughput claim. As a worksheet input, use roughly $0.35-$0.50 consumables per serving before payment fees, labor, venue costs, and machine cost. Bloomjoy does not promise sales volume, ROI, or payback dates.",
   },
   {
     q: "Can Bloomjoy help my team learn daily operation?",
     a: "Yes. Bloomjoy Plus includes task-based training, operator guides, maintenance checklists, and the Operator Essentials completion certificate path.",
   },
   {
-    q: "What should I know before requesting a machine quote?",
-    a: "Bring your target venue type, planning-volume assumptions, delivery location, preferred machine model, and any wrap or supplies needs so Bloomjoy can confirm fit and next steps.",
+    q: "What should I know before requesting a Commercial Machine quote?",
+    a: "Bring your target venue type, planning-volume assumptions, delivery location, Commercial configuration needs, and any wrap or supplies needs so Bloomjoy can confirm fit and next steps.",
   },
   {
     q: "Which sugar and stick supplies are available?",
@@ -178,7 +178,7 @@ const businessPlaybookSeoRoutes: RouteSeo[] = [
     path: "/resources/business-playbook/planner",
     title: "Machine Fit and Startup Budget Planner | Bloomjoy Business Playbook",
     description:
-      "Use Bloomjoy's interactive cotton candy machine fit and startup budget planner to compare Commercial, Mini, and Micro paths before a quote call.",
+      "Use Bloomjoy's interactive cotton candy machine fit and startup budget planner to compare Commercial, Mini, and Micro purchase paths and availability.",
     robots: PUBLIC_ROBOTS,
     surface: "marketing",
     ogType: "website",
@@ -316,7 +316,7 @@ export const publicRoutes: RouteSeo[] = [
     path: "/supplies",
     title: "Cotton Candy Machine Sugar and Paper Sticks | Bloomjoy",
     description:
-      "Order Bloomjoy cotton candy machine sugar, Bloomjoy branded paper sticks, and custom sticks for commercial robotic cotton candy operations.",
+      "Order Bloomjoy cotton candy machine sugar and Bloomjoy branded paper sticks; custom-stick checkout is coming soon.",
     robots: PUBLIC_ROBOTS,
     surface: "marketing",
     ogImagePath: "/seo/supplies.jpg",
@@ -345,7 +345,7 @@ export const publicRoutes: RouteSeo[] = [
     path: "/resources",
     title: "Business Playbook and Robotic Cotton Candy Machine Resources | Bloomjoy",
     description:
-      "Explore the Bloomjoy Business Playbook, FAQs, operator resources, supplies guidance, support boundaries, and machine quote preparation.",
+      "Explore the Bloomjoy Business Playbook, FAQs, operator resources, supplies guidance, support boundaries, and machine purchase-path planning.",
     robots: PUBLIC_ROBOTS,
     surface: "marketing",
     ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
@@ -356,13 +356,13 @@ export const publicRoutes: RouteSeo[] = [
   ...businessPlaybookSeoRoutes,
   {
     path: "/contact",
-    title: "Request a Robotic Cotton Candy Machine Quote | Bloomjoy",
+    title: "Contact Bloomjoy | Commercial Quotes and Product Questions",
     description:
-      "Contact Bloomjoy for robotic cotton candy machine quotes, demo questions, procurement needs, supplies, and operator support.",
+      "Contact Bloomjoy for Commercial Machine quotes, demo questions, procurement needs, supplies, and operator support.",
     robots: PUBLIC_ROBOTS,
     surface: "marketing",
     ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
-    ogImageAlt: "Bloomjoy quote request",
+    ogImageAlt: "Contact Bloomjoy",
     lastmod: LASTMOD,
   },
   {

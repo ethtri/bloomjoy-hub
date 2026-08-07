@@ -10,6 +10,10 @@ import { sendWeComAlertResult } from "../_shared/wecom-alert.ts";
 import { buildCustomerOrderEmail } from "../_shared/customer-order-email.ts";
 import {
   buildOrderEmailIdempotencyKey,
+  hasAllowedCheckoutPrices,
+  hasExpectedPlusSubscriptionPrice,
+  isBloomjoyCheckoutSession,
+  isBloomjoyPlusSubscription,
   shouldFulfillCheckoutSession,
 } from "../_shared/paid-checkout.mjs";
 
@@ -19,6 +23,13 @@ export const config = {
 
 const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
 const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
+const legacySugarPriceId = Deno.env.get("STRIPE_SUGAR_PRICE_ID");
+const memberSugarPriceId = Deno.env.get("STRIPE_SUGAR_MEMBER_PRICE_ID") || legacySugarPriceId;
+const nonMemberSugarPriceId = Deno.env.get("STRIPE_SUGAR_NON_MEMBER_PRICE_ID");
+const sticksPriceId = Deno.env.get("STRIPE_STICKS_PRICE_ID");
+const memberSticksPriceId = Deno.env.get("STRIPE_STICKS_MEMBER_PRICE_ID");
+const microMachinePriceId = Deno.env.get("STRIPE_MICRO_PRICE_ID");
+const plusPriceId = Deno.env.get("STRIPE_PLUS_PRICE_ID");
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const adminOrdersUrl = "https://app.bloomjoyusa.com/admin/orders";
@@ -62,8 +73,26 @@ type StripeLineItemSummary = {
   metadata?: Record<string, unknown>;
 };
 
+type ExpandedCheckoutSession = Stripe.Checkout.Session & {
+  line_items?: Stripe.ApiList<Stripe.LineItem>;
+};
+
 type OrderType = "sugar" | "blank_sticks" | "micro_machine" | "mixed" | "unknown";
 type PricingTier = "plus_member" | "standard" | null;
+
+const checkoutPriceConfig = {
+  sugarPriceIds: [legacySugarPriceId, memberSugarPriceId, nonMemberSugarPriceId],
+  sticksPriceIds: [sticksPriceId, memberSticksPriceId],
+  microMachinePriceId,
+  plusPriceId,
+};
+
+const retrieveCheckoutSession = async (sessionId: string) => {
+  if (!stripe) return null;
+  return await stripe.checkout.sessions.retrieve(sessionId, {
+    expand: ["line_items"],
+  }) as ExpandedCheckoutSession;
+};
 
 type AddressSnapshot = {
   line1: string | null;
@@ -354,30 +383,41 @@ async function resolveUserIdByEmail(email: string | null | undefined) {
 async function upsertSubscription(subscription: Stripe.Subscription) {
   if (!supabase) return;
 
-  const metadataUserId = subscription.metadata?.user_id;
-  const customer =
-    typeof subscription.customer === "string"
-      ? await stripe?.customers.retrieve(subscription.customer)
-      : subscription.customer;
-  const customerEmail =
-    typeof customer === "object" && customer && "email" in customer
-      ? customer.email
-      : null;
-
   let resolvedUserId: string | null = null;
-
-  if (metadataUserId) {
-    resolvedUserId = await resolveUserId(metadataUserId);
-    if (!resolvedUserId) {
-      console.warn("Subscription metadata user_id did not resolve", subscription.id);
+  if (isBloomjoyPlusSubscription(subscription, plusPriceId)) {
+    const metadataUserId = normalizeString(subscription.metadata?.user_id);
+    if (!metadataUserId) {
+      console.warn("Skipping subscription sync", { reason: "missing_user_id" });
       return;
     }
-  } else {
-    resolvedUserId = await resolveUserIdByEmail(customerEmail);
-  }
 
-  if (!resolvedUserId) {
-    console.warn("No matching user for subscription", subscription.id);
+    resolvedUserId = await resolveUserId(metadataUserId);
+    if (!resolvedUserId) {
+      console.warn("Skipping subscription sync", { reason: "unresolved_user_id" });
+      return;
+    }
+  } else if (hasExpectedPlusSubscriptionPrice(subscription, plusPriceId)) {
+    const { data: existingSubscription, error: existingSubscriptionError } = await supabase
+      .from("subscriptions")
+      .select("user_id")
+      .eq("stripe_subscription_id", subscription.id)
+      .maybeSingle();
+
+    if (existingSubscriptionError) {
+      console.error("Failed to validate legacy subscription");
+      throw new Error("Failed to validate legacy subscription state.");
+    }
+
+    const existingUserId = normalizeString(existingSubscription?.user_id);
+    resolvedUserId = await resolveUserId(existingUserId);
+    if (!resolvedUserId) {
+      console.info("Skipping subscription sync", { reason: "unknown_legacy_subscription" });
+      return;
+    }
+
+    console.info("Accepted known legacy Plus subscription");
+  } else {
+    console.info("Skipping subscription sync", { reason: "unrecognized_plus_subscription" });
     return;
   }
 
@@ -399,7 +439,8 @@ async function upsertSubscription(subscription: Stripe.Subscription) {
     .upsert(payload, { onConflict: "stripe_subscription_id" });
 
   if (error) {
-    console.error("Failed to upsert subscription", error);
+    console.error("Failed to upsert subscription");
+    throw new Error("Failed to persist subscription state.");
   }
 }
 
@@ -572,16 +613,12 @@ const updateOrderNotificationState = async (
 
   const { error } = await supabase.from("orders").update(patch).eq("id", orderId);
   if (error) {
-    console.error("Failed to update order notification state", { orderId, error, patch });
+    console.error("Failed to update order notification state");
   }
 };
 
-async function upsertOrder(session: Stripe.Checkout.Session): Promise<OrderContext | null> {
-  if (!stripe || !supabase) return null;
-
-  const expanded = await stripe.checkout.sessions.retrieve(session.id, {
-    expand: ["line_items"],
-  }) as Stripe.Checkout.Session & { line_items?: Stripe.ApiList<Stripe.LineItem> };
+async function upsertOrder(expanded: ExpandedCheckoutSession): Promise<OrderContext | null> {
+  if (!supabase) return null;
 
   const lineItems: StripeLineItemSummary[] = expanded.line_items?.data?.map((item: Stripe.LineItem) => ({
     description: item.description,
@@ -1023,20 +1060,49 @@ const processPaidCheckoutSession = async (
   session: Stripe.Checkout.Session,
 ) => {
   if (shouldFulfillCheckoutSession(eventType, session, "subscription")) {
-    await sendPlusActivationNotifications(session);
+    if (!isBloomjoyCheckoutSession(session, "subscription")) {
+      console.info("Skipping checkout fulfillment", {
+        reason: "unrecognized_subscription_source",
+      });
+      return;
+    }
+
+    const expanded = await retrieveCheckoutSession(session.id);
+    if (!expanded || !hasAllowedCheckoutPrices(expanded, checkoutPriceConfig)) {
+      console.warn("Skipping checkout fulfillment", {
+        reason: "unrecognized_subscription_price",
+      });
+      return;
+    }
+
+    await sendPlusActivationNotifications(expanded);
     return;
   }
 
   if (!shouldFulfillCheckoutSession(eventType, session)) {
     console.info("Skipping unpaid checkout fulfillment", {
       event_type: eventType,
-      checkout_session_id: session.id,
       payment_status: session.payment_status,
     });
     return;
   }
 
-  const orderContext = await upsertOrder(session);
+  if (!isBloomjoyCheckoutSession(session)) {
+    console.info("Skipping checkout fulfillment", {
+      reason: "unrecognized_payment_source",
+    });
+    return;
+  }
+
+  const expanded = await retrieveCheckoutSession(session.id);
+  if (!expanded || !hasAllowedCheckoutPrices(expanded, checkoutPriceConfig)) {
+    console.warn("Skipping checkout fulfillment", {
+      reason: "unrecognized_payment_price",
+    });
+    return;
+  }
+
+  const orderContext = await upsertOrder(expanded);
   await sendOrderNotifications(orderContext);
 };
 
@@ -1068,8 +1134,8 @@ serve(async (req) => {
 
   try {
     event = await stripe.webhooks.constructEventAsync(payload, signature, webhookSecret);
-  } catch (error) {
-    console.error("Invalid webhook signature", error);
+  } catch {
+    console.error("Invalid webhook signature");
     return new Response(JSON.stringify({ error: "Invalid signature." }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1098,8 +1164,8 @@ serve(async (req) => {
       default:
         break;
     }
-  } catch (error) {
-    console.error("Webhook handler error", error);
+  } catch {
+    console.error("Webhook handler error");
     return new Response(JSON.stringify({ error: "Webhook handler error." }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

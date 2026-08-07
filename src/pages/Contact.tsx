@@ -201,7 +201,7 @@ export default function ContactPage() {
                     </h2>
                     <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                       These playbook guides can help you tighten your launch plan before the
-                      quote conversation.
+                      next conversation with Bloomjoy.
                     </p>
                     <div className="mt-4 grid gap-2">
                       {postSubmitPlaybookLinks.map((link) => (
@@ -299,7 +299,7 @@ export default function ContactPage() {
                     }
                     className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
                   >
-                    <option value="quote">Request a Quote</option>
+                    <option value="quote">Request a Commercial Quote</option>
                     <option value="demo">Demo Request</option>
                     <option value="procurement">Procurement Questions</option>
                     <option value="general">General Inquiry</option>

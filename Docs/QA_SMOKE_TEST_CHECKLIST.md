@@ -142,7 +142,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Mini page shows readable specs, `~90 seconds per candy`, `~40 candies/hour` planning guidance, staffed-throughput estimates, public proof video clips with controls/posters, compact/hospitality fit notes, serving-cost assumptions, and no ROI/payback guarantees
 - [ ] Micro machine page shows the updated target/list price (`$2,200`)
 - [ ] With `VITE_MICRO_CHECKOUT_ENABLED` unset/false, the Micro page keeps the `$2,200` planning price but shows a disabled `Checkout Pending` CTA, has no quote/request form, and a stale Micro cart item blocks checkout until removed
-- [ ] After `#717` is resolved and `VITE_MICRO_CHECKOUT_ENABLED=true`, the Micro page primary CTA adds the `$2,200` Micro Machine to the cart and opens `/cart`
+- [ ] With server-only `MICRO_CHECKOUT_ENABLED` unset/false, a direct Micro payload to `stripe-sugar-checkout` is rejected even if Stripe Micro Price and Shipping Rate IDs exist
+- [ ] After `#717` is resolved and both `VITE_MICRO_CHECKOUT_ENABLED=true` and server-only `MICRO_CHECKOUT_ENABLED=true`, the Micro page primary CTA adds the `$2,200` Micro Machine to the cart and opens `/cart`
 - [ ] Micro checkout uses only the server-configured Stripe Price and Shipping Rate IDs, collects phone/billing/shipping details, and fails closed when either ID is missing
 - [ ] `/supplies` product images render professional white-background product shots without black background artifacts or awkward clipping on desktop and mobile
 - [ ] `/supplies` defaults to Sugar ordering; `/supplies?order=sugar`, `/supplies?order=sticks`, and `/supplies?order=custom` direct-load with the matching selected flow
@@ -427,7 +428,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Bloomjoy branded sticks checkout completed webhook sends a WeCom internal alert with order ID, customer, and stick-order summary
 - [ ] After `#717` is resolved and Micro checkout is explicitly enabled, Micro-only and mixed sugar+Micro checkouts complete with test card, persist the correct `micro_machine`/`mixed` order type and line-item metadata, and render correct customer/internal summaries
 - [ ] Checkout return pages clear the cart or show success only after server-side Stripe session verification; canceled, unpaid, invalid, and mismatched session returns keep the cart and do not claim fulfillment started
-- [ ] Unpaid `checkout.session.completed` produces no order or notifications; `checkout.session.async_payment_succeeded` produces one order and one dispatch per channel
+- [ ] Checkout creation accepts card payments only; unpaid `checkout.session.completed` produces no order or notifications, and a synthetic `checkout.session.async_payment_succeeded` replay produces one order and one dispatch per channel
+- [ ] Paid Checkout events without the server-set `checkout_source=bloomjoy_storefront`, an allowed order type, and an approved Stripe Price ID produce no order or notifications
 - [ ] Replayed/concurrent paid webhook deliveries remain idempotent for the order, Ethan/Ian email, customer email, and WeCom alert
 - [ ] Plus subscription checkout shows flat `$100/month` account pricing and completes with test card
 - [ ] Logged-out users on `/plus` are redirected to login before checkout can begin

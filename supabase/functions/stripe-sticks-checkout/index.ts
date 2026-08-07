@@ -111,7 +111,7 @@ const resolveOptionalCheckoutUser = async (
   );
 
   if (discountError) {
-    console.error("Failed to resolve sticks discount tier", discountError);
+    console.error("Failed to resolve sticks discount tier");
     return {
       error: "Unable to verify Bloomjoy member pricing right now.",
       status: 500,
@@ -252,6 +252,7 @@ serve(async (req) => {
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
+      payment_method_types: ["card"],
       line_items: [{ price: selectedSticksPriceId, quantity: boxCount }],
       automatic_tax: { enabled: true },
       shipping_options: [
@@ -276,6 +277,7 @@ serve(async (req) => {
       customer_email: authResult.user?.email ?? undefined,
       client_reference_id: authResult.user?.id ?? undefined,
       metadata: {
+        checkout_source: "bloomjoy_storefront",
         order_type: "blank_sticks",
         pricing_tier: orderPricingTier,
         supply_discount_tier: pricingTier,
@@ -294,8 +296,8 @@ serve(async (req) => {
     return new Response(JSON.stringify({ url: session.url }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (error) {
-    console.error("stripe-sticks-checkout error", error);
+  } catch {
+    console.error("stripe-sticks-checkout failed");
     return new Response(
       JSON.stringify({ error: "Unable to start checkout." }),
       {

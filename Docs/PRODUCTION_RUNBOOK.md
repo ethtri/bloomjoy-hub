@@ -2,7 +2,7 @@
 
 Purpose: provide a single launch-day procedure for Bloomjoy Hub production release and rollback.
 
-Last updated: 2026-07-22
+Last updated: 2026-08-06
 
 ## 1) Roles and ownership
 - Release owner: coordinates launch window and final go/no-go call.
@@ -24,6 +24,9 @@ Set the following values before launch.
 | `STRIPE_SUGAR_PRICE_ID` | Server-only (legacy bridge only) | `stripe-sugar-checkout` fallback | Legacy member sugar price during rollout | Billing owner |
 | `STRIPE_STICKS_PRICE_ID` | Server-only | `stripe-sticks-checkout` | Stripe product/price config | Billing owner |
 | `STRIPE_STICKS_MEMBER_PRICE_ID` | Server-only | `stripe-sticks-checkout` | Stripe member sticks price config | Billing owner |
+| `MICRO_CHECKOUT_ENABLED` | Server-only | `stripe-sugar-checkout` | Exact `true` only after `#717`; absent/false keeps Micro fail-closed | Release owner |
+| `STRIPE_MICRO_PRICE_ID` | Server-only, conditional | `stripe-sugar-checkout`, `stripe-webhook` | Required only when Micro checkout is enabled | Billing owner |
+| `STRIPE_MICRO_SHIPPING_RATE_ID` | Server-only, conditional | `stripe-sugar-checkout` | Required only when Micro checkout is enabled | Billing owner |
 | `STRIPE_PLUS_PRICE_ID` | Server-only | `stripe-plus-checkout` | Stripe product/price config | Billing owner |
 | `STRIPE_WEBHOOK_SECRET` | Server-only | `stripe-webhook` | Stripe webhook endpoint signing secret | Billing owner |
 | `RESEND_API_KEY` | Server-only | `stripe-webhook`, `lead-submission-intake`, `access-invite`, `refund-case-intake`, `refund-case-message-send`, `refund-case-automation-sweep` | Resend API key | Technical owner |
@@ -115,11 +118,15 @@ Security rule:
 - [ ] `npm run refunds:validate-gpt-triage` passes. Confirm the production OpenAI credential is not configured, `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false`, and the GitHub, Edge, and database GPT switches remain false until the approvals and sanitized evaluation in `Docs/REFUND_GPT_TRIAGE.md` pass.
 - [ ] If Gmail enablement is approved for this release, `npm run refunds:preflight-gmail -- --project-ref <project-ref>` passes secret-name presence checks without printing values. If Gmail is deferred, record that the OAuth/mailbox secrets are intentionally absent and keep both Gmail switches off; missing optional Gmail credentials do not block the all-switches-off core deployment.
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds` passes
+- [ ] If Micro is approved later, rerun commerce preflight with `--micro-enabled` so remote secret-name validation requires the server switch plus both Micro IDs.
 - [ ] `npm run refunds:validate-release-tooling` passes.
 - [ ] `npm run refunds:release:check` confirms that the eight Refund Operations functions, required migrations, and `verify_jwt` settings match the approved release manifest.
 - [ ] Before deployment, `supabase db push --dry-run` reports exactly the reviewed pending migration set and no unexpected migration. Save the sanitized command result; the Edge Function drift check does not prove remote migration parity.
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
 - [ ] Stripe products/prices verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_STICKS_MEMBER_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
+- [ ] `MICRO_CHECKOUT_ENABLED` is absent and `VITE_MICRO_CHECKOUT_ENABLED=false` while `#717` is deferred. If Micro is approved later, verify both Micro IDs before setting either gate to `true`.
+- [ ] California tax registration, product tax codes, price tax behavior, shipping tax treatment, and filing ownership are approved and recorded in `#718` before enabling production checkout.
+- [ ] A non-production Stripe webhook/backend has passed paid, unpaid, canceled, replayed/concurrent, notification-retry, and synthetic delayed-payment UAT for the checkout paths in this release.
 - [ ] Domain and HTTPS confirmed for both production frontend hosts:
   - [ ] `https://www.bloomjoyusa.com`
   - [ ] `https://app.bloomjoyusa.com`
@@ -140,6 +147,8 @@ supabase secrets set STRIPE_SUGAR_NON_MEMBER_PRICE_ID=...
 supabase secrets set STRIPE_SUGAR_PRICE_ID=...
 supabase secrets set STRIPE_STICKS_PRICE_ID=...
 supabase secrets set STRIPE_STICKS_MEMBER_PRICE_ID=...
+# Keep MICRO_CHECKOUT_ENABLED absent while #717 is deferred. When approved later:
+# supabase secrets set MICRO_CHECKOUT_ENABLED=true STRIPE_MICRO_PRICE_ID=... STRIPE_MICRO_SHIPPING_RATE_ID=...
 supabase secrets set STRIPE_PLUS_PRICE_ID=...
 supabase secrets set STRIPE_WEBHOOK_SECRET=...
 supabase secrets set RESEND_API_KEY=...
@@ -223,6 +232,13 @@ Refund source note:
 ### Step C: Deploy Supabase Edge Functions
 Deploy all current checkout, submission, invite, and reporting functions:
 
+Commerce cutover order is fail-closed and must precede the frontend merge:
+1. Record the cutover UTC timestamp and the current production function versions/commit.
+2. Deploy `stripe-sugar-checkout`, `stripe-sticks-checkout`, and `stripe-plus-checkout` first so every newly created Checkout Session receives the server marker.
+3. Before deploying the stricter webhook, list open or pending Checkout Sessions created before the cutover timestamp. Let them expire or cancel them only after confirming no payment is pending; reconcile any paid session through the existing webhook/backfill procedure. Require zero unresolved pre-cutover sessions.
+4. Audit active/trialing Plus subscriptions at the approved Plus Price. Before the stricter webhook is deployed, add `checkout_source=bloomjoy_storefront`, `order_type=plus_subscription`, and the correct `user_id` metadata to every verified existing Bloomjoy Plus subscription. Stop if any subscription cannot be safely matched.
+5. Deploy `stripe-checkout-status` and `stripe-webhook`, update the live Stripe event selection, and complete backend smoke checks before merging `main`.
+
 Before deploying reporting functions, confirm Step B has completed and `supabase db push --dry-run` reports the remote database is up to date. Reporting exports may depend on newly added snapshot columns or indexes.
 
 After applying the reviewed migrations, rerun `supabase db push --dry-run` and require zero pending migrations before deploying dependent Refund Operations functions.
@@ -234,6 +250,7 @@ supabase functions deploy stripe-sugar-checkout --no-verify-jwt
 supabase functions deploy stripe-sticks-checkout --no-verify-jwt
 supabase functions deploy stripe-plus-checkout --no-verify-jwt
 supabase functions deploy stripe-customer-portal --no-verify-jwt
+supabase functions deploy stripe-checkout-status --no-verify-jwt
 supabase functions deploy stripe-webhook --no-verify-jwt
 supabase functions deploy lead-submission-intake --no-verify-jwt
 supabase functions deploy custom-sticks-artwork-upload --no-verify-jwt
@@ -328,6 +345,7 @@ Stripe endpoint URL:
 
 Required events:
 - `checkout.session.completed`
+- `checkout.session.async_payment_succeeded`
 - `customer.subscription.created`
 - `customer.subscription.updated`
 - `customer.subscription.deleted`
@@ -335,9 +353,12 @@ Required events:
 After endpoint creation/update, copy new signing secret to `STRIPE_WEBHOOK_SECRET`.
 
 ### Step E: Deploy frontend SPA
+The connected Vercel project automatically creates a Production deployment when `main` is merged. Do not merge the release PR until the migration, checkout/status/webhook functions, live webhook events, tax approval, private recipient checks, and paid UAT gates above are complete. If the release owner intentionally pauses Vercel production deployment, record that platform change and its restoration plan before merging.
+
 Deploy current launch commit to your chosen host (Vercel/Netlify/etc.) with:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
+- `VITE_MICRO_CHECKOUT_ENABLED=false` while `#717` is deferred
 - Production host expectations:
   - `www.bloomjoyusa.com` serves marketing/storefront routes
   - `app.bloomjoyusa.com` serves operator login, reset-password, portal, and admin routes
@@ -359,11 +380,13 @@ Run immediately after deploy:
 - [ ] Sugar checkout test order sends customer confirmation email with the branded HTML confirmation layout, order summary, and receipt link.
 - [ ] Sugar checkout test order sends WeCom alert when `WECOM_*` secrets are configured and the WeCom app/network policy allows traffic from the live function egress IPs.
 - [ ] Bloomjoy branded sticks checkout test order (5+ boxes) creates `orders` record in Supabase with size/address/shipping metadata.
+- [ ] Bloomjoy branded sticks checkout test order (1 box) charges the approved business/residential shipping rule and creates one `orders` record.
 - [ ] Bloomjoy branded sticks checkout test order sends internal summary email to Ethan/Ian plus any configured additional recipients.
 - [ ] Bloomjoy branded sticks checkout test order sends customer confirmation email with the branded HTML confirmation layout.
-- [ ] Under-5 branded-stick procurement request creates a `lead_submissions` record and sends internal procurement email to Ethan/Ian plus any configured additional recipients.
-- [ ] Custom-stick procurement request creates a `lead_submissions` record with private artwork metadata and sends internal procurement email to Ethan/Ian plus any configured additional recipients.
+- [ ] Custom sticks remain visibly unavailable and create no unpaid procurement submission until their payment-first artwork, plate-fee, shipping, tax, and proofing flow is approved.
 - [ ] Plus checkout test subscription creates/updates `subscriptions` record in Supabase.
+- [ ] Sugar, sticks, and Plus return pages verify their server-marked Checkout Session through `stripe-checkout-status`; unrelated Stripe sessions are rejected.
+- [ ] Paid Checkout events with missing/invalid storefront marker, order type, or Price ID create no order or notification.
 - [ ] Refund Adjustment Sync manual `dry_run=true` run returns aggregate counts only, with no private customer/payment/free-text values in logs.
 - [ ] Refund Adjustment Sync manual `dry_run=false` run creates a completed import run in `/admin/reporting`, applies only approved closed matched refunds, and leaves open/denied/unmatched/ambiguous/invalid rows in review.
 - [ ] Quote request on `/contact` sends internal summary email to Ethan/Ian plus any configured additional recipients.
@@ -400,6 +423,7 @@ Trigger rollback if critical checkout/auth/data sync regressions are found.
 Immediate actions:
 - [ ] Declare rollback and pause new release changes.
 - [ ] Temporarily disable promotion/checkout CTAs if needed.
+- [ ] Record the exact pre-deployment commerce function versions/commit before cutover; use that immutable source for rollback rather than reconstructing old code from production.
 
 Rollback order:
 1) Frontend:
@@ -408,9 +432,9 @@ Rollback order:
    - Re-deploy previous known-good function versions for:
      - `stripe-sugar-checkout`
      - `stripe-sticks-checkout`
-     - `stripe-plus-checkout`
-     - `stripe-customer-portal`
-     - `stripe-webhook`
+      - `stripe-plus-checkout`
+      - `stripe-customer-portal`
+      - `stripe-webhook`
      - `support-request-intake`
      - `access-invite`
      - `refund-case-intake`
@@ -423,7 +447,8 @@ Rollback order:
      - `nayax-card-refund`
    - Restore refund functions from a clean worktree at the `approvedRestoreSource` commit recorded in the refund production release manifest. Use `preDeploymentProduction` only to compare against the exact old live state; do not recreate its missing message endpoint.
    - Reconfirm the four Nayax fail-closed values and the absence of sponsor go/no-go before redeploying.
-   - Never delete `refund-case-message-send` as a rollback step. Restore a known-good implementation instead.
+    - Never delete `refund-case-message-send` as a rollback step. Restore a known-good implementation instead.
+    - `stripe-checkout-status` has no pre-release production version. After a frontend rollback, leave the now-unused endpoint deployed unless a separate approved incident procedure explicitly disables or deletes it.
 3) Secrets:
    - Restore prior secrets only if rotation caused failure.
 4) Database:

@@ -17,6 +17,7 @@ const legacySugarPriceId = Deno.env.get("STRIPE_SUGAR_PRICE_ID");
 const memberSugarPriceId =
   Deno.env.get("STRIPE_SUGAR_MEMBER_PRICE_ID") || legacySugarPriceId;
 const nonMemberSugarPriceId = Deno.env.get("STRIPE_SUGAR_NON_MEMBER_PRICE_ID");
+const microCheckoutEnabled = Deno.env.get("MICRO_CHECKOUT_ENABLED") === "true";
 const microMachinePriceId = Deno.env.get("STRIPE_MICRO_PRICE_ID");
 const microMachineShippingRateId = Deno.env.get("STRIPE_MICRO_SHIPPING_RATE_ID");
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -62,11 +63,11 @@ if (!nonMemberSugarPriceId) {
   console.error("Missing STRIPE_SUGAR_NON_MEMBER_PRICE_ID");
 }
 
-if (!microMachinePriceId) {
+if (microCheckoutEnabled && !microMachinePriceId) {
   console.error("Missing STRIPE_MICRO_PRICE_ID");
 }
 
-if (!microMachineShippingRateId) {
+if (microCheckoutEnabled && !microMachineShippingRateId) {
   console.error("Missing STRIPE_MICRO_SHIPPING_RATE_ID");
 }
 
@@ -145,7 +146,7 @@ const resolveOptionalCheckoutUser = async (
   );
 
   if (discountError) {
-    console.error("Failed to resolve supply discount tier", discountError);
+    console.error("Failed to resolve supply discount tier");
     return {
       error: "Unable to verify Bloomjoy member pricing right now.",
       status: 500,
@@ -254,10 +255,17 @@ serve(async (req) => {
       );
     }
 
-    if (
-      cart.microMachineQuantity > 0 &&
-      (!microMachinePriceId || !microMachineShippingRateId)
-    ) {
+    if (cart.microMachineQuantity > 0 && !microCheckoutEnabled) {
+      return new Response(
+        JSON.stringify({ error: "Micro Machine checkout is not available yet." }),
+        {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    if (cart.microMachineQuantity > 0 && (!microMachinePriceId || !microMachineShippingRateId)) {
       return new Response(
         JSON.stringify({ error: "Micro Machine price and shipping are not configured." }),
         {
@@ -277,6 +285,7 @@ serve(async (req) => {
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
+      payment_method_types: ["card"],
       line_items: lineItems,
       ...(cart.microMachineQuantity > 0 && microMachineShippingRateId
         ? { shipping_options: [{ shipping_rate: microMachineShippingRateId }] }
@@ -292,6 +301,7 @@ serve(async (req) => {
       customer_email: authResult.user?.email ?? undefined,
       client_reference_id: authResult.user?.id ?? undefined,
       metadata: {
+        checkout_source: "bloomjoy_storefront",
         order_type: cart.orderType,
         pricing_tier: orderPricingTier,
         ...(cart.totalSugarKg > 0 ? { unit_price_cents: String(unitPriceCents) } : {}),
@@ -310,8 +320,8 @@ serve(async (req) => {
     return new Response(JSON.stringify({ url: session.url }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (error) {
-    console.error("stripe-sugar-checkout error", error);
+  } catch {
+    console.error("stripe-sugar-checkout failed");
     return new Response(
       JSON.stringify({ error: "Unable to start checkout." }),
       {

@@ -137,6 +137,7 @@ serve(async (req) => {
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
+      payment_method_types: ["card"],
       line_items: [{ price: plusPriceId, quantity: 1 }],
       automatic_tax: { enabled: true },
       success_url: successUrl,
@@ -146,12 +147,14 @@ serve(async (req) => {
       client_reference_id: authResult.user.id,
       allow_promotion_codes: true,
       metadata: {
+        checkout_source: "bloomjoy_storefront",
         order_type: "plus_subscription",
         billing_model: "flat_monthly",
         user_id: authResult.user.id,
       },
       subscription_data: {
         metadata: {
+          checkout_source: "bloomjoy_storefront",
           order_type: "plus_subscription",
           billing_model: "flat_monthly",
           user_id: authResult.user.id,
@@ -162,8 +165,8 @@ serve(async (req) => {
     return new Response(JSON.stringify({ url: session.url }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (error) {
-    console.error("stripe-plus-checkout error", error);
+  } catch {
+    console.error("stripe-plus-checkout failed");
     return new Response(
       JSON.stringify({ error: "Unable to start checkout." }),
       {

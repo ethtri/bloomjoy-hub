@@ -7,6 +7,10 @@ import { fileURLToPath } from 'node:url';
 import { normalizeStorefrontCart } from '../supabase/functions/_shared/storefront-cart.mjs';
 import {
   buildOrderEmailIdempotencyKey,
+  hasAllowedCheckoutPrices,
+  hasExpectedPlusSubscriptionPrice,
+  isBloomjoyCheckoutSession,
+  isBloomjoyPlusSubscription,
   shouldFulfillCheckoutSession,
 } from '../supabase/functions/_shared/paid-checkout.mjs';
 
@@ -71,6 +75,103 @@ assert.equal(
   }),
   false
 );
+assert.equal(
+  isBloomjoyCheckoutSession({
+    mode: 'payment',
+    metadata: { checkout_source: 'bloomjoy_storefront', order_type: 'sugar' },
+  }),
+  true
+);
+assert.equal(
+  isBloomjoyCheckoutSession({
+    mode: 'payment',
+    metadata: { order_type: 'sugar' },
+  }),
+  false
+);
+assert.equal(
+  isBloomjoyCheckoutSession(
+    {
+      mode: 'subscription',
+      metadata: { checkout_source: 'bloomjoy_storefront', order_type: 'plus_subscription' },
+    },
+    'subscription'
+  ),
+  true
+);
+assert.equal(
+  isBloomjoyCheckoutSession(
+    {
+      mode: 'subscription',
+      metadata: { checkout_source: 'bloomjoy_storefront', order_type: 'unrelated_subscription' },
+    },
+    'subscription'
+  ),
+  false
+);
+assert.equal(
+  isBloomjoyPlusSubscription(
+    {
+      metadata: { checkout_source: 'bloomjoy_storefront', order_type: 'plus_subscription' },
+      items: { data: [{ price: { id: 'price_plus' } }] },
+    },
+    'price_plus'
+  ),
+  true
+);
+assert.equal(
+  isBloomjoyPlusSubscription(
+    {
+      metadata: { checkout_source: 'bloomjoy_storefront', order_type: 'plus_subscription' },
+      items: { data: [{ price: { id: 'price_unrelated' } }] },
+    },
+    'price_plus'
+  ),
+  false
+);
+const checkoutPriceConfig = {
+  sugarPriceIds: ['price_sugar_member', 'price_sugar_standard'],
+  sticksPriceIds: ['price_sticks_member', 'price_sticks_standard'],
+  microMachinePriceId: 'price_micro',
+  plusPriceId: 'price_plus',
+};
+assert.equal(
+  hasAllowedCheckoutPrices(
+    {
+      metadata: { order_type: 'sugar' },
+      line_items: { data: [{ price: { id: 'price_sugar_standard' } }] },
+    },
+    checkoutPriceConfig
+  ),
+  true
+);
+assert.equal(
+  hasAllowedCheckoutPrices(
+    {
+      metadata: { order_type: 'sugar' },
+      line_items: { data: [{ price: { id: 'price_unrelated' } }] },
+    },
+    checkoutPriceConfig
+  ),
+  false
+);
+assert.equal(
+  hasExpectedPlusSubscriptionPrice(
+    { items: { data: [{ price: { id: 'price_plus' } }] } },
+    'price_plus'
+  ),
+  true
+);
+assert.equal(
+  isBloomjoyPlusSubscription(
+    {
+      metadata: { order_type: 'plus_subscription' },
+      items: { data: [{ price: { id: 'price_plus' } }] },
+    },
+    'price_plus'
+  ),
+  false
+);
 
 const concurrentInternalKeys = Array.from({ length: 25 }, () =>
   buildOrderEmailIdempotencyKey('internal', 'cs_paid_fixture')
@@ -107,6 +208,8 @@ assert.match(miniPage, /Coming Soon/);
 
 const webhook = read('supabase/functions/stripe-webhook/index.ts');
 assert.match(webhook, /shouldFulfillCheckoutSession/);
+assert.match(webhook, /isBloomjoyCheckoutSession/);
+assert.match(webhook, /hasAllowedCheckoutPrices/);
 assert.match(webhook, /checkout\.session\.async_payment_succeeded/);
 assert.match(webhook, /claimDispatch/);
 assert.match(webhook, /Promise\.allSettled/);
@@ -116,9 +219,25 @@ const checkoutClient = read('src/lib/stripeCheckout.ts');
 assert.match(checkoutClient, /\{CHECKOUT_SESSION_ID\}/);
 assert.match(checkoutClient, /stripe-checkout-status/);
 
+const checkoutStatus = read('supabase/functions/stripe-checkout-status/index.ts');
+assert.match(checkoutStatus, /hasAllowedCheckoutPrices/);
+assert.match(checkoutStatus, /expand: \["line_items"\]/);
+
 const sticksCheckout = read('supabase/functions/stripe-sticks-checkout/index.ts');
 assert.match(sticksCheckout, /maxBoxesPerCheckout = 1000/);
 assert.match(sticksCheckout, /boxCount > maxBoxesPerCheckout/);
+assert.match(sticksCheckout, /checkout_source: "bloomjoy_storefront"/);
+assert.match(sticksCheckout, /payment_method_types: \["card"\]/);
+
+const sugarCheckout = read('supabase/functions/stripe-sugar-checkout/index.ts');
+assert.match(sugarCheckout, /MICRO_CHECKOUT_ENABLED/);
+assert.match(sugarCheckout, /microMachineQuantity > 0 && !microCheckoutEnabled/);
+assert.match(sugarCheckout, /checkout_source: "bloomjoy_storefront"/);
+assert.match(sugarCheckout, /payment_method_types: \["card"\]/);
+
+const plusCheckout = read('supabase/functions/stripe-plus-checkout/index.ts');
+assert.match(plusCheckout, /checkout_source: "bloomjoy_storefront"/);
+assert.match(plusCheckout, /payment_method_types: \["card"\]/);
 
 const internalEmail = read('supabase/functions/_shared/internal-email.ts');
 assert.match(internalEmail, /etrifari@bloomjoysweets\.com/);
