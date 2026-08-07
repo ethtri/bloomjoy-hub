@@ -1,3 +1,5 @@
+import { resolveLocalNotificationSinkBaseUrl } from "./local-notification-sink.ts";
+
 const RESEND_API_BASE_URL = "https://api.resend.com/emails";
 const DEFAULT_RECIPIENTS = [
   "etrifari@bloomjoysweets.com",
@@ -14,7 +16,7 @@ const parseRecipients = (value: string | undefined | null): string[] => {
 
 export const getInternalNotificationRecipients = (): string[] => {
   const configuredRecipients = parseRecipients(
-    Deno.env.get("INTERNAL_NOTIFICATION_RECIPIENTS")
+    Deno.env.get("INTERNAL_NOTIFICATION_RECIPIENTS"),
   );
   return Array.from(new Set([...DEFAULT_RECIPIENTS, ...configuredRecipients]));
 };
@@ -35,7 +37,10 @@ export type TransactionalEmailInput = {
 };
 
 const getResendConfig = () => {
-  const resendApiKey = Deno.env.get("RESEND_API_KEY");
+  const localNotificationSinkBaseUrl = resolveLocalNotificationSinkBaseUrl();
+  const resendApiKey = localNotificationSinkBaseUrl
+    ? "local-notification-sink"
+    : Deno.env.get("RESEND_API_KEY");
   const fromEmail = Deno.env.get("INTERNAL_NOTIFICATION_FROM_EMAIL");
 
   if (!resendApiKey) {
@@ -49,6 +54,9 @@ const getResendConfig = () => {
   return {
     resendApiKey,
     fromEmail,
+    resendApiUrl: localNotificationSinkBaseUrl
+      ? `${localNotificationSinkBaseUrl}/resend/emails`
+      : RESEND_API_BASE_URL,
   };
 };
 
@@ -60,13 +68,15 @@ export async function sendTransactionalEmail({
   replyTo,
   idempotencyKey,
 }: TransactionalEmailInput) {
-  const { resendApiKey, fromEmail } = getResendConfig();
+  const { resendApiKey, fromEmail, resendApiUrl } = getResendConfig();
 
   if (!to.length) {
     throw new Error("No email recipients configured.");
   }
 
-  const recipients = to.map((value) => value.trim().toLowerCase()).filter(Boolean);
+  const recipients = to.map((value) => value.trim().toLowerCase()).filter(
+    Boolean,
+  );
 
   if (!recipients.length) {
     throw new Error("No email recipients configured.");
@@ -86,8 +96,8 @@ export async function sendTransactionalEmail({
   const replyToRecipients = Array.isArray(replyTo)
     ? replyTo.map((value) => value.trim().toLowerCase()).filter(Boolean)
     : typeof replyTo === "string" && replyTo.trim()
-      ? [replyTo.trim().toLowerCase()]
-      : [];
+    ? [replyTo.trim().toLowerCase()]
+    : [];
 
   if (replyToRecipients.length === 1) {
     payload.reply_to = replyToRecipients[0];
@@ -104,7 +114,7 @@ export async function sendTransactionalEmail({
     headers["Idempotency-Key"] = idempotencyKey;
   }
 
-  const response = await fetch(RESEND_API_BASE_URL, {
+  const response = await fetch(resendApiUrl, {
     method: "POST",
     headers,
     body: JSON.stringify(payload),
@@ -113,12 +123,16 @@ export async function sendTransactionalEmail({
   if (!response.ok) {
     const errorBody = await response.text();
     throw new Error(
-      `Resend request failed (${response.status}): ${errorBody || "Unknown error"}`
+      `Resend request failed (${response.status}): ${
+        errorBody || "Unknown error"
+      }`,
     );
   }
 }
 
-export async function sendInternalEmail({ subject, text, idempotencyKey }: InternalEmailInput) {
+export async function sendInternalEmail(
+  { subject, text, idempotencyKey }: InternalEmailInput,
+) {
   const recipients = getInternalNotificationRecipients();
 
   if (!recipients.length) {

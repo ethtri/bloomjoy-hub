@@ -20,6 +20,8 @@ const allowedAddressTypes = new Set(["business", "residential"]);
 const freeShippingBoxThreshold = 5;
 const piecesPerBox = 2000;
 const maxBoxesPerCheckout = 1000;
+const standardUnitPriceCents = 13000;
+const memberUnitPriceCents = 10400;
 
 type StickPricingTier = "member" | "standard";
 
@@ -187,6 +189,9 @@ serve(async (req) => {
     const selectedSticksPriceId = pricingTier === "member"
       ? memberSticksPriceId
       : sticksPriceId;
+    const expectedUnitPriceCents = pricingTier === "member"
+      ? memberUnitPriceCents
+      : standardUnitPriceCents;
 
     if (!stripe || !selectedSticksPriceId) {
       return new Response(
@@ -238,6 +243,23 @@ serve(async (req) => {
       );
     }
 
+    const selectedSticksPrice = await stripe.prices.retrieve(selectedSticksPriceId);
+    if (
+      !selectedSticksPrice.active ||
+      selectedSticksPrice.currency !== "usd" ||
+      selectedSticksPrice.type !== "one_time" ||
+      selectedSticksPrice.unit_amount !== expectedUnitPriceCents
+    ) {
+      console.error("Configured sticks Price failed server validation");
+      return new Response(
+        JSON.stringify({ error: "Sticks pricing is not configured correctly." }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
     const normalizedAddressType = addressType as "business" | "residential";
     const isFreeShipping = boxCount >= freeShippingBoxThreshold;
     const shippingRatePerBoxUsd = isFreeShipping
@@ -286,6 +308,7 @@ serve(async (req) => {
         sticks_box_count: String(boxCount),
         sticks_pieces_per_box: String(piecesPerBox),
         sticks_address_type: normalizedAddressType,
+        unit_price_cents: String(selectedSticksPrice.unit_amount),
         sticks_shipping_rate_per_box_usd: String(shippingRatePerBoxUsd),
         sticks_shipping_total_cents: String(shippingTotalCents),
         sticks_free_shipping: String(isFreeShipping),

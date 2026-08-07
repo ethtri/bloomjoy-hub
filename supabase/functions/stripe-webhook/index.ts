@@ -68,6 +68,7 @@ type StripeLineItemSummary = {
   description: string | null;
   quantity: number | null;
   amount_total: number | null;
+  unit_amount: number | null;
   currency: string | null;
   price_id: string | null;
   metadata?: Record<string, unknown>;
@@ -304,17 +305,10 @@ const formatAddressType = (addressType: string | null | undefined) => {
 
 const deriveUnitPriceCents = (lineItems: StripeLineItemSummary[]): number | null => {
   const primaryLineItem = lineItems.find(
-    (item) =>
-      typeof item.amount_total === "number" &&
-      typeof item.quantity === "number" &&
-      item.quantity > 0
+    (item) => typeof item.unit_amount === "number" && item.unit_amount > 0,
   );
 
-  if (!primaryLineItem || primaryLineItem.amount_total === null || primaryLineItem.quantity === null) {
-    return null;
-  }
-
-  return Math.round(primaryLineItem.amount_total / primaryLineItem.quantity);
+  return primaryLineItem?.unit_amount ?? null;
 };
 
 const resolveReceiptUrl = async (
@@ -624,6 +618,11 @@ async function upsertOrder(expanded: ExpandedCheckoutSession): Promise<OrderCont
     description: item.description,
     quantity: item.quantity,
     amount_total: item.amount_total,
+    unit_amount:
+      typeof item.price === "object" && item.price &&
+        typeof item.price.unit_amount === "number"
+        ? item.price.unit_amount
+        : null,
     currency: item.currency,
     price_id: typeof item.price === "object" && item.price ? item.price.id : null,
   })) ?? [];
@@ -655,6 +654,7 @@ async function upsertOrder(expanded: ExpandedCheckoutSession): Promise<OrderCont
       description: "Sugar mix breakdown",
       quantity: sugarMix.total_kg,
       amount_total: null,
+      unit_amount: null,
       currency: expanded.currency,
       price_id: null,
       metadata: sugarMix,
@@ -666,6 +666,7 @@ async function upsertOrder(expanded: ExpandedCheckoutSession): Promise<OrderCont
       description: "Bloomjoy branded sticks order details",
       quantity: blankSticks.box_count || null,
       amount_total: null,
+      unit_amount: null,
       currency: expanded.currency,
       price_id: null,
       metadata: blankSticks,
@@ -677,6 +678,7 @@ async function upsertOrder(expanded: ExpandedCheckoutSession): Promise<OrderCont
       description: "Micro Machine order details",
       quantity: microMachine.quantity,
       amount_total: null,
+      unit_amount: null,
       currency: expanded.currency,
       price_id: null,
       metadata: microMachine,

@@ -214,6 +214,8 @@ assert.match(webhook, /checkout\.session\.async_payment_succeeded/);
 assert.match(webhook, /claimDispatch/);
 assert.match(webhook, /Promise\.allSettled/);
 assert.match(webhook, /plus_subscription_activated/);
+assert.match(webhook, /unit_amount: number \| null/);
+assert.doesNotMatch(webhook, /Math\.round\(primaryLineItem\.amount_total/);
 
 const checkoutClient = read('src/lib/stripeCheckout.ts');
 assert.match(checkoutClient, /\{CHECKOUT_SESSION_ID\}/);
@@ -228,6 +230,9 @@ assert.match(sticksCheckout, /maxBoxesPerCheckout = 1000/);
 assert.match(sticksCheckout, /boxCount > maxBoxesPerCheckout/);
 assert.match(sticksCheckout, /checkout_source: "bloomjoy_storefront"/);
 assert.match(sticksCheckout, /payment_method_types: \["card"\]/);
+assert.match(sticksCheckout, /stripe\.prices\.retrieve\(selectedSticksPriceId\)/);
+assert.match(sticksCheckout, /selectedSticksPrice\.unit_amount !== expectedUnitPriceCents/);
+assert.match(sticksCheckout, /unit_price_cents: String\(selectedSticksPrice\.unit_amount\)/);
 
 const sugarCheckout = read('supabase/functions/stripe-sugar-checkout/index.ts');
 assert.match(sugarCheckout, /MICRO_CHECKOUT_ENABLED/);
@@ -242,5 +247,14 @@ assert.match(plusCheckout, /payment_method_types: \["card"\]/);
 const internalEmail = read('supabase/functions/_shared/internal-email.ts');
 assert.match(internalEmail, /etrifari@bloomjoysweets\.com/);
 assert.match(internalEmail, /ian@bloomjoysweets\.com/);
+
+const localPaymentUat = read('scripts/commerce/local-payment-uat.mjs');
+assert.match(localPaymentUat, /SAFE_CHILD_ENVIRONMENT_KEYS/);
+assert.match(localPaymentUat, /STRIPE_API_KEY: stripeTestKey/);
+assert.doesNotMatch(localPaymentUat, /"--api-key"/);
+assert.doesNotMatch(localPaymentUat, /env: process\.env/);
+assert.match(localPaymentUat, /"WECOM_CORP_ID="/);
+assert.match(localPaymentUat, /idempotencyKeyPresent: Boolean\(idempotencyKey\)/);
+assert.match(localPaymentUat, /await Promise\.all\(childProcesses\.map\(terminateProcessTree\)\)/);
 
 console.log('Payment-first storefront validation passed.');
