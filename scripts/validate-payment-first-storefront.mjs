@@ -243,6 +243,24 @@ assert.match(sugarCheckout, /payment_method_types: \["card"\]/);
 const plusCheckout = read('supabase/functions/stripe-plus-checkout/index.ts');
 assert.match(plusCheckout, /checkout_source: "bloomjoy_storefront"/);
 assert.match(plusCheckout, /payment_method_types: \["card"\]/);
+assert.match(plusCheckout, /customer: customerId/);
+assert.doesNotMatch(plusCheckout, /customer_email:/);
+assert.match(plusCheckout, /stripe\.customers\.update\(customerId, \{/);
+assert.match(plusCheckout, /email,/);
+assert.match(plusCheckout, /PLUS_SUBSCRIPTION_EXISTS/);
+assert.match(plusCheckout, /hasBlockingPlusSubscription\(subscriptionRecords\)/);
+assert.match(plusCheckout, /findReusableOpenPlusCheckoutSession/);
+
+const customerPortal = read('supabase/functions/stripe-customer-portal/index.ts');
+assert.match(customerPortal, /selectStoredStripeCustomerId\(subscriptionRecords\)/);
+assert.match(customerPortal, /PLUS_BILLING_ACCOUNT_NOT_FOUND/);
+assert.doesNotMatch(customerPortal, /stripe\.customers\.create/);
+
+const accountPage = read('src/pages/portal/Account.tsx');
+assert.match(accountPage, /PLUS_SUBSCRIPTION_EXISTS/);
+assert.match(accountPage, /Fix Billing/);
+assert.match(accountPage, /Renew Plus/);
+assert.match(accountPage, /Access through/);
 
 const internalEmail = read('supabase/functions/_shared/internal-email.ts');
 assert.match(internalEmail, /etrifari@bloomjoysweets\.com/);

@@ -295,7 +295,7 @@ const makeTimekeepingContext = (persona) => ({
     : [],
 });
 
-const rpcResponse = (rpcName, persona) => {
+const rpcResponse = (rpcName, persona, { plusAccessOverride = null } = {}) => {
   switch (rpcName) {
     case 'resolve_my_technician_entitlements':
       return {
@@ -306,18 +306,20 @@ const rpcResponse = (rpcName, persona) => {
         skippedGrantCount: 0,
       };
     case 'get_my_plus_access':
-      return {
-        has_plus_access: persona.plus,
-        source: persona.plus ? 'subscription' : null,
-        membership_status: persona.plus ? 'active' : 'none',
-        current_period_end: null,
-        cancel_at_period_end: false,
-        paid_subscription_active: persona.plus,
-        free_grant_id: null,
-        free_grant_starts_at: null,
-        free_grant_expires_at: null,
-        free_grant_active: false,
-      };
+      return (
+        plusAccessOverride ?? {
+          has_plus_access: persona.plus,
+          source: persona.plus ? 'subscription' : null,
+          membership_status: persona.plus ? 'active' : 'none',
+          current_period_end: null,
+          cancel_at_period_end: false,
+          paid_subscription_active: persona.plus,
+          free_grant_id: null,
+          free_grant_starts_at: null,
+          free_grant_expires_at: null,
+          free_grant_active: false,
+        }
+      );
     case 'get_my_admin_access_context':
       return {
         isSuperAdmin: persona.isSuperAdmin,
@@ -456,6 +458,7 @@ const createPageForPersona = async (
     trainingProgressRecords = [],
     onboardingCompletedStepIds = null,
     language = 'en',
+    plusAccessOverride = null,
   } = {},
 ) => {
   const context = await browser.newContext({ viewport });
@@ -536,7 +539,7 @@ const createPageForPersona = async (
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(rpcResponse(rpcName, persona)),
+      body: JSON.stringify(rpcResponse(rpcName, persona, { plusAccessOverride })),
     });
   };
 
@@ -1703,6 +1706,125 @@ try {
     fullPage: true,
   });
   await accountPage.close();
+
+  const billingRecoveryPage = await createPageForPersona(
+    browser,
+    personas.customer,
+    { width: 1366, height: 768 },
+    {
+      plusAccessOverride: {
+        has_plus_access: false,
+        source: 'none',
+        membership_status: 'past_due',
+        current_period_end: '2026-09-08T00:00:00.000Z',
+        cancel_at_period_end: false,
+        paid_subscription_active: false,
+        free_grant_id: null,
+        free_grant_starts_at: null,
+        free_grant_expires_at: null,
+        free_grant_active: false,
+      },
+    },
+  );
+  await billingRecoveryPage.goto(`${appUrl}/portal/account`, { waitUntil: 'networkidle' });
+  await waitForHeading(
+    billingRecoveryPage,
+    { name: 'Account Settings', level: 1 },
+    'portal-plus-billing-recovery-debug-failed.png',
+  );
+  await billingRecoveryPage
+    .getByRole('button', { name: 'Fix Billing', exact: true })
+    .first()
+    .waitFor();
+  await billingRecoveryPage
+    .getByText('Plus access is paused until billing is resolved.', { exact: false })
+    .waitFor();
+  await assert(
+    (await billingRecoveryPage.getByRole('button', { name: 'Start Plus Membership' }).count()) ===
+      0,
+    'A recoverable Plus billing state must not offer a second subscription checkout.',
+  );
+  await billingRecoveryPage.screenshot({
+    path: path.join(outputDir, 'portal-plus-billing-recovery-desktop.png'),
+    fullPage: true,
+  });
+  await billingRecoveryPage.close();
+
+  const renewalPage = await createPageForPersona(
+    browser,
+    personas.plusMember,
+    { width: 1366, height: 768 },
+    {
+      plusAccessOverride: {
+        has_plus_access: true,
+        source: 'paid_subscription',
+        membership_status: 'active',
+        current_period_end: '2026-09-08T00:00:00.000Z',
+        cancel_at_period_end: true,
+        paid_subscription_active: true,
+        free_grant_id: null,
+        free_grant_starts_at: null,
+        free_grant_expires_at: null,
+        free_grant_active: false,
+      },
+    },
+  );
+  await renewalPage.goto(`${appUrl}/portal/account`, { waitUntil: 'networkidle' });
+  await waitForHeading(
+    renewalPage,
+    { name: 'Account Settings', level: 1 },
+    'portal-plus-renewal-debug-failed.png',
+  );
+  await renewalPage
+    .getByRole('button', { name: 'Renew Plus', exact: true })
+    .first()
+    .waitFor();
+  await renewalPage.getByText('Access through', { exact: true }).waitFor();
+  await renewalPage
+    .getByText('Monthly renewal is off.', { exact: false })
+    .waitFor();
+  await renewalPage.screenshot({
+    path: path.join(outputDir, 'portal-plus-renewal-desktop.png'),
+    fullPage: true,
+  });
+  await renewalPage.close();
+
+  const restartPage = await createPageForPersona(
+    browser,
+    personas.customer,
+    { width: 390, height: 844 },
+    {
+      plusAccessOverride: {
+        has_plus_access: false,
+        source: 'none',
+        membership_status: 'canceled',
+        current_period_end: '2026-08-01T00:00:00.000Z',
+        cancel_at_period_end: false,
+        paid_subscription_active: false,
+        free_grant_id: null,
+        free_grant_starts_at: null,
+        free_grant_expires_at: null,
+        free_grant_active: false,
+      },
+    },
+  );
+  await restartPage.goto(`${appUrl}/portal/account`, { waitUntil: 'networkidle' });
+  await waitForHeading(
+    restartPage,
+    { name: 'Account Settings', level: 1 },
+    'portal-plus-restart-debug-failed.png',
+  );
+  await restartPage
+    .getByRole('button', { name: 'Restart Plus Membership', exact: true })
+    .first()
+    .waitFor();
+  await restartPage.getByText('Ended', { exact: true }).waitFor();
+  await assertNoHorizontalOverflow(restartPage, 'Canceled Plus account mobile');
+  await restartPage.screenshot({
+    path: path.join(outputDir, 'portal-plus-restart-mobile.png'),
+    fullPage: true,
+  });
+  await restartPage.close();
 
   const accountSyncFailurePage = await createPageForPersona(
     browser,

@@ -2,7 +2,11 @@ export type MembershipStatus =
   | 'active'
   | 'trialing'
   | 'past_due'
+  | 'unpaid'
   | 'canceled'
+  | 'incomplete'
+  | 'incomplete_expired'
+  | 'paused'
   | 'inactive'
   | 'none';
 
@@ -27,6 +31,15 @@ export type PlusAccessSummary = {
 export const hasPlusAccess = (status: MembershipStatus | undefined): boolean =>
   status === 'active' || status === 'trialing';
 
+export const needsPlusBillingAttention = (status: MembershipStatus | undefined): boolean =>
+  status === 'past_due' ||
+  status === 'unpaid' ||
+  status === 'incomplete' ||
+  status === 'paused';
+
+export const canManagePlusBilling = (status: MembershipStatus | undefined): boolean =>
+  hasPlusAccess(status) || needsPlusBillingAttention(status);
+
 export const normalizeMembershipStatus = (status: string | undefined): MembershipStatus => {
   if (!status) return 'none';
 
@@ -34,7 +47,11 @@ export const normalizeMembershipStatus = (status: string | undefined): Membershi
     case 'active':
     case 'trialing':
     case 'past_due':
+    case 'unpaid':
     case 'canceled':
+    case 'incomplete':
+    case 'incomplete_expired':
+    case 'paused':
     case 'inactive':
     case 'none':
       return status;

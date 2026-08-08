@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { validateBrowserUrl } from "../_shared/browser-url-allowlist.mjs";
 import { corsHeaders } from "../_shared/cors.ts";
+import { selectStoredStripeCustomerId } from "../_shared/plus-billing.mjs";
 
 export const config = {
   verify_jwt: false,
@@ -27,8 +28,8 @@ if (!supabaseAnonKey) {
 
 const stripe = stripeSecretKey
   ? new Stripe(stripeSecretKey, {
-      apiVersion: "2024-04-10",
-    })
+    apiVersion: "2024-04-10",
+  })
   : null;
 
 const resolveAuthenticatedUser = async (req: Request) => {
@@ -36,6 +37,7 @@ const resolveAuthenticatedUser = async (req: Request) => {
     return {
       error: "Auth is not configured.",
       status: 500,
+      supabaseClient: null,
       user: null,
     };
   }
@@ -45,6 +47,7 @@ const resolveAuthenticatedUser = async (req: Request) => {
     return {
       error: "Authentication required.",
       status: 401,
+      supabaseClient: null,
       user: null,
     };
   }
@@ -54,6 +57,11 @@ const resolveAuthenticatedUser = async (req: Request) => {
       persistSession: false,
       autoRefreshToken: false,
     },
+    global: {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
   });
 
   const { data, error } = await supabaseClient.auth.getUser(token);
@@ -61,6 +69,7 @@ const resolveAuthenticatedUser = async (req: Request) => {
     return {
       error: "Authentication required.",
       status: 401,
+      supabaseClient: null,
       user: null,
     };
   }
@@ -68,6 +77,7 @@ const resolveAuthenticatedUser = async (req: Request) => {
   return {
     error: null,
     status: 200,
+    supabaseClient,
     user: data.user,
   };
 };
@@ -79,13 +89,13 @@ serve(async (req) => {
 
   try {
     const authResult = await resolveAuthenticatedUser(req);
-    if (!authResult.user) {
+    if (!authResult.user || !authResult.supabaseClient) {
       return new Response(
         JSON.stringify({ error: authResult.error }),
         {
           status: authResult.status,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -101,7 +111,7 @@ serve(async (req) => {
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -111,7 +121,7 @@ serve(async (req) => {
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -123,18 +133,69 @@ serve(async (req) => {
         {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
-    const existingCustomers = await stripe.customers.list({ email, limit: 1 });
-    const customer =
-      existingCustomers.data.length > 0
-        ? existingCustomers.data[0]
-        : await stripe.customers.create({ email });
+    const { data: subscriptionRecords, error: subscriptionError } =
+      await authResult.supabaseClient
+        .from("subscriptions")
+        .select("stripe_customer_id,updated_at")
+        .eq("user_id", authResult.user.id)
+        .order("updated_at", { ascending: false });
+
+    if (subscriptionError) {
+      console.error("Unable to resolve Plus billing account");
+      return new Response(
+        JSON.stringify({
+          error: "Unable to verify your billing account right now.",
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    let customerId = selectStoredStripeCustomerId(subscriptionRecords);
+
+    if (!customerId) {
+      const metadataCustomers = await stripe.customers.search({
+        query: `metadata['bloomjoy_user_id']:'${authResult.user.id}'`,
+        limit: 10,
+      });
+      customerId = metadataCustomers.data[0]?.id ?? null;
+    }
+
+    if (!customerId) {
+      return new Response(
+        JSON.stringify({
+          error:
+            "No Plus billing account was found. Start a Plus membership first.",
+          errorCode: "PLUS_BILLING_ACCOUNT_NOT_FOUND",
+        }),
+        {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    const customer = await stripe.customers.retrieve(customerId);
+    if ("deleted" in customer && customer.deleted) {
+      return new Response(
+        JSON.stringify({
+          error: "Your Plus billing account is unavailable. Contact support.",
+        }),
+        {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
 
     const session = await stripe.billingPortal.sessions.create({
-      customer: customer.id,
+      customer: customerId,
       return_url: returnUrl,
     });
 
@@ -148,7 +209,7 @@ serve(async (req) => {
       {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      },
     );
   }
 });
