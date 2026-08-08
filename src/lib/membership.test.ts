@@ -3,6 +3,7 @@
 import {
   canManagePlusBilling,
   needsPlusBillingAttention,
+  needsPlusCheckoutCompletion,
   normalizeMembershipStatus,
 } from './membership.ts';
 
@@ -11,10 +12,16 @@ const assert = (condition: unknown, message: string) => {
 };
 
 Deno.test('Plus billing recovery statuses stay visible to the account owner', () => {
-  for (const status of ['past_due', 'unpaid', 'incomplete', 'paused'] as const) {
+  for (const status of ['past_due', 'unpaid', 'paused'] as const) {
     assert(canManagePlusBilling(status), `${status} should open billing recovery`);
     assert(needsPlusBillingAttention(status), `${status} should show a warning state`);
   }
+});
+
+Deno.test('incomplete Plus starts by resuming Checkout rather than Billing', () => {
+  assert(needsPlusCheckoutCompletion('incomplete'), 'incomplete should resume Checkout');
+  assert(!canManagePlusBilling('incomplete'), 'incomplete must not open the billing portal');
+  assert(!needsPlusBillingAttention('incomplete'), 'incomplete is not an invoice recovery state');
 });
 
 Deno.test('ended Plus subscriptions can start a new checkout', () => {

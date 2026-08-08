@@ -4,18 +4,33 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { validateBrowserUrl } from "../_shared/browser-url-allowlist.mjs";
 import { corsHeaders } from "../_shared/cors.ts";
-import { selectStoredStripeCustomerId } from "../_shared/plus-billing.mjs";
+import {
+  blockingPlusSubscriptionStatuses,
+  resolveStripePlusBillingState,
+} from "../_shared/plus-billing.mjs";
 
 export const config = {
   verify_jwt: false,
 };
 
 const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
+const plusPriceId = Deno.env.get("STRIPE_PLUS_PRICE_ID");
+const portalConfigurationId = Deno.env.get(
+  "STRIPE_CUSTOMER_PORTAL_CONFIGURATION_ID",
+);
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
 
 if (!stripeSecretKey) {
   console.error("Missing STRIPE_SECRET_KEY");
+}
+
+if (!plusPriceId) {
+  console.error("Missing STRIPE_PLUS_PRICE_ID");
+}
+
+if (!portalConfigurationId?.startsWith("bpc_")) {
+  console.error("Missing or invalid STRIPE_CUSTOMER_PORTAL_CONFIGURATION_ID");
 }
 
 if (!supabaseUrl) {
@@ -127,7 +142,11 @@ serve(async (req) => {
 
     const returnUrl = returnUrlResult.url;
 
-    if (!stripe) {
+    if (
+      !stripe ||
+      !plusPriceId ||
+      !portalConfigurationId?.startsWith("bpc_")
+    ) {
       return new Response(
         JSON.stringify({ error: "Stripe is not configured." }),
         {
@@ -140,7 +159,7 @@ serve(async (req) => {
     const { data: subscriptionRecords, error: subscriptionError } =
       await authResult.supabaseClient
         .from("subscriptions")
-        .select("stripe_customer_id,updated_at")
+        .select("stripe_customer_id,stripe_subscription_id,status,updated_at")
         .eq("user_id", authResult.user.id)
         .order("updated_at", { ascending: false });
 
@@ -157,15 +176,29 @@ serve(async (req) => {
       );
     }
 
-    let customerId = selectStoredStripeCustomerId(subscriptionRecords);
+    const billingState = await resolveStripePlusBillingState({
+      stripe,
+      subscriptionRecords,
+      userId: authResult.user.id,
+      email,
+      plusPriceId,
+    });
 
-    if (!customerId) {
-      const metadataCustomers = await stripe.customers.search({
-        query: `metadata['bloomjoy_user_id']:'${authResult.user.id}'`,
-        limit: 10,
-      });
-      customerId = metadataCustomers.data[0]?.id ?? null;
+    if (billingState.ambiguous) {
+      return new Response(
+        JSON.stringify({
+          error:
+            "We found multiple Plus billing records and cannot safely choose one. Contact Bloomjoy support.",
+          errorCode: "PLUS_BILLING_ACCOUNT_AMBIGUOUS",
+        }),
+        {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
+
+    const customerId = billingState.customerId;
 
     if (!customerId) {
       return new Response(
@@ -181,11 +214,38 @@ serve(async (req) => {
       );
     }
 
-    const customer = await stripe.customers.retrieve(customerId);
-    if ("deleted" in customer && customer.deleted) {
+    const authoritativeCustomerState = billingState.customerStates.find(
+      (state) => state.customerId === customerId,
+    );
+    const blockingSubscriptions =
+      authoritativeCustomerState?.subscriptions.filter((
+        subscription: Stripe.Subscription,
+      ) => blockingPlusSubscriptionStatuses.has(subscription?.status)) ?? [];
+
+    if (
+      blockingSubscriptions.length > 0 &&
+      blockingSubscriptions.every((subscription: Stripe.Subscription) =>
+        subscription?.status === "incomplete"
+      )
+    ) {
       return new Response(
         JSON.stringify({
-          error: "Your Plus billing account is unavailable. Contact support.",
+          error: "Finish your existing Plus checkout before opening Billing.",
+          errorCode: "PLUS_CHECKOUT_INCOMPLETE",
+        }),
+        {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    if (!billingState.hasBlockingSubscription) {
+      return new Response(
+        JSON.stringify({
+          error:
+            "Your previous Plus subscription has ended. Start a new Plus checkout to continue.",
+          errorCode: "PLUS_SUBSCRIPTION_ENDED",
         }),
         {
           status: 409,
@@ -196,14 +256,15 @@ serve(async (req) => {
 
     const session = await stripe.billingPortal.sessions.create({
       customer: customerId,
+      configuration: portalConfigurationId,
       return_url: returnUrl,
     });
 
     return new Response(JSON.stringify({ url: session.url }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (error) {
-    console.error("stripe-customer-portal error", error);
+  } catch {
+    console.error("stripe-customer-portal failed");
     return new Response(
       JSON.stringify({ error: "Unable to open customer portal." }),
       {

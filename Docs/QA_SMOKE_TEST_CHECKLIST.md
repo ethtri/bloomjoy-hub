@@ -434,17 +434,20 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Plus subscription checkout shows flat `$100/month` account pricing and completes with test card
 - [ ] Logged-out users on `/plus` are redirected to login before checkout can begin
 - [ ] After login, a baseline customer can start Plus checkout from `/portal/account` and Stripe returns to `/portal/account` for success or cancellation without crossing back to the logged-out public host
-- [ ] Repeated or double-clicked Start Plus actions reuse the same open Stripe Checkout Session and cannot create duplicate subscriptions
-- [ ] An existing `active`, `trialing`, `past_due`, `unpaid`, `paused`, or `incomplete` Plus subscription blocks a second checkout; recoverable billing states open Billing instead
+- [ ] Repeated, simultaneous, cross-tab, or minute-boundary Start Plus actions reuse one durable per-account checkout attempt and the same open Stripe Checkout Session; only one payable subscription session can be created
+- [ ] Stripe resolution checks every stored-customer, stored-subscription, Bloomjoy-user-metadata, and exact-email candidate; one actionable Plus history is selected, ambiguous actionable histories fail closed, and stale positive database status does not block a restart after Stripe confirms terminal state
+- [ ] Existing `active`, `trialing`, `past_due`, `unpaid`, or `paused` Plus subscriptions block a second checkout; failed-payment states open Billing, while `incomplete` resumes the matching open Checkout Session and never routes to Billing
 - [ ] A canceled or expired incomplete Plus subscription can restart checkout on the existing Stripe Customer record
 - [ ] Stripe subscription from Plus checkout contains `metadata.user_id` and `metadata.billing_model=flat_monthly`
 - [ ] Paid Plus activation sends one idempotent internal email to Ethan/Ian and one non-blocking WeCom alert; unpaid/replayed checkout events do not duplicate alerts
-- [ ] Customer Portal link opens (test mode)
+- [ ] Customer Portal link opens with the explicit test-mode portal configuration; payment-method update, invoice history, end-of-period cancellation, and pre-expiry renewal are available
+- [ ] After the reviewed `stripe-customer-portal` deploy, one synthetic no-payment live portal session uses the private `STRIPE_CUSTOMER_PORTAL_CONFIGURATION_ID`, returns only to `https://app.bloomjoyusa.com/portal/account`, and is cleaned up without changing a real customer or subscription
 - [ ] Account page Manage Billing opens the signed-in user's exact Stripe customer portal record, with payment-method update, invoice history, and cancellation controls (test mode)
 - [ ] In Stripe test customer portal, cancel Plus subscription and return to `/portal/account?billing=return`
 - [ ] Return to account shows confirmation only after billing status refresh succeeds, and shows a retryable error if refresh fails
 - [ ] After canceling, account membership card shows `Access through`, makes clear that monthly renewal is off, and offers Renew Plus through the billing portal before the period ends
-- [ ] `past_due`, `unpaid`, `paused`, and `incomplete` accounts show a visible billing warning and Fix Billing action, never Start Plus Membership
+- [ ] `past_due`, `unpaid`, and `paused` accounts show a visible billing warning and Fix Billing action; `incomplete` shows Finish Plus Checkout and resumes the existing session; neither state offers Start Plus Membership
+- [ ] Persona UAT clicks Fix Billing, Renew Plus, Restart Plus Membership, and Finish Plus Checkout; it also proves duplicate-checkout fallback opens Billing once and billing-refresh failure leaves duplicate protections visible
 - [ ] Stripe webhook updates subscriptions/orders tables (via Stripe CLI or Dashboard test event)
 
 ## California tax activation (production, no payment)

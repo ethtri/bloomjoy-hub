@@ -34,8 +34,11 @@ export const hasPlusAccess = (status: MembershipStatus | undefined): boolean =>
 export const needsPlusBillingAttention = (status: MembershipStatus | undefined): boolean =>
   status === 'past_due' ||
   status === 'unpaid' ||
-  status === 'incomplete' ||
   status === 'paused';
+
+export const needsPlusCheckoutCompletion = (
+  status: MembershipStatus | undefined
+): boolean => status === 'incomplete';
 
 export const canManagePlusBilling = (status: MembershipStatus | undefined): boolean =>
   hasPlusAccess(status) || needsPlusBillingAttention(status);

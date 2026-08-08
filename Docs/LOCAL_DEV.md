@@ -406,6 +406,8 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase secrets set STRIPE_STICKS_PRICE_ID=...`
    - `supabase secrets set STRIPE_STICKS_MEMBER_PRICE_ID=...`
    - `supabase secrets set STRIPE_PLUS_PRICE_ID=...`
+   - `supabase secrets set STRIPE_CUSTOMER_PORTAL_CONFIGURATION_ID=...`
+     - Use a configuration from the same Stripe mode as `STRIPE_SECRET_KEY`; enable payment-method updates, invoice history, and `subscription_cancel.mode=at_period_end` so scheduled cancellations can be renewed before access ends.
    - Optional local/dev only: `supabase secrets set BLOOMJOY_ALLOW_LOCAL_REDIRECT_URLS=true` when serving commerce/invite functions locally against a non-local `SUPABASE_URL`
    - Optional preview/UAT only: `supabase secrets set BLOOMJOY_ALLOWED_VERCEL_PREVIEW_ORIGINS=https://<exact-preview>.vercel.app` when invite emails must link back to a Vercel preview. Use exact origins only; do not set this for production launch.
    - `supabase secrets set STRIPE_WEBHOOK_SECRET=...`

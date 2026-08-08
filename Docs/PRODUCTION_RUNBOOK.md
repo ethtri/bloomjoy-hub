@@ -28,6 +28,7 @@ Set the following values before launch.
 | `STRIPE_MICRO_PRICE_ID` | Server-only, conditional | `stripe-sugar-checkout`, `stripe-webhook` | Required only when Micro checkout is enabled | Billing owner |
 | `STRIPE_MICRO_SHIPPING_RATE_ID` | Server-only, conditional | `stripe-sugar-checkout` | Required only when Micro checkout is enabled | Billing owner |
 | `STRIPE_PLUS_PRICE_ID` | Server-only | `stripe-plus-checkout` | Stripe product/price config | Billing owner |
+| `STRIPE_CUSTOMER_PORTAL_CONFIGURATION_ID` | Server-only | `stripe-customer-portal` | Active Stripe portal configuration with payment-method updates, invoice history, and `at_period_end` cancellation/renewal | Billing owner |
 | `STRIPE_WEBHOOK_SECRET` | Server-only | `stripe-webhook` | Stripe webhook endpoint signing secret | Billing owner |
 | `RESEND_API_KEY` | Server-only | `stripe-webhook`, `lead-submission-intake`, `access-invite`, `refund-case-intake`, `refund-case-message-send`, `refund-case-automation-sweep` | Resend API key | Technical owner |
 | `INTERNAL_NOTIFICATION_FROM_EMAIL` | Server-only | `stripe-webhook`, `lead-submission-intake`, `access-invite`, `refund-case-intake`, `refund-case-message-send`, `refund-case-automation-sweep` | Verified sender in Resend | Technical owner |
@@ -123,7 +124,7 @@ Security rule:
 - [ ] `npm run refunds:release:check` confirms that the eight Refund Operations functions, required migrations, and `verify_jwt` settings match the approved release manifest.
 - [ ] Before deployment, `supabase db push --dry-run` reports exactly the reviewed pending migration set and no unexpected migration. Save the sanitized command result; the Edge Function drift check does not prove remote migration parity.
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
-- [ ] Stripe products/prices verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_STICKS_MEMBER_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
+- [ ] Stripe products/prices and the active Plus portal configuration are verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_STICKS_MEMBER_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`, `STRIPE_CUSTOMER_PORTAL_CONFIGURATION_ID`). The portal must enable payment-method updates and invoice history, and use `subscription_cancel.mode=at_period_end` so a scheduled cancellation can be renewed before access ends.
 - [ ] `MICRO_CHECKOUT_ENABLED` is absent and `VITE_MICRO_CHECKOUT_ENABLED=false` while `#717` is deferred. If Micro is approved later, verify both Micro IDs before setting either gate to `true`.
 - [ ] Complete the California deployment gate in `Docs/SALES_TAX_OPERATIONS.md`: live collection was owner-approved and activated on 2026-08-08, but post-activation previews proved the currently deployed checkout creators still disable Automatic Tax. Deploy the three reviewed checkout creators, require the two unpaid diagnostic sessions to be expired, verify California and no-registration calculations without payment, and record sanitized evidence in `#718`. Shipping and the final Bloomjoy Plus code remain documented working positions.
 - [ ] A non-production Stripe webhook/backend has passed paid, unpaid, canceled, replayed/concurrent, notification-retry, and synthetic delayed-payment UAT for the checkout paths in this release.
@@ -150,6 +151,7 @@ supabase secrets set STRIPE_STICKS_MEMBER_PRICE_ID=...
 # Keep MICRO_CHECKOUT_ENABLED absent while #717 is deferred. When approved later:
 # supabase secrets set MICRO_CHECKOUT_ENABLED=true STRIPE_MICRO_PRICE_ID=... STRIPE_MICRO_SHIPPING_RATE_ID=...
 supabase secrets set STRIPE_PLUS_PRICE_ID=...
+supabase secrets set STRIPE_CUSTOMER_PORTAL_CONFIGURATION_ID=...
 supabase secrets set STRIPE_WEBHOOK_SECRET=...
 supabase secrets set RESEND_API_KEY=...
 supabase secrets set INTERNAL_NOTIFICATION_FROM_EMAIL=...

@@ -3,7 +3,8 @@
   "remote": {
     "https://deno.land/std@0.224.0/async/delay.ts": "f90dd685b97c2f142b8069082993e437b1602b8e2561134827eeb7c12b95c499",
     "https://deno.land/std@0.224.0/http/server.ts": "f9313804bf6467a1704f45f76cb6cd0a3396a3b31c316035e6a4c2035d1ea514",
-    "https://esm.sh/@supabase/supabase-js@2.48.1": "b9a3a846ddbe85569795a9a2055336f1353c6eea2f5ca05bd6a6c14284dfe20a"
+    "https://esm.sh/@supabase/supabase-js@2.48.1": "b9a3a846ddbe85569795a9a2055336f1353c6eea2f5ca05bd6a6c14284dfe20a",
+    "https://esm.sh/stripe@12.18.0?target=deno": "22b6b2c41cf089582ec89ce3aab85efb5cdeb80e0571f4c9bdd4f509db350e82"
   },
   "workspace": {
     "packageJson": {

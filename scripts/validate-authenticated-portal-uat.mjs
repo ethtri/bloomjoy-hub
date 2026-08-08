@@ -459,11 +459,15 @@ const createPageForPersona = async (
     onboardingCompletedStepIds = null,
     language = 'en',
     plusAccessOverride = null,
+    plusAccessFailureAttempts = 0,
+    edgeFunctionResponses = {},
+    edgeFunctionCallCounts = null,
   } = {},
 ) => {
   const context = await browser.newContext({ viewport });
   const session = makeSession(persona);
   let dashboardStatusRequestCount = 0;
+  let plusAccessRequestCount = 0;
 
   await context.addInitScript(
     ({ value, email, completedStepIds, initialLanguage }) => {
@@ -522,6 +526,17 @@ const createPageForPersona = async (
     }),
   );
   const fulfillRpc = async (route, rpcName) => {
+    if (rpcName === 'get_my_plus_access') {
+      plusAccessRequestCount += 1;
+      if (plusAccessRequestCount <= plusAccessFailureAttempts) {
+        return route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: 'Membership status unavailable in UAT.' }),
+        });
+      }
+    }
+
     if (rpcName === 'get_my_operator_timekeeping_context') {
       dashboardStatusRequestCount += 1;
       if (dashboardStatusDelayMs > 0) {
@@ -593,6 +608,22 @@ const createPageForPersona = async (
     },
   );
 
+  await context.route('**/functions/v1/**', (route) => {
+    const functionName = decodeURIComponent(
+      new URL(route.request().url()).pathname.split('/').pop(),
+    );
+    if (edgeFunctionCallCounts) {
+      edgeFunctionCallCounts[functionName] = (edgeFunctionCallCounts[functionName] ?? 0) + 1;
+    }
+
+    const response = edgeFunctionResponses[functionName];
+    return route.fulfill({
+      status: response?.status ?? 501,
+      contentType: 'application/json',
+      body: JSON.stringify(response?.body ?? { error: 'Unexpected Edge Function call in UAT.' }),
+    });
+  });
+
   const page = await context.newPage();
   page.on('console', (message) => {
     const isExpectedLanguageSyncFailure =
@@ -603,10 +634,22 @@ const createPageForPersona = async (
       dashboardStatusFailureAttempts > 0 &&
       message.type() === 'error' &&
       message.text().includes('503 (Service Unavailable)');
+    const isExpectedPlusAccessFailure =
+      plusAccessFailureAttempts > 0 &&
+      message.type() === 'error' &&
+      message.text().includes('503 (Service Unavailable)');
+    const isExpectedEdgeFunctionFailure =
+      message.type() === 'error' &&
+      Object.values(edgeFunctionResponses).some(
+        (response) =>
+          response?.status >= 400 && message.text().includes(`${response.status} (`),
+      );
     if (
       message.type() === 'error' &&
       !isExpectedLanguageSyncFailure &&
-      !isExpectedDashboardStatusFailure
+      !isExpectedDashboardStatusFailure &&
+      !isExpectedPlusAccessFailure &&
+      !isExpectedEdgeFunctionFailure
     ) {
       const errorMessage = `[${persona.email}] console error: ${message.text()}`;
       unexpectedBrowserErrors.push(errorMessage);
@@ -642,8 +685,23 @@ const createPageForPersona = async (
       failLanguageSync &&
       response.status() === 503 &&
       requestUrl.pathname.endsWith('/customer_profiles');
+    const edgeFunctionName = requestUrl.pathname.includes('/functions/v1/')
+      ? decodeURIComponent(requestUrl.pathname.split('/').pop())
+      : null;
+    const isExpectedEdgeFunctionResponse =
+      edgeFunctionName !== null &&
+      edgeFunctionResponses[edgeFunctionName]?.status === response.status();
+    const isExpectedPlusAccessFailure =
+      plusAccessFailureAttempts > 0 &&
+      response.status() === 503 &&
+      requestUrl.pathname.endsWith('/rest/v1/rpc/get_my_plus_access');
 
-    if (isExpectedDashboardStatusFailure || isExpectedLanguageSyncFailure) {
+    if (
+      isExpectedDashboardStatusFailure ||
+      isExpectedLanguageSyncFailure ||
+      isExpectedEdgeFunctionResponse ||
+      isExpectedPlusAccessFailure
+    ) {
       return;
     }
 
@@ -1707,6 +1765,7 @@ try {
   });
   await accountPage.close();
 
+  const billingRecoveryCalls = {};
   const billingRecoveryPage = await createPageForPersona(
     browser,
     personas.customer,
@@ -1723,6 +1782,13 @@ try {
         free_grant_starts_at: null,
         free_grant_expires_at: null,
         free_grant_active: false,
+      },
+      edgeFunctionCallCounts: billingRecoveryCalls,
+      edgeFunctionResponses: {
+        'stripe-customer-portal': {
+          status: 200,
+          body: { url: `${appUrl}/portal/account?uat=billing-recovery` },
+        },
       },
     },
   );
@@ -1748,8 +1814,17 @@ try {
     path: path.join(outputDir, 'portal-plus-billing-recovery-desktop.png'),
     fullPage: true,
   });
+  await Promise.all([
+    billingRecoveryPage.waitForURL(`${appUrl}/portal/account?uat=billing-recovery`),
+    billingRecoveryPage.getByRole('button', { name: 'Fix Billing', exact: true }).first().click(),
+  ]);
+  await assert(
+    billingRecoveryCalls['stripe-customer-portal'] === 1,
+    'Fix Billing must open exactly one Stripe billing portal session.',
+  );
   await billingRecoveryPage.close();
 
+  const renewalCalls = {};
   const renewalPage = await createPageForPersona(
     browser,
     personas.plusMember,
@@ -1766,6 +1841,13 @@ try {
         free_grant_starts_at: null,
         free_grant_expires_at: null,
         free_grant_active: false,
+      },
+      edgeFunctionCallCounts: renewalCalls,
+      edgeFunctionResponses: {
+        'stripe-customer-portal': {
+          status: 200,
+          body: { url: `${appUrl}/portal/account?uat=renewal` },
+        },
       },
     },
   );
@@ -1787,8 +1869,17 @@ try {
     path: path.join(outputDir, 'portal-plus-renewal-desktop.png'),
     fullPage: true,
   });
+  await Promise.all([
+    renewalPage.waitForURL(`${appUrl}/portal/account?uat=renewal`),
+    renewalPage.getByRole('button', { name: 'Renew Plus', exact: true }).first().click(),
+  ]);
+  await assert(
+    renewalCalls['stripe-customer-portal'] === 1,
+    'Renew Plus must open exactly one Stripe billing portal session.',
+  );
   await renewalPage.close();
 
+  const restartCalls = {};
   const restartPage = await createPageForPersona(
     browser,
     personas.customer,
@@ -1805,6 +1896,13 @@ try {
         free_grant_starts_at: null,
         free_grant_expires_at: null,
         free_grant_active: false,
+      },
+      edgeFunctionCallCounts: restartCalls,
+      edgeFunctionResponses: {
+        'stripe-plus-checkout': {
+          status: 200,
+          body: { url: `${appUrl}/portal/account?uat=restart` },
+        },
       },
     },
   );
@@ -1824,7 +1922,163 @@ try {
     path: path.join(outputDir, 'portal-plus-restart-mobile.png'),
     fullPage: true,
   });
+  await Promise.all([
+    restartPage.waitForURL(`${appUrl}/portal/account?uat=restart`),
+    restartPage
+      .getByRole('button', { name: 'Restart Plus Membership', exact: true })
+      .first()
+      .click(),
+  ]);
+  await assert(
+    restartCalls['stripe-plus-checkout'] === 1,
+    'Restart Plus Membership must open exactly one Stripe Checkout Session.',
+  );
   await restartPage.close();
+
+  const incompleteCheckoutCalls = {};
+  const incompleteCheckoutPage = await createPageForPersona(
+    browser,
+    personas.customer,
+    { width: 1366, height: 768 },
+    {
+      plusAccessOverride: {
+        has_plus_access: false,
+        source: 'none',
+        membership_status: 'incomplete',
+        current_period_end: '2026-09-08T00:00:00.000Z',
+        cancel_at_period_end: false,
+        paid_subscription_active: false,
+        free_grant_id: null,
+        free_grant_starts_at: null,
+        free_grant_expires_at: null,
+        free_grant_active: false,
+      },
+      edgeFunctionCallCounts: incompleteCheckoutCalls,
+      edgeFunctionResponses: {
+        'stripe-plus-checkout': {
+          status: 200,
+          body: { url: `${appUrl}/portal/account?uat=incomplete-checkout` },
+        },
+      },
+    },
+  );
+  await incompleteCheckoutPage.goto(`${appUrl}/portal/account`, { waitUntil: 'networkidle' });
+  await waitForHeading(
+    incompleteCheckoutPage,
+    { name: 'Account Settings', level: 1 },
+    'portal-plus-incomplete-debug-failed.png',
+  );
+  await incompleteCheckoutPage
+    .getByRole('button', { name: 'Finish Plus Checkout', exact: true })
+    .first()
+    .waitFor();
+  await incompleteCheckoutPage
+    .getByText('a second subscription will not be created', { exact: false })
+    .waitFor();
+  await assert(
+    (await incompleteCheckoutPage.getByRole('button', { name: 'Fix Billing' }).count()) === 0,
+    'An incomplete Checkout must resume Checkout rather than opening the billing portal.',
+  );
+  await incompleteCheckoutPage.screenshot({
+    path: path.join(outputDir, 'portal-plus-incomplete-desktop.png'),
+    fullPage: true,
+  });
+  await Promise.all([
+    incompleteCheckoutPage.waitForURL(`${appUrl}/portal/account?uat=incomplete-checkout`),
+    incompleteCheckoutPage
+      .getByRole('button', { name: 'Finish Plus Checkout', exact: true })
+      .first()
+      .click(),
+  ]);
+  await assert(
+    incompleteCheckoutCalls['stripe-plus-checkout'] === 1,
+    'Finish Plus Checkout must request exactly one reusable Stripe Checkout Session.',
+  );
+  await assert(
+    !incompleteCheckoutCalls['stripe-customer-portal'],
+    'Finish Plus Checkout must not request the Stripe billing portal.',
+  );
+  await incompleteCheckoutPage.close();
+
+  const duplicateFallbackCalls = {};
+  const duplicateFallbackPage = await createPageForPersona(
+    browser,
+    personas.customer,
+    { width: 1366, height: 768 },
+    {
+      plusAccessOverride: {
+        has_plus_access: false,
+        source: 'none',
+        membership_status: 'canceled',
+        current_period_end: '2026-08-01T00:00:00.000Z',
+        cancel_at_period_end: false,
+        paid_subscription_active: false,
+        free_grant_id: null,
+        free_grant_starts_at: null,
+        free_grant_expires_at: null,
+        free_grant_active: false,
+      },
+      edgeFunctionCallCounts: duplicateFallbackCalls,
+      edgeFunctionResponses: {
+        'stripe-plus-checkout': {
+          status: 409,
+          body: {
+            error: 'Your Plus subscription already exists.',
+            errorCode: 'PLUS_SUBSCRIPTION_EXISTS',
+          },
+        },
+        'stripe-customer-portal': {
+          status: 200,
+          body: { url: `${appUrl}/portal/account?uat=duplicate-fallback` },
+        },
+      },
+    },
+  );
+  await duplicateFallbackPage.goto(`${appUrl}/portal/account`, { waitUntil: 'networkidle' });
+  await waitForHeading(
+    duplicateFallbackPage,
+    { name: 'Account Settings', level: 1 },
+    'portal-plus-duplicate-fallback-debug-failed.png',
+  );
+  await Promise.all([
+    duplicateFallbackPage.waitForURL(`${appUrl}/portal/account?uat=duplicate-fallback`),
+    duplicateFallbackPage
+      .getByRole('button', { name: 'Restart Plus Membership', exact: true })
+      .first()
+      .click(),
+  ]);
+  await assert(
+    duplicateFallbackCalls['stripe-plus-checkout'] === 1 &&
+      duplicateFallbackCalls['stripe-customer-portal'] === 1,
+    'Duplicate protection must fall back from one Checkout request to one billing portal request.',
+  );
+  await duplicateFallbackPage.close();
+
+  const billingRefreshFailurePage = await createPageForPersona(
+    browser,
+    personas.customer,
+    { width: 1366, height: 768 },
+    { plusAccessFailureAttempts: 10 },
+  );
+  await billingRefreshFailurePage.goto(`${appUrl}/portal/account?billing=return`, {
+    waitUntil: 'networkidle',
+  });
+  await waitForHeading(
+    billingRefreshFailurePage,
+    { name: 'Account Settings', level: 1 },
+    'portal-plus-billing-refresh-failure-debug-failed.png',
+  );
+  await billingRefreshFailurePage
+    .getByText('We could not refresh billing details.', { exact: false })
+    .waitFor({ timeout: 30_000 });
+  await billingRefreshFailurePage
+    .getByText('We could not refresh your current membership status.', { exact: false })
+    .waitFor();
+  await billingRefreshFailurePage.screenshot({
+    path: path.join(outputDir, 'portal-plus-billing-refresh-failure-desktop.png'),
+    fullPage: true,
+  });
+  await billingRefreshFailurePage.close();
 
   const accountSyncFailurePage = await createPageForPersona(
     browser,

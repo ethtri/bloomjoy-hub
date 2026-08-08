@@ -28,6 +28,7 @@ import {
   canManagePlusBilling,
   hasPlusAccess,
   needsPlusBillingAttention,
+  needsPlusCheckoutCompletion,
 } from '@/lib/membership';
 import {
   fetchPortalAccountProfile,
@@ -220,6 +221,7 @@ export default function AccountPage() {
     user?.plusAccess.paidSubscriptionActive ??
     hasPlusAccess(effectiveMembershipStatus);
   const billingNeedsAttention = needsPlusBillingAttention(effectiveMembershipStatus);
+  const checkoutNeedsCompletion = needsPlusCheckoutCompletion(effectiveMembershipStatus);
   const canOpenBillingPortal =
     hasActivePaidSubscription || canManagePlusBilling(effectiveMembershipStatus);
   const hasKnownPlusSubscription = !['none', 'inactive'].includes(effectiveMembershipStatus);
@@ -281,7 +283,7 @@ export default function AccountPage() {
           day: 'numeric',
         })
       : null;
-  const membershipBadgeTone = billingNeedsAttention || cancelAtPeriodEnd
+  const membershipBadgeTone = billingNeedsAttention || checkoutNeedsCompletion || cancelAtPeriodEnd
     ? 'warning' as const
     : isMember
       ? 'success' as const
@@ -293,20 +295,24 @@ export default function AccountPage() {
       : billingNeedsAttention
         ? 'Fix Billing'
         : 'Manage Billing';
-  const startMembershipLabel = ['canceled', 'incomplete_expired'].includes(effectiveMembershipStatus)
-    ? 'Restart Plus Membership'
-    : 'Start Plus Membership';
+  const startMembershipLabel = checkoutNeedsCompletion
+    ? 'Finish Plus Checkout'
+    : ['canceled', 'incomplete_expired'].includes(effectiveMembershipStatus)
+      ? 'Restart Plus Membership'
+      : 'Start Plus Membership';
   const billingDescription = cancelAtPeriodEnd
     ? `Your Plus access continues${nextBillingLabel ? ` through ${nextBillingLabel}` : ''}. Renew in the billing portal before it ends to keep monthly access.`
-    : billingNeedsAttention
-      ? 'Your Plus billing needs attention. Open the billing portal to update your payment method and resolve any outstanding invoice.'
-      : canOpenBillingPortal
-        ? 'Review renewal timing, update payment methods, download invoices, or schedule cancellation in the Stripe billing portal.'
-        : isMember
-          ? 'Your current Plus access is waived by Bloomjoy. No Stripe billing action is needed for this grant.'
-          : hasKnownPlusSubscription
-            ? 'Your previous Plus subscription has ended. Restart membership when you are ready.'
-            : 'Start Plus to unlock premium training, onboarding, and concierge support.';
+    : checkoutNeedsCompletion
+      ? 'Your Plus checkout was not finished. Continue the existing secure Stripe Checkout Session to complete signup.'
+      : billingNeedsAttention
+        ? 'Your Plus billing needs attention. Open the billing portal to update your payment method and resolve any outstanding invoice.'
+        : canOpenBillingPortal
+          ? 'Review renewal timing, update payment methods, download invoices, or schedule cancellation in the Stripe billing portal.'
+          : isMember
+            ? 'Your current Plus access is waived by Bloomjoy. No Stripe billing action is needed for this grant.'
+            : hasKnownPlusSubscription
+              ? 'Your previous Plus subscription has ended. Restart membership when you are ready.'
+              : 'Start Plus to unlock premium training, onboarding, and concierge support.';
   const canUseAdminAccess =
     Boolean(user?.isSuperAdmin) ||
     adminAccess.allowedSurfaces.includes('*') ||
@@ -316,7 +322,7 @@ export default function AccountPage() {
     (Boolean(user?.isScopedAdmin) ||
       (hasAdvertisedTeamCapability && !isResolvingPortalTeam && !canUsePortalTeam));
 
-  const handleManageBilling = async () => {
+  async function openBillingPortal(allowCheckoutFallback: boolean) {
     if (!user?.email) {
       toast.error('Log in to manage billing.');
       return;
@@ -327,6 +333,19 @@ export default function AccountPage() {
       const portalUrl = await openCustomerPortal(window.location.origin);
       window.location.assign(portalUrl);
     } catch (error) {
+      if (
+        allowCheckoutFallback &&
+        isEdgeFunctionError(error) &&
+        ['PLUS_SUBSCRIPTION_ENDED', 'PLUS_CHECKOUT_INCOMPLETE'].includes(
+          String(error.data?.errorCode ?? '')
+        )
+      ) {
+        setIsOpeningPortal(false);
+        toast.info('Opening the secure Plus checkout instead.');
+        await startMembershipCheckout(false);
+        return;
+      }
+
       const message =
         error instanceof Error && error.message
           ? `${error.message} Please try again, or contact support if the issue continues.`
@@ -334,9 +353,9 @@ export default function AccountPage() {
       toast.error(message);
       setIsOpeningPortal(false);
     }
-  };
+  }
 
-  const handleStartMembership = async () => {
+  async function startMembershipCheckout(allowBillingFallback: boolean) {
     if (!user?.id || !user.email) {
       toast.error('Log in before starting Bloomjoy Plus checkout.');
       return;
@@ -348,12 +367,13 @@ export default function AccountPage() {
       window.location.assign(checkoutUrl);
     } catch (error) {
       if (
+        allowBillingFallback &&
         isEdgeFunctionError(error) &&
         error.data?.errorCode === 'PLUS_SUBSCRIPTION_EXISTS'
       ) {
         setIsStartingMembership(false);
         toast.info('An existing Plus subscription was found. Opening Billing instead.');
-        await handleManageBilling();
+        await openBillingPortal(false);
         return;
       }
 
@@ -361,7 +381,10 @@ export default function AccountPage() {
       toast.error(message);
       setIsStartingMembership(false);
     }
-  };
+  }
+
+  const handleManageBilling = () => openBillingPortal(true);
+  const handleStartMembership = () => startMembershipCheckout(true);
 
   const updateProfileField = (
     key: keyof PortalAccountProfileInput,
@@ -449,6 +472,13 @@ export default function AccountPage() {
             <div className="mt-4 rounded-md border border-amber/30 bg-amber/10 px-4 py-3 text-sm text-amber">
               Plus access is paused until billing is resolved. Use Fix Billing to update your payment
               method or pay an outstanding invoice.
+            </div>
+          )}
+
+          {!isScopedAdminOnly && !isCorporatePartnerOnly && checkoutNeedsCompletion && (
+            <div className="mt-4 rounded-md border border-amber/30 bg-amber/10 px-4 py-3 text-sm text-amber">
+              Your Plus checkout is not finished. Use Finish Plus Checkout to return to the existing
+              secure Stripe session; a second subscription will not be created.
             </div>
           )}
 
