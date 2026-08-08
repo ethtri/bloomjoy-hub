@@ -12,6 +12,11 @@ const normalizeString = (value) =>
 
 const uniqueStrings = (values) => [...new Set(values.filter(Boolean))];
 
+const hasConflictingOwner = (value, userId) => {
+  const ownerId = normalizeString(value);
+  return ownerId !== null && ownerId !== userId;
+};
+
 const isMissingStripeResource = (error) =>
   error?.code === "resource_missing" || error?.statusCode === 404;
 
@@ -31,6 +36,12 @@ export const hasBlockingPlusSubscription = (subscriptions) =>
   subscriptions.some((subscription) =>
     blockingPlusSubscriptionStatuses.has(normalizeString(subscription?.status))
   );
+
+export const buildPlusCheckoutIdempotencyKey = (userId, attemptToken) =>
+  `bloomjoy-plus-checkout:${userId}:${attemptToken}`;
+
+export const plusCheckoutFailureDisposition = (checkoutCreateStarted) =>
+  checkoutCreateStarted ? "preserve" : "release";
 
 export const collectStoredStripeCustomerIds = (subscriptionRecords) => {
   if (!Array.isArray(subscriptionRecords)) return [];
@@ -145,6 +156,7 @@ export const resolveStripePlusBillingState = async ({
   );
   const candidateCustomerIds = new Set(storedCustomerIds);
   const identityBoundCustomerIds = new Set(storedCustomerIds);
+  let ownershipConflict = false;
 
   for (
     const subscriptionId of collectStoredStripeSubscriptionIds(
@@ -154,6 +166,10 @@ export const resolveStripePlusBillingState = async ({
     try {
       const subscription = await stripe.subscriptions.retrieve(subscriptionId);
       if (!subscriptionUsesPrice(subscription, plusPriceId)) continue;
+      if (hasConflictingOwner(subscription?.metadata?.user_id, userId)) {
+        ownershipConflict = true;
+        continue;
+      }
       const customerId = subscriptionCustomerId(subscription);
       if (customerId?.startsWith("cus_")) {
         candidateCustomerIds.add(customerId);
@@ -178,6 +194,10 @@ export const resolveStripePlusBillingState = async ({
 
   for (const customer of metadataCustomers.data) {
     const customerId = normalizeString(customer?.id);
+    if (hasConflictingOwner(customer?.metadata?.bloomjoy_user_id, userId)) {
+      ownershipConflict = true;
+      continue;
+    }
     if (customerId?.startsWith("cus_") && !customer?.deleted) {
       candidateCustomerIds.add(customerId);
       identityBoundCustomerIds.add(customerId);
@@ -186,8 +206,14 @@ export const resolveStripePlusBillingState = async ({
 
   for (const customer of emailCustomers.data) {
     const customerId = normalizeString(customer?.id);
-    if (customerId?.startsWith("cus_") && !customer?.deleted) {
-      candidateCustomerIds.add(customerId);
+    if (!customerId?.startsWith("cus_") || customer?.deleted) continue;
+    if (hasConflictingOwner(customer?.metadata?.bloomjoy_user_id, userId)) {
+      ownershipConflict = true;
+      continue;
+    }
+    candidateCustomerIds.add(customerId);
+    if (customer?.metadata?.bloomjoy_user_id === userId) {
+      identityBoundCustomerIds.add(customerId);
     }
   }
 
@@ -196,6 +222,13 @@ export const resolveStripePlusBillingState = async ({
     try {
       const customer = await stripe.customers.retrieve(customerId);
       if (customer?.deleted) continue;
+      if (hasConflictingOwner(customer?.metadata?.bloomjoy_user_id, userId)) {
+        ownershipConflict = true;
+        continue;
+      }
+      if (customer?.metadata?.bloomjoy_user_id === userId) {
+        identityBoundCustomerIds.add(customerId);
+      }
 
       const subscriptions = await stripe.subscriptions.list({
         customer: customerId,
@@ -205,6 +238,14 @@ export const resolveStripePlusBillingState = async ({
       });
       if (subscriptions.has_more) {
         throw new Error("Too many Plus subscriptions to resolve safely.");
+      }
+      if (
+        subscriptions.data.some((subscription) =>
+          hasConflictingOwner(subscription?.metadata?.user_id, userId)
+        )
+      ) {
+        ownershipConflict = true;
+        continue;
       }
 
       customerStates.push({
@@ -217,8 +258,19 @@ export const resolveStripePlusBillingState = async ({
     }
   }
 
+  if (ownershipConflict) {
+    return {
+      ambiguous: true,
+      customerId: null,
+      hasBlockingSubscription: true,
+      ownershipConflict: true,
+      customerStates,
+    };
+  }
+
   return {
     ...selectAuthoritativePlusBillingCustomer(customerStates),
+    ownershipConflict: false,
     customerStates,
   };
 };

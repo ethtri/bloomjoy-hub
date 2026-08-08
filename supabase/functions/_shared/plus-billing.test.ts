@@ -1,7 +1,9 @@
 import {
+  buildPlusCheckoutIdempotencyKey,
   collectStoredStripeCustomerIds,
   findReusableOpenPlusCheckoutSession,
   hasBlockingPlusSubscription,
+  plusCheckoutFailureDisposition,
   resolveReusablePlusCheckoutSession,
   resolveStripePlusBillingState,
   selectAuthoritativePlusBillingCustomer,
@@ -11,12 +13,25 @@ const assert = (condition: unknown, message: string) => {
   if (!condition) throw new Error(message);
 };
 
-const plusSubscription = (id: string, customer: string, status: string) => ({
+const plusSubscription = (
+  id: string,
+  customer: string,
+  status: string,
+  userId?: string,
+) => ({
   id,
   customer,
   status,
+  metadata: userId ? { user_id: userId } : {},
   items: { data: [{ price: { id: "price_plus" } }] },
 });
+
+type FakeCustomer = {
+  id: string;
+  email?: string;
+  deleted?: boolean;
+  metadata?: { bloomjoy_user_id?: string };
+};
 
 const fakeStripe = ({
   customers = [],
@@ -24,8 +39,8 @@ const fakeStripe = ({
   openSessions = [],
   subscriptions = [],
 }: {
-  customers?: Array<{ id: string; email?: string; deleted?: boolean }>;
-  metadataCustomers?: Array<{ id: string; email?: string; deleted?: boolean }>;
+  customers?: FakeCustomer[];
+  metadataCustomers?: FakeCustomer[];
   openSessions?: Array<{
     customer: string;
     status: string;
@@ -188,7 +203,11 @@ Deno.test("Bloomjoy user metadata selects the canonical empty customer", async (
         { id: "cus_order_two", email: "owner@example.com" },
       ],
       metadataCustomers: [
-        { id: "cus_bloomjoy_user", email: "owner@example.com" },
+        {
+          id: "cus_bloomjoy_user",
+          email: "owner@example.com",
+          metadata: { bloomjoy_user_id: "user-1" },
+        },
       ],
     }),
     subscriptionRecords: [],
@@ -201,6 +220,62 @@ Deno.test("Bloomjoy user metadata selects the canonical empty customer", async (
   assert(
     state.customerId === "cus_bloomjoy_user",
     "unrelated same-email commerce customers must not override user metadata",
+  );
+});
+
+Deno.test("a same-email Customer bound to another Bloomjoy user fails closed", async () => {
+  const state = await resolveStripePlusBillingState({
+    stripe: fakeStripe({
+      customers: [{
+        id: "cus_prior_owner",
+        email: "owner@example.com",
+        metadata: { bloomjoy_user_id: "different-user" },
+      }],
+    }),
+    subscriptionRecords: [],
+    userId: "user-1",
+    email: "owner@example.com",
+    plusPriceId: "price_plus",
+  });
+
+  assert(state.ambiguous, "conflicting Customer ownership must fail closed");
+  assert(
+    state.ownershipConflict,
+    "the resolver should identify an ownership conflict",
+  );
+  assert(state.customerId === null, "no conflicting Customer may be selected");
+});
+
+Deno.test("a same-email Plus subscription bound to another user fails closed", async () => {
+  const state = await resolveStripePlusBillingState({
+    stripe: fakeStripe({
+      customers: [{ id: "cus_legacy", email: "owner@example.com" }],
+      subscriptions: [
+        plusSubscription(
+          "sub_prior_owner",
+          "cus_legacy",
+          "active",
+          "different-user",
+        ),
+      ],
+    }),
+    subscriptionRecords: [],
+    userId: "user-1",
+    email: "owner@example.com",
+    plusPriceId: "price_plus",
+  });
+
+  assert(
+    state.ambiguous,
+    "conflicting subscription ownership must fail closed",
+  );
+  assert(
+    state.ownershipConflict,
+    "the resolver should identify a subscription ownership conflict",
+  );
+  assert(
+    state.customerId === null,
+    "no conflicting subscription Customer may be selected",
   );
 });
 
@@ -353,5 +428,51 @@ Deno.test("open checkouts on multiple customers fail closed", async () => {
   assert(
     state.session === null,
     "ambiguous open checkouts must not return a URL",
+  );
+});
+
+Deno.test("a timeout after Stripe accepts Checkout preserves one idempotency key", async () => {
+  const userId = "user-1";
+  const attemptToken = "attempt-token-1";
+  const idempotencyKey = buildPlusCheckoutIdempotencyKey(userId, attemptToken);
+  const acceptedSessions = new Map<string, { id: string }>();
+  let timeoutAfterAcceptance = true;
+
+  const createSession = async (key: string) => {
+    const session = acceptedSessions.get(key) ?? { id: "cs_test_one" };
+    acceptedSessions.set(key, session);
+    if (timeoutAfterAcceptance) {
+      timeoutAfterAcceptance = false;
+      throw new Error("synthetic timeout after acceptance");
+    }
+    return session;
+  };
+
+  let firstAttemptFailed = false;
+  try {
+    await createSession(idempotencyKey);
+  } catch {
+    firstAttemptFailed = true;
+    assert(
+      plusCheckoutFailureDisposition(true) === "preserve",
+      "an uncertain provider outcome must preserve the durable attempt",
+    );
+  }
+
+  assert(firstAttemptFailed, "the first response should simulate a timeout");
+  const retriedSession = await createSession(
+    buildPlusCheckoutIdempotencyKey(userId, attemptToken),
+  );
+  assert(
+    retriedSession.id === "cs_test_one",
+    "the retry should reuse the accepted session",
+  );
+  assert(
+    acceptedSessions.size === 1,
+    "the accepted Checkout must remain unique across the retry",
+  );
+  assert(
+    plusCheckoutFailureDisposition(false) === "release",
+    "a failure before Checkout creation may release the attempt",
   );
 });

@@ -80,6 +80,26 @@ begin
     );
   end if;
 
+  -- A timed-out Stripe create can have succeeded remotely. Reclaim the same
+  -- token during the Checkout Session/idempotency window so retries use the
+  -- same Stripe idempotency key instead of creating a second payable session.
+  if
+    current_attempt.status = 'creating'
+    and current_attempt.updated_at > now() - interval '25 hours'
+  then
+    update public.plus_checkout_attempts
+    set lease_expires_at = now() + interval '5 minutes'
+    where user_id = current_user_id
+    returning * into current_attempt;
+
+    return jsonb_build_object(
+      'owner', true,
+      'status', current_attempt.status,
+      'attemptToken', current_attempt.attempt_token,
+      'checkoutUrl', null
+    );
+  end if;
+
   update public.plus_checkout_attempts
   set
     attempt_token = extensions.gen_random_uuid(),
@@ -147,6 +167,63 @@ begin
 end;
 $$;
 
+create or replace function public.mark_my_plus_checkout_provider_attempt(
+  p_attempt_token uuid
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  current_user_id uuid := auth.uid();
+  marked boolean := false;
+begin
+  if current_user_id is null then
+    raise exception 'Authentication required.' using errcode = '42501';
+  end if;
+
+  update public.plus_checkout_attempts
+  set updated_at = now()
+  where user_id = current_user_id
+    and attempt_token = p_attempt_token
+    and status = 'creating'
+    and lease_expires_at > now();
+
+  marked := found;
+  return marked;
+end;
+$$;
+
+create or replace function public.preserve_my_plus_checkout_attempt_for_retry(
+  p_attempt_token uuid
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  current_user_id uuid := auth.uid();
+  preserved boolean := false;
+begin
+  if current_user_id is null then
+    raise exception 'Authentication required.' using errcode = '42501';
+  end if;
+
+  update public.plus_checkout_attempts
+  set
+    lease_expires_at = now(),
+    updated_at = now()
+  where user_id = current_user_id
+    and attempt_token = p_attempt_token
+    and status = 'creating';
+
+  preserved := found;
+  return preserved;
+end;
+$$;
+
 create or replace function public.release_my_plus_checkout_attempt(
   p_attempt_token uuid
 )
@@ -175,8 +252,12 @@ $$;
 
 revoke all on function public.claim_my_plus_checkout_attempt() from public, anon;
 revoke all on function public.complete_my_plus_checkout_attempt(uuid, text, text, timestamptz) from public, anon;
+revoke all on function public.mark_my_plus_checkout_provider_attempt(uuid) from public, anon;
+revoke all on function public.preserve_my_plus_checkout_attempt_for_retry(uuid) from public, anon;
 revoke all on function public.release_my_plus_checkout_attempt(uuid) from public, anon;
 
 grant execute on function public.claim_my_plus_checkout_attempt() to authenticated;
 grant execute on function public.complete_my_plus_checkout_attempt(uuid, text, text, timestamptz) to authenticated;
+grant execute on function public.mark_my_plus_checkout_provider_attempt(uuid) to authenticated;
+grant execute on function public.preserve_my_plus_checkout_attempt_for_retry(uuid) to authenticated;
 grant execute on function public.release_my_plus_checkout_attempt(uuid) to authenticated;

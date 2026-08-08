@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(18);
+select plan(27);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -39,6 +39,15 @@ select is(
 select is(
   has_function_privilege(
     'authenticated',
+    'public.mark_my_plus_checkout_provider_attempt(uuid)',
+    'execute'
+  ),
+  true,
+  'Authenticated users can mark the start of their Stripe provider attempt'
+);
+select is(
+  has_function_privilege(
+    'authenticated',
     'public.complete_my_plus_checkout_attempt(uuid,text,text,timestamptz)',
     'execute'
   ),
@@ -49,6 +58,15 @@ select is(
   has_function_privilege('authenticated', 'public.release_my_plus_checkout_attempt(uuid)', 'execute'),
   true,
   'Authenticated users can release only their tokenized checkout attempt'
+);
+select is(
+  has_function_privilege(
+    'authenticated',
+    'public.preserve_my_plus_checkout_attempt_for_retry(uuid)',
+    'execute'
+  ),
+  true,
+  'Authenticated users can preserve an uncertain checkout attempt for retry'
 );
 select ok(
   pg_temp.capture_error('select public.claim_my_plus_checkout_attempt()') like '42501:%',
@@ -107,6 +125,60 @@ select is(
   'creating',
   'The concurrent caller sees an in-progress checkout'
 );
+
+update public.plus_checkout_attempts
+set
+  lease_expires_at = now() - interval '1 second',
+  updated_at = now() - interval '24 hours 59 minutes'
+where user_id = '79000000-0000-4000-8000-000000000001';
+
+insert into claim_results values ('uncertain_retry', public.claim_my_plus_checkout_attempt());
+
+select is(
+  (select (result ->> 'owner')::boolean from claim_results where label = 'uncertain_retry'),
+  true,
+  'An expired uncertain creation can be retried by its account owner'
+);
+select is(
+  (select result ->> 'attemptToken' from claim_results where label = 'uncertain_retry'),
+  (select result ->> 'attemptToken' from claim_results where label = 'first'),
+  'An uncertain retry preserves the Stripe idempotency token'
+);
+select is(
+  public.mark_my_plus_checkout_provider_attempt(
+    (select (result ->> 'attemptToken')::uuid from claim_results where label = 'uncertain_retry')
+  ),
+  true,
+  'A near-expiry retry refreshes its provider-attempt safety window before calling Stripe'
+);
+select is(
+  public.preserve_my_plus_checkout_attempt_for_retry(
+    (select (result ->> 'attemptToken')::uuid from claim_results where label = 'uncertain_retry')
+  ),
+  true,
+  'A provider-ambiguous failure makes the same attempt immediately retryable'
+);
+select ok(
+  (
+    select updated_at > now() - interval '1 minute'
+    from public.plus_checkout_attempts
+    where user_id = '79000000-0000-4000-8000-000000000001'
+  ),
+  'A preserved timeout remains inside a fresh same-token safety window'
+);
+
+insert into claim_results values ('preserved_retry', public.claim_my_plus_checkout_attempt());
+
+select is(
+  (select (result ->> 'owner')::boolean from claim_results where label = 'preserved_retry'),
+  true,
+  'A preserved provider-ambiguous attempt can be reclaimed immediately'
+);
+select is(
+  (select result ->> 'attemptToken' from claim_results where label = 'preserved_retry'),
+  (select result ->> 'attemptToken' from claim_results where label = 'first'),
+  'Immediate retry still uses the original Stripe idempotency token'
+);
 select is(
   public.complete_my_plus_checkout_attempt(
     gen_random_uuid(),
@@ -119,7 +191,7 @@ select is(
 );
 select is(
   public.complete_my_plus_checkout_attempt(
-    (select (result ->> 'attemptToken')::uuid from claim_results where label = 'first'),
+    (select (result ->> 'attemptToken')::uuid from claim_results where label = 'preserved_retry'),
     'cs_test_safe_attempt',
     'https://checkout.stripe.com/c/pay/cs_test_safe_attempt',
     now() + interval '1 hour'

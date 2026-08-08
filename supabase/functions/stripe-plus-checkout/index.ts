@@ -6,7 +6,9 @@ import { validateBrowserUrl } from "../_shared/browser-url-allowlist.mjs";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
   blockingPlusSubscriptionStatuses,
+  buildPlusCheckoutIdempotencyKey,
   findReusableOpenPlusCheckoutSession,
+  plusCheckoutFailureDisposition,
   resolveReusablePlusCheckoutSession,
   resolveStripePlusBillingState,
 } from "../_shared/plus-billing.mjs";
@@ -368,6 +370,7 @@ serve(async (req) => {
     }
 
     const attemptToken = checkoutAttempt.attemptToken;
+    let checkoutCreateStarted = false;
     try {
       const completeCheckoutAttempt = async (
         session: Stripe.Checkout.Session,
@@ -417,6 +420,16 @@ serve(async (req) => {
         );
       }
 
+      const { data: providerAttemptMarked, error: providerAttemptMarkError } =
+        await authResult.supabaseClient.rpc(
+          "mark_my_plus_checkout_provider_attempt",
+          { p_attempt_token: attemptToken },
+        );
+      if (providerAttemptMarkError || providerAttemptMarked !== true) {
+        throw new Error("Unable to mark Plus checkout provider attempt.");
+      }
+
+      checkoutCreateStarted = true;
       const session = await stripe.checkout.sessions.create(
         {
           mode: "subscription",
@@ -449,8 +462,10 @@ serve(async (req) => {
           },
         },
         {
-          idempotencyKey:
-            `bloomjoy-plus-checkout:${authResult.user.id}:${attemptToken}`,
+          idempotencyKey: buildPlusCheckoutIdempotencyKey(
+            authResult.user.id,
+            attemptToken,
+          ),
         },
       );
 
@@ -459,12 +474,22 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     } catch (error) {
-      const { error: releaseError } = await authResult.supabaseClient.rpc(
-        "release_my_plus_checkout_attempt",
+      const failureDisposition = plusCheckoutFailureDisposition(
+        checkoutCreateStarted,
+      );
+      const rpcName = failureDisposition === "preserve"
+        ? "preserve_my_plus_checkout_attempt_for_retry"
+        : "release_my_plus_checkout_attempt";
+      const { error: cleanupError } = await authResult.supabaseClient.rpc(
+        rpcName,
         { p_attempt_token: attemptToken },
       );
-      if (releaseError) {
-        console.error("Unable to release failed Plus checkout attempt");
+      if (cleanupError) {
+        console.error(
+          failureDisposition === "preserve"
+            ? "Unable to preserve uncertain Plus checkout attempt"
+            : "Unable to release failed Plus checkout attempt",
+        );
       }
       throw error;
     }
