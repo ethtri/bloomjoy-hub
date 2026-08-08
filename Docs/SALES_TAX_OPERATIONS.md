@@ -32,7 +32,7 @@ Verified or applied on 2026-08-08:
 
 - Stripe Tax is enabled for Checkout and prices are tax-exclusive.
 - The head-office address in both Stripe sandbox and live mode matches the privately confirmed CDTFA Mountain View location.
-- Live Stripe has no collecting/filing registrations. Automatic Tax can calculate, but it will not collect California tax until the live California registration is activated.
+- Live California Sales Tax collection was activated with explicit owner approval on 2026-08-08 at 16:58 UTC. Stripe shows California as `Collecting tax` with one active registration and no end date.
 - Both live Sugar products and the active sandbox Sugar products use `txcd_40020004` (Sugar and Sugar Substitutes).
 - Branded paper sticks use `txcd_99999999` (General - Tangible Goods).
 - Bloomjoy Plus remains on `txcd_99999999` as the conservative taxable working treatment because the membership provides lower prices on taxable merchandise. Confirm the best Stripe product-code mapping with a tax advisor or Stripe Support; do not change the live code silently.
@@ -47,17 +47,24 @@ Primary sources:
 
 These are implementation working positions, not legal or tax advice.
 
-## Live California activation gate
+## Live California activation and deployment gate
 
-The Stripe flow is ready at Tax > Locations > Add registration > California > I've already registered > Sales tax > Start collecting immediately. The final `Start collecting` action must be taken only with explicit owner approval because it begins live collection and Stripe Tax fees.
+The owner approved the live Stripe action, and California collection was activated through Tax > Locations > Add registration > California > I've already registered > Sales tax > Start collecting immediately. Stripe confirmed `Starting immediately`, and the registration detail shows a 2026-08-08 16:58 UTC start time.
 
-Immediately after activation:
+Post-activation verification found an important production deployment gap:
 
-1. Record the activation date/time on `#718` without copying the permit number.
-2. Confirm California appears under `Collecting and filing` in live Stripe Tax.
-3. Verify a California Checkout calculation for Sugar, branded sticks, and Bloomjoy Plus; confirm Sugar follows its food code and taxable items use the destination rate.
-4. Verify a no-registration destination does not collect tax.
-5. Preserve sanitized evidence in `#718`; keep receipts and full exports private.
+- Two no-payment live Checkout previews created after activation (Sugar and branded sticks) were both open and unpaid, but their server responses had Automatic Tax disabled. The previews therefore showed no tax and are not valid tax-calculation evidence.
+- The reviewed `stripe-sugar-checkout`, `stripe-sticks-checkout`, and `stripe-plus-checkout` source in PR `#716` enables Automatic Tax. Production is running older checkout-function code and must be updated through the fail-closed commerce cutover before the tax smoke can pass.
+- The two diagnostic sessions must remain unpaid and reach `expired` status before the stricter webhook cutover. The available operator credential could read but not expire them, so require a fresh zero-open-session audit after their scheduled expiration.
+
+Complete the remaining gate after deploying the three checkout creators and before deploying the stricter status/webhook functions:
+
+1. Confirm the two 2026-08-08 unpaid diagnostic sessions are expired and require zero unresolved unmarked sessions.
+2. Create new no-payment Checkout previews and confirm `automatic_tax.enabled=true` in Stripe for Sugar, branded sticks, and Bloomjoy Plus.
+3. Confirm a California Sugar preview follows the food tax code, while California sticks and Plus use the destination tax treatment.
+4. Confirm a taxable preview to a no-registration destination reports that Bloomjoy is not collecting tax there.
+5. Expire or allow every no-payment preview to expire before webhook cutover; never submit a payment merely to prove calculation.
+6. Preserve sanitized evidence in `#718`; keep session IDs, addresses, payment data, receipts, and full exports private.
 
 ## Annual filing procedure
 

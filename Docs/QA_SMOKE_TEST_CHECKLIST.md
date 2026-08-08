@@ -442,6 +442,14 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] After canceling, account membership card shows end-of-period cancellation state/banner
 - [ ] Stripe webhook updates subscriptions/orders tables (via Stripe CLI or Dashboard test event)
 
+## California tax activation (production, no payment)
+
+- [x] Live Stripe Tax shows California `Collecting tax` with an owner-approved 2026-08-08 start date and no end date
+- [ ] The two unpaid tax-diagnostic Checkout Sessions created on 2026-08-08 are `expired`, and the commerce cutover audit finds zero unresolved unmarked sessions
+- [ ] After deploying `stripe-sugar-checkout`, `stripe-sticks-checkout`, and `stripe-plus-checkout`, new no-payment previews for all three report `automatic_tax.enabled=true`
+- [ ] A California Sugar preview follows `txcd_40020004`; California sticks and Plus previews use the configured taxable treatment; a taxable no-registration destination does not collect tax
+- [ ] All no-payment previews are canceled and allowed to expire or are safely expired after confirming no payment is pending; sanitized evidence in `#718` contains no session ID, address, payment data, receipt, or customer PII
+
 ## Auth launch hardening (production-only)
 - [ ] Branded auth emails send from approved Bloomjoy sender domain (not default Supabase sender)
 - [ ] Supabase custom SMTP is enabled through the environment-backed Resend credential and the production Auth email limit is at least 30/hour

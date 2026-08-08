@@ -125,7 +125,7 @@ Security rule:
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
 - [ ] Stripe products/prices verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_STICKS_MEMBER_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
 - [ ] `MICRO_CHECKOUT_ENABLED` is absent and `VITE_MICRO_CHECKOUT_ENABLED=false` while `#717` is deferred. If Micro is approved later, verify both Micro IDs before setting either gate to `true`.
-- [ ] Complete the California activation gate in `Docs/SALES_TAX_OPERATIONS.md`: obtain explicit owner approval for Stripe's final live `Start collecting` action, verify the post-activation calculations, and record sanitized evidence in `#718`. The active permit, yearly filing assignment, filing owner, head-office address, and Sugar/tangible-goods codes are already verified; shipping and the final Bloomjoy Plus code remain documented working positions.
+- [ ] Complete the California deployment gate in `Docs/SALES_TAX_OPERATIONS.md`: live collection was owner-approved and activated on 2026-08-08, but post-activation previews proved the currently deployed checkout creators still disable Automatic Tax. Deploy the three reviewed checkout creators, require the two unpaid diagnostic sessions to be expired, verify California and no-registration calculations without payment, and record sanitized evidence in `#718`. Shipping and the final Bloomjoy Plus code remain documented working positions.
 - [ ] A non-production Stripe webhook/backend has passed paid, unpaid, canceled, replayed/concurrent, notification-retry, and synthetic delayed-payment UAT for the checkout paths in this release.
 - [ ] Domain and HTTPS confirmed for both production frontend hosts:
   - [ ] `https://www.bloomjoyusa.com`
@@ -235,9 +235,10 @@ Deploy all current checkout, submission, invite, and reporting functions:
 Commerce cutover order is fail-closed and must precede the frontend merge:
 1. Record the current production function versions/commit.
 2. Deploy `stripe-sugar-checkout`, `stripe-sticks-checkout`, and `stripe-plus-checkout` first. After all three deployments succeed, record the marker-enforcement UTC timestamp.
-3. Before deploying the stricter webhook, list every open or pending Checkout Session without `checkout_source=bloomjoy_storefront`, including any created before the marker-enforcement timestamp. Let unpaid sessions expire, and manually expire one only after confirming no payment is pending; reconcile any paid session through the existing webhook/backfill procedure. Require zero unresolved unmarked sessions.
-4. Audit active/trialing Plus subscriptions at the approved Plus Price. Before the stricter webhook is deployed, add `checkout_source=bloomjoy_storefront`, `order_type=plus_subscription`, and the correct `user_id` metadata to every verified existing Bloomjoy Plus subscription. Stop if any subscription cannot be safely matched.
-5. Deploy `stripe-checkout-status` and `stripe-webhook`, update the live Stripe event selection, and complete backend smoke checks before merging `main`.
+3. Run the no-payment tax previews in `Docs/SALES_TAX_OPERATIONS.md` and confirm each new session reports `automatic_tax.enabled=true`. Keep every preview unpaid and retain only sanitized results.
+4. Before deploying the stricter webhook, list every open or pending Checkout Session without `checkout_source=bloomjoy_storefront`, including the two unpaid tax-diagnostic sessions created on 2026-08-08 and any session created before the marker-enforcement timestamp. Let unpaid sessions expire, and manually expire one only after confirming no payment is pending; reconcile any paid session through the existing webhook/backfill procedure. Require zero unresolved unmarked sessions.
+5. Audit active/trialing Plus subscriptions at the approved Plus Price. Before the stricter webhook is deployed, add `checkout_source=bloomjoy_storefront`, `order_type=plus_subscription`, and the correct `user_id` metadata to every verified existing Bloomjoy Plus subscription. Stop if any subscription cannot be safely matched.
+6. Deploy `stripe-checkout-status` and `stripe-webhook`, update the live Stripe event selection, and complete backend smoke checks before merging `main`.
 
 Before deploying reporting functions, confirm Step B has completed and `supabase db push --dry-run` reports the remote database is up to date. Reporting exports may depend on newly added snapshot columns or indexes.
 
