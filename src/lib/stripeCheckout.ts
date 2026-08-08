@@ -20,12 +20,15 @@ interface BlankSticksCheckoutInput {
   addressType: BlankSticksAddressType;
 }
 
-export async function startPlusCheckout(origin: string) {
+export async function startPlusCheckout(origin: string, returnPath = '/plus') {
+  const checkoutReturnPath = returnPath.startsWith('/') ? returnPath : '/plus';
+  const querySeparator = checkoutReturnPath.includes('?') ? '&' : '?';
+
   const data = await invokeEdgeFunction<CheckoutResponse>(
     'stripe-plus-checkout',
     {
-      successUrl: `${origin}/plus?checkout=return&session_id={CHECKOUT_SESSION_ID}`,
-      cancelUrl: `${origin}/plus?checkout=cancel`,
+      successUrl: `${origin}${checkoutReturnPath}${querySeparator}checkout=return&session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${origin}${checkoutReturnPath}${querySeparator}checkout=cancel`,
     },
     {
       requireUserAuth: true,

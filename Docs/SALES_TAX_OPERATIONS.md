@@ -51,19 +51,21 @@ These are implementation working positions, not legal or tax advice.
 
 The owner approved the live Stripe action, and California collection was activated through Tax > Locations > Add registration > California > I've already registered > Sales tax > Start collecting immediately. Stripe confirmed `Starting immediately`, and the registration detail shows a 2026-08-08 16:58 UTC start time.
 
-Post-activation verification found an important production deployment gap:
+Post-activation verification found and closed an important production deployment gap:
 
 - Two no-payment live Checkout previews created after activation (Sugar and branded sticks) were both open and unpaid, but their server responses had Automatic Tax disabled. The previews therefore showed no tax and are not valid tax-calculation evidence.
-- The reviewed `stripe-sugar-checkout`, `stripe-sticks-checkout`, and `stripe-plus-checkout` source in PR `#716` enables Automatic Tax. Production is running older checkout-function code and must be updated through the fail-closed commerce cutover before the tax smoke can pass.
-- The two diagnostic sessions must remain unpaid and reach `expired` status before the stricter webhook cutover. The available operator credential could read but not expire them, so require a fresh zero-open-session audit after their scheduled expiration.
+- The reviewed `stripe-sugar-checkout`, `stripe-sticks-checkout`, and `stripe-plus-checkout` source in PR `#716` enables Automatic Tax. All three checkout creators were deployed on 2026-08-08 with a marker-enforcement time of 17:18:21 UTC; the deployed active versions were Sugar `34`, sticks `34`, and Plus `33`.
+- Fresh no-payment production previews after that marker confirmed `automatic_tax.enabled=true` and a complete calculation for California Sugar and branded sticks. Sugar collected no tax under the configured food code, California branded sticks calculated positive tax, and branded sticks sent to a no-registration destination collected no tax.
+- The authenticated Plus preview is still blocked by the existing cross-host login handoff: the public Plus page sends the signed-in user to the app portal, while the portal's membership link returns to the public host where the session is unavailable. PR `#716` now adds an authenticated portal-side **Start Plus Membership** action with a portal return URL. Deploy and verify that frontend slice before treating Plus tax UAT as complete.
+- Every diagnostic session remains open and unpaid. The available operator credential could read but not expire them, so require a fresh zero-open-session audit after their scheduled expiration. No payment, order, notification, or subscription was created during this verification.
 
-Complete the remaining gate after deploying the three checkout creators and before deploying the stricter status/webhook functions:
+Complete the remaining gate before deploying the stricter status/webhook functions:
 
-1. Confirm the two 2026-08-08 unpaid diagnostic sessions are expired and require zero unresolved unmarked sessions.
-2. Create new no-payment Checkout previews and confirm `automatic_tax.enabled=true` in Stripe for Sugar, branded sticks, and Bloomjoy Plus.
-3. Confirm a California Sugar preview follows the food tax code, while California sticks and Plus use the destination tax treatment.
-4. Confirm a taxable preview to a no-registration destination reports that Bloomjoy is not collecting tax there.
-5. Expire or allow every no-payment preview to expire before webhook cutover; never submit a payment merely to prove calculation.
+1. Deploy the reviewed portal-side Plus checkout entry and create a no-payment authenticated Plus preview.
+2. Confirm the Plus preview reports `automatic_tax.enabled=true` and applies the configured California destination tax treatment.
+3. Confirm all 2026-08-08 unpaid diagnostic sessions are expired and require zero unresolved unmarked sessions.
+4. Audit active/trialing Plus subscriptions at the approved Plus Price and reconcile their source, order type, and user metadata as specified in `Docs/PRODUCTION_RUNBOOK.md`.
+5. Never submit a payment merely to prove calculation.
 6. Preserve sanitized evidence in `#718`; keep session IDs, addresses, payment data, receipts, and full exports private.
 
 ## Annual filing procedure

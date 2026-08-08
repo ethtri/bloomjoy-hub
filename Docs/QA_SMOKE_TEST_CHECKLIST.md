@@ -433,6 +433,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Replayed/concurrent paid webhook deliveries remain idempotent for the order, Ethan/Ian email, customer email, and WeCom alert
 - [ ] Plus subscription checkout shows flat `$100/month` account pricing and completes with test card
 - [ ] Logged-out users on `/plus` are redirected to login before checkout can begin
+- [ ] After login, a baseline customer can start Plus checkout from `/portal/account` and Stripe returns to `/portal/account` for success or cancellation without crossing back to the logged-out public host
 - [ ] Stripe subscription from Plus checkout contains `metadata.user_id` and `metadata.billing_model=flat_monthly`
 - [ ] Paid Plus activation sends one idempotent internal email to Ethan/Ian and one non-blocking WeCom alert; unpaid/replayed checkout events do not duplicate alerts
 - [ ] Customer Portal link opens (test mode)
@@ -445,9 +446,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 ## California tax activation (production, no payment)
 
 - [x] Live Stripe Tax shows California `Collecting tax` with an owner-approved 2026-08-08 start date and no end date
-- [ ] The two unpaid tax-diagnostic Checkout Sessions created on 2026-08-08 are `expired`, and the commerce cutover audit finds zero unresolved unmarked sessions
-- [ ] After deploying `stripe-sugar-checkout`, `stripe-sticks-checkout`, and `stripe-plus-checkout`, new no-payment previews for all three report `automatic_tax.enabled=true`
-- [ ] A California Sugar preview follows `txcd_40020004`; California sticks and Plus previews use the configured taxable treatment; a taxable no-registration destination does not collect tax
+- [x] Production `stripe-sugar-checkout`, `stripe-sticks-checkout`, and `stripe-plus-checkout` are deployed from the reviewed source with a recorded marker-enforcement timestamp
+- [x] Fresh post-marker no-payment Sugar and branded-sticks previews report `automatic_tax.enabled=true` and a complete result
+- [x] A California Sugar preview follows `txcd_40020004`; California sticks collect positive tax; a taxable no-registration destination does not collect tax
+- [ ] Deploy the authenticated `/portal/account` Plus checkout entry, then confirm a fresh no-payment Plus preview reports `automatic_tax.enabled=true` and the configured California taxable treatment
+- [ ] Every unpaid tax-diagnostic Checkout Session created on 2026-08-08 is `expired`, and the commerce cutover audit finds zero unresolved unmarked sessions
 - [ ] All no-payment previews are canceled and allowed to expire or are safely expired after confirming no payment is pending; sanitized evidence in `#718` contains no session ID, address, payment data, receipt, or customer PII
 
 ## Auth launch hardening (production-only)

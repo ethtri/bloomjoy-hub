@@ -240,6 +240,8 @@ Commerce cutover order is fail-closed and must precede the frontend merge:
 5. Audit active/trialing Plus subscriptions at the approved Plus Price. Before the stricter webhook is deployed, add `checkout_source=bloomjoy_storefront`, `order_type=plus_subscription`, and the correct `user_id` metadata to every verified existing Bloomjoy Plus subscription. Stop if any subscription cannot be safely matched.
 6. Deploy `stripe-checkout-status` and `stripe-webhook`, update the live Stripe event selection, and complete backend smoke checks before merging `main`.
 
+2026-08-08 rollout checkpoint: step 2 is complete. The active production versions are Sugar `34`, sticks `34`, and Plus `33`, with marker enforcement recorded at 17:18:21 UTC. Sugar and sticks passed the post-marker no-payment Automatic Tax checks, including California Sugar exemption, positive California sticks tax, and no collection for sticks sent to a no-registration destination. The Plus preview remains blocked until the reviewed authenticated portal checkout entry is deployed. All diagnostic Checkout Sessions remain unpaid and must expire before step 4 can pass; do not deploy the stricter status/webhook functions yet.
+
 Before deploying reporting functions, confirm Step B has completed and `supabase db push --dry-run` reports the remote database is up to date. Reporting exports may depend on newly added snapshot columns or indexes.
 
 After applying the reviewed migrations, rerun `supabase db push --dry-run` and require zero pending migrations before deploying dependent Refund Operations functions.

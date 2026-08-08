@@ -18,7 +18,11 @@ import { LanguagePreferenceControl } from '@/components/i18n/LanguagePreferenceC
 import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { usePortalTechnicianManagement } from '@/hooks/usePortalTechnicianManagement';
-import { openCustomerPortal } from '@/lib/stripeCheckout';
+import {
+  getCheckoutStatus,
+  openCustomerPortal,
+  startPlusCheckout,
+} from '@/lib/stripeCheckout';
 import { hasPlusAccess } from '@/lib/membership';
 import {
   fetchPortalAccountProfile,
@@ -58,7 +62,9 @@ export default function AccountPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const hasHandledBillingReturn = useRef(false);
+  const hasHandledCheckoutReturn = useRef(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
+  const [isStartingMembership, setIsStartingMembership] = useState(false);
   const [profileForm, setProfileForm] = useState<PortalAccountProfileInput>(DEFAULT_PROFILE_FORM);
 
   const { data: accountProfile, isLoading: isProfileLoading } = useQuery({
@@ -131,6 +137,59 @@ export default function AccountPage() {
       },
       { replace: true }
     );
+  }, [location.pathname, location.search, navigate, refetchMembershipSummary]);
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const checkoutStatus = searchParams.get('checkout');
+
+    if (!checkoutStatus || hasHandledCheckoutReturn.current) {
+      return;
+    }
+
+    hasHandledCheckoutReturn.current = true;
+
+    const clearCheckoutParams = () => {
+      searchParams.delete('checkout');
+      searchParams.delete('session_id');
+      const nextSearch = searchParams.toString();
+
+      navigate(
+        {
+          pathname: location.pathname,
+          search: nextSearch ? `?${nextSearch}` : '',
+        },
+        { replace: true }
+      );
+    };
+
+    if (checkoutStatus === 'cancel') {
+      toast.info('Checkout canceled. No subscription payment was collected.');
+      clearCheckoutParams();
+      return;
+    }
+
+    const sessionId = searchParams.get('session_id');
+    if (checkoutStatus !== 'return' || !sessionId) {
+      toast.error('We could not verify this Plus checkout return.');
+      clearCheckoutParams();
+      return;
+    }
+
+    void getCheckoutStatus(sessionId)
+      .then(async (status) => {
+        if (status.paymentStatus === 'paid' && status.orderType === 'plus_subscription') {
+          await refetchMembershipSummary();
+          toast.success('Payment confirmed. Welcome to Bloomjoy Plus!');
+          return;
+        }
+
+        toast.info('Subscription payment is not yet confirmed.');
+      })
+      .catch((error) => {
+        toast.error(error instanceof Error ? error.message : 'Checkout could not be verified.');
+      })
+      .finally(clearCheckoutParams);
   }, [location.pathname, location.search, navigate, refetchMembershipSummary]);
 
   const effectiveMembershipStatus =
@@ -232,6 +291,23 @@ export default function AccountPage() {
     }
   };
 
+  const handleStartMembership = async () => {
+    if (!user?.id || !user.email) {
+      toast.error('Log in before starting Bloomjoy Plus checkout.');
+      return;
+    }
+
+    try {
+      setIsStartingMembership(true);
+      const checkoutUrl = await startPlusCheckout(window.location.origin, '/portal/account');
+      window.location.assign(checkoutUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to start checkout.';
+      toast.error(message);
+      setIsStartingMembership(false);
+    }
+  };
+
   const updateProfileField = (
     key: keyof PortalAccountProfileInput,
     value: string
@@ -283,8 +359,13 @@ export default function AccountPage() {
                   {isOpeningPortal ? 'Opening billing...' : 'Manage Billing'}
                 </Button>
               ) : !isMember ? (
-                <Button asChild variant="outline" className="min-h-11">
-                  <Link to="/plus">View Plus Membership</Link>
+                <Button
+                  variant="outline"
+                  className="min-h-11"
+                  onClick={handleStartMembership}
+                  disabled={isStartingMembership || isMembershipLoading}
+                >
+                  {isStartingMembership ? 'Opening checkout...' : 'Start Plus Membership'}
                 </Button>
               ) : undefined
             }
@@ -544,8 +625,13 @@ export default function AccountPage() {
                     {isOpeningPortal ? 'Opening...' : 'Open Billing Portal'}
                   </Button>
                 ) : !isMember ? (
-                  <Button asChild variant="outline" className="mt-4 min-h-11 w-full">
-                    <Link to="/plus">View Plus Membership</Link>
+                  <Button
+                    variant="outline"
+                    className="mt-4 min-h-11 w-full"
+                    onClick={handleStartMembership}
+                    disabled={isStartingMembership || isMembershipLoading}
+                  >
+                    {isStartingMembership ? 'Opening checkout...' : 'Start Plus Membership'}
                   </Button>
                 ) : null}
                 <p className="mt-3 text-xs text-muted-foreground">
