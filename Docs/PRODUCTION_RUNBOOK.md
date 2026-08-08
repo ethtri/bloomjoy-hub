@@ -125,7 +125,7 @@ Security rule:
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
 - [ ] Stripe products/prices verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_STICKS_MEMBER_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
 - [ ] `MICRO_CHECKOUT_ENABLED` is absent and `VITE_MICRO_CHECKOUT_ENABLED=false` while `#717` is deferred. If Micro is approved later, verify both Micro IDs before setting either gate to `true`.
-- [ ] California tax registration, product tax codes, price tax behavior, shipping tax treatment, and filing ownership are approved and recorded in `#718` before enabling production checkout.
+- [ ] Complete the California activation gate in `Docs/SALES_TAX_OPERATIONS.md`: obtain explicit owner approval for Stripe's final live `Start collecting` action, verify the post-activation calculations, and record sanitized evidence in `#718`. The active permit, yearly filing assignment, filing owner, head-office address, and Sugar/tangible-goods codes are already verified; shipping and the final Bloomjoy Plus code remain documented working positions.
 - [ ] A non-production Stripe webhook/backend has passed paid, unpaid, canceled, replayed/concurrent, notification-retry, and synthetic delayed-payment UAT for the checkout paths in this release.
 - [ ] Domain and HTTPS confirmed for both production frontend hosts:
   - [ ] `https://www.bloomjoyusa.com`
