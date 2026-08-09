@@ -122,6 +122,7 @@ Security rule:
 - [ ] If Micro is approved later, rerun commerce preflight with `--micro-enabled` so remote secret-name validation requires the server switch plus both Micro IDs.
 - [ ] `npm run refunds:validate-release-tooling` passes.
 - [ ] `npm run refunds:release:check` confirms that the eight Refund Operations functions, required migrations, and `verify_jwt` settings match the approved release manifest.
+- [ ] If the standard production drift check is red only because the pinned QR/wallet source requires the pending schema, use the reviewed pre-migration bridge below. No other drift may use this exception.
 - [ ] Before deployment, `supabase db push --dry-run` reports exactly the reviewed pending migration set and no unexpected migration. Save the sanitized command result; the Edge Function drift check does not prove remote migration parity.
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
 - [ ] Stripe products/prices and the active Plus portal configuration are verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_STICKS_MEMBER_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`, `STRIPE_CUSTOMER_PORTAL_CONFIGURATION_ID`). The portal must enable payment-method updates and invoice history, and use `subscription_cancel.mode=at_period_end` so a scheduled cancellation can be renewed before access ends.
@@ -201,6 +202,18 @@ Remote preflight validates secret presence by name. Before deploying, separately
 
 For the current Refund Operations release candidate in PR `#644`, use `Docs/REFUND_PRODUCTION_CUTOVER_PACKET.md` as the authoritative merge, deployment, smoke, rollback, pilot, and sponsor-decision sequence. `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` is a historical May 2026 packet and must not be used to deploy the current release.
 
+#### Reviewed pre-migration bridge for #629 / #716
+
+This bridge is limited to the pinned five-migration sequence in `scripts/refunds/refund-production-release.json`. It exists because the reviewed QR/wallet Refund Operations sources require the first three pending migrations, while Supabase applies those migrations together with the two additive commerce migrations. It does not declare production current and does not authorize commerce deployment.
+
+1. Run `npm run refunds:release:check`; retain its expected five-source mismatch as sanitized evidence.
+2. Run `npm run refunds:release:check-pre-migration -- --project-ref <project-ref> --confirm-project-ref <project-ref>`. It downloads all eight live sources and passes only when they match the immutable July 22 source baseline, the bundle digests match, versions have not regressed, `verify_jwt=false`, no import map is present, and the exact five migration files match their pinned checksums.
+3. Recheck the latest completed physical backup and run `supabase db push --dry-run`. Require exactly the five pinned migrations in manifest order and no other migration.
+4. Keep Nayax execution fail-closed, automation schedules and Edge execution off, Gmail off, and GPT off. Do not run intake/email smoke or send customer/manager communications during this bridge.
+5. Apply the five migrations once with `supabase db push`, then require `supabase db push --dry-run` to report zero pending migrations.
+6. Before any commerce function deployment, deploy the eight Refund Operations functions in the order listed under Step C, run the no-auth route and aggregate public-options health checks, capture verified production metadata, update the manifest production fields, and run `npm run refunds:release:check-production` until it passes cleanly.
+7. Stop on any ambiguous migration, function, source, switch, or health state. Commerce remains blocked until step 6 is green and the manifest-only update has fresh independent review.
+
 ### Step B: Deploy database migrations
 Apply all `supabase/migrations/*.sql` not already applied, oldest to newest.
 
@@ -248,7 +261,7 @@ Before deploying reporting functions, confirm Step B has completed and `supabase
 
 After applying the reviewed migrations, rerun `supabase db push --dry-run` and require zero pending migrations before deploying dependent Refund Operations functions.
 
-Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the eight explicitly listed refund functions from the reviewed release worktree. Keep Nayax execution fail-closed and keep `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` unset unless issue `#430` contains the explicit sponsor approval.
+Before deploying Refund Operations functions, run `npm run refunds:release:check`. If and only if the reviewed #629/#716 bridge above is active, its successful compatibility command plus the exact zero-pending post-push result replaces the pre-deploy standard production check; the standard check must pass immediately after deployment and manifest capture. Deploy only the eight explicitly listed refund functions from the reviewed release worktree. Keep Nayax execution fail-closed and keep `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` unset unless issue `#430` contains the explicit sponsor approval.
 
 ```bash
 supabase functions deploy stripe-sugar-checkout --no-verify-jwt

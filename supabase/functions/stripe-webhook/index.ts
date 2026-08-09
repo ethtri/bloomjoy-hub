@@ -24,7 +24,8 @@ export const config = {
 const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
 const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
 const legacySugarPriceId = Deno.env.get("STRIPE_SUGAR_PRICE_ID");
-const memberSugarPriceId = Deno.env.get("STRIPE_SUGAR_MEMBER_PRICE_ID") || legacySugarPriceId;
+const memberSugarPriceId = Deno.env.get("STRIPE_SUGAR_MEMBER_PRICE_ID") ||
+  legacySugarPriceId;
 const nonMemberSugarPriceId = Deno.env.get("STRIPE_SUGAR_NON_MEMBER_PRICE_ID");
 const sticksPriceId = Deno.env.get("STRIPE_STICKS_PRICE_ID");
 const memberSticksPriceId = Deno.env.get("STRIPE_STICKS_MEMBER_PRICE_ID");
@@ -52,16 +53,16 @@ if (!supabaseServiceRoleKey) {
 
 const stripe = stripeSecretKey
   ? new Stripe(stripeSecretKey, {
-      apiVersion: "2024-04-10",
-    })
+    apiVersion: "2024-04-10",
+  })
   : null;
 
 const supabase = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: {
-        persistSession: false,
-      },
-    })
+    auth: {
+      persistSession: false,
+    },
+  })
   : null;
 
 type StripeLineItemSummary = {
@@ -78,11 +79,20 @@ type ExpandedCheckoutSession = Stripe.Checkout.Session & {
   line_items?: Stripe.ApiList<Stripe.LineItem>;
 };
 
-type OrderType = "sugar" | "blank_sticks" | "micro_machine" | "mixed" | "unknown";
+type OrderType =
+  | "sugar"
+  | "blank_sticks"
+  | "micro_machine"
+  | "mixed"
+  | "unknown";
 type PricingTier = "plus_member" | "standard" | null;
 
 const checkoutPriceConfig = {
-  sugarPriceIds: [legacySugarPriceId, memberSugarPriceId, nonMemberSugarPriceId],
+  sugarPriceIds: [
+    legacySugarPriceId,
+    memberSugarPriceId,
+    nonMemberSugarPriceId,
+  ],
   sticksPriceIds: [sticksPriceId, memberSticksPriceId],
   microMachinePriceId,
   plusPriceId,
@@ -166,13 +176,14 @@ const claimDispatch = async (
 ): Promise<boolean> => {
   if (!supabase) return false;
 
-  const { error } = await supabase.from("internal_notification_dispatches").insert({
-    event_key: eventKey,
-    dispatch_type: dispatchType,
-    source_table: sourceTable,
-    source_id: sourceId,
-    meta,
-  });
+  const { error } = await supabase.from("internal_notification_dispatches")
+    .insert({
+      event_key: eventKey,
+      dispatch_type: dispatchType,
+      source_table: sourceTable,
+      source_id: sourceId,
+      meta,
+    });
 
   if (!error) {
     return true;
@@ -182,15 +193,23 @@ const claimDispatch = async (
     return false;
   }
 
-  throw new Error(error.message || "Failed to claim order notification dispatch.");
+  throw new Error(
+    error.message || "Failed to claim order notification dispatch.",
+  );
 };
 
 const releaseDispatch = async (eventKey: string) => {
   if (!supabase) return;
-  await supabase.from("internal_notification_dispatches").delete().eq("event_key", eventKey);
+  await supabase.from("internal_notification_dispatches").delete().eq(
+    "event_key",
+    eventKey,
+  );
 };
 
-const markDispatchSent = async (eventKey: string, meta: Record<string, unknown>) => {
+const markDispatchSent = async (
+  eventKey: string,
+  meta: Record<string, unknown>,
+) => {
   if (!supabase) return;
   await supabase
     .from("internal_notification_dispatches")
@@ -213,7 +232,7 @@ const normalizeString = (value: unknown): string | null => {
 };
 
 const toAddressSnapshot = (
-  address: Stripe.Address | null | undefined
+  address: Stripe.Address | null | undefined,
 ): AddressSnapshot | null => {
   if (!address) return null;
 
@@ -244,7 +263,10 @@ const formatAddress = (address: AddressSnapshot | null | undefined) => {
   return parts.length ? parts.join(", ") : "n/a";
 };
 
-const formatCurrency = (amount: number | null | undefined, currency: string | null | undefined) => {
+const formatCurrency = (
+  amount: number | null | undefined,
+  currency: string | null | undefined,
+) => {
   if (typeof amount !== "number") return "n/a";
   const normalizedCurrency = (currency || "usd").toUpperCase();
   return `${normalizedCurrency} ${(amount / 100).toFixed(2)}`;
@@ -303,7 +325,9 @@ const formatAddressType = (addressType: string | null | undefined) => {
   }
 };
 
-const deriveUnitPriceCents = (lineItems: StripeLineItemSummary[]): number | null => {
+const deriveUnitPriceCents = (
+  lineItems: StripeLineItemSummary[],
+): number | null => {
   const primaryLineItem = lineItems.find(
     (item) => typeof item.unit_amount === "number" && item.unit_amount > 0,
   );
@@ -312,7 +336,7 @@ const deriveUnitPriceCents = (lineItems: StripeLineItemSummary[]): number | null
 };
 
 const resolveReceiptUrl = async (
-  paymentIntentId: string | null
+  paymentIntentId: string | null,
 ): Promise<{
   receiptUrl: string | null;
   billingAddress: AddressSnapshot | null;
@@ -334,10 +358,10 @@ const resolveReceiptUrl = async (
     expand: ["latest_charge"],
   });
 
-  const latestCharge =
-    typeof paymentIntent.latest_charge === "object" && paymentIntent.latest_charge
-      ? paymentIntent.latest_charge as Stripe.Charge
-      : null;
+  const latestCharge = typeof paymentIntent.latest_charge === "object" &&
+      paymentIntent.latest_charge
+    ? paymentIntent.latest_charge as Stripe.Charge
+    : null;
   const billingDetails = latestCharge?.billing_details ?? null;
 
   return {
@@ -387,15 +411,18 @@ async function upsertSubscription(subscription: Stripe.Subscription) {
 
     resolvedUserId = await resolveUserId(metadataUserId);
     if (!resolvedUserId) {
-      console.warn("Skipping subscription sync", { reason: "unresolved_user_id" });
+      console.warn("Skipping subscription sync", {
+        reason: "unresolved_user_id",
+      });
       return;
     }
   } else if (hasExpectedPlusSubscriptionPrice(subscription, plusPriceId)) {
-    const { data: existingSubscription, error: existingSubscriptionError } = await supabase
-      .from("subscriptions")
-      .select("user_id")
-      .eq("stripe_subscription_id", subscription.id)
-      .maybeSingle();
+    const { data: existingSubscription, error: existingSubscriptionError } =
+      await supabase
+        .from("subscriptions")
+        .select("user_id")
+        .eq("stripe_subscription_id", subscription.id)
+        .maybeSingle();
 
     if (existingSubscriptionError) {
       console.error("Failed to validate legacy subscription");
@@ -405,13 +432,17 @@ async function upsertSubscription(subscription: Stripe.Subscription) {
     const existingUserId = normalizeString(existingSubscription?.user_id);
     resolvedUserId = await resolveUserId(existingUserId);
     if (!resolvedUserId) {
-      console.info("Skipping subscription sync", { reason: "unknown_legacy_subscription" });
+      console.info("Skipping subscription sync", {
+        reason: "unknown_legacy_subscription",
+      });
       return;
     }
 
     console.info("Accepted known legacy Plus subscription");
   } else {
-    console.info("Skipping subscription sync", { reason: "unrecognized_plus_subscription" });
+    console.info("Skipping subscription sync", {
+      reason: "unrecognized_plus_subscription",
+    });
     return;
   }
 
@@ -463,7 +494,7 @@ const coerceOrderType = (
   value: string | null | undefined,
   sugarMix: SugarMixSummary,
   blankSticks: BlankSticksSummary,
-  microMachine: MicroMachineSummary
+  microMachine: MicroMachineSummary,
 ): OrderType => {
   if (
     value === "sugar" ||
@@ -499,19 +530,19 @@ const buildInternalOrderEmail = (context: OrderContext) => {
 
   if (context.orderType === "blank_sticks") {
     detailSection = [
-        "",
-        "Bloomjoy Branded Stick Details:",
-        `- Boxes: ${context.blankSticks?.box_count ?? "n/a"}`,
-        `- Pieces per box: ${context.blankSticks?.pieces_per_box ?? "n/a"}`,
-        `- Stick size: ${formatStickSize(context.blankSticks?.stick_size)}`,
-        `- Address type: ${formatAddressType(context.blankSticks?.address_type)}`,
-        `- Shipping rate per box: ${
-          context.blankSticks?.shipping_rate_per_box_usd
-            ? `USD ${context.blankSticks.shipping_rate_per_box_usd.toFixed(2)}`
-            : "USD 0.00"
-        }`,
-        `- Free shipping: ${context.blankSticks?.free_shipping ? "Yes" : "No"}`,
-      ];
+      "",
+      "Bloomjoy Branded Stick Details:",
+      `- Boxes: ${context.blankSticks?.box_count ?? "n/a"}`,
+      `- Pieces per box: ${context.blankSticks?.pieces_per_box ?? "n/a"}`,
+      `- Stick size: ${formatStickSize(context.blankSticks?.stick_size)}`,
+      `- Address type: ${formatAddressType(context.blankSticks?.address_type)}`,
+      `- Shipping rate per box: ${
+        context.blankSticks?.shipping_rate_per_box_usd
+          ? `USD ${context.blankSticks.shipping_rate_per_box_usd.toFixed(2)}`
+          : "USD 0.00"
+      }`,
+      `- Free shipping: ${context.blankSticks?.free_shipping ? "Yes" : "No"}`,
+    ];
   } else if (context.orderType === "micro_machine") {
     detailSection = [
       "",
@@ -520,14 +551,14 @@ const buildInternalOrderEmail = (context: OrderContext) => {
     ];
   } else {
     detailSection = [
-        "",
-        "Sugar Breakdown (KG):",
-        `- White: ${context.sugarMix.white_kg}`,
-        `- Blue: ${context.sugarMix.blue_kg}`,
-        `- Orange: ${context.sugarMix.orange_kg}`,
-        `- Red: ${context.sugarMix.red_kg}`,
-        `- Total: ${context.sugarMix.total_kg}`,
-      ];
+      "",
+      "Sugar Breakdown (KG):",
+      `- White: ${context.sugarMix.white_kg}`,
+      `- Blue: ${context.sugarMix.blue_kg}`,
+      `- Orange: ${context.sugarMix.orange_kg}`,
+      `- Red: ${context.sugarMix.red_kg}`,
+      `- Total: ${context.sugarMix.total_kg}`,
+    ];
 
     if (context.orderType === "mixed") {
       detailSection.push(
@@ -539,18 +570,26 @@ const buildInternalOrderEmail = (context: OrderContext) => {
   }
 
   return {
-    subject: `New ${formatOrderType(context.orderType).toLowerCase()} order: ${context.session.id}`,
+    subject: `New ${
+      formatOrderType(context.orderType).toLowerCase()
+    } order: ${context.session.id}`,
     text: [
-      `A Stripe ${formatOrderType(context.orderType).toLowerCase()} checkout completed.`,
+      `A Stripe ${
+        formatOrderType(context.orderType).toLowerCase()
+      } checkout completed.`,
       "",
       `Checkout Session ID: ${context.session.id}`,
       `Completed At (UTC): ${new Date().toISOString()}`,
       `Order Type: ${formatOrderType(context.orderType)}`,
       `Payment Status: ${context.session.payment_status || "unpaid"}`,
-      `Amount Total: ${formatCurrency(context.session.amount_total, context.session.currency)}`,
+      `Amount Total: ${
+        formatCurrency(context.session.amount_total, context.session.currency)
+      }`,
       `Pricing Tier: ${formatPricingTier(context.pricingTier)}`,
       `Unit Price: ${formatUnitPrice(context.unitPriceCents)}`,
-      `Shipping Total: ${formatCurrency(context.shippingTotalCents, context.session.currency)}`,
+      `Shipping Total: ${
+        formatCurrency(context.shippingTotalCents, context.session.currency)
+      }`,
       `Customer Email: ${context.customerEmail ?? "n/a"}`,
       `Customer Name: ${context.customerName ?? "n/a"}`,
       `Customer Phone: ${context.customerPhone ?? "n/a"}`,
@@ -575,13 +614,17 @@ const buildInternalOrderEmail = (context: OrderContext) => {
 
 const buildWeComProductSummary = (context: OrderContext): string => {
   if (context.orderType === "blank_sticks") {
-    return `Boxes / Pieces per box: ${context.blankSticks?.box_count ?? "n/a"} / ${context.blankSticks?.pieces_per_box ?? "n/a"}`;
+    return `Boxes / Pieces per box: ${
+      context.blankSticks?.box_count ?? "n/a"
+    } / ${context.blankSticks?.pieces_per_box ?? "n/a"}`;
   }
   if (context.orderType === "micro_machine") {
     return `Micro Machines: ${context.microMachine?.quantity ?? "n/a"}`;
   }
   if (context.orderType === "mixed") {
-    return `Sugar KG: ${context.sugarMix.total_kg}; Micro Machines: ${context.microMachine?.quantity ?? "n/a"}`;
+    return `Sugar KG: ${context.sugarMix.total_kg}; Micro Machines: ${
+      context.microMachine?.quantity ?? "n/a"
+    }`;
   }
   return `Sugar KG (W/B/O/R/T): ${context.sugarMix.white_kg}/${context.sugarMix.blue_kg}/${context.sugarMix.orange_kg}/${context.sugarMix.red_kg}/${context.sugarMix.total_kg}`;
 };
@@ -590,7 +633,9 @@ const buildWeComAlertLines = (context: OrderContext): string[] => [
   `Checkout Session ID: ${context.session.id}`,
   `Order Type: ${formatOrderType(context.orderType)}`,
   `Payment Status: ${context.session.payment_status || "unpaid"}`,
-  `Amount Total: ${formatCurrency(context.session.amount_total, context.session.currency)}`,
+  `Amount Total: ${
+    formatCurrency(context.session.amount_total, context.session.currency)
+  }`,
   `Pricing Tier: ${formatPricingTier(context.pricingTier)}`,
   `Customer Email: ${context.customerEmail ?? "n/a"}`,
   `Customer Name: ${context.customerName ?? "n/a"}`,
@@ -601,31 +646,38 @@ const buildWeComAlertLines = (context: OrderContext): string[] => [
 
 const updateOrderNotificationState = async (
   orderId: string,
-  patch: Record<string, unknown>
+  patch: Record<string, unknown>,
 ) => {
   if (!supabase) return;
 
-  const { error } = await supabase.from("orders").update(patch).eq("id", orderId);
+  const { error } = await supabase.from("orders").update(patch).eq(
+    "id",
+    orderId,
+  );
   if (error) {
     console.error("Failed to update order notification state");
   }
 };
 
-async function upsertOrder(expanded: ExpandedCheckoutSession): Promise<OrderContext | null> {
+async function upsertOrder(
+  expanded: ExpandedCheckoutSession,
+): Promise<OrderContext | null> {
   if (!supabase) return null;
 
-  const lineItems: StripeLineItemSummary[] = expanded.line_items?.data?.map((item: Stripe.LineItem) => ({
-    description: item.description,
-    quantity: item.quantity,
-    amount_total: item.amount_total,
-    unit_amount:
-      typeof item.price === "object" && item.price &&
-        typeof item.price.unit_amount === "number"
+  const lineItems: StripeLineItemSummary[] =
+    expanded.line_items?.data?.map((item: Stripe.LineItem) => ({
+      description: item.description,
+      quantity: item.quantity,
+      amount_total: item.amount_total,
+      unit_amount: typeof item.price === "object" && item.price &&
+          typeof item.price.unit_amount === "number"
         ? item.price.unit_amount
         : null,
-    currency: item.currency,
-    price_id: typeof item.price === "object" && item.price ? item.price.id : null,
-  })) ?? [];
+      currency: item.currency,
+      price_id: typeof item.price === "object" && item.price
+        ? item.price.id
+        : null,
+    })) ?? [];
 
   const sugarMix: SugarMixSummary = {
     white_kg: parseNumber(expanded.metadata?.sugar_white_kg),
@@ -640,9 +692,14 @@ async function upsertOrder(expanded: ExpandedCheckoutSession): Promise<OrderCont
     pieces_per_box: parseNumber(expanded.metadata?.sticks_pieces_per_box),
     stick_size: normalizeString(expanded.metadata?.stick_size),
     address_type: normalizeString(expanded.metadata?.sticks_address_type),
-    shipping_rate_per_box_usd: parseNumber(expanded.metadata?.sticks_shipping_rate_per_box_usd),
-    shipping_total_cents: parseNumber(expanded.metadata?.sticks_shipping_total_cents),
-    free_shipping: String(expanded.metadata?.sticks_free_shipping ?? "false") === "true",
+    shipping_rate_per_box_usd: parseNumber(
+      expanded.metadata?.sticks_shipping_rate_per_box_usd,
+    ),
+    shipping_total_cents: parseNumber(
+      expanded.metadata?.sticks_shipping_total_cents,
+    ),
+    free_shipping:
+      String(expanded.metadata?.sticks_free_shipping ?? "false") === "true",
   };
 
   const microMachine: MicroMachineSummary = {
@@ -691,30 +748,32 @@ async function upsertOrder(expanded: ExpandedCheckoutSession): Promise<OrderCont
     blankSticks,
     microMachine,
   );
-  const pricingTier =
-    expanded.metadata?.pricing_tier === "plus_member" || expanded.metadata?.pricing_tier === "standard"
-      ? expanded.metadata.pricing_tier
-      : null;
-  const unitPriceCents =
-    parseNumber(expanded.metadata?.unit_price_cents) || deriveUnitPriceCents(lineItems);
+  const pricingTier = expanded.metadata?.pricing_tier === "plus_member" ||
+      expanded.metadata?.pricing_tier === "standard"
+    ? expanded.metadata.pricing_tier
+    : null;
+  const unitPriceCents = parseNumber(expanded.metadata?.unit_price_cents) ||
+    deriveUnitPriceCents(lineItems);
   const shippingTotalCents =
     typeof expanded.total_details?.amount_shipping === "number"
       ? expanded.total_details.amount_shipping
-      : parseNumber(expanded.metadata?.shipping_total_cents) || blankSticks.shipping_total_cents;
-  const paymentIntentId = expanded.payment_intent ? String(expanded.payment_intent) : null;
+      : parseNumber(expanded.metadata?.shipping_total_cents) ||
+        blankSticks.shipping_total_cents;
+  const paymentIntentId = expanded.payment_intent
+    ? String(expanded.payment_intent)
+    : null;
   const receiptContext = await resolveReceiptUrl(paymentIntentId);
   const customerDetails = expanded.customer_details;
   const shippingDetails = expanded.shipping_details;
-  const billingAddress =
-    toAddressSnapshot(customerDetails?.address) || receiptContext.billingAddress;
-  const customerEmail =
-    normalizeString(customerDetails?.email) ||
+  const billingAddress = toAddressSnapshot(customerDetails?.address) ||
+    receiptContext.billingAddress;
+  const customerEmail = normalizeString(customerDetails?.email) ||
     normalizeString(expanded.customer_email) ||
     receiptContext.billingEmail;
-  const customerName =
-    normalizeString(customerDetails?.name) || receiptContext.billingName;
-  const customerPhone =
-    normalizeString(customerDetails?.phone) || receiptContext.billingPhone;
+  const customerName = normalizeString(customerDetails?.name) ||
+    receiptContext.billingName;
+  const customerPhone = normalizeString(customerDetails?.phone) ||
+    receiptContext.billingPhone;
   const shippingName = normalizeString(shippingDetails?.name);
   const shippingPhone = normalizeString(shippingDetails?.phone);
   const shippingAddress = toAddressSnapshot(shippingDetails?.address);
@@ -753,7 +812,7 @@ async function upsertOrder(expanded: ExpandedCheckoutSession): Promise<OrderCont
     .from("orders")
     .upsert(payload, { onConflict: "stripe_checkout_session_id" })
     .select(
-      "id, internal_notification_sent_at, customer_confirmation_sent_at, wecom_alert_sent_at"
+      "id, internal_notification_sent_at, customer_confirmation_sent_at, wecom_alert_sent_at",
     )
     .single();
 
@@ -780,11 +839,14 @@ async function upsertOrder(expanded: ExpandedCheckoutSession): Promise<OrderCont
     shippingAddress,
     lineItems,
     sugarMix,
-    blankSticks:
-      blankSticks.box_count > 0 || blankSticks.pieces_per_box > 0 ? blankSticks : null,
+    blankSticks: blankSticks.box_count > 0 || blankSticks.pieces_per_box > 0
+      ? blankSticks
+      : null,
     microMachine: microMachine.quantity > 0 ? microMachine : null,
-    existingInternalNotificationSentAt: persistedOrder.internal_notification_sent_at,
-    existingCustomerConfirmationSentAt: persistedOrder.customer_confirmation_sent_at,
+    existingInternalNotificationSentAt:
+      persistedOrder.internal_notification_sent_at,
+    existingCustomerConfirmationSentAt:
+      persistedOrder.customer_confirmation_sent_at,
     existingWeComAlertSentAt: persistedOrder.wecom_alert_sent_at,
   };
 }
@@ -810,7 +872,10 @@ const sendInternalOrderNotification = async (context: OrderContext) => {
   try {
     await sendInternalEmail({
       ...email,
-      idempotencyKey: buildOrderEmailIdempotencyKey("internal", context.session.id),
+      idempotencyKey: buildOrderEmailIdempotencyKey(
+        "internal",
+        context.session.id,
+      ),
     });
     await updateOrderNotificationState(context.orderId, {
       internal_notification_sent_at: new Date().toISOString(),
@@ -823,8 +888,9 @@ const sendInternalOrderNotification = async (context: OrderContext) => {
       customer_email: context.customerEmail,
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unknown internal email failure.";
+    const message = error instanceof Error
+      ? error.message
+      : "Unknown internal email failure.";
     await updateOrderNotificationState(context.orderId, {
       internal_notification_error: message,
     });
@@ -884,7 +950,10 @@ const sendCustomerConfirmation = async (context: OrderContext) => {
       subject: email.subject,
       text: email.text,
       html: email.html,
-      idempotencyKey: buildOrderEmailIdempotencyKey("customer", context.session.id),
+      idempotencyKey: buildOrderEmailIdempotencyKey(
+        "customer",
+        context.session.id,
+      ),
     });
     await updateOrderNotificationState(context.orderId, {
       customer_confirmation_sent_at: new Date().toISOString(),
@@ -897,8 +966,9 @@ const sendCustomerConfirmation = async (context: OrderContext) => {
       customer_email: context.customerEmail,
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unknown customer confirmation failure.";
+    const message = error instanceof Error
+      ? error.message
+      : "Unknown customer confirmation failure.";
     await updateOrderNotificationState(context.orderId, {
       customer_confirmation_error: message,
     });
@@ -925,7 +995,9 @@ const sendWeComOrderAlert = async (context: OrderContext) => {
 
   const result = await sendWeComAlertResult({
     tag: "Bloomjoy Order",
-    title: `New ${formatOrderType(context.orderType).toLowerCase()} order: ${context.session.id}`,
+    title: `New ${
+      formatOrderType(context.orderType).toLowerCase()
+    } order: ${context.session.id}`,
     lines: buildWeComAlertLines(context),
   });
 
@@ -959,15 +1031,23 @@ const sendOrderNotifications = async (context: OrderContext | null) => {
   ]);
 
   const retryableFailures = [internalResult, customerResult]
-    .filter((result): result is PromiseRejectedResult => result.status === "rejected")
-    .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason));
+    .filter((result): result is PromiseRejectedResult =>
+      result.status === "rejected"
+    )
+    .map((result) =>
+      result.reason instanceof Error
+        ? result.reason.message
+        : String(result.reason)
+    );
 
   if (retryableFailures.length) {
     throw new Error(retryableFailures.join("; "));
   }
 };
 
-const sendPlusActivationNotifications = async (session: Stripe.Checkout.Session) => {
+const sendPlusActivationNotifications = async (
+  session: Stripe.Checkout.Session,
+) => {
   if (!supabase) return;
 
   const customerEmail = normalizeString(session.customer_details?.email) ||
@@ -1006,7 +1086,10 @@ const sendPlusActivationNotifications = async (session: Stripe.Checkout.Session)
           "",
           "Next step: confirm Plus access is active in the Bloomjoy admin account console.",
         ].join("\n"),
-        idempotencyKey: buildOrderEmailIdempotencyKey("plus-internal", session.id),
+        idempotencyKey: buildOrderEmailIdempotencyKey(
+          "plus-internal",
+          session.id,
+        ),
       });
       await markDispatchSent(internalEventKey, {
         ...claimMeta,
@@ -1051,7 +1134,10 @@ const sendPlusActivationNotifications = async (session: Stripe.Checkout.Session)
     await releaseDispatch(weComEventKey);
   };
 
-  const [internalResult] = await Promise.allSettled([sendInternal(), sendWeCom()]);
+  const [internalResult] = await Promise.allSettled([
+    sendInternal(),
+    sendWeCom(),
+  ]);
   if (internalResult.status === "rejected") {
     throw internalResult.reason;
   }
@@ -1119,7 +1205,7 @@ serve(async (req) => {
       {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      },
     );
   }
 
@@ -1135,7 +1221,11 @@ serve(async (req) => {
   let event: Stripe.Event;
 
   try {
-    event = await stripe.webhooks.constructEventAsync(payload, signature, webhookSecret);
+    event = await stripe.webhooks.constructEventAsync(
+      payload,
+      signature,
+      webhookSecret,
+    );
   } catch {
     console.error("Invalid webhook signature");
     return new Response(JSON.stringify({ error: "Invalid signature." }), {

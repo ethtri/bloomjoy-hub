@@ -13,6 +13,7 @@ import {
   calculateMigrationDigest,
   calculateMigrationVersionSetDigest,
   compareCaptureState,
+  comparePreMigrationCompatibilityState,
   compareProductionState,
   discoverRefundMigrationFiles,
   parseFunctionDeploymentConfig,
@@ -214,6 +215,46 @@ try {
     slug: entry.slug,
     sourceSha256: entry.sourceSha256,
   }));
+  const compatibilityManifest = structuredClone(manifest);
+  compatibilityManifest.functions[0].sourceSha256 = 'd'.repeat(64);
+  assert.deepEqual(
+    comparePreMigrationCompatibilityState(
+      compatibilityManifest,
+      sanitized.map((entry) => ({ ...entry, version: entry.version + 1 })),
+      manifest.functions.map((entry) => ({
+        slug: entry.slug,
+        sourceSha256: entry.production.sourceSha256,
+      }))
+    ),
+    [],
+    'Pinned pre-migration sources must tolerate version-only Edge restarts'
+  );
+  assert.match(
+    comparePreMigrationCompatibilityState(
+      compatibilityManifest,
+      sanitized,
+      manifest.functions.map((entry, index) => ({
+        slug: entry.slug,
+        sourceSha256: index === 0 ? 'e'.repeat(64) : entry.production.sourceSha256,
+      }))
+    ).join('\n'),
+    /downloaded source differs from the approved pre-migration baseline/,
+    'Pre-migration compatibility must reject unapproved production source'
+  );
+  assert.match(
+    comparePreMigrationCompatibilityState(
+      compatibilityManifest,
+      sanitized.map((entry, index) =>
+        index === 0 ? { ...entry, ezbrSha256: 'c'.repeat(64) } : entry
+      ),
+      manifest.functions.map((entry) => ({
+        slug: entry.slug,
+        sourceSha256: entry.production.sourceSha256,
+      }))
+    ).join('\n'),
+    /production bundle differs from the approved pre-migration baseline/,
+    'Pre-migration compatibility must reject unapproved production bundles'
+  );
   assert.equal(
     buildPreDeploymentProductionBaseline(sanitized.slice(1), productionSources.slice(1))[0].status,
     'MISSING',

@@ -303,6 +303,39 @@ export const validateManifestShape = (manifest, { allowPending = false } = {}) =
     'migrationVersionSetSha256 is invalid'
   );
 
+  if (manifest.preMigrationCompatibility !== undefined) {
+    const compatibility = manifest.preMigrationCompatibility;
+    assert(
+      compatibility && typeof compatibility.releaseId === 'string',
+      'preMigrationCompatibility releaseId is invalid'
+    );
+    assert(
+      gitCommitPattern.test(compatibility.sourceGitCommit ?? ''),
+      'preMigrationCompatibility sourceGitCommit is invalid'
+    );
+    assert(
+      Array.isArray(compatibility.requiredMigrations) && compatibility.requiredMigrations.length > 0,
+      'preMigrationCompatibility required migrations are missing'
+    );
+    assert(
+      new Set(compatibility.requiredMigrations).size === compatibility.requiredMigrations.length,
+      'preMigrationCompatibility contains duplicate migrations'
+    );
+    assert(
+      JSON.stringify(compatibility.requiredMigrations) ===
+        JSON.stringify([...compatibility.requiredMigrations].sort()),
+      'preMigrationCompatibility migrations must be sorted'
+    );
+    assert(
+      digestPattern.test(compatibility.migrationFilesSha256 ?? ''),
+      'preMigrationCompatibility migration digest is invalid'
+    );
+    assert(
+      digestPattern.test(compatibility.migrationVersionSetSha256 ?? ''),
+      'preMigrationCompatibility migration version digest is invalid'
+    );
+  }
+
   const approvedRestoreSource = manifest.approvedRestoreSource;
   assert(approvedRestoreSource && typeof approvedRestoreSource.releaseId === 'string', 'approvedRestoreSource is missing');
   assert(gitCommitPattern.test(approvedRestoreSource.sourceGitCommit ?? ''), 'approvedRestoreSource sourceGitCommit is invalid');
@@ -410,6 +443,34 @@ export const validateApprovedRestoreSource = (rootDirectory, manifest) => {
     assert(
       committedSource.sourceSha256 === entry.sourceSha256,
       `approvedRestoreSource does not match ${entry.slug}`
+    );
+  }
+};
+
+export const validatePreMigrationCompatibilitySource = (rootDirectory, manifest) => {
+  const compatibility = manifest.preMigrationCompatibility;
+  assert(compatibility, 'preMigrationCompatibility is missing');
+  assert(
+    calculateMigrationDigest(rootDirectory, compatibility.requiredMigrations) ===
+      compatibility.migrationFilesSha256,
+    'preMigrationCompatibility migration source differs from the approved bridge'
+  );
+  assert(
+    calculateMigrationVersionSetDigest(compatibility.requiredMigrations) ===
+      compatibility.migrationVersionSetSha256,
+    'preMigrationCompatibility migration set differs from the approved bridge'
+  );
+
+  for (const entry of manifest.functions) {
+    assert(entry.production, `preMigrationCompatibility production baseline is missing for ${entry.slug}`);
+    const committedSource = calculateFunctionSourceAtGitCommit(
+      rootDirectory,
+      compatibility.sourceGitCommit,
+      entry.slug
+    );
+    assert(
+      committedSource.sourceSha256 === entry.production.sourceSha256,
+      `preMigrationCompatibility source commit does not match ${entry.slug}`
     );
   }
 };
@@ -523,6 +584,50 @@ export const compareCaptureState = (manifest, productionFunctions, productionSou
     if (actual.importMap) failures.push(`${expected.slug}: unexpected production import map`);
     if (sourceBySlug.get(expected.slug) !== expected.sourceSha256) {
       failures.push(`${expected.slug}: downloaded production source does not match the approved repository source`);
+    }
+  }
+
+  return failures;
+};
+
+export const comparePreMigrationCompatibilityState = (
+  manifest,
+  productionFunctions,
+  productionSources
+) => {
+  const failures = [];
+  const productionBySlug = new Map(productionFunctions.map((entry) => [entry.slug, entry]));
+  const sourceBySlug = new Map(productionSources.map((entry) => [entry.slug, entry.sourceSha256]));
+  if (productionBySlug.size !== productionFunctions.length) {
+    failures.push('Production metadata contains duplicate refund function slugs');
+  }
+  if (sourceBySlug.size !== productionSources.length) {
+    failures.push('Downloaded production source contains duplicate refund function slugs');
+  }
+
+  for (const expected of manifest.functions) {
+    const actual = productionBySlug.get(expected.slug);
+    if (!actual) {
+      failures.push(`${expected.slug}: missing from production`);
+      continue;
+    }
+    if (!expected.production) {
+      failures.push(`${expected.slug}: approved pre-migration production baseline is missing`);
+      continue;
+    }
+    if (actual.status !== 'ACTIVE') failures.push(`${expected.slug}: production status is not ACTIVE`);
+    if (!Number.isInteger(actual.version) || actual.version < expected.production.version) {
+      failures.push(`${expected.slug}: production version regressed below the approved pre-migration baseline`);
+    }
+    if (actual.verifyJwt !== expected.verifyJwt) {
+      failures.push(`${expected.slug}: production verify_jwt differs from the manifest`);
+    }
+    if (actual.importMap) failures.push(`${expected.slug}: unexpected production import map`);
+    if (actual.ezbrSha256 !== expected.production.ezbrSha256) {
+      failures.push(`${expected.slug}: production bundle differs from the approved pre-migration baseline`);
+    }
+    if (sourceBySlug.get(expected.slug) !== expected.production.sourceSha256) {
+      failures.push(`${expected.slug}: downloaded source differs from the approved pre-migration baseline`);
     }
   }
 
@@ -676,6 +781,7 @@ const parseArguments = (argv) => {
     const argument = argv[index];
     if (argument === '--local') options.mode = 'local';
     else if (argument === '--production') options.mode = 'production';
+    else if (argument === '--pre-migration-compatibility') options.mode = 'compatibility';
     else if (argument === '--capture-production') options.mode = 'capture';
     else if (argument === '--capture-predeployment') options.mode = 'baseline';
     else if (argument === '--write-local') options.writeLocal = true;
@@ -736,6 +842,30 @@ const main = () => {
   const projectRef = options.projectRef || manifest.projectRef;
   assert(projectRef === manifest.projectRef, 'Project ref does not match the production release manifest');
   const production = sanitizeProductionMetadata(runSupabaseFunctionsList(projectRef));
+
+  if (options.mode === 'compatibility') {
+    assert(
+      options.confirmProjectRef === projectRef,
+      'Pre-migration compatibility check requires an exact --confirm-project-ref'
+    );
+    validatePreMigrationCompatibilitySource(repoRoot, manifest);
+    const productionSources = readProductionSourceState(projectRef);
+    const compatibilityFailures = comparePreMigrationCompatibilityState(
+      manifest,
+      production,
+      productionSources
+    );
+    printFailures('Refund pre-migration compatibility check failed:', compatibilityFailures);
+    if (compatibilityFailures.length > 0) process.exit(1);
+
+    for (const entry of production) {
+      console.log(`${entry.slug}: COMPATIBLE v${entry.version} ${entry.ezbrSha256.slice(0, 12)}`);
+    }
+    console.log(
+      `Approved pre-migration bridge covers exactly ${manifest.preMigrationCompatibility.requiredMigrations.length} pinned migrations. Standard production drift must pass before commerce deployment continues.`
+    );
+    return;
+  }
 
   if (options.mode === 'capture') {
     assert(options.confirmProjectRef === projectRef, 'Capture requires an exact --confirm-project-ref');

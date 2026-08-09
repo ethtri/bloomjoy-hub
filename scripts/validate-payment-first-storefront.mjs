@@ -230,7 +230,10 @@ assert.match(sticksCheckout, /maxBoxesPerCheckout = 1000/);
 assert.match(sticksCheckout, /boxCount > maxBoxesPerCheckout/);
 assert.match(sticksCheckout, /checkout_source: "bloomjoy_storefront"/);
 assert.match(sticksCheckout, /payment_method_types: \["card"\]/);
-assert.match(sticksCheckout, /stripe\.prices\.retrieve\(selectedSticksPriceId\)/);
+assert.match(
+  sticksCheckout,
+  /stripe\.prices\.retrieve\(\s*selectedSticksPriceId,?\s*\)/
+);
 assert.match(sticksCheckout, /selectedSticksPrice\.unit_amount !== expectedUnitPriceCents/);
 assert.match(sticksCheckout, /unit_price_cents: String\(selectedSticksPrice\.unit_amount\)/);
 

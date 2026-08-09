@@ -57,16 +57,18 @@ if (!supabaseServiceRoleKey) {
 
 const stripe = stripeSecretKey
   ? new Stripe(stripeSecretKey, {
-      apiVersion: "2024-04-10",
-    })
+    apiVersion: "2024-04-10",
+  })
   : null;
 
 const getShippingRatePerBox = (addressType: "business" | "residential") =>
   addressType === "business" ? 35 : 40;
 
 const resolveOptionalCheckoutUser = async (
-  req: Request
-): Promise<{ error: string | null; status: number; user: ResolvedCheckoutUser | null }> => {
+  req: Request,
+): Promise<
+  { error: string | null; status: number; user: ResolvedCheckoutUser | null }
+> => {
   const token = resolveForwardedSupabaseAccessToken(req);
   if (!token) {
     return {
@@ -91,7 +93,9 @@ const resolveOptionalCheckoutUser = async (
     },
   });
 
-  const { data: authData, error: authError } = await authClient.auth.getUser(token);
+  const { data: authData, error: authError } = await authClient.auth.getUser(
+    token,
+  );
   if (authError || !authData.user) {
     return {
       error: "Authentication required.",
@@ -109,7 +113,7 @@ const resolveOptionalCheckoutUser = async (
 
   const { data: discountTier, error: discountError } = await adminClient.rpc(
     "get_user_supply_discount_tier",
-    { p_user_id: authData.user.id }
+    { p_user_id: authData.user.id },
   );
 
   if (discountError) {
@@ -145,7 +149,7 @@ serve(async (req) => {
         {
           status: authResult.status,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -167,7 +171,7 @@ serve(async (req) => {
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -177,7 +181,7 @@ serve(async (req) => {
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -185,7 +189,9 @@ serve(async (req) => {
     const cancelUrl = cancelUrlResult.url;
 
     const pricingTier = authResult.user?.pricingTier ?? "standard";
-    const orderPricingTier = pricingTier === "member" ? "plus_member" : "standard";
+    const orderPricingTier = pricingTier === "member"
+      ? "plus_member"
+      : "standard";
     const selectedSticksPriceId = pricingTier === "member"
       ? memberSticksPriceId
       : sticksPriceId;
@@ -199,27 +205,35 @@ serve(async (req) => {
         {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
     if (variant !== "plain") {
       return new Response(
-        JSON.stringify({ error: "Custom sticks are unavailable until payment-first checkout is ready." }),
+        JSON.stringify({
+          error:
+            "Custom sticks are unavailable until payment-first checkout is ready.",
+        }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
-    if (!Number.isSafeInteger(boxCount) || boxCount <= 0 || boxCount > maxBoxesPerCheckout) {
+    if (
+      !Number.isSafeInteger(boxCount) || boxCount <= 0 ||
+      boxCount > maxBoxesPerCheckout
+    ) {
       return new Response(
-        JSON.stringify({ error: `Box count must be between 1 and ${maxBoxesPerCheckout}.` }),
+        JSON.stringify({
+          error: `Box count must be between 1 and ${maxBoxesPerCheckout}.`,
+        }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -229,7 +243,7 @@ serve(async (req) => {
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -239,11 +253,13 @@ serve(async (req) => {
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
-    const selectedSticksPrice = await stripe.prices.retrieve(selectedSticksPriceId);
+    const selectedSticksPrice = await stripe.prices.retrieve(
+      selectedSticksPriceId,
+    );
     if (
       !selectedSticksPrice.active ||
       selectedSticksPrice.currency !== "usd" ||
@@ -252,7 +268,9 @@ serve(async (req) => {
     ) {
       console.error("Configured sticks Price failed server validation");
       return new Response(
-        JSON.stringify({ error: "Sticks pricing is not configured correctly." }),
+        JSON.stringify({
+          error: "Sticks pricing is not configured correctly.",
+        }),
         {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -269,8 +287,8 @@ serve(async (req) => {
     const shippingDisplayName = isFreeShipping
       ? "Free shipping (5+ boxes)"
       : normalizedAddressType === "business"
-        ? "Business shipping ($35/box)"
-        : "Residential shipping ($40/box)";
+      ? "Business shipping ($35/box)"
+      : "Residential shipping ($40/box)";
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -326,7 +344,7 @@ serve(async (req) => {
       {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      },
     );
   }
 });

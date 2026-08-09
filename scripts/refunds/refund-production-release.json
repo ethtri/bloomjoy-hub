@@ -34,6 +34,19 @@
   ],
   "migrationFilesSha256": "6620f92af1340562d9f71121ab302623683a46fe62bc9fcca12ace4206fa5ca7",
   "migrationVersionSetSha256": "f469285280329c4af7edf4a659057b49d3a678981d0807f53cbbde33c3da4b1c",
+  "preMigrationCompatibility": {
+    "releaseId": "refund-ops-2026-07-22-integrated-gpt-runner",
+    "sourceGitCommit": "30c790b3aa85b22d5588e1bdd0b2992eb76c408c",
+    "requiredMigrations": [
+      "202607260001_refund_qr_claim_context.sql",
+      "202607260002_refund_qr_aware_nayax_recommendation.sql",
+      "202607270001_refund_wallet_correction.sql",
+      "202608060001_payment_first_storefront.sql",
+      "202608080001_plus_checkout_attempts.sql"
+    ],
+    "migrationFilesSha256": "9014c8e70949a1ca882c2031cd28e7323a34480af3b57e94e1aa4afbc3b5925e",
+    "migrationVersionSetSha256": "475a429e54c77cebb745fcbb188b4441c99f6d2a128099efcc273d31f4fdebb0"
+  },
   "functions": [
     {
       "slug": "refund-case-intake",

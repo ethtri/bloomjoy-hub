@@ -57,6 +57,18 @@ git diff --check
 
 If any merge changes an in-scope migration or refund function after the manifest was generated, the manifest is stale and the release must repeat steps 7-10.
 
+### Narrow pre-migration compatibility bridge
+
+For the #629 blocker on PR #716, the normal production drift check cannot become green before schema deployment because the reviewed QR/wallet functions depend on the first three pending migrations. The only approved bridge is the pinned five-migration procedure in `Docs/PRODUCTION_RUNBOOK.md` and `scripts/refunds/refund-production-release.json`.
+
+- Require the standard local manifest check, the expected standard production mismatch, and a passing `refunds:release:check-pre-migration` source-download comparison.
+- Require the dry run to contain exactly the pinned five migrations in order and a current completed physical backup.
+- Apply the five migrations once, require zero pending, then deploy all eight Refund Operations functions in documented order before any commerce deployment.
+- Keep Nayax, automation, Gmail, and GPT execution off; run only the no-auth route and aggregate public-options health checks.
+- Capture the deployment, update the manifest production metadata, obtain fresh independent review of that manifest-only update, and require the normal production drift check to pass.
+
+Any different source, bundle, migration checksum/order, switch state, or health result invalidates the bridge and stops the release.
+
 ## Deploy with all optional execution switches off
 
 Deploy the approved migrations, functions, and frontend following `Docs/PRODUCTION_RUNBOOK.md`. During initial smoke testing:

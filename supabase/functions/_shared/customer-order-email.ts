@@ -1,4 +1,9 @@
-type OrderType = "sugar" | "blank_sticks" | "micro_machine" | "mixed" | "unknown";
+type OrderType =
+  | "sugar"
+  | "blank_sticks"
+  | "micro_machine"
+  | "mixed"
+  | "unknown";
 type PricingTier = "plus_member" | "standard" | null;
 
 type AddressSnapshot = {
@@ -87,7 +92,10 @@ const normalizeString = (value: string | null | undefined) => {
   return trimmed ? trimmed : null;
 };
 
-const formatCurrency = (amount: number | null | undefined, currency: string | null | undefined) => {
+const formatCurrency = (
+  amount: number | null | undefined,
+  currency: string | null | undefined,
+) => {
   if (typeof amount !== "number") return "n/a";
 
   try {
@@ -188,19 +196,28 @@ const formatOrderDate = (value: string) => {
 const isNonEmptyString = (value: string | null | undefined): value is string =>
   typeof value === "string" && value.length > 0;
 
-const formatAddressLines = (address: AddressSnapshot | null | undefined): string[] => {
+const formatAddressLines = (
+  address: AddressSnapshot | null | undefined,
+): string[] => {
   if (!address) {
     return ["Shipping details will be confirmed separately."];
   }
 
   const streetLine = [address.line1, address.line2].filter(Boolean).join(", ");
-  const localityLine = [address.city, address.state, address.postal_code].filter(Boolean).join(", ");
-  const lines = [streetLine, localityLine, address.country].filter(isNonEmptyString);
+  const localityLine = [address.city, address.state, address.postal_code]
+    .filter(Boolean).join(", ");
+  const lines = [streetLine, localityLine, address.country].filter(
+    isNonEmptyString,
+  );
 
-  return lines.length ? lines : ["Shipping details will be confirmed separately."];
+  return lines.length
+    ? lines
+    : ["Shipping details will be confirmed separately."];
 };
 
-const buildOrderSpecificRows = (context: CustomerOrderEmailContext): DetailRow[] => {
+const buildOrderSpecificRows = (
+  context: CustomerOrderEmailContext,
+): DetailRow[] => {
   if (context.orderType === "blank_sticks") {
     return [
       ["Product", "Bloomjoy branded paper sticks"],
@@ -220,9 +237,15 @@ const buildOrderSpecificRows = (context: CustomerOrderEmailContext): DetailRow[]
 
   if (context.orderType === "mixed") {
     return [
-      ["Products", "Premium cotton candy sugar and Bloomjoy Sweets Micro Machine"],
+      [
+        "Products",
+        "Premium cotton candy sugar and Bloomjoy Sweets Micro Machine",
+      ],
       ["Sugar total", `${context.sugarMix.total_kg} KG`],
-      ["Micro Machine quantity", String(context.microMachine?.quantity ?? "n/a")],
+      [
+        "Micro Machine quantity",
+        String(context.microMachine?.quantity ?? "n/a"),
+      ],
     ];
   }
 
@@ -242,25 +265,33 @@ const buildSummaryRows = (context: CustomerOrderEmailContext): DetailRow[] => [
   ["Payment status", formatPaymentStatus(context.paymentStatus)],
   ["Pricing tier", formatPricingTier(context.pricingTier)],
   ["Unit price", formatUnitPrice(context.unitPriceCents)],
-  ["Shipping total", formatCurrency(context.shippingTotalCents, context.currency)],
+  [
+    "Shipping total",
+    formatCurrency(context.shippingTotalCents, context.currency),
+  ],
 ];
 
 const buildRowTable = (
   rows: DetailRow[],
-  valueStyle = "font-size:14px;line-height:22px;color:#2f2430;font-weight:600;word-break:break-word;"
+  valueStyle =
+    "font-size:14px;line-height:22px;color:#2f2430;font-weight:600;word-break:break-word;",
 ) =>
   rows
     .map(
       ([label, value], index) => `
         <tr>
-          <td style="padding:${index === 0 ? "0" : "12px"} 0 0 0;font-size:13px;line-height:20px;color:${COLORS.muted};vertical-align:top;">
+          <td style="padding:${
+        index === 0 ? "0" : "12px"
+      } 0 0 0;font-size:13px;line-height:20px;color:${COLORS.muted};vertical-align:top;">
             ${escapeHtml(label)}
           </td>
-          <td style="padding:${index === 0 ? "0" : "12px"} 0 0 16px;${valueStyle}vertical-align:top;text-align:right;">
+          <td style="padding:${
+        index === 0 ? "0" : "12px"
+      } 0 0 16px;${valueStyle}vertical-align:top;text-align:right;">
             ${escapeHtml(value)}
           </td>
         </tr>
-      `
+      `,
     )
     .join("");
 
@@ -271,15 +302,17 @@ const buildAddressHtml = (lines: string[]) =>
         <div style="font-size:14px;line-height:22px;color:${COLORS.text};">
           ${escapeHtml(line)}
         </div>
-      `
+      `,
     )
     .join("");
 
 const buildTextOrderSpecificLines = (context: CustomerOrderEmailContext) =>
-  buildOrderSpecificRows(context).map(([label, value]) => `- ${label}: ${value}`);
+  buildOrderSpecificRows(context).map(([label, value]) =>
+    `- ${label}: ${value}`
+  );
 
 export const buildCustomerOrderEmail = (
-  context: CustomerOrderEmailContext
+  context: CustomerOrderEmailContext,
 ): CustomerOrderEmailPayload => {
   const recipientName = normalizeString(context.shippingName) ||
     normalizeString(context.customerName) ||
@@ -293,14 +326,13 @@ export const buildCustomerOrderEmail = (
   const paymentStatus = formatPaymentStatus(context.paymentStatus);
   const previewText = `Your Bloomjoy ${orderTypeNoun} order is confirmed.`;
 
-  const subject =
-    context.orderType === "blank_sticks"
-      ? "Your Bloomjoy branded paper sticks order is confirmed"
-      : context.orderType === "sugar"
-        ? "Your Bloomjoy sugar order is confirmed"
-        : context.orderType === "micro_machine"
-          ? "Your Bloomjoy Micro Machine order is confirmed"
-        : "Your Bloomjoy order is confirmed";
+  const subject = context.orderType === "blank_sticks"
+    ? "Your Bloomjoy branded paper sticks order is confirmed"
+    : context.orderType === "sugar"
+    ? "Your Bloomjoy sugar order is confirmed"
+    : context.orderType === "micro_machine"
+    ? "Your Bloomjoy Micro Machine order is confirmed"
+    : "Your Bloomjoy order is confirmed";
 
   const text = [
     `Hi ${recipientName},`,
@@ -314,7 +346,9 @@ export const buildCustomerOrderEmail = (
     `- Total charged: ${totalCharged}`,
     `- Pricing tier: ${formatPricingTier(context.pricingTier)}`,
     `- Unit price: ${formatUnitPrice(context.unitPriceCents)}`,
-    `- Shipping total: ${formatCurrency(context.shippingTotalCents, context.currency)}`,
+    `- Shipping total: ${
+      formatCurrency(context.shippingTotalCents, context.currency)
+    }`,
     "",
     `${orderTypeLabel} details`,
     ...buildTextOrderSpecificLines(context),
@@ -394,7 +428,9 @@ export const buildCustomerOrderEmail = (
                           </div>
                           <div style="padding:18px 0 0 0;">
                             <span style="display:inline-block;max-width:100%;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.32);border-radius:999px;padding:8px 14px;font-size:12px;line-height:16px;color:#ffffff;font-weight:700;word-break:break-word;">
-                              Order reference: ${escapeHtml(context.orderReference)}
+                              Order reference: ${
+    escapeHtml(context.orderReference)
+  }
                             </span>
                           </div>
                         </td>
@@ -408,7 +444,9 @@ export const buildCustomerOrderEmail = (
                       <tr>
                         <td style="padding:0 0 18px 0;font-size:15px;line-height:24px;color:${COLORS.text};">
                           Hi ${escapeHtml(recipientName)},<br />
-                          Thank you for your Bloomjoy ${escapeHtml(orderTypeNoun)} order. We have recorded your payment and saved the fulfillment details below.
+                          Thank you for your Bloomjoy ${
+    escapeHtml(orderTypeNoun)
+  } order. We have recorded your payment and saved the fulfillment details below.
                         </td>
                       </tr>
                     </table>
@@ -426,7 +464,9 @@ export const buildCustomerOrderEmail = (
                               ${escapeHtml(paymentStatus)}
                             </span>
                             <span style="display:inline-block;margin-left:8px;background:#ffffff;color:${COLORS.text};border-radius:999px;padding:7px 12px;font-size:12px;line-height:16px;font-weight:700;border:1px solid ${COLORS.border};">
-                              ${escapeHtml(formatPricingTier(context.pricingTier))}
+                              ${
+    escapeHtml(formatPricingTier(context.pricingTier))
+  }
                             </span>
                           </div>
                         </td>
@@ -481,7 +521,12 @@ export const buildCustomerOrderEmail = (
                             Ship to
                           </div>
                           <div style="font-size:16px;line-height:24px;color:${COLORS.text};font-weight:700;padding-bottom:8px;">
-                            ${escapeHtml(normalizeString(context.shippingName) || normalizeString(context.customerName) || "Bloomjoy customer")}
+                            ${
+    escapeHtml(
+      normalizeString(context.shippingName) ||
+        normalizeString(context.customerName) || "Bloomjoy customer",
+    )
+  }
                           </div>
                           ${buildAddressHtml(addressLines)}
                         </td>
