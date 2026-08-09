@@ -39,8 +39,8 @@ assert.match(
 );
 assert.match(
   productionRunbook,
-  /expected five-source production mismatch/,
-  'The compatibility bridge must distinguish the expected production mismatch from local alignment'
+  /exact expected 13-row mismatch[\s\S]*five approved repository sources[\s\S]*all eight deployed versions/,
+  'The compatibility bridge must name the complete expected production mismatch shape'
 );
 
 const bridgeStart = productionRunbook.indexOf('#### #629/#716 bridge override');
@@ -73,7 +73,31 @@ for (const requiredFailClosedControl of [
 }
 
 assert.match(cutoverPacket, /all 26 current required refund\/Nayax migrations/);
-assert.match(cutoverPacket, /For the `#629\/#716` bridge, execute only steps 1-3\./);
+assert.match(
+  cutoverPacket,
+  /exact expected standard production mismatch \(five unpaired reviewed sources plus eight version-only differences, and no other failure\)/
+);
+const bridgeSmokeOrder = cutoverPacket.indexOf(
+  'For the `#629/#716` bridge, use this exact post-deployment order:'
+);
+const routeSmoke = cutoverPacket.indexOf('Run the no-auth route smoke', bridgeSmokeOrder);
+const publicOptionsSmoke = cutoverPacket.indexOf('Run the aggregate public-options smoke', routeSmoke);
+const captureManifest = cutoverPacket.indexOf(
+  'Capture production metadata, update and independently review the manifest-only change',
+  publicOptionsSmoke
+);
+const cleanDrift = cutoverPacket.indexOf(
+  'Verify the standard production drift check passes against that final manifest',
+  captureManifest
+);
+assert(
+  bridgeSmokeOrder >= 0 &&
+    routeSmoke > bridgeSmokeOrder &&
+    publicOptionsSmoke > routeSmoke &&
+    captureManifest > publicOptionsSmoke &&
+    cleanDrift > captureManifest,
+  'The bridge smoke order must be routes, public options, capture/review, then clean production drift'
+);
 assert.doesNotMatch(
   cutoverPacket,
   /Merge only the approved `#644` head/,

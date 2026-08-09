@@ -61,7 +61,7 @@ If any merge changes an in-scope migration or refund function after the manifest
 
 For the #629 blocker on PR #716, the normal production drift check cannot become green before schema deployment because the reviewed QR/wallet functions depend on the first three pending migrations. The only approved bridge is the pinned five-migration procedure in `Docs/PRODUCTION_RUNBOOK.md` and `scripts/refunds/refund-production-release.json`.
 
-- Require the standard local manifest check, the expected standard production mismatch, and a passing `refunds:release:check-pre-migration` source-download comparison.
+- Require the standard local manifest check, the exact expected standard production mismatch (five unpaired reviewed sources plus eight version-only differences, and no other failure), and a passing `refunds:release:check-pre-migration` source-download comparison.
 - Require the dry run to contain exactly the pinned five migrations in order and a current completed physical backup.
 - Apply the five migrations once, require zero pending, then deploy all eight Refund Operations functions in documented order before any commerce deployment.
 - Keep Nayax, automation, Gmail, and GPT execution off; run only the no-auth route and aggregate public-options health checks.
@@ -90,7 +90,17 @@ Check switch values without printing secrets. A code deploy must not silently en
 
 ## Production smoke order
 
-For the `#629/#716` bridge, execute only steps 1-3. Steps 4-12 require their own explicit approvals and are not part of the payment-first release; do not create a refund case, send any communication, exercise a provider, or enable an optional lane.
+For the `#629/#716` bridge, use this exact post-deployment order:
+
+1. Run the no-auth route smoke in the next list's step 2.
+2. Run the aggregate public-options smoke in the next list's step 3.
+3. Capture production metadata, update and independently review the manifest-only change.
+4. Verify the standard production drift check passes against that final manifest.
+5. Return to the commerce release only after step 4 is green.
+
+Do not use the general list's drift-first ordering for the bridge, because its manifest cannot be paired until after deployment and capture. The general list's steps 4-12 require their own explicit approvals and are not part of the payment-first release; do not create a refund case, send any communication, exercise a provider, or enable an optional lane.
+
+For a normal Refund Operations release with an already paired manifest, use this general order:
 
 1. Verify the production drift check against the final manifest.
 2. Run `npm run refunds:smoke-routes -- --project-ref <project-ref> --confirm-project-ref <project-ref>`; all eight no-auth, no-body `OPTIONS` probes must return their exact safe status and the manual/retry email route must not return `404`.
