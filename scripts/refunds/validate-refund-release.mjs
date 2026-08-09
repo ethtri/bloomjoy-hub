@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   assertSupportedFunctionDeploymentInputs,
   buildUpdatedLocalManifest,
@@ -21,6 +22,63 @@ import {
   sanitizeProductionMetadata,
   validateManifestShape,
 } from './refund-release.mjs';
+
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const productionRunbook = fs.readFileSync(path.join(repositoryRoot, 'Docs', 'PRODUCTION_RUNBOOK.md'), 'utf8');
+const cutoverPacket = fs.readFileSync(
+  path.join(repositoryRoot, 'Docs', 'REFUND_PRODUCTION_CUTOVER_PACKET.md'),
+  'utf8'
+);
+const productionDriftCommand =
+  'npm run refunds:release:check-production -- --project-ref <project-ref>';
+
+assert.match(
+  productionRunbook,
+  new RegExp(productionDriftCommand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+  'The release runbook must call the production drift checker explicitly'
+);
+assert.match(
+  productionRunbook,
+  /expected five-source production mismatch/,
+  'The compatibility bridge must distinguish the expected production mismatch from local alignment'
+);
+
+const bridgeStart = productionRunbook.indexOf('#### #629/#716 bridge override');
+const commerceStart = productionRunbook.indexOf('Commerce cutover order is fail-closed', bridgeStart);
+assert(bridgeStart >= 0 && commerceStart > bridgeStart, 'The bridge override must precede commerce cutover');
+const bridgeDeployBlock = productionRunbook.slice(bridgeStart, commerceStart);
+let previousDeployIndex = -1;
+for (const slug of requiredFunctionSlugs) {
+  const deployIndex = bridgeDeployBlock.indexOf(`supabase functions deploy ${slug} --no-verify-jwt`);
+  assert(deployIndex > previousDeployIndex, `Bridge deploy order is missing or out of order for ${slug}`);
+  previousDeployIndex = deployIndex;
+}
+
+for (const requiredFailClosedControl of [
+  'do not execute any mutating Step A command until bridge steps 1-4',
+  'NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO MICRO_CHECKOUT_ENABLED --yes',
+  'REFUND_AUTOMATION_ENABLED=false',
+  'REFUND_GMAIL_ENABLED=false',
+  'REFUND_GPT_TRIAGE_ENABLED=false',
+  'OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false',
+  'REFUND_AUTOMATION_SWEEP_ENABLED --repo ethtri/bloomjoy-hub --body false',
+  'REFUND_GMAIL_SYNC_ENABLED --repo ethtri/bloomjoy-hub --body false',
+  'REFUND_GPT_TRIAGE_SYNC_ENABLED --repo ethtri/bloomjoy-hub --body false',
+  'update public.refund_gpt_triage_settings set enabled = false',
+]) {
+  assert(
+    productionRunbook.includes(requiredFailClosedControl),
+    `Release runbook is missing fail-closed control: ${requiredFailClosedControl}`
+  );
+}
+
+assert.match(cutoverPacket, /all 26 current required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /For the `#629\/#716` bridge, execute only steps 1-3\./);
+assert.doesNotMatch(
+  cutoverPacket,
+  /Merge only the approved `#644` head/,
+  'The current compatibility bridge must not retain the superseded main-only release instruction'
+);
 
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-release-test-'));
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');

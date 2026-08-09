@@ -121,7 +121,8 @@ Security rule:
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds` passes
 - [ ] If Micro is approved later, rerun commerce preflight with `--micro-enabled` so remote secret-name validation requires the server switch plus both Micro IDs.
 - [ ] `npm run refunds:validate-release-tooling` passes.
-- [ ] `npm run refunds:release:check` confirms that the eight Refund Operations functions, required migrations, and `verify_jwt` settings match the approved release manifest.
+- [ ] `npm run refunds:release:check` confirms local source, migration, and `verify_jwt` alignment with the approved Refund Operations release manifest.
+- [ ] `npm run refunds:release:check-production -- --project-ref <project-ref>` confirms all eight deployed Refund Operations functions match the approved production metadata.
 - [ ] If the standard production drift check is red only because the pinned QR/wallet source requires the pending schema, use the reviewed pre-migration bridge below. No other drift may use this exception.
 - [ ] Before deployment, `supabase db push --dry-run` reports exactly the reviewed pending migration set and no unexpected migration. Save the sanitized command result; the Edge Function drift check does not prove remote migration parity.
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
@@ -138,6 +139,8 @@ Use this order exactly.
 
 ### Step A: Set/refresh Edge Function secrets and run preflight
 Set secrets before applying the refund automation migration train so preflight can fail fast without touching production schema.
+
+For the `#629/#716` bridge, do not execute any mutating Step A command until bridge steps 1-4 below have passed, including compatibility, backup, and the exact dry run. Then execute the required fail-closed writes in bridge step 5 before applying migrations. Secret-name inspection and other read-only preflight may run earlier.
 
 Run once per environment or when values rotate:
 
@@ -184,6 +187,17 @@ supabase secrets set NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS=5000
 supabase secrets set NAYAX_REFUND_DAILY_COUNT_CAP=10
 supabase secrets set NAYAX_REFUND_IDEMPOTENCY_SECRET=...
 supabase secrets set REFUND_AUTOMATION_SWEEP_SECRET=...
+supabase secrets set REFUND_AUTOMATION_ENABLED=false
+supabase secrets set REFUND_GMAIL_ENABLED=false
+supabase secrets set REFUND_GPT_TRIAGE_ENABLED=false
+supabase secrets set OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false
+supabase secrets unset NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO MICRO_CHECKOUT_ENABLED --yes
+
+gh variable set REFUND_AUTOMATION_SWEEP_ENABLED --repo ethtri/bloomjoy-hub --body false
+gh variable set REFUND_GMAIL_SYNC_ENABLED --repo ethtri/bloomjoy-hub --body false
+gh variable set REFUND_GPT_TRIAGE_SYNC_ENABLED --repo ethtri/bloomjoy-hub --body false
+
+supabase db query --linked --output json "update public.refund_gpt_triage_settings set enabled = false, auto_send_enabled = false, human_review_required = true, updated_at = now() where singleton; select count(*) as settings_rows, bool_and(not enabled and not auto_send_enabled and human_review_required) as fail_closed from public.refund_gpt_triage_settings;"
 ```
 
 Do not set `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` during shadow-mode setup. It stays unset until a separate live card-refund execution pilot is explicitly approved.
@@ -198,21 +212,22 @@ npm run commerce:preflight -- --project-ref <project-ref> --include-refunds
 npm run refunds:preflight-gmail -- --project-ref <project-ref>
 ```
 
-Remote preflight validates secret presence by name. Before deploying, separately verify the fail-closed values are set as intended: `NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`, and `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false`.
+Remote preflight validates secret presence by name. The explicit writes above are required because Supabase does not return secret values. Require the commands to succeed, confirm the GitHub variables read back as exact `false`, require the GPT settings query to report exactly one fail-closed row, and confirm both unset secrets are absent by name. Before deploying, separately verify the four Nayax values were written as `false`, `true`, `true`, and `false`, respectively. Do not print any secret value.
 
-For the current Refund Operations release candidate in PR `#644`, use `Docs/REFUND_PRODUCTION_CUTOVER_PACKET.md` as the authoritative merge, deployment, smoke, rollback, pilot, and sponsor-decision sequence. `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` is a historical May 2026 packet and must not be used to deploy the current release.
+For the current Refund Operations source plus the narrow `#629/#716` bridge, use `Docs/REFUND_PRODUCTION_CUTOVER_PACKET.md` as the authoritative merge, deployment, smoke, rollback, pilot, and sponsor-decision sequence. `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` is a historical May 2026 packet and must not be used to deploy the current release.
 
 #### Reviewed pre-migration bridge for #629 / #716
 
 This bridge is limited to the pinned five-migration sequence in `scripts/refunds/refund-production-release.json`. It exists because the reviewed QR/wallet Refund Operations sources require the first three pending migrations, while Supabase applies those migrations together with the two additive commerce migrations. It does not declare production current and does not authorize commerce deployment.
 
-1. Run `npm run refunds:release:check`; retain its expected five-source mismatch as sanitized evidence.
-2. Run `npm run refunds:release:check-pre-migration -- --project-ref <project-ref> --confirm-project-ref <project-ref>`. It downloads all eight live sources and passes only when they match the immutable July 22 source baseline, the bundle digests match, versions have not regressed, `verify_jwt=false`, no import map is present, and the exact five migration files match their pinned checksums.
-3. Recheck the latest completed physical backup and run `supabase db push --dry-run`. Require exactly the five pinned migrations in manifest order and no other migration.
-4. Keep Nayax execution fail-closed, automation schedules and Edge execution off, Gmail off, and GPT off. Do not run intake/email smoke or send customer/manager communications during this bridge.
-5. Apply the five migrations once with `supabase db push`, then require `supabase db push --dry-run` to report zero pending migrations.
-6. Before any commerce function deployment, deploy the eight Refund Operations functions in the order listed under Step C, run the no-auth route and aggregate public-options health checks, capture verified production metadata, update the manifest production fields, and run `npm run refunds:release:check-production` until it passes cleanly.
-7. Stop on any ambiguous migration, function, source, switch, or health state. Commerce remains blocked until step 6 is green and the manifest-only update has fresh independent review.
+1. Run `npm run refunds:release:check` and require the local manifest check to pass.
+2. Run `npm run refunds:release:check-production -- --project-ref <project-ref>`; retain its expected five-source production mismatch as sanitized evidence. Any different failure invalidates this bridge.
+3. Run `npm run refunds:release:check-pre-migration -- --project-ref <project-ref> --confirm-project-ref <project-ref>`. It downloads all eight live sources and passes only when they match the immutable July 22 source baseline, the bundle digests match, versions have not regressed, `verify_jwt=false`, no import map is present, and the exact five migration files match their pinned checksums.
+4. Recheck the latest completed physical backup and run `supabase db push --dry-run`. Require exactly the five pinned migrations in manifest order and no other migration.
+5. Force and verify every fail-closed value in Step A: Nayax execution, automation schedules and Edge execution, Gmail schedule and Edge execution, GPT schedule, Edge, privacy, and database execution, plus the absent Nayax sponsor and Micro switches. Do not run intake/email smoke or send customer/manager communications during this bridge.
+6. Apply the five migrations once with `supabase db push`, then require `supabase db push --dry-run` to report zero pending migrations.
+7. Follow the dedicated **#629/#716 bridge override** at the start of Step C. Before any commerce function deployment, deploy the eight Refund Operations functions in its exact order; run only the no-auth route and aggregate public-options health checks; capture verified production metadata; update the manifest production fields; obtain fresh independent review; and run `npm run refunds:release:check-production -- --project-ref <project-ref>` until it passes cleanly.
+8. Stop on any ambiguous migration, function, source, switch, or health state. Commerce remains blocked until step 7 is green.
 
 ### Step B: Deploy database migrations
 Apply all `supabase/migrations/*.sql` not already applied, oldest to newest.
@@ -247,6 +262,23 @@ Refund source note:
 ### Step C: Deploy Supabase Edge Functions
 Deploy all current checkout, submission, invite, and reporting functions:
 
+#### #629/#716 bridge override
+
+When the reviewed pre-migration bridge is active, this block overrides the normal Step C order. Immediately after Step B reaches zero pending migrations, deploy only these eight Refund Operations functions in this exact order, before any commerce function:
+
+```bash
+supabase functions deploy refund-case-intake --no-verify-jwt
+supabase functions deploy nayax-transaction-lookup --no-verify-jwt
+supabase functions deploy refund-case-admin-update --no-verify-jwt
+supabase functions deploy refund-case-message-send --no-verify-jwt
+supabase functions deploy refund-case-automation-sweep --no-verify-jwt
+supabase functions deploy refund-gmail-sync --no-verify-jwt
+supabase functions deploy refund-gpt-triage --no-verify-jwt
+supabase functions deploy nayax-card-refund --no-verify-jwt
+```
+
+Run only the no-auth route and aggregate public-options health checks at lines below; do not run intake/email, manager, provider, or optional-lane smokes. Capture production metadata, update and independently review the manifest-only change, and require `refunds:release:check-production` to pass. Only then return here and start the commerce cutover order. Do not repeat the eight refund deploys in the general command inventory below.
+
 Commerce cutover order is fail-closed and must precede the frontend merge:
 1. Record the current production function versions/commit.
 2. Deploy `stripe-sugar-checkout`, `stripe-sticks-checkout`, and `stripe-plus-checkout` first. After all three deployments succeed, record the marker-enforcement UTC timestamp.
@@ -261,7 +293,7 @@ Before deploying reporting functions, confirm Step B has completed and `supabase
 
 After applying the reviewed migrations, rerun `supabase db push --dry-run` and require zero pending migrations before deploying dependent Refund Operations functions.
 
-Before deploying Refund Operations functions, run `npm run refunds:release:check`. If and only if the reviewed #629/#716 bridge above is active, its successful compatibility command plus the exact zero-pending post-push result replaces the pre-deploy standard production check; the standard check must pass immediately after deployment and manifest capture. Deploy only the eight explicitly listed refund functions from the reviewed release worktree. Keep Nayax execution fail-closed and keep `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` unset unless issue `#430` contains the explicit sponsor approval.
+Outside the #629/#716 bridge, run both `npm run refunds:release:check` and `npm run refunds:release:check-production -- --project-ref <project-ref>` before deploying Refund Operations functions. Under the bridge, the passing local and compatibility commands plus the exact zero-pending post-push result temporarily replace only the pre-deploy production check; the standard production check must pass immediately after deployment, manifest capture, update, and independent review. Deploy only the eight explicitly listed refund functions from the reviewed release worktree. Keep Nayax execution fail-closed and keep `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` unset unless issue `#430` contains the explicit sponsor approval.
 
 ```bash
 supabase functions deploy stripe-sugar-checkout --no-verify-jwt
@@ -281,14 +313,8 @@ supabase functions deploy sales-report-scheduler --no-verify-jwt
 supabase functions deploy sunze-sales-ingest --no-verify-jwt
 supabase functions deploy sunze-sales-sync --no-verify-jwt
 supabase functions deploy refund-adjustment-sync --no-verify-jwt
-supabase functions deploy refund-case-intake --no-verify-jwt
-supabase functions deploy nayax-transaction-lookup --no-verify-jwt
-supabase functions deploy refund-case-admin-update --no-verify-jwt
-supabase functions deploy refund-case-message-send --no-verify-jwt
-supabase functions deploy refund-case-automation-sweep --no-verify-jwt
-supabase functions deploy refund-gmail-sync --no-verify-jwt
-supabase functions deploy refund-gpt-triage --no-verify-jwt
-supabase functions deploy nayax-card-refund --no-verify-jwt
+# Refund Operations: use the dedicated bridge block above for #629/#716.
+# Outside that bridge, deploy the same eight functions in the exact order shown there.
 ```
 
 After deploying the eight Refund Operations functions:
