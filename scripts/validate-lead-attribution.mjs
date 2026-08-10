@@ -14,6 +14,10 @@ const migration = read('supabase/migrations/202608100002_lead_attribution.sql');
 const migrationTest = read('supabase/tests/lead_attribution_safety.sql');
 const fitPlanner = read('src/pages/resources/BusinessPlaybookPlanner.tsx');
 const paybackPlanner = read('src/pages/resources/BusinessPlaybookPaybackPlanner.tsx');
+const quoteIntake = read('src/lib/quoteIntake.ts');
+const mobileSolution = read('src/data/mobileOperatorPages.ts');
+const dessertComparison = read('src/data/dessertAddOnComparisonContract.ts');
+const cateringGuide = read('src/data/cateringDessertMenuContract.ts');
 const home = read('src/pages/Index.tsx');
 const footer = read('src/components/layout/Footer.tsx');
 const qa = read('Docs/QA_SMOKE_TEST_CHECKLIST.md');
@@ -35,8 +39,9 @@ const assertions = [
   ['notification conversion fields are normalized again', server.includes('const machineInterest = normalizeMachineInterest(') && server.includes('const plannerRecommendation = normalizePlannerRecommendation(') && server.includes('const plannerBand = normalizePlannerBand(')],
   ['migration is additive, bounded, and RLS-neutral', migration.includes('add column if not exists attribution jsonb not null') && migration.includes('pg_column_size(attribution) <= 4096') && !/create policy|grant\s/i.test(migration)],
   ['database tests prove the bounded RLS-neutral contract', migrationTest.includes('select plan(10)') && migrationTest.includes('Attribution adds no browser read or mutation policies') && migrationTest.includes('Oversized attribution is rejected')],
-  ['fit planner passes only categorical recommendation and band', fitPlanner.includes('planner_recommendation: recommendation') && fitPlanner.includes('planner_band: band')],
+  ['fit planner uses the current categorical quote context', fitPlanner.includes('buildPlannerQuoteHref({') && quoteIntake.includes("planner_machine: safeMachineSignal") && quoteIntake.includes("planner_budget: safeBudgetBand") && client.includes("params.get('planner_machine')") && client.includes("params.get('planner_budget')")],
   ['payback planner passes only scenario and demand band', paybackPlanner.includes('planner_recommendation: "commercial"') && paybackPlanner.includes('planner_band: demandBand') && !/planner_(?:cost|revenue|payback|price|margin)/.test(paybackPlanner)],
+  ['live mobile-operator quote sources stay canonical and bounded', [mobileSolution, dessertComparison, cateringGuide].every((source) => source.includes('/contact?type=quote&interest=commercial&source=%2F') && source.includes('&use=mobile-food'))],
   ['homepage and footer quote CTAs preserve internal source', home.includes('/contact?type=quote&interest=commercial&source=%2F') && footer.includes('/contact?type=quote&interest=commercial&source=%2F')],
   ['QA covers accepted and adversarial journeys', ['direct', 'campaign', 'referral', 'planner', 'malformed', 'missing attribution'].every((term) => qa.toLowerCase().includes(term))],
 ];

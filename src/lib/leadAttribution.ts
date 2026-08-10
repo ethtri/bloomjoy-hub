@@ -13,7 +13,18 @@ const campaignKeys = [
 ] as const;
 const touchKinds = new Set(['direct', 'organic', 'referral', 'campaign', 'internal', 'planner']);
 const plannerRecommendations = new Set(['commercial', 'mini', 'micro', 'undecided']);
-const plannerBands = new Set(['clear', 'close_call', 'exploring', 'blank', 'low', 'medium', 'high']);
+const plannerBands = new Set([
+  'clear',
+  'close_call',
+  'exploring',
+  'not-started',
+  'incomplete',
+  'reviewed',
+  'blank',
+  'low',
+  'medium',
+  'high',
+]);
 const searchReferrerDomains = [
   'bing.com',
   'duckduckgo.com',
@@ -30,7 +41,17 @@ const privatePathPrefixes = ['/portal', '/admin', '/login', '/reset-password', '
 type CampaignKey = (typeof campaignKeys)[number];
 type TouchKind = 'direct' | 'organic' | 'referral' | 'campaign' | 'internal' | 'planner';
 type PlannerRecommendation = 'commercial' | 'mini' | 'micro' | 'undecided';
-type PlannerBand = 'clear' | 'close_call' | 'exploring' | 'blank' | 'low' | 'medium' | 'high';
+type PlannerBand =
+  | 'clear'
+  | 'close_call'
+  | 'exploring'
+  | 'not-started'
+  | 'incomplete'
+  | 'reviewed'
+  | 'blank'
+  | 'low'
+  | 'medium'
+  | 'high';
 
 export type LeadAttributionTouch = Partial<Record<CampaignKey, string>> & {
   kind: TouchKind;
@@ -241,8 +262,12 @@ const deriveTouch = (): LeadAttributionTouch | null => {
   const referrerHost = getDocumentReferrerHost();
   const internalSourcePath = normalizePath(params.get('source'));
   const machineInterest = normalizeAllowedMachineInterest(params.get('interest'));
-  const plannerRecommendation = normalizePlannerRecommendation(params.get('planner_recommendation'));
-  const plannerBand = normalizePlannerBand(params.get('planner_band'));
+  const plannerRecommendation =
+    normalizePlannerRecommendation(params.get('planner_recommendation')) ??
+    normalizePlannerRecommendation(params.get('planner_machine'));
+  const plannerBand =
+    normalizePlannerBand(params.get('planner_band')) ??
+    normalizePlannerBand(params.get('planner_budget'));
   const hasCampaign = Object.keys(campaign).length > 0;
   const hasPlanner = Boolean(
     plannerRecommendation ||

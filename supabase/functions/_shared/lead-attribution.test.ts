@@ -147,6 +147,45 @@ Deno.test("private application paths are excluded from lead attribution", () => 
   );
 });
 
+Deno.test("current mobile-operator and fit-planner paths remain bounded attribution", () => {
+  for (const sourcePage of [
+    "/solutions/food-trucks",
+    "/resources/business-playbook/food-truck-dessert-add-ons",
+    "/resources/business-playbook/food-truck-catering-dessert-menu",
+  ]) {
+    assertEquals(
+      normalizeLeadAttribution(
+        {
+          last_touch: {
+            kind: "internal",
+            landing_path: "/contact",
+            internal_source_path: sourcePage,
+          },
+          conversion: {
+            planner_recommendation: "commercial",
+            planner_band: "reviewed",
+          },
+        },
+        { sourcePage, machineInterest: "Commercial Machine" },
+      ),
+      {
+        version: 1,
+        last_touch: {
+          kind: "internal",
+          landing_path: "/contact",
+          internal_source_path: sourcePage,
+        },
+        conversion: {
+          source_path: sourcePage,
+          machine_interest: "Commercial Machine",
+          planner_recommendation: "commercial",
+          planner_band: "reviewed",
+        },
+      },
+    );
+  }
+});
+
 Deno.test("notification lines contain only the normalized compact summary", () => {
   const attribution = normalizeLeadAttribution(
     {

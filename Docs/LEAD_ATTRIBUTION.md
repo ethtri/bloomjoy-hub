@@ -38,13 +38,13 @@ Bloomjoy needs to distinguish how a public lead arrived and which controlled buy
     "landing_path": "/contact",
     "internal_source_path": "/resources/business-playbook/planner",
     "planner_recommendation": "commercial",
-    "planner_band": "clear"
+    "planner_band": "reviewed"
   },
   "conversion": {
     "source_path": "/resources/business-playbook/planner",
     "machine_interest": "Commercial Machine",
     "planner_recommendation": "commercial",
-    "planner_band": "clear"
+    "planner_band": "reviewed"
   }
 }
 ```
@@ -61,7 +61,7 @@ For new normalized payloads, `version` and `conversion.source_path` are required
 | `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term` | Conservative token text; 80 characters each |
 | `machine_interest` | `Commercial Machine`, `Mini Machine`, `Micro Machine`, or `Not sure yet` |
 | `planner_recommendation` | `commercial`, `mini`, `micro`, `undecided` |
-| `planner_band` | `clear`, `close_call`, `exploring`, `blank`, `low`, `medium`, `high` |
+| `planner_band` | `clear`, `close_call`, `exploring`, `not-started`, `incomplete`, `reviewed`, `blank`, `low`, `medium`, `high` |
 
 The server drops unknown keys, invalid types, over-limit values, URLs where tokens are expected, control characters, and values matching conservative email/phone-like patterns. Campaign click IDs such as `gclid`, `gbraid`, `wbraid`, and `fbclid` are not read or persisted because they have not been explicitly approved.
 
@@ -69,7 +69,7 @@ Organic-search classification uses exact hostname or subdomain boundaries for kn
 
 ## Planner boundary
 
-The Machine Fit planner may pass only its categorical recommendation and `clear`, `close_call`, or `exploring` state. The payback planner may pass only its selected scenario and categorical demand band. Startup cost, price, volume, margin, payback, revenue-share, rent, fee, and other exact assumptions never enter attribution.
+The Machine Fit planner may pass only its categorical machine signal and budget-readiness band (`not-started`, `incomplete`, or `reviewed`) from the current quote-intake contract. The attribution reader also accepts the earlier categorical `clear`, `close_call`, or `exploring` fit band for backward compatibility during rollout. The payback planner may pass only its selected scenario and categorical demand band. Intended-path/open-question context may support the visible quote intake, but it is not copied into the attribution object. Startup cost, price, volume, margin, payback, revenue-share, rent, fee, and other exact assumptions never enter attribution.
 
 ## Server, RLS, and notifications
 
