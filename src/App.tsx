@@ -17,6 +17,7 @@ import { AdminRoute, RefundOperationsRoute } from "@/components/auth/AdminRoute"
 import { HostRedirectGate } from "@/components/routing/HostRedirectGate";
 import { RouteErrorBoundary } from "@/components/routing/RouteErrorBoundary";
 import { RouteSeoManager } from "@/components/seo/RouteSeoManager";
+import { LeadAttributionManager } from "@/components/analytics/LeadAttributionManager";
 import { lazyRoute } from "@/lib/lazyRoute";
 import { loadPortalDashboard } from "@/lib/portalRouteModules";
 import { useAuth } from "@/contexts/auth-context";
@@ -168,6 +169,7 @@ export const AppShell = () => (
   <HostRedirectGate>
     <AppLanguageMetadata />
     <RouteSeoManager />
+    <LeadAttributionManager />
     <RouteErrorBoundary>
       <Suspense fallback={<RouteFallback />}>
         <Routes>

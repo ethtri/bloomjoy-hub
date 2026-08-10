@@ -25,7 +25,7 @@ import { isMicroCheckoutEnabled } from "@/lib/commerceAvailability";
 import {
   blankPaybackInputs,
   blankStartupCosts,
-  paybackPlannerSource,
+  paybackPlannerPath,
   paybackPresets,
   paybackPresetDisclaimer,
   paybackScenarioProfiles,
@@ -285,9 +285,19 @@ const getEstimate = (
     : estimateEventScenario(startupCost, inputs.event);
 };
 
-const getPurchaseHref = (scenario: PaybackScenarioId | null) => {
+const getPurchaseHref = (
+  scenario: PaybackScenarioId | null,
+  demandBand: "blank" | "low" | "medium" | "high"
+) => {
   if (scenario === "commercial") {
-    return `/contact?type=quote&interest=commercial&source=${paybackPlannerSource}`;
+    const params = new URLSearchParams({
+      type: "quote",
+      interest: "commercial",
+      source: paybackPlannerPath,
+      planner_recommendation: "commercial",
+      planner_band: demandBand,
+    });
+    return `/contact?${params.toString()}`;
   }
   if (scenario === "micro") return "/machines/micro";
   if (scenario === "mini") return "/machines/mini";
@@ -470,7 +480,10 @@ export default function BusinessPlaybookPaybackPlannerPage() {
   const selectedPreset = selectedPresetId
     ? paybackPresets.find((preset) => preset.id === selectedPresetId)
     : undefined;
-  const quoteHref = getPurchaseHref(scenario);
+  const quoteHref = getPurchaseHref(
+    scenario,
+    getDemandBand(estimate?.monthlyUnits ?? 0)
+  );
   const purchaseCtaLabel = scenario === "commercial"
     ? "Request Commercial quote"
     : scenario === "micro"

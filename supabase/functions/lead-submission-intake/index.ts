@@ -16,6 +16,11 @@ import {
   sanitizePublicIntakeSourcePage,
 } from "../_shared/public-intake-abuse-controls.ts";
 import { sendWeComAlertResult } from "../_shared/wecom-alert.ts";
+import {
+  formatLeadAttributionLines,
+  normalizeLeadAttribution,
+  type NormalizedLeadAttribution,
+} from "../_shared/lead-attribution.ts";
 
 export const config = {
   verify_jwt: false,
@@ -420,6 +425,7 @@ const buildLeadNotification = (
     source_page: string;
     message: string;
     metadata?: Record<string, unknown> | null;
+    attribution?: NormalizedLeadAttribution | null;
     created_at: string;
   },
 ) => {
@@ -452,6 +458,7 @@ const buildLeadNotification = (
     `Name: ${leadSubmission.name}`,
     `Email: ${leadSubmission.email}`,
     `Source Page: ${leadSubmission.source_page}`,
+    ...formatLeadAttributionLines(leadSubmission.attribution),
     ...formatArtworkMetadataLines(metadata),
     "",
     "Message:",
@@ -516,6 +523,10 @@ serve(async (req) => {
     const clientSubmissionId = sanitizeText(body?.clientSubmissionId)
       .toLowerCase();
     const normalizedMetadata = normalizeLeadMetadata(body?.metadata);
+    const attribution = normalizeLeadAttribution(body?.attribution, {
+      sourcePage,
+      machineInterest,
+    });
 
     if (!validSubmissionTypes.has(submissionType)) {
       return new Response(
@@ -610,7 +621,7 @@ serve(async (req) => {
     });
 
     const selectedColumns =
-      "id, submission_type, name, email, source_page, message, metadata, created_at, internal_notification_sent_at";
+      "id, submission_type, name, email, source_page, message, metadata, attribution, created_at, internal_notification_sent_at";
 
     const { data: insertedLead, error: insertError } = await supabase
       .from("lead_submissions")
@@ -620,6 +631,7 @@ serve(async (req) => {
         email,
         message: normalizedMessage,
         metadata,
+        attribution,
         source_page: sourcePage,
         client_submission_id: clientSubmissionId,
         server_dedupe_key: serverDedupeKey,
