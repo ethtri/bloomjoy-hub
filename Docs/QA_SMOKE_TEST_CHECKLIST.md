@@ -438,6 +438,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Logged-out users on `/plus` are redirected to login before checkout can begin
 - [ ] After login, a baseline customer can start Plus checkout from `/portal/account` and Stripe returns to `/portal/account` for success or cancellation without crossing back to the logged-out public host
 - [ ] Repeated, simultaneous, cross-tab, or minute-boundary Start Plus actions reuse one durable per-account checkout attempt and the same open Stripe Checkout Session; only one payable subscription session can be created
+- [ ] If cleanup explicitly expires an unpaid Plus Checkout Session before its original `expires_at`, Stripe's provider state overrides the durable `ready` retry row; the next Start Plus action creates one fresh open Session and the following request reuses only that fresh Session
 - [ ] Stripe resolution checks every stored-customer, stored-subscription, Bloomjoy-user-metadata, and exact-email candidate; one actionable Plus history is selected, ambiguous actionable histories fail closed, and stale positive database status does not block a restart after Stripe confirms terminal state
 - [ ] Existing `active`, `trialing`, `past_due`, `unpaid`, or `paused` Plus subscriptions block a second checkout; failed-payment states open Billing, while `incomplete` resumes the matching open Checkout Session and never routes to Billing
 - [ ] A canceled or expired incomplete Plus subscription can restart checkout on the existing Stripe Customer record

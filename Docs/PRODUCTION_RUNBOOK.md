@@ -408,6 +408,16 @@ Deploy current launch commit to your chosen host (Vercel/Netlify/etc.) with:
   - `app.bloomjoyusa.com` serves operator login, reset-password, portal, and admin routes
   - host redirects are active so `www` forwards app-only paths to `app`, and `app` forwards public routes back to `www`
 
+### Step E1: Recover an early-expired Plus Checkout attempt
+Use this forward-only hotfix path when Stripe cleanup expires an unpaid Plus Checkout Session before its original `expires_at`, while `plus_checkout_attempts` still contains the corresponding `ready` retry row. Do not edit or replay `202608080001_plus_checkout_attempts.sql`.
+
+1. Require a reviewed source commit containing exactly the forward migration `202608100001_plus_expired_checkout_recovery.sql`, the matching `stripe-plus-checkout` recovery logic, focused tests, and no unrelated release change.
+2. Re-run the physical-backup, secret-name, Stripe zero-open-session, clean-branch, hosted-check, and independent-review gates. The linked migration dry run must show exactly `202608100001_plus_expired_checkout_recovery.sql`; any other pending migration stops the hotfix.
+3. Apply that one migration, require a zero-pending follow-up dry run, then deploy only `stripe-plus-checkout` from the reviewed hotfix commit.
+4. With an authenticated baseline account whose earlier unpaid diagnostic Session was explicitly expired, select **Start Plus Membership**. Require a fresh open `$100/month` subscription Checkout with Automatic Tax and the `/portal/account` success/cancel returns. A second request must reuse that same fresh open Session.
+5. Confirm no payment, PaymentIntent, subscription, order, entitlement, or communication was created. Expire the fresh diagnostic Session through the documented Stripe cleanup procedure and require the final live open Checkout Session count to return to zero.
+6. Merge only after the hotfix smoke, normal commerce checks, and all hosted checks pass. Confirm the Vercel deployment is promoted to the production domains; an existing Instant Rollback must not leave the domains pinned to an older frontend.
+
 ## 5) Launch verification checklist (T+0)
 Run immediately after deploy:
 - [ ] Public routes load (`/`, `/machines`, `/supplies`, `/plus`, `/resources`, `/contact`).

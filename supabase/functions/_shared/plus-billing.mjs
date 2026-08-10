@@ -40,6 +40,26 @@ export const hasBlockingPlusSubscription = (subscriptions) =>
 export const buildPlusCheckoutIdempotencyKey = (userId, attemptToken) =>
   `bloomjoy-plus-checkout:${userId}:${attemptToken}`;
 
+export const checkoutSessionIdFromUrl = (checkoutUrl) => {
+  if (typeof checkoutUrl !== "string") return null;
+
+  try {
+    const parsedUrl = new URL(checkoutUrl);
+    if (
+      parsedUrl.protocol !== "https:" ||
+      parsedUrl.hostname !== "checkout.stripe.com"
+    ) {
+      return null;
+    }
+
+    return parsedUrl.pathname
+      .split("/")
+      .find((segment) => /^cs_[A-Za-z0-9_]+$/.test(segment)) ?? null;
+  } catch {
+    return null;
+  }
+};
+
 export const plusCheckoutFailureDisposition = (checkoutCreateStarted) =>
   checkoutCreateStarted ? "preserve" : "release";
 

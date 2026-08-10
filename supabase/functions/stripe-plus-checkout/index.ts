@@ -7,6 +7,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import {
   blockingPlusSubscriptionStatuses,
   buildPlusCheckoutIdempotencyKey,
+  checkoutSessionIdFromUrl,
   findReusableOpenPlusCheckoutSession,
   plusCheckoutFailureDisposition,
   resolveReusablePlusCheckoutSession,
@@ -325,7 +326,7 @@ serve(async (req) => {
       });
     }
 
-    const { data: checkoutAttempt, error: checkoutAttemptError } =
+    let { data: checkoutAttempt, error: checkoutAttemptError } =
       await authResult.supabaseClient.rpc("claim_my_plus_checkout_attempt");
     if (checkoutAttemptError) {
       console.error("Unable to claim Plus checkout attempt");
@@ -344,12 +345,74 @@ serve(async (req) => {
       checkoutAttempt?.status === "ready" &&
       typeof checkoutAttempt.checkoutUrl === "string"
     ) {
-      return new Response(
-        JSON.stringify({ url: checkoutAttempt.checkoutUrl, reused: true }),
-        {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        },
+      const staleCheckoutSessionId = checkoutSessionIdFromUrl(
+        checkoutAttempt.checkoutUrl,
       );
+      if (!staleCheckoutSessionId) {
+        console.error(
+          "Stored Plus checkout attempt has an invalid Checkout URL",
+        );
+        return new Response(
+          JSON.stringify({
+            error: "Unable to safely resume Plus checkout right now.",
+          }),
+          {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      // The provider-authoritative search above found no reusable open session.
+      // Release only this user's matching ready row, then claim again. A concurrent
+      // request either owns the replacement lease or safely reports in-progress.
+      const { error: staleAttemptReleaseError } = await authResult
+        .supabaseClient.rpc(
+          "release_my_stale_plus_checkout_attempt",
+          { p_stripe_checkout_session_id: staleCheckoutSessionId },
+        );
+      if (staleAttemptReleaseError) {
+        console.error("Unable to release stale Plus checkout attempt");
+        return new Response(
+          JSON.stringify({
+            error: "Unable to safely restart Plus checkout right now.",
+          }),
+          {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      const replacementClaim = await authResult.supabaseClient.rpc(
+        "claim_my_plus_checkout_attempt",
+      );
+      checkoutAttempt = replacementClaim.data;
+      checkoutAttemptError = replacementClaim.error;
+      if (checkoutAttemptError) {
+        console.error("Unable to reclaim Plus checkout attempt");
+        return new Response(
+          JSON.stringify({
+            error: "Unable to safely restart Plus checkout right now.",
+          }),
+          {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      if (
+        checkoutAttempt?.status === "ready" &&
+        typeof checkoutAttempt.checkoutUrl === "string"
+      ) {
+        return new Response(
+          JSON.stringify({ url: checkoutAttempt.checkoutUrl, reused: true }),
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
     }
 
     if (
