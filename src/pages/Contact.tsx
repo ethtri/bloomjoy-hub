@@ -188,15 +188,17 @@ export default function ContactPage() {
 
   useEffect(() => {
     if (!queryReady) return;
-    setFormData((current) => ({
-      ...current,
-      type: initialType,
-      interest: initialInterest,
-      venueUse: initialVenueUse,
-      serviceRegion: initialType === 'quote' ? current.serviceRegion : '',
-      timeline: initialType === 'quote' ? current.timeline : '',
-      readiness: initialType === 'quote' ? current.readiness : '',
-    }));
+    startTransition(() => {
+      setFormData((current) => ({
+        ...current,
+        type: initialType,
+        interest: initialInterest,
+        venueUse: initialVenueUse,
+        serviceRegion: initialType === 'quote' ? current.serviceRegion : '',
+        timeline: initialType === 'quote' ? current.timeline : '',
+        readiness: initialType === 'quote' ? current.readiness : '',
+      }));
+    });
   }, [initialInterest, initialType, initialVenueUse, queryReady]);
 
   useEffect(() => {
