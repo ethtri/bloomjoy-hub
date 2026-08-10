@@ -29,6 +29,7 @@ import {
   buildStructuredQuoteMessage,
   getQuoteSourceLabel,
   getSafeQuoteMachineInterest,
+  getSafeQuoteVenueUse,
   QUOTE_MACHINE_OPTIONS,
   QUOTE_READINESS_OPTIONS,
   QUOTE_TIMELINE_OPTIONS,
@@ -61,13 +62,13 @@ type SubmissionSuccess = {
   venueUse: string;
 };
 
-const createInitialFormData = (type: string, interest: string): ContactFormData => ({
+const createInitialFormData = (type: string, interest: string, venueUse: string): ContactFormData => ({
   name: '',
   email: '',
   type,
   interest,
   organization: '',
-  venueUse: '',
+  venueUse,
   serviceRegion: '',
   timeline: '',
   readiness: '',
@@ -141,14 +142,16 @@ export default function ContactPage() {
   const [searchParams] = useSearchParams();
   const queryType = searchParams.get('type');
   const querySource = searchParams.get('source');
+  const queryUse = searchParams.get('use');
   const initialType = queryType && validInquiryTypes.has(queryType) ? queryType : 'general';
   const initialInterest = getSafeQuoteMachineInterest(searchParams.get('interest'));
+  const initialVenueUse = initialType === 'quote' ? getSafeQuoteVenueUse(queryUse) : '';
   const sourcePage = getNormalizedInternalSourcePage(querySource) ?? '/contact';
   const playbookSourcePage = getNormalizedBusinessPlaybookSourcePage(querySource);
   const sourceLabel = getQuoteSourceLabel(sourcePage);
 
   const [formData, setFormData] = useState<ContactFormData>(() =>
-    createInitialFormData(initialType, initialInterest)
+    createInitialFormData(initialType, initialInterest, initialVenueUse)
   );
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [serverError, setServerError] = useState('');
@@ -253,6 +256,7 @@ export default function ContactPage() {
             readiness: formData.readiness,
             additionalDetails: formData.message,
           })
+        : formData.message.trim();
 
       await createLeadSubmission({
         submissionType: formData.type as 'quote' | 'demo' | 'procurement' | 'general',
@@ -309,7 +313,7 @@ export default function ContactPage() {
     setSuccess(null);
     setFieldErrors({});
     setServerError('');
-    setFormData(createInitialFormData(initialType, initialInterest));
+    setFormData(createInitialFormData(initialType, initialInterest, initialVenueUse));
     startTrackedRef.current = false;
     submissionIdRef.current = null;
     requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>('input')?.focus());
@@ -481,13 +485,18 @@ export default function ContactPage() {
               </aside>
 
               <div className="rounded-3xl border border-border bg-card p-5 shadow-elevated sm:p-8">
-                {isQuote && (initialInterest || sourceLabel) && (
+                {isQuote && (initialInterest || initialVenueUse || sourceLabel) && (
                   <div className="mb-6 rounded-2xl border border-primary/20 bg-primary/5 p-4">
                     <p className="text-sm font-semibold text-primary">Context received</p>
                     <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
                       {initialInterest ? `${initialInterest} interest` : 'Quote request'}
                       {sourceLabel ? ` from the ${sourceLabel}` : ''}. You can change the machine choice below.
                     </p>
+                    {initialVenueUse && (
+                      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                        We preselected “{initialVenueUse}” from the approved mobile-use context. You can change the setting below.
+                      </p>
+                    )}
                   </div>
                 )}
 

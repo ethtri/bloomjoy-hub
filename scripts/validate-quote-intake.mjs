@@ -16,6 +16,7 @@ const assertions = [
   ['optional qualification fields render', ['organization', 'readiness', 'interest'].every((field) => contact.includes(field))],
   ['source context is normalized and visible', contact.includes('getNormalizedInternalSourcePage') && contact.includes('Context received')],
   ['unknown machine query values are rejected', quoteIntake.includes('approvedMachineOptions.has(normalized)')],
+  ['mobile-food use is allowlisted and preselects only the approved venue option', quoteIntake.includes("'mobile-food': QUOTE_VENUE_OPTIONS[0]") && contact.includes('getSafeQuoteVenueUse(queryUse)')],
   ['quote data is stored as a structured bounded message', contact.includes('buildStructuredQuoteMessage') && intakeFunction.includes('sanitizeBoundedText(body?.message, 4000)')],
   ['retry reuses client submission id', contact.includes('submissionIdRef.current ?? crypto.randomUUID()') && leadSubmissions.includes('clientSubmissionId = crypto.randomUUID()')],
   ['server retains client and payload dedupe', intakeFunction.includes('.eq("client_submission_id", clientSubmissionId)') && intakeFunction.includes('server_dedupe_key')],

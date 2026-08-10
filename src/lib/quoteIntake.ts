@@ -11,6 +11,10 @@ export const QUOTE_VENUE_OPTIONS = [
   'Still exploring the setting',
 ] as const;
 
+const quoteUsePresets: Record<string, string> = {
+  'mobile-food': QUOTE_VENUE_OPTIONS[0],
+};
+
 export const QUOTE_TIMELINE_OPTIONS = [
   'Within 30 days',
   '1–3 months',
@@ -41,6 +45,9 @@ export const getSafeQuoteMachineInterest = (rawInterest: string | null) => {
   return approvedMachineOptions.has(normalized) ? normalized : '';
 };
 
+export const getSafeQuoteVenueUse = (rawUse: string | null) =>
+  rawUse ? quoteUsePresets[rawUse] ?? '' : '';
+
 export const getQuoteSourceLabel = (sourcePage: string) => {
   const sourceLabels: Record<string, string> = {
     '/': 'Bloomjoy home page',
@@ -48,6 +55,8 @@ export const getQuoteSourceLabel = (sourcePage: string) => {
     '/machines/commercial-robotic-machine': 'Commercial Machine page',
     '/machines/mini': 'Mini Machine page',
     '/machines/micro': 'Micro Machine page',
+    '/solutions/food-trucks': 'food-truck solution guide',
+    '/resources/business-playbook/food-truck-mobile-setup-guide': 'mobile setup guide',
     '/resources/business-playbook/payback-planner': 'payback planner',
     '/resources/business-playbook/planner': 'machine-fit planner',
   };

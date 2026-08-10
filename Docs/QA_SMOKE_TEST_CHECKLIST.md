@@ -191,6 +191,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Contact form labels are clickable, and all visible fields have associated labels
 - [ ] Plain `/contact` opens the general-contact journey; `/contact?type=quote` opens the focused machine-fit request with accurate no-SLA/no-price/no-availability/no-ROI expectation copy
 - [ ] Quote variants for Mini, Micro, Commercial, malformed interest, missing interest, and known `source` paths show only allowlisted machine/source context; no contact or qualification value appears in the URL
+- [ ] `/contact?type=quote&use=mobile-food` preselects “Mobile food facility or food truck”; unknown `use` values are ignored and never become visible or submitted text
 - [ ] Quote validation identifies and focuses an accessible error summary, associates field errors, preserves valid entries, and works by keyboard at 320px through desktop widths
 - [ ] Quote submission stores intended setting, service region, timeline, and optional organization/readiness/details in the structured lead message; only name, email, setting, region, and timeline are required
 - [ ] A server/network failure leaves the entered quote intact and Retry reuses the client submission token; rapid duplicate clicks and a retry after an uncertain response produce one lead row and at most one notification dispatch
@@ -199,7 +200,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `lead_form_start`, `lead_form_submit`, and `lead_form_error` use only controlled inquiry type, route, and normalized source context; no name, email, organization, region, message, or other form value reaches analytics
 - [ ] Run `npm run quote-intake:check` and confirm quote mode, safe context, dedupe/retry, accessibility, CTA routing, and analytics payload guardrails pass
 - [ ] Quote flow preserves machine context (for example, Commercial CTA preselects "Machine of Interest" on `/contact`)
-- [ ] Contact quote type only permits `Commercial Machine`; legacy Mini/Micro quote query parameters do not silently submit as product quotes
+- [ ] Machine interest in the draft quote journey is qualification context only: it does not create an order, reserve inventory, claim availability, or bypass payment-first checkout; owner UAT resolves the Commercial-only policy collision before merge
 - [ ] Mobile icon-only cart/menu controls have accessible names
 - [ ] Product-gallery thumbnail buttons are keyboard operable and announce selected image state
 - [ ] Contact/Quote submission creates a `lead_submissions` row in Supabase with expected type/email
