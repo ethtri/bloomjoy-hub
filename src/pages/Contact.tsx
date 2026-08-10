@@ -140,11 +140,14 @@ const selectClassName =
 
 export default function ContactPage() {
   const [searchParams] = useSearchParams();
-  const queryType = searchParams.get('type');
-  const querySource = searchParams.get('source');
-  const queryUse = searchParams.get('use');
+  const [queryReady, setQueryReady] = useState(false);
+  const queryType = queryReady ? searchParams.get('type') : null;
+  const querySource = queryReady ? searchParams.get('source') : null;
+  const queryUse = queryReady ? searchParams.get('use') : null;
   const initialType = queryType && validInquiryTypes.has(queryType) ? queryType : 'general';
-  const requestedMachineInterest = getSafeQuoteMachineInterest(searchParams.get('interest'));
+  const requestedMachineInterest = getSafeQuoteMachineInterest(
+    queryReady ? searchParams.get('interest') : null
+  );
   const initialInterest = initialType === 'quote' ? MACHINE_NAMES.commercial : '';
   const initialVenueUse = initialType === 'quote' ? getSafeQuoteVenueUse(queryUse) : '';
   const sourcePage = getNormalizedInternalSourcePage(querySource) ?? '/contact';
@@ -178,6 +181,23 @@ export default function ContactPage() {
   const formRef = useRef<HTMLFormElement | null>(null);
 
   const isQuote = formData.type === 'quote';
+
+  useEffect(() => {
+    setQueryReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!queryReady) return;
+    setFormData((current) => ({
+      ...current,
+      type: initialType,
+      interest: initialInterest,
+      venueUse: initialVenueUse,
+      serviceRegion: initialType === 'quote' ? current.serviceRegion : '',
+      timeline: initialType === 'quote' ? current.timeline : '',
+      readiness: initialType === 'quote' ? current.readiness : '',
+    }));
+  }, [initialInterest, initialType, initialVenueUse, queryReady]);
 
   useEffect(() => {
     if (!success) return;

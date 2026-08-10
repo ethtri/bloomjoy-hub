@@ -199,6 +199,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] General inquiry, demo, procurement, existing anti-abuse throttles, email/WeCom notification routing, and Playbook-source behavior still pass after the quote-specific UI changes
 - [ ] `lead_form_start`, `lead_form_submit`, and `lead_form_error` use only controlled inquiry type, route, and normalized source context; no name, email, organization, region, message, or other form value reaches analytics
 - [ ] Run `npm run quote-intake:check` and confirm quote mode, safe context, dedupe/retry, accessibility, CTA routing, and analytics payload guardrails pass
+- [ ] Run a production build/preview, load a query-based quote URL directly, and confirm the prerendered general-contact HTML hydrates before query context is applied with no React hydration errors
 - [ ] Quote flow preserves machine context (for example, Commercial CTA preselects "Machine of Interest" on `/contact`)
 - [ ] The quote journey always submits `Commercial Machine`; Mini/Micro query context is visibly returned to its product path and cannot create an order, reserve inventory, claim availability, or bypass payment-first checkout
 - [ ] Mobile icon-only cart/menu controls have accessible names
