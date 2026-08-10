@@ -63,11 +63,13 @@ const expectedMachineProductByRoute = {
     name: "Bloomjoy Sweets Mini Machine",
     image: "https://www.bloomjoyusa.com/seo/mini-machine.jpg",
     descriptionSnippet: "Portable robotic cotton candy machine",
+    offer: { price: "4000.00", priceCurrency: "USD" },
   },
   "/machines/micro": {
     name: "Bloomjoy Sweets Micro Machine",
     image: "https://www.bloomjoyusa.com/seo/micro-machine.jpg",
     descriptionSnippet: "Entry-level robotic cotton candy machine",
+    offer: { price: "2200.00", priceCurrency: "USD" },
   },
 };
 
@@ -249,10 +251,6 @@ const validatePublicRouteHtml = async (route, seoRoutes) => {
         if (offerKeys !== "@type,price,priceCurrency,url") {
           throw new Error(`Machine route ${route.path} Product Offer contains unsupported fields`);
         }
-      } else if (product.offers) {
-        throw new Error(
-          `Unavailable machine route ${route.path} must not emit Product Offer JSON-LD`
-        );
       }
     }
   }

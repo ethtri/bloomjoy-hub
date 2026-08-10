@@ -24,7 +24,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `robots.txt` is reachable and includes a sitemap reference
 - [ ] `sitemap.xml` is reachable, lists core public routes plus public Business Playbook article routes, includes `lastmod`, and includes image sitemap entries for key machine/supplies/about/playbook URLs
 - [ ] Sitemap `lastmod` values reflect versioned route/article updates rather than one build-wide date; adding/removing a public route requires an intentional route-count regression update
-- [ ] Mini and disabled Micro Product JSON-LD omit Offers; after the approved Micro checkout gate is enabled, its Offer matches the visible USD price and canonical page URL; Commercial remains quote-only with no Product rich-result node, Offer, or public price in structured data
+- [ ] Mini and Micro Product JSON-LD Offers match their visible USD prices and canonical page URLs; Commercial remains quote-only with no Product rich-result node, Offer, or public price in structured data
 - [ ] Machine Product/Offer JSON-LD does not add ratings, reviews, availability, inventory, shipping, returns, financing, or other unsupported commerce claims
 - [ ] Apex host (`https://bloomjoyusa.com`) redirects to canonical host (`https://www.bloomjoyusa.com/`) with permanent redirect behavior
 - [ ] Legacy paths (`/products`, `/products/mini`, `/products/micro`, `/products/commercial-robotic-machine`) return permanent redirects to `/machines*`
