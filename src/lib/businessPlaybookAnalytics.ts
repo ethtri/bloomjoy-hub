@@ -13,6 +13,7 @@ import {
   type MobileFitMachineSignal,
   type MobileFitPlacement,
 } from "@/data/mobileSetupFitContract";
+import { FOOD_TRUCK_DESSERT_ADD_ONS_PATH } from "@/data/dessertAddOnComparisonContract";
 import { trackEvent } from "@/lib/analytics";
 
 type PlaybookSurface =
@@ -40,6 +41,7 @@ type PlaybookSurface =
   | "food_truck_solution"
   | "mobile_setup_guide"
   | "mobile_setup_fit_checker"
+  | "dessert_add_on_comparison"
   | "home_hero";
 
 type PlaybookClickProps = {
@@ -159,7 +161,8 @@ export const getNormalizedBusinessPlaybookSourcePage = (sourcePage?: string | nu
     path === "/resources/business-playbook" ||
     path === plannerPath ||
     path === paybackPlannerPath ||
-    path === MOBILE_SETUP_FIT_CHECKER_PATH
+    path === MOBILE_SETUP_FIT_CHECKER_PATH ||
+    path === FOOD_TRUCK_DESSERT_ADD_ONS_PATH
   ) {
     return path;
   }

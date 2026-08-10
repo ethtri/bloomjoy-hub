@@ -8,6 +8,10 @@ import {
   foodTruckSolutionFaqs,
 } from "@/data/mobileOperatorPages";
 import { MOBILE_SETUP_FIT_CHECKER_PATH } from "@/data/mobileSetupFitContract";
+import {
+  DESSERT_COMPARISON_CITATION_URLS,
+  FOOD_TRUCK_DESSERT_ADD_ONS_PATH,
+} from "@/data/dessertAddOnComparisonContract";
 
 export type RouteSeo = {
   path: string;
@@ -31,7 +35,8 @@ export type RouteSeo = {
     | "business-playbook-index"
     | "business-playbook-article"
     | "mobile-setup-guide"
-    | "mobile-fit-checker";
+    | "mobile-fit-checker"
+    | "dessert-add-on-comparison";
 };
 
 export type PrivateRouteSeo = RouteSeo & {
@@ -71,6 +76,7 @@ export const publicRouteLastmods = {
   "/resources/business-playbook/payback-planner": "2026-07-17",
   "/resources/business-playbook/food-truck-mobile-setup-guide": "2026-08-10",
   "/resources/business-playbook/mobile-setup-fit-checker": "2026-08-10",
+  "/resources/business-playbook/food-truck-dessert-add-ons": "2026-08-10",
   "/solutions/food-trucks": "2026-08-10",
   "/contact": "2026-05-11",
   "/about": "2026-05-11",
@@ -268,6 +274,25 @@ const businessPlaybookSeoRoutes: RouteSeo[] = [
     ],
     lastmod: publicRouteLastmods[MOBILE_SETUP_FIT_CHECKER_PATH],
     structuredDataKind: "mobile-fit-checker",
+  },
+  {
+    path: FOOD_TRUCK_DESSERT_ADD_ONS_PATH,
+    title: "Food Truck Dessert Add-Ons: Operator Comparison | Bloomjoy",
+    description:
+      "Compare robotic cotton candy, baked treats, fried desserts, frozen desserts, and fresh fruit across prep, storage, power, staffing, waste, weather, portability, and catering fit.",
+    robots: PUBLIC_ROBOTS,
+    surface: "marketing",
+    ogType: "article",
+    ogImagePath: "/seo/mini-machine.jpg",
+    ogImageAlt: "Bloomjoy operator comparison of food-truck dessert add-ons",
+    sitemapImages: [
+      {
+        loc: `${MARKETING_ORIGIN}/seo/mini-machine.jpg`,
+        title: "Food-truck dessert add-on operator comparison",
+      },
+    ],
+    lastmod: publicRouteLastmods[FOOD_TRUCK_DESSERT_ADD_ONS_PATH],
+    structuredDataKind: "dessert-add-on-comparison",
   },
   ...businessPlaybookArticles.map(
     (article): RouteSeo => ({
@@ -859,6 +884,10 @@ export const buildStructuredData = ({
             name: "Food-Truck Cotton Candy Machine Setup Guide",
             url: `${MARKETING_ORIGIN}${MOBILE_SETUP_GUIDE_PATH}`,
           },
+          {
+            name: "Food-Truck Dessert Add-Ons: Operator Comparison",
+            url: `${MARKETING_ORIGIN}${FOOD_TRUCK_DESSERT_ADD_ONS_PATH}`,
+          },
           ...businessPlaybookArticles.map((article) => ({
             name: article.title,
             url: `${MARKETING_ORIGIN}/resources/business-playbook/${article.slug}`,
@@ -1010,6 +1039,56 @@ export const buildStructuredData = ({
         url: canonicalUrl,
         author: { "@id": `${MARKETING_ORIGIN}/#organization` },
         mainEntityOfPage: { "@id": `${canonicalUrl}#webpage` },
+      }
+    );
+  }
+
+  if (route.structuredDataKind === "dessert-add-on-comparison") {
+    graph.push(
+      {
+        "@type": "BreadcrumbList",
+        "@id": `${canonicalUrl}#breadcrumb`,
+        itemListElement: [
+          {
+            "@type": "ListItem",
+            position: 1,
+            name: "Resources",
+            item: `${MARKETING_ORIGIN}/resources`,
+          },
+          {
+            "@type": "ListItem",
+            position: 2,
+            name: "Business Playbook",
+            item: `${MARKETING_ORIGIN}/resources/business-playbook`,
+          },
+          {
+            "@type": "ListItem",
+            position: 3,
+            name: "Food-Truck Dessert Add-Ons",
+            item: canonicalUrl,
+          },
+        ],
+      },
+      {
+        "@type": "Article",
+        "@id": `${canonicalUrl}#article`,
+        headline: "Food-Truck Dessert Add-Ons, Compared by Operating Fit",
+        description: route.description,
+        image: `${MARKETING_ORIGIN}/seo/mini-machine.jpg`,
+        datePublished: route.lastmod,
+        dateModified: route.lastmod,
+        author: { "@id": `${MARKETING_ORIGIN}/#organization` },
+        publisher: { "@id": `${MARKETING_ORIGIN}/#organization` },
+        mainEntityOfPage: { "@id": `${canonicalUrl}#webpage` },
+        about: [
+          "food-truck dessert add-ons",
+          "mobile food operating fit",
+          "robotic cotton candy",
+          "dessert service planning",
+        ],
+        citation: DESSERT_COMPARISON_CITATION_URLS.map((url) =>
+          url.startsWith("/") ? `${MARKETING_ORIGIN}${url}` : url
+        ),
       }
     );
   }

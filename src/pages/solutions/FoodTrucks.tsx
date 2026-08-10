@@ -28,6 +28,7 @@ import {
 } from '@/data/mobileOperatorPages';
 import miniMain from '@/assets/real/mini-main.webp';
 import { MOBILE_SETUP_FIT_CHECKER_PATH } from '@/data/mobileSetupFitContract';
+import { FOOD_TRUCK_DESSERT_ADD_ONS_PATH } from '@/data/dessertAddOnComparisonContract';
 
 const operatingPatterns = [
   {
@@ -69,6 +70,12 @@ const noFitSignals = [
 ];
 
 const relatedPaths = [
+  {
+    eyebrow: 'Operator comparison',
+    title: 'Compare five dessert add-on models',
+    body: 'See the prep, storage, cooking, power, staffing, waste, weather, portability, visual, and catering tradeoffs without a profit ranking.',
+    href: FOOD_TRUCK_DESSERT_ADD_ONS_PATH,
+  },
   {
     eyebrow: 'Interactive setup screen',
     title: 'Get a conservative setup fit band',
