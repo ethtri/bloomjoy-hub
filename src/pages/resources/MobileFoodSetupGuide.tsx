@@ -29,6 +29,7 @@ import {
   mobileMachineFacts,
   mobileSetupChecklist,
 } from '@/data/mobileOperatorPages';
+import { MOBILE_SETUP_FIT_CHECKER_PATH } from '@/data/mobileSetupFitContract';
 
 const setupQuotePath =
   '/contact?type=quote&interest=commercial&source=%2Fresources%2Fbusiness-playbook%2Ffood-truck-mobile-setup-guide&use=mobile-food';
@@ -132,11 +133,16 @@ export default function MobileFoodSetupGuidePage() {
                   treating voltage, wattage, weight, or the phrase “mobile food facility” as an
                   engineering or permit decision.
                 </p>
-                <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
                   <Button asChild size="lg">
-                    <a href="#pre-quote-checklist">Start the pre-quote checklist <ArrowRight aria-hidden="true" className="ml-2 h-4 w-4" /></a>
+                    <Link to={MOBILE_SETUP_FIT_CHECKER_PATH} onClick={() => trackLink('open_mobile_setup_fit_checker', MOBILE_SETUP_FIT_CHECKER_PATH)}>
+                      Check your setup <ArrowRight aria-hidden="true" className="ml-2 h-4 w-4" />
+                    </Link>
                   </Button>
                   <Button asChild variant="outline" size="lg">
+                    <a href="#pre-quote-checklist">Start the detailed checklist</a>
+                  </Button>
+                  <Button asChild variant="ghost" size="lg">
                     <Link to={FOOD_TRUCK_SOLUTION_PATH} onClick={() => trackLink('back_to_food_truck_solution', FOOD_TRUCK_SOLUTION_PATH)}>
                       Review mobile machine fit
                     </Link>
@@ -370,11 +376,18 @@ export default function MobileFoodSetupGuidePage() {
                 <h2 className="mt-3 max-w-3xl font-display text-3xl font-bold sm:text-4xl">Bring your setup facts and unresolved questions—not a claim that the setup is already approved.</h2>
                 <p className="mt-4 max-w-2xl leading-relaxed text-white/70">Commercial is Bloomjoy’s only quoted machine. Bloomjoy can review its fit and the information needed for a useful quote; Mini and Micro stay on their payment-first product paths. Final electrical, vehicle, manufacturer, venue, insurance, and regulatory decisions stay with the appropriate owner.</p>
               </div>
-              <Button asChild size="xl" className="min-h-12 max-w-full whitespace-normal px-5 text-center sm:w-fit sm:px-8">
-                <Link to={setupQuotePath} onClick={() => trackLink('request_setup_review_quote', setupQuotePath)}>
-                  Request a Commercial quote <ArrowRight aria-hidden="true" className="ml-2 h-5 w-5" />
-                </Link>
-              </Button>
+              <div className="flex min-w-0 flex-col gap-3 sm:flex-row lg:flex-col">
+                <Button asChild size="xl" className="min-h-12 max-w-full whitespace-normal px-5 text-center sm:w-fit sm:px-8">
+                  <Link to={MOBILE_SETUP_FIT_CHECKER_PATH} onClick={() => trackLink('check_setup_before_quote', MOBILE_SETUP_FIT_CHECKER_PATH)}>
+                    Check your setup <ArrowRight aria-hidden="true" className="ml-2 h-5 w-5" />
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" size="lg" className="min-h-11 max-w-full whitespace-normal border-white/30 bg-transparent text-center text-white hover:bg-white/10 hover:text-white">
+                  <Link to={setupQuotePath} onClick={() => trackLink('request_setup_review_quote', setupQuotePath)}>
+                    Request a Commercial quote
+                  </Link>
+                </Button>
+              </div>
             </div>
           </div>
         </section>

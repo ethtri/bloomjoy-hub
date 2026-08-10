@@ -27,6 +27,7 @@ import {
   mobileMachineFacts,
 } from '@/data/mobileOperatorPages';
 import miniMain from '@/assets/real/mini-main.webp';
+import { MOBILE_SETUP_FIT_CHECKER_PATH } from '@/data/mobileSetupFitContract';
 
 const operatingPatterns = [
   {
@@ -68,6 +69,12 @@ const noFitSignals = [
 ];
 
 const relatedPaths = [
+  {
+    eyebrow: 'Interactive setup screen',
+    title: 'Get a conservative setup fit band',
+    body: 'Answer eight categorical questions and see the machine path, stop signals, and unresolved checks without sharing exact or private inputs.',
+    href: MOBILE_SETUP_FIT_CHECKER_PATH,
+  },
   {
     eyebrow: 'Pre-quote field guide',
     title: 'Check the physical and operating setup',

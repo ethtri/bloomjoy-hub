@@ -14,6 +14,10 @@ const prerenderRouteModules = new Map([
     "/resources/business-playbook/planner",
     "src/pages/resources/BusinessPlaybookPlanner.tsx",
   ],
+  [
+    "/resources/business-playbook/mobile-setup-fit-checker",
+    "src/pages/resources/MobileSetupFitChecker.tsx",
+  ],
   ["/solutions/food-trucks", "src/pages/solutions/FoodTrucks.tsx"],
   [
     "/resources/business-playbook/food-truck-mobile-setup-guide",

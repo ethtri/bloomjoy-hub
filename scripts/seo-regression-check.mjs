@@ -8,7 +8,7 @@ process.env.VITE_SUPABASE_ANON_KEY ||= "prerender-anon-key";
 const DIST_DIR = path.resolve(process.cwd(), "dist");
 const VERCEL_CONFIG_PATH = path.resolve(process.cwd(), "vercel.json");
 const SITEMAP_URL = "https://www.bloomjoyusa.com/sitemap.xml";
-const EXPECTED_PUBLIC_ROUTE_COUNT = 27;
+const EXPECTED_PUBLIC_ROUTE_COUNT = 28;
 
 const routeToDistHtml = (routePath) => {
   if (routePath === "/") {
@@ -86,6 +86,7 @@ const expectedH1TextByRoute = {
   "/resources/business-playbook/planner": "Machine Fit + Startup Budget Planner",
   "/resources/business-playbook/payback-planner": "Payback Scenario Planner",
   "/resources/business-playbook/food-truck-mobile-setup-guide": "Food-truck cotton candy setup: what to confirm before the quote",
+  "/resources/business-playbook/mobile-setup-fit-checker": "Mobile setup fit checker for food trucks and trailers",
   "/solutions/food-trucks": "Add a visual dessert without guessing at fit",
   "/contact": "Contact Bloomjoy",
   "/about": "About Bloomjoy",
@@ -96,6 +97,7 @@ const expectedH1TextByRoute = {
 
 const expectedPrerenderRouteModuleByPath = {
   "/resources/business-playbook/planner": "BusinessPlaybookPlanner-",
+  "/resources/business-playbook/mobile-setup-fit-checker": "MobileSetupFitChecker-",
   "/solutions/food-trucks": "FoodTrucks-",
   "/resources/business-playbook/food-truck-mobile-setup-guide":
     "MobileFoodSetupGuide-",
