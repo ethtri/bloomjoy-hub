@@ -45,6 +45,28 @@ export const PUBLIC_ROBOTS =
   "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1";
 export const PRIVATE_ROBOTS = "noindex,nofollow,noarchive,nosnippet";
 
+// Public sitemap freshness is versioned per route. Update only the route whose
+// visible content materially changed; Business Playbook articles use their own
+// `updatedAt` source below. Private routes are not emitted in the sitemap.
+export const publicRouteLastmods = {
+  "/": "2026-07-17",
+  "/machines": "2026-07-17",
+  "/machines/commercial-robotic-machine": "2026-07-17",
+  "/machines/mini": "2026-05-29",
+  "/machines/micro": "2026-05-11",
+  "/supplies": "2026-05-29",
+  "/plus": "2026-05-29",
+  "/resources": "2026-05-11",
+  "/resources/business-playbook": "2026-05-11",
+  "/resources/business-playbook/planner": "2026-05-01",
+  "/resources/business-playbook/payback-planner": "2026-07-17",
+  "/contact": "2026-05-11",
+  "/about": "2026-05-11",
+  "/privacy": "2026-02-23",
+  "/terms": "2026-02-23",
+  "/billing-cancellation": "2026-04-13",
+} as const;
+
 const LASTMOD = "2026-05-11";
 
 export const commercialMachineFaqs = [
@@ -168,7 +190,7 @@ const businessPlaybookSeoRoutes: RouteSeo[] = [
     ogType: "website",
     ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
     ogImageAlt: "Bloomjoy Business Playbook for cotton candy machine operators",
-    lastmod: LASTMOD,
+    lastmod: publicRouteLastmods["/resources/business-playbook"],
     structuredDataKind: "business-playbook-index",
   },
   {
@@ -181,7 +203,7 @@ const businessPlaybookSeoRoutes: RouteSeo[] = [
     ogType: "website",
     ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
     ogImageAlt: "Bloomjoy Business Playbook machine fit and startup budget planner",
-    lastmod: LASTMOD,
+    lastmod: publicRouteLastmods["/resources/business-playbook/planner"],
   },
   {
     path: paybackPlannerPath,
@@ -193,7 +215,7 @@ const businessPlaybookSeoRoutes: RouteSeo[] = [
     ogType: "website",
     ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
     ogImageAlt: "Bloomjoy Payback Scenario Planner for cotton candy machine operators",
-    lastmod: LASTMOD,
+    lastmod: publicRouteLastmods["/resources/business-playbook/payback-planner"],
   },
   ...businessPlaybookArticles.map(
     (article): RouteSeo => ({
@@ -234,7 +256,7 @@ export const publicRoutes: RouteSeo[] = [
         title: "Bloomjoy robotic cotton candy machine",
       },
     ],
-    lastmod: LASTMOD,
+    lastmod: publicRouteLastmods["/"],
   },
   {
     path: "/machines",
@@ -251,7 +273,7 @@ export const publicRoutes: RouteSeo[] = [
         title: "Bloomjoy robotic cotton candy machines",
       },
     ],
-    lastmod: LASTMOD,
+    lastmod: publicRouteLastmods["/machines"],
     structuredDataKind: "faq",
   },
   {
@@ -269,7 +291,7 @@ export const publicRoutes: RouteSeo[] = [
         title: "Bloomjoy Commercial Machine",
       },
     ],
-    lastmod: LASTMOD,
+    lastmod: publicRouteLastmods["/machines/commercial-robotic-machine"],
     structuredDataKind: "machine-product",
   },
   {
@@ -287,7 +309,7 @@ export const publicRoutes: RouteSeo[] = [
         title: "Bloomjoy Mini Machine",
       },
     ],
-    lastmod: LASTMOD,
+    lastmod: publicRouteLastmods["/machines/mini"],
     structuredDataKind: "machine-product",
   },
   {
@@ -305,7 +327,7 @@ export const publicRoutes: RouteSeo[] = [
         title: "Bloomjoy Micro Machine",
       },
     ],
-    lastmod: LASTMOD,
+    lastmod: publicRouteLastmods["/machines/micro"],
     structuredDataKind: "machine-product",
   },
   {
@@ -323,7 +345,7 @@ export const publicRoutes: RouteSeo[] = [
         title: "Bloomjoy cotton candy machine sugar and paper sticks",
       },
     ],
-    lastmod: LASTMOD,
+    lastmod: publicRouteLastmods["/supplies"],
     structuredDataKind: "supplies",
   },
   {
@@ -335,7 +357,7 @@ export const publicRoutes: RouteSeo[] = [
     surface: "marketing",
     ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
     ogImageAlt: "Bloomjoy Plus operator training and support",
-    lastmod: LASTMOD,
+    lastmod: publicRouteLastmods["/plus"],
   },
   {
     path: "/resources",
@@ -346,7 +368,7 @@ export const publicRoutes: RouteSeo[] = [
     surface: "marketing",
     ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
     ogImageAlt: "Bloomjoy machine buyer resources",
-    lastmod: LASTMOD,
+    lastmod: publicRouteLastmods["/resources"],
     structuredDataKind: "faq",
   },
   ...businessPlaybookSeoRoutes,
@@ -359,7 +381,7 @@ export const publicRoutes: RouteSeo[] = [
     surface: "marketing",
     ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
     ogImageAlt: "Bloomjoy quote request",
-    lastmod: LASTMOD,
+    lastmod: publicRouteLastmods["/contact"],
   },
   {
     path: "/about",
@@ -376,7 +398,7 @@ export const publicRoutes: RouteSeo[] = [
         title: "Bloomjoy operator experience",
       },
     ],
-    lastmod: LASTMOD,
+    lastmod: publicRouteLastmods["/about"],
   },
   {
     path: "/privacy",
@@ -387,7 +409,7 @@ export const publicRoutes: RouteSeo[] = [
     ogType: "article",
     ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
     ogImageAlt: DEFAULT_IMAGE_ALT,
-    lastmod: LASTMOD,
+    lastmod: publicRouteLastmods["/privacy"],
   },
   {
     path: "/terms",
@@ -398,7 +420,7 @@ export const publicRoutes: RouteSeo[] = [
     ogType: "article",
     ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
     ogImageAlt: DEFAULT_IMAGE_ALT,
-    lastmod: LASTMOD,
+    lastmod: publicRouteLastmods["/terms"],
   },
   {
     path: "/billing-cancellation",
@@ -410,7 +432,7 @@ export const publicRoutes: RouteSeo[] = [
     ogType: "article",
     ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
     ogImageAlt: DEFAULT_IMAGE_ALT,
-    lastmod: LASTMOD,
+    lastmod: publicRouteLastmods["/billing-cancellation"],
   },
 ];
 
@@ -589,17 +611,6 @@ const getBusinessPlaybookArticleByPath = (path: string) => {
 };
 
 const machineProductDataByPath: Record<string, Record<string, unknown>> = {
-  "/machines/commercial-robotic-machine": {
-    "@type": "Product",
-    "@id": `${MARKETING_ORIGIN}/machines/commercial-robotic-machine#product`,
-    name: "Bloomjoy Sweets Commercial Machine",
-    brand: { "@type": "Brand", name: "Bloomjoy" },
-    description:
-      "Full-size commercial robotic cotton candy machine with automatic stick dispensing, 64 preset patterns, four sugar colors, and a 70-130 second candy cycle.",
-    image: `${MARKETING_ORIGIN}/seo/commercial-machine.jpg`,
-    url: `${MARKETING_ORIGIN}/machines/commercial-robotic-machine`,
-    category: "Robotic cotton candy machine",
-  },
   "/machines/mini": {
     "@type": "Product",
     "@id": `${MARKETING_ORIGIN}/machines/mini#product`,
@@ -610,6 +621,12 @@ const machineProductDataByPath: Record<string, Record<string, unknown>> = {
     image: `${MARKETING_ORIGIN}/seo/mini-machine.jpg`,
     url: `${MARKETING_ORIGIN}/machines/mini`,
     category: "Robotic cotton candy machine",
+    offers: {
+      "@type": "Offer",
+      price: "4000.00",
+      priceCurrency: "USD",
+      url: `${MARKETING_ORIGIN}/machines/mini`,
+    },
   },
   "/machines/micro": {
     "@type": "Product",
@@ -621,6 +638,12 @@ const machineProductDataByPath: Record<string, Record<string, unknown>> = {
     image: `${MARKETING_ORIGIN}/seo/micro-machine.jpg`,
     url: `${MARKETING_ORIGIN}/machines/micro`,
     category: "Robotic cotton candy machine",
+    offers: {
+      "@type": "Offer",
+      price: "2200.00",
+      priceCurrency: "USD",
+      url: `${MARKETING_ORIGIN}/machines/micro`,
+    },
   },
 };
 
