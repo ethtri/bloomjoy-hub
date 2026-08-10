@@ -1,5 +1,17 @@
 # Decisions
 
+## 2026-08-10 - Dessert add-on comparison is an operating-fit analysis (`#729`)
+
+The canonical food-truck dessert comparison lives at `/resources/business-playbook/food-truck-dessert-add-ons`. It compares robotic cotton candy, cookies/brownies, churros/fried desserts, ice cream/frozen desserts, and fresh fruit cups/skewers across thirteen operator-visible criteria. The three postures—potential advantage, confirm the plan, and heavier obligation—describe operating work, not popularity, quality, demand, price, profit, food cost, margin, payback, permit status, or guaranteed service speed.
+
+- The page uses mobile criterion cards rather than a wide score table or a hidden combined ranking.
+- Cotton candy is not forced to win: it carries explicit machine-fit, complete-load, staffing, weather, and transport tradeoffs and a clear poor-fit path.
+- Bloomjoy machine facts come from current product pages and the approved `#723` claim matrix. FDA, USDA, NFPA, and a California mobile-food chapter are visible sources for questions to validate; they do not create one universal plan or replace local, venue, insurer, manufacturer, food-safety, fire, electrical, or vehicle review.
+- The primary next step is the categorical mobile setup fit checker. A separate quote action remains fixed to Commercial and carries only the canonical source plus the bounded `mobile-food` use category.
+- The page uses the existing consent-gated analytics path with bounded route, slug, category, destination, and CTA identifiers only. It sends no form values, exact setup inputs, PII, arbitrary query strings, or financial assumptions.
+
+This keeps the comparison useful and original without presenting Bloomjoy as an equipment, food-safety, fire-code, vehicle, venue, insurance, or permitting authority.
+
 ## 2026-08-10 - Mobile setup fit checker uses transparent categorical rules (`#725`)
 
 The mobile-operator fit checker lives at the dedicated canonical route `/resources/business-playbook/mobile-setup-fit-checker`. Its rules are implemented as a pure, testable decision function separate from the UI and are limited to the approved `#723` machine-fit claim matrix.

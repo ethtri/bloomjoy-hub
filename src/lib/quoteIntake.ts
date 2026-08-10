@@ -1,5 +1,6 @@
 import { MACHINE_INTEREST_OPTIONS, normalizeMachineInterest } from '@/lib/machineNames';
 import { plannerPath } from '@/data/businessPlaybookPlanner';
+import { FOOD_TRUCK_DESSERT_ADD_ONS_PATH } from '@/data/dessertAddOnComparisonContract';
 import {
   MOBILE_FIT_BANDS,
   MOBILE_FIT_MACHINE_SIGNALS,
@@ -329,6 +330,7 @@ export const getQuoteSourceLabel = (sourcePage: string) => {
     '/solutions/food-trucks': 'food-truck solution guide',
     '/resources/business-playbook/food-truck-mobile-setup-guide': 'mobile setup guide',
     [MOBILE_SETUP_FIT_CHECKER_PATH]: 'mobile setup fit checker',
+    [FOOD_TRUCK_DESSERT_ADD_ONS_PATH]: 'food-truck dessert add-on comparison',
     '/resources/business-playbook/payback-planner': 'payback planner',
     '/resources/business-playbook/planner': 'machine-fit planner',
   };
