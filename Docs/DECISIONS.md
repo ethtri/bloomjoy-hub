@@ -69,6 +69,7 @@ Bloomjoy will retain enough first-touch, last-touch, and conversion context to d
 - The browser uses `sessionStorage`, not cookies or `localStorage`. First touch is fixed for the tab/session. Last touch changes only for a new allowlisted campaign, external referring host, explicit internal source, or controlled planner signal.
 - Only pathnames, a referring hostname, five UTM fields, controlled touch classifications, normalized internal source, allowlisted machine interest, planner recommendation, and categorical planner band may be captured. Click IDs are excluded until separately approved.
 - Arbitrary query parameters, fragments, full referrer URLs, exact planner inputs or financial assumptions, form values, and strings matching conservative likely-PII patterns are discarded.
+- Capture runs only on indexable public routes; portal, admin, authentication, and refund-workflow paths are excluded from landing and internal-source attribution.
 - Attribution is rebuilt from the server allowlist and stored in one additive `lead_submissions.attribution` JSON object. It inherits the lead row's existing retention and Super Admin-only read boundary; there is no secondary marketing store or new public read policy.
 - Internal notifications show only a compact sanitized attribution summary. Notification failure remains non-blocking and cannot create a second lead.
 

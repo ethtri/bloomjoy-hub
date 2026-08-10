@@ -259,6 +259,12 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Quote submissions send a WeCom internal alert to configured `WECOM_ALERT_TO_USERIDS` recipients
 - [ ] Procurement submissions send internal notification email to Ethan/Ian and any configured additional recipients with fulfillment next steps
 - [ ] Public intake anti-abuse: repeated direct POSTs with the same IP/email are throttled, repeated identical payloads dedupe server-side, and quote/procurement notifications stop after the configured quota while normal Contact and procurement requests still return success
+- [ ] Run `npm run leads:validate-attribution`; the session-only schema, exact server allowlist, migration boundary, notification formatting, and adversarial fixtures pass
+- [ ] In a fresh tab, a direct `/contact` journey records a direct first touch; campaign URLs retain only the five approved UTM fields; organic/referral journeys retain only the referrer hostname; no attribution is written to cookies or `localStorage`
+- [ ] Internal quote CTAs and planner-to-quote journeys preserve only pathname, machine interest, categorical planner recommendation, and planner band; payback-planner attribution contains no exact price, cost, sales, revenue, margin, or payback inputs
+- [ ] Malformed attribution, missing attribution, arbitrary query parameters, click IDs, email-like values, phone-like values, full referrer URLs, and oversized values are ignored without blocking a valid lead submission
+- [ ] The saved `lead_submissions.attribution` JSON and internal notification show the same sanitized first touch, last touch, and conversion summary; retrying or deduplicating an older lead with empty attribution does not fail notification handling
+- [ ] Direct, campaign, referral, and planner journeys pass on desktop and `320x800` without horizontal overflow; closing the tab ends the attribution session
 - [ ] `/machines/mini` SEO/meta copy no longer references waitlist or upcoming launch language
 
 ## Auth / portal

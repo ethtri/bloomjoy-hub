@@ -17,6 +17,7 @@ Bloomjoy needs to distinguish how a public lead arrived and which controlled buy
   - an explicit normalized internal `source` path; or
   - controlled planner recommendation/band context.
 - Ordinary SPA page changes do not refresh timestamps or overwrite last touch.
+- Capture runs only on indexable public routes. Portal, admin, authentication, and refund-workflow paths are excluded, including when supplied as an untrusted internal `source` value.
 
 ## Persisted schema
 
@@ -48,7 +49,7 @@ Bloomjoy needs to distinguish how a public lead arrived and which controlled buy
 }
 ```
 
-All fields are optional except `version`; absent or rejected context is omitted rather than replaced with untrusted text. Historical rows remain `{}` and are not backfilled.
+For new normalized payloads, `version` and `conversion.source_path` are required; first/last-touch fields and the remaining conversion fields are optional. Absent or rejected context is omitted rather than replaced with untrusted text. The database also accepts `{}` so historical and unattributed rows remain valid and are not backfilled.
 
 ## Exact allowlist and limits
 

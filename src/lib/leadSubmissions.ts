@@ -1,4 +1,5 @@
 import { invokeEdgeFunction } from '@/lib/edgeFunctions';
+import { buildLeadAttributionPayload } from '@/lib/leadAttribution';
 
 type LeadSubmissionType = 'quote' | 'demo' | 'procurement' | 'general';
 
@@ -31,6 +32,7 @@ export const createLeadSubmission = async ({
       email,
       message,
       metadata,
+      attribution: buildLeadAttributionPayload({ sourcePage, machineInterest }),
       machineInterest,
       sourcePage,
       clientSubmissionId,
