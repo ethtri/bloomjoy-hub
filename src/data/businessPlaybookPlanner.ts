@@ -222,7 +222,7 @@ export const plannerQuestions: PlannerQuestion[] = [
   {
     id: "ops",
     label: "What feels like the hardest part right now?",
-    helper: "Your biggest concern points to the next article or quote conversation.",
+    helper: "Your biggest concern points to the next article or purchase-path conversation.",
     choices: [
       {
         id: "finding-location",

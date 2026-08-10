@@ -226,8 +226,8 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
       ],
     },
     primaryCta: {
-      label: "Request a machine quote",
-      href: "/contact?type=quote&source=%2Fresources%2Fbusiness-playbook%2Fhow-to-start-cotton-candy-vending-business",
+      label: "Request a Commercial quote",
+      href: "/contact?type=quote&interest=commercial&source=%2Fresources%2Fbusiness-playbook%2Fhow-to-start-cotton-candy-vending-business",
     },
     secondaryCta: {
       label: "Compare machines",
@@ -912,8 +912,8 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
       ],
     },
     primaryCta: {
-      label: "Request a personalized quote",
-      href: "/contact?type=quote&source=%2Fresources%2Fbusiness-playbook%2Fstartup-budget-checklist-cotton-candy-machine-business",
+      label: "Request a Commercial quote",
+      href: "/contact?type=quote&interest=commercial&source=%2Fresources%2Fbusiness-playbook%2Fstartup-budget-checklist-cotton-candy-machine-business",
     },
     secondaryCta: {
       label: "Shop opening supplies",
@@ -1082,9 +1082,9 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         ],
       },
       {
-        heading: "Bring better questions into the quote conversation",
+        heading: "Bring better questions into the purchase-path conversation",
         body: [
-          "A good quote conversation is not just, 'What does the machine cost?' It is a fit conversation. The more context you bring, the better the answer can be.",
+          "A good purchase-path conversation is not just, 'What does the machine cost?' It is a fit conversation. The more context you bring, the better the answer can be.",
           "Before you talk to Bloomjoy or any equipment provider, write down the business model, target venues, launch timing, budget constraints, and what you need the machine to do on day one.",
         ],
         checklist: [
@@ -1367,9 +1367,9 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         },
       },
       {
-        heading: "Bring better assumptions into the quote conversation",
+        heading: "Bring better assumptions into the purchase-path conversation",
         body: [
-          "A quote call is much more useful when you bring the shape of your model. You do not need perfect numbers; you need thoughtful assumptions.",
+          "A purchase-path conversation is much more useful when you bring the shape of your model. You do not need perfect numbers; you need thoughtful assumptions.",
           "Tell Bloomjoy which machine path you are modeling, what costs are still unknown, whether the machine will be placed or staffed at events, and what terms you are trying to negotiate. That helps the conversation stay grounded.",
         ],
         checklist: [
@@ -2111,8 +2111,8 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
       ],
     },
     primaryCta: {
-      label: "Request a quote when ready",
-      href: "/contact?type=quote&source=%2Fresources%2Fbusiness-playbook%2Fbusiness-setup-basics-llc-ein-insurance-permits",
+      label: "Request a Commercial quote when ready",
+      href: "/contact?type=quote&interest=commercial&source=%2Fresources%2Fbusiness-playbook%2Fbusiness-setup-basics-llc-ein-insurance-permits",
     },
     secondaryCta: {
       label: "Read the startup budget checklist",

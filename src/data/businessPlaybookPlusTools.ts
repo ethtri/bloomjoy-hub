@@ -34,7 +34,7 @@ export const businessPlaybookPlusTools: BusinessPlaybookPlusTool[] = [
     formatLabel: "Plus worksheet",
     description:
       "A budget sheet that keeps the machine quote, landed-cost questions, accessories, supplies, local setup checks, and operating buffer in one place.",
-    bestFor: "Buyers comparing Commercial, Mini, or Micro paths before a quote call.",
+    bestFor: "Buyers comparing Commercial, Mini, or Micro paths before choosing the next step.",
     icon: "budget",
     accentClass: "bg-amber/10 text-amber",
     previewItems: [

@@ -179,7 +179,7 @@ const ArticleCtaPanel = ({
     </p>
     <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
       Use what you learned here, then bring your venue, budget, and timeline into
-      the quote conversation.
+      the purchase-path conversation.
     </p>
     <div className="mt-4 grid gap-2">
       <Button asChild className="h-auto min-h-10 w-full whitespace-normal text-center leading-snug">

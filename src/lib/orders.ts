@@ -7,7 +7,7 @@ export type OrderFulfillmentStatus =
   | 'delivered'
   | 'canceled';
 
-export type OrderType = 'sugar' | 'blank_sticks' | 'unknown';
+export type OrderType = 'sugar' | 'blank_sticks' | 'micro_machine' | 'mixed' | 'unknown';
 export type OrderPricingTier = 'plus_member' | 'standard' | null;
 
 export type OrderAddressSnapshot = {

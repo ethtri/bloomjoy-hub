@@ -141,9 +141,22 @@ function deriveUnitPriceCents(lineItems) {
   return Math.round(primaryLineItem.amount_total / primaryLineItem.quantity);
 }
 
-function coerceOrderType(metadataOrderType, sugarMix, blankSticks) {
-  if (metadataOrderType === 'sugar' || metadataOrderType === 'blank_sticks') {
+function coerceOrderType(metadataOrderType, sugarMix, blankSticks, microMachine) {
+  if (
+    metadataOrderType === 'sugar' ||
+    metadataOrderType === 'blank_sticks' ||
+    metadataOrderType === 'micro_machine' ||
+    metadataOrderType === 'mixed'
+  ) {
     return metadataOrderType;
+  }
+
+  if (sugarMix.total_kg > 0 && microMachine.quantity > 0) {
+    return 'mixed';
+  }
+
+  if (microMachine.quantity > 0) {
+    return 'micro_machine';
   }
 
   if (sugarMix.total_kg > 0) {
@@ -242,6 +255,10 @@ function mapSessionToOrderPayload(session) {
     free_shipping: String(metadata.sticks_free_shipping ?? 'false') === 'true',
   };
 
+  const microMachine = {
+    quantity: parseNumber(metadata.micro_machine_quantity),
+  };
+
   if (sugarMix.total_kg > 0) {
     lineItems.push({
       description: 'Sugar mix breakdown',
@@ -264,9 +281,20 @@ function mapSessionToOrderPayload(session) {
     });
   }
 
+  if (microMachine.quantity > 0) {
+    lineItems.push({
+      description: 'Micro Machine order details',
+      quantity: microMachine.quantity,
+      amount_total: null,
+      currency: session.currency ?? null,
+      price_id: null,
+      metadata: microMachine,
+    });
+  }
+
   const latestCharge = session.payment_intent?.latest_charge ?? null;
   const billingDetails = latestCharge?.billing_details ?? null;
-  const orderType = coerceOrderType(metadata.order_type, sugarMix, blankSticks);
+  const orderType = coerceOrderType(metadata.order_type, sugarMix, blankSticks, microMachine);
   const pricingTier =
     metadata.pricing_tier === 'plus_member' || metadata.pricing_tier === 'standard'
       ? metadata.pricing_tier
@@ -281,6 +309,7 @@ function mapSessionToOrderPayload(session) {
     orderType,
     lineItems,
     sugarMix,
+    microMachine,
     payload: {
       stripe_checkout_session_id: session.id,
       stripe_payment_intent_id:

@@ -21,6 +21,7 @@ import {
   trackBusinessPlaybookPaybackPlannerInteraction,
 } from "@/lib/businessPlaybookAnalytics";
 import { type PlannerBudget, type PlannerBudgetKey } from "@/data/businessPlaybookPlanner";
+import { isMicroCheckoutEnabled } from "@/lib/commerceAvailability";
 import {
   blankPaybackInputs,
   blankStartupCosts,
@@ -284,11 +285,13 @@ const getEstimate = (
     : estimateEventScenario(startupCost, inputs.event);
 };
 
-const getQuoteHref = (scenario: PaybackScenarioId | null) => {
-  const interest = scenario ? paybackScenarioProfiles[scenario].contactInterest : undefined;
-  return interest
-    ? `/contact?type=quote&interest=${interest}&source=${paybackPlannerSource}`
-    : `/contact?type=quote&source=${paybackPlannerSource}`;
+const getPurchaseHref = (scenario: PaybackScenarioId | null) => {
+  if (scenario === "commercial") {
+    return `/contact?type=quote&interest=commercial&source=${paybackPlannerSource}`;
+  }
+  if (scenario === "micro") return "/machines/micro";
+  if (scenario === "mini") return "/machines/mini";
+  return "/machines";
 };
 
 const getSummaryText = ({
@@ -467,7 +470,16 @@ export default function BusinessPlaybookPaybackPlannerPage() {
   const selectedPreset = selectedPresetId
     ? paybackPresets.find((preset) => preset.id === selectedPresetId)
     : undefined;
-  const quoteHref = getQuoteHref(scenario);
+  const quoteHref = getPurchaseHref(scenario);
+  const purchaseCtaLabel = scenario === "commercial"
+    ? "Request Commercial quote"
+    : scenario === "micro"
+      ? isMicroCheckoutEnabled
+        ? "Buy Micro Machine"
+        : "View Micro checkout status"
+      : scenario === "mini"
+        ? "View Mini launch status"
+        : "Compare purchase paths";
   const activeProfile = scenario ? paybackScenarioProfiles[scenario] : undefined;
   const activeInputs = scenario === "commercial" ? inputs.commercial : inputs.event;
   const summaryText = getSummaryText({
@@ -1325,7 +1337,7 @@ export default function BusinessPlaybookPaybackPlannerPage() {
                         })
                       }
                     >
-                      Request a quote after planning
+                      {purchaseCtaLabel}
                       <ArrowRight className="ml-2 h-4 w-4" />
                     </Link>
                   </Button>

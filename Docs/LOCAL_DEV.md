@@ -406,6 +406,8 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase secrets set STRIPE_STICKS_PRICE_ID=...`
    - `supabase secrets set STRIPE_STICKS_MEMBER_PRICE_ID=...`
    - `supabase secrets set STRIPE_PLUS_PRICE_ID=...`
+   - `supabase secrets set STRIPE_CUSTOMER_PORTAL_CONFIGURATION_ID=...`
+     - Use a configuration from the same Stripe mode as `STRIPE_SECRET_KEY`; enable payment-method updates, invoice history, and `subscription_cancel.mode=at_period_end` so scheduled cancellations can be renewed before access ends.
    - Optional local/dev only: `supabase secrets set BLOOMJOY_ALLOW_LOCAL_REDIRECT_URLS=true` when serving commerce/invite functions locally against a non-local `SUPABASE_URL`
    - Optional preview/UAT only: `supabase secrets set BLOOMJOY_ALLOWED_VERCEL_PREVIEW_ORIGINS=https://<exact-preview>.vercel.app` when invite emails must link back to a Vercel preview. Use exact origins only; do not set this for production launch.
    - `supabase secrets set STRIPE_WEBHOOK_SECRET=...`
@@ -457,7 +459,14 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase functions serve refund-gmail-sync --no-verify-jwt`
    - `supabase functions serve nayax-card-refund --no-verify-jwt`
    - `supabase functions serve nayax-transaction-lookup --no-verify-jwt`
-5) Ensure `.env` has `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` for the SPA.
+5) Run an isolated paid-checkout UAT when changing storefront payments:
+   - Start the worktree-local stack with `supabase start` and confirm its API/DB URLs use `127.0.0.1` or `localhost`.
+   - Keep the Bloomjoy Stripe sandbox key in a dedicated, gitignored env file whose only assignment is `STRIPE_SECRET_KEY_TEST`; the runner rejects broad application env files so unrelated live credentials never enter the UAT process.
+   - Run `npm run commerce:uat:local -- --source-env <path-to-gitignored-env-file>`.
+   - The runner discovers and validates the approved sandbox Prices, captures a temporary Stripe CLI signing secret, serves the local functions with an allowlisted child environment, explicitly disables WeCom, and routes Resend calls to a tokenized local sink. It refuses live Stripe keys, remote Supabase URLs, HTTPS/nonlocal sink targets, and Micro checkout.
+   - Use synthetic customer identities and Stripe test cards only. The runner intentionally leaves WeCom unconfigured so its failure remains nonblocking and no real internal/customer/WeCom notification is sent.
+   - Stop the runner with its printed local shutdown URL or `Ctrl+C`; it waits for the Stripe/Supabase process trees to exit before removing temporary function credentials.
+6) Ensure `.env` has `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` for the SPA.
 
 ### Refund Gmail local configuration
 Keep Gmail credentials server-only; never use a `VITE_` variable. The Gmail functions require `GMAIL_SUPPORT_CLIENT_ID`, `GMAIL_SUPPORT_CLIENT_SECRET`, `GMAIL_SUPPORT_REFRESH_TOKEN`, `GMAIL_SUPPORT_MAILBOX`, `GMAIL_REFUND_LABEL_ID`, and a dedicated `REFUND_GMAIL_SYNC_SECRET`. `REFUND_GMAIL_ENABLED` defaults to `false`. Optional `GMAIL_REFUND_START_AT` limits the first import to messages received on or after an ISO timestamp.

@@ -4,6 +4,9 @@ verify_jwt = false
 [functions.stripe-sticks-checkout]
 verify_jwt = false
 
+[functions.stripe-checkout-status]
+verify_jwt = false
+
 [functions.stripe-plus-checkout]
 verify_jwt = false
 

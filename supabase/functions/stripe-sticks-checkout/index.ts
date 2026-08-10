@@ -19,6 +19,9 @@ const allowedStickSizes = new Set(["commercial_10x300", "mini_10x220"]);
 const allowedAddressTypes = new Set(["business", "residential"]);
 const freeShippingBoxThreshold = 5;
 const piecesPerBox = 2000;
+const maxBoxesPerCheckout = 1000;
+const standardUnitPriceCents = 13000;
+const memberUnitPriceCents = 10400;
 
 type StickPricingTier = "member" | "standard";
 
@@ -54,16 +57,18 @@ if (!supabaseServiceRoleKey) {
 
 const stripe = stripeSecretKey
   ? new Stripe(stripeSecretKey, {
-      apiVersion: "2024-04-10",
-    })
+    apiVersion: "2024-04-10",
+  })
   : null;
 
 const getShippingRatePerBox = (addressType: "business" | "residential") =>
   addressType === "business" ? 35 : 40;
 
 const resolveOptionalCheckoutUser = async (
-  req: Request
-): Promise<{ error: string | null; status: number; user: ResolvedCheckoutUser | null }> => {
+  req: Request,
+): Promise<
+  { error: string | null; status: number; user: ResolvedCheckoutUser | null }
+> => {
   const token = resolveForwardedSupabaseAccessToken(req);
   if (!token) {
     return {
@@ -88,7 +93,9 @@ const resolveOptionalCheckoutUser = async (
     },
   });
 
-  const { data: authData, error: authError } = await authClient.auth.getUser(token);
+  const { data: authData, error: authError } = await authClient.auth.getUser(
+    token,
+  );
   if (authError || !authData.user) {
     return {
       error: "Authentication required.",
@@ -106,11 +113,11 @@ const resolveOptionalCheckoutUser = async (
 
   const { data: discountTier, error: discountError } = await adminClient.rpc(
     "get_user_supply_discount_tier",
-    { p_user_id: authData.user.id }
+    { p_user_id: authData.user.id },
   );
 
   if (discountError) {
-    console.error("Failed to resolve sticks discount tier", discountError);
+    console.error("Failed to resolve sticks discount tier");
     return {
       error: "Unable to verify Bloomjoy member pricing right now.",
       status: 500,
@@ -142,7 +149,7 @@ serve(async (req) => {
         {
           status: authResult.status,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -164,7 +171,7 @@ serve(async (req) => {
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -174,7 +181,7 @@ serve(async (req) => {
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -182,10 +189,15 @@ serve(async (req) => {
     const cancelUrl = cancelUrlResult.url;
 
     const pricingTier = authResult.user?.pricingTier ?? "standard";
-    const orderPricingTier = pricingTier === "member" ? "plus_member" : "standard";
+    const orderPricingTier = pricingTier === "member"
+      ? "plus_member"
+      : "standard";
     const selectedSticksPriceId = pricingTier === "member"
       ? memberSticksPriceId
       : sticksPriceId;
+    const expectedUnitPriceCents = pricingTier === "member"
+      ? memberUnitPriceCents
+      : standardUnitPriceCents;
 
     if (!stripe || !selectedSticksPriceId) {
       return new Response(
@@ -193,27 +205,35 @@ serve(async (req) => {
         {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
     if (variant !== "plain") {
       return new Response(
-        JSON.stringify({ error: "Custom sticks must be handled through procurement review." }),
+        JSON.stringify({
+          error:
+            "Custom sticks are unavailable until payment-first checkout is ready.",
+        }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
-    if (!Number.isSafeInteger(boxCount) || boxCount <= 0) {
+    if (
+      !Number.isSafeInteger(boxCount) || boxCount <= 0 ||
+      boxCount > maxBoxesPerCheckout
+    ) {
       return new Response(
-        JSON.stringify({ error: "Invalid box count." }),
+        JSON.stringify({
+          error: `Box count must be between 1 and ${maxBoxesPerCheckout}.`,
+        }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -223,7 +243,7 @@ serve(async (req) => {
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -233,7 +253,28 @@ serve(async (req) => {
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
+      );
+    }
+
+    const selectedSticksPrice = await stripe.prices.retrieve(
+      selectedSticksPriceId,
+    );
+    if (
+      !selectedSticksPrice.active ||
+      selectedSticksPrice.currency !== "usd" ||
+      selectedSticksPrice.type !== "one_time" ||
+      selectedSticksPrice.unit_amount !== expectedUnitPriceCents
+    ) {
+      console.error("Configured sticks Price failed server validation");
+      return new Response(
+        JSON.stringify({
+          error: "Sticks pricing is not configured correctly.",
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
       );
     }
 
@@ -246,12 +287,14 @@ serve(async (req) => {
     const shippingDisplayName = isFreeShipping
       ? "Free shipping (5+ boxes)"
       : normalizedAddressType === "business"
-        ? "Business shipping ($35/box)"
-        : "Residential shipping ($40/box)";
+      ? "Business shipping ($35/box)"
+      : "Residential shipping ($40/box)";
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
+      payment_method_types: ["card"],
       line_items: [{ price: selectedSticksPriceId, quantity: boxCount }],
+      automatic_tax: { enabled: true },
       shipping_options: [
         {
           shipping_rate_data: {
@@ -270,9 +313,11 @@ serve(async (req) => {
       shipping_address_collection: {
         allowed_countries: ["US"],
       },
+      phone_number_collection: { enabled: true },
       customer_email: authResult.user?.email ?? undefined,
       client_reference_id: authResult.user?.id ?? undefined,
       metadata: {
+        checkout_source: "bloomjoy_storefront",
         order_type: "blank_sticks",
         pricing_tier: orderPricingTier,
         supply_discount_tier: pricingTier,
@@ -281,6 +326,7 @@ serve(async (req) => {
         sticks_box_count: String(boxCount),
         sticks_pieces_per_box: String(piecesPerBox),
         sticks_address_type: normalizedAddressType,
+        unit_price_cents: String(selectedSticksPrice.unit_amount),
         sticks_shipping_rate_per_box_usd: String(shippingRatePerBoxUsd),
         sticks_shipping_total_cents: String(shippingTotalCents),
         sticks_free_shipping: String(isFreeShipping),
@@ -291,14 +337,14 @@ serve(async (req) => {
     return new Response(JSON.stringify({ url: session.url }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (error) {
-    console.error("stripe-sticks-checkout error", error);
+  } catch {
+    console.error("stripe-sticks-checkout failed");
     return new Response(
       JSON.stringify({ error: "Unable to start checkout." }),
       {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      },
     );
   }
 });

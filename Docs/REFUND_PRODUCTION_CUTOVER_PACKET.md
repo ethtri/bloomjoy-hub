@@ -1,6 +1,6 @@
 # Refund Operations Production Cutover Packet
 
-Last updated: 2026-07-22
+Last updated: 2026-08-09
 
 ## Outcome
 
@@ -25,12 +25,12 @@ Use this packet to move epic `#628` from individually verified PRs to one tested
 ## Merge and integrated-verification sequence
 
 1. Freeze unrelated Refund Operations changes for the release window.
-2. Review the single integrated release candidate in `#644`. Draft PRs `#636` through `#643` are superseded and must not be merged separately.
-3. If `main` changed after the final `#644` verification, sync the branch with current `main`, resolve overlap, run `npm run refunds:release:write-local`, review and commit any valid manifest update, and rerun the full verification profile.
-4. Confirm the reviewed manifest covers all eight approved refund functions and all 23 required migrations, including `refund-gmail-sync`, `refund-gpt-triage`, and `202607220001_refund_gpt_triage_runner.sql`.
-5. Merge only the approved `#644` head. Do not deploy from a superseded PR, an unreviewed branch head, or a local-only commit.
-6. Use the final integrated `main` commit for every deployment and evidence record.
-7. On that final commit, require:
+2. Review the current integrated release candidate. PR `#644` superseded draft PRs `#636` through `#643`; the narrow `#629/#716` bridge is now the only exception described below.
+3. If `main` changed after final verification, sync the release branch with current `main`, resolve overlap, run `npm run refunds:release:write-local`, review and commit any valid manifest update, and rerun the full verification profile.
+4. Confirm the reviewed manifest covers all eight approved refund functions and all 26 current required refund/Nayax migrations, including `refund-gmail-sync`, `refund-gpt-triage`, and `202607220001_refund_gpt_triage_runner.sql`.
+5. Deploy only an immutable, pushed, independently reviewed release commit. Under the `#629/#716` bridge, use the approved PR `#716` head from its isolated worktree before merge because merging `main` triggers frontend production deployment; do not merge until every commerce release gate passes. This bridge rule supersedes the original `#644` main-only deployment step.
+6. After an eventual merge, use the resulting integrated `main` commit for post-deployment evidence and any later deploy. Never deploy from an unreviewed or local-only commit.
+7. On that immutable release commit, require:
 
 ```bash
 npm ci
@@ -51,15 +51,28 @@ git diff --check
 ```
 
 8. Review `supabase db push --dry-run`; it must list exactly the expected pending migrations and no surprise.
-   The 2026-07-22 read-only baseline lists exactly `202607210001` through `202607220001`.
+   The historical 2026-07-22 read-only baseline listed exactly `202607210001` through `202607220001`; the `#629/#716` bridge instead requires its pinned five-migration list below.
 9. Capture the production pre-deployment baseline and confirm the approved restore source without including secrets or downloaded bundles in Git.
-10. Attach the final commit, manifest ID, aggregate test totals, migration list, and restore-source reference to `#629` and `#409`. The release-candidate baseline is 115 migrations and 209 database tests; reconcile any changed total before proceeding.
+10. Attach the final commit, manifest ID, aggregate test totals, migration list, and restore-source reference to `#629` and the active release issue/PR. The `#716` release-candidate baseline is 120 migrations and 278 database assertions; reconcile any changed total before proceeding.
 
 If any merge changes an in-scope migration or refund function after the manifest was generated, the manifest is stale and the release must repeat steps 7-10.
 
+### Narrow pre-migration compatibility bridge
+
+For the #629 blocker on PR #716, the normal production drift check cannot become green before schema deployment because the reviewed QR/wallet functions depend on the first three pending migrations. The only approved bridge is the pinned five-migration procedure in `Docs/PRODUCTION_RUNBOOK.md` and `scripts/refunds/refund-production-release.json`.
+
+- Require the standard local manifest check, the exact expected standard production mismatch (five unpaired reviewed sources plus eight version-only differences, and no other failure), and a passing `refunds:release:check-pre-migration` source-download comparison.
+- Require the dry run to contain exactly the pinned five migrations in order and a current completed physical backup.
+- Apply the five migrations once, require zero pending, then deploy all eight Refund Operations functions in documented order before any commerce deployment.
+- Keep Nayax, automation, Gmail, and GPT execution off; run only the no-auth route and aggregate public-options health checks.
+- Capture the deployment, update the manifest production metadata, obtain fresh independent review of that manifest-only update, and require the normal production drift check to pass.
+- During `#716`, stop after the no-auth route and aggregate public-options checks. The general production-smoke rows that create cases, send emails, exercise providers, or enable automation/Gmail/GPT/Nayax remain out of scope and must not be run.
+
+Any different source, bundle, migration checksum/order, switch state, or health result invalidates the bridge and stops the release.
+
 ## Deploy with all optional execution switches off
 
-Deploy the approved migrations, functions, and frontend following `Docs/PRODUCTION_RUNBOOK.md`. During initial smoke testing:
+Deploy the approved migrations, functions, and frontend following `Docs/PRODUCTION_RUNBOOK.md`. During initial smoke testing, and before any separately approved optional-lane pilot:
 
 - Nayax execution enabled: `false`
 - Nayax dry run: `true`
@@ -76,6 +89,18 @@ Deploy the approved migrations, functions, and frontend following `Docs/PRODUCTI
 Check switch values without printing secrets. A code deploy must not silently enable any lane.
 
 ## Production smoke order
+
+For the `#629/#716` bridge, use this exact post-deployment order:
+
+1. Run the no-auth route smoke in the next list's step 2.
+2. Run the aggregate public-options smoke in the next list's step 3.
+3. Capture production metadata, update and independently review the manifest-only change.
+4. Verify the standard production drift check passes against that final manifest.
+5. Return to the commerce release only after step 4 is green.
+
+Do not use the general list's drift-first ordering for the bridge, because its manifest cannot be paired until after deployment and capture. The general list's steps 4-12 require their own explicit approvals and are not part of the payment-first release; do not create a refund case, send any communication, exercise a provider, or enable an optional lane.
+
+For a normal Refund Operations release with an already paired manifest, use this general order:
 
 1. Verify the production drift check against the final manifest.
 2. Run `npm run refunds:smoke-routes -- --project-ref <project-ref> --confirm-project-ref <project-ref>`; all eight no-auth, no-body `OPTIONS` probes must return their exact safe status and the manual/retry email route must not return `404`.

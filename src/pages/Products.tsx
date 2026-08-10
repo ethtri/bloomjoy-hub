@@ -7,6 +7,7 @@ import { trackEvent } from '@/lib/analytics';
 import { trackBuyerFlowPlaybookLinkClick } from '@/lib/businessPlaybookAnalytics';
 import { MACHINE_NAMES } from '@/lib/machineNames';
 import { machineBuyerFaqs } from '@/lib/seoRoutes';
+import { isMicroCheckoutEnabled } from '@/lib/commerceAvailability';
 import commercialMain from '@/assets/real/commercial-main.jpg';
 import miniMain from '@/assets/real/mini-main.webp';
 import microMain from '@/assets/real/micro-main.webp';
@@ -25,10 +26,10 @@ const machineProducts = [
     sku: 'mini',
     name: MACHINE_NAMES.mini,
     price: '$4,000',
-    description: 'Portable at 1/5 the size. Most complex patterns supported. Manual stick feeding.',
+    description: 'Portable at 1/5 the size. Payment-first ordering will open when Mini launches.',
     href: '/machines/mini',
     image: miniMain,
-    badge: 'Available Now',
+    badge: 'Coming Soon',
   },
   {
     sku: 'micro',
@@ -37,7 +38,7 @@ const machineProducts = [
     description: 'Entry-level machine for basic shapes. Perfect for low-volume applications.',
     href: '/machines/micro',
     image: microMain,
-    badge: null,
+    badge: isMicroCheckoutEnabled ? 'Buy Online' : 'Checkout Pending',
   },
 ];
 
@@ -52,20 +53,24 @@ const comparisonRows = [
     model: MACHINE_NAMES.mini,
     fit: 'Mobile operators and smaller venues that need a portable footprint',
     capability: 'Manual stick feeding with most complex pattern capabilities',
-    buyingPath: 'Quote-led purchase at $4,000 before shipping and final configuration',
+    buyingPath: 'Coming soon; no request or checkout is accepted yet',
   },
   {
     model: MACHINE_NAMES.micro,
     fit: 'Basic-shape, low-volume applications where compact size matters most',
     capability: 'Entry-level robotic cotton candy operation for simple shapes',
-    buyingPath: 'Quote-led purchase at $2,200 before shipping and final configuration',
+    buyingPath: isMicroCheckoutEnabled
+      ? 'Pay the $2,200 machine price online before fulfillment follow-up'
+      : 'Checkout opens after the shipping policy is approved; no request is collected',
   },
 ];
 
 const buyerSteps = [
   'Compare the commercial, Mini, and Micro machines by venue type, throughput expectations, footprint, and pattern needs.',
-  'Request a quote with your target location, model, timeline, and supply needs.',
-  'Bloomjoy confirms fit, shipping assumptions, support boundaries, and operator handoff before invoicing.',
+  isMicroCheckoutEnabled
+    ? 'Buy the available Micro Machine online, or request a quote only for the Commercial Machine.'
+    : 'Micro checkout opens after its shipping policy is approved; only the Commercial Machine uses a quote request.',
+  'Bloomjoy follows up after payment for sellable products; Mini remains unavailable until launch.',
 ];
 
 export default function ProductsPage() {
@@ -83,7 +88,7 @@ export default function ProductsPage() {
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-muted-foreground">
             Compare commercial robotic cotton candy machines by footprint, pattern capability,
-            use case, supplies, support, and quote path before you buy.
+            use case, supplies, support, and purchase path before you buy.
           </p>
         </div>
       </section>
@@ -143,8 +148,8 @@ export default function ProductsPage() {
               Choose the machine that fits your operation
             </h2>
             <p className="mt-3 text-muted-foreground">
-              Bloomjoy machine purchases are quote-led so we can confirm configuration, shipping,
-              onboarding, and support expectations before finalizing the order.
+              Micro is payment-first once shipping is approved, Mini is coming soon, and the
+              Commercial Machine is the only model that uses a quote request.
             </p>
           </div>
           <div className="mt-8 grid gap-8 md:grid-cols-3">
@@ -201,9 +206,8 @@ export default function ProductsPage() {
                 Machine buyer comparison
               </h2>
               <p className="mt-3 max-w-3xl text-muted-foreground">
-                Use this comparison to narrow the first conversation. Final configuration,
-                customer payment setup, delivery, and operator handoff are confirmed during quote
-                review.
+                Use this comparison to choose the correct path: payment-first Micro when enabled,
+                coming-soon Mini, or quote review for the Commercial Machine.
               </p>
               <div className="mt-6 grid gap-3 md:hidden">
                 {comparisonRows.map((row) => (
@@ -260,7 +264,7 @@ export default function ProductsPage() {
             </div>
             <aside className="min-w-0 rounded-lg border border-border bg-background p-5">
               <h3 className="font-display text-lg font-semibold text-foreground">
-                Quote expectations
+                Purchase expectations
               </h3>
               <ol className="mt-4 space-y-3 text-sm text-muted-foreground">
                 {buyerSteps.map((step, index) => (

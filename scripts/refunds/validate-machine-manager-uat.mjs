@@ -588,14 +588,15 @@ const run = async () => {
     );
     const machineRow = page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' });
     await machineRow.getByText(secondManagerEmail).waitFor({ timeout: 10000 });
+    const refundReadiness = machineRow.getByText(/Intake enabled.*Card lookup ready/i);
+    await refundReadiness.waitFor({ timeout: 10000 });
     recorder.assert(
       'Saved Machine Managers are visible in the Machines list',
       await machineRow.getByText(secondManagerEmail).isVisible()
     );
     recorder.assert(
       'Saved refund readiness is visible in the Machines list',
-      (await machineRow.getByText(/Intake enabled/i).isVisible()) &&
-        (await machineRow.getByText(/Card lookup ready/i).isVisible())
+      await refundReadiness.isVisible()
     );
 
     await machineDialog.waitFor({ state: 'hidden', timeout: 10000 });

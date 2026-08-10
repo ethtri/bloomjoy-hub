@@ -2,7 +2,7 @@
 
 Purpose: provide a single launch-day procedure for Bloomjoy Hub production release and rollback.
 
-Last updated: 2026-07-22
+Last updated: 2026-08-06
 
 ## 1) Roles and ownership
 - Release owner: coordinates launch window and final go/no-go call.
@@ -24,7 +24,11 @@ Set the following values before launch.
 | `STRIPE_SUGAR_PRICE_ID` | Server-only (legacy bridge only) | `stripe-sugar-checkout` fallback | Legacy member sugar price during rollout | Billing owner |
 | `STRIPE_STICKS_PRICE_ID` | Server-only | `stripe-sticks-checkout` | Stripe product/price config | Billing owner |
 | `STRIPE_STICKS_MEMBER_PRICE_ID` | Server-only | `stripe-sticks-checkout` | Stripe member sticks price config | Billing owner |
+| `MICRO_CHECKOUT_ENABLED` | Server-only | `stripe-sugar-checkout` | Exact `true` only after `#717`; absent/false keeps Micro fail-closed | Release owner |
+| `STRIPE_MICRO_PRICE_ID` | Server-only, conditional | `stripe-sugar-checkout`, `stripe-webhook` | Required only when Micro checkout is enabled | Billing owner |
+| `STRIPE_MICRO_SHIPPING_RATE_ID` | Server-only, conditional | `stripe-sugar-checkout` | Required only when Micro checkout is enabled | Billing owner |
 | `STRIPE_PLUS_PRICE_ID` | Server-only | `stripe-plus-checkout` | Stripe product/price config | Billing owner |
+| `STRIPE_CUSTOMER_PORTAL_CONFIGURATION_ID` | Server-only | `stripe-customer-portal` | Active Stripe portal configuration with payment-method updates, invoice history, and `at_period_end` cancellation/renewal | Billing owner |
 | `STRIPE_WEBHOOK_SECRET` | Server-only | `stripe-webhook` | Stripe webhook endpoint signing secret | Billing owner |
 | `RESEND_API_KEY` | Server-only | `stripe-webhook`, `lead-submission-intake`, `access-invite`, `refund-case-intake`, `refund-case-message-send`, `refund-case-automation-sweep` | Resend API key | Technical owner |
 | `INTERNAL_NOTIFICATION_FROM_EMAIL` | Server-only | `stripe-webhook`, `lead-submission-intake`, `access-invite`, `refund-case-intake`, `refund-case-message-send`, `refund-case-automation-sweep` | Verified sender in Resend | Technical owner |
@@ -115,11 +119,17 @@ Security rule:
 - [ ] `npm run refunds:validate-gpt-triage` passes. Confirm the production OpenAI credential is not configured, `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false`, and the GitHub, Edge, and database GPT switches remain false until the approvals and sanitized evaluation in `Docs/REFUND_GPT_TRIAGE.md` pass.
 - [ ] If Gmail enablement is approved for this release, `npm run refunds:preflight-gmail -- --project-ref <project-ref>` passes secret-name presence checks without printing values. If Gmail is deferred, record that the OAuth/mailbox secrets are intentionally absent and keep both Gmail switches off; missing optional Gmail credentials do not block the all-switches-off core deployment.
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds` passes
+- [ ] If Micro is approved later, rerun commerce preflight with `--micro-enabled` so remote secret-name validation requires the server switch plus both Micro IDs.
 - [ ] `npm run refunds:validate-release-tooling` passes.
-- [ ] `npm run refunds:release:check` confirms that the eight Refund Operations functions, required migrations, and `verify_jwt` settings match the approved release manifest.
+- [ ] `npm run refunds:release:check` confirms local source, migration, and `verify_jwt` alignment with the approved Refund Operations release manifest.
+- [ ] `npm run refunds:release:check-production -- --project-ref <project-ref>` confirms all eight deployed Refund Operations functions match the approved production metadata.
+- [ ] If the standard production drift check is red only because the pinned QR/wallet source requires the pending schema, use the reviewed pre-migration bridge below. No other drift may use this exception.
 - [ ] Before deployment, `supabase db push --dry-run` reports exactly the reviewed pending migration set and no unexpected migration. Save the sanitized command result; the Edge Function drift check does not prove remote migration parity.
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
-- [ ] Stripe products/prices verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_STICKS_MEMBER_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
+- [ ] Stripe products/prices and the active Plus portal configuration are verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_STICKS_MEMBER_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`, `STRIPE_CUSTOMER_PORTAL_CONFIGURATION_ID`). The portal must enable payment-method updates and invoice history, and use `subscription_cancel.mode=at_period_end` so a scheduled cancellation can be renewed before access ends.
+- [ ] `MICRO_CHECKOUT_ENABLED` is absent and `VITE_MICRO_CHECKOUT_ENABLED=false` while `#717` is deferred. If Micro is approved later, verify both Micro IDs before setting either gate to `true`.
+- [ ] Complete the remaining California deployment gate in `Docs/SALES_TAX_OPERATIONS.md`: live collection was owner-approved and activated on 2026-08-08, and the three reviewed checkout creators were deployed. Sanitized no-payment evidence confirms California Sugar exemption, positive California branded-sticks tax, and no collection for a no-registration destination. Require every remaining unpaid diagnostic Checkout Session to expire before launch and record the final zero-open-session evidence in `#718`. Shipping and the final Bloomjoy Plus code remain documented working positions.
+- [ ] A non-production Stripe webhook/backend has passed paid, unpaid, canceled, replayed/concurrent, notification-retry, and synthetic delayed-payment UAT for the checkout paths in this release.
 - [ ] Domain and HTTPS confirmed for both production frontend hosts:
   - [ ] `https://www.bloomjoyusa.com`
   - [ ] `https://app.bloomjoyusa.com`
@@ -129,6 +139,8 @@ Use this order exactly.
 
 ### Step A: Set/refresh Edge Function secrets and run preflight
 Set secrets before applying the refund automation migration train so preflight can fail fast without touching production schema.
+
+For the `#629/#716` bridge, do not execute any mutating Step A command until bridge steps 1-4 below have passed, including compatibility, backup, and the exact dry run. Then execute the required fail-closed writes in bridge step 5 before applying migrations. Secret-name inspection and other read-only preflight may run earlier.
 
 Run once per environment or when values rotate:
 
@@ -140,7 +152,10 @@ supabase secrets set STRIPE_SUGAR_NON_MEMBER_PRICE_ID=...
 supabase secrets set STRIPE_SUGAR_PRICE_ID=...
 supabase secrets set STRIPE_STICKS_PRICE_ID=...
 supabase secrets set STRIPE_STICKS_MEMBER_PRICE_ID=...
+# Keep MICRO_CHECKOUT_ENABLED absent while #717 is deferred. When approved later:
+# supabase secrets set MICRO_CHECKOUT_ENABLED=true STRIPE_MICRO_PRICE_ID=... STRIPE_MICRO_SHIPPING_RATE_ID=...
 supabase secrets set STRIPE_PLUS_PRICE_ID=...
+supabase secrets set STRIPE_CUSTOMER_PORTAL_CONFIGURATION_ID=...
 supabase secrets set STRIPE_WEBHOOK_SECRET=...
 supabase secrets set RESEND_API_KEY=...
 supabase secrets set INTERNAL_NOTIFICATION_FROM_EMAIL=...
@@ -172,6 +187,17 @@ supabase secrets set NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS=5000
 supabase secrets set NAYAX_REFUND_DAILY_COUNT_CAP=10
 supabase secrets set NAYAX_REFUND_IDEMPOTENCY_SECRET=...
 supabase secrets set REFUND_AUTOMATION_SWEEP_SECRET=...
+supabase secrets set REFUND_AUTOMATION_ENABLED=false
+supabase secrets set REFUND_GMAIL_ENABLED=false
+supabase secrets set REFUND_GPT_TRIAGE_ENABLED=false
+supabase secrets set OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false
+supabase secrets unset NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO MICRO_CHECKOUT_ENABLED --yes
+
+gh variable set REFUND_AUTOMATION_SWEEP_ENABLED --repo ethtri/bloomjoy-hub --body false
+gh variable set REFUND_GMAIL_SYNC_ENABLED --repo ethtri/bloomjoy-hub --body false
+gh variable set REFUND_GPT_TRIAGE_SYNC_ENABLED --repo ethtri/bloomjoy-hub --body false
+
+supabase db query --linked --output json "update public.refund_gpt_triage_settings set enabled = false, auto_send_enabled = false, human_review_required = true, updated_at = now() where singleton; select count(*) as settings_rows, bool_and(not enabled and not auto_send_enabled and human_review_required) as fail_closed from public.refund_gpt_triage_settings;"
 ```
 
 Do not set `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` during shadow-mode setup. It stays unset until a separate live card-refund execution pilot is explicitly approved.
@@ -186,9 +212,22 @@ npm run commerce:preflight -- --project-ref <project-ref> --include-refunds
 npm run refunds:preflight-gmail -- --project-ref <project-ref>
 ```
 
-Remote preflight validates secret presence by name. Before deploying, separately verify the fail-closed values are set as intended: `NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`, and `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false`.
+Remote preflight validates secret presence by name. The explicit writes above are required because Supabase does not return secret values. Require the commands to succeed, confirm the GitHub variables read back as exact `false`, require the GPT settings query to report exactly one fail-closed row, and confirm both unset secrets are absent by name. Before deploying, separately verify the four Nayax values were written as `false`, `true`, `true`, and `false`, respectively. Do not print any secret value.
 
-For the current Refund Operations release candidate in PR `#644`, use `Docs/REFUND_PRODUCTION_CUTOVER_PACKET.md` as the authoritative merge, deployment, smoke, rollback, pilot, and sponsor-decision sequence. `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` is a historical May 2026 packet and must not be used to deploy the current release.
+For the current Refund Operations source plus the narrow `#629/#716` bridge, use `Docs/REFUND_PRODUCTION_CUTOVER_PACKET.md` as the authoritative merge, deployment, smoke, rollback, pilot, and sponsor-decision sequence. `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` is a historical May 2026 packet and must not be used to deploy the current release.
+
+#### Reviewed pre-migration bridge for #629 / #716
+
+This bridge is limited to the pinned five-migration sequence in `scripts/refunds/refund-production-release.json`. It exists because the reviewed QR/wallet Refund Operations sources require the first three pending migrations, while Supabase applies those migrations together with the two additive commerce migrations. It does not declare production current and does not authorize commerce deployment.
+
+1. Run `npm run refunds:release:check` and require the local manifest check to pass.
+2. Run `npm run refunds:release:check-production -- --project-ref <project-ref>`; retain its exact expected 13-row mismatch as sanitized evidence: five approved repository sources are not paired with production, and all eight deployed versions differ from the approved manifest after version-only restarts. There must be no missing, inactive, bundle, JWT, import-map, or other failure. Any different count or failure type invalidates this bridge.
+3. Run `npm run refunds:release:check-pre-migration -- --project-ref <project-ref> --confirm-project-ref <project-ref>`. It downloads all eight live sources and passes only when they match the immutable July 22 source baseline, the bundle digests match, versions have not regressed, `verify_jwt=false`, no import map is present, and the exact five migration files match their pinned checksums.
+4. Recheck the latest completed physical backup and run `supabase db push --dry-run`. Require exactly the five pinned migrations in manifest order and no other migration.
+5. Force and verify every fail-closed value in Step A: Nayax execution, automation schedules and Edge execution, Gmail schedule and Edge execution, GPT schedule, Edge, privacy, and database execution, plus the absent Nayax sponsor and Micro switches. Do not run intake/email smoke or send customer/manager communications during this bridge.
+6. Apply the five migrations once with `supabase db push`, then require `supabase db push --dry-run` to report zero pending migrations.
+7. Follow the dedicated **#629/#716 bridge override** at the start of Step C. Before any commerce function deployment, deploy the eight Refund Operations functions in its exact order; run only the no-auth route and aggregate public-options health checks; capture verified production metadata; update the manifest production fields; obtain fresh independent review; and run `npm run refunds:release:check-production -- --project-ref <project-ref>` until it passes cleanly.
+8. Stop on any ambiguous migration, function, source, switch, or health state. Commerce remains blocked until step 7 is green.
 
 ### Step B: Deploy database migrations
 Apply all `supabase/migrations/*.sql` not already applied, oldest to newest.
@@ -223,17 +262,45 @@ Refund source note:
 ### Step C: Deploy Supabase Edge Functions
 Deploy all current checkout, submission, invite, and reporting functions:
 
+#### #629/#716 bridge override
+
+When the reviewed pre-migration bridge is active, this block overrides the normal Step C order. Immediately after Step B reaches zero pending migrations, deploy only these eight Refund Operations functions in this exact order, before any commerce function:
+
+```bash
+supabase functions deploy refund-case-intake --no-verify-jwt
+supabase functions deploy nayax-transaction-lookup --no-verify-jwt
+supabase functions deploy refund-case-admin-update --no-verify-jwt
+supabase functions deploy refund-case-message-send --no-verify-jwt
+supabase functions deploy refund-case-automation-sweep --no-verify-jwt
+supabase functions deploy refund-gmail-sync --no-verify-jwt
+supabase functions deploy refund-gpt-triage --no-verify-jwt
+supabase functions deploy nayax-card-refund --no-verify-jwt
+```
+
+Run only the no-auth route and aggregate public-options health checks at lines below; do not run intake/email, manager, provider, or optional-lane smokes. Capture production metadata, update and independently review the manifest-only change, and require `refunds:release:check-production` to pass. Only then return here and start the commerce cutover order. Do not repeat the eight refund deploys in the general command inventory below.
+
+Commerce cutover order is fail-closed and must precede the frontend merge:
+1. Record the current production function versions/commit.
+2. Deploy `stripe-sugar-checkout`, `stripe-sticks-checkout`, and `stripe-plus-checkout` first. After all three deployments succeed, record the marker-enforcement UTC timestamp.
+3. Run the no-payment tax previews in `Docs/SALES_TAX_OPERATIONS.md` and confirm each new session reports `automatic_tax.enabled=true`. Keep every preview unpaid and retain only sanitized results.
+4. Before deploying the stricter webhook, list every open or pending Checkout Session without `checkout_source=bloomjoy_storefront`, including the two unpaid tax-diagnostic sessions created on 2026-08-08 and any session created before the marker-enforcement timestamp. Let unpaid sessions expire, and manually expire one only after confirming no payment is pending; reconcile any paid session through the existing webhook/backfill procedure. Require zero unresolved unmarked sessions.
+5. Audit active/trialing Plus subscriptions at the approved Plus Price. Before the stricter webhook is deployed, add `checkout_source=bloomjoy_storefront`, `order_type=plus_subscription`, and the correct `user_id` metadata to every verified existing Bloomjoy Plus subscription. Stop if any subscription cannot be safely matched.
+6. Deploy `stripe-checkout-status` and `stripe-webhook`, update the live Stripe event selection, and complete backend smoke checks before merging `main`.
+
+2026-08-08 rollout checkpoint: step 2 is complete. The active production versions are Sugar `34`, sticks `34`, and Plus `33`, with marker enforcement recorded at 17:18:21 UTC. Sugar and sticks passed the post-marker no-payment Automatic Tax checks, including California Sugar exemption, positive California sticks tax, and no collection for sticks sent to a no-registration destination. The Plus preview remains blocked until the reviewed authenticated portal checkout entry is deployed. All diagnostic Checkout Sessions remain unpaid and must expire before step 4 can pass; do not deploy the stricter status/webhook functions yet.
+
 Before deploying reporting functions, confirm Step B has completed and `supabase db push --dry-run` reports the remote database is up to date. Reporting exports may depend on newly added snapshot columns or indexes.
 
 After applying the reviewed migrations, rerun `supabase db push --dry-run` and require zero pending migrations before deploying dependent Refund Operations functions.
 
-Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the eight explicitly listed refund functions from the reviewed release worktree. Keep Nayax execution fail-closed and keep `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` unset unless issue `#430` contains the explicit sponsor approval.
+Outside the #629/#716 bridge, run both `npm run refunds:release:check` and `npm run refunds:release:check-production -- --project-ref <project-ref>` before deploying Refund Operations functions. Under the bridge, the passing local and compatibility commands plus the exact zero-pending post-push result temporarily replace only the pre-deploy production check; the standard production check must pass immediately after deployment, manifest capture, update, and independent review. Deploy only the eight explicitly listed refund functions from the reviewed release worktree. Keep Nayax execution fail-closed and keep `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` unset unless issue `#430` contains the explicit sponsor approval.
 
 ```bash
 supabase functions deploy stripe-sugar-checkout --no-verify-jwt
 supabase functions deploy stripe-sticks-checkout --no-verify-jwt
 supabase functions deploy stripe-plus-checkout --no-verify-jwt
 supabase functions deploy stripe-customer-portal --no-verify-jwt
+supabase functions deploy stripe-checkout-status --no-verify-jwt
 supabase functions deploy stripe-webhook --no-verify-jwt
 supabase functions deploy lead-submission-intake --no-verify-jwt
 supabase functions deploy custom-sticks-artwork-upload --no-verify-jwt
@@ -246,14 +313,8 @@ supabase functions deploy sales-report-scheduler --no-verify-jwt
 supabase functions deploy sunze-sales-ingest --no-verify-jwt
 supabase functions deploy sunze-sales-sync --no-verify-jwt
 supabase functions deploy refund-adjustment-sync --no-verify-jwt
-supabase functions deploy refund-case-intake --no-verify-jwt
-supabase functions deploy nayax-transaction-lookup --no-verify-jwt
-supabase functions deploy refund-case-admin-update --no-verify-jwt
-supabase functions deploy refund-case-message-send --no-verify-jwt
-supabase functions deploy refund-case-automation-sweep --no-verify-jwt
-supabase functions deploy refund-gmail-sync --no-verify-jwt
-supabase functions deploy refund-gpt-triage --no-verify-jwt
-supabase functions deploy nayax-card-refund --no-verify-jwt
+# Refund Operations: use the dedicated bridge block above for #629/#716.
+# Outside that bridge, deploy the same eight functions in the exact order shown there.
 ```
 
 After deploying the eight Refund Operations functions:
@@ -328,6 +389,7 @@ Stripe endpoint URL:
 
 Required events:
 - `checkout.session.completed`
+- `checkout.session.async_payment_succeeded`
 - `customer.subscription.created`
 - `customer.subscription.updated`
 - `customer.subscription.deleted`
@@ -335,9 +397,12 @@ Required events:
 After endpoint creation/update, copy new signing secret to `STRIPE_WEBHOOK_SECRET`.
 
 ### Step E: Deploy frontend SPA
+The connected Vercel project automatically creates a Production deployment when `main` is merged. Do not merge the release PR until the migration, checkout/status/webhook functions, live webhook events, tax approval, private recipient checks, and paid UAT gates above are complete. If the release owner intentionally pauses Vercel production deployment, record that platform change and its restoration plan before merging.
+
 Deploy current launch commit to your chosen host (Vercel/Netlify/etc.) with:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
+- `VITE_MICRO_CHECKOUT_ENABLED=false` while `#717` is deferred
 - Production host expectations:
   - `www.bloomjoyusa.com` serves marketing/storefront routes
   - `app.bloomjoyusa.com` serves operator login, reset-password, portal, and admin routes
@@ -359,11 +424,13 @@ Run immediately after deploy:
 - [ ] Sugar checkout test order sends customer confirmation email with the branded HTML confirmation layout, order summary, and receipt link.
 - [ ] Sugar checkout test order sends WeCom alert when `WECOM_*` secrets are configured and the WeCom app/network policy allows traffic from the live function egress IPs.
 - [ ] Bloomjoy branded sticks checkout test order (5+ boxes) creates `orders` record in Supabase with size/address/shipping metadata.
+- [ ] Bloomjoy branded sticks checkout test order (1 box) charges the approved business/residential shipping rule and creates one `orders` record.
 - [ ] Bloomjoy branded sticks checkout test order sends internal summary email to Ethan/Ian plus any configured additional recipients.
 - [ ] Bloomjoy branded sticks checkout test order sends customer confirmation email with the branded HTML confirmation layout.
-- [ ] Under-5 branded-stick procurement request creates a `lead_submissions` record and sends internal procurement email to Ethan/Ian plus any configured additional recipients.
-- [ ] Custom-stick procurement request creates a `lead_submissions` record with private artwork metadata and sends internal procurement email to Ethan/Ian plus any configured additional recipients.
+- [ ] Custom sticks remain visibly unavailable and create no unpaid procurement submission until their payment-first artwork, plate-fee, shipping, tax, and proofing flow is approved.
 - [ ] Plus checkout test subscription creates/updates `subscriptions` record in Supabase.
+- [ ] Sugar, sticks, and Plus return pages verify their server-marked Checkout Session through `stripe-checkout-status`; unrelated Stripe sessions are rejected.
+- [ ] Paid Checkout events with missing/invalid storefront marker, order type, or Price ID create no order or notification.
 - [ ] Refund Adjustment Sync manual `dry_run=true` run returns aggregate counts only, with no private customer/payment/free-text values in logs.
 - [ ] Refund Adjustment Sync manual `dry_run=false` run creates a completed import run in `/admin/reporting`, applies only approved closed matched refunds, and leaves open/denied/unmatched/ambiguous/invalid rows in review.
 - [ ] Quote request on `/contact` sends internal summary email to Ethan/Ian plus any configured additional recipients.
@@ -400,6 +467,7 @@ Trigger rollback if critical checkout/auth/data sync regressions are found.
 Immediate actions:
 - [ ] Declare rollback and pause new release changes.
 - [ ] Temporarily disable promotion/checkout CTAs if needed.
+- [ ] Record the exact pre-deployment commerce function versions/commit before cutover; use that immutable source for rollback rather than reconstructing old code from production.
 
 Rollback order:
 1) Frontend:
@@ -424,6 +492,7 @@ Rollback order:
    - Restore refund functions from a clean worktree at the `approvedRestoreSource` commit recorded in the refund production release manifest. Use `preDeploymentProduction` only to compare against the exact old live state; do not recreate its missing message endpoint.
    - Reconfirm the four Nayax fail-closed values and the absence of sponsor go/no-go before redeploying.
    - Never delete `refund-case-message-send` as a rollback step. Restore a known-good implementation instead.
+   - `stripe-checkout-status` has no pre-release production version. After a frontend rollback, leave the now-unused endpoint deployed unless a separate approved incident procedure explicitly disables or deletes it.
 3) Secrets:
    - Restore prior secrets only if rotation caused failure.
 4) Database:

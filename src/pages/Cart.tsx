@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Layout } from '@/components/layout/Layout';
 import { useCart } from '@/lib/cart';
 import { trackEvent } from '@/lib/analytics';
-import { startSugarCheckout } from '@/lib/stripeCheckout';
+import { getCheckoutStatus, startStorefrontCheckout } from '@/lib/stripeCheckout';
 import {
   SUGAR_COLOR_OPTIONS,
   getSugarColorBreakdown,
@@ -15,6 +15,7 @@ import {
 } from '@/lib/sugar';
 import { useAuth } from '@/contexts/auth-context';
 import { toast } from 'sonner';
+import { isMicroCheckoutEnabled } from '@/lib/commerceAvailability';
 
 export default function CartPage() {
   const { user } = useAuth();
@@ -23,6 +24,8 @@ export default function CartPage() {
   const sugarPricePerKg = getSugarPricePerKg(hasMemberSupplyPricing);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const sugarBreakdown = getSugarColorBreakdown(items);
+  const hasMicroMachine = items.some((item) => item.sku === 'micro');
+  const hasUnavailableMicro = hasMicroMachine && !isMicroCheckoutEnabled;
   const sugarTotalKg = Object.values(sugarBreakdown).reduce((sum, quantity) => sum + quantity, 0);
   const getDisplayUnitPrice = (sku: string, fallbackPrice: number) =>
     isSugarSku(sku) ? sugarPricePerKg : fallbackPrice;
@@ -36,39 +39,69 @@ export default function CartPage() {
     const checkoutStatus = params.get('checkout');
     if (!checkoutStatus) return;
 
-    if (checkoutStatus === 'success') {
-      toast.success('Thanks! Your order is being processed.');
-      clearCart();
-    }
-
     if (checkoutStatus === 'cancel') {
-      toast.info('Checkout canceled.');
+      toast.info('Checkout canceled. Your cart has been kept.');
+      window.history.replaceState({}, '', '/cart');
+      return;
     }
 
-    window.history.replaceState({}, '', '/cart');
+    const sessionId = params.get('session_id');
+    if (checkoutStatus !== 'return' || !sessionId) {
+      toast.error('We could not verify this checkout return. Your cart has been kept.');
+      window.history.replaceState({}, '', '/cart');
+      return;
+    }
+
+    let cancelled = false;
+    void getCheckoutStatus(sessionId)
+      .then((status) => {
+        if (cancelled) return;
+        const isStorefrontOrder = ['sugar', 'micro_machine', 'mixed'].includes(status.orderType);
+        if (status.paymentStatus === 'paid' && isStorefrontOrder) {
+          clearCart();
+          toast.success('Payment confirmed. Your order is ready for fulfillment.');
+          return;
+        }
+        toast.info('Payment is not yet confirmed. Your cart has been kept.');
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        toast.error(
+          error instanceof Error
+            ? `${error.message} Your cart has been kept.`
+            : 'Checkout could not be verified. Your cart has been kept.'
+        );
+      })
+      .finally(() => {
+        if (!cancelled) window.history.replaceState({}, '', '/cart');
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [clearCart]);
 
   const handleCheckout = async () => {
     trackEvent('start_checkout');
 
-    if (items.some((item) => item.type !== 'supply')) {
-      toast.error('Checkout currently supports sugar only. Remove machines to continue.');
+    if (hasUnavailableMicro) {
+      toast.error('Micro checkout is pending a shipping decision. Remove it to continue.');
       return;
     }
 
-    if (items.some((item) => !isSugarSku(item.sku))) {
-      toast.error('Checkout currently supports sugar only. Remove non-sugar items to continue.');
+    if (items.some((item) => !isSugarSku(item.sku) && item.sku !== 'micro')) {
+      toast.error('Remove unavailable items before checkout.');
       return;
     }
 
     if (items.length === 0) {
-      toast.error('Add sugar to your cart to continue.');
+      toast.error('Add an item to your cart to continue.');
       return;
     }
 
     try {
       setIsCheckingOut(true);
-      const checkoutUrl = await startSugarCheckout(items, window.location.origin);
+      const checkoutUrl = await startStorefrontCheckout(items, window.location.origin);
       window.location.assign(checkoutUrl);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to start checkout.';
@@ -88,8 +121,7 @@ export default function CartPage() {
                 Your cart is empty
               </h1>
               <p className="mt-2 text-muted-foreground">
-                Checkout is available for sugar supplies. Machines are reviewed through the
-                quote process.
+                Shop available sugar supplies to continue.
               </p>
               <div className="mt-8 flex flex-wrap justify-center gap-4">
                 <Link to="/supplies">
@@ -115,6 +147,12 @@ export default function CartPage() {
           <div className="mt-8 grid gap-8 lg:grid-cols-3">
             {/* Cart Items */}
             <div className="lg:col-span-2">
+              {hasUnavailableMicro && (
+                <div className="mb-4 rounded-lg border border-amber/30 bg-amber/5 p-4 text-sm text-muted-foreground">
+                  Micro checkout is pending an executive shipping decision. Remove the Micro
+                  Machine to check out other available items.
+                </div>
+              )}
               <div className="divide-y divide-border rounded-xl border border-border bg-card">
                 {items.map((item) => (
                   <div
@@ -243,12 +281,24 @@ export default function CartPage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Shipping</span>
-                    <span className="text-muted-foreground">Calculated at checkout</span>
+                    <span className="text-muted-foreground">
+                      {hasUnavailableMicro
+                        ? 'Decision pending'
+                        : hasMicroMachine
+                          ? 'Shown at checkout'
+                          : 'No charge'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Tax</span>
+                    <span className="text-muted-foreground">Calculated by Stripe</span>
                   </div>
                 </div>
                 <div className="mt-4 border-t border-border pt-4">
                   <div className="flex justify-between">
-                    <span className="font-semibold text-foreground">Total</span>
+                    <span className="font-semibold text-foreground">
+                      Estimated total before tax
+                    </span>
                     <span className="font-display text-xl font-bold text-primary">
                       ${displayTotal.toFixed(2)}
                     </span>
@@ -259,7 +309,7 @@ export default function CartPage() {
                   size="lg"
                   className="mt-6 w-full"
                   onClick={handleCheckout}
-                  disabled={isCheckingOut}
+                  disabled={isCheckingOut || hasUnavailableMicro}
                 >
                   {isCheckingOut ? 'Redirecting…' : 'Checkout'}
                   <ArrowRight className="ml-2 h-4 w-4" />

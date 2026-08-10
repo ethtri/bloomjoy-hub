@@ -134,19 +134,20 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Home machine cards show correct model images (Commercial, Mini, Micro) without awkward clipping
 - [ ] Machine naming is consistent as `Commercial Machine`, `Mini Machine`, and `Micro Machine` on Home, Machines, Contact, and footer links
 - [ ] Product pages load (Full, Micro, Mini)
-- [ ] Home and `/machines` no longer present Mini as `Coming Soon`; Mini shows `Available Now` or equivalent live-availability treatment
+- [ ] Home, `/machines`, and Mini detail consistently show Mini as `Coming Soon` and expose no quote/procurement checkout path
 - [ ] Machine detail pages support image gallery selection (thumbnail click changes main image)
 - [ ] Commercial page shows native specs content (not image-only text for core specs)
 - [ ] Commercial page "Open full size" actions open in-page modal and can be closed to return to the same screen
 - [ ] Commercial machine sales copy/quote CTA clearly shows wrap options and marks custom wrap as Commercial-only with offline design-team handoff
 - [ ] Home, `/machines`, Commercial detail, comparison, and payback-planner surfaces do not show a Commercial Machine price; they direct buyers to request a quote
 - [ ] Mini and Micro machine pages do not advertise custom wrap as an available option
-- [ ] Mini page shows live-availability copy, `$4,000`, and no Mini waitlist form or waitlist success/error state
-- [ ] Mini page CTA opens `/contact?type=quote&interest=mini&source=%2Fmachines%2Fmini`
+- [ ] Mini page shows the expected `$4,000` baseline as coming-soon planning context, with a disabled `Coming Soon` CTA and no order form
 - [ ] Mini page shows readable specs, `~90 seconds per candy`, `~40 candies/hour` planning guidance, staffed-throughput estimates, public proof video clips with controls/posters, compact/hospitality fit notes, serving-cost assumptions, and no ROI/payback guarantees
 - [ ] Micro machine page shows the updated target/list price (`$2,200`)
-- [ ] Micro page primary CTA opens `/contact?type=quote&interest=micro&source=%2Fmachines%2Fmicro` and preselects `Micro Machine`
-- [ ] Micro page does not add machines to the shared cart; machine review stays quote-led
+- [ ] With `VITE_MICRO_CHECKOUT_ENABLED` unset/false, the Micro page keeps the `$2,200` planning price but shows a disabled `Checkout Pending` CTA, has no quote/request form, and a stale Micro cart item blocks checkout until removed
+- [ ] With server-only `MICRO_CHECKOUT_ENABLED` unset/false, a direct Micro payload to `stripe-sugar-checkout` is rejected even if Stripe Micro Price and Shipping Rate IDs exist
+- [ ] After `#717` is resolved and both `VITE_MICRO_CHECKOUT_ENABLED=true` and server-only `MICRO_CHECKOUT_ENABLED=true`, the Micro page primary CTA adds the `$2,200` Micro Machine to the cart and opens `/cart`
+- [ ] Micro checkout uses only the server-configured Stripe Price and Shipping Rate IDs, collects phone/billing/shipping details, and fails closed when either ID is missing
 - [ ] `/supplies` product images render professional white-background product shots without black background artifacts or awkward clipping on desktop and mobile
 - [ ] `/supplies` defaults to Sugar ordering; `/supplies?order=sugar`, `/supplies?order=sticks`, and `/supplies?order=custom` direct-load with the matching selected flow
 - [ ] Supplies order chooser switches between Sugar, Bloomjoy Branded Sticks, and Custom Sticks without showing every order flow at once
@@ -157,13 +158,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Sugar flow handles high-volume setup (e.g., 500KG+) without repetitive click controls
 - [ ] Sticks ordering on `/supplies?order=sticks` allows direct typed quantity input (not only +/- controls)
 - [ ] Sticks ordering clearly supports Bloomjoy branded paper sticks and custom paper sticks at `$130/box` with `2000 pieces/box`
-- [ ] Bloomjoy branded sticks flow requires machine size selection and delivery location type selection before request/checkout
-- [ ] Bloomjoy branded sticks orders under 5 boxes submit a procurement lead with box count, size, address type, and estimated shipping summary, then send internal email + WeCom procurement alerts when configured
-- [ ] Bloomjoy branded sticks orders of 5+ boxes launch direct Stripe checkout with free shipping and do not use the shared cart
-- [ ] Custom sticks flow on `/supplies?order=custom` accepts logo/image upload through a signed upload token and submits a procurement lead with private artwork storage metadata/path, requested box count, selected size, and `$750` first-order plate-fee note, then sends internal email + WeCom procurement alerts when configured; no public artwork URL is stored in the lead message
-- [ ] Super-admin artwork access can generate a signed URL for a submitted `custom-sticks-artwork` object and the link expires after the configured short window
-- [ ] Shared cart remains sugar-only and legacy stick items do not block checkout
-- [ ] Cart remains sugar-only and has no horizontal overflow on mobile viewports (`360x800`, `390x844`, `414x896`)
+- [ ] Bloomjoy branded sticks flow requires machine size and delivery location type before direct checkout, for every allowed quantity from 1-1000 boxes
+- [ ] Bloomjoy branded sticks checkout charges the server-enforced business/residential shipping rule for 1-4 boxes and free shipping for 5+ boxes
+- [ ] Custom sticks page is visibly unavailable and has no unpaid artwork/procurement request form until plate fee, shipping, tax, payment, and proofing are integrated
+- [ ] Shared cart accepts sugar and, only when the public Micro checkout flag is enabled, Micro; legacy/unknown/unavailable items cannot start checkout
+- [ ] Cart has no horizontal overflow on mobile viewports (`360x800`, `390x844`, `414x896`)
 - [ ] Cart line-item title, quantity controls, price, and remove action stack cleanly on mobile
 - [ ] Plus page: pricing and boundaries are visible and clear
 - [ ] Resources page shows Bloomjoy Plus teaser content for locked downloads, including Plus-ready worksheet/tool previews and reporting access where available
@@ -171,10 +170,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Resources page leads with the Bloomjoy Business Playbook, shows visual article cards, and still exposes FAQ and Support Boundaries anchors
 - [ ] `/resources/business-playbook` direct-loads and shows category navigation plus all public playbook guides
 - [ ] `/resources/business-playbook/planner` direct-loads and shows the Machine Fit + Startup Budget Planner with no login, no data collection, and no ROI/profit claims
-- [ ] Business Playbook planner interaction updates the recommended Commercial/Mini/Micro fit, budget scenario, planning total, related guide link, and quote CTA on desktop and mobile without horizontal overflow
+- [ ] Business Playbook planner routes Commercial to quote, Mini to coming-soon status, and Micro to its availability-aware purchase/status page without horizontal overflow
 - [ ] `/resources/business-playbook/payback-planner` direct-loads and shows the Payback Scenario Planner with Commercial, Mini, and Micro paths, landed-cost fields for import fees/tariffs/shipping/duties/brokerage/accessories/supplies, fictional presets that are not loaded by default, and no earnings or payback promises
 - [ ] Payback Scenario Planner math handles Commercial foot traffic/family-presence/capacity/rent/revenue share, Mini/Micro event attendance/competition/event costs, and zero or negative contribution scenarios without showing `NaN`, `Infinity`, or guaranteed-result language
-- [ ] Payback Scenario Planner quote CTA opens `/contact?type=quote&interest=<machine>&source=%2Fresources%2Fbusiness-playbook%2Fpayback-planner`, and analytics logs only scenario labels, bands, and booleans rather than exact dollar or sales inputs
+- [ ] Payback Scenario Planner routes Commercial to quote, Mini to coming-soon status, and Micro to its availability-aware purchase/status page, and logs only scenario labels, bands, and booleans rather than exact dollar or sales inputs
 - [ ] ROI/payback and revenue-share/rent article routes direct-load, show Article JSON-LD, source links, useful tables/scripts/checklists, and backlinks to the planner and related playbook content
 - [ ] Business Playbook article routes direct-load, show a real Bloomjoy image, useful visual blocks (tables/checklists/scorecards/scripts), source links, related articles, and quote/machine CTAs
 - [ ] Business Playbook article routes are readable on mobile widths (`360x800`, `390x844`, `414x896`) with no clipped tables or horizontal page overflow
@@ -188,7 +187,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Contact/Quote form submits (and confirmation is shown)
 - [ ] Contact form labels are clickable, and all visible fields have associated labels
 - [ ] Quote flow preserves machine context (for example, Commercial CTA preselects "Machine of Interest" on `/contact`)
-- [ ] Mini quote CTA preselects `Mini Machine` on `/contact` and submits as a normal quote lead (not a waitlist)
+- [ ] Contact quote type only permits `Commercial Machine`; legacy Mini/Micro quote query parameters do not silently submit as product quotes
 - [ ] Mobile icon-only cart/menu controls have accessible names
 - [ ] Product-gallery thumbnail buttons are keyboard operable and announce selected image state
 - [ ] Contact/Quote submission creates a `lead_submissions` row in Supabase with expected type/email
@@ -425,20 +424,44 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Sugar checkout completed webhook sends internal order summary email to Ethan/Ian and any configured additional recipients (customer, totals, pricing tier, sugar mix, line items, fulfillment next steps)
 - [ ] Sugar checkout sends customer confirmation email with branded HTML layout, clear totals, shipping address, color quantities, and receipt link
 - [ ] Sugar checkout completed webhook sends a WeCom internal alert with order ID, customer, and sugar breakdown
-- [ ] Bloomjoy branded sticks checkout completes with test card for 5+ boxes and shows free shipping in Stripe Checkout
+- [ ] Bloomjoy branded sticks checkout completes with test card for both 1-box paid shipping and 5+ box free-shipping cases
 - [ ] Bloomjoy branded sticks checkout writes an `orders` row with billing/shipping address, shipping total, receipt URL, and order detail metadata
 - [ ] Bloomjoy branded sticks checkout completed webhook sends internal order summary email to Ethan/Ian and any configured additional recipients with box count, machine size, address type, shipping total, and fulfillment next steps
 - [ ] Bloomjoy branded sticks checkout sends customer confirmation email with branded HTML layout, shipping address, and receipt link
 - [ ] Bloomjoy branded sticks checkout completed webhook sends a WeCom internal alert with order ID, customer, and stick-order summary
+- [ ] After `#717` is resolved and Micro checkout is explicitly enabled, Micro-only and mixed sugar+Micro checkouts complete with test card, persist the correct `micro_machine`/`mixed` order type and line-item metadata, and render correct customer/internal summaries
+- [ ] Checkout return pages clear the cart or show success only after server-side Stripe session verification; canceled, unpaid, invalid, and mismatched session returns keep the cart and do not claim fulfillment started
+- [ ] Checkout creation accepts card payments only; unpaid `checkout.session.completed` produces no order or notifications, and a synthetic `checkout.session.async_payment_succeeded` replay produces one order and one dispatch per channel
+- [ ] Paid Checkout events without the server-set `checkout_source=bloomjoy_storefront`, an allowed order type, and an approved Stripe Price ID produce no order or notifications
+- [ ] Replayed/concurrent paid webhook deliveries remain idempotent for the order, Ethan/Ian email, customer email, and WeCom alert
 - [ ] Plus subscription checkout shows flat `$100/month` account pricing and completes with test card
 - [ ] Logged-out users on `/plus` are redirected to login before checkout can begin
+- [ ] After login, a baseline customer can start Plus checkout from `/portal/account` and Stripe returns to `/portal/account` for success or cancellation without crossing back to the logged-out public host
+- [ ] Repeated, simultaneous, cross-tab, or minute-boundary Start Plus actions reuse one durable per-account checkout attempt and the same open Stripe Checkout Session; only one payable subscription session can be created
+- [ ] Stripe resolution checks every stored-customer, stored-subscription, Bloomjoy-user-metadata, and exact-email candidate; one actionable Plus history is selected, ambiguous actionable histories fail closed, and stale positive database status does not block a restart after Stripe confirms terminal state
+- [ ] Existing `active`, `trialing`, `past_due`, `unpaid`, or `paused` Plus subscriptions block a second checkout; failed-payment states open Billing, while `incomplete` resumes the matching open Checkout Session and never routes to Billing
+- [ ] A canceled or expired incomplete Plus subscription can restart checkout on the existing Stripe Customer record
 - [ ] Stripe subscription from Plus checkout contains `metadata.user_id` and `metadata.billing_model=flat_monthly`
-- [ ] Customer Portal link opens (test mode)
-- [ ] Account page Manage Billing opens Stripe portal (test mode)
+- [ ] Paid Plus activation sends one idempotent internal email to Ethan/Ian and one non-blocking WeCom alert; unpaid/replayed checkout events do not duplicate alerts
+- [ ] Customer Portal link opens with the explicit test-mode portal configuration; payment-method update, invoice history, end-of-period cancellation, and pre-expiry renewal are available
+- [ ] After the reviewed `stripe-customer-portal` deploy, one synthetic no-payment live portal session uses the private `STRIPE_CUSTOMER_PORTAL_CONFIGURATION_ID`, returns only to `https://app.bloomjoyusa.com/portal/account`, and is cleaned up without changing a real customer or subscription
+- [ ] Account page Manage Billing opens the signed-in user's exact Stripe customer portal record, with payment-method update, invoice history, and cancellation controls (test mode)
 - [ ] In Stripe test customer portal, cancel Plus subscription and return to `/portal/account?billing=return`
-- [ ] Return to account shows confirmation that billing status was refreshed after Stripe portal return
-- [ ] After canceling, account membership card shows end-of-period cancellation state/banner
+- [ ] Return to account shows confirmation only after billing status refresh succeeds, and shows a retryable error if refresh fails
+- [ ] After canceling, account membership card shows `Access through`, makes clear that monthly renewal is off, and offers Renew Plus through the billing portal before the period ends
+- [ ] `past_due`, `unpaid`, and `paused` accounts show a visible billing warning and Fix Billing action; `incomplete` shows Finish Plus Checkout and resumes the existing session; neither state offers Start Plus Membership
+- [ ] Persona UAT clicks Fix Billing, Renew Plus, Restart Plus Membership, and Finish Plus Checkout; it also proves duplicate-checkout fallback opens Billing once and billing-refresh failure leaves duplicate protections visible
 - [ ] Stripe webhook updates subscriptions/orders tables (via Stripe CLI or Dashboard test event)
+
+## California tax activation (production, no payment)
+
+- [x] Live Stripe Tax shows California `Collecting tax` with an owner-approved 2026-08-08 start date and no end date
+- [x] Production `stripe-sugar-checkout`, `stripe-sticks-checkout`, and `stripe-plus-checkout` are deployed from the reviewed source with a recorded marker-enforcement timestamp
+- [x] Fresh post-marker no-payment Sugar and branded-sticks previews report `automatic_tax.enabled=true` and a complete result
+- [x] A California Sugar preview follows `txcd_40020004`; California sticks collect positive tax; a taxable no-registration destination does not collect tax
+- [ ] Deploy the authenticated `/portal/account` Plus checkout entry, then confirm a fresh no-payment Plus preview reports `automatic_tax.enabled=true` and the configured California taxable treatment
+- [ ] Every unpaid tax-diagnostic Checkout Session created on 2026-08-08 is `expired`, and the commerce cutover audit finds zero unresolved unmarked sessions
+- [ ] All no-payment previews are canceled and allowed to expire or are safely expired after confirming no payment is pending; sanitized evidence in `#718` contains no session ID, address, payment data, receipt, or customer PII
 
 ## Auth launch hardening (production-only)
 - [ ] Branded auth emails send from approved Bloomjoy sender domain (not default Supabase sender)

@@ -6,7 +6,7 @@ import { Layout } from '@/components/layout/Layout';
 import { PlusToolsPreview } from '@/components/resources/PlusToolsPreview';
 import { trackEvent } from '@/lib/analytics';
 import { trackBusinessPlaybookCtaClick } from '@/lib/businessPlaybookAnalytics';
-import { startPlusCheckout } from '@/lib/stripeCheckout';
+import { getCheckoutStatus, startPlusCheckout } from '@/lib/stripeCheckout';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/auth-context';
 
@@ -49,15 +49,40 @@ export default function PlusPage() {
     const checkoutStatus = params.get('checkout');
     if (!checkoutStatus) return;
 
-    if (checkoutStatus === 'success') {
-      toast.success('Welcome to Bloomjoy Plus!');
-    }
-
     if (checkoutStatus === 'cancel') {
-      toast.info('Checkout canceled.');
+      toast.info('Checkout canceled. No subscription payment was collected.');
+      window.history.replaceState({}, '', '/plus');
+      return;
     }
 
-    window.history.replaceState({}, '', '/plus');
+    const sessionId = params.get('session_id');
+    if (checkoutStatus !== 'return' || !sessionId) {
+      toast.error('We could not verify this Plus checkout return.');
+      window.history.replaceState({}, '', '/plus');
+      return;
+    }
+
+    let cancelled = false;
+    void getCheckoutStatus(sessionId)
+      .then((status) => {
+        if (cancelled) return;
+        if (status.paymentStatus === 'paid' && status.orderType === 'plus_subscription') {
+          toast.success('Payment confirmed. Welcome to Bloomjoy Plus!');
+          return;
+        }
+        toast.info('Subscription payment is not yet confirmed.');
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        toast.error(error instanceof Error ? error.message : 'Checkout could not be verified.');
+      })
+      .finally(() => {
+        if (!cancelled) window.history.replaceState({}, '', '/plus');
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleStartMembership = async () => {

@@ -1,10 +1,9 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@12.18.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
-import {
-  resolveForwardedSupabaseAccessToken,
-} from "../_shared/auth.ts";
+import { resolveForwardedSupabaseAccessToken } from "../_shared/auth.ts";
 import { validateBrowserUrl } from "../_shared/browser-url-allowlist.mjs";
+import { normalizeStorefrontCart } from "../_shared/storefront-cart.mjs";
 import { corsHeaders } from "../_shared/cors.ts";
 
 export const config = {
@@ -13,22 +12,38 @@ export const config = {
 
 const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
 const legacySugarPriceId = Deno.env.get("STRIPE_SUGAR_PRICE_ID");
-const memberSugarPriceId =
-  Deno.env.get("STRIPE_SUGAR_MEMBER_PRICE_ID") || legacySugarPriceId;
+const memberSugarPriceId = Deno.env.get("STRIPE_SUGAR_MEMBER_PRICE_ID") ||
+  legacySugarPriceId;
 const nonMemberSugarPriceId = Deno.env.get("STRIPE_SUGAR_NON_MEMBER_PRICE_ID");
+const microCheckoutEnabled = Deno.env.get("MICRO_CHECKOUT_ENABLED") === "true";
+const microMachinePriceId = Deno.env.get("STRIPE_MICRO_PRICE_ID");
+const microMachineShippingRateId = Deno.env.get(
+  "STRIPE_MICRO_SHIPPING_RATE_ID",
+);
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const maxSugarKgPerCheckout = 200000;
-const allowedSugarSkus = new Set([
-  "sugar-1kg",
-  "sugar-white-1kg",
-  "sugar-blue-1kg",
-  "sugar-orange-1kg",
-  "sugar-red-1kg",
-]);
 
 type SugarPricingTier = "member" | "standard";
+
+type NormalizedStorefrontCart =
+  | {
+    ok: false;
+    error: string;
+    invalidSkus?: string[];
+  }
+  | {
+    ok: true;
+    orderType: "sugar" | "micro_machine" | "mixed";
+    sugarBreakdown: {
+      white: number;
+      blue: number;
+      orange: number;
+      red: number;
+    };
+    totalSugarKg: number;
+    microMachineQuantity: number;
+  };
 
 type ResolvedCheckoutUser = {
   id: string;
@@ -41,11 +56,21 @@ if (!stripeSecretKey) {
 }
 
 if (!memberSugarPriceId) {
-  console.error("Missing STRIPE_SUGAR_MEMBER_PRICE_ID or STRIPE_SUGAR_PRICE_ID");
+  console.error(
+    "Missing STRIPE_SUGAR_MEMBER_PRICE_ID or STRIPE_SUGAR_PRICE_ID",
+  );
 }
 
 if (!nonMemberSugarPriceId) {
   console.error("Missing STRIPE_SUGAR_NON_MEMBER_PRICE_ID");
+}
+
+if (microCheckoutEnabled && !microMachinePriceId) {
+  console.error("Missing STRIPE_MICRO_PRICE_ID");
+}
+
+if (microCheckoutEnabled && !microMachineShippingRateId) {
+  console.error("Missing STRIPE_MICRO_SHIPPING_RATE_ID");
 }
 
 if (!supabaseUrl) {
@@ -62,8 +87,8 @@ if (!supabaseServiceRoleKey) {
 
 const stripe = stripeSecretKey
   ? new Stripe(stripeSecretKey, {
-      apiVersion: "2024-04-10",
-    })
+    apiVersion: "2024-04-10",
+  })
   : null;
 
 const getUnitPriceCents = (pricingTier: SugarPricingTier): number =>
@@ -75,8 +100,10 @@ const getStripePriceId = (pricingTier: SugarPricingTier): string | null =>
     : nonMemberSugarPriceId ?? null;
 
 const resolveOptionalCheckoutUser = async (
-  req: Request
-): Promise<{ error: string | null; status: number; user: ResolvedCheckoutUser | null }> => {
+  req: Request,
+): Promise<
+  { error: string | null; status: number; user: ResolvedCheckoutUser | null }
+> => {
   const token = resolveForwardedSupabaseAccessToken(req);
   if (!token) {
     return {
@@ -101,7 +128,9 @@ const resolveOptionalCheckoutUser = async (
     },
   });
 
-  const { data: authData, error: authError } = await authClient.auth.getUser(token);
+  const { data: authData, error: authError } = await authClient.auth.getUser(
+    token,
+  );
   if (authError || !authData.user) {
     return {
       error: "Authentication required.",
@@ -119,11 +148,11 @@ const resolveOptionalCheckoutUser = async (
 
   const { data: discountTier, error: discountError } = await adminClient.rpc(
     "get_user_supply_discount_tier",
-    { p_user_id: authData.user.id }
+    { p_user_id: authData.user.id },
   );
 
   if (discountError) {
-    console.error("Failed to resolve supply discount tier", discountError);
+    console.error("Failed to resolve supply discount tier");
     return {
       error: "Unable to verify Bloomjoy member pricing right now.",
       status: 500,
@@ -131,7 +160,9 @@ const resolveOptionalCheckoutUser = async (
     };
   }
 
-  const pricingTier: SugarPricingTier = discountTier === "member" ? "member" : "standard";
+  const pricingTier: SugarPricingTier = discountTier === "member"
+    ? "member"
+    : "standard";
 
   return {
     error: null,
@@ -157,7 +188,7 @@ serve(async (req) => {
         {
           status: authResult.status,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -176,7 +207,7 @@ serve(async (req) => {
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -186,144 +217,123 @@ serve(async (req) => {
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
     const successUrl = successUrlResult.url;
     const cancelUrl = cancelUrlResult.url;
 
-    if (!stripe || !memberSugarPriceId || !nonMemberSugarPriceId) {
+    if (!stripe) {
       return new Response(
-        JSON.stringify({ error: "Stripe sugar pricing is not configured." }),
+        JSON.stringify({ error: "Stripe checkout is not configured." }),
         {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
-    if (!items.length) {
-      return new Response(JSON.stringify({ error: "Cart is empty." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const sugarBreakdown = {
-      white: 0,
-      blue: 0,
-      orange: 0,
-      red: 0,
-    };
-    const invalidSkus: string[] = [];
-
-    for (const item of items) {
-      const sku = item?.sku;
-      const quantity = Number(item?.quantity ?? 0);
-      if (!allowedSugarSkus.has(String(sku))) {
-        invalidSkus.push(String(sku));
-        continue;
-      }
-      if (!Number.isInteger(quantity) || quantity <= 0) {
-        continue;
-      }
-      const normalizedSku = sku === "sugar-1kg" ? "sugar-white-1kg" : String(sku);
-      switch (normalizedSku) {
-        case "sugar-white-1kg":
-          sugarBreakdown.white += quantity;
-          break;
-        case "sugar-blue-1kg":
-          sugarBreakdown.blue += quantity;
-          break;
-        case "sugar-orange-1kg":
-          sugarBreakdown.orange += quantity;
-          break;
-        case "sugar-red-1kg":
-          sugarBreakdown.red += quantity;
-          break;
-        default:
-          break;
-      }
-    }
-
-    if (invalidSkus.length) {
+    const cart = normalizeStorefrontCart(items) as NormalizedStorefrontCart;
+    if (!cart.ok) {
       return new Response(
         JSON.stringify({
-          error: "Only sugar checkout is supported right now.",
-          invalidSkus,
+          error: cart.error,
+          ...(cart.invalidSkus ? { invalidSkus: cart.invalidSkus } : {}),
         }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    const totalSugarKg =
-      sugarBreakdown.white +
-      sugarBreakdown.blue +
-      sugarBreakdown.orange +
-      sugarBreakdown.red;
-
-    if (!totalSugarKg) {
-      return new Response(
-        JSON.stringify({ error: "No valid items in cart." }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    if (totalSugarKg > maxSugarKgPerCheckout) {
-      return new Response(
-        JSON.stringify({
-          error: `Sugar quantity exceeds max checkout limit (${maxSugarKgPerCheckout} KG).`,
-        }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
     const pricingTier = authResult.user?.pricingTier ?? "standard";
-    const orderPricingTier = pricingTier === "member" ? "plus_member" : "standard";
+    const orderPricingTier = pricingTier === "member"
+      ? "plus_member"
+      : "standard";
     const unitPriceCents = getUnitPriceCents(pricingTier);
     const sugarPriceId = getStripePriceId(pricingTier);
 
-    if (!sugarPriceId) {
+    if (cart.totalSugarKg > 0 && !sugarPriceId) {
       return new Response(
         JSON.stringify({ error: "Sugar pricing is not configured." }),
         {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
+    }
+
+    if (cart.microMachineQuantity > 0 && !microCheckoutEnabled) {
+      return new Response(
+        JSON.stringify({
+          error: "Micro Machine checkout is not available yet.",
+        }),
+        {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    if (
+      cart.microMachineQuantity > 0 &&
+      (!microMachinePriceId || !microMachineShippingRateId)
+    ) {
+      return new Response(
+        JSON.stringify({
+          error: "Micro Machine price and shipping are not configured.",
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
+    if (cart.totalSugarKg > 0 && sugarPriceId) {
+      lineItems.push({ price: sugarPriceId, quantity: cart.totalSugarKg });
+    }
+    if (cart.microMachineQuantity > 0 && microMachinePriceId) {
+      lineItems.push({
+        price: microMachinePriceId,
+        quantity: cart.microMachineQuantity,
+      });
     }
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
-      line_items: [{ price: sugarPriceId, quantity: totalSugarKg }],
+      payment_method_types: ["card"],
+      line_items: lineItems,
+      ...(cart.microMachineQuantity > 0 && microMachineShippingRateId
+        ? { shipping_options: [{ shipping_rate: microMachineShippingRateId }] }
+        : {}),
       success_url: successUrl,
       cancel_url: cancelUrl,
+      automatic_tax: { enabled: true },
       billing_address_collection: "required",
       shipping_address_collection: {
         allowed_countries: ["US"],
       },
+      phone_number_collection: { enabled: true },
       customer_email: authResult.user?.email ?? undefined,
       client_reference_id: authResult.user?.id ?? undefined,
       metadata: {
-        order_type: "sugar",
+        checkout_source: "bloomjoy_storefront",
+        order_type: cart.orderType,
         pricing_tier: orderPricingTier,
-        unit_price_cents: String(unitPriceCents),
+        ...(cart.totalSugarKg > 0
+          ? { unit_price_cents: String(unitPriceCents) }
+          : {}),
         shipping_total_cents: "0",
-        sugar_total_kg: String(totalSugarKg),
-        sugar_white_kg: String(sugarBreakdown.white),
-        sugar_blue_kg: String(sugarBreakdown.blue),
-        sugar_orange_kg: String(sugarBreakdown.orange),
-        sugar_red_kg: String(sugarBreakdown.red),
+        sugar_total_kg: String(cart.totalSugarKg),
+        sugar_white_kg: String(cart.sugarBreakdown.white),
+        sugar_blue_kg: String(cart.sugarBreakdown.blue),
+        sugar_orange_kg: String(cart.sugarBreakdown.orange),
+        sugar_red_kg: String(cart.sugarBreakdown.red),
+        micro_machine_quantity: String(cart.microMachineQuantity),
         ...(authResult.user?.id ? { user_id: authResult.user.id } : {}),
         supply_discount_tier: pricingTier,
       },
@@ -332,14 +342,14 @@ serve(async (req) => {
     return new Response(JSON.stringify({ url: session.url }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (error) {
-    console.error("stripe-sugar-checkout error", error);
+  } catch {
+    console.error("stripe-sugar-checkout failed");
     return new Response(
       JSON.stringify({ error: "Unable to start checkout." }),
       {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      },
     );
   }
 });

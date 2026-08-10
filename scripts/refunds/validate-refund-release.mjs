@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   assertSupportedFunctionDeploymentInputs,
   buildUpdatedLocalManifest,
@@ -13,6 +14,7 @@ import {
   calculateMigrationDigest,
   calculateMigrationVersionSetDigest,
   compareCaptureState,
+  comparePreMigrationCompatibilityState,
   compareProductionState,
   discoverRefundMigrationFiles,
   parseFunctionDeploymentConfig,
@@ -20,6 +22,87 @@ import {
   sanitizeProductionMetadata,
   validateManifestShape,
 } from './refund-release.mjs';
+
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const productionRunbook = fs.readFileSync(path.join(repositoryRoot, 'Docs', 'PRODUCTION_RUNBOOK.md'), 'utf8');
+const cutoverPacket = fs.readFileSync(
+  path.join(repositoryRoot, 'Docs', 'REFUND_PRODUCTION_CUTOVER_PACKET.md'),
+  'utf8'
+);
+const productionDriftCommand =
+  'npm run refunds:release:check-production -- --project-ref <project-ref>';
+
+assert.match(
+  productionRunbook,
+  new RegExp(productionDriftCommand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+  'The release runbook must call the production drift checker explicitly'
+);
+assert.match(
+  productionRunbook,
+  /exact expected 13-row mismatch[\s\S]*five approved repository sources[\s\S]*all eight deployed versions/,
+  'The compatibility bridge must name the complete expected production mismatch shape'
+);
+
+const bridgeStart = productionRunbook.indexOf('#### #629/#716 bridge override');
+const commerceStart = productionRunbook.indexOf('Commerce cutover order is fail-closed', bridgeStart);
+assert(bridgeStart >= 0 && commerceStart > bridgeStart, 'The bridge override must precede commerce cutover');
+const bridgeDeployBlock = productionRunbook.slice(bridgeStart, commerceStart);
+let previousDeployIndex = -1;
+for (const slug of requiredFunctionSlugs) {
+  const deployIndex = bridgeDeployBlock.indexOf(`supabase functions deploy ${slug} --no-verify-jwt`);
+  assert(deployIndex > previousDeployIndex, `Bridge deploy order is missing or out of order for ${slug}`);
+  previousDeployIndex = deployIndex;
+}
+
+for (const requiredFailClosedControl of [
+  'do not execute any mutating Step A command until bridge steps 1-4',
+  'NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO MICRO_CHECKOUT_ENABLED --yes',
+  'REFUND_AUTOMATION_ENABLED=false',
+  'REFUND_GMAIL_ENABLED=false',
+  'REFUND_GPT_TRIAGE_ENABLED=false',
+  'OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false',
+  'REFUND_AUTOMATION_SWEEP_ENABLED --repo ethtri/bloomjoy-hub --body false',
+  'REFUND_GMAIL_SYNC_ENABLED --repo ethtri/bloomjoy-hub --body false',
+  'REFUND_GPT_TRIAGE_SYNC_ENABLED --repo ethtri/bloomjoy-hub --body false',
+  'update public.refund_gpt_triage_settings set enabled = false',
+]) {
+  assert(
+    productionRunbook.includes(requiredFailClosedControl),
+    `Release runbook is missing fail-closed control: ${requiredFailClosedControl}`
+  );
+}
+
+assert.match(cutoverPacket, /all 26 current required refund\/Nayax migrations/);
+assert.match(
+  cutoverPacket,
+  /exact expected standard production mismatch \(five unpaired reviewed sources plus eight version-only differences, and no other failure\)/
+);
+const bridgeSmokeOrder = cutoverPacket.indexOf(
+  'For the `#629/#716` bridge, use this exact post-deployment order:'
+);
+const routeSmoke = cutoverPacket.indexOf('Run the no-auth route smoke', bridgeSmokeOrder);
+const publicOptionsSmoke = cutoverPacket.indexOf('Run the aggregate public-options smoke', routeSmoke);
+const captureManifest = cutoverPacket.indexOf(
+  'Capture production metadata, update and independently review the manifest-only change',
+  publicOptionsSmoke
+);
+const cleanDrift = cutoverPacket.indexOf(
+  'Verify the standard production drift check passes against that final manifest',
+  captureManifest
+);
+assert(
+  bridgeSmokeOrder >= 0 &&
+    routeSmoke > bridgeSmokeOrder &&
+    publicOptionsSmoke > routeSmoke &&
+    captureManifest > publicOptionsSmoke &&
+    cleanDrift > captureManifest,
+  'The bridge smoke order must be routes, public options, capture/review, then clean production drift'
+);
+assert.doesNotMatch(
+  cutoverPacket,
+  /Merge only the approved `#644` head/,
+  'The current compatibility bridge must not retain the superseded main-only release instruction'
+);
 
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-release-test-'));
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
@@ -214,6 +297,46 @@ try {
     slug: entry.slug,
     sourceSha256: entry.sourceSha256,
   }));
+  const compatibilityManifest = structuredClone(manifest);
+  compatibilityManifest.functions[0].sourceSha256 = 'd'.repeat(64);
+  assert.deepEqual(
+    comparePreMigrationCompatibilityState(
+      compatibilityManifest,
+      sanitized.map((entry) => ({ ...entry, version: entry.version + 1 })),
+      manifest.functions.map((entry) => ({
+        slug: entry.slug,
+        sourceSha256: entry.production.sourceSha256,
+      }))
+    ),
+    [],
+    'Pinned pre-migration sources must tolerate version-only Edge restarts'
+  );
+  assert.match(
+    comparePreMigrationCompatibilityState(
+      compatibilityManifest,
+      sanitized,
+      manifest.functions.map((entry, index) => ({
+        slug: entry.slug,
+        sourceSha256: index === 0 ? 'e'.repeat(64) : entry.production.sourceSha256,
+      }))
+    ).join('\n'),
+    /downloaded source differs from the approved pre-migration baseline/,
+    'Pre-migration compatibility must reject unapproved production source'
+  );
+  assert.match(
+    comparePreMigrationCompatibilityState(
+      compatibilityManifest,
+      sanitized.map((entry, index) =>
+        index === 0 ? { ...entry, ezbrSha256: 'c'.repeat(64) } : entry
+      ),
+      manifest.functions.map((entry) => ({
+        slug: entry.slug,
+        sourceSha256: entry.production.sourceSha256,
+      }))
+    ).join('\n'),
+    /production bundle differs from the approved pre-migration baseline/,
+    'Pre-migration compatibility must reject unapproved production bundles'
+  );
   assert.equal(
     buildPreDeploymentProductionBaseline(sanitized.slice(1), productionSources.slice(1))[0].status,
     'MISSING',

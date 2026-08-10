@@ -44,6 +44,11 @@ function parseArgs(argv) {
       parsed.includeRefunds = true;
       continue;
     }
+
+    if (arg === '--micro-enabled') {
+      parsed.microEnabled = true;
+      continue;
+    }
   }
 
   if (parsed.envFiles.length === 0) {
@@ -185,6 +190,7 @@ function run() {
     'STRIPE_SECRET_KEY',
     'STRIPE_STICKS_PRICE_ID',
     'STRIPE_PLUS_PRICE_ID',
+    'STRIPE_CUSTOMER_PORTAL_CONFIGURATION_ID',
     'STRIPE_WEBHOOK_SECRET',
     'SUPABASE_URL',
     'SUPABASE_ANON_KEY',
@@ -198,6 +204,18 @@ function run() {
     'WECOM_AGENT_SECRET',
     'WECOM_ALERT_TO_USERIDS',
   ];
+
+  const microCheckoutEnabled = isRemoteSource
+    ? args.microEnabled === true
+    : String(env.MICRO_CHECKOUT_ENABLED || '').trim() === 'true';
+
+  if (microCheckoutEnabled) {
+    requiredKeys.push(
+      'MICRO_CHECKOUT_ENABLED',
+      'STRIPE_MICRO_PRICE_ID',
+      'STRIPE_MICRO_SHIPPING_RATE_ID'
+    );
+  }
 
   if (args.includeRefunds) {
     requiredKeys.push(
@@ -323,13 +341,23 @@ function run() {
     console.log(`INFO: Loaded env files: ${loadedFiles.join(', ')}`);
   }
 
-  printList('Required commerce checks', [
+  const commerceChecks = [
     'Webhook secret present',
     'Member and non-member sugar price IDs configured',
+    'Standard/member branded sticks price IDs configured',
+    'Plus Price and explicit Customer Portal configuration IDs configured',
     'Internal email sender configured; Ethan/Ian are default admin recipients',
     'WeCom alert secrets configured',
     'Supabase service-role and anon keys configured',
-  ]);
+  ];
+  commerceChecks.splice(
+    3,
+    0,
+    microCheckoutEnabled
+      ? 'Micro Machine server gate and price/shipping IDs configured'
+      : 'Micro Machine activation checks deferred; server gate remains off'
+  );
+  printList('Required commerce checks', commerceChecks);
 
   if (args.includeRefunds) {
     printList('Required refund operations checks', [

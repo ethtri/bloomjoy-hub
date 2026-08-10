@@ -1,31 +1,22 @@
-import { useEffect, useState, type ChangeEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ArrowRight, ChevronDown, ShoppingCart, Upload } from 'lucide-react';
+import { ArrowRight, ChevronDown, ShoppingCart } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Textarea } from '@/components/ui/textarea';
 import sugarProduct from '@/assets/real/sugar-product.jpg';
 import sticksProduct from '@/assets/real/sticks-product.jpg';
 import { useAuth } from '@/contexts/auth-context';
 import { trackEvent } from '@/lib/analytics';
 import { useCart } from '@/lib/cart';
-import {
-  ALLOWED_CUSTOM_STICKS_ARTWORK_TYPES,
-  CUSTOM_STICKS_ARTWORK_SIGNED_URL_TTL_SECONDS,
-  MAX_CUSTOM_STICKS_ARTWORK_SIZE_BYTES,
-  uploadCustomSticksArtwork,
-  validateCustomSticksArtwork,
-} from '@/lib/customSticksArtwork';
-import { createLeadSubmission } from '@/lib/leadSubmissions';
-import { startBlankSticksCheckout } from '@/lib/stripeCheckout';
+import { getCheckoutStatus, startBlankSticksCheckout } from '@/lib/stripeCheckout';
 import {
   BLANK_STICKS_ADDRESS_TYPE_OPTIONS,
-  BLANK_STICKS_FREE_SHIPPING_BOX_THRESHOLD,
   CUSTOM_STICKS_FIRST_ORDER_PLATE_FEE,
+  MAX_STICKS_BOXES_PER_CHECKOUT,
   STICKS_PIECES_PER_BOX,
   STICKS_PRICE_PER_BOX,
   STICK_SIZE_OPTIONS,
@@ -33,11 +24,7 @@ import {
   type StickSize,
   formatBlankSticksShippingSummary,
   getBlankSticksAddressTypeLabel,
-  getBlankSticksShippingRatePerBox,
-  getBlankSticksShippingTotal,
-  getStickSizeLabel,
   normalizeStickBoxCount,
-  shouldUseBlankSticksDirectCheckout,
 } from '@/lib/sticks';
 import {
   BULK_SUGAR_PRESETS_KG,
@@ -107,7 +94,7 @@ const orderOptions: Array<{
   {
     value: 'sticks',
     title: 'Bloomjoy Branded Sticks',
-    eyebrow: 'Checkout or confirmation',
+    eyebrow: 'Direct checkout',
     summary: 'Order standard branded sticks by machine size and box count.',
     image: sticksProduct,
     imageAlt: 'Bloomjoy branded cotton candy sticks',
@@ -115,8 +102,8 @@ const orderOptions: Array<{
   {
     value: 'custom',
     title: 'Custom Sticks',
-    eyebrow: 'Proofing request',
-    summary: 'Upload artwork and Bloomjoy will confirm proofing and timing.',
+    eyebrow: 'Coming soon',
+    summary: 'Payment-first custom artwork checkout is in preparation.',
     image: sticksProduct,
     imageAlt: 'Custom cotton candy sticks artwork reference',
   },
@@ -133,11 +120,6 @@ export default function SuppliesPage() {
   const [sticksBoxCount, setSticksBoxCount] = useState(1);
   const [stickSize, setStickSize] = useState<SelectedStickSize>('');
   const [blankAddressType, setBlankAddressType] = useState<SelectedBlankAddressType>('');
-  const [customArtworkFile, setCustomArtworkFile] = useState<File | null>(null);
-  const [sticksContactName, setSticksContactName] = useState('');
-  const [sticksContactEmail, setSticksContactEmail] = useState('');
-  const [sticksRequestNotes, setSticksRequestNotes] = useState('');
-  const [submittingSticksRequest, setSubmittingSticksRequest] = useState(false);
   const [startingBlankCheckout, setStartingBlankCheckout] = useState(false);
   const [showSugarMix, setShowSugarMix] = useState(false);
   const [sugarMix, setSugarMix] = useState<SugarMix>(() =>
@@ -161,17 +143,50 @@ export default function SuppliesPage() {
     const sticksCheckoutStatus = searchParams.get('sticksCheckout');
     if (!sticksCheckoutStatus) return;
 
-    if (sticksCheckoutStatus === 'success') {
-      toast.success('Thanks! Your Bloomjoy branded stick order is being processed.');
-    }
     if (sticksCheckoutStatus === 'cancel') {
-      toast.info('Bloomjoy branded sticks checkout canceled.');
+      toast.info('Bloomjoy branded sticks checkout canceled. No payment was collected.');
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('sticksCheckout');
+      nextParams.delete('session_id');
+      nextParams.set('order', 'sticks');
+      setSearchParams(nextParams, { replace: true });
+      return;
     }
 
-    const nextParams = new URLSearchParams(searchParams);
-    nextParams.delete('sticksCheckout');
-    nextParams.set('order', 'sticks');
-    setSearchParams(nextParams, { replace: true });
+    const sessionId = searchParams.get('session_id');
+    if (sticksCheckoutStatus !== 'return' || !sessionId) {
+      toast.error('We could not verify this sticks checkout return.');
+      return;
+    }
+
+    let cancelled = false;
+    void getCheckoutStatus(sessionId)
+      .then((status) => {
+        if (cancelled) return;
+        if (status.paymentStatus === 'paid' && status.orderType === 'blank_sticks') {
+          toast.success(
+            'Payment confirmed. Your Bloomjoy branded stick order is ready for fulfillment.'
+          );
+          return;
+        }
+        toast.info('Payment is not yet confirmed. Bloomjoy has not started fulfillment.');
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        toast.error(error instanceof Error ? error.message : 'Checkout could not be verified.');
+      })
+      .finally(() => {
+        if (cancelled) return;
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.delete('sticksCheckout');
+        nextParams.delete('session_id');
+        nextParams.set('order', 'sticks');
+        setSearchParams(nextParams, { replace: true });
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [searchParams, setSearchParams]);
 
   const mixTotalKg = getSugarMixTotalKg(sugarMix);
@@ -179,14 +194,6 @@ export default function SuppliesPage() {
   const cartSugarBreakdown = getSugarColorBreakdown(items);
   const cartSugarTotalKg = getSugarMixTotalKg(cartSugarBreakdown);
   const normalizedStickBoxCount = normalizeStickBoxCount(sticksBoxCount);
-  const blankSticksCheckoutEligible = shouldUseBlankSticksDirectCheckout(normalizedStickBoxCount);
-  const blankSticksShippingTotal = hasBlankAddressType(blankAddressType)
-    ? getBlankSticksShippingTotal(normalizedStickBoxCount, blankAddressType)
-    : null;
-  const blankSticksShippingRate = hasBlankAddressType(blankAddressType)
-    ? getBlankSticksShippingRatePerBox(blankAddressType)
-    : null;
-
   const selectOrderMode = (mode: SupplyOrderMode) => {
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set('order', mode);
@@ -204,16 +211,6 @@ export default function SuppliesPage() {
 
   const updateStickBoxCount = (rawValue: number) => {
     setSticksBoxCount(normalizeStickBoxCount(rawValue));
-  };
-
-  const resetStickRequestFields = () => {
-    setSticksBoxCount(1);
-    setStickSize('');
-    setBlankAddressType('');
-    setCustomArtworkFile(null);
-    setSticksContactName('');
-    setSticksContactEmail('');
-    setSticksRequestNotes('');
   };
 
   const handleAddSugarMixToCart = () => {
@@ -245,74 +242,6 @@ export default function SuppliesPage() {
     toast.success(`Added ${mixTotalKg} KG sugar mix to cart.`);
   };
 
-  const handleCustomArtworkChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0] ?? null;
-    if (!file) {
-      setCustomArtworkFile(null);
-      return;
-    }
-    try {
-      validateCustomSticksArtwork(file);
-      setCustomArtworkFile(file);
-    } catch (error) {
-      setCustomArtworkFile(null);
-      toast.error(error instanceof Error ? error.message : 'Unable to use this artwork file.');
-    }
-  };
-
-  const validateSticksContactFields = (): boolean => {
-    if (!sticksContactName.trim()) {
-      toast.error('Enter your name so we can confirm your sticks request.');
-      return false;
-    }
-    if (!sticksContactEmail.trim()) {
-      toast.error('Enter your email so we can follow up with your sticks request.');
-      return false;
-    }
-    return true;
-  };
-
-  const handleSubmitBlankSticksRequest = async () => {
-    if (!hasStickSize(stickSize)) {
-      toast.error('Select the machine size before submitting a Bloomjoy branded sticks request.');
-      return;
-    }
-    if (!hasBlankAddressType(blankAddressType)) {
-      toast.error('Select business or residential delivery before submitting.');
-      return;
-    }
-    if (!validateSticksContactFields()) return;
-    setSubmittingSticksRequest(true);
-    try {
-      await createLeadSubmission({
-        submissionType: 'procurement',
-        name: sticksContactName.trim(),
-        email: sticksContactEmail.trim().toLowerCase(),
-        sourcePage: '/supplies',
-        message: [
-          'Bloomjoy Branded Paper Sticks Request',
-          `Requested boxes: ${normalizedStickBoxCount}`,
-          `Pieces per box: ${STICKS_PIECES_PER_BOX}`,
-          `Selected size: ${getStickSizeLabel(stickSize)}`,
-          `Per-box price: $${STICKS_PRICE_PER_BOX}`,
-          `Selected address type: ${getBlankSticksAddressTypeLabel(blankAddressType)}`,
-          `Estimated shipping: $${blankSticksShippingTotal} total ($${blankSticksShippingRate}/box)`,
-          `Free-shipping threshold: ${BLANK_STICKS_FREE_SHIPPING_BOX_THRESHOLD}+ boxes`,
-          `Notes: ${sticksRequestNotes.trim() || 'None'}`,
-        ].join('\n'),
-      });
-      trackEvent('click_buy_sticks', { variant: 'blank_request', boxes: normalizedStickBoxCount });
-      toast.success(
-        'Bloomjoy branded sticks request submitted. We will confirm shipping and fulfillment.'
-      );
-      resetStickRequestFields();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to submit your request.');
-    } finally {
-      setSubmittingSticksRequest(false);
-    }
-  };
-
   const handleStartBlankCheckout = async () => {
     if (!hasStickSize(stickSize)) {
       toast.error('Select the machine size before starting Bloomjoy branded sticks checkout.');
@@ -339,54 +268,6 @@ export default function SuppliesPage() {
     }
   };
 
-  const handleSubmitCustomSticksRequest = async () => {
-    if (!hasStickSize(stickSize)) {
-      toast.error('Select the machine size before submitting a custom sticks request.');
-      return;
-    }
-    if (!validateSticksContactFields()) return;
-    if (!customArtworkFile) {
-      toast.error('Upload your logo/image to submit a custom sticks request.');
-      return;
-    }
-    setSubmittingSticksRequest(true);
-    try {
-      const artworkUpload = await uploadCustomSticksArtwork(customArtworkFile);
-      await createLeadSubmission({
-        submissionType: 'procurement',
-        name: sticksContactName.trim(),
-        email: sticksContactEmail.trim().toLowerCase(),
-        sourcePage: '/supplies',
-        metadata: {
-          customSticksArtwork: artworkUpload,
-        },
-        message: [
-          'Custom Paper Sticks Request',
-          `Requested boxes: ${normalizedStickBoxCount}`,
-          `Pieces per box: ${STICKS_PIECES_PER_BOX}`,
-          `Selected size: ${getStickSizeLabel(stickSize)}`,
-          `Per-box price: $${STICKS_PRICE_PER_BOX}`,
-          `First custom order plate fee: $${CUSTOM_STICKS_FIRST_ORDER_PLATE_FEE}`,
-          `Shipping note: 1-4 boxes estimate at $35/box business or $40/box residential; ${BLANK_STICKS_FREE_SHIPPING_BOX_THRESHOLD}+ boxes ship free`,
-          `Artwork storage bucket: ${artworkUpload.bucket}`,
-          `Artwork storage path: ${artworkUpload.storagePath}`,
-          `Artwork file: ${artworkUpload.fileName}`,
-          `Artwork content type: ${artworkUpload.contentType}`,
-          `Artwork size: ${Math.ceil(artworkUpload.sizeBytes / 1024)} KB`,
-          `Artwork access: private; admins can generate a signed URL that expires in ${Math.floor(CUSTOM_STICKS_ARTWORK_SIGNED_URL_TTL_SECONDS / 60)} minutes.`,
-          `Notes: ${sticksRequestNotes.trim() || 'None'}`,
-        ].join('\n'),
-      });
-      trackEvent('click_buy_sticks', { variant: 'custom_request', boxes: normalizedStickBoxCount });
-      toast.success('Custom sticks request submitted. We will follow up with proofing details.');
-      resetStickRequestFields();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to submit your request.');
-    } finally {
-      setSubmittingSticksRequest(false);
-    }
-  };
-
   return (
     <Layout>
       <section className="border-b border-border bg-background py-8 sm:py-10">
@@ -396,8 +277,8 @@ export default function SuppliesPage() {
               Cotton Candy Machine Sugar and Paper Sticks
             </h1>
             <p className="mx-auto mt-3 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg">
-              Order Bloomjoy cotton candy sugar, Bloomjoy branded paper sticks, and custom sticks
-              for commercial robotic cotton candy machine operations.
+              Order Bloomjoy cotton candy sugar and branded paper sticks, or preview the upcoming
+              payment-first custom sticks flow.
             </p>
           </div>
 
@@ -717,8 +598,8 @@ export default function SuppliesPage() {
                         Order standard paper sticks
                       </h2>
                       <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                        1-4 boxes require confirmation. 5+ boxes go straight to checkout with
-                        free shipping.
+                        Pay securely online for any box quantity. Orders of 5 or more boxes ship
+                        free.
                       </p>
                     </div>
                     <div className="text-left sm:text-right">
@@ -759,7 +640,7 @@ export default function SuppliesPage() {
                           Order Path
                         </p>
                         <p className="mt-1 font-semibold text-foreground">
-                          {blankSticksCheckoutEligible ? 'Direct checkout' : 'Confirmation'}
+                          Direct checkout
                         </p>
                       </div>
                     </div>
@@ -819,6 +700,7 @@ export default function SuppliesPage() {
                           type="number"
                           inputMode="numeric"
                           min={1}
+                          max={MAX_STICKS_BOXES_PER_CHECKOUT}
                           value={sticksBoxCount}
                           onChange={(event) => updateStickBoxCount(Number(event.target.value))}
                           className="mt-1 h-10 w-full text-right"
@@ -906,7 +788,7 @@ export default function SuppliesPage() {
                           <div>
                             <p className="text-muted-foreground">Next Step</p>
                             <p className="font-semibold text-foreground">
-                              {blankSticksCheckoutEligible ? 'Checkout' : 'Procurement confirmation'}
+                              Secure checkout
                             </p>
                           </div>
                         </div>
@@ -918,73 +800,15 @@ export default function SuppliesPage() {
                       )}
                     </div>
 
-                    {!blankSticksCheckoutEligible && (
-                      <div className="mt-5 space-y-3 border-t border-border pt-5">
-                        <p className="text-sm text-muted-foreground">
-                          Orders under {BLANK_STICKS_FREE_SHIPPING_BOX_THRESHOLD} boxes are
-                          confirmed first so Bloomjoy can verify final shipment details.
-                        </p>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <div>
-                            <Label htmlFor="branded-sticks-contact-name">Contact Name</Label>
-                            <Input
-                              id="branded-sticks-contact-name"
-                              name="contact_name"
-                              autoComplete="name"
-                              placeholder="Jane Chen…"
-                              value={sticksContactName}
-                              onChange={(event) => setSticksContactName(event.target.value)}
-                              className="mt-1"
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="branded-sticks-contact-email">Email For Follow-Up</Label>
-                            <Input
-                              id="branded-sticks-contact-email"
-                              name="email"
-                              type="email"
-                              inputMode="email"
-                              autoComplete="email"
-                              spellCheck={false}
-                              placeholder="jane@example.com…"
-                              value={sticksContactEmail}
-                              onChange={(event) => setSticksContactEmail(event.target.value)}
-                              className="mt-1"
-                            />
-                          </div>
-                        </div>
-                        <div>
-                          <Label htmlFor="branded-sticks-notes">Order Notes</Label>
-                          <Textarea
-                            id="branded-sticks-notes"
-                            name="order_notes"
-                            value={sticksRequestNotes}
-                            onChange={(event) => setSticksRequestNotes(event.target.value)}
-                            rows={3}
-                            placeholder="Delivery window, location notes, internal PO…"
-                            className="mt-1"
-                          />
-                        </div>
-                      </div>
-                    )}
-
                     <Button
                       type="button"
-                      onClick={
-                        blankSticksCheckoutEligible
-                          ? handleStartBlankCheckout
-                          : handleSubmitBlankSticksRequest
-                      }
+                      onClick={handleStartBlankCheckout}
                       className="mt-5 w-full sm:w-auto"
-                      disabled={submittingSticksRequest || startingBlankCheckout}
+                      disabled={startingBlankCheckout}
                     >
-                      {blankSticksCheckoutEligible
-                        ? startingBlankCheckout
-                          ? 'Redirecting…'
-                          : 'Checkout Bloomjoy Branded Sticks'
-                        : submittingSticksRequest
-                          ? 'Submitting…'
-                          : 'Submit Bloomjoy Branded Stick Request'}
+                      {startingBlankCheckout
+                        ? 'Redirecting…'
+                        : 'Checkout Bloomjoy Branded Sticks'}
                     </Button>
                   </div>
                 </div>
@@ -1009,8 +833,7 @@ export default function SuppliesPage() {
                     <div>
                       <p className="font-semibold text-foreground">Cart Rule</p>
                       <p className="text-muted-foreground">
-                        The shared cart remains sugar-only; 5+ box stick orders use direct
-                        checkout.
+                        Branded stick orders use direct Stripe checkout for every box quantity.
                       </p>
                     </div>
                   </div>
@@ -1029,25 +852,16 @@ export default function SuppliesPage() {
                         Custom Sticks
                       </p>
                       <h2 className="mt-2 font-display text-3xl font-bold text-foreground">
-                        Request branded artwork proofing
+                        Payment-first checkout coming soon
                       </h2>
                       <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                        Upload your logo/image and Bloomjoy will confirm proofing, production
-                        timing, and final order details.
+                        Custom sticks are temporarily unavailable while we finish a checkout that
+                        collects the correct plate fee, shipping, tax, and payment before proofing.
                       </p>
                     </div>
-                    <div className="text-left sm:text-right">
-                      <p className="font-display text-2xl font-bold text-primary">
-                        {formatCurrency(STICKS_PRICE_PER_BOX)}
-                        <span className="text-base font-normal text-muted-foreground">
-                          {' '}
-                          / box
-                        </span>
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {formatCurrency(CUSTOM_STICKS_FIRST_ORDER_PLATE_FEE)} first-order plate fee
-                      </p>
-                    </div>
+                    <span className="inline-flex w-fit rounded-full bg-muted px-3 py-1 text-sm font-semibold text-muted-foreground">
+                      Not yet available
+                    </span>
                   </div>
 
                   <div className="rounded-lg border border-border bg-background p-4 sm:p-5">
@@ -1070,171 +884,22 @@ export default function SuppliesPage() {
                       </div>
                       <div>
                         <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
-                          Fulfillment
+                          Order Path
                         </p>
-                        <p className="mt-1 font-semibold text-foreground">Proofing required</p>
+                        <p className="mt-1 font-semibold text-foreground">Pay first</p>
                       </div>
                     </div>
                   </div>
 
                   <div className="rounded-lg border border-border bg-background p-4 sm:p-5">
-                    <div>
-                      <Label className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
-                        Machine Size
-                      </Label>
-                      <RadioGroup
-                        name="custom_stick_size"
-                        value={stickSize}
-                        onValueChange={(value) => setStickSize(value as SelectedStickSize)}
-                        className="mt-2 grid gap-3 sm:grid-cols-2"
-                      >
-                        {STICK_SIZE_OPTIONS.map((option) => (
-                          <label
-                            key={option.value}
-                            htmlFor={`custom-stick-size-${option.value}`}
-                            className={cn(
-                              'flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors',
-                              stickSize === option.value
-                                ? 'border-primary bg-primary/5'
-                                : 'border-border bg-background hover:border-primary/60'
-                            )}
-                          >
-                            <RadioGroupItem
-                              id={`custom-stick-size-${option.value}`}
-                              value={option.value}
-                              className="mt-1"
-                            />
-                            <span>
-                              <span className="block font-semibold text-foreground">
-                                {option.label}
-                              </span>
-                              <span className="block text-sm text-muted-foreground">
-                                {option.detail}
-                              </span>
-                            </span>
-                          </label>
-                        ))}
-                      </RadioGroup>
-                    </div>
-
-                    <div className="mt-5 grid gap-4 md:grid-cols-[12rem_minmax(0,1fr)]">
-                      <div>
-                        <Label
-                          htmlFor="custom-sticks-boxes"
-                          className="text-xs uppercase tracking-[0.12em] text-muted-foreground"
-                        >
-                          Boxes
-                        </Label>
-                        <Input
-                          id="custom-sticks-boxes"
-                          name="custom_sticks_boxes"
-                          type="number"
-                          inputMode="numeric"
-                          min={1}
-                          value={sticksBoxCount}
-                          onChange={(event) => updateStickBoxCount(Number(event.target.value))}
-                          className="mt-1 h-10 w-full text-right"
-                        />
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
-                          <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
-                            Stick Subtotal
-                          </p>
-                          <p className="mt-1 text-xl font-semibold text-foreground">
-                            {formatCurrency(normalizedStickBoxCount * STICKS_PRICE_PER_BOX)}
-                          </p>
-                        </div>
-                        <div className="rounded-lg border border-border bg-muted/20 p-3">
-                          <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
-                            Total Pieces
-                          </p>
-                          <p className="mt-1 text-xl font-semibold text-foreground">
-                            {formatNumber(normalizedStickBoxCount * STICKS_PIECES_PER_BOX)}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-5">
-                      <Label htmlFor="custom-sticks-artwork">Artwork</Label>
-                      <label
-                        htmlFor="custom-sticks-artwork"
-                        className="relative mt-1 flex min-h-24 cursor-pointer items-center justify-center gap-2 overflow-hidden rounded-lg border border-dashed border-border bg-muted/10 px-4 py-4 text-center text-sm font-medium text-foreground transition-colors hover:border-primary focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2"
-                      >
-                        <Upload className="h-4 w-4" aria-hidden="true" />
-                        <span>
-                          {customArtworkFile
-                            ? `Selected: ${customArtworkFile.name}`
-                            : 'Upload logo/image'}
-                        </span>
-                        <Input
-                          id="custom-sticks-artwork"
-                          name="custom_sticks_artwork"
-                          type="file"
-                          accept={ALLOWED_CUSTOM_STICKS_ARTWORK_TYPES.join(',')}
-                          onChange={handleCustomArtworkChange}
-                          aria-describedby="custom-sticks-artwork-help"
-                          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                        />
-                      </label>
-                      <p id="custom-sticks-artwork-help" className="mt-2 text-xs text-muted-foreground">
-                        PNG, JPG, or WEBP. Max{' '}
-                        {Math.floor(MAX_CUSTOM_STICKS_ARTWORK_SIZE_BYTES / (1024 * 1024))}MB.
-                      </p>
-                    </div>
-
-                    <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <Label htmlFor="custom-sticks-contact-name">Contact Name</Label>
-                        <Input
-                          id="custom-sticks-contact-name"
-                          name="contact_name"
-                          autoComplete="name"
-                          placeholder="Jane Chen…"
-                          value={sticksContactName}
-                          onChange={(event) => setSticksContactName(event.target.value)}
-                          className="mt-1"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="custom-sticks-contact-email">Email For Follow-Up</Label>
-                        <Input
-                          id="custom-sticks-contact-email"
-                          name="email"
-                          type="email"
-                          inputMode="email"
-                          autoComplete="email"
-                          spellCheck={false}
-                          placeholder="jane@example.com…"
-                          value={sticksContactEmail}
-                          onChange={(event) => setSticksContactEmail(event.target.value)}
-                          className="mt-1"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="mt-3">
-                      <Label htmlFor="custom-sticks-notes">Order Notes</Label>
-                      <Textarea
-                        id="custom-sticks-notes"
-                        name="order_notes"
-                        value={sticksRequestNotes}
-                        onChange={(event) => setSticksRequestNotes(event.target.value)}
-                        rows={3}
-                        placeholder="Brand colors, timeline, quantity split…"
-                        className="mt-1"
-                      />
-                    </div>
-
-                    <Button
-                      type="button"
-                      onClick={handleSubmitCustomSticksRequest}
-                      className="mt-5 w-full sm:w-auto"
-                      disabled={submittingSticksRequest}
-                    >
-                      {submittingSticksRequest ? 'Submitting…' : 'Submit Custom Stick Request'}
-                    </Button>
+                    <h3 className="font-display text-lg font-semibold text-foreground">
+                      Why checkout is paused
+                    </h3>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      The first custom order includes a {formatCurrency(CUSTOM_STICKS_FIRST_ORDER_PLATE_FEE)}
+                      {' '}plate fee and requires artwork proofing. We will reopen this item only when
+                      the complete amount can be paid online before the fulfillment team is notified.
+                    </p>
                   </div>
                 </div>
 
@@ -1252,14 +917,13 @@ export default function SuppliesPage() {
                     <div>
                       <p className="font-semibold text-foreground">Proofing</p>
                       <p className="text-muted-foreground">
-                        Bloomjoy confirms artwork, production timing, and final order details
-                        before fulfillment.
+                        Artwork upload and proofing will be part of the payment-first order flow.
                       </p>
                     </div>
                     <div>
-                      <p className="font-semibold text-foreground">Shipping</p>
+                      <p className="font-semibold text-foreground">Availability</p>
                       <p className="text-muted-foreground">
-                        1-4 boxes use estimated shipping; 5+ boxes ship free after proofing.
+                        No unpaid request form is available while checkout is being completed.
                       </p>
                     </div>
                   </div>
@@ -1279,8 +943,8 @@ export default function SuppliesPage() {
               </h2>
               <p className="mt-3 max-w-3xl text-muted-foreground">
                 Bloomjoy supplies are organized around the recurring machine-buyer needs that
-                usually happen after quote review: sugar replenishment, standard paper sticks, and
-                branded sticks that need artwork proofing.
+                usually happen after machine selection: sugar replenishment and Bloomjoy branded
+                sticks, with custom sticks returning after payment-first checkout is complete.
               </p>
               <div className="mt-6 grid gap-4 md:grid-cols-3">
                 <div className="rounded-lg border border-border bg-background p-5">
@@ -1306,8 +970,8 @@ export default function SuppliesPage() {
                     Custom sticks
                   </h3>
                   <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                    Custom stick requests use proofing before fulfillment and include a first-order
-                    plate fee in addition to the per-box stick price.
+                    Custom sticks are temporarily unavailable until checkout can collect the
+                    first-order plate fee, shipping, tax, and full payment before proofing.
                   </p>
                 </div>
               </div>
