@@ -22,6 +22,7 @@ import { loadPortalDashboard } from "@/lib/portalRouteModules";
 import { useAuth } from "@/contexts/auth-context";
 
 import Index from "./pages/Index";
+import Contact from "./pages/Contact";
 
 const Products = lazyRoute(() => import("./pages/Products"));
 const CommercialRobotic = lazyRoute(() => import("./pages/products/CommercialRobotic"));
@@ -29,7 +30,6 @@ const Mini = lazyRoute(() => import("./pages/products/Mini"));
 const Micro = lazyRoute(() => import("./pages/products/Micro"));
 const Supplies = lazyRoute(() => import("./pages/Supplies"));
 const Plus = lazyRoute(() => import("./pages/Plus"));
-const Contact = lazyRoute(() => import("./pages/Contact"));
 const About = lazyRoute(() => import("./pages/About"));
 const Resources = lazyRoute(() => import("./pages/Resources"));
 const BusinessPlaybookIndex = lazyRoute(

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 const read = (path) => fs.readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 
 const contact = read('src/pages/Contact.tsx');
+const app = read('src/App.tsx');
 const quoteIntake = read('src/lib/quoteIntake.ts');
 const leadSubmissions = read('src/lib/leadSubmissions.ts');
 const intakeFunction = read('supabase/functions/lead-submission-intake/index.ts');
@@ -19,6 +20,7 @@ const assertions = [
   ['quote submission is fixed to Commercial', contact.includes("const submittedMachineInterest = isQuote ? MACHINE_NAMES.commercial : ''") && contact.includes('Mini and Micro stay on their payment-first product paths.')],
   ['safe Mini and Micro query context returns to product paths', contact.includes('Purchase path preserved') && contact.includes("? '/machines/mini'") && contact.includes("? '/machines/micro'")],
   ['query context is deferred as transitions until after hydration', contact.includes('const [queryReady, setQueryReady] = useState(false)') && contact.includes("queryReady ? searchParams.get('type') : null") && contact.includes('startTransition(() => setQueryReady(true))') && contact.includes('if (!queryReady) return;') && contact.includes('startTransition(() => {\n      setFormData')],
+  ['the prerendered contact route avoids a lazy Suspense hydration race', app.includes('import Contact from "./pages/Contact";') && !app.includes('const Contact = lazyRoute')],
   ['mobile-food use is allowlisted and preselects only the approved venue option', quoteIntake.includes("'mobile-food': QUOTE_VENUE_OPTIONS[0]") && contact.includes('getSafeQuoteVenueUse(queryUse)')],
   ['quote data is stored as a structured bounded message', contact.includes('buildStructuredQuoteMessage') && intakeFunction.includes('sanitizeBoundedText(body?.message, 4000)')],
   ['retry reuses client submission id', contact.includes('submissionIdRef.current ?? crypto.randomUUID()') && leadSubmissions.includes('clientSubmissionId = crypto.randomUUID()')],
