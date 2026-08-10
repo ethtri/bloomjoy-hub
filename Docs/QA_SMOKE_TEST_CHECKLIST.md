@@ -189,8 +189,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Billing & cancellation page explains Stripe portal cancellation path and end-of-period effect
 - [ ] Contact/Quote form submits (and confirmation is shown)
 - [ ] Contact form labels are clickable, and all visible fields have associated labels
-- [ ] Plain `/contact` opens the general-contact journey; `/contact?type=quote` opens the focused machine-fit request with accurate no-SLA/no-price/no-availability/no-ROI expectation copy
-- [ ] Quote variants for Mini, Micro, Commercial, malformed interest, missing interest, and known `source` paths show only allowlisted machine/source context; no contact or qualification value appears in the URL
+- [ ] Plain `/contact` opens the general-contact journey; `/contact?type=quote` opens the focused Commercial Machine fit/quote request with accurate no-SLA/no-price/no-availability/no-ROI expectation copy
+- [ ] Commercial, malformed, and missing quote interest resolve to fixed Commercial context; safe Mini/Micro interest is not submitted as quote context and instead shows a purchase-path notice/link; no contact or qualification value appears in the URL
 - [ ] `/contact?type=quote&use=mobile-food` preselects “Mobile food facility or food truck”; unknown `use` values are ignored and never become visible or submitted text
 - [ ] Quote validation identifies and focuses an accessible error summary, associates field errors, preserves valid entries, and works by keyboard at 320px through desktop widths
 - [ ] Quote submission stores intended setting, service region, timeline, and optional organization/readiness/details in the structured lead message; only name, email, setting, region, and timeline are required
@@ -200,7 +200,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `lead_form_start`, `lead_form_submit`, and `lead_form_error` use only controlled inquiry type, route, and normalized source context; no name, email, organization, region, message, or other form value reaches analytics
 - [ ] Run `npm run quote-intake:check` and confirm quote mode, safe context, dedupe/retry, accessibility, CTA routing, and analytics payload guardrails pass
 - [ ] Quote flow preserves machine context (for example, Commercial CTA preselects "Machine of Interest" on `/contact`)
-- [ ] Machine interest in the draft quote journey is qualification context only: it does not create an order, reserve inventory, claim availability, or bypass payment-first checkout; owner UAT resolves the Commercial-only policy collision before merge
+- [ ] The quote journey always submits `Commercial Machine`; Mini/Micro query context is visibly returned to its product path and cannot create an order, reserve inventory, claim availability, or bypass payment-first checkout
 - [ ] Mobile icon-only cart/menu controls have accessible names
 - [ ] Product-gallery thumbnail buttons are keyboard operable and announce selected image state
 - [ ] Contact/Quote submission creates a `lead_submissions` row in Supabase with expected type/email

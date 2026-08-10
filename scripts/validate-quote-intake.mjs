@@ -11,11 +11,13 @@ const home = read('src/pages/Index.tsx');
 
 const assertions = [
   ['plain /contact defaults to general', contact.includes("? queryType : 'general'") || contact.includes("? queryType : \"general\"")],
-  ['quote URL has focused heading', contact.includes('Tell us where a machine needs to work.')],
+  ['quote URL has focused Commercial heading', contact.includes('Tell us where the Commercial Machine needs to work.')],
   ['required fit fields render', ['venueUse', 'serviceRegion', 'timeline'].every((field) => contact.includes(field))],
-  ['optional qualification fields render', ['organization', 'readiness', 'interest'].every((field) => contact.includes(field))],
+  ['optional qualification fields render', ['organization', 'readiness'].every((field) => contact.includes(field))],
   ['source context is normalized and visible', contact.includes('getNormalizedInternalSourcePage') && contact.includes('Context received')],
   ['unknown machine query values are rejected', quoteIntake.includes('approvedMachineOptions.has(normalized)')],
+  ['quote submission is fixed to Commercial', contact.includes("const submittedMachineInterest = isQuote ? MACHINE_NAMES.commercial : ''") && contact.includes('Mini and Micro stay on their payment-first product paths.')],
+  ['safe Mini and Micro query context returns to product paths', contact.includes('Purchase path preserved') && contact.includes("? '/machines/mini'") && contact.includes("? '/machines/micro'")],
   ['mobile-food use is allowlisted and preselects only the approved venue option', quoteIntake.includes("'mobile-food': QUOTE_VENUE_OPTIONS[0]") && contact.includes('getSafeQuoteVenueUse(queryUse)')],
   ['quote data is stored as a structured bounded message', contact.includes('buildStructuredQuoteMessage') && intakeFunction.includes('sanitizeBoundedText(body?.message, 4000)')],
   ['retry reuses client submission id', contact.includes('submissionIdRef.current ?? crypto.randomUUID()') && leadSubmissions.includes('clientSubmissionId = crypto.randomUUID()')],

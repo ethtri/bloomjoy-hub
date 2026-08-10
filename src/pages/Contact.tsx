@@ -25,12 +25,12 @@ import {
   trackContactSubmitFromPlaybook,
 } from '@/lib/businessPlaybookAnalytics';
 import { createLeadSubmission } from '@/lib/leadSubmissions';
+import { MACHINE_NAMES } from '@/lib/machineNames';
 import {
   buildStructuredQuoteMessage,
   getQuoteSourceLabel,
   getSafeQuoteMachineInterest,
   getSafeQuoteVenueUse,
-  QUOTE_MACHINE_OPTIONS,
   QUOTE_READINESS_OPTIONS,
   QUOTE_TIMELINE_OPTIONS,
   QUOTE_VENUE_OPTIONS,
@@ -144,11 +144,24 @@ export default function ContactPage() {
   const querySource = searchParams.get('source');
   const queryUse = searchParams.get('use');
   const initialType = queryType && validInquiryTypes.has(queryType) ? queryType : 'general';
-  const initialInterest = getSafeQuoteMachineInterest(searchParams.get('interest'));
+  const requestedMachineInterest = getSafeQuoteMachineInterest(searchParams.get('interest'));
+  const initialInterest = initialType === 'quote' ? MACHINE_NAMES.commercial : '';
   const initialVenueUse = initialType === 'quote' ? getSafeQuoteVenueUse(queryUse) : '';
   const sourcePage = getNormalizedInternalSourcePage(querySource) ?? '/contact';
   const playbookSourcePage = getNormalizedBusinessPlaybookSourcePage(querySource);
   const sourceLabel = getQuoteSourceLabel(sourcePage);
+  const redirectedMachineInterest =
+    initialType === 'quote' &&
+    (requestedMachineInterest === MACHINE_NAMES.mini ||
+      requestedMachineInterest === MACHINE_NAMES.micro)
+      ? requestedMachineInterest
+      : '';
+  const redirectedMachinePath =
+    redirectedMachineInterest === MACHINE_NAMES.mini
+      ? '/machines/mini'
+      : redirectedMachineInterest === MACHINE_NAMES.micro
+        ? '/machines/micro'
+        : '/machines';
 
   const [formData, setFormData] = useState<ContactFormData>(() =>
     createInitialFormData(initialType, initialInterest, initialVenueUse)
@@ -180,6 +193,20 @@ export default function ContactPage() {
       delete next[field];
       return next;
     });
+    setServerError('');
+  };
+
+  const updateInquiryType = (type: string) => {
+    setFormData((current) => ({
+      ...current,
+      type,
+      interest: type === 'quote' ? MACHINE_NAMES.commercial : '',
+      venueUse: type === 'quote' ? current.venueUse : '',
+      serviceRegion: type === 'quote' ? current.serviceRegion : '',
+      timeline: type === 'quote' ? current.timeline : '',
+      readiness: type === 'quote' ? current.readiness : '',
+    }));
+    setFieldErrors({});
     setServerError('');
   };
 
@@ -246,7 +273,7 @@ export default function ContactPage() {
     setServerError('');
 
     try {
-      const submittedMachineInterest = isQuote ? formData.interest.trim() : '';
+      const submittedMachineInterest = isQuote ? MACHINE_NAMES.commercial : '';
       const submittedMessage = isQuote
         ? buildStructuredQuoteMessage({
             organization: formData.organization,
@@ -333,15 +360,15 @@ export default function ContactPage() {
             {isQuote && (
               <div className="mx-auto mb-5 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-background/80 px-3.5 py-2 text-sm font-semibold text-primary shadow-sm backdrop-blur">
                 <Sparkles aria-hidden="true" className="h-4 w-4" />
-                Machine fit &amp; quote request
+                Commercial Machine quote request
               </div>
             )}
             <h1 className="font-display text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
-              {isQuote ? 'Tell us where a machine needs to work.' : 'Contact Bloomjoy'}
+              {isQuote ? 'Tell us where the Commercial Machine needs to work.' : 'Contact Bloomjoy'}
             </h1>
             <p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-muted-foreground">
               {isQuote
-                ? 'Share the setting, service region, and timing you have in mind. We’ll review machine fit and follow up with the next useful questions—without making you build a full business plan first.'
+                ? 'Share the setting, service region, and timing you have in mind. We’ll review Commercial Machine fit and follow up with the next useful questions—without making you build a full business plan first.'
                 : 'Questions about machines, supplies, procurement, or Bloomjoy Plus? Send us the details and we’ll route your message to the right place.'}
             </p>
           </div>
@@ -382,12 +409,12 @@ export default function ContactPage() {
               </p>
               <h2 className="mt-2 font-display text-3xl font-bold text-foreground">
                 {success.inquiryType === 'quote'
-                  ? 'Your machine-fit request is with Bloomjoy.'
+                  ? 'Your Commercial Machine quote request is with Bloomjoy.'
                   : 'Your message is with Bloomjoy.'}
               </h2>
               <p className="mt-4 max-w-2xl leading-relaxed text-muted-foreground">
                 {success.inquiryType === 'quote'
-                  ? 'We’ll review the setting, service region, timing, and machine fit, then follow up using the email you provided. We may ask a few clarifying questions before discussing quote options.'
+                  ? 'We’ll review the setting, service region, timing, and Commercial Machine fit, then follow up using the email you provided. We may ask a few clarifying questions before discussing quote options.'
                   : 'We’ll review your message and follow up using the email you provided.'}
               </p>
 
@@ -455,17 +482,17 @@ export default function ContactPage() {
               </div>
             </div>
           ) : (
-            <div className="mx-auto grid max-w-5xl gap-7 lg:grid-cols-[0.72fr_1.28fr] lg:gap-10">
-              <aside className="lg:pt-5">
+            <div className="mx-auto grid max-w-5xl grid-cols-1 gap-7 lg:grid-cols-[0.72fr_1.28fr] lg:gap-10">
+              <aside className="min-w-0 lg:pt-5">
                 <p className="text-sm font-bold uppercase tracking-[0.15em] text-primary">
-                  {isQuote ? 'A useful first conversation' : 'Send us a note'}
+                  {isQuote ? 'A useful Commercial conversation' : 'Send us a note'}
                 </p>
                 <h2 className="mt-3 font-display text-3xl font-bold text-foreground">
-                  {isQuote ? 'The details that shape machine fit.' : 'We’ll route your question.'}
+                  {isQuote ? 'The details that shape Commercial fit.' : 'We’ll route your question.'}
                 </h2>
                 <p className="mt-4 leading-relaxed text-muted-foreground">
                   {isQuote
-                    ? 'A machine can be a strong fit in one operating model and the wrong fit in another. These questions give us enough context to start responsibly.'
+                    ? 'The Commercial Machine can be a strong fit in one operating model and the wrong fit in another. These questions give us enough context to start responsibly.'
                     : 'Use the inquiry selector to help us understand whether this is a general, demo, procurement, or quote question.'}
                 </p>
                 <div className="mt-6 space-y-4">
@@ -484,13 +511,32 @@ export default function ContactPage() {
                 </div>
               </aside>
 
-              <div className="rounded-3xl border border-border bg-card p-5 shadow-elevated sm:p-8">
+              <div className="min-w-0 rounded-3xl border border-border bg-card p-5 shadow-elevated sm:p-8">
+                {isQuote && redirectedMachineInterest && (
+                  <div className="mb-6 rounded-2xl border border-amber-300/70 bg-amber-50/80 p-4 text-left shadow-sm">
+                    <p className="text-sm font-semibold text-amber-950">Purchase path preserved</p>
+                    <p className="mt-1 text-sm leading-relaxed text-amber-950/75">
+                      {redirectedMachineInterest} is not quoted through this form. Mini and Micro
+                      keep their payment-first product paths, while this request stays focused on
+                      the configurable Commercial Machine.
+                    </p>
+                    <Link
+                      to={redirectedMachinePath}
+                      className="mt-3 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-amber-950 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700"
+                    >
+                      View the {redirectedMachineInterest} purchase path
+                      <ArrowRight aria-hidden="true" className="h-4 w-4" />
+                    </Link>
+                  </div>
+                )}
+
                 {isQuote && (initialInterest || initialVenueUse || sourceLabel) && (
                   <div className="mb-6 rounded-2xl border border-primary/20 bg-primary/5 p-4">
                     <p className="text-sm font-semibold text-primary">Context received</p>
                     <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                      {initialInterest ? `${initialInterest} interest` : 'Quote request'}
-                      {sourceLabel ? ` from the ${sourceLabel}` : ''}. You can change the machine choice below.
+                      Commercial Machine quote request
+                      {sourceLabel ? ` from the ${sourceLabel}` : ''}. The machine remains fixed so
+                      Mini and Micro purchase flows cannot be bypassed.
                     </p>
                     {initialVenueUse && (
                       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -540,11 +586,11 @@ export default function ContactPage() {
                       id="contact-type"
                       name="type"
                       value={formData.type}
-                      onChange={(event) => updateField('type', event.target.value)}
+                      onChange={(event) => updateInquiryType(event.target.value)}
                       className={selectClassName}
                     >
                       <option value="general">General inquiry</option>
-                      <option value="quote">Machine fit &amp; quote request</option>
+                      <option value="quote">Commercial Machine quote request</option>
                       <option value="demo">Demo request</option>
                       <option value="procurement">Procurement questions</option>
                     </select>
@@ -641,17 +687,14 @@ export default function ContactPage() {
                           <FieldError id="contact-region-error" message={fieldErrors.serviceRegion} />
                         </div>
                         <div>
-                          <Label htmlFor="contact-interest">Machine interest <span className="font-normal text-muted-foreground">(optional)</span></Label>
-                          <select
-                            id="contact-interest"
-                            name="interest"
-                            value={formData.interest}
-                            onChange={(event) => updateField('interest', event.target.value)}
-                            className={selectClassName}
-                          >
-                            <option value="">Choose a machine</option>
-                            {QUOTE_MACHINE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-                          </select>
+                          <p className="text-sm font-medium text-foreground">Quoted machine</p>
+                          <div className="mt-1.5 min-h-11 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
+                            <p className="text-sm font-semibold text-foreground">{MACHINE_NAMES.commercial}</p>
+                            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                              Mini and Micro stay on their payment-first product paths.
+                            </p>
+                          </div>
+                          <input type="hidden" name="interest" value={MACHINE_NAMES.commercial} />
                         </div>
                       </div>
                       <div className="grid gap-5 sm:grid-cols-2">
@@ -716,8 +759,14 @@ export default function ContactPage() {
                     </div>
                   )}
 
-                  <Button type="submit" variant="hero" size="lg" className="min-h-12 w-full" disabled={submitting}>
-                    {submitting ? 'Sending…' : isQuote ? 'Send quote request' : 'Send message'}
+                  <Button
+                    type="submit"
+                    variant="hero"
+                    size="lg"
+                    className="min-h-12 w-full px-3 text-sm sm:px-8 sm:text-base"
+                    disabled={submitting}
+                  >
+                    {submitting ? 'Sending…' : isQuote ? 'Send Commercial quote request' : 'Send message'}
                     {!submitting && <ArrowRight aria-hidden="true" className="ml-1 h-4 w-4" />}
                   </Button>
                   <p className="text-center text-xs leading-relaxed text-muted-foreground">
