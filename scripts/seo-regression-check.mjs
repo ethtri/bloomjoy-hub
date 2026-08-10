@@ -8,7 +8,7 @@ process.env.VITE_SUPABASE_ANON_KEY ||= "prerender-anon-key";
 const DIST_DIR = path.resolve(process.cwd(), "dist");
 const VERCEL_CONFIG_PATH = path.resolve(process.cwd(), "vercel.json");
 const SITEMAP_URL = "https://www.bloomjoyusa.com/sitemap.xml";
-const EXPECTED_PUBLIC_ROUTE_COUNT = 25;
+const EXPECTED_PUBLIC_ROUTE_COUNT = 27;
 
 const routeToDistHtml = (routePath) => {
   if (routePath === "/") {
@@ -85,11 +85,19 @@ const expectedH1TextByRoute = {
   "/resources/business-playbook": "Real startup notes for cotton candy operators",
   "/resources/business-playbook/planner": "Machine Fit + Startup Budget Planner",
   "/resources/business-playbook/payback-planner": "Payback Scenario Planner",
+  "/resources/business-playbook/food-truck-mobile-setup-guide": "Food-truck cotton candy setup: what to confirm before the quote",
+  "/solutions/food-trucks": "Add a visual dessert without guessing at fit",
   "/contact": "Contact Bloomjoy",
   "/about": "About Bloomjoy",
   "/privacy": "Privacy Policy",
   "/terms": "Terms of Service",
   "/billing-cancellation": "Billing and Cancellation",
+};
+
+const expectedPrerenderRouteModuleByPath = {
+  "/solutions/food-trucks": "FoodTrucks-",
+  "/resources/business-playbook/food-truck-mobile-setup-guide":
+    "MobileFoodSetupGuide-",
 };
 
 const loadSeoRoutes = async () => {
@@ -167,6 +175,17 @@ const validatePublicRouteHtml = async (route, seoRoutes) => {
       html,
       expectedH1Text,
       `Public route ${route.path} is missing expected H1/source text: ${expectedH1Text}`
+    );
+  }
+
+  const expectedPrerenderRouteModule = expectedPrerenderRouteModuleByPath[route.path];
+  if (expectedPrerenderRouteModule) {
+    assertMatches(
+      html,
+      new RegExp(
+        `<script[^>]*data-prerender-route-module[^>]*src="/assets/${expectedPrerenderRouteModule}[^".]+\\.js"[^>]*></script>`
+      ),
+      `Prerendered route ${route.path} does not load its route module before hydration`
     );
   }
 
@@ -534,7 +553,7 @@ const hasAppToWwwRedirectRules = (routes) => {
 
   const groupedRedirect = routes.some(
     (route) =>
-      route?.src === "/(machines(?:/.*)?|products(?:/.*)?|supplies|plus|resources(?:/.*)?|about|contact|privacy|terms|billing-cancellation|cart)" &&
+      route?.src === "/(machines(?:/.*)?|products(?:/.*)?|solutions(?:/.*)?|supplies|plus|resources(?:/.*)?|about|contact|privacy|terms|billing-cancellation|cart)" &&
       route?.status === 308 &&
       route?.headers?.Location === "https://www.bloomjoyusa.com/$1" &&
       Array.isArray(route?.has) &&
@@ -571,6 +590,12 @@ const hasStaticPrerenderRewriteRules = (routes) => {
       route?.dest === "/resources/business-playbook/$1.html"
   );
 
+  const foodTruckSolutionRewrite = routes.some(
+    (route) =>
+      route?.src === "/solutions/food-trucks/?" &&
+      route?.dest === "/solutions/food-trucks.html"
+  );
+
   const authPrivateRewrite = routes.some(
     (route) =>
       route?.src === "/(cart|login(?:/operator)?|reset-password)/?" &&
@@ -593,6 +618,7 @@ const hasStaticPrerenderRewriteRules = (routes) => {
     machineDetailRewrite &&
     playbookIndexRewrite &&
     playbookArticleRewrite &&
+    foodTruckSolutionRewrite &&
     publicRewrite &&
     authPrivateRewrite &&
     portalCatchAllRewrite &&

@@ -32,6 +32,7 @@ const Supplies = lazyRoute(() => import("./pages/Supplies"));
 const Plus = lazyRoute(() => import("./pages/Plus"));
 const About = lazyRoute(() => import("./pages/About"));
 const Resources = lazyRoute(() => import("./pages/Resources"));
+const FoodTrucksSolution = lazyRoute(() => import("./pages/solutions/FoodTrucks"));
 const BusinessPlaybookIndex = lazyRoute(
   () => import("./pages/resources/BusinessPlaybookIndex")
 );
@@ -40,6 +41,9 @@ const BusinessPlaybookPlanner = lazyRoute(
 );
 const BusinessPlaybookPaybackPlanner = lazyRoute(
   () => import("./pages/resources/BusinessPlaybookPaybackPlanner")
+);
+const MobileFoodSetupGuide = lazyRoute(
+  () => import("./pages/resources/MobileFoodSetupGuide")
 );
 const BusinessPlaybookArticle = lazyRoute(
   () => import("./pages/resources/BusinessPlaybookArticle")
@@ -178,11 +182,16 @@ export const AppShell = () => (
           <Route path="/contact" element={<Contact />} />
           <Route path="/about" element={<About />} />
           <Route path="/resources" element={<Resources />} />
+          <Route path="/solutions/food-trucks" element={<FoodTrucksSolution />} />
           <Route path="/resources/business-playbook" element={<BusinessPlaybookIndex />} />
           <Route path="/resources/business-playbook/planner" element={<BusinessPlaybookPlanner />} />
           <Route
             path="/resources/business-playbook/payback-planner"
             element={<BusinessPlaybookPaybackPlanner />}
+          />
+          <Route
+            path="/resources/business-playbook/food-truck-mobile-setup-guide"
+            element={<MobileFoodSetupGuide />}
           />
           <Route
             path="/resources/business-playbook/:slug"

@@ -22,6 +22,7 @@ import { ProductImageGallery } from '@/components/products/ProductImageGallery';
 import { trackEvent } from '@/lib/analytics';
 import { trackBuyerFlowPlaybookLinkClick } from '@/lib/businessPlaybookAnalytics';
 import { MACHINE_NAMES } from '@/lib/machineNames';
+import { FOOD_TRUCK_SOLUTION_PATH } from '@/data/mobileOperatorPages';
 import { miniMachineFaqs } from '@/lib/seoRoutes';
 import miniMain from '@/assets/real/mini-main.webp';
 import miniGallery1 from '@/assets/real/mini-gallery-1.webp';
@@ -289,7 +290,22 @@ export default function MiniPage() {
                 <div className="flex items-start gap-3">
                   <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
                   <div>
-                    <p className="font-semibold text-foreground">Thinking events or catering?</p>
+                    <p className="font-semibold text-foreground">Planning mobile, event, or catering service?</p>
+                    <Link
+                      to={FOOD_TRUCK_SOLUTION_PATH}
+                      onClick={() =>
+                        trackBuyerFlowPlaybookLinkClick({
+                          surface: 'mini_machine_page',
+                          cta: 'mini_food_truck_fit_guide',
+                          href: FOOD_TRUCK_SOLUTION_PATH,
+                          machine: MACHINE_NAMES.mini,
+                        })
+                      }
+                      className="mt-1 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+                    >
+                      Check Mini fit for a food truck or trailer
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
                     <Link
                       to="/resources/business-playbook/mini-micro-event-catering-business-guide"
                       onClick={() =>

@@ -136,6 +136,18 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Home loads and key CTAs navigate correctly
 - [ ] Home machine cards show correct model images (Commercial, Mini, Micro) without awkward clipping
 - [ ] Machine naming is consistent as `Commercial Machine`, `Mini Machine`, and `Micro Machine` on Home, Machines, Contact, and footer links
+- [ ] `/solutions/food-trucks` direct-loads with the approved audience, Mini-first evaluation path, space/total-load/service-flow constraint, a Mini product-path action, and a distinct Commercial-only quote action visible in the first viewport
+- [ ] Food-truck solution model facts match current Mini, Commercial, and Micro product pages; no copy claims generator compatibility, vehicle mounting/securing, transport orientation, ventilation, outdoor/weather approval, permit approval, availability, delivery, revenue, ROI, payback, or margin
+- [ ] Food-truck solution visibly includes installed, adjacent-station, and catering operating patterns plus meaningful “When this is not a fit” stop conditions
+- [ ] Food-truck FAQs render visibly and match FAQ structured data; no review, rating, testimonial, customer logo, or proof placeholder appears when approved proof is unavailable
+- [ ] `/resources/business-playbook/food-truck-mobile-setup-guide` direct-loads with unique metadata, visible review/source posture, official source links, model-specific caveats, and working links back to the solution, machine pages, planners, quote flow, and existing event guide
+- [ ] Setup checklist covers measured space, complete electrical load, approved power, load-in, transport/securing questions, environment, supply storage, cleaning/reset, service flow, and local review; checked state is announced as reviewed rather than approved
+- [ ] Setup checklist reset, copy, and print controls work by keyboard; refresh/direct load safely returns to an incomplete non-persisted state and no checklist value enters the URL or analytics
+- [ ] Mobile quote CTAs contain only allowlisted `type=quote`, `interest=commercial`, canonical `source`, and `use=mobile-food`; Mini and Micro remain on payment-first product paths, and no free-form setup, financial, or contact value appears in the URL
+- [ ] Resources, Business Playbook, Machines overview, and Mini page expose descriptive mobile-operator links without keyword-stuffed sitewide repetition
+- [ ] Both mobile routes are prerendered, canonical, in `sitemap.xml` with a defensible `2026-08-10` lastmod, load their route modules before app hydration, and are served by the static Vercel rewrites
+- [ ] At 320px, 390px, 768px, and 1440px, both mobile routes have no horizontal page overflow, keep 44px controls, preserve readable facts/checklist cards, and leave the primary CTA clear
+- [ ] Run `npm run mobile-content:check` and `npm run seo:check`; confirm route, claim, context, structured-data, source, no-proof, internal-link, and responsive guardrails pass
 - [ ] Product pages load (Full, Micro, Mini)
 - [ ] Home, `/machines`, and Mini detail consistently show Mini as `Coming Soon` and expose no quote/procurement checkout path
 - [ ] Machine detail pages support image gallery selection (thumbnail click changes main image)

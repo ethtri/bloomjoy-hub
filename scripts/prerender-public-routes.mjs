@@ -9,6 +9,14 @@ const DIST_DIR = path.resolve(process.cwd(), "dist");
 const TEMPLATE_PATH = path.join(DIST_DIR, "index.html");
 const MANIFEST_PATH = path.join(DIST_DIR, ".vite", "manifest.json");
 
+const prerenderRouteModules = new Map([
+  ["/solutions/food-trucks", "src/pages/solutions/FoodTrucks.tsx"],
+  [
+    "/resources/business-playbook/food-truck-mobile-setup-guide",
+    "src/pages/resources/MobileFoodSetupGuide.tsx",
+  ],
+]);
+
 const escapeAttribute = (value) =>
   String(value)
     .replaceAll("&", "&amp;")
@@ -101,6 +109,32 @@ const replaceDevAssetUrls = (html, manifest) =>
     const entry = manifest[`src/assets/${assetPath}`];
     return entry?.file ? `${prefix}/${entry.file}` : match;
   });
+
+const injectPrerenderRouteModule = (html, pathname, manifest) => {
+  const moduleSource = prerenderRouteModules.get(pathname);
+
+  if (!moduleSource) {
+    return html;
+  }
+
+  const routeAsset = manifest[moduleSource]?.file;
+  const appAsset = manifest["index.html"]?.file;
+
+  if (!routeAsset || !appAsset) {
+    throw new Error(`Missing hydration asset for prerendered route ${pathname}`);
+  }
+
+  const appScript = `<script type="module" crossorigin src="/${appAsset}"></script>`;
+  const routeScript = `<script type="module" crossorigin data-prerender-route-module src="/${routeAsset}"></script>`;
+
+  if (!html.includes(appScript)) {
+    throw new Error(`Missing app entry script while prerendering ${pathname}`);
+  }
+
+  // Execute the route module before the app entry so React never hydrates a
+  // prerendered page through a still-pending lazy boundary on a slow network.
+  return html.replace(appScript, `${routeScript}\n    ${appScript}`);
+};
 
 const outputFilesForRoute = (pathname) => {
   if (pathname === "/") {
@@ -235,19 +269,23 @@ const main = async () => {
         assetManifest
       );
       const rendered = injectRootHtml(
-        withSeoTags({
-          template,
-          route,
-          canonicalUrl,
-          origin: MARKETING_ORIGIN,
-          shareImage: getShareImageUrl(MARKETING_ORIGIN, route),
-          structuredData: buildStructuredData({
+        injectPrerenderRouteModule(
+          withSeoTags({
+            template,
             route,
-            origin: MARKETING_ORIGIN,
             canonicalUrl,
+            origin: MARKETING_ORIGIN,
+            shareImage: getShareImageUrl(MARKETING_ORIGIN, route),
+            structuredData: buildStructuredData({
+              route,
+              origin: MARKETING_ORIGIN,
+              canonicalUrl,
+            }),
+            constants: seoRoutes,
           }),
-          constants: seoRoutes,
-        }),
+          route.path,
+          assetManifest
+        ),
         appHtml
       );
       await writeRouteHtml(route.path, rendered);
