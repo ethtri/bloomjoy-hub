@@ -9,6 +9,7 @@ import { MACHINE_NAMES } from '@/lib/machineNames';
 import { machineBuyerFaqs } from '@/lib/seoRoutes';
 import { isMicroCheckoutEnabled } from '@/lib/commerceAvailability';
 import { FOOD_TRUCK_SOLUTION_PATH } from '@/data/mobileOperatorPages';
+import { plannerPath } from '@/data/businessPlaybookPlanner';
 import commercialMain from '@/assets/real/commercial-main.jpg';
 import miniMain from '@/assets/real/mini-main.webp';
 import microMain from '@/assets/real/micro-main.webp';
@@ -99,13 +100,28 @@ export default function ProductsPage() {
           <div className="flex flex-col gap-3 rounded-xl border border-primary/20 bg-primary/5 p-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <h2 className="font-display text-xl font-bold text-foreground">
-                Still choosing the right business model?
+                Still choosing the right machine or business model?
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Read the Bloomjoy Business Playbook before you compare machines by price alone.
+                Start with the cost-only fit planner, then compare operating paths and product details.
               </p>
             </div>
             <div className="grid gap-2 sm:justify-items-end">
+              <Link
+                to={plannerPath}
+                onClick={() =>
+                  trackBuyerFlowPlaybookLinkClick({
+                    surface: 'machine_listing',
+                    cta: 'machine_fit_startup_budget_planner',
+                    href: plannerPath,
+                    machine: 'undecided',
+                  })
+                }
+                className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+              >
+                Find your machine path
+                <ArrowRight className="h-4 w-4" />
+              </Link>
               <Link
                 to={FOOD_TRUCK_SOLUTION_PATH}
                 onClick={() =>

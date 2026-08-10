@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Check, Zap, Shield, Package } from 'lucide-react';
+import { ArrowRight, Check, Compass, Zap, Shield, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
 import { trackEvent } from '@/lib/analytics';
+import { trackBuyerFlowPlaybookLinkClick } from '@/lib/businessPlaybookAnalytics';
+import { plannerPath } from '@/data/businessPlaybookPlanner';
 import { MACHINE_NAMES } from '@/lib/machineNames';
 import { isMicroCheckoutEnabled } from '@/lib/commerceAvailability';
 import landingHero from '@/assets/real/landing-hero.jpg';
@@ -70,9 +72,20 @@ export default function HomePage() {
                     <ArrowRight className="ml-1 h-5 w-5" />
                   </Button>
                 </Link>
-                <Link to="/supplies">
+                <Link
+                  to={plannerPath}
+                  onClick={() =>
+                    trackBuyerFlowPlaybookLinkClick({
+                      surface: 'home_hero',
+                      cta: 'find_machine_path',
+                      href: plannerPath,
+                      machine: 'undecided',
+                    })
+                  }
+                >
                   <Button variant="hero-outline" size="xl">
-                    Shop Supplies
+                    Find Your Machine Path
+                    <Compass className="ml-2 h-5 w-5" />
                   </Button>
                 </Link>
               </div>

@@ -1,4 +1,5 @@
 import { MACHINE_INTEREST_OPTIONS, normalizeMachineInterest } from '@/lib/machineNames';
+import { plannerPath } from '@/data/businessPlaybookPlanner';
 
 export const QUOTE_MACHINE_OPTIONS = [...MACHINE_INTEREST_OPTIONS, 'Not sure yet'] as const;
 
@@ -37,6 +38,165 @@ export type QuoteIntakeFields = {
   timeline: string;
   readiness: string;
 };
+
+export const PLANNER_MACHINE_SIGNALS = ['commercial', 'mini', 'micro', 'undecided'] as const;
+export const PLANNER_INTENDED_PATHS = [
+  'venue-placement',
+  'events-catering',
+  'small-test',
+  'exploring',
+] as const;
+export const PLANNER_BUDGET_BANDS = ['not-started', 'incomplete', 'reviewed'] as const;
+export const PLANNER_OPEN_QUESTION_KEYS = [
+  'operating-path',
+  'setting',
+  'service-model',
+  'pattern-needs',
+  'operating-blocker',
+  'budget-scenario',
+  'machine-cost',
+  'landed-cost',
+] as const;
+
+export type PlannerMachineSignal = (typeof PLANNER_MACHINE_SIGNALS)[number];
+export type PlannerIntendedPath = (typeof PLANNER_INTENDED_PATHS)[number];
+export type PlannerBudgetBand = (typeof PLANNER_BUDGET_BANDS)[number];
+export type PlannerOpenQuestionKey = (typeof PLANNER_OPEN_QUESTION_KEYS)[number];
+
+export type PlannerQuoteContext = {
+  machineSignal: PlannerMachineSignal;
+  intendedPath: PlannerIntendedPath;
+  budgetBand: PlannerBudgetBand;
+  openQuestions: PlannerOpenQuestionKey[];
+};
+
+const plannerMachineSignalLabels: Record<PlannerMachineSignal, string> = {
+  commercial: 'Commercial Machine',
+  mini: 'Mini Machine',
+  micro: 'Micro Machine',
+  undecided: 'No clear machine signal yet',
+};
+
+const plannerIntendedPathLabels: Record<PlannerIntendedPath, string> = {
+  'venue-placement': 'Venue placement',
+  'events-catering': 'Events or catering',
+  'small-test': 'Smaller test before expanding',
+  exploring: 'Still exploring the operating path',
+};
+
+const plannerBudgetBandLabels: Record<PlannerBudgetBand, string> = {
+  'not-started': 'No budget scenario selected',
+  incomplete: 'Working budget with unresolved categories',
+  reviewed: 'All planner budget categories reviewed',
+};
+
+const plannerOpenQuestionLabels: Record<PlannerOpenQuestionKey, string> = {
+  'operating-path': 'operating path',
+  setting: 'intended setting',
+  'service-model': 'service model',
+  'pattern-needs': 'pattern needs',
+  'operating-blocker': 'largest operating blocker',
+  'budget-scenario': 'budget scenario',
+  'machine-cost': 'machine cost or quote',
+  'landed-cost': 'freight and landed cost',
+};
+
+const plannerMachineSignals = new Set<string>(PLANNER_MACHINE_SIGNALS);
+const plannerIntendedPaths = new Set<string>(PLANNER_INTENDED_PATHS);
+const plannerBudgetBands = new Set<string>(PLANNER_BUDGET_BANDS);
+const plannerOpenQuestionKeys = new Set<string>(PLANNER_OPEN_QUESTION_KEYS);
+
+const normalizePlannerValue = <TValue extends string>(
+  value: string | null | undefined,
+  allowed: Set<string>
+) => {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && allowed.has(normalized) ? (normalized as TValue) : undefined;
+};
+
+const normalizePlannerOpenQuestions = (
+  values: readonly string[] | string | null | undefined
+): PlannerOpenQuestionKey[] => {
+  const candidates = Array.isArray(values) ? values : String(values ?? '').split(',');
+  return [...new Set(candidates
+    .map((value) => normalizePlannerValue<PlannerOpenQuestionKey>(value, plannerOpenQuestionKeys))
+    .filter((value): value is PlannerOpenQuestionKey => Boolean(value))
+  )];
+};
+
+export const buildPlannerQuoteHref = ({
+  machineSignal,
+  intendedPath,
+  budgetBand,
+  openQuestions,
+}: PlannerQuoteContext) => {
+  const safeMachineSignal =
+    normalizePlannerValue<PlannerMachineSignal>(machineSignal, plannerMachineSignals) ?? 'undecided';
+  const safeIntendedPath =
+    normalizePlannerValue<PlannerIntendedPath>(intendedPath, plannerIntendedPaths) ?? 'exploring';
+  const safeBudgetBand =
+    normalizePlannerValue<PlannerBudgetBand>(budgetBand, plannerBudgetBands) ?? 'not-started';
+  const safeOpenQuestions = normalizePlannerOpenQuestions(openQuestions);
+  const params = new URLSearchParams({
+    type: 'quote',
+    interest: 'commercial',
+    source: plannerPath,
+    planner_machine: safeMachineSignal,
+    planner_path: safeIntendedPath,
+    planner_budget: safeBudgetBand,
+  });
+
+  if (safeOpenQuestions.length > 0) {
+    params.set('planner_open', safeOpenQuestions.join(','));
+  }
+
+  return `/contact?${params.toString()}`;
+};
+
+export const getSafePlannerQuoteContext = ({
+  sourcePage,
+  machineSignal,
+  intendedPath,
+  budgetBand,
+  openQuestions,
+}: {
+  sourcePage: string;
+  machineSignal?: string | null;
+  intendedPath?: string | null;
+  budgetBand?: string | null;
+  openQuestions?: string | null;
+}): PlannerQuoteContext | null => {
+  if (sourcePage !== plannerPath) return null;
+
+  const safeMachineSignal = normalizePlannerValue<PlannerMachineSignal>(
+    machineSignal,
+    plannerMachineSignals
+  );
+  const safeIntendedPath = normalizePlannerValue<PlannerIntendedPath>(
+    intendedPath,
+    plannerIntendedPaths
+  );
+  const safeBudgetBand = normalizePlannerValue<PlannerBudgetBand>(budgetBand, plannerBudgetBands);
+  const safeOpenQuestions = normalizePlannerOpenQuestions(openQuestions);
+
+  if (!safeMachineSignal && !safeIntendedPath && !safeBudgetBand && safeOpenQuestions.length === 0) {
+    return null;
+  }
+
+  return {
+    machineSignal: safeMachineSignal ?? 'undecided',
+    intendedPath: safeIntendedPath ?? 'exploring',
+    budgetBand: safeBudgetBand ?? 'not-started',
+    openQuestions: safeOpenQuestions,
+  };
+};
+
+export const getPlannerQuoteContextLabels = (context: PlannerQuoteContext) => ({
+  machineSignal: plannerMachineSignalLabels[context.machineSignal],
+  intendedPath: plannerIntendedPathLabels[context.intendedPath],
+  budgetBand: plannerBudgetBandLabels[context.budgetBand],
+  openQuestions: context.openQuestions.map((key) => plannerOpenQuestionLabels[key]),
+});
 
 const approvedMachineOptions = new Set<string>(QUOTE_MACHINE_OPTIONS);
 
@@ -77,8 +237,16 @@ export const buildStructuredQuoteMessage = ({
   timeline,
   readiness,
   additionalDetails,
-}: QuoteIntakeFields & { additionalDetails: string }) =>
-  [
+  plannerContext,
+}: QuoteIntakeFields & {
+  additionalDetails: string;
+  plannerContext?: PlannerQuoteContext | null;
+}) => {
+  const plannerLabels = plannerContext
+    ? getPlannerQuoteContextLabels(plannerContext)
+    : null;
+
+  return [
     `Business or organization: ${organization.trim() || 'Not provided'}`,
     `Intended setting or use: ${venueUse.trim()}`,
     `Service region: ${serviceRegion.trim()}`,
@@ -87,4 +255,15 @@ export const buildStructuredQuoteMessage = ({
     '',
     'Additional details:',
     additionalDetails.trim() || 'None provided',
+    ...(plannerLabels
+      ? [
+          '',
+          'Planner summary (categorical; no exact financial inputs):',
+          `Machine signal: ${plannerLabels.machineSignal}`,
+          `Intended path: ${plannerLabels.intendedPath}`,
+          `Budget completeness: ${plannerLabels.budgetBand}`,
+          `Open question categories: ${plannerLabels.openQuestions.join(', ') || 'None recorded'}`,
+        ]
+      : []),
   ].join('\n');
+};

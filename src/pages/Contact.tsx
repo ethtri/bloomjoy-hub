@@ -28,7 +28,9 @@ import { createLeadSubmission } from '@/lib/leadSubmissions';
 import { MACHINE_NAMES } from '@/lib/machineNames';
 import {
   buildStructuredQuoteMessage,
+  getPlannerQuoteContextLabels,
   getQuoteSourceLabel,
+  getSafePlannerQuoteContext,
   getSafeQuoteMachineInterest,
   getSafeQuoteVenueUse,
   QUOTE_READINESS_OPTIONS,
@@ -153,6 +155,16 @@ export default function ContactPage() {
   const sourcePage = getNormalizedInternalSourcePage(querySource) ?? '/contact';
   const playbookSourcePage = getNormalizedBusinessPlaybookSourcePage(querySource);
   const sourceLabel = getQuoteSourceLabel(sourcePage);
+  const plannerContext = getSafePlannerQuoteContext({
+    sourcePage,
+    machineSignal: queryReady ? searchParams.get('planner_machine') : null,
+    intendedPath: queryReady ? searchParams.get('planner_path') : null,
+    budgetBand: queryReady ? searchParams.get('planner_budget') : null,
+    openQuestions: queryReady ? searchParams.get('planner_open') : null,
+  });
+  const plannerContextLabels = plannerContext
+    ? getPlannerQuoteContextLabels(plannerContext)
+    : null;
   const redirectedMachineInterest =
     initialType === 'quote' &&
     (requestedMachineInterest === MACHINE_NAMES.mini ||
@@ -304,6 +316,7 @@ export default function ContactPage() {
             timeline: formData.timeline,
             readiness: formData.readiness,
             additionalDetails: formData.message,
+            plannerContext,
           })
         : formData.message.trim();
 
@@ -565,6 +578,48 @@ export default function ContactPage() {
                         We preselected “{initialVenueUse}” from the approved mobile-use context. You can change the setting below.
                       </p>
                     )}
+                  </div>
+                )}
+
+                {isQuote && plannerContextLabels && (
+                  <div className="mb-6 rounded-2xl border border-sage/30 bg-sage-light/45 p-4 text-left">
+                    <div className="flex items-start gap-3">
+                      <Sparkles aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-sage" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-foreground">Planner summary received</p>
+                        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                          These are categorical planning signals only. No dollar amount, revenue,
+                          margin, or other exact financial input was transferred.
+                        </p>
+                        <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                          <div>
+                            <dt className="font-semibold text-foreground">Machine signal</dt>
+                            <dd className="mt-0.5 text-muted-foreground">{plannerContextLabels.machineSignal}</dd>
+                          </div>
+                          <div>
+                            <dt className="font-semibold text-foreground">Intended path</dt>
+                            <dd className="mt-0.5 text-muted-foreground">{plannerContextLabels.intendedPath}</dd>
+                          </div>
+                          <div>
+                            <dt className="font-semibold text-foreground">Budget completeness</dt>
+                            <dd className="mt-0.5 text-muted-foreground">{plannerContextLabels.budgetBand}</dd>
+                          </div>
+                          <div>
+                            <dt className="font-semibold text-foreground">Open question categories</dt>
+                            <dd className="mt-0.5 text-muted-foreground">
+                              {plannerContextLabels.openQuestions.join(', ') || 'None recorded'}
+                            </dd>
+                          </div>
+                        </dl>
+                        {plannerContext.machineSignal !== 'commercial' && (
+                          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                            The planner signal is context, not quote interest. This form remains
+                            fixed to the configurable Commercial Machine; Mini and Micro stay on
+                            their payment-first product paths.
+                          </p>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 )}
 

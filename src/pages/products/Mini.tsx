@@ -23,6 +23,7 @@ import { trackEvent } from '@/lib/analytics';
 import { trackBuyerFlowPlaybookLinkClick } from '@/lib/businessPlaybookAnalytics';
 import { MACHINE_NAMES } from '@/lib/machineNames';
 import { FOOD_TRUCK_SOLUTION_PATH } from '@/data/mobileOperatorPages';
+import { plannerPath } from '@/data/businessPlaybookPlanner';
 import { miniMachineFaqs } from '@/lib/seoRoutes';
 import miniMain from '@/assets/real/mini-main.webp';
 import miniGallery1 from '@/assets/real/mini-gallery-1.webp';
@@ -322,6 +323,21 @@ export default function MiniPage() {
                       <ArrowRight className="h-4 w-4" />
                     </Link>
                     <div className="mt-2 grid gap-1">
+                      <Link
+                        to={plannerPath}
+                        onClick={() =>
+                          trackBuyerFlowPlaybookLinkClick({
+                            surface: 'mini_machine_page',
+                            cta: 'mini_machine_fit_planner',
+                            href: plannerPath,
+                            machine: MACHINE_NAMES.mini,
+                          })
+                        }
+                        className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+                      >
+                        Check the machine-fit planner
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
                       <Link
                         to="/resources/business-playbook/payback-planner"
                         onClick={() =>

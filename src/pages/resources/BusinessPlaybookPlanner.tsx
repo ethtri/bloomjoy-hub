@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -21,14 +21,20 @@ import {
 import {
   plannerBudgetLabels,
   plannerMachineProfiles,
-  plannerPath,
   plannerQuestions,
   type PlannerBudget,
   type PlannerBudgetKey,
   type PlannerMachineId,
+  type PlannerQuestionId,
 } from "@/data/businessPlaybookPlanner";
 import { cn } from "@/lib/utils";
 import { isMicroCheckoutEnabled } from "@/lib/commerceAvailability";
+import {
+  buildPlannerQuoteHref,
+  type PlannerBudgetBand,
+  type PlannerIntendedPath,
+  type PlannerOpenQuestionKey,
+} from "@/lib/quoteIntake";
 
 const budgetKeys: PlannerBudgetKey[] = [
   "machine",
@@ -79,14 +85,18 @@ const getSelectedChoice = (
   answers: PlannerAnswers
 ) => question.choices.find((choice) => choice.id === answers[question.id]);
 
-const getPurchaseHref = (machine: PlannerMachineId) => {
-  if (machine === "commercial") {
-    return `/contact?type=quote&interest=commercial&source=${encodeURIComponent(plannerPath)}`;
-  }
-  return machine === "micro" ? "/machines/micro" : "/machines/mini";
-};
+const getMachineHref = (machine: PlannerMachineId) =>
+  machine === "commercial"
+    ? "/machines/commercial-robotic-machine"
+    : `/machines/${machine}`;
 
-const getGeneralPurchaseHref = () => "/machines";
+const unansweredQuestionKeys: Record<PlannerQuestionId, PlannerOpenQuestionKey> = {
+  path: "operating-path",
+  setting: "setting",
+  service: "service-model",
+  pattern: "pattern-needs",
+  ops: "operating-blocker",
+};
 
 export default function BusinessPlaybookPlannerPage() {
   const [answers, setAnswers] = useState(getInitialAnswers);
@@ -96,6 +106,7 @@ export default function BusinessPlaybookPlannerPage() {
   );
   const [budgetWasEdited, setBudgetWasEdited] = useState(false);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
+  const completionTrackedRef = useRef(false);
 
   useEffect(() => {
     trackBusinessPlaybookPlannerInteraction({
@@ -132,19 +143,50 @@ export default function BusinessPlaybookPlannerPage() {
   const maxScore = Math.max(...rankedMachines.map((machine) => machine.score), 1);
   const budgetTotal = budgetKeys.reduce((sum, key) => sum + budget[key], 0);
   const isCommercialQuoteNeeded = budgetMachine === "commercial" && budget.machine === 0;
-  const quoteMachine = budgetMachine ?? recommendedMachine?.id;
-  const finalQuoteHref = quoteMachine
-    ? getPurchaseHref(quoteMachine)
-    : getGeneralPurchaseHref();
-  const finalCtaLabel = quoteMachine === "commercial"
-    ? "Request Commercial quote"
-    : quoteMachine === "micro"
-      ? isMicroCheckoutEnabled
-        ? "Buy Micro Machine"
-        : "View Micro checkout status"
-      : quoteMachine === "mini"
-        ? "View Mini launch status"
-        : "Compare purchase paths";
+  const resultMachine = recommendedMachine?.id ?? budgetMachine ?? undefined;
+  const resultMachineHref = resultMachine ? getMachineHref(resultMachine) : "/machines";
+  const resultMachineLabel = resultMachine
+    ? resultMachine === "micro" && isMicroCheckoutEnabled
+      ? "View Micro purchase path"
+      : `View ${plannerMachineProfiles[resultMachine].shortLabel} machine`
+    : "Compare machines";
+  const plannerIntendedPath: PlannerIntendedPath =
+    answers.path === "venue-placement" ||
+    answers.path === "events-catering" ||
+    answers.path === "small-test"
+      ? answers.path
+      : "exploring";
+  const plannerBudgetBand: PlannerBudgetBand = !budgetMachine
+    ? "not-started"
+    : budget.machine === 0 || budget.importFreight === 0
+      ? "incomplete"
+      : "reviewed";
+  const plannerOpenQuestions = useMemo(() => {
+    const open = plannerQuestions
+      .filter((question) => !answers[question.id])
+      .map((question) => unansweredQuestionKeys[question.id]);
+
+    if (!budgetMachine) {
+      open.push("budget-scenario");
+    } else {
+      if (budget.machine === 0) open.push("machine-cost");
+      if (budget.importFreight === 0) open.push("landed-cost");
+    }
+
+    return [...new Set(open)];
+  }, [answers, budget.importFreight, budget.machine, budgetMachine]);
+  const plannerOpenQuestionBand =
+    plannerOpenQuestions.length === 0
+      ? "none"
+      : plannerOpenQuestions.length <= 2
+        ? "few"
+        : "several";
+  const finalQuoteHref = buildPlannerQuoteHref({
+    machineSignal: recommendedMachine?.id ?? "undecided",
+    intendedPath: plannerIntendedPath,
+    budgetBand: plannerBudgetBand,
+    openQuestions: plannerOpenQuestions,
+  });
   const selectedAnswerRows = useMemo(
     () =>
       plannerQuestions.map((question) => ({
@@ -197,6 +239,24 @@ export default function BusinessPlaybookPlannerPage() {
       setBudget(plannerMachineProfiles[recommendedMachine.id].defaultBudget);
     }
   }, [budgetMachine, budgetWasEdited, recommendedMachine]);
+
+  useEffect(() => {
+    if (answeredCount < plannerQuestions.length || completionTrackedRef.current) return;
+    completionTrackedRef.current = true;
+    trackBusinessPlaybookPlannerInteraction({
+      action: "complete_fit",
+      recommendedMachine: recommendedMachine?.id ?? "undecided",
+      budgetMachine: budgetMachine ?? "not_selected",
+      budgetBand: plannerBudgetBand,
+      openQuestionBand: plannerOpenQuestionBand,
+    });
+  }, [
+    answeredCount,
+    budgetMachine,
+    plannerBudgetBand,
+    plannerOpenQuestionBand,
+    recommendedMachine,
+  ]);
 
   const handleAnswerChange = (questionId: string, choiceId: string) => {
     const nextAnswers = { ...answers, [questionId]: choiceId };
@@ -762,8 +822,8 @@ export default function BusinessPlaybookPlannerPage() {
       <section className="py-10 sm:py-12 lg:py-16">
         <div className="container-page">
           <div className="rounded-xl border border-primary/20 bg-primary/5 p-6 sm:p-8">
-            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-              <div>
+            <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+              <div className="min-w-0">
                 <div className="flex items-center gap-3">
                   <Calculator className="h-6 w-6 text-primary" />
                   <h2 className="font-display text-2xl font-bold text-foreground">
@@ -771,29 +831,66 @@ export default function BusinessPlaybookPlannerPage() {
                   </h2>
                 </div>
                 <p className="mt-3 max-w-3xl leading-relaxed text-muted-foreground">
-                  When you are ready, bring your machine direction, budget unknowns, target setting,
-                  and timeline to Bloomjoy. We can help pressure-test the plan before you spend.
+                  Treat the result as a direction to investigate, not a definitive recommendation.
+                  Review the relevant product path first. If you are considering the configurable
+                  Commercial Machine, the quote form can receive only this categorical summary.
+                </p>
+                <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+                  No exact budget, revenue, margin, volume, ROI, or payback input enters the URL or
+                  analytics. Mini and Micro remain on their payment-first product paths.
                 </p>
               </div>
-              <div className="flex flex-col gap-3 sm:flex-row lg:flex-col">
+              <div className="flex min-w-0 flex-col gap-3 sm:flex-row lg:flex-col">
                 <Button asChild size="lg">
                   <Link
-                    to={finalQuoteHref}
-                    onClick={() =>
+                    className="h-auto min-h-11 whitespace-normal text-center"
+                    to={resultMachineHref}
+                    onClick={() => {
                       trackBusinessPlaybookCtaClick({
                         surface: "playbook_planner",
-                        cta: "planner_final_quote_cta",
-                        href: finalQuoteHref,
-                        machine: quoteMachine ? plannerMachineProfiles[quoteMachine].label : undefined,
-                      })
-                    }
+                        cta: "planner_result_to_product",
+                        href: resultMachineHref,
+                        machine: resultMachine
+                          ? plannerMachineProfiles[resultMachine].label
+                          : undefined,
+                      });
+                      trackBusinessPlaybookPlannerInteraction({
+                        action: "result_to_product",
+                        recommendedMachine: recommendedMachine?.id ?? "undecided",
+                        budgetMachine: budgetMachine ?? "not_selected",
+                        budgetBand: plannerBudgetBand,
+                        openQuestionBand: plannerOpenQuestionBand,
+                      });
+                    }}
                   >
-                    {finalCtaLabel}
+                    {resultMachineLabel}
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
                 </Button>
                 <Button asChild variant="outline" size="lg">
-                  <Link to="/resources/business-playbook">Keep reading</Link>
+                  <Link
+                    className="h-auto min-h-11 whitespace-normal text-center"
+                    to={finalQuoteHref}
+                    onClick={() => {
+                      trackBusinessPlaybookCtaClick({
+                        surface: "playbook_planner",
+                        cta: "planner_result_to_commercial_quote",
+                        href: finalQuoteHref,
+                        machine: plannerMachineProfiles.commercial.label,
+                      });
+                      trackBusinessPlaybookPlannerInteraction({
+                        action: "result_to_quote",
+                        recommendedMachine: recommendedMachine?.id ?? "undecided",
+                        budgetMachine: budgetMachine ?? "not_selected",
+                        budgetBand: plannerBudgetBand,
+                        openQuestionBand: plannerOpenQuestionBand,
+                      });
+                    }}
+                  >
+                    {recommendedMachine?.id === "commercial"
+                      ? "Request Commercial quote"
+                      : "Compare with Commercial quote"}
+                  </Link>
                 </Button>
               </div>
             </div>

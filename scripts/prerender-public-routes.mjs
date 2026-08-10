@@ -10,6 +10,10 @@ const TEMPLATE_PATH = path.join(DIST_DIR, "index.html");
 const MANIFEST_PATH = path.join(DIST_DIR, ".vite", "manifest.json");
 
 const prerenderRouteModules = new Map([
+  [
+    "/resources/business-playbook/planner",
+    "src/pages/resources/BusinessPlaybookPlanner.tsx",
+  ],
   ["/solutions/food-trucks", "src/pages/solutions/FoodTrucks.tsx"],
   [
     "/resources/business-playbook/food-truck-mobile-setup-guide",

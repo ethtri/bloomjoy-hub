@@ -95,6 +95,7 @@ const expectedH1TextByRoute = {
 };
 
 const expectedPrerenderRouteModuleByPath = {
+  "/resources/business-playbook/planner": "BusinessPlaybookPlanner-",
   "/solutions/food-trucks": "FoodTrucks-",
   "/resources/business-playbook/food-truck-mobile-setup-guide":
     "MobileFoodSetupGuide-",

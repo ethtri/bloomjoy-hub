@@ -6,6 +6,7 @@ import { Layout } from '@/components/layout/Layout';
 import { ProductImageGallery } from '@/components/products/ProductImageGallery';
 import { trackEvent } from '@/lib/analytics';
 import { trackBuyerFlowPlaybookLinkClick } from '@/lib/businessPlaybookAnalytics';
+import { plannerPath } from '@/data/businessPlaybookPlanner';
 import { MACHINE_NAMES } from '@/lib/machineNames';
 import { useCart } from '@/lib/cart';
 import { isMicroCheckoutEnabled } from '@/lib/commerceAvailability';
@@ -142,6 +143,21 @@ export default function MicroPage() {
                       <ArrowRight className="h-4 w-4" />
                     </Link>
                     <div className="mt-2 grid gap-1">
+                      <Link
+                        to={plannerPath}
+                        onClick={() =>
+                          trackBuyerFlowPlaybookLinkClick({
+                            surface: 'micro_machine_page',
+                            cta: 'micro_machine_fit_planner',
+                            href: plannerPath,
+                            machine: MACHINE_NAMES.micro,
+                          })
+                        }
+                        className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+                      >
+                        Check the machine-fit planner
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
                       <Link
                         to="/resources/business-playbook/payback-planner"
                         onClick={() =>
