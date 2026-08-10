@@ -8,6 +8,7 @@ import { trackBuyerFlowPlaybookLinkClick } from '@/lib/businessPlaybookAnalytics
 import { MACHINE_NAMES } from '@/lib/machineNames';
 import { machineBuyerFaqs } from '@/lib/seoRoutes';
 import { isMicroCheckoutEnabled } from '@/lib/commerceAvailability';
+import { FOOD_TRUCK_SOLUTION_PATH } from '@/data/mobileOperatorPages';
 import commercialMain from '@/assets/real/commercial-main.jpg';
 import miniMain from '@/assets/real/mini-main.webp';
 import microMain from '@/assets/real/micro-main.webp';
@@ -105,6 +106,21 @@ export default function ProductsPage() {
               </p>
             </div>
             <div className="grid gap-2 sm:justify-items-end">
+              <Link
+                to={FOOD_TRUCK_SOLUTION_PATH}
+                onClick={() =>
+                  trackBuyerFlowPlaybookLinkClick({
+                    surface: 'machine_listing',
+                    cta: 'food_truck_machine_fit',
+                    href: FOOD_TRUCK_SOLUTION_PATH,
+                    machine: 'all',
+                  })
+                }
+                className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+              >
+                Compare food-truck machine fit
+                <ArrowRight className="h-4 w-4" />
+              </Link>
               <Link
                 to="/resources/business-playbook/commercial-vending-vs-event-catering"
                 onClick={() =>

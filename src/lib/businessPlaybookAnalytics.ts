@@ -30,7 +30,9 @@ type PlaybookSurface =
   | "mini_machine_page"
   | "micro_machine_page"
   | "contact_success"
-  | "plus_page";
+  | "plus_page"
+  | "food_truck_solution"
+  | "mobile_setup_guide";
 
 type PlaybookClickProps = {
   surface: PlaybookSurface;

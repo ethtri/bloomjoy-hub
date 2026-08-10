@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Layout } from "@/components/layout/Layout";
 import { PlusToolsPreview } from "@/components/resources/PlusToolsPreview";
+import { MobileOperatorEntry } from "@/components/resources/MobileOperatorEntry";
 import {
   Accordion,
   AccordionContent,
@@ -143,6 +144,12 @@ export default function ResourcesPage() {
               </figcaption>
             </figure>
           </div>
+        </div>
+      </section>
+
+      <section className="border-b border-border bg-background py-8 sm:py-10">
+        <div className="container-page">
+          <MobileOperatorEntry surface="resources_category" />
         </div>
       </section>
 

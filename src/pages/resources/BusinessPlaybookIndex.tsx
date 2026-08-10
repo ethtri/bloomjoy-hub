@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { ArrowRight, BookOpen, Calculator, ClipboardCheck, MapPinned, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Layout } from "@/components/layout/Layout";
+import { MobileOperatorEntry } from "@/components/resources/MobileOperatorEntry";
 import {
   trackBusinessPlaybookCtaClick,
   trackResourcesPlaybookCardClick,
@@ -134,6 +135,12 @@ export default function BusinessPlaybookIndexPage() {
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className="border-b border-border bg-background py-8 sm:py-10">
+        <div className="container-page">
+          <MobileOperatorEntry surface="playbook_index_category" />
         </div>
       </section>
 

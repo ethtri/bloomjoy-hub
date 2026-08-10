@@ -2,6 +2,11 @@ import type { AppSurface } from "@/lib/appSurface";
 import { businessPlaybookArticles } from "@/data/businessPlaybook";
 import { paybackPlannerPath } from "@/data/businessPlaybookPaybackPlanner";
 import { isMicroCheckoutEnabled } from "@/lib/commerceAvailability";
+import {
+  FOOD_TRUCK_SOLUTION_PATH,
+  MOBILE_SETUP_GUIDE_PATH,
+  foodTruckSolutionFaqs,
+} from "@/data/mobileOperatorPages";
 
 export type RouteSeo = {
   path: string;
@@ -23,7 +28,8 @@ export type RouteSeo = {
     | "supplies"
     | "faq"
     | "business-playbook-index"
-    | "business-playbook-article";
+    | "business-playbook-article"
+    | "mobile-setup-guide";
 };
 
 export type PrivateRouteSeo = RouteSeo & {
@@ -61,6 +67,8 @@ export const publicRouteLastmods = {
   "/resources/business-playbook": "2026-05-11",
   "/resources/business-playbook/planner": "2026-05-01",
   "/resources/business-playbook/payback-planner": "2026-07-17",
+  "/resources/business-playbook/food-truck-mobile-setup-guide": "2026-08-09",
+  "/solutions/food-trucks": "2026-08-09",
   "/contact": "2026-05-11",
   "/about": "2026-05-11",
   "/privacy": "2026-02-23",
@@ -220,6 +228,25 @@ const businessPlaybookSeoRoutes: RouteSeo[] = [
     ogImageAlt: "Bloomjoy Payback Scenario Planner for cotton candy machine operators",
     lastmod: publicRouteLastmods["/resources/business-playbook/payback-planner"],
   },
+  {
+    path: MOBILE_SETUP_GUIDE_PATH,
+    title: "Food-Truck Cotton Candy Machine Setup Guide | Bloomjoy",
+    description:
+      "Check space, power-load questions, transport, storage, cleaning, service flow, and local-review steps before adding a robotic cotton candy machine to a food truck or trailer.",
+    robots: PUBLIC_ROBOTS,
+    surface: "marketing",
+    ogType: "article",
+    ogImagePath: "/seo/mini-machine.jpg",
+    ogImageAlt: "Bloomjoy Mini Machine mobile-food setup planning guide",
+    sitemapImages: [
+      {
+        loc: `${MARKETING_ORIGIN}/seo/mini-machine.jpg`,
+        title: "Food-truck robotic cotton candy machine setup guide",
+      },
+    ],
+    lastmod: publicRouteLastmods[MOBILE_SETUP_GUIDE_PATH],
+    structuredDataKind: "mobile-setup-guide",
+  },
   ...businessPlaybookArticles.map(
     (article): RouteSeo => ({
       path: `/resources/business-playbook/${article.slug}`,
@@ -260,6 +287,25 @@ export const publicRoutes: RouteSeo[] = [
       },
     ],
     lastmod: publicRouteLastmods["/"],
+  },
+  {
+    path: FOOD_TRUCK_SOLUTION_PATH,
+    title: "Cotton Candy Machines for Food Trucks and Trailers | Bloomjoy",
+    description:
+      "Compare Bloomjoy robotic cotton candy machine fit for food trucks, concession trailers, mobile catering, and adjacent pop-up service before requesting a quote.",
+    robots: PUBLIC_ROBOTS,
+    surface: "marketing",
+    ogType: "website",
+    ogImagePath: "/seo/machines-lineup.jpg",
+    ogImageAlt: "Bloomjoy robotic cotton candy machines for mobile-food operators",
+    sitemapImages: [
+      {
+        loc: `${MARKETING_ORIGIN}/seo/machines-lineup.jpg`,
+        title: "Robotic cotton candy machines for food trucks and concession trailers",
+      },
+    ],
+    lastmod: publicRouteLastmods[FOOD_TRUCK_SOLUTION_PATH],
+    structuredDataKind: "faq",
   },
   {
     path: "/machines",
@@ -606,6 +652,9 @@ const getRouteFaqs = (route: RouteSeo) => {
   if (route.path === "/machines/mini") {
     return miniMachineFaqs;
   }
+  if (route.path === FOOD_TRUCK_SOLUTION_PATH) {
+    return foodTruckSolutionFaqs;
+  }
   return [];
 };
 
@@ -750,6 +799,27 @@ export const buildStructuredData = ({
     });
   }
 
+  if (route.path === FOOD_TRUCK_SOLUTION_PATH) {
+    graph.push({
+      "@type": "BreadcrumbList",
+      "@id": `${canonicalUrl}#breadcrumb`,
+      itemListElement: [
+        {
+          "@type": "ListItem",
+          position: 1,
+          name: "Home",
+          item: `${MARKETING_ORIGIN}/`,
+        },
+        {
+          "@type": "ListItem",
+          position: 2,
+          name: "Food Trucks and Mobile Operators",
+          item: canonicalUrl,
+        },
+      ],
+    });
+  }
+
   if (route.path === "/resources/business-playbook") {
     graph.push({
       "@type": "CollectionPage",
@@ -762,11 +832,19 @@ export const buildStructuredData = ({
       },
       mainEntity: {
         "@type": "ItemList",
-        itemListElement: businessPlaybookArticles.map((article, index) => ({
+        itemListElement: [
+          {
+            name: "Food-Truck Cotton Candy Machine Setup Guide",
+            url: `${MARKETING_ORIGIN}${MOBILE_SETUP_GUIDE_PATH}`,
+          },
+          ...businessPlaybookArticles.map((article) => ({
+            name: article.title,
+            url: `${MARKETING_ORIGIN}/resources/business-playbook/${article.slug}`,
+          })),
+        ].map((item, index) => ({
           "@type": "ListItem",
           position: index + 1,
-          name: article.title,
-          url: `${MARKETING_ORIGIN}/resources/business-playbook/${article.slug}`,
+          ...item,
         })),
       },
     });
@@ -823,6 +901,54 @@ export const buildStructuredData = ({
         }
       );
     }
+  }
+
+  if (route.structuredDataKind === "mobile-setup-guide") {
+    graph.push(
+      {
+        "@type": "BreadcrumbList",
+        "@id": `${canonicalUrl}#breadcrumb`,
+        itemListElement: [
+          {
+            "@type": "ListItem",
+            position: 1,
+            name: "Resources",
+            item: `${MARKETING_ORIGIN}/resources`,
+          },
+          {
+            "@type": "ListItem",
+            position: 2,
+            name: "Business Playbook",
+            item: `${MARKETING_ORIGIN}/resources/business-playbook`,
+          },
+          {
+            "@type": "ListItem",
+            position: 3,
+            name: "Food-Truck Cotton Candy Machine Setup Guide",
+            item: canonicalUrl,
+          },
+        ],
+      },
+      {
+        "@type": "Article",
+        "@id": `${canonicalUrl}#article`,
+        headline: "Food-Truck Cotton Candy Setup: What to Confirm Before the Quote",
+        description: route.description,
+        image: `${MARKETING_ORIGIN}/seo/mini-machine.jpg`,
+        datePublished: route.lastmod,
+        dateModified: route.lastmod,
+        author: { "@id": `${MARKETING_ORIGIN}/#organization` },
+        publisher: { "@id": `${MARKETING_ORIGIN}/#organization` },
+        mainEntityOfPage: { "@id": `${canonicalUrl}#webpage` },
+        citation: [
+          `${MARKETING_ORIGIN}/machines/mini`,
+          `${MARKETING_ORIGIN}/machines/commercial-robotic-machine`,
+          `${MARKETING_ORIGIN}/machines/micro`,
+          "https://leginfo.legislature.ca.gov/faces/codes_displayText.xhtml?article=&chapter=10.&division=104.&lawCode=HSC&part=7.&title=",
+          "https://www.fda.gov/media/164194/download",
+        ],
+      }
+    );
   }
 
   if (route.structuredDataKind === "machine-product" && machineProductDataByPath[route.path]) {
