@@ -10,6 +10,7 @@ type CreateLeadSubmissionInput = {
   metadata?: Record<string, unknown>;
   machineInterest?: string;
   sourcePage?: string;
+  clientSubmissionId?: string;
 };
 
 export const createLeadSubmission = async ({
@@ -20,6 +21,7 @@ export const createLeadSubmission = async ({
   metadata,
   machineInterest,
   sourcePage = '/contact',
+  clientSubmissionId = crypto.randomUUID(),
 }: CreateLeadSubmissionInput) => {
   const data = await invokeEdgeFunction<{ error?: string }>(
     'lead-submission-intake',
@@ -31,7 +33,7 @@ export const createLeadSubmission = async ({
       metadata,
       machineInterest,
       sourcePage,
-      clientSubmissionId: crypto.randomUUID(),
+      clientSubmissionId,
     }
   );
 

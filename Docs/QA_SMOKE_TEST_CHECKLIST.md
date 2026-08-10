@@ -189,6 +189,15 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Billing & cancellation page explains Stripe portal cancellation path and end-of-period effect
 - [ ] Contact/Quote form submits (and confirmation is shown)
 - [ ] Contact form labels are clickable, and all visible fields have associated labels
+- [ ] Plain `/contact` opens the general-contact journey; `/contact?type=quote` opens the focused machine-fit request with accurate no-SLA/no-price/no-availability/no-ROI expectation copy
+- [ ] Quote variants for Mini, Micro, Commercial, malformed interest, missing interest, and known `source` paths show only allowlisted machine/source context; no contact or qualification value appears in the URL
+- [ ] Quote validation identifies and focuses an accessible error summary, associates field errors, preserves valid entries, and works by keyboard at 320px through desktop widths
+- [ ] Quote submission stores intended setting, service region, timeline, and optional organization/readiness/details in the structured lead message; only name, email, setting, region, and timeline are required
+- [ ] A server/network failure leaves the entered quote intact and Retry reuses the client submission token; rapid duplicate clicks and a retry after an uncertain response produce one lead row and at most one notification dispatch
+- [ ] Quote success confirms receipt, explains the next review step without an SLA, summarizes only machine/setting/timing, and offers `info@bloomjoyusa.com` as the alternative contact path without putting PII in the URL
+- [ ] General inquiry, demo, procurement, existing anti-abuse throttles, email/WeCom notification routing, and Playbook-source behavior still pass after the quote-specific UI changes
+- [ ] `lead_form_start`, `lead_form_submit`, and `lead_form_error` use only controlled inquiry type, route, and normalized source context; no name, email, organization, region, message, or other form value reaches analytics
+- [ ] Run `npm run quote-intake:check` and confirm quote mode, safe context, dedupe/retry, accessibility, CTA routing, and analytics payload guardrails pass
 - [ ] Quote flow preserves machine context (for example, Commercial CTA preselects "Machine of Interest" on `/contact`)
 - [ ] Contact quote type only permits `Commercial Machine`; legacy Mini/Micro quote query parameters do not silently submit as product quotes
 - [ ] Mobile icon-only cart/menu controls have accessible names
