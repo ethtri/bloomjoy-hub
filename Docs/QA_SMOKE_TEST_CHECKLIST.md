@@ -12,7 +12,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Direct-load public routes in browser address bar (for example `/machines`, `/supplies`, `/plus`) and confirm they do not return hosting-level 404 pages
 - [ ] View page source on a direct-loaded public route (for example `/machines`) and confirm title/description/canonical are route-specific before client-side JS executes
 - [ ] View page source on `/machines/commercial-robotic-machine` and confirm the `#root` contains rendered body HTML, the H1 text is present, and there are no `/src/assets/` image URLs
-- [ ] View page source on `/machines/commercial-robotic-machine` and confirm JSON-LD includes `Product`, `BreadcrumbList`, and `FAQPage` nodes that match visible page content
+- [ ] View page source on `/machines/commercial-robotic-machine` and confirm quote-only JSON-LD includes matching `BreadcrumbList` and `FAQPage` nodes without an ineligible `Product`, `Offer`, or public price
 - [ ] View page source on `/supplies` and confirm JSON-LD includes Product/Offer data only for direct-price supplies (`$10/kg` sugar and `$130/box` sticks)
 - [ ] View page source on a direct-loaded private route (for example `/portal`) and confirm robots is `noindex`
 - [ ] `https://www.bloomjoyusa.com/login`, `/reset-password`, `/portal*`, and `/admin*` redirect to `https://app.bloomjoyusa.com/...`
@@ -23,6 +23,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Stale route chunk recovery check: simulate one route-level JS chunk load failure, confirm the app performs one automatic reload, then confirm a repeated failure shows the app-update refresh fallback instead of a blank page
 - [ ] `robots.txt` is reachable and includes a sitemap reference
 - [ ] `sitemap.xml` is reachable, lists core public routes plus public Business Playbook article routes, includes `lastmod`, and includes image sitemap entries for key machine/supplies/about/playbook URLs
+- [ ] Sitemap `lastmod` values reflect versioned route/article updates rather than one build-wide date; adding/removing a public route requires an intentional route-count regression update
+- [ ] Mini and Micro Product JSON-LD Offers match their visible USD prices and canonical page URLs; Commercial remains quote-only with no Product rich-result node, Offer, or public price in structured data
+- [ ] Machine Product/Offer JSON-LD does not add ratings, reviews, availability, inventory, shipping, returns, financing, or other unsupported commerce claims
 - [ ] Apex host (`https://bloomjoyusa.com`) redirects to canonical host (`https://www.bloomjoyusa.com/`) with permanent redirect behavior
 - [ ] Legacy paths (`/products`, `/products/mini`, `/products/micro`, `/products/commercial-robotic-machine`) return permanent redirects to `/machines*`
 - [ ] No console errors on home page load

@@ -8,6 +8,7 @@ process.env.VITE_SUPABASE_ANON_KEY ||= "prerender-anon-key";
 const DIST_DIR = path.resolve(process.cwd(), "dist");
 const VERCEL_CONFIG_PATH = path.resolve(process.cwd(), "vercel.json");
 const SITEMAP_URL = "https://www.bloomjoyusa.com/sitemap.xml";
+const EXPECTED_PUBLIC_ROUTE_COUNT = 25;
 
 const routeToDistHtml = (routePath) => {
   if (routePath === "/") {
@@ -41,10 +42,41 @@ const assertMatches = (text, pattern, failureMessage) => {
   }
 };
 
+const readStructuredData = (html, scriptId, routePath) => {
+  const marker = `<script id="${scriptId}" type="application/ld+json">`;
+  const start = html.indexOf(marker);
+  const end = start >= 0 ? html.indexOf("</script>", start + marker.length) : -1;
+
+  if (start < 0 || end < 0) {
+    throw new Error(`Public route ${routePath} has unreadable JSON-LD`);
+  }
+
+  try {
+    return JSON.parse(html.slice(start + marker.length, end));
+  } catch {
+    throw new Error(`Public route ${routePath} has invalid JSON-LD`);
+  }
+};
+
+const expectedMachineProductByRoute = {
+  "/machines/mini": {
+    name: "Bloomjoy Sweets Mini Machine",
+    image: "https://www.bloomjoyusa.com/seo/mini-machine.jpg",
+    descriptionSnippet: "Portable robotic cotton candy machine",
+    offer: { price: "4000.00", priceCurrency: "USD" },
+  },
+  "/machines/micro": {
+    name: "Bloomjoy Sweets Micro Machine",
+    image: "https://www.bloomjoyusa.com/seo/micro-machine.jpg",
+    descriptionSnippet: "Entry-level robotic cotton candy machine",
+    offer: { price: "2200.00", priceCurrency: "USD" },
+  },
+};
+
 const expectedH1TextByRoute = {
   "/": "Robotic cotton candy",
   "/machines": "Robotic Cotton Candy Machines for Operators",
-  "/machines/commercial-robotic-machine": "Bloomjoy Sweets Commercial Machine",
+  "/machines/commercial-robotic-machine": "Bloomjoy Sweets <!-- -->Commercial Machine",
   "/machines/mini": "Bloomjoy Sweets Mini Machine",
   "/machines/micro": "Bloomjoy Sweets Micro Machine",
   "/supplies": "Cotton Candy Machine Sugar and Paper Sticks",
@@ -81,6 +113,12 @@ const validatePublicRouteHtml = async (route, seoRoutes) => {
   const html = await readFile(routeToDistHtml(route.path), "utf8");
   const canonical = seoRoutes.canonicalForPath(seoRoutes.MARKETING_ORIGIN, route.path);
   const expectedH1Text = expectedH1TextByRoute[route.path];
+  const structuredData = readStructuredData(
+    html,
+    seoRoutes.STRUCTURED_DATA_SCRIPT_ID,
+    route.path
+  );
+  const graph = Array.isArray(structuredData?.["@graph"]) ? structuredData["@graph"] : [];
 
   assertIncludes(
     html,
@@ -135,14 +173,86 @@ const validatePublicRouteHtml = async (route, seoRoutes) => {
   if (route.path.startsWith("/machines/")) {
     assertIncludes(
       html,
-      `"@type":"Product"`,
-      `Machine route ${route.path} is missing Product JSON-LD`
-    );
-    assertIncludes(
-      html,
       `"@type":"BreadcrumbList"`,
       `Machine route ${route.path} is missing BreadcrumbList JSON-LD`
     );
+
+    const expectedProduct = expectedMachineProductByRoute[route.path];
+    const product = graph.find(
+      (node) => node?.["@type"] === "Product" && node?.url === canonical
+    );
+
+    if (route.path === "/machines/commercial-robotic-machine") {
+      if (product) {
+        throw new Error(
+          `Quote-only machine route ${route.path} must not emit an ineligible Product rich-result node`
+        );
+      }
+
+      const graphText = JSON.stringify(graph);
+      assertExcludes(
+        graphText,
+        `"@type":"Offer"`,
+        `Quote-only machine route ${route.path} must not emit an Offer`
+      );
+      assertExcludes(
+        graphText,
+        `"price"`,
+        `Quote-only machine route ${route.path} must not emit a public price`
+      );
+    } else {
+      if (!expectedProduct || !product) {
+        throw new Error(`Machine route ${route.path} is missing its canonical Product node`);
+      }
+
+      if (product.name !== expectedProduct.name) {
+        throw new Error(`Machine route ${route.path} Product name does not match visible copy`);
+      }
+
+      if (product.image !== expectedProduct.image) {
+        throw new Error(`Machine route ${route.path} Product image is incorrect`);
+      }
+
+      if (!String(product.description ?? "").includes(expectedProduct.descriptionSnippet)) {
+        throw new Error(`Machine route ${route.path} Product description is incorrect`);
+      }
+
+      const productText = JSON.stringify(product);
+      for (const forbidden of [
+        '"@type":"Review"',
+        '"@type":"AggregateRating"',
+        '"aggregateRating"',
+        '"availability"',
+        '"inventoryLevel"',
+        '"shippingDetails"',
+        '"hasMerchantReturnPolicy"',
+        '"financing"',
+      ]) {
+        assertExcludes(
+          productText,
+          forbidden,
+          `Machine route ${route.path} Product JSON-LD contains unsupported ${forbidden}`
+        );
+      }
+
+      if (expectedProduct.offer) {
+        if (product.offers?.["@type"] !== "Offer") {
+          throw new Error(`Machine route ${route.path} is missing Product Offer JSON-LD`);
+        }
+        if (
+          product.offers.price !== expectedProduct.offer.price ||
+          product.offers.priceCurrency !== expectedProduct.offer.priceCurrency ||
+          product.offers.url !== canonical
+        ) {
+          throw new Error(`Machine route ${route.path} Product Offer does not match visible pricing`);
+        }
+
+        const offerKeys = Object.keys(product.offers).sort().join(",");
+        if (offerKeys !== "@type,price,priceCurrency,url") {
+          throw new Error(`Machine route ${route.path} Product Offer contains unsupported fields`);
+        }
+      }
+    }
   }
 
   if (route.path === "/machines" || route.path === "/machines/commercial-robotic-machine" || route.path === "/resources") {
@@ -306,6 +416,34 @@ const validateRobots = async () => {
 const validateSitemap = async (seoRoutes) => {
   const sitemap = await readFile(path.join(DIST_DIR, "sitemap.xml"), "utf8");
 
+  if (seoRoutes.publicRoutes.length !== EXPECTED_PUBLIC_ROUTE_COUNT) {
+    throw new Error(
+      `Public route count changed from ${EXPECTED_PUBLIC_ROUTE_COUNT}; review sitemap coverage and update the intentional baseline`
+    );
+  }
+
+  const sitemapUrlCount = (sitemap.match(/<url>/g) ?? []).length;
+  if (sitemapUrlCount !== seoRoutes.publicRoutes.length) {
+    throw new Error(
+      `sitemap.xml has ${sitemapUrlCount} URLs for ${seoRoutes.publicRoutes.length} public routes`
+    );
+  }
+
+  const versionedRoutes = seoRoutes.publicRoutes.filter(
+    (route) => route.structuredDataKind !== "business-playbook-article"
+  );
+  const configuredPaths = Object.keys(seoRoutes.publicRouteLastmods).sort();
+  const versionedPaths = versionedRoutes.map((route) => route.path).sort();
+
+  if (configuredPaths.join("\n") !== versionedPaths.join("\n")) {
+    throw new Error("Per-route sitemap freshness metadata is incomplete or contains stale paths");
+  }
+
+  const uniqueLastmods = new Set(seoRoutes.publicRoutes.map((route) => route.lastmod));
+  if (uniqueLastmods.size < 2) {
+    throw new Error("Public sitemap routes must not share one blanket lastmod date");
+  }
+
   assertIncludes(
     sitemap,
     'xmlns:image="http://www.google.com/schemas/sitemap-image/1.1"',
@@ -314,6 +452,11 @@ const validateSitemap = async (seoRoutes) => {
 
   for (const route of seoRoutes.publicRoutes) {
     const canonical = seoRoutes.canonicalForPath(seoRoutes.MARKETING_ORIGIN, route.path);
+    assertMatches(
+      route.lastmod,
+      /^\d{4}-\d{2}-\d{2}$/,
+      `Route ${route.path} has a non-ISO lastmod`
+    );
     assertIncludes(
       sitemap,
       `<loc>${canonical}</loc>`,
