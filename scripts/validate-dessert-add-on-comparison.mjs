@@ -95,7 +95,7 @@ try {
   assert(
     seo.includes('structuredDataKind: "dessert-add-on-comparison"') &&
       seo.includes('Food Truck Dessert Add-Ons: Operator Comparison | Bloomjoy') &&
-      seoRegression.includes('EXPECTED_PUBLIC_ROUTE_COUNT = 29'),
+      seoRegression.includes('EXPECTED_PUBLIC_ROUTE_COUNT = 30'),
     'metadata, Article schema, sitemap freshness, and public-route count are registered'
   );
   assert(

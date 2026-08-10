@@ -38,6 +38,7 @@ import {
   MOBILE_SETUP_GUIDE_PATH,
 } from '@/data/mobileOperatorPages';
 import { MOBILE_SETUP_FIT_CHECKER_PATH } from '@/data/mobileSetupFitContract';
+import { FOOD_TRUCK_CATERING_DESSERT_MENU_PATH } from '@/data/cateringDessertMenuContract';
 import { trackEvent } from '@/lib/analytics';
 import { trackBusinessPlaybookCtaClick } from '@/lib/businessPlaybookAnalytics';
 
@@ -86,6 +87,12 @@ const relatedLinks = [
     title: 'Machine Fit + Startup Budget Planner',
     body: 'Compare machine paths and cost categories without sending exact private assumptions into analytics.',
     href: '/resources/business-playbook/planner',
+  },
+  {
+    eyebrow: 'Catering proposals',
+    title: 'Build a buyer-ready dessert package',
+    body: 'Define scope, service window, responsibilities, terms, weather, and paperwork without a serving or earnings promise.',
+    href: FOOD_TRUCK_CATERING_DESSERT_MENU_PATH,
   },
 ];
 
@@ -506,7 +513,7 @@ export default function FoodTruckDessertAddOnsPage() {
             <h2 className="mt-3 max-w-4xl font-display text-3xl font-bold text-foreground sm:text-4xl">
               Compare the category, then verify the machine and the setup.
             </h2>
-            <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-5">
               {relatedLinks.map((item) => (
                 <Link key={item.href} to={item.href} onClick={() => trackLink(`related_${item.eyebrow.toLowerCase().replaceAll(' ', '_')}`, item.href)} className="group flex h-full min-w-0 flex-col rounded-3xl border border-border bg-background p-5 transition-[transform,border-color,box-shadow] hover:-translate-y-1 hover:border-primary/50 hover:shadow-elevated motion-reduce:transform-none motion-reduce:transition-none">
                   <p className="text-xs font-bold uppercase tracking-[0.1em] text-primary">{item.eyebrow}</p>

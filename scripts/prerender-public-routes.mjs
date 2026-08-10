@@ -22,6 +22,10 @@ const prerenderRouteModules = new Map([
     "/resources/business-playbook/food-truck-dessert-add-ons",
     "src/pages/resources/FoodTruckDessertAddOns.tsx",
   ],
+  [
+    "/resources/business-playbook/food-truck-catering-dessert-menu",
+    "src/pages/resources/FoodTruckCateringDessertMenu.tsx",
+  ],
   ["/solutions/food-trucks", "src/pages/solutions/FoodTrucks.tsx"],
   [
     "/resources/business-playbook/food-truck-mobile-setup-guide",

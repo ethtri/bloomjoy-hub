@@ -51,6 +51,9 @@ const MobileSetupFitChecker = lazyRoute(
 const FoodTruckDessertAddOns = lazyRoute(
   () => import("./pages/resources/FoodTruckDessertAddOns")
 );
+const FoodTruckCateringDessertMenu = lazyRoute(
+  () => import("./pages/resources/FoodTruckCateringDessertMenu")
+);
 const BusinessPlaybookArticle = lazyRoute(
   () => import("./pages/resources/BusinessPlaybookArticle")
 );
@@ -206,6 +209,10 @@ export const AppShell = () => (
           <Route
             path="/resources/business-playbook/food-truck-dessert-add-ons"
             element={<FoodTruckDessertAddOns />}
+          />
+          <Route
+            path="/resources/business-playbook/food-truck-catering-dessert-menu"
+            element={<FoodTruckCateringDessertMenu />}
           />
           <Route
             path="/resources/business-playbook/:slug"
