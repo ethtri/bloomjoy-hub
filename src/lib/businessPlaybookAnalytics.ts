@@ -32,7 +32,8 @@ type PlaybookSurface =
   | "contact_success"
   | "plus_page"
   | "food_truck_solution"
-  | "mobile_setup_guide";
+  | "mobile_setup_guide"
+  | "home_hero";
 
 type PlaybookClickProps = {
   surface: PlaybookSurface;
@@ -178,11 +179,19 @@ export const trackBuyerFlowPlaybookLinkClick = (props: PlaybookClickProps) => {
 };
 
 export const trackBusinessPlaybookPlannerInteraction = (props: {
-  action: "view" | "select_fit_answer" | "select_budget_machine";
+  action:
+    | "view"
+    | "select_fit_answer"
+    | "select_budget_machine"
+    | "complete_fit"
+    | "result_to_product"
+    | "result_to_quote";
   question?: string;
   answer?: string;
   recommendedMachine?: PlannerMachineId | "undecided";
   budgetMachine?: PlannerMachineId | "not_selected";
+  budgetBand?: "not-started" | "incomplete" | "reviewed";
+  openQuestionBand?: "none" | "few" | "several";
 }) => {
   const eventName =
     props.action === "view"
@@ -195,6 +204,8 @@ export const trackBusinessPlaybookPlannerInteraction = (props: {
     answer: props.answer,
     recommended_machine: props.recommendedMachine ?? "undecided",
     budget_machine: props.budgetMachine ?? "not_selected",
+    budget_band: props.budgetBand ?? "not-started",
+    open_question_band: props.openQuestionBand ?? "several",
   });
 };
 

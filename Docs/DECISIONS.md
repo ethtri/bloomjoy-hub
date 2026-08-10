@@ -1,5 +1,18 @@
 # Decisions
 
+## 2026-08-10 - Machine-fit planner transfers categorical context only (`#623`)
+
+The public Machine Fit + Startup Budget Planner may carry a bounded planning summary into the Commercial quote journey, but it does not transfer the planner's exact financial inputs or turn a Mini/Micro result into quote interest.
+
+- The quote remains fixed to `interest=commercial` under the policy in `#617`.
+- The only planner query keys are `planner_machine`, `planner_path`, `planner_budget`, and `planner_open`, with fixed allowlisted values and the canonical planner `source`.
+- The visible and submitted summary may identify the advisory machine signal, intended operating-path category, budget-completeness band, and unresolved-question categories.
+- Names, contact details, free-form notes, exact budget amounts, revenue, margin, volume, ROI, and payback inputs stay out of URLs and analytics.
+- Mini and Micro results lead to their product/payment-first paths. A separate Commercial quote action may preserve the planner signal as context while stating that it is not quote interest.
+- Unknown values, non-planner sources, refresh/direct-load states, and incomplete planner states fail safely.
+
+This creates a useful handoff without weakening the payment-first storefront or collecting financial assumptions through attribution/query data.
+
 ## 2026-08-09 - Public quote intake uses focused, minimum-useful qualification (`#617`)
 `/contact?type=quote` is a Commercial Machine fit and quote conversation, while plain `/contact` remains a general-contact path. The quote flow asks for name, email, intended setting/use, a city/state or service region, and purchase timeline. Business/organization, procurement readiness, and additional details remain optional; a phone number is not collected in the first release.
 
