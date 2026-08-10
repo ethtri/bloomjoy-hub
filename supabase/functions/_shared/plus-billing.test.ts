@@ -1,5 +1,6 @@
 import {
   buildPlusCheckoutIdempotencyKey,
+  checkoutSessionIdFromUrl,
   collectStoredStripeCustomerIds,
   findReusableOpenPlusCheckoutSession,
   hasBlockingPlusSubscription,
@@ -87,6 +88,35 @@ const fakeStripe = ({
       return subscription;
     },
   },
+});
+
+Deno.test("only exact Stripe Checkout URLs yield a reusable session id", () => {
+  assert(
+    checkoutSessionIdFromUrl(
+      "https://checkout.stripe.com/c/pay/cs_test_safe_attempt",
+    ) ===
+      "cs_test_safe_attempt",
+    "expected the exact Checkout URL to yield its session id",
+  );
+  assert(
+    checkoutSessionIdFromUrl(
+      "https://checkout.stripe.com.evil.test/c/pay/cs_test_wrong",
+    ) ===
+      null,
+    "lookalike hosts must be rejected",
+  );
+  assert(
+    checkoutSessionIdFromUrl(
+      "http://checkout.stripe.com/c/pay/cs_test_wrong",
+    ) === null,
+    "non-HTTPS Checkout URLs must be rejected",
+  );
+  assert(
+    checkoutSessionIdFromUrl(
+      "https://checkout.stripe.com/c/pay/not_a_session",
+    ) === null,
+    "invalid Checkout identifiers must be rejected",
+  );
 });
 
 Deno.test("recoverable Plus subscriptions block duplicate checkout", () => {

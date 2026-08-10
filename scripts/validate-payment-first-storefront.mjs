@@ -246,6 +246,9 @@ assert.match(sugarCheckout, /payment_method_types: \["card"\]/);
 const plusCheckout = read('supabase/functions/stripe-plus-checkout/index.ts');
 const plusBilling = read('supabase/functions/_shared/plus-billing.mjs');
 const plusCheckoutAttempts = read('supabase/migrations/202608080001_plus_checkout_attempts.sql');
+const plusExpiredCheckoutRecovery = read(
+  'supabase/migrations/202608100001_plus_expired_checkout_recovery.sql'
+);
 assert.match(plusCheckout, /checkout_source: "bloomjoy_storefront"/);
 assert.match(plusCheckout, /payment_method_types: \["card"\]/);
 assert.match(plusCheckout, /customer: customerId/);
@@ -263,6 +266,8 @@ assert.match(plusCheckout, /complete_my_plus_checkout_attempt/);
 assert.match(plusCheckout, /mark_my_plus_checkout_provider_attempt/);
 assert.match(plusCheckout, /preserve_my_plus_checkout_attempt_for_retry/);
 assert.match(plusCheckout, /release_my_plus_checkout_attempt/);
+assert.match(plusCheckout, /release_my_stale_plus_checkout_attempt/);
+assert.match(plusCheckout, /checkoutSessionIdFromUrl/);
 assert.match(plusCheckout, /buildPlusCheckoutIdempotencyKey/);
 assert.match(plusCheckout, /plusCheckoutFailureDisposition/);
 assert.doesNotMatch(plusCheckout, /Math\.floor\(Date\.now\(\) \/ 60000\)/);
@@ -271,6 +276,7 @@ assert.match(plusBilling, /stripe\.customers\.list\(\{ email, limit: 100 \}\)/);
 assert.match(plusBilling, /stripe\.subscriptions\.retrieve\(subscriptionId\)/);
 assert.match(plusBilling, /stripe\.subscriptions\.list/);
 assert.match(plusBilling, /bloomjoy-plus-checkout:\$\{userId\}:\$\{attemptToken\}/);
+assert.match(plusBilling, /parsedUrl\.hostname !== "checkout\.stripe\.com"/);
 assert.match(plusBilling, /ownershipConflict/);
 assert.match(plusCheckoutAttempts, /create table if not exists public\.plus_checkout_attempts/);
 assert.match(plusCheckoutAttempts, /force row level security/);
@@ -280,6 +286,15 @@ assert.match(plusCheckoutAttempts, /create or replace function public\.complete_
 assert.match(plusCheckoutAttempts, /create or replace function public\.mark_my_plus_checkout_provider_attempt/);
 assert.match(plusCheckoutAttempts, /create or replace function public\.preserve_my_plus_checkout_attempt_for_retry/);
 assert.match(plusCheckoutAttempts, /create or replace function public\.release_my_plus_checkout_attempt/);
+assert.match(
+  plusExpiredCheckoutRecovery,
+  /create or replace function public\.release_my_stale_plus_checkout_attempt/
+);
+assert.match(plusExpiredCheckoutRecovery, /and stripe_checkout_session_id = p_stripe_checkout_session_id/);
+assert.match(
+  plusExpiredCheckoutRecovery,
+  /grant execute on function public\.release_my_stale_plus_checkout_attempt\(text\) to authenticated/
+);
 
 const customerPortal = read('supabase/functions/stripe-customer-portal/index.ts');
 const commercePreflight = read('scripts/commerce-preflight.mjs');

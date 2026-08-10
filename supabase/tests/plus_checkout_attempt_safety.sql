@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(27);
+select plan(32);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -68,9 +68,24 @@ select is(
   true,
   'Authenticated users can preserve an uncertain checkout attempt for retry'
 );
+select is(
+  has_function_privilege(
+    'authenticated',
+    'public.release_my_stale_plus_checkout_attempt(text)',
+    'execute'
+  ),
+  true,
+  'Authenticated users can release only their own provider-stale ready attempt'
+);
 select ok(
   pg_temp.capture_error('select public.claim_my_plus_checkout_attempt()') like '42501:%',
   'Anonymous callers cannot claim a Plus checkout attempt'
+);
+select ok(
+  pg_temp.capture_error(
+    $$select public.release_my_stale_plus_checkout_attempt('cs_test_safe_attempt')$$
+  ) like '42501:%',
+  'Anonymous callers cannot release a stale Plus checkout attempt'
 );
 
 insert into auth.users (
@@ -219,10 +234,25 @@ select is(
   false,
   'A completed attempt cannot be released as creating'
 );
-
-update public.plus_checkout_attempts
-set lease_expires_at = now() - interval '1 second'
-where user_id = '79000000-0000-4000-8000-000000000001';
+select is(
+  public.release_my_stale_plus_checkout_attempt('cs_test_wrong_attempt'),
+  false,
+  'A different Checkout Session cannot release the ready attempt'
+);
+select is(
+  public.release_my_stale_plus_checkout_attempt('cs_test_safe_attempt'),
+  true,
+  'The matching provider-stale ready attempt can be released'
+);
+select is(
+  (
+    select count(*)::integer
+    from public.plus_checkout_attempts
+    where user_id = '79000000-0000-4000-8000-000000000001'
+  ),
+  0,
+  'Releasing the provider-stale attempt removes only the current account row'
+);
 
 insert into claim_results values ('replacement', public.claim_my_plus_checkout_attempt());
 
