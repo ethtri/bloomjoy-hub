@@ -211,6 +211,21 @@ export default function CommercialRoboticPage() {
                         Compare revenue share and rent terms
                         <ArrowRight className="h-4 w-4" />
                       </Link>
+                      <Link
+                        to="/resources/business-playbook/how-to-pitch-location-owners"
+                        onClick={() =>
+                          trackBuyerFlowPlaybookLinkClick({
+                            surface: 'commercial_machine_page',
+                            cta: 'prepare_location_owner_pitch',
+                            href: '/resources/business-playbook/how-to-pitch-location-owners',
+                            machine: MACHINE_NAMES.commercial,
+                          })
+                        }
+                        className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+                      >
+                        Prepare your venue-owner pitch
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
                     </div>
                   </div>
                 </div>
