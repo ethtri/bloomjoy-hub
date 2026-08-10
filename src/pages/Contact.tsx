@@ -766,7 +766,16 @@ export default function ContactPage() {
                     className="min-h-12 w-full px-3 text-sm sm:px-8 sm:text-base"
                     disabled={submitting}
                   >
-                    {submitting ? 'Sending…' : isQuote ? 'Send Commercial quote request' : 'Send message'}
+                    {submitting ? (
+                      'Sending…'
+                    ) : isQuote ? (
+                      <>
+                        <span className="sm:hidden">Send Commercial request</span>
+                        <span className="hidden sm:inline">Send Commercial quote request</span>
+                      </>
+                    ) : (
+                      'Send message'
+                    )}
                     {!submitting && <ArrowRight aria-hidden="true" className="ml-1 h-4 w-4" />}
                   </Button>
                   <p className="text-center text-xs leading-relaxed text-muted-foreground">
