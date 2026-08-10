@@ -262,6 +262,7 @@ export default function ContactPage() {
     startTrackedRef.current = true;
     trackEvent('lead_form_start', {
       inquiry_type: formData.type,
+      machine_interest: isQuote ? MACHINE_NAMES.commercial : undefined,
       route: '/contact',
       source: sourcePage,
     });
@@ -306,7 +307,9 @@ export default function ContactPage() {
 
     if (!validateForm()) {
       trackEvent('lead_form_error', {
+        action: 'validation',
         inquiry_type: formData.type,
+        machine_interest: isQuote ? MACHINE_NAMES.commercial : undefined,
         route: '/contact',
         source: sourcePage,
       });
@@ -351,9 +354,9 @@ export default function ContactPage() {
           machineInterest: submittedMachineInterest || undefined,
         });
       }
-
       trackEvent('lead_form_submit', {
         inquiry_type: formData.type,
+        machine_interest: submittedMachineInterest || undefined,
         route: '/contact',
         source: sourcePage,
       });
@@ -374,7 +377,9 @@ export default function ContactPage() {
           : errorMessage || 'We could not send your request. Your entries are still here—please try again.'
       );
       trackEvent('lead_form_error', {
+        action: 'submission',
         inquiry_type: formData.type,
+        machine_interest: isQuote ? MACHINE_NAMES.commercial : undefined,
         route: '/contact',
         source: sourcePage,
       });

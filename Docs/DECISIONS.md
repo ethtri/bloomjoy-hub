@@ -75,6 +75,24 @@ Bloomjoy will retain enough first-touch, last-touch, and conversion context to d
 
 The exact schema, field limits, lifecycle, rollout, and rollback are maintained in `Docs/LEAD_ATTRIBUTION.md`. Automated grading, autonomous outreach, marketing consent expansion, campaign click IDs, and a new CRM remain out of scope.
 
+## 2026-08-09 - Public buyer analytics uses an isolated, privacy-minimized GA4 property (`#615`)
+Bloomjoy will use Google Analytics 4 for public buyer-journey measurement. The production destination is a separate `Bloomjoy` Analytics account and `Bloomjoy USA` property owned by Ethan Trifari (`etrifari@bloomjoysweets.com`); it must not share the unrelated Snapcase property.
+
+**Canonical behavior**
+- Marketing/CMO owns the monthly funnel review. Sales and Operations provide quote-quality, customer-question, and fulfillment context.
+- The browser receives only the public `G-...` measurement identifier through `VITE_GA_MEASUREMENT_ID`. No Analytics API credential or secret is client-exposed.
+- Analytics initializes once and only on public marketing/buyer routes. Missing or invalid configuration remains a safe no-op with sanitized local debug logging.
+- Analytics stays off and the Google tag is not loaded until a visitor explicitly allows it. Visitors can decline or change the saved choice from the Privacy page.
+- Page locations, referrers, source paths, and destinations exclude query strings and hashes. Payloads do not include names, emails, phone numbers, messages, account/user IDs, uploaded-file details, or exact planner financial inputs.
+- Google signals and ad-personalization signals are disabled. Optional Google account-data sharing settings are disabled. Reporting uses America/Los_Angeles and USD.
+- Existing Business Playbook event names remain supported. The core funnel adds page view, buyer CTA, lead-form start/outcome, planner start/completion, checkout start/success, and Plus exploration events.
+- Production activation waits for the account owner to accept Google Analytics terms and for the public consent control, privacy notice, production measurement ID, web-stream history settings, and DebugView verification to be complete.
+
+**Why this choice**
+- GA4 is already supported by the repository and pairs naturally with the existing Google Search Console workflow.
+- A separate account/property avoids cross-business data contamination.
+- Strict property allowlisting and route/query normalization provide useful funnel signals without turning analytics into a lead-record or financial-input store.
+
 ## 2026-07-26 - Verified refunds use one manager approval and automatic fulfillment (`#674`)
 Bloomjoy will make every bounded, safe effort to identify the correct transaction before asking a Machine Manager to decide a refund. The normal high-confidence path is one manager approval followed by automatic provider execution and confirmation, not a second manual workflow in Nayax.
 

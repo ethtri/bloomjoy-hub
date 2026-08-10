@@ -67,6 +67,7 @@ export default function PlusPage() {
       .then((status) => {
         if (cancelled) return;
         if (status.paymentStatus === 'paid' && status.orderType === 'plus_subscription') {
+          trackEvent('plus_subscription_activated');
           toast.success('Payment confirmed. Welcome to Bloomjoy Plus!');
           return;
         }

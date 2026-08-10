@@ -15,7 +15,7 @@ import {
 } from "@/data/mobileSetupFitContract";
 import { FOOD_TRUCK_DESSERT_ADD_ONS_PATH } from "@/data/dessertAddOnComparisonContract";
 import { FOOD_TRUCK_CATERING_DESSERT_MENU_PATH } from "@/data/cateringDessertMenuContract";
-import { trackEvent } from "@/lib/analytics";
+import { trackEvent, trackEventOnce } from "@/lib/analytics";
 
 type PlaybookSurface =
   | "resources_hero"
@@ -260,6 +260,25 @@ export const trackBusinessPlaybookPlannerInteraction = (props: {
     budget_band: props.budgetBand ?? "not-started",
     open_question_band: props.openQuestionBand ?? "several",
   });
+
+  if (props.action === "view") {
+    trackEventOnce("planner_start:machine_fit", "planner_start", {
+      planner: "machine_fit",
+      route: plannerPath,
+    });
+  }
+
+  if (
+    props.action === "select_fit_answer" &&
+    props.recommendedMachine &&
+    props.recommendedMachine !== "undecided"
+  ) {
+    trackEventOnce("planner_complete:machine_fit", "planner_complete", {
+      planner: "machine_fit",
+      recommended_machine: props.recommendedMachine,
+      route: plannerPath,
+    });
+  }
 };
 
 export const trackBusinessPlaybookPaybackPlannerInteraction = (props: {
@@ -291,6 +310,25 @@ export const trackBusinessPlaybookPaybackPlannerInteraction = (props: {
     cost_band: props.costBand,
     preset_id: props.presetId,
   });
+
+  if (props.action === "view") {
+    trackEventOnce("planner_start:payback", "planner_start", {
+      planner: "payback",
+      route: paybackPlannerPath,
+    });
+  }
+
+  if (props.action === "copy_summary" || props.action === "print_summary") {
+    trackEventOnce("planner_complete:payback", "planner_complete", {
+      cost_band: props.costBand,
+      demand_band: props.demandBand,
+      has_rent: props.hasRent ?? false,
+      has_revenue_share: props.hasRevenueShare ?? false,
+      planner: "payback",
+      route: paybackPlannerPath,
+      scenario_type: props.scenarioType,
+    });
+  }
 };
 
 export const trackContactSubmitFromPlaybook = ({
