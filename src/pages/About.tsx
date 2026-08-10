@@ -158,18 +158,35 @@ export default function AboutPage() {
 
       <section className="section-padding pt-0">
         <div className="container-page">
-          <div className="card-elevated rounded-3xl p-8 text-center sm:p-10">
-            <h2 className="font-display text-3xl font-bold text-foreground">
-              Join Us on Our Sweet Journey
-            </h2>
-            <p className="mx-auto mt-4 max-w-2xl text-muted-foreground">
-              Planning a launch, scaling to multiple locations, or comparing machine options? Our
-              team can help you map the right path.
-            </p>
-            <div className="mt-6">
-              <Link to="/contact">
-                <Button size="lg">Contact Us</Button>
-              </Link>
+          <div className="card-elevated overflow-hidden rounded-3xl">
+            <div className="grid gap-8 p-8 sm:p-10 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.14em] text-primary">
+                  From our field experience to your next decision
+                </p>
+                <h2 className="mt-3 font-display text-3xl font-bold text-foreground">
+                  See the equipment. Then plan the operation around it.
+                </h2>
+                <p className="mt-4 max-w-2xl leading-relaxed text-muted-foreground">
+                  Review the full-size Commercial Machine, use our operator launch guide to map
+                  the work around a placement, or bring your open questions directly to Bloomjoy.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[17rem] lg:grid-cols-1">
+                <Button asChild size="lg">
+                  <Link to="/machines/commercial-robotic-machine">
+                    Explore the Commercial Machine
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" size="lg">
+                  <Link to="/resources/business-playbook/how-to-start-cotton-candy-vending-business">
+                    Read the launch guide
+                  </Link>
+                </Button>
+                <Button asChild variant="ghost" size="lg">
+                  <Link to="/contact">Contact Bloomjoy</Link>
+                </Button>
+              </div>
             </div>
           </div>
         </div>

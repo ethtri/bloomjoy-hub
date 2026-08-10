@@ -1387,7 +1387,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
     relatedSlugs: [
       "startup-budget-checklist-cotton-candy-machine-business",
       "revenue-share-vs-rent-cotton-candy-machine-placement",
-      "best-locations-for-cotton-candy-vending-machines",
+      "business-setup-basics-llc-ein-insurance-permits",
     ],
   },
   {

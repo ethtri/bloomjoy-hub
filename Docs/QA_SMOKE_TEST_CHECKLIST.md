@@ -24,6 +24,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `robots.txt` is reachable and includes a sitemap reference
 - [ ] `sitemap.xml` is reachable, lists core public routes plus public Business Playbook article routes, includes `lastmod`, and includes image sitemap entries for key machine/supplies/about/playbook URLs
 - [ ] Sitemap `lastmod` values reflect versioned route/article updates rather than one build-wide date; adding/removing a public route requires an intentional route-count regression update
+- [ ] After `npm run build`, run `node scripts/validate-public-route-discovery.mjs`; all 12 Search Console baseline exclusions have rendered H1/body content, exact canonical/indexable robots, sitemap freshness, crawlable incoming links, and no private/noncanonical sitemap leakage
+- [ ] `/about` main content links to the Commercial Machine and launch guide; the Commercial page links to the venue-owner pitch; the indexed ROI/payback guide links to business-setup basics
+- [ ] At `320x800` and desktop widths, the revised About decision panel and Commercial planning links remain readable, keyboard reachable, and free of horizontal overflow
 - [ ] Mini and Micro Product JSON-LD Offers match their visible USD prices and canonical page URLs; Commercial remains quote-only with no Product rich-result node, Offer, or public price in structured data
 - [ ] Machine Product/Offer JSON-LD does not add ratings, reviews, availability, inventory, shipping, returns, financing, or other unsupported commerce claims
 - [ ] Apex host (`https://bloomjoyusa.com`) redirects to canonical host (`https://www.bloomjoyusa.com/`) with permanent redirect behavior
