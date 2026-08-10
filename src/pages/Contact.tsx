@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { startTransition, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
@@ -183,7 +183,7 @@ export default function ContactPage() {
   const isQuote = formData.type === 'quote';
 
   useEffect(() => {
-    setQueryReady(true);
+    startTransition(() => setQueryReady(true));
   }, []);
 
   useEffect(() => {
