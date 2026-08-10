@@ -1,10 +1,11 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, ClipboardCheck, Scale, SlidersHorizontal, Truck } from 'lucide-react';
+import { ArrowRight, ClipboardCheck, FileCheck2, Scale, SlidersHorizontal, Truck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { trackResourcesPlaybookCardClick } from '@/lib/businessPlaybookAnalytics';
 import { FOOD_TRUCK_SOLUTION_PATH, MOBILE_SETUP_GUIDE_PATH } from '@/data/mobileOperatorPages';
 import { MOBILE_SETUP_FIT_CHECKER_PATH } from '@/data/mobileSetupFitContract';
 import { FOOD_TRUCK_DESSERT_ADD_ONS_PATH } from '@/data/dessertAddOnComparisonContract';
+import { FOOD_TRUCK_CATERING_DESSERT_MENU_PATH } from '@/data/cateringDessertMenuContract';
 
 export const MobileOperatorEntry = ({ surface }: { surface: 'resources_category' | 'playbook_index_category' }) => (
   <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#1d2722] p-6 text-white shadow-elevated sm:p-8">
@@ -40,6 +41,13 @@ export const MobileOperatorEntry = ({ surface }: { surface: 'resources_category'
           className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-white/20 px-4 text-center text-sm font-bold text-white transition hover:bg-white/10 motion-reduce:transition-none"
         >
           <Scale aria-hidden="true" className="h-4 w-4" /> Compare dessert add-ons
+        </Link>
+        <Link
+          to={FOOD_TRUCK_CATERING_DESSERT_MENU_PATH}
+          onClick={() => trackResourcesPlaybookCardClick({ surface, cta: 'catering_dessert_menu_guide', href: FOOD_TRUCK_CATERING_DESSERT_MENU_PATH })}
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-white/20 px-4 text-center text-sm font-bold text-white transition hover:bg-white/10 motion-reduce:transition-none"
+        >
+          <FileCheck2 aria-hidden="true" className="h-4 w-4" /> Build a catering package
         </Link>
         <Link
           to={MOBILE_SETUP_GUIDE_PATH}

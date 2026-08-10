@@ -12,6 +12,7 @@ import {
   DESSERT_COMPARISON_CITATION_URLS,
   FOOD_TRUCK_DESSERT_ADD_ONS_PATH,
 } from "@/data/dessertAddOnComparisonContract";
+import { FOOD_TRUCK_CATERING_DESSERT_MENU_PATH } from "@/data/cateringDessertMenuContract";
 
 export type RouteSeo = {
   path: string;
@@ -36,7 +37,8 @@ export type RouteSeo = {
     | "business-playbook-article"
     | "mobile-setup-guide"
     | "mobile-fit-checker"
-    | "dessert-add-on-comparison";
+    | "dessert-add-on-comparison"
+    | "catering-dessert-menu-guide";
 };
 
 export type PrivateRouteSeo = RouteSeo & {
@@ -77,6 +79,7 @@ export const publicRouteLastmods = {
   "/resources/business-playbook/food-truck-mobile-setup-guide": "2026-08-10",
   "/resources/business-playbook/mobile-setup-fit-checker": "2026-08-10",
   "/resources/business-playbook/food-truck-dessert-add-ons": "2026-08-10",
+  "/resources/business-playbook/food-truck-catering-dessert-menu": "2026-08-10",
   "/solutions/food-trucks": "2026-08-10",
   "/contact": "2026-05-11",
   "/about": "2026-05-11",
@@ -293,6 +296,25 @@ const businessPlaybookSeoRoutes: RouteSeo[] = [
     ],
     lastmod: publicRouteLastmods[FOOD_TRUCK_DESSERT_ADD_ONS_PATH],
     structuredDataKind: "dessert-add-on-comparison",
+  },
+  {
+    path: FOOD_TRUCK_CATERING_DESSERT_MENU_PATH,
+    title: "Food Truck Catering Dessert Package Guide | Bloomjoy",
+    description:
+      "Plan a food-truck catering dessert package with clear service, menu, staffing, travel, power, payment, weather, cancellation, and COI responsibilities.",
+    robots: PUBLIC_ROBOTS,
+    surface: "marketing",
+    ogType: "article",
+    ogImagePath: "/seo/mini-machine.jpg",
+    ogImageAlt: "Bloomjoy food-truck catering dessert package planning guide",
+    sitemapImages: [
+      {
+        loc: `${MARKETING_ORIGIN}/seo/mini-machine.jpg`,
+        title: "Food-truck catering dessert package guide",
+      },
+    ],
+    lastmod: publicRouteLastmods[FOOD_TRUCK_CATERING_DESSERT_MENU_PATH],
+    structuredDataKind: "catering-dessert-menu-guide",
   },
   ...businessPlaybookArticles.map(
     (article): RouteSeo => ({
@@ -888,6 +910,10 @@ export const buildStructuredData = ({
             name: "Food-Truck Dessert Add-Ons: Operator Comparison",
             url: `${MARKETING_ORIGIN}${FOOD_TRUCK_DESSERT_ADD_ONS_PATH}`,
           },
+          {
+            name: "Food-Truck Catering Dessert Package Guide",
+            url: `${MARKETING_ORIGIN}${FOOD_TRUCK_CATERING_DESSERT_MENU_PATH}`,
+          },
           ...businessPlaybookArticles.map((article) => ({
             name: article.title,
             url: `${MARKETING_ORIGIN}/resources/business-playbook/${article.slug}`,
@@ -1089,6 +1115,53 @@ export const buildStructuredData = ({
         citation: DESSERT_COMPARISON_CITATION_URLS.map((url) =>
           url.startsWith("/") ? `${MARKETING_ORIGIN}${url}` : url
         ),
+      }
+    );
+  }
+
+  if (route.structuredDataKind === "catering-dessert-menu-guide") {
+    graph.push(
+      {
+        "@type": "BreadcrumbList",
+        "@id": `${canonicalUrl}#breadcrumb`,
+        itemListElement: [
+          {
+            "@type": "ListItem",
+            position: 1,
+            name: "Resources",
+            item: `${MARKETING_ORIGIN}/resources`,
+          },
+          {
+            "@type": "ListItem",
+            position: 2,
+            name: "Business Playbook",
+            item: `${MARKETING_ORIGIN}/resources/business-playbook`,
+          },
+          {
+            "@type": "ListItem",
+            position: 3,
+            name: "Food-Truck Catering Dessert Package Guide",
+            item: canonicalUrl,
+          },
+        ],
+      },
+      {
+        "@type": "Article",
+        "@id": `${canonicalUrl}#article`,
+        headline: "Build a Food-Truck Catering Dessert Package Buyers Can Understand",
+        description: route.description,
+        image: `${MARKETING_ORIGIN}/seo/mini-machine.jpg`,
+        datePublished: route.lastmod,
+        dateModified: route.lastmod,
+        author: { "@id": `${MARKETING_ORIGIN}/#organization` },
+        publisher: { "@id": `${MARKETING_ORIGIN}/#organization` },
+        mainEntityOfPage: { "@id": `${canonicalUrl}#webpage` },
+        about: [
+          "food-truck catering dessert package",
+          "catering proposal scope",
+          "mobile dessert service responsibilities",
+          "dessert package planning template",
+        ],
       }
     );
   }

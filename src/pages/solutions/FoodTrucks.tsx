@@ -29,6 +29,7 @@ import {
 import miniMain from '@/assets/real/mini-main.webp';
 import { MOBILE_SETUP_FIT_CHECKER_PATH } from '@/data/mobileSetupFitContract';
 import { FOOD_TRUCK_DESSERT_ADD_ONS_PATH } from '@/data/dessertAddOnComparisonContract';
+import { FOOD_TRUCK_CATERING_DESSERT_MENU_PATH } from '@/data/cateringDessertMenuContract';
 
 const operatingPatterns = [
   {
@@ -75,6 +76,12 @@ const relatedPaths = [
     title: 'Compare five dessert add-on models',
     body: 'See the prep, storage, cooking, power, staffing, waste, weather, portability, visual, and catering tradeoffs without a profit ranking.',
     href: FOOD_TRUCK_DESSERT_ADD_ONS_PATH,
+  },
+  {
+    eyebrow: 'Catering proposals',
+    title: 'Build a dessert package buyers can understand',
+    body: 'Define the service window, planning estimate, menu, staffing, travel, power, terms, weather, and buyer paperwork without a serving or earnings promise.',
+    href: FOOD_TRUCK_CATERING_DESSERT_MENU_PATH,
   },
   {
     eyebrow: 'Interactive setup screen',

@@ -14,6 +14,7 @@ import {
   type MobileFitPlacement,
 } from "@/data/mobileSetupFitContract";
 import { FOOD_TRUCK_DESSERT_ADD_ONS_PATH } from "@/data/dessertAddOnComparisonContract";
+import { FOOD_TRUCK_CATERING_DESSERT_MENU_PATH } from "@/data/cateringDessertMenuContract";
 import { trackEvent } from "@/lib/analytics";
 
 type PlaybookSurface =
@@ -42,6 +43,7 @@ type PlaybookSurface =
   | "mobile_setup_guide"
   | "mobile_setup_fit_checker"
   | "dessert_add_on_comparison"
+  | "catering_dessert_menu_guide"
   | "home_hero";
 
 type PlaybookClickProps = {
@@ -162,7 +164,8 @@ export const getNormalizedBusinessPlaybookSourcePage = (sourcePage?: string | nu
     path === plannerPath ||
     path === paybackPlannerPath ||
     path === MOBILE_SETUP_FIT_CHECKER_PATH ||
-    path === FOOD_TRUCK_DESSERT_ADD_ONS_PATH
+    path === FOOD_TRUCK_DESSERT_ADD_ONS_PATH ||
+    path === FOOD_TRUCK_CATERING_DESSERT_MENU_PATH
   ) {
     return path;
   }

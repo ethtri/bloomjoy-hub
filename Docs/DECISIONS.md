@@ -1,5 +1,17 @@
 # Decisions
 
+## 2026-08-10 - Catering dessert guide produces a scope template, not an offer (`#730`)
+
+The canonical established-operator guide lives at `/resources/business-playbook/food-truck-catering-dessert-menu`. It begins with a food-truck or catering business that already operates and helps that reader turn one dessert experience into a proposal-ready outline. The existing `/resources/business-playbook/mini-micro-event-catering-business-guide` continues to own startup, initial booking, equipment-selection, and event-day formation intent.
+
+- Ten visible scope decisions cover the service window, planning estimate, menu, staffing, travel/load-in, power/setup responsibility, payment/deposit posture, weather, cancellation/reschedule, and insurance/COI/buyer paperwork.
+- Fixed-event and per-serving are presented only as planning structures. The guide recommends no price, percentage, fee, deposit, refundability rule, revenue, margin, payback, booking, or serving target.
+- The reusable outline is blank and explicitly not a Bloomjoy package, offer, quote, contract, policy, performance promise, insurance interpretation, or legal recommendation. Every operational and commercial assumption must be replaced by the operator.
+- Machine-fit questions route through the dessert comparison, food-truck solution, setup guide, categorical fit checker, product pages, and fixed Commercial quote policy. Mini and Micro remain on product purchase paths.
+- The copy action copies only the static published template. Analytics use the existing consent-gated path with bounded route, slug, category, surface, CTA, and destination identifiers; no operator-entered terms, private setup details, PII, query strings, or financial assumptions are collected.
+
+This keeps the page distinct from generic startup content and useful to proposal-stage operators without presenting Bloomjoy as the caterer, pricing authority, insurer, venue, lawyer, engineer, manufacturer approver, or local authority.
+
 ## 2026-08-10 - Dessert add-on comparison is an operating-fit analysis (`#729`)
 
 The canonical food-truck dessert comparison lives at `/resources/business-playbook/food-truck-dessert-add-ons`. It compares robotic cotton candy, cookies/brownies, churros/fried desserts, ice cream/frozen desserts, and fresh fruit cups/skewers across thirteen operator-visible criteria. The three postures—potential advantage, confirm the plan, and heavier obligation—describe operating work, not popularity, quality, demand, price, profit, food cost, margin, payback, permit status, or guaranteed service speed.

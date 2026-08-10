@@ -152,7 +152,7 @@ try {
     'structured lead summary contains no arbitrary or exact checker inputs'
   );
   assert(
-    app.includes('path="/resources/business-playbook/mobile-setup-fit-checker"') && seo.includes('structuredDataKind: "mobile-fit-checker"') && seoRegression.includes('EXPECTED_PUBLIC_ROUTE_COUNT = 29'),
+    app.includes('path="/resources/business-playbook/mobile-setup-fit-checker"') && seo.includes('structuredDataKind: "mobile-fit-checker"') && seoRegression.includes('EXPECTED_PUBLIC_ROUTE_COUNT = 30'),
     'canonical route, SEO metadata, schema, and sitemap count are registered'
   );
   assert(
