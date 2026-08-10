@@ -94,6 +94,12 @@ const expectedH1TextByRoute = {
   "/billing-cancellation": "Billing and Cancellation",
 };
 
+const expectedPrerenderRouteModuleByPath = {
+  "/solutions/food-trucks": "FoodTrucks-",
+  "/resources/business-playbook/food-truck-mobile-setup-guide":
+    "MobileFoodSetupGuide-",
+};
+
 const loadSeoRoutes = async () => {
   const vite = await createServer({
     appType: "custom",
@@ -169,6 +175,17 @@ const validatePublicRouteHtml = async (route, seoRoutes) => {
       html,
       expectedH1Text,
       `Public route ${route.path} is missing expected H1/source text: ${expectedH1Text}`
+    );
+  }
+
+  const expectedPrerenderRouteModule = expectedPrerenderRouteModuleByPath[route.path];
+  if (expectedPrerenderRouteModule) {
+    assertMatches(
+      html,
+      new RegExp(
+        `<script[^>]*data-prerender-route-module[^>]*src="/assets/${expectedPrerenderRouteModule}[^".]+\\.js"[^>]*></script>`
+      ),
+      `Prerendered route ${route.path} does not load its route module before hydration`
     );
   }
 

@@ -31,7 +31,7 @@ import {
 } from '@/data/mobileOperatorPages';
 
 const setupQuotePath =
-  '/contact?type=quote&source=%2Fresources%2Fbusiness-playbook%2Ffood-truck-mobile-setup-guide&use=mobile-food';
+  '/contact?type=quote&interest=commercial&source=%2Fresources%2Fbusiness-playbook%2Ffood-truck-mobile-setup-guide&use=mobile-food';
 
 const responsibilityBoundaries = [
   {
@@ -148,7 +148,7 @@ export default function MobileFoodSetupGuidePage() {
                 <dl className="mt-4 space-y-4 text-sm">
                   <div>
                     <dt className="font-semibold text-foreground">Last reviewed</dt>
-                    <dd className="mt-1 text-muted-foreground">August 9, 2026</dd>
+                    <dd className="mt-1 text-muted-foreground">August 10, 2026</dd>
                   </div>
                   <div>
                     <dt className="font-semibold text-foreground">Facts</dt>
@@ -366,13 +366,13 @@ export default function MobileFoodSetupGuidePage() {
           <div className="container-page">
             <div className="grid min-w-0 gap-6 lg:grid-cols-[1fr_auto] lg:items-center">
               <div className="min-w-0">
-                <p className="text-sm font-bold uppercase tracking-[0.16em] text-primary">Ready for a bounded review?</p>
+                <p className="text-sm font-bold uppercase tracking-[0.16em] text-primary">Commercial setup review</p>
                 <h2 className="mt-3 max-w-3xl font-display text-3xl font-bold sm:text-4xl">Bring your setup facts and unresolved questions—not a claim that the setup is already approved.</h2>
-                <p className="mt-4 max-w-2xl leading-relaxed text-white/70">Bloomjoy can review machine fit and the information needed for a useful quote. Final electrical, vehicle, manufacturer, venue, insurance, and regulatory decisions stay with the appropriate owner.</p>
+                <p className="mt-4 max-w-2xl leading-relaxed text-white/70">Commercial is Bloomjoy’s only quoted machine. Bloomjoy can review its fit and the information needed for a useful quote; Mini and Micro stay on their payment-first product paths. Final electrical, vehicle, manufacturer, venue, insurance, and regulatory decisions stay with the appropriate owner.</p>
               </div>
               <Button asChild size="xl" className="min-h-12 max-w-full whitespace-normal px-5 text-center sm:w-fit sm:px-8">
                 <Link to={setupQuotePath} onClick={() => trackLink('request_setup_review_quote', setupQuotePath)}>
-                  Request a machine-fit quote <ArrowRight aria-hidden="true" className="ml-2 h-5 w-5" />
+                  Request a Commercial quote <ArrowRight aria-hidden="true" className="ml-2 h-5 w-5" />
                 </Link>
               </Button>
             </div>

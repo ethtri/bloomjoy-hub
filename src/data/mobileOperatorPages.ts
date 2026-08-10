@@ -2,8 +2,9 @@ export const FOOD_TRUCK_SOLUTION_PATH = '/solutions/food-trucks';
 export const MOBILE_SETUP_GUIDE_PATH =
   '/resources/business-playbook/food-truck-mobile-setup-guide';
 
-export const foodTruckQuotePath =
-  '/contact?type=quote&interest=mini&source=%2Fsolutions%2Ffood-trucks&use=mobile-food';
+export const MINI_PURCHASE_PATH = '/machines/mini';
+export const commercialFoodTruckQuotePath =
+  '/contact?type=quote&interest=commercial&source=%2Fsolutions%2Ffood-trucks&use=mobile-food';
 
 export const foodTruckSolutionFaqs = [
   {
@@ -23,8 +24,8 @@ export const foodTruckSolutionFaqs = [
     a: 'They solve different operating problems. An installed setup may simplify guest flow but creates vehicle, securing, access, heat, and local-review questions. An adjacent station separates the machine from the vehicle but still needs approved power, stable placement, weather planning, storage, and a safe service flow.',
   },
   {
-    q: 'What can Bloomjoy confirm during a machine-fit quote?',
-    a: 'Bloomjoy can review the intended setting, published machine facts, service model, supply path, and the questions that remain. Bloomjoy cannot certify generator compatibility, vehicle mounting or securing, transport orientation, ventilation, outdoor or weather use, venue acceptance, insurance requirements, or permit approval.',
+    q: 'What can Bloomjoy confirm during a Commercial machine-fit quote?',
+    a: 'Commercial is Bloomjoy’s only quoted machine. Bloomjoy can review the intended setting, published Commercial facts, service model, supply path, and the questions that remain. Mini and Micro stay on their payment-first product paths and are not submitted as quote interest. Bloomjoy cannot certify generator compatibility, vehicle mounting or securing, transport orientation, ventilation, outdoor or weather use, venue acceptance, insurance requirements, or permit approval.',
   },
 ] as const;
 export const mobileMachineFacts = [

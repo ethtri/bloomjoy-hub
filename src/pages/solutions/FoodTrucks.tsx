@@ -20,8 +20,9 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Button } from '@/components/ui/button';
 import { trackBusinessPlaybookCtaClick } from '@/lib/businessPlaybookAnalytics';
 import {
-  foodTruckQuotePath,
+  commercialFoodTruckQuotePath,
   foodTruckSolutionFaqs,
+  MINI_PURCHASE_PATH,
   MOBILE_SETUP_GUIDE_PATH,
   mobileMachineFacts,
 } from '@/data/mobileOperatorPages';
@@ -113,20 +114,23 @@ export default function FoodTrucksSolutionPage() {
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <Button asChild size="xl" className="min-h-12 max-w-full whitespace-normal px-5 text-center shadow-lg shadow-primary/20 sm:px-8">
-                  <Link to={foodTruckQuotePath} onClick={() => trackLink('request_machine_fit_quote', foodTruckQuotePath)}>
-                    Request a machine-fit quote
+                  <Link to={MINI_PURCHASE_PATH} onClick={() => trackLink('review_mini_purchase_path', MINI_PURCHASE_PATH)}>
+                    Review the Mini path
                     <ArrowRight aria-hidden="true" className="ml-2 h-5 w-5" />
                   </Link>
                 </Button>
                 <Button asChild variant="outline" size="xl" className="min-h-12 max-w-full whitespace-normal border-white/30 bg-transparent px-5 text-center text-white hover:bg-white/10 hover:text-white sm:px-8">
-                  <Link to={MOBILE_SETUP_GUIDE_PATH} onClick={() => trackLink('check_mobile_setup', MOBILE_SETUP_GUIDE_PATH)}>
-                    Check your setup
+                  <Link to={commercialFoodTruckQuotePath} onClick={() => trackLink('request_commercial_setup_quote_hero', commercialFoodTruckQuotePath)}>
+                    Request a Commercial quote
                   </Link>
                 </Button>
               </div>
               <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/55">
                 Bloomjoy reviews published machine facts and your intended operating model. We do
-                not certify vehicle installations, generators, ventilation, outdoor use, or permits.
+                not certify vehicle installations, generators, ventilation, outdoor use, or permits.{' '}
+                <Link to={MOBILE_SETUP_GUIDE_PATH} onClick={() => trackLink('check_mobile_setup', MOBILE_SETUP_GUIDE_PATH)} className="font-semibold text-white underline decoration-white/40 underline-offset-4 hover:decoration-primary">
+                  Check the setup guide first.
+                </Link>
               </p>
             </div>
 
@@ -158,7 +162,7 @@ export default function FoodTrucksSolutionPage() {
                     {[
                       ['Likely path', 'Mini / staffed service'],
                       ['First constraint', 'Space + total load'],
-                      ['Required next step', 'Setup-specific review'],
+                      ['Required next step', 'Payment-first product path'],
                     ].map(([label, value]) => (
                       <div key={label} className="rounded-xl border border-border bg-background p-3.5">
                         <p className="text-[0.7rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
@@ -325,13 +329,13 @@ export default function FoodTrucksSolutionPage() {
         <div className="container-page">
           <div className="grid min-w-0 gap-6 lg:grid-cols-[1fr_auto] lg:items-center">
             <div className="min-w-0">
-              <p className="text-sm font-bold uppercase tracking-[0.16em] text-primary">Bring the unresolved questions</p>
-              <h2 className="mt-3 max-w-3xl font-display text-3xl font-bold sm:text-4xl">A strong quote starts with the setup you actually plan to run.</h2>
-              <p className="mt-4 max-w-2xl leading-relaxed text-white/70">Tell Bloomjoy the setting, region, timing, and machine path you are considering. We’ll review what fits our published evidence and name what still needs outside confirmation.</p>
+              <p className="text-sm font-bold uppercase tracking-[0.16em] text-primary">Commercial setup review</p>
+              <h2 className="mt-3 max-w-3xl font-display text-3xl font-bold sm:text-4xl">Need the larger Commercial Machine for your mobile operation?</h2>
+              <p className="mt-4 max-w-2xl leading-relaxed text-white/70">Commercial is Bloomjoy’s only quoted machine. Tell us the setting, region, timing, and setup you are considering; Mini and Micro remain on their payment-first product paths.</p>
             </div>
             <Button asChild size="xl" className="min-h-12 max-w-full whitespace-normal px-5 text-center sm:w-fit sm:px-8">
-              <Link to={foodTruckQuotePath} onClick={() => trackLink('request_machine_fit_quote_footer', foodTruckQuotePath)}>
-                Request a machine-fit quote <ArrowRight aria-hidden="true" className="ml-2 h-5 w-5" />
+              <Link to={commercialFoodTruckQuotePath} onClick={() => trackLink('request_commercial_setup_quote', commercialFoodTruckQuotePath)}>
+                Request a Commercial quote <ArrowRight aria-hidden="true" className="ml-2 h-5 w-5" />
               </Link>
             </Button>
           </div>
