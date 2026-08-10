@@ -1,6 +1,8 @@
 # Refund Email Pilot Demo Packet
 
-Last updated: 2026-08-05
+Last updated: 2026-08-10
+
+For the short, [plain-English sponsor review](REFUND_EMAIL_PILOT_SPONSOR_REVIEW.md), start there. This packet remains the detailed technical and operational evidence companion.
 
 Purpose: give the sponsor one review surface for the email-only pilot candidate. This is a synthetic walkthrough packet, not authorization to connect production Gmail, contact customers, enroll managers, or execute refunds.
 
