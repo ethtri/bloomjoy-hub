@@ -625,12 +625,6 @@ const machineProductDataByPath: Record<string, Record<string, unknown>> = {
     image: `${MARKETING_ORIGIN}/seo/mini-machine.jpg`,
     url: `${MARKETING_ORIGIN}/machines/mini`,
     category: "Robotic cotton candy machine",
-    offers: {
-      "@type": "Offer",
-      price: "4000.00",
-      priceCurrency: "USD",
-      url: `${MARKETING_ORIGIN}/machines/mini`,
-    },
   },
   "/machines/micro": {
     "@type": "Product",
@@ -642,12 +636,16 @@ const machineProductDataByPath: Record<string, Record<string, unknown>> = {
     image: `${MARKETING_ORIGIN}/seo/micro-machine.jpg`,
     url: `${MARKETING_ORIGIN}/machines/micro`,
     category: "Robotic cotton candy machine",
-    offers: {
-      "@type": "Offer",
-      price: "2200.00",
-      priceCurrency: "USD",
-      url: `${MARKETING_ORIGIN}/machines/micro`,
-    },
+    ...(isMicroCheckoutEnabled
+      ? {
+          offers: {
+            "@type": "Offer",
+            price: "2200.00",
+            priceCurrency: "USD",
+            url: `${MARKETING_ORIGIN}/machines/micro`,
+          },
+        }
+      : {}),
   },
 };
 
