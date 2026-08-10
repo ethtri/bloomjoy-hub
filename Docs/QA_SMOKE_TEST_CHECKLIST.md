@@ -189,8 +189,19 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Billing & cancellation page explains Stripe portal cancellation path and end-of-period effect
 - [ ] Contact/Quote form submits (and confirmation is shown)
 - [ ] Contact form labels are clickable, and all visible fields have associated labels
+- [ ] Plain `/contact` opens the general-contact journey; `/contact?type=quote` opens the focused Commercial Machine fit/quote request with accurate no-SLA/no-price/no-availability/no-ROI expectation copy
+- [ ] Commercial, malformed, and missing quote interest resolve to fixed Commercial context; safe Mini/Micro interest is not submitted as quote context and instead shows a purchase-path notice/link; no contact or qualification value appears in the URL
+- [ ] `/contact?type=quote&use=mobile-food` preselects “Mobile food facility or food truck”; unknown `use` values are ignored and never become visible or submitted text
+- [ ] Quote validation identifies and focuses an accessible error summary, associates field errors, preserves valid entries, and works by keyboard at 320px through desktop widths
+- [ ] Quote submission stores intended setting, service region, timeline, and optional organization/readiness/details in the structured lead message; only name, email, setting, region, and timeline are required
+- [ ] A server/network failure leaves the entered quote intact and Retry reuses the client submission token; rapid duplicate clicks and a retry after an uncertain response produce one lead row and at most one notification dispatch
+- [ ] Quote success confirms receipt, explains the next review step without an SLA, summarizes only machine/setting/timing, and offers `info@bloomjoyusa.com` as the alternative contact path without putting PII in the URL
+- [ ] General inquiry, demo, procurement, existing anti-abuse throttles, email/WeCom notification routing, and Playbook-source behavior still pass after the quote-specific UI changes
+- [ ] `lead_form_start`, `lead_form_submit`, and `lead_form_error` use only controlled inquiry type, route, and normalized source context; no name, email, organization, region, message, or other form value reaches analytics
+- [ ] Run `npm run quote-intake:check` and confirm quote mode, safe context, dedupe/retry, accessibility, CTA routing, and analytics payload guardrails pass
+- [ ] Run a production build/preview, load a query-based quote URL directly, and confirm the prerendered general-contact HTML hydrates before query context is applied with no React hydration errors
 - [ ] Quote flow preserves machine context (for example, Commercial CTA preselects "Machine of Interest" on `/contact`)
-- [ ] Contact quote type only permits `Commercial Machine`; legacy Mini/Micro quote query parameters do not silently submit as product quotes
+- [ ] The quote journey always submits `Commercial Machine`; Mini/Micro query context is visibly returned to its product path and cannot create an order, reserve inventory, claim availability, or bypass payment-first checkout
 - [ ] Mobile icon-only cart/menu controls have accessible names
 - [ ] Product-gallery thumbnail buttons are keyboard operable and announce selected image state
 - [ ] Contact/Quote submission creates a `lead_submissions` row in Supabase with expected type/email

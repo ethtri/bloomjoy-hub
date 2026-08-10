@@ -1,5 +1,16 @@
 # Decisions
 
+## 2026-08-09 - Public quote intake uses focused, minimum-useful qualification (`#617`)
+`/contact?type=quote` is a Commercial Machine fit and quote conversation, while plain `/contact` remains a general-contact path. The quote flow asks for name, email, intended setting/use, a city/state or service region, and purchase timeline. Business/organization, procurement readiness, and additional details remain optional; a phone number is not collected in the first release.
+
+The route enforces the 2026-08-06 payment-first decision: Commercial is the fixed quoted machine. Safe Mini or Micro query context is acknowledged without being submitted as quote interest and links back to that model's product/purchase path. Unknown machine values are discarded. This prevents a marketing or planner link from turning an unavailable or direct-checkout product into an unpaid request path.
+
+Bloomjoy promises only to review the submitted setting, region, timing, and machine fit and follow up using the supplied email. Public copy does not promise a response time, price, availability, financing, delivery date, ROI, earnings, or a definitive machine recommendation.
+
+Qualification is serialized into the existing server-bounded lead message instead of adding database columns. Source and machine query context is allowlisted, visibly confirmed, and submitted through the existing protected intake path. A retry reuses its client submission ID, and the existing server dedupe remains authoritative. Form analytics use only controlled inquiry/source/route context and never include contact fields or the structured message.
+
+This is intentionally reversible: field choices and copy can change after Sales UAT without a data migration. Attribution fields from `#616` may be added only through that issue's allowlisted, consent-compatible contract.
+
 ## 2026-07-26 - Verified refunds use one manager approval and automatic fulfillment (`#674`)
 Bloomjoy will make every bounded, safe effort to identify the correct transaction before asking a Machine Manager to decide a refund. The normal high-confidence path is one manager approval followed by automatic provider execution and confirmation, not a second manual workflow in Nayax.
 

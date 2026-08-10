@@ -17,7 +17,7 @@ const footerLinks = {
   support: [
     { href: '/resources#faq', label: 'FAQ' },
     { href: '/resources#support-boundaries', label: 'Support Boundaries' },
-    { href: '/contact?type=quote&interest=commercial', label: 'Commercial Quote' },
+    { href: '/contact?type=quote&interest=commercial&source=%2F', label: 'Commercial Quote' },
   ],
   legal: [
     { href: '/privacy', label: 'Privacy Policy' },

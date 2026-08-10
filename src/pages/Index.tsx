@@ -64,7 +64,7 @@ export default function HomePage() {
                 Commercial-grade robotic cotton candy machines and premium supplies. Built for operators who demand consistency, throughput, and reliable support.
               </p>
               <div className="mt-8 flex flex-wrap gap-4">
-                <Link to="/contact?type=quote&interest=commercial">
+                <Link to="/contact?type=quote&interest=commercial&source=%2F">
                   <Button variant="hero" size="xl">
                     Request Commercial Quote
                     <ArrowRight className="ml-1 h-5 w-5" />
@@ -250,7 +250,7 @@ export default function HomePage() {
             Whether you're exploring options or ready to purchase, we're here to help.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-4">
-            <Link to="/contact?type=quote&interest=commercial">
+            <Link to="/contact?type=quote&interest=commercial&source=%2F">
               <Button variant="hero" size="xl">
                 Request Commercial Quote
               </Button>
