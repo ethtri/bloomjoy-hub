@@ -7,6 +7,12 @@ import {
   type PaybackScenarioId,
 } from "@/data/businessPlaybookPaybackPlanner";
 import { plannerPath, type PlannerMachineId } from "@/data/businessPlaybookPlanner";
+import {
+  MOBILE_SETUP_FIT_CHECKER_PATH,
+  type MobileFitBand,
+  type MobileFitMachineSignal,
+  type MobileFitPlacement,
+} from "@/data/mobileSetupFitContract";
 import { trackEvent } from "@/lib/analytics";
 
 type PlaybookSurface =
@@ -33,6 +39,7 @@ type PlaybookSurface =
   | "plus_page"
   | "food_truck_solution"
   | "mobile_setup_guide"
+  | "mobile_setup_fit_checker"
   | "home_hero";
 
 type PlaybookClickProps = {
@@ -85,6 +92,10 @@ const getDestinationType = (href: string) => {
 
   if (href === plannerPath) {
     return "playbook_planner";
+  }
+
+  if (href === MOBILE_SETUP_FIT_CHECKER_PATH) {
+    return "mobile_setup_fit_checker";
   }
 
   if (href === "/resources/business-playbook" || href.startsWith("/resources/business-playbook#")) {
@@ -144,7 +155,12 @@ export const getPlaybookArticleTrackingProps = (href: string) => {
 export const getNormalizedBusinessPlaybookSourcePage = (sourcePage?: string | null) => {
   const path = getSafeInternalPath(sourcePage);
 
-  if (path === "/resources/business-playbook" || path === plannerPath || path === paybackPlannerPath) {
+  if (
+    path === "/resources/business-playbook" ||
+    path === plannerPath ||
+    path === paybackPlannerPath ||
+    path === MOBILE_SETUP_FIT_CHECKER_PATH
+  ) {
     return path;
   }
 
@@ -154,6 +170,37 @@ export const getNormalizedBusinessPlaybookSourcePage = (sourcePage?: string | nu
     : undefined;
 
   return article ? `${playbookArticlePrefix}${article.slug}` : undefined;
+};
+
+export const trackMobileSetupFitCheckerInteraction = (props: {
+  action:
+    | "view"
+    | "start"
+    | "complete"
+    | "result_to_product"
+    | "result_to_quote"
+    | "result_to_setup_guide"
+    | "copy_summary"
+    | "print_summary"
+    | "reset";
+  resultBand: MobileFitBand;
+  machineSignal: MobileFitMachineSignal;
+  placement: MobileFitPlacement;
+  openQuestionBand: "none" | "few" | "several";
+}) => {
+  const eventName =
+    props.action === "view"
+      ? "view_mobile_setup_fit_checker"
+      : "update_mobile_setup_fit_checker";
+
+  trackEvent(eventName, {
+    action: props.action,
+    result_band: props.resultBand,
+    machine_signal: props.machineSignal,
+    placement: props.placement,
+    open_question_band: props.openQuestionBand,
+    source_page: MOBILE_SETUP_FIT_CHECKER_PATH,
+  });
 };
 
 const withDestinationMetadata = (props: PlaybookClickProps) => ({

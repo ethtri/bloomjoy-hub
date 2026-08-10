@@ -1,5 +1,20 @@
 import { MACHINE_INTEREST_OPTIONS, normalizeMachineInterest } from '@/lib/machineNames';
 import { plannerPath } from '@/data/businessPlaybookPlanner';
+import {
+  MOBILE_FIT_BANDS,
+  MOBILE_FIT_MACHINE_SIGNALS,
+  MOBILE_FIT_OPEN_QUESTION_KEYS,
+  MOBILE_FIT_PLACEMENTS,
+  MOBILE_SETUP_FIT_CHECKER_PATH,
+  mobileFitBandLabels,
+  mobileFitMachineLabels,
+  mobileFitOpenQuestionLabels,
+  mobileFitPlacementLabels,
+  type MobileFitBand,
+  type MobileFitMachineSignal,
+  type MobileFitOpenQuestionKey,
+  type MobileFitPlacement,
+} from '@/data/mobileSetupFitContract';
 
 export const QUOTE_MACHINE_OPTIONS = [...MACHINE_INTEREST_OPTIONS, 'Not sure yet'] as const;
 
@@ -70,6 +85,13 @@ export type PlannerQuoteContext = {
   openQuestions: PlannerOpenQuestionKey[];
 };
 
+export type MobileFitQuoteContext = {
+  resultBand: MobileFitBand;
+  machineSignal: MobileFitMachineSignal;
+  placement: MobileFitPlacement;
+  openQuestions: MobileFitOpenQuestionKey[];
+};
+
 const plannerMachineSignalLabels: Record<PlannerMachineSignal, string> = {
   commercial: 'Commercial Machine',
   mini: 'Mini Machine',
@@ -105,6 +127,10 @@ const plannerMachineSignals = new Set<string>(PLANNER_MACHINE_SIGNALS);
 const plannerIntendedPaths = new Set<string>(PLANNER_INTENDED_PATHS);
 const plannerBudgetBands = new Set<string>(PLANNER_BUDGET_BANDS);
 const plannerOpenQuestionKeys = new Set<string>(PLANNER_OPEN_QUESTION_KEYS);
+const mobileFitBands = new Set<string>(MOBILE_FIT_BANDS);
+const mobileFitMachineSignals = new Set<string>(MOBILE_FIT_MACHINE_SIGNALS);
+const mobileFitPlacements = new Set<string>(MOBILE_FIT_PLACEMENTS);
+const mobileFitOpenQuestionKeys = new Set<string>(MOBILE_FIT_OPEN_QUESTION_KEYS);
 
 const normalizePlannerValue = <TValue extends string>(
   value: string | null | undefined,
@@ -198,6 +224,91 @@ export const getPlannerQuoteContextLabels = (context: PlannerQuoteContext) => ({
   openQuestions: context.openQuestions.map((key) => plannerOpenQuestionLabels[key]),
 });
 
+const normalizeMobileFitOpenQuestions = (
+  values: readonly string[] | string | null | undefined
+): MobileFitOpenQuestionKey[] => {
+  const candidates = Array.isArray(values) ? values : String(values ?? '').split(',');
+  return [...new Set(candidates
+    .map((value) =>
+      normalizePlannerValue<MobileFitOpenQuestionKey>(value, mobileFitOpenQuestionKeys)
+    )
+    .filter((value): value is MobileFitOpenQuestionKey => Boolean(value))
+  )];
+};
+
+export const buildMobileFitQuoteHref = ({
+  resultBand,
+  machineSignal,
+  placement,
+  openQuestions,
+}: MobileFitQuoteContext) => {
+  const safeResultBand =
+    normalizePlannerValue<MobileFitBand>(resultBand, mobileFitBands) ?? 'needs-confirmation';
+  const safeMachineSignal =
+    normalizePlannerValue<MobileFitMachineSignal>(machineSignal, mobileFitMachineSignals) ??
+    'undecided';
+  const safePlacement =
+    normalizePlannerValue<MobileFitPlacement>(placement, mobileFitPlacements) ?? 'undecided';
+  const safeOpenQuestions = normalizeMobileFitOpenQuestions(openQuestions);
+  const params = new URLSearchParams({
+    type: 'quote',
+    interest: 'commercial',
+    source: MOBILE_SETUP_FIT_CHECKER_PATH,
+    use: 'mobile-food',
+    mobile_fit: safeResultBand,
+    mobile_machine: safeMachineSignal,
+    mobile_placement: safePlacement,
+  });
+
+  if (safeOpenQuestions.length > 0) {
+    params.set('mobile_open', safeOpenQuestions.join(','));
+  }
+
+  return `/contact?${params.toString()}`;
+};
+
+export const getSafeMobileFitQuoteContext = ({
+  sourcePage,
+  resultBand,
+  machineSignal,
+  placement,
+  openQuestions,
+}: {
+  sourcePage: string;
+  resultBand?: string | null;
+  machineSignal?: string | null;
+  placement?: string | null;
+  openQuestions?: string | null;
+}): MobileFitQuoteContext | null => {
+  if (sourcePage !== MOBILE_SETUP_FIT_CHECKER_PATH) return null;
+
+  const safeResultBand = normalizePlannerValue<MobileFitBand>(resultBand, mobileFitBands);
+  const safeMachineSignal = normalizePlannerValue<MobileFitMachineSignal>(
+    machineSignal,
+    mobileFitMachineSignals
+  );
+  const safePlacement = normalizePlannerValue<MobileFitPlacement>(placement, mobileFitPlacements);
+  const safeOpenQuestions = normalizeMobileFitOpenQuestions(openQuestions);
+
+  if (!safeResultBand && !safeMachineSignal && !safePlacement && safeOpenQuestions.length === 0) {
+    return null;
+  }
+
+  return {
+    resultBand: safeResultBand ?? 'needs-confirmation',
+    machineSignal: safeMachineSignal ?? 'undecided',
+    placement: safePlacement ?? 'undecided',
+    openQuestions: safeOpenQuestions,
+  };
+};
+
+export const getMobileFitQuoteContextLabels = (context: MobileFitQuoteContext) => ({
+  resultBand: mobileFitBandLabels[context.resultBand],
+  machineSignal: mobileFitMachineLabels[context.machineSignal],
+  placement: mobileFitPlacementLabels[context.placement],
+  openQuestions: context.openQuestions.map((key) => mobileFitOpenQuestionLabels[key]),
+});
+
 const approvedMachineOptions = new Set<string>(QUOTE_MACHINE_OPTIONS);
 
 export const getSafeQuoteMachineInterest = (rawInterest: string | null) => {
@@ -217,6 +328,7 @@ export const getQuoteSourceLabel = (sourcePage: string) => {
     '/machines/micro': 'Micro Machine page',
     '/solutions/food-trucks': 'food-truck solution guide',
     '/resources/business-playbook/food-truck-mobile-setup-guide': 'mobile setup guide',
+    [MOBILE_SETUP_FIT_CHECKER_PATH]: 'mobile setup fit checker',
     '/resources/business-playbook/payback-planner': 'payback planner',
     '/resources/business-playbook/planner': 'machine-fit planner',
   };
@@ -238,12 +350,17 @@ export const buildStructuredQuoteMessage = ({
   readiness,
   additionalDetails,
   plannerContext,
+  mobileFitContext,
 }: QuoteIntakeFields & {
   additionalDetails: string;
   plannerContext?: PlannerQuoteContext | null;
+  mobileFitContext?: MobileFitQuoteContext | null;
 }) => {
   const plannerLabels = plannerContext
     ? getPlannerQuoteContextLabels(plannerContext)
+    : null;
+  const mobileFitLabels = mobileFitContext
+    ? getMobileFitQuoteContextLabels(mobileFitContext)
     : null;
 
   return [
@@ -263,6 +380,16 @@ export const buildStructuredQuoteMessage = ({
           `Intended path: ${plannerLabels.intendedPath}`,
           `Budget completeness: ${plannerLabels.budgetBand}`,
           `Open question categories: ${plannerLabels.openQuestions.join(', ') || 'None recorded'}`,
+        ]
+      : []),
+    ...(mobileFitLabels
+      ? [
+          '',
+          'Mobile setup fit-checker summary (categorical; no free text or exact financial inputs):',
+          `Result band: ${mobileFitLabels.resultBand}`,
+          `Machine signal: ${mobileFitLabels.machineSignal}`,
+          `Placement: ${mobileFitLabels.placement}`,
+          `Open question categories: ${mobileFitLabels.openQuestions.join(', ') || 'None recorded'}`,
         ]
       : []),
   ].join('\n');

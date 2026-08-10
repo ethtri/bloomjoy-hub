@@ -1,5 +1,19 @@
 # Decisions
 
+## 2026-08-10 - Mobile setup fit checker uses transparent categorical rules (`#725`)
+
+The mobile-operator fit checker lives at the dedicated canonical route `/resources/business-playbook/mobile-setup-fit-checker`. Its rules are implemented as a pure, testable decision function separate from the UI and are limited to the approved `#723` machine-fit claim matrix.
+
+- Inputs are bounded categories for placement, current machine path, space/access review, complete-load and power-source review, staffing/service flow, service-volume posture, transport/load-in review, and local/venue review. The tool collects no free text, PII, exact dimensions, exact electrical values, customer data, revenue, margin, ROI, or payback inputs.
+- Results are `incomplete`, `likely-fit`, `needs-confirmation`, or `not-supported`. Missing information remains incomplete; known physical conflicts, generator-certification dependence, a Mini/automatic-stick contradiction, guaranteed-throughput dependence, improvised transport/securing, and Bloomjoy-as-permit-authority assumptions fail closed.
+- A likely-fit result means only “worth exploring.” Every result preserves the boundary among Bloomjoy quote review, manufacturer instructions, qualified electrical/vehicle professionals, venue/insurer review, and local authorities.
+- Micro cannot receive a likely mobile fit from published evidence because its public product page does not publish the dimensions, weight, power, or mobile service rate required for that conclusion.
+- Quote navigation remains fixed to `interest=commercial` and `use=mobile-food`. It may transfer only `mobile_fit`, `mobile_machine`, `mobile_placement`, and `mobile_open` allowlisted values under the canonical checker `source`.
+- Unsupported results do not offer a quote action. Mini and Micro signals lead to their product/payment-first paths; a separate Commercial quote action may carry the signal as context rather than quote interest.
+- Answers are not persisted. Refresh, direct navigation, back navigation after unmount, and reset return to the safe incomplete state. Copy and print summaries contain categorical answers and decision boundaries only.
+
+This provides a useful operator screen without presenting engineering, regulatory, venue, insurer, generator, vehicle, throughput, or financial approval.
+
 ## 2026-08-10 - Machine-fit planner transfers categorical context only (`#623`)
 
 The public Machine Fit + Startup Budget Planner may carry a bounded planning summary into the Commercial quote journey, but it does not transfer the planner's exact financial inputs or turn a Mini/Micro result into quote interest.

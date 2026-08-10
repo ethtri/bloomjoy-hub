@@ -143,11 +143,22 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/resources/business-playbook/food-truck-mobile-setup-guide` direct-loads with unique metadata, visible review/source posture, official source links, model-specific caveats, and working links back to the solution, machine pages, planners, quote flow, and existing event guide
 - [ ] Setup checklist covers measured space, complete electrical load, approved power, load-in, transport/securing questions, environment, supply storage, cleaning/reset, service flow, and local review; checked state is announced as reviewed rather than approved
 - [ ] Setup checklist reset, copy, and print controls work by keyboard; refresh/direct load safely returns to an incomplete non-persisted state and no checklist value enters the URL or analytics
+- [ ] `/resources/business-playbook/mobile-setup-fit-checker` direct-loads with unique canonical metadata, visible no-approval posture, eight labeled categorical question groups, an incomplete no-state result, and links to the solution and setup guide
+- [ ] The fully reviewed Mini/adjacent fixture produces `Likely fit to explore`, links to `/machines/mini`, retains the manufacturer/professional/local decision boundary, and offers a distinct Commercial-only quote comparison
+- [ ] The open Commercial/installed fixture produces `Needs confirmation`, names every unresolved category that drove the result, and never implies definitive compatibility or approval
+- [ ] Known no-fit space, generator-certification dependence, Mini plus automatic-stick requirement, guaranteed-throughput dependence, improvised transport/securing, and Bloomjoy-as-permit-authority fixtures produce `Not currently supported` and expose no quote action
+- [ ] A fully answered Micro fixture remains `Needs confirmation` and explicitly names unpublished dimensions, weight, power, throughput, and mobile compatibility as unresolved rather than inventing a likely fit
+- [ ] Missing answers remain `Incomplete setup screen`; no result band is inferred until all eight categories are answered, and contradictory inputs fail closed with the relevant driver shown
+- [ ] Checker product, setup-guide, and quote actions record bounded start/completion/result-band/next-action events with no exact setup values, PII, free text, financial assumptions, or arbitrary source data
+- [ ] Checker quote URLs contain only `type=quote`, `interest=commercial`, canonical `source`, `use=mobile-food`, `mobile_fit`, `mobile_machine`, `mobile_placement`, and allowlisted `mobile_open`; malformed values and wrong-source context are discarded on Contact
+- [ ] Contact visibly confirms the checker result band, machine signal, placement category, and open-question categories; it states that the context is not approval or quote interest and keeps the form fixed to Commercial
+- [ ] Checker copy and print summaries contain categorical answers and decision boundaries only; reset moves focus to the first question, announces the reset, clears every answer, and does not retain state on refresh/direct navigation
+- [ ] Every checker option works by keyboard and exposes selected state; live results are announced, focus styles remain visible, reduced-motion treatment is present, and 44px controls remain readable
 - [ ] Mobile quote CTAs contain only allowlisted `type=quote`, `interest=commercial`, canonical `source`, and `use=mobile-food`; Mini and Micro remain on payment-first product paths, and no free-form setup, financial, or contact value appears in the URL
 - [ ] Resources, Business Playbook, Machines overview, and Mini page expose descriptive mobile-operator links without keyword-stuffed sitewide repetition
-- [ ] Both mobile routes are prerendered, canonical, in `sitemap.xml` with a defensible `2026-08-10` lastmod, load their route modules before app hydration, and are served by the static Vercel rewrites
-- [ ] At 320px, 390px, 768px, and 1440px, both mobile routes have no horizontal page overflow, keep 44px controls, preserve readable facts/checklist cards, and leave the primary CTA clear
-- [ ] Run `npm run mobile-content:check` and `npm run seo:check`; confirm route, claim, context, structured-data, source, no-proof, internal-link, and responsive guardrails pass
+- [ ] All three mobile routes are prerendered, canonical, in `sitemap.xml` with a defensible `2026-08-10` lastmod, load their route modules before app hydration, and are served by the static Vercel rewrites
+- [ ] At 320px, 390px, 768px, and 1440px, all three mobile routes have no horizontal page overflow, keep 44px controls, preserve readable cards/results, and leave the primary CTA clear
+- [ ] Run `npm run mobile-content:check`, `npm run mobile-fit-checker:check`, and `npm run seo:check`; confirm route, claim, decision-rule, context, structured-data, source, no-proof, internal-link, and responsive guardrails pass
 - [ ] Product pages load (Full, Micro, Mini)
 - [ ] Home, `/machines`, and Mini detail consistently show Mini as `Coming Soon` and expose no quote/procurement checkout path
 - [ ] Machine detail pages support image gallery selection (thumbnail click changes main image)

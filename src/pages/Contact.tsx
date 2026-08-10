@@ -10,6 +10,7 @@ import {
   MapPin,
   ShieldCheck,
   Sparkles,
+  Truck,
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -28,8 +29,10 @@ import { createLeadSubmission } from '@/lib/leadSubmissions';
 import { MACHINE_NAMES } from '@/lib/machineNames';
 import {
   buildStructuredQuoteMessage,
+  getMobileFitQuoteContextLabels,
   getPlannerQuoteContextLabels,
   getQuoteSourceLabel,
+  getSafeMobileFitQuoteContext,
   getSafePlannerQuoteContext,
   getSafeQuoteMachineInterest,
   getSafeQuoteVenueUse,
@@ -164,6 +167,16 @@ export default function ContactPage() {
   });
   const plannerContextLabels = plannerContext
     ? getPlannerQuoteContextLabels(plannerContext)
+    : null;
+  const mobileFitContext = getSafeMobileFitQuoteContext({
+    sourcePage,
+    resultBand: queryReady ? searchParams.get('mobile_fit') : null,
+    machineSignal: queryReady ? searchParams.get('mobile_machine') : null,
+    placement: queryReady ? searchParams.get('mobile_placement') : null,
+    openQuestions: queryReady ? searchParams.get('mobile_open') : null,
+  });
+  const mobileFitContextLabels = mobileFitContext
+    ? getMobileFitQuoteContextLabels(mobileFitContext)
     : null;
   const redirectedMachineInterest =
     initialType === 'quote' &&
@@ -317,6 +330,7 @@ export default function ContactPage() {
             readiness: formData.readiness,
             additionalDetails: formData.message,
             plannerContext,
+            mobileFitContext,
           })
         : formData.message.trim();
 
@@ -618,6 +632,56 @@ export default function ContactPage() {
                             their payment-first product paths.
                           </p>
                         )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {isQuote && mobileFitContextLabels && (
+                  <div className="mb-6 rounded-2xl border border-primary/20 bg-[#fff8f2] p-4 text-left">
+                    <div className="flex items-start gap-3">
+                      <Truck aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-foreground">
+                          Mobile setup fit-checker summary received
+                        </p>
+                        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                          These are allowlisted categorical signals only. No free-form setup note,
+                          exact dimension, electrical value, customer data, or financial input was
+                          transferred.
+                        </p>
+                        <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                          <div>
+                            <dt className="font-semibold text-foreground">Result band</dt>
+                            <dd className="mt-0.5 text-muted-foreground">
+                              {mobileFitContextLabels.resultBand}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="font-semibold text-foreground">Machine signal</dt>
+                            <dd className="mt-0.5 text-muted-foreground">
+                              {mobileFitContextLabels.machineSignal}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="font-semibold text-foreground">Placement</dt>
+                            <dd className="mt-0.5 text-muted-foreground">
+                              {mobileFitContextLabels.placement}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="font-semibold text-foreground">Open question categories</dt>
+                            <dd className="mt-0.5 text-muted-foreground">
+                              {mobileFitContextLabels.openQuestions.join(', ') || 'None recorded'}
+                            </dd>
+                          </div>
+                        </dl>
+                        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                          The checker signal is context, not quote interest or approval. This form
+                          remains fixed to the configurable Commercial Machine; Mini and Micro stay
+                          on their payment-first product paths. Manufacturer, professional, venue,
+                          insurer, and local decisions remain outside Bloomjoy quote review.
+                        </p>
                       </div>
                     </div>
                   </div>

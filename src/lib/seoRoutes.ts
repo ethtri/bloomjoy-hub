@@ -7,6 +7,7 @@ import {
   MOBILE_SETUP_GUIDE_PATH,
   foodTruckSolutionFaqs,
 } from "@/data/mobileOperatorPages";
+import { MOBILE_SETUP_FIT_CHECKER_PATH } from "@/data/mobileSetupFitContract";
 
 export type RouteSeo = {
   path: string;
@@ -29,7 +30,8 @@ export type RouteSeo = {
     | "faq"
     | "business-playbook-index"
     | "business-playbook-article"
-    | "mobile-setup-guide";
+    | "mobile-setup-guide"
+    | "mobile-fit-checker";
 };
 
 export type PrivateRouteSeo = RouteSeo & {
@@ -68,6 +70,7 @@ export const publicRouteLastmods = {
   "/resources/business-playbook/planner": "2026-05-01",
   "/resources/business-playbook/payback-planner": "2026-07-17",
   "/resources/business-playbook/food-truck-mobile-setup-guide": "2026-08-10",
+  "/resources/business-playbook/mobile-setup-fit-checker": "2026-08-10",
   "/solutions/food-trucks": "2026-08-10",
   "/contact": "2026-05-11",
   "/about": "2026-05-11",
@@ -246,6 +249,25 @@ const businessPlaybookSeoRoutes: RouteSeo[] = [
     ],
     lastmod: publicRouteLastmods[MOBILE_SETUP_GUIDE_PATH],
     structuredDataKind: "mobile-setup-guide",
+  },
+  {
+    path: MOBILE_SETUP_FIT_CHECKER_PATH,
+    title: "Mobile Setup Fit Checker for Food Trucks | Bloomjoy",
+    description:
+      "Use Bloomjoy's conservative mobile setup fit checker to review space, power, staffing, transport, service, and local questions before exploring a machine or quote.",
+    robots: PUBLIC_ROBOTS,
+    surface: "marketing",
+    ogType: "website",
+    ogImagePath: "/seo/mini-machine.jpg",
+    ogImageAlt: "Bloomjoy mobile setup fit checker for food-truck operators",
+    sitemapImages: [
+      {
+        loc: `${MARKETING_ORIGIN}/seo/mini-machine.jpg`,
+        title: "Mobile cotton candy machine setup fit checker",
+      },
+    ],
+    lastmod: publicRouteLastmods[MOBILE_SETUP_FIT_CHECKER_PATH],
+    structuredDataKind: "mobile-fit-checker",
   },
   ...businessPlaybookArticles.map(
     (article): RouteSeo => ({
@@ -947,6 +969,47 @@ export const buildStructuredData = ({
           "https://leginfo.legislature.ca.gov/faces/codes_displayText.xhtml?article=&chapter=10.&division=104.&lawCode=HSC&part=7.&title=",
           "https://www.fda.gov/media/164194/download",
         ],
+      }
+    );
+  }
+
+  if (route.structuredDataKind === "mobile-fit-checker") {
+    graph.push(
+      {
+        "@type": "BreadcrumbList",
+        "@id": `${canonicalUrl}#breadcrumb`,
+        itemListElement: [
+          {
+            "@type": "ListItem",
+            position: 1,
+            name: "Resources",
+            item: `${MARKETING_ORIGIN}/resources`,
+          },
+          {
+            "@type": "ListItem",
+            position: 2,
+            name: "Business Playbook",
+            item: `${MARKETING_ORIGIN}/resources/business-playbook`,
+          },
+          {
+            "@type": "ListItem",
+            position: 3,
+            name: "Mobile Setup Fit Checker",
+            item: canonicalUrl,
+          },
+        ],
+      },
+      {
+        "@type": "WebApplication",
+        "@id": `${canonicalUrl}#application`,
+        name: "Bloomjoy Mobile Setup Fit Checker",
+        description: route.description,
+        applicationCategory: "BusinessApplication",
+        operatingSystem: "Any",
+        isAccessibleForFree: true,
+        url: canonicalUrl,
+        author: { "@id": `${MARKETING_ORIGIN}/#organization` },
+        mainEntityOfPage: { "@id": `${canonicalUrl}#webpage` },
       }
     );
   }
