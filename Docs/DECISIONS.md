@@ -62,6 +62,18 @@ Qualification is serialized into the existing server-bounded lead message instea
 
 This is intentionally reversible: field choices and copy can change after Sales UAT without a data migration. Attribution fields from `#616` may be added only through that issue's allowlisted, consent-compatible contract.
 
+## 2026-08-10 - Public lead attribution is session-scoped, allowlisted, and lead-bound (`#616`)
+Bloomjoy will retain enough first-touch, last-touch, and conversion context to distinguish direct, referral/organic, campaign, internal-CTA, and planner-assisted public leads without creating a cross-session tracking profile.
+
+**Canonical behavior**
+- The browser uses `sessionStorage`, not cookies or `localStorage`. First touch is fixed for the tab/session. Last touch changes only for a new allowlisted campaign, external referring host, explicit internal source, or controlled planner signal.
+- Only pathnames, a referring hostname, five UTM fields, controlled touch classifications, normalized internal source, allowlisted machine interest, planner recommendation, and categorical planner band may be captured. Click IDs are excluded until separately approved.
+- Arbitrary query parameters, fragments, full referrer URLs, exact planner inputs or financial assumptions, form values, and strings matching conservative likely-PII patterns are discarded.
+- Attribution is rebuilt from the server allowlist and stored in one additive `lead_submissions.attribution` JSON object. It inherits the lead row's existing retention and Super Admin-only read boundary; there is no secondary marketing store or new public read policy.
+- Internal notifications show only a compact sanitized attribution summary. Notification failure remains non-blocking and cannot create a second lead.
+
+The exact schema, field limits, lifecycle, rollout, and rollback are maintained in `Docs/LEAD_ATTRIBUTION.md`. Automated grading, autonomous outreach, marketing consent expansion, campaign click IDs, and a new CRM remain out of scope.
+
 ## 2026-07-26 - Verified refunds use one manager approval and automatic fulfillment (`#674`)
 Bloomjoy will make every bounded, safe effort to identify the correct transaction before asking a Machine Manager to decide a refund. The normal high-confidence path is one manager approval followed by automatic provider execution and confirmation, not a second manual workflow in Nayax.
 
