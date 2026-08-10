@@ -250,17 +250,26 @@ export const formatLeadAttributionLines = (
   const normalizedAttribution = attribution as NormalizedLeadAttribution;
   const sourcePath = normalizePath(normalizedAttribution.conversion.source_path);
   if (!sourcePath) return [];
+  const machineInterest = normalizeMachineInterest(
+    normalizedAttribution.conversion.machine_interest,
+  );
+  const plannerRecommendation = normalizePlannerRecommendation(
+    normalizedAttribution.conversion.planner_recommendation,
+  );
+  const plannerBand = normalizePlannerBand(
+    normalizedAttribution.conversion.planner_band,
+  );
 
   const conversionParts = [
     `source=${sourcePath}`,
-    ...(normalizedAttribution.conversion.machine_interest
-      ? [`machine=${normalizedAttribution.conversion.machine_interest}`]
+    ...(machineInterest
+      ? [`machine=${machineInterest}`]
       : []),
-    ...(normalizedAttribution.conversion.planner_recommendation
-      ? [`planner=${normalizedAttribution.conversion.planner_recommendation}`]
+    ...(plannerRecommendation
+      ? [`planner=${plannerRecommendation}`]
       : []),
-    ...(normalizedAttribution.conversion.planner_band
-      ? [`band=${normalizedAttribution.conversion.planner_band}`]
+    ...(plannerBand
+      ? [`band=${plannerBand}`]
       : []),
   ];
 

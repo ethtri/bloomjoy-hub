@@ -65,6 +65,8 @@ For new normalized payloads, `version` and `conversion.source_path` are required
 
 The server drops unknown keys, invalid types, over-limit values, URLs where tokens are expected, control characters, and values matching conservative email/phone-like patterns. Campaign click IDs such as `gclid`, `gbraid`, `wbraid`, and `fbclid` are not read or persisted because they have not been explicitly approved.
 
+Organic-search classification uses exact hostname or subdomain boundaries for known search providers. A lookalike referral host such as `notgoogle.com` remains a referral rather than being credited as organic search.
+
 ## Planner boundary
 
 The Machine Fit planner may pass only its categorical recommendation and `clear`, `close_call`, or `exploring` state. The payback planner may pass only its selected scenario and categorical demand band. Startup cost, price, volume, margin, payback, revenue-share, rent, fee, and other exact assumptions never enter attribution.
@@ -74,7 +76,7 @@ The Machine Fit planner may pass only its categorical recommendation and `clear`
 - The Edge Function reconstructs the object from the exact allowlist before insert. Missing, malformed, or tampered attribution is reduced to a safe versioned conversion object and does not break an otherwise valid lead.
 - The JSON column has an object-type and size constraint. No new index is added until a real reporting query demonstrates the need.
 - Existing `lead_submissions` RLS remains authoritative. This change adds no anonymous/authenticated select grant and no new public policy.
-- Quote/procurement notifications receive a compact summary made from the sanitized stored object. Raw request attribution is never interpolated directly.
+- Quote/procurement notifications receive a compact summary made from the sanitized stored object. The formatter revalidates touch and conversion fields before interpolation, so malformed future or legacy rows cannot inject unapproved context. Raw request attribution is never interpolated directly.
 - Lead dedupe and dispatch claims remain unchanged. A notification failure remains non-blocking and does not create another row.
 
 ## Retention and deletion

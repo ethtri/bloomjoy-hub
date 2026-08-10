@@ -188,4 +188,26 @@ Deno.test("legacy or malformed stored attribution cannot break notification retr
     }),
     [],
   );
+  assertEquals(
+    formatLeadAttributionLines({
+      first_touch: {
+        kind: "campaign",
+        landing_path: "/contact",
+        utm_source: "customer@example.test",
+      },
+      conversion: {
+        source_path: "/contact",
+        machine_interest: "<script>not-a-machine</script>",
+        planner_recommendation: "commercial\nInjected header",
+        planner_band: "$12,345",
+      },
+    }),
+    [
+      "",
+      "Lead Attribution:",
+      "- First touch: campaign @ /contact",
+      "- Last touch: unavailable",
+      "- Conversion: source=/contact",
+    ],
+  );
 });

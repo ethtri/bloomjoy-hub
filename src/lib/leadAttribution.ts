@@ -14,13 +14,13 @@ const campaignKeys = [
 const touchKinds = new Set(['direct', 'organic', 'referral', 'campaign', 'internal', 'planner']);
 const plannerRecommendations = new Set(['commercial', 'mini', 'micro', 'undecided']);
 const plannerBands = new Set(['clear', 'close_call', 'exploring', 'blank', 'low', 'medium', 'high']);
-const searchReferrerHosts = [
-  'google.',
+const searchReferrerDomains = [
   'bing.com',
   'duckduckgo.com',
   'search.yahoo.com',
   'ecosia.org',
 ];
+const googleSearchHostPattern = /(^|\.)google\.(?:com|[a-z]{2,3})(?:\.[a-z]{2})?$/i;
 const emailLikePattern = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
 const phoneLikePattern = /(?:\+?\d[\s().-]*){7,}/;
 const campaignValuePattern = /^[a-z0-9][a-z0-9 _./-]*$/i;
@@ -217,10 +217,15 @@ const getDocumentReferrerHost = () => {
   }
 };
 
-const classifyReferrer = (host: string): TouchKind =>
-  searchReferrerHosts.some((candidate) => host === candidate || host.includes(candidate))
-    ? 'organic'
-    : 'referral';
+const classifyReferrer = (host: string): TouchKind => {
+  const isKnownSearchHost =
+    googleSearchHostPattern.test(host) ||
+    searchReferrerDomains.some(
+      (domain) => host === domain || host.endsWith(`.${domain}`)
+    );
+
+  return isKnownSearchHost ? 'organic' : 'referral';
+};
 
 const deriveTouch = (): LeadAttributionTouch | null => {
   if (typeof window === 'undefined') return null;
