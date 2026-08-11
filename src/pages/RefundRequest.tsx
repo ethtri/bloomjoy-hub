@@ -16,8 +16,12 @@ import {
   startRefundQrClaim,
   submitRefundRequest,
   type RefundAttachmentInput,
+  type RefundIncidentTimeConfidence,
+  type RefundIssueCategory,
   type RefundPaymentMethod,
+  type RefundPaymentInteraction,
   type RefundQrClaim,
+  type RefundWalletProvider,
 } from '@/lib/refundOperations';
 
 const maxAttachments = 3;
@@ -35,6 +39,11 @@ const emptyForm = {
   paymentAmount: '',
   cardLast4: '',
   cardWalletUsed: false,
+  paymentInteraction: '' as RefundPaymentInteraction | '',
+  walletProvider: '' as RefundWalletProvider | '',
+  incidentTimeConfidence: '' as RefundIncidentTimeConfidence | '',
+  issueCategory: '' as RefundIssueCategory | '',
+  productDescription: '',
   issueSummary: '',
 };
 
@@ -224,6 +233,11 @@ export default function RefundRequestPage() {
       return;
     }
 
+    if (!form.incidentTimeConfidence) {
+      toast.error('Tell us how closely you remember the purchase time.');
+      return;
+    }
+
     if (!form.customerName.trim()) {
       toast.error('Enter your name so we know who to help.');
       return;
@@ -239,8 +253,23 @@ export default function RefundRequestPage() {
       return;
     }
 
+    if (form.paymentMethod === 'card' && !form.paymentInteraction) {
+      toast.error('Tell us how you paid at the machine.');
+      return;
+    }
+
+    if (form.paymentInteraction === 'phone_watch_wallet' && !form.walletProvider) {
+      toast.error('Choose the phone or watch wallet you used.');
+      return;
+    }
+
     if (form.paymentMethod === 'cash' && !form.zellePaymentContact.trim()) {
       toast.error('Enter the phone number or email connected to your Zelle account.');
+      return;
+    }
+
+    if (!form.issueCategory) {
+      toast.error('Choose the option that best describes what happened.');
       return;
     }
 
@@ -268,6 +297,15 @@ export default function RefundRequestPage() {
         paymentAmount: form.paymentAmount.trim(),
         cardLast4: form.paymentMethod === 'card' ? form.cardLast4.trim() : undefined,
         cardWalletUsed: form.cardWalletUsed,
+        paymentInteraction:
+          form.paymentMethod === 'cash' ? 'cash' : form.paymentInteraction || 'unsure',
+        walletProvider:
+          form.paymentInteraction === 'phone_watch_wallet' && form.walletProvider
+            ? form.walletProvider
+            : undefined,
+        incidentTimeConfidence: form.incidentTimeConfidence || 'rough',
+        issueCategory: form.issueCategory || 'other',
+        productDescription: form.productDescription.trim() || undefined,
         attachments,
       });
 
@@ -492,7 +530,7 @@ export default function RefundRequestPage() {
                   </div>
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-[1fr_160px_160px]">
+                <div className="grid gap-4 sm:grid-cols-[1fr_150px_150px]">
                   <div>
                     <Label htmlFor="customer-phone">Phone</Label>
                     <Input
@@ -527,15 +565,47 @@ export default function RefundRequestPage() {
                   </div>
                 </div>
 
+                <div>
+                  <Label htmlFor="incident-time-confidence">How closely do you remember the time?</Label>
+                  <select
+                    id="incident-time-confidence"
+                    value={form.incidentTimeConfidence}
+                    onChange={(event) =>
+                      updateForm(
+                        'incidentTimeConfidence',
+                        event.target.value as RefundIncidentTimeConfidence
+                      )
+                    }
+                    required
+                    className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="">Choose one</option>
+                    <option value="exact">This is the exact time</option>
+                    <option value="within_15_minutes">Within about 15 minutes</option>
+                    <option value="within_1_hour">Within about 1 hour</option>
+                    <option value="rough">This is only a rough estimate</option>
+                  </select>
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                    An honest estimate helps us compare the right group of transactions.
+                  </p>
+                </div>
+
                 <div className="grid gap-4 sm:grid-cols-[190px_1fr]">
                   <div>
                     <Label htmlFor="payment-method">Payment method</Label>
                     <select
                       id="payment-method"
                       value={form.paymentMethod}
-                      onChange={(event) =>
-                        updateForm('paymentMethod', event.target.value as RefundPaymentMethod)
-                      }
+                      onChange={(event) => {
+                        const paymentMethod = event.target.value as RefundPaymentMethod;
+                        setForm((current) => ({
+                          ...current,
+                          paymentMethod,
+                          paymentInteraction: paymentMethod === 'cash' ? 'cash' : '',
+                          walletProvider: '',
+                          cardWalletUsed: false,
+                        }));
+                      }}
                       className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                     >
                       <option value="card">Credit card</option>
@@ -559,17 +629,51 @@ export default function RefundRequestPage() {
                 {form.paymentMethod === 'card' && (
                   <div className="rounded-lg border border-pink-200 bg-pink-50 p-4 text-sm text-pink-950">
                     <div className="grid gap-4">
-                      <label className="flex min-h-11 items-start gap-3 rounded-md bg-white px-3 py-3 text-sm shadow-sm">
-                        <input
-                          type="checkbox"
-                          checked={form.cardWalletUsed}
-                          onChange={(event) => updateForm('cardWalletUsed', event.target.checked)}
-                          className="mt-0.5 h-5 w-5 rounded border-input"
-                        />
-                        <span>
-                          I tapped with Apple Pay, Google Pay, or another mobile wallet.
-                        </span>
-                      </label>
+                      <div>
+                        <Label htmlFor="payment-interaction">How did you pay at the machine?</Label>
+                        <select
+                          id="payment-interaction"
+                          value={form.paymentInteraction}
+                          onChange={(event) => {
+                            const paymentInteraction = event.target.value as RefundPaymentInteraction;
+                            setForm((current) => ({
+                              ...current,
+                              paymentInteraction,
+                              cardWalletUsed: paymentInteraction === 'phone_watch_wallet',
+                              walletProvider:
+                                paymentInteraction === 'phone_watch_wallet' ? current.walletProvider : '',
+                            }));
+                          }}
+                          required
+                          className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
+                        >
+                          <option value="">Choose one</option>
+                          <option value="phone_watch_wallet">Tapped a phone or watch wallet</option>
+                          <option value="tap_card">Tapped a physical card</option>
+                          <option value="insert_or_swipe">Inserted or swiped a physical card</option>
+                          <option value="unsure">I am not sure</option>
+                        </select>
+                      </div>
+                      {form.paymentInteraction === 'phone_watch_wallet' && (
+                        <div>
+                          <Label htmlFor="wallet-provider">Which wallet did you use?</Label>
+                          <select
+                            id="wallet-provider"
+                            value={form.walletProvider}
+                            onChange={(event) =>
+                              updateForm('walletProvider', event.target.value as RefundWalletProvider)
+                            }
+                            required
+                            className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
+                          >
+                            <option value="">Choose one</option>
+                            <option value="apple_pay">Apple Pay</option>
+                            <option value="google_wallet">Google Wallet</option>
+                            <option value="other">Another wallet</option>
+                            <option value="unsure">I am not sure</option>
+                          </select>
+                        </div>
+                      )}
                       <div>
                         <Label htmlFor="card-last4">
                           {form.cardWalletUsed
@@ -618,6 +722,39 @@ export default function RefundRequestPage() {
                   </div>
                 )}
 
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="issue-category">What best describes the problem?</Label>
+                    <select
+                      id="issue-category"
+                      value={form.issueCategory}
+                      onChange={(event) =>
+                        updateForm('issueCategory', event.target.value as RefundIssueCategory)
+                      }
+                      required
+                      className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="">Choose one</option>
+                      <option value="charged_no_product">Charged, but no product came out</option>
+                      <option value="product_problem">The product came out incorrectly</option>
+                      <option value="charged_more_than_once">Charged more than once</option>
+                      <option value="wrong_amount">Charged the wrong amount</option>
+                      <option value="other">Something else</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label htmlFor="product-description">Product or selection (optional)</Label>
+                    <Input
+                      id="product-description"
+                      value={form.productDescription}
+                      onChange={(event) => updateForm('productDescription', event.target.value)}
+                      maxLength={160}
+                      placeholder="Example: blue raspberry cotton candy"
+                      className="mt-2"
+                    />
+                  </div>
+                </div>
+
                 <div>
                   <Label htmlFor="issue-summary">What happened?</Label>
                   <Textarea
@@ -638,8 +775,8 @@ export default function RefundRequestPage() {
                       <div className="flex items-start gap-3 text-sm text-muted-foreground">
                         <Paperclip className="mt-0.5 h-4 w-4 shrink-0" />
                         <span>
-                          Optional images of the machine, payment screen, or product issue. Up to 3
-                          photos, 5MB each.
+                          Optional images of the machine or product issue. Do not upload a card,
+                          wallet, or payment-account screenshot. Up to 3 photos, 5MB each.
                         </span>
                       </div>
                       <Input

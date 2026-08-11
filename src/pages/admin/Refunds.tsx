@@ -614,6 +614,87 @@ const formatCandidateSummary = (candidate: NayaxLookupCandidate) =>
       : ''
   }`;
 
+const paymentInteractionLabel = (refundCase: RefundCaseRecord) => {
+  switch (refundCase.paymentInteraction) {
+    case 'phone_watch_wallet':
+      return refundCase.walletProvider === 'apple_pay'
+        ? 'Apple Pay on a phone or watch'
+        : refundCase.walletProvider === 'google_wallet'
+          ? 'Google Wallet on a phone or watch'
+          : 'Phone or watch wallet';
+    case 'tap_card':
+      return 'Tapped a physical card';
+    case 'insert_or_swipe':
+      return 'Inserted or swiped a physical card';
+    case 'cash':
+      return 'Cash';
+    default:
+      return refundCase.cardWalletUsed ? 'Phone or watch wallet' : 'Customer was not sure';
+  }
+};
+
+const incidentTimeConfidenceLabel = (refundCase: RefundCaseRecord) => {
+  switch (refundCase.incidentTimeConfidence) {
+    case 'exact':
+      return 'Customer says the time is exact';
+    case 'within_15_minutes':
+      return 'Customer says within about 15 minutes';
+    case 'within_1_hour':
+      return 'Customer says within about 1 hour';
+    case 'rough':
+      return 'Customer says this is a rough estimate';
+    default:
+      return 'Time confidence was not collected';
+  }
+};
+
+const issueCategoryLabel = (refundCase: RefundCaseRecord) => {
+  switch (refundCase.issueCategory) {
+    case 'charged_no_product':
+      return 'Charged, but no product came out';
+    case 'product_problem':
+      return 'Product came out incorrectly';
+    case 'charged_more_than_once':
+      return 'Charged more than once';
+    case 'wrong_amount':
+      return 'Charged the wrong amount';
+    default:
+      return 'Other customer issue';
+  }
+};
+
+const nayaxDecisionHeading = (
+  summary: RefundNayaxLookupSummary | null,
+  candidate: NayaxLookupCandidate | null,
+  hasSelectedMatch: boolean
+) => {
+  if (hasSelectedMatch) return 'Transaction selected';
+  if (summary?.lookupStatus === 'checking') return 'Checking recent transactions';
+  if (summary?.lookupStatus === 'setup_needed') return 'Nayax setup is needed';
+  if (summary?.lookupStatus === 'lookup_failed') return 'The transaction check did not finish';
+  if (summary?.recommendationState === 'ambiguous' || summary?.lookupStatus === 'multiple_matches') {
+    return 'More than one transaction could match';
+  }
+  if (summary?.recommendationState === 'no_safe_match' || summary?.lookupStatus === 'no_match') {
+    return 'No clear transaction was found';
+  }
+  if (candidate?.isRecommended) return 'One likely transaction was found';
+  if (candidate) return 'A possible transaction needs comparison';
+  return 'Waiting for transaction evidence';
+};
+
+const nayaxDecisionStatusLabel = (
+  summary: RefundNayaxLookupSummary | null,
+  candidate: NayaxLookupCandidate | null,
+  hasSelectedMatch: boolean
+) => {
+  if (hasSelectedMatch) return 'Selected';
+  if (candidate?.isRecommended) return 'Likely match';
+  if (candidate) return 'Compare details';
+  if (summary?.lookupStatus === 'checking' || summary?.lookupStatus === 'not_started') return 'Checking';
+  return 'Needs attention';
+};
+
 const formatCardSaleLine = (
   refundCase: RefundCaseRecord,
   editor: EditorState,
@@ -764,6 +845,8 @@ const nayaxStatusLabel = (status: RefundNayaxLookupStatus) => {
       return 'Multiple possible matches';
     case 'no_match':
       return 'No match found';
+    case 'manual_exception':
+      return 'Needs comparison';
     case 'setup_needed':
       return 'Setup needed';
     case 'lookup_failed':
@@ -853,7 +936,7 @@ const matchResultLabel = (
   if (!editor) return 'Checking';
   if (refundCase.paymentMethod === 'card') {
     if (hasSelectedCardEvidence(refundCase, editor)) return 'Card sale matched';
-    if (candidates.length > 0) return 'Candidate ready';
+    if (candidates.length > 0) return 'Transaction to review';
     if (refundCase.correlationStatus === 'no_match') return 'No match yet';
     if (refundCase.correlationStatus === 'nayax_not_configured') return 'Needs Nayax setup';
     return 'Auto-checking';
@@ -2441,7 +2524,8 @@ export default function AdminRefundsPage() {
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return null;
     const hasSelectedMatch = hasSelectedCardEvidence(selectedCase, editor);
     const recommendedCandidate = nayaxCandidates.find((candidate) => candidate.isRecommended === true) ?? null;
-    const alternateCandidates = nayaxCandidates.filter((candidate) => candidate !== recommendedCandidate);
+    const leadCandidate = recommendedCandidate ?? nayaxCandidates[0] ?? null;
+    const alternateCandidates = nayaxCandidates.filter((candidate) => candidate !== leadCandidate);
     const selectedCandidate = selectedNayaxCandidate(editor, nayaxCandidates);
     const needsDisagreementReason = Boolean(selectedCandidate && selectedCandidate.isRecommended !== true);
     const selectCandidate = (candidate: NayaxLookupCandidate) => {
@@ -2469,7 +2553,7 @@ export default function AdminRefundsPage() {
         disabled={isUsingDemoData || candidate.selectionAllowed === false}
         onClick={() => selectCandidate(candidate)}
         className={cn(
-          'w-full min-w-0 rounded-md border bg-sky-50 p-3 text-left text-xs text-sky-950 transition-colors hover:bg-sky-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60',
+          'w-full min-w-0 rounded-md border bg-white p-3 text-left text-xs text-slate-950 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60',
           editor.matchedNayaxCandidateToken === candidate.candidateToken
             ? 'border-sky-500 ring-2 ring-sky-200'
             : 'border-sky-200'
@@ -2479,22 +2563,17 @@ export default function AdminRefundsPage() {
           <span>{label}</span>
           {candidate.confidenceClass === 'strong_card' && (
             <Badge className="border-emerald-200 bg-emerald-50 text-emerald-800">
-              Strong card evidence{candidate.oneClickEligible ? '' : ' · manual only'}
+              Card details agree{candidate.oneClickEligible ? '' : ', manager review only'}
             </Badge>
           )}
           {candidate.confidenceClass === 'unique_qr_time' && (
-            <Badge className="border-sky-200 bg-sky-100 text-sky-900">Unique QR + time · manual only</Badge>
+            <Badge className="border-sky-200 bg-sky-100 text-sky-900">QR and timing agree, manager review only</Badge>
           )}
         </span>
-        <span className="mt-1 block text-sky-800">{formatCandidateSummary(candidate)}</span>
-        {candidate.matchFactors && candidate.matchFactors.length > 0 && (
-          <span className="mt-2 block text-sky-700">
-            {candidate.matchFactors.slice(0, 4).map((factor) => factor.label).join(' · ')}
-          </span>
-        )}
+        <span className="mt-1 block text-slate-700">{formatCandidateSummary(candidate)}</span>
         {candidate.selectionAllowed === false && (
           <span className="mt-2 block font-medium text-orange-900">
-            Safety block: this transaction cannot be selected.
+            Unavailable because this sale conflicts with a required detail or is already in use.
           </span>
         )}
       </button>
@@ -2502,27 +2581,28 @@ export default function AdminRefundsPage() {
 
     return (
       <div className="mt-3 space-y-3">
-        {nayaxLookupNotice && !selectedCase.hasMatchedNayaxTransaction && (
+        {nayaxLookupNotice && !selectedCase.hasMatchedNayaxTransaction && nayaxCandidates.length === 0 && (
           <div data-testid="nayax-lookup-notice" className={nayaxLookupNoticeClass(nayaxLookupNotice.tone)}>
             {nayaxLookupNotice.message}
           </div>
         )}
         {!selectedCase.hasMatchedNayaxTransaction && !editor.clearNayaxMatch && nayaxCandidates.length > 0 && (
           <div className="rounded-md border border-sky-200 bg-white p-3">
-            <p className="text-sm font-medium text-sky-950">
-              {recommendedCandidate ? 'Recommended card sale' : 'Card sales need comparison'}
-            </p>
-            <p className="mt-1 text-xs text-sky-800">
-              {recommendedCandidate
-                ? 'Confirm only if the details below match the request. This identifies a likely payment; it does not prove a delivery failure or approve a refund.'
-                : 'No transaction is safe to recommend automatically. One-click refund stays unavailable.'}
-            </p>
             {isUsingDemoData && (
               <InfoHint>
                 Demo mode disables sale selection because static evidence cannot be saved to a refund case.
               </InfoHint>
             )}
-            {recommendedCandidate && <div className="mt-3">{candidateOption(recommendedCandidate, 'Recommended sale')}</div>}
+            {leadCandidate && (
+              <div>
+                {candidateOption(
+                  leadCandidate,
+                  leadCandidate.isRecommended
+                    ? 'Select this likely transaction'
+                    : 'Select this transaction after comparing it'
+                )}
+              </div>
+            )}
             {alternateCandidates.length > 0 && (
               <details className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-2">
                 <summary className="cursor-pointer text-xs font-medium text-slate-800">
@@ -2653,15 +2733,21 @@ export default function AdminRefundsPage() {
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return null;
 
     const activeCandidate = activeNayaxCandidate(selectedCase, editor, nayaxCandidates);
+    const comparisonCandidate =
+      activeCandidate ??
+      nayaxCandidates.find((candidate) => candidate.isRecommended === true) ??
+      nayaxCandidates[0] ??
+      null;
+    const hasSelectedMatch = hasSelectedCardEvidence(selectedCase, editor);
     const cardAmountCents = matchedCardSaleAmountCents ?? selectedCase.paymentAmountCents;
     const cardLast4 =
-      activeCandidate?.cardLast4 ||
+      comparisonCandidate?.cardLast4 ||
       selectedCase.matchedNayaxCardLast4 ||
       editor.matchedNayaxCardLast4 ||
       selectedCase.cardLast4 ||
       'n/a';
     const transactionTime =
-      activeCandidate?.machineAuthorizationTime ||
+      comparisonCandidate?.machineAuthorizationTime ||
       selectedCase.matchedNayaxMachineAuthTime ||
       editor.matchedNayaxMachineAuthTime ||
       selectedCase.incidentAt;
@@ -2769,13 +2855,16 @@ export default function AdminRefundsPage() {
                   <p className="mt-1 font-medium text-white">{selectedCase.machineLabel}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-slate-400">Reported time</p>
+                  <p className="text-xs text-slate-400">Customer time</p>
                   <p className="mt-1 font-medium text-white">{formatDate(selectedCase.incidentAt)}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-400">
+                    {incidentTimeConfidenceLabel(selectedCase)}
+                  </p>
                 </div>
                 <div>
-                  <p className="text-xs text-slate-400">Machine QR opened</p>
+                  <p className="text-xs text-slate-400">QR form opened</p>
                   <p className="mt-1 font-medium text-white">
-                    {selectedCase.qrClaimOpenedAt ? formatDate(selectedCase.qrClaimOpenedAt) : 'Not available · direct form'}
+                    {selectedCase.qrClaimOpenedAt ? formatDate(selectedCase.qrClaimOpenedAt) : 'Not available, direct form'}
                   </p>
                 </div>
                 <div>
@@ -2787,10 +2876,14 @@ export default function AdminRefundsPage() {
                 <Badge className="border-white/15 bg-white/10 text-slate-100">
                   Card ending {selectedCase.cardLast4 || 'n/a'}
                 </Badge>
-                {selectedCase.cardWalletUsed && (
-                  <Badge className="border-orange-300/30 bg-orange-300/10 text-orange-100">Wallet payment</Badge>
-                )}
+                <Badge className="border-white/15 bg-white/10 text-slate-100">
+                  {paymentInteractionLabel(selectedCase)}
+                </Badge>
               </div>
+              <p className="mt-3 text-sm font-medium text-white">{issueCategoryLabel(selectedCase)}</p>
+              {selectedCase.productDescription && (
+                <p className="mt-1 text-sm text-slate-300">Product: {selectedCase.productDescription}</p>
+              )}
               <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-300">{selectedCase.issueSummary}</p>
             </article>
 
@@ -2798,60 +2891,112 @@ export default function AdminRefundsPage() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-sky-200">
-                    {hasSelectedCardEvidence(selectedCase, editor) ? 'Matched Nayax transaction' : 'Nayax recommendation'}
+                    Transaction comparison
                   </p>
                   <p className="mt-2 text-lg font-semibold text-white">
-                    {hasSelectedCardEvidence(selectedCase, editor)
-                      ? formatCurrency(cardAmountCents)
-                      : selectedNayaxSummary?.summary ?? 'Checking transactions'}
+                    {nayaxDecisionHeading(selectedNayaxSummary, comparisonCandidate, hasSelectedMatch)}
                   </p>
                 </div>
-                {selectedNayaxSummary && (
-                  <div className="flex flex-col items-end gap-1.5">
-                    <Badge className={nayaxStatusClass(selectedNayaxSummary.lookupStatus, hasSelectedCardEvidence(selectedCase, editor))}>
-                      {nayaxDisplayStatusLabel(selectedNayaxSummary, selectedCase, editor)}
-                    </Badge>
-                    <span className="text-[11px] font-medium text-slate-300">
-                      {nayaxConfidenceLabel(selectedNayaxSummary.confidenceClass)}
-                    </span>
-                  </div>
-                )}
+                <Badge className="w-fit border-white/15 bg-white/10 text-white">
+                  {nayaxDecisionStatusLabel(selectedNayaxSummary, comparisonCandidate, hasSelectedMatch)}
+                </Badge>
               </div>
 
-              {hasSelectedCardEvidence(selectedCase, editor) ? (
+              {comparisonCandidate ? (
                 <>
-                  <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <p className="text-xs text-slate-400">Transaction time</p>
-                      <p className="mt-1 font-medium text-white">{formatDate(transactionTime)}</p>
+                  <div className="mt-4 overflow-hidden rounded-lg border border-white/10 text-sm">
+                    <div className="grid grid-cols-[74px_minmax(0,1fr)_minmax(0,1fr)] bg-white/5 px-3 py-2 text-xs font-semibold text-slate-300">
+                      <span>Detail</span>
+                      <span>Customer</span>
+                      <span>Nayax</span>
                     </div>
-                    <div>
-                      <p className="text-xs text-slate-400">Card</p>
-                      <p className="mt-1 font-medium text-white">
-                        {activeCandidate?.cardBrand || 'Card'} ending {cardLast4}
-                      </p>
+                    <div className="grid grid-cols-[74px_minmax(0,1fr)_minmax(0,1fr)] gap-x-2 border-t border-white/10 px-3 py-3">
+                      <span className="text-slate-400">Amount</span>
+                      <span className="font-medium text-white">{formatCurrency(selectedCase.paymentAmountCents)}</span>
+                      <span className="font-medium text-white">
+                        {formatCurrency(comparisonCandidate.amountCents)}
+                        {comparisonCandidate.amountDeltaCents === 0 ? ' (same)' : ' (different)'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-[74px_minmax(0,1fr)_minmax(0,1fr)] gap-x-2 border-t border-white/10 px-3 py-3">
+                      <span className="text-slate-400">Time</span>
+                      <span className="font-medium text-white">{formatDate(selectedCase.incidentAt)}</span>
+                      <span className="font-medium text-white">
+                        {formatDate(comparisonCandidate.machineAuthorizationTime)}
+                        {typeof comparisonCandidate.timeDeltaMinutes === 'number'
+                          ? ` (${comparisonCandidate.timeDeltaMinutes} min away)`
+                          : ''}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-[74px_minmax(0,1fr)_minmax(0,1fr)] gap-x-2 border-t border-white/10 px-3 py-3">
+                      <span className="text-slate-400">Card</span>
+                      <span className="font-medium text-white">Ending {selectedCase.cardLast4 || 'n/a'}</span>
+                      <span className="font-medium text-white">
+                        {comparisonCandidate.cardBrand || 'Card'} ending {comparisonCandidate.cardLast4 || 'n/a'}
+                        {selectedCase.cardLast4 && comparisonCandidate.cardLast4
+                          ? selectedCase.cardLast4 === comparisonCandidate.cardLast4
+                            ? ' (same)'
+                            : ' (different)'
+                          : ''}
+                      </span>
                     </div>
                   </div>
-                  {activeCandidate?.matchFactors && activeCandidate.matchFactors.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {activeCandidate.matchFactors.slice(0, 4).map((factor) => (
-                        <span
-                          key={factor.key}
-                          className="rounded-full border border-sky-300/20 bg-sky-300/10 px-2 py-1 text-[11px] font-medium text-sky-100"
-                        >
-                          {factor.label}
-                        </span>
-                      ))}
+
+                  {(comparisonCandidate.productLabel || typeof comparisonCandidate.standardPriceCents === 'number') && (
+                    <p className="mt-3 text-xs leading-5 text-slate-300">
+                      Nayax product context:{' '}
+                      <span className="font-medium text-white">
+                        {comparisonCandidate.productLabel || 'Selection not named'}
+                        {typeof comparisonCandidate.standardPriceCents === 'number'
+                          ? `, configured at ${formatCurrency(comparisonCandidate.standardPriceCents)}`
+                          : ''}
+                      </span>
+                    </p>
+                  )}
+
+                  {comparisonCandidate.matchFactors && comparisonCandidate.matchFactors.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-xs font-semibold text-slate-300">Why the system chose this result</p>
+                      <ul className="mt-2 space-y-1 text-xs leading-5 text-slate-300">
+                        {comparisonCandidate.matchFactors.slice(0, 4).map((factor) => (
+                          <li key={`${factor.key}-${factor.label}`} className="flex gap-2">
+                            <span aria-hidden="true" className="text-sky-300">•</span>
+                            <span>{factor.label}</span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
+
+                  {(comparisonCandidate.machineStatus || (comparisonCandidate.nearbyMachineAlerts?.length ?? 0) > 0) && (
+                    <details className="mt-3 rounded-md border border-white/10 bg-white/5 p-2 text-xs text-slate-300">
+                      <summary className="cursor-pointer font-medium text-white">Machine context from Nayax</summary>
+                      <div className="mt-2 space-y-2 leading-5">
+                        {comparisonCandidate.machineStatus && <p>{comparisonCandidate.machineStatus.label}.</p>}
+                        {comparisonCandidate.nearbyMachineAlerts?.map((alert) => (
+                          <p key={`${alert.category}-${alert.occurredAt}`}>
+                            {alert.category} at {formatDate(alert.occurredAt)}
+                          </p>
+                        ))}
+                        <p className="text-slate-400">
+                          This context may help investigation. It does not prove that this purchase failed.
+                        </p>
+                      </div>
+                    </details>
+                  )}
+
                   <div className="mt-3 text-slate-950">{renderCardSaleCandidates()}</div>
                 </>
               ) : (
-                <div className="mt-3 text-slate-950">{renderCardSaleCandidates()}</div>
+                <div className="mt-3">
+                  <p className="text-sm leading-6 text-slate-300">
+                    {selectedNayaxSummary?.summary ?? 'Nayax has not returned a transaction to compare yet.'}
+                  </p>
+                  <div className="text-slate-950">{renderCardSaleCandidates()}</div>
+                </div>
               )}
               <p className="mt-3 text-xs leading-5 text-slate-400">
-                <span>Advisory match. Bloomjoy rechecks the safety rules when the refund is submitted.</span>{' '}
-                <span>This identifies a likely payment only; it does not prove a delivery failure or approve a refund.</span>
+                This is transaction evidence, not a refund decision. A machine manager still chooses the official action.
               </p>
             </article>
           </div>

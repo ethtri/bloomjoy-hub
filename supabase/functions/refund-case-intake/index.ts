@@ -1285,7 +1285,52 @@ serve(async (req) => {
     const paymentMethod = sanitizeText(body?.paymentMethod, 40).toLowerCase();
     const amountCents = centsFromAmount(body?.paymentAmount);
     const cardLast4 = sanitizeText(body?.cardLast4, 4);
-    const cardWalletUsed = Boolean(body?.cardWalletUsed);
+    const submittedPaymentInteraction = sanitizeText(body?.paymentInteraction, 40).toLowerCase();
+    const paymentInteraction = [
+      "phone_watch_wallet",
+      "tap_card",
+      "insert_or_swipe",
+      "cash",
+      "unsure",
+    ].includes(submittedPaymentInteraction)
+      ? submittedPaymentInteraction
+      : paymentMethod === "cash"
+      ? "cash"
+      : body?.cardWalletUsed === true
+      ? "phone_watch_wallet"
+      : "unsure";
+    const cardWalletUsed =
+      paymentMethod === "card" &&
+      (Boolean(body?.cardWalletUsed) || paymentInteraction === "phone_watch_wallet");
+    const submittedWalletProvider = sanitizeText(body?.walletProvider, 40).toLowerCase();
+    const walletProvider = paymentInteraction === "phone_watch_wallet" && [
+      "apple_pay",
+      "google_wallet",
+      "other",
+      "unsure",
+    ].includes(submittedWalletProvider)
+      ? submittedWalletProvider
+      : null;
+    const submittedTimeConfidence = sanitizeText(body?.incidentTimeConfidence, 40).toLowerCase();
+    const incidentTimeConfidence = [
+      "exact",
+      "within_15_minutes",
+      "within_1_hour",
+      "rough",
+    ].includes(submittedTimeConfidence)
+      ? submittedTimeConfidence
+      : "rough";
+    const submittedIssueCategory = sanitizeText(body?.issueCategory, 60).toLowerCase();
+    const issueCategory = [
+      "charged_no_product",
+      "product_problem",
+      "charged_more_than_once",
+      "wrong_amount",
+      "other",
+    ].includes(submittedIssueCategory)
+      ? submittedIssueCategory
+      : "other";
+    const productDescription = sanitizeText(body?.productDescription, 160);
     const incidentDate = sanitizeText(body?.incidentDate, 10);
     const incidentTime = sanitizeText(body?.incidentTime, 8);
     const legacyIncidentAt = parseIncidentAt(body?.incidentAt);
@@ -1346,6 +1391,63 @@ serve(async (req) => {
 
     if (paymentMethod === "card" && !/^[0-9]{4}$/.test(cardLast4)) {
       return new Response(JSON.stringify({ error: "Please enter the last 4 digits shown for the card payment." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (
+      body?.paymentInteraction !== undefined &&
+      !["phone_watch_wallet", "tap_card", "insert_or_swipe", "cash", "unsure"].includes(
+        submittedPaymentInteraction,
+      )
+    ) {
+      return new Response(JSON.stringify({ error: "Please choose how you paid at the machine." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (
+      (paymentMethod === "cash" && paymentInteraction !== "cash") ||
+      (paymentMethod !== "cash" && paymentInteraction === "cash")
+    ) {
+      return new Response(JSON.stringify({ error: "The payment method and the way you paid do not agree." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (
+      paymentInteraction === "phone_watch_wallet" &&
+      body?.walletProvider !== undefined &&
+      !walletProvider
+    ) {
+      return new Response(JSON.stringify({ error: "Please choose the phone or watch wallet you used." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (
+      body?.incidentTimeConfidence !== undefined &&
+      !["exact", "within_15_minutes", "within_1_hour", "rough"].includes(
+        submittedTimeConfidence,
+      )
+    ) {
+      return new Response(JSON.stringify({ error: "Please choose how closely you remember the purchase time." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (
+      body?.issueCategory !== undefined &&
+      !["charged_no_product", "product_problem", "charged_more_than_once", "wrong_amount", "other"].includes(
+        submittedIssueCategory,
+      )
+    ) {
+      return new Response(JSON.stringify({ error: "Please choose what best describes the problem." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -1556,6 +1658,10 @@ serve(async (req) => {
         paymentMethod,
         amountCents ?? "amount-not-provided",
         paymentMethod === "card" ? cardLast4 : "no-card-last4",
+        paymentInteraction,
+        incidentTimeConfidence,
+        issueCategory,
+        productDescription,
         issueSummary,
       ].join("|"),
       windowStartedAt: serverDedupeWindowStartedAt,
@@ -1581,6 +1687,11 @@ serve(async (req) => {
         payment_amount_cents: amountCents,
         card_last4: paymentMethod === "card" ? cardLast4 : null,
         card_wallet_used: cardWalletUsed,
+        payment_interaction: paymentInteraction,
+        wallet_provider: walletProvider,
+        incident_time_confidence: incidentTimeConfidence,
+        issue_category: issueCategory,
+        product_description: productDescription || null,
         status,
         correlation_status: correlationStatus,
         correlation_source: correlationSource,
@@ -1596,6 +1707,11 @@ serve(async (req) => {
           qr_claim_opened_at: verifiedQrClaim?.openedAt ?? null,
           qr_claim_expires_at: verifiedQrClaim?.expiresAt ?? null,
           incident_time_resolution: incidentResolution.resolution,
+          incident_time_confidence: incidentTimeConfidence,
+          payment_interaction: paymentInteraction,
+          wallet_provider_supplied: Boolean(walletProvider),
+          issue_category: issueCategory,
+          product_description_supplied: Boolean(productDescription),
           incident_possible_instant_count: incidentResolution.possibleInstantCount,
           candidate_sales_fact_ids: candidateIds,
           user_agent: req.headers.get("user-agent")?.slice(0, 300) ?? null,
@@ -1669,6 +1785,9 @@ serve(async (req) => {
         correlation_status: correlationStatus,
         intake_path: verifiedQrClaim ? "machine_qr" : "direct_form",
         qr_claim_present: Boolean(verifiedQrClaim),
+        incident_time_confidence: incidentTimeConfidence,
+        payment_interaction: paymentInteraction,
+        issue_category: issueCategory,
         candidate_sales_fact_ids: candidateIds,
         attachment_count: uploadedAttachments.length,
       },

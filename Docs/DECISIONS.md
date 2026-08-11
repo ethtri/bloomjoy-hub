@@ -1,5 +1,19 @@
 # Decisions
 
+## 2026-08-11 - Refund evidence separates customer statements from provider observations (`#750`)
+
+The hosted refund form will collect a small set of structured, non-sensitive facts that help managers compare a customer report with Nayax without overstating what the provider can identify.
+
+- The customer states how they paid: phone/watch wallet, tapped physical card, inserted or swiped card, cash, or unsure. A wallet customer may state Apple Pay, Google Wallet, another wallet, or unsure.
+- Bloomjoy treats those fields as customer statements. Current Nayax Last Sales data does not reliably identify Apple Pay versus Google Wallet and must not be presented as doing so.
+- The customer also states how closely they remember the purchase time and chooses a structured issue category. An exact or roughly 15-minute time may support the existing deterministic recommendation. An estimate that may be off by an hour or is only rough remains manager-review evidence and cannot make a transaction execution-eligible.
+- Optional product text, Nayax machine-product configuration, current machine status, and alerts near the sale may help investigation but do not increase the recommendation score, prove a failed vend, approve a refund, or authorize payment execution.
+- The manager workbench presents one customer-versus-Nayax comparison, plain-language reasons, collapsed alternatives/context, and one primary next action. It does not use internal terms such as "safety exception" in manager guidance.
+- Sanitized provider context is snapshotted with the candidate evidence. Raw Nayax payloads and provider transaction IDs remain server-only.
+- Richer fields from a separately permissioned Nayax transaction feed require Bloomjoy sample validation under `#751` before they may be persisted or shown. A generic phone/contactless field may not be used to infer a wallet brand.
+
+The email assistant remains limited to communication, follow-up, and reminders. A machine manager performs every official refund action in the portal, and live Nayax execution remains governed by `#430`.
+
 ## 2026-08-10 - Catering dessert guide produces a scope template, not an offer (`#730`)
 
 The canonical established-operator guide lives at `/resources/business-playbook/food-truck-catering-dessert-menu`. It begins with a food-truck or catering business that already operates and helps that reader turn one dessert experience into a proposal-ready outline. The existing `/resources/business-playbook/mini-micro-event-catering-business-guide` continues to own startup, initial booking, equipment-selection, and event-day formation intent.

@@ -1,4 +1,5 @@
 import { resolveLocalDateTimeInZone } from "./timezone-resolution.mjs";
+import { buildNayaxCandidateContext } from "./nayax-machine-context.mjs";
 
 // Deterministic Nayax recommendation policy for Refund Operations.
 //
@@ -6,7 +7,7 @@ import { resolveLocalDateTimeInZone } from "./timezone-resolution.mjs";
 // API expose advisory words (strong evidence, compare candidates, manual review)
 // instead of presenting these points as a percentage.
 export const NAYAX_RECOMMENDATION_POLICY = Object.freeze({
-  version: "2026-07-26.v2",
+  version: "2026-08-11.v3",
   candidateLimit: 10,
   lookupWindowHours: 6,
   highConfidenceMinimumPoints: 80,
@@ -241,6 +242,27 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     addReason(reasonCodes, "incident_time_exact");
   }
 
+  if (["within_1_hour", "rough"].includes(request.incidentTimeConfidence)) {
+    addReason(manualReviewReasons, `customer_time_${request.incidentTimeConfidence}`);
+    addReason(reasonCodes, `customer_time_${request.incidentTimeConfidence}`);
+    matchFactors.push(factor(
+      "customer_time_confidence",
+      "manual",
+      request.incidentTimeConfidence === "rough"
+        ? "Customer said the purchase time is only a rough estimate"
+        : "Customer said the purchase time may be off by about an hour",
+    ));
+  } else if (request.incidentTimeConfidence === "within_15_minutes") {
+    addReason(reasonCodes, "customer_time_within_15_minutes");
+    matchFactors.push(factor(
+      "customer_time_confidence",
+      "match",
+      "Customer said the purchase time is within about 15 minutes",
+    ));
+  } else {
+    addReason(reasonCodes, "customer_time_exact_or_legacy");
+  }
+
   if (candidate.providerTimeResolution !== "exact") {
     addReason(manualReviewReasons, `provider_time_${candidate.providerTimeResolution}`);
     addReason(reasonCodes, `provider_time_${candidate.providerTimeResolution}`);
@@ -288,6 +310,17 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     addReason(manualReviewReasons, "missing_amount_evidence");
     addReason(reasonCodes, "missing_amount_evidence");
     matchFactors.push(factor("amount", "missing", "Amount evidence is incomplete"));
+  }
+
+  if (candidate.productLabel) {
+    const productPriceLabel = candidate.standardPriceCents !== null
+      ? ` at the configured $${(candidate.standardPriceCents / 100).toFixed(2)} price`
+      : "";
+    matchFactors.push(factor(
+      "product",
+      candidate.priceMatchesMachineConfiguration === false ? "partial" : "neutral",
+      `Nayax recorded ${candidate.productLabel}${productPriceLabel}`,
+    ));
   }
 
   rankingPoints += timePointsFor(candidate.timeDeltaMinutes, weights);
@@ -429,6 +462,7 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     amountDeltaCents === 0 &&
     candidate.providerMachineId === request.expectedMachineId &&
     request.incidentTimeResolution === "exact" &&
+    !["within_1_hour", "rough"].includes(request.incidentTimeConfidence) &&
     providerEvidenceComplete;
   const strongCardEligible =
     commonExactEvidence &&
@@ -485,7 +519,9 @@ export const extractNayaxRecords = (payload) => {
  *   requestAmountCents: number | null,
  *   requestCardLast4: string,
  *   cardWalletUsed: boolean,
+ *   incidentTimeConfidence?: string,
  *   incidentTimeResolution?: string,
+ *   machineContext?: unknown,
  *   qrClaimOpenedAt?: string | null,
  *   qrClaimEvidenceStatus?: "verified" | "missing" | "invalid" | "replayed",
  *   transactionStates?: Map<string, string> | Record<string, string>,
@@ -501,7 +537,9 @@ export const buildNayaxRecommendation = ({
   requestAmountCents,
   requestCardLast4,
   cardWalletUsed,
+  incidentTimeConfidence = "legacy_exact",
   incidentTimeResolution = "exact",
+  machineContext = null,
   qrClaimOpenedAt = null,
   qrClaimEvidenceStatus,
   transactionStates = {},
@@ -522,6 +560,7 @@ export const buildNayaxRecommendation = ({
     amountCents: asNonNegativeCents(requestAmountCents),
     cardLast4: extractLast4(requestCardLast4),
     cardWalletUsed: Boolean(cardWalletUsed),
+    incidentTimeConfidence: sanitizeText(incidentTimeConfidence, 40) || "legacy_exact",
     incidentTimeResolution: sanitizeText(incidentTimeResolution, 40) || "legacy_absolute",
     qrClaimEvidenceStatus: normalizedQrClaimStatus === "verified" && !qrClaimOpenedDate
       ? "invalid"
@@ -581,6 +620,11 @@ export const buildNayaxRecommendation = ({
       paymentStatus: normalizePaymentStatus(record),
       providerRefundState: normalizeProviderRefundState(record),
       duplicateProviderRecord: false,
+      ...buildNayaxCandidateContext({
+        record,
+        machineContext,
+        authorizedAt: authorizationDate.toISOString(),
+      }),
     });
   }
 
@@ -678,8 +722,8 @@ export const buildNayaxRecommendation = ({
       recommendedAction: "Compare the alternatives and record why the manager chose a different sale. One-click refund stays unavailable.",
     },
     manual_exception: {
-      summary: "Nayax found evidence that needs manual review because a safety exception is present.",
-      recommendedAction: "Review the exception and use the manual path. One-click refund stays unavailable.",
+      summary: "Nayax found a possible sale, but one or more details still need a manager to compare them.",
+      recommendedAction: "Compare the customer details with the possible sale before choosing the next step.",
     },
     no_safe_match: {
       summary: windowRecordCount > 0
@@ -720,6 +764,12 @@ export const toPublicNayaxCandidate = (candidate, candidateToken) => ({
   cardBrand: candidate.cardBrand,
   recognitionMethod: candidate.recognitionMethod,
   paymentStatus: candidate.paymentStatus,
+  productLabel: candidate.productLabel,
+  productCode: candidate.productCode,
+  standardPriceCents: candidate.standardPriceCents,
+  priceMatchesMachineConfiguration: candidate.priceMatchesMachineConfiguration,
+  machineStatus: candidate.machineStatus,
+  nearbyMachineAlerts: candidate.nearbyMachineAlerts,
   recommendationRank: candidate.recommendationRank,
   isTopRanked: candidate.isTopRanked,
   isRecommended: candidate.isRecommended,

@@ -190,17 +190,19 @@ const fillRequiredRefundFields = async (page, { wallet = false } = {}) => {
   await page.getByLabel('Email', { exact: true }).fill('qr-customer@example.test');
   await page.getByLabel('Incident date').fill('2026-07-26');
   await page.getByLabel('Time', { exact: true }).fill('12:10');
+  await page.getByLabel('How closely do you remember the time?').selectOption('within_15_minutes');
   await page.getByLabel('Amount', { exact: true }).fill('7.00');
 
   if (wallet) {
-    await page
-      .getByLabel('I tapped with Apple Pay, Google Pay, or another mobile wallet.')
-      .check();
+    await page.getByLabel('How did you pay at the machine?').selectOption('phone_watch_wallet');
+    await page.getByLabel('Which wallet did you use?').selectOption('apple_pay');
     await page.getByLabel('Virtual last 4 shown in your wallet').fill('9876');
   } else {
+    await page.getByLabel('How did you pay at the machine?').selectOption('tap_card');
     await page.getByLabel('Last 4 digits on the card you used').fill('4242');
   }
 
+  await page.getByLabel('What best describes the problem?').selectOption('charged_no_product');
   await page
     .getByLabel('What happened?')
     .fill('Synthetic QR UAT report. No product or customer data is included.');
@@ -221,9 +223,7 @@ const runDesktopQrJourney = async ({ browser, appUrl, artifactDir }) => {
   assert.equal(await page.getByText('Mall Atrium - Cotton Candy 01').first().isVisible(), true);
   assert.equal(await page.getByText(/We saved the server time as/).isVisible(), true);
   assert.equal(
-    await page
-      .getByLabel('I tapped with Apple Pay, Google Pay, or another mobile wallet.')
-      .isVisible(),
+    await page.getByLabel('How did you pay at the machine?').isVisible(),
     true
   );
 
@@ -242,6 +242,9 @@ const runDesktopQrJourney = async ({ browser, appUrl, artifactDir }) => {
   assert.match(submission.qrClaimToken, /^refund_qr_claim_uat_token_/);
   assert.equal(submission.cardLast4, '4242');
   assert.equal(submission.cardWalletUsed, false);
+  assert.equal(submission.paymentInteraction, 'tap_card');
+  assert.equal(submission.incidentTimeConfidence, 'within_15_minutes');
+  assert.equal(submission.issueCategory, 'charged_no_product');
   assert.equal(routeState.getClaimCount(), 1);
   assert.equal(pageErrors.length, 0, pageErrors.join(' | '));
 
@@ -308,6 +311,8 @@ const runMobileWalletJourney = async ({ browser, appUrl, artifactDir }) => {
   const submission = functionBodies.find((body) => !body.action);
   assert.equal(submission.cardLast4, '9876');
   assert.equal(submission.cardWalletUsed, true);
+  assert.equal(submission.paymentInteraction, 'phone_watch_wallet');
+  assert.equal(submission.walletProvider, 'apple_pay');
 
   await context.close();
 };

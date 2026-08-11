@@ -476,7 +476,9 @@ serve(async (req) => {
     const selectionAllowed = nayaxCandidate ? nayaxEvidence.selection_allowed === true : false;
     const isRecommended = nayaxCandidate ? nayaxEvidence.is_recommended === true : false;
     if (nayaxCandidate && !selectionAllowed) {
-      return jsonResponse({ error: "This Nayax transaction has a safety block and cannot be selected." }, 400);
+      return jsonResponse({
+        error: "This Nayax transaction conflicts with required details or is already in use, so it cannot be selected.",
+      }, 400);
     }
     if (nayaxCandidate && !isRecommended && !nayaxDisagreementReasons.has(nayaxDisagreementReason)) {
       return jsonResponse({ error: "Choose why this alternate Nayax transaction is the correct one." }, 400);

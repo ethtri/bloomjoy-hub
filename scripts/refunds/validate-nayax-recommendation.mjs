@@ -60,6 +60,26 @@ assert.equal(nearTime.recommendationState, "high_confidence");
 assert.equal(nearTime.candidates[0].timeDeltaMinutes, 45);
 assert.equal(nearTime.candidates[0].oneClickEligible, true);
 
+const customerTimeWithin15Minutes = recommend([sale({ id: "time-within-15" })], {
+  incidentTimeConfidence: "within_15_minutes",
+});
+assert.equal(customerTimeWithin15Minutes.recommendationState, "high_confidence");
+assert.ok(customerTimeWithin15Minutes.reasonCodes.includes("customer_time_within_15_minutes"));
+
+const customerTimeWithinHour = recommend([sale({ id: "time-within-hour" })], {
+  incidentTimeConfidence: "within_1_hour",
+});
+assert.equal(customerTimeWithinHour.recommendationState, "manual_exception");
+assert.equal(customerTimeWithinHour.oneClickEligible, false);
+assert.ok(customerTimeWithinHour.reasonCodes.includes("customer_time_within_1_hour"));
+
+const customerTimeRough = recommend([sale({ id: "time-rough" })], {
+  incidentTimeConfidence: "rough",
+});
+assert.equal(customerTimeRough.recommendationState, "manual_exception");
+assert.equal(customerTimeRough.oneClickEligible, false);
+assert.ok(customerTimeRough.reasonCodes.includes("customer_time_rough"));
+
 const wrongAmount = recommend([sale({ id: "wrong-amount", amount: 9.5 })]);
 assert.equal(wrongAmount.recommendationState, "manual_exception");
 assert.equal(wrongAmount.oneClickEligible, false);
@@ -353,4 +373,4 @@ assert.equal(publicCandidate.matchStrength, "strong");
 assert.equal(publicCandidate.confidenceClass, "strong_card");
 assert.equal(publicCandidate.candidateToken, "opaque-token");
 
-console.log("Nayax deterministic recommendation fixtures passed (30 safety scenarios).");
+console.log("Nayax deterministic recommendation fixtures passed (33 safety scenarios).");
