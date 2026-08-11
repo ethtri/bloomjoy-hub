@@ -22,6 +22,8 @@ export const requiredFunctionSlugs = [
   'refund-gmail-sync',
   'refund-gpt-triage',
   'nayax-card-refund',
+  'refund-manager-action-step-up',
+  'refund-manager-totp-enrollment',
 ];
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -750,6 +752,163 @@ export const buildUpdatedLocalManifest = (manifest, localState, sourceGitCommit)
   };
 };
 
+export const validateReleaseManifestGitAnchorState = ({
+  manifest,
+  headGitCommit,
+  sourceCommitExists,
+  sourceIsAncestor,
+  worktreeIsClean,
+  changedPaths,
+  manifestRelativePath = 'scripts/refunds/refund-production-release.json',
+}) => {
+  validateManifestShape(manifest);
+  assert(
+    gitCommitPattern.test(headGitCommit ?? ''),
+    'Current refund release anchor Git commit is invalid'
+  );
+  assert(
+    sourceCommitExists,
+    'Refund production sourceGitCommit does not exist as a Git commit'
+  );
+  assert(
+    sourceIsAncestor,
+    'Refund production sourceGitCommit is not an ancestor of the current release anchor'
+  );
+  assert(
+    worktreeIsClean,
+    'Refund release manifest operations require a clean Git worktree'
+  );
+  assert(Array.isArray(changedPaths), 'Refund release anchor changed-path evidence is invalid');
+
+  const normalizedManifestPath = normalizePath(manifestRelativePath);
+  const normalizedChangedPaths = changedPaths.map((entry) => normalizePath(String(entry)));
+  assert(
+    normalizedChangedPaths.length === 1 &&
+      normalizedChangedPaths[0] === normalizedManifestPath,
+    'Only the refund production release manifest may differ between sourceGitCommit and the current release anchor'
+  );
+
+  return {
+    sourceGitCommit: manifest.sourceGitCommit,
+    anchorGitCommit: headGitCommit,
+    changedPaths: normalizedChangedPaths,
+  };
+};
+
+export const assertReleaseGitWorktreeClean = (rootDirectory) => {
+  const statusResult = spawnSync(
+    'git',
+    ['status', '--porcelain=v1', '--untracked-files=all'],
+    {
+      cwd: rootDirectory,
+      encoding: 'utf8',
+      windowsHide: true,
+    }
+  );
+  assert(
+    !statusResult.error && statusResult.status === 0,
+    'Unable to inspect the refund release Git worktree'
+  );
+  assert(
+    statusResult.stdout.trim() === '',
+    'Refund release manifest operations require a clean Git worktree'
+  );
+  return true;
+};
+
+export const prepareManifestForLocalRefresh = (
+  manifest,
+  { worktreeIsClean = false } = {}
+) => {
+  validateManifestShape(manifest, { allowPending: true });
+  assert(
+    worktreeIsClean,
+    'Refund release manifest refresh requires a clean source worktree'
+  );
+  return { ...manifest, sourceGitCommit: 'pending' };
+};
+
+export const validateReleaseManifestGitAnchor = (rootDirectory, manifest) => {
+  validateManifestShape(manifest);
+
+  const headResult = spawnSync('git', ['rev-parse', 'HEAD'], {
+    cwd: rootDirectory,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  assert(
+    !headResult.error && headResult.status === 0,
+    'Unable to resolve the current refund release anchor Git commit'
+  );
+  const headGitCommit = headResult.stdout.trim();
+
+  const sourceExistsResult = spawnSync(
+    'git',
+    ['cat-file', '-e', `${manifest.sourceGitCommit}^{commit}`],
+    {
+      cwd: rootDirectory,
+      encoding: 'utf8',
+      windowsHide: true,
+    }
+  );
+  assert(!sourceExistsResult.error, 'Unable to inspect refund production sourceGitCommit');
+  const sourceCommitExists = sourceExistsResult.status === 0;
+  assert(
+    sourceCommitExists,
+    'Refund production sourceGitCommit does not exist as a Git commit'
+  );
+
+  const ancestorResult = spawnSync(
+    'git',
+    ['merge-base', '--is-ancestor', manifest.sourceGitCommit, headGitCommit],
+    {
+      cwd: rootDirectory,
+      encoding: 'utf8',
+      windowsHide: true,
+    }
+  );
+  assert(!ancestorResult.error, 'Unable to inspect refund release Git ancestry');
+  assert(
+    ancestorResult.status === 0 || ancestorResult.status === 1,
+    'Unable to determine refund release Git ancestry'
+  );
+
+  const diffResult = spawnSync(
+    'git',
+    ['diff', '--name-only', '--no-renames', `${manifest.sourceGitCommit}..${headGitCommit}`],
+    {
+      cwd: rootDirectory,
+      encoding: 'utf8',
+      windowsHide: true,
+    }
+  );
+  assert(
+    !diffResult.error && diffResult.status === 0,
+    'Unable to inspect refund release anchor changed paths'
+  );
+  const changedPaths = diffResult.stdout
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const manifestRelativePath = path.relative(rootDirectory, manifestPath);
+  assert(
+    manifestRelativePath &&
+      !manifestRelativePath.startsWith('..') &&
+      !path.isAbsolute(manifestRelativePath),
+    'Refund production manifest is outside the release repository'
+  );
+
+  return validateReleaseManifestGitAnchorState({
+    manifest,
+    headGitCommit,
+    sourceCommitExists,
+    sourceIsAncestor: ancestorResult.status === 0,
+    worktreeIsClean: assertReleaseGitWorktreeClean(rootDirectory),
+    changedPaths,
+    manifestRelativePath,
+  });
+};
+
 const readCurrentGitCommit = () => {
   const result = spawnSync('git', ['rev-parse', 'HEAD'], {
     cwd: repoRoot,
@@ -820,7 +979,15 @@ const main = () => {
     return;
   }
 
-  const localState = buildLocalReleaseState(repoRoot, manifest);
+  let localStateManifest = manifest;
+  if (options.writeLocal) {
+    localStateManifest = prepareManifestForLocalRefresh(manifest, {
+      worktreeIsClean: assertReleaseGitWorktreeClean(repoRoot),
+    });
+  } else {
+    validateReleaseManifestGitAnchor(repoRoot, manifest);
+  }
+  const localState = buildLocalReleaseState(repoRoot, localStateManifest);
 
   if (options.writeLocal) {
     assert(options.mode === 'local', '--write-local may be used only with --local');

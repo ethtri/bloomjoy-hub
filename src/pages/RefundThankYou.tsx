@@ -21,12 +21,11 @@ export default function RefundThankYouPage() {
               Request received
             </div>
             <h1 className="mt-4 font-display text-3xl font-bold text-foreground sm:text-4xl">
-              Thank you for giving us a chance to make it right.
+              We received your refund request.
             </h1>
             <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-muted-foreground">
-              We are sorry your Bloomjoy experience was not as sweet as it should have been. Our
-              team will review your request with care and follow up by email. Our target is to
-              complete refund reviews within 5 business days.
+              We are sorry the machine did not work as expected. Most requests are reviewed within
+              5 business days, and we will email you if we need one specific detail.
             </p>
 
             <div className="mx-auto mt-6 max-w-sm rounded-xl border border-pink-200 bg-pink-50 p-4">
@@ -47,8 +46,8 @@ export default function RefundThankYouPage() {
               <Mail className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
               <div className="space-y-2">
                 <p>
-                  Keep this reference handy. If we need one more detail, we will ask by email and
-                  you can reply directly with timing details or photos.
+                  Keep this reference handy. You do not need to submit another form for this
+                  purchase. We will compare your details with the machine's payment records.
                 </p>
                 <p>
                   Card requests are reviewed against payment records. Approved cash refunds are
@@ -59,10 +58,10 @@ export default function RefundThankYouPage() {
 
             <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
               <Button asChild>
-                <Link to="/refunds/request">Submit another request</Link>
+                <Link to="/">Back to Bloomjoy</Link>
               </Button>
               <Button asChild variant="outline">
-                <Link to="/">Back to Bloomjoy</Link>
+                <Link to="/refunds/request">Report a different purchase</Link>
               </Button>
             </div>
           </div>

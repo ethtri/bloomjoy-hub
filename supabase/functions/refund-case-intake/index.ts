@@ -1,11 +1,19 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
+import { sendTransactionalEmail } from "../_shared/internal-email.ts";
 import {
-  getInternalNotificationRecipients,
-  sendTransactionalEmail,
-} from "../_shared/internal-email.ts";
-import { getRefundReplyToEmail } from "../_shared/refund-email.ts";
+  buildRefundCustomerEmail,
+  getRefundReplyToEmail,
+} from "../_shared/refund-email.ts";
+import { automaticRefundCustomerContactEnabled } from "../_shared/refund-deterministic-follow-up.ts";
+import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
+import { RefundGmailError } from "../_shared/refund-gmail.ts";
+import {
+  RefundEmailContextUnavailableError,
+  requireLinkedRefundEmailCase,
+} from "../_shared/refund-email-context.ts";
+import { sendRefundManagerActionNotice } from "../_shared/refund-manager-notification.ts";
 import {
   lookupNayaxCandidatesForRefundCase,
   type NayaxLookupResult,
@@ -47,12 +55,30 @@ const maxAttachments = 3;
 const maxAttachmentBytes = 5 * 1024 * 1024;
 const maxRequestBytes = 18 * 1024 * 1024;
 const allowedContentTypes = new Set(["image/png", "image/jpeg", "image/webp"]);
+const automaticCustomerContactEnabled = automaticRefundCustomerContactEnabled();
+const refundEmailPilotAttachmentsEnabled = false;
 
 const supabase = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
       auth: { persistSession: false },
     })
   : null;
+
+const automaticCustomerContactAllowed = async () => {
+  if (!automaticCustomerContactEnabled || !supabase) return false;
+  const { data, error } = await supabase
+    .from("refund_customer_contact_settings")
+    .select("automatic_customer_contact_enabled")
+    .eq("singleton", true)
+    .maybeSingle();
+  if (error) {
+    console.error("refund intake customer-contact gate unavailable", {
+      errorType: typeof error.code === "string" ? error.code : "database_error",
+    });
+    return false;
+  }
+  return data?.automatic_customer_contact_enabled === true;
+};
 
 type RefundAttachmentInput = {
   fileName?: unknown;
@@ -67,11 +93,31 @@ type PreparedRefundAttachment = {
   bytes: Uint8Array;
 };
 
+type SubmittedRefundCase = {
+  id: string;
+  public_reference: string;
+  status: string;
+  correlation_status: string;
+};
+
 type VerifiedRefundQrClaim = {
   id: string;
   reportingMachineId: string;
   openedAt: string;
   expiresAt: string;
+};
+
+const isRefundEmailContextToken = (value: string) =>
+  /^[A-Za-z0-9_-]{43}$/.test(value);
+
+const hashRefundEmailContextToken = async (value: string) => {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 };
 
 type RefundWalletCorrectionContext = {
@@ -209,222 +255,69 @@ const decodeBase64 = (value: string) => {
   }
 };
 
-const formatCurrency = (cents: number | null) => {
-  if (typeof cents !== "number") return "not provided";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(cents / 100);
-};
-
-const escapeHtml = (value: string) =>
-  value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-
-const buildCustomerEmail = ({
-  publicReference,
-  customerName,
-  machineLabel,
-  locationName,
-  amountCents,
-  paymentMethod,
-  needsMoreInfo,
-}: {
-  publicReference: string;
-  customerName: string;
-  machineLabel: string;
-  locationName: string;
-  amountCents: number | null;
-  paymentMethod: string;
-  needsMoreInfo: boolean;
-}) => {
-  const greeting = customerName ? `Hi ${customerName},` : "Hi there,";
-  const subject = needsMoreInfo
-    ? `We need one more detail for your Bloomjoy refund request ${publicReference}`
-    : `We received your Bloomjoy refund request ${publicReference}`;
-  const nextStep = needsMoreInfo
-    ? "We could not confidently match the request to a machine transaction yet. Please reply to this email with any extra details you have, such as the exact purchase time, the amount charged, the virtual last 4 shown in Apple Pay or your mobile wallet when one was used, or a photo of the machine/payment screen. The wallet digits may differ from the physical card."
-    : "Our team will review the transaction details and follow up as soon as we have the next step.";
-  const safeGreeting = escapeHtml(greeting);
-  const safeReference = escapeHtml(publicReference);
-  const safeMachineLabel = escapeHtml(machineLabel);
-  const safeLocationName = escapeHtml(locationName);
-  const safeAmount = escapeHtml(formatCurrency(amountCents));
-  const safeNextStep = escapeHtml(nextStep);
-  const paymentNote = paymentMethod === "cash"
-    ? "If approved, cash refunds are sent through Zelle using the contact information you shared."
-    : "If approved, card refunds are completed through our payment provider.";
-  const safePaymentNote = escapeHtml(paymentNote);
-
-  const text = [
-    greeting,
-    "",
-    "Thank you for reaching out. We are sorry the Bloomjoy experience did not go the way it should have, and we have opened a refund request for you.",
-    "",
-    `Reference: ${publicReference}`,
-    `Machine: ${machineLabel}`,
-    `Location: ${locationName}`,
-    `Reported amount: ${formatCurrency(amountCents)}`,
-    "",
-    nextStep,
-    paymentNote,
-    "Our target is to complete refund reviews within 5 business days.",
-    "",
-    "You can reply directly to this email. We will keep the review friendly, careful, and quick.",
-    "",
-    "Warmly,",
-    "The Bloomjoy Sweets Team",
-  ].join("\n");
-
-  const html = `
-    <!doctype html>
-    <html lang="en">
-      <body style="margin:0;padding:0;background:#fff7f9;font-family:Arial,Helvetica,sans-serif;color:#2f2430;">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#fff7f9;padding:28px 0;">
-          <tr>
-            <td align="center" style="padding:0 16px;">
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#ffffff;border:1px solid #f1d6de;border-radius:22px;overflow:hidden;">
-                <tr>
-                  <td style="background:#e96b8f;color:#ffffff;padding:26px 28px;">
-                    <div style="font-size:12px;letter-spacing:1.4px;text-transform:uppercase;font-weight:700;">Bloomjoy refund request</div>
-                    <div style="font-size:28px;line-height:34px;font-weight:800;margin-top:8px;">${needsMoreInfo ? "A quick detail check" : "We received your request"}</div>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding:28px;">
-                    <p style="font-size:15px;line-height:24px;margin:0 0 16px;">${safeGreeting}</p>
-                    <p style="font-size:15px;line-height:24px;margin:0 0 18px;">Thank you for reaching out. We are sorry the Bloomjoy experience did not go the way it should have, and we have opened a refund request for you.</p>
-                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #f1d6de;border-radius:16px;background:#fff3f7;padding:16px;margin:0 0 18px;">
-                      <tr><td style="font-size:13px;color:#756877;padding:4px 0;">Reference</td><td style="font-size:14px;font-weight:700;text-align:right;padding:4px 0;">${safeReference}</td></tr>
-                      <tr><td style="font-size:13px;color:#756877;padding:4px 0;">Machine</td><td style="font-size:14px;font-weight:700;text-align:right;padding:4px 0;">${safeMachineLabel}</td></tr>
-                      <tr><td style="font-size:13px;color:#756877;padding:4px 0;">Location</td><td style="font-size:14px;font-weight:700;text-align:right;padding:4px 0;">${safeLocationName}</td></tr>
-                      <tr><td style="font-size:13px;color:#756877;padding:4px 0;">Reported amount</td><td style="font-size:14px;font-weight:700;text-align:right;padding:4px 0;">${safeAmount}</td></tr>
-                    </table>
-                    <p style="font-size:15px;line-height:24px;margin:0 0 18px;">${safeNextStep}</p>
-                    <p style="font-size:15px;line-height:24px;margin:0 0 18px;">${safePaymentNote} Our target is to complete refund reviews within 5 business days.</p>
-                    <p style="font-size:14px;line-height:22px;margin:0;color:#756877;">You can reply directly to this email. We will keep the review friendly, careful, and quick.</p>
-                    <p style="font-size:14px;line-height:22px;margin:20px 0 0;color:#756877;">Warmly,<br />The Bloomjoy Sweets Team</p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-      </body>
-    </html>
-  `;
-
-  return { subject, text, html };
-};
-
-const getPortalBaseUrl = () =>
-  (Deno.env.get("BLOOMJOY_APP_URL") || Deno.env.get("PUBLIC_APP_URL") || "https://app.bloomjoyusa.com")
-    .replace(/\/+$/, "");
-
-const buildManagerNotificationText = ({
+const buildManagerNotificationSummary = ({
   publicReference,
   machineLabel,
   locationName,
-  amountCents,
-  paymentMethod,
-  incidentAt,
   status,
-  caseId,
 }: {
   publicReference: string;
   machineLabel: string;
   locationName: string;
-  amountCents: number | null;
-  paymentMethod: string;
-  incidentAt: Date;
   status: string;
-  caseId: string;
 }) => [
   "A new Bloomjoy refund request is ready for manager review.",
   "",
   `Reference: ${publicReference}`,
   `Machine: ${machineLabel}`,
   `Location: ${locationName}`,
-  `Reported amount: ${formatCurrency(amountCents)}`,
-  `Incident time: ${incidentAt.toISOString()}`,
-  `Payment method: ${paymentMethod}`,
   `Current status: ${status}`,
-  "",
-  `Open the case: ${getPortalBaseUrl()}/portal/refunds?case=${encodeURIComponent(caseId)}`,
-  "",
-  "This operational notification intentionally omits card digits, Zelle details, customer complaint text, and provider payloads.",
 ].join("\n");
 
 const sendManagerIntakeNotification = async ({
   refundCaseId,
   publicReference,
-  machineId,
+  customerEmail,
   machineLabel,
   locationName,
-  amountCents,
-  paymentMethod,
-  incidentAt,
   status,
 }: {
   refundCaseId: string;
   publicReference: string;
-  machineId: string;
+  customerEmail: string;
   machineLabel: string;
   locationName: string;
-  amountCents: number | null;
-  paymentMethod: string;
-  incidentAt: Date;
   status: string;
 }) => {
   if (!supabase) return;
 
   try {
-    const { data: managerRows, error: managerError } = await supabase
-      .from("reporting_machine_refund_managers")
-      .select("manager_email")
-      .eq("reporting_machine_id", machineId)
-      .eq("status", "active")
-      .is("revoked_at", null);
-
-    if (managerError) {
-      throw managerError;
-    }
-
-    const managerRecipients = ((managerRows ?? []) as Array<{ manager_email?: string | null }>)
-      .map((row) => sanitizeEmail(row.manager_email))
-      .filter(Boolean);
-    const recipients = Array.from(
-      new Set([...managerRecipients, ...getInternalNotificationRecipients()])
-    );
-
-    const text = buildManagerNotificationText({
+    const summaryText = buildManagerNotificationSummary({
       publicReference,
       machineLabel,
       locationName,
-      amountCents,
-      paymentMethod,
-      incidentAt,
       status,
-      caseId: refundCaseId,
     });
 
-    await sendTransactionalEmail({
-      to: recipients,
+    const notice = await sendRefundManagerActionNotice({
+      supabase,
+      refundCaseId,
+      customerEmail,
       subject: `New Bloomjoy refund request ${publicReference}`,
-      text,
+      summaryText,
     });
 
     await supabase.from("refund_case_events").insert({
       refund_case_id: refundCaseId,
       event_type: "manager_notification_sent",
-      message: "New refund request notification sent to Machine Managers and Bloomjoy ops fallback.",
+      message: notice.usedOpsFallback
+        ? "New refund request created an operations routing-exception notice because the complete current Machine Manager route could not be safely resolved."
+        : "New refund request action notice sent only to the currently assigned Machine Managers.",
       metadata: {
-        recipient_count: recipients.length,
-        machine_manager_recipient_count: managerRecipients.length,
+        recipient_count: notice.recipientCount,
+        machine_manager_recipient_count: notice.managerRecipientCount,
+        manager_resolution_status: notice.resolutionStatus,
+        used_ops_fallback: notice.usedOpsFallback,
         payload_redacted: true,
       },
     });
@@ -858,64 +751,44 @@ const inspectWalletCorrection = async (
 const sendWalletMatchReadyNotification = async ({
   refundCaseId,
   publicReference,
-  machineId,
+  customerEmail,
   machineLabel,
   locationName,
   confidenceClass,
 }: {
   refundCaseId: string;
   publicReference: string;
-  machineId: string;
+  customerEmail: string;
   machineLabel: string;
   locationName: string;
   confidenceClass: string;
 }) => {
   if (!supabase) return;
-  const { data: managerRows, error: managerError } = await supabase
-    .from("reporting_machine_refund_managers")
-    .select("manager_email")
-    .eq("reporting_machine_id", machineId)
-    .eq("status", "active")
-    .is("revoked_at", null);
-  if (managerError) throw managerError;
-
-  const managerRecipients = ((managerRows ?? []) as Array<{
-    manager_email?: string | null;
-  }>)
-    .map((row) => sanitizeEmail(row.manager_email))
-    .filter(Boolean);
-  const recipients = Array.from(
-    new Set([...managerRecipients, ...getInternalNotificationRecipients()]),
-  );
-  if (recipients.length === 0) {
-    throw new Error("No refund manager notification recipients are configured.");
-  }
-
-  await sendTransactionalEmail({
-    to: recipients,
+  const notice = await sendRefundManagerActionNotice({
+    supabase,
+    refundCaseId,
+    customerEmail,
     subject: `Refund transaction ready for approval: ${publicReference}`,
-    text: [
+    summaryText: [
       "Bloomjoy automatically re-checked corrected mobile-wallet details and found one high-confidence transaction.",
       "",
       `Reference: ${publicReference}`,
       `Machine: ${machineLabel}`,
       `Location: ${locationName}`,
-      `Confidence class: ${confidenceClass}`,
-      "",
-      `Review and decide: ${getPortalBaseUrl()}/portal/refunds?case=${encodeURIComponent(refundCaseId)}`,
-      "",
-      "The customer communication, matching, and correction steps were handled automatically. This email intentionally omits card digits, customer PII, complaint text, and provider identifiers.",
     ].join("\n"),
   });
 
   await supabase.from("refund_case_events").insert({
     refund_case_id: refundCaseId,
     event_type: "wallet_correction_match_ready_notification_sent",
-    message:
-      "High-confidence wallet correction match notification sent to the assigned machine managers and Bloomjoy ops fallback.",
+    message: notice.usedOpsFallback
+      ? "High-confidence wallet correction match created an operations routing-exception notice because the complete current Machine Manager route could not be safely resolved."
+      : "High-confidence wallet correction action notice sent only to the currently assigned Machine Managers.",
     metadata: {
-      recipient_count: recipients.length,
-      machine_manager_recipient_count: managerRecipients.length,
+      recipient_count: notice.recipientCount,
+      machine_manager_recipient_count: notice.managerRecipientCount,
+      manager_resolution_status: notice.resolutionStatus,
+      used_ops_fallback: notice.usedOpsFallback,
       confidence_class: confidenceClass,
       payload_redacted: true,
     },
@@ -1195,13 +1068,13 @@ const submitWalletCorrection = async (
     try {
       const { data: caseContext } = await supabase
         .from("refund_cases")
-        .select("reporting_machine_id")
+        .select("customer_email")
         .eq("id", refundCaseId)
         .single();
       await sendWalletMatchReadyNotification({
         refundCaseId,
         publicReference,
-        machineId: sanitizeText(caseContext?.reporting_machine_id, 80),
+        customerEmail: sanitizeEmail(caseContext?.customer_email),
         machineLabel: lookupResult.refundCase.machineLabel ?? "Bloomjoy machine",
         locationName: lookupResult.refundCase.locationName ?? "Bloomjoy location",
         confidenceClass: lookupResult.confidenceClass,
@@ -1277,6 +1150,7 @@ serve(async (req) => {
     const requestedMachineId = sanitizeText(body?.machineId, 80);
     let machineId = requestedMachineId;
     const qrClaimToken = sanitizeText(body?.qrClaimToken, 80);
+    const emailContextToken = sanitizeText(body?.emailContextToken, 80);
     const customerEmail = sanitizeEmail(body?.customerEmail);
     const customerName = sanitizeText(body?.customerName, 160);
     const customerPhone = sanitizeText(body?.customerPhone, 80);
@@ -1342,6 +1216,18 @@ serve(async (req) => {
     const rawAttachments = Array.isArray(body?.attachments)
       ? body.attachments as RefundAttachmentInput[]
       : [];
+
+    if (!refundEmailPilotAttachmentsEnabled && rawAttachments.length > 0) {
+      throw new RequestValidationError(
+        "Photo attachments are not available during the email refund pilot.",
+      );
+    }
+
+    if (emailContextToken && !isRefundEmailContextToken(emailContextToken)) {
+      throw new RequestValidationError(
+        "This email refund link is not valid. Open the latest link from your Bloomjoy email or submit the form without it.",
+      );
+    }
 
     if (!qrClaimToken && !isUuid(machineId)) {
       return new Response(JSON.stringify({ error: "Please choose a machine location." }), {
@@ -1509,7 +1395,9 @@ serve(async (req) => {
       machineId = verifiedQrClaim.reportingMachineId;
     }
 
-    const attachments = prepareAttachments(rawAttachments);
+    const attachments = refundEmailPilotAttachmentsEnabled
+      ? prepareAttachments(rawAttachments)
+      : [];
 
     const { data: machine, error: machineError } = await supabase
       .from("reporting_machines")
@@ -1636,7 +1524,7 @@ serve(async (req) => {
         correlationConfidence = 0.4;
         correlationSummary = "Multiple cash Sunze candidates were found in the conservative time window.";
       } else {
-        status = "waiting_on_customer";
+        status = "needs_review";
         correlationStatus = "no_match";
         correlationSource = "sunze";
         correlationSummary = "No cash Sunze sales fact matched this machine within +/- 1 hour.";
@@ -1668,103 +1556,157 @@ serve(async (req) => {
     });
     const selectedRefundCaseColumns =
       "id, public_reference, status, correlation_status";
+    const intakeMeta = {
+      source: "hosted_refund_intake",
+      intake_path: verifiedQrClaim ? "machine_qr" : "direct_form",
+      qr_claim_present: Boolean(verifiedQrClaim),
+      qr_claim_opened_at: verifiedQrClaim?.openedAt ?? null,
+      qr_claim_expires_at: verifiedQrClaim?.expiresAt ?? null,
+      incident_time_resolution: incidentResolution.resolution,
+      incident_time_confidence: incidentTimeConfidence,
+      payment_interaction: paymentInteraction,
+      wallet_provider_supplied: Boolean(walletProvider),
+      issue_category: issueCategory,
+      product_description_supplied: Boolean(productDescription),
+      incident_possible_instant_count: incidentResolution.possibleInstantCount,
+      candidate_sales_fact_ids: candidateIds,
+      user_agent: req.headers.get("user-agent")?.slice(0, 300) ?? null,
+    };
+    const insertValues = {
+      reporting_machine_id: machineRecord.id,
+      reporting_location_id: machineRecord.location_id,
+      customer_email: customerEmail,
+      customer_name: customerName || null,
+      customer_phone: customerPhone || null,
+      zelle_payment_contact: paymentMethod === "cash" ? zellePaymentContact : null,
+      issue_summary: issueSummary,
+      incident_at: incidentAt.toISOString(),
+      incident_local_datetime: hasLocalIncidentInput ? `${incidentDate}T${incidentTime}` : null,
+      incident_timezone: locationRecord?.timezone ?? null,
+      incident_time_resolution: incidentResolution.resolution,
+      payment_method: paymentMethod,
+      payment_amount_cents: amountCents,
+      card_last4: paymentMethod === "card" ? cardLast4 : null,
+      card_wallet_used: cardWalletUsed,
+      payment_interaction: paymentInteraction,
+      wallet_provider: walletProvider,
+      incident_time_confidence: incidentTimeConfidence,
+      issue_category: issueCategory,
+      product_description: productDescription || null,
+      status,
+      correlation_status: correlationStatus,
+      correlation_source: correlationSource,
+      correlation_confidence: correlationConfidence,
+      correlation_summary: correlationSummary,
+      matched_sales_fact_id: matchedSalesFactId,
+      cash_match_evaluated_fact_version: paymentMethod === "cash" ? 1 : null,
+      refund_amount_cents: amountCents,
+      refund_qr_claim_context_id: verifiedQrClaim?.id ?? null,
+      intake_meta: intakeMeta,
+      server_dedupe_key: serverDedupeKey,
+      server_dedupe_window_started_at: serverDedupeWindowStartedAt.toISOString(),
+    };
 
-    const { data: insertedRefundCase, error: insertError } = await supabase
-      .from("refund_cases")
-      .insert({
-        reporting_machine_id: machineRecord.id,
-        reporting_location_id: machineRecord.location_id,
-        customer_email: customerEmail,
-        customer_name: customerName || null,
-        customer_phone: customerPhone || null,
-        zelle_payment_contact: paymentMethod === "cash" ? zellePaymentContact : null,
-        issue_summary: issueSummary,
-        incident_at: incidentAt.toISOString(),
-        incident_local_datetime: hasLocalIncidentInput ? `${incidentDate}T${incidentTime}` : null,
-        incident_timezone: locationRecord?.timezone ?? null,
-        incident_time_resolution: incidentResolution.resolution,
-        payment_method: paymentMethod,
-        payment_amount_cents: amountCents,
-        card_last4: paymentMethod === "card" ? cardLast4 : null,
-        card_wallet_used: cardWalletUsed,
-        payment_interaction: paymentInteraction,
-        wallet_provider: walletProvider,
-        incident_time_confidence: incidentTimeConfidence,
-        issue_category: issueCategory,
-        product_description: productDescription || null,
-        status,
-        correlation_status: correlationStatus,
-        correlation_source: correlationSource,
-        correlation_confidence: correlationConfidence,
-        correlation_summary: correlationSummary,
-        matched_sales_fact_id: matchedSalesFactId,
-        refund_amount_cents: amountCents,
-        refund_qr_claim_context_id: verifiedQrClaim?.id ?? null,
-        intake_meta: {
-          source: "hosted_refund_intake",
-          intake_path: verifiedQrClaim ? "machine_qr" : "direct_form",
-          qr_claim_present: Boolean(verifiedQrClaim),
-          qr_claim_opened_at: verifiedQrClaim?.openedAt ?? null,
-          qr_claim_expires_at: verifiedQrClaim?.expiresAt ?? null,
-          incident_time_resolution: incidentResolution.resolution,
-          incident_time_confidence: incidentTimeConfidence,
-          payment_interaction: paymentInteraction,
-          wallet_provider_supplied: Boolean(walletProvider),
-          issue_category: issueCategory,
-          product_description_supplied: Boolean(productDescription),
-          incident_possible_instant_count: incidentResolution.possibleInstantCount,
-          candidate_sales_fact_ids: candidateIds,
-          user_agent: req.headers.get("user-agent")?.slice(0, 300) ?? null,
-        },
-        server_dedupe_key: serverDedupeKey,
-        server_dedupe_window_started_at: serverDedupeWindowStartedAt.toISOString(),
-      })
-      .select(selectedRefundCaseColumns)
-      .single();
-
-    const refundCase = insertedRefundCase;
-    if (insertError) {
-      if (insertError.code !== "23505") {
-        if (verifiedQrClaim && insertError.code === "23514") {
-          return refundQrUnavailableResponse();
-        }
-        throw new Error(insertError.message || "Unable to create refund case.");
-      }
-
-      const { data: dedupedRefundCase, error: dedupeLookupError } = await supabase
-        .from("refund_cases")
-        .select(selectedRefundCaseColumns)
-        .eq("server_dedupe_key", serverDedupeKey)
-        .maybeSingle();
-
-      if (dedupeLookupError || !dedupedRefundCase) {
-        if (verifiedQrClaim) {
-          return new Response(
-            JSON.stringify({
-              error:
-                "This QR session has already been used. Scan the code again or use the regular refund form.",
-              errorCode: "refund_qr_claim_used",
-            }),
-            {
-              status: 409,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            },
-          );
-        }
-        throw new Error("Unable to create refund case.");
-      }
-
-      return new Response(
-        JSON.stringify({
-          refundCase: {
-            id: dedupedRefundCase.id,
-            publicReference: dedupedRefundCase.public_reference,
-            status: dedupedRefundCase.status,
-            correlationStatus: dedupedRefundCase.correlation_status,
+    let refundCase: SubmittedRefundCase | null = null;
+    if (emailContextToken) {
+      const { data: linkedRefundCase, error: linkError } = await supabase.rpc(
+        "service_link_refund_gmail_draft_from_hosted_form",
+        {
+          p_token_hash: await hashRefundEmailContextToken(emailContextToken),
+          p_customer_email: customerEmail,
+          p_case_values: {
+            reportingMachineId: insertValues.reporting_machine_id,
+            reportingLocationId: insertValues.reporting_location_id,
+            customerName: insertValues.customer_name,
+            customerPhone: insertValues.customer_phone,
+            zellePaymentContact: insertValues.zelle_payment_contact,
+            issueSummary: insertValues.issue_summary,
+            incidentAt: insertValues.incident_at,
+            incidentLocalDateTime: insertValues.incident_local_datetime,
+            incidentTimezone: insertValues.incident_timezone,
+            incidentTimeResolution: insertValues.incident_time_resolution,
+            paymentMethod: insertValues.payment_method,
+            paymentAmountCents: insertValues.payment_amount_cents,
+            cardLast4: insertValues.card_last4,
+            cardWalletUsed: insertValues.card_wallet_used,
+            paymentInteraction: insertValues.payment_interaction,
+            walletProvider: insertValues.wallet_provider,
+            incidentTimeConfidence: insertValues.incident_time_confidence,
+            issueCategory: insertValues.issue_category,
+            productDescription: insertValues.product_description,
+            status: insertValues.status,
+            correlationStatus: insertValues.correlation_status,
+            correlationSource: insertValues.correlation_source,
+            correlationConfidence: insertValues.correlation_confidence,
+            correlationSummary: insertValues.correlation_summary,
+            matchedSalesFactId: insertValues.matched_sales_fact_id,
+            intakeMeta,
+            serverDedupeKey,
+            serverDedupeWindowStartedAt:
+              serverDedupeWindowStartedAt.toISOString(),
           },
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        },
       );
+      if (linkError) {
+        throw new RefundEmailContextUnavailableError();
+      }
+      refundCase = requireLinkedRefundEmailCase(
+        emailContextToken,
+        linkedRefundCase as SubmittedRefundCase | null,
+      );
+    }
+
+    if (!refundCase) {
+      const { data: insertedRefundCase, error: insertError } = await supabase
+        .from("refund_cases")
+        .insert(insertValues)
+        .select(selectedRefundCaseColumns)
+        .single();
+
+      if (insertError) {
+        if (insertError.code !== "23505") {
+          if (verifiedQrClaim && insertError.code === "23514") {
+            return refundQrUnavailableResponse();
+          }
+          throw new Error(insertError.message || "Unable to create refund case.");
+        }
+
+        const { data: dedupedRefundCase, error: dedupeLookupError } = await supabase
+          .from("refund_cases")
+          .select(selectedRefundCaseColumns)
+          .eq("server_dedupe_key", serverDedupeKey)
+          .maybeSingle();
+
+        if (dedupeLookupError || !dedupedRefundCase) {
+          if (verifiedQrClaim) {
+            return new Response(
+              JSON.stringify({
+                error:
+                  "This QR session has already been used. Scan the code again or use the regular refund form.",
+                errorCode: "refund_qr_claim_used",
+              }),
+              {
+                status: 409,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              },
+            );
+          }
+          throw new Error("Unable to create refund case.");
+        }
+
+        return new Response(
+          JSON.stringify({
+            refundCase: {
+              id: dedupedRefundCase.id,
+              publicReference: dedupedRefundCase.public_reference,
+              status: dedupedRefundCase.status,
+              correlationStatus: dedupedRefundCase.correlation_status,
+            },
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      refundCase = insertedRefundCase as SubmittedRefundCase | null;
     }
 
     if (!refundCase) {
@@ -1796,39 +1738,61 @@ serve(async (req) => {
     await sendManagerIntakeNotification({
       refundCaseId: refundCase.id,
       publicReference: refundCase.public_reference,
-      machineId: machineRecord.id,
+      customerEmail,
       machineLabel: publicLabels.machineLabel,
       locationName: publicLabels.locationName,
-      amountCents,
-      paymentMethod,
-      incidentAt,
       status,
     });
 
-    const needsMoreInfo = status === "waiting_on_customer";
-    const email = buildCustomerEmail({
+    const email = buildRefundCustomerEmail({
+      messageType: "confirmation",
       publicReference: refundCase.public_reference,
       customerName,
+      customerEmail,
       machineLabel: publicLabels.machineLabel,
       locationName: publicLabels.locationName,
-      amountCents,
+      refundAmountCents: amountCents,
       paymentMethod,
-      needsMoreInfo,
+      cardWalletUsed,
+      incidentLocalDateTime: hasLocalIncidentInput ? `${incidentDate} ${incidentTime}` : null,
     });
 
     const { data: messageRow } = await supabase
       .from("refund_case_messages")
       .insert({
         refund_case_id: refundCase.id,
-        message_type: needsMoreInfo ? "more_info" : "confirmation",
+        message_type: "confirmation",
         status: "pending",
         recipient_email: customerEmail,
         subject: email.subject,
         body: email.text,
-        template_key: needsMoreInfo ? "refund_more_info_v1" : "refund_confirmation_v1",
+        template_key: "refund_confirmation_v1",
       })
       .select("id")
       .single();
+
+    if (!(await automaticCustomerContactAllowed())) {
+      if (messageRow?.id) {
+        await supabase
+          .from("refund_case_messages")
+          .update({
+            status: "skipped",
+            error_message: "automatic_customer_contact_disabled",
+          })
+          .eq("id", messageRow.id);
+      }
+      return new Response(
+        JSON.stringify({
+          refundCase: {
+            id: refundCase.id,
+            publicReference: refundCase.public_reference,
+            status: refundCase.status,
+            correlationStatus: refundCase.correlation_status,
+          },
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     const notificationLimitResult = await checkPublicIntakeRateLimits({
       supabase: abuseSupabase,
@@ -1866,20 +1830,42 @@ serve(async (req) => {
     }
 
     try {
-      await sendTransactionalEmail({
-        to: [customerEmail],
-        subject: email.subject,
-        text: email.text,
-        html: email.html,
-        replyTo: getRefundReplyToEmail(),
-      });
-
-      if (messageRow?.id) {
-        await supabase
-          .from("refund_case_messages")
-          .update({ status: "sent", sent_at: new Date().toISOString() })
-          .eq("id", messageRow.id);
+      if (!messageRow?.id) {
+        throw new Error("Refund customer message record is required.");
       }
+      const gmailDelivery = await dispatchRefundCaseGmailReply({
+        supabase,
+        refundCaseId: refundCase.id,
+        refundCaseMessageId: messageRow.id,
+        recipientEmail: customerEmail,
+        email,
+        deliveryKind: "automatic",
+      });
+      if (!gmailDelivery.usedGmail) {
+        if (!(await automaticCustomerContactAllowed())) {
+          throw new RefundGmailError(
+            "automatic_contact_disabled",
+            "Automatic customer contact was disabled before provider delivery.",
+          );
+        }
+        await sendTransactionalEmail({
+          to: [customerEmail],
+          cc: gmailDelivery.managerCcEmails,
+          subject: email.subject,
+          text: email.text,
+          html: email.html,
+          replyTo: getRefundReplyToEmail(),
+        });
+      }
+
+      await supabase
+        .from("refund_case_messages")
+        .update({
+          status: "sent",
+          sent_at: new Date().toISOString(),
+          subject: gmailDelivery.usedGmail ? gmailDelivery.subject : email.subject,
+        })
+        .eq("id", messageRow.id);
     } catch (emailError) {
       console.error("refund-case-intake email failed", {
         errorType: emailError instanceof Error ? emailError.name : typeof emailError,
@@ -1889,7 +1875,9 @@ serve(async (req) => {
           .from("refund_case_messages")
           .update({
             status: "failed",
-            error_message: "customer_email_delivery_failed",
+            error_message: emailError instanceof RefundGmailError
+              ? emailError.code
+              : "customer_email_delivery_failed",
           })
           .eq("id", messageRow.id);
       }
@@ -1907,6 +1895,16 @@ serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
+    if (error instanceof RefundEmailContextUnavailableError) {
+      console.warn("refund-case-intake email context unavailable");
+      return new Response(
+        JSON.stringify({ error: error.message, errorCode: error.code }),
+        {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
     if (error instanceof RequestValidationError) {
       console.warn("refund-case-intake validation error", { message: error.message });
       return new Response(JSON.stringify({ error: error.message }), {

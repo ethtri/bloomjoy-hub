@@ -33,18 +33,29 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
   buildLocalRefundDemoOverview,
+  beginRefundManagerTotpEnrollment,
+  cancelRefundManagerStepUp,
+  cancelRefundManagerTotpEnrollment,
   canUseLocalRefundDemoData,
+  completeNayaxRefundStepUp,
+  completeRefundCaseAdminStepUp,
   createRefundAttachmentSignedUrl,
   executeNayaxCardRefund,
   fetchRefundAutomationHealth,
+  fetchRefundCaseReconciliation,
   fetchRefundGmailCaseContext,
   fetchRefundGmailHealth,
   fetchRefundOperationsOverview,
+  getRefundManagerStepUpRequest,
   isLocalUatDemoForced,
   lookupNayaxTransactions,
+  recoverRefundGmailCustomerContact,
   rejectRefundGptTriage,
+  resolveRefundGmailDeliveryNotFound,
+  resolveRefundCaseReconciliation,
   sendRefundCaseMessage,
   updateRefundCaseAdmin,
+  verifyRefundManagerTotpEnrollment,
   isNayaxCardRefundExecutionError,
   type NayaxCardRefundExecutionResponse,
   type NayaxLookupCandidate,
@@ -52,12 +63,16 @@ import {
   type RefundCaseRecord,
   type RefundAutomationHealth,
   type RefundGmailHealth,
+  type RefundManagerStepUpRequest,
   type RefundNayaxLookupStatus,
   type RefundNayaxLookupSummary,
   type RefundCaseStatus,
   type RefundCustomerPortalMessageType,
   type RefundDecision,
+  type RefundMissingField,
+  type UpdateRefundCaseResponse,
 } from '@/lib/refundOperations';
+import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { cn } from '@/lib/utils';
 
 const statusDecisionMap: Partial<Record<RefundCaseStatus, Exclude<RefundDecision, null>>> = {
@@ -101,7 +116,7 @@ const customerMessageOptions: Array<{
   {
     value: 'more_info',
     label: 'Ask for more information',
-    helper: 'Use when the transaction cannot be matched yet and the customer can help clarify details.',
+    helper: 'Use only when the case is missing specific structured purchase details.',
   },
   {
     value: 'status_update',
@@ -179,17 +194,29 @@ type NayaxLookupNotice = {
   message: string;
 };
 
-type QueueFilter = 'needs_action' | 'waiting_on_customer' | 'ready_to_pay' | 'blocked' | 'completed' | 'all';
+type QueueFilter =
+  | 'needs_action'
+  | 'missing_information'
+  | 'possible_duplicate'
+  | 'aging'
+  | 'provider_hold'
+  | 'waiting_on_customer'
+  | 'ready_to_pay'
+  | 'blocked'
+  | 'completed'
+  | 'all';
 
 type CustomerMessageResult = {
   type: string;
   status: string;
 } | null;
 
-type CaseSaveResult = {
+type CaseSaveSuccess = {
   customerMessage: CustomerMessageResult;
   updateApplied: boolean;
-} | null;
+};
+
+type CaseSaveResult = CaseSaveSuccess | 'step_up_pending' | null;
 
 type RefundActionReceipt = {
   tone: 'success' | 'warning';
@@ -204,9 +231,29 @@ type PrimaryActionConfig = {
   targetStatus?: RefundCaseStatus;
   targetDecision?: RefundDecision;
   messageType?: RefundCustomerPortalMessageType;
-  mode?: 'case_update' | 'retry_message' | 'nayax_refund_execution';
+  mode?: 'case_update' | 'retry_message' | 'nayax_refund_execution' | 'resolve_delivery_not_found';
   disabled?: boolean;
 };
+
+const officialRefundStatuses = new Set<RefundCaseStatus>([
+  'approved',
+  'denied',
+  'card_refund_pending',
+  'cash_zelle_pending',
+  'completed',
+]);
+
+const editorRequiresOfficialAction = (editor: EditorState) =>
+  officialRefundStatuses.has(editor.status) || editor.decision === 'approved' || editor.decision === 'denied';
+
+const primaryActionRequiresOfficialAction = (action: PrimaryActionConfig | null) =>
+  Boolean(
+    action &&
+      action.mode !== 'retry_message' &&
+      ((action.targetStatus && officialRefundStatuses.has(action.targetStatus)) ||
+        action.targetDecision === 'approved' ||
+        action.targetDecision === 'denied')
+  );
 
 const toEditorState = (refundCase: RefundCaseRecord): EditorState => ({
   status: refundCase.status,
@@ -407,6 +454,55 @@ const formatRefundMachineLocation = (locationName: string, machineLabel: string)
   return `${normalizedLocationName} - ${normalizedMachineLabel}`;
 };
 
+const isMissingRefundLabel = (value: string | null | undefined) => {
+  const normalized = value?.trim().toLowerCase() ?? '';
+  return !normalized || normalized.startsWith('unknown') || normalized.startsWith('unmapped');
+};
+
+const derivePortalRefundMissingFields = (refundCase: RefundCaseRecord): RefundMissingField[] => {
+  const missing: RefundMissingField[] = [];
+  if (isMissingRefundLabel(refundCase.machineLabel) && isMissingRefundLabel(refundCase.locationName)) {
+    missing.push('location_or_machine');
+  }
+  const structuredIncidentAt = typeof refundCase.structuredIncidentAt === 'undefined'
+    ? refundCase.incidentAt
+    : refundCase.structuredIncidentAt;
+  const incidentAtIsStructured = Boolean(structuredIncidentAt);
+  if (!incidentAtIsStructured) missing.push('incident_date');
+  if (
+    !incidentAtIsStructured
+    || !['exact', 'legacy_absolute'].includes(refundCase.incidentTimeResolution ?? '')
+  ) {
+    missing.push('incident_time');
+  }
+  if (!['card', 'cash'].includes(refundCase.paymentMethod ?? '')) missing.push('payment_method');
+  if (!Number.isInteger(refundCase.paymentAmountCents) || Number(refundCase.paymentAmountCents) <= 0) {
+    missing.push('amount');
+  }
+  if (
+    refundCase.paymentMethod === 'card' &&
+    !/^\d{4}$/.test(refundCase.cardLast4 ?? '') &&
+    refundCase.cardWalletUsed !== true
+  ) {
+    missing.push('card_last4');
+  }
+  return missing;
+};
+
+const missingFieldCustomerLabel: Record<RefundMissingField, string> = {
+  location_or_machine: 'the machine or Bloomjoy location',
+  incident_date: 'the purchase date',
+  incident_time: 'the approximate purchase time, including AM or PM',
+  payment_method: 'whether payment was by card, Apple Pay, Google Pay, or cash',
+  amount: 'the exact amount charged',
+  card_last4: 'only the last four digits shown on the card charge (not wallet or device-card digits)',
+};
+
+const sanitizePortalMissingFields = (fields: string[]): RefundMissingField[] =>
+  Object.keys(missingFieldCustomerLabel).filter(
+    (field): field is RefundMissingField => fields.includes(field),
+  );
+
 const formatMessageAmount = (refundCase: RefundCaseRecord) =>
   formatCurrency(refundCase.refundAmountCents ?? refundCase.paymentAmountCents);
 
@@ -465,16 +561,16 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
     return 'Review the Gmail message, then ask for the missing location, purchase time, payment method, and transaction details.';
   }
   if (refundCase.status === 'waiting_on_customer') {
-    return 'Waiting on customer details. Send a quick note if the customer needs another nudge.';
+    return 'Waiting on customer details. The bounded follow-up workflow handles the single approved reminder; review the case if delivery fails or it ages.';
   }
 
   if (refundCase.paymentMethod === 'card' && !refundCase.hasMatchedNayaxTransaction) {
     if (candidates.length > 0) {
-      return 'Review the proposed machine transaction, confirm the right match, then approve or ask for more information.';
+      return 'Review the proposed transaction and confirm the right purchase. If the details do not clearly agree, keep the case open for review.';
     }
 
     if (refundCase.correlationStatus === 'no_match') {
-      return 'No card-sale match is recorded. Ask the customer for more detail before deciding.';
+      return 'No card-sale match is recorded. Keep the case in manager review; only the bounded automatic workflow may send confirmed no-safe-match copy.';
     }
 
       return 'The card sale check runs when this case opens. Confirm a candidate before completion.';
@@ -490,7 +586,7 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
     return 'This case is complete. Review history only unless a follow-up note is needed.';
   }
 
-  return 'Review the evidence, choose approve/deny or request more information, then save the case.';
+  return 'Review the evidence and choose an available manager action. Customer questions are available only when a specific structured detail is missing.';
 };
 
 const taskLabel = (refundCase: RefundCaseRecord) => {
@@ -558,6 +654,8 @@ const isBlockedCase = (refundCase: RefundCaseRecord) => {
   const lookupStatus = refundCase.nayaxLookupSummary?.lookupStatus;
   return (
     getLatestCustomerMessage(refundCase)?.status === 'failed' ||
+    refundCase.reconciliationActionBlocked === true ||
+    refundCase.providerHold === true ||
     refundCase.correlationStatus === 'nayax_not_configured' ||
     refundCase.correlationStatus === 'needs_nayax' ||
     lookupStatus === 'setup_needed' ||
@@ -567,6 +665,7 @@ const isBlockedCase = (refundCase: RefundCaseRecord) => {
 };
 
 const caseUrgencyRank = (refundCase: RefundCaseRecord) => {
+  if (refundCase.possibleDuplicate || refundCase.confirmedDuplicate) return 0;
   if (getLatestCustomerMessage(refundCase)?.status === 'failed') return 0;
   if (isReadyToPayCase(refundCase)) return 1;
   if (refundCase.status === 'draft') return 2;
@@ -582,6 +681,18 @@ const caseUrgencyRank = (refundCase: RefundCaseRecord) => {
 
 const getOperationalSignals = (refundCase: RefundCaseRecord) => {
   const signals: Array<{ label: string; className: string }> = [];
+  if (refundCase.possibleDuplicate) {
+    signals.push({ label: 'Possible duplicate', className: 'border-rose-200 bg-rose-50 text-rose-900' });
+  }
+  if (refundCase.confirmedDuplicate) {
+    signals.push({ label: 'Confirmed duplicate', className: 'border-rose-200 bg-rose-50 text-rose-900' });
+  }
+  if (refundCase.aging) {
+    signals.push({ label: 'Aging', className: 'border-amber-200 bg-amber-50 text-amber-900' });
+  }
+  if (refundCase.providerHold) {
+    signals.push({ label: 'Provider hold', className: 'border-orange-200 bg-orange-50 text-orange-900' });
+  }
   if (getLatestCustomerMessage(refundCase)?.status === 'failed') {
     signals.push({ label: 'Email failed', className: 'border-destructive/30 bg-destructive/10 text-destructive' });
   }
@@ -612,6 +723,14 @@ const getOperationalSignals = (refundCase: RefundCaseRecord) => {
   }
   return signals.slice(0, 3);
 };
+
+const intakeSourceLabel = (refundCase: RefundCaseRecord) =>
+  refundCase.intakeSource === 'gmail' ? 'Support email' : 'Website form';
+
+const intakeSourceBadgeClass = (refundCase: RefundCaseRecord) =>
+  refundCase.intakeSource === 'gmail'
+    ? 'border-sky-200 bg-sky-50 text-sky-800'
+    : 'border-violet-200 bg-violet-50 text-violet-800';
 
 const formatCandidateSummary = (candidate: NayaxLookupCandidate) =>
   `${formatCurrency(candidate.amountCents)} card sale, ${candidate.cardBrand || 'card'} ending ${
@@ -833,7 +952,7 @@ const getFallbackNayaxLookupSummary = (
       providerWindowRecordCount: null,
       candidateCount: candidates.length,
       summary: notice.message,
-      recommendedAction: 'Retry the transaction check or ask the customer for more detail.',
+      recommendedAction: 'Retry the transaction check when the provider is healthy. Keep the case in manager review and do not send provider-failure copy to the customer.',
     };
   }
 
@@ -893,7 +1012,7 @@ const getFallbackNayaxLookupSummary = (
       providerWindowRecordCount: null,
       candidateCount: 0,
       summary: 'No matching card sale is selected yet.',
-      recommendedAction: 'Ask the customer for one more detail before deciding.',
+      recommendedAction: 'Keep the case in manager review. Only fresh confirmed no-safe-match evidence may authorize the bounded customer message.',
     };
   }
 
@@ -1081,7 +1200,7 @@ const transactionMatchSummary = (
     }
 
     if (refundCase.correlationStatus === 'no_match') {
-      return 'No matching card sale is selected yet. Ask the customer for one more detail before deciding.';
+      return 'No matching card sale is selected. Keep the case in manager review; only confirmed no-safe-match evidence may authorize customer contact.';
     }
 
     return 'The card sale check uses the reported machine and time window. A manager confirms the match before completion.';
@@ -1092,10 +1211,23 @@ const transactionMatchSummary = (
   }
 
   if (refundCase.correlationStatus === 'no_match') {
-    return 'No conservative cash sale match was found. Ask the customer for more detail before refunding.';
+    return 'No conservative cash sale match was found. Keep the case in manager review; the bounded workflow owns any confirmed no-safe-match message.';
   }
 
   return 'Cash transaction review is still in progress.';
+};
+
+const isRefundCustomerDeliveryUncertain = (errorMessage: string | null | undefined) => {
+  const normalized = errorMessage?.trim().toLowerCase() ?? '';
+  if (!normalized) return false;
+
+  return normalized.includes('delivery could not be confirmed') ||
+    normalized === 'gmail_network_unknown' ||
+    normalized === 'gmail_delivery_record_failed' ||
+    normalized === 'gmail_send_unconfirmed' ||
+    normalized === 'gmail_response_invalid' ||
+    normalized === 'gmail_delivery_reconciliation_required' ||
+    /^gmail_http_5\d\d$/.test(normalized);
 };
 
 const primaryActionConfig = (
@@ -1105,6 +1237,28 @@ const primaryActionConfig = (
 ): PrimaryActionConfig => {
   const latestMessage = getLatestCustomerMessage(refundCase);
   if (latestMessage?.status === 'failed') {
+    if (isRefundCustomerDeliveryUncertain(latestMessage.errorMessage)) {
+      return {
+        label: 'Resolve uncertain Gmail delivery',
+        helper: 'First check the original Gmail thread. If no message was sent, record that verification here before sending a controlled follow-up.',
+        mode: 'resolve_delivery_not_found',
+      };
+    }
+    if (latestMessage.messageType === 'confirmation') {
+      return {
+        label: 'Send a safe customer follow-up',
+        helper: 'The first acknowledgement has a confirmed send failure. Review and send a status update in the original Gmail thread.',
+        messageType: 'status_update',
+        mode: 'retry_message',
+      };
+    }
+    if (latestMessage.deliveryKind === 'automatic' || latestMessage.messageType === 'no_safe_match') {
+      return {
+        label: 'Manager review required',
+        helper: 'The automatic customer message did not complete. Review the Gmail thread and case evidence before taking another step; automatic messages are not retried from the portal.',
+        disabled: true,
+      };
+    }
     return {
       label: 'Retry customer email',
       helper: `The last ${statusLabel(latestMessage.messageType)} email failed. Retry it before treating the customer as contacted.`,
@@ -1143,10 +1297,12 @@ const primaryActionConfig = (
 
   const matched = hasTransactionMatch(refundCase, editor);
   const noMatch = refundCase.correlationStatus === 'no_match' || (!matched && candidates.length === 0);
+  const missingFields = derivePortalRefundMissingFields(refundCase);
   const waitingOnCustomer = refundCase.status === 'waiting_on_customer' || editor.status === 'waiting_on_customer';
   const customerAlreadyAsked =
     waitingOnCustomer &&
-    latestMessage?.messageType === 'more_info' &&
+    latestMessage &&
+    ['more_info', 'no_safe_match'].includes(latestMessage.messageType) &&
     ['sent', 'pending'].includes(latestMessage.status);
 
   if (customerAlreadyAsked) {
@@ -1158,9 +1314,17 @@ const primaryActionConfig = (
   }
 
   if (waitingOnCustomer || noMatch) {
+    const canAskForExactMissingFields = missingFields.length > 0;
+    if (!canAskForExactMissingFields) {
+      return {
+        label: 'Manager review required',
+        helper: 'No structured purchase detail is missing. A no-safe-match message may be sent only by the bounded automatic workflow after fresh server evidence.',
+        disabled: true,
+      };
+    }
     return {
-      label: 'Ask customer for details',
-      helper: 'Move this case to customer follow-up and send the friendly detail-request email in one step.',
+      label: 'Ask for missing details',
+      helper: 'Ask only for the specific structured details that are absent from this case.',
       targetStatus: 'waiting_on_customer',
       targetDecision: null,
       messageType: 'more_info',
@@ -1189,8 +1353,15 @@ const primaryActionConfig = (
           : 'Save this reviewed sale. One-click refund stays unavailable unless every server-side safety rule passes.',
         targetStatus: 'card_refund_pending',
         targetDecision: 'approved',
-        messageType: 'approved',
         mode: 'case_update',
+      };
+    }
+
+    if (refundCase.providerHold) {
+      return {
+        label: 'Provider check needed',
+        helper: 'Nayax did not return a confirmed result. Do not retry or send another payment. No refund has been confirmed.',
+        disabled: true,
       };
     }
 
@@ -1200,6 +1371,13 @@ const primaryActionConfig = (
         return {
           label: 'Manual card review required',
           helper: 'This transaction was not the one clear match, so automatic card refund stays unavailable.',
+          disabled: true,
+        };
+      }
+      if (refundCase.officialActionBlockReason === 'official_actions_disabled') {
+        return {
+          label: 'Card refunds are not available yet',
+          helper: 'The payment connection is still disabled. No refund has been issued.',
           disabled: true,
         };
       }
@@ -1215,10 +1393,9 @@ const primaryActionConfig = (
 
     return {
       label: 'Confirm this card sale',
-      helper: 'Confirm the card transaction and send the approval email. The next step is completing the card refund in Bloomjoy Hub.',
+      helper: 'Confirm the card sale and record the reviewed approval. The customer is contacted only after a confirmed provider refund.',
       targetStatus: 'card_refund_pending',
       targetDecision: 'approved',
-      messageType: 'approved',
       mode: 'case_update',
     };
   }
@@ -1257,18 +1434,18 @@ const getCustomerMessageDraft = (
 ) => {
   const editedRefundAmountCents = editor?.refundAmount ? centsFromCurrency(editor.refundAmount) : null;
   const amount = typeof editedRefundAmountCents === 'number' ? formatCurrency(editedRefundAmountCents) : formatMessageAmount(refundCase);
-  const decisionReason =
-    editor?.decisionReason.trim() ||
-    refundCase.decisionReason ||
-    'If any of the details were submitted incorrectly, please reply and we will take another careful look.';
+  const missingFields = derivePortalRefundMissingFields(refundCase);
+  const missingFieldList = missingFields.map((field) => `- ${missingFieldCustomerLabel[field]}`);
   switch (messageType) {
     case 'more_info':
       return {
         subject: `A quick detail check for your Bloomjoy refund request ${refundCase.publicReference}`,
         body: [
-          'Thank you again for reaching out. We want to review this carefully, and we need one more detail before we can confidently match the request to a machine transaction.',
-          'Please reply with anything that may help, such as the exact purchase time, amount paid, card last 4 shown on the charge, or a photo of the machine/payment screen.',
-          'Once we have that, our team will continue the review. Our target is to complete refund reviews within 5 business days.',
+          'Thank you again for reaching out. We are sorry this needs another step, and we want to make sure we review the right transaction.',
+          missingFieldList.length > 0
+            ? ['Please reply with only the missing details below:', '', ...missingFieldList].join('\n')
+            : 'No specific missing detail is available to request. Please return to manager review before contacting the customer.',
+          'Please do not send a full card number, security code, expiration date, PIN, password, wallet digits, or payment-screen screenshot. Once we receive the requested details, we will continue the review and keep ownership of the next step.',
         ].join('\n\n'),
       };
     case 'approved':
@@ -1287,18 +1464,18 @@ const getCustomerMessageDraft = (
         subject: `Update on your Bloomjoy refund request ${refundCase.publicReference}`,
         body: [
           'Thank you for giving us the chance to review this. We were not able to approve the refund based on the transaction and machine information available.',
-          decisionReason,
+          'If any of the purchase details were submitted incorrectly, please reply and we will take another careful look. Internal review notes are never included in this email.',
           'We are sorry this visit was frustrating, and we appreciate you reaching out.',
         ].join('\n\n'),
       };
     case 'completed':
       return {
-        subject: `Your Bloomjoy refund request ${refundCase.publicReference} is complete`,
+        subject: `Your Bloomjoy refund${amount !== 'n/a' ? ` of ${amount}` : ''} is on its way`,
         body: [
-          `Your approved refund request${amount !== 'n/a' ? ` for ${amount}` : ''} has been marked complete by our team.`,
+          `We issued your refund${amount !== 'n/a' ? ` of ${amount}` : ''}${refundCase.paymentMethod === 'card' && refundCase.matchedNayaxCardLast4 ? ` to the card ending in ${refundCase.matchedNayaxCardLast4}` : ''}.`,
           refundCase.paymentMethod === 'cash'
-            ? 'For Zelle, please allow normal bank processing time after the payment is sent.'
-            : 'For card refunds, your bank or card issuer may take a little additional time to show the credit.',
+            ? 'The Zelle payment has been sent. Please allow normal bank processing time for it to appear.'
+            : 'Your bank or card issuer may take up to 4 business days to show the credit. If it is not visible after that, reply to this email with the case reference.',
           'Thank you for letting us help make this right.',
         ].join('\n\n'),
       };
@@ -1313,13 +1490,6 @@ const getCustomerMessageDraft = (
       };
   }
 };
-
-const shouldAutoRunNayaxLookup = (refundCase: RefundCaseRecord, candidates: NayaxLookupCandidate[]) =>
-  refundCase.paymentMethod === 'card' &&
-  (candidates.some((candidate) => !candidate.policyVersion) ||
-    (!refundCase.hasMatchedNayaxTransaction &&
-      candidates.length === 0 &&
-      ['not_started', 'needs_nayax', 'nayax_not_configured', 'manual_review'].includes(refundCase.correlationStatus)));
 
 const messageStatusBadgeClass = (status: string) => {
   if (status === 'sent') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
@@ -1402,6 +1572,11 @@ const getCoherentStatusOptions = (
   const options = statusesByDecision[decisionKey].filter((status) => {
     if (status === 'card_refund_pending') return selectedCase.paymentMethod === 'card';
     if (status === 'cash_zelle_pending') return selectedCase.paymentMethod !== 'card';
+    if (
+      status === 'completed' &&
+      selectedCase.paymentMethod === 'card' &&
+      selectedCase.status !== 'completed'
+    ) return false;
     return true;
   });
 
@@ -1537,20 +1712,31 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
 export default function AdminRefundsPage() {
   const queryClient = useQueryClient();
   const detailPanelRef = useRef<HTMLDivElement>(null);
-  const autoLookupAttemptedRef = useRef<Set<string>>(new Set());
   const cashCompletionInFlightRef = useRef(false);
+  const handledCaseQueryRef = useRef<string | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<QueueFilter>('needs_action');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [isMobileQueueExpanded, setIsMobileQueueExpanded] = useState(true);
   const [editor, setEditor] = useState<EditorState | null>(null);
+  const [officialActionVersion, setOfficialActionVersion] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [isLookingUpNayax, setIsLookingUpNayax] = useState(false);
   const [isRunningNayaxRefund, setIsRunningNayaxRefund] = useState(false);
   const [isRefundConfirmationOpen, setIsRefundConfirmationOpen] = useState(false);
   const [isCashConfirmationOpen, setIsCashConfirmationOpen] = useState(false);
+  const [isGmailResolutionOpen, setIsGmailResolutionOpen] = useState(false);
+  const [isResolvingGmailDelivery, setIsResolvingGmailDelivery] = useState(false);
   const [isCashCompletionSubmitting, setIsCashCompletionSubmitting] = useState(false);
+  const [pendingManagerStepUp, setPendingManagerStepUp] = useState<RefundManagerStepUpRequest | null>(null);
+  const [managerStepUpCode, setManagerStepUpCode] = useState('');
+  const [managerStepUpError, setManagerStepUpError] = useState<string | null>(null);
+  const [isCompletingManagerStepUp, setIsCompletingManagerStepUp] = useState(false);
+  const [isStartingTotpEnrollment, setIsStartingTotpEnrollment] = useState(false);
+  const [isVerifyingTotpEnrollment, setIsVerifyingTotpEnrollment] = useState(false);
+  const [totpEnrollmentQrCode, setTotpEnrollmentQrCode] = useState<string | null>(null);
+  const [totpEnrollmentCode, setTotpEnrollmentCode] = useState('');
   const [refundActionReceipt, setRefundActionReceipt] = useState<RefundActionReceipt | null>(null);
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
   const [nayaxCandidates, setNayaxCandidates] = useState<NayaxLookupCandidate[]>([]);
@@ -1565,6 +1751,10 @@ export default function AdminRefundsPage() {
   const [isRejectingTriage, setIsRejectingTriage] = useState(false);
   const [triageRejectReason, setTriageRejectReason] = useState('wrong_missing_fields');
   const [triageRejectNote, setTriageRejectNote] = useState('');
+  const [isGmailRecoveryOpen, setIsGmailRecoveryOpen] = useState(false);
+  const [gmailRecoveryVerified, setGmailRecoveryVerified] = useState(false);
+  const [isRecoveringGmailContact, setIsRecoveringGmailContact] = useState(false);
+  const [isResolvingReconciliation, setIsResolvingReconciliation] = useState(false);
   const forceDemoData = isLocalUatDemoForced();
   const showLegacyCashWorkbench =
     import.meta.env.DEV &&
@@ -1625,7 +1815,16 @@ export default function AdminRefundsPage() {
     const normalizedSearch = search.trim().toLowerCase();
 
     return overview.cases.filter((refundCase) => {
-      if (statusFilter === 'needs_action' && !openStatuses.has(refundCase.status)) return false;
+      if (
+        statusFilter === 'needs_action' &&
+        (!openStatuses.has(refundCase.status) ||
+          refundCase.status === 'waiting_on_customer' ||
+          refundCase.providerHold === true)
+      ) return false;
+      if (statusFilter === 'missing_information' && !refundCase.missingInformation) return false;
+      if (statusFilter === 'possible_duplicate' && !refundCase.possibleDuplicate && !refundCase.confirmedDuplicate) return false;
+      if (statusFilter === 'aging' && !refundCase.aging) return false;
+      if (statusFilter === 'provider_hold' && !refundCase.providerHold) return false;
       if (statusFilter === 'waiting_on_customer' && refundCase.status !== 'waiting_on_customer') return false;
       if (statusFilter === 'ready_to_pay' && !isReadyToPayCase(refundCase)) return false;
       if (statusFilter === 'blocked' && !isBlockedCase(refundCase)) return false;
@@ -1649,6 +1848,19 @@ export default function AdminRefundsPage() {
       return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
     });
   }, [overview.cases, search, statusFilter]);
+
+  const primaryQueueCounts = useMemo(() => ({
+    needs_action: overview.cases.filter((refundCase) =>
+      openStatuses.has(refundCase.status) &&
+      refundCase.status !== 'waiting_on_customer' &&
+      refundCase.providerHold !== true
+    ).length,
+    waiting_on_customer: overview.cases.filter(
+      (refundCase) => refundCase.status === 'waiting_on_customer'
+    ).length,
+    provider_hold: overview.cases.filter((refundCase) => refundCase.providerHold === true).length,
+    completed: overview.cases.filter((refundCase) => refundCase.status === 'completed').length,
+  }), [overview.cases]);
 
   const automationPresentation = automationHealthPresentation(
     automationHealth,
@@ -1687,6 +1899,7 @@ export default function AdminRefundsPage() {
 
     setSelectedId(null);
     setEditor(null);
+    setOfficialActionVersion(0);
     setNayaxCandidates([]);
     setNayaxLookupNotice(null);
     setNayaxLookupSummary(null);
@@ -1735,6 +1948,27 @@ export default function AdminRefundsPage() {
   }, [selectedId, selectionRevision]);
 
   const selectedCase = filteredCases.find((refundCase) => refundCase.id === selectedId) ?? null;
+  const customerDeliveryNeedsReconciliation = Boolean(
+    selectedCase && isRefundCustomerDeliveryUncertain(getLatestCustomerMessage(selectedCase)?.errorMessage)
+  );
+  const selectedCaseOfficialActionBlockReason = selectedCase?.officialActionBlockReason ??
+    (selectedCase?.canPerformOfficialAction !== true ? 'manager_mapping_required' : null);
+  const selectedCaseIsReviewOnly = selectedCase?.reconciliationActionBlocked === true ||
+    (selectedCase?.canPerformOfficialAction !== true &&
+      selectedCaseOfficialActionBlockReason !== 'manager_verification_required');
+  const selectedCaseOfficialActionBlockMessage = selectedCase?.reconciliationActionBlocked === true
+    ? 'Resolve the possible duplicate review before approving, declining, completing, or issuing this refund.'
+    : selectedCaseOfficialActionBlockReason ===
+      'manager_verification_required'
+    ? 'Verify with your authenticator immediately before taking this official action. Agent-controlled or shared sessions cannot approve, decline, complete, or issue refunds.'
+    : selectedCaseOfficialActionBlockReason === 'official_actions_disabled'
+      ? 'Official refund actions remain disabled until the per-action manager authenticator flow is deployed.'
+      : 'Only a currently mapped Machine Manager can approve, decline, complete, or issue this refund.';
+  const mobileQueueCases = selectedCase && !isMobileQueueExpanded ? [selectedCase] : filteredCases;
+  useEffect(() => {
+    const nextVersion = Number(selectedCase?.officialActionVersion ?? 0);
+    setOfficialActionVersion(nextVersion > 0 ? nextVersion : 0);
+  }, [selectedCase?.id, selectedCase?.officialActionVersion]);
   const {
     data: gmailContext,
     isLoading: gmailContextIsLoading,
@@ -1745,6 +1979,59 @@ export default function AdminRefundsPage() {
     enabled: !forceDemoData && Boolean(selectedCase?.hasGmailThread && selectedCase?.id),
     staleTime: 1000 * 30,
   });
+  const {
+    data: reconciliationContext,
+    isLoading: reconciliationIsLoading,
+    error: reconciliationError,
+  } = useQuery({
+    queryKey: ['refund-case-reconciliation', selectedCase?.id],
+    queryFn: () => fetchRefundCaseReconciliation(selectedCase?.id ?? ''),
+    enabled: !forceDemoData && Boolean(selectedCase?.id),
+    staleTime: 1000 * 30,
+  });
+
+  const resolveReconciliation = async (
+    reviewId: string,
+    resolution: 'duplicate' | 'distinct'
+  ) => {
+    if (!selectedCase) return;
+    setIsResolvingReconciliation(true);
+    try {
+      await resolveRefundCaseReconciliation({
+        reviewId,
+        resolution,
+        canonicalRefundCaseId: resolution === 'duplicate' ? selectedCase.id : null,
+        reasonCode: resolution === 'duplicate' ? 'same_incident' : 'different_purchase',
+      });
+      toast.success(
+        resolution === 'duplicate'
+          ? 'The duplicate is linked and official actions remain on the canonical case.'
+          : 'The cases are recorded as different purchases.'
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] }),
+        queryClient.invalidateQueries({ queryKey: ['refund-case-reconciliation'] }),
+      ]);
+    } catch (resolutionError) {
+      toast.error(
+        resolutionError instanceof Error
+          ? resolutionError.message
+          : 'Unable to save the duplicate review.'
+      );
+    } finally {
+      setIsResolvingReconciliation(false);
+    }
+  };
+
+  const copyExactCaseLink = async (casePath: string) => {
+    const absoluteUrl = new URL(casePath, window.location.origin).toString();
+    try {
+      await navigator.clipboard.writeText(absoluteUrl);
+      toast.success('Exact case link copied.');
+    } catch {
+      toast.error('Unable to copy the case link.');
+    }
+  };
   useEffect(() => {
     const suggestion = gmailContext?.triageSuggestion;
     if (
@@ -1764,10 +2051,45 @@ export default function AdminRefundsPage() {
     setMessageBody(suggestion.draftBody);
     setAppliedTriageSuggestionId(suggestion.id);
   }, [appliedTriageSuggestionId, gmailContext?.triageSuggestion]);
+
+  const handleRecoverGmailCustomerContact = async () => {
+    if (!selectedCase || !gmailRecoveryVerified || isRecoveringGmailContact) return;
+    if (isUsingDemoData) {
+      toast.info('Demo cases are read-only. Use a seeded local case to test Gmail recovery.');
+      return;
+    }
+
+    setIsRecoveringGmailContact(true);
+    try {
+      const recovery = await recoverRefundGmailCustomerContact(
+        selectedCase.id,
+        selectedCase.customerEmail
+      );
+      setIsGmailRecoveryOpen(false);
+      setGmailRecoveryVerified(false);
+      if (recovery.recovered) {
+        toast.success(
+          `Automatic customer email resumed across ${recovery.clearedThreadCount} linked ${recovery.clearedThreadCount === 1 ? 'thread' : 'threads'}.`
+        );
+      } else {
+        toast.info('Automatic customer email was already active.');
+      }
+      await refresh();
+    } catch (recoveryError) {
+      toast.error(
+        recoveryError instanceof Error
+          ? recoveryError.message
+          : 'Unable to resume automatic customer email.'
+      );
+    } finally {
+      setIsRecoveringGmailContact(false);
+    }
+  };
   const primaryAction = useMemo(
     () => (selectedCase && editor ? primaryActionConfig(selectedCase, editor, nayaxCandidates) : null),
     [editor, nayaxCandidates, selectedCase]
   );
+  const primaryActionNeedsOfficialAccess = primaryActionRequiresOfficialAction(primaryAction);
   const primaryActionEditor = useMemo(
     () => (editor && primaryAction ? editorForPrimaryAction(editor, primaryAction) : editor),
     [editor, primaryAction]
@@ -1791,11 +2113,54 @@ export default function AdminRefundsPage() {
     [isLookingUpNayax, nayaxCandidates, nayaxLookupNotice, nayaxLookupSummary, selectedCase]
   );
 
+  const openManagerStepUp = (request: RefundManagerStepUpRequest) => {
+    setPendingManagerStepUp(request);
+    setManagerStepUpCode('');
+    setManagerStepUpError(null);
+    setTotpEnrollmentQrCode(null);
+    setTotpEnrollmentCode('');
+    setIsRefundConfirmationOpen(false);
+    setIsCashConfirmationOpen(false);
+  };
+
+  const clearManagerStepUp = () => {
+    setPendingManagerStepUp(null);
+    setManagerStepUpCode('');
+    setManagerStepUpError(null);
+    setTotpEnrollmentQrCode(null);
+    setTotpEnrollmentCode('');
+  };
+
+  const applyCaseUpdateResponse = async (
+    result: UpdateRefundCaseResponse
+  ): Promise<CaseSaveSuccess> => {
+    const nextOfficialActionVersion = Number(result.refundCase?.officialActionVersion ?? 0);
+    setOfficialActionVersion(nextOfficialActionVersion > 0 ? nextOfficialActionVersion : 0);
+    if (result.customerMessage?.status === 'failed') {
+      toast.error('Case updated, but the customer email failed. Retry before treating the customer as contacted.');
+    } else if (result.customerMessage?.status === 'sent') {
+      toast.success('Refund case updated and customer email sent.');
+    } else {
+      toast.success('Refund case updated.');
+    }
+    await refresh();
+    return {
+      customerMessage: result.customerMessage ?? null,
+      updateApplied: result.updateApplied !== false,
+    };
+  };
+
   const handleSelectCase = (refundCase: RefundCaseRecord) => {
+    if (pendingManagerStepUp) {
+      void cancelRefundManagerStepUp(pendingManagerStepUp.intentId).catch(() => undefined);
+      clearManagerStepUp();
+    }
     setSelectedId(refundCase.id);
     setSelectionRevision((current) => current + 1);
     setIsMobileQueueExpanded(false);
     setEditor(toEditorState(refundCase));
+    const nextOfficialActionVersion = Number(refundCase.officialActionVersion ?? 0);
+    setOfficialActionVersion(nextOfficialActionVersion > 0 ? nextOfficialActionVersion : 0);
     setNayaxCandidates(refundCase.nayaxLookupCandidates ?? []);
     setNayaxLookupNotice(null);
     setNayaxExecutionNotice(null);
@@ -1814,6 +2179,8 @@ export default function AdminRefundsPage() {
     setIsTriageRejectOpen(false);
     setTriageRejectReason('wrong_missing_fields');
     setTriageRejectNote('');
+    setIsGmailRecoveryOpen(false);
+    setGmailRecoveryVerified(false);
 
   };
 
@@ -1823,6 +2190,14 @@ export default function AdminRefundsPage() {
   ): Promise<CaseSaveResult> => {
     if (!selectedCase || !editor) return null;
     const nextEditor = editorOverride ?? editor;
+    if (editorRequiresOfficialAction(nextEditor) && selectedCaseIsReviewOnly) {
+      toast.error(selectedCaseOfficialActionBlockMessage);
+      return null;
+    }
+    if (editorRequiresOfficialAction(nextEditor) && officialActionVersion <= 0) {
+      toast.error('Reload this case before taking an official refund action.');
+      return null;
+    }
     if (isUsingDemoData) {
       toast.info('Demo cases are read-only. Seed local Supabase fixtures to test saving workflow changes.');
       return null;
@@ -1853,8 +2228,9 @@ export default function AdminRefundsPage() {
     try {
       const clearNayaxMatch = nextEditor.clearNayaxMatch;
       const nayaxAmountCents = centsFromCurrency(nextEditor.matchedNayaxAmount);
-      const result = await updateRefundCaseAdmin({
+      const updateInput = {
         caseId: selectedCase.id,
+        expectedOfficialActionVersion: officialActionVersion,
         status: clearNayaxMatch ? 'needs_review' : nextEditor.status,
         assignedManagerEmail: nextEditor.assignedManagerEmail.trim() || null,
         decision: clearNayaxMatch ? null : nextEditor.decision,
@@ -1874,19 +2250,21 @@ export default function AdminRefundsPage() {
         matchedNayaxCurrencyCode: nextEditor.matchedNayaxCurrencyCode.trim().toUpperCase() || null,
         nayaxDisagreementReason: nextEditor.nayaxDisagreementReason || null,
         customerMessageType,
-      });
-      if (result.customerMessage?.status === 'failed') {
-        toast.error('Case updated, but the customer email failed. Retry before treating the customer as contacted.');
-      } else if (result.customerMessage?.status === 'sent') {
-        toast.success('Refund case updated and customer email sent.');
-      } else {
-        toast.success('Refund case updated.');
+        customerMissingFields: customerMessageType === 'more_info'
+          ? derivePortalRefundMissingFields(selectedCase)
+          : [],
+      } as const;
+      try {
+        const result = await updateRefundCaseAdmin(updateInput);
+        return await applyCaseUpdateResponse(result);
+      } catch (saveError) {
+        const stepUpRequest = getRefundManagerStepUpRequest(saveError, updateInput);
+        if (stepUpRequest) {
+          openManagerStepUp(stepUpRequest);
+          return 'step_up_pending';
+        }
+        throw saveError;
       }
-      await refresh();
-      return {
-        customerMessage: result.customerMessage ?? null,
-        updateApplied: result.updateApplied !== false,
-      };
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : 'Unable to update refund case.';
       toast.error(message);
@@ -1896,8 +2274,109 @@ export default function AdminRefundsPage() {
     }
   };
 
+  const applyNayaxExecutionResult = async (
+    result: NayaxCardRefundExecutionResponse
+  ) => {
+    const reference = getNayaxExecutionReference(result);
+    const completion = result.customerCompletion ?? null;
+    const hasCommittedSuccess =
+      result.executed === true &&
+      result.status === 'succeeded' &&
+      result.reportingAdjustmentPresent === true &&
+      result.reconciliationRequired !== true &&
+      result.fallbackIssued !== true;
+
+    setIsRefundConfirmationOpen(false);
+
+    if (hasCommittedSuccess) {
+      const deliverySucceeded = Boolean(
+        completion &&
+        (completion.status === 'sent' || completion.status === 'already_sent') &&
+        completion.transport === 'gmail_thread' &&
+        completion.originalThread === true &&
+        completion.managerCcCount > 0 &&
+        completion.managerCompletionNoticeSent === false
+      );
+      const deliveryFailed = completion?.status === 'failed';
+      setNayaxExecutionNotice(null);
+      setRefundActionReceipt({
+        tone: deliverySucceeded ? 'success' : 'warning',
+        title: deliverySucceeded
+          ? 'Refund completed'
+          : deliveryFailed
+            ? 'Refund completed; customer email needs attention'
+            : 'Refund completed; email delivery needs reconciliation',
+        message: deliverySucceeded
+          ? `Nayax confirmed the refund, Bloomjoy Hub finalized the case and reporting together, and the customer was notified in the original email thread with ${completion?.managerCcCount === 1 ? 'the mapped Machine Manager' : `${completion?.managerCcCount} mapped Machine Managers`} copied.`
+          : deliveryFailed
+            ? 'The refund, case, and reporting record are complete. Do not retry the payment. Retry only the controlled customer completion email.'
+            : 'The refund, case, and reporting record are complete. Do not retry the payment. Reconcile only the customer email delivery before sending anything else.',
+        reference,
+      });
+      if (deliverySucceeded) {
+        toast.success('Nayax confirmed the refund and the customer was notified.');
+      } else {
+        toast.error('The refund is complete, but the customer email still needs attention.');
+      }
+      await refresh();
+      return;
+    }
+
+    const corruptSuccess = result.executed === true || result.status === 'succeeded';
+    const ambiguous =
+      corruptSuccess ||
+      result.reconciliationRequired === true ||
+      result.errorCode === 'provider_timeout' ||
+      result.errorCode === 'provider_outcome_unknown' ||
+      result.errorCode === 'success_finalization_incomplete' ||
+      result.status === 'ambiguous';
+    const rejected = result.errorCode === 'provider_rejected' || result.status === 'declined';
+    const timedOut = result.errorCode === 'provider_timeout';
+    const outcomeUnknown = result.errorCode === 'provider_outcome_unknown';
+    const message = formatNayaxExecutionBlockedMessage(result);
+
+    setNayaxExecutionNotice({ tone: 'warning', message });
+    setRefundActionReceipt({
+      tone: 'warning',
+      title: ambiguous
+        ? timedOut
+          ? 'Provider request timed out'
+          : outcomeUnknown
+            ? 'Provider outcome unknown'
+            : 'Refund outcome needs reconciliation'
+        : rejected
+          ? 'Refund rejected by Nayax'
+          : 'Refund not sent',
+      message: ambiguous
+        ? `${message} Keep the case open and do not retry the payment until Nayax is reconciled. No fallback or customer completion email was sent.`
+        : rejected
+          ? `${message} The case remains open for a Machine Manager. No fallback or customer completion email was sent.`
+          : `${message} The case remains open and no customer completion email was sent.`,
+      reference,
+    });
+    toast.error(
+      ambiguous
+        ? 'The card refund outcome needs reconciliation. Do not retry it.'
+        : rejected
+          ? 'Nayax rejected the refund. The case remains open.'
+          : 'Card refund execution was blocked. The case remains open.'
+    );
+
+    if (result.providerAttempted === true || result.replayed === true) {
+      await refresh();
+    }
+  };
+
   const handleRunNayaxRefund = async () => {
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return;
+    if (selectedCaseIsReviewOnly) {
+      toast.error(selectedCaseOfficialActionBlockMessage);
+      return;
+    }
+    if (officialActionVersion <= 0) {
+      toast.error('Reload this case before issuing a card refund.');
+      return;
+    }
     if (isUsingDemoData) {
       setNayaxExecutionNotice({
         tone: 'info',
@@ -1934,83 +2413,68 @@ export default function AdminRefundsPage() {
     setIsRunningNayaxRefund(true);
     setNayaxExecutionNotice(null);
     setRefundActionReceipt(null);
+    const executionInput = {
+      caseId: selectedCase.id,
+      expectedOfficialActionVersion: officialActionVersion,
+    };
     try {
-      const result = await executeNayaxCardRefund({
-        caseId: selectedCase.id,
-      });
-
-      if (!result.executed) {
-        setNayaxExecutionNotice({
-          tone: 'warning',
-          message: formatNayaxExecutionBlockedMessage(result),
-        });
-        setRefundActionReceipt({
-          tone: 'warning',
-          title: 'Refund not sent',
-          message: `${formatNayaxExecutionBlockedMessage(result)} The case is still open and the customer was not emailed.`,
-        });
-        toast.error('Card refund was not completed. The case remains open.');
-        return;
-      }
-
-      const completedEditor: EditorState = {
-        ...executionEditor,
-        manualRefundReference: getNayaxExecutionReference(result) ?? editor.manualRefundReference,
-      };
-      setEditor(completedEditor);
-      const saveResult = await handleSaveCase(completedEditor, 'completed');
-      const reference = getNayaxExecutionReference(result);
-      if (!saveResult) {
-        setRefundActionReceipt({
-          tone: 'warning',
-          title: 'Refund sent; follow-up needs attention',
-          message:
-            'The card refund succeeded, but Bloomjoy Hub could not finish the case or customer email. Do not refund the payment again. Check the case history and retry only the customer follow-up.',
-          reference,
-        });
-        return;
-      }
-
-      setRefundActionReceipt({
-        tone: 'success',
-        title: 'Refund completed',
-        message:
-          saveResult.customerMessage?.status === 'failed'
-            ? 'The card refund succeeded and the case was completed, but the customer email needs a retry.'
-            : saveResult.customerMessage?.status === 'sent'
-              ? 'The card refund succeeded, the case was completed, and the customer was notified.'
-              : 'The card refund succeeded, the case was completed, and the customer email is queued for delivery.',
-        reference,
-      });
-      setIsRefundConfirmationOpen(false);
+      const result = await executeNayaxCardRefund(executionInput);
+      await applyNayaxExecutionResult(result);
     } catch (executionError) {
+      const stepUpRequest = getRefundManagerStepUpRequest(executionError, executionInput);
+      if (stepUpRequest) {
+        openManagerStepUp(stepUpRequest);
+        return;
+      }
       const response = isNayaxCardRefundExecutionError(executionError)
         ? executionError.data
         : null;
-      const message = response
-        ? formatNayaxExecutionBlockedMessage(response)
-        : executionError instanceof Error
+      if (response) {
+        await applyNayaxExecutionResult(response);
+      } else {
+        const message = executionError instanceof Error
           ? executionError.message
-          : 'Card refund execution was blocked or could not be prepared.';
-      setNayaxExecutionNotice({
-        tone: 'warning',
-        message,
-      });
-      setRefundActionReceipt({
-        tone: 'warning',
-        title: response ? 'Refund not sent' : 'Refund outcome needs verification',
-        message: response
-          ? `${message} The case remains open and the customer was not emailed.`
-          : `${message} Check the transaction history before retrying because the refund outcome was not confirmed.`,
-      });
-      toast.error('Card refund was not completed. The customer was not contacted.');
+          : 'The provider outcome could not be confirmed.';
+        setNayaxExecutionNotice({ tone: 'warning', message });
+        setRefundActionReceipt({
+          tone: 'warning',
+          title: 'Refund outcome needs reconciliation',
+          message: `${message} Keep the case open and do not retry until the Nayax transaction is reconciled. The customer was not contacted.`,
+        });
+        toast.error('The card refund outcome needs reconciliation. Do not retry it.');
+      }
     } finally {
       setIsRunningNayaxRefund(false);
     }
   };
 
+  const handleResolveGmailDeliveryNotFound = async () => {
+    const latestMessage = selectedCase ? getLatestCustomerMessage(selectedCase) : null;
+    if (!latestMessage || !isRefundCustomerDeliveryUncertain(latestMessage.errorMessage)) {
+      toast.error('The Gmail delivery state changed. Refresh the case before continuing.');
+      setIsGmailResolutionOpen(false);
+      return;
+    }
+
+    setIsResolvingGmailDelivery(true);
+    try {
+      await resolveRefundGmailDeliveryNotFound(latestMessage.id);
+      setIsGmailResolutionOpen(false);
+      toast.success('Verified as not delivered. A controlled customer follow-up is now available.');
+      await refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to resolve the Gmail delivery.');
+    } finally {
+      setIsResolvingGmailDelivery(false);
+    }
+  };
+
   const handlePrimaryAction = async () => {
     if (!editor || !primaryAction || !primaryActionEditor) return;
+    if (primaryAction.mode === 'resolve_delivery_not_found') {
+      setIsGmailResolutionOpen(true);
+      return;
+    }
     if (primaryAction.mode === 'retry_message') {
       await handleSendCustomerMessage(primaryAction.messageType);
       return;
@@ -2052,6 +2516,9 @@ export default function AdminRefundsPage() {
     try {
       setEditor(primaryActionEditor);
       const saveResult = await handleSaveCase(primaryActionEditor, 'completed');
+      if (saveResult === 'step_up_pending') {
+        return;
+      }
       if (!saveResult) {
         setRefundActionReceipt({
           tone: 'warning',
@@ -2082,6 +2549,137 @@ export default function AdminRefundsPage() {
     }
   };
 
+  const handleCancelManagerStepUp = async () => {
+    const intentId = pendingManagerStepUp?.intentId;
+    const shouldCancelEnrollment = Boolean(totpEnrollmentQrCode);
+    clearManagerStepUp();
+    await Promise.all([
+      intentId
+        ? cancelRefundManagerStepUp(intentId).catch(() => undefined)
+        : Promise.resolve(),
+      shouldCancelEnrollment
+        ? cancelRefundManagerTotpEnrollment().catch(() => undefined)
+        : Promise.resolve(),
+    ]);
+  };
+
+  const handleCompleteManagerStepUp = async () => {
+    if (
+      !pendingManagerStepUp ||
+      !/^\d{6}$/.test(managerStepUpCode) ||
+      isCompletingManagerStepUp
+    ) {
+      setManagerStepUpError('Enter the current six-digit code from your authenticator.');
+      return;
+    }
+    if (new Date(pendingManagerStepUp.expiresAt).getTime() <= Date.now()) {
+      setManagerStepUpError('This verification request expired. Close it and review the action again.');
+      setManagerStepUpCode('');
+      return;
+    }
+
+    setIsCompletingManagerStepUp(true);
+    setManagerStepUpError(null);
+    try {
+      if (pendingManagerStepUp.targetFunction === 'refund-case-admin-update') {
+        const result = await completeRefundCaseAdminStepUp(
+          pendingManagerStepUp,
+          managerStepUpCode
+        );
+        await applyCaseUpdateResponse(result);
+        setRefundActionReceipt({
+          tone: result.customerMessage?.status === 'failed' ? 'warning' : 'success',
+          title: pendingManagerStepUp.action === 'decline'
+            ? 'Decision recorded'
+            : pendingManagerStepUp.action === 'cash_complete'
+              ? 'Cash refund completed'
+              : 'Manager authorization recorded',
+          message: result.customerMessage?.status === 'failed'
+            ? 'The official action succeeded, but the customer email needs a retry.'
+            : 'Your fresh authenticator verification authorized only this reviewed action.',
+        });
+        clearManagerStepUp();
+        return;
+      }
+
+      const result = await completeNayaxRefundStepUp(
+        pendingManagerStepUp,
+        managerStepUpCode
+      );
+      await applyNayaxExecutionResult(result);
+      clearManagerStepUp();
+    } catch (stepUpError) {
+      const nayaxResponse = isNayaxCardRefundExecutionError(stepUpError)
+        ? stepUpError.data
+        : null;
+      const isNayaxTargetResult = Boolean(
+        nayaxResponse &&
+        (typeof nayaxResponse.executed === 'boolean' ||
+          typeof nayaxResponse.status === 'string' ||
+          Array.isArray(nayaxResponse.blocks))
+      );
+      if (
+        pendingManagerStepUp.targetFunction === 'nayax-card-refund' &&
+        nayaxResponse &&
+        isNayaxTargetResult
+      ) {
+        await applyNayaxExecutionResult(nayaxResponse);
+        clearManagerStepUp();
+        return;
+      }
+      const message = stepUpError instanceof Error
+        ? stepUpError.message
+        : 'Authenticator verification failed. No official action was taken.';
+      setManagerStepUpError(message);
+      setManagerStepUpCode('');
+    } finally {
+      setIsCompletingManagerStepUp(false);
+    }
+  };
+
+  const handleBeginTotpEnrollment = async () => {
+    if (isStartingTotpEnrollment) return;
+    setIsStartingTotpEnrollment(true);
+    setManagerStepUpError(null);
+    try {
+      const result = await beginRefundManagerTotpEnrollment();
+      if (!result.qrCode) throw new Error('Enrollment did not return a QR code.');
+      setTotpEnrollmentQrCode(result.qrCode);
+      setTotpEnrollmentCode('');
+    } catch (enrollmentError) {
+      setManagerStepUpError(
+        enrollmentError instanceof Error
+          ? enrollmentError.message
+          : 'The owner-controlled enrollment window is closed.'
+      );
+    } finally {
+      setIsStartingTotpEnrollment(false);
+    }
+  };
+
+  const handleVerifyTotpEnrollment = async () => {
+    if (!/^\d{6}$/.test(totpEnrollmentCode) || isVerifyingTotpEnrollment) return;
+    setIsVerifyingTotpEnrollment(true);
+    setManagerStepUpError(null);
+    try {
+      const result = await verifyRefundManagerTotpEnrollment(totpEnrollmentCode);
+      if (!result.enrolled) throw new Error('Authenticator enrollment was not confirmed.');
+      setTotpEnrollmentQrCode(null);
+      setTotpEnrollmentCode('');
+      setManagerStepUpCode('');
+      toast.success('Authenticator enrolled. Use a new current code to authorize the reviewed action.');
+    } catch (enrollmentError) {
+      setManagerStepUpError(
+        enrollmentError instanceof Error
+          ? enrollmentError.message
+          : 'Authenticator enrollment could not be verified.'
+      );
+      setTotpEnrollmentCode('');
+    } finally {
+      setIsVerifyingTotpEnrollment(false);
+    }
+  };
+
   const handleNayaxLookup = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!selectedCase) return;
     if (isUsingDemoData) {
@@ -2106,6 +2704,8 @@ export default function AdminRefundsPage() {
       });
 
       setNayaxCandidates(result.candidates ?? []);
+      const nextOfficialActionVersion = Number(result.officialActionVersion ?? 0);
+      setOfficialActionVersion(nextOfficialActionVersion > 0 ? nextOfficialActionVersion : 0);
       const nextSummary: RefundNayaxLookupSummary = {
         lookupStatus:
           result.lookupStatus ??
@@ -2125,7 +2725,7 @@ export default function AdminRefundsPage() {
           result.recommendedAction ||
           ((result.candidates?.length ?? 0) > 0
             ? 'Confirm the correct card sale before completing the case.'
-            : 'Ask the customer for one more detail before deciding this card case.'),
+            : 'Keep the case in manager review until fresh server evidence authorizes the next step.'),
         recommendationState: result.recommendationState,
         confidenceClass: result.confidenceClass,
         reasonCodes: result.reasonCodes,
@@ -2153,7 +2753,7 @@ export default function AdminRefundsPage() {
             ? `${providerWindowRecordCount} transactions were checked, but none matched enough customer details. Ask the customer for one more detail before deciding.`
             : providerRecordCount > 0
               ? `${providerRecordCount} recent transactions were checked, but none were close enough to the reported time. Ask the customer for one more detail before deciding.`
-              : 'No matching transaction was found. Ask the customer for one more detail.';
+              : 'No matching transaction was found. Keep the case open and ask only for a specific missing detail.';
         setNayaxLookupNotice({
           tone: 'info',
           message: result.summary || noMatchMessage,
@@ -2181,12 +2781,12 @@ export default function AdminRefundsPage() {
         windowHours: 6,
         providerWindowRecordCount: null,
         candidateCount: 0,
-        summary: `${message} Keep the case in review or ask the customer for more detail, then try again.`,
-        recommendedAction: 'Retry the transaction check or ask the customer for more detail.',
+        summary: `${message} Keep the case in manager review and retry the transaction check only after the provider path is healthy.`,
+        recommendedAction: 'Do not send correction or success copy based on a provider failure.',
       });
       setNayaxLookupNotice({
         tone: 'error',
-        message: `${message} Keep the case in review or ask the customer for more detail, then try again.`,
+        message: `${message} Keep the case in manager review and retry the transaction check only after the provider path is healthy.`,
       });
       if (!silent) {
         toast.error(message);
@@ -2197,41 +2797,24 @@ export default function AdminRefundsPage() {
   };
 
   useEffect(() => {
-    if (selectedId || overview.cases.length === 0) return;
+    if (overview.cases.length === 0) return;
     if (typeof window === 'undefined') return;
 
     const caseIdFromUrl = new URLSearchParams(window.location.search).get('case');
-    if (!caseIdFromUrl) return;
+    if (!caseIdFromUrl || handledCaseQueryRef.current === caseIdFromUrl) return;
 
     const caseFromUrl = overview.cases.find((refundCase) => refundCase.id === caseIdFromUrl);
     if (!caseFromUrl) return;
+    handledCaseQueryRef.current = caseIdFromUrl;
 
     if (!filteredCases.some((refundCase) => refundCase.id === caseFromUrl.id)) {
       setStatusFilter('all');
+      setSearch('');
     }
     handleSelectCase(caseFromUrl);
     // The selector intentionally runs once per loaded overview/query-string case.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overview.cases, selectedId]);
-
-  useEffect(() => {
-    if (!selectedCase) return;
-    if (isUsingDemoData) return;
-    if (!shouldAutoRunNayaxLookup(selectedCase, nayaxCandidates)) return;
-    if (autoLookupAttemptedRef.current.has(selectedCase.id)) return;
-
-    autoLookupAttemptedRef.current.add(selectedCase.id);
-    void handleNayaxLookup({ silent: true });
-    // This effect is keyed to the selected case and visible candidate state; the lookup function reads current state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    isUsingDemoData,
-    nayaxCandidates.length,
-    selectedCase?.correlationStatus,
-    selectedCase?.hasMatchedNayaxTransaction,
-    selectedCase?.id,
-    selectedCase?.paymentMethod,
-  ]);
+  }, [overview.cases]);
 
   const handleOpenAttachment = async (attachmentId: string) => {
     const attachment = selectedCase?.attachments.find((item) => item.id === attachmentId);
@@ -2286,20 +2869,20 @@ export default function AdminRefundsPage() {
       .reverse()
       .find((message) => message.direction === 'inbound' && message.kind === 'message');
     const triageSuggestion = gmailContext?.triageSuggestion ?? null;
-    const triageDraftReady =
+    const triageDraftCandidate =
       triageSuggestion?.status === 'ready_for_review' &&
       triageSuggestion.route === 'draft_reply' &&
       !triageSuggestion.contentDeleted;
+    const triageDraftReady = triageDraftCandidate && triageSuggestion.missingFields.length > 0;
     const triageNeedsHuman =
-      triageSuggestion?.route === 'human_review' &&
-      ['human_review', 'ready_for_review'].includes(triageSuggestion.status);
+      (
+        triageSuggestion?.route === 'human_review' &&
+        ['human_review', 'ready_for_review'].includes(triageSuggestion.status)
+      ) || (triageDraftCandidate && triageSuggestion.missingFields.length === 0);
     const missingDetails = triageDraftReady
       ? triageSuggestion.missingFields.map((field) => gptMissingFieldLabels[field] ?? statusLabel(field))
-      : [
-          'Machine location',
-          'Purchase date and time',
-          'Payment method, amount, and card last 4 if applicable',
-        ];
+      : derivePortalRefundMissingFields(selectedCase).map((field) => missingFieldCustomerLabel[field]);
+    const draftFollowUpType: RefundCustomerPortalMessageType = 'more_info';
 
     return (
       <div data-testid="refund-gmail-draft-workbench" className="space-y-4">
@@ -2325,13 +2908,13 @@ export default function AdminRefundsPage() {
                     : 'This request is safely linked to its Gmail conversation, but it is not ready for transaction matching or a refund decision yet.'}
               </p>
             </div>
-            {!triageNeedsHuman && !triageDraftReady && (
+            {!triageNeedsHuman && !triageDraftReady && missingDetails.length > 0 && (
               <Button
                 type="button"
                 data-testid="refund-gmail-ask-for-details"
                 data-dominant-action="true"
-                onClick={() => void handleSendCustomerMessage('more_info')}
-                disabled={isSendingCustomerMessage || isUsingDemoData}
+                onClick={() => void handleSendCustomerMessage(draftFollowUpType)}
+                disabled={isSendingCustomerMessage || isUsingDemoData || customerDeliveryNeedsReconciliation}
                 className="min-h-11 shrink-0 bg-white text-slate-950 hover:bg-slate-100"
               >
                 {isSendingCustomerMessage ? (
@@ -2424,7 +3007,7 @@ export default function AdminRefundsPage() {
                     data-testid="refund-gmail-ask-for-details"
                     data-dominant-action="true"
                     onClick={() => void handleSendCustomerMessage('more_info')}
-                    disabled={isSendingCustomerMessage || isUsingDemoData}
+                    disabled={isSendingCustomerMessage || isUsingDemoData || customerDeliveryNeedsReconciliation}
                     className="min-h-11"
                   >
                     {isSendingCustomerMessage ? (
@@ -2541,6 +3124,10 @@ export default function AdminRefundsPage() {
 
   const handleSendCustomerMessage = async (messageTypeOverride?: RefundCustomerPortalMessageType | null) => {
     if (!selectedCase) return;
+    if (customerDeliveryNeedsReconciliation) {
+      toast.error('Gmail delivery is uncertain. Check the original Gmail thread before sending anything else.');
+      return;
+    }
     if (isUsingDemoData) {
       toast.info('Demo cases are read-only. Seed local Supabase fixtures to test outbound customer email.');
       return;
@@ -2572,6 +3159,11 @@ export default function AdminRefundsPage() {
         subject: subject.trim(),
         body: body.trim(),
         triageSuggestionId: usesReviewedTriageDraft ? triageSuggestion?.id : undefined,
+        missingFields: nextMessageType === 'more_info'
+          ? usesReviewedTriageDraft
+            ? sanitizePortalMissingFields(triageSuggestion?.missingFields ?? [])
+            : derivePortalRefundMissingFields(selectedCase)
+          : [],
       });
       toast.success(
         sentMessage.transport === 'gmail_thread'
@@ -2594,6 +3186,14 @@ export default function AdminRefundsPage() {
     const leadCandidate = recommendedCandidate ?? nayaxCandidates[0] ?? null;
     const alternateCandidates = nayaxCandidates.filter((candidate) => candidate !== leadCandidate);
     const selectedCandidate = selectedNayaxCandidate(editor, nayaxCandidates);
+    const hasLookupResult = Boolean(
+      selectedCase.hasMatchedNayaxTransaction ||
+      selectedCase.nayaxLookupSummary ||
+      nayaxLookupSummary ||
+      nayaxCandidates.length > 0 ||
+      (nayaxLookupNotice && !isLookingUpNayax)
+    );
+    const showPrimaryTransactionCheck = !hasSelectedMatch && !hasLookupResult;
     const needsDisagreementReason = Boolean(selectedCandidate && selectedCandidate.isRecommended !== true);
     const selectCandidate = (candidate: NayaxLookupCandidate) => {
       if (candidate.selectionAllowed === false) return;
@@ -2648,6 +3248,33 @@ export default function AdminRefundsPage() {
 
     return (
       <div className="mt-3 space-y-3">
+        {showPrimaryTransactionCheck && (
+          <div className="rounded-md border border-sky-200 bg-sky-50 p-3">
+            <p className="text-sm font-medium text-sky-950">Find the payment before deciding this case</p>
+            <p className="mt-1 text-xs leading-5 text-sky-800">
+              This read-only check compares recent Nayax sales with the machine, amount, and reported time. It never issues a refund.
+            </p>
+            <Button
+              data-testid="nayax-check-transaction"
+              type="button"
+              className="mt-3"
+              onClick={() => void handleNayaxLookup()}
+              disabled={isLookingUpNayax || isUsingDemoData}
+            >
+              {isLookingUpNayax ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="mr-2 h-4 w-4" />
+              )}
+              Check Nayax transaction
+            </Button>
+          </div>
+        )}
+        {nayaxLookupNotice && !selectedCase.hasMatchedNayaxTransaction && (
+          <div data-testid="nayax-lookup-notice" className={nayaxLookupNoticeClass(nayaxLookupNotice.tone)}>
+            {nayaxLookupNotice.message}
+          </div>
+        )}
         {!selectedCase.hasMatchedNayaxTransaction && !editor.clearNayaxMatch && nayaxCandidates.length > 0 && (
           <div className="rounded-md border border-border bg-background p-3">
             {isUsingDemoData && (
@@ -2717,20 +3344,22 @@ export default function AdminRefundsPage() {
               Use these options only if the selected transaction looks wrong or out of date.
             </p>
             <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => void handleNayaxLookup()}
-                disabled={isLookingUpNayax || isUsingDemoData}
-              >
-                {isLookingUpNayax ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                )}
-                Refresh result
-              </Button>
+              {hasLookupResult && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleNayaxLookup()}
+                  disabled={isLookingUpNayax || isUsingDemoData}
+                >
+                  {isLookingUpNayax ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                  )}
+                  Refresh result
+                </Button>
+              )}
               {hasSelectedMatch && (
                 <Button
                   type="button"
@@ -2818,13 +3447,17 @@ export default function AdminRefundsPage() {
     const topActionLabel = hasReadyRefund ? actionLabel : primaryAction?.label ?? 'Review this request';
     const isActionDisabled =
       isSaving ||
+      isSendingCustomerMessage ||
       isRunningNayaxRefund ||
       isUsingDemoData ||
       !primaryAction ||
       primaryAction.disabled === true ||
+      (primaryActionNeedsOfficialAccess && (selectedCaseIsReviewOnly || officialActionVersion <= 0)) ||
       primaryActionIssues.length > 0;
+    const canAskForCustomerDetails = derivePortalRefundMissingFields(selectedCase).length > 0;
 
     const chooseCustomerFollowUp = () => {
+      if (!canAskForCustomerDetails) return;
       setEditor((current) =>
         current
           ? {
@@ -3115,13 +3748,19 @@ export default function AdminRefundsPage() {
             <details className="text-sm sm:text-right">
               <summary className="cursor-pointer font-medium text-muted-foreground">Other decisions</summary>
               <div className="mt-3 flex flex-wrap gap-2 sm:justify-end">
-                {primaryAction?.label !== 'Ask customer for details' && (
+                {canAskForCustomerDetails && primaryAction?.messageType !== 'more_info' && (
                   <Button type="button" size="sm" variant="outline" disabled={isUsingDemoData} onClick={chooseCustomerFollowUp}>
                     Ask customer for details
                   </Button>
                 )}
                 {primaryAction?.label !== 'Deny request' && (
-                  <Button type="button" size="sm" variant="outline" disabled={isUsingDemoData} onClick={chooseDenial}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={isUsingDemoData || selectedCaseIsReviewOnly}
+                    onClick={chooseDenial}
+                  >
                     Deny request
                   </Button>
                 )}
@@ -3228,14 +3867,18 @@ export default function AdminRefundsPage() {
       : primaryAction?.label ?? 'Review cash refund';
     const isActionDisabled =
       isSaving ||
+      isSendingCustomerMessage ||
       isCashCompletionSubmitting ||
       isUsingDemoData ||
       !primaryAction ||
       primaryAction.disabled === true ||
+      (primaryActionNeedsOfficialAccess && (selectedCaseIsReviewOnly || officialActionVersion <= 0)) ||
       primaryActionIssues.length > 0;
     const cashMatchReady = selectedCase.hasMatchedSalesFact && selectedCase.correlationStatus === 'matched';
+    const canAskForCustomerDetails = derivePortalRefundMissingFields(selectedCase).length > 0;
 
     const chooseCustomerFollowUp = () => {
+      if (!canAskForCustomerDetails) return;
       setEditor((current) =>
         current
           ? {
@@ -3383,7 +4026,9 @@ export default function AdminRefundsPage() {
                 {selectedCase.correlationSummary ||
                   (cashMatchReady
                     ? 'A conservative cash sale match is linked to this request.'
-                    : 'Ask the customer for the missing purchase details before approving a payout.')}
+                    : canAskForCustomerDetails
+                      ? 'Ask only for the specific structured purchase details that are still missing.'
+                      : 'No structured purchase detail is missing. Keep the case in manager review until the next safe action is confirmed.')}
               </p>
               <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3 text-sm">
                 <p className="text-xs text-slate-400">Manual payment destination</p>
@@ -3416,7 +4061,7 @@ export default function AdminRefundsPage() {
                   data-testid="refund-cash-amount-input"
                   inputMode="decimal"
                   value={editor.refundAmount}
-                  disabled={isUsingDemoData || isCashCompletionSubmitting}
+                  disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
                   onChange={(event) =>
                     setEditor((current) =>
                       current ? { ...current, refundAmount: event.target.value, cashPaymentConfirmed: false } : current
@@ -3434,7 +4079,7 @@ export default function AdminRefundsPage() {
                     variant="ghost"
                     size="sm"
                     className="h-auto min-h-11 shrink-0 px-3 py-2 text-xs"
-                    disabled={isUsingDemoData || isCashCompletionSubmitting}
+                    disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
                     onClick={() =>
                       setEditor((current) =>
                         current
@@ -3456,7 +4101,7 @@ export default function AdminRefundsPage() {
                   type="datetime-local"
                   value={editor.cashPayoutSentAt}
                   max={toDateTimeLocalValue(new Date(Date.now() + 5 * 60 * 1000))}
-                  disabled={isUsingDemoData || isCashCompletionSubmitting}
+                  disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
                   onChange={(event) =>
                     setEditor((current) =>
                       current
@@ -3476,7 +4121,7 @@ export default function AdminRefundsPage() {
                 data-testid="refund-cash-reference-input"
                 value={editor.manualRefundReference}
                 maxLength={80}
-                disabled={isUsingDemoData || isCashCompletionSubmitting}
+                disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
                 onChange={(event) =>
                   setEditor((current) =>
                     current
@@ -3497,7 +4142,7 @@ export default function AdminRefundsPage() {
               <Checkbox
                 data-testid="refund-cash-payment-confirmed"
                 checked={editor.cashPaymentConfirmed}
-                disabled={isUsingDemoData || isCashCompletionSubmitting}
+                disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
                 onCheckedChange={(checked) =>
                   setEditor((current) =>
                     current ? { ...current, cashPaymentConfirmed: checked === true } : current
@@ -3560,17 +4205,17 @@ export default function AdminRefundsPage() {
               <summary className="cursor-pointer text-sm font-medium text-muted-foreground">Other decisions</summary>
               <div className="mt-3 flex flex-wrap gap-2">
                 {cashMatchReady && primaryAction?.targetDecision !== 'approved' && (
-                  <Button type="button" variant="outline" size="sm" onClick={chooseApproval} disabled={isUsingDemoData}>
+                  <Button type="button" variant="outline" size="sm" onClick={chooseApproval} disabled={isUsingDemoData || selectedCaseIsReviewOnly}>
                     Approve refund
                   </Button>
                 )}
-                {primaryAction?.messageType !== 'more_info' && (
+                {canAskForCustomerDetails && primaryAction?.messageType !== 'more_info' && (
                   <Button type="button" variant="outline" size="sm" onClick={chooseCustomerFollowUp} disabled={isUsingDemoData}>
                     Ask customer for details
                   </Button>
                 )}
                 {primaryAction?.targetDecision !== 'denied' && (
-                  <Button type="button" variant="outline" size="sm" onClick={chooseDenial} disabled={isUsingDemoData}>
+                  <Button type="button" variant="outline" size="sm" onClick={chooseDenial} disabled={isUsingDemoData || selectedCaseIsReviewOnly}>
                     Deny request
                   </Button>
                 )}
@@ -3725,6 +4370,29 @@ export default function AdminRefundsPage() {
             </div>
           )}
 
+          <div className="mt-4 flex flex-wrap gap-2" aria-label="Refund case views">
+            {([
+              ['needs_action', 'Needs action'],
+              ['waiting_on_customer', 'Waiting for customer'],
+              ['provider_hold', 'Processing / check needed'],
+              ['completed', 'Completed'],
+            ] as const).map(([value, label]) => (
+              <Button
+                key={value}
+                type="button"
+                variant={statusFilter === value ? 'default' : 'outline'}
+                className="min-h-11"
+                aria-pressed={statusFilter === value}
+                onClick={() => setStatusFilter(value)}
+              >
+                {label}
+                <span className="ml-2 rounded-full bg-background/80 px-2 py-0.5 text-xs text-foreground">
+                  {primaryQueueCounts[value]}
+                </span>
+              </Button>
+            ))}
+          </div>
+
           <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
@@ -3745,6 +4413,10 @@ export default function AdminRefundsPage() {
               className="h-11 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <option value="needs_action">Needs action</option>
+              <option value="missing_information">Missing information</option>
+              <option value="possible_duplicate">Possible duplicates</option>
+              <option value="aging">Aging cases</option>
+              <option value="provider_hold">Processing / check needed</option>
               <option value="waiting_on_customer">Waiting on customer</option>
               <option value="ready_to_pay">Ready to refund</option>
               <option value="blocked">Blocked / failed</option>
@@ -3767,7 +4439,7 @@ export default function AdminRefundsPage() {
                     type="button"
                     aria-expanded={isMobileQueueExpanded}
                     onClick={() => setIsMobileQueueExpanded((current) => !current)}
-                    className="rounded-md px-2 py-1 text-xs font-semibold text-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 lg:hidden"
+                    className="min-h-11 rounded-md px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 lg:hidden"
                   >
                     {isMobileQueueExpanded ? 'Hide queue' : 'Show queue'}
                   </button>
@@ -3803,6 +4475,9 @@ export default function AdminRefundsPage() {
                           <div className="truncate text-sm font-semibold text-foreground">
                             {refundCase.publicReference}
                           </div>
+                          <Badge className={cn('mt-1 rounded-md text-[11px]', intakeSourceBadgeClass(refundCase))}>
+                            {intakeSourceLabel(refundCase)}
+                          </Badge>
                         </div>
                         <Badge className={cn('shrink-0 whitespace-normal rounded-md text-left leading-tight', taskBadgeClass(refundCase))}>
                           {taskLabel(refundCase)}
@@ -3890,23 +4565,27 @@ export default function AdminRefundsPage() {
                       <tr
                         key={refundCase.id}
                         onClick={() => handleSelectCase(refundCase)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault();
-                            handleSelectCase(refundCase);
-                          }
-                        }}
-                        role="button"
-                        tabIndex={0}
                         className={cn(
-                          'cursor-pointer border-b border-border/70 transition-colors hover:bg-muted/40 focus:outline-none focus:ring-2 focus:ring-primary/30',
+                          'cursor-pointer border-b border-border/70 transition-colors hover:bg-muted/40',
                           refundCase.id === selectedId && 'bg-muted/50 ring-1 ring-primary/20'
                         )}
                       >
                         <td className="px-4 py-3 align-top">
+                          <button
+                            type="button"
+                            className="min-h-11 w-full rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                            aria-label={`Open refund case ${refundCase.publicReference}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleSelectCase(refundCase);
+                            }}
+                          >
                           <div className="truncate text-sm font-semibold text-foreground">
                             {refundCase.publicReference}
                           </div>
+                          <Badge className={cn('mt-1 rounded-md text-[11px]', intakeSourceBadgeClass(refundCase))}>
+                            {intakeSourceLabel(refundCase)}
+                          </Badge>
                           <div className="mt-1 truncate text-xs text-muted-foreground">
                             {refundCase.customerEmail}
                           </div>
@@ -3925,6 +4604,7 @@ export default function AdminRefundsPage() {
                               ))}
                             </div>
                           )}
+                          </button>
                         </td>
                         <td className="px-4 py-3 align-top">
                           <Badge className={cn('whitespace-normal rounded-md text-left leading-tight', taskBadgeClass(refundCase))}>
@@ -3954,7 +4634,7 @@ export default function AdminRefundsPage() {
               <div className="min-w-0 rounded-xl border border-border bg-card p-4 sm:p-5">
                 {!selectedCase || !editor ? (
                   <div className="text-sm text-muted-foreground">
-                    Select a refund case to review evidence, photos, and decision controls.
+                    Select a refund case to review evidence and decision controls.
                   </div>
                 ) : (
                   <div className="space-y-5">
@@ -3964,12 +4644,129 @@ export default function AdminRefundsPage() {
                         <Badge className={taskBadgeClass(selectedCase)}>
                           {taskLabel(selectedCase)}
                         </Badge>
+                        <Badge className={cn('rounded-md', intakeSourceBadgeClass(selectedCase))}>
+                          {intakeSourceLabel(selectedCase)}
+                        </Badge>
                       </div>
                       <p className="mt-1 break-words text-xs text-muted-foreground">
                         {selectedCase.customerEmail} / {selectedCase.paymentMethod} /{' '}
                         {formatCurrency(selectedCase.paymentAmountCents)}
                       </p>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <Button asChild type="button" size="sm" variant="outline">
+                          <a
+                            href={selectedCase.exactCasePath ?? `/refunds?case=${selectedCase.id}`}
+                            aria-label={`Open exact case ${selectedCase.publicReference}`}
+                          >
+                            <ExternalLink className="mr-2 h-4 w-4" />
+                            Open exact case
+                          </a>
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void copyExactCaseLink(
+                            selectedCase.exactCasePath ?? `/refunds?case=${selectedCase.id}`
+                          )}
+                        >
+                          Copy exact link
+                        </Button>
+                      </div>
                     </div>
+
+                    {selectedCaseIsReviewOnly && (
+                      <div
+                        data-testid={
+                          selectedCaseOfficialActionBlockReason === 'manager_verification_required'
+                            ? 'refund-manager-verification-banner'
+                            : 'refund-review-only-banner'
+                        }
+                        className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"
+                      >
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                          <div>
+                            <p className="font-semibold">
+                              {selectedCaseOfficialActionBlockReason === 'manager_verification_required'
+                                ? 'Manager verification required'
+                                : selectedCaseOfficialActionBlockReason === 'official_actions_disabled'
+                                  ? 'Official actions not yet enabled'
+                                  : 'Review only'}
+                            </p>
+                            <p className="mt-1 leading-6">
+                              {selectedCaseOfficialActionBlockMessage} You can still review the case, check
+                              transactions, and request information from the customer.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {(reconciliationIsLoading || reconciliationError ||
+                      reconciliationContext?.reviews.some((review) => review.status === 'pending')) && (
+                      <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-950">
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <p className="font-semibold">Possible duplicate review</p>
+                            <p className="mt-1 leading-6">
+                              Compare the linked cases before any official action. This review never issues a refund.
+                            </p>
+                            {reconciliationIsLoading && (
+                              <p className="mt-3 text-xs">Loading duplicate evidence...</p>
+                            )}
+                            {reconciliationError && (
+                              <p className="mt-3 text-xs font-medium">
+                                Duplicate evidence is unavailable, so official actions remain blocked.
+                              </p>
+                            )}
+                            <div className="mt-3 space-y-3">
+                              {reconciliationContext?.reviews
+                                .filter((review) => review.status === 'pending')
+                                .map((review) => (
+                                  <div key={review.id} className="rounded-md border border-rose-200 bg-white p-3">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <Badge className="border-rose-200 bg-rose-50 text-rose-900">
+                                        {review.matchClass === 'exact' ? 'Strong possible match' : 'Possible match'}
+                                      </Badge>
+                                      <span className="font-semibold">{review.otherPublicReference}</span>
+                                      <Badge className="border-slate-200 bg-slate-50 text-slate-700">
+                                        {review.otherIntakeSource === 'gmail' ? 'Support email' : 'Website form'}
+                                      </Badge>
+                                    </div>
+                                    <p className="mt-2 text-xs leading-5 text-rose-900">
+                                      Shared signals: {review.reasonCodes.join(', ').replaceAll('_', ' ')}.
+                                    </p>
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        onClick={() => void resolveReconciliation(review.id, 'duplicate')}
+                                        disabled={isResolvingReconciliation}
+                                      >
+                                        Same incident — keep this case
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => void resolveReconciliation(review.id, 'distinct')}
+                                        disabled={isResolvingReconciliation}
+                                      >
+                                        Different purchases
+                                      </Button>
+                                      <Button asChild type="button" size="sm" variant="ghost">
+                                        <a href={`/refunds?case=${review.otherCaseId}`}>Open other case</a>
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     {selectedCase.status === 'draft' || selectedCase.paymentMethod === 'unknown'
                       ? renderGmailDraftWorkbench()
@@ -4257,7 +5054,7 @@ export default function AdminRefundsPage() {
                               <Label>Refund amount</Label>
                               <Input
                                 value={editor.refundAmount}
-                                disabled={isUsingDemoData}
+                                disabled={isUsingDemoData || selectedCaseIsReviewOnly}
                                 onChange={(event) =>
                                   setEditor((current) =>
                                     current ? { ...current, refundAmount: event.target.value } : current
@@ -4298,10 +5095,13 @@ export default function AdminRefundsPage() {
                             onClick={() => void handlePrimaryAction()}
                             disabled={
                               isSaving ||
+                              isSendingCustomerMessage ||
                               isUsingDemoData ||
                               !primaryAction ||
                               primaryAction.disabled ||
-                              primaryActionIssues.length > 0
+                              primaryActionIssues.length > 0 ||
+                              (primaryActionNeedsOfficialAccess &&
+                                (selectedCaseIsReviewOnly || officialActionVersion <= 0))
                             }
                           >
                             {isSaving ? (
@@ -4322,7 +5122,8 @@ export default function AdminRefundsPage() {
                           </p>
                           <p className="mt-1 text-sm text-muted-foreground">{primaryAction.helper}</p>
                           <div className="mt-3 flex flex-wrap gap-2">
-                            {primaryAction.label !== 'Ask customer for details' && (
+                            {derivePortalRefundMissingFields(selectedCase).length > 0
+                              && primaryAction.messageType !== 'more_info' && (
                               <Button
                                 type="button"
                                 variant="outline"
@@ -4350,7 +5151,7 @@ export default function AdminRefundsPage() {
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                disabled={isUsingDemoData}
+                                disabled={isUsingDemoData || selectedCaseIsReviewOnly}
                                 onClick={() => {
                                   setEditor((current) =>
                                     current
@@ -4393,9 +5194,12 @@ export default function AdminRefundsPage() {
                             onClick={() => void handlePrimaryAction()}
                             disabled={
                               isSaving ||
+                              isSendingCustomerMessage ||
                               isUsingDemoData ||
                               primaryAction.disabled ||
-                              primaryActionIssues.length > 0
+                              primaryActionIssues.length > 0 ||
+                              (primaryActionNeedsOfficialAccess &&
+                                (selectedCaseIsReviewOnly || officialActionVersion <= 0))
                             }
                           >
                             {isSaving ? (
@@ -4433,7 +5237,9 @@ export default function AdminRefundsPage() {
                                   isUsingDemoData ||
                                   !primaryAction ||
                                   primaryAction.disabled ||
-                                  primaryActionIssues.length > 0
+                                  primaryActionIssues.length > 0 ||
+                                  selectedCaseIsReviewOnly ||
+                                  officialActionVersion <= 0
                                 }
                               >
                                 {isRunningNayaxRefund ? (
@@ -4473,7 +5279,7 @@ export default function AdminRefundsPage() {
                           <select
                             data-testid="refund-status-select"
                             value={editor.status}
-                            disabled={isUsingDemoData}
+                            disabled={isUsingDemoData || selectedCaseIsReviewOnly}
                             onChange={(event) =>
                               setEditor((current) =>
                                 current
@@ -4501,7 +5307,7 @@ export default function AdminRefundsPage() {
                           <Label>Decision</Label>
                           <select
                             value={editor.decision ?? ''}
-                            disabled={isUsingDemoData}
+                            disabled={isUsingDemoData || selectedCaseIsReviewOnly}
                             onChange={(event) =>
                               setEditor((current) =>
                                 current
@@ -4622,12 +5428,22 @@ export default function AdminRefundsPage() {
                         <InfoHint>
                           Keep this friendly and specific. Do not paste raw Nayax payloads, Zelle details, or private internal notes into customer email.
                         </InfoHint>
+                        {customerDeliveryNeedsReconciliation && (
+                          <InfoHint>
+                            Gmail delivery is uncertain. Check the original Gmail thread before sending anything else; all reply paths stay blocked to prevent a duplicate.
+                          </InfoHint>
+                        )}
                       </div>
                       <Button
                         type="button"
                         variant="outline"
                         onClick={() => void handleSendCustomerMessage()}
-                        disabled={isUsingDemoData || isSendingCustomerMessage || !messageBody.trim()}
+                        disabled={
+                          isUsingDemoData ||
+                          isSendingCustomerMessage ||
+                          customerDeliveryNeedsReconciliation ||
+                          !messageBody.trim()
+                        }
                       >
                         {isSendingCustomerMessage ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -4702,6 +5518,31 @@ export default function AdminRefundsPage() {
                           Gmail conversation ({gmailContext?.messages.length ?? 0})
                         </summary>
                         <div className="mt-3 space-y-3">
+                          {gmailContext?.automaticCustomerContactPaused && (
+                            <div
+                              data-testid="refund-gmail-contact-paused"
+                              className="rounded-lg border border-orange-300 bg-orange-50 p-3 text-sm text-orange-950"
+                            >
+                              <p className="font-semibold">Automatic customer email is paused</p>
+                              <p className="mt-1">
+                                Gmail reported a hard delivery failure. This pause protects every Gmail conversation linked to the case, including newer threads.
+                              </p>
+                              <p className="mt-1">
+                                Verify the customer address and original conversation before resuming automation. A manual response remains available for deliberate recovery.
+                              </p>
+                              <Button
+                                data-testid="refund-gmail-open-recovery"
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="mt-3 border-orange-400 bg-white text-orange-950 hover:bg-orange-100"
+                                disabled={isUsingDemoData || isRecoveringGmailContact}
+                                onClick={() => setIsGmailRecoveryOpen(true)}
+                              >
+                                Review and resume automatic email
+                              </Button>
+                            </div>
+                          )}
                           {gmailContextIsLoading && (
                             <p className="text-sm text-muted-foreground">Loading the linked conversation…</p>
                           )}
@@ -4727,8 +5568,18 @@ export default function AdminRefundsPage() {
                             >
                               <div className="flex flex-wrap items-center gap-2">
                                 <Badge variant="outline" className="capitalize">
-                                  {message.kind === 'bounce' ? 'Delivery notice' : message.direction}
+                                  {message.kind === 'bounce' ? 'Delivery notice' : message.senderLabel}
                                 </Badge>
+                                {message.participantRole === 'unknown' && (
+                                  <Badge variant="outline" className="border-orange-200 bg-orange-50 text-orange-900">
+                                    Not customer evidence
+                                  </Badge>
+                                )}
+                                {message.participantRole === 'assigned_manager' && (
+                                  <Badge variant="outline" className="border-violet-200 bg-violet-50 text-violet-900">
+                                    Manager correspondence
+                                  </Badge>
+                                )}
                                 <span className="text-xs text-muted-foreground">
                                   {formatDate(message.sentAt ?? message.receivedAt)}
                                 </span>
@@ -4739,6 +5590,12 @@ export default function AdminRefundsPage() {
                                 )}
                               </div>
                               <p className="mt-2 break-words text-sm font-medium text-foreground">{message.subject}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {message.recipientSummary}
+                                {message.direction === 'outbound' && message.managerCcCount > 0
+                                  ? ` · ${message.managerCcCount} current mapped manager${message.managerCcCount === 1 ? '' : 's'} copied`
+                                  : ''}
+                              </p>
                               <p className="mt-2 whitespace-pre-line break-words text-sm leading-6 text-muted-foreground">
                                 {message.body}
                               </p>
@@ -4805,7 +5662,29 @@ export default function AdminRefundsPage() {
                                   <Badge className={cn('capitalize', messageStatusBadgeClass(message.status))}>
                                     {message.status}
                                   </Badge>
+                                  {message.deliveryKind && (
+                                    <Badge variant="secondary" className="capitalize">
+                                      {message.deliveryKind === 'automatic' ? 'Automatic' : 'Manager sent'}
+                                    </Badge>
+                                  )}
                                 </div>
+                                {(message.reasonCode || message.templateVersion || (message.requestedFields?.length ?? 0) > 0) && (
+                                  <div className="mt-2 rounded-md border border-sky-200 bg-sky-50 p-2 text-xs leading-5 text-sky-950">
+                                    <p className="font-medium">
+                                      {message.reasonCode === 'missing_information'
+                                        ? 'Reason: exact purchase details were missing'
+                                        : message.reasonCode === 'no_safe_match'
+                                          ? 'Reason: no single safe transaction match was found'
+                                          : 'Customer communication evidence'}
+                                    </p>
+                                    {message.requestedFields && message.requestedFields.length > 0 && (
+                                      <p>
+                                        Requested: {message.requestedFields.map((field) => missingFieldCustomerLabel[field]).join('; ')}
+                                      </p>
+                                    )}
+                                    {message.templateVersion && <p>Template: {message.templateVersion}</p>}
+                                  </div>
+                                )}
                                 <p className="mt-2 break-words text-sm font-medium text-foreground">
                                   {message.subject}
                                 </p>
@@ -4838,6 +5717,245 @@ export default function AdminRefundsPage() {
           </div>
         </div>
       </section>
+
+      <AlertDialog
+        open={isGmailResolutionOpen}
+        onOpenChange={(open) => {
+          if (!isResolvingGmailDelivery) setIsGmailResolutionOpen(open);
+        }}
+      >
+        <AlertDialogContent data-testid="refund-gmail-not-delivered-dialog" className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm the Gmail message was not delivered</AlertDialogTitle>
+            <AlertDialogDescription>
+              Open the original Gmail thread first and check for the attempted reply. Continue only if that exact message is absent. This audited confirmation clears the duplicate-send block so a controlled follow-up can be sent.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isResolvingGmailDelivery}>Keep delivery blocked</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="refund-gmail-confirm-not-delivered"
+              disabled={isResolvingGmailDelivery}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleResolveGmailDeliveryNotFound();
+              }}
+            >
+              {isResolvingGmailDelivery && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              I checked; no message was sent
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={isGmailRecoveryOpen}
+        onOpenChange={(open) => {
+          if (isRecoveringGmailContact) return;
+          setIsGmailRecoveryOpen(open);
+          if (!open) setGmailRecoveryVerified(false);
+        }}
+      >
+        <AlertDialogContent data-testid="refund-gmail-recovery-dialog" className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Resume automatic customer email?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the hard-bounce pause from every Gmail conversation linked to this refund case. The action is recorded in the case history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950">
+            <p className="font-medium">Verify before continuing</p>
+            <p className="mt-1">
+              Confirm that {selectedCase?.customerEmail ?? 'the customer address'} is correct and that the original Gmail delivery problem has been reviewed.
+            </p>
+            <label className="mt-3 flex cursor-pointer items-start gap-2">
+              <Checkbox
+                data-testid="refund-gmail-recovery-verified"
+                checked={gmailRecoveryVerified}
+                onCheckedChange={(checked) => setGmailRecoveryVerified(checked === true)}
+                disabled={isRecoveringGmailContact}
+              />
+              <span>I verified the customer address and reviewed the delivery failure.</span>
+            </label>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isRecoveringGmailContact}>Keep paused</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="refund-gmail-confirm-recovery"
+              disabled={!gmailRecoveryVerified || isRecoveringGmailContact}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleRecoverGmailCustomerContact();
+              }}
+            >
+              {isRecoveringGmailContact && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Resume all linked threads
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={Boolean(pendingManagerStepUp)}
+        onOpenChange={(open) => {
+          if (!open && !isCompletingManagerStepUp) {
+            void handleCancelManagerStepUp();
+          }
+        }}
+      >
+        <AlertDialogContent
+          data-testid="refund-manager-step-up-dialog"
+          className="max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-lg overflow-y-auto p-4 sm:max-h-[calc(100dvh-2rem)] sm:w-full sm:p-6"
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>Personally authorize this exact action</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingManagerStepUp?.action === 'decline'
+                ? 'Record this refund decision'
+                : pendingManagerStepUp?.action === 'cash_complete'
+                  ? 'Complete the reviewed cash refund'
+                  : pendingManagerStepUp?.action === 'nayax_execute'
+                    ? 'Issue the reviewed Nayax card refund'
+                    : 'Approve the reviewed refund'}{' '}
+              for {selectedCase?.publicReference ?? 'this case'}. This request expires in two minutes and can be used once.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950">
+            <p className="font-medium">Human Machine Manager verification only</p>
+            <p className="mt-1">
+              Enter the code yourself in your private manager session. Do not use an agent-controlled or shared browser for this payment action.
+            </p>
+          </div>
+
+          <div
+            className="grid gap-2 rounded-lg border border-border bg-muted/30 p-3 text-sm sm:grid-cols-3"
+            data-testid="refund-manager-step-up-summary"
+          >
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Case</p>
+              <p className="mt-1 font-medium text-foreground">{selectedCase?.publicReference ?? 'Review required'}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Amount</p>
+              <p className="mt-1 font-medium text-foreground">
+                {formatCurrency(selectedCase?.refundAmountCents ?? selectedCase?.paymentAmountCents ?? null)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Machine</p>
+              <p className="mt-1 font-medium text-foreground">{selectedCase?.machineLabel ?? 'Review required'}</p>
+            </div>
+          </div>
+
+          {totpEnrollmentQrCode ? (
+            <div className="space-y-3 rounded-lg border border-border p-3" data-testid="refund-totp-enrollment-panel">
+              <div>
+                <p className="font-medium text-foreground">Supervised authenticator setup</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Scan this once. Never screenshot, copy, email, or share this QR code. It is not included in support or UAT evidence.
+                </p>
+              </div>
+              <div className="flex justify-center rounded-md bg-white p-3">
+                <img
+                  src={totpEnrollmentQrCode}
+                  alt="One-time authenticator enrollment QR code"
+                  className="h-48 w-48"
+                  data-private-no-screenshot="true"
+                />
+              </div>
+              <Label htmlFor="refund-totp-enrollment-code">Verify the new authenticator</Label>
+              <InputOTP
+                id="refund-totp-enrollment-code"
+                maxLength={6}
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={totpEnrollmentCode}
+                onChange={setTotpEnrollmentCode}
+                disabled={isVerifyingTotpEnrollment}
+              >
+                <InputOTPGroup>
+                  {[0, 1, 2, 3, 4, 5].map((index) => (
+                    <InputOTPSlot key={index} index={index} />
+                  ))}
+                </InputOTPGroup>
+              </InputOTP>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void handleVerifyTotpEnrollment()}
+                disabled={totpEnrollmentCode.length !== 6 || isVerifyingTotpEnrollment}
+              >
+                {isVerifyingTotpEnrollment && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Finish supervised enrollment
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="refund-manager-step-up-code">Current authenticator code</Label>
+              <InputOTP
+                id="refund-manager-step-up-code"
+                maxLength={6}
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={managerStepUpCode}
+                onChange={setManagerStepUpCode}
+                disabled={isCompletingManagerStepUp}
+                autoFocus
+              >
+                <InputOTPGroup>
+                  {[0, 1, 2, 3, 4, 5].map((index) => (
+                    <InputOTPSlot key={index} index={index} />
+                  ))}
+                </InputOTPGroup>
+              </InputOTP>
+              <details className="text-sm text-muted-foreground">
+                <summary className="cursor-pointer font-medium">Need supervised authenticator setup?</summary>
+                <p className="mt-2">
+                  Enrollment opens only during an owner-controlled window in a human-only, non-shared session.
+                </p>
+                <p className="mt-2">
+                  If the enrolled device is lost or replaced, stop official actions and ask the account owner to supervise factor recovery. Support agents cannot reset or bypass this step.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => void handleBeginTotpEnrollment()}
+                  disabled={isStartingTotpEnrollment}
+                >
+                  {isStartingTotpEnrollment && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Begin owner-approved setup
+                </Button>
+              </details>
+            </div>
+          )}
+
+          {managerStepUpError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
+              {managerStepUpError}
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isCompletingManagerStepUp || isVerifyingTotpEnrollment}>
+              Cancel; take no action
+            </AlertDialogCancel>
+            {!totpEnrollmentQrCode && (
+              <Button
+                type="button"
+                data-testid="refund-manager-step-up-submit"
+                onClick={() => void handleCompleteManagerStepUp()}
+                disabled={managerStepUpCode.length !== 6 || isCompletingManagerStepUp}
+              >
+                {isCompletingManagerStepUp && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Verify and authorize once
+              </Button>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }

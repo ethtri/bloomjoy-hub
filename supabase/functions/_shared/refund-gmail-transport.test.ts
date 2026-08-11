@@ -1,0 +1,441 @@
+import {
+  assert,
+  assertEquals,
+  assertMatch,
+  assertStringIncludes,
+} from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { dispatchRefundCaseGmailReply } from "./refund-gmail-transport.ts";
+import {
+  claimRefundGmailDeliveryWhenEnabled,
+  REFUND_GMAIL_DISABLED_CODE,
+  REFUND_GMAIL_DISABLED_MESSAGE,
+  type RefundGmailConfig,
+  RefundGmailError,
+  sendRefundGmailReply,
+  sha256Hex,
+} from "./refund-gmail.ts";
+
+const SYNTHETIC_ENV = {
+  GMAIL_SUPPORT_CLIENT_ID: "synthetic-client-id",
+  GMAIL_SUPPORT_CLIENT_SECRET: "synthetic-client-secret",
+  GMAIL_SUPPORT_REFRESH_TOKEN: "synthetic-refresh-token",
+  GMAIL_SUPPORT_MAILBOX: "mailbox@example.test",
+  GMAIL_SUPPORT_SEND_AS_ALIASES: "support@example.test",
+  GMAIL_REFUND_LABEL_ID: "Label_Synthetic",
+  REFUND_AUTOMATIC_CUSTOMER_CONTACT_ENABLED: "true",
+};
+
+const withEnvironment = async (
+  values: Record<string, string>,
+  run: () => Promise<void>,
+) => {
+  const previous = new Map<string, string | undefined>();
+  for (const [name, value] of Object.entries(values)) {
+    previous.set(name, Deno.env.get(name));
+    Deno.env.set(name, value);
+  }
+  try {
+    await run();
+  } finally {
+    for (const [name, value] of previous) {
+      if (value === undefined) Deno.env.delete(name);
+      else Deno.env.set(name, value);
+    }
+  }
+};
+
+const withFetch = async (
+  replacement: typeof fetch,
+  run: () => Promise<void>,
+) => {
+  const original = globalThis.fetch;
+  globalThis.fetch = replacement;
+  try {
+    await run();
+  } finally {
+    globalThis.fetch = original;
+  }
+};
+
+class FakeLinkQuery {
+  constructor(private readonly link: Record<string, unknown> | null) {}
+
+  select() {
+    return this;
+  }
+
+  eq() {
+    return this;
+  }
+
+  order() {
+    return this;
+  }
+
+  limit() {
+    return this;
+  }
+
+  async maybeSingle() {
+    return { data: this.link, error: null };
+  }
+}
+
+const fakeSupabase = ({
+  link,
+  rpc,
+}: {
+  link: Record<string, unknown> | null;
+  rpc: (name: string, args: Record<string, unknown>) => Promise<{
+    data: unknown;
+    error: null;
+  }>;
+}) => ({
+  from: () => new FakeLinkQuery(link),
+  rpc,
+});
+
+const email = {
+  subject: "Synthetic first-contact acknowledgement",
+  text: "Thank you for contacting Bloomjoy. We are reviewing your request.",
+  html:
+    "<p>Thank you for contacting Bloomjoy. We are reviewing your request.</p>",
+};
+
+const gmailConfig: RefundGmailConfig = {
+  clientId: SYNTHETIC_ENV.GMAIL_SUPPORT_CLIENT_ID,
+  clientSecret: SYNTHETIC_ENV.GMAIL_SUPPORT_CLIENT_SECRET,
+  refreshToken: SYNTHETIC_ENV.GMAIL_SUPPORT_REFRESH_TOKEN,
+  mailbox: SYNTHETIC_ENV.GMAIL_SUPPORT_MAILBOX,
+  mailboxIdentities: [
+    SYNTHETIC_ENV.GMAIL_SUPPORT_MAILBOX,
+    "support@example.test",
+  ],
+  labelId: SYNTHETIC_ENV.GMAIL_REFUND_LABEL_ID,
+  startAt: new Date("2026-08-03T00:00:00Z"),
+};
+
+const decodeRawMime = (raw: string) => {
+  const normalized = raw.replaceAll("-", "+").replaceAll("_", "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  return new TextDecoder().decode(
+    Uint8Array.from(atob(padded), (character) => character.charCodeAt(0)),
+  );
+};
+
+Deno.test("Gmail kill switch blocks linked delivery before claim, OAuth, or provider access", async () => {
+  await withEnvironment(
+    { ...SYNTHETIC_ENV, REFUND_GMAIL_ENABLED: "false" },
+    async () => {
+      let fetchCalls = 0;
+      let claimCalls = 0;
+      let firstContactClaimCalls = 0;
+      const supabase = fakeSupabase({
+        link: { id: "synthetic-link", mailbox_hash: "not-read-while-disabled" },
+        rpc: async (name) => {
+          if (name === "service_claim_refund_gmail_outbound_v3") {
+            claimCalls += 1;
+          }
+          return { data: null, error: null };
+        },
+      });
+
+      await withFetch(
+        async () => {
+          fetchCalls += 1;
+          throw new Error("disabled Gmail transport attempted provider access");
+        },
+        async () => {
+          let firstContactError: unknown = null;
+          try {
+            await claimRefundGmailDeliveryWhenEnabled(async () => {
+              firstContactClaimCalls += 1;
+              return { claimed: true };
+            });
+          } catch (error) {
+            firstContactError = error;
+          }
+          assert(firstContactError instanceof RefundGmailError);
+          assertEquals(firstContactError.code, REFUND_GMAIL_DISABLED_CODE);
+
+          let dispatchError: unknown = null;
+          try {
+            await dispatchRefundCaseGmailReply({
+              supabase: supabase as never,
+              refundCaseId: "79850000-0000-4000-8000-000000000001",
+              refundCaseMessageId: "79860000-0000-4000-8000-000000000001",
+              recipientEmail: "first-contact-customer@example.test",
+              email,
+              deliveryKind: "manual",
+              gmailThreadId: "synthetic-link",
+            });
+          } catch (error) {
+            dispatchError = error;
+          }
+          assert(dispatchError instanceof RefundGmailError);
+          assertEquals(dispatchError.code, REFUND_GMAIL_DISABLED_CODE);
+          assertEquals(dispatchError.message, REFUND_GMAIL_DISABLED_MESSAGE);
+          assertEquals(dispatchError.deliveryUncertain, false);
+
+          let directSendError: unknown = null;
+          try {
+            await sendRefundGmailReply({
+              config: gmailConfig,
+              providerThreadId: "synthetic-provider-thread",
+              operationKey: "refund-first-contact:synthetic-disabled",
+              recipientEmail: "first-contact-customer@example.test",
+              ccEmails: [
+                "first-contact-manager-a@example.test",
+                "first-contact-manager-b@example.test",
+              ],
+              deliveryKind: "automatic",
+              subject: email.subject,
+              text: email.text,
+              html: email.html,
+              inReplyTo: "<synthetic-source@example.test>",
+              references: "<synthetic-source@example.test>",
+            });
+          } catch (error) {
+            directSendError = error;
+          }
+          assert(directSendError instanceof RefundGmailError);
+          assertEquals(directSendError.code, REFUND_GMAIL_DISABLED_CODE);
+        },
+      );
+
+      assertEquals(claimCalls, 0);
+      assertEquals(firstContactClaimCalls, 0);
+      assertEquals(fetchCalls, 0);
+    },
+  );
+});
+
+Deno.test("disabled Gmail leaves the non-Gmail customer-delivery route available", async () => {
+  await withEnvironment(
+    { ...SYNTHETIC_ENV, REFUND_GMAIL_ENABLED: "false" },
+    async () => {
+      const rpcCalls: string[] = [];
+      let fetchCalls = 0;
+      const supabase = fakeSupabase({
+        link: null,
+        rpc: async (name) => {
+          rpcCalls.push(name);
+          if (name !== "service_authorize_refund_customer_outbound") {
+            throw new Error(`unexpected synthetic RPC: ${name}`);
+          }
+          return {
+            data: {
+              allowed: true,
+              recipientResolutionStatus: "resolved",
+              managerCcEmails: [
+                "first-contact-manager-a@example.test",
+                "first-contact-manager-b@example.test",
+              ],
+            },
+            error: null,
+          };
+        },
+      });
+
+      await withFetch(
+        async () => {
+          fetchCalls += 1;
+          throw new Error("non-Gmail route attempted provider access");
+        },
+        async () => {
+          const result = await dispatchRefundCaseGmailReply({
+            supabase: supabase as never,
+            refundCaseId: "79850000-0000-4000-8000-000000000002",
+            refundCaseMessageId: "79860000-0000-4000-8000-000000000002",
+            recipientEmail: "hosted-form-customer@example.test",
+            email,
+            deliveryKind: "manual",
+          });
+          assertEquals(result.usedGmail, false);
+          assertEquals(result.managerCcCount, 2);
+        },
+      );
+
+      assertEquals(rpcCalls, ["service_authorize_refund_customer_outbound"]);
+      assertEquals(fetchCalls, 0);
+    },
+  );
+});
+
+Deno.test("automatic-contact shutdown remains independent and stops before Gmail claim", async () => {
+  await withEnvironment(
+    {
+      ...SYNTHETIC_ENV,
+      REFUND_GMAIL_ENABLED: "true",
+      REFUND_AUTOMATIC_CUSTOMER_CONTACT_ENABLED: "false",
+    },
+    async () => {
+      let claimCalls = 0;
+      let fetchCalls = 0;
+      const supabase = fakeSupabase({
+        link: { id: "synthetic-link", mailbox_hash: "not-read-while-paused" },
+        rpc: async (name) => {
+          if (name === "service_claim_refund_gmail_outbound_v3") {
+            claimCalls += 1;
+          }
+          return { data: null, error: null };
+        },
+      });
+
+      await withFetch(
+        async () => {
+          fetchCalls += 1;
+          throw new Error("paused automatic contact attempted provider access");
+        },
+        async () => {
+          let caught: unknown = null;
+          try {
+            await dispatchRefundCaseGmailReply({
+              supabase: supabase as never,
+              refundCaseId: "79850000-0000-4000-8000-000000000004",
+              refundCaseMessageId: "79860000-0000-4000-8000-000000000004",
+              recipientEmail: "first-contact-customer@example.test",
+              email,
+              deliveryKind: "automatic",
+              gmailThreadId: "synthetic-link",
+            });
+          } catch (error) {
+            caught = error;
+          }
+          assert(caught instanceof RefundGmailError);
+          assertEquals(caught.code, "automatic_contact_disabled");
+        },
+      );
+
+      assertEquals(claimCalls, 0);
+      assertEquals(fetchCalls, 0);
+    },
+  );
+});
+
+Deno.test("enabled linked delivery preserves exact thread, customer To, two manager CCs, and automatic reply MIME", async () => {
+  await withEnvironment(
+    { ...SYNTHETIC_ENV, REFUND_GMAIL_ENABLED: "true" },
+    async () => {
+      const providerThreadId = "synthetic-provider-thread";
+      const customerEmail = "first-contact-customer@example.test";
+      const managers = [
+        "first-contact-manager-a@example.test",
+        "first-contact-manager-b@example.test",
+      ];
+      const rpcCalls: string[] = [];
+      let oauthCalls = 0;
+      let gmailCalls = 0;
+      let providerRequest: Record<string, unknown> = {};
+      const mailboxHash = await sha256Hex(SYNTHETIC_ENV.GMAIL_SUPPORT_MAILBOX);
+      const supabase = fakeSupabase({
+        link: { id: "synthetic-link", mailbox_hash: mailboxHash },
+        rpc: async (name) => {
+          rpcCalls.push(name);
+          if (name === "service_claim_refund_gmail_outbound_v3") {
+            return {
+              data: {
+                linked: true,
+                claimed: true,
+                status: "pending_send",
+                transportMessageId: "79870000-0000-4000-8000-000000000001",
+                providerThreadId,
+                subject: email.subject,
+                inReplyTo: "<synthetic-source@example.test>",
+                references:
+                  "<synthetic-prior@example.test> <synthetic-source@example.test>",
+                recipientResolutionStatus: "resolved",
+                managerCcEmails: managers,
+              },
+              error: null,
+            };
+          }
+          if (name === "service_finish_refund_gmail_outbound") {
+            return { data: true, error: null };
+          }
+          throw new Error(`unexpected synthetic RPC: ${name}`);
+        },
+      });
+
+      await withFetch(
+        async (input, init) => {
+          const url = typeof input === "string"
+            ? input
+            : input instanceof URL
+            ? input.href
+            : input.url;
+          if (url.includes("oauth2.googleapis.com/token")) {
+            oauthCalls += 1;
+            return new Response(
+              JSON.stringify({
+                access_token: "synthetic-access",
+                expires_in: 3600,
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            );
+          }
+          if (
+            url.includes("gmail.googleapis.com/gmail/v1/users/me/messages/send")
+          ) {
+            gmailCalls += 1;
+            providerRequest = JSON.parse(String(init?.body ?? "{}"));
+            return new Response(
+              JSON.stringify({
+                id: "synthetic-provider-message",
+                threadId: providerThreadId,
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            );
+          }
+          throw new Error("unexpected synthetic provider URL");
+        },
+        async () => {
+          const result = await dispatchRefundCaseGmailReply({
+            supabase: supabase as never,
+            refundCaseId: "79850000-0000-4000-8000-000000000003",
+            refundCaseMessageId: "79860000-0000-4000-8000-000000000003",
+            recipientEmail: customerEmail,
+            email,
+            deliveryKind: "automatic",
+            gmailThreadId: "synthetic-link",
+          });
+          assertEquals(result.usedGmail, true);
+          assertEquals(result.managerCcCount, 2);
+        },
+      );
+
+      const raw = typeof providerRequest.raw === "string"
+        ? providerRequest.raw
+        : "";
+      const mime = decodeRawMime(raw);
+      assertEquals(providerRequest.threadId, providerThreadId);
+      assertMatch(mime, /^To: first-contact-customer@example\.test$/m);
+      assertMatch(
+        mime,
+        /^Cc: first-contact-manager-a@example\.test, first-contact-manager-b@example\.test$/m,
+      );
+      assertMatch(mime, /^In-Reply-To: <synthetic-source@example\.test>$/m);
+      assertMatch(
+        mime,
+        /^References: <synthetic-prior@example\.test> <synthetic-source@example\.test>$/m,
+      );
+      assertStringIncludes(mime, "Auto-Submitted: auto-generated");
+      assertStringIncludes(mime, "X-Auto-Response-Suppress: All");
+      assert(!mime.includes("/refunds?case="));
+      assertEquals(
+        rpcCalls.filter((name) =>
+          name === "service_claim_refund_gmail_outbound_v3"
+        ).length,
+        1,
+      );
+      assertEquals(
+        rpcCalls.filter((name) =>
+          name === "service_finish_refund_gmail_outbound"
+        ).length,
+        1,
+      );
+      assert(oauthCalls <= 1);
+      assertEquals(gmailCalls, 1);
+    },
+  );
+});

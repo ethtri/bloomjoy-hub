@@ -254,9 +254,9 @@ Prereqs:
 - `.env` or `.env.local` contains local-only `SUPABASE_URL` or `VITE_SUPABASE_URL`, plus server-only `SUPABASE_SERVICE_ROLE_KEY`.
 - The Supabase URL should be `localhost`, `127.0.0.1`, or `::1`. The helper refuses non-local Supabase URLs by default.
 - For card lookup UAT, set server-only `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB` or the fallback `NAYAX_LYNX_API_TOKEN`, and keep `NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/v1`. Do not use `VITE_` for Nayax secrets.
-- Nayax card refund execution defaults to disabled/dry-run/kill-switch-on. Use `npm run refunds:validate-nayax-execution` to verify the fail-closed foundation; do not run real provider execution without sponsor go/no-go.
+- The candidate's production `nayax-card-refund` handler is statically disabled before attempt reservation or provider access. The historical disabled/dry-run/kill-switch values are defense in depth, not an activation mechanism. Use `npm run refunds:validate-nayax-execution` to verify that boundary; do not attempt live provider execution from this candidate. Issue `#430` must add and review the real adapter and gate-on path separately.
 - Server-side Nayax machine mapping must exist before the lookup button can return card candidates. Machine Managers use `/refunds` for case processing and do not see setup controls.
-- For mocked GPT triage validation, no provider call is required. Run `npm run refunds:validate-gpt-triage` and `npm run db:validate-migrations`.
+- For mocked GPT triage validation, no live OpenAI API call is required. Run `npm run refunds:validate-gpt-triage` and `npm run db:validate-migrations`.
 - For local server-runner preflight, keep `OPENAI_API_KEY` only in the worktree's gitignored `.env.local`; also set local-only `OPENAI_REFUND_TRIAGE_SAFETY_SALT`, `REFUND_GPT_TRIAGE_SYNC_SECRET`, and `REFUND_GPT_TRIAGE_ENABLED=false`, then run `npm run refunds:preflight-gpt-triage -- --env-file .env.local`. Never use a `VITE_` name.
 - A real sanitized OpenAI evaluation is a paid external action and requires explicit approval. Do not point it at production Gmail or customer content from local development.
 
@@ -267,9 +267,9 @@ Steps:
 2) Seed synthetic fixtures and generate a one-click local magic link:
    - `node scripts/refunds/local-refund-uat.mjs --email refund-agent-uat@bloomjoy.localhost`
    - Add `--open` to open the generated link automatically.
-3) Open the printed magic link. It should land on `/refunds` as a local super-admin/Machine Manager. `/portal/refunds` and `/admin/refunds` are compatibility paths.
+3) Open the printed magic link. It should land on `/refunds` as a local super-admin/Machine Manager review fixture. That dual-role fixture is for navigation, setup, and non-official review only; it is not valid mapped-manager official-action evidence. Use the dedicated manager-only/TOTP suites and owner-approved manager-only UAT for official actions. `/portal/refunds` and `/admin/refunds` are compatibility paths.
 4) Review the synthetic queue cases:
-   - `RF-UAT-CARD`: approved card path with matched transaction evidence.
+   - `RF-UAT-CARD`: matched card review path with transaction evidence; it is not live-refund completion evidence.
    - `RF-UAT-WAIT`: waiting-on-customer path with confirmation and more-info message history.
    - `RF-UAT-CASH`: correlated cash/Zelle path marked completed with reporting write-through evidence.
 5) Open `/refunds/request?demo=on` separately to review the public customer intake form against synthetic location/machine options without creating a real case.
@@ -279,16 +279,38 @@ Steps:
    - Open `/refunds/correct-wallet?demo=on` for the synthetic wallet-correction form. Add `&result=fallback` or `&result=review` to inspect the non-match result copy without calling Supabase or Nayax.
    - Run `npm run refunds:validate-wallet-correction` and `npm run db:validate-migrations` for token hashing, strict accepted fields, RLS, expiry, single use, replay rejection, locked machine/QR evidence, redacted audit records, and automatic re-match wiring.
 6) Run the mocked refund-only portal QA harness against the running app:
-   - `npm run refunds:validate-portal-uat -- --app-url http://127.0.0.1:8081`
-   - The script uses synthetic mocked Auth/RPC responses, writes screenshots under `output/playwright`, and does not touch Supabase data. Its `RF-UAT-CASH-REVIEW` journey proves approval, missing-information and denial previews, required amount/time/reference/payment confirmation, sensitive-reference rejection, one idempotent completion payload, post-save email behavior, and desktop/mobile layout.
+   - Use fresh, empty screenshot and fragment directories. In Windows PowerShell 5.1 or newer, create a random environment-only run token without printing it:
+
+     ```powershell
+     $refundUatBytes = New-Object byte[] 32
+     $refundUatRng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+     try {
+       $refundUatRng.GetBytes($refundUatBytes)
+     } finally {
+       $refundUatRng.Dispose()
+     }
+     $env:REFUND_UAT_EVIDENCE_RUN_TOKEN = ([System.BitConverter]::ToString($refundUatBytes) -replace '-', '').ToLowerInvariant()
+     [System.Array]::Clear($refundUatBytes, 0, $refundUatBytes.Length)
+     ```
+
+   - Never pass the token on the command line, print it, or store it in an output file.
+   - `npm run refunds:validate-portal-uat -- --app-url http://127.0.0.1:8081 --artifact-dir output/refund-uat-evidence --fragment-dir output/refund-uat-fragments`
+   - The integrated candidate command uses synthetic mocked Auth/RPC responses, writes screenshots separately from authenticated JSON fragments, and does not touch Supabase data. It writes the portal fragment and invokes the dependency-injected local provider-outcome producer once into the same fragment directory; do not run that producer a second time against the same directory. Neither path can call the production HTTP handler or Nayax.
+   - Run `npm run refunds:validate-nayax-provider-orchestration` and `npm run refunds:validate-nayax-execution` alongside the evidence workflow. The former proves the local state machine; the latter proves the production HTTP boundary remains statically hard-off.
+   - The `RF-UAT-CASH-REVIEW` journey proves approval, missing-information and denial previews, required amount/time/reference/payment confirmation, sensitive-reference rejection, one idempotent completion payload, post-save email behavior, and desktop/mobile layout.
+   - After every producer and finalizer for that evidence run finishes, remove the token from the current shell:
+
+     ```powershell
+     Remove-Item Env:REFUND_UAT_EVIDENCE_RUN_TOKEN -ErrorAction SilentlyContinue
+     ```
 7) When cash-completion SQL changes, run `npm run db:validate-migrations`. The `refund_cash_completion_safety.sql` pgTAP suite proves service-role-only access, required evidence, idempotency, one redacted audit event, and no duplicate completion on a repeated request.
 8) When scheduler/health code changes, run `npm run refunds:validate-automation`, `npm run agent:validate-workflow`, and `npm run db:validate-migrations`. The database suite proves same-window and same-action replay suppression; the portal UAT harness proves the concise manager health signal. Do not point a local scheduler test at production customer data.
-9) When GPT runner code changes, run `npm run refunds:validate-gpt-triage`, `deno check supabase/functions/refund-gpt-triage/index.ts`, `npm run db:validate-migrations`, and the Refund portal UAT harness. These checks use mocks/synthetic data and must pass without a live provider call.
+9) When GPT runner code changes, run `npm run refunds:validate-gpt-triage`, `deno check supabase/functions/refund-gpt-triage/index.ts`, `npm run db:validate-migrations`, and the Refund portal UAT harness. These checks use mocks/synthetic data and must pass without a live OpenAI API call.
 
 Three validation modes:
 - `DEMO DATA - visual review only`: append `?demo=on` on localhost/127.0.0.1 for synthetic, browser-only visual review. Demo mode must not be used as evidence that saves, Nayax lookup, access scope, or reporting write-through work.
 - Seeded functional UAT: use the local Supabase helper above. This is the path for save/write-through and real state-transition testing.
-- Post-production shadow mode: use live authenticated Machine Managers with the Google Form/AppSheet fallback still active. Agents capture pass/fail evidence and exceptions before any executive proof review.
+- Post-production shadow mode: use an owner-approved clean Machine Manager-only identity with the Google Form/AppSheet fallback still active. Keep official actions and the production provider adapter hard-off; agents capture sanitized pass/fail evidence and exceptions before any executive proof review.
 
 Admin > Machines Machine Manager UAT:
 - For visual review without remote data, open `/admin/machines?demo=on`; use the listed `example.test` demo users only. Demo assignments save in the browser and do not write to Supabase.
@@ -437,6 +459,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - Scheduled production drift checks use the dedicated `SUPABASE_EDGE_FUNCTIONS_READ_TOKEN` GitHub secret. Grant only Edge Function read access. Checks print only function names, versions, and short bundle-digest prefixes.
    - Gmail intake static safety check: `npm run refunds:validate-gmail`
    - Gmail server-secret presence/format check: `npm run refunds:preflight-gmail`
+   - Keep `REFUND_GMAIL_FIRST_CONTACT_MODE=disabled` for normal local work. For a synthetic isolated test only, use a dedicated non-production label, a distinct recorded production label ID, and an owner-controlled synthetic sender allowlist as documented in `Docs/REFUND_GMAIL_FIRST_CONTACT_CUTOVER.md`; the preflight rejects label overlap or a missing allowlist.
 4) Run functions locally:
    - `supabase functions serve stripe-sugar-checkout --no-verify-jwt`
    - `supabase functions serve stripe-sticks-checkout --no-verify-jwt`
@@ -470,9 +493,9 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
 6) Ensure `.env` has `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` for the SPA.
 
 ### Refund Gmail local configuration
-Keep Gmail credentials server-only; never use a `VITE_` variable. The Gmail functions require `GMAIL_SUPPORT_CLIENT_ID`, `GMAIL_SUPPORT_CLIENT_SECRET`, `GMAIL_SUPPORT_REFRESH_TOKEN`, `GMAIL_SUPPORT_MAILBOX`, `GMAIL_REFUND_LABEL_ID`, and a dedicated `REFUND_GMAIL_SYNC_SECRET`. `REFUND_GMAIL_ENABLED` defaults to `false`. Optional `GMAIL_REFUND_START_AT` limits the first import to messages received on or after an ISO timestamp.
+Keep Gmail credentials and recipient settings server-only; never use a `VITE_` variable. The Gmail functions require `GMAIL_SUPPORT_CLIENT_ID`, `GMAIL_SUPPORT_CLIENT_SECRET`, `GMAIL_SUPPORT_REFRESH_TOKEN`, `GMAIL_SUPPORT_MAILBOX`, `GMAIL_REFUND_LABEL_ID`, and a dedicated `REFUND_GMAIL_SYNC_SECRET`. List every approved send-as address in comma-separated `GMAIL_SUPPORT_SEND_AS_ALIASES`; an address match alone is not trusted as Bloomjoy mailbox-origin unless the Gmail API also returns the provider `SENT` label. `REFUND_GMAIL_ENABLED` defaults to `false`. Optional `GMAIL_REFUND_START_AT` limits the first import to messages received on or after an ISO timestamp.
 
-Use a test mailbox and synthetic messages only. The connected account must exactly match `GMAIL_SUPPORT_MAILBOX`, and its OAuth grant must contain only Gmail read-only and send permissions. Run `npm run refunds:validate-gmail` and the database validation before serving or deploying the sync function. The attachment path is quarantine-only until a malware scanner marks an object clean.
+Use a test mailbox and synthetic messages only. The connected account must exactly match `GMAIL_SUPPORT_MAILBOX`, and its OAuth grant must contain only Gmail read-only and send permissions. Use synthetic manager addresses that are active portal mappings for the test machine; never put real recipient addresses in terminal output, screenshots, issues, or PR evidence. Every customer-facing Gmail or transactional refund message requires the exact send-time `resolved` route covering the complete distinct current active manager identity set. Duplicate normalized addresses may deduplicate only when that complete set remains represented. Zero-manager, unresolved-machine, partially invalid, customer/mailbox-colliding, and over-cap routes intentionally send nothing to the customer until ownership is repaired, even when the next desired message would ask which machine was used; internal action notices use only the capped operations fallback for those routing exceptions. Run `npm run refunds:validate-gmail` and the database validation before serving or deploying the sync function. The attachment path is quarantine-only until a malware scanner marks an object clean.
 
 ## Stripe order backfill helper
 Use this when a paid Stripe checkout must be imported into `public.orders` because webhook replay is unavailable or the webhook failed before persistence.

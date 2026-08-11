@@ -4,14 +4,22 @@ import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { sendTransactionalEmail } from "../_shared/internal-email.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
-import { RefundGmailError } from "../_shared/refund-gmail.ts";
+import {
+  REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE,
+  RefundGmailError,
+} from "../_shared/refund-gmail.ts";
 import {
   buildEditableRefundCustomerEmail,
   buildRefundCustomerEmail,
   getRefundReplyToEmail,
-  sanitizeRefundMessageType,
   type RefundCustomerMessageType,
+  sanitizeRefundMessageType,
 } from "../_shared/refund-email.ts";
+import {
+  deriveRefundMissingFields,
+  type RefundMissingField,
+  sanitizeRefundMissingFields,
+} from "../_shared/refund-deterministic-follow-up.ts";
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
 import { validateRefundGptReviewedDraft } from "../_shared/refund-gpt-triage-policy.mjs";
 
@@ -20,8 +28,8 @@ const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
 const supabase = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { persistSession: false },
-    })
+    auth: { persistSession: false },
+  })
   : null;
 
 const jsonResponse = (body: Record<string, unknown>, status = 200) =>
@@ -31,7 +39,8 @@ const jsonResponse = (body: Record<string, unknown>, status = 200) =>
   });
 
 const sanitizeText = (value: unknown, maxLength = 800) =>
-  typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+  typeof value === "string" || typeof value === "number" ||
+    typeof value === "boolean"
     ? String(value).trim().slice(0, maxLength)
     : "";
 
@@ -49,6 +58,12 @@ type RefundCaseRow = {
   payment_amount_cents: number | null;
   refund_amount_cents: number | null;
   decision_reason: string | null;
+  card_wallet_used: boolean;
+  card_last4: string | null;
+  reporting_machine_id: string | null;
+  reporting_location_id: string | null;
+  incident_at: string | null;
+  incident_time_resolution: string | null;
   reporting_machines?: OneOrMany<{
     machine_label: string | null;
     refund_public_display_label: string | null;
@@ -85,6 +100,12 @@ const selectCaseQuery = `
   payment_amount_cents,
   refund_amount_cents,
   decision_reason,
+  card_wallet_used,
+  card_last4,
+  reporting_machine_id,
+  reporting_location_id,
+  incident_at,
+  incident_time_resolution,
   reporting_machines(machine_label, refund_public_display_label),
   reporting_locations(name)
 `;
@@ -102,6 +123,13 @@ const getRefundCase = async (caseId: string): Promise<RefundCaseRow | null> => {
   return data as RefundCaseRow | null;
 };
 
+const sameMissingFields = (
+  left: RefundMissingField[],
+  right: RefundMissingField[],
+) =>
+  left.length === right.length &&
+  left.every((field, index) => field === right[index]);
+
 const syncAutomationFields = async (
   refundCaseId: string,
   messageType: RefundCustomerMessageType,
@@ -110,12 +138,16 @@ const syncAutomationFields = async (
 
   const nextAutomationState = {
     more_info: "more_info_needed",
+    no_safe_match: "more_info_needed",
+    information_received: "under_review",
     reminder: "more_info_needed",
     approved: "approved",
     denied: "denied",
     completed: "completed",
     confirmation: "submitted",
     status_update: "under_review",
+    wallet_correction: "more_info_needed",
+    wallet_correction_reminder: "more_info_needed",
   }[messageType];
 
   await supabase
@@ -124,9 +156,7 @@ const syncAutomationFields = async (
       automation_state: nextAutomationState,
       customer_last_contacted_at: new Date().toISOString(),
       last_customer_message_type: messageType,
-      automation_follow_up_due_at: messageType === "more_info"
-        ? new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString()
-        : null,
+      automation_follow_up_due_at: null,
     })
     .eq("id", refundCaseId);
 };
@@ -142,7 +172,10 @@ serve(async (req) => {
     }
 
     if (!supabase) {
-      return jsonResponse({ error: "Refund messaging is not configured." }, 500);
+      return jsonResponse(
+        { error: "Refund messaging is not configured." },
+        500,
+      );
     }
 
     const accessToken = resolveSupabaseAccessToken(req);
@@ -150,7 +183,9 @@ serve(async (req) => {
       return jsonResponse({ error: "Unauthorized." }, 401);
     }
 
-    const { data: authData, error: authError } = await supabase.auth.getUser(accessToken);
+    const { data: authData, error: authError } = await supabase.auth.getUser(
+      accessToken,
+    );
     const user = authData?.user;
     if (authError || !user) {
       return jsonResponse({ error: "Unauthorized." }, 401);
@@ -164,18 +199,27 @@ serve(async (req) => {
 
     const messageType = sanitizeRefundMessageType(body?.messageType);
     if (!messageType || !allowedPortalMessageTypes.has(messageType)) {
-      return jsonResponse({ error: "Choose an approved customer message template." }, 400);
+      return jsonResponse({
+        error: "Choose an approved customer message template.",
+      }, 400);
     }
 
     const triageSuggestionId = sanitizeText(body?.triageSuggestionId, 80);
+    const suppliedMissingFields = sanitizeRefundMissingFields(
+      body?.missingFields,
+    );
     let triageSuggestion: RefundGptTriageRow | null = null;
     if (triageSuggestionId) {
       if (!isUuid(triageSuggestionId) || messageType !== "more_info") {
-        return jsonResponse({ error: "Valid missing-information triage review required." }, 400);
+        return jsonResponse({
+          error: "Valid missing-information triage review required.",
+        }, 400);
       }
       const { data: triageData, error: triageError } = await supabase
         .from("refund_gpt_triage_runs")
-        .select("id, refund_case_id, status, route, policy_flags, missing_fields")
+        .select(
+          "id, refund_case_id, status, route, policy_flags, missing_fields",
+        )
         .eq("id", triageSuggestionId)
         .eq("refund_case_id", caseId)
         .maybeSingle();
@@ -187,8 +231,17 @@ serve(async (req) => {
         triageSuggestion.route !== "draft_reply" ||
         (triageSuggestion.policy_flags ?? []).length > 0
       ) {
-        return jsonResponse({ error: "This suggested reply requires a new human review." }, 409);
+        return jsonResponse({
+          error: "This suggested reply requires a new human review.",
+        }, 409);
       }
+    }
+
+    if (messageType !== "more_info" && suppliedMissingFields.length > 0) {
+      return jsonResponse({
+        error:
+          "Missing-detail fields apply only to the missing-information template.",
+      }, 400);
     }
 
     const { data: canManageCase, error: accessError } = await supabase.rpc(
@@ -207,7 +260,45 @@ serve(async (req) => {
     }
 
     if (!refundCase.customer_email) {
-      return jsonResponse({ error: "Customer email is missing for this refund case." }, 400);
+      return jsonResponse({
+        error: "Customer email is missing for this refund case.",
+      }, 400);
+    }
+
+    const derived = deriveRefundMissingFields({
+      reportingMachineId: refundCase.reporting_machine_id,
+      reportingLocationId: refundCase.reporting_location_id,
+      incidentAt: refundCase.incident_at,
+      incidentTimeResolution: refundCase.incident_time_resolution,
+      paymentMethod: refundCase.payment_method,
+      paymentAmountCents: refundCase.payment_amount_cents,
+      cardLast4: refundCase.card_last4,
+      cardWalletUsed: refundCase.card_wallet_used,
+    });
+    const reviewedMissingFields = triageSuggestion
+      ? sanitizeRefundMissingFields(triageSuggestion.missing_fields)
+      : suppliedMissingFields;
+    let missingFields: RefundMissingField[] = [];
+    if (messageType === "more_info") {
+      if (derived.requiresSecureWalletCorrection) {
+        return jsonResponse({
+          error:
+            "Use the secure mobile-wallet correction link instead of requesting wallet information by email.",
+        }, 409);
+      }
+      if (derived.missingFields.length === 0) {
+        return jsonResponse({
+          error:
+            "This case has no structured purchase detail to request. Return it to manager review.",
+        }, 409);
+      }
+      if (!sameMissingFields(reviewedMissingFields, derived.missingFields)) {
+        return jsonResponse({
+          error:
+            "The case facts changed. Refresh before asking for the exact missing purchase details.",
+        }, 409);
+      }
+      missingFields = derived.missingFields;
     }
 
     const machine = firstRelation(refundCase.reporting_machines);
@@ -224,19 +315,22 @@ serve(async (req) => {
       customerEmail: refundCase.customer_email,
       machineLabel: publicLabels.machineLabel,
       locationName: publicLabels.locationName,
-      refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
+      refundAmountCents: refundCase.refund_amount_cents ??
+        refundCase.payment_amount_cents,
       paymentMethod: refundCase.payment_method,
       decisionReason: refundCase.decision_reason,
+      missingFields,
+      cardWalletUsed: refundCase.card_wallet_used,
     };
     const defaultEmail = buildRefundCustomerEmail(templateInput);
     const requestedSubject = sanitizeText(body?.subject, 180);
     const requestedBody = sanitizeText(body?.body, 4000);
     const email = requestedBody || requestedSubject
       ? buildEditableRefundCustomerEmail({
-          input: templateInput,
-          subject: requestedSubject || defaultEmail.subject,
-          body: requestedBody || defaultEmail.text,
-        })
+        input: templateInput,
+        subject: requestedSubject || defaultEmail.subject,
+        body: requestedBody || defaultEmail.text,
+      })
       : defaultEmail;
 
     if (triageSuggestion) {
@@ -246,7 +340,10 @@ serve(async (req) => {
         missingFields: triageSuggestion.missing_fields,
       });
       if (!reviewedDraft.ok) {
-        return jsonResponse({ error: "The reviewed reply includes wording that is not safe for missing-information triage." }, 400);
+        return jsonResponse({
+          error:
+            "The reviewed reply includes wording that is not safe for missing-information triage.",
+        }, 400);
       }
     }
 
@@ -261,6 +358,13 @@ serve(async (req) => {
         body: email.text,
         template_key: `refund_${messageType}_editable_v1`,
         created_by: user.id,
+        content_source: triageSuggestion
+          ? "manager_reviewed_gpt"
+          : "manager_authored",
+        delivery_kind: "manual",
+        reason_code: messageType === "more_info" ? "missing_information" : null,
+        template_version: null,
+        requested_fields: messageType === "more_info" ? missingFields : [],
       })
       .select("id")
       .single();
@@ -274,10 +378,12 @@ serve(async (req) => {
         refundCaseMessageId: messageRow.id,
         recipientEmail: refundCase.customer_email,
         email,
+        deliveryKind: "manual",
       });
       if (!gmailDelivery.usedGmail) {
         await sendTransactionalEmail({
           to: [refundCase.customer_email],
+          cc: gmailDelivery.managerCcEmails,
           subject: email.subject,
           text: email.text,
           html: email.html,
@@ -290,13 +396,16 @@ serve(async (req) => {
         .update({
           status: "sent",
           sent_at: new Date().toISOString(),
-          subject: gmailDelivery.usedGmail ? gmailDelivery.subject : email.subject,
+          subject: gmailDelivery.usedGmail
+            ? gmailDelivery.subject
+            : email.subject,
         })
         .eq("id", messageRow.id);
 
       await syncAutomationFields(refundCase.id, messageType);
 
-      let triageReviewStatus: "not_applicable" | "recorded" | "record_failed" = "not_applicable";
+      let triageReviewStatus: "not_applicable" | "recorded" | "record_failed" =
+        "not_applicable";
       if (triageSuggestion) {
         const { error: triageReviewError } = await supabase.rpc(
           "service_record_refund_gpt_triage_delivery",
@@ -311,11 +420,14 @@ serve(async (req) => {
         );
         if (triageReviewError) {
           triageReviewStatus = "record_failed";
-          console.error("refund-case-message-send triage review record failed", {
-            errorType: triageReviewError.name ?? "database_error",
-            triageReview: true,
-            payloadRedacted: true,
-          });
+          console.error(
+            "refund-case-message-send triage review record failed",
+            {
+              errorType: triageReviewError.name ?? "database_error",
+              triageReview: true,
+              payloadRedacted: true,
+            },
+          );
         } else {
           triageReviewStatus = "recorded";
         }
@@ -326,12 +438,20 @@ serve(async (req) => {
         actor_user_id: user.id,
         event_type: "customer_message_sent",
         message: gmailDelivery.usedGmail
-          ? `Manager sent ${messageType.replaceAll("_", " ")} reply in the linked Gmail thread.`
-          : `Manager sent ${messageType.replaceAll("_", " ")} email from the portal.`,
+          ? `Manager sent ${
+            messageType.replaceAll("_", " ")
+          } reply in the linked Gmail thread.`
+          : `Manager sent ${
+            messageType.replaceAll("_", " ")
+          } email from the portal.`,
         metadata: {
           message_type: messageType,
           message_id: messageRow.id,
-          transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
+          transport: gmailDelivery.usedGmail
+            ? "gmail_thread"
+            : "transactional_email",
+          manager_cc_count: gmailDelivery.managerCcCount,
+          recipient_resolution_status: gmailDelivery.recipientResolutionStatus,
           triage_review_status: triageReviewStatus,
           payload_redacted: true,
         },
@@ -343,7 +463,9 @@ serve(async (req) => {
           type: messageType,
           status: "sent",
           subject: email.subject,
-          transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
+          transport: gmailDelivery.usedGmail
+            ? "gmail_thread"
+            : "transactional_email",
           triageReviewStatus,
         },
       });
@@ -351,8 +473,12 @@ serve(async (req) => {
       const safeErrorCode = emailError instanceof RefundGmailError
         ? emailError.code
         : "customer_email_delivery_failed";
+      const deliveryUncertain = emailError instanceof RefundGmailError &&
+        emailError.deliveryUncertain;
       console.error("refund-case-message-send customer email failed", {
-        errorType: emailError instanceof Error ? emailError.name : typeof emailError,
+        errorType: emailError instanceof Error
+          ? emailError.name
+          : typeof emailError,
         messageType,
         errorCode: safeErrorCode,
       });
@@ -361,7 +487,9 @@ serve(async (req) => {
         .from("refund_case_messages")
         .update({
           status: "failed",
-          error_message: safeErrorCode,
+          error_message: deliveryUncertain
+            ? REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE
+            : safeErrorCode,
         })
         .eq("id", messageRow.id);
 
@@ -373,13 +501,18 @@ serve(async (req) => {
         metadata: {
           message_type: messageType,
           message_id: messageRow.id,
+          error_code: safeErrorCode,
           payload_redacted: true,
         },
       });
 
       return jsonResponse({
-        error: safeErrorCode === "gmail_network_unknown" || safeErrorCode === "gmail_delivery_record_failed"
-          ? "Gmail delivery could not be confirmed. Check the original thread before retrying."
+        error: deliveryUncertain
+          ? REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE
+          : safeErrorCode === "gmail_automatic_contact_paused"
+          ? "Automatic email is paused after a delivery failure. Review the Gmail thread and customer address before sending."
+          : safeErrorCode === "manager_cc_required"
+          ? "Customer email is paused until the case has at least one current active mapped Machine Manager to copy."
           : "Unable to send customer email.",
         errorCode: safeErrorCode,
       }, 502);

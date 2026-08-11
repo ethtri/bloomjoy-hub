@@ -26,6 +26,7 @@ export type InternalEmailInput = {
 
 export type TransactionalEmailInput = {
   to: string[];
+  cc?: string[];
   subject: string;
   text: string;
   html?: string;
@@ -52,6 +53,7 @@ const getResendConfig = () => {
 
 export async function sendTransactionalEmail({
   to,
+  cc = [],
   subject,
   text,
   html,
@@ -75,6 +77,17 @@ export async function sendTransactionalEmail({
     subject,
     text,
   };
+
+  const ccRecipients = Array.from(
+    new Set(
+      cc
+        .map((value) => value.trim().toLowerCase())
+        .filter((value) => value && !recipients.includes(value)),
+    ),
+  );
+  if (ccRecipients.length > 0) {
+    payload.cc = ccRecipients;
+  }
 
   if (html) {
     payload.html = html;

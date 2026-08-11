@@ -79,9 +79,15 @@ expectAll(
     'intake_path: verifiedQrClaim ? "machine_qr" : "direct_form"',
     'requestedMachineId !== verifiedQrClaim.reportingMachineId',
     'refund_qr_claim_used',
-    'The wallet digits may differ from the physical card.',
+    'messageType: "confirmation"',
+    'automaticCustomerContactAllowed()',
   ],
   'Refund intake QR integration'
+);
+assert.doesNotMatch(
+  intakeSource,
+  /wallet digits may differ from the physical card|photo of the machine\/payment screen/i,
+  'Refund intake must not restore the legacy free-form wallet-digit or payment-screen request'
 );
 
 for (const forbiddenClientEvidence of [

@@ -3,12 +3,26 @@
 import assert from 'node:assert/strict';
 import {
   parseRefundRouteSmokeArgs,
+  refundRouteSmokeExcludedFunctionSlugs,
   refundRouteSmokeExpectations,
   resolveRefundRouteSmokeBaseUrl,
   runRefundRouteSmoke,
 } from './refund-route-smoke.mjs';
+import { requiredFunctionSlugs } from './refund-release.mjs';
 
 const projectRef = 'a'.repeat(20);
+assert.deepEqual(refundRouteSmokeExcludedFunctionSlugs, [
+  'refund-manager-action-step-up',
+  'refund-manager-totp-enrollment',
+]);
+assert.deepEqual(
+  [
+    ...refundRouteSmokeExpectations.map(({ slug }) => slug),
+    ...refundRouteSmokeExcludedFunctionSlugs,
+  ],
+  requiredFunctionSlugs,
+  'Eight safe OPTIONS probes plus two explicit pending manager endpoints must account for the full 10-function manifest',
+);
 assert.equal(
   resolveRefundRouteSmokeBaseUrl({ projectRef, confirmProjectRef: projectRef, baseUrl: '' }),
   `https://${projectRef}.supabase.co/functions/v1`,

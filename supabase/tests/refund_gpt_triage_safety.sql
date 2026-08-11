@@ -59,6 +59,10 @@ select public.service_ingest_refund_gmail_message(
   '[]'::jsonb
 ) as result;
 
+update public.refund_gmail_messages
+set participant_role = 'customer', participant_trust = 'verified'
+where provider_message_id = 'gpt-triage-message-1';
+
 update public.refund_gpt_triage_settings
 set enabled = true
 where singleton;
@@ -387,6 +391,10 @@ select public.service_ingest_refund_gmail_message(
   '[]'::jsonb
 );
 
+update public.refund_gmail_messages
+set participant_role = 'customer', participant_trust = 'verified'
+where provider_message_id = 'gpt-triage-message-2';
+
 select public.service_record_refund_gpt_triage(
   (select refund_case_id from public.refund_gmail_messages where provider_message_id = 'gpt-triage-message-2'),
   (select id from public.refund_gmail_messages where provider_message_id = 'gpt-triage-message-2'),
@@ -618,6 +626,10 @@ select public.service_ingest_refund_gmail_message(
   '[]'::jsonb
 );
 
+update public.refund_gmail_messages
+set participant_role = 'customer', participant_trust = 'verified'
+where provider_message_id = 'gpt-triage-message-3';
+
 create temporary table stale_processing_claim as
 select public.service_claim_refund_gpt_triage_jobs(
   'gpt-runner-stale-processing-test',
@@ -645,6 +657,10 @@ select public.service_ingest_refund_gmail_message(
   null,
   '[]'::jsonb
 );
+
+update public.refund_gmail_messages
+set participant_role = 'customer', participant_trust = 'verified'
+where provider_message_id = 'gpt-triage-message-4';
 
 select is(
   public.service_complete_refund_gpt_triage_job(
