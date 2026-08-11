@@ -15,6 +15,7 @@ const files = {
   refundScopeHardeningMigration: 'supabase/migrations/202605130003_refund_scope_and_readiness_hardening.sql',
   refundPublicLocationGuardMigration: 'supabase/migrations/202607210001_refund_public_location_label_guard.sql',
   refundManagerLocationGuardMigration: 'supabase/migrations/202607210002_refund_manager_location_label_guard.sql',
+  refundPortfolioIntakeMigration: 'supabase/migrations/202608020001_refund_portfolio_wide_intake.sql',
   refundRequestPage: 'src/pages/RefundRequest.tsx',
   productionRunbook: 'Docs/PRODUCTION_RUNBOOK.md',
   localDev: 'Docs/LOCAL_DEV.md',
@@ -36,6 +37,7 @@ const refundMigration = read(files.refundMigration);
 const refundScopeHardeningMigration = read(files.refundScopeHardeningMigration);
 const refundPublicLocationGuardMigration = read(files.refundPublicLocationGuardMigration);
 const refundManagerLocationGuardMigration = read(files.refundManagerLocationGuardMigration);
+const refundPortfolioIntakeMigration = read(files.refundPortfolioIntakeMigration);
 const refundRequestPage = read(files.refundRequestPage);
 const productionRunbook = read(files.productionRunbook);
 const localDev = read(files.localDev);
@@ -265,7 +267,22 @@ assert(
 assert(
   refundScopeHardeningMigration.includes('Assign at least one Machine Manager') &&
     refundScopeHardeningMigration.includes('Nayax machine ID is required'),
-  'Refund intake enablement must require Machine Manager and Nayax readiness.'
+  'The legacy readiness flag must still require Machine Manager and Nayax readiness.'
+);
+const portfolioOptionsFunction = refundPortfolioIntakeMigration.slice(
+  refundPortfolioIntakeMigration.indexOf(
+    'create or replace function public.public_refund_machine_options()'
+  ),
+  refundPortfolioIntakeMigration.indexOf(
+    'create or replace function public.admin_set_reporting_machine_refund_intake_config('
+  )
+);
+assert(
+  portfolioOptionsFunction.includes("machine.machine_type in ('commercial', 'mini')") &&
+    portfolioOptionsFunction.includes("location.status = 'active'") &&
+    !portfolioOptionsFunction.includes('refund_intake_enabled') &&
+    !refundIntakeFunction.includes('.eq("refund_intake_enabled", true)'),
+  'Public refund options and direct intake must cover the same active Commercial/Mini portfolio independently of automation readiness.'
 );
 assert(
   refundPublicLocationGuardMigration.includes("lower(trim(location.name)) like 'unmapped %'") &&

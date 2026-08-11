@@ -501,8 +501,8 @@ const run = async () => {
       await machineDialog.getByRole('heading', { name: 'Customer Refund Setup' }).isVisible()
     );
     recorder.assert(
-      'Refund setup copy keeps live card refunds disabled',
-      await machineDialog.getByText(/Live card refund execution stays disabled/i).isVisible()
+      'Refund setup separates public intake from gated live card execution',
+      await machineDialog.getByText(/Live card execution remains separately gated/i).isVisible()
     );
 
     await page.fill('#machine-manager-search', invitedManagerEmail);
@@ -556,7 +556,7 @@ const run = async () => {
       JSON.stringify(state.savePayload)
     );
 
-    await machineDialog.getByLabel('Show this machine on the refund request form').click();
+    await machineDialog.getByLabel('Enable refund automation for this machine').click();
     await page.fill('#refund-display-label', 'Mall Atrium Cotton Candy');
     await page.fill('#nayax-machine-id', 'NAYAX-UAT-001');
     await page.fill('#nayax-account-key', 'TGPACI_USA_DB');
@@ -574,7 +574,7 @@ const run = async () => {
     );
 
     recorder.assert(
-      'Refund intake setup save targets the edited machine',
+      'Refund automation setup save targets the edited machine',
       state.refundIntakePayload?.p_machine_id === machineId &&
         state.refundIntakePayload?.p_refund_intake_enabled === true,
       JSON.stringify(state.refundIntakePayload)
@@ -588,15 +588,17 @@ const run = async () => {
     );
     const machineRow = page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' });
     await machineRow.getByText(secondManagerEmail).waitFor({ timeout: 10000 });
-    const refundReadiness = machineRow.getByText(/Intake enabled.*Card lookup ready/i);
-    await refundReadiness.waitFor({ timeout: 10000 });
+    const automationReady = machineRow.getByText(/Automation ready/i);
+    const cardLookupReady = machineRow.getByText(/Card lookup ready/i);
+    await automationReady.waitFor({ timeout: 10000 });
+    await cardLookupReady.waitFor({ timeout: 10000 });
     recorder.assert(
       'Saved Machine Managers are visible in the Machines list',
       await machineRow.getByText(secondManagerEmail).isVisible()
     );
     recorder.assert(
       'Saved refund readiness is visible in the Machines list',
-      await refundReadiness.isVisible()
+      (await automationReady.isVisible()) && (await cardLookupReady.isVisible())
     );
 
     await machineDialog.waitFor({ state: 'hidden', timeout: 10000 });
@@ -609,7 +611,7 @@ const run = async () => {
     );
     recorder.assert(
       'Saved refund readiness remains visible after close and reopen',
-      (await reopenedMachineDialog.getByLabel('Show this machine on the refund request form').isChecked()) &&
+      (await reopenedMachineDialog.getByLabel('Enable refund automation for this machine').isChecked()) &&
         (await reopenedMachineDialog.locator('#refund-display-label').inputValue()) === 'Mall Atrium Cotton Candy' &&
         (await reopenedMachineDialog.locator('#nayax-machine-id').inputValue()) === 'NAYAX-UAT-001'
     );

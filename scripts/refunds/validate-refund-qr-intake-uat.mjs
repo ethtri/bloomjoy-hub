@@ -7,6 +7,8 @@ const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
 const DEFAULT_ARTIFACT_DIR = 'output/playwright';
 const machineId = '83000000-0000-4000-8000-000000000001';
 const locationId = '82000000-0000-4000-8000-000000000001';
+const eastridgeMachineId = '83000000-0000-4000-8000-000000000002';
+const eastridgeLocationId = '82000000-0000-4000-8000-000000000002';
 const openedAt = '2026-07-26T19:15:00.000Z';
 const validQrCode = 'refund_qr_public_uat_machine_one_000001';
 const invalidQrCode = 'refund_qr_public_uat_retired_code_00001';
@@ -103,6 +105,13 @@ const installPublicRefundRoutes = async (
           machine_label: 'Cotton Candy 01',
           location_id: locationId,
           location_name: 'Mall Atrium',
+          location_timezone: 'America/Los_Angeles',
+        },
+        {
+          machine_id: eastridgeMachineId,
+          machine_label: 'Cotton Candy 02',
+          location_id: eastridgeLocationId,
+          location_name: 'Eastridge Center',
           location_timezone: 'America/Los_Angeles',
         },
       ])
@@ -312,10 +321,13 @@ const runDirectJourney = async ({ browser, appUrl, artifactDir }) => {
   await page.goto(`${appUrl}/refunds/request`, { waitUntil: 'networkidle' });
   const machineSelect = page.getByLabel('Machine location');
   await machineSelect.waitFor();
-  await machineSelect.selectOption(machineId);
+  await machineSelect.selectOption(eastridgeMachineId);
 
   assert.equal(await page.getByText('QR verified', { exact: true }).count(), 0);
-  assert.equal(await page.getByText('Selected: Mall Atrium - Cotton Candy 01').isVisible(), true);
+  assert.equal(
+    await page.getByText('Selected: Eastridge Center - Cotton Candy 02').isVisible(),
+    true
+  );
   await page.screenshot({
     path: path.join(artifactDir, 'refund-direct-intake-desktop.png'),
     fullPage: true,
@@ -325,7 +337,7 @@ const runDirectJourney = async ({ browser, appUrl, artifactDir }) => {
   await page.getByRole('button', { name: 'Submit Request' }).click();
   await page.waitForURL('**/refunds/thank-you?ref=RF-QR-UAT');
   const submission = functionBodies.find((body) => !body.action);
-  assert.equal(submission.machineId, machineId);
+  assert.equal(submission.machineId, eastridgeMachineId);
   assert.equal('qrClaimToken' in submission, false);
 
   await context.close();

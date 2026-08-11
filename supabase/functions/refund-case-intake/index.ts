@@ -630,7 +630,6 @@ const startRefundQrClaim = async (
     .eq("id", qrCodeRow.reporting_machine_id)
     .eq("status", "active")
     .in("machine_type", ["commercial", "mini"])
-    .eq("refund_intake_enabled", true)
     .single();
 
   if (machineError || !machine) {
@@ -1416,7 +1415,6 @@ serve(async (req) => {
       .eq("id", machineId)
       .eq("status", "active")
       .in("machine_type", ["commercial", "mini"])
-      .eq("refund_intake_enabled", true)
       .single();
 
     if (machineError || !machine) {

@@ -1022,7 +1022,7 @@ function MachineSetupRow({
           <div className="grid gap-0.5 sm:grid-cols-[5.5rem_minmax(0,1fr)]">
             <dt className="font-medium text-foreground/70">Refunds</dt>
             <dd className="min-w-0 break-words">
-              {refundIntakeEnabled ? 'Intake enabled' : 'Intake off'} -{' '}
+              {refundIntakeEnabled ? 'Automation ready' : 'Manual review'} -{' '}
               {nayaxLookupConfigured ? 'Card lookup ready' : 'Card lookup not mapped'}
             </dd>
           </div>
@@ -1357,17 +1357,17 @@ function MachineDialog({
     }
 
     if (refundIntakeEnabled && !supportsHostedRefundIntake) {
-      toast.error('Hosted refund intake currently supports Bloomjoy Commercial and Mini machines only.');
+      toast.error('Refund automation currently supports Bloomjoy Commercial and Mini machines only.');
       return null;
     }
 
     if (refundIntakeEnabled && selectedMachineManagerEmails.length < 1) {
-      toast.error('Assign at least one Machine Manager before showing this machine on the refund form.');
+      toast.error('Assign at least one Machine Manager before enabling refund automation.');
       return null;
     }
 
     if (refundIntakeEnabled && !normalizedNayaxMachineId) {
-      toast.error('Add the Nayax machine ID before showing this machine on the refund form.');
+      toast.error('Add the Nayax machine ID before enabling refund automation.');
       return null;
     }
 
@@ -1417,7 +1417,7 @@ function MachineDialog({
         machineId: form.machineId,
         refundIntakeEnabled,
         refundPublicDisplayLabel: draft.displayLabel || null,
-        reason: 'Refund intake readiness updated from Admin Machines',
+        reason: 'Refund automation readiness updated from Admin Machines',
       });
       setRefundReadinessSaveState('saved');
     } catch (error) {
@@ -1744,7 +1744,7 @@ function MachineDialog({
   const supportsHostedRefundIntake = form.machineType === 'commercial' || form.machineType === 'mini';
   const isSavingMachineChanges = isSaving || isSavingRefundReadiness;
   const refundReadinessBlocks = [
-    supportsHostedRefundIntake ? null : 'Only Bloomjoy Commercial and Mini machines can be shown on the hosted refund form right now.',
+    supportsHostedRefundIntake ? null : 'Automated matching currently supports Bloomjoy Commercial and Mini machines only.',
     machineManagerCount > 0 ? null : 'Assign at least one Machine Manager.',
     nayaxMachineId.trim() ? null : 'Add the Nayax machine ID for card lookup.',
   ].filter(Boolean) as string[];
@@ -2015,12 +2015,12 @@ function MachineDialog({
               <div>
                 <h3 className="font-semibold text-foreground">Customer Refund Setup</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Choose whether this machine appears on the hosted refund form and configure
-                  read-only Nayax card lookup for manager review.
+                  Active Commercial and Mini machines appear on the refund form automatically.
+                  Configure the customer label, manager routing, and Nayax matching readiness here.
                 </p>
               </div>
               <Badge variant={refundIntakeEnabled ? 'default' : 'outline'}>
-                {refundIntakeEnabled ? 'Intake enabled' : 'Intake off'}
+                {refundIntakeEnabled ? 'Automation ready' : 'Manual review'}
               </Badge>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -2042,15 +2042,16 @@ function MachineDialog({
               ) : refundReadinessHasChanges ? (
                 <span>Refund setup changes will save with the machine changes below.</span>
               ) : (
-                <span>Live card refund execution stays disabled. This setup only supports intake and lookup.</span>
+                <span>Public intake stays available. Live card execution remains separately gated.</span>
               )}
             </div>
             <div className="mt-4 grid gap-4">
               <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-background px-3 py-3">
                 <div className="min-w-0">
-                  <Label htmlFor="refund-intake-enabled">Show on refund request form</Label>
+                  <Label htmlFor="refund-intake-enabled">Enable refund automation</Label>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Turn this on only for machines included in the shadow pilot.
+                    Turn this on after a Machine Manager and Nayax mapping are ready. Turning it
+                    off does not remove an active machine from the customer form.
                   </p>
                 </div>
                 <Switch
@@ -2058,7 +2059,7 @@ function MachineDialog({
                   checked={refundIntakeEnabled}
                   onCheckedChange={setRefundIntakeEnabled}
                   disabled={isSavingMachineChanges}
-                  aria-label="Show this machine on the refund request form"
+                  aria-label="Enable refund automation for this machine"
                 />
               </div>
               {refundReadinessBlocks.length > 0 && (
@@ -2066,7 +2067,7 @@ function MachineDialog({
                   <div className="flex gap-2">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                     <div>
-                      <p className="font-medium">Before this machine can appear on the refund form:</p>
+                      <p className="font-medium">Before refund automation can be enabled:</p>
                       <ul className="mt-1 list-disc space-y-1 pl-5">
                         {refundReadinessBlocks.map((block) => (
                           <li key={block}>{block}</li>
@@ -2119,7 +2120,8 @@ function MachineDialog({
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                Zelle cash payouts and Nayax card refunds still require manager/manual completion. Refund setup saves with the machine changes button below.
+                Requests from machines without this setup still reach Bloomjoy operations for
+                review. Refund execution remains disabled until its separate production gate is approved.
               </p>
             </div>
           </div>

@@ -74,6 +74,23 @@ Bloomjoy will retain enough first-touch, last-touch, and conversion context to d
 - Internal notifications show only a compact sanitized attribution summary. Notification failure remains non-blocking and cannot create a second lead.
 
 The exact schema, field limits, lifecycle, rollout, and rollback are maintained in `Docs/LEAD_ATTRIBUTION.md`. Automated grading, autonomous outreach, marketing consent expansion, campaign click IDs, and a new CRM remain out of scope.
+## 2026-08-02 - Public refund intake follows the active machine portfolio (`#681`)
+Bloomjoy customers may submit a refund request for any active Commercial or Mini machine in the reporting-machine portfolio. Public intake eligibility is separate from whether that machine is ready for automated transaction matching or refund fulfillment.
+
+**Canonical behavior**
+- `/refunds/request` reads active Commercial/Mini machines and active locations dynamically from `reporting_machines`; the frontend does not maintain a second location list.
+- The existing `refund_intake_enabled` field is a manager/Nayax automation-readiness gate. It does not hide an otherwise eligible machine or make direct intake reject it.
+- A machine without an assigned manager or Nayax mapping still accepts the request. Bloomjoy operations remains the notification and review fallback, while matching reports the missing setup instead of claiming automation is available.
+- Internal placeholder locations such as `Unmapped` or `Unknown` remain private unless the machine has an explicit customer-facing label.
+- Active QR assets remain separately controlled by their opaque code status and rotation rules. Portfolio visibility does not generate or activate a QR code by itself.
+- Snapcase remains outside this intake source until its machine, payment, manager-routing, and reporting source of truth is represented in the live portfolio. Production Nayax execution remains separately gated.
+
+This decision supersedes the earlier rule that public intake exposes only machines explicitly enabled for the refund pilot. It does not widen automatic approval or payment-execution authority.
+
+**Why this choice**
+- Customers should not lose the refund path because internal manager or Nayax setup is incomplete.
+- A single active-machine registry makes new locations appear automatically and prevents a six-machine pilot list from becoming stale.
+- Keeping automation readiness separate preserves honest fallback behavior without overstating matching or refund capabilities.
 
 ## 2026-07-26 - Verified refunds use one manager approval and automatic fulfillment (`#674`)
 Bloomjoy will make every bounded, safe effort to identify the correct transaction before asking a Machine Manager to decide a refund. The normal high-confidence path is one manager approval followed by automatic provider execution and confirmation, not a second manual workflow in Nayax.
