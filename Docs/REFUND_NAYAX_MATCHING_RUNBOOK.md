@@ -8,7 +8,7 @@ Live Nayax refund execution remains controlled by the separate sponsor gate, mac
 
 ## Policy version
 
-Current policy: `2026-07-26.v2`.
+Current policy: `2026-08-11.v3`.
 
 Internal ranking points order otherwise-safe candidates. Never show the point total as a percentage or describe it as statistical confidence.
 
@@ -29,7 +29,7 @@ Internal ranking points order otherwise-safe candidates. Never show the point to
 
 - `strong_card`: exactly one otherwise-safe sale has the mapped machine, exact amount, exact resolved customer-reported time within 60 minutes, and correlating card last four. This is the only class that may become one-click eligible after manager confirmation, and only for a non-wallet transaction.
 - `unique_qr_time`: exactly one otherwise-safe sale has the mapped machine, exact amount, exact resolved provider/customer times, occurs no more than 30 minutes before the verified server-recorded QR open, and has no plausible runner-up. It may guide a manager to a sale in Nayax when wallet digits do not correlate, but it is always manual and never one-click eligible.
-- `ambiguous_manual`: the available evidence does not meet either rule. This includes close-together candidates, a missing/invalid/replayed QR claim, a QR opened more than 30 minutes after the sale, uncertain amount, non-exact time resolution, provider trouble, or another safety exception.
+- `ambiguous_manual`: the available evidence does not meet either rule. This includes close-together candidates, a missing/invalid/replayed QR claim, a QR opened more than 30 minutes after the sale, uncertain amount, a customer time that may be off by an hour or is only rough, non-exact time resolution, or provider trouble.
 
 ## Recommendation states
 
@@ -47,6 +47,12 @@ Contactless and wallet last four is supporting evidence, not an identity key. A 
 QR open time and customer-reported incident time are stored, evaluated, and displayed separately. QR evidence must be a consumed, single-use claim bound to the same machine. Missing, invalid, replayed, future, or late QR evidence never supports `unique_qr_time`.
 
 Exact amount is mandatory for one-click eligibility. An amount mismatch may remain visible as review evidence but cannot be recommended for one-click execution.
+
+Customer time confidence is separate from time-zone resolution. `exact` and `within_15_minutes` may support the existing deterministic rule. `within_1_hour` and `rough` remain useful comparison evidence, but they make the result manager-review-only. Existing records without the field retain their legacy behavior.
+
+The current read-only integration may also snapshot a configured product/selection price, current machine status, and machine alerts within two hours of the sale. These fields do not add ranking points or execution eligibility. They are investigation context only and must always be described as not proving that the purchase failed.
+
+Current Last Sales responses identify a card/prepaid sale and may include card brand, masked digits, recognition/payment text, amount, time, machine, and product text. Bloomjoy's current data does not reliably distinguish a tapped physical card from Apple Pay or Google Wallet. The form records the customer's description separately. Richer transaction-feed fields remain gated by `#751` and require Bloomjoy sample validation before use.
 
 Managers always confirm the transaction. Selecting an alternate requires one structured reason: closer time, correct amount, correct card, customer confirmation, provider data issue, or other reviewed evidence. Free-text and raw provider IDs are not stored in recommendation telemetry.
 

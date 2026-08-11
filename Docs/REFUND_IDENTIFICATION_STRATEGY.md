@@ -1,6 +1,6 @@
 # Refund Identification Strategy
 
-Last updated: 2026-07-26
+Last updated: 2026-08-11
 
 Status: approved direction; identification is partially implemented, while automatic correction and live refund execution are not yet enabled.
 
@@ -13,6 +13,7 @@ The customer will still enter:
 - the approximate purchase time
 - the amount charged
 - the payment method
+- how the customer interacted with the reader and how closely they remember the time
 - the card's last four digits
 
 For Apple Pay or another mobile wallet, the form must ask for the virtual card's last four shown in the wallet. Those digits may differ from the physical card and may still be unreliable as a transaction key, so they are supporting evidence rather than the only way to match.
@@ -28,7 +29,7 @@ A high-confidence recommendation does not prove the product failed to dispense o
 | Public intake | `/refunds/request` supports both direct intake and an opaque machine-QR path with a short-lived, single-use, server-timestamped claim. | Physical QR generation, rotation, download, and placement controls are tracked separately in `#664`. |
 | Wallet guidance | The form asks Apple Pay/mobile-wallet customers for the virtual last four and explains that it may still differ from Nayax. | The digits remain supporting evidence rather than a reliable identity key. |
 | Nayax lookup | Server-side read-only Last Sales lookup and machine mappings are available for the current refund cohort. | Deployment and shadow-pilot evidence are still required before relying on the QR-aware policy operationally. |
-| Matching | Policy `2026-07-26.v2` separates reported incident time from verified QR-open time and supports strong-card, unique QR/time, and ambiguous/manual classes. | The current policy keeps unique QR/time results manual-only. Issue `#674` must add tested execution eligibility without weakening ambiguity rules. |
+| Matching | Policy `2026-08-11.v3` separates reported incident time, customer time confidence, and verified QR-open time and supports strong-card, unique QR/time, and ambiguous/manual classes. | The current policy keeps a time estimate that may be off by an hour or is only rough in manager review. Issue `#674` must add tested execution eligibility without weakening ambiguity rules. |
 | Customer correction | The intake form explains that wallet/device digits may differ from the physical card. | Issue `#673` must automatically collect corrected virtual last four through a secure self-service link and re-run matching. |
 | Manager workflow | Managers can review cases. The guarded in-app refund endpoint remains fail-closed, so live payment execution is not available. | The target is one approval followed by server-side provider execution and automatic customer/manager confirmation, implemented through `#430` and `#674`. |
 | Delivery evidence | No reliable machine signal says whether the product was delivered. | Transaction matching cannot establish that a vend failed. The manager still decides the customer-service outcome. |

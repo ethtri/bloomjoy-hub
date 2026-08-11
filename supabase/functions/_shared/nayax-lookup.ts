@@ -4,6 +4,7 @@ import {
   NAYAX_RECOMMENDATION_POLICY,
   toPublicNayaxCandidate,
 } from "./nayax-recommendation.mjs";
+import { buildNayaxMachineContext } from "./nayax-machine-context.mjs";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 
 export { extractNayaxRecords, NAYAX_RECOMMENDATION_POLICY };
@@ -107,6 +108,16 @@ export type NayaxProviderCandidate = {
   recognitionMethod: string;
   paymentStatus: string;
   providerRefundState: string;
+  productLabel: string;
+  productCode: string;
+  standardPriceCents: number | null;
+  priceMatchesMachineConfiguration: boolean | null;
+  machineStatus: {
+    state: "online" | "attention" | "unknown";
+    label: string;
+    checkedAt: string;
+  } | null;
+  nearbyMachineAlerts: Array<{ category: string; occurredAt: string }>;
   rankingPoints: number;
   recommendationRank: number;
   isTopRanked: boolean;
@@ -276,6 +287,12 @@ const persistNayaxLookupCandidates = async ({
         card_brand: candidate.cardBrand || null,
         recognition_method: candidate.recognitionMethod || null,
         payment_status: candidate.paymentStatus || null,
+        product_label: candidate.productLabel || null,
+        product_code: candidate.productCode || null,
+        standard_price_cents: candidate.standardPriceCents,
+        price_matches_machine_configuration: candidate.priceMatchesMachineConfiguration,
+        machine_status: candidate.machineStatus,
+        nearby_machine_alerts: candidate.nearbyMachineAlerts,
         provider_payload_redacted: true,
       },
       expires_at: expiresAt,
@@ -320,6 +337,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
       refund_qr_claim_context_id,
       incident_at,
       incident_time_resolution,
+      incident_time_confidence,
       payment_method,
       payment_amount_cents,
       refund_amount_cents,
@@ -438,16 +456,41 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     );
   }
 
-  const response = await fetch(
-    `${nayaxBaseUrl}/machines/${encodeURIComponent(nayaxMachineId)}/lastSales`,
-    {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${nayaxApiToken}`,
-        "Content-Type": "application/json",
-      },
-    },
-  );
+  const providerHeaders = {
+    Authorization: `Bearer ${nayaxApiToken}`,
+    "Content-Type": "application/json",
+  };
+  const optionalProviderPayload = async (endpointName: string) => {
+    try {
+      const optionalResponse = await fetch(
+        `${nayaxBaseUrl}/machines/${encodeURIComponent(nayaxMachineId)}/${endpointName}`,
+        { method: "GET", headers: providerHeaders },
+      );
+      if (!optionalResponse.ok) {
+        console.warn("optional nayax context unavailable", {
+          endpoint: endpointName,
+          status: optionalResponse.status,
+        });
+        return null;
+      }
+      return await optionalResponse.json();
+    } catch (error) {
+      console.warn("optional nayax context failed", {
+        endpoint: endpointName,
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
+      return null;
+    }
+  };
+  const [response, productsPayload, statusPayload, alertsPayload] = await Promise.all([
+    fetch(
+      `${nayaxBaseUrl}/machines/${encodeURIComponent(nayaxMachineId)}/lastSales`,
+      { method: "GET", headers: providerHeaders },
+    ),
+    optionalProviderPayload("machineProducts"),
+    optionalProviderPayload("status"),
+    optionalProviderPayload("lastAlerts"),
+  ]);
   if (!response.ok) {
     console.warn("nayax lookup provider failure", {
       status: response.status,
@@ -458,6 +501,12 @@ export const lookupNayaxCandidatesForRefundCase = async ({
   }
 
   const nayaxPayload = await response.json();
+  const machineContext = buildNayaxMachineContext({
+    productsPayload,
+    statusPayload,
+    alertsPayload,
+    checkedAt: lastCheckedAt,
+  });
   const commonRecommendationInput = {
     payload: nayaxPayload,
     incidentAt: incidentAt.toISOString(),
@@ -467,6 +516,8 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     requestAmountCents: sanitizeInputCents(refundCase?.payment_amount_cents),
     requestCardLast4: extractLast4(refundCase?.card_last4),
     cardWalletUsed: Boolean(refundCase?.card_wallet_used),
+    incidentTimeConfidence: sanitizeText(refundCase?.incident_time_confidence, 40) || "rough",
+    machineContext,
     qrClaimOpenedAt,
     qrClaimEvidenceStatus,
     windowHours,

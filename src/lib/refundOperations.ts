@@ -6,6 +6,24 @@ import {
 import { supabaseClient } from '@/lib/supabaseClient';
 
 export type RefundPaymentMethod = 'card' | 'cash' | 'unknown';
+export type RefundPaymentInteraction =
+  | 'phone_watch_wallet'
+  | 'tap_card'
+  | 'insert_or_swipe'
+  | 'cash'
+  | 'unsure';
+export type RefundWalletProvider = 'apple_pay' | 'google_wallet' | 'other' | 'unsure';
+export type RefundIncidentTimeConfidence =
+  | 'exact'
+  | 'within_15_minutes'
+  | 'within_1_hour'
+  | 'rough';
+export type RefundIssueCategory =
+  | 'charged_no_product'
+  | 'product_problem'
+  | 'charged_more_than_once'
+  | 'wrong_amount'
+  | 'other';
 export type RefundCaseStatus =
   | 'draft'
   | 'submitted'
@@ -116,6 +134,11 @@ export type SubmitRefundRequestInput = {
   paymentAmount?: string;
   cardLast4?: string;
   cardWalletUsed?: boolean;
+  paymentInteraction?: RefundPaymentInteraction;
+  walletProvider?: RefundWalletProvider;
+  incidentTimeConfidence?: RefundIncidentTimeConfidence;
+  issueCategory?: RefundIssueCategory;
+  productDescription?: string;
   attachments?: RefundAttachmentInput[];
 };
 
@@ -240,6 +263,11 @@ export type RefundCaseRecord = {
   paymentAmountCents: number | null;
   cardLast4: string | null;
   cardWalletUsed: boolean;
+  paymentInteraction?: RefundPaymentInteraction | null;
+  walletProvider?: RefundWalletProvider | null;
+  incidentTimeConfidence?: RefundIncidentTimeConfidence | null;
+  issueCategory?: RefundIssueCategory | null;
+  productDescription?: string | null;
   hasMatchedSalesFact: boolean;
   hasMatchedNayaxTransaction: boolean;
   nayaxMatchExecutionEligible?: boolean;
@@ -460,6 +488,19 @@ export type NayaxLookupCandidate = {
   cardBrand: string;
   recognitionMethod: string;
   paymentStatus: string;
+  productLabel?: string;
+  productCode?: string;
+  standardPriceCents?: number | null;
+  priceMatchesMachineConfiguration?: boolean | null;
+  machineStatus?: {
+    state: 'online' | 'attention' | 'unknown';
+    label: string;
+    checkedAt: string;
+  } | null;
+  nearbyMachineAlerts?: Array<{
+    category: string;
+    occurredAt: string;
+  }>;
   amountDeltaCents?: number | null;
   timeDeltaMinutes?: number;
   qrTimeDeltaMinutes?: number | null;
@@ -763,6 +804,11 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         paymentAmountCents: 700,
         cardLast4: '4242',
         cardWalletUsed: false,
+        paymentInteraction: 'tap_card',
+        walletProvider: null,
+        incidentTimeConfidence: 'within_15_minutes',
+        issueCategory: 'charged_no_product',
+        productDescription: 'Blue raspberry cotton candy',
         hasMatchedSalesFact: false,
         hasMatchedNayaxTransaction: true,
         nayaxMatchExecutionEligible: true,
@@ -782,6 +828,16 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
             cardBrand: 'Visa',
             recognitionMethod: 'tap',
             paymentStatus: 'approved',
+            productLabel: 'Selection 25',
+            productCode: '25',
+            standardPriceCents: 700,
+            priceMatchesMachineConfiguration: true,
+            machineStatus: {
+              state: 'online',
+              label: 'Nayax reported the machine online when this lookup ran',
+              checkedAt: demoIsoHoursAgo(4.5),
+            },
+            nearbyMachineAlerts: [],
             amountDeltaCents: 0,
             timeDeltaMinutes: 3,
             recommendationRank: 1,
