@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-02-portfolio-intake",
-  "sourceGitCommit": "0594a82ffc94f2aee557d5c32f3acbc916e932ab",
+  "sourceGitCommit": "500a585d06b5b4b3fd5054a2b719609451a142e2",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
