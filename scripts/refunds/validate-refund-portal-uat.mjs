@@ -584,6 +584,14 @@ const buildPendingNayaxRefundOverview = () => ({
   ],
 });
 
+const buildWalletMismatchRefundOverview = () => {
+  const overview = buildPendingNayaxRefundOverview();
+  overview.cases[0].cardWalletUsed = true;
+  overview.cases[0].paymentInteraction = 'phone_watch_wallet';
+  overview.cases[0].walletProvider = 'apple_pay';
+  return overview;
+};
+
 const jsonResponse = (body) => ({
   status: 200,
   contentType: 'application/json',
@@ -2096,6 +2104,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     },
     {
       name: 'wallet manual review',
+      refundOverview: buildWalletMismatchRefundOverview,
       response: {
         configured: true,
         lookupStatus: 'match_found',
@@ -2117,13 +2126,13 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
             candidateToken: '41000000-0000-4000-8000-000000000203',
             authorizedAt: isoHoursAgo(2.9),
             machineAuthorizationTime: isoHoursAgo(2.9),
-            amountCents: 700,
+            amountCents: 790,
             currencyCode: 'USD',
-            cardLast4: '0000',
+            cardLast4: '8992',
             cardBrand: 'Visa',
             recognitionMethod: 'wallet',
             paymentStatus: 'approved',
-            amountDeltaCents: 0,
+            amountDeltaCents: 90,
             timeDeltaMinutes: 7,
             recommendationRank: 1,
             isTopRanked: true,
@@ -2136,7 +2145,17 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
             matchStrength: 'compare',
             policyVersion: '2026-07-26.v2',
             manualReviewReasons: ['wallet_payment'],
-            matchReason: 'Wallet payments require manual review for the pilot.',
+            matchFactors: [
+              { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+              { key: 'amount', outcome: 'mismatch', label: 'Transaction amount differs by 90 cents' },
+              {
+                key: 'card',
+                outcome: 'manual',
+                label: 'Contactless or wallet last four did not correlate; it is treated as a clue, not proof',
+              },
+              { key: 'incident_time', outcome: 'match', label: 'Transaction is 7 minutes from the reported time' },
+            ],
+            matchReason: 'Mapped machine with a nearby wallet transaction that needs manager comparison.',
           },
         ],
       },
@@ -2144,6 +2163,8 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedStatus: 'Compare details',
       expectedAction: 'Confirm this card sale',
       expectedCandidateCount: 1,
+      expectedAmountMismatch: '$0.90',
+      expectedWalletCardMismatch: true,
     },
   ];
 
@@ -2153,7 +2174,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     });
     const functionCalls = [];
     await installMockSupabaseRoutes(context, {
-      refundOverview: buildPendingNayaxRefundOverview,
+      refundOverview: scenario.refundOverview ?? buildPendingNayaxRefundOverview,
       functionCalls,
       nayaxLookupResponse: scenario.response,
     });
@@ -2215,6 +2236,21 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         recorder.assert(
           `Nayax ${scenario.name} labels manual QR confidence`,
           await page.getByText(scenario.expectedConfidence, { exact: true }).isVisible()
+        );
+      }
+      if (scenario.expectedAmountMismatch) {
+        const resultCardText = await page.getByTestId('nayax-result-card').innerText();
+        recorder.assert(
+          `Nayax ${scenario.name} keeps amount explanation consistent with displayed values`,
+          resultCardText.includes(`Amount differs by ${scenario.expectedAmountMismatch}`) &&
+            !resultCardText.includes('Amount matches exactly'),
+          resultCardText
+        );
+      }
+      if (scenario.expectedWalletCardMismatch) {
+        recorder.assert(
+          `Nayax ${scenario.name} explains wallet card-number differences without calling them a match`,
+          await page.getByText('Card ending differs; phone or watch wallets may use a different device number', { exact: true }).isVisible()
         );
       }
     }
