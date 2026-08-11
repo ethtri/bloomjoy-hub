@@ -680,19 +680,34 @@ const issueCategoryLabel = (refundCase: RefundCaseRecord) => {
 };
 
 const matchFactorDisplayLabel = (
-  factor: NonNullable<NayaxLookupCandidate['matchFactors']>[number]
+  factor: NonNullable<NayaxLookupCandidate['matchFactors']>[number],
+  candidate: NayaxLookupCandidate,
+  refundCase: RefundCaseRecord
 ) => {
   switch (factor.key) {
     case 'machine':
-      return 'Machine and location match';
+      return factor.outcome === 'match' ? 'Machine and location match' : factor.label;
     case 'amount':
-      return 'Amount matches';
+      return typeof candidate.amountDeltaCents === 'number'
+        ? candidate.amountDeltaCents === 0
+          ? 'Amount matches exactly'
+          : `Amount differs by ${formatCurrency(candidate.amountDeltaCents)}`
+        : factor.label;
     case 'card':
-      return 'Card ending matches';
+      if (!refundCase.cardLast4 || !candidate.cardLast4) return factor.label;
+      if (refundCase.cardLast4 === candidate.cardLast4) return 'Card ending matches';
+      return refundCase.paymentInteraction === 'phone_watch_wallet' || refundCase.cardWalletUsed
+        ? 'Card ending differs; phone or watch wallets may use a different device number'
+        : 'Card ending does not match';
+    case 'incident_time':
     case 'time':
-      return 'Purchase times are close';
+      return typeof candidate.timeDeltaMinutes === 'number'
+        ? candidate.timeDeltaMinutes === 0
+          ? 'Transaction time matches exactly'
+          : `Transaction is ${candidate.timeDeltaMinutes} minutes from the customer-reported time`
+        : factor.label;
     case 'qr_time':
-      return 'Form-open time supports this transaction';
+      return factor.outcome === 'match' ? 'Form-open time supports this transaction' : factor.label;
     default:
       return factor.label;
   }
@@ -3014,7 +3029,7 @@ export default function AdminRefundsPage() {
                         {comparisonCandidate.matchFactors.slice(0, 4).map((factor) => (
                           <li key={`${factor.key}-${factor.label}`} className="flex gap-2">
                             <span aria-hidden="true" className="text-primary">•</span>
-                            <span>{matchFactorDisplayLabel(factor)}</span>
+                            <span>{matchFactorDisplayLabel(factor, comparisonCandidate, selectedCase)}</span>
                           </li>
                         ))}
                       </ul>
