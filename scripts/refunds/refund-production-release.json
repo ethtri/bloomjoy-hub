@@ -44,7 +44,8 @@
     "202608050001_refund_email_pilot_linkage.sql",
     "202608050002_refund_email_duplicate_reconciliation.sql",
     "202608050003_refund_email_queue_state.sql",
-    "202608110001_refund_evidence_clarity.sql"
+    "202608110001_refund_evidence_clarity.sql",
+    "202608110020_refund_nayax_provider_caps.sql"
   ],
   "migrationFilesSha256": "8b953f1ba250e39dc774e7f2b952749a7b7438da1db3a4f9b8d0b8607f6c7efa",
   "migrationVersionSetSha256": "9e3223fb6c4e1ce3dbc2ee92fdaa1b7699e7167ae4194bb313e84e8985c9cd6d",
