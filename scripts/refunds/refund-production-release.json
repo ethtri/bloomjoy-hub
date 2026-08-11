@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-evidence-clarity",
-  "sourceGitCommit": "57fcf79b4122515f8305859b9d08e86ccfbd856e",
+  "sourceGitCommit": "8b065660ef4b0bc24ff6ed41709d78fdb643b2a6",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -53,7 +53,7 @@
     {
       "slug": "refund-case-intake",
       "verifyJwt": false,
-      "sourceSha256": "8c28ed52051e477fb6c5cf57fe81eb1a123fd9247988bee2a8ebab603c38a68e",
+      "sourceSha256": "b4c10e2a034398ee97b4805d25525199de837dd039d4c8e4ba9c1ae4b4f181cc",
       "production": {
         "version": 11,
         "ezbrSha256": "19e36a21ab11af3e122c463499b65b9ac3a085af22ee7c5ee1a4212d41e89e80",
@@ -73,7 +73,7 @@
     {
       "slug": "refund-case-admin-update",
       "verifyJwt": false,
-      "sourceSha256": "edbdfaa6942010f3cccf821bb44142047571bb9cdfe724a7105dee22455de863",
+      "sourceSha256": "c76a7c26e1973074acb5d887c5edc994898f091438b288de2f798c007e9a9d6a",
       "production": {
         "version": 10,
         "ezbrSha256": "93c709d34bf9402545b97c3ea33697c9c7b81628cfb4ffcbbc74c0fa1a42cb6b",
@@ -83,7 +83,7 @@
     {
       "slug": "refund-case-message-send",
       "verifyJwt": false,
-      "sourceSha256": "19a5c51374c9ca17746c420c2259c29356facaf20b577183d880dce79e4a88af",
+      "sourceSha256": "203f1abff3856e3fca37d252b47982f4752bfbba66c1bc7ff920e060341adfb6",
       "production": {
         "version": 9,
         "ezbrSha256": "ebf5a6ffe169c740d5e85b2b7d3413c5472ac5428f1c06ec60c63dea4191bf49",
@@ -93,7 +93,7 @@
     {
       "slug": "refund-case-automation-sweep",
       "verifyJwt": false,
-      "sourceSha256": "2fae18fb778f4f4e46c31d313864dc733cff86dbbbd817086b0addbbc647c07b",
+      "sourceSha256": "840db6094b1daeedefdd5949de713ebe9b27ba4e67400823d6c83aa787f2bc3c",
       "production": {
         "version": 10,
         "ezbrSha256": "cc3a18d10796ed22dd7305cf5a0a7bb12804e16e876505f3ddba65796f79cf64",
