@@ -3160,6 +3160,7 @@ const runReviewOnlyOfficialActionChecks = async ({ browser, appUrl, artifactDir,
     await denyButton.isDisabled() && await askForDetailsButton.isEnabled()
   );
 
+  await page.getByText('Transaction search details', { exact: true }).click();
   const refreshResultButton = page.getByRole('button', { name: 'Refresh result' });
   recorder.assert(
     `${scenario.name} can explicitly refresh transaction evidence`,
