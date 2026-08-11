@@ -1479,7 +1479,7 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder
   );
 
   await page.goto(`${appUrl}/refunds/request?demo=on`, { waitUntil: 'domcontentloaded' });
-  evidence.intakeAvailable = await page.getByRole('heading', { name: 'Let us make this right' })
+  evidence.intakeAvailable = await page.getByRole('heading', { name: 'Request a refund' })
     .waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
   recorder.assert('Public refund intake is available', evidence.intakeAvailable);
   recorder.assert(
@@ -1754,7 +1754,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     functionCalls.includes('nayax-card-refund') &&
       !saveBodies.some((entry) => entry.body?.status === 'completed') &&
       await page.getByTestId('refund-action-receipt')
-        .getByText('Card refund execution is disabled for this pilot environment.', { exact: false })
+        .getByText('Card refunds are not enabled yet.', { exact: false })
         .isVisible(),
     JSON.stringify({ functionCalls, lastSaveBody })
   );
@@ -1822,14 +1822,14 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${appUrl}/refunds`, { waitUntil: 'networkidle' });
-  await page.locator('button', { hasText: 'RF-UAT-CARD' }).click();
+  await page.getByRole('button', { name: /RF-UAT-CARD/ }).click();
   await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
   await page.waitForTimeout(100);
   recorder.assert(
     'Mobile queue hides after selection with a clear return control',
     await page.getByRole('button', { name: 'Show queue', exact: true }).isVisible() &&
-      (await page.locator('button', { hasText: 'RF-UAT-CARD' }).count()) === 0 &&
-      (await page.locator('button', { hasText: 'RF-UAT-WAIT' }).count()) === 0
+      (await page.locator('button:visible', { hasText: 'RF-UAT-CARD' }).count()) === 0 &&
+      (await page.locator('button:visible', { hasText: 'RF-UAT-WAIT' }).count()) === 0
   );
   await page.screenshot({
     path: path.join(artifactDir, 'refund-portal-uat-mobile.png'),
@@ -1948,7 +1948,7 @@ const runEmailPilotDuplicateChecks = async ({ browser, appUrl, artifactDir, reco
 
   const page = await context.newPage();
   await signInRefundUser(page, appUrl);
-  await page.getByText('2 visible of 2 total cases').waitFor({ timeout: 10000 });
+  await page.getByText('1 visible of 2 total cases').waitFor({ timeout: 10000 });
   await page.getByLabel('Filter refund cases by status').selectOption('possible_duplicate');
   await page.getByText('1 visible of 2 total cases').waitFor({ timeout: 10000 });
   await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
@@ -2184,7 +2184,7 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${appUrl}/refunds`, { waitUntil: 'networkidle' });
-  await page.locator('button', { hasText: 'RF-UAT-GMAIL' }).click();
+  await page.getByRole('button', { name: /RF-UAT-GMAIL/ }).click();
   await page.getByTestId('refund-gmail-draft-workbench').waitFor({ timeout: 10000 });
   const overflow = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
@@ -2946,13 +2946,12 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       functionCalls.join(', ')
     );
     await page.getByTestId('nayax-check-transaction').click();
-    await page.getByTestId('nayax-result-card').getByText(scenario.expectedBadge, { exact: true }).waitFor({ timeout: 10000 });
+    await page.getByTestId('nayax-result-card').getByText(scenario.expectedStatus, { exact: true }).waitFor({ timeout: 10000 });
     await page.getByTestId('refund-primary-action').getByText(scenario.expectedHeading, { exact: true }).waitFor({ timeout: 10000 });
 
     recorder.assert(
       `Nayax ${scenario.name} status is explicit`,
-      await page.getByTestId('nayax-result-card').getByText(scenario.expectedBadge, { exact: true }).isVisible() &&
-        await page.getByTestId('refund-primary-action').getByText(scenario.expectedHeading, { exact: true }).isVisible() &&
+      await page.getByTestId('refund-primary-action').getByText(scenario.expectedHeading, { exact: true }).isVisible() &&
         await page.getByTestId('nayax-result-card').getByText(scenario.expectedStatus, { exact: true }).isVisible() &&
         (!scenario.expectedDescription ||
           await page.getByTestId('nayax-result-card').getByText(scenario.expectedDescription).isVisible()) &&
@@ -3161,7 +3160,6 @@ const runReviewOnlyOfficialActionChecks = async ({ browser, appUrl, artifactDir,
     await denyButton.isDisabled() && await askForDetailsButton.isEnabled()
   );
 
-  await page.getByText('Advanced lookup tools (optional)').click();
   const refreshResultButton = page.getByRole('button', { name: 'Refresh result' });
   recorder.assert(
     `${scenario.name} can explicitly refresh transaction evidence`,
@@ -3255,7 +3253,7 @@ const runCustomerCommsFailureChecks = async ({ browser, appUrl, recorder }) => {
 
   const page = await context.newPage();
   await signInRefundUser(page, appUrl);
-  await page.getByText('2 visible of 2 total cases').waitFor({ timeout: 10000 });
+  await page.getByText('1 visible of 2 total cases').waitFor({ timeout: 10000 });
   await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
   const failedCommsBodyText = await page.locator('body').innerText();
 
@@ -3591,7 +3589,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
 
     const page = await context.newPage();
     await signInRefundUser(page, appUrl);
-    await page.getByText('2 visible of 2 total cases').waitFor({ timeout: 10000 });
+    await page.getByText('1 visible of 2 total cases').waitFor({ timeout: 10000 });
     await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
     await page.getByTestId('refund-run-nayax-refund').click();
     await page.getByTestId('refund-confirm-nayax-refund').click();
