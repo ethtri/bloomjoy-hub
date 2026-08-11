@@ -22,6 +22,7 @@ import {
 } from "../_shared/refund-deterministic-follow-up.ts";
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
 import { validateRefundGptReviewedDraft } from "../_shared/refund-gpt-triage-policy.mjs";
+import { validateRefundCustomerMessageRequest } from "../_shared/refund-evidence-selection.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -52,12 +53,12 @@ type OneOrMany<T> = T | T[] | null | undefined;
 type RefundCaseRow = {
   id: string;
   public_reference: string;
+  status: string;
   customer_email: string;
   customer_name: string | null;
   payment_method: string | null;
   payment_amount_cents: number | null;
   refund_amount_cents: number | null;
-  decision_reason: string | null;
   card_wallet_used: boolean;
   card_last4: string | null;
   reporting_machine_id: string | null;
@@ -94,12 +95,12 @@ const allowedPortalMessageTypes = new Set<RefundCustomerMessageType>([
 const selectCaseQuery = `
   id,
   public_reference,
+  status,
   customer_email,
   customer_name,
   payment_method,
   payment_amount_cents,
   refund_amount_cents,
-  decision_reason,
   card_wallet_used,
   card_last4,
   reporting_machine_id,
@@ -301,6 +302,15 @@ serve(async (req) => {
       missingFields = derived.missingFields;
     }
 
+    const customerMessageError = validateRefundCustomerMessageRequest({
+      paymentMethod: refundCase.payment_method,
+      caseStatus: refundCase.status,
+      messageType,
+    });
+    if (customerMessageError) {
+      return jsonResponse({ error: customerMessageError }, 409);
+    }
+
     const machine = firstRelation(refundCase.reporting_machines);
     const location = firstRelation(refundCase.reporting_locations);
     const publicLabels = resolveRefundPublicLabels({
@@ -318,7 +328,7 @@ serve(async (req) => {
       refundAmountCents: refundCase.refund_amount_cents ??
         refundCase.payment_amount_cents,
       paymentMethod: refundCase.payment_method,
-      decisionReason: refundCase.decision_reason,
+      decisionReason: null,
       missingFields,
       cardWalletUsed: refundCase.card_wallet_used,
     };

@@ -24,6 +24,10 @@ import {
   type RefundOfficialAction,
   RefundOfficialActionAuthorizationError,
 } from "../_shared/refund-official-action.ts";
+import {
+  validateCardPreExecutionRequest,
+  validateRefundEvidenceSelectionRequest,
+} from "../_shared/refund-evidence-selection.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
@@ -69,7 +73,6 @@ type RefundCaseRow = {
   public_reference: string;
   status: string;
   decision: string | null;
-  decision_reason: string | null;
   customer_email: string;
   customer_name: string | null;
   payment_method: string | null;
@@ -114,7 +117,6 @@ const selectCaseQuery = `
   public_reference,
   status,
   decision,
-  decision_reason,
   customer_email,
   customer_name,
   payment_method,
@@ -331,7 +333,7 @@ const logCustomerMessage = async ({
     refundAmountCents: refundCase.refund_amount_cents ??
       refundCase.payment_amount_cents,
     paymentMethod: refundCase.payment_method,
-    decisionReason: refundCase.decision_reason,
+    decisionReason: null,
     missingFields,
     cardWalletUsed: refundCase.card_wallet_used,
   });
@@ -412,7 +414,7 @@ const sendAndLogCustomerMessage = async (
       refundAmountCents: refundCase.refund_amount_cents ??
         refundCase.payment_amount_cents,
       paymentMethod: refundCase.payment_method,
-      decisionReason: refundCase.decision_reason,
+      decisionReason: null,
       missingFields,
       cardWalletUsed: refundCase.card_wallet_used,
     };
@@ -701,7 +703,32 @@ serve(async (req) => {
       );
     }
 
-    if (clearNayaxMatch) {
+    const requestedMessageType = sanitizeRefundMessageType(body?.customerMessageType);
+    if (requestedMessageType && !managerActionMessageTypes.has(requestedMessageType)) {
+      return jsonResponse({ error: "Choose an approved customer message type for this action." }, 400);
+    }
+
+    const evidenceSelectionError = validateRefundEvidenceSelectionRequest({
+      hasNayaxCandidate: Boolean(nayaxCandidate),
+      requestedStatus,
+      requestedDecision,
+      requestedMessageType,
+    });
+    if (evidenceSelectionError) {
+      return jsonResponse({ error: evidenceSelectionError }, 400);
+    }
+
+    const cardPreExecutionError = validateCardPreExecutionRequest({
+      isCardCase: beforeRow.payment_method === "card",
+      requestedStatus,
+      requestedDecision,
+      requestedMessageType,
+    });
+    if (cardPreExecutionError) {
+      return jsonResponse({ error: cardPreExecutionError }, 400);
+    }
+
+    if (nayaxCandidate || clearNayaxMatch) {
       const { error: closeEligibilityError } = await supabase
         .from("refund_cases")
         .update({ nayax_match_execution_eligible: false })
@@ -709,9 +736,6 @@ serve(async (req) => {
       if (closeEligibilityError) throw closeEligibilityError;
     }
 
-    const requestedMessageType = sanitizeRefundMessageType(
-      body?.customerMessageType,
-    );
     const suppliedCustomerMissingFields = sanitizeRefundMissingFields(
       body?.customerMissingFields,
     );

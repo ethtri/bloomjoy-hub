@@ -304,13 +304,9 @@ export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
     machineLabel: input.machineLabel,
     locationName: input.locationName,
   });
-  const decisionReason = sanitizeText(input.decisionReason, 500);
   const subject = getSubject(input.messageType, publicReference);
   const greeting = customerName ? `Hi ${customerName},` : "Hi there,";
-  const paragraphs = getBodyParagraphs({
-    ...input,
-    decisionReason,
-  });
+  const paragraphs = getBodyParagraphs(input);
   const details = [`Reference: ${publicReference}`];
   if (machineLabel) details.push(`Machine: ${machineLabel}`);
   if (locationName) details.push(`Location: ${locationName}`);

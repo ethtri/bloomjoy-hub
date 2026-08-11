@@ -231,6 +231,7 @@ const runDesktopQrJourney = async ({ browser, appUrl, artifactDir }) => {
     await page.getByLabel('How did you pay at the machine?').isVisible(),
     true
   );
+  assert.equal(await page.locator('input[type="file"]').count(), 0, 'Public refund intake must not offer attachment uploads.');
 
   await page.screenshot({
     path: path.join(artifactDir, 'refund-qr-intake-desktop.png'),
@@ -251,6 +252,7 @@ const runDesktopQrJourney = async ({ browser, appUrl, artifactDir }) => {
   assert.equal(submission.incidentTimeConfidence, 'within_15_minutes');
   assert.equal(submission.issueCategory, 'charged_no_product');
   assert.equal('productDescription' in submission, false);
+  assert.equal('attachments' in submission, false, 'Public refund intake must not submit attachment bytes.');
   assert.equal(routeState.getClaimCount(), 1);
   assert.equal(pageErrors.length, 0, pageErrors.join(' | '));
 

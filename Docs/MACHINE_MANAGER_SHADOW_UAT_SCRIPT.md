@@ -47,16 +47,15 @@ Pass only if every boundary holds. Any access leak stops the pilot.
 4. Confirm the screen shows the customer request beside the **Recommended card sale** on a typical laptop viewport.
 5. Confirm the explanation includes the mapped location/machine, amount, local time difference, card-last-four evidence when available, and any wallet warning without exposing raw provider IDs or internal score points.
 6. Confirm alternate candidates, timeline, internal notes, and retry tools are not competing with the normal path.
-7. Confirm exactly one dominant refund decision is visible for an eligible current mapped manager. No manual card-success status or editable approval/completion email selector is available.
+7. Confirm exactly one dominant evidence action is visible: **Save possible transaction**. No approval, payment, manual card-success status, or editable approval/completion email selector is available from candidate selection.
 8. Clear the selected sale. Confirm the old refund action disappears immediately and an unsaved candidate cannot expose final refund execution.
-9. Re-select the recommended sale and use **Confirm this card sale**. Confirm execution eligibility appears only after the server saves the manager confirmation.
-10. Open the refund confirmation. Confirm it restates location, machine, transaction time, amount, card last four, and the deterministic provider-success-only completion preview.
-11. Choose **Go back**. Confirm no provider call, case completion, reporting adjustment, or email occurs.
-12. In the synthetic official-action harness, freeze the exact action and personally complete the fresh challenge for the owner-approved TOTP factor. Confirm stale, same-second, replayed, shared/agent-session, mapping/case/evidence-drift, and concurrent attempts fail closed.
-13. Reopen the confirmation and submit once:
+9. Re-select the recommended sale and use **Save possible transaction**. Confirm the dialog says it saves review evidence only and explicitly says **No refund has been issued**. The case remains in review with no decision or customer email.
+10. In the current containment build, confirm saving evidence alone exposes no refund action. In the future approved lifecycle, the separate manager decision must freeze the exact reviewed transaction and amount.
+11. In the synthetic official-action harness, freeze that separate action and personally complete the fresh challenge for the owner-approved TOTP factor. Confirm stale, same-second, replayed, shared/agent-session, mapping/case/evidence-drift, and concurrent attempts fail closed.
+12. Submit the separate approved refund action once:
     - In current shadow mode, confirm the statically disabled provider result keeps the case open and sends no success or fallback email.
     - In a future approved `#430` execution pilot, confirm the button disables while processing and only token-bound confirmed provider success atomically records one provider outcome, one completed case, and one reporting adjustment before one customer completion becomes claimable in the verified original Gmail thread with the full send-time current active mapped-manager set visibly CC'd. No separate manager completion email is created.
-14. Refresh the page and confirm the durable state is correct. Replays and repeated clicks create no second provider attempt, transition, adjustment, or email.
+13. Refresh the page and confirm the durable state is correct. Replays and repeated clicks create no second provider attempt, transition, adjustment, or email.
 
 Record time-to-decision, click/decision count, recommendation accepted yes/no, structured disagreement reason if no, and whether coaching was needed.
 

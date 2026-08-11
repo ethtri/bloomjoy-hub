@@ -57,7 +57,7 @@
     "refunds:validate-wallet-correction": "deno test --no-lock supabase/functions/_shared/refund-wallet-correction.test.ts && node scripts/refunds/validate-refund-wallet-correction.mjs",
     "refunds:validate-deterministic-followup": "deno test --no-lock supabase/functions/_shared/refund-deterministic-follow-up.test.ts supabase/functions/_shared/refund-email.test.ts",
     "refunds:validate-qr-intake-uat": "node scripts/refunds/validate-refund-qr-intake-uat.mjs",
-    "refunds:validate-nayax-execution": "node scripts/validate-nayax-refund-execution.mjs",
+    "refunds:validate-nayax-execution": "deno test --no-lock supabase/functions/_shared/refund-evidence-selection.test.ts && node scripts/validate-nayax-refund-execution.mjs",
     "refunds:validate-nayax-provider-orchestration": "deno test --no-lock supabase/functions/_shared/nayax-refund-orchestration.test.ts",
     "refunds:validate-official-actions": "node scripts/refunds/validate-refund-manager-official-actions.mjs",
     "refunds:validate-manager-totp": "deno test --no-lock supabase/functions/_shared/refund-manager-totp.test.ts",
