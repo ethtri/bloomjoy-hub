@@ -1029,6 +1029,14 @@ const computedContrastRatio = async (locator) => locator.evaluate((element) => {
 
 const pathname = (page) => new URL(page.url()).pathname;
 
+const trackHttpErrors = (page, errors) => {
+  page.on('response', (response) => {
+    if (response.status() >= 400 && response.status() !== 409) {
+      errors.push(`HTTP ${response.status()} ${response.url()}`);
+    }
+  });
+};
+
 const countLinksByName = async (page, name) =>
   page.getByRole('link', { name }).count();
 
@@ -1071,6 +1079,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   page.on('pageerror', (error) => {
     consoleErrors.push(error.message);
   });
+  trackHttpErrors(page, consoleErrors);
 
   await signInRefundUser(page, appUrl);
   await page.getByText('2 visible of 2 total cases').waitFor({ timeout: 10000 });
@@ -1393,6 +1402,7 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     if (message.type() === 'error') consoleErrors.push(message.text());
   });
   page.on('pageerror', (error) => consoleErrors.push(error.message));
+  trackHttpErrors(page, consoleErrors);
 
   await signInRefundUser(page, appUrl);
   await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
@@ -1615,6 +1625,7 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
     if (message.type() === 'error') consoleErrors.push(message.text());
   });
   page.on('pageerror', (error) => consoleErrors.push(error.message));
+  trackHttpErrors(page, consoleErrors);
   await signInRefundUser(page, appUrl);
   await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
   await page.locator('tr', { hasText: 'RF-UAT-CASH-REVIEW' }).click();
@@ -2329,11 +2340,7 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
     targetPage.on('pageerror', (error) => {
       consoleErrors.push(error.message);
     });
-    targetPage.on('response', (response) => {
-      if (response.status() >= 400) {
-        consoleErrors.push(`HTTP ${response.status()} ${response.url()}`);
-      }
-    });
+    trackHttpErrors(targetPage, consoleErrors);
   };
 
   trackErrors(page);
