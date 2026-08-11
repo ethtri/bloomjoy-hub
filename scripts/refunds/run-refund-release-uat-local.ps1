@@ -1,3 +1,7 @@
+param(
+  [switch]$PortalOnly
+)
+
 $ErrorActionPreference = "Stop"
 $startedAt = [DateTime]::UtcNow.ToString("o")
 $sourceCommit = (git rev-parse HEAD).Trim()
@@ -10,11 +14,24 @@ $expectedArtifactPath = [IO.Path]::GetFullPath((Join-Path $worktreeRoot "output/
 $expectedFragmentPath = [IO.Path]::GetFullPath((Join-Path $worktreeRoot "output/refund-uat-fragments"))
 $serverOut = Join-Path $worktreeRoot "output/refund-uat-server-release.log"
 $serverErr = Join-Path $worktreeRoot "output/refund-uat-server-release-error.log"
+$portalLog = Join-Path $worktreeRoot "output/refund-portal-uat-release.log"
 
 function Invoke-CheckedNpm {
   param([string[]]$Arguments)
 
   & npm.cmd @Arguments
+  if ($LASTEXITCODE -ne 0) {
+    throw "npm failed: $($Arguments -join ' ')"
+  }
+}
+
+function Invoke-CheckedNpmWithLog {
+  param(
+    [string[]]$Arguments,
+    [string]$LogPath
+  )
+
+  & npm.cmd @Arguments 2>&1 | Tee-Object -FilePath $LogPath
   if ($LASTEXITCODE -ne 0) {
     throw "npm failed: $($Arguments -join ' ')"
   }
@@ -31,6 +48,9 @@ if (Test-Path -LiteralPath $artifactPath) {
 }
 if (Test-Path -LiteralPath $fragmentPath) {
   Remove-Item -LiteralPath $fragmentPath -Recurse -Force
+}
+if (Test-Path -LiteralPath $portalLog) {
+  Remove-Item -LiteralPath $portalLog -Force
 }
 New-Item -ItemType Directory -Force -Path $artifactPath, $fragmentPath | Out-Null
 
@@ -52,15 +72,17 @@ $env:VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoi
 
 $server = $null
 try {
-  Invoke-CheckedNpm @("run", "db:validate-migrations", "--", "--evidence-dir", $FragmentDir)
-  Invoke-CheckedNpm @(
-    "run",
-    "refunds:build-manager-aging-kill-fragment",
-    "--",
-    "--output",
-    "$FragmentDir/refund-manager-aging-kill-fragment.json"
-  )
-  Invoke-CheckedNpm @("run", "refunds:evidence-gmail", "--", "--evidence-dir", $FragmentDir)
+  if (-not $PortalOnly) {
+    Invoke-CheckedNpm @("run", "db:validate-migrations", "--", "--evidence-dir", $FragmentDir)
+    Invoke-CheckedNpm @(
+      "run",
+      "refunds:build-manager-aging-kill-fragment",
+      "--",
+      "--output",
+      "$FragmentDir/refund-manager-aging-kill-fragment.json"
+    )
+    Invoke-CheckedNpm @("run", "refunds:evidence-gmail", "--", "--evidence-dir", $FragmentDir)
+  }
 
   $server = Start-Process `
     -FilePath "npm.cmd" `
@@ -90,60 +112,67 @@ try {
     throw "Synthetic UAT app did not become ready on port 8081."
   }
 
-  Invoke-CheckedNpm @(
-    "run",
-    "refunds:validate-portal-uat",
-    "--",
-    "--app-url",
-    "http://127.0.0.1:8081",
-    "--artifact-dir",
-    $ArtifactDir,
-    "--fragment-dir",
-    $FragmentDir
-  )
-  Invoke-CheckedNpm @(
-    "run",
-    "refunds:validate-qr-intake-uat",
-    "--",
-    "--app-url",
-    "http://127.0.0.1:8081",
-    "--artifact-dir",
-    $ArtifactDir
-  )
-  Invoke-CheckedNpm @(
-    "run",
-    "refunds:validate-machine-manager-uat",
-    "--",
-    "--app-url",
-    "http://127.0.0.1:8081",
-    "--artifact-dir",
-    $ArtifactDir
-  )
-  Invoke-CheckedNpm @(
-    "run",
-    "refunds:finalize-uat-evidence",
-    "--",
-    "--fragment-dir",
-    $FragmentDir,
-    "--artifact-dir",
-    $ArtifactDir,
-    "--fresh-after",
-    $startedAt
-  )
-  Invoke-CheckedNpm @(
-    "run",
-    "refunds:build-uat-evidence",
-    "--",
-    "--artifact-dir",
-    $ArtifactDir,
-    "--source-commit",
-    $sourceCommit,
-    "--fresh-after",
-    $startedAt
-  )
-  Invoke-CheckedNpm @("run", "refunds:validate-uat-evidence")
+  Invoke-CheckedNpmWithLog `
+    -Arguments @(
+      "run",
+      "refunds:validate-portal-uat",
+      "--",
+      "--app-url",
+      "http://127.0.0.1:8081",
+      "--artifact-dir",
+      $ArtifactDir,
+      "--fragment-dir",
+      $FragmentDir
+    ) `
+    -LogPath $portalLog
 
-  Write-Output "Synthetic release packet ready: $ArtifactDir"
+  if (-not $PortalOnly) {
+    Invoke-CheckedNpm @(
+      "run",
+      "refunds:validate-qr-intake-uat",
+      "--",
+      "--app-url",
+      "http://127.0.0.1:8081",
+      "--artifact-dir",
+      $ArtifactDir
+    )
+    Invoke-CheckedNpm @(
+      "run",
+      "refunds:validate-machine-manager-uat",
+      "--",
+      "--app-url",
+      "http://127.0.0.1:8081",
+      "--artifact-dir",
+      $ArtifactDir
+    )
+    Invoke-CheckedNpm @(
+      "run",
+      "refunds:finalize-uat-evidence",
+      "--",
+      "--fragment-dir",
+      $FragmentDir,
+      "--artifact-dir",
+      $ArtifactDir,
+      "--fresh-after",
+      $startedAt
+    )
+    Invoke-CheckedNpm @(
+      "run",
+      "refunds:build-uat-evidence",
+      "--",
+      "--artifact-dir",
+      $ArtifactDir,
+      "--source-commit",
+      $sourceCommit,
+      "--fresh-after",
+      $startedAt
+    )
+    Invoke-CheckedNpm @("run", "refunds:validate-uat-evidence")
+
+    Write-Output "Synthetic release packet ready: $ArtifactDir"
+  } else {
+    Write-Output "Synthetic portal diagnostics ready: $portalLog"
+  }
 } finally {
   if ($server -and -not $server.HasExited) {
     Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue

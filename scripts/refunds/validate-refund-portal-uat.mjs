@@ -2692,7 +2692,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedHeading: 'No clear transaction was found',
       expectedStatus: 'Needs attention',
       expectedDescription: /none matched enough customer details/i,
-      expectedAction: 'Ask customer for details',
+      expectedAction: 'Manager review required',
       expectedBadge: 'No match found',
     },
     {
@@ -2851,7 +2851,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedHeading: 'The transaction check did not finish',
       expectedStatus: 'Needs attention',
       expectedDescription: /transaction search could not be completed/i,
-      expectedAction: 'Ask customer for details',
+      expectedAction: 'Manager review required',
       expectedBadge: 'Lookup failed',
     },
     {
@@ -3671,13 +3671,24 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
 
   recorder.assert(
     'Explicit local demo mode shows read-only visual cases',
-    await page.getByText('2 visible of 3 total cases').isVisible()
+    await page.getByText('1 visible of 3 total cases').isVisible()
   );
   recorder.assert(
-    'Demo visual review includes card and waiting cases in open queue',
+    'Demo visual review keeps waiting cases out of the needs-action queue',
     (await page.getByText('RF-UAT-CARD').count()) > 0 &&
-      (await page.getByText('RF-UAT-WAIT').count()) > 0
+      (await page.getByText('RF-UAT-WAIT').count()) === 0
   );
+
+  const demoQueueFilter = page.getByLabel('Filter refund cases by status');
+  await demoQueueFilter.selectOption('waiting_on_customer');
+  await page.getByText('1 visible of 3 total cases').waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Demo visual review shows waiting cases in their dedicated queue',
+    (await page.getByText('RF-UAT-WAIT').count()) > 0 &&
+      (await page.getByText('RF-UAT-CARD').count()) === 0
+  );
+  await demoQueueFilter.selectOption('needs_action');
+  await page.getByText('1 visible of 3 total cases').waitFor({ timeout: 10000 });
 
   await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
   await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
