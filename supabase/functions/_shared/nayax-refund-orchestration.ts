@@ -60,7 +60,7 @@ export type NayaxCompletionDelivery = {
 };
 
 export type NayaxProviderAdapter = {
-  mode: "disabled" | "synthetic";
+  mode: "disabled" | "synthetic" | "live";
   execute: (request: NayaxExecutionRequest) => Promise<NayaxProviderOutcome>;
 };
 

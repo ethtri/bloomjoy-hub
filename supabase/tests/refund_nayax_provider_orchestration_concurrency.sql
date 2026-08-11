@@ -137,11 +137,11 @@ as $$
 declare
   reserved jsonb;
 begin
-  reserved := public.service_reserve_and_consume_nayax_refund_attempt(
+  reserved := public.service_reserve_and_consume_nayax_refund_attempt_v2(
     'provider-race-executor',
     '9b800000-0000-4000-8000-000000000001',
     '9b600000-0000-4000-8000-000000000001',
-    'nayax-refund-' || repeat('b', 64), 700, 'USD'
+    'nayax-refund-' || repeat('b', 64), 700, 100000, 100, 'USD'
   );
   return jsonb_build_object('ok', true, 'reservation', reserved);
 exception when others then

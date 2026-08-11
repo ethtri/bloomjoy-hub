@@ -13,7 +13,10 @@ const files = {
   managerAuthorizationMigration: 'supabase/migrations/202605160001_refund_nayax_execution_manager_authorization.sql',
   officialActionMigration: 'supabase/migrations/202608030002_refund_manager_official_action_boundary.sql',
   providerOrchestrationMigration: 'supabase/migrations/202608040004_refund_nayax_provider_orchestration.sql',
+  providerCapsMigration: 'supabase/migrations/202608110020_refund_nayax_provider_caps.sql',
   providerOrchestration: 'supabase/functions/_shared/nayax-refund-orchestration.ts',
+  providerAdapter: 'supabase/functions/_shared/nayax-refund-provider.mjs',
+  providerAdapterTest: 'scripts/refunds/validate-nayax-refund-provider.mjs',
   providerOrchestrationTest: 'supabase/functions/_shared/nayax-refund-orchestration.test.ts',
   providerEvidenceProducer: 'supabase/functions/_shared/nayax-refund-orchestration-evidence.ts',
   providerOrchestrationDatabaseTest: 'supabase/tests/refund_nayax_provider_orchestration.sql',
@@ -34,7 +37,7 @@ const files = {
 };
 
 const read = (relativePath) =>
-  fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
+  fs.readFileSync(path.join(repoRoot, relativePath), 'utf8').replace(/\r\n/g, '\n');
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -47,7 +50,10 @@ const migration = read(files.migration);
 const managerAuthorizationMigration = read(files.managerAuthorizationMigration);
 const officialActionMigration = read(files.officialActionMigration);
 const providerOrchestrationMigration = read(files.providerOrchestrationMigration);
+const providerCapsMigration = read(files.providerCapsMigration);
 const providerOrchestration = read(files.providerOrchestration);
+const providerAdapter = read(files.providerAdapter);
+const providerAdapterTest = read(files.providerAdapterTest);
 const providerOrchestrationTest = read(files.providerOrchestrationTest);
 const providerEvidenceProducer = read(files.providerEvidenceProducer);
 const providerOrchestrationDatabaseTest = read(files.providerOrchestrationDatabaseTest);
@@ -159,6 +165,37 @@ assert(
     !fn.includes('/payment/refund-request') &&
     !fn.includes('/payment/refund-approve'),
   'This release must expose no live or synthetic HTTP execution switch.'
+);
+assert(
+  providerAdapter.includes('ALLOWED_NAYAX_REFUND_HOSTS') &&
+    providerAdapter.includes('url.port') &&
+    providerAdapter.includes('must match an exact Result and Status pair') &&
+    providerAdapter.includes('refund-request') &&
+    providerAdapter.includes('refund-approve') &&
+    providerAdapter.includes('IsRefundedExternally: false') &&
+    providerAdapter.includes('freezeNayaxRefundEvidence') &&
+    providerAdapter.includes('frozen orchestration evidence') &&
+    providerAdapter.includes('redirect: "error"') &&
+    providerAdapter.includes('payloadRedacted: true') &&
+    providerAdapterTest.includes('Approval uncertainty is never retried internally') &&
+    providerAdapterTest.includes('Evidence mismatch fails before any provider call') &&
+    providerAdapterTest.includes('The kill switch defaults to active'),
+  'The unselected production adapter must be host-bounded, evidence-bound, exact-contract, redacted, timeout-safe, and comprehensively tested.'
+);
+assert(
+  providerCapsMigration.includes('pg_catalog.pg_advisory_xact_lock') &&
+    providerCapsMigration.includes('current_daily_count + 1 > p_daily_count_cap') &&
+    providerCapsMigration.includes(
+      'current_daily_amount_cents + p_amount_cents > p_daily_amount_cap_cents'
+    ) &&
+    providerCapsMigration.includes(
+      'service_reserve_and_consume_nayax_refund_attempt_v2'
+    ) &&
+    providerCapsMigration.includes('from service_role;') &&
+    providerAdapterTest.includes(
+      'An exact idempotent replay is returned before cap accounting'
+    ),
+  'Provider attempts must pass an advisory-locked daily count/amount cap without double-counting an exact replay.'
 );
 assert(
   providerOrchestrationMigration.includes('service_reserve_and_consume_nayax_refund_attempt') &&
