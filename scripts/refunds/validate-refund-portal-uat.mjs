@@ -2329,6 +2329,11 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
     targetPage.on('pageerror', (error) => {
       consoleErrors.push(error.message);
     });
+    targetPage.on('response', (response) => {
+      if (response.status() >= 400) {
+        consoleErrors.push(`HTTP ${response.status()} ${response.url()}`);
+      }
+    });
   };
 
   trackErrors(page);
