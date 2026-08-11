@@ -47,7 +47,7 @@ Pass only if every boundary holds. Any access leak stops the pilot.
 5. Confirm alternate candidates, timeline, internal notes, and retry tools are not competing with the normal path.
 6. Confirm exactly one dominant action is visible: **Refund $X and notify customer**. No manual status or decision selector should be required on this path.
 7. Clear the selected sale. Confirm the old refund action disappears immediately and an unsaved candidate cannot expose final refund execution.
-8. Re-select the recommended sale and use **Confirm this card sale**. Confirm execution eligibility appears only after the server saves the manager confirmation.
+8. Re-select the recommended sale and use **Save possible transaction**. Confirm the dialog says this saves review evidence only, then verify the case remains in review with no approval or customer email.
 9. Open the refund confirmation. Confirm it restates location, machine, transaction time, amount, card last four, and the completion-email preview.
 10. Choose **Go back**. Confirm no provider call, case completion, or email occurs.
 11. Reopen the confirmation and submit once:

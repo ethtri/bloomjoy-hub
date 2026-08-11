@@ -11,6 +11,10 @@ import {
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
+import {
+  validateCardPreExecutionRequest,
+  validateRefundEvidenceSelectionRequest,
+} from "../_shared/refund-evidence-selection.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -53,7 +57,6 @@ type RefundCaseRow = {
   public_reference: string;
   status: string;
   decision: string | null;
-  decision_reason: string | null;
   customer_email: string;
   customer_name: string | null;
   payment_method: string | null;
@@ -92,7 +95,6 @@ const selectCaseQuery = `
   public_reference,
   status,
   decision,
-  decision_reason,
   customer_email,
   customer_name,
   payment_method,
@@ -248,7 +250,7 @@ const logCustomerMessage = async ({
     locationName: publicLabels.locationName,
     refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
     paymentMethod: refundCase.payment_method,
-    decisionReason: refundCase.decision_reason,
+    decisionReason: null,
   });
 
   const { data, error } = await supabase
@@ -318,7 +320,7 @@ const sendAndLogCustomerMessage = async (
       locationName: refundCase.reporting_locations?.name,
       refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
       paymentMethod: refundCase.payment_method,
-      decisionReason: refundCase.decision_reason,
+      decisionReason: null,
     };
     const email = buildRefundCustomerEmail(emailInput);
     const gmailDelivery = messageId
@@ -487,18 +489,39 @@ serve(async (req) => {
       return jsonResponse({ error: "Choose an approved Nayax review reason." }, 400);
     }
 
+    const requestedStatus = sanitizeText(body?.status, 80) || null;
+    const requestedDecision = sanitizeText(body?.decision, 80) || null;
+    const requestedMessageType = sanitizeRefundMessageType(body?.customerMessageType);
+    if (requestedMessageType && !managerActionMessageTypes.has(requestedMessageType)) {
+      return jsonResponse({ error: "Choose an approved customer message type for this action." }, 400);
+    }
+
+    const evidenceSelectionError = validateRefundEvidenceSelectionRequest({
+      hasNayaxCandidate: Boolean(nayaxCandidate),
+      requestedStatus,
+      requestedDecision,
+      requestedMessageType,
+    });
+    if (evidenceSelectionError) {
+      return jsonResponse({ error: evidenceSelectionError }, 400);
+    }
+
+    const cardPreExecutionError = validateCardPreExecutionRequest({
+      isCardCase: beforeRow.payment_method === "card",
+      requestedStatus,
+      requestedDecision,
+      requestedMessageType,
+    });
+    if (cardPreExecutionError) {
+      return jsonResponse({ error: cardPreExecutionError }, 400);
+    }
+
     if (nayaxCandidate || clearNayaxMatch) {
       const { error: closeEligibilityError } = await supabase
         .from("refund_cases")
         .update({ nayax_match_execution_eligible: false })
         .eq("id", caseId);
       if (closeEligibilityError) throw closeEligibilityError;
-    }
-
-    const requestedStatus = sanitizeText(body?.status, 80) || null;
-    const requestedMessageType = sanitizeRefundMessageType(body?.customerMessageType);
-    if (requestedMessageType && !managerActionMessageTypes.has(requestedMessageType)) {
-      return jsonResponse({ error: "Choose an approved customer message type for this action." }, 400);
     }
 
     const isCashCompletion = beforeRow.payment_method === "cash" && requestedStatus === "completed";
@@ -526,7 +549,7 @@ serve(async (req) => {
           p_case_id: caseId,
           p_status: requestedStatus,
           p_assigned_manager_email: sanitizeText(body?.assignedManagerEmail, 320) || null,
-          p_decision: sanitizeText(body?.decision, 80) || null,
+          p_decision: requestedDecision,
           p_decision_reason: sanitizeText(body?.decisionReason, 900) || null,
           p_internal_note: sanitizeText(body?.internalNote, 1200) || null,
           p_refund_amount_cents: centsFromInput(body?.refundAmountCents),

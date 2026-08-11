@@ -204,7 +204,7 @@ type PrimaryActionConfig = {
   targetStatus?: RefundCaseStatus;
   targetDecision?: RefundDecision;
   messageType?: RefundCustomerPortalMessageType;
-  mode?: 'case_update' | 'retry_message' | 'nayax_refund_execution';
+  mode?: 'case_update' | 'retry_message' | 'nayax_evidence_selection' | 'nayax_refund_execution';
   disabled?: boolean;
 };
 
@@ -1105,6 +1105,13 @@ const primaryActionConfig = (
 ): PrimaryActionConfig => {
   const latestMessage = getLatestCustomerMessage(refundCase);
   if (latestMessage?.status === 'failed') {
+    if (refundCase.paymentMethod === 'card' && latestMessage.messageType === 'approved') {
+      return {
+        label: 'Approval email blocked',
+        helper: 'No refund has been issued. Card customers are notified only after the provider refund succeeds.',
+        disabled: true,
+      };
+    }
     return {
       label: 'Retry customer email',
       helper: `The last ${statusLabel(latestMessage.messageType)} email failed. Retry it before treating the customer as contacted.`,
@@ -1183,14 +1190,11 @@ const primaryActionConfig = (
     const hasUnsavedCandidate = Boolean(editor.matchedNayaxCandidateToken.trim());
     if (hasUnsavedCandidate && selectedCandidate) {
       return {
-        label: 'Confirm this card sale',
-        helper: selectedCandidate.oneClickEligible
-          ? 'Save the manager-confirmed sale before the guarded card refund becomes available.'
-          : 'Save this reviewed sale. One-click refund stays unavailable unless every server-side safety rule passes.',
-        targetStatus: 'card_refund_pending',
-        targetDecision: 'approved',
-        messageType: 'approved',
-        mode: 'case_update',
+        label: 'Save possible transaction',
+        helper: 'Save this transaction as review evidence. No refund will be issued and the customer will not be emailed.',
+        targetStatus: 'needs_review',
+        targetDecision: null,
+        mode: 'nayax_evidence_selection',
       };
     }
 
@@ -1213,13 +1217,20 @@ const primaryActionConfig = (
       };
     }
 
+    if (matched) {
+      return {
+        label: oneClickEligible ? 'Transaction saved for review' : 'Manager review needed',
+        helper: oneClickEligible
+          ? 'No refund has been issued. The official refund action will become available only after the remaining launch safeguards are ready.'
+          : 'No refund has been issued. Ask the customer for a missing detail, choose a different transaction, or leave this case in review.',
+        disabled: true,
+      };
+    }
+
     return {
-      label: 'Confirm this card sale',
-      helper: 'Confirm the card transaction and send the approval email. The next step is completing the card refund in Bloomjoy Hub.',
-      targetStatus: 'card_refund_pending',
-      targetDecision: 'approved',
-      messageType: 'approved',
-      mode: 'case_update',
+      label: 'Choose a transaction above',
+      helper: 'Compare the customer details with the machine records, then choose the transaction you want to save as review evidence.',
+      disabled: true,
     };
   }
 
@@ -1257,10 +1268,6 @@ const getCustomerMessageDraft = (
 ) => {
   const editedRefundAmountCents = editor?.refundAmount ? centsFromCurrency(editor.refundAmount) : null;
   const amount = typeof editedRefundAmountCents === 'number' ? formatCurrency(editedRefundAmountCents) : formatMessageAmount(refundCase);
-  const decisionReason =
-    editor?.decisionReason.trim() ||
-    refundCase.decisionReason ||
-    'If any of the details were submitted incorrectly, please reply and we will take another careful look.';
   switch (messageType) {
     case 'more_info':
       return {
@@ -1287,7 +1294,7 @@ const getCustomerMessageDraft = (
         subject: `Update on your Bloomjoy refund request ${refundCase.publicReference}`,
         body: [
           'Thank you for giving us the chance to review this. We were not able to approve the refund based on the transaction and machine information available.',
-          decisionReason,
+          'If any of the details were submitted incorrectly, please reply and we will take another careful look.',
           'We are sorry this visit was frustrating, and we appreciate you reaching out.',
         ].join('\n\n'),
       };
@@ -1548,6 +1555,7 @@ export default function AdminRefundsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isLookingUpNayax, setIsLookingUpNayax] = useState(false);
   const [isRunningNayaxRefund, setIsRunningNayaxRefund] = useState(false);
+  const [isEvidenceConfirmationOpen, setIsEvidenceConfirmationOpen] = useState(false);
   const [isRefundConfirmationOpen, setIsRefundConfirmationOpen] = useState(false);
   const [isCashConfirmationOpen, setIsCashConfirmationOpen] = useState(false);
   const [isCashCompletionSubmitting, setIsCashCompletionSubmitting] = useState(false);
@@ -1690,6 +1698,7 @@ export default function AdminRefundsPage() {
     setNayaxCandidates([]);
     setNayaxLookupNotice(null);
     setNayaxLookupSummary(null);
+    setIsEvidenceConfirmationOpen(false);
     setIsRefundConfirmationOpen(false);
     setIsCashConfirmationOpen(false);
     setMessageSubject('');
@@ -1799,6 +1808,7 @@ export default function AdminRefundsPage() {
     setNayaxCandidates(refundCase.nayaxLookupCandidates ?? []);
     setNayaxLookupNotice(null);
     setNayaxExecutionNotice(null);
+    setIsEvidenceConfirmationOpen(false);
     setIsRefundConfirmationOpen(false);
     setIsCashConfirmationOpen(false);
     setRefundActionReceipt(null);
@@ -2015,6 +2025,10 @@ export default function AdminRefundsPage() {
       await handleSendCustomerMessage(primaryAction.messageType);
       return;
     }
+    if (primaryAction.mode === 'nayax_evidence_selection') {
+      setIsEvidenceConfirmationOpen(true);
+      return;
+    }
     if (
       primaryAction.targetStatus === 'completed' &&
       selectedCase?.paymentMethod === 'card'
@@ -2027,6 +2041,14 @@ export default function AdminRefundsPage() {
     }
     setEditor(primaryActionEditor);
     await handleSaveCase(primaryActionEditor, primaryAction.messageType ?? null);
+  };
+
+  const handleConfirmEvidenceSelection = async () => {
+    if (!primaryActionEditor || primaryAction?.mode !== 'nayax_evidence_selection') return;
+
+    setEditor(primaryActionEditor);
+    const saveResult = await handleSaveCase(primaryActionEditor, null);
+    if (saveResult) setIsEvidenceConfirmationOpen(false);
   };
 
   const handleConfirmCashCompletion = async () => {
@@ -2776,6 +2798,11 @@ export default function AdminRefundsPage() {
     selectedCase && editor && primaryAction?.messageType
       ? getCustomerMessageDraft(selectedCase, primaryAction.messageType, editor)
       : null;
+  const availableCustomerMessageOptions = customerMessageOptions.filter((option) => {
+    if (selectedCase?.paymentMethod === 'card' && option.value === 'approved') return false;
+    if (option.value === 'completed' && selectedCase?.status !== 'completed') return false;
+    return true;
+  });
   const primaryActionIsCompletion = primaryAction?.targetStatus === 'completed';
   const isCardCompletion = primaryActionIsCompletion && selectedCase?.paymentMethod === 'card';
   const completionProvider = 'Zelle';
@@ -2865,6 +2892,12 @@ export default function AdminRefundsPage() {
               <h3 className="mt-1 text-xl font-semibold">
                 {nayaxDecisionHeading(selectedNayaxSummary, comparisonCandidate, hasSelectedMatch)}
               </h3>
+              {selectedCase.status !== 'completed' && (
+                <p data-testid="refund-not-issued-notice" className="mt-2 max-w-xl text-sm leading-5 text-muted-foreground">
+                  <span className="font-semibold text-foreground">No refund has been issued.</span>{' '}
+                  Selecting a transaction saves review evidence only.
+                </p>
+              )}
             </div>
             <div className="flex flex-col gap-2 sm:items-end">
               <div className="flex flex-wrap gap-2 sm:justify-end">
@@ -3152,6 +3185,38 @@ export default function AdminRefundsPage() {
             </div>
           </details>
         )}
+
+        <AlertDialog
+          open={isEvidenceConfirmationOpen}
+          onOpenChange={(open) => {
+            if (!isSaving) setIsEvidenceConfirmationOpen(open);
+          }}
+        >
+          <AlertDialogContent data-testid="refund-evidence-confirmation-dialog" className="max-w-lg">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Save this transaction as evidence?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This saves the transaction for manager review. It does not issue a refund, approve the request, or email the customer.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isSaving}>Go back</AlertDialogCancel>
+              <Button
+                data-testid="refund-confirm-evidence-selection"
+                type="button"
+                onClick={() => void handleConfirmEvidenceSelection()}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                )}
+                Save transaction
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <AlertDialog
           open={isRefundConfirmationOpen}
@@ -4590,14 +4655,14 @@ export default function AdminRefundsPage() {
                             }
                             className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                           >
-                            {customerMessageOptions.map((option) => (
+                            {availableCustomerMessageOptions.map((option) => (
                               <option key={option.value} value={option.value}>
                                 {option.label}
                               </option>
                             ))}
                           </select>
                           <InfoHint>
-                            {customerMessageOptions.find((option) => option.value === messageType)?.helper}
+                            {availableCustomerMessageOptions.find((option) => option.value === messageType)?.helper}
                           </InfoHint>
                         </div>
                         <div>

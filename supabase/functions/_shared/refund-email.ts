@@ -118,7 +118,6 @@ const getBodyParagraphs = ({
   messageType,
   refundAmountCents,
   paymentMethod,
-  decisionReason,
 }: RefundCustomerEmailInput) => {
   const refundAmount = formatCurrency(refundAmountCents);
   const amountPhrase = refundAmount ? ` for ${refundAmount}` : "";
@@ -154,9 +153,7 @@ const getBodyParagraphs = ({
     case "denied":
       return [
         "Thank you for giving us the chance to review this. We were not able to approve the refund based on the transaction and machine information available.",
-        decisionReason
-          ? `Our review note: ${decisionReason}`
-          : "If any of the details were submitted incorrectly, please reply and we will take another careful look.",
+        "If any of the details were submitted incorrectly, please reply and we will take another careful look.",
         "We are sorry this visit was frustrating, and we appreciate you reaching out.",
       ];
     case "completed":
@@ -189,13 +186,9 @@ export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
     machineLabel: input.machineLabel,
     locationName: input.locationName,
   });
-  const decisionReason = sanitizeText(input.decisionReason, 500);
   const subject = getSubject(input.messageType, publicReference);
   const greeting = customerName ? `Hi ${customerName},` : "Hi there,";
-  const paragraphs = getBodyParagraphs({
-    ...input,
-    decisionReason,
-  });
+  const paragraphs = getBodyParagraphs(input);
   const details = [`Reference: ${publicReference}`];
   if (machineLabel) details.push(`Machine: ${machineLabel}`);
   if (locationName) details.push(`Location: ${locationName}`);

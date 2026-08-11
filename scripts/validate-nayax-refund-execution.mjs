@@ -172,8 +172,10 @@ assert(
   refundCaseMessageSend.includes('can_manage_refund_case') &&
     refundCaseMessageSend.includes('buildEditableRefundCustomerEmail') &&
     refundCaseMessageSend.includes('replyTo: getRefundReplyToEmail()') &&
-    refundCaseMessageSend.includes('created_by: user.id'),
-  'Portal customer messaging must be authorized, logged, editable from approved templates, and reply-to the support inbox.'
+    refundCaseMessageSend.includes('created_by: user.id') &&
+    refundCaseMessageSend.includes('validateRefundCustomerMessageRequest') &&
+    refundCaseMessageSend.includes('decisionReason: null'),
+  'Portal customer messaging must be authorized, logged, editable from approved templates, reply-to the support inbox, and reject premature card approval/completion messages without exposing internal decision notes.'
 );
 assert(
   !refundOperationsLib.includes('transactionId: string') &&
@@ -201,6 +203,18 @@ assert(
     refundAdminUpdate.includes('nayaxDisagreementReason') &&
     refundAdminUpdate.includes('nayax_match_execution_eligible: false'),
   'Manager selection must reject safety-blocked candidates, record structured alternate reasons, and close eligibility before changing a match.'
+);
+assert(
+  refundAdminUpdate.includes('validateRefundEvidenceSelectionRequest') &&
+    refundAdminUpdate.includes('validateCardPreExecutionRequest'),
+  'The refund admin endpoint must enforce evidence-only Nayax selection and reject premature card approvals server-side.'
+);
+assert(
+  refundOperationsUi.includes("label: 'Save possible transaction'") &&
+    refundOperationsUi.includes("targetStatus: 'needs_review'") &&
+    refundOperationsUi.includes("mode: 'nayax_evidence_selection'") &&
+    !refundOperationsUi.includes("label: 'Confirm this card sale'"),
+  'The manager UI must present transaction selection as evidence review, never as refund approval.'
 );
 assert(
   nayaxRecommendationMigration.includes('nayaxLookupCandidates') &&

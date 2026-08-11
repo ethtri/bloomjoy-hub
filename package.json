@@ -56,7 +56,7 @@
     "refunds:validate-qr-claim": "deno test --no-lock supabase/functions/_shared/refund-qr-claim.test.ts && node scripts/refunds/validate-refund-qr-claim.mjs",
     "refunds:validate-wallet-correction": "deno test --no-lock supabase/functions/_shared/refund-wallet-correction.test.ts && node scripts/refunds/validate-refund-wallet-correction.mjs",
     "refunds:validate-qr-intake-uat": "node scripts/refunds/validate-refund-qr-intake-uat.mjs",
-    "refunds:validate-nayax-execution": "node scripts/validate-nayax-refund-execution.mjs",
+    "refunds:validate-nayax-execution": "deno test --no-lock supabase/functions/_shared/refund-evidence-selection.test.ts && node scripts/validate-nayax-refund-execution.mjs",
     "refunds:release:write-local": "node scripts/refunds/refund-release.mjs --local --write-local",
     "refunds:release:check": "node scripts/refunds/refund-release.mjs --local",
     "refunds:release:check-production": "node scripts/refunds/refund-release.mjs --production",

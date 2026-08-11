@@ -1342,6 +1342,11 @@ serve(async (req) => {
     const rawAttachments = Array.isArray(body?.attachments)
       ? body.attachments as RefundAttachmentInput[]
       : [];
+    if (rawAttachments.length > 0) {
+      throw new RequestValidationError(
+        "Photo uploads are temporarily unavailable. Please submit the request without attachments.",
+      );
+    }
 
     if (!qrClaimToken && !isUuid(machineId)) {
       return new Response(JSON.stringify({ error: "Please choose a machine location." }), {

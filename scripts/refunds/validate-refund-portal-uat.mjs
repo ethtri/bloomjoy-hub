@@ -2018,7 +2018,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       },
       expectedHeading: 'More than one transaction could match',
       expectedStatus: 'Compare details',
-      expectedAction: 'Confirm this card sale',
+      expectedAction: 'Choose a transaction above',
       expectedCandidateCount: 2,
     },
     {
@@ -2078,7 +2078,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       },
       expectedHeading: 'One likely transaction was found',
       expectedStatus: 'Likely match',
-      expectedAction: 'Confirm this card sale',
+      expectedAction: 'Choose a transaction above',
       expectedCandidateCount: 1,
       expectedConfidence: 'QR and timing agree, manager review only',
     },
@@ -2161,7 +2161,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       },
       expectedHeading: 'A possible transaction needs comparison',
       expectedStatus: 'Compare details',
-      expectedAction: 'Confirm this card sale',
+      expectedAction: 'Choose a transaction above',
       expectedCandidateCount: 1,
       expectedAmountMismatch: '$0.90',
       expectedWalletCardMismatch: true,
@@ -2173,9 +2173,11 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       viewport: { width: 1440, height: 1000 },
     });
     const functionCalls = [];
+    const functionBodies = [];
     await installMockSupabaseRoutes(context, {
       refundOverview: scenario.refundOverview ?? buildPendingNayaxRefundOverview,
       functionCalls,
+      functionBodies,
       nayaxLookupResponse: scenario.response,
     });
     const page = await context.newPage();
@@ -2253,6 +2255,61 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
           await page.getByText('Card ending differs; phone or watch wallets may use a different device number', { exact: true }).isVisible()
         );
       }
+      if (scenario.name === 'unique QR wallet recommendation') {
+        await page.getByTestId('nayax-candidate-option').first().click();
+        await page.getByText('Preview customer email', { exact: true }).click();
+        recorder.assert(
+          'Transaction selection is presented as evidence review, not approval',
+          await page.getByRole('button', { name: 'Save possible transaction' }).isVisible() &&
+            await page.getByTestId('refund-not-issued-notice').getByText('No refund has been issued.', { exact: true }).isVisible() &&
+            await page.getByText('No automatic email is queued for this state.').isVisible()
+        );
+
+        await page.getByRole('button', { name: 'Save possible transaction' }).click();
+        const evidenceDialog = page.getByTestId('refund-evidence-confirmation-dialog');
+        recorder.assert(
+          'Evidence save confirmation states every excluded side effect',
+          await evidenceDialog.isVisible() &&
+            await evidenceDialog.getByText(/does not issue a refund, approve the request, or email the customer/i).isVisible() &&
+            !functionCalls.includes('refund-case-admin-update') &&
+            !functionCalls.includes('nayax-card-refund')
+        );
+        await page.screenshot({
+          path: path.join(artifactDir, 'refund-evidence-selection-desktop.png'),
+          fullPage: false,
+        });
+
+        await page.setViewportSize({ width: 390, height: 844 });
+        recorder.assert(
+          'Evidence save confirmation remains usable without mobile overflow',
+          await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+        );
+        await page.screenshot({
+          path: path.join(artifactDir, 'refund-evidence-selection-mobile.png'),
+          fullPage: false,
+        });
+
+        await page.getByTestId('refund-confirm-evidence-selection').click();
+        await evidenceDialog.waitFor({ state: 'hidden', timeout: 5000 });
+        const evidenceSaveBody = functionBodies
+          .filter((entry) => entry.functionName === 'refund-case-admin-update')
+          .at(-1)?.body ?? {};
+        recorder.assert(
+          'Evidence save stays in review with no decision or customer message',
+            evidenceSaveBody.status === 'needs_review' &&
+            evidenceSaveBody.decision === null &&
+            evidenceSaveBody.matchedNayaxCandidateToken === scenario.response.candidates[0].candidateToken &&
+            evidenceSaveBody.customerMessageType == null,
+          JSON.stringify(evidenceSaveBody)
+        );
+        recorder.assert(
+          'Evidence save performs zero provider writes and zero customer sends',
+          !functionCalls.includes('nayax-card-refund') &&
+            !functionCalls.includes('refund-case-message-send'),
+          functionCalls.join(', ')
+        );
+        await page.setViewportSize({ width: 1440, height: 1000 });
+      }
     }
     recorder.assert(
       `Nayax ${scenario.name} output hides raw provider IDs`,
@@ -2300,21 +2357,18 @@ const runCustomerCommsFailureChecks = async ({ browser, appUrl, recorder }) => {
       failedCommsBodyText.includes('Customer email needs retry')
   );
   recorder.assert(
-    'Failed customer email promotes retry as the primary action',
-    await page.getByRole('button', { name: /Retry customer email/i }).first().isVisible()
-  );
-
-  await page.getByRole('button', { name: /Retry customer email/i }).first().click();
-  await page.waitForTimeout(300);
-
-  const sendBody = functionBodies.find((entry) => entry.functionName === 'refund-case-message-send')?.body ?? {};
-  recorder.assert(
-    'Retry uses the customer message Edge Function with the failed message type',
-    functionCalls.includes('refund-case-message-send') && sendBody.messageType === 'approved',
-    JSON.stringify(sendBody)
+    'Premature card approval email cannot be retried',
+    await page.getByRole('button', { name: 'Approval email blocked' }).isVisible() &&
+      await page.getByRole('button', { name: 'Approval email blocked' }).isDisabled() &&
+      await page.getByTestId('refund-not-issued-notice').getByText('No refund has been issued.', { exact: true }).isVisible()
   );
   recorder.assert(
-    'Retry does not falsely update the case through admin update',
+    'Blocked approval email performs no customer-message request',
+    !functionCalls.includes('refund-case-message-send'),
+    functionCalls.join(', ')
+  );
+  recorder.assert(
+    'Blocked approval email performs no case update',
     !functionCalls.includes('refund-case-admin-update'),
     functionCalls.join(', ')
   );

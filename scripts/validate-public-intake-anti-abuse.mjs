@@ -141,6 +141,7 @@ const refundSubmissionLimitIndex = refundRequestHandler.indexOf('rules: PUBLIC_I
 const refundNotificationLimitIndex = refundRequestHandler.indexOf('rules: PUBLIC_INTAKE_NOTIFICATION_LIMITS');
 const refundSendEmailIndex = refundRequestHandler.indexOf('sendTransactionalEmail({');
 const refundPrepareAttachmentsIndex = refundRequestHandler.indexOf('prepareAttachments(rawAttachments)');
+const refundAttachmentRejectionIndex = refundRequestHandler.indexOf('if (rawAttachments.length > 0)');
 const refundServerDedupeIndex = refundRequestHandler.indexOf('serverDedupeKey');
 
 assert(refundInsertIndex > -1, 'Could not find refund_cases insert path.');
@@ -150,6 +151,11 @@ assert(
   'Refund submission throttle must run before refund_cases persistence.'
 );
 assert(refundPrepareAttachmentsIndex > -1, 'Missing refund attachment pre-validation call.');
+assert(refundAttachmentRejectionIndex > -1, 'Refund intake must reject public attachment bytes while uploads are disabled.');
+assert(
+  refundAttachmentRejectionIndex < refundPrepareAttachmentsIndex,
+  'Disabled public attachment bytes must be rejected before decoding, upload, or refund-case persistence.'
+);
 assert(
   refundPrepareAttachmentsIndex < refundInsertIndex,
   'Refund attachments must be pre-validated before refund_cases persistence.'
@@ -172,6 +178,12 @@ assert(
 assert(
   !refundIntakeFunction.includes('console.error("refund-case-intake error", error)'),
   'Refund intake errors should not log raw error objects that may include private payload context.'
+);
+assert(
+  !refundRequestPage.includes('type="file"') &&
+    !refundRequestPage.includes('readAsDataURL') &&
+    !refundRequestPage.includes('attachments,'),
+  'The public refund form must not offer or submit attachments while server-side uploads are disabled.'
 );
 assert(
   !refundIntakeFunction.includes('console.error("refund-case-intake email failed", emailError)'),

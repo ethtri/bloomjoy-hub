@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Clock3, Loader2, MapPin, Paperclip, ShieldCheck, Sparkles } from 'lucide-react';
+import { CheckCircle2, Clock3, Loader2, MapPin, ShieldCheck, Sparkles } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -15,7 +15,6 @@ import {
   isLocalUatDemoForced,
   startRefundQrClaim,
   submitRefundRequest,
-  type RefundAttachmentInput,
   type RefundIncidentTimeConfidence,
   type RefundIssueCategory,
   type RefundPaymentMethod,
@@ -23,9 +22,6 @@ import {
   type RefundQrClaim,
   type RefundWalletProvider,
 } from '@/lib/refundOperations';
-
-const maxAttachments = 3;
-const maxAttachmentBytes = 5 * 1024 * 1024;
 
 const emptyForm = {
   machineId: '',
@@ -45,14 +41,6 @@ const emptyForm = {
   issueCategory: '' as RefundIssueCategory | '',
   issueSummary: '',
 };
-
-const readFileAsBase64 = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ''));
-    reader.onerror = () => reject(reader.error ?? new Error('Unable to read file.'));
-    reader.readAsDataURL(file);
-  });
 
 const hasValidIncidentLocalTime = (incidentDate: string, incidentTime: string) =>
   /^\d{4}-\d{2}-\d{2}$/.test(incidentDate) && /^\d{2}:\d{2}$/.test(incidentTime);
@@ -98,7 +86,6 @@ export default function RefundRequestPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [form, setForm] = useState(emptyForm);
-  const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [qrSubmissionError, setQrSubmissionError] = useState(false);
   const isDemoMode = isLocalUatDemoForced();
@@ -182,33 +169,6 @@ export default function RefundRequestPage() {
     setForm((current) => ({ ...current, [key]: value }));
   };
 
-  const handleFilesChange = (nextFiles: FileList | null) => {
-    const selectedFiles = Array.from(nextFiles ?? []);
-    const validFiles = selectedFiles.slice(0, maxAttachments);
-    const oversized = validFiles.find((file) => file.size > maxAttachmentBytes);
-
-    if (selectedFiles.length > maxAttachments) {
-      toast.info('Only the first 3 photos were attached.');
-    }
-
-    if (oversized) {
-      toast.error('Each photo must be 5MB or smaller.');
-      return;
-    }
-
-    setFiles(validFiles);
-  };
-
-  const buildAttachments = async (): Promise<RefundAttachmentInput[]> =>
-    Promise.all(
-      files.map(async (file) => ({
-        fileName: file.name,
-        contentType: file.type,
-        byteSize: file.size,
-        base64: await readFileAsBase64(file),
-      }))
-    );
-
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -280,7 +240,6 @@ export default function RefundRequestPage() {
         return;
       }
 
-      const attachments = await buildAttachments();
       const refundCase = await submitRefundRequest({
         machineId: form.machineId,
         qrClaimToken: qrClaim?.claimToken,
@@ -304,11 +263,9 @@ export default function RefundRequestPage() {
             : undefined,
         incidentTimeConfidence: form.incidentTimeConfidence || 'rough',
         issueCategory: form.issueCategory || 'other',
-        attachments,
       });
 
       setForm(emptyForm);
-      setFiles([]);
       navigate(`/refunds/thank-you?ref=${encodeURIComponent(refundCase?.publicReference ?? '')}`);
     } catch (error) {
       if (
@@ -751,41 +708,6 @@ export default function RefundRequestPage() {
                     placeholder="Tell us what went wrong, whether anything was dispensed, and anything visible on the machine screen. We appreciate the detail."
                     className="mt-2"
                   />
-                </div>
-
-                <div>
-                  <Label htmlFor="photos">Photos</Label>
-                  <div className="mt-2 rounded-lg border border-dashed border-border bg-muted/20 p-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex items-start gap-3 text-sm text-muted-foreground">
-                        <Paperclip className="mt-0.5 h-4 w-4 shrink-0" />
-                        <span>
-                          Optional images of the machine or product issue. Do not upload a card,
-                          wallet, or payment-account screenshot. Up to 3 photos, 5MB each.
-                        </span>
-                      </div>
-                      <Input
-                        id="photos"
-                        type="file"
-                        accept="image/png,image/jpeg,image/webp"
-                        multiple
-                        onChange={(event) => handleFilesChange(event.target.files)}
-                        className="max-w-sm bg-background"
-                      />
-                    </div>
-                    {files.length > 0 && (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {files.map((file) => (
-                          <span
-                            key={`${file.name}-${file.size}`}
-                            className="rounded-full border border-border bg-background px-3 py-1 text-xs text-muted-foreground"
-                          >
-                            {file.name}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
                 </div>
 
                   <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">

@@ -14,6 +14,7 @@ import {
 } from "../_shared/refund-email.ts";
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
 import { validateRefundGptReviewedDraft } from "../_shared/refund-gpt-triage-policy.mjs";
+import { validateRefundCustomerMessageRequest } from "../_shared/refund-evidence-selection.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -43,12 +44,12 @@ type OneOrMany<T> = T | T[] | null | undefined;
 type RefundCaseRow = {
   id: string;
   public_reference: string;
+  status: string;
   customer_email: string;
   customer_name: string | null;
   payment_method: string | null;
   payment_amount_cents: number | null;
   refund_amount_cents: number | null;
-  decision_reason: string | null;
   reporting_machines?: OneOrMany<{
     machine_label: string | null;
     refund_public_display_label: string | null;
@@ -79,12 +80,12 @@ const allowedPortalMessageTypes = new Set<RefundCustomerMessageType>([
 const selectCaseQuery = `
   id,
   public_reference,
+  status,
   customer_email,
   customer_name,
   payment_method,
   payment_amount_cents,
   refund_amount_cents,
-  decision_reason,
   reporting_machines(machine_label, refund_public_display_label),
   reporting_locations(name)
 `;
@@ -210,6 +211,15 @@ serve(async (req) => {
       return jsonResponse({ error: "Customer email is missing for this refund case." }, 400);
     }
 
+    const customerMessageError = validateRefundCustomerMessageRequest({
+      paymentMethod: refundCase.payment_method,
+      caseStatus: refundCase.status,
+      messageType,
+    });
+    if (customerMessageError) {
+      return jsonResponse({ error: customerMessageError }, 409);
+    }
+
     const machine = firstRelation(refundCase.reporting_machines);
     const location = firstRelation(refundCase.reporting_locations);
     const publicLabels = resolveRefundPublicLabels({
@@ -226,7 +236,7 @@ serve(async (req) => {
       locationName: publicLabels.locationName,
       refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
       paymentMethod: refundCase.payment_method,
-      decisionReason: refundCase.decision_reason,
+      decisionReason: null,
     };
     const defaultEmail = buildRefundCustomerEmail(templateInput);
     const requestedSubject = sanitizeText(body?.subject, 180);
