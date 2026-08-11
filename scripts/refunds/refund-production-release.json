@@ -31,6 +31,7 @@
     "202607260001_refund_qr_claim_context.sql",
     "202607260002_refund_qr_aware_nayax_recommendation.sql",
     "202607270001_refund_wallet_correction.sql",
+    "202608020001_refund_portfolio_wide_intake.sql",
     "202608030001_refund_gmail_first_contact.sql",
     "202608030002_refund_manager_official_action_boundary.sql",
     "202608030003_refund_gmail_participant_cc.sql",
@@ -42,7 +43,8 @@
     "202608040004_refund_nayax_provider_orchestration.sql",
     "202608050001_refund_email_pilot_linkage.sql",
     "202608050002_refund_email_duplicate_reconciliation.sql",
-    "202608050003_refund_email_queue_state.sql"
+    "202608050003_refund_email_queue_state.sql",
+    "202608110001_refund_evidence_clarity.sql"
   ],
   "migrationFilesSha256": "17194f6c0a21d20683c40fdd430694422c7ba5bba7010af19eb1f6d0582bf478",
   "migrationVersionSetSha256": "d75fab08f35a366df909befcc9e236fad103294ca486b271688d40147cfb3cf1",
