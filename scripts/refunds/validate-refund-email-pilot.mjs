@@ -138,7 +138,7 @@ for (const proof of [
   'Possible duplicates',
   'Missing information',
   'Aging cases',
-  'Provider holds',
+  'Provider check needed',
   'Copy exact link',
   'Same incident — keep this case',
   'Different purchases',
