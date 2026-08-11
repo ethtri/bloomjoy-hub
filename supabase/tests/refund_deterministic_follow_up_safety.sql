@@ -435,10 +435,12 @@ select has_column(
   'Customer-message evidence links to one follow-up cycle'
 );
 select ok(
-  pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
-    like '%contentSource%'
-  and pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
-    like '%requestedFields%'
+  pg_get_functiondef(
+    'public.admin_get_refund_operations_overview_pre_evidence_clarity_v1()'::regprocedure
+  ) like '%contentSource%'
+  and pg_get_functiondef(
+    'public.admin_get_refund_operations_overview_pre_evidence_clarity_v1()'::regprocedure
+  ) like '%requestedFields%'
   and pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
     not like '%raw_provider%'
   and pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)

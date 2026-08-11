@@ -330,10 +330,19 @@ begin
     payment_amount_cents = (p_case_values ->> 'paymentAmountCents')::integer,
     card_last4 = nullif(p_case_values ->> 'cardLast4', ''),
     card_wallet_used = coalesce((p_case_values ->> 'cardWalletUsed')::boolean, false),
-    payment_interaction = nullif(p_case_values ->> 'paymentInteraction', ''),
+    payment_interaction = coalesce(
+      nullif(p_case_values ->> 'paymentInteraction', ''),
+      case when p_case_values ->> 'paymentMethod' = 'cash' then 'cash' else 'unsure' end
+    ),
     wallet_provider = nullif(p_case_values ->> 'walletProvider', ''),
-    incident_time_confidence = nullif(p_case_values ->> 'incidentTimeConfidence', ''),
-    issue_category = nullif(p_case_values ->> 'issueCategory', ''),
+    incident_time_confidence = coalesce(
+      nullif(p_case_values ->> 'incidentTimeConfidence', ''),
+      'rough'
+    ),
+    issue_category = coalesce(
+      nullif(p_case_values ->> 'issueCategory', ''),
+      'other'
+    ),
     product_description = nullif(p_case_values ->> 'productDescription', ''),
     status = p_case_values ->> 'status',
     correlation_status = p_case_values ->> 'correlationStatus',
