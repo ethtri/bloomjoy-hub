@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "783d1b76230c88e82e2e93295ca00827298507e1",
+  "sourceGitCommit": "bd6493d376b201be917a7cbdc0472816ed9f3c1f",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -47,8 +47,8 @@
     "202608110001_refund_evidence_clarity.sql",
     "202608110020_refund_nayax_provider_caps.sql"
   ],
-  "migrationFilesSha256": "8b953f1ba250e39dc774e7f2b952749a7b7438da1db3a4f9b8d0b8607f6c7efa",
-  "migrationVersionSetSha256": "9e3223fb6c4e1ce3dbc2ee92fdaa1b7699e7167ae4194bb313e84e8985c9cd6d",
+  "migrationFilesSha256": "b466b1d99444d8fbaf1059bc3fba7866c1020dc297d505adf5532a68b3605d2d",
+  "migrationVersionSetSha256": "2d25a9ebf8937c36ba64474c69270a970c7f1579a257219035bddfe96c5e9321",
   "functions": [
     {
       "slug": "refund-case-intake",
@@ -123,7 +123,7 @@
     {
       "slug": "nayax-card-refund",
       "verifyJwt": false,
-      "sourceSha256": "e04a861fee19b735bb9893060f2cf202d32d30dd340d5a0905edbdc005f665bb",
+      "sourceSha256": "2ad6b2cfd6e77ba69fe038ea2c5e345db7265233ea0db56cab2e1214a7c10dee",
       "production": {
         "version": 2,
         "ezbrSha256": "94a9f0132e43d048c2de1f39f7fbc6f9f7651d1e62e812c992ac53db356a076d",
