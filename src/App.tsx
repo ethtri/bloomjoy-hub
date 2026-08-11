@@ -18,6 +18,8 @@ import { HostRedirectGate } from "@/components/routing/HostRedirectGate";
 import { RouteErrorBoundary } from "@/components/routing/RouteErrorBoundary";
 import { RouteSeoManager } from "@/components/seo/RouteSeoManager";
 import { LeadAttributionManager } from "@/components/analytics/LeadAttributionManager";
+import { PublicAnalyticsRouteTracker } from "@/components/analytics/PublicAnalyticsRouteTracker";
+import { AnalyticsConsentBanner } from "@/components/analytics/AnalyticsConsent";
 import { lazyRoute } from "@/lib/lazyRoute";
 import { loadPortalDashboard } from "@/lib/portalRouteModules";
 import { useAuth } from "@/contexts/auth-context";
@@ -168,6 +170,8 @@ export const AppProviders = ({
 export const AppShell = () => (
   <HostRedirectGate>
     <AppLanguageMetadata />
+    <PublicAnalyticsRouteTracker />
+    <AnalyticsConsentBanner />
     <RouteSeoManager />
     <LeadAttributionManager />
     <RouteErrorBoundary>

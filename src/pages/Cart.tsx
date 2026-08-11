@@ -58,6 +58,7 @@ export default function CartPage() {
         if (cancelled) return;
         const isStorefrontOrder = ['sugar', 'micro_machine', 'mixed'].includes(status.orderType);
         if (status.paymentStatus === 'paid' && isStorefrontOrder) {
+          trackEvent('purchase_completed', { checkout_type: status.orderType });
           clearCart();
           toast.success('Payment confirmed. Your order is ready for fulfillment.');
           return;
