@@ -234,7 +234,7 @@ export default function RefundRequestPage() {
     }
 
     if (!form.incidentTimeConfidence) {
-      toast.error('Tell us how closely you remember the purchase time.');
+      toast.error('Tell us how accurate the purchase time is.');
       return;
     }
 
@@ -566,7 +566,7 @@ export default function RefundRequestPage() {
                 </div>
 
                 <div>
-                  <Label htmlFor="incident-time-confidence">How closely do you remember the time?</Label>
+                  <Label htmlFor="incident-time-confidence">How accurate is the time above?</Label>
                   <select
                     id="incident-time-confidence"
                     value={form.incidentTimeConfidence}
@@ -580,13 +580,13 @@ export default function RefundRequestPage() {
                     className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                   >
                     <option value="">Choose one</option>
-                    <option value="exact">This is the exact time</option>
+                    <option value="exact">Exact or within a few minutes</option>
                     <option value="within_15_minutes">Within about 15 minutes</option>
                     <option value="within_1_hour">Within about 1 hour</option>
-                    <option value="rough">This is only a rough estimate</option>
+                    <option value="rough">Just a rough estimate</option>
                   </select>
                   <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                    An honest estimate helps us compare the right group of transactions.
+                    This helps us avoid matching the wrong purchase.
                   </p>
                 </div>
 

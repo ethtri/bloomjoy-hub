@@ -190,7 +190,7 @@ const fillRequiredRefundFields = async (page, { wallet = false } = {}) => {
   await page.getByLabel('Email', { exact: true }).fill('qr-customer@example.test');
   await page.getByLabel('Incident date').fill('2026-07-26');
   await page.getByLabel('Time', { exact: true }).fill('12:10');
-  await page.getByLabel('How closely do you remember the time?').selectOption('within_15_minutes');
+  await page.getByLabel('How accurate is the time above?').selectOption('within_15_minutes');
   await page.getByLabel('Amount', { exact: true }).fill('7.00');
 
   if (wallet) {
