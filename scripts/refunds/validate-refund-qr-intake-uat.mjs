@@ -186,6 +186,11 @@ const trackPageErrors = (page) => {
 };
 
 const fillRequiredRefundFields = async (page, { wallet = false } = {}) => {
+  assert.equal(
+    await page.locator('#product-description').count(),
+    0,
+    'Refund intake should derive the product category from the selected machine'
+  );
   await page.getByLabel('Name', { exact: true }).fill('QR UAT Customer');
   await page.getByLabel('Email', { exact: true }).fill('qr-customer@example.test');
   await page.getByLabel('Incident date').fill('2026-07-26');
@@ -245,6 +250,7 @@ const runDesktopQrJourney = async ({ browser, appUrl, artifactDir }) => {
   assert.equal(submission.paymentInteraction, 'tap_card');
   assert.equal(submission.incidentTimeConfidence, 'within_15_minutes');
   assert.equal(submission.issueCategory, 'charged_no_product');
+  assert.equal('productDescription' in submission, false);
   assert.equal(routeState.getClaimCount(), 1);
   assert.equal(pageErrors.length, 0, pageErrors.join(' | '));
 
@@ -313,6 +319,7 @@ const runMobileWalletJourney = async ({ browser, appUrl, artifactDir }) => {
   assert.equal(submission.cardWalletUsed, true);
   assert.equal(submission.paymentInteraction, 'phone_watch_wallet');
   assert.equal(submission.walletProvider, 'apple_pay');
+  assert.equal('productDescription' in submission, false);
 
   await context.close();
 };
@@ -344,6 +351,7 @@ const runDirectJourney = async ({ browser, appUrl, artifactDir }) => {
   const submission = functionBodies.find((body) => !body.action);
   assert.equal(submission.machineId, eastridgeMachineId);
   assert.equal('qrClaimToken' in submission, false);
+  assert.equal('productDescription' in submission, false);
 
   await context.close();
 };

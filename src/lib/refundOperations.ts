@@ -138,7 +138,6 @@ export type SubmitRefundRequestInput = {
   walletProvider?: RefundWalletProvider;
   incidentTimeConfidence?: RefundIncidentTimeConfidence;
   issueCategory?: RefundIssueCategory;
-  productDescription?: string;
   attachments?: RefundAttachmentInput[];
 };
 
