@@ -43,7 +43,6 @@ const emptyForm = {
   walletProvider: '' as RefundWalletProvider | '',
   incidentTimeConfidence: '' as RefundIncidentTimeConfidence | '',
   issueCategory: '' as RefundIssueCategory | '',
-  productDescription: '',
   issueSummary: '',
 };
 
@@ -305,7 +304,6 @@ export default function RefundRequestPage() {
             : undefined,
         incidentTimeConfidence: form.incidentTimeConfidence || 'rough',
         issueCategory: form.issueCategory || 'other',
-        productDescription: form.productDescription.trim() || undefined,
         attachments,
       });
 
@@ -722,37 +720,24 @@ export default function RefundRequestPage() {
                   </div>
                 )}
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <Label htmlFor="issue-category">What best describes the problem?</Label>
-                    <select
-                      id="issue-category"
-                      value={form.issueCategory}
-                      onChange={(event) =>
-                        updateForm('issueCategory', event.target.value as RefundIssueCategory)
-                      }
-                      required
-                      className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
-                    >
-                      <option value="">Choose one</option>
-                      <option value="charged_no_product">Charged, but no product came out</option>
-                      <option value="product_problem">The product came out incorrectly</option>
-                      <option value="charged_more_than_once">Charged more than once</option>
-                      <option value="wrong_amount">Charged the wrong amount</option>
-                      <option value="other">Something else</option>
-                    </select>
-                  </div>
-                  <div>
-                    <Label htmlFor="product-description">Product or selection (optional)</Label>
-                    <Input
-                      id="product-description"
-                      value={form.productDescription}
-                      onChange={(event) => updateForm('productDescription', event.target.value)}
-                      maxLength={160}
-                      placeholder="Example: blue raspberry cotton candy"
-                      className="mt-2"
-                    />
-                  </div>
+                <div>
+                  <Label htmlFor="issue-category">What best describes the problem?</Label>
+                  <select
+                    id="issue-category"
+                    value={form.issueCategory}
+                    onChange={(event) =>
+                      updateForm('issueCategory', event.target.value as RefundIssueCategory)
+                    }
+                    required
+                    className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="">Choose one</option>
+                    <option value="charged_no_product">Charged, but no product came out</option>
+                    <option value="product_problem">The product came out incorrectly</option>
+                    <option value="charged_more_than_once">Charged more than once</option>
+                    <option value="wrong_amount">Charged the wrong amount</option>
+                    <option value="other">Something else</option>
+                  </select>
                 </div>
 
                 <div>
@@ -763,7 +748,7 @@ export default function RefundRequestPage() {
                     onChange={(event) => updateForm('issueSummary', event.target.value)}
                     required
                     rows={6}
-                    placeholder="Tell us what went wrong, whether cotton candy was dispensed, and anything visible on the machine screen. We appreciate the detail."
+                    placeholder="Tell us what went wrong, whether anything was dispensed, and anything visible on the machine screen. We appreciate the detail."
                     className="mt-2"
                   />
                 </div>
