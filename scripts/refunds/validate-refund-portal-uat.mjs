@@ -1029,9 +1029,37 @@ const computedContrastRatio = async (locator) => locator.evaluate((element) => {
 
 const pathname = (page) => new URL(page.url()).pathname;
 
+const isExpectedExternalFontFailure = (url) => {
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.hostname === 'fonts.gstatic.com' &&
+      /\.(?:woff2?|ttf|otf)$/i.test(parsed.pathname)
+    );
+  } catch {
+    return false;
+  }
+};
+
+const shouldRecordConsoleError = (message, { ignoreConflict = false } = {}) => {
+  if (message.type() !== 'error') return false;
+
+  const locationUrl = message.location()?.url ?? '';
+  if (isExpectedExternalFontFailure(locationUrl)) return false;
+
+  return !(
+    ignoreConflict &&
+    message.text().includes('Failed to load resource: the server responded with a status of 409 (Conflict)')
+  );
+};
+
 const trackHttpErrors = (page, errors) => {
   page.on('response', (response) => {
-    if (response.status() >= 400 && response.status() !== 409) {
+    if (
+      response.status() >= 400 &&
+      response.status() !== 409 &&
+      !isExpectedExternalFontFailure(response.url())
+    ) {
       errors.push(`HTTP ${response.status()} ${response.url()}`);
     }
   });
@@ -1069,11 +1097,8 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   const consoleErrors = [];
 
   page.on('console', (message) => {
-    if (message.type() === 'error') {
-      const text = message.text();
-      if (!text.includes('Failed to load resource: the server responded with a status of 409 (Conflict)')) {
-        consoleErrors.push(text);
-      }
+    if (shouldRecordConsoleError(message, { ignoreConflict: true })) {
+      consoleErrors.push(message.text());
     }
   });
   page.on('pageerror', (error) => {
@@ -1405,7 +1430,7 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   const page = await context.newPage();
   const consoleErrors = [];
   page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push(message.text());
+    if (shouldRecordConsoleError(message)) consoleErrors.push(message.text());
   });
   page.on('pageerror', (error) => consoleErrors.push(error.message));
   trackHttpErrors(page, consoleErrors);
@@ -1628,7 +1653,7 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
   const page = await context.newPage();
   const consoleErrors = [];
   page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push(message.text());
+    if (shouldRecordConsoleError(message)) consoleErrors.push(message.text());
   });
   page.on('pageerror', (error) => consoleErrors.push(error.message));
   trackHttpErrors(page, consoleErrors);
@@ -2340,7 +2365,7 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
 
   const trackErrors = (targetPage) => {
     targetPage.on('console', (message) => {
-      if (message.type() === 'error') {
+      if (shouldRecordConsoleError(message)) {
         consoleErrors.push(message.text());
       }
     });
