@@ -53,6 +53,12 @@ const authPreflight = read('scripts/auth-preflight.mjs');
 const ownerTotpAuthReadiness = read(
   'scripts/refunds/refund-owner-totp-auth-readiness.mjs'
 );
+const authControlPlane = read(
+  'scripts/refunds/refund-auth-control-plane.mjs'
+);
+const productionAuthClosedGate = read(
+  'scripts/refunds/refund-production-auth-closed.mjs'
+);
 const adminUpdate = read(
   'supabase/functions/refund-case-admin-update/index.ts'
 );
@@ -166,12 +172,17 @@ assert(
     supabaseConfig.includes('verify_enabled = true') &&
     authPreflight.includes("['enroll_enabled = false', 'owner-controlled, closed-by-default TOTP enrollment']") &&
     authPreflight.includes("['verify_enabled = true', 'TOTP verification']") &&
-    ownerTotpAuthReadiness.includes('/config/auth') &&
-    ownerTotpAuthReadiness.includes("method: 'GET'") &&
-    ownerTotpAuthReadiness.includes('mfa_totp_enroll_enabled') &&
-    ownerTotpAuthReadiness.includes('mfa_totp_verify_enabled') &&
-    !ownerTotpAuthReadiness.includes("method: 'PATCH'") &&
-    !ownerTotpAuthReadiness.includes("method: 'POST'"),
+    authControlPlane.includes('/config/auth') &&
+    authControlPlane.includes("method: 'GET'") &&
+    authControlPlane.includes('mfa_totp_enroll_enabled') &&
+    authControlPlane.includes('mfa_totp_verify_enabled') &&
+    authControlPlane.includes('SUPABASE_AUTH_CONFIG_READ_TOKEN') &&
+    ownerTotpAuthReadiness.includes('requireExactRefundProductionProject') &&
+    productionAuthClosedGate.includes('requireHostedRefundTotpState(state, false)') &&
+    !authControlPlane.includes("method: 'PATCH'") &&
+    !authControlPlane.includes("method: 'POST'") &&
+    !productionAuthClosedGate.includes("method: 'PATCH'") &&
+    !productionAuthClosedGate.includes("method: 'POST'"),
   'Auth must remain enrollment-off/verification-on in source, with a read-only real control-plane readiness and restore check.'
 );
 
