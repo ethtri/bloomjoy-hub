@@ -2,7 +2,7 @@
 
 This document is the production-enable gate for Refund Operations Gmail intake (`#634`). It applies to the designated support mailbox connection only; the hosted refund form and canonical refund cases continue independently.
 
-Observed on 2026-08-03: the connected agent profile showed `info@bloomjoysweets.com` and a `Refund Operations` label. This does **not** prove production Hub OAuth/secrets, correct label-filter population, legacy-responder inventory/cutover, or a configured `support@bloomjoysweets.com` alias/send-as. Each remains **Pending** until owner configuration and synthetic Gmail evidence prove it. The operating model uses direct scoped mailbox access, not forwarding into a personal inbox.
+Verified on 2026-08-12: the production Hub OAuth profile resolves exactly to `info@bloomjoysweets.com` with Gmail read-only/send scopes; Info/Support/Refunds send-as identities are configured and verified; and a separate isolated label/sender population passed one exactly-once original-thread first-contact acknowledgement with replay/later-reply suppression and teardown. After the native date/time correction, the private email-context form completed the existing Gmail draft exactly once and assigned its sole current mapped manager. This does **not** prove the still-required case-specific original-thread message with complete current mapped-manager CC or authorize the production label, schedules, automatic contact, or legacy-responder retirement. The operating model uses direct scoped mailbox access, not forwarding into a personal inbox.
 
 ## Approved operating boundary
 
@@ -12,7 +12,7 @@ Observed on 2026-08-03: the connected agent profile showed `info@bloomjoysweets.
 - Unassigned drafts with no known location are visible only to Super Admins and Scoped Admins. A location-only Machine Manager cannot read them; normal machine scope resumes once a complete case is assigned to a machine.
 - Logs, scheduled-workflow output, GitHub evidence, and health responses contain aggregates and safe error codes only.
 - Attachments are disabled for the email pilot. The hosted form has no file control, its endpoint rejects non-empty attachment lists, and Gmail ingestion copies no attachment metadata or bytes. The quarantine/scanner design below is retained only as a future reviewed option; enabling it requires a separate operations and privacy/security decision.
-- Gmail message copies are proposed for automated deletion 180 days after receipt. For the email pilot there are no copied attachment bytes or metadata; cleanup redacts copied message/recipient/thread content while the canonical refund case and its audit history continue under Bloomjoy's separately governed business-record retention.
+- Gmail message copies are approved for automated deletion 180 days after receipt. For the email pilot there are no copied attachment bytes or metadata; cleanup redacts copied message/recipient/thread content while the canonical refund case and its audit history continue under Bloomjoy's separately governed business-record retention. The policy approval does not enable the recurring schedule.
 - To support mapped-manager CC, raw To/CC recipient addresses may exist only in the service-only message/delivery record and authorized review preview for the minimum operational period. They follow the same approved 180-day Gmail-copy purge and may not be copied into durable audit payloads.
 - Customer-visible recipient and CC lists are computed at send time and are not copied into logs, health output, GitHub evidence, or browser-visible service payloads beyond the authorized message review surface.
 - Authorization revocation or disablement affects only Gmail intake/replies. Hosted-form intake and manual refund work remain available.
@@ -47,13 +47,13 @@ Observed on 2026-08-03: the connected agent profile showed `info@bloomjoysweets.
 - Approved retention period: **180 days for the sanitized Gmail copy**
 - Attachment-off behavior accepted for the pilot: **Approved**
 - Visible-CC recipient/privacy behavior accepted: **Approved for the complete current portal-mapped Machine Manager set**
-- Participant-classification and mapped-manager recipient UAT: **Pending**
-- Exactly-once first-contact and non-overlapping legacy-responder cutover UAT: **Pending**
-- Production Hub OAuth/secrets and mailbox-identity smoke: **Passed for `info@bloomjoysweets.com` with Gmail read-only and send scopes; outbound synthetic proof remains pending**
-- Refund-label filter population and legacy-responder inventory: **Legacy inventory complete; isolated synthetic population proof pending**
-- `support@bloomjoysweets.com` alias/send-as configuration plus Gmail `SENT` proof: **Alias verified; bounded outbound synthetic proof pending**
+- Participant-classification and case-specific mapped-manager recipient UAT: **Pending for one original-thread message with the complete current mapped-manager CC set**
+- Exactly-once first-contact and non-overlapping responder UAT: **Passed for the isolated synthetic population; production-label cutover/rollback approval remains pending**
+- Production Hub OAuth/secrets and mailbox-identity smoke: **Passed for `info@bloomjoysweets.com` with Gmail read-only and send scopes**
+- Refund-label filter population and legacy-responder inventory: **Legacy inventory complete; isolated label/sender/exclusion proof passed; production-label cutover remains pending**
+- Info/Support/Refunds alias/send-as configuration: **Verified; the isolated first-contact outbound was confirmed from the designated support mailbox**
 
-Both production switches remain `false` while the remaining local and isolated-test-mailbox UAT gates are pending. After those gates pass, the owner-approved bounded production synthetic window may set `REFUND_GMAIL_ENABLED=true` while `REFUND_GMAIL_SYNC_ENABLED=false`; the Edge switch is reset immediately after the manual test. Scheduled/broad enablement requires successful synthetic evidence plus an explicit go/no-go. Approval must be recorded in a reviewed PR or the linked GitHub issue without customer data, secrets, or provider identifiers.
+Both production switches remain `false` while case-specific mapped-manager-CC UAT and the active-cutover gates are pending. A later owner-approved bounded window may set only the controls required by the reviewed test and must reset them immediately afterward. Scheduled/broad enablement requires the remaining synthetic evidence plus an explicit go/no-go. Approval must be recorded in a reviewed PR or the linked GitHub issue without customer data, secrets, or provider identifiers.
 
 ## Deletion and incident procedure
 

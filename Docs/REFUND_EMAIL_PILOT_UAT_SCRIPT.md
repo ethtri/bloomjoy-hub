@@ -1,8 +1,14 @@
 # Refund Email Pilot UAT Script
 
-Last updated: 2026-08-05
+Last updated: 2026-08-12
 
 Use only after the sponsor explicitly approves a controlled isolated-inbox test. This script stops at **manager-ready**. It does not authorize an official decision, TOTP consumption, Nayax call, settlement, or customer success message.
+
+## Current evidence checkpoint
+
+- **Passed:** isolated label/sender and legacy-responder exclusion; one original-thread first-contact acknowledgement; replay and later-reply suppression; hosted-form CTA only; no pre-mapping CC or attachment; teardown to disabled.
+- **Passed after `#773`/`#774`:** the private form completed the existing Gmail draft exactly once, could not create a duplicate through replay, and applied the shared sole-current-manager assignment rule used by direct intake.
+- **Still required:** step 10's case-specific original-thread reply with the complete current mapped-manager CC set, plus final active-cutover/rollback approval. Until then, Hub schedules and automatic contact remain off and the legacy responder remains authoritative for normal mail.
 
 ## Before the window
 

@@ -2,7 +2,13 @@
 
 Issue `#688` replaces the repeating legacy canned response with one deterministic acknowledgement for the first eligible customer message in each Gmail thread. This document is the operational contract for shadow testing, cutover, rollback, and evidence. It does not authorize production Gmail access or customer sending by itself.
 
-Read-only verification on 2026-08-03 confirmed that the connected support-mail profile is `info@bloomjoysweets.com` and that a `Refund Operations` Gmail label exists. This does not prove the Hub's production secrets, the exact label/filter population, the legacy-responder inventory, or any send-mode gate; those remain separate cutover checks below.
+## Current checkpoint — 2026-08-12
+
+- Exact server OAuth to `info@bloomjoysweets.com` passed with Gmail read-only/send scopes, and the Info/Support/Refunds send-as identities are verified.
+- An isolated label and owner-controlled sender population were kept separate from the production label and excluded from the legacy responder.
+- One eligible synthetic thread received exactly one original-thread `refund_first_contact_v1` acknowledgement. Scheduler replay and a later reply sent nothing further; teardown restored disabled mode and the production label.
+- After the native date/time correction, the private hosted-form context completed the existing Gmail draft exactly once and the shared direct/email intake rule assigned its sole current mapped manager.
+- This is not active cutover evidence. One case-specific reply with the complete current mapped-manager CC route, the final production-label boundary, rollback staffing, and explicit owner go/no-go remain required. The legacy responder is still authoritative for normal customer mail, and Hub schedules/automatic contact remain off.
 
 ## Non-negotiable behavior
 
