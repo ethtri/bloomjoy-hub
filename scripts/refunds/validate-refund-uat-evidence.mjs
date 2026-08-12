@@ -114,7 +114,7 @@ const machineFixtures = {
     primaryCheckLookupCallCountBefore: 0,
     primaryCheckLookupCallCountAfter: 1,
     providerSuccessStateCount: 1,
-    providerNonSuccessStateCount: 3,
+    providerNonSuccessStateCount: 4,
     intakeAvailable: true,
     portalAvailable: true,
   },
