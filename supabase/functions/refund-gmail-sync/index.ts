@@ -1003,6 +1003,7 @@ const authorizeNewGmailCopies = async () => {
   const gate = await rpc("service_authorize_refund_gmail_copy", {
     p_worker_enabled: retentionRuntime.workerEnabled,
     p_policy_version: retentionRuntime.policyVersion,
+    p_attachments_enabled: refundEmailPilotAttachmentsEnabled,
     p_scanner_enabled: retentionRuntime.scannerEnabled,
     p_scanner_version: retentionRuntime.scannerVersion,
   });

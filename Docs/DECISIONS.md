@@ -1,5 +1,16 @@
 # Decisions
 
+## 2026-08-11 - Owner approves the controlled refund-email pilot data policy (`#705`, `#707`)
+
+The owner approved the first controlled email pilot with a 180-day retention period for the Hub's sanitized Gmail copy, attachment collection disabled, and visible CC to the complete current portal-mapped Machine Manager set on every case-specific customer message.
+
+- The generic first acknowledgement remains the only customer message that may send before machine mapping and therefore carries no manager CC.
+- Attachments are unavailable in the pilot. Because the system cannot copy attachment metadata or bytes, an unimplemented attachment scanner is not a prerequisite for copying sanitized message text. If attachment copying is ever enabled, scanner and quarantine approval becomes mandatory again.
+- The legacy Gmail responder remains authoritative until the isolated synthetic test proves a non-overlapping population and teardown. This policy approval does not itself turn on Gmail or automatic customer contact.
+- The owner also approved sending the reviewed Nayax contract-confirmation request. That approval does not authorize a provider call; live execution still requires the written account contract and the separately capped one-case test.
+
+These approvals remove the policy-decision blocker. The technical isolation, exactly-once, mapped-manager routing, retention cleanup, and rollback tests remain mandatory launch gates.
+
 ## 2026-08-11 - The first refund-assistant pilot is email-only and attachment-free (`#707`, `#757`, `#758`)
 
 The first controlled pilot is limited to the designated support mailbox and the Bloomjoy hosted form. EasyText and the SMS Google Form remain unchanged. The Hub is the system of record; Gmail is intake and reply transport only.

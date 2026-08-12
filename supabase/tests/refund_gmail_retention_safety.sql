@@ -91,12 +91,20 @@ select ok(
   'The service worker can settle claimed byte-deletion outcomes'
 );
 select ok(
-  has_function_privilege(
+  not has_function_privilege(
     'service_role',
     'public.service_authorize_refund_gmail_copy(boolean,text,boolean,text)',
     'execute'
   ),
-  'The service worker can invoke the pre-copy safety gate'
+  'The legacy scanner-only pre-copy gate is revoked'
+);
+select ok(
+  has_function_privilege(
+    'service_role',
+    'public.service_authorize_refund_gmail_copy(boolean,text,boolean,boolean,text)',
+    'execute'
+  ),
+  'The service worker can invoke the attachment-aware pre-copy safety gate'
 );
 select ok(
   not has_function_privilege(
@@ -730,15 +738,24 @@ select is(
 );
 select is(
   public.service_authorize_refund_gmail_copy(
-    true, 'refund_gmail_retention_v1', false, 'scanner-v1'
+    true, 'refund_gmail_retention_v1', true, false, 'scanner-v1'
   ) ->> 'status',
   'attachment_scanner_not_approved',
-  'Missing scanner enablement blocks every new local copy'
+  'Missing scanner enablement blocks an attachment-capable local copy'
 );
 select is(
   (
     public.service_authorize_refund_gmail_copy(
-      true, 'refund_gmail_retention_v1', true, 'scanner-v1'
+      true, 'refund_gmail_retention_v1', false, false, null
+    ) ->> 'allowed'
+  )::boolean,
+  true,
+  'Attachment-free copying does not pretend to require an unused scanner'
+);
+select is(
+  (
+    public.service_authorize_refund_gmail_copy(
+      true, 'refund_gmail_retention_v1', true, true, 'scanner-v1'
     ) ->> 'allowed'
   )::boolean,
   true,
@@ -764,7 +781,7 @@ set last_success_at = clock_timestamp() - interval '27 hours'
 where singleton;
 select is(
   public.service_authorize_refund_gmail_copy(
-    true, 'refund_gmail_retention_v1', true, 'scanner-v1'
+    true, 'refund_gmail_retention_v1', true, true, 'scanner-v1'
   ) ->> 'status',
   'cleanup_overdue',
   'An approved but overdue cleanup blocks new Gmail copies'
@@ -974,7 +991,7 @@ select is(
 );
 select is(
   public.service_authorize_refund_gmail_copy(
-    true, 'refund_gmail_retention_v1', true, 'scanner-v1'
+    true, 'refund_gmail_retention_v1', true, true, 'scanner-v1'
   ) ->> 'status',
   'cleanup_unhealthy',
   'The durable unknown-outcome hold blocks new Gmail copies'

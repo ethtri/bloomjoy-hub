@@ -189,9 +189,10 @@ try {
     );
     assert(
       localEntry.production &&
-        localEntry.production.version === 1 &&
+        Number.isInteger(localEntry.production.version) &&
+        localEntry.production.version > 0 &&
         localEntry.production.sourceSha256 === reviewedManagerSourceSha256[managerSlug],
-      `${managerSlug} must record its deployed v1 source pairing`
+      `${managerSlug} must record its deployed production source pairing`
     );
     assert.deepEqual(
       baselineEntry,
