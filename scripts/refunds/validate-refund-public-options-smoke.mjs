@@ -52,6 +52,7 @@ const readyRow = {
   active_portfolio_machine_count: 29,
   public_option_count: 29,
   missing_portfolio_option_count: 0,
+  hidden_unsafe_location_count: 0,
   unsafe_internal_label_count: 0,
   atlanta_option_count: 1,
   dc_option_count: 1,
@@ -65,6 +66,7 @@ assert.equal(determineReadiness(readyRow).ready, true);
 
 for (const patch of [
   { missing_portfolio_option_count: 1, public_option_count: 28 },
+  { hidden_unsafe_location_count: 1, public_option_count: 28 },
   { active_portfolio_machine_count: 30 },
   { unsafe_internal_label_count: 1 },
   { atlanta_option_count: 0 },
@@ -90,8 +92,10 @@ assert.throws(
   /is invalid/
 );
 
-assert.match(PUBLIC_OPTIONS_QUERY, /^with\s+eligible_portfolio\s+as/i);
+assert.match(PUBLIC_OPTIONS_QUERY, /^with\s+active_portfolio\s+as/i);
 assert.doesNotMatch(PUBLIC_OPTIONS_QUERY, /refund_intake_enabled/i);
+assert.match(PUBLIC_OPTIONS_QUERY, /hidden_by_unsafe_location/);
+assert.match(PUBLIC_OPTIONS_QUERY, /hidden_unsafe_location_count/);
 assert.match(publicOptionsFunctionSource, /machine\.machine_type in \('commercial', 'mini'\)/);
 assert.match(publicOptionsFunctionSource, /location\.status = 'active'/);
 assert.match(publicOptionsFunctionSource, /refund_public_display_label/);
@@ -115,5 +119,6 @@ console.log('Refund public-options smoke validator passed.');
 console.log('- exact linked-project confirmation');
 console.log('- aggregate-only result allowlist');
 console.log('- full active-portfolio coverage gate');
+console.log('- hidden unsafe/missing public-location gate');
 console.log('- internal-label and duplicate fail-closed gates');
 console.log('- Atlanta/DC/Seattle presence checks');
