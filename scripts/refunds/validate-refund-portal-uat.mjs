@@ -370,14 +370,12 @@ const buildLegacyStateReviewOverview = () => {
       status: 'needs_review',
       correlationStatus: 'manual_review',
       correlationSummary: 'A historical approval exists, but no provider refund attempt was recorded.',
-      hasMatchedNayaxTransaction: false,
+      // Deliberately retain the prior matched fields and candidate response.
+      // The portal must ignore this adversarially stale payload while the
+      // normalization flag requires a fresh lookup.
+      hasMatchedNayaxTransaction: true,
       nayaxMatchExecutionEligible: false,
       nayaxRecommendationState: null,
-      matchedNayaxMachineAuthTime: null,
-      matchedNayaxAmountCents: null,
-      matchedNayaxCardLast4: null,
-      matchedNayaxCurrencyCode: null,
-      nayaxLookupCandidates: [],
       decision: null,
       decisionReason: null,
       decidedAt: null,
@@ -2358,6 +2356,9 @@ const runLegacyStateNormalizationChecks = async ({ browser, appUrl, artifactDir,
   recorder.assert(
     'Normalized legacy case keeps only the read-only transaction check available',
     await page.getByTestId('nayax-check-transaction').isVisible() &&
+      (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
+      await page.getByText('Waiting for a fresh transaction check', { exact: true }).isVisible() &&
+      (await page.getByText('Transaction selected', { exact: true }).count()) === 0 &&
       (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
       (await page.getByTestId('legacy-refund-run-nayax-refund').count()) === 0 &&
       (await page.getByRole('button', { name: /Deny (request|instead)/ }).count()) === 0 &&

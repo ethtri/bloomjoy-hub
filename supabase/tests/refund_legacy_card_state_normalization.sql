@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(27);
+select plan(30);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -149,11 +149,38 @@ values
     'wrong-confirmation-customer@example.test', 'Historical approval', 'Historical body.', now() - interval '1 day'
   ),
   (
+    '8d500000-0000-4000-8000-000000000003', 'approved', 'sent',
+    'extra-message-customer@example.test', 'Historical approval', 'Historical body.', now() - interval '1 day'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000003', 'status_update', 'pending',
+    'extra-message-customer@example.test', 'Pending update', 'Pending body.', null
+  ),
+  (
     '8d500000-0000-4000-8000-000000000004', 'approved', 'sent',
     'provider-attempt-customer@example.test', 'Historical approval', 'Historical body.', now() - interval '1 day'
   );
 alter table public.refund_case_messages
   enable trigger refund_case_messages_nayax_attempt_guard;
+
+insert into public.refund_nayax_lookup_candidates (
+  token, refund_case_id, actor_user_id, provider_transaction_id, site_id,
+  machine_authorization_time, amount_cents, card_last4, currency_code,
+  evidence_summary, expires_at
+)
+values (
+  '8d600000-0000-4000-8000-000000000001',
+  '8d500000-0000-4000-8000-000000000001',
+  '8d000000-0000-4000-8000-000000000001',
+  'SAFE-TXN-LEGACY-STALE-1', 101, now() - interval '2 days',
+  700, '4242', 'USD',
+  jsonb_build_object(
+    'selection_allowed', true,
+    'is_recommended', true,
+    'provider_payload_redacted', true
+  ),
+  now() + interval '1 hour'
+);
 
 insert into public.refund_case_nayax_refund_attempts (
   refund_case_id, execution_mode, status, idempotency_key, amount_cents,
@@ -187,6 +214,17 @@ select ok(
     'execute'
   ),
   'Anonymous callers cannot invoke the owner repair'
+);
+select ok(
+  (
+    select pg_get_userbyid(routine.proowner) = pg_get_userbyid(database.datdba)
+    from pg_proc routine
+    cross join pg_database database
+    where routine.oid =
+      'public.owner_normalize_refund_legacy_card_state(uuid,text)'::regprocedure
+      and database.datname = current_database()
+  ),
+  'The private operation is owned by the exact database owner'
 );
 
 insert into normalization_results (result_key, result)
@@ -242,6 +280,12 @@ select is(
   0,
   'Normalization creates no provider attempt'
 );
+select is(
+  (select count(*)::integer from public.refund_nayax_lookup_candidates
+    where refund_case_id = '8d500000-0000-4000-8000-000000000001'),
+  0,
+  'Normalization removes every stale replaceable lookup candidate'
+);
 select ok(
   exists (
     select 1 from public.refund_case_messages
@@ -277,6 +321,8 @@ select ok(
       and (event.metadata ->> 'previous_match_amount_present')::boolean
       and event.metadata ->> 'previous_recommendation_state' = 'manual_exception'
       and (event.metadata ->> 'previous_recommendation_policy_present')::boolean
+      and (event.metadata ->> 'total_historical_message_count')::integer = 1
+      and (event.metadata ->> 'stale_lookup_candidate_count')::integer = 1
       and (event.metadata ->> 'provider_attempt_count')::integer = 0
       and event.metadata ->> 'provider_execution_status' = 'not_requested'
       and (event.metadata ->> 'payload_redacted')::boolean
@@ -384,6 +430,14 @@ select ok(
     'legacy-target-customer@example.test', 'Blocked', 'Blocked'
   )$$) like '%Run a fresh transaction check before any customer message%',
   'Normalization alone cannot enable a customer message'
+);
+select ok(
+  pg_temp.capture_error($$update public.refund_case_messages
+    set status = 'pending', sent_at = null
+    where refund_case_id = '8d500000-0000-4000-8000-000000000001'
+      and message_type = 'approved'$$)
+    like '%Run a fresh transaction check before any customer message%',
+  'Normalization freezes updates to every pre-existing customer message'
 );
 select ok(
   pg_temp.capture_error($$insert into public.refund_case_nayax_refund_attempts (

@@ -3547,16 +3547,22 @@ export default function AdminRefundsPage() {
 
   const renderCardSaleCandidates = () => {
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return null;
-    const hasSelectedMatch = hasSelectedCardEvidence(selectedCase, editor);
-    const recommendedCandidate = nayaxCandidates.find((candidate) => candidate.isRecommended === true) ?? null;
-    const leadCandidate = recommendedCandidate ?? nayaxCandidates[0] ?? null;
-    const alternateCandidates = nayaxCandidates.filter((candidate) => candidate !== leadCandidate);
-    const selectedCandidate = selectedNayaxCandidate(editor, nayaxCandidates);
-    const hasLookupResult = Boolean(
+    // A normalized legacy case must never reuse lookup cache or match fields
+    // captured before the repair. The database removes that cache as well;
+    // this UI boundary keeps a stale response from hiding the fresh-check CTA.
+    const effectiveCandidates = selectedCase.legacyStateReviewRequired ? [] : nayaxCandidates;
+    const hasSelectedMatch = selectedCase.legacyStateReviewRequired
+      ? false
+      : hasSelectedCardEvidence(selectedCase, editor);
+    const recommendedCandidate = effectiveCandidates.find((candidate) => candidate.isRecommended === true) ?? null;
+    const leadCandidate = recommendedCandidate ?? effectiveCandidates[0] ?? null;
+    const alternateCandidates = effectiveCandidates.filter((candidate) => candidate !== leadCandidate);
+    const selectedCandidate = selectedNayaxCandidate(editor, effectiveCandidates);
+    const hasLookupResult = !selectedCase.legacyStateReviewRequired && Boolean(
       selectedCase.hasMatchedNayaxTransaction ||
       selectedCase.nayaxLookupSummary ||
       nayaxLookupSummary ||
-      nayaxCandidates.length > 0 ||
+      effectiveCandidates.length > 0 ||
       (nayaxLookupNotice && !isLookingUpNayax)
     );
     const showPrimaryTransactionCheck = !hasSelectedMatch && !hasLookupResult;
@@ -3641,7 +3647,7 @@ export default function AdminRefundsPage() {
             {nayaxLookupNotice.message}
           </div>
         )}
-        {!selectedCase.hasMatchedNayaxTransaction && !editor.clearNayaxMatch && nayaxCandidates.length > 0 && (
+        {!hasSelectedMatch && !editor.clearNayaxMatch && effectiveCandidates.length > 0 && (
           <div className="rounded-md border border-border bg-background p-3">
             {isUsingDemoData && (
               <InfoHint>
@@ -3794,24 +3800,30 @@ export default function AdminRefundsPage() {
   const renderCardDecisionWorkbench = () => {
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return null;
 
-    const activeCandidate = activeNayaxCandidate(selectedCase, editor, nayaxCandidates);
-    const comparisonCandidate =
-      activeCandidate ??
-      nayaxCandidates.find((candidate) => candidate.isRecommended === true) ??
-      nayaxCandidates[0] ??
-      null;
-    const hasSelectedMatch = hasSelectedCardEvidence(selectedCase, editor);
-    const cardAmountCents = matchedCardSaleAmountCents ?? selectedCase.paymentAmountCents;
+    const effectiveCandidates = selectedCase.legacyStateReviewRequired ? [] : nayaxCandidates;
+    const activeCandidate = activeNayaxCandidate(selectedCase, editor, effectiveCandidates);
+    const comparisonCandidate = selectedCase.legacyStateReviewRequired
+      ? null
+      : activeCandidate ??
+        effectiveCandidates.find((candidate) => candidate.isRecommended === true) ??
+        effectiveCandidates[0] ??
+        null;
+    const hasSelectedMatch = selectedCase.legacyStateReviewRequired
+      ? false
+      : hasSelectedCardEvidence(selectedCase, editor);
+    const cardAmountCents = selectedCase.legacyStateReviewRequired
+      ? selectedCase.paymentAmountCents
+      : matchedCardSaleAmountCents ?? selectedCase.paymentAmountCents;
     const cardLast4 =
       comparisonCandidate?.cardLast4 ||
-      selectedCase.matchedNayaxCardLast4 ||
-      editor.matchedNayaxCardLast4 ||
+      (selectedCase.legacyStateReviewRequired ? null : selectedCase.matchedNayaxCardLast4) ||
+      (selectedCase.legacyStateReviewRequired ? null : editor.matchedNayaxCardLast4) ||
       selectedCase.cardLast4 ||
       'n/a';
     const transactionTime =
       comparisonCandidate?.machineAuthorizationTime ||
-      selectedCase.matchedNayaxMachineAuthTime ||
-      editor.matchedNayaxMachineAuthTime ||
+      (selectedCase.legacyStateReviewRequired ? null : selectedCase.matchedNayaxMachineAuthTime) ||
+      (selectedCase.legacyStateReviewRequired ? null : editor.matchedNayaxMachineAuthTime) ||
       selectedCase.incidentAt;
     const actionLabel = `Refund ${formatCurrency(cardAmountCents)} and notify customer`;
     const hasReadyRefund = isCardCompletion && primaryAction?.disabled !== true;
@@ -3867,14 +3879,18 @@ export default function AdminRefundsPage() {
                 Manager decision
               </p>
               <h3 className="mt-1 text-xl font-semibold">
-                {nayaxDecisionHeading(selectedNayaxSummary, comparisonCandidate, hasSelectedMatch)}
+                {selectedCase.legacyStateReviewRequired
+                  ? 'Waiting for a fresh transaction check'
+                  : nayaxDecisionHeading(selectedNayaxSummary, comparisonCandidate, hasSelectedMatch)}
               </h3>
               {selectedCase.status !== 'completed' &&
                 !selectedCase.providerHold &&
                 selectedCase.providerOutcome !== 'rejected' && (
                 <p data-testid="refund-not-issued-notice" className="mt-2 max-w-xl text-sm leading-5 text-muted-foreground">
                   <span className="font-semibold text-foreground">No refund has been issued.</span>{' '}
-                  Selecting a transaction saves review evidence only.
+                  {selectedCase.legacyStateReviewRequired
+                    ? 'A fresh transaction check is required before any decision.'
+                    : 'Selecting a transaction saves review evidence only.'}
                 </p>
               )}
             </div>

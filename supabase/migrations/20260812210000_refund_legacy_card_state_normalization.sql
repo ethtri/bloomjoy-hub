@@ -67,10 +67,29 @@ declare
   approved_message_count integer;
   sent_approved_message_count integer;
   completed_message_count integer;
+  total_message_count integer;
+  pending_message_count integer;
   provider_attempt_count integer;
+  lookup_candidate_count integer;
+  operation_owner name;
+  database_owner name;
 begin
-  if current_user in ('anon', 'authenticated', 'service_role')
-    or current_user <> session_user then
+  select pg_get_userbyid(routine.proowner)
+  into operation_owner
+  from pg_proc routine
+  where routine.oid =
+    'public.owner_normalize_refund_legacy_card_state(uuid,text)'::regprocedure;
+
+  select pg_get_userbyid(database.datdba)
+  into database_owner
+  from pg_database database
+  where database.datname = current_database();
+
+  if operation_owner is null
+    or database_owner is null
+    or operation_owner <> database_owner
+    or current_user <> operation_owner
+    or session_user <> database_owner then
     raise exception 'Legacy refund normalization is database-owner only';
   end if;
 
@@ -104,16 +123,20 @@ begin
   where attempt.refund_case_id = legacy_case.id;
 
   select
+    count(*)::integer,
     count(*) filter (where message.message_type = 'approved')::integer,
     count(*) filter (
       where message.message_type = 'approved'
         and message.status = 'sent'
     )::integer,
-    count(*) filter (where message.message_type = 'completed')::integer
+    count(*) filter (where message.message_type = 'completed')::integer,
+    count(*) filter (where message.status = 'pending')::integer
   into
+    total_message_count,
     approved_message_count,
     sent_approved_message_count,
-    completed_message_count
+    completed_message_count,
+    pending_message_count
   from public.refund_case_messages message
   where message.refund_case_id = legacy_case.id;
 
@@ -123,15 +146,22 @@ begin
     or legacy_case.decided_at is null
     or legacy_case.nayax_refund_execution_status is distinct from 'not_requested'
     or provider_attempt_count <> 0
+    or total_message_count <> 1
     or approved_message_count <> 1
     or sent_approved_message_count <> 1
     or completed_message_count <> 0
+    or pending_message_count <> 0
     or legacy_case.reporting_adjustment_id is not null
     or legacy_case.refund_completed_by is not null
     or legacy_case.refund_completed_at is not null
     or nullif(btrim(coalesce(legacy_case.manual_refund_reference, '')), '') is not null then
     raise exception 'Case does not match the exact legacy no-provider-attempt structure';
   end if;
+
+  select count(*)::integer
+  into lookup_candidate_count
+  from public.refund_nayax_lookup_candidates candidate
+  where candidate.refund_case_id = legacy_case.id;
 
   update public.refund_cases
   set
@@ -157,6 +187,12 @@ begin
     nayax_match_execution_eligible = false,
     automation_state = 'under_review'
   where id = legacy_case.id;
+
+  -- Candidate tokens are replaceable lookup cache, not durable case history.
+  -- Remove the entire stale set so the portal cannot reuse it as current
+  -- evidence; only aggregate presence is retained in the immutable event.
+  delete from public.refund_nayax_lookup_candidates candidate
+  where candidate.refund_case_id = legacy_case.id;
 
   insert into public.refund_case_events (
     refund_case_id,
@@ -188,6 +224,8 @@ begin
         legacy_case.nayax_recommendation_policy_version is not null,
       'previous_recommendation_evaluated_at', legacy_case.nayax_recommendation_evaluated_at,
       'legacy_approved_message_count', sent_approved_message_count,
+      'total_historical_message_count', total_message_count,
+      'stale_lookup_candidate_count', lookup_candidate_count,
       'provider_attempt_count', provider_attempt_count,
       'provider_execution_status', legacy_case.nayax_refund_execution_status,
       'payload_redacted', true
@@ -219,7 +257,9 @@ begin
       'nayax_recommendation_present', legacy_case.nayax_recommendation_state is not null,
       'provider_attempt_count', provider_attempt_count,
       'provider_execution_status', legacy_case.nayax_refund_execution_status,
-      'legacy_approved_message_count', sent_approved_message_count
+      'legacy_approved_message_count', sent_approved_message_count,
+      'total_historical_message_count', total_message_count,
+      'stale_lookup_candidate_count', lookup_candidate_count
     ),
     jsonb_build_object(
       'status', 'needs_review',
@@ -246,6 +286,7 @@ begin
     'decision', null,
     'providerAttemptCount', provider_attempt_count,
     'legacyApprovedMessageCount', sent_approved_message_count,
+    'staleLookupCandidateCount', lookup_candidate_count,
     'providerExecutionStatus', 'not_requested',
     'payloadRedacted', true
   );
@@ -323,6 +364,23 @@ security definer
 set search_path = public
 as $$
 begin
+  if tg_op = 'UPDATE' then
+    perform 1
+    from public.refund_cases refund_case
+    where refund_case.id in (old.refund_case_id, new.refund_case_id)
+    order by refund_case.id
+    for update;
+
+    if public.refund_case_legacy_state_review_required(old.refund_case_id) then
+      raise exception 'Run a fresh transaction check before any customer message';
+    end if;
+  else
+    perform 1
+    from public.refund_cases refund_case
+    where refund_case.id = new.refund_case_id
+    for update;
+  end if;
+
   if new.message_type <> 'manual_note'
     and public.refund_case_legacy_state_review_required(new.refund_case_id) then
     raise exception 'Run a fresh transaction check before any customer message';
@@ -334,7 +392,7 @@ $$;
 drop trigger if exists refund_case_messages_guard_legacy_state
   on public.refund_case_messages;
 create trigger refund_case_messages_guard_legacy_state
-before insert on public.refund_case_messages
+before insert or update on public.refund_case_messages
 for each row execute function public.guard_refund_legacy_state_message();
 
 create or replace function public.guard_refund_legacy_state_provider_attempt()
@@ -344,6 +402,11 @@ security definer
 set search_path = public
 as $$
 begin
+  perform 1
+  from public.refund_cases refund_case
+  where refund_case.id = new.refund_case_id
+  for update;
+
   if public.refund_case_legacy_state_review_required(new.refund_case_id) then
     raise exception 'Run a fresh transaction check before any provider attempt';
   end if;
