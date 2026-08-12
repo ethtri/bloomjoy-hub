@@ -836,7 +836,13 @@ const installMockSupabaseRoutes = async (
   } = {}
 ) => {
   const officialActionVersions = new Map();
-  let nayaxSettlementCompleted = false;
+  let nayaxSettlementResult = null;
+  const providerCheckRequired = (result) => Boolean(
+    result &&
+      (result.reconciliationRequired === true ||
+        ['ambiguous', 'in_progress', 'requested', 'pending', 'failed', 'manual_review'].includes(result.status) ||
+        ['provider_timeout', 'provider_outcome_unknown', 'success_finalization_incomplete'].includes(result.errorCode))
+  );
   const withOfficialActionState = (overview) => ({
     ...overview,
     cases: (overview.cases ?? []).map((refundCase) => {
@@ -989,8 +995,8 @@ const installMockSupabaseRoutes = async (
         killSwitchActive: true,
         message: 'Card refund execution is disabled for this pilot environment.',
       };
-      if (responseBody.executed === true && responseBody.status === 'succeeded') {
-        nayaxSettlementCompleted = true;
+      if (responseBody.providerAttempted === true || responseBody.replayed === true || responseBody.executed === true) {
+        nayaxSettlementResult = responseBody;
       }
       return route.fulfill({
         status: nayaxCardRefundStatus,
@@ -1229,7 +1235,8 @@ const installMockSupabaseRoutes = async (
         confirmedDuplicate: false,
         duplicateOfCaseId: null,
         aging: false,
-        providerHold: false,
+        providerHold:
+          refundCase.id === 'case-card-1' && providerCheckRequired(nayaxSettlementResult),
         actionBlocked: false,
         payloadRedacted: true,
       }))));
@@ -1297,21 +1304,29 @@ const installMockSupabaseRoutes = async (
 
     if (url.includes('/admin_get_refund_operations_overview')) {
       const currentOverview = refundOverview();
-      const settledOverview = nayaxSettlementCompleted
+      const settledOverview = nayaxSettlementResult
         ? {
             ...currentOverview,
             cases: currentOverview.cases.map((refundCase) =>
               refundCase.id === 'case-card-1'
-                ? {
-                    ...refundCase,
-                    status: 'completed',
-                    decision: 'approved',
-                    providerHold: false,
-                    latestCustomerMessageStatus: 'sent',
-                    latestCustomerMessageType: 'completed',
-                    customerCommunicationStatus: 'sent',
-                    updatedAt: now.toISOString(),
-                  }
+                ? nayaxSettlementResult.executed === true && nayaxSettlementResult.status === 'succeeded'
+                  ? {
+                      ...refundCase,
+                      status: 'completed',
+                      decision: 'approved',
+                      providerHold: false,
+                      nayaxMatchExecutionEligible: false,
+                      latestCustomerMessageStatus: 'sent',
+                      latestCustomerMessageType: 'completed',
+                      customerCommunicationStatus: 'sent',
+                      updatedAt: now.toISOString(),
+                    }
+                  : {
+                      ...refundCase,
+                      providerHold: providerCheckRequired(nayaxSettlementResult),
+                      nayaxMatchExecutionEligible: false,
+                      updatedAt: now.toISOString(),
+                    }
                 : refundCase
             ),
           }
@@ -3587,6 +3602,22 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
       },
     },
     {
+      name: 'pending',
+      screenshot: 'refund-provider-pending.png',
+      expectedTitle: 'Provider confirmation pending',
+      response: {
+        executed: false,
+        status: 'requested',
+        providerAttempted: true,
+        replayed: false,
+        reconciliationRequired: false,
+        fallbackIssued: false,
+        reportingAdjustmentPresent: false,
+        customerCompletion: null,
+        message: 'Nayax accepted the request but has not returned a final result.',
+      },
+    },
+    {
       name: 'unknown',
       screenshot: 'refund-provider-unknown.png',
       expectedTitle: 'Provider outcome unknown',
@@ -3665,6 +3696,50 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
         await page.getByRole('button', { name: 'Completed 1', exact: true }).isVisible() &&
           await page.getByRole('button', { name: 'Needs action 0', exact: true }).isVisible() &&
           (await page.getByRole('button', { name: /Refund .* and notify customer/i }).count()) === 0
+      );
+    } else {
+      const providerCheckRequired = Boolean(
+        scenario.response.reconciliationRequired === true ||
+          ['ambiguous', 'in_progress', 'requested', 'pending', 'failed', 'manual_review'].includes(scenario.response.status) ||
+          ['provider_timeout', 'provider_outcome_unknown', 'success_finalization_incomplete'].includes(scenario.response.errorCode)
+      );
+      const targetQueueName = providerCheckRequired
+        ? 'Processing / check needed 1'
+        : 'Needs action 1';
+      await page.getByRole('button', { name: targetQueueName, exact: true }).waitFor({ timeout: 10000 });
+      if (providerCheckRequired) {
+        recorder.assert(
+          `Synthetic browser ${scenario.name} leaves Needs action for Processing / check needed`,
+          await page.getByRole('button', { name: 'Processing / check needed 1', exact: true }).isVisible() &&
+            await page.getByRole('button', { name: 'Needs action 0', exact: true }).isVisible()
+        );
+        await page.getByRole('button', { name: 'Processing / check needed 1', exact: true }).click();
+      } else {
+        recorder.assert(
+          `Synthetic browser ${scenario.name} remains manager review without entering provider reconciliation`,
+          await page.getByRole('button', { name: 'Needs action 1', exact: true }).isVisible() &&
+            await page.getByRole('button', { name: 'Processing / check needed 0', exact: true }).isVisible()
+        );
+      }
+
+      const caseRow = page.locator('tr', { hasText: 'RF-UAT-CARD' });
+      await caseRow.waitFor({ state: 'visible', timeout: 10000 });
+      await caseRow.click();
+      const expectedDisabledAction = providerCheckRequired
+        ? 'Provider check needed'
+        : 'Manual card review required';
+      recorder.assert(
+        `Synthetic browser ${scenario.name} suppresses contradictory ready badges and refund actions`,
+        (await caseRow.getByText('Ready to refund', { exact: true }).count()) === 0 &&
+          (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+          await page.getByRole('button', { name: expectedDisabledAction, exact: true }).isDisabled(),
+        JSON.stringify({ providerCheckRequired, expectedDisabledAction })
+      );
+      recorder.assert(
+        `Synthetic browser ${scenario.name} shows a plain-language non-ready state`,
+        providerCheckRequired
+          ? (await caseRow.getByText('Payment check needed', { exact: true }).count()) > 0
+          : (await caseRow.getByText('Card review needed', { exact: true }).count()) > 0
       );
     }
 
@@ -3938,7 +4013,7 @@ const run = async () => {
         evidence.primaryCheckLookupCallCountBefore === 0 &&
         evidence.primaryCheckLookupCallCountAfter === 1 &&
         evidence.providerSuccessStateCount === 1 &&
-        evidence.providerNonSuccessStateCount === 3 &&
+        evidence.providerNonSuccessStateCount === 4 &&
         evidence.intakeAvailable === true &&
         evidence.portalAvailable === true,
       JSON.stringify(evidence)

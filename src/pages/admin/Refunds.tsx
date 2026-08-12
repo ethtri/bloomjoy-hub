@@ -61,6 +61,7 @@ import {
   type NayaxLookupCandidate,
   type NayaxDisagreementReason,
   type RefundCaseRecord,
+  type RefundOperationsOverview,
   type RefundAutomationHealth,
   type RefundGmailHealth,
   type RefundManagerStepUpRequest,
@@ -564,6 +565,18 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
     return 'Waiting on customer details. The bounded follow-up workflow handles the single approved reminder; review the case if delivery fails or it ages.';
   }
 
+  if (refundCase.providerHold) {
+    return 'Nayax has not confirmed the refund outcome. Keep this payment in Processing / check needed and do not retry it until the provider result is reconciled.';
+  }
+
+  if (
+    refundCase.paymentMethod === 'card' &&
+    ['approved', 'card_refund_pending'].includes(refundCase.status) &&
+    refundCase.nayaxMatchExecutionEligible !== true
+  ) {
+    return 'This card payment is not ready to refund. Review the Nayax result and choose a safe next step; no refund has been confirmed.';
+  }
+
   if (refundCase.paymentMethod === 'card' && !refundCase.hasMatchedNayaxTransaction) {
     if (candidates.length > 0) {
       return 'Review the proposed transaction and confirm the right purchase. If the details do not clearly agree, keep the case open for review.';
@@ -595,6 +608,12 @@ const taskLabel = (refundCase: RefundCaseRecord) => {
   if (refundCase.status === 'denied' || refundCase.status === 'closed') return 'Closed';
   if (refundCase.status === 'waiting_on_customer') return 'Needs customer info';
   if (refundCase.status === 'draft') return 'Inbox triage';
+  if (refundCase.providerHold) return 'Payment check needed';
+  if (
+    refundCase.paymentMethod === 'card' &&
+    ['approved', 'card_refund_pending'].includes(refundCase.status) &&
+    refundCase.nayaxMatchExecutionEligible !== true
+  ) return 'Card review';
   if (refundCase.status === 'card_refund_pending') return 'Card refund';
   if (refundCase.status === 'cash_zelle_pending') return 'Zelle refund';
   if (refundCase.status === 'approved') {
@@ -609,6 +628,12 @@ const taskBadgeClass = (refundCase: RefundCaseRecord) => {
   if (refundCase.status === 'denied' || refundCase.status === 'closed') return 'border-slate-200 bg-slate-50 text-slate-700';
   if (refundCase.status === 'waiting_on_customer') return 'border-orange-200 bg-orange-50 text-orange-800';
   if (refundCase.status === 'draft') return 'border-sky-200 bg-sky-50 text-sky-800';
+  if (
+    refundCase.providerHold ||
+    (refundCase.paymentMethod === 'card' &&
+      ['approved', 'card_refund_pending'].includes(refundCase.status) &&
+      refundCase.nayaxMatchExecutionEligible !== true)
+  ) return 'border-orange-200 bg-orange-50 text-orange-900';
   if (refundCase.status === 'approved' || refundCase.status.endsWith('_pending')) return 'border-sky-200 bg-sky-50 text-sky-700';
   return 'border-primary/20 bg-primary/10 text-primary';
 };
@@ -648,7 +673,9 @@ const getCustomerContactAgeLabel = (refundCase: RefundCaseRecord) => {
 };
 
 const isReadyToPayCase = (refundCase: RefundCaseRecord) =>
-  ['approved', 'card_refund_pending', 'cash_zelle_pending'].includes(refundCase.status);
+  ['approved', 'card_refund_pending', 'cash_zelle_pending'].includes(refundCase.status) &&
+  refundCase.providerHold !== true &&
+  (refundCase.paymentMethod !== 'card' || refundCase.nayaxMatchExecutionEligible === true);
 
 const isBlockedCase = (refundCase: RefundCaseRecord) => {
   const lookupStatus = refundCase.nayaxLookupSummary?.lookupStatus;
@@ -691,7 +718,13 @@ const getOperationalSignals = (refundCase: RefundCaseRecord) => {
     signals.push({ label: 'Aging', className: 'border-amber-200 bg-amber-50 text-amber-900' });
   }
   if (refundCase.providerHold) {
-    signals.push({ label: 'Provider hold', className: 'border-orange-200 bg-orange-50 text-orange-900' });
+    signals.push({ label: 'Payment check needed', className: 'border-orange-200 bg-orange-50 text-orange-900' });
+  } else if (
+    refundCase.paymentMethod === 'card' &&
+    ['approved', 'card_refund_pending'].includes(refundCase.status) &&
+    refundCase.nayaxMatchExecutionEligible !== true
+  ) {
+    signals.push({ label: 'Card review needed', className: 'border-orange-200 bg-orange-50 text-orange-900' });
   }
   if (getLatestCustomerMessage(refundCase)?.status === 'failed') {
     signals.push({ label: 'Email failed', className: 'border-destructive/30 bg-destructive/10 text-destructive' });
@@ -1542,6 +1575,23 @@ const formatNayaxExecutionBlockedMessage = (result: NayaxCardRefundExecutionResp
   return 'Card refund is not available for this case.';
 };
 
+const nayaxProviderPendingStatuses = new Set([
+  'in_progress',
+  'requested',
+  'pending',
+  'failed',
+  'manual_review',
+]);
+
+const nayaxProviderCheckRequired = (result: NayaxCardRefundExecutionResponse) =>
+  result.executed === true ||
+  result.reconciliationRequired === true ||
+  result.errorCode === 'provider_timeout' ||
+  result.errorCode === 'provider_outcome_unknown' ||
+  result.errorCode === 'success_finalization_incomplete' ||
+  result.status === 'ambiguous' ||
+  nayaxProviderPendingStatuses.has(result.status ?? '');
+
 const getNayaxExecutionReference = (result: NayaxCardRefundExecutionResponse) => {
   const executionRecord = result as NayaxCardRefundExecutionResponse & Record<string, unknown>;
 
@@ -2338,31 +2388,50 @@ export default function AdminRefundsPage() {
       return;
     }
 
-    const corruptSuccess = result.executed === true || result.status === 'succeeded';
-    const ambiguous =
-      corruptSuccess ||
-      result.reconciliationRequired === true ||
-      result.errorCode === 'provider_timeout' ||
-      result.errorCode === 'provider_outcome_unknown' ||
-      result.errorCode === 'success_finalization_incomplete' ||
-      result.status === 'ambiguous';
+    const ambiguous = nayaxProviderCheckRequired(result);
     const rejected = result.errorCode === 'provider_rejected' || result.status === 'declined';
     const timedOut = result.errorCode === 'provider_timeout';
     const outcomeUnknown = result.errorCode === 'provider_outcome_unknown';
-    const message = formatNayaxExecutionBlockedMessage(result);
+    const providerPending = nayaxProviderPendingStatuses.has(result.status ?? '');
+    const message = providerPending
+      ? 'Nayax has not confirmed the final refund result.'
+      : formatNayaxExecutionBlockedMessage(result);
+    const receiptTitle = ambiguous
+      ? timedOut
+        ? 'Provider request timed out'
+        : outcomeUnknown
+          ? 'Provider outcome unknown'
+          : providerPending
+            ? 'Provider confirmation pending'
+            : 'Refund outcome needs reconciliation'
+      : rejected
+        ? 'Refund rejected by Nayax'
+        : 'Refund not sent';
+
+    if ((result.providerAttempted === true || result.replayed === true) && selectedCase) {
+      queryClient.setQueryData<RefundOperationsOverview>(
+        ['admin-refund-operations-overview'],
+        (currentOverview) => currentOverview
+          ? {
+              ...currentOverview,
+              cases: currentOverview.cases.map((refundCase) =>
+                refundCase.id === selectedCase.id
+                  ? {
+                      ...refundCase,
+                      providerHold: ambiguous,
+                      nayaxMatchExecutionEligible: false,
+                    }
+                  : refundCase
+              ),
+            }
+          : currentOverview
+      );
+    }
 
     setNayaxExecutionNotice({ tone: 'warning', message });
     setRefundActionReceipt({
       tone: 'warning',
-      title: ambiguous
-        ? timedOut
-          ? 'Provider request timed out'
-          : outcomeUnknown
-            ? 'Provider outcome unknown'
-            : 'Refund outcome needs reconciliation'
-        : rejected
-          ? 'Refund rejected by Nayax'
-          : 'Refund not sent',
+      title: receiptTitle,
       message: ambiguous
         ? `${message} Keep the case open and do not retry the payment until Nayax is reconciled. No fallback or customer completion email was sent.`
         : rejected
