@@ -16,11 +16,7 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..', '..');
 
 const parseArgs = (argv) => {
-  const result = {
-    projectRef: '',
-    confirmedProjectRef: '',
-    expect: '',
-  };
+  const result = { projectRef: '', confirmedProjectRef: '', phase: '' };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     const next = argv[index + 1];
@@ -30,23 +26,23 @@ const parseArgs = (argv) => {
     } else if (argument === '--confirm-project-ref' && next) {
       result.confirmedProjectRef = next;
       index += 1;
-    } else if (argument === '--expect' && next) {
-      result.expect = next.trim().toLowerCase();
+    } else if (argument === '--phase' && next) {
+      result.phase = next.trim().toLowerCase();
       index += 1;
     } else {
       throw new Error(
-        'Unsupported argument. Use only --project-ref, --confirm-project-ref, and --expect.'
+        'Unsupported argument. Use only --project-ref, --confirm-project-ref, and --phase.'
       );
     }
   }
-  if (!['open', 'closed'].includes(result.expect)) {
-    throw new Error('--expect must be open or closed.');
+  if (!['predeploy', 'postdeploy'].includes(result.phase)) {
+    throw new Error('--phase must be predeploy or postdeploy.');
   }
   return result;
 };
 
 const main = async () => {
-  const { projectRef, confirmedProjectRef, expect } = parseArgs(process.argv.slice(2));
+  const { projectRef, confirmedProjectRef, phase } = parseArgs(process.argv.slice(2));
   requireCanonicalRefundTotpSourceClosed({ repoRoot });
   requireExactRefundProductionProject({ projectRef, confirmedProjectRef });
   const accessToken = requireOwnerHeldAuthConfigReadToken();
@@ -55,14 +51,14 @@ const main = async () => {
     confirmedProjectRef,
     accessToken,
   });
-  requireHostedRefundTotpState(state, expect === 'open');
+  requireHostedRefundTotpState(state, false);
   console.log(formatHostedRefundTotpPass({
     state,
-    label: `owner-supervised Auth state is ${expect}`,
+    label: `${phase} production Auth gate passed`,
   }));
 };
 
 main().catch((error) => {
-  console.error(`FAIL: ${error instanceof Error ? error.message : 'Readiness check failed.'}`);
+  console.error(`FAIL: ${error instanceof Error ? error.message : 'Auth gate failed.'}`);
   process.exit(1);
 });

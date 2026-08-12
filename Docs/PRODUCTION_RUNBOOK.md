@@ -130,6 +130,7 @@ Security rule:
 - [ ] `npm run refunds:validate-release-tooling` passes.
 - [ ] `npm run refunds:release:check` confirms that the ten candidate Refund Operations functions, required migrations, source commit, and `verify_jwt` settings match the approved release manifest. Do not substitute the separate eight-route `OPTIONS` smoke count for the manifest count.
 - [ ] The same fresh `Refund UAT Evidence` run contains exactly 43 reviewed synthetic screenshots and the five sanitized JSON artifacts named below; the final manifest hashes every artifact and binds to the reviewed PR head. The owner-authenticator image is captured before private QR setup opens and contains no QR or code. Final migration/test-file counts and SHA are generated from that tree, not copied from an earlier branch or written by hand.
+- [ ] In the owner's private shell, `npm run refunds:production-auth-closed -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --phase predeploy` passes with the short-lived `SUPABASE_AUTH_CONFIG_READ_TOKEN`. This is the final read-only barrier before the first refund production database/function write.
 - [ ] Before deployment, `supabase db push --dry-run` reports exactly the reviewed pending migration set and no unexpected migration. Save the sanitized command result; the Edge Function drift check does not prove remote migration parity.
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
 - [ ] Stripe products/prices verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_STICKS_MEMBER_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
@@ -210,6 +211,20 @@ Remote preflight validates secret presence by name. Before deploying, separately
 
 For the deployed `#644` baseline, use `Docs/REFUND_PRODUCTION_CUTOVER_PACKET.md` as the historical merge, deployment, smoke, rollback, pilot, and sponsor-decision record. Do not apply it unmodified to the unmerged `#409` integration candidate. The candidate requires its own reviewed final manifest/evidence and all open owner/provider/mailbox gates. `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` remains historical and must not be used to deploy the candidate.
 
+#### Refund Auth closed-state barrier (required before Step B)
+
+The owner places a newly created short-lived Management API token only in the private shell variable `SUPABASE_AUTH_CONFIG_READ_TOKEN`, without printing it. Do not place it in an env file, GitHub, an issue, a PR, a screenshot, or task output. Then run:
+
+```bash
+npm run refunds:production-auth-closed -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --phase predeploy
+```
+
+This command first validates the reviewed repository source, then makes exactly one GET of the exact production project's Auth configuration. It prints only pass/fail plus the enrollment and verification booleans. It never PATCHes, auto-restores, or changes Auth. Do not reuse or broaden `SUPABASE_EDGE_FUNCTIONS_READ_TOKEN`; that protected credential remains limited to Edge Functions Read.
+
+If the gate reports enrollment on, verification off, a project mismatch, missing authority, or an unreadable response, stop before `supabase db push` or any function deployment. Keep every refund operational switch off. The owner—not an agent or automation—must open the exact Supabase project, turn only TOTP enrollment off while leaving verification on, and rerun the command. If the owner cannot prove the closed state, record the sanitized blocker in `#789` and do not deploy. Clear the private shell token immediately after the postdeploy check.
+
+A future scheduled alert-only monitor is allowed only if Supabase offers an exact-project Auth-configuration read credential. Never substitute a broad PAT, reuse the Edge drift token, or add a write-capable auto-restorer.
+
 ### Step B: Deploy database migrations
 Apply all `supabase/migrations/*.sql` not already applied, oldest to newest.
 
@@ -280,6 +295,14 @@ supabase functions deploy refund-manager-totp-enrollment --no-verify-jwt
 
 After deploying the ten manifest-tracked Refund Operations functions:
 
+Before any smoke, UAT, or enablement decision, rerun the exact read-only gate:
+
+```bash
+npm run refunds:production-auth-closed -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --phase postdeploy
+```
+
+If it does not pass, stop. Keep all operational switches off and use the same owner-only remediation above. The command never auto-restores or changes Auth; a passing result proves the deployment ended with enrollment off and verification on.
+
 1. Run the no-auth, no-body route smoke. It deliberately probes the eight established application routes only; that probe count is not the ten-function manifest count. It sends only `OPTIONS`, creates no case, sends no email, and makes no Nayax/OpenAI/Gmail provider request:
    - `npm run refunds:smoke-routes -- --project-ref <project-ref> --confirm-project-ref <project-ref>`
 2. Run the aggregate-only public-options smoke. It fails when an internal `Unmapped`/`Unknown` label, duplicate machine/display row, or missing Atlanta/DC/Seattle option remains and never prints machine/location identifiers:
@@ -309,9 +332,9 @@ The discovery audit passes when a currently mapped manager has at least one shad
 Owner-supervised refund authenticator enrollment (`#782`):
 
 1. Deploy only the reviewed migration/Edge/frontend release. Deployment and the checked-in Auth configuration must leave TOTP enrollment **off** and verification **on**. Official actions, Nayax execution, Gmail, customer contact, and schedules also remain off; deployment does not open an enrollment window.
-2. Before the private session, use the owner-controlled Supabase project dashboard to confirm **Authentication > Multi-Factor Authentication > TOTP enrollment** is off and TOTP verification is on. As a second read-only check, run `npm run refunds:owner-totp-auth-readiness -- --expect closed` with a short-lived `SUPABASE_ACCESS_TOKEN`. The script reads only the two Auth flags, prints no configuration or token, and cannot change settings.
+2. Before the private session, use the owner-controlled Supabase project dashboard to confirm **Authentication > Multi-Factor Authentication > TOTP enrollment** is off and TOTP verification is on. As a second read-only check, use the owner's short-lived private-shell `SUPABASE_AUTH_CONFIG_READ_TOKEN` and run `npm run refunds:owner-totp-auth-readiness -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --expect closed`. The script reads only the two Auth flags, prints no configuration or token, and cannot change settings.
 3. From the owner's own private, non-agent browser, sign into the portal and open `/refunds`. The setup card appears only for the exact preapproved owner-manager and states that setup cannot issue a refund. Confirm the owner is ready with their authenticator before changing Auth.
-4. Start a five-minute human timer. In the owner-controlled Supabase dashboard, temporarily enable only TOTP enrollment; do not run a broad Auth config push or change any other setting. Immediately run the same read-only command with `--expect open`. If it does not pass, restore TOTP enrollment off and stop before the owner clicks setup.
+4. Start a five-minute human timer. In the owner-controlled Supabase dashboard, temporarily enable only TOTP enrollment; do not run a broad Auth config push or change any other setting. Immediately run the same exact-project read-only command with `--expect open`. If it does not pass, restore TOTP enrollment off and stop before the owner clicks setup.
 5. The owner immediately clicks **Begin private setup**. The database opens its own five-minute, self-only window and the real Auth enrollment endpoint must also be ready before the UI displays QR material. The owner personally scans the QR and enters the current setup code. Do not screen-share, screenshot, copy, dictate, log, or send the QR or code to an agent or another person.
 6. On success, cancel, UI expiry, start/verify failure, or any interruption, immediately restore TOTP enrollment **off** in the Supabase dashboard. Run the read-only check again with `--expect closed`. Do this even if the portal already says the database window closed; the Auth setting and database window are independent fail-closed layers. If restoration cannot be confirmed inside five minutes, stop and treat setup as failed.
 7. Confirm the portal says the authenticator is ready, the private dialog/QR is gone, the database window is closed, and no refund was issued. Do not open another setup window or attempt factor replacement during pilot readiness.

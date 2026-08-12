@@ -36,12 +36,19 @@ Status values: `Not started`, `In progress`, `Done`, `Blocked`.
 | Supabase Google provider updated with current client credentials |  |  |  |
 | Supabase Site URL set to `https://app.bloomjoyusa.com` |  |  |  |
 | Supabase redirect URL allowlist includes `https://app.bloomjoyusa.com` app routes plus `https://*-snapcase.vercel.app/**` for Vercel preview UAT |  |  |  |
+| Refund deployment live Auth gate passes enrollment-off/verification-on immediately before the first production write and after the final refund function (`#789`) |  |  |  |
 
 ## 4) Security and reliability checks
 ### Email OTP and rate limits
 - [ ] Auth rate-limit settings reviewed in Supabase dashboard.
 - [ ] Support response for 429 incidents documented and shared.
 - [ ] Retry/cooldown messaging is confirmed in app UX.
+
+### Refund TOTP control-plane closed state
+- [ ] The owner holds the short-lived Management API token only in their private shell as `SUPABASE_AUTH_CONFIG_READ_TOKEN`; it is not stored in GitHub, the repository, screenshots, or task output.
+- [ ] The exact Bloomjoy Hub project-ref and matching confirmation are supplied to the GET-only `refunds:production-auth-closed` command before the first refund production database/function write.
+- [ ] The same command passes again after the final refund function and before smoke/UAT. Record only pass/fail plus enrollment/verification booleans.
+- [ ] If either check fails, deployment stops. The owner restores TOTP enrollment off in Supabase while leaving verification on, then reruns the read-only check; agents and automation do not change or auto-restore Auth.
 
 ### Password and account recovery
 - [ ] Password sign-in succeeds for existing user.
