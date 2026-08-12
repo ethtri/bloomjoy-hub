@@ -84,6 +84,7 @@ type RefundCaseRow = {
   reporting_location_id: string;
   incident_at: string | null;
   incident_time_resolution: string | null;
+  nayax_refund_execution_status: string;
   official_action_version: number;
   updated_at: string;
   reporting_machines?: {
@@ -128,6 +129,7 @@ const selectCaseQuery = `
   reporting_location_id,
   incident_at,
   incident_time_resolution,
+  nayax_refund_execution_status,
   official_action_version,
   updated_at,
   reporting_machines(machine_label, refund_public_display_label),
@@ -148,6 +150,14 @@ const officialStatuses = new Set([
   "card_refund_pending",
   "cash_zelle_pending",
   "completed",
+]);
+
+const providerHoldStatuses = new Set([
+  "requested",
+  "failed",
+  "ambiguous",
+  "manual_review",
+  "declined",
 ]);
 
 const normalizeDecision = (value: unknown) => {
@@ -607,6 +617,23 @@ serve(async (req) => {
       requestedStatus,
       requestedDecision,
     });
+    const requestedMessageType = sanitizeRefundMessageType(
+      body?.customerMessageType,
+    );
+    if (
+      providerHoldStatuses.has(beforeRow.nayax_refund_execution_status) &&
+      (officialAction || requestedMessageType)
+    ) {
+      return jsonResponse({
+        error:
+          beforeRow.nayax_refund_execution_status === "declined"
+            ? "Nayax rejected the refund. Leave the case open for payment support and do not send a customer decision from this case."
+            : "Nayax has not confirmed whether the refund was sent. Do not try again or contact the customer until the payment outcome is confirmed.",
+        errorCode: beforeRow.nayax_refund_execution_status === "declined"
+          ? "provider_refund_rejected"
+          : "provider_outcome_unconfirmed",
+      }, 409);
+    }
     if (officialAction === "nayax_execute") {
       return jsonResponse({
         error:
@@ -703,7 +730,6 @@ serve(async (req) => {
       );
     }
 
-    const requestedMessageType = sanitizeRefundMessageType(body?.customerMessageType);
     if (requestedMessageType && !managerActionMessageTypes.has(requestedMessageType)) {
       return jsonResponse({ error: "Choose an approved customer message type for this action." }, 400);
     }

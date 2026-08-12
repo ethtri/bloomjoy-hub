@@ -313,6 +313,7 @@ export type RefundCaseRecord = {
   duplicateOfCaseId?: string | null;
   aging?: boolean;
   providerHold?: boolean;
+  providerOutcome?: 'not_attempted' | 'unconfirmed' | 'rejected' | 'succeeded';
   reconciliationActionBlocked?: boolean;
   intakeComplete?: boolean;
   hasGmailThread?: boolean;
@@ -351,6 +352,7 @@ export type RefundEmailQueueState = {
   duplicateOfCaseId: string | null;
   aging: boolean;
   providerHold: boolean;
+  providerOutcome: 'not_attempted' | 'unconfirmed' | 'rejected' | 'succeeded';
   actionBlocked: boolean;
   payloadRedacted: true;
 };
@@ -744,6 +746,18 @@ export type NayaxCardRefundExecutionResponse = {
     operationApplied: boolean;
     managerCompletionNoticeSent: false;
   } | null;
+};
+
+export type NayaxCardRefundAvailabilityResponse = {
+  available: boolean;
+  status: 'available' | 'unavailable';
+  blockReason:
+    | null
+    | 'official_actions_disabled'
+    | 'kill_switch_active'
+    | 'configuration_missing'
+    | 'contract_unconfirmed';
+  payloadRedacted: true;
 };
 
 export type NayaxCardRefundExecutionError =
@@ -1223,6 +1237,7 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
       duplicateOfCaseId: state.duplicateOfCaseId,
       aging: state.aging,
       providerHold: state.providerHold,
+      providerOutcome: state.providerOutcome,
       reconciliationActionBlocked: state.actionBlocked,
     };
   });
@@ -1717,6 +1732,16 @@ export const executeNayaxCardRefund = async ({
     {
       requireUserAuth: true,
       authErrorMessage: 'Log in to execute Nayax card refunds.',
+    }
+  );
+
+export const fetchNayaxCardRefundAvailability = () =>
+  invokeEdgeFunction<NayaxCardRefundAvailabilityResponse>(
+    'nayax-card-refund',
+    { operation: 'availability' },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Log in to check card refund availability.',
     }
   );
 

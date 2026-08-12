@@ -114,7 +114,7 @@ const machineFixtures = {
     primaryCheckLookupCallCountBefore: 0,
     primaryCheckLookupCallCountAfter: 1,
     providerSuccessStateCount: 1,
-    providerNonSuccessStateCount: 3,
+    providerNonSuccessStateCount: 5,
     intakeAvailable: true,
     portalAvailable: true,
   },
@@ -302,7 +302,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 40, 'Evidence must enumerate all 40 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 42, 'Evidence must enumerate all 42 reviewed screenshots');
   assert.deepEqual(
     EXPECTED_MACHINE_READABLE_ARTIFACTS,
     Object.keys(machineFixtures),

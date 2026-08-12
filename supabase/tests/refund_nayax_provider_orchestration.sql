@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(55);
+select plan(61);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -789,6 +789,26 @@ select ok(
   'Provider rejection emits no success mail, reporting, or fallback'
 );
 select ok(
+  pg_temp.capture_error($sql$
+    update public.refund_cases
+    set status = 'denied', decision = 'denied'
+    where id = '9a600000-0000-4000-8000-000000000002'
+  $sql$) like '%Nayax provider outcome freezes official case decisions for payment support%',
+  'A provider-rejected refund cannot be converted into a customer denial'
+);
+select ok(
+  pg_temp.capture_error($sql$
+    insert into public.refund_case_messages (
+      refund_case_id, message_type, status, recipient_email, subject, body
+    ) values (
+      '9a600000-0000-4000-8000-000000000002',
+      'denied', 'pending', 'provider-customer-2@example.test',
+      'Unsafe rejection decision', 'Unsafe rejection decision'
+    )
+  $sql$) like '%Nayax provider outcome pauses customer messages for payment support%',
+  'A provider-rejected refund cannot create a customer decision message'
+);
+select ok(
   (select status = 'ambiguous' and provider_outcome = 'timeout'
       and reconciliation_required
    from public.refund_case_nayax_refund_attempts
@@ -796,6 +816,42 @@ select ok(
   and (select status = 'card_refund_pending' and nayax_refund_execution_status = 'ambiguous'
        from public.refund_cases where id = '9a600000-0000-4000-8000-000000000003'),
   'Provider timeout leaves the case open on a durable reconciliation hold'
+);
+
+select ok(
+  pg_temp.capture_error($sql$
+    update public.refund_cases
+    set status = 'denied', decision = 'denied'
+    where id = '9a600000-0000-4000-8000-000000000003'
+  $sql$) like '%Nayax provider outcome freezes official case decisions for payment support%',
+  'An unconfirmed provider outcome cannot be converted into a denial'
+);
+
+select ok(
+  pg_temp.capture_error($sql$
+    insert into public.refund_case_messages (
+      refund_case_id, message_type, status, recipient_email, subject, body
+    ) values (
+      '9a600000-0000-4000-8000-000000000003',
+      'denied', 'pending', 'provider-customer-3@example.test',
+      'Unsafe decision', 'Unsafe decision'
+    )
+  $sql$) like '%Nayax provider outcome pauses customer messages for payment support%',
+  'An unconfirmed provider outcome cannot create a customer decision message'
+);
+
+select is(
+  public.refund_nayax_provider_outcome_state('ambiguous'),
+  'unconfirmed',
+  'Ambiguous Nayax state is exposed only as a sanitized unconfirmed outcome'
+);
+
+select ok(
+  pg_get_functiondef('public.admin_get_refund_email_queue_states()'::regprocedure)
+    like '%providerOutcome%'
+  and pg_get_functiondef('public.admin_get_refund_email_queue_states()'::regprocedure)
+    not like '%provider_transaction_id%',
+  'Manager queue exposes only the sanitized provider outcome without provider identifiers'
 );
 select ok(
   not exists (select 1 from public.refund_case_messages
