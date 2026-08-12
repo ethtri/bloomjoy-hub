@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "e3ce7863711ae28e573e71346b5b38bbd6ae821d",
+  "sourceGitCommit": "565bee3abea5df39cdde5011c8cca4643c454721",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -53,8 +53,8 @@
     "20260812200000_refund_owner_totp_enrollment_window.sql",
     "20260812210000_refund_legacy_card_state_normalization.sql"
   ],
-  "migrationFilesSha256": "4ef1ad54bab40db8df413783691ca2454d82634db856f4f3f7706b68da864b20",
-  "migrationVersionSetSha256": "d424d34703a4eb6ee0ceab7f49a7379e39348f9d5a7c46297a53d3d1248a14ec",
+  "migrationFilesSha256": "0a6987a4381c5493fb3b74decdf276762ce33a649b3f7c65e11f6281330346f4",
+  "migrationVersionSetSha256": "2e9b977adc030ace2257431efc89c14866569d5a19ac11805d448b8e37b420de",
   "functions": [
     {
       "slug": "refund-case-intake",
