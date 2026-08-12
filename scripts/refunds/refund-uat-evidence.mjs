@@ -287,7 +287,7 @@ const validatePortalAssertions = (payload) => {
     'Portal primary-check post-action lookup call count'
   );
   assertLiteral(payload.providerSuccessStateCount, 1, 'Portal provider success-state count');
-  assertLiteral(payload.providerNonSuccessStateCount, 3, 'Portal provider non-success-state count');
+  assertLiteral(payload.providerNonSuccessStateCount, 4, 'Portal provider non-success-state count');
   assertLiteral(payload.intakeAvailable, true, 'Portal intake-availability assertion');
   assertLiteral(payload.portalAvailable, true, 'Portal availability assertion');
 };
