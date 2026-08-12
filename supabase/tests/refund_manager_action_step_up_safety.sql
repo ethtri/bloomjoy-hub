@@ -145,6 +145,11 @@ values
 insert into public.admin_roles (id, user_id, role, active)
 values
   (
+    '8a410000-0000-4000-8000-000000000004',
+    '8a000000-0000-4000-8000-000000000001',
+    'super_admin', true
+  ),
+  (
     '8a410000-0000-4000-8000-000000000001',
     '8a000000-0000-4000-8000-000000000002',
     'super_admin', true
@@ -774,9 +779,16 @@ update public.refund_manager_security_config
 set
   totp_enrollment_enabled = true,
   totp_enrollment_approved_manager_user_id = '8a000000-0000-4000-8000-000000000001',
-  totp_enrollment_approved_by_owner_user_id = '8a000000-0000-4000-8000-000000000002',
+  totp_enrollment_approved_by_owner_user_id = '8a000000-0000-4000-8000-000000000001',
   totp_enrollment_approval_expires_at = statement_timestamp() + interval '5 minutes',
   totp_enrollment_approval_version = 1,
+  totp_enrollment_owner_user_id_digest = encode(
+    extensions.digest(
+      convert_to('8a000000-0000-4000-8000-000000000001', 'UTF8'),
+      'sha256'
+    ),
+    'hex'
+  ),
   updated_at = statement_timestamp()
 where singleton = true;
 set local role authenticated;
@@ -803,7 +815,7 @@ select ok(
     where enrollment.actor_user_id = '8a000000-0000-4000-8000-000000000001'
       and enrollment.status = 'active'
       and enrollment.approved_factor_binding_hash = repeat('b', 64)
-      and enrollment.owner_approved_by_user_id = '8a000000-0000-4000-8000-000000000002'
+      and enrollment.owner_approved_by_user_id = '8a000000-0000-4000-8000-000000000001'
       and enrollment.enrollment_version = 3
   )
   and not public.refund_manager_totp_enrollment_window_enabled()

@@ -5,6 +5,7 @@ export type RefundManagerTotpErrorCode =
   | "invalid_code"
   | "session_invalid"
   | "verification_failed"
+  | "auth_enrollment_disabled"
   | "enrollment_closed";
 
 export class RefundManagerTotpError extends Error {
@@ -398,6 +399,16 @@ export const beginRefundManagerTotpEnrollment = async ({
     ? enrollment.data.totp as Record<string, unknown>
     : {};
   const qrCode = typeof totp.qr_code === "string" ? totp.qr_code : "";
+  const authErrorCode = typeof enrollment.data.code === "string"
+    ? enrollment.data.code
+    : "";
+  if (!enrollment.response.ok && authErrorCode === "mfa_totp_enroll_not_enabled") {
+    throw new RefundManagerTotpError(
+      "Authenticator enrollment is not temporarily enabled in Supabase Auth. Keep setup closed until the owner-supervised Auth configuration step is ready.",
+      409,
+      "auth_enrollment_disabled",
+    );
+  }
   if (!enrollment.response.ok || !qrCode) {
     throw new RefundManagerTotpError(
       "The owner-controlled enrollment window is closed.",

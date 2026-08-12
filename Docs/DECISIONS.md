@@ -1,5 +1,20 @@
 # Decisions
 
+## 2026-08-12 - Refund authenticator setup is private, self-only, and temporary (`#782`, `#692`)
+
+The first refund-operator authenticator can be enrolled only by the exact preapproved owner-manager while signed into their own portal session. The database stores only a SHA-256 binding of the private, immutable, high-entropy Auth user UUID—not an email literal or guessable email hash—and the browser API accepts no target identity.
+
+- The owner must also have a current active Machine Manager mapping and an active Super Admin role; neither role alone is sufficient.
+- **Begin private setup** opens one five-minute window for the signed-in owner only. A concurrent or repeated click cannot create a second window or extend the expiry.
+- The window closes logically on expiry and is consumed by successful durable enrollment. Cancel and failed-start paths remove any unfinished factor and close the window.
+- Exact owner role, active manager mapping, confirmed Auth identity, and immutable owner binding are rechecked under the enrollment lock before Auth start and again before durable success. A change after the window opens fails closed.
+- Checked-in Supabase Auth remains TOTP enrollment-off and verification-on. During the same private five-minute ceremony, the owner temporarily enables only Auth TOTP enrollment in the control plane, confirms it with a read-only probe, and restores it off after success, cancel, expiry, or failure. There is no generic application, agent, service, or workflow setter.
+- Audit rows record only the bounded lifecycle event, actor, time, and approval version. QR material, codes, factor identifiers, email addresses, tokens, and customer/payment data are excluded.
+- The owner scans the QR and enters setup codes personally in a private, non-agent browser. Agents and shared sessions may not view, capture, enter, relay, or proxy them.
+- Authenticator setup does not enable official actions, call Nayax, contact a customer, start Gmail, or turn on a schedule. A later refund still needs a new action-bound code plus every independent provider and release gate.
+
+The enrollment window is default-closed and is not opened by deploying this change.
+
 ## 2026-08-12 - Refund intake auto-assigns only an unambiguous current manager (`#774`)
 
 Direct website intake and a private email-linked form use the same database ownership rule when a machine is bound to a refund case. The database serializes that decision with Admin > Machines and re-reads the current active, unrevoked manager mappings while holding the shared per-machine lock.

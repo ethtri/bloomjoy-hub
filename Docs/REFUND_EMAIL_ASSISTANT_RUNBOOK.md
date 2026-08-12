@@ -260,7 +260,7 @@ For `#685`, a business day is Monday through Friday in `America/Los_Angeles`, pr
 
 ## Integrated synthetic evidence contract
 
-The current safe-foundation release produced exactly 42 reviewed synthetic screenshots plus these five strict, sanitized JSON artifacts:
+Before this candidate can be considered release-ready, the same fresh workflow run must create exactly 43 reviewed synthetic screenshots plus these five strict, sanitized JSON artifacts:
 
 - `refund-portal-assertions.json`;
 - `refund-database-counts.json`;

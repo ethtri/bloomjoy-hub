@@ -69,7 +69,36 @@ values (
   '8b000000-0000-4000-8000-000000000001',
   'step-up-race-manager@example.test',
   'Two-session step-up race regression'
+), (
+  '8b400000-0000-4000-8000-000000000002',
+  '8b300000-0000-4000-8000-000000000001',
+  '8b000000-0000-4000-8000-000000000002',
+  'step-up-race-owner@example.test',
+  'Two-session owner-window race regression'
 );
+
+insert into public.admin_roles (id, user_id, role, active)
+values (
+  '8b410000-0000-4000-8000-000000000001',
+  '8b000000-0000-4000-8000-000000000002',
+  'super_admin',
+  true
+);
+
+update public.refund_manager_security_config
+set
+  totp_enrollment_enabled = false,
+  totp_enrollment_approved_manager_user_id = null,
+  totp_enrollment_approved_by_owner_user_id = null,
+  totp_enrollment_approval_expires_at = null,
+  totp_enrollment_owner_user_id_digest = encode(
+    extensions.digest(
+      convert_to('8b000000-0000-4000-8000-000000000002', 'UTF8'),
+      'sha256'
+    ),
+    'hex'
+  )
+where singleton = true;
 
 insert into public.machine_sales_facts (
   id, reporting_machine_id, reporting_location_id, sale_date, payment_method,
@@ -206,9 +235,41 @@ exception when others then
 end;
 $$;
 
+create function refund_step_up_race_test.open_owner_window()
+returns jsonb
+language plpgsql
+set search_path = public, auth
+as $$
+declare
+  opened jsonb;
+begin
+  perform set_config('request.jwt.claim.sub', '8b000000-0000-4000-8000-000000000002', true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config(
+    'request.jwt.claims',
+    jsonb_build_object(
+      'sub', '8b000000-0000-4000-8000-000000000002',
+      'role', 'authenticated',
+      'aal', 'aal1',
+      'amr', '[]'::jsonb
+    )::text,
+    true
+  );
+  opened := public.open_refund_manager_totp_enrollment_window_current_user();
+  return jsonb_build_object(
+    'ok', true,
+    'opened', opened -> 'opened',
+    'status', opened -> 'status',
+    'windowExpiresAt', opened -> 'windowExpiresAt'
+  );
+exception when others then
+  return jsonb_build_object('ok', false, 'error', sqlerrm);
+end;
+$$;
+
 commit;
 
-select plan(5);
+select plan(7);
 
 create temporary table step_up_prepare_race_results (
   connection_name text primary key,
@@ -218,6 +279,14 @@ create temporary table step_up_consume_race_results (
   connection_name text primary key,
   result jsonb not null
 );
+create temporary table owner_window_race_results (
+  connection_name text primary key,
+  result jsonb not null
+);
+create temporary table owner_window_race_baseline as
+select config.totp_enrollment_approval_version as approval_version
+from public.refund_manager_security_config config
+where config.singleton = true;
 
 do $$
 declare
@@ -355,6 +424,74 @@ select ok(
   'The consume race commits one receipt and one sanitized consumption audit row'
 );
 
+-- Reuse the two independent sessions for a genuine enrollment-window open
+-- race. The singleton advisory lock must serialize both callers without
+-- extending the first five-minute expiry or creating a second open audit.
+do $$
+declare
+  local_connection text := 'host=db port=' || current_setting('port')
+    || ' dbname=' || current_database()
+    || ' user=postgres password=postgres sslmode=disable';
+begin
+  perform extensions.dblink_disconnect('step_up_prepare_a');
+  perform extensions.dblink_disconnect('step_up_prepare_b');
+  perform extensions.dblink_connect('step_up_prepare_a', local_connection);
+  perform extensions.dblink_connect('step_up_prepare_b', local_connection);
+end;
+$$;
+
+begin;
+do $$
+begin
+  perform pg_advisory_xact_lock(
+    hashtextextended('refund-totp-enrollment-owner-window', 782)
+  );
+  perform extensions.dblink_send_query(
+    'step_up_prepare_a',
+    'select refund_step_up_race_test.open_owner_window()'
+  );
+  perform extensions.dblink_send_query(
+    'step_up_prepare_b',
+    'select refund_step_up_race_test.open_owner_window()'
+  );
+end;
+$$;
+commit;
+
+insert into owner_window_race_results (connection_name, result)
+select 'a', result
+from extensions.dblink_get_result('step_up_prepare_a') as response(result jsonb);
+insert into owner_window_race_results (connection_name, result)
+select 'b', result
+from extensions.dblink_get_result('step_up_prepare_b') as response(result jsonb);
+
+select ok(
+  (select count(*) = 2 from owner_window_race_results where (result ->> 'ok')::boolean)
+  and (select count(*) = 1 from owner_window_race_results
+    where (result ->> 'opened')::boolean)
+  and (select count(*) = 1 from owner_window_race_results
+    where result ->> 'status' = 'already_open'),
+  'Two concurrent owner opens serialize into one open and one non-extending replay'
+);
+
+select ok(
+  exists (
+    select 1
+    from public.refund_manager_security_config config
+    cross join owner_window_race_baseline baseline
+    where config.singleton = true
+      and config.totp_enrollment_enabled
+      and config.totp_enrollment_approved_manager_user_id = '8b000000-0000-4000-8000-000000000002'
+      and config.totp_enrollment_approved_by_owner_user_id = '8b000000-0000-4000-8000-000000000002'
+      and config.totp_enrollment_approval_version = baseline.approval_version + 1
+      and config.totp_enrollment_approval_expires_at = config.updated_at + interval '5 minutes'
+  )
+  and (select count(*) = 1 from public.refund_manager_step_up_audit audit
+    where audit.actor_user_id = '8b000000-0000-4000-8000-000000000002'
+      and audit.event_type = 'totp_enrollment_window_opened'),
+  'Concurrent owner opens commit one exact target, one version increment, one expiry, and one audit row'
+);
+
 do $$
 begin
   perform extensions.dblink_disconnect('step_up_prepare_a');
@@ -364,7 +501,10 @@ $$;
 
 begin;
 delete from public.refund_manager_step_up_audit
-where actor_user_id = '8b000000-0000-4000-8000-000000000001';
+where actor_user_id in (
+  '8b000000-0000-4000-8000-000000000001',
+  '8b000000-0000-4000-8000-000000000002'
+);
 delete from public.refund_case_official_action_authorizations
 where actor_user_id = '8b000000-0000-4000-8000-000000000001';
 delete from public.refund_manager_action_step_up_intents
@@ -379,13 +519,26 @@ where id in (
 delete from public.machine_sales_facts
 where id = '8b500000-0000-4000-8000-000000000001';
 delete from public.reporting_machine_refund_managers
-where id = '8b400000-0000-4000-8000-000000000001';
+where id in (
+  '8b400000-0000-4000-8000-000000000001',
+  '8b400000-0000-4000-8000-000000000002'
+);
+delete from public.admin_roles
+where id = '8b410000-0000-4000-8000-000000000001';
 delete from public.reporting_machines
 where id = '8b300000-0000-4000-8000-000000000001';
 delete from public.reporting_locations
 where id = '8b200000-0000-4000-8000-000000000001';
 delete from public.customer_accounts
 where id = '8b100000-0000-4000-8000-000000000001';
+update public.refund_manager_security_config
+set
+  totp_enrollment_enabled = false,
+  totp_enrollment_approved_manager_user_id = null,
+  totp_enrollment_approved_by_owner_user_id = null,
+  totp_enrollment_approval_expires_at = null,
+  updated_at = statement_timestamp()
+where singleton = true;
 delete from auth.users
 where id in (
   '8b000000-0000-4000-8000-000000000001',

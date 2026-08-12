@@ -121,6 +121,12 @@ const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-relea
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
 const reviewedManagerSourceSha256 = {
   'refund-manager-action-step-up':
+    'cd147f13796e0218512a281e38271ed1f1fbd2ad8aad947b10dda8d1f8336278',
+  'refund-manager-totp-enrollment':
+    'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
+};
+const deployedManagerSourceSha256 = {
+  'refund-manager-action-step-up':
     '5f98adb0346837b1129271a9415091f064c4cc12cca0bb9ed6443bb33259938d',
   'refund-manager-totp-enrollment':
     'aba46b82064ab5b26f31cf02349f24db780797a8aff3970dea1ef6f8996a93ca',
@@ -143,8 +149,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    45,
-    'Refund release inventory must cover exactly 45 discovered refund/Nayax migrations'
+    46,
+    'Refund release inventory must cover exactly 46 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -153,6 +159,10 @@ try {
   assert(
     repositoryMigrations.includes('20260812053417_refund_gmail_attachment_off_copy_gate.sql'),
     'The attachment-off Gmail copy gate migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260812200000_refund_owner_totp_enrollment_window.sql'),
+    'The owner-only refund authenticator window migration must be in the discovered release inventory'
   );
   assert.deepEqual(
     repositoryManifest.requiredMigrations,
@@ -195,8 +205,8 @@ try {
       localEntry.production &&
         Number.isInteger(localEntry.production.version) &&
         localEntry.production.version > 0 &&
-        localEntry.production.sourceSha256 === reviewedManagerSourceSha256[managerSlug],
-      `${managerSlug} must record its deployed production source pairing`
+      localEntry.production.sourceSha256 === deployedManagerSourceSha256[managerSlug],
+      `${managerSlug} must preserve the last deployed production source pairing until this reviewed candidate is deployed`
     );
     assert.deepEqual(
       baselineEntry,

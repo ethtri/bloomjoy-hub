@@ -33,6 +33,9 @@ const stepUpMigration = read(
 const dualRoleManagerAuthorityMigration = read(
   'supabase/migrations/20260812190000_refund_dual_role_manager_authority.sql'
 );
+const ownerTotpWindowMigration = read(
+  'supabase/migrations/20260812200000_refund_owner_totp_enrollment_window.sql'
+);
 const authorizationHelper = read(
   'supabase/functions/_shared/refund-official-action.ts'
 );
@@ -47,6 +50,9 @@ const enrollmentEdge = read(
 );
 const supabaseConfig = read('supabase/config.toml');
 const authPreflight = read('scripts/auth-preflight.mjs');
+const ownerTotpAuthReadiness = read(
+  'scripts/refunds/refund-owner-totp-auth-readiness.mjs'
+);
 const adminUpdate = read(
   'supabase/functions/refund-case-admin-update/index.ts'
 );
@@ -65,8 +71,14 @@ const stepUpDatabaseTests = read(
 const stepUpConcurrencyTests = read(
   'supabase/tests/refund_manager_action_step_up_concurrency.sql'
 );
+const ownerTotpWindowTests = read(
+  'supabase/tests/refund_manager_owner_totp_window_safety.sql'
+);
 const totpTests = read(
   'supabase/functions/_shared/refund-manager-totp.test.ts'
+);
+const ownerBindingMatch = ownerTotpWindowMigration.match(
+  /set totp_enrollment_owner_user_id_digest\s*=\s*'([a-f0-9]{64})'/
 );
 
 assert(
@@ -127,6 +139,85 @@ assert(
     stepUpDatabaseTests.includes('A mapped Super Admin can prepare the same owner-approved action-bound intent') &&
     stepUpDatabaseTests.includes('Admin access alone cannot prepare an intent without a current Machine Manager mapping'),
   'A current exact-machine mapping must be the only source of payment authority; separate admin access neither grants nor revokes it.'
+);
+
+assert(
+  ownerTotpWindowMigration.includes(
+    'create or replace function public.open_refund_manager_totp_enrollment_window_current_user()'
+  ) &&
+    ownerTotpWindowMigration.includes('current_actor_user_id uuid := auth.uid()') &&
+    ownerTotpWindowMigration.includes("owner_role.role = 'super_admin'") &&
+    ownerTotpWindowMigration.includes('public.user_is_active_refund_manager(p_user_id)') &&
+    ownerTotpWindowMigration.includes("opened_at + interval '5 minutes'") &&
+    ownerTotpWindowMigration.includes("hashtextextended('refund-totp-enrollment-owner-window', 782)") &&
+    ownerTotpWindowMigration.includes("'status', 'already_open'") &&
+    ownerTotpWindowMigration.includes("'status', 'already_enrolled'") &&
+    ownerTotpWindowMigration.includes('totp_enrollment_owner_user_id_digest') &&
+    ownerTotpWindowMigration.includes("convert_to(owner_user.id::text, 'UTF8')") &&
+    !ownerTotpWindowMigration.includes('lower(trim(owner_user.email))') &&
+    !ownerTotpWindowMigration.includes('@') &&
+    !ownerTotpWindowMigration.includes('grant execute on function public.open_refund_manager_totp_enrollment_window_current_user()\n  to service_role'),
+  'The owner enrollment opener must be self-only, exact-bound, non-extendable, five-minute, mapping-backed, and unavailable to service identities.'
+);
+
+assert(
+  supabaseConfig.includes('[auth.mfa.totp]') &&
+    supabaseConfig.includes('enroll_enabled = false') &&
+    supabaseConfig.includes('verify_enabled = true') &&
+    authPreflight.includes("['enroll_enabled = false', 'owner-controlled, closed-by-default TOTP enrollment']") &&
+    authPreflight.includes("['verify_enabled = true', 'TOTP verification']") &&
+    ownerTotpAuthReadiness.includes('/config/auth') &&
+    ownerTotpAuthReadiness.includes("method: 'GET'") &&
+    ownerTotpAuthReadiness.includes('mfa_totp_enroll_enabled') &&
+    ownerTotpAuthReadiness.includes('mfa_totp_verify_enabled') &&
+    !ownerTotpAuthReadiness.includes("method: 'PATCH'") &&
+    !ownerTotpAuthReadiness.includes("method: 'POST'"),
+  'Auth must remain enrollment-off/verification-on in source, with a read-only real control-plane readiness and restore check.'
+);
+
+assert(
+  ownerBindingMatch?.[1]?.length === 64 &&
+    !ownerTotpWindowMigration.includes('email_digest') &&
+    !ownerTotpWindowMigration.includes('identity_digest') &&
+    !/convert_to\([^\n]*email/i.test(ownerTotpWindowMigration) &&
+    !/digest\([^)]*email/i.test(ownerTotpWindowMigration),
+  'The preapproved owner binding must be one private high-entropy Auth UUID digest, never an email literal or email hash.'
+);
+
+assert(
+  ownerTotpWindowMigration.includes(
+    'create or replace function public.can_enroll_refund_manager_totp_current_user()'
+  ) &&
+    ownerTotpWindowMigration.includes(
+      'create or replace function public.service_record_refund_manager_totp_enrollment('
+    ) &&
+    ownerTotpWindowMigration.includes(
+      'coalesce(public.refund_totp_enrollment_owner_is_user(current_actor_user_id), false)'
+    ) &&
+    ownerTotpWindowMigration.includes(
+      'or public.refund_totp_enrollment_owner_is_user(p_actor_user_id) is distinct from true'
+    ) &&
+    ownerTotpWindowTests.includes('Revoking Super Admin after open blocks enrollment precheck') &&
+    ownerTotpWindowTests.includes('Changing the immutable owner binding after open blocks durable enrollment consumption'),
+  'Exact owner role, mapping, confirmed identity, and immutable binding must be revalidated under lock before Auth start and durable consumption.'
+);
+
+assert(
+  ownerTotpWindowMigration.includes("'totp_enrollment_window_opened'") &&
+    ownerTotpWindowMigration.includes("'totp_enrollment_window_expired'") &&
+    ownerTotpWindowMigration.includes("'totp_enrollment_window_cancelled'") &&
+    ownerTotpWindowMigration.includes('totp_enrollment_enabled = false') &&
+    ownerTotpWindowTests.includes('different mapped Super Admin cannot open') &&
+    ownerTotpWindowTests.includes('cannot open enrollment without an active manager mapping') &&
+    ownerTotpWindowTests.includes('does not extend the window') &&
+    ownerTotpWindowTests.includes('closes logically when its timestamp expires') &&
+    ownerTotpWindowTests.includes('create no official receipt, provider attempt, customer message') &&
+    stepUpConcurrencyTests.includes('Two concurrent owner opens serialize into one open') &&
+    portalUat.includes('--owner-totp-only') &&
+    portalUat.includes('Setup failure remains isolated from official, provider, and customer side effects') &&
+    portal.includes('Setup alone cannot issue a refund.') &&
+    portal.includes('Do not share the screen, QR code, or six-digit code with an agent'),
+  'Owner enrollment must close on expiry/success/cancel, audit safely, serialize concurrency, and prove zero payment or communication side effects.'
 );
 
 assert(

@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "2c0e7bd204820ddfeaca9c7ba4eba5703cfa2b19",
+  "sourceGitCommit": "12273229686f5e114020e4563dda3c94030e02dc",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -49,10 +49,11 @@
     "20260812053417_refund_gmail_attachment_off_copy_gate.sql",
     "20260812134500_refund_provider_hold_decision_freeze.sql",
     "20260812160000_refund_case_manager_assignment.sql",
-    "20260812190000_refund_dual_role_manager_authority.sql"
+    "20260812190000_refund_dual_role_manager_authority.sql",
+    "20260812200000_refund_owner_totp_enrollment_window.sql"
   ],
-  "migrationFilesSha256": "8c616092d2a704e289dc2fe849010b454d8db6e9cf562f88327b82095640a21a",
-  "migrationVersionSetSha256": "c02846303d647336ebf14130f30132e42481626f235db49c45bfa72d0daf8af1",
+  "migrationFilesSha256": "4ef1ad54bab40db8df413783691ca2454d82634db856f4f3f7706b68da864b20",
+  "migrationVersionSetSha256": "d424d34703a4eb6ee0ceab7f49a7379e39348f9d5a7c46297a53d3d1248a14ec",
   "functions": [
     {
       "slug": "refund-case-intake",
@@ -137,7 +138,7 @@
     {
       "slug": "refund-manager-action-step-up",
       "verifyJwt": false,
-      "sourceSha256": "5f98adb0346837b1129271a9415091f064c4cc12cca0bb9ed6443bb33259938d",
+      "sourceSha256": "cd147f13796e0218512a281e38271ed1f1fbd2ad8aad947b10dda8d1f8336278",
       "production": {
         "version": 25,
         "ezbrSha256": "099483c796e5a1629070f0067c5f5979058f78e3c15ee1a01161f0a125021c78",
@@ -147,7 +148,7 @@
     {
       "slug": "refund-manager-totp-enrollment",
       "verifyJwt": false,
-      "sourceSha256": "aba46b82064ab5b26f31cf02349f24db780797a8aff3970dea1ef6f8996a93ca",
+      "sourceSha256": "f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511",
       "production": {
         "version": 25,
         "ezbrSha256": "db488384cf3d267df001809a8f3a3b3e30d98500e945b421edb5663da10f9cfc",
