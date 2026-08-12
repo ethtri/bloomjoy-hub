@@ -328,6 +328,19 @@ assert(
 );
 
 assert(
+  portal.includes("refundCase.officialActionBlockReason === 'manager_verification_required'") &&
+    portalUat.includes('Fresh manager step-up names the exact action') &&
+    portalUat.includes('Personally authorize this exact action'),
+  'A mapped manager awaiting fresh personal verification must retain only the action-bound authenticator entry point.'
+);
+
+assert(
+  portal.includes('while payment support resolves the rejection') &&
+    portalUat.includes('Synthetic browser rejected remains frozen after a full reload'),
+  'A rejected provider outcome must remain frozen after refresh and direct the manager to payment support without implying that the outcome is unknown.'
+);
+
+assert(
   portal.includes("new URLSearchParams(window.location.search).get('case')") &&
     portal.includes('handleSelectCase(caseFromUrl)') &&
     !portal.includes('shouldAutoRunNayaxLookup') &&

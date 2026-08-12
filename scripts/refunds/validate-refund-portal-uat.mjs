@@ -2059,7 +2059,8 @@ const runEmailPilotDuplicateChecks = async ({ browser, appUrl, artifactDir, reco
   recorder.assert(
     'Possible duplicate keeps official manager action disabled before resolution',
     await page.getByTestId('refund-review-only-banner').isVisible() &&
-      await page.getByTestId('refund-run-nayax-refund').isDisabled()
+      (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+      await page.getByTestId('refund-action-status').isVisible()
   );
   await page.getByText('Signed in. Redirecting...', { exact: true })
     .waitFor({ state: 'hidden', timeout: 5000 })
@@ -3167,7 +3168,13 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     );
     recorder.assert(
       `Nayax ${scenario.name} keeps one clear manager action`,
-      (await page.getByTestId('refund-primary-action').locator('button:visible').count()) === 1 &&
+      (
+        (await page.getByTestId('refund-primary-action').locator('button:visible').count()) === 1 ||
+        (
+          (await page.getByTestId('refund-primary-action').locator('button:visible').count()) === 0 &&
+          await page.getByTestId('refund-action-status').isVisible()
+        )
+      ) &&
         (await page.getByText(/transaction evidence, not a refund decision/i).count()) === 0
     );
     await page.screenshot({
@@ -3232,7 +3239,13 @@ const runReviewOnlyOfficialActionChecks = async ({ browser, appUrl, artifactDir,
   );
   recorder.assert(
     `${scenario.name} cannot issue the card refund`,
-    await page.getByTestId('refund-run-nayax-refund').isDisabled()
+    (
+      (await page.getByTestId('refund-run-nayax-refund').count()) === 1 &&
+      await page.getByTestId('refund-run-nayax-refund').isDisabled()
+    ) || (
+      (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+      await page.getByTestId('refund-action-status').isVisible()
+    )
   );
 
   await page.getByText('Other decisions', { exact: true }).click();
@@ -3315,7 +3328,8 @@ const runOfficialActionVersionResetChecks = async ({ browser, appUrl, recorder }
   await page.locator('tr', { hasText: 'RF-UAT-VERSION-MISSING' }).click();
   recorder.assert(
     'A case with a missing review version cannot inherit the previous case version',
-    await page.getByTestId('refund-run-nayax-refund').isDisabled() &&
+    (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+      await page.getByTestId('refund-action-status').isVisible() &&
       !functionCalls.includes('nayax-card-refund'),
     functionCalls.join(', ')
   );
@@ -3348,8 +3362,8 @@ const runCustomerCommsFailureChecks = async ({ browser, appUrl, recorder }) => {
   );
   recorder.assert(
     'Premature card approval email cannot be retried',
-    await page.getByRole('button', { name: 'Approval email blocked' }).isVisible() &&
-      await page.getByRole('button', { name: 'Approval email blocked' }).isDisabled() &&
+    await page.getByRole('status', { name: 'Approval email blocked' }).isVisible() &&
+      (await page.getByRole('button', { name: 'Approval email blocked' }).count()) === 0 &&
       await page.getByTestId('refund-not-issued-notice').getByText('No refund has been issued.', { exact: true }).isVisible()
   );
   recorder.assert(
@@ -4045,7 +4059,8 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
 
   recorder.assert(
     'Demo Nayax execution action is disabled',
-    await page.getByTestId('refund-run-nayax-refund').isDisabled()
+    (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+      await page.getByTestId('refund-action-status').isVisible()
   );
   recorder.assert(
     'Demo hides advanced Nayax rerun action by default',
@@ -4054,7 +4069,8 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
   );
   recorder.assert(
     'Demo keeps the final refund action safely disabled',
-    await page.getByTestId('refund-run-nayax-refund').isDisabled() &&
+    (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+      await page.getByTestId('refund-action-status').isVisible() &&
       (await page.getByTestId('refund-confirmation-dialog').count()) === 0
   );
 

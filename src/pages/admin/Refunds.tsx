@@ -675,7 +675,10 @@ const getCustomerContactAgeLabel = (refundCase: RefundCaseRecord) => {
 };
 
 const hasCardRefundAuthority = (refundCase: RefundCaseRecord) =>
-  refundCase.canPerformOfficialAction === true &&
+  (
+    refundCase.canPerformOfficialAction === true ||
+    refundCase.officialActionBlockReason === 'manager_verification_required'
+  ) &&
   Number(refundCase.officialActionVersion ?? 0) > 0 &&
   refundCase.reconciliationActionBlocked !== true;
 
@@ -3949,7 +3952,9 @@ export default function AdminRefundsPage() {
             >
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-orange-800" />
               <p>
-                Customer decisions and email are paused until the payment status is resolved. Do not approve, deny, or send another outcome message from this case.
+                {selectedCase.providerOutcome === 'rejected'
+                  ? 'Customer decisions and email are paused while payment support resolves the rejection. Do not approve, deny, or send another outcome message from this case.'
+                  : 'Customer decisions and email are paused until the payment status is resolved. Do not approve, deny, or send another outcome message from this case.'}
               </p>
             </div>
           ) : (
