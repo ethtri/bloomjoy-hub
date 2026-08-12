@@ -10,7 +10,9 @@ on:
       - 'supabase/migrations/**nayax**'
       - 'supabase/config.toml'
       - 'scripts/refunds/refund-release.mjs'
+      - 'scripts/refunds/refund-drift-credential.mjs'
       - 'scripts/refunds/refund-production-release.json'
+      - 'scripts/refunds/validate-refund-drift-credential.mjs'
       - 'scripts/refunds/validate-refund-release.mjs'
       - 'package.json'
       - '.github/workflows/refund-production-drift.yml'
@@ -51,7 +53,6 @@ jobs:
     environment: production-readonly
     timeout-minutes: 10
     env:
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_EDGE_FUNCTIONS_READ_TOKEN }}
       SUPABASE_PROJECT_REF: ygbzkgxktzqsiygjlqyg
     steps:
       - name: Checkout
@@ -64,9 +65,15 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '20'
+      - name: Validate least-privilege Supabase credential
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_EDGE_FUNCTIONS_READ_TOKEN }}
+        run: npm run refunds:validate-drift-credential
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v2
         with:
           version: 2.95.4
       - name: Check production drift
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_EDGE_FUNCTIONS_READ_TOKEN }}
         run: npm run refunds:release:check-production -- --project-ref "$SUPABASE_PROJECT_REF"
