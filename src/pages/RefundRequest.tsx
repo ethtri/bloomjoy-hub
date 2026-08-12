@@ -185,6 +185,18 @@ export default function RefundRequestPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
+    // Native date/time controls can be populated by browser autofill without
+    // dispatching the event React uses to update controlled state. Read the
+    // submitted controls so the values customers can see are the values we
+    // validate and send.
+    const submittedFields = new FormData(event.currentTarget);
+    const incidentDate = String(
+      submittedFields.get('incidentDate') ?? form.incidentDate
+    ).trim();
+    const incidentTime = String(
+      submittedFields.get('incidentTime') ?? form.incidentTime
+    ).trim();
+
     if (hasNoLiveMachineOptions) {
       toast.error('This refund form is not open for customer submissions yet.');
       return;
@@ -200,7 +212,7 @@ export default function RefundRequestPage() {
       return;
     }
 
-    if (!hasValidIncidentLocalTime(form.incidentDate, form.incidentTime)) {
+    if (!hasValidIncidentLocalTime(incidentDate, incidentTime)) {
       toast.error('Enter the date and time when the issue happened.');
       return;
     }
@@ -263,8 +275,8 @@ export default function RefundRequestPage() {
         zellePaymentContact:
           form.paymentMethod === 'cash' ? form.zellePaymentContact.trim() : undefined,
         issueSummary: form.issueSummary.trim(),
-        incidentDate: form.incidentDate,
-        incidentTime: form.incidentTime,
+        incidentDate,
+        incidentTime,
         paymentMethod: form.paymentMethod,
         paymentAmount: form.paymentAmount.trim(),
         cardLast4: form.paymentMethod === 'card' ? form.cardLast4.trim() : undefined,
@@ -546,6 +558,7 @@ export default function RefundRequestPage() {
                     <Label htmlFor="incident-date">Purchase date</Label>
                     <Input
                       id="incident-date"
+                      name="incidentDate"
                       type="date"
                       value={form.incidentDate}
                       onChange={(event) => updateForm('incidentDate', event.target.value)}
@@ -557,6 +570,7 @@ export default function RefundRequestPage() {
                     <Label htmlFor="incident-time">Approximate purchase time</Label>
                     <Input
                       id="incident-time"
+                      name="incidentTime"
                       type="time"
                       value={form.incidentTime}
                       onChange={(event) => updateForm('incidentTime', event.target.value)}
