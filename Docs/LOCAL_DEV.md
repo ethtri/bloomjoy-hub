@@ -267,7 +267,7 @@ Steps:
 2) Seed synthetic fixtures and generate a one-click local magic link:
    - `node scripts/refunds/local-refund-uat.mjs --email refund-agent-uat@bloomjoy.localhost`
    - Add `--open` to open the generated link automatically.
-3) Open the printed magic link. It should land on `/refunds` as a local super-admin/Machine Manager review fixture. That dual-role fixture is for navigation, setup, and non-official review only; it is not valid mapped-manager official-action evidence. Use the dedicated manager-only/TOTP suites and owner-approved manager-only UAT for official actions. `/portal/refunds` and `/admin/refunds` are compatibility paths.
+3) Open the printed magic link. It should land on `/refunds` as a local super-admin/Machine Manager fixture. Admin access alone never authorizes payment, but a current exact-machine mapping remains valid even when the same person also has admin access. Use the dedicated mapped-manager/TOTP suites and owner-approved UAT for official actions. `/portal/refunds` and `/admin/refunds` are compatibility paths.
 4) Review the synthetic queue cases:
    - `RF-UAT-CARD`: matched card review path with transaction evidence; it is not live-refund completion evidence.
    - `RF-UAT-WAIT`: waiting-on-customer path with confirmation and more-info message history.
@@ -310,7 +310,7 @@ Steps:
 Three validation modes:
 - `DEMO DATA - visual review only`: append `?demo=on` on localhost/127.0.0.1 for synthetic, browser-only visual review. Demo mode must not be used as evidence that saves, Nayax lookup, access scope, or reporting write-through work.
 - Seeded functional UAT: use the local Supabase helper above. This is the path for save/write-through and real state-transition testing.
-- Post-production shadow mode: use an owner-approved clean Machine Manager-only identity with the Google Form/AppSheet fallback still active. Keep official actions and the production provider adapter hard-off; agents capture sanitized pass/fail evidence and exceptions before any executive proof review.
+- Post-production shadow mode: use an owner-approved currently mapped Machine Manager identity with the Google Form/AppSheet fallback still active. Separate admin access is context only; it neither grants nor revokes payment authority. Keep official actions and the production provider adapter hard-off; agents capture sanitized pass/fail evidence and exceptions before any executive proof review.
 
 Admin > Machines Machine Manager UAT:
 - For visual review without remote data, open `/admin/machines?demo=on`; use the listed `example.test` demo users only. Demo assignments save in the browser and do not write to Supabase.

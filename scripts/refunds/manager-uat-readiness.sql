@@ -1,4 +1,4 @@
--- Aggregate-only, read-only clean Machine Manager UAT account audit.
+-- Aggregate-only, read-only mapped Machine Manager UAT account audit.
 --
 -- This file is a template. manager-uat-readiness.mjs replaces the single
 -- pilot-machine marker with validated UUID literals (or an empty SELECT) before
@@ -224,12 +224,14 @@ select
     where identity.is_manager_only
       and identity.shadow_ready_assignment_count > 0
   )::integer as manager_only_with_shadow_ready_assignment_count,
+  count(*) filter (
+    where identity.shadow_ready_assignment_count > 0
+  )::integer as mapped_with_shadow_ready_assignment_count,
   case
     when (select selected_pilot_machine_count from pilot_summary) = 0 then null
     else count(*) filter (
-      where identity.is_manager_only
-        and identity.pilot_assignment_count > 0
-        and identity.outside_pilot_assignment_count = 0
+      where identity.pilot_assignment_count =
+          (select selected_pilot_machine_count from pilot_summary)
         and identity.shadow_ready_pilot_assignment_count = identity.pilot_assignment_count
     )::integer
   end as exact_pilot_eligible_identity_count,

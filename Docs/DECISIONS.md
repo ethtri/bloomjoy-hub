@@ -983,3 +983,18 @@ Bloomjoy will collect payment on the website before beginning fulfillment or sen
 - Resolve `#717`, configure and verify `STRIPE_MICRO_PRICE_ID` and `STRIPE_MICRO_SHIPPING_RATE_ID` in test mode and production, then explicitly enable `VITE_MICRO_CHECKOUT_ENABLED=true`.
 - Confirm Stripe Tax registrations, product tax codes, Price tax behavior, and checkout tax results with the business owner/tax advisor.
 - Apply the order-type migration, deploy the reviewed Edge Functions, and capture test-mode evidence for paid, canceled, unpaid/delayed, replayed, and mixed-cart cases before go-live.
+
+## 2026-08-12 - Exact machine-manager mapping is the sole refund-payment authority (`#777`)
+
+Official refund authority comes from a current, active, unrevoked Machine Manager assignment for the exact machine on the case. A separate Super Admin or Scoped Admin entitlement neither grants that authority nor cancels a valid manager assignment.
+
+**Canonical choices**
+- An administrator without the exact Machine Manager assignment remains unable to approve, deny, complete, or issue a refund.
+- A mapped manager who also has administrative access follows the identical private manager journey: owner-approved TOTP enrollment, a fresh action-bound verification, frozen case/evidence, one-use receipt, provider gates, amount and daily caps, and replay protection.
+- Agents and shared sessions may prepare evidence and communications but cannot enter the manager's verification code or perform the official payment action.
+- Broader access remains visible in aggregate readiness audits as context; it is not an eligibility failure by itself.
+
+**Why this choice**
+- Bloomjoy's small operating team legitimately combines administrative and machine-management responsibilities.
+- Denying a real mapping because of unrelated access creates a dead end without improving payment safety.
+- Tying authority to the exact machine assignment preserves least privilege: admin access alone can never authorize money movement.

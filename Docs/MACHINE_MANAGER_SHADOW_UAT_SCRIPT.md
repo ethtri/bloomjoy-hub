@@ -4,7 +4,7 @@ Last updated: 2026-08-03
 
 ## Purpose
 
-Use this script with a clean Machine Manager-only account to prove that Refund Operations is simple, safe, and correctly scoped before cutover. Keep the Google Form/Sheet/AppSheet fallback live throughout UAT.
+Use this script with a current Machine Manager mapped to every selected pilot machine to prove that Refund Operations is simple and safe before cutover. A separately tested clean Machine Manager-only persona remains useful for proving assigned-scope visibility, but it is not required for official-action authority: an exact current mapping remains authoritative when the operator also has separate Admin access. Keep the Google Form/Sheet/AppSheet fallback live throughout UAT.
 
 This is a manager-experience test, not an Admin setup test. Use synthetic or sponsor-approved pilot cases and record sanitized aggregate evidence only.
 
@@ -17,20 +17,20 @@ This is a manager-experience test, not an Admin setup test. Use synthetic or spo
   ```
 
 - If the owner has selected the pilot cohort, repeat `--pilot-machine-id <uuid>` for each approved machine. The stricter result must report at least one exact-pilot eligible identity; otherwise account or assignment setup is still required.
-- Confirm the privately selected tester has Machine Manager assignments only and no scoped-admin, super-admin, corporate-partner, or unrelated access. Record aggregate counts only in `#435`.
+- For the separate assigned-scope visibility check, confirm the privately selected clean persona has Machine Manager assignments only and no scoped-admin, super-admin, corporate-partner, or unrelated access; record aggregate counts only in `#435`. The official-action tester is a distinct role in this matrix: that person must have an exact current mapping to every selected pilot machine and may also hold separate Admin access, which neither grants nor revokes refund authority.
 - Confirm the selected machines and manager are approved in `#427`.
 - Confirm the tested release commit and Refund Operations release manifest match the deployed environment.
 - Confirm live Nayax execution state:
   - **Current candidate/shadow mode:** the production adapter is statically disabled before attempt reservation or provider access. Keep execution disabled, dry run on, kill switch on, provider-contract confirmation false, and sponsor flag unset; these historical controls are defense in depth and cannot activate a live call.
   - **Future controlled execution:** only after `#430` adds and reviews the real adapter and account contract, the controlled low-value smoke/caps/allowlist are approved, and a separate owner-approved gate-on change passes.
-- Confirm the official-action database gate is still statically false for current shadow UAT. Any later official-action UAT requires the current active mapped Machine Manager to use the owner-approved manager-only account and personally complete the fresh action-bound TOTP step-up; a Super Admin, Scoped Admin, agent, shared session, email, scheduler, or GPT identity is invalid evidence.
+- Confirm the official-action database gate is still statically false for current shadow UAT. Any later official-action UAT requires the current active mapped Machine Manager to use the owner-approved personal account and personally complete the fresh action-bound TOTP step-up. Admin access alone, an unrelated manager, agent, shared session, email, scheduler, or GPT identity is invalid evidence; separate Super Admin or Scoped Admin access neither grants nor revokes an exact current machine mapping.
 - Confirm customer-email and automation tests use synthetic addresses unless the sponsor approved a real pilot case.
 - Do not capture customer names, contact details, card digits, payout contacts, complaint text, raw provider identifiers/payloads, Gmail content, or secrets in screenshots or notes.
 - Do not use `?demo=on` as functional evidence. Demo mode is for visual review only.
 
 ## A. Access boundary
 
-1. Sign in with the clean manager-only account.
+1. Sign in with the owner-approved current mapped-manager account. For the separate assigned-scope boundary check, repeat with the clean Machine Manager-only persona from `#435`.
 2. Open `/refunds` directly.
 3. Confirm the queue contains only cases for assigned pilot machines.
 4. Confirm unrelated machines and cases are absent from search, filters, counts, and direct links.

@@ -20,6 +20,7 @@ const RESULT_KEYS = [
   'active_manager_identity_count',
   'manager_only_identity_count',
   'manager_only_with_shadow_ready_assignment_count',
+  'mapped_with_shadow_ready_assignment_count',
   'exact_pilot_eligible_identity_count',
   'super_admin_overlap_count',
   'scoped_admin_overlap_count',
@@ -87,9 +88,9 @@ export function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`Clean Machine Manager UAT account readiness (aggregate-only)
+  console.log(`Mapped Machine Manager UAT account readiness (aggregate-only)
 
-Discover whether any current manager-only account can be prepared for shadow UAT:
+Discover whether any current mapped manager can be prepared for shadow UAT:
   npm run refunds:manager-uat-readiness -- --project-ref <ref> --confirm-project-ref <ref>
 
 Gate an owner-selected pilot cohort (repeat --pilot-machine-id for each selected machine):
@@ -149,17 +150,17 @@ export function determineReadiness(row) {
   }
 
   return {
-    ready: row.manager_only_with_shadow_ready_assignment_count > 0,
+    ready: row.mapped_with_shadow_ready_assignment_count > 0,
     label:
-      row.manager_only_with_shadow_ready_assignment_count > 0
-        ? 'CLEAN CANDIDATE EXISTS; PILOT COHORT SELECTION STILL REQUIRED'
+      row.mapped_with_shadow_ready_assignment_count > 0
+        ? 'MAPPED CANDIDATE EXISTS; PILOT COHORT SELECTION STILL REQUIRED'
         : 'OWNER ACCOUNT/ASSIGNMENT SETUP REQUIRED',
   };
 }
 
 function printAggregate(row, projectRef) {
   const readiness = determineReadiness(row);
-  console.log('Clean Machine Manager UAT readiness audit');
+  console.log('Mapped Machine Manager UAT readiness audit');
   console.log(`Project ref: ${projectRef}`);
   console.log('Read-only query: yes');
   console.log(`Selected pilot machines: ${row.selected_pilot_machine_count}`);
@@ -168,6 +169,9 @@ function printAggregate(row, projectRef) {
   console.log(`Manager-only identities: ${row.manager_only_identity_count}`);
   console.log(
     `Manager-only identities with a shadow-ready assignment: ${row.manager_only_with_shadow_ready_assignment_count}`
+  );
+  console.log(
+    `All mapped identities with a shadow-ready assignment: ${row.mapped_with_shadow_ready_assignment_count}`
   );
   if (row.exact_pilot_eligible_identity_count !== null) {
     console.log(`Exact-pilot eligible identities: ${row.exact_pilot_eligible_identity_count}`);
@@ -182,6 +186,7 @@ function printAggregate(row, projectRef) {
   console.log(`- Training access: ${row.training_access_overlap_count}`);
   console.log(`- Technician access: ${row.technician_access_overlap_count}`);
   console.log(`- Operator profile: ${row.operator_profile_overlap_count}`);
+  console.log('Overlapping access is context only; it neither grants nor revokes mapped-manager payment authority.');
   console.log(`Overall: ${readiness.label}`);
   console.log('No identities or machine identifiers were printed or written.');
   return readiness;

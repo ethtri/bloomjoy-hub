@@ -138,7 +138,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `npm run db:validate-migrations` passes `refund_cash_completion_safety.sql`, including browser-role denial, service-role authorization, required evidence, idempotent replay, one redacted audit event, and rejected-case fail-closed behavior.
 - [ ] Completed correlated cases create/update one `sales_adjustment_facts` row with `source='refund_case'`, linked `refund_case_id`, positive amount, applied match status, and no raw customer/payment/free-text payload.
 - [ ] Run `npm run refunds:manager-uat-readiness -- --project-ref <project-ref> --confirm-project-ref <project-ref>` and record aggregate counts only. After cohort approval, repeat `--pilot-machine-id <uuid>` for each selected machine and require at least one exact-pilot eligible identity.
-- [ ] Run the current manager UAT script with the privately selected clean Machine Manager-only account from `#435`; a scoped-admin/super-admin/corporate-partner account is not valid boundary evidence, and the approved pilot cohort remains narrow until `#427` and `#409` are signed off.
+- [ ] Run the current manager UAT script with the privately selected current manager mapped to every pilot machine. An exact current mapping remains valid official-action evidence when that operator also has separate Scoped Admin or Super Admin access; Admin access alone never grants refund authority. Separately run the assigned-scope visibility checks with the clean Machine Manager-only persona from `#435`, and keep the approved pilot cohort narrow until `#427` and `#409` are signed off.
 
 ## Public site
 - [ ] Home loads and key CTAs navigate correctly

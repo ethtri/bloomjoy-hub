@@ -151,23 +151,30 @@ values
     '79300000-0000-4000-8000-000000000001',
     '79000000-0000-4000-8000-000000000002',
     'official-super@example.test',
-    'Dual-entitlement Super Admin exclusion test'
+    'Dual-role Super Admin manager authority test'
   ),
   (
     '79410000-0000-4000-8000-000000000003',
     '79300000-0000-4000-8000-000000000001',
     '79000000-0000-4000-8000-000000000003',
     'official-scoped@example.test',
-    'Dual-entitlement Scoped Admin exclusion test'
+    'Dual-role Scoped Admin manager authority test'
   );
 
 insert into public.admin_roles (id, user_id, role, active)
-values (
-  '79400000-0000-4000-8000-000000000002',
-  '79000000-0000-4000-8000-000000000002',
-  'super_admin',
-  true
-);
+values
+  (
+    '79400000-0000-4000-8000-000000000002',
+    '79000000-0000-4000-8000-000000000002',
+    'super_admin',
+    true
+  ),
+  (
+    '79400000-0000-4000-8000-000000000006',
+    '79000000-0000-4000-8000-000000000004',
+    'super_admin',
+    true
+  );
 
 insert into public.admin_scoped_access_grants (
   id,
@@ -630,13 +637,28 @@ insert into public.refund_manager_totp_enrollments (
   owner_approved_by_user_id,
   owner_approval_version,
   enrollment_version
-) values (
-  '79000000-0000-4000-8000-000000000001',
-  repeat('c', 64),
-  '79000000-0000-4000-8000-000000000002',
-  1,
-  1
-);
+) values
+  (
+    '79000000-0000-4000-8000-000000000001',
+    repeat('c', 64),
+    '79000000-0000-4000-8000-000000000002',
+    1,
+    1
+  ),
+  (
+    '79000000-0000-4000-8000-000000000002',
+    repeat('c', 64),
+    '79000000-0000-4000-8000-000000000002',
+    2,
+    1
+  ),
+  (
+    '79000000-0000-4000-8000-000000000003',
+    repeat('c', 64),
+    '79000000-0000-4000-8000-000000000002',
+    3,
+    1
+  );
 
 -- The remaining #689 regression assertions need receipts. Route their legacy
 -- test helper through the new #692 prepare/verify/consume protocol. This
@@ -738,11 +760,11 @@ select ok(
     '79000000-0000-4000-8000-000000000002',
     '79600000-0000-4000-8000-000000000001'
   )
-  and not public.can_perform_refund_official_action(
+  and public.can_perform_refund_official_action(
     '79000000-0000-4000-8000-000000000002',
     '79600000-0000-4000-8000-000000000001'
   ),
-  'A mapped Super Admin remains review-capable but cannot perform a Machine Manager action'
+  'A mapped Super Admin receives official-action authority only from the exact Machine Manager mapping'
 );
 
 select ok(
@@ -750,19 +772,23 @@ select ok(
     '79000000-0000-4000-8000-000000000003',
     '79600000-0000-4000-8000-000000000001'
   )
-  and not public.can_perform_refund_official_action(
+  and public.can_perform_refund_official_action(
     '79000000-0000-4000-8000-000000000003',
     '79600000-0000-4000-8000-000000000001'
   ),
-  'A mapped Scoped Admin remains review-capable but cannot perform a Machine Manager action'
+  'A mapped Scoped Admin receives official-action authority only from the exact Machine Manager mapping'
 );
 
 select ok(
-  not public.can_perform_refund_official_action(
+  public.can_manage_refund_case(
+    '79000000-0000-4000-8000-000000000004',
+    '79600000-0000-4000-8000-000000000001'
+  )
+  and not public.can_perform_refund_official_action(
     '79000000-0000-4000-8000-000000000004',
     '79600000-0000-4000-8000-000000000001'
   ),
-  'An unrelated authenticated user cannot perform an official action'
+  'Admin access can review but cannot perform an official action without an exact Machine Manager mapping'
 );
 
 set local role service_role;
@@ -1083,30 +1109,30 @@ select pg_temp.set_auth_claims(
   '79000000-0000-4000-8000-000000000002', 'aal2', 'totp',
   extract(epoch from statement_timestamp())
 );
-select ok(
-  pg_temp.capture_error($sql$
+select lives_ok(
+$sql$
     select public.admin_authorize_refund_official_action(
       '79600000-0000-4000-8000-000000000002', 'approve',
       (select official_action_version from public.refund_cases where id = '79600000-0000-4000-8000-000000000002'),
       'cash_zelle_pending', 'approved', null, null, null, 600, null, null, false, null, null
     )
-  $sql$) like '%Active Machine Manager mapping required%',
-  'A Super Admin cannot mint a Machine Manager receipt'
+$sql$,
+  'A mapped Super Admin can mint a Machine Manager receipt after the same owner-approved step-up'
 );
 
 select pg_temp.set_auth_claims(
   '79000000-0000-4000-8000-000000000003', 'aal2', 'totp',
   extract(epoch from statement_timestamp())
 );
-select ok(
-  pg_temp.capture_error($sql$
+select lives_ok(
+$sql$
     select public.admin_authorize_refund_official_action(
       '79600000-0000-4000-8000-000000000002', 'approve',
       (select official_action_version from public.refund_cases where id = '79600000-0000-4000-8000-000000000002'),
       'cash_zelle_pending', 'approved', null, null, null, 600, null, null, false, null, null
     )
-  $sql$) like '%Active Machine Manager mapping required%',
-  'A Scoped Admin cannot mint a Machine Manager receipt'
+$sql$,
+  'A mapped Scoped Admin can mint a Machine Manager receipt after the same owner-approved step-up'
 );
 
 select pg_temp.set_auth_claims(
@@ -1197,16 +1223,15 @@ values (
 );
 
 set local role service_role;
-select ok(
-  pg_temp.capture_error($sql$
+select lives_ok(
+$sql$
     select public.service_apply_refund_official_case_update(
       (select authorization_id from pg_temp.official_action_test_receipts where receipt_key = 'admin_changed'),
       '79600000-0000-4000-8000-000000000002', 'approve', 'cash_zelle_pending',
       null, 'approved', null, null, 600, null, null, null
     )
-  $sql$) like '%admin authority changed%'
-  and (select status = 'needs_review' and decision is null from public.refund_cases where id = '79600000-0000-4000-8000-000000000002'),
-  'An admin entitlement activated after receipt mint invalidates execution before mutation'
+$sql$,
+  'A later admin entitlement does not invalidate a receipt whose exact Machine Manager mapping remains current'
 );
 reset role;
 
@@ -1517,15 +1542,19 @@ select ok(
     '79000000-0000-4000-8000-000000000001',
     '79600000-0000-4000-8000-000000000007'
   )
-  and not public.can_prepare_nayax_refund_execution(
+  and public.can_prepare_nayax_refund_execution(
     '79000000-0000-4000-8000-000000000002',
     '79600000-0000-4000-8000-000000000007'
   )
-  and not public.can_prepare_nayax_refund_execution(
+  and public.can_prepare_nayax_refund_execution(
     '79000000-0000-4000-8000-000000000003',
     '79600000-0000-4000-8000-000000000007'
+  )
+  and not public.can_prepare_nayax_refund_execution(
+    '79000000-0000-4000-8000-000000000004',
+    '79600000-0000-4000-8000-000000000007'
   ),
-  'Nayax preparation is available only to the currently mapped Machine Manager'
+  'Nayax preparation follows exact Machine Manager mapping, regardless of separate admin access'
 );
 
 set local role authenticated;
@@ -1597,10 +1626,10 @@ select pg_temp.set_auth_claims(
   extract(epoch from statement_timestamp())
 );
 select ok(
-  not public.can_perform_refund_official_action_current_user(
+  public.can_perform_refund_official_action_current_user(
     '79600000-0000-4000-8000-000000000007'
   ),
-  'The browser-facing current-user predicate remains false for a mapped Super Admin'
+  'The browser-facing current-user predicate honors the mapped-manager role for a dual-role Super Admin'
 );
 reset role;
 

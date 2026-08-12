@@ -67,13 +67,13 @@ Purpose: give the sponsor one review surface for the email-only pilot candidate.
 - Legacy responder inventory and atomic no-overlap cutover are complete.
 - Primary/backup operating coverage and final triage/reminder service targets are approved.
 - Production mailbox alias/send-as requirement is decided and verified if used.
-- Full active-machine manager coverage, a clean manager-only identity, owner-supervised TOTP enrollment/recovery, retention/privacy, provider contract, live execution, and switch-by-switch go/no-go are recorded.
+- Full active-machine manager coverage, an owner-approved currently mapped manager identity, owner-supervised TOTP enrollment/recovery, retention/privacy, provider contract, live execution, and switch-by-switch go/no-go are recorded. Separate admin access is context only and never substitutes for the exact machine assignment.
 
 ## What we need from the sponsor
 
 - Now: nothing while engineering and QA finish the synthetic evidence packet.
 - Before a controlled inbox: confirm the isolated inbox/label, mapped synthetic reviewer, staffed window and stop/rollback contact, and copied-content retention/visible-CC privacy defaults.
-- Before production: confirm operating coverage and cadence, whether a Support alias/send-as is desired, clean manager-only identities and TOTP recovery ownership, provider/Nayax gates, and a switch-by-switch go/no-go.
+- Before production: confirm operating coverage and cadence, whether a Support alias/send-as is desired, mapped manager identities and TOTP recovery ownership, provider/Nayax gates, and a switch-by-switch go/no-go.
 - The sponsor approves production separately; the synthetic walkthrough or controlled inbox cannot imply that approval.
 
 ## Evidence rules
