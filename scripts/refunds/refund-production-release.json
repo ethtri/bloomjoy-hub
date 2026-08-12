@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "11b307f567ae7c180d30fe1eb7b60c507d5b6bea",
+  "sourceGitCommit": "0b40187fa65adce6e1fe4e0bb90bccb5a5f092f0",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -48,8 +48,8 @@
     "202608110020_refund_nayax_provider_caps.sql",
     "20260812053417_refund_gmail_attachment_off_copy_gate.sql"
   ],
-  "migrationFilesSha256": "b466b1d99444d8fbaf1059bc3fba7866c1020dc297d505adf5532a68b3605d2d",
-  "migrationVersionSetSha256": "2d25a9ebf8937c36ba64474c69270a970c7f1579a257219035bddfe96c5e9321",
+  "migrationFilesSha256": "48aa46f929c94100ec9b6349fbe525719cd8859f25c5ab6af7fad2449b93e02b",
+  "migrationVersionSetSha256": "7a907b9419a84def288740f26d33cf0ca03a5116956324bec287593b9b859413",
   "functions": [
     {
       "slug": "refund-case-intake",
@@ -104,7 +104,7 @@
     {
       "slug": "refund-gmail-sync",
       "verifyJwt": false,
-      "sourceSha256": "b7024017eefe5475d4a44b64dfe3fcb380f9e816c1edbb106e5428c86c4a3558",
+      "sourceSha256": "c1731c447ad7a8357bedf6ac30debf4bfdb0e38ba88bed1b68ef742c2374a670",
       "production": {
         "version": 15,
         "ezbrSha256": "50e19e46a8395bf89d093fc67e9a535d300da8fea2535e3f491a4d9cd8f15e6e",
