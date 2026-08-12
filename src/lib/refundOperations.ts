@@ -314,6 +314,7 @@ export type RefundCaseRecord = {
   aging?: boolean;
   providerHold?: boolean;
   providerOutcome?: 'not_attempted' | 'unconfirmed' | 'rejected' | 'succeeded';
+  legacyStateReviewRequired?: boolean;
   reconciliationActionBlocked?: boolean;
   intakeComplete?: boolean;
   hasGmailThread?: boolean;
@@ -353,6 +354,7 @@ export type RefundEmailQueueState = {
   aging: boolean;
   providerHold: boolean;
   providerOutcome: 'not_attempted' | 'unconfirmed' | 'rejected' | 'succeeded';
+  legacyStateReviewRequired: boolean;
   actionBlocked: boolean;
   payloadRedacted: true;
 };
@@ -1238,6 +1240,7 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
       aging: state.aging,
       providerHold: state.providerHold,
       providerOutcome: state.providerOutcome,
+      legacyStateReviewRequired: state.legacyStateReviewRequired,
       reconciliationActionBlocked: state.actionBlocked,
     };
   });

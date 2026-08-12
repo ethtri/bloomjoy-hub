@@ -571,6 +571,10 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
     return 'Waiting on customer details. The bounded follow-up workflow handles the single approved reminder; review the case if delivery fails or it ages.';
   }
 
+  if (refundCase.legacyStateReviewRequired) {
+    return 'No provider refund is recorded. Run a fresh, read-only transaction check before making a new decision. Do not retry a refund or contact the customer from this state.';
+  }
+
   if (refundCase.providerHold) {
     return 'Nayax has not confirmed whether the refund was sent. Leave this case in Processing / check needed and do not try again.';
   }
@@ -614,6 +618,7 @@ const taskLabel = (refundCase: RefundCaseRecord) => {
   if (refundCase.status === 'denied' || refundCase.status === 'closed') return 'Closed';
   if (refundCase.status === 'waiting_on_customer') return 'Needs customer info';
   if (refundCase.status === 'draft') return 'Inbox triage';
+  if (refundCase.legacyStateReviewRequired) return 'Payment history check';
   if (refundCase.providerHold) return 'Refund status not confirmed';
   if (refundCase.providerOutcome === 'rejected') return 'Nayax rejected refund';
   if (
@@ -635,6 +640,7 @@ const taskBadgeClass = (refundCase: RefundCaseRecord) => {
   if (refundCase.status === 'denied' || refundCase.status === 'closed') return 'border-slate-200 bg-slate-50 text-slate-700';
   if (refundCase.status === 'waiting_on_customer') return 'border-orange-200 bg-orange-50 text-orange-800';
   if (refundCase.status === 'draft') return 'border-sky-200 bg-sky-50 text-sky-800';
+  if (refundCase.legacyStateReviewRequired) return 'border-orange-200 bg-orange-50 text-orange-900';
   if (
     refundCase.providerHold ||
     (refundCase.paymentMethod === 'card' &&
@@ -661,7 +667,9 @@ const getCustomerCommunicationLabel = (refundCase: RefundCaseRecord) => {
     case 'more_info':
       return 'Waiting for customer reply';
     case 'approved':
-      return 'Approval email sent';
+      return refundCase.legacyStateReviewRequired
+        ? 'Historical approval email sent'
+        : 'Approval email sent';
     case 'denied':
       return 'Decision email sent';
     case 'completed':
@@ -744,6 +752,9 @@ const getOperationalSignals = (
   }
   if (refundCase.aging) {
     signals.push({ label: 'Aging', className: 'border-amber-200 bg-amber-50 text-amber-900' });
+  }
+  if (refundCase.legacyStateReviewRequired) {
+    signals.push({ label: 'Fresh payment check required', className: 'border-orange-200 bg-orange-50 text-orange-900' });
   }
   if (!refundCase.providerHold &&
     refundCase.providerOutcome !== 'rejected' &&
@@ -1196,6 +1207,7 @@ const matchResultLabel = (
   editor: EditorState | null,
   candidates: NayaxLookupCandidate[]
 ) => {
+  if (refundCase.legacyStateReviewRequired) return 'Fresh check needed';
   if (!editor) return 'Checking';
   if (refundCase.paymentMethod === 'card') {
     if (hasSelectedCardEvidence(refundCase, editor)) return 'Card sale matched';
@@ -1308,6 +1320,13 @@ const primaryActionConfig = (
   cardRefundActionAvailable = false
 ): PrimaryActionConfig => {
   const latestMessage = getLatestCustomerMessage(refundCase);
+  if (refundCase.legacyStateReviewRequired) {
+    return {
+      label: 'Historical payment review required',
+      helper: 'No provider refund is recorded. Run a fresh transaction check before any new decision, refund attempt, or customer message.',
+      disabled: true,
+    };
+  }
   if (refundCase.providerHold) {
     return {
       label: 'Refund status not confirmed',
@@ -2123,7 +2142,9 @@ export default function AdminRefundsPage() {
   const selectedCaseIsReviewOnly = selectedCase?.reconciliationActionBlocked === true ||
     (selectedCase?.canPerformOfficialAction !== true &&
       selectedCaseOfficialActionBlockReason !== 'manager_verification_required');
-  const selectedCaseOfficialActionBlockMessage = selectedCase?.reconciliationActionBlocked === true
+  const selectedCaseOfficialActionBlockMessage = selectedCase?.legacyStateReviewRequired === true
+    ? 'Run a fresh transaction check before approving, declining, completing, issuing a refund, or contacting the customer.'
+    : selectedCase?.reconciliationActionBlocked === true
     ? 'Resolve the possible duplicate review before approving, declining, completing, or issuing this refund.'
     : selectedCaseOfficialActionBlockReason ===
       'manager_verification_required'
@@ -3526,16 +3547,22 @@ export default function AdminRefundsPage() {
 
   const renderCardSaleCandidates = () => {
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return null;
-    const hasSelectedMatch = hasSelectedCardEvidence(selectedCase, editor);
-    const recommendedCandidate = nayaxCandidates.find((candidate) => candidate.isRecommended === true) ?? null;
-    const leadCandidate = recommendedCandidate ?? nayaxCandidates[0] ?? null;
-    const alternateCandidates = nayaxCandidates.filter((candidate) => candidate !== leadCandidate);
-    const selectedCandidate = selectedNayaxCandidate(editor, nayaxCandidates);
-    const hasLookupResult = Boolean(
+    // A normalized legacy case must never reuse lookup cache or match fields
+    // captured before the repair. The database removes that cache as well;
+    // this UI boundary keeps a stale response from hiding the fresh-check CTA.
+    const effectiveCandidates = selectedCase.legacyStateReviewRequired ? [] : nayaxCandidates;
+    const hasSelectedMatch = selectedCase.legacyStateReviewRequired
+      ? false
+      : hasSelectedCardEvidence(selectedCase, editor);
+    const recommendedCandidate = effectiveCandidates.find((candidate) => candidate.isRecommended === true) ?? null;
+    const leadCandidate = recommendedCandidate ?? effectiveCandidates[0] ?? null;
+    const alternateCandidates = effectiveCandidates.filter((candidate) => candidate !== leadCandidate);
+    const selectedCandidate = selectedNayaxCandidate(editor, effectiveCandidates);
+    const hasLookupResult = !selectedCase.legacyStateReviewRequired && Boolean(
       selectedCase.hasMatchedNayaxTransaction ||
       selectedCase.nayaxLookupSummary ||
       nayaxLookupSummary ||
-      nayaxCandidates.length > 0 ||
+      effectiveCandidates.length > 0 ||
       (nayaxLookupNotice && !isLookingUpNayax)
     );
     const showPrimaryTransactionCheck = !hasSelectedMatch && !hasLookupResult;
@@ -3620,7 +3647,7 @@ export default function AdminRefundsPage() {
             {nayaxLookupNotice.message}
           </div>
         )}
-        {!selectedCase.hasMatchedNayaxTransaction && !editor.clearNayaxMatch && nayaxCandidates.length > 0 && (
+        {!selectedCase.hasMatchedNayaxTransaction && !editor.clearNayaxMatch && effectiveCandidates.length > 0 && (
           <div className="rounded-md border border-border bg-background p-3">
             {isUsingDemoData && (
               <InfoHint>
@@ -3773,24 +3800,30 @@ export default function AdminRefundsPage() {
   const renderCardDecisionWorkbench = () => {
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return null;
 
-    const activeCandidate = activeNayaxCandidate(selectedCase, editor, nayaxCandidates);
-    const comparisonCandidate =
-      activeCandidate ??
-      nayaxCandidates.find((candidate) => candidate.isRecommended === true) ??
-      nayaxCandidates[0] ??
-      null;
-    const hasSelectedMatch = hasSelectedCardEvidence(selectedCase, editor);
-    const cardAmountCents = matchedCardSaleAmountCents ?? selectedCase.paymentAmountCents;
+    const effectiveCandidates = selectedCase.legacyStateReviewRequired ? [] : nayaxCandidates;
+    const activeCandidate = activeNayaxCandidate(selectedCase, editor, effectiveCandidates);
+    const comparisonCandidate = selectedCase.legacyStateReviewRequired
+      ? null
+      : activeCandidate ??
+        effectiveCandidates.find((candidate) => candidate.isRecommended === true) ??
+        effectiveCandidates[0] ??
+        null;
+    const hasSelectedMatch = selectedCase.legacyStateReviewRequired
+      ? false
+      : hasSelectedCardEvidence(selectedCase, editor);
+    const cardAmountCents = selectedCase.legacyStateReviewRequired
+      ? selectedCase.paymentAmountCents
+      : matchedCardSaleAmountCents ?? selectedCase.paymentAmountCents;
     const cardLast4 =
       comparisonCandidate?.cardLast4 ||
-      selectedCase.matchedNayaxCardLast4 ||
-      editor.matchedNayaxCardLast4 ||
+      (selectedCase.legacyStateReviewRequired ? null : selectedCase.matchedNayaxCardLast4) ||
+      (selectedCase.legacyStateReviewRequired ? null : editor.matchedNayaxCardLast4) ||
       selectedCase.cardLast4 ||
       'n/a';
     const transactionTime =
       comparisonCandidate?.machineAuthorizationTime ||
-      selectedCase.matchedNayaxMachineAuthTime ||
-      editor.matchedNayaxMachineAuthTime ||
+      (selectedCase.legacyStateReviewRequired ? null : selectedCase.matchedNayaxMachineAuthTime) ||
+      (selectedCase.legacyStateReviewRequired ? null : editor.matchedNayaxMachineAuthTime) ||
       selectedCase.incidentAt;
     const actionLabel = `Refund ${formatCurrency(cardAmountCents)} and notify customer`;
     const hasReadyRefund = isCardCompletion && primaryAction?.disabled !== true;
@@ -3846,14 +3879,18 @@ export default function AdminRefundsPage() {
                 Manager decision
               </p>
               <h3 className="mt-1 text-xl font-semibold">
-                {nayaxDecisionHeading(selectedNayaxSummary, comparisonCandidate, hasSelectedMatch)}
+                {selectedCase.legacyStateReviewRequired
+                  ? 'Waiting for a fresh transaction check'
+                  : nayaxDecisionHeading(selectedNayaxSummary, comparisonCandidate, hasSelectedMatch)}
               </h3>
               {selectedCase.status !== 'completed' &&
                 !selectedCase.providerHold &&
                 selectedCase.providerOutcome !== 'rejected' && (
                 <p data-testid="refund-not-issued-notice" className="mt-2 max-w-xl text-sm leading-5 text-muted-foreground">
                   <span className="font-semibold text-foreground">No refund has been issued.</span>{' '}
-                  Selecting a transaction saves review evidence only.
+                  {selectedCase.legacyStateReviewRequired
+                    ? 'A fresh transaction check is required before any decision.'
+                    : 'Selecting a transaction saves review evidence only.'}
                 </p>
               )}
             </div>
@@ -3972,7 +4009,9 @@ export default function AdminRefundsPage() {
                   </p>
                 </div>
                 <Badge className="w-fit border-border bg-background text-foreground">
-                  {nayaxDecisionStatusLabel(selectedNayaxSummary, comparisonCandidate, hasSelectedMatch)}
+                  {selectedCase.legacyStateReviewRequired
+                    ? 'Fresh check needed'
+                    : nayaxDecisionStatusLabel(selectedNayaxSummary, comparisonCandidate, hasSelectedMatch)}
                 </Badge>
               </div>
 
@@ -4064,7 +4103,9 @@ export default function AdminRefundsPage() {
               ) : (
                 <div className="mt-3">
                   <p className="text-sm leading-6 text-foreground">
-                    {transactionSearchDescription(selectedNayaxSummary)}
+                    {selectedCase.legacyStateReviewRequired
+                      ? 'Run the fresh read-only transaction check before making any decision.'
+                      : transactionSearchDescription(selectedNayaxSummary)}
                   </p>
                   <div>{renderCardSaleCandidates()}</div>
                 </div>
@@ -4106,15 +4147,19 @@ export default function AdminRefundsPage() {
             <div className={nayaxLookupNoticeClass(nayaxExecutionNotice.tone)}>{nayaxExecutionNotice.message}</div>
           )}
 
-          {selectedCase.providerHold || selectedCase.providerOutcome === 'rejected' ? (
+          {selectedCase.legacyStateReviewRequired || selectedCase.providerHold || selectedCase.providerOutcome === 'rejected' ? (
             <div
-              data-testid="refund-customer-decision-freeze"
+              data-testid={selectedCase.legacyStateReviewRequired
+                ? 'refund-legacy-state-freeze'
+                : 'refund-customer-decision-freeze'}
               role="status"
               className="mt-4 flex items-start gap-2 border-t border-border pt-4 text-sm text-muted-foreground"
             >
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-orange-800" />
               <p>
-                {selectedCase.providerOutcome === 'rejected'
+                {selectedCase.legacyStateReviewRequired
+                  ? 'Customer decisions and email are paused during this payment history check.'
+                  : selectedCase.providerOutcome === 'rejected'
                   ? 'Customer decisions and email are paused while payment support resolves the rejection. Do not approve, deny, or send another outcome message from this case.'
                   : 'Customer decisions and email are paused until the payment status is resolved. Do not approve, deny, or send another outcome message from this case.'}
               </p>
@@ -5140,7 +5185,9 @@ export default function AdminRefundsPage() {
                     {selectedCaseIsReviewOnly && (
                       <div
                         data-testid={
-                          selectedCaseOfficialActionBlockReason === 'manager_verification_required'
+                          selectedCase.legacyStateReviewRequired
+                            ? 'refund-legacy-state-review-banner'
+                            : selectedCaseOfficialActionBlockReason === 'manager_verification_required'
                             ? 'refund-manager-verification-banner'
                             : 'refund-review-only-banner'
                         }
@@ -5150,15 +5197,19 @@ export default function AdminRefundsPage() {
                           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                           <div>
                             <p className="font-semibold">
-                              {selectedCaseOfficialActionBlockReason === 'manager_verification_required'
+                              {selectedCase.legacyStateReviewRequired
+                                ? 'Historical payment review'
+                                : selectedCaseOfficialActionBlockReason === 'manager_verification_required'
                                 ? 'Manager verification required'
                                 : selectedCaseOfficialActionBlockReason === 'official_actions_disabled'
                                   ? 'Official actions not yet enabled'
                                   : 'Review only'}
                             </p>
                             <p className="mt-1 leading-6">
-                              {selectedCaseOfficialActionBlockMessage} You can still review the case, check
-                              transactions, and request information from the customer.
+                              {selectedCaseOfficialActionBlockMessage}{' '}
+                              {selectedCase.legacyStateReviewRequired
+                                ? 'You can review the history and run the read-only transaction check.'
+                                : 'You can still review the case, check transactions, and request information from the customer.'}
                             </p>
                           </div>
                         </div>
@@ -5584,7 +5635,8 @@ export default function AdminRefundsPage() {
                           </p>
                           <p className="mt-1 text-sm text-muted-foreground">{primaryAction.helper}</p>
                           <div className="mt-3 flex flex-wrap gap-2">
-                            {derivePortalRefundMissingFields(selectedCase).length > 0
+                            {!selectedCase.legacyStateReviewRequired &&
+                              derivePortalRefundMissingFields(selectedCase).length > 0
                               && primaryAction.messageType !== 'more_info' && (
                               <Button
                                 type="button"
@@ -5608,7 +5660,7 @@ export default function AdminRefundsPage() {
                                 Ask customer instead
                               </Button>
                             )}
-                            {primaryAction.label !== 'Deny request' && (
+                            {!selectedCase.legacyStateReviewRequired && primaryAction.label !== 'Deny request' && (
                               <Button
                                 type="button"
                                 variant="outline"
@@ -5804,6 +5856,7 @@ export default function AdminRefundsPage() {
                       </div>
                     </details>
 
+                    {!selectedCase.legacyStateReviewRequired && (
                     <div className="space-y-3 rounded-lg border border-border bg-background p-4">
                       <StepHeader step={customerUpdateStep} title="Customer update">
                         The matching customer email sends only after the primary action succeeds. Replies go to info@bloomjoysweets.com.
@@ -5916,6 +5969,7 @@ export default function AdminRefundsPage() {
                       </Button>
                       </details>
                     </div>
+                    )}
 
                     <details className="rounded-lg border border-border bg-muted/20 p-3">
                       <summary className="cursor-pointer text-sm font-medium text-foreground">
