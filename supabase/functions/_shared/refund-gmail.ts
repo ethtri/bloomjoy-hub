@@ -235,11 +235,36 @@ export const htmlToPlainText = (html: string) =>
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
+const getMessagePartHeader = (
+  headers: GmailHeader[] | undefined,
+  name: string,
+) =>
+  (headers ?? []).find((header) =>
+    (header.name ?? "").toLowerCase() === name.toLowerCase()
+  )?.value?.trim() ?? "";
+
+const isAttachmentLikePart = (part: GmailMessagePart) => {
+  const disposition = getMessagePartHeader(
+    part.headers,
+    "Content-Disposition",
+  ).toLowerCase();
+  const contentType = getMessagePartHeader(
+    part.headers,
+    "Content-Type",
+  ).toLowerCase();
+  return Boolean((part.filename ?? "").trim()) ||
+    Boolean(part.body?.attachmentId) ||
+    disposition.startsWith("attachment") ||
+    /(?:^|;)\s*filename\*?\s*=/.test(disposition) ||
+    /(?:^|;)\s*name\*?\s*=/.test(contentType) ||
+    (part.mimeType ?? "").toLowerCase() === "message/rfc822";
+};
+
 const findBodyPart = (
   part: GmailMessagePart | undefined,
   mimeType: string,
 ): string => {
-  if (!part) return "";
+  if (!part || isAttachmentLikePart(part)) return "";
   if ((part.mimeType ?? "").toLowerCase() === mimeType && part.body?.data) {
     return decodeGmailBody(part.body.data);
   }
@@ -260,10 +285,7 @@ export const extractPlainTextBody = (payload: GmailMessagePart | undefined) => {
 export const getGmailHeader = (
   headers: GmailHeader[] | undefined,
   name: string,
-) =>
-  (headers ?? []).find((header) =>
-    (header.name ?? "").toLowerCase() === name.toLowerCase()
-  )?.value?.trim() ?? "";
+) => getMessagePartHeader(headers, name);
 
 const getGmailHeaderValues = (
   headers: GmailHeader[] | undefined,

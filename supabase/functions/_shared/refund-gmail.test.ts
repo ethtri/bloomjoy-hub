@@ -1,5 +1,6 @@
 import {
   buildRefundGmailReplyMime,
+  extractPlainTextBody,
   type GmailMessage,
   inspectRefundGmailParticipantSignals,
   parseEmailAddressList,
@@ -115,6 +116,71 @@ Deno.test("Gmail address lists are normalized and deduplicated", () => {
     ["customer@example.test", "manager@example.test"],
     "normalized address list",
   );
+});
+
+Deno.test("plain-text extraction excludes MIME attachments and attached messages", () => {
+  assertEquals(
+    extractPlainTextBody({
+      mimeType: "multipart/mixed",
+      parts: [
+        {
+          mimeType: "text/plain",
+          filename: "customer-notes.txt",
+          headers: [{
+            name: "Content-Disposition",
+            value: 'attachment; filename="customer-notes.txt"',
+          }],
+          body: { data: encodeBody("attachment text must not be copied") },
+        },
+        {
+          mimeType: "message/rfc822",
+          body: { size: 100 },
+          parts: [{
+            mimeType: "text/plain",
+            body: { data: encodeBody("attached-message text must not be copied") },
+          }],
+        },
+        {
+          mimeType: "text/plain",
+          headers: [{ name: "Content-Disposition", value: "inline" }],
+          body: { data: encodeBody("actual inline message body") },
+        },
+      ],
+    }),
+    "actual inline message body",
+    "only an attachment-free inline MIME body is eligible",
+  );
+});
+
+Deno.test("plain-text extraction fails closed on disguised attachment metadata", () => {
+  for (const payload of [
+    {
+      mimeType: "text/plain",
+      headers: [{
+        name: "Content-Disposition",
+        value: "attachment; filename*=UTF-8''notes.txt",
+      }],
+      body: { data: encodeBody("disposition attachment") },
+    },
+    {
+      mimeType: "text/plain",
+      headers: [{ name: "Content-Type", value: 'text/plain; name="notes.txt"' }],
+      body: { data: encodeBody("named content type") },
+    },
+    {
+      mimeType: "text/plain",
+      body: {
+        data: encodeBody("provider attachment body"),
+        attachmentId: "provider-attachment-id",
+      },
+    },
+  ]) {
+    assertEquals(
+      extractPlainTextBody(payload),
+      "",
+      "attachment-like text is never promoted to the message body",
+    );
+  }
 });
 
 Deno.test("ops action-notice fallback excludes the customer and mailbox identities", () => {
