@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "07d5e1b128421b34d6eb18360ae5e4995753ed6a",
+  "sourceGitCommit": "202a712499cf7750ecd39dcbae02a2e1ececc7e1",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -47,10 +47,11 @@
     "202608110001_refund_evidence_clarity.sql",
     "202608110020_refund_nayax_provider_caps.sql",
     "20260812053417_refund_gmail_attachment_off_copy_gate.sql",
-    "20260812134500_refund_provider_hold_decision_freeze.sql"
+    "20260812134500_refund_provider_hold_decision_freeze.sql",
+    "20260812160000_refund_case_manager_assignment.sql"
   ],
-  "migrationFilesSha256": "dac7ea6dd4c3b14dcec5f2a4b2671a6792ef9ce8deb75ed1025ca168b507c733",
-  "migrationVersionSetSha256": "5c22e35e11dc3b419362a232039cfc2bfb60ff69d745f5e29f8eebd87918d5a4",
+  "migrationFilesSha256": "3d08658efed8684f680bf1d4b8a252e9284aec3cf86ff4d0c297a0a12c8a9dd2",
+  "migrationVersionSetSha256": "69a8b9484463d6e1f356882e5965891b0b82b15de8ba8f5382234c78c7f56f02",
   "functions": [
     {
       "slug": "refund-case-intake",
