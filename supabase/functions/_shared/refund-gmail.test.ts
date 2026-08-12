@@ -174,6 +174,12 @@ Deno.test("plain-text extraction fails closed on disguised attachment metadata",
         attachmentId: "provider-attachment-id",
       },
     },
+    {
+      mimeType: "text/html",
+      filename: "notes.html",
+      headers: [{ name: "Content-Disposition", value: "inline; filename=notes.html" }],
+      body: { data: encodeBody("<p>HTML attachment must not be copied</p>") },
+    },
   ]) {
     assertEquals(
       extractPlainTextBody(payload),
@@ -181,6 +187,26 @@ Deno.test("plain-text extraction fails closed on disguised attachment metadata",
       "attachment-like text is never promoted to the message body",
     );
   }
+});
+
+Deno.test("plain-text extraction preserves a normal multipart alternative body", () => {
+  assertEquals(
+    extractPlainTextBody({
+      mimeType: "multipart/alternative",
+      parts: [
+        {
+          mimeType: "text/plain",
+          body: { data: encodeBody("normal plain body") },
+        },
+        {
+          mimeType: "text/html",
+          body: { data: encodeBody("<p>normal HTML body</p>") },
+        },
+      ],
+    }),
+    "normal plain body",
+    "ordinary multipart messages keep the preferred inline plain body",
+  );
 });
 
 Deno.test("ops action-notice fallback excludes the customer and mailbox identities", () => {
