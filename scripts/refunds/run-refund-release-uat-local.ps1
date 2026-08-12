@@ -1,8 +1,13 @@
 param(
-  [switch]$PortalOnly
+  [switch]$PortalOnly,
+  [switch]$QrOnly,
+  [switch]$ManagerOnly
 )
 
 $ErrorActionPreference = "Stop"
+if (@($PortalOnly, $QrOnly, $ManagerOnly).Where({ $_ }).Count -gt 1) {
+  throw "Choose only one focused browser suite."
+}
 $startedAt = [DateTime]::UtcNow.ToString("o")
 $sourceCommit = (git rev-parse HEAD).Trim()
 $worktreeRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
@@ -72,7 +77,7 @@ $env:VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoi
 
 $server = $null
 try {
-  if (-not $PortalOnly) {
+  if (-not ($PortalOnly -or $QrOnly -or $ManagerOnly)) {
     Invoke-CheckedNpm @("run", "db:validate-migrations", "--", "--evidence-dir", $FragmentDir)
     Invoke-CheckedNpm @(
       "run",
@@ -110,6 +115,34 @@ try {
   }
   if (-not $ready) {
     throw "Synthetic UAT app did not become ready on port 8081."
+  }
+
+  if ($QrOnly) {
+    Invoke-CheckedNpm @(
+      "run",
+      "refunds:validate-qr-intake-uat",
+      "--",
+      "--app-url",
+      "http://127.0.0.1:8081",
+      "--artifact-dir",
+      $ArtifactDir
+    )
+    Write-Output "Synthetic QR diagnostics ready: $ArtifactDir"
+    return
+  }
+
+  if ($ManagerOnly) {
+    Invoke-CheckedNpm @(
+      "run",
+      "refunds:validate-machine-manager-uat",
+      "--",
+      "--app-url",
+      "http://127.0.0.1:8081",
+      "--artifact-dir",
+      $ArtifactDir
+    )
+    Write-Output "Synthetic manager-assignment diagnostics ready: $ArtifactDir"
+    return
   }
 
   Invoke-CheckedNpmWithLog `

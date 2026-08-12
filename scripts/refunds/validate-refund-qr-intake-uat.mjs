@@ -193,10 +193,10 @@ const fillRequiredRefundFields = async (page, { wallet = false } = {}) => {
   );
   await page.getByLabel('Name', { exact: true }).fill('QR UAT Customer');
   await page.getByLabel('Email', { exact: true }).fill('qr-customer@example.test');
-  await page.getByLabel('Incident date').fill('2026-07-26');
-  await page.getByLabel('Time', { exact: true }).fill('12:10');
-  await page.getByLabel('How accurate is the time above?').selectOption('within_15_minutes');
-  await page.getByLabel('Amount', { exact: true }).fill('7.00');
+  await page.getByLabel('Purchase date').fill('2026-07-26');
+  await page.getByLabel('Approximate purchase time').fill('12:10');
+  await page.getByLabel('How close is that time?').selectOption('within_15_minutes');
+  await page.getByLabel('Amount charged').fill('7.00');
 
   if (wallet) {
     await page.getByLabel('How did you pay at the machine?').selectOption('phone_watch_wallet');
@@ -239,7 +239,7 @@ const runDesktopQrJourney = async ({ browser, appUrl, artifactDir }) => {
   });
 
   await fillRequiredRefundFields(page);
-  await page.getByRole('button', { name: 'Submit Request' }).click();
+  await page.getByRole('button', { name: 'Send refund request' }).click();
   await page.waitForURL('**/refunds/thank-you?ref=RF-QR-UAT');
 
   const submission = functionBodies.find((body) => !body.action);
@@ -314,7 +314,7 @@ const runMobileWalletJourney = async ({ browser, appUrl, artifactDir }) => {
     fullPage: false,
   });
 
-  await page.getByRole('button', { name: 'Submit Request' }).click();
+  await page.getByRole('button', { name: 'Send refund request' }).click();
   await page.waitForURL('**/refunds/thank-you?ref=RF-QR-UAT');
   const submission = functionBodies.find((body) => !body.action);
   assert.equal(submission.cardLast4, '9876');
@@ -348,7 +348,7 @@ const runDirectJourney = async ({ browser, appUrl, artifactDir }) => {
   });
 
   await fillRequiredRefundFields(page);
-  await page.getByRole('button', { name: 'Submit Request' }).click();
+  await page.getByRole('button', { name: 'Send refund request' }).click();
   await page.waitForURL('**/refunds/thank-you?ref=RF-QR-UAT');
   const submission = functionBodies.find((body) => !body.action);
   assert.equal(submission.machineId, eastridgeMachineId);
@@ -388,7 +388,7 @@ const runUnavailableJourneys = async ({ browser, appUrl, artifactDir }) => {
   });
   await expiredPage.getByText('Machine confirmed', { exact: true }).waitFor();
   await fillRequiredRefundFields(expiredPage);
-  await expiredPage.getByRole('button', { name: 'Submit Request' }).click();
+  await expiredPage.getByRole('button', { name: 'Send refund request' }).click();
   await expiredPage.getByText('This QR session needs to be restarted.', { exact: true }).waitFor();
 
   assert.equal(await expiredPage.getByLabel('Name', { exact: true }).inputValue(), 'QR UAT Customer');
