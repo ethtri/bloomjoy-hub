@@ -181,15 +181,17 @@ try {
     const restoreEntry = repositoryManifest.approvedRestoreSource.functions.find(
       (entry) => entry.slug === managerSlug
     );
-    assert.deepEqual(
-      localEntry,
-      {
-        slug: managerSlug,
-        verifyJwt: false,
-        sourceSha256: reviewedManagerSourceSha256[managerSlug],
-        production: null,
-      },
-      `${managerSlug} must be source-aligned while remaining undeployed`
+    assert.equal(localEntry.verifyJwt, false, `${managerSlug} must keep verify_jwt disabled`);
+    assert.equal(
+      localEntry.sourceSha256,
+      reviewedManagerSourceSha256[managerSlug],
+      `${managerSlug} manifest source must match its independently reviewed digest`
+    );
+    assert(
+      localEntry.production &&
+        localEntry.production.version === 1 &&
+        localEntry.production.sourceSha256 === reviewedManagerSourceSha256[managerSlug],
+      `${managerSlug} must record its deployed v1 source pairing`
     );
     assert.deepEqual(
       baselineEntry,
