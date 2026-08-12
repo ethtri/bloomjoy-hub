@@ -1,5 +1,18 @@
 # Decisions
 
+## 2026-08-12 - Refund intake auto-assigns only an unambiguous current manager (`#774`)
+
+Direct website intake and a private email-linked form use the same database ownership rule when a machine is bound to a refund case. The database serializes that decision with Admin > Machines and re-reads the current active, unrevoked manager mappings while holding the shared per-machine lock.
+
+- Exactly one current mapping is assigned automatically.
+- With two or three current mappings, the system never guesses a primary owner. The case stays unassigned for explicit admin review unless a still-current manager was deliberately selected.
+- With no current mapping, or when a prior selection is stale or revoked, the case stays unassigned for explicit admin review.
+- Clearing an assignment without changing the machine is preserved; the intake trigger does not silently reassign it.
+- The release performs one idempotent repair of existing open, unassigned cases with a resolved machine and exactly one current manager. Each changed case receives a redacted, non-official audit event; zero- and multiple-manager cases are untouched.
+- Customer CC resolution remains separate and continues to include the complete safe current mapped-manager set at send time, regardless of who participated in the Gmail thread.
+
+This is an intake ownership rule only. It does not enable Gmail, automation, customer contact, or Nayax execution, and it does not grant the email assistant authority to perform an official refund action.
+
 ## 2026-08-11 - Owner approves the controlled refund-email pilot data policy (`#705`, `#707`)
 
 The owner approved the first controlled email pilot with a 180-day retention period for the Hub's sanitized Gmail copy, attachment collection disabled, and visible CC to the complete current portal-mapped Machine Manager set on every case-specific customer message.
