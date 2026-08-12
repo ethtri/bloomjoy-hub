@@ -58,6 +58,7 @@ const aggregateRow = {
   active_manager_identity_count: 4,
   manager_only_identity_count: 1,
   manager_only_with_shadow_ready_assignment_count: 1,
+  mapped_with_shadow_ready_assignment_count: 3,
   exact_pilot_eligible_identity_count: null,
   super_admin_overlap_count: 0,
   scoped_admin_overlap_count: 1,
@@ -73,7 +74,7 @@ const aggregateRow = {
 assert.equal(validateAggregateRow(aggregateRow), aggregateRow);
 assert.deepEqual(determineReadiness(aggregateRow), {
   ready: true,
-  label: 'CLEAN CANDIDATE EXISTS; PILOT COHORT SELECTION STILL REQUIRED',
+  label: 'MAPPED CANDIDATE EXISTS; PILOT COHORT SELECTION STILL REQUIRED',
 });
 
 assert.deepEqual(
@@ -99,6 +100,7 @@ assert.equal(
   determineReadiness({
     ...aggregateRow,
     manager_only_with_shadow_ready_assignment_count: 0,
+    mapped_with_shadow_ready_assignment_count: 0,
   }).ready,
   false
 );
@@ -133,8 +135,8 @@ assert.doesNotMatch(
 );
 assert.doesNotMatch(template, /select\s+[^;]*(manager_email|manager_user_id|reporting_machine_id)\s+from\s+assessed_identities/i);
 
-console.log('Manager-only UAT readiness validator passed.');
+console.log('Mapped-manager UAT readiness validator passed.');
 console.log('- exact project confirmation and UUID-only pilot scope');
 console.log('- aggregate result allowlist and no local output');
-console.log('- manager-only, shadow-ready, and exact-pilot readiness gates');
+console.log('- exact mapped-manager, shadow-ready, and exact-pilot readiness gates');
 console.log('- reviewed SELECT-only SQL template');

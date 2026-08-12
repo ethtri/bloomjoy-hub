@@ -143,11 +143,17 @@ values
    '8a000000-0000-4000-8000-000000000002', 'step-up-admin@example.test', 'Admin exclusion');
 
 insert into public.admin_roles (id, user_id, role, active)
-values (
-  '8a410000-0000-4000-8000-000000000001',
-  '8a000000-0000-4000-8000-000000000002',
-  'super_admin', true
-);
+values
+  (
+    '8a410000-0000-4000-8000-000000000001',
+    '8a000000-0000-4000-8000-000000000002',
+    'super_admin', true
+  ),
+  (
+    '8a410000-0000-4000-8000-000000000002',
+    '8a000000-0000-4000-8000-000000000003',
+    'super_admin', true
+  );
 
 insert into public.machine_sales_facts (
   id, reporting_machine_id, reporting_location_id, sale_date, payment_method,
@@ -265,13 +271,21 @@ insert into public.refund_manager_totp_enrollments (
   owner_approved_by_user_id,
   owner_approval_version,
   enrollment_version
-) values (
-  '8a000000-0000-4000-8000-000000000001',
-  repeat('a', 64),
-  '8a000000-0000-4000-8000-000000000002',
-  1,
-  1
-);
+) values
+  (
+    '8a000000-0000-4000-8000-000000000001',
+    repeat('a', 64),
+    '8a000000-0000-4000-8000-000000000002',
+    1,
+    1
+  ),
+  (
+    '8a000000-0000-4000-8000-000000000002',
+    repeat('d', 64),
+    '8a000000-0000-4000-8000-000000000002',
+    2,
+    1
+  );
 
 set local role authenticated;
 select pg_temp.set_auth_claims('8a000000-0000-4000-8000-000000000001', 'aal1',
@@ -712,14 +726,14 @@ select ok(pg_temp.capture_error($sql$
     '8a600000-0000-4000-8000-000000000002', 'approve', 'refund-case-admin-update', 1,
     'cash_zelle_pending', 'approved', null, null, null, 650, null, null, false, null, null)
 $sql$) like '%Active Machine Manager mapping required%',
-  'Unrelated authenticated user cannot prepare an intent');
+  'Admin access alone cannot prepare an intent without a current Machine Manager mapping');
 select pg_temp.set_auth_claims('8a000000-0000-4000-8000-000000000002', 'aal1', '[]'::jsonb);
-select ok(pg_temp.capture_error($sql$
+select lives_ok($sql$
   select public.admin_prepare_refund_action_step_up_intent(
     '8a600000-0000-4000-8000-000000000002', 'approve', 'refund-case-admin-update', 1,
     'cash_zelle_pending', 'approved', null, null, null, 650, null, null, false, null, null)
-$sql$) like '%admin identities are review-only%',
-  'Mapped Super Admin cannot prepare an official intent');
+$sql$,
+  'A mapped Super Admin can prepare the same owner-approved action-bound intent');
 reset role;
 
 select ok(not has_function_privilege('service_role',

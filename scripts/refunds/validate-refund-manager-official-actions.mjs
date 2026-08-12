@@ -30,6 +30,9 @@ const providerHoldDecisionFreezeMigration = read(
 const stepUpMigration = read(
   'supabase/migrations/202608030004_refund_manager_action_step_up.sql'
 );
+const dualRoleManagerAuthorityMigration = read(
+  'supabase/migrations/20260812190000_refund_dual_role_manager_authority.sql'
+);
 const authorizationHelper = read(
   'supabase/functions/_shared/refund-official-action.ts'
 );
@@ -112,13 +115,18 @@ assert(
 );
 
 assert(
-  migration.includes('from public.admin_roles admin_role') &&
-    migration.includes('admin_role.active = true') &&
-    migration.includes('from public.admin_scoped_access_grants admin_grant') &&
-    migration.includes('public.admin_scoped_grant_is_active(') &&
-    databaseTests.includes('Dual-entitlement Super Admin exclusion test') &&
-    databaseTests.includes('Dual-entitlement Scoped Admin exclusion test'),
-  'Mapped Super Admin and Scoped Admin identities must remain review-only during the pilot.'
+  dualRoleManagerAuthorityMigration.includes('create or replace function public.user_is_active_refund_manager(') &&
+    dualRoleManagerAuthorityMigration.includes('create or replace function public.user_is_active_refund_manager_only(') &&
+    dualRoleManagerAuthorityMigration.includes('create or replace function public.can_perform_refund_official_action(') &&
+    dualRoleManagerAuthorityMigration.includes("manager.status = 'active'") &&
+    dualRoleManagerAuthorityMigration.includes('manager.revoked_at is null') &&
+    !dualRoleManagerAuthorityMigration.includes('from public.admin_roles') &&
+    !dualRoleManagerAuthorityMigration.includes('from public.admin_scoped_access_grants') &&
+    databaseTests.includes('Dual-role Super Admin manager authority test') &&
+    databaseTests.includes('Dual-role Scoped Admin manager authority test') &&
+    stepUpDatabaseTests.includes('A mapped Super Admin can prepare the same owner-approved action-bound intent') &&
+    stepUpDatabaseTests.includes('Admin access alone cannot prepare an intent without a current Machine Manager mapping'),
+  'A current exact-machine mapping must be the only source of payment authority; separate admin access neither grants nor revokes it.'
 );
 
 assert(
@@ -301,10 +309,12 @@ assert(
     portal.includes('setOfficialActionVersion(nextVersion > 0 ? nextVersion : 0)') &&
     portal.includes('selectedCaseIsReviewOnly || officialActionVersion <= 0') &&
     portal.includes("selectedCaseOfficialActionBlockReason === 'official_actions_disabled'") &&
-    portal.includes('Official refund actions remain disabled until the per-action manager authenticator flow is deployed.') &&
+    portal.includes('Live refund actions are paused until the remaining provider, owner-verification, and launch safeguards are approved.') &&
     portal.includes('data-testid="refund-manager-step-up-dialog"') &&
     portal.includes('Human Machine Manager verification only') &&
     portal.includes('Do not use an agent-controlled or shared browser') &&
+    portal.includes('You can take this action because you are currently assigned to manage this machine') &&
+    portal.includes('Admin access by itself is never enough to issue a refund') &&
     portal.includes('Never screenshot, copy, email, or share this QR code') &&
     portal.includes('Support agents cannot reset or bypass this step') &&
     portal.includes("? 'refund-manager-verification-banner'") &&
@@ -349,12 +359,13 @@ assert(
 );
 
 assert(
-  databaseTests.includes('A mapped Super Admin remains review-capable but cannot perform a Machine Manager action') &&
-    databaseTests.includes('A mapped Scoped Admin remains review-capable but cannot perform a Machine Manager action') &&
+  databaseTests.includes('A mapped Super Admin receives official-action authority only from the exact Machine Manager mapping') &&
+    databaseTests.includes('A mapped Scoped Admin receives official-action authority only from the exact Machine Manager mapping') &&
+    databaseTests.includes('Admin access can review but cannot perform an official action without an exact Machine Manager mapping') &&
     databaseTests.includes('An official-action receipt cannot be replayed') &&
     databaseTests.includes('Customer identity and local incident context changes invalidate a minted receipt') &&
     databaseTests.includes('A revoked manager cannot mint a new receipt') &&
-    databaseTests.includes('An admin entitlement activated after receipt mint invalidates execution') &&
+    databaseTests.includes('A later admin entitlement does not invalidate a receipt whose exact Machine Manager mapping remains current') &&
     databaseTests.includes('Two receipts minted for one case cannot both commit') &&
     databaseTests.includes('A service identity cannot impersonate a manager'),
   'Regression coverage must include personas, replay, stale cases, authority drift, double action, and service impersonation.'
@@ -363,6 +374,8 @@ assert(
 assert(
   portalUat.includes("name: 'mapped Super Admin'") &&
     portalUat.includes("name: 'mapped Scoped Admin'") &&
+    portalUat.includes('reaches the exact mapped-manager verification instead of a review-only dead end') &&
+    portalUat.includes('performs no payment action before personal verification') &&
     portalUat.includes('A case with a missing review version cannot inherit the previous case version') &&
     portalUat.includes('Deep link, status filter, and queue-row selection make no lookup or official-action call') &&
     portalUat.includes('Cancelling step-up invalidates the pending intent and takes no official action') &&
@@ -370,7 +383,7 @@ assert(
     portalUat.includes('Expired step-up fails before authenticator verification or target execution') &&
     portalUat.includes('Successful verification submits only the frozen reviewed target, case, and version') &&
     portalUat.includes('Cancelling supervised enrollment asks the trusted Edge flow to remove the unfinished factor'),
-  'Portal UAT must cover review-only personas, version reset, navigation-only deep links, fresh step-up, cancellation, expiry, bad codes, frozen payloads, and enrollment cleanup.'
+  'Portal UAT must cover dual-role mapped managers, version reset, navigation-only deep links, fresh step-up, cancellation, expiry, bad codes, frozen payloads, and enrollment cleanup.'
 );
 
 console.log('Refund Machine Manager official-action boundary validated.');

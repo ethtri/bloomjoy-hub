@@ -320,7 +320,7 @@ The evidence finalizer must reject stale, missing, extra, malformed, duplicate-i
 - 180-day copied-content retention, visible-CC privacy, and attachment-off approval;
 - visible CC recipient/privacy review and participant-classification UAT (`#686`);
 - merge and integrated UAT for the mapped Machine Manager-only boundary in `#689`; no break-glass policy is approved;
-- owner-supervised clean-manager TOTP enrollment and recovery ownership, privacy/security review, owner UAT, enrollment-window closure after the cohort is verified, and a separate reviewed gate-on migration for `#692`; official actions remain hard-off;
+- owner-supervised mapped-manager TOTP enrollment and recovery ownership, privacy/security review, owner UAT, enrollment-window closure after the cohort is verified, and a separate reviewed gate-on migration for `#692`; separate admin access neither grants nor revokes exact-machine manager authority, and official actions remain hard-off;
 - OpenAI retention/data-control approval for GPT (`#635`);
 - Nayax account-specific write contract and controlled live pilot (`#430`);
 - alternative compensation decision (`#666`);

@@ -1455,7 +1455,7 @@ const primaryActionConfig = (
       if (!cardRefundActionAvailable) {
         return {
           label: 'Card refunds aren\u2019t available right now',
-          helper: 'Bloomjoy Hub could not confirm the payment connection is ready for this manager. No refund has been issued. Refresh and try again later.',
+          helper: 'Bloomjoy Hub could not confirm the payment connection is ready for this manager. No refund has been issued. Leave the case open and try again only after Operations confirms service is ready.',
           disabled: true,
         };
       }
@@ -2101,7 +2101,7 @@ export default function AdminRefundsPage() {
       'manager_verification_required'
     ? 'Verify with your authenticator immediately before taking this official action. Agent-controlled or shared sessions cannot approve, decline, complete, or issue refunds.'
     : selectedCaseOfficialActionBlockReason === 'official_actions_disabled'
-      ? 'Official refund actions remain disabled until the per-action manager authenticator flow is deployed.'
+      ? 'Live refund actions are paused until the remaining provider, owner-verification, and launch safeguards are approved.'
       : 'Only a currently mapped Machine Manager can approve, decline, complete, or issue this refund.';
   const mobileQueueCases = selectedCase && !isMobileQueueExpanded ? [selectedCase] : filteredCases;
   useEffect(() => {
@@ -6083,6 +6083,9 @@ export default function AdminRefundsPage() {
             <p className="font-medium">Human Machine Manager verification only</p>
             <p className="mt-1">
               Enter the code yourself in your private manager session. Do not use an agent-controlled or shared browser for this payment action.
+            </p>
+            <p className="mt-2">
+              You can take this action because you are currently assigned to manage this machine. Admin access by itself is never enough to issue a refund.
             </p>
           </div>
 

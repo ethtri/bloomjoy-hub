@@ -41,6 +41,7 @@ const parseArgs = (argv) => {
     runToken: process.env.REFUND_UAT_EVIDENCE_RUN_TOKEN || '',
     headed: false,
     managerStepUpOnly: false,
+    dualRoleOnly: false,
     providerOutcomesOnly: false,
   };
 
@@ -54,6 +55,11 @@ const parseArgs = (argv) => {
 
     if (arg === '--manager-step-up-only') {
       args.managerStepUpOnly = true;
+      continue;
+    }
+
+    if (arg === '--dual-role-only') {
+      args.dualRoleOnly = true;
       continue;
     }
 
@@ -111,7 +117,9 @@ const parseArgs = (argv) => {
   args.appUrl = args.appUrl.replace(/\/+$/, '');
   args.artifactDir = path.resolve(process.cwd(), args.artifactDir);
   args.fragmentDir = path.resolve(process.cwd(), args.fragmentDir);
-  if (!args.managerStepUpOnly && !args.providerOutcomesOnly) requireEvidenceRunToken(args.runToken);
+  if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.providerOutcomesOnly) {
+    requireEvidenceRunToken(args.runToken);
+  }
   return args;
 };
 
@@ -744,20 +752,6 @@ const buildPendingNayaxRefundOverview = () => {
     customerName: 'Alternate Pending Card Customer',
     createdAt: isoHoursAgo(5),
   });
-  return overview;
-};
-
-const buildReviewOnlyRefundOverview = () => {
-  const overview = buildMockRefundOverview();
-  overview.cases = [
-    {
-      ...overview.cases[0],
-      canPerformOfficialAction: false,
-      officialActionVersion: 1,
-      structuredIncidentAt: null,
-      incidentTimeResolution: 'unknown',
-    },
-  ];
   return overview;
 };
 
@@ -3289,7 +3283,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
   }
 };
 
-const runReviewOnlyOfficialActionChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
   const scenarios = [
     {
       name: 'mapped Super Admin',
@@ -3316,95 +3310,55 @@ const runReviewOnlyOfficialActionChecks = async ({ browser, appUrl, artifactDir,
   ];
 
   for (const scenario of scenarios) {
-  const context = await browser.newContext({
-    viewport: { width: 1440, height: 1000 },
-  });
-  const functionCalls = [];
-  const functionBodies = [];
-  await installMockSupabaseRoutes(context, {
-    refundOverview: buildReviewOnlyRefundOverview,
-    functionCalls,
-    functionBodies,
-    adminAccessContext: scenario.adminAccessContext,
-  });
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 1000 },
+    });
+    const functionCalls = [];
+    const functionBodies = [];
+    const rpcCalls = [];
+    await installMockSupabaseRoutes(context, {
+      refundOverview: buildManagerStepUpRefundOverview,
+      functionCalls,
+      functionBodies,
+      rpcCalls,
+      adminAccessContext: scenario.adminAccessContext,
+      requireManagerStepUp: true,
+    });
 
-  const page = await context.newPage();
-  await signInRefundUser(page, appUrl);
-  await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
-  await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
+    const page = await context.newPage();
+    await signInRefundUser(page, appUrl);
+    await openNayaxManagerStepUp(page);
 
-  const reviewOnlyBanner = page.getByTestId('refund-review-only-banner');
-  recorder.assert(
-    `${scenario.name} sees the Machine Manager review-only boundary`,
-    await reviewOnlyBanner.isVisible() &&
-      await reviewOnlyBanner.getByText('Review only', { exact: true }).isVisible() &&
-      await reviewOnlyBanner.getByText(/Only a currently mapped Machine Manager/).isVisible()
-  );
-  recorder.assert(
-    `${scenario.name} cannot issue the card refund`,
-    (
-      (await page.getByTestId('refund-run-nayax-refund').count()) === 1 &&
-      await page.getByTestId('refund-run-nayax-refund').isDisabled()
-    ) || (
-      (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-      await page.getByTestId('refund-action-status').isVisible()
-    )
-  );
+    recorder.assert(
+      `${scenario.name} reaches the exact mapped-manager verification instead of a review-only dead end`,
+      await page.getByTestId('refund-manager-step-up-dialog').isVisible() &&
+        await page.getByText('Personally authorize this exact action').isVisible() &&
+        await page.getByText(/currently assigned to manage this machine/i).isVisible() &&
+        await page.getByText(/admin access by itself is never enough/i).isVisible() &&
+        (await page.getByTestId('refund-review-only-banner').count()) === 0
+    );
+    recorder.assert(
+      `${scenario.name} performs no payment action before personal verification`,
+      functionBodies.filter((entry) =>
+        entry.functionName === 'nayax-card-refund' && entry.body?.operation !== 'availability'
+      ).length === 1 &&
+        !functionCalls.includes('refund-manager-action-step-up') &&
+        !functionCalls.includes('refund-case-admin-update'),
+      JSON.stringify({ functionCalls, functionBodies })
+    );
 
-  await page.getByText('Other decisions', { exact: true }).click();
-  const denyButton = page.getByRole('button', { name: 'Deny request', exact: true });
-  const askForDetailsButton = page.getByRole('button', { name: 'Ask customer for details', exact: true });
-  recorder.assert(
-    `${scenario.name} cannot decline but can prepare a customer information request`,
-    await denyButton.isDisabled() && await askForDetailsButton.isEnabled()
-  );
-
-  await page.getByText('Transaction search details', { exact: true }).click();
-  const refreshResultButton = page.getByRole('button', { name: 'Refresh result' });
-  recorder.assert(
-    `${scenario.name} can explicitly refresh transaction evidence`,
-    await refreshResultButton.isEnabled()
-  );
-  const lookupResponse = page.waitForResponse((response) =>
-    new URL(response.url()).pathname.endsWith('/functions/v1/nayax-transaction-lookup')
-  );
-  await refreshResultButton.click();
-  await lookupResponse;
-  await page.getByTestId('nayax-lookup-notice').waitFor({ timeout: 10000 });
-  recorder.assert(
-    `${scenario.name} evidence refresh does not perform an official refund action`,
-    functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 1 &&
-      !functionCalls.includes('nayax-card-refund') &&
-      !functionCalls.includes('refund-case-admin-update'),
-    functionCalls.join(', ')
-  );
-
-  await askForDetailsButton.click();
-  const customerFollowUpButton = page.getByTestId('refund-save-case');
-  await customerFollowUpButton.getByText('Ask for missing details', { exact: true }).waitFor({
-    timeout: 10000,
-  });
-  await customerFollowUpButton.click();
-  await page.waitForTimeout(300);
-  const customerFollowUpBody = functionBodies.find(
-    (entry) => entry.functionName === 'refund-case-admin-update'
-  )?.body ?? {};
-  recorder.assert(
-    `${scenario.name} can send the non-official missing-information workflow`,
-    customerFollowUpBody.status === 'waiting_on_customer' &&
-      customerFollowUpBody.decision === null &&
-      customerFollowUpBody.customerMessageType === 'more_info' &&
-      JSON.stringify(customerFollowUpBody.customerMissingFields) ===
-        JSON.stringify(['incident_date', 'incident_time']) &&
-      !functionCalls.includes('nayax-card-refund'),
-    JSON.stringify({ functionCalls, customerFollowUpBody })
-  );
-
-  await page.screenshot({
-    path: path.join(artifactDir, `refund-portal-uat-${scenario.slug}-review-only.png`),
-    fullPage: true,
-  });
-  await context.close();
+    await page.screenshot({
+      path: path.join(artifactDir, `refund-portal-uat-${scenario.slug}-mapped-manager-step-up.png`),
+      fullPage: true,
+    });
+    await page.getByRole('button', { name: 'Cancel; take no action' }).click();
+    await page.getByTestId('refund-manager-step-up-dialog').waitFor({ state: 'hidden' });
+    recorder.assert(
+      `${scenario.name} cancellation remains action-free`,
+      rpcCalls.includes('admin_cancel_refund_action_step_up_intent') &&
+        !functionCalls.includes('refund-manager-action-step-up')
+    );
+    await context.close();
   }
 };
 
@@ -4239,7 +4193,7 @@ const run = async () => {
   );
 
   await mkdir(args.artifactDir, { recursive: true });
-  if (!args.managerStepUpOnly) await mkdir(args.fragmentDir, { recursive: true });
+  if (!args.managerStepUpOnly && !args.dualRoleOnly) await mkdir(args.fragmentDir, { recursive: true });
   await waitForServer(args.appUrl);
 
   const browser = await chromium.launch({ headless: !args.headed });
@@ -4251,6 +4205,13 @@ const run = async () => {
         artifactDir: args.artifactDir,
         recorder,
         evidence,
+      });
+    } else if (args.dualRoleOnly) {
+      await runDualRoleOfficialActionChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
       });
     } else if (args.managerStepUpOnly) {
       await runManagerStepUpChecks({
@@ -4309,7 +4270,7 @@ const run = async () => {
       artifactDir: args.artifactDir,
       recorder,
     });
-    await runReviewOnlyOfficialActionChecks({
+    await runDualRoleOfficialActionChecks({
       browser,
       appUrl: args.appUrl,
       artifactDir: args.artifactDir,
@@ -4360,7 +4321,7 @@ const run = async () => {
     return;
   }
 
-  if (!args.managerStepUpOnly) {
+  if (!args.managerStepUpOnly && !args.dualRoleOnly) {
     recorder.assert(
       'Portal evidence counters match the executable navigation, lookup, and provider-outcome matrix',
       evidence.navigationProviderCallCount === 0 &&
@@ -4387,7 +4348,7 @@ const run = async () => {
     process.exit(1);
   }
 
-  if (!args.managerStepUpOnly) {
+  if (!args.managerStepUpOnly && !args.dualRoleOnly) {
     if (recorder.count() < 101) {
       throw new Error(`Portal assertion count ${recorder.count()} is below the required 101.`);
     }
@@ -4424,7 +4385,9 @@ const run = async () => {
 
   console.log('\nRefund portal UAT validation passed.');
   console.log(`Screenshots written to ${args.artifactDir}`);
-  if (!args.managerStepUpOnly) console.log(`Evidence fragments written to ${args.fragmentDir}`);
+  if (!args.managerStepUpOnly && !args.dualRoleOnly) {
+    console.log(`Evidence fragments written to ${args.fragmentDir}`);
+  }
 };
 
 run().catch((error) => {
