@@ -50,7 +50,7 @@ Do not forward the designated support mailbox into a personal inbox. Agents and 
 
 The Gmail OAuth identity, automation scheduler, GPT runner, and agent tools must not possess a privileged path that can approve, decline, or invoke a Nayax refund.
 
-The unmerged `#689` implementation candidate keeps Super Admins, Scoped Admins, unrelated managers, revoked managers, service identities, email identities, schedulers, GPT, and agents in setup/review/customer-follow-up roles only. They cannot perform an official decision or Nayax action. A mapped manager who is also a Super Admin or Scoped Admin is also excluded from official pilot actions. A future break-glass path would require a separate owner-approved, reason-required, time-bounded, notified, immutable-audit policy; none exists today.
+The official-action boundary uses the exact current active machine mapping as its sole grant. Admin access alone, unrelated or revoked managers, service identities, email identities, schedulers, GPT, and agents cannot perform an official decision or Nayax action. A mapped manager who also has separate Super Admin or Scoped Admin access remains authorized only through that mapping; the additional role neither grants nor revokes refund authority. A future break-glass path would require a separate owner-approved, reason-required, time-bounded, notified, immutable-audit policy; none exists today.
 
 A valid mapped-manager login is necessary but not sufficient. The unmerged `#692` implementation candidate prepares one two-minute, single-use, single-live-per-actor intent after the manager reviews the exact action. The intent freezes the actor, case, action, target function, case version, active manager mapping/version, owner-approved enrollment version, amount and exact payload hash, and the applicable transaction/evidence fingerprint. The manager must personally enter a fresh code for the exact owner-approved, purpose-bound TOTP factor in a non-shared, non-agent-controlled session. The refreshed JWT must be AAL2 and contain exactly one parseable newest TOTP authentication timestamp strictly newer than the intent's whole second and no more than 30 seconds in the future; stale, same-second, refresh-only, future-skewed, ambiguous, or malformed evidence fails closed.
 
@@ -292,8 +292,8 @@ The evidence finalizer must reject stale, missing, extra, malformed, duplicate-i
 5. Mapped-manager aging reminders and canonical links: `#685` plus scheduler foundation `#632`.
 6. Designated production Gmail connection, copied-content retention, visible-CC privacy, and attachment-off approval: `#634`.
 7. Human-reviewed GPT evaluation and data controls: `#635`.
-8. Mapped Machine Manager-only official-action enforcement: `#689`.
-9. Owner-supervised manager-only TOTP enrollment, recovery, privacy/security review, fresh per-action challenge, and owner UAT: `#692`.
+8. Exact mapped Machine Manager official-action enforcement: `#689`.
+9. Owner-supervised mapped-manager TOTP enrollment, recovery, privacy/security review, fresh per-action challenge, and owner UAT: `#692`.
 10. Separately reviewed official-action gate-on plus one-manager portal approval and provider execution contract: `#674` and `#430`.
 11. Terminal unmatched/cash fallback: `#666`.
 12. Synthetic shadow pilot, quick-disable proof, and sponsor go/no-go before broad enablement.
@@ -319,9 +319,9 @@ The evidence finalizer must reject stale, missing, extra, malformed, duplicate-i
 - mailbox-filter population, legacy responder inventory/cutover, and any verified `support@bloomjoysweets.com` alias/send-as plus matching Gmail `SENT` evidence;
 - 180-day copied-content retention, visible-CC privacy, and attachment-off approval;
 - visible CC recipient/privacy review and participant-classification UAT (`#686`);
-- merge and integrated UAT for the mapped Machine Manager-only boundary in `#689`; no break-glass policy is approved;
+- merge and integrated UAT for the exact mapped Machine Manager authority boundary in `#689`; no break-glass policy is approved;
 - owner-supervised mapped-manager TOTP enrollment and recovery ownership, privacy/security review, owner UAT, enrollment-window closure after the cohort is verified, and a separate reviewed gate-on migration for `#692`; separate admin access neither grants nor revokes exact-machine manager authority, and official actions remain hard-off;
 - OpenAI retention/data-control approval for GPT (`#635`);
 - Nayax account-specific write contract and controlled live pilot (`#430`);
 - alternative compensation decision (`#666`);
-- clean Machine Manager-only production UAT and legacy cutover approval.
+- assigned-scope production UAT with a clean Machine Manager-only persona, dual-role mapped-manager official-action UAT, and legacy cutover approval.
