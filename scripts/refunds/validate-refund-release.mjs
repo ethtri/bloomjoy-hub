@@ -44,32 +44,41 @@ assert.match(
 );
 assert.match(
   productionRunbook,
-  /exact expected 13-row mismatch[\s\S]*five approved repository sources[\s\S]*all eight deployed versions/,
-  'The compatibility bridge must name the complete expected production mismatch shape'
+  /PR `#760`[\s\S]*ten manifest-tracked Refund Operations functions[\s\S]*41 required refund\/Nayax migrations/,
+  'The runbook must name the current production-readiness release shape'
 );
 
-const bridgeStart = productionRunbook.indexOf('#### #629/#716 bridge override');
-const commerceStart = productionRunbook.indexOf('Commerce cutover order is fail-closed', bridgeStart);
-assert(bridgeStart >= 0 && commerceStart > bridgeStart, 'The bridge override must precede commerce cutover');
-const bridgeDeployBlock = productionRunbook.slice(bridgeStart, commerceStart);
+const refundDeployStart = productionRunbook.indexOf('Before deploying Refund Operations functions');
+const refundDeployEnd = productionRunbook.indexOf(
+  'After deploying the ten manifest-tracked Refund Operations functions',
+  refundDeployStart
+);
+assert(
+  refundDeployStart >= 0 && refundDeployEnd > refundDeployStart,
+  'The runbook must contain the reviewed Refund Operations deployment block'
+);
+const refundDeployBlock = productionRunbook.slice(refundDeployStart, refundDeployEnd);
 let previousDeployIndex = -1;
 for (const slug of requiredFunctionSlugs) {
-  const deployIndex = bridgeDeployBlock.indexOf(`supabase functions deploy ${slug} --no-verify-jwt`);
-  assert(deployIndex > previousDeployIndex, `Bridge deploy order is missing or out of order for ${slug}`);
+  const deployIndex = refundDeployBlock.indexOf(`supabase functions deploy ${slug} --no-verify-jwt`);
+  assert(
+    deployIndex > previousDeployIndex,
+    `Refund Operations deploy order is missing or out of order for ${slug}`
+  );
   previousDeployIndex = deployIndex;
 }
 
 for (const requiredFailClosedControl of [
-  'do not execute any mutating Step A command until bridge steps 1-4',
-  'NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO MICRO_CHECKOUT_ENABLED --yes',
+  'NAYAX_REFUND_EXECUTION_ENABLED=false',
+  'NAYAX_REFUND_EXECUTION_DRY_RUN=true',
+  'NAYAX_REFUND_EXECUTION_KILL_SWITCH=true',
+  'NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false',
+  'Do not set `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO`',
   'REFUND_AUTOMATION_ENABLED=false',
   'REFUND_GMAIL_ENABLED=false',
   'REFUND_GPT_TRIAGE_ENABLED=false',
   'OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false',
-  'REFUND_AUTOMATION_SWEEP_ENABLED --repo ethtri/bloomjoy-hub --body false',
-  'REFUND_GMAIL_SYNC_ENABLED --repo ethtri/bloomjoy-hub --body false',
-  'REFUND_GPT_TRIAGE_SYNC_ENABLED --repo ethtri/bloomjoy-hub --body false',
-  'update public.refund_gpt_triage_settings set enabled = false',
+  'official-action database gate and production Nayax provider adapter remain statically disabled',
 ]) {
   assert(
     productionRunbook.includes(requiredFailClosedControl),
@@ -77,31 +86,30 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 26 current required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 41 current required refund\/Nayax migrations/);
 assert.match(
   cutoverPacket,
-  /exact expected standard production mismatch \(five unpaired reviewed sources plus eight version-only differences, and no other failure\)/
+  /all ten manifest-tracked Refund Operations functions/
 );
-const bridgeSmokeOrder = cutoverPacket.indexOf(
-  'For the `#629/#716` bridge, use this exact post-deployment order:'
-);
-const routeSmoke = cutoverPacket.indexOf('Run the no-auth route smoke', bridgeSmokeOrder);
-const publicOptionsSmoke = cutoverPacket.indexOf('Run the aggregate public-options smoke', routeSmoke);
+assert.match(cutoverPacket, /historical `#629\/#716` five-migration bridge does not apply/);
+const smokeOrder = cutoverPacket.indexOf('Use this exact post-deployment order:');
+const routeSmoke = cutoverPacket.indexOf('refunds:smoke-routes', smokeOrder);
+const publicOptionsSmoke = cutoverPacket.indexOf('refunds:smoke-public-options', routeSmoke);
 const captureManifest = cutoverPacket.indexOf(
-  'Capture production metadata, update and independently review the manifest-only change',
+  'Capture production function metadata, update and independently review the manifest-only change',
   publicOptionsSmoke
 );
 const cleanDrift = cutoverPacket.indexOf(
-  'Verify the standard production drift check passes against that final manifest',
+  'require the standard production drift check to pass for all ten functions',
   captureManifest
 );
 assert(
-  bridgeSmokeOrder >= 0 &&
-    routeSmoke > bridgeSmokeOrder &&
+  smokeOrder >= 0 &&
+    routeSmoke > smokeOrder &&
     publicOptionsSmoke > routeSmoke &&
     captureManifest > publicOptionsSmoke &&
     cleanDrift > captureManifest,
-  'The bridge smoke order must be routes, public options, capture/review, then clean production drift'
+  'The smoke order must be routes, public options, capture/review, then clean production drift'
 );
 assert.doesNotMatch(
   cutoverPacket,
@@ -135,8 +143,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    38,
-    'Refund release inventory must cover exactly 38 discovered refund/Nayax migrations'
+    41,
+    'Refund release inventory must cover exactly 41 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),

@@ -2,9 +2,9 @@
 
 Purpose: provide a single launch-day procedure for Bloomjoy Hub production release and rollback.
 
-Last updated: 2026-08-03
+Last updated: 2026-08-11
 
-Refund release-state note: production still runs the deployed `#644` baseline (23 refund migrations and eight tracked Refund Operations functions). The unmerged `#409` integration candidate expands the reviewed manifest to ten functions by adding `refund-manager-action-step-up` and `refund-manager-totp-enrollment`. Do not use candidate deploy steps until its final source commit, migration/test totals, manifest SHA, independent review, and strict integrated UAT are complete. Those values are **Pending**. Every candidate lane remains off, the official-action database gate is statically false, and the production Nayax adapter is statically disabled.
+Refund release-state note: production still runs the deployed `#644` baseline. PR `#760` is the current production-readiness candidate, with ten manifest-tracked Refund Operations functions and 41 required refund/Nayax migrations. Its initial release is the safe foundation only: Gmail automation, automatic customer contact, manager reminders, GPT triage, and live Nayax execution stay off; the official-action database gate and production Nayax provider adapter remain statically disabled until their separate reviewed gates pass.
 
 ## 1) Roles and ownership
 - Release owner: coordinates launch window and final go/no-go call.
