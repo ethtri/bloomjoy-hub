@@ -41,19 +41,19 @@ Observed on 2026-08-03: the connected agent profile showed `info@bloomjoysweets.
 
 ## Required approvals before production enablement
 
-- Operations owner: **Pending**
-- Privacy/security owner: **Pending**
-- Approval date: **Pending**
-- Approved retention period: **Pending (proposed: 180 days)**
-- Attachment-off behavior accepted for the pilot: **Pending**
-- Visible-CC recipient/privacy behavior accepted: **Pending**
+- Operations owner: **Approved by Ethan Trifari for the controlled email pilot**
+- Privacy/security owner: **Approved by Ethan Trifari for the controlled email pilot**
+- Approval date: **2026-08-11 PT**
+- Approved retention period: **180 days for the sanitized Gmail copy**
+- Attachment-off behavior accepted for the pilot: **Approved**
+- Visible-CC recipient/privacy behavior accepted: **Approved for the complete current portal-mapped Machine Manager set**
 - Participant-classification and mapped-manager recipient UAT: **Pending**
 - Exactly-once first-contact and non-overlapping legacy-responder cutover UAT: **Pending**
-- Production Hub OAuth/secrets and mailbox-identity smoke: **Pending**
-- Refund-label filter population and legacy-responder inventory: **Pending**
-- `support@bloomjoysweets.com` alias/send-as configuration plus Gmail `SENT` proof: **Pending**
+- Production Hub OAuth/secrets and mailbox-identity smoke: **Passed for `info@bloomjoysweets.com` with Gmail read-only and send scopes; outbound synthetic proof remains pending**
+- Refund-label filter population and legacy-responder inventory: **Legacy inventory complete; isolated synthetic population proof pending**
+- `support@bloomjoysweets.com` alias/send-as configuration plus Gmail `SENT` proof: **Alias verified; bounded outbound synthetic proof pending**
 
-Both production switches remain `false` while policy approval and local/staging or isolated-test-mailbox UAT are pending. After those gates pass, an owner-approved bounded production synthetic window may set `REFUND_GMAIL_ENABLED=true` while `REFUND_GMAIL_SYNC_ENABLED=false`; the Edge switch is reset immediately after the manual test. Scheduled/broad enablement requires successful synthetic evidence plus an explicit go/no-go. Approval must be recorded in a reviewed PR or the linked GitHub issue without customer data, secrets, or provider identifiers.
+Both production switches remain `false` while the remaining local and isolated-test-mailbox UAT gates are pending. After those gates pass, the owner-approved bounded production synthetic window may set `REFUND_GMAIL_ENABLED=true` while `REFUND_GMAIL_SYNC_ENABLED=false`; the Edge switch is reset immediately after the manual test. Scheduled/broad enablement requires successful synthetic evidence plus an explicit go/no-go. Approval must be recorded in a reviewed PR or the linked GitHub issue without customer data, secrets, or provider identifiers.
 
 ## Deletion and incident procedure
 

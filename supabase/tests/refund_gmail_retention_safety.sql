@@ -91,12 +91,20 @@ select ok(
   'The service worker can settle claimed byte-deletion outcomes'
 );
 select ok(
-  has_function_privilege(
+  not has_function_privilege(
     'service_role',
     'public.service_authorize_refund_gmail_copy(boolean,text,boolean,text)',
     'execute'
   ),
-  'The service worker can invoke the pre-copy safety gate'
+  'The legacy scanner-only pre-copy gate is revoked'
+);
+select ok(
+  has_function_privilege(
+    'service_role',
+    'public.service_authorize_refund_gmail_copy(boolean,text,boolean,boolean,text)',
+    'execute'
+  ),
+  'The service worker can invoke the attachment-aware pre-copy safety gate'
 );
 select ok(
   not has_function_privilege(
@@ -126,13 +134,17 @@ select ok(
 
 select is(
   (select cleanup_enabled from public.refund_gmail_retention_settings where singleton),
-  false,
-  'Production cleanup policy defaults off'
+  true,
+  'The reviewed production cleanup policy records owner approval'
 );
 select is(
   (select approved_retention_days from public.refund_gmail_retention_settings where singleton),
-  null,
-  'The proposed 180-day duration is not silently owner-approved'
+  180,
+  'The reviewed production cleanup policy records exactly 180 days'
+);
+select ok(
+  (select owner_approved_at is not null from public.refund_gmail_retention_settings where singleton),
+  'The reviewed production cleanup policy has an approval record'
 );
 select is(
   (select attachment_quarantine_approved from public.refund_gmail_retention_settings where singleton),
@@ -200,19 +212,19 @@ create temporary table default_off_run as
 select public.service_claim_refund_gmail_retention_run(
   'retention:github-retention:1001:1',
   'retention',
-  true,
+  false,
   'refund_gmail_retention_v1'
 ) as result;
 
 select is(
   (select result ->> 'status' from default_off_run),
   'suppressed',
-  'Cleanup is suppressed until the owner policy is approved'
+  'Cleanup is suppressed while the independent worker switch is off'
 );
 select is(
   (select failure_code from public.refund_gmail_retention_runs where run_key = 'retention:github-retention:1001:1'),
-  'retention_policy_not_approved',
-  'Default-off suppression stores only a redacted reason code'
+  'retention_worker_disabled',
+  'Worker-off suppression stores only a redacted reason code'
 );
 select is(
   (
@@ -730,15 +742,24 @@ select is(
 );
 select is(
   public.service_authorize_refund_gmail_copy(
-    true, 'refund_gmail_retention_v1', false, 'scanner-v1'
+    true, 'refund_gmail_retention_v1', true, false, 'scanner-v1'
   ) ->> 'status',
   'attachment_scanner_not_approved',
-  'Missing scanner enablement blocks every new local copy'
+  'Missing scanner enablement blocks an attachment-capable local copy'
 );
 select is(
   (
     public.service_authorize_refund_gmail_copy(
-      true, 'refund_gmail_retention_v1', true, 'scanner-v1'
+      true, 'refund_gmail_retention_v1', false, false, null
+    ) ->> 'allowed'
+  )::boolean,
+  true,
+  'Attachment-free copying does not pretend to require an unused scanner'
+);
+select is(
+  (
+    public.service_authorize_refund_gmail_copy(
+      true, 'refund_gmail_retention_v1', true, true, 'scanner-v1'
     ) ->> 'allowed'
   )::boolean,
   true,
@@ -764,7 +785,7 @@ set last_success_at = clock_timestamp() - interval '27 hours'
 where singleton;
 select is(
   public.service_authorize_refund_gmail_copy(
-    true, 'refund_gmail_retention_v1', true, 'scanner-v1'
+    true, 'refund_gmail_retention_v1', true, true, 'scanner-v1'
   ) ->> 'status',
   'cleanup_overdue',
   'An approved but overdue cleanup blocks new Gmail copies'
@@ -974,7 +995,7 @@ select is(
 );
 select is(
   public.service_authorize_refund_gmail_copy(
-    true, 'refund_gmail_retention_v1', true, 'scanner-v1'
+    true, 'refund_gmail_retention_v1', true, true, 'scanner-v1'
   ) ->> 'status',
   'cleanup_unhealthy',
   'The durable unknown-outcome hold blocks new Gmail copies'

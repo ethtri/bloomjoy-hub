@@ -143,12 +143,16 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    41,
-    'Refund release inventory must cover exactly 41 discovered refund/Nayax migrations'
+    42,
+    'Refund release inventory must cover exactly 42 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
     'Provider orchestration migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260812053417_refund_gmail_attachment_off_copy_gate.sql'),
+    'The attachment-off Gmail copy gate migration must be in the discovered release inventory'
   );
   assert.deepEqual(
     repositoryManifest.requiredMigrations,
@@ -189,9 +193,10 @@ try {
     );
     assert(
       localEntry.production &&
-        localEntry.production.version === 1 &&
+        Number.isInteger(localEntry.production.version) &&
+        localEntry.production.version > 0 &&
         localEntry.production.sourceSha256 === reviewedManagerSourceSha256[managerSlug],
-      `${managerSlug} must record its deployed v1 source pairing`
+      `${managerSlug} must record its deployed production source pairing`
     );
     assert.deepEqual(
       baselineEntry,

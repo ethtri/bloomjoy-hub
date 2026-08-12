@@ -18,6 +18,7 @@ const [
   followUpMigration,
   firstContactHelper,
   retentionMigration,
+  attachmentOffCopyGateMigration,
   gmailHelper,
   retentionHelper,
   gmailTransport,
@@ -48,6 +49,7 @@ const [
     read('supabase/migrations/202608030005_refund_deterministic_follow_up_cycles.sql'),
     read('supabase/functions/_shared/refund-first-contact.ts'),
     read('supabase/migrations/202608040002_refund_gmail_retention_safety.sql'),
+    read('supabase/migrations/20260812053417_refund_gmail_attachment_off_copy_gate.sql'),
     read('supabase/functions/_shared/refund-gmail.ts'),
     read('supabase/functions/_shared/refund-gmail-retention.ts'),
     read('supabase/functions/_shared/refund-gmail-transport.ts'),
@@ -1030,6 +1032,18 @@ assert(
 const retentionAuthorizeBlock = retentionMigration.slice(
   retentionMigration.indexOf('create or replace function public.service_authorize_refund_gmail_copy'),
   retentionMigration.indexOf('create or replace function public.service_get_refund_gmail_retention_health'),
+);
+assert(
+  attachmentOffCopyGateMigration.includes('p_attachments_enabled boolean') &&
+    attachmentOffCopyGateMigration.includes('approved_retention_days = 180') &&
+    attachmentOffCopyGateMigration.includes('owner_approved_at = coalesce(owner_approved_at, clock_timestamp())') &&
+    attachmentOffCopyGateMigration.includes('attachment_quarantine_approved = false') &&
+    attachmentOffCopyGateMigration.includes('coalesce(p_attachments_enabled, false) and (') &&
+    attachmentOffCopyGateMigration.includes(
+      'revoke execute on function public.service_authorize_refund_gmail_copy(boolean,text,boolean,text)',
+    ) &&
+    syncFunction.includes('p_attachments_enabled: refundEmailPilotAttachmentsEnabled'),
+  'The attachment-free pilot may copy sanitized text without fake scanner approval, while attachment-capable copying remains gated',
 );
 const retentionHealthBlock = retentionMigration.slice(
   retentionMigration.indexOf('create or replace function public.service_get_refund_gmail_retention_health'),
