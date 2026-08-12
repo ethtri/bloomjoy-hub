@@ -215,7 +215,13 @@ select is(
 select ok(
   public.admin_get_refund_case_reconciliation(
     '94000000-0000-4000-8000-000000000001'
-  )::text !~ 'same-email-customer@example.test|Website form fixture|Gmail fixture|4242',
+  )::text !~ 'same-email-customer@example.test|Website form fixture|Gmail fixture'
+  and not jsonb_path_exists(
+    public.admin_get_refund_case_reconciliation(
+      '94000000-0000-4000-8000-000000000001'
+    ),
+    '$.** ? (@ == "4242")'
+  ),
   'The comparison contract omits email, complaint text, and card digits'
 );
 

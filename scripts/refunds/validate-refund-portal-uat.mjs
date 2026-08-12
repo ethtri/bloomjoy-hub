@@ -22,6 +22,7 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'get_my_reporting_access_context',
   'get_refund_automation_health',
   'get_refund_gmail_health',
+  'get_refund_manager_totp_enrollment_readiness_current_user',
   'admin_get_refund_email_queue_states',
   'admin_get_refund_case_reconciliation',
   'admin_get_refund_gmail_draft_cases',
@@ -43,6 +44,7 @@ const parseArgs = (argv) => {
     managerStepUpOnly: false,
     dualRoleOnly: false,
     providerOutcomesOnly: false,
+    ownerTotpOnly: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -65,6 +67,11 @@ const parseArgs = (argv) => {
 
     if (arg === '--provider-outcomes-only') {
       args.providerOutcomesOnly = true;
+      continue;
+    }
+
+    if (arg === '--owner-totp-only') {
+      args.ownerTotpOnly = true;
       continue;
     }
 
@@ -117,7 +124,7 @@ const parseArgs = (argv) => {
   args.appUrl = args.appUrl.replace(/\/+$/, '');
   args.artifactDir = path.resolve(process.cwd(), args.artifactDir);
   args.fragmentDir = path.resolve(process.cwd(), args.fragmentDir);
-  if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.providerOutcomesOnly) {
+  if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.providerOutcomesOnly && !args.ownerTotpOnly) {
     requireEvidenceRunToken(args.runToken);
   }
   return args;
@@ -822,6 +829,22 @@ const installMockSupabaseRoutes = async (
     managerStepUpExpiresAt = new Date(Date.now() + 2 * 60 * 1000).toISOString(),
     managerStepUpResponse = null,
     enrollmentStartStatus = 403,
+    enrollmentStartError = {
+      error: 'The owner-controlled enrollment window is closed.',
+      errorCode: 'enrollment_closed',
+    },
+    totpEnrollmentReadiness = {
+      eligible: false,
+      enrolled: false,
+      windowOpen: false,
+      windowExpiresAt: null,
+    },
+    ownerTotpWindowOpenResponse = {
+      opened: true,
+      status: 'opened',
+      windowOpen: true,
+      windowExpiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    },
     adminUpdateDelayMs = 0,
     adminUpdateResponse = null,
     gmailDraftCases = [],
@@ -835,6 +858,7 @@ const installMockSupabaseRoutes = async (
 ) => {
   const officialActionVersions = new Map();
   let nayaxSettlementResult = null;
+  let ownerTotpEnrolled = totpEnrollmentReadiness.enrolled === true;
   let currentNayaxCardRefundAvailability = nayaxCardRefundAvailabilityResponse ?? {
     available: true,
     status: 'available',
@@ -1053,12 +1077,10 @@ const installMockSupabaseRoutes = async (
           contentType: 'application/json',
           body: JSON.stringify(enrollmentStartStatus === 200
             ? { qrCode: 'data:image/svg+xml,%3Csvg%3Eprivate%3C/svg%3E' }
-            : {
-              error: 'The owner-controlled enrollment window is closed.',
-              errorCode: 'enrollment_closed',
-            }),
+            : enrollmentStartError),
         });
       }
+      if (requestBody?.operation === 'verify') ownerTotpEnrolled = true;
       return route.fulfill(jsonResponse({ enrolled: true }));
     }
 
@@ -1232,6 +1254,23 @@ const installMockSupabaseRoutes = async (
           payloadRedacted: true,
         })
       );
+    }
+
+    if (url.includes('/get_refund_manager_totp_enrollment_readiness_current_user')) {
+      return route.fulfill(jsonResponse({
+        ...totpEnrollmentReadiness,
+        enrolled: ownerTotpEnrolled,
+        windowOpen: ownerTotpEnrolled ? false : totpEnrollmentReadiness.windowOpen,
+        windowExpiresAt: ownerTotpEnrolled ? null : totpEnrollmentReadiness.windowExpiresAt,
+      }));
+    }
+
+    if (url.includes('/open_refund_manager_totp_enrollment_window_current_user')) {
+      return route.fulfill(jsonResponse(ownerTotpWindowOpenResponse));
+    }
+
+    if (url.includes('/close_refund_manager_totp_enrollment_window_current_user')) {
+      return route.fulfill(jsonResponse({ closed: true, status: 'closed' }));
     }
 
     if (url.includes('/admin_get_refund_gmail_draft_cases')) {
@@ -3651,6 +3690,279 @@ const runManagerStepUpChecks = async ({ browser, appUrl, artifactDir, recorder }
   await enrollmentContext.close();
 };
 
+const runOwnerTotpEnrollmentChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+  const wrongContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const wrongRpcCalls = [];
+  await installMockSupabaseRoutes(wrongContext, {
+    refundOverview: buildManagerStepUpRefundOverview,
+    rpcCalls: wrongRpcCalls,
+  });
+  const wrongPage = await wrongContext.newPage();
+  await signInRefundUser(wrongPage, appUrl);
+  await wrongPage.getByText('Refund Review Queue').waitFor({ timeout: 10000 });
+  recorder.assert(
+    'A non-preapproved manager sees no owner enrollment control and cannot open a window',
+    (await wrongPage.getByTestId('refund-owner-totp-readiness').count()) === 0 &&
+      !wrongRpcCalls.includes('open_refund_manager_totp_enrollment_window_current_user')
+  );
+  await wrongContext.close();
+
+  const successContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const successRpcCalls = [];
+  const successFunctionCalls = [];
+  const successFunctionBodies = [];
+  await installMockSupabaseRoutes(successContext, {
+    refundOverview: buildManagerStepUpRefundOverview,
+    rpcCalls: successRpcCalls,
+    functionCalls: successFunctionCalls,
+    functionBodies: successFunctionBodies,
+    enrollmentStartStatus: 200,
+    totpEnrollmentReadiness: {
+      eligible: true,
+      enrolled: false,
+      windowOpen: false,
+      windowExpiresAt: null,
+    },
+  });
+  const successPage = await successContext.newPage();
+  await signInRefundUser(successPage, appUrl);
+  await successPage.getByTestId('refund-owner-totp-readiness').waitFor({ timeout: 10000 });
+  recorder.assert(
+    'The preapproved owner sees a concise setup control that says setup cannot issue a refund',
+    await successPage.getByText('Set up your refund authenticator', { exact: true }).isVisible() &&
+      await successPage.getByText('Setup alone cannot issue a refund.', { exact: false }).isVisible() &&
+      (await successPage.locator('[data-private-no-screenshot="true"]').count()) === 0
+  );
+  await successPage.screenshot({
+    path: path.join(artifactDir, 'refund-owner-totp-readiness.png'),
+    fullPage: false,
+  });
+
+  await successPage.getByTestId('refund-owner-totp-start').click();
+  await successPage.getByTestId('refund-owner-totp-enrollment-dialog').waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Owner setup opens only after the self-only window RPC and marks transient QR material private',
+    successRpcCalls.filter((name) =>
+      name === 'open_refund_manager_totp_enrollment_window_current_user'
+    ).length === 1 &&
+      successFunctionBodies.some((entry) =>
+        entry.functionName === 'refund-manager-totp-enrollment' && entry.body?.operation === 'start'
+      ) &&
+      await successPage.locator('[data-private-no-screenshot="true"]').isVisible() &&
+      await successPage.getByText('No refund can be issued from this setup screen.', { exact: false }).isVisible()
+  );
+  recorder.assert(
+    'Opening owner setup causes zero official, provider, or customer-contact operations',
+    !successFunctionCalls.includes('refund-manager-action-step-up') &&
+      !successFunctionCalls.includes('nayax-card-refund') &&
+      !successFunctionCalls.includes('refund-case-admin-update') &&
+      !successFunctionCalls.includes('refund-case-message-send')
+  );
+
+  await successPage.getByLabel('Current code from the new authenticator').fill('123456');
+  await successPage.getByTestId('refund-owner-totp-verify').click();
+  await successPage.getByTestId('refund-owner-totp-enrollment-dialog').waitFor({
+    state: 'hidden',
+    timeout: 10000,
+  });
+  await successPage.getByText('Refund authenticator ready', { exact: true }).waitFor({ timeout: 10000 });
+  recorder.assert(
+    'The owner personally verifies enrollment once without issuing or messaging about a refund',
+    successFunctionBodies.filter((entry) =>
+      entry.functionName === 'refund-manager-totp-enrollment' && entry.body?.operation === 'verify'
+    ).length === 1 &&
+      !successFunctionCalls.includes('refund-manager-action-step-up') &&
+      !successFunctionCalls.includes('nayax-card-refund') &&
+      !successFunctionCalls.includes('refund-case-admin-update') &&
+      !successFunctionCalls.includes('refund-case-message-send')
+  );
+  await successContext.close();
+
+  const authDisabledContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const authDisabledRpcCalls = [];
+  const authDisabledFunctionCalls = [];
+  await installMockSupabaseRoutes(authDisabledContext, {
+    refundOverview: buildManagerStepUpRefundOverview,
+    rpcCalls: authDisabledRpcCalls,
+    functionCalls: authDisabledFunctionCalls,
+    enrollmentStartStatus: 422,
+    enrollmentStartError: {
+      error: 'Authenticator enrollment is not temporarily enabled in Supabase Auth. Keep setup closed until the owner-supervised Auth configuration step is ready.',
+      errorCode: 'auth_enrollment_disabled',
+    },
+    totpEnrollmentReadiness: {
+      eligible: true,
+      enrolled: false,
+      windowOpen: false,
+      windowExpiresAt: null,
+    },
+  });
+  const authDisabledPage = await authDisabledContext.newPage();
+  await signInRefundUser(authDisabledPage, appUrl);
+  await authDisabledPage.getByTestId('refund-owner-totp-start').click();
+  await authDisabledPage.waitForTimeout(300);
+  recorder.assert(
+    'Disabled real Auth enrollment fails before QR display and closes the database window',
+    (await authDisabledPage.locator('[data-private-no-screenshot="true"]').count()) === 0 &&
+      authDisabledFunctionCalls.includes('refund-manager-totp-enrollment') &&
+      authDisabledRpcCalls.includes('close_refund_manager_totp_enrollment_window_current_user')
+  );
+  await authDisabledContext.close();
+
+  const failureContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const failureRpcCalls = [];
+  const failureFunctionCalls = [];
+  const failureFunctionBodies = [];
+  await installMockSupabaseRoutes(failureContext, {
+    refundOverview: buildManagerStepUpRefundOverview,
+    rpcCalls: failureRpcCalls,
+    functionCalls: failureFunctionCalls,
+    functionBodies: failureFunctionBodies,
+    enrollmentStartStatus: 409,
+    totpEnrollmentReadiness: {
+      eligible: true,
+      enrolled: false,
+      windowOpen: false,
+      windowExpiresAt: null,
+    },
+  });
+  const failurePage = await failureContext.newPage();
+  await signInRefundUser(failurePage, appUrl);
+  await failurePage.getByTestId('refund-owner-totp-start').click();
+  await failurePage.waitForTimeout(300);
+  recorder.assert(
+    'A setup-start failure removes any unfinished factor and closes the short window',
+    failureFunctionBodies.some((entry) =>
+      entry.functionName === 'refund-manager-totp-enrollment' && entry.body?.operation === 'cancel'
+    ) &&
+      failureRpcCalls.includes('close_refund_manager_totp_enrollment_window_current_user') &&
+      (await failurePage.getByTestId('refund-owner-totp-enrollment-dialog').count()) === 0
+  );
+  recorder.assert(
+    'Setup failure remains isolated from official, provider, and customer side effects',
+    !failureFunctionCalls.includes('refund-manager-action-step-up') &&
+      !failureFunctionCalls.includes('nayax-card-refund') &&
+      !failureFunctionCalls.includes('refund-case-admin-update') &&
+      !failureFunctionCalls.includes('refund-case-message-send')
+  );
+  await failureContext.close();
+
+  const expiryContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const expiryRpcCalls = [];
+  const expiryFunctionBodies = [];
+  await installMockSupabaseRoutes(expiryContext, {
+    refundOverview: buildManagerStepUpRefundOverview,
+    rpcCalls: expiryRpcCalls,
+    functionBodies: expiryFunctionBodies,
+    enrollmentStartStatus: 200,
+    totpEnrollmentReadiness: {
+      eligible: true,
+      enrolled: false,
+      windowOpen: false,
+      windowExpiresAt: null,
+    },
+    ownerTotpWindowOpenResponse: {
+      opened: true,
+      status: 'opened',
+      windowOpen: true,
+      windowExpiresAt: new Date(Date.now() + 600).toISOString(),
+    },
+  });
+  const expiryPage = await expiryContext.newPage();
+  await signInRefundUser(expiryPage, appUrl);
+  await expiryPage.getByTestId('refund-owner-totp-start').click();
+  await expiryPage.getByTestId('refund-owner-totp-enrollment-dialog').waitFor({ timeout: 10000 });
+  await expiryPage.getByTestId('refund-owner-totp-enrollment-dialog').waitFor({
+    state: 'hidden',
+    timeout: 10000,
+  });
+  recorder.assert(
+    'Expiry clears private QR state, removes unfinished setup, and closes the window before verify',
+    expiryFunctionBodies.some((entry) =>
+      entry.functionName === 'refund-manager-totp-enrollment' && entry.body?.operation === 'cancel'
+    ) &&
+      expiryRpcCalls.includes('close_refund_manager_totp_enrollment_window_current_user') &&
+      !expiryFunctionBodies.some((entry) =>
+        entry.functionName === 'refund-manager-totp-enrollment' && entry.body?.operation === 'verify'
+      )
+  );
+  await expiryContext.close();
+
+  const navigationContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const navigationRpcCalls = [];
+  const navigationFunctionBodies = [];
+  await installMockSupabaseRoutes(navigationContext, {
+    refundOverview: buildManagerStepUpRefundOverview,
+    rpcCalls: navigationRpcCalls,
+    functionBodies: navigationFunctionBodies,
+    enrollmentStartStatus: 200,
+    totpEnrollmentReadiness: {
+      eligible: true,
+      enrolled: false,
+      windowOpen: false,
+      windowExpiresAt: null,
+    },
+  });
+  const navigationPage = await navigationContext.newPage();
+  await signInRefundUser(navigationPage, appUrl);
+  await navigationPage.getByTestId('refund-owner-totp-start').click();
+  await navigationPage.getByTestId('refund-owner-totp-enrollment-dialog').waitFor({ timeout: 10000 });
+  await navigationPage.evaluate(() => {
+    history.pushState({}, '', '/portal');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await navigationPage.waitForTimeout(300);
+  recorder.assert(
+    'Navigating away best-effort removes unfinished setup and closes the owner window',
+    navigationFunctionBodies.some((entry) =>
+      entry.functionName === 'refund-manager-totp-enrollment' && entry.body?.operation === 'cancel'
+    ) &&
+      navigationRpcCalls.includes('close_refund_manager_totp_enrollment_window_current_user')
+  );
+  await navigationContext.close();
+
+  const mobileContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const mobileRpcCalls = [];
+  const mobileFunctionBodies = [];
+  await installMockSupabaseRoutes(mobileContext, {
+    refundOverview: buildManagerStepUpRefundOverview,
+    rpcCalls: mobileRpcCalls,
+    functionBodies: mobileFunctionBodies,
+    enrollmentStartStatus: 200,
+    totpEnrollmentReadiness: {
+      eligible: true,
+      enrolled: false,
+      windowOpen: false,
+      windowExpiresAt: null,
+    },
+  });
+  const mobilePage = await mobileContext.newPage();
+  await signInRefundUser(mobilePage, appUrl);
+  await mobilePage.getByTestId('refund-owner-totp-start').click();
+  await mobilePage.getByTestId('refund-owner-totp-enrollment-dialog').waitFor({ timeout: 10000 });
+  const mobileLayout = await mobilePage.evaluate(() => ({
+    viewportWidth: window.innerWidth,
+    documentWidth: document.documentElement.scrollWidth,
+  }));
+  recorder.assert(
+    'Private owner setup remains readable on mobile without horizontal overflow',
+    mobileLayout.documentWidth <= mobileLayout.viewportWidth &&
+      await mobilePage.getByRole('button', { name: 'Cancel setup' }).isVisible() &&
+      await mobilePage.getByTestId('refund-owner-totp-verify').isVisible()
+  );
+  await mobilePage.getByRole('button', { name: 'Cancel setup' }).click();
+  await mobilePage.waitForTimeout(200);
+  recorder.assert(
+    'Cancelling owner setup removes the unfinished factor, closes the window, and takes no official action',
+    mobileFunctionBodies.some((entry) =>
+      entry.functionName === 'refund-manager-totp-enrollment' && entry.body?.operation === 'cancel'
+    ) &&
+      mobileRpcCalls.includes('close_refund_manager_totp_enrollment_window_current_user') &&
+      (await mobilePage.getByTestId('refund-owner-totp-enrollment-dialog').isVisible().catch(() => false)) === false
+  );
+  await mobileContext.close();
+};
+
 const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, recorder, evidence }) => {
   const availabilityScenarios = [
     {
@@ -4193,12 +4505,21 @@ const run = async () => {
   );
 
   await mkdir(args.artifactDir, { recursive: true });
-  if (!args.managerStepUpOnly && !args.dualRoleOnly) await mkdir(args.fragmentDir, { recursive: true });
+  if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.ownerTotpOnly) {
+    await mkdir(args.fragmentDir, { recursive: true });
+  }
   await waitForServer(args.appUrl);
 
   const browser = await chromium.launch({ headless: !args.headed });
   try {
-    if (args.providerOutcomesOnly) {
+    if (args.ownerTotpOnly) {
+      await runOwnerTotpEnrollmentChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
+    } else if (args.providerOutcomesOnly) {
       await runNayaxExecutionOutcomeChecks({
         browser,
         appUrl: args.appUrl,
@@ -4292,6 +4613,12 @@ const run = async () => {
       artifactDir: args.artifactDir,
       recorder,
     });
+    await runOwnerTotpEnrollmentChecks({
+      browser,
+      appUrl: args.appUrl,
+      artifactDir: args.artifactDir,
+      recorder,
+    });
     await runNayaxExecutionOutcomeChecks({
       browser,
       appUrl: args.appUrl,
@@ -4321,7 +4648,18 @@ const run = async () => {
     return;
   }
 
-  if (!args.managerStepUpOnly && !args.dualRoleOnly) {
+  if (args.ownerTotpOnly) {
+    const focusedFailures = recorder.failed();
+    if (focusedFailures.length > 0) {
+      console.error(`\nRefund owner TOTP UAT failed: ${focusedFailures.length} check(s).`);
+      process.exit(1);
+    }
+    console.log('\nRefund owner TOTP UAT passed.');
+    console.log(`Safe screenshots written to ${args.artifactDir}`);
+    return;
+  }
+
+  if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.ownerTotpOnly) {
     recorder.assert(
       'Portal evidence counters match the executable navigation, lookup, and provider-outcome matrix',
       evidence.navigationProviderCallCount === 0 &&
@@ -4348,7 +4686,7 @@ const run = async () => {
     process.exit(1);
   }
 
-  if (!args.managerStepUpOnly && !args.dualRoleOnly) {
+  if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.ownerTotpOnly) {
     if (recorder.count() < 101) {
       throw new Error(`Portal assertion count ${recorder.count()} is below the required 101.`);
     }
@@ -4385,7 +4723,7 @@ const run = async () => {
 
   console.log('\nRefund portal UAT validation passed.');
   console.log(`Screenshots written to ${args.artifactDir}`);
-  if (!args.managerStepUpOnly && !args.dualRoleOnly) {
+  if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.ownerTotpOnly) {
     console.log(`Evidence fragments written to ${args.fragmentDir}`);
   }
 };

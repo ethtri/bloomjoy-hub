@@ -136,6 +136,32 @@ Deno.test("supervised enrollment returns only transient QR material", async () =
   assert(!JSON.stringify(enrollment).includes("secret-must-not-leave-edge"));
 });
 
+Deno.test("real Auth enrollment-disabled response fails before QR material reaches the UI", async () => {
+  let requestNumber = 0;
+  const error = await assertRejects(
+    () =>
+      beginRefundManagerTotpEnrollment({
+        supabaseUrl: "https://project.example",
+        supabaseAnonKey: "anon-key",
+        accessToken: "token",
+        fetchImpl: (async () => {
+          requestNumber += 1;
+          if (requestNumber === 1) return jsonResponse({ factors: [] });
+          return jsonResponse({
+            code: "mfa_totp_enroll_not_enabled",
+            msg: "MFA enroll is disabled for TOTP",
+          }, 422);
+        }) as typeof fetch,
+      }),
+    RefundManagerTotpError,
+  );
+
+  assertEquals(error.code, "auth_enrollment_disabled");
+  assertEquals(error.status, 409);
+  assertEquals(requestNumber, 2);
+  assert(!error.message.includes("qr"));
+});
+
 Deno.test("starting enrollment replaces one unfinished factor without exposing its ID", async () => {
   const requests: Array<{ url: string; method: string }> = [];
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {

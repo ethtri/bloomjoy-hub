@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Search,
   Send,
+  ShieldCheck,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -37,6 +38,7 @@ import {
   cancelRefundManagerStepUp,
   cancelRefundManagerTotpEnrollment,
   canUseLocalRefundDemoData,
+  closeRefundManagerTotpEnrollmentWindow,
   completeNayaxRefundStepUp,
   completeRefundCaseAdminStepUp,
   createRefundAttachmentSignedUrl,
@@ -46,10 +48,12 @@ import {
   fetchRefundCaseReconciliation,
   fetchRefundGmailCaseContext,
   fetchRefundGmailHealth,
+  fetchRefundManagerTotpEnrollmentReadiness,
   fetchRefundOperationsOverview,
   getRefundManagerStepUpRequest,
   isLocalUatDemoForced,
   lookupNayaxTransactions,
+  openRefundManagerTotpEnrollmentWindow,
   recoverRefundGmailCustomerContact,
   rejectRefundGptTriage,
   resolveRefundGmailDeliveryNotFound,
@@ -66,6 +70,7 @@ import {
   type RefundAutomationHealth,
   type RefundGmailHealth,
   type RefundManagerStepUpRequest,
+  type RefundManagerTotpEnrollmentReadiness,
   type RefundNayaxLookupStatus,
   type RefundNayaxLookupSummary,
   type RefundCaseStatus,
@@ -1848,6 +1853,17 @@ export default function AdminRefundsPage() {
   const [isVerifyingTotpEnrollment, setIsVerifyingTotpEnrollment] = useState(false);
   const [totpEnrollmentQrCode, setTotpEnrollmentQrCode] = useState<string | null>(null);
   const [totpEnrollmentCode, setTotpEnrollmentCode] = useState('');
+  const [isOwnerTotpEnrollmentOpen, setIsOwnerTotpEnrollmentOpen] = useState(false);
+  const [isOpeningOwnerTotpEnrollment, setIsOpeningOwnerTotpEnrollment] = useState(false);
+  const [isVerifyingOwnerTotpEnrollment, setIsVerifyingOwnerTotpEnrollment] = useState(false);
+  const [isCancellingOwnerTotpEnrollment, setIsCancellingOwnerTotpEnrollment] = useState(false);
+  const [ownerTotpEnrollmentQrCode, setOwnerTotpEnrollmentQrCode] = useState<string | null>(null);
+  const [ownerTotpEnrollmentCode, setOwnerTotpEnrollmentCode] = useState('');
+  const [ownerTotpEnrollmentError, setOwnerTotpEnrollmentError] = useState<string | null>(null);
+  const [ownerTotpEnrollmentWindowExpiresAt, setOwnerTotpEnrollmentWindowExpiresAt] = useState<string | null>(null);
+  const ownerTotpEnrollmentActiveRef = useRef(false);
+  const ownerTotpEnrollmentCleanupInFlightRef = useRef(false);
+  const ownerTotpEnrollmentCleanupRef = useRef<(clearUi?: boolean) => Promise<void>>(async () => {});
   const [refundActionReceipt, setRefundActionReceipt] = useState<RefundActionReceipt | null>(null);
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
   const [nayaxCandidates, setNayaxCandidates] = useState<NayaxLookupCandidate[]>([]);
@@ -1907,6 +1923,17 @@ export default function AdminRefundsPage() {
   });
 
   const {
+    data: totpEnrollmentReadiness,
+    isFetching: totpEnrollmentReadinessIsFetching,
+  } = useQuery<RefundManagerTotpEnrollmentReadiness>({
+    queryKey: ['refund-manager-totp-enrollment-readiness'],
+    queryFn: fetchRefundManagerTotpEnrollmentReadiness,
+    enabled: !forceDemoData,
+    staleTime: 1000 * 15,
+    retry: false,
+  });
+
+  const {
     data: nayaxCardRefundAvailability,
     isLoading: nayaxCardRefundAvailabilityIsLoading,
     isFetching: nayaxCardRefundAvailabilityIsFetching,
@@ -1935,6 +1962,7 @@ export default function AdminRefundsPage() {
       queryClient.invalidateQueries({ queryKey: ['refund-gmail-health'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-gmail-case-context'] }),
       queryClient.invalidateQueries({ queryKey: ['nayax-card-refund-availability'] }),
+      queryClient.invalidateQueries({ queryKey: ['refund-manager-totp-enrollment-readiness'] }),
     ]);
   };
   const isUsingDemoData = canUseLocalRefundDemoData();
@@ -2862,6 +2890,140 @@ export default function AdminRefundsPage() {
       setIsVerifyingTotpEnrollment(false);
     }
   };
+
+  const resetOwnerTotpEnrollment = () => {
+    ownerTotpEnrollmentActiveRef.current = false;
+    setIsOwnerTotpEnrollmentOpen(false);
+    setOwnerTotpEnrollmentQrCode(null);
+    setOwnerTotpEnrollmentCode('');
+    setOwnerTotpEnrollmentError(null);
+    setOwnerTotpEnrollmentWindowExpiresAt(null);
+  };
+
+  const bestEffortCleanupOwnerTotpEnrollment = async (clearUi = true) => {
+    if (ownerTotpEnrollmentCleanupInFlightRef.current) return;
+    ownerTotpEnrollmentCleanupInFlightRef.current = true;
+    ownerTotpEnrollmentActiveRef.current = false;
+    if (clearUi) resetOwnerTotpEnrollment();
+    try {
+      await Promise.allSettled([
+        cancelRefundManagerTotpEnrollment(),
+        closeRefundManagerTotpEnrollmentWindow(),
+      ]);
+      if (clearUi) {
+        await queryClient.invalidateQueries({
+          queryKey: ['refund-manager-totp-enrollment-readiness'],
+        });
+      }
+    } finally {
+      ownerTotpEnrollmentCleanupInFlightRef.current = false;
+    }
+  };
+  ownerTotpEnrollmentCleanupRef.current = bestEffortCleanupOwnerTotpEnrollment;
+
+  const handleOpenOwnerTotpEnrollment = async () => {
+    if (isOpeningOwnerTotpEnrollment) return;
+    setIsOpeningOwnerTotpEnrollment(true);
+    setOwnerTotpEnrollmentError(null);
+    try {
+      const windowResult = await openRefundManagerTotpEnrollmentWindow();
+      if (windowResult.status === 'already_enrolled') {
+        await queryClient.invalidateQueries({
+          queryKey: ['refund-manager-totp-enrollment-readiness'],
+        });
+        toast.success('Your refund authenticator is already ready.');
+        return;
+      }
+      if (!windowResult.windowOpen) {
+        throw new Error('The private setup window could not be opened.');
+      }
+      if (!windowResult.windowExpiresAt) {
+        throw new Error('The private setup window has no safe expiry.');
+      }
+
+      ownerTotpEnrollmentActiveRef.current = true;
+      setOwnerTotpEnrollmentWindowExpiresAt(windowResult.windowExpiresAt);
+
+      const enrollment = await beginRefundManagerTotpEnrollment();
+      if (!enrollment.qrCode) {
+        throw new Error('Authenticator setup did not return a one-time QR code.');
+      }
+      setOwnerTotpEnrollmentQrCode(enrollment.qrCode);
+      setOwnerTotpEnrollmentCode('');
+      setIsOwnerTotpEnrollmentOpen(true);
+    } catch (enrollmentError) {
+      await bestEffortCleanupOwnerTotpEnrollment();
+      toast.error(
+        enrollmentError instanceof Error
+          ? enrollmentError.message
+          : 'Authenticator setup could not be started.'
+      );
+    } finally {
+      setIsOpeningOwnerTotpEnrollment(false);
+    }
+  };
+
+  const handleCancelOwnerTotpEnrollment = async () => {
+    if (isCancellingOwnerTotpEnrollment || isVerifyingOwnerTotpEnrollment) return;
+    setIsCancellingOwnerTotpEnrollment(true);
+    try {
+      await bestEffortCleanupOwnerTotpEnrollment();
+    } finally {
+      setIsCancellingOwnerTotpEnrollment(false);
+    }
+  };
+
+  const handleVerifyOwnerTotpEnrollment = async () => {
+    if (!/^\d{6}$/.test(ownerTotpEnrollmentCode) || isVerifyingOwnerTotpEnrollment) return;
+    setIsVerifyingOwnerTotpEnrollment(true);
+    setOwnerTotpEnrollmentError(null);
+    try {
+      const result = await verifyRefundManagerTotpEnrollment(ownerTotpEnrollmentCode);
+      if (!result.enrolled) throw new Error('Authenticator enrollment was not confirmed.');
+      resetOwnerTotpEnrollment();
+      await queryClient.invalidateQueries({
+        queryKey: ['refund-manager-totp-enrollment-readiness'],
+      });
+      toast.success('Refund authenticator ready. No refund was issued.');
+    } catch (enrollmentError) {
+      const message = enrollmentError instanceof Error
+        ? enrollmentError.message
+        : 'Authenticator enrollment could not be verified.';
+      setOwnerTotpEnrollmentCode('');
+      setOwnerTotpEnrollmentError(message);
+      if (
+        message.includes('could not be safely completed') ||
+        message.includes('window is closed') ||
+        message.includes('temporarily enabled')
+      ) {
+        await bestEffortCleanupOwnerTotpEnrollment();
+      }
+    } finally {
+      setIsVerifyingOwnerTotpEnrollment(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOwnerTotpEnrollmentOpen || !ownerTotpEnrollmentWindowExpiresAt) return;
+    const remainingMs = new Date(ownerTotpEnrollmentWindowExpiresAt).getTime() - Date.now();
+    const expire = () => {
+      void ownerTotpEnrollmentCleanupRef.current().then(() => {
+        toast.error('The private setup window expired. No authenticator was enrolled.');
+      });
+    };
+    if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+      expire();
+      return;
+    }
+    const timer = window.setTimeout(expire, remainingMs);
+    return () => window.clearTimeout(timer);
+  }, [isOwnerTotpEnrollmentOpen, ownerTotpEnrollmentWindowExpiresAt]);
+
+  useEffect(() => () => {
+    if (ownerTotpEnrollmentActiveRef.current) {
+      void ownerTotpEnrollmentCleanupRef.current(false);
+    }
+  }, []);
 
   const handleNayaxLookup = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!selectedCase) return;
@@ -4600,6 +4762,48 @@ export default function AdminRefundsPage() {
             </div>
           )}
 
+          {!isUsingDemoData && totpEnrollmentReadiness?.eligible && (
+            <div
+              data-testid="refund-owner-totp-readiness"
+              role="status"
+              className={cn(
+                'mt-4 flex flex-col gap-3 rounded-lg border px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between',
+                totpEnrollmentReadiness.enrolled
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-950'
+                  : 'border-sky-200 bg-sky-50 text-sky-950'
+              )}
+            >
+              <div className="flex items-start gap-3">
+                <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
+                <div>
+                  <p className="font-semibold">
+                    {totpEnrollmentReadiness.enrolled
+                      ? 'Refund authenticator ready'
+                      : 'Set up your refund authenticator'}
+                  </p>
+                  <p className="mt-1 leading-6">
+                    {totpEnrollmentReadiness.enrolled
+                      ? 'You will enter a new current code yourself for each exact refund action.'
+                      : 'Use your own private browser and authenticator. Setup alone cannot issue a refund.'}
+                  </p>
+                </div>
+              </div>
+              {!totpEnrollmentReadiness.enrolled && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  data-testid="refund-owner-totp-start"
+                  onClick={() => void handleOpenOwnerTotpEnrollment()}
+                  disabled={isOpeningOwnerTotpEnrollment || totpEnrollmentReadinessIsFetching}
+                  className="shrink-0 bg-white"
+                >
+                  {isOpeningOwnerTotpEnrollment && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Begin private setup
+                </Button>
+              )}
+            </div>
+          )}
+
           {refundActionReceipt && (
             <div
               data-testid="refund-action-receipt"
@@ -6049,6 +6253,96 @@ export default function AdminRefundsPage() {
               {isRecoveringGmailContact && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Resume all linked threads
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={isOwnerTotpEnrollmentOpen}
+        onOpenChange={(open) => {
+          if (!open && !isVerifyingOwnerTotpEnrollment) {
+            void handleCancelOwnerTotpEnrollment();
+          }
+        }}
+      >
+        <AlertDialogContent
+          data-testid="refund-owner-totp-enrollment-dialog"
+          className="max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-lg overflow-y-auto p-4 sm:max-h-[calc(100dvh-2rem)] sm:w-full sm:p-6"
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>Set up your refund authenticator</AlertDialogTitle>
+            <AlertDialogDescription>
+              This private setup window lasts five minutes and closes after one successful enrollment. No refund can be issued from this setup screen.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950">
+            <p className="font-medium">Only you should complete this step</p>
+            <p className="mt-1">
+              Scan and enter the code yourself in this private browser. Do not share the screen, QR code, or six-digit code with an agent or another person.
+            </p>
+          </div>
+
+          {ownerTotpEnrollmentWindowExpiresAt && (
+            <p className="text-sm text-muted-foreground" data-testid="refund-owner-totp-expiry">
+              Finish before {new Date(ownerTotpEnrollmentWindowExpiresAt).toLocaleTimeString([], {
+                hour: 'numeric',
+                minute: '2-digit',
+              })}. If time runs out, this screen closes and removes unfinished setup.
+            </p>
+          )}
+
+          {ownerTotpEnrollmentQrCode && (
+            <div className="space-y-3" data-testid="refund-owner-totp-enrollment-panel">
+              <div className="flex justify-center rounded-md bg-white p-3">
+                <img
+                  src={ownerTotpEnrollmentQrCode}
+                  alt="One-time refund authenticator enrollment QR code"
+                  className="h-48 w-48"
+                  data-private-no-screenshot="true"
+                />
+              </div>
+              <Label htmlFor="refund-owner-totp-enrollment-code">
+                Current code from the new authenticator
+              </Label>
+              <InputOTP
+                id="refund-owner-totp-enrollment-code"
+                maxLength={6}
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={ownerTotpEnrollmentCode}
+                onChange={setOwnerTotpEnrollmentCode}
+                disabled={isVerifyingOwnerTotpEnrollment || isCancellingOwnerTotpEnrollment}
+                autoFocus
+              >
+                <InputOTPGroup>
+                  {[0, 1, 2, 3, 4, 5].map((index) => (
+                    <InputOTPSlot key={index} index={index} />
+                  ))}
+                </InputOTPGroup>
+              </InputOTP>
+            </div>
+          )}
+
+          {ownerTotpEnrollmentError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
+              {ownerTotpEnrollmentError}
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isVerifyingOwnerTotpEnrollment || isCancellingOwnerTotpEnrollment}>
+              Cancel setup
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              data-testid="refund-owner-totp-verify"
+              onClick={() => void handleVerifyOwnerTotpEnrollment()}
+              disabled={ownerTotpEnrollmentCode.length !== 6 || isVerifyingOwnerTotpEnrollment || isCancellingOwnerTotpEnrollment}
+            >
+              {isVerifyingOwnerTotpEnrollment && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Finish setup
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

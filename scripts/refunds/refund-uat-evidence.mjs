@@ -19,6 +19,7 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-evidence-selection-desktop.png',
   'refund-evidence-selection-mobile.png',
   'refund-manager-enrollment-closed.png',
+  'refund-owner-totp-readiness.png',
   'refund-manager-step-up-bad-code.png',
   'refund-manager-step-up-expired.png',
   'refund-manager-step-up-mobile.png',

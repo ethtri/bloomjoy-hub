@@ -1556,6 +1556,71 @@ export const cancelRefundManagerStepUp = async (intentId: string) => {
   }
 };
 
+export type RefundManagerTotpEnrollmentReadiness = {
+  eligible: boolean;
+  enrolled: boolean;
+  windowOpen: boolean;
+  windowExpiresAt: string | null;
+};
+
+const parseRefundManagerTotpEnrollmentReadiness = (
+  value: unknown
+): RefundManagerTotpEnrollmentReadiness => {
+  const data = value && typeof value === 'object'
+    ? value as Record<string, unknown>
+    : {};
+  return {
+    eligible: data.eligible === true,
+    enrolled: data.enrolled === true,
+    windowOpen: data.windowOpen === true,
+    windowExpiresAt: typeof data.windowExpiresAt === 'string'
+      ? data.windowExpiresAt
+      : null,
+  };
+};
+
+export const fetchRefundManagerTotpEnrollmentReadiness = async () => {
+  const { data, error } = await supabaseClient.rpc(
+    'get_refund_manager_totp_enrollment_readiness_current_user'
+  );
+  if (error) {
+    throw new Error('Unable to check refund authenticator readiness.');
+  }
+  return parseRefundManagerTotpEnrollmentReadiness(data);
+};
+
+export const openRefundManagerTotpEnrollmentWindow = async () => {
+  const { data, error } = await supabaseClient.rpc(
+    'open_refund_manager_totp_enrollment_window_current_user'
+  );
+  if (error || !data || typeof data !== 'object') {
+    throw new Error('Refund authenticator setup is not available for this account.');
+  }
+  const result = data as Record<string, unknown>;
+  return {
+    opened: result.opened === true,
+    status: typeof result.status === 'string' ? result.status : 'unavailable',
+    windowOpen: result.windowOpen === true,
+    windowExpiresAt: typeof result.windowExpiresAt === 'string'
+      ? result.windowExpiresAt
+      : null,
+  };
+};
+
+export const closeRefundManagerTotpEnrollmentWindow = async () => {
+  const { data, error } = await supabaseClient.rpc(
+    'close_refund_manager_totp_enrollment_window_current_user'
+  );
+  if (error || !data || typeof data !== 'object') {
+    throw new Error('Unable to close the refund authenticator setup window.');
+  }
+  const result = data as Record<string, unknown>;
+  return {
+    closed: result.closed === true,
+    status: typeof result.status === 'string' ? result.status : 'unavailable',
+  };
+};
+
 export const beginRefundManagerTotpEnrollment = () =>
   invokeEdgeFunction<{ error?: string; qrCode?: string; instructions?: string }>(
     'refund-manager-totp-enrollment',
