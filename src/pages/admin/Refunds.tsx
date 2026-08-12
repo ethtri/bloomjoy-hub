@@ -3647,7 +3647,7 @@ export default function AdminRefundsPage() {
             {nayaxLookupNotice.message}
           </div>
         )}
-        {!hasSelectedMatch && !editor.clearNayaxMatch && effectiveCandidates.length > 0 && (
+        {!selectedCase.hasMatchedNayaxTransaction && !editor.clearNayaxMatch && effectiveCandidates.length > 0 && (
           <div className="rounded-md border border-border bg-background p-3">
             {isUsingDemoData && (
               <InfoHint>
