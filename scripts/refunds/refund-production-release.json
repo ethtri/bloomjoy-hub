@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "802fbbacd8200e9a823f0e08f235ef9b5ae9a4a8",
+  "sourceGitCommit": "fe7e8f049cb01fc7fb3c44d1eb158d991a04299d",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -49,8 +49,8 @@
     "20260812053417_refund_gmail_attachment_off_copy_gate.sql",
     "20260812134500_refund_provider_hold_decision_freeze.sql"
   ],
-  "migrationFilesSha256": "ef099e4288fa6e1dbf888c6d0c0e1ee4c70a80b69150b7f829171254ca472920",
-  "migrationVersionSetSha256": "7a907b9419a84def288740f26d33cf0ca03a5116956324bec287593b9b859413",
+  "migrationFilesSha256": "dac7ea6dd4c3b14dcec5f2a4b2671a6792ef9ce8deb75ed1025ca168b507c733",
+  "migrationVersionSetSha256": "5c22e35e11dc3b419362a232039cfc2bfb60ff69d745f5e29f8eebd87918d5a4",
   "functions": [
     {
       "slug": "refund-case-intake",
@@ -75,7 +75,7 @@
     {
       "slug": "refund-case-admin-update",
       "verifyJwt": false,
-      "sourceSha256": "5d6753cc8dbc439ede13921d7cf2bcad810f88a74ded2e6660aa21e239c34495",
+      "sourceSha256": "134f07c877120710a2922488cc308daa568d4d7389d9c9d1db93f979a13d652d",
       "production": {
         "version": 25,
         "ezbrSha256": "2941ef1966610736e7036121287c4ed7a2fa3c947a9670cd161503f093fa581d",
