@@ -17,7 +17,7 @@ This is a manager-experience test, not an Admin setup test. Use synthetic or spo
   ```
 
 - If the owner has selected the pilot cohort, repeat `--pilot-machine-id <uuid>` for each approved machine. The stricter result must report at least one exact-pilot eligible identity; otherwise account or assignment setup is still required.
-- Confirm the privately selected tester has Machine Manager assignments only and no scoped-admin, super-admin, corporate-partner, or unrelated access. Record aggregate counts only in `#435`.
+- For the separate assigned-scope visibility check, confirm the privately selected clean persona has Machine Manager assignments only and no scoped-admin, super-admin, corporate-partner, or unrelated access; record aggregate counts only in `#435`. The official-action tester is a distinct role in this matrix: that person must have an exact current mapping to every selected pilot machine and may also hold separate Admin access, which neither grants nor revokes refund authority.
 - Confirm the selected machines and manager are approved in `#427`.
 - Confirm the tested release commit and Refund Operations release manifest match the deployed environment.
 - Confirm live Nayax execution state:
