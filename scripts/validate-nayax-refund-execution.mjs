@@ -15,6 +15,8 @@ const files = {
   providerOrchestrationMigration: 'supabase/migrations/202608040004_refund_nayax_provider_orchestration.sql',
   providerCapsMigration: 'supabase/migrations/202608110020_refund_nayax_provider_caps.sql',
   providerOrchestration: 'supabase/functions/_shared/nayax-refund-orchestration.ts',
+  providerGates: 'supabase/functions/_shared/nayax-refund-gates.ts',
+  providerGatesTest: 'supabase/functions/_shared/nayax-refund-gates.test.ts',
   providerAdapter: 'supabase/functions/_shared/nayax-refund-provider.mjs',
   providerAdapterTest: 'scripts/refunds/validate-nayax-refund-provider.mjs',
   providerOrchestrationTest: 'supabase/functions/_shared/nayax-refund-orchestration.test.ts',
@@ -52,6 +54,8 @@ const officialActionMigration = read(files.officialActionMigration);
 const providerOrchestrationMigration = read(files.providerOrchestrationMigration);
 const providerCapsMigration = read(files.providerCapsMigration);
 const providerOrchestration = read(files.providerOrchestration);
+const providerGates = read(files.providerGates);
+const providerGatesTest = read(files.providerGatesTest);
 const providerAdapter = read(files.providerAdapter);
 const providerAdapterTest = read(files.providerAdapterTest);
 const providerOrchestrationTest = read(files.providerOrchestrationTest);
@@ -59,6 +63,10 @@ const providerEvidenceProducer = read(files.providerEvidenceProducer);
 const providerOrchestrationDatabaseTest = read(files.providerOrchestrationDatabaseTest);
 const officialActionHelper = read(files.officialActionHelper);
 const fn = read(files.function);
+const availabilityBranch = fn.slice(
+  fn.indexOf('if (operation === "availability")'),
+  fn.indexOf('const caseId = sanitizeText'),
+);
 const config = read(files.config);
 const envExample = read(files.envExample);
 const preflight = read(files.commercePreflight);
@@ -122,22 +130,80 @@ assert(
   'Cross-workflow refund duplicate fingerprint guard is required.'
 );
 assert(
-  fn.includes('NAYAX_REFUND_EXECUTION_KILL_SWITCH') &&
-    fn.includes('NAYAX_REFUND_EXECUTION_ENABLED') &&
-    fn.includes('NAYAX_REFUND_EXECUTION_DRY_RUN') &&
-    fn.includes('NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO') &&
-    fn.includes('NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED'),
+  providerGates.includes('NAYAX_REFUND_EXECUTION_KILL_SWITCH') &&
+    providerGates.includes('NAYAX_REFUND_EXECUTION_ENABLED') &&
+    providerGates.includes('NAYAX_REFUND_EXECUTION_DRY_RUN') &&
+    providerGates.includes('NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO') &&
+    providerGates.includes('NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED'),
   'The hard-off HTTP boundary must continue reporting every legacy rollout gate.'
 );
 assert(
   fn.includes('can_perform_refund_official_action') &&
     fn.includes('provider: disabledNayaxProviderAdapter') &&
     fn.includes('orchestrateNayaxRefund') &&
-    !fn.includes('authorizeRefundOfficialAction') &&
+    fn.includes('authorizeRefundOfficialAction') &&
+    fn.includes('service_reserve_and_consume_nayax_refund_attempt_v2') &&
+    fn.includes('service_settle_nayax_refund_attempt') &&
     !fn.includes('service_consume_nayax_refund_official_action') &&
     !fn.includes('can_manage_refund_case') &&
     !fn.includes('actorIsSuperAdmin'),
-  'The real HTTP function must authorize visibility but stay hard-off before manager evidence, reservation, or provider execution.'
+  'The real HTTP function must pre-wire the single-use manager receipt through capped reservation/settlement while the disabled adapter keeps those dependencies unreachable.'
+);
+assert(
+  fn.includes('resolveNayaxRefundExecutionConfig') &&
+    fn.indexOf('if (authError || !user)') <
+      fn.indexOf('const executionConfig = resolveNayaxRefundExecutionConfig') &&
+    fn.indexOf('preExecutionBlocks.length > 0') <
+      fn.indexOf('const idempotencyKey = await buildNayaxRefundIdempotencyKey') &&
+    fn.indexOf('preExecutionBlocks.length > 0') <
+      fn.indexOf('await orchestrateNayaxRefund') &&
+    providerGates.includes('NAYAX_REFUND_EXECUTOR_ASSERTION') &&
+    providerGates.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET') &&
+    providerGates.includes('NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS') &&
+    providerGates.includes('NAYAX_REFUND_DAILY_COUNT_CAP') &&
+    providerGatesTest.includes('reports every fail-closed gate'),
+  'Every rollout/configuration block, dedicated secret, executor assertion, and bounded daily cap must fail before orchestration.'
+);
+assert(
+  fn.includes('operation === "availability"') &&
+    fn.includes('resolveNayaxRefundAvailability({') &&
+    fn.includes('executionConfig,') &&
+    fn.includes('NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED') &&
+    fn.indexOf('if (authError || !user)') <
+      fn.indexOf('const operation = sanitizeText') &&
+    fn.indexOf('const operation = sanitizeText') <
+      fn.indexOf('const executionConfig = resolveNayaxRefundExecutionConfig') &&
+    fn.indexOf('operation === "availability"') <
+      fn.indexOf('const caseId = sanitizeText') &&
+    fn.indexOf('operation === "availability"') <
+      fn.indexOf('const refundCase = await getRefundCase') &&
+    fn.indexOf('operation === "availability"') <
+      fn.indexOf('await supabase.rpc(') &&
+    fn.indexOf('operation === "availability"') <
+      fn.indexOf('const idempotencyKey = await buildNayaxRefundIdempotencyKey') &&
+    fn.indexOf('operation === "availability"') <
+      fn.indexOf('await orchestrateNayaxRefund') &&
+    providerGates.includes('payloadRedacted: true') &&
+    providerGates.includes('NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = false') &&
+    providerGatesTest.includes('performs zero execution side effects'),
+  'Authenticated availability must use the already-resolved shared gates and return before case parsing, RPCs, HMAC, reservation, provider execution, orchestration, or mutation.'
+);
+assert(
+  providerGates.includes('official_actions_disabled') &&
+    providerGates.includes('kill_switch_active') &&
+    providerGates.includes('configuration_missing') &&
+    providerGates.includes('contract_unconfirmed') &&
+    !availabilityBranch.includes('...executionConfig') &&
+    !availabilityBranch.includes('executionConfig.blocks') &&
+    !availabilityBranch.includes('idempotencySecret') &&
+    !availabilityBranch.includes('executorAssertion'),
+  'Availability must collapse private configuration into the approved redacted reason enum without interpolating raw config or blocks.'
+);
+assert(
+  providerGates.includes('buildNayaxRefundIdempotencyKey') &&
+    !fn.includes('supabaseServiceRoleKey || "local-dev"') &&
+    providerGatesTest.includes('never falls back to a service key or local default'),
+  'Nayax idempotency must require its own strong secret with no service-role or local fallback.'
 );
 assert(
   officialActionHelper.includes('p_expected_case_version: context.expectedCaseVersion') &&
@@ -160,7 +226,7 @@ assert(
 );
 assert(
   providerOrchestration.includes('provider_execution_not_yet_enabled') &&
-    fn.includes('Disabled production adapter cannot reserve an attempt') &&
+    fn.includes('provider: disabledNayaxProviderAdapter') &&
     !fn.includes('mode: "synthetic"') &&
     !fn.includes('/payment/refund-request') &&
     !fn.includes('/payment/refund-approve'),

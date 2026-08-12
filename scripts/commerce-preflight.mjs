@@ -228,7 +228,8 @@ function run() {
       'NAYAX_REFUND_MAX_AMOUNT_CENTS',
       'NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS',
       'NAYAX_REFUND_DAILY_COUNT_CAP',
-      'NAYAX_REFUND_IDEMPOTENCY_SECRET'
+      'NAYAX_REFUND_IDEMPOTENCY_SECRET',
+      'NAYAX_REFUND_EXECUTOR_ASSERTION'
     );
   }
 
@@ -297,6 +298,32 @@ function run() {
     for (const key of booleanKeys) {
       if (env[key] && !['true', 'false'].includes(String(env[key]).trim().toLowerCase())) {
         errors.push(`${key} must be true or false.`);
+      }
+    }
+
+    for (const key of [
+      'NAYAX_REFUND_IDEMPOTENCY_SECRET',
+      'NAYAX_REFUND_EXECUTOR_ASSERTION',
+    ]) {
+      if (env[key] && !/^[A-Za-z0-9_-]{43,256}$/.test(String(env[key]).trim())) {
+        errors.push(`${key} must be a dedicated 43-256 character URL-safe secret.`);
+      }
+    }
+
+    for (const [key, maximum] of [
+      ['NAYAX_REFUND_MAX_AMOUNT_CENTS', 1_000_000],
+      ['NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS', 1_000_000],
+      ['NAYAX_REFUND_DAILY_COUNT_CAP', 100],
+    ]) {
+      const normalized = String(env[key] || '').trim();
+      const numeric = Number(normalized);
+      if (
+        normalized &&
+        (!/^[1-9][0-9]*$/.test(normalized) ||
+          !Number.isSafeInteger(numeric) ||
+          numeric > maximum)
+      ) {
+        errors.push(`${key} must be a positive bounded integer no greater than ${maximum}.`);
       }
     }
 
