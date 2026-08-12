@@ -1596,6 +1596,109 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder
   await context.close();
 };
 
+const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) => {
+  const machineId = '41000000-0000-4000-8000-000000000003';
+  const emailContextToken = 'a'.repeat(43);
+  const journeys = [
+    {
+      name: 'direct',
+      path: '/refunds/request',
+      expectedEmailContextToken: undefined,
+    },
+    {
+      name: 'email-linked',
+      path: `/refunds/request?emailContext=${emailContextToken}`,
+      expectedEmailContextToken: emailContextToken,
+    },
+  ];
+
+  for (const journey of journeys) {
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 900 },
+    });
+    const submissions = [];
+    await context.route('**/rest/v1/rpc/public_refund_machine_options', async (route) =>
+      route.fulfill(jsonResponse([
+        {
+          machine_id: machineId,
+          machine_label: 'Refund UAT Cotton Candy 01',
+          location_id: '41000000-0000-4000-8000-000000000002',
+          location_name: 'Refund UAT Mall',
+          location_timezone: 'America/Los_Angeles',
+        },
+      ]))
+    );
+    await context.route('**/functions/v1/refund-case-intake', async (route) => {
+      submissions.push(route.request().postDataJSON());
+      return route.fulfill(jsonResponse({
+        refundCase: {
+          id: `synthetic-${journey.name}`,
+          publicReference: `RF-UAT-${journey.name.toUpperCase()}`,
+          status: 'submitted',
+          correlationStatus: 'not_started',
+        },
+      }));
+    });
+
+    const page = await context.newPage();
+    await page.goto(`${appUrl}${journey.path}`, { waitUntil: 'domcontentloaded' });
+    await page.getByLabel('Machine location').selectOption(machineId);
+    await page.getByLabel('Name').fill('Synthetic Customer');
+    await page.getByLabel('Email').fill('synthetic-customer@example.test');
+    await page.getByLabel('How close is that time?').selectOption('within_15_minutes');
+    await page.getByLabel('Amount charged').fill('7.00');
+    await page.getByLabel('How did you pay at the machine?').selectOption('tap_card');
+    await page.getByLabel('Last 4 digits on the card you used').fill('4242');
+    await page.getByLabel('What best describes the problem?').selectOption('charged_no_product');
+    await page.getByLabel('What happened?').fill('Synthetic browser validation only.');
+
+    // Reproduce Chrome autofill/native-picker behavior: the controls visibly
+    // contain valid values, but no input/change event reaches React state.
+    await page.getByLabel('Purchase date').evaluate((control) => {
+      control.value = '2026-08-11';
+    });
+    await page.getByLabel('Approximate purchase time').evaluate((control) => {
+      control.value = '15:30';
+    });
+
+    recorder.assert(
+      `${journey.name} refund journey visibly contains the native date and time`,
+      await page.getByLabel('Purchase date').inputValue() === '2026-08-11' &&
+        await page.getByLabel('Approximate purchase time').inputValue() === '15:30'
+    );
+    if (journey.expectedEmailContextToken) {
+      recorder.assert(
+        'Email-linked refund journey removes the private context token from the visible URL',
+        !page.url().includes('emailContext=')
+      );
+    }
+
+    await page.getByRole('button', { name: 'Send refund request' }).click();
+    await page.waitForURL(/\/refunds\/thank-you\?ref=RF-UAT-/, { timeout: 10000 });
+
+    const submission = submissions[0] ?? {};
+    recorder.assert(
+      `${journey.name} refund journey submits the visible native date and time`,
+      submissions.length === 1 &&
+        submission.incidentDate === '2026-08-11' &&
+        submission.incidentTime === '15:30',
+      JSON.stringify(submission)
+    );
+    recorder.assert(
+      `${journey.name} refund journey preserves attachment-off safety`,
+      submission.attachments === undefined &&
+        (await page.locator('input[type="file"]').count()) === 0
+    );
+    recorder.assert(
+      `${journey.name} refund journey preserves private email-context linkage`,
+      submission.emailContextToken === journey.expectedEmailContextToken,
+      JSON.stringify({ emailContextToken: submission.emailContextToken })
+    );
+
+    await context.close();
+  }
+};
+
 const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
@@ -4163,6 +4266,11 @@ const run = async () => {
       artifactDir: args.artifactDir,
       recorder,
       evidence,
+    });
+    await runPublicRefundSubmissionChecks({
+      browser,
+      appUrl: args.appUrl,
+      recorder,
     });
     await runRefundOnlyChecks({
       browser,
