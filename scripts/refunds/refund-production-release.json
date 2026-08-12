@@ -46,7 +46,8 @@
     "202608050003_refund_email_queue_state.sql",
     "202608110001_refund_evidence_clarity.sql",
     "202608110020_refund_nayax_provider_caps.sql",
-    "20260812053417_refund_gmail_attachment_off_copy_gate.sql"
+    "20260812053417_refund_gmail_attachment_off_copy_gate.sql",
+    "20260812134500_refund_provider_hold_decision_freeze.sql"
   ],
   "migrationFilesSha256": "ef099e4288fa6e1dbf888c6d0c0e1ee4c70a80b69150b7f829171254ca472920",
   "migrationVersionSetSha256": "7a907b9419a84def288740f26d33cf0ca03a5116956324bec287593b9b859413",

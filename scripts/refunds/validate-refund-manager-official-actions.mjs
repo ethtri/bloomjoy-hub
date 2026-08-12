@@ -24,6 +24,9 @@ const migration = read(
 const providerOrchestrationMigration = read(
   'supabase/migrations/202608040004_refund_nayax_provider_orchestration.sql'
 );
+const providerHoldDecisionFreezeMigration = read(
+  'supabase/migrations/20260812134500_refund_provider_hold_decision_freeze.sql'
+);
 const stepUpMigration = read(
   'supabase/migrations/202608030004_refund_manager_action_step_up.sql'
 );
@@ -194,7 +197,11 @@ assert(
 );
 
 assert(
-  adminUpdate.includes('authorizeRefundOfficialAction') &&
+    adminUpdate.includes('authorizeRefundOfficialAction') &&
+    adminUpdate.includes('providerHoldStatuses.has(beforeRow.nayax_refund_execution_status)') &&
+    adminUpdate.includes('"declined",') &&
+    adminUpdate.includes('provider_refund_rejected') &&
+    adminUpdate.includes('provider_outcome_unconfirmed') &&
     adminUpdate.includes('service_apply_refund_official_case_update') &&
     adminUpdate.includes('service_complete_cash_refund_official') &&
     adminUpdate.includes('expectedOfficialActionVersion') &&
@@ -304,6 +311,20 @@ assert(
     portal.includes(": 'refund-review-only-banner'") &&
     portal.includes('Only a currently mapped Machine Manager can approve, decline, complete, or issue this'),
   'The portal must fail closed with explicit disabled, step-up-required, and mapping-required review-only states.'
+);
+
+assert(
+  portal.includes('refund-customer-decision-freeze') &&
+    portal.includes("label: 'Refund status not confirmed'") &&
+    providerHoldDecisionFreezeMigration.includes('guard_refund_provider_hold_case_update') &&
+    providerHoldDecisionFreezeMigration.includes('guard_refund_provider_hold_customer_message') &&
+    providerHoldDecisionFreezeMigration.includes("in ('unconfirmed', 'rejected')") &&
+    providerHoldDecisionFreezeMigration.includes('future audited payment-support migration') &&
+    providerHoldDecisionFreezeMigration.includes("old.nayax_refund_execution_status, ''))) <> 'requested'") &&
+    portalUat.includes('freezes customer decisions while the payment outcome is unconfirmed') &&
+    portalUat.includes('remains frozen after a full reload') &&
+    portalUat.includes('Synthetic browser rejected remains frozen after a full reload'),
+  'An unconfirmed provider outcome must freeze every manager decision and customer outcome message, including after refresh.'
 );
 
 assert(

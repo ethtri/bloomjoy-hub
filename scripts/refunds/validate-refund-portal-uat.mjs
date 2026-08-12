@@ -1261,6 +1261,15 @@ const installMockSupabaseRoutes = async (
         aging: false,
         providerHold:
           refundCase.id === 'case-card-1' && providerCheckRequired(nayaxSettlementResult),
+        providerOutcome: refundCase.id !== 'case-card-1' || !nayaxSettlementResult
+          ? 'not_attempted'
+          : providerCheckRequired(nayaxSettlementResult)
+            ? 'unconfirmed'
+            : nayaxSettlementResult.status === 'declined' || nayaxSettlementResult.errorCode === 'provider_rejected'
+              ? 'rejected'
+              : nayaxSettlementResult.executed === true && nayaxSettlementResult.status === 'succeeded'
+                ? 'succeeded'
+                : 'not_attempted',
         actionBlocked: false,
         payloadRedacted: true,
       }))));
@@ -1339,6 +1348,7 @@ const installMockSupabaseRoutes = async (
                       status: 'completed',
                       decision: 'approved',
                       providerHold: false,
+                      providerOutcome: 'succeeded',
                       nayaxMatchExecutionEligible: false,
                       latestCustomerMessageStatus: 'sent',
                       latestCustomerMessageType: 'completed',
@@ -1348,6 +1358,11 @@ const installMockSupabaseRoutes = async (
                   : {
                       ...refundCase,
                       providerHold: providerCheckRequired(nayaxSettlementResult),
+                      providerOutcome: providerCheckRequired(nayaxSettlementResult)
+                        ? 'unconfirmed'
+                        : nayaxSettlementResult.status === 'declined' || nayaxSettlementResult.errorCode === 'provider_rejected'
+                          ? 'rejected'
+                          : 'not_attempted',
                       nayaxMatchExecutionEligible: false,
                       updatedAt: now.toISOString(),
                     }
@@ -3626,14 +3641,14 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
       recorder.assert(
         'Card refund availability loading state fails closed',
         (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-          await page.getByRole('button', { name: 'Card refunds aren\u2019t available right now', exact: true }).isDisabled()
+          await page.getByRole('status', { name: 'Card refunds aren\u2019t available right now', exact: true }).isVisible()
       );
     }
     await availabilityResponse;
     if (scenario.eventuallyAvailable) {
       await page.getByTestId('refund-run-nayax-refund').waitFor({ state: 'visible', timeout: 10000 });
     } else {
-      await page.getByRole('button', { name: 'Card refunds aren\u2019t available right now', exact: true })
+      await page.getByRole('status', { name: 'Card refunds aren\u2019t available right now', exact: true })
         .waitFor({ timeout: 10000 });
     }
 
@@ -3647,7 +3662,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
         JSON.stringify(availabilityBodies[0].body) === JSON.stringify({ operation: 'availability' }) &&
         (scenario.eventuallyAvailable || (
           (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-          await page.getByRole('button', { name: 'Card refunds aren\u2019t available right now', exact: true }).isDisabled()
+          await page.getByRole('status', { name: 'Card refunds aren\u2019t available right now', exact: true }).isVisible()
         )),
       JSON.stringify({ functionCalls, availabilityBodies })
     );
@@ -3699,7 +3714,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
     {
       name: 'timeout',
       screenshot: 'refund-provider-timeout.png',
-      expectedTitle: 'Provider request timed out',
+      expectedTitle: 'Nayax did not respond',
       response: {
         executed: false,
         status: 'ambiguous',
@@ -3716,7 +3731,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
     {
       name: 'pending',
       screenshot: 'refund-provider-pending.png',
-      expectedTitle: 'Provider confirmation pending',
+      expectedTitle: 'Nayax is still confirming',
       response: {
         executed: false,
         status: 'requested',
@@ -3732,7 +3747,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
     {
       name: 'unknown',
       screenshot: 'refund-provider-unknown.png',
-      expectedTitle: 'Provider outcome unknown',
+      expectedTitle: 'Refund status not confirmed',
       response: {
         executed: false,
         status: 'ambiguous',
@@ -3866,13 +3881,16 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
       const expectedDisabledAction = scenario.name === 'config_blocked'
         ? 'Card refunds aren\u2019t available right now'
         : providerCheckRequired
-          ? 'Provider check needed'
-          : 'Manual card review required';
+          ? 'Refund status not confirmed'
+          : scenario.name === 'rejected'
+            ? 'Nayax rejected this refund'
+            : 'Manual card review required';
       recorder.assert(
         `Synthetic browser ${scenario.name} suppresses contradictory ready badges and refund actions`,
-        (await caseRow.getByText('Ready to refund', { exact: true }).count()) === 0 &&
+          (await caseRow.getByText('Ready to refund', { exact: true }).count()) === 0 &&
           (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-          await page.getByRole('button', { name: expectedDisabledAction, exact: true }).isDisabled(),
+          await page.getByRole('status', { name: expectedDisabledAction, exact: true }).isVisible() &&
+          (await page.getByRole('button', { name: expectedDisabledAction, exact: true }).count()) === 0,
         JSON.stringify({ providerCheckRequired, expectedDisabledAction })
       );
       recorder.assert(
@@ -3880,9 +3898,50 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
         scenario.name === 'config_blocked'
           ? (await caseRow.getByText('Card refunds unavailable', { exact: true }).count()) > 0
           : providerCheckRequired
-          ? (await caseRow.getByText('Payment check needed', { exact: true }).count()) > 0
-          : (await caseRow.getByText('Card review needed', { exact: true }).count()) > 0
+          ? (await caseRow.getByText('Refund status not confirmed', { exact: true }).count()) === 1
+          : scenario.name === 'rejected'
+            ? (await caseRow.getByText('Nayax rejected refund', { exact: true }).count()) > 0
+            : (await caseRow.getByText('Card review needed', { exact: true }).count()) > 0
       );
+      if (providerCheckRequired) {
+        recorder.assert(
+          `Synthetic browser ${scenario.name} freezes customer decisions while the payment outcome is unconfirmed`,
+          (await page.getByText('No refund has been issued.', { exact: true }).count()) === 0 &&
+            await page.getByTestId('refund-customer-decision-freeze').isVisible() &&
+            (await page.getByRole('button', { name: 'Deny request', exact: true }).count()) === 0 &&
+            (await page.getByText('Preview customer email', { exact: true }).count()) === 0
+        );
+        await page.reload();
+        await page.getByRole('button', { name: 'Processing / check needed 1', exact: true })
+          .waitFor({ timeout: 10000 });
+        await page.getByRole('button', { name: 'Processing / check needed 1', exact: true }).click();
+        const reloadedCaseRow = page.locator('tr', { hasText: 'RF-UAT-CARD' });
+        await reloadedCaseRow.click();
+        recorder.assert(
+          `Synthetic browser ${scenario.name} remains frozen after a full reload`,
+          await page.getByRole('status', { name: 'Refund status not confirmed', exact: true }).isVisible() &&
+            await page.getByTestId('refund-customer-decision-freeze').isVisible() &&
+            (await page.getByRole('button', { name: 'Deny request', exact: true }).count()) === 0 &&
+            (await page.getByTestId('refund-run-nayax-refund').count()) === 0
+        );
+      } else if (scenario.name === 'rejected') {
+        await page.reload();
+        await page.getByRole('button', { name: 'Needs action 1', exact: true })
+          .waitFor({ timeout: 10000 });
+        const reloadedRejectedCaseRow = page.locator('tr', { hasText: 'RF-UAT-CARD' });
+        await reloadedRejectedCaseRow.click();
+        recorder.assert(
+          'Synthetic browser rejected remains frozen after a full reload',
+          await page.getByRole('status', { name: 'Nayax rejected this refund', exact: true }).isVisible() &&
+            await page.getByTestId('refund-customer-decision-freeze').isVisible() &&
+            (await page.getByRole('button', { name: 'Deny request', exact: true }).count()) === 0 &&
+            (await page.getByText('Preview customer email', { exact: true }).count()) === 0 &&
+            (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+            functionCalls.filter((name) => name === 'nayax-card-refund').length === 1 &&
+            !functionCalls.includes('refund-case-admin-update') &&
+            !functionCalls.includes('refund-case-message-send')
+        );
+      }
       if (scenario.name === 'config_blocked') {
         const availabilityBodiesBeforeRefresh = functionBodies.filter(
           (entry) => entry.functionName === 'nayax-card-refund' && entry.body?.operation === 'availability'
@@ -3910,13 +3969,13 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
         });
         await page.getByRole('button', { name: 'Refresh', exact: true }).click();
         await refreshedAvailability;
-        await page.getByRole('button', { name: 'Card refunds aren\u2019t available right now', exact: true })
+        await page.getByRole('status', { name: 'Card refunds aren\u2019t available right now', exact: true })
           .waitFor({ timeout: 10000 });
         recorder.assert(
           'Config-blocked refresh stays fail-closed without a refund CTA or Ready badge',
-          (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+            (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
             (await caseRow.getByText('Ready to refund', { exact: true }).count()) === 0 &&
-            await page.getByRole('button', { name: 'Card refunds aren\u2019t available right now', exact: true }).isDisabled()
+            await page.getByRole('status', { name: 'Card refunds aren\u2019t available right now', exact: true }).isVisible()
         );
       }
     }

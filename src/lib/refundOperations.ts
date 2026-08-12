@@ -313,6 +313,7 @@ export type RefundCaseRecord = {
   duplicateOfCaseId?: string | null;
   aging?: boolean;
   providerHold?: boolean;
+  providerOutcome?: 'not_attempted' | 'unconfirmed' | 'rejected' | 'succeeded';
   reconciliationActionBlocked?: boolean;
   intakeComplete?: boolean;
   hasGmailThread?: boolean;
@@ -351,6 +352,7 @@ export type RefundEmailQueueState = {
   duplicateOfCaseId: string | null;
   aging: boolean;
   providerHold: boolean;
+  providerOutcome: 'not_attempted' | 'unconfirmed' | 'rejected' | 'succeeded';
   actionBlocked: boolean;
   payloadRedacted: true;
 };
@@ -1235,6 +1237,7 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
       duplicateOfCaseId: state.duplicateOfCaseId,
       aging: state.aging,
       providerHold: state.providerHold,
+      providerOutcome: state.providerOutcome,
       reconciliationActionBlocked: state.actionBlocked,
     };
   });

@@ -567,7 +567,7 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
   }
 
   if (refundCase.providerHold) {
-    return 'Nayax has not confirmed the refund outcome. Keep this payment in Processing / check needed and do not retry it until the provider result is reconciled.';
+    return 'Nayax has not confirmed whether the refund was sent. Leave this case in Processing / check needed and do not try again.';
   }
 
   if (
@@ -609,7 +609,8 @@ const taskLabel = (refundCase: RefundCaseRecord) => {
   if (refundCase.status === 'denied' || refundCase.status === 'closed') return 'Closed';
   if (refundCase.status === 'waiting_on_customer') return 'Needs customer info';
   if (refundCase.status === 'draft') return 'Inbox triage';
-  if (refundCase.providerHold) return 'Payment check needed';
+  if (refundCase.providerHold) return 'Refund status not confirmed';
+  if (refundCase.providerOutcome === 'rejected') return 'Nayax rejected refund';
   if (
     refundCase.paymentMethod === 'card' &&
     ['approved', 'card_refund_pending'].includes(refundCase.status) &&
@@ -736,14 +737,16 @@ const getOperationalSignals = (
   if (refundCase.aging) {
     signals.push({ label: 'Aging', className: 'border-amber-200 bg-amber-50 text-amber-900' });
   }
-  if (refundCase.providerHold) {
-    signals.push({ label: 'Payment check needed', className: 'border-orange-200 bg-orange-50 text-orange-900' });
-  } else if (
+  if (!refundCase.providerHold &&
+    refundCase.providerOutcome !== 'rejected' &&
     refundCase.paymentMethod === 'card' &&
     ['approved', 'card_refund_pending'].includes(refundCase.status) &&
     refundCase.nayaxMatchExecutionEligible !== true
   ) {
     signals.push({ label: 'Card review needed', className: 'border-orange-200 bg-orange-50 text-orange-900' });
+  }
+  if (refundCase.providerOutcome === 'rejected') {
+    signals.push({ label: 'Nayax rejected refund', className: 'border-orange-200 bg-orange-50 text-orange-900' });
   }
   if (getLatestCustomerMessage(refundCase)?.status === 'failed') {
     signals.push({ label: 'Email failed', className: 'border-destructive/30 bg-destructive/10 text-destructive' });
@@ -1297,6 +1300,20 @@ const primaryActionConfig = (
   cardRefundActionAvailable = false
 ): PrimaryActionConfig => {
   const latestMessage = getLatestCustomerMessage(refundCase);
+  if (refundCase.providerHold) {
+    return {
+      label: 'Refund status not confirmed',
+      helper: 'Nayax may have received the request. Do not try again. Leave this case in Processing / check needed until the outcome is confirmed.',
+      disabled: true,
+    };
+  }
+  if (refundCase.paymentMethod === 'card' && refundCase.providerOutcome === 'rejected') {
+    return {
+      label: 'Nayax rejected this refund',
+      helper: 'No refund was sent. Leave the case open for payment support; do not treat a payment-provider rejection as a customer denial.',
+      disabled: true,
+    };
+  }
   if (latestMessage?.status === 'failed') {
     if (refundCase.paymentMethod === 'card' && latestMessage.messageType === 'approved') {
       return {
@@ -1420,14 +1437,6 @@ const primaryActionConfig = (
         targetStatus: 'needs_review',
         targetDecision: null,
         mode: 'nayax_evidence_selection',
-      };
-    }
-
-    if (refundCase.providerHold) {
-      return {
-        label: 'Provider check needed',
-        helper: 'Nayax did not return a confirmed result. Do not retry or send another payment. No refund has been confirmed.',
-        disabled: true,
       };
     }
 
@@ -2443,12 +2452,12 @@ export default function AdminRefundsPage() {
           ? 'Refund completed'
           : deliveryFailed
             ? 'Refund completed; customer email needs attention'
-            : 'Refund completed; email delivery needs reconciliation',
+            : 'Refund completed; email status needs checking',
         message: deliverySucceeded
-          ? `Nayax confirmed the refund, Bloomjoy Hub finalized the case and reporting together, and the customer was notified in the original email thread with ${completion?.managerCcCount === 1 ? 'the mapped Machine Manager' : `${completion?.managerCcCount} mapped Machine Managers`} copied.`
+          ? `Nayax confirmed the refund. This case is closed, reporting is updated, and the customer was emailed. ${completion?.managerCcCount === 1 ? 'The assigned Machine Manager was copied.' : completion?.managerCcCount === 2 ? 'Both assigned Machine Managers were copied.' : `${completion?.managerCcCount} assigned Machine Managers were copied.`}`
           : deliveryFailed
             ? 'The refund, case, and reporting record are complete. Do not retry the payment. Retry only the controlled customer completion email.'
-            : 'The refund, case, and reporting record are complete. Do not retry the payment. Reconcile only the customer email delivery before sending anything else.',
+            : 'The refund, case, and reporting record are complete. Do not retry the payment. Check the original email thread before sending anything else.',
         reference,
       });
       if (deliverySucceeded) {
@@ -2471,12 +2480,12 @@ export default function AdminRefundsPage() {
       : formatNayaxExecutionBlockedMessage(result);
     const receiptTitle = ambiguous
       ? timedOut
-        ? 'Provider request timed out'
+        ? 'Nayax did not respond'
         : outcomeUnknown
-          ? 'Provider outcome unknown'
+          ? 'Refund status not confirmed'
           : providerPending
-            ? 'Provider confirmation pending'
-            : 'Refund outcome needs reconciliation'
+            ? 'Nayax is still confirming'
+            : 'Refund status needs checking'
       : rejected
         ? 'Refund rejected by Nayax'
         : 'Refund not sent';
@@ -2506,15 +2515,15 @@ export default function AdminRefundsPage() {
       tone: 'warning',
       title: receiptTitle,
       message: ambiguous
-        ? `${message} Keep the case open and do not retry the payment until Nayax is reconciled. No fallback or customer completion email was sent.`
+        ? `${message} Do not try the payment again. Leave the case in Processing / check needed until Nayax confirms what happened. The customer was not emailed.`
         : rejected
-          ? `${message} The case remains open for a Machine Manager. No fallback or customer completion email was sent.`
+          ? `${message} The case remains open for a Machine Manager. The customer was not emailed.`
           : `${message} The case remains open and no customer completion email was sent.`,
       reference,
     });
     toast.error(
       ambiguous
-        ? 'The card refund outcome needs reconciliation. Do not retry it.'
+        ? 'Nayax has not confirmed whether the refund was sent. Do not try again.'
         : rejected
           ? 'Nayax rejected the refund. The case remains open.'
           : 'Card refund execution was blocked. The case remains open.'
@@ -2597,10 +2606,10 @@ export default function AdminRefundsPage() {
         setNayaxExecutionNotice({ tone: 'warning', message });
         setRefundActionReceipt({
           tone: 'warning',
-          title: 'Refund outcome needs reconciliation',
-          message: `${message} Keep the case open and do not retry until the Nayax transaction is reconciled. The customer was not contacted.`,
+          title: 'Refund status not confirmed',
+          message: `${message} Do not try again. Leave the case in Processing / check needed until Nayax confirms what happened. The customer was not emailed.`,
         });
-        toast.error('The card refund outcome needs reconciliation. Do not retry it.');
+        toast.error('Nayax has not confirmed whether the refund was sent. Do not try again.');
       }
     } finally {
       setIsRunningNayaxRefund(false);
@@ -3674,7 +3683,9 @@ export default function AdminRefundsPage() {
               <h3 className="mt-1 text-xl font-semibold">
                 {nayaxDecisionHeading(selectedNayaxSummary, comparisonCandidate, hasSelectedMatch)}
               </h3>
-              {selectedCase.status !== 'completed' && (
+              {selectedCase.status !== 'completed' &&
+                !selectedCase.providerHold &&
+                selectedCase.providerOutcome !== 'rejected' && (
                 <p data-testid="refund-not-issued-notice" className="mt-2 max-w-xl text-sm leading-5 text-muted-foreground">
                   <span className="font-semibold text-foreground">No refund has been issued.</span>{' '}
                   Selecting a transaction saves review evidence only.
@@ -3701,7 +3712,22 @@ export default function AdminRefundsPage() {
                   {getCustomerCommunicationLabel(selectedCase)}
                 </Badge>
               </div>
-              {primaryAction && (
+              {primaryAction?.disabled === true ? (
+                <div
+                  data-testid="refund-action-status"
+                  role="status"
+                  aria-label={topActionLabel}
+                  className="flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-orange-200 bg-orange-50 px-4 py-2 text-center text-sm font-semibold leading-5 text-orange-950 sm:w-auto"
+                >
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  <div>
+                    <p>{topActionLabel}</p>
+                    {primaryAction.helper && (
+                      <p className="mt-1 max-w-lg font-normal leading-5">{primaryAction.helper}</p>
+                    )}
+                  </div>
+                </div>
+              ) : primaryAction ? (
                 <Button
                   data-testid={hasReadyRefund ? 'refund-run-nayax-refund' : 'refund-save-case'}
                   type="button"
@@ -3724,7 +3750,7 @@ export default function AdminRefundsPage() {
                   )}
                   {topActionLabel}
                 </Button>
-              )}
+              ) : null}
             </div>
           </div>
 
@@ -3915,6 +3941,18 @@ export default function AdminRefundsPage() {
             <div className={nayaxLookupNoticeClass(nayaxExecutionNotice.tone)}>{nayaxExecutionNotice.message}</div>
           )}
 
+          {selectedCase.providerHold || selectedCase.providerOutcome === 'rejected' ? (
+            <div
+              data-testid="refund-customer-decision-freeze"
+              role="status"
+              className="mt-4 flex items-start gap-2 border-t border-border pt-4 text-sm text-muted-foreground"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-orange-800" />
+              <p>
+                Customer decisions and email are paused until the payment status is resolved. Do not approve, deny, or send another outcome message from this case.
+              </p>
+            </div>
+          ) : (
           <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
             <details className="text-sm">
               <summary className="cursor-pointer font-medium text-foreground">Preview customer email</summary>
@@ -3949,6 +3987,7 @@ export default function AdminRefundsPage() {
               </div>
             </details>
           </div>
+          )}
         </section>
 
         {selectedCase.attachments.length > 0 && (
