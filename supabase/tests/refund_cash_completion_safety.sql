@@ -205,12 +205,22 @@ select ok(
 );
 
 select ok(
-  has_function_privilege(
+  not has_function_privilege(
     'service_role',
     'public.service_complete_cash_refund_as_actor(uuid,uuid,integer,text,timestamp with time zone,text,text,text)',
     'execute'
+  )
+  and has_function_privilege(
+    'service_role',
+    'public.service_complete_cash_refund_official(uuid,uuid,integer,text,timestamp with time zone,text,text,text)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'authenticated',
+    'public.service_complete_cash_refund_official(uuid,uuid,integer,text,timestamp with time zone,text,text,text)',
+    'execute'
   ),
-  'Only the service workflow can call cash completion'
+  'Only the receipt-consuming service workflow can call cash completion'
 );
 
 select is(

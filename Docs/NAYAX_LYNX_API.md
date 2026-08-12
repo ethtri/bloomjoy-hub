@@ -1,6 +1,6 @@
 # Nayax Lynx API Notes
 
-Last updated: 2026-07-22
+Last updated: 2026-08-03
 
 ## Purpose
 Bloomjoy is evaluating Nayax Lynx as the server-side source for machine inventory and machine-level sales activity.
@@ -134,16 +134,22 @@ Do not build browser-side Nayax calls, and do not expose Nayax raw responses in 
 The versioned matching weights, states, timezone rules, privacy-safe evidence, fixtures, and rollback procedure are documented in [REFUND_NAYAX_MATCHING_RUNBOOK.md](./REFUND_NAYAX_MATCHING_RUNBOOK.md).
 Refund execution is separate from read-only Last Sales lookup.
 
-The current full-automation foundation adds `nayax-card-refund` as a backend-only, fail-closed execution surface. It does not call live Nayax refund endpoints until all of these are true:
-- Sponsor go/no-go is recorded outside secrets and mirrored by server-only env.
-- `NAYAX_REFUND_EXECUTION_ENABLED=true`
-- `NAYAX_REFUND_EXECUTION_DRY_RUN=false`
-- `NAYAX_REFUND_EXECUTION_KILL_SWITCH=false`
-- `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=true`
-- The machine is explicitly allowlisted for Nayax refunds and the refund is below configured caps.
-- The case is card-only, manager-approved, `card_refund_pending`, matched to sanitized Nayax evidence, and has no prior settlement adjustment.
+The deployed foundation added `nayax-card-refund` as a backend-only, fail-closed execution surface. In the current unmerged candidate, the production handler always selects a statically disabled adapter and stops before attempt reservation, manager-proof consumption, provider access, case/reporting mutation, or email. No request value, browser value, environment value, or combination of the historical rollout flags can activate a live call.
 
-First automated execution remains full-refund only, USD only, and super-admin initiated. Apple Pay or wallet last-four mismatches remain manual-review until a later decision changes that rule.
+The historical rollout values remain defense-in-depth controls and must stay in their fail-closed state while the handler is disabled:
+- sponsor go/no-go unset;
+- `NAYAX_REFUND_EXECUTION_ENABLED=false`;
+- `NAYAX_REFUND_EXECUTION_DRY_RUN=true`;
+- `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`; and
+- `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false`.
+
+The `#430` candidate now includes an unselected real provider adapter and a forward-only atomic daily-cap wrapper around the existing receipt-bound attempt reservation. The adapter accepts only an exact versioned account contract, approved Nayax HTTPS hosts, a dedicated account-scoped write token, frozen case/payment evidence, and the documented request-then-approve sequence. It has no internal retry and treats duplicate, already-refunded, pending, timeout, malformed, network, and unknown outcomes as reconciliation states unless the exact configured success pair is returned. Account write authority, confirmed amount/response semantics, explicit machine allowlist, handler wiring, completion delivery, and a controlled low-value smoke remain required before a separate gate-on change is considered. The official actor remains a current active Machine Manager mapped to the case's machine, personally completing the fresh action-bound TOTP step-up. Super Admin, Scoped Admin, service, email, scheduler, GPT, and agent authority cannot substitute for that mapping and step-up.
+
+### Local orchestration proof (not a live-provider path)
+
+The current orchestration proof injects a local synthetic provider adapter. Its executable evidence covers one each of success, rejection, timeout, and unknown outcome plus replay. Only token-bound confirmed success may atomically complete the case and reporting adjustment, then create one completion in the verified original Gmail thread with the full send-time set of current active mapped managers visibly CC'd. Rejection leaves the case open; timeout and unknown outcomes require reconciliation. None of these paths sends a fallback or a duplicate manager-only completion notice.
+
+The real `nayax-card-refund` HTTP function still always uses the disabled adapter. An otherwise eligible authorized request that reaches orchestration returns `409` with `provider_execution_not_yet_enabled` before reserving an attempt, consuming manager evidence, contacting Nayax, changing a case, or sending email. The new adapter is intentionally unreachable from the HTTP handler in this bounded change; its tests prove request construction and outcome handling, not account permission or a live provider result. Provider contract evidence, handler wiring through the single-use mapped-manager receipt, completion delivery, and the controlled pilot require separate reviewed evidence. Do not interpret browser mocks, injected adapters, or unit fixtures as a successful live HTTP/provider test.
 
 ## Official Refund Contract Audit (2026-07-22)
 
@@ -176,7 +182,7 @@ This public documentation is enough to define the expected request shape, but no
 
 A read-only Gmail and Drive audit on 2026-07-22 found no private technical refund contract that closes these gaps. The only internal token request located was explicitly for sales reporting, and the signed commercial agreement covers commercial/clearing terms rather than refund API semantics. Do not infer write authority from that token or agreement.
 
-Before implementation, obtain a sanitized Nayax account-owner response covering the unresolved items above and validate the two calls in Nayax's QA environment. The backend orchestrator must treat a successful request followed by a failed, timed-out, or unknown approval as unresolved: keep the case open, suppress Bloomjoy's success email and settlement adjustment, and route it to reconciliation. Live production calls remain prohibited by `Docs/DECISIONS.md` and issue `#430` until the separate sponsor pilot decision is recorded.
+Before connecting the adapter to the handler, obtain a sanitized Nayax account-owner response covering the unresolved items above and validate the two calls in Nayax's QA environment. The backend orchestrator must treat a successful request followed by a failed, timed-out, or unknown approval as unresolved: keep the case open, suppress Bloomjoy's success email and settlement adjustment, and route it to reconciliation. Live production calls remain prohibited by `Docs/DECISIONS.md` and issue `#430` until the separate sponsor pilot decision is recorded.
 
 ## Retest Commands
 Use a local-only `.env` value. Do not paste tokens into chat, issues, PRs, or docs.

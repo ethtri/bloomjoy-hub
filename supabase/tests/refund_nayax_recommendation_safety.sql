@@ -146,9 +146,9 @@ select ok(
 );
 
 select ok(
-  pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+  pg_get_functiondef('public.admin_get_refund_ops_overview_pre_official()'::regprocedure)
     like '%nayaxLookupCandidates%'
-  and pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+  and pg_get_functiondef('public.admin_get_refund_ops_overview_pre_official()'::regprocedure)
     like '%oneClickEligible%',
   'The live overview serializes the versioned recommendation contract'
 );

@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Clock3, Loader2, MapPin, Paperclip, ShieldCheck, Sparkles } from 'lucide-react';
+import { CheckCircle2, Clock3, Loader2, MapPin, ShieldCheck, Sparkles } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -15,7 +15,6 @@ import {
   isLocalUatDemoForced,
   startRefundQrClaim,
   submitRefundRequest,
-  type RefundAttachmentInput,
   type RefundIncidentTimeConfidence,
   type RefundIssueCategory,
   type RefundPaymentMethod,
@@ -23,9 +22,6 @@ import {
   type RefundQrClaim,
   type RefundWalletProvider,
 } from '@/lib/refundOperations';
-
-const maxAttachments = 3;
-const maxAttachmentBytes = 5 * 1024 * 1024;
 
 const emptyForm = {
   machineId: '',
@@ -45,14 +41,6 @@ const emptyForm = {
   issueCategory: '' as RefundIssueCategory | '',
   issueSummary: '',
 };
-
-const readFileAsBase64 = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ''));
-    reader.onerror = () => reject(reader.error ?? new Error('Unable to read file.'));
-    reader.readAsDataURL(file);
-  });
 
 const hasValidIncidentLocalTime = (incidentDate: string, incidentTime: string) =>
   /^\d{4}-\d{2}-\d{2}$/.test(incidentDate) && /^\d{2}:\d{2}$/.test(incidentTime);
@@ -98,12 +86,24 @@ export default function RefundRequestPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [form, setForm] = useState(emptyForm);
-  const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [qrSubmissionError, setQrSubmissionError] = useState(false);
   const isDemoMode = isLocalUatDemoForced();
   const qrCode = (searchParams.get('qr') ?? '').trim();
+  const [emailContextToken] = useState(() => (searchParams.get('emailContext') ?? '').trim());
   const hasQrCode = Boolean(qrCode);
+  const hasEmailContext = Boolean(emailContextToken);
+
+  useEffect(() => {
+    if (!hasEmailContext || typeof window === 'undefined') return;
+    const safeUrl = new URL(window.location.href);
+    safeUrl.searchParams.delete('emailContext');
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${safeUrl.pathname}${safeUrl.search}${safeUrl.hash}`
+    );
+  }, [hasEmailContext]);
 
   const demoQrClaim = useMemo<RefundQrClaim | null>(() => {
     if (!isDemoMode || !hasQrCode) return null;
@@ -182,33 +182,6 @@ export default function RefundRequestPage() {
     setForm((current) => ({ ...current, [key]: value }));
   };
 
-  const handleFilesChange = (nextFiles: FileList | null) => {
-    const selectedFiles = Array.from(nextFiles ?? []);
-    const validFiles = selectedFiles.slice(0, maxAttachments);
-    const oversized = validFiles.find((file) => file.size > maxAttachmentBytes);
-
-    if (selectedFiles.length > maxAttachments) {
-      toast.info('Only the first 3 photos were attached.');
-    }
-
-    if (oversized) {
-      toast.error('Each photo must be 5MB or smaller.');
-      return;
-    }
-
-    setFiles(validFiles);
-  };
-
-  const buildAttachments = async (): Promise<RefundAttachmentInput[]> =>
-    Promise.all(
-      files.map(async (file) => ({
-        fileName: file.name,
-        contentType: file.type,
-        byteSize: file.size,
-        base64: await readFileAsBase64(file),
-      }))
-    );
-
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -280,10 +253,10 @@ export default function RefundRequestPage() {
         return;
       }
 
-      const attachments = await buildAttachments();
       const refundCase = await submitRefundRequest({
         machineId: form.machineId,
         qrClaimToken: qrClaim?.claimToken,
+        emailContextToken: emailContextToken || undefined,
         customerName: form.customerName.trim(),
         customerEmail: form.customerEmail.trim().toLowerCase(),
         customerPhone: form.customerPhone.trim(),
@@ -304,11 +277,9 @@ export default function RefundRequestPage() {
             : undefined,
         incidentTimeConfidence: form.incidentTimeConfidence || 'rough',
         issueCategory: form.issueCategory || 'other',
-        attachments,
       });
 
       setForm(emptyForm);
-      setFiles([]);
       navigate(`/refunds/thank-you?ref=${encodeURIComponent(refundCase?.publicReference ?? '')}`);
     } catch (error) {
       if (
@@ -338,12 +309,11 @@ export default function RefundRequestPage() {
                 Bloomjoy Sweets
               </div>
               <h1 className="mt-2 font-display text-3xl font-bold text-foreground sm:text-4xl">
-                Let us make this right
+                Request a refund
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-                We are sorry your Bloomjoy treat did not go the way it should have. Share a few
-                details below and our team will review your request with care. Most reviews are
-                completed within 5 business days.
+                Tell us about one purchase. Most requests are reviewed within 5 business days.
+                We will email you if we need anything else.
               </p>
             </div>
 
@@ -356,15 +326,26 @@ export default function RefundRequestPage() {
 
             {hasNoLiveMachineOptions && (
               <div className="mb-4 rounded-md border border-pink-200 bg-pink-50 px-4 py-3 text-sm text-pink-950">
-                We are getting this new Bloomjoy refund form ready for selected machines. For now,
-                please use the{' '}
-                <a
-                  href="https://forms.gle/qQDt2V7dFBFPqjyW6"
-                  className="font-semibold underline underline-offset-2"
-                >
-                  current customer service form
-                </a>{' '}
-                and our team will review your request with care.
+                {hasEmailContext ? (
+                  <>
+                    We could not load the Bloomjoy machine list right now. Please reply in the
+                    same email conversation with the machine location or a description of the
+                    machine, and our team will continue from there. You do not need to complete a
+                    second form.
+                  </>
+                ) : (
+                  <>
+                    We are getting this new Bloomjoy refund form ready for selected machines. For
+                    now, please use the{' '}
+                    <a
+                      href="https://forms.gle/qQDt2V7dFBFPqjyW6"
+                      className="font-semibold underline underline-offset-2"
+                    >
+                      current customer service form
+                    </a>{' '}
+                    and our team will review your request with care.
+                  </>
+                )}
               </div>
             )}
 
@@ -389,21 +370,30 @@ export default function RefundRequestPage() {
                 role="alert"
               >
                 <p className="font-semibold">This machine's refund code is not available.</p>
-                <p className="mt-1 leading-6">
-                  The code may have been replaced or disabled. You can still submit a request using
-                  the regular form and choose the machine yourself.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-3">
-                  <Button asChild size="sm">
-                    <Link to="/refunds/request">Use regular refund form</Link>
-                  </Button>
-                  <a
-                    href="https://forms.gle/qQDt2V7dFBFPqjyW6"
-                    className="inline-flex min-h-9 items-center font-semibold underline underline-offset-2"
-                  >
-                    Open current customer service form
-                  </a>
-                </div>
+                {hasEmailContext ? (
+                  <p className="mt-1 leading-6">
+                    Please reply in the same email conversation with the machine location or a
+                    description of the machine. You do not need to open another form.
+                  </p>
+                ) : (
+                  <>
+                    <p className="mt-1 leading-6">
+                      The code may have been replaced or disabled. You can still submit a request
+                      using the regular form and choose the machine yourself.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-3">
+                      <Button asChild size="sm">
+                        <Link to="/refunds/request">Use regular refund form</Link>
+                      </Button>
+                      <a
+                        href="https://forms.gle/qQDt2V7dFBFPqjyW6"
+                        className="inline-flex min-h-9 items-center font-semibold underline underline-offset-2"
+                      >
+                        Open current customer service form
+                      </a>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -413,18 +403,27 @@ export default function RefundRequestPage() {
                 role="alert"
               >
                 <p className="font-semibold">This QR session needs to be restarted.</p>
-                <p className="mt-1 leading-6">
-                  Your form is still here. Start a new QR session, then submit it again. You can
-                  also switch to the regular form.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-3">
-                  <Button type="button" size="sm" onClick={() => window.location.reload()}>
-                    Start new QR session
-                  </Button>
-                  <Button asChild type="button" size="sm" variant="outline">
-                    <Link to="/refunds/request">Use regular refund form</Link>
-                  </Button>
-                </div>
+                {hasEmailContext ? (
+                  <p className="mt-1 leading-6">
+                    Please reply in the same email conversation so our team can continue without
+                    creating a second request.
+                  </p>
+                ) : (
+                  <>
+                    <p className="mt-1 leading-6">
+                      Your form is still here. Start a new QR session, then submit it again. You can
+                      also switch to the regular form.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-3">
+                      <Button type="button" size="sm" onClick={() => window.location.reload()}>
+                        Start new QR session
+                      </Button>
+                      <Button asChild type="button" size="sm" variant="outline">
+                        <Link to="/refunds/request">Use regular refund form</Link>
+                      </Button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -434,6 +433,10 @@ export default function RefundRequestPage() {
                 className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6"
               >
                 <div className="grid gap-5">
+                  <div>
+                    <h2 className="text-lg font-semibold text-foreground">Purchase</h2>
+                    <p className="mt-1 text-sm text-muted-foreground">Where and when did you make the purchase?</p>
+                  </div>
                   {qrClaim ? (
                     <div className="rounded-lg border border-pink-200 bg-pink-50 px-4 py-4 text-pink-950">
                       <div className="flex items-start gap-3">
@@ -530,7 +533,7 @@ export default function RefundRequestPage() {
 
                 <div className="grid gap-4 sm:grid-cols-[1fr_150px_150px]">
                   <div>
-                    <Label htmlFor="customer-phone">Phone</Label>
+                    <Label htmlFor="customer-phone">Phone (optional)</Label>
                     <Input
                       id="customer-phone"
                       value={form.customerPhone}
@@ -540,7 +543,7 @@ export default function RefundRequestPage() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="incident-date">Incident date</Label>
+                    <Label htmlFor="incident-date">Purchase date</Label>
                     <Input
                       id="incident-date"
                       type="date"
@@ -551,7 +554,7 @@ export default function RefundRequestPage() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="incident-time">Time</Label>
+                    <Label htmlFor="incident-time">Approximate purchase time</Label>
                     <Input
                       id="incident-time"
                       type="time"
@@ -564,7 +567,7 @@ export default function RefundRequestPage() {
                 </div>
 
                 <div>
-                  <Label htmlFor="incident-time-confidence">How accurate is the time above?</Label>
+                  <Label htmlFor="incident-time-confidence">How close is that time?</Label>
                   <select
                     id="incident-time-confidence"
                     value={form.incidentTimeConfidence}
@@ -586,6 +589,11 @@ export default function RefundRequestPage() {
                   <p className="mt-2 text-xs leading-5 text-muted-foreground">
                     This helps us avoid matching the wrong purchase.
                   </p>
+                </div>
+
+                <div className="border-t border-border pt-5">
+                  <h2 className="text-lg font-semibold text-foreground">Payment</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">Share only the limited payment details below.</p>
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-[190px_1fr]">
@@ -611,7 +619,7 @@ export default function RefundRequestPage() {
                     </select>
                   </div>
                   <div>
-                    <Label htmlFor="payment-amount">Amount</Label>
+                    <Label htmlFor="payment-amount">Amount charged</Label>
                     <Input
                       id="payment-amount"
                       inputMode="decimal"
@@ -720,6 +728,11 @@ export default function RefundRequestPage() {
                   </div>
                 )}
 
+                <div className="border-t border-border pt-5">
+                  <h2 className="text-lg font-semibold text-foreground">What happened</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">Tell us what went wrong with the purchase.</p>
+                </div>
+
                 <div>
                   <Label htmlFor="issue-category">What best describes the problem?</Label>
                   <select
@@ -753,41 +766,6 @@ export default function RefundRequestPage() {
                   />
                 </div>
 
-                <div>
-                  <Label htmlFor="photos">Photos</Label>
-                  <div className="mt-2 rounded-lg border border-dashed border-border bg-muted/20 p-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex items-start gap-3 text-sm text-muted-foreground">
-                        <Paperclip className="mt-0.5 h-4 w-4 shrink-0" />
-                        <span>
-                          Optional images of the machine or product issue. Do not upload a card,
-                          wallet, or payment-account screenshot. Up to 3 photos, 5MB each.
-                        </span>
-                      </div>
-                      <Input
-                        id="photos"
-                        type="file"
-                        accept="image/png,image/jpeg,image/webp"
-                        multiple
-                        onChange={(event) => handleFilesChange(event.target.files)}
-                        className="max-w-sm bg-background"
-                      />
-                    </div>
-                    {files.length > 0 && (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {files.map((file) => (
-                          <span
-                            key={`${file.name}-${file.size}`}
-                            className="rounded-full border border-border bg-background px-3 py-1 text-xs text-muted-foreground"
-                          >
-                            {file.name}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
                   <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-start gap-2 text-sm text-muted-foreground">
                       <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
@@ -808,10 +786,10 @@ export default function RefundRequestPage() {
                       {isSubmitting ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Submitting...
+                          Sending your request...
                         </>
                       ) : (
-                        'Submit Request'
+                        'Send refund request'
                       )}
                     </Button>
                   </div>

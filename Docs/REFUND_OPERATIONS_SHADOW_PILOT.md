@@ -1,6 +1,6 @@
 # Refund Operations Shadow Pilot Runbook
 
-Last updated: 2026-07-22
+Last updated: 2026-08-03
 
 ## Purpose
 
@@ -12,8 +12,8 @@ Epic `#628` owns the production-ready outcome. Issue `#427` owns the pilot evide
 
 - Keep the legacy Google Form/Sheet/AppSheet workflow live until the sponsor explicitly approves retirement in `#409`.
 - Use a clean Machine Manager-only account from `#435`. Broader scoped-admin or super-admin access is not valid evidence for the manager boundary.
-- Keep live Nayax execution fail-closed until the provider contract and sponsor gate in `#430` are approved. Shadow mode may exercise the complete UI and a blocked execution response without making a live provider call.
-- The manager, not GPT or the matching score, makes the final decision.
+- Keep live Nayax execution fail-closed. The current candidate's production adapter is statically disabled, and no environment-flag combination activates it. Shadow mode may exercise the complete UI and a blocked execution response without making a live provider call; `#430` must add and review the real adapter, provider contract, controlled smoke, and separate gate-on path.
+- Only a current active Machine Manager mapped to the case's machine may make the final decision, personally completing the fresh action-bound TOTP step-up. GPT, email, schedulers, agents, matching scores, Super Admin, and Scoped Admin authority cannot substitute for that mapping and step-up.
 - Gmail and GPT are separate human-reviewed pilot lanes. Keep both Gmail switches and all three GPT switches off until `#634`/`#635` approvals pass, and send no GPT draft without human approval during the pilot.
 - Do not place customer names, email addresses, phone numbers, card digits, payout contacts, complaint text, raw provider identifiers/payloads, Gmail content, or secrets in GitHub, screenshots, logs, or this packet.
 - Demo mode proves layout only. It does not prove persistence, permissions, provider behavior, email delivery, automation, or reporting write-through.
@@ -26,6 +26,8 @@ Epic `#628` owns the production-ready outcome. Issue `#427` owns the pilot evide
 - Production matches the reviewed eight-function, 23-migration Refund Operations release. The post-deploy migration dry run is clean, every function route and bundle-drift check passes, and the public customer form passes desktop/mobile smoke with customer-safe location labels.
 - Live Nayax execution, automation schedules, Gmail, and GPT remain disabled. The Google Form/Sheet/AppSheet workflow remains the fallback.
 - The release gate is complete. The unchecked items below are the still-required manager, communications, provider, pilot, and sponsor gates; they must not be inferred from the safe-core deployment.
+
+This eight-function/23-migration checkpoint is historical evidence for `#644`, not the unmerged `#409` candidate inventory. The candidate release manifest tracks ten Refund Operations functions; its separate route smoke intentionally sends eight no-auth `OPTIONS` probes. Do not substitute either historical counts or the eight-probe count for the candidate's final manifest and evidence.
 
 ### Integrated release
 
@@ -40,17 +42,18 @@ Epic `#628` owns the production-ready outcome. Issue `#427` owns the pilot evide
 ### Safety and access
 
 - [ ] `#430` records the approved Nayax provider fields and semantics for a stable machine/site identity and a confirmed successful sale, or explicitly approves a safe substitute contract.
-- [ ] The global kill switch, execution-enabled flag, dry-run flag, sponsor flag, caps, machine allowlist, and idempotency controls are checked by name and expected state without printing values.
+- [ ] The statically disabled production adapter is verified first. The historical kill switch, execution-enabled flag, dry-run flag, sponsor flag, caps, machine allowlist, and idempotency controls are checked in their fail-closed state without printing values; they are defense in depth and cannot activate this candidate.
+- [ ] The official-action database gate remains statically false. Manager-only enrollment/recovery, current mapping, frozen action context, fresh exact-factor TOTP, replay/concurrency/drift failure, and owner UAT pass before any separate gate-on review.
 - [ ] A clean authenticated manager from `#435` sees only assigned machines/cases and cannot reach Admin setup, unrelated cases, provider secrets, or raw payloads.
 - [ ] The selected machines and named managers are recorded in `#427`; broader fleet access remains off.
 - [ ] Google Form/Sheet/AppSheet fallback ownership and the same-day stop/go contact are named in `#409`.
 
 ### Communications and automation
 
-- [ ] Customer acknowledgement, missing-information, approval, denial, completion, and retry paths pass with synthetic evidence.
-- [ ] Manager notification reaches the assigned managers and operations fallback without customer PII in logs.
+- [ ] Exactly-once acknowledgement, deterministic missing-information/follow-up, human-reviewed denial after a valid official denial, provider-success-only completion, known-send-failure recovery, and uncertain-delivery reconciliation pass with synthetic evidence. Card approval alone never sends success copy, and no uncertain delivery or provider outcome is retried blindly.
+- [ ] Customer messages keep the customer as sole To and the full send-time current active mapped-manager set in visible CC or fail closed. Action-needed/aging/exception notices reach the current managers with the exact navigation-only case link; the operations fallback is internal routing repair only and never substitutes for customer-message CC.
 - [ ] Automation is deployed with both controls off, then proves one synthetic action, duplicate suppression, PII-free failure alerting, visible health, and quick disable before scheduled enablement.
-- [ ] Gmail retention, attachment quarantine, OAuth scope, mailbox ownership, and security review are approved before either Gmail switch is enabled.
+- [ ] Gmail-copy retention, visible-CC privacy, attachment-off pilot behavior, OAuth scope, mailbox ownership, and security review are approved before either Gmail switch is enabled. Any later attachment ingestion needs a separate quarantine and malware-scanning review.
 - [ ] GPT evaluation uses only the approved schema and sanitized test set; the GitHub, Edge, and database switches are separately controlled; it cannot match a transaction, decide a refund, send mail, or execute payment.
 
 ## Proposed pilot cohort
@@ -72,11 +75,11 @@ This is a release-safety sample, not a statistical accuracy claim.
 
 | Lane | Minimum proof | Pass condition |
 |---|---|---|
-| Ordinary card | Five high-confidence cases across at least two approved locations | Intended sale ranks first; manager agrees or records a structured disagreement; one primary action is shown; no manual status editing is required |
+| Ordinary card | Five high-confidence cases across at least two approved locations | Opening the exact case link causes no lookup or mutation; **Check Nayax transaction** starts one lookup; intended sale ranks first; the mapped manager agrees or records a structured disagreement; no manual card-success status editing is available |
 | Card safety | One each for ambiguous, no-safe-match, wallet/manual, provider anomaly, duplicate/already-refunded, and provider-outcome-unknown | No unsafe case exposes an enabled refund action or sends a completion email |
-| Controlled Nayax execution | One approved low-value test only after `#430` sponsor approval | Exactly one provider attempt; provider-confirmed success precedes completion and customer email; retry/double-click creates no second attempt |
+| Controlled Nayax execution | One approved low-value test only after `#430` adds and reviews the live adapter/contract and the separate owner gate-on passes | One current mapped manager completes fresh TOTP; exactly one token-bound provider attempt occurs; atomic provider-confirmed success precedes case/reporting completion and the original-thread customer email; replay/double-click creates no second attempt |
 | Cash/manual payout | Two matched cases plus one missing-information or denied case | One primary next action; amount cannot exceed recorded payment; non-sensitive reference only; double-submit creates no duplicate event/email/adjustment |
-| Customer email | Acknowledgement, more-info, approval/denial, completion, and one simulated failure/retry | Correct thread/reference, empathetic copy, no premature success message, and no duplicate send |
+| Customer email | Acknowledgement, deterministic more-info/follow-up, human-reviewed denial, provider-success completion, one known failure, and one uncertain delivery | Correct original thread/reference, humble copy, customer as sole To, full current active mapped-manager CC, no approval-as-success, no blind retry, and no duplicate manager-only completion notice |
 | Automation | One due action, replay of the same window, one forced failure, and quick disable | One action only, duplicate suppressed, PII-free alert delivered, and core manual workflow remains available when disabled |
 | Access | Clean manager-only account plus super-admin comparison | Manager sees assigned scope only; super-admin sees authorized global scope; Admin controls remain hidden from the manager |
 | Reporting | One completed correlated case plus denied/waiting/duplicate controls | Exactly one safe adjustment for the completed case and none for the controls |
@@ -105,7 +108,8 @@ Pause the affected lane immediately if any of these occur:
 - an unauthorized machine, case, Admin control, or inbox thread is visible
 - customer PII, card data, payout details, raw Gmail content, raw Nayax identifiers/payloads, or secrets appear in evidence or logs
 - an ambiguous/manual/duplicate/failed case becomes one-click eligible
-- a customer completion email sends before confirmed payment success
+- a customer completion email sends before token-bound confirmed provider success plus atomic case/reporting completion
+- a customer-facing message sends without the full send-time current active mapped-manager CC set, or completion creates a second manager-only notice
 - a duplicate provider attempt, customer message, audit event, or reporting adjustment is created
 - a cash payout can exceed the recorded customer payment or store account/routing/card-like data
 - an unknown provider outcome is presented as success or encourages an immediate retry

@@ -100,7 +100,7 @@ select ok(
 select ok(
   not has_function_privilege(
     'authenticated',
-    'public.service_ingest_refund_gmail_message(text,text,text,text,text,text,boolean,text,text,text,text,text,boolean,timestamp with time zone,text,jsonb)',
+    'public.service_ingest_refund_gmail_message_v2(text,text,text,text,text,text,boolean,text,text,text,text,text,boolean,timestamp with time zone,text,jsonb,text[],text[],text,boolean,boolean,text[])',
     'execute'
   ),
   'Browser clients cannot invoke the Gmail ingestion service function'
@@ -108,14 +108,14 @@ select ok(
 select ok(
   has_function_privilege(
     'service_role',
-    'public.service_ingest_refund_gmail_message(text,text,text,text,text,text,boolean,text,text,text,text,text,boolean,timestamp with time zone,text,jsonb)',
+    'public.service_ingest_refund_gmail_message_v2(text,text,text,text,text,text,boolean,text,text,text,text,text,boolean,timestamp with time zone,text,jsonb,text[],text[],text,boolean,boolean,text[])',
     'execute'
   ),
   'The service worker can invoke Gmail ingestion'
 );
 
 create temporary table first_ingest as
-select public.service_ingest_refund_gmail_message(
+select public.service_ingest_refund_gmail_message_v2(
   repeat('a', 64),
   'gmail-thread-1',
   'gmail-message-1',
@@ -139,7 +139,13 @@ select public.service_ingest_refund_gmail_message(
     'disposition', 'attachment',
     'allowed', true,
     'rejectionCode', null
-  ))
+  )),
+  '{}'::text[],
+  array['support@example.test'],
+  'direct_human',
+  false,
+  false,
+  '{}'::text[]
 ) as result;
 
 select is(
@@ -179,7 +185,7 @@ select is(
 );
 
 create temporary table duplicate_ingest as
-select public.service_ingest_refund_gmail_message(
+select public.service_ingest_refund_gmail_message_v2(
   repeat('a', 64),
   'gmail-thread-1',
   'gmail-message-1',
@@ -195,7 +201,13 @@ select public.service_ingest_refund_gmail_message(
   true,
   now() - interval '10 minutes',
   null,
-  '[]'::jsonb
+  '[]'::jsonb,
+  '{}'::text[],
+  array['support@example.test'],
+  'direct_human',
+  false,
+  false,
+  '{}'::text[]
 ) as result;
 
 select is(
@@ -214,7 +226,7 @@ select is(
   'Repeated Gmail delivery does not duplicate the customer-message event'
 );
 
-select public.service_ingest_refund_gmail_message(
+select public.service_ingest_refund_gmail_message_v2(
   repeat('a', 64),
   'gmail-thread-1',
   'gmail-message-2',
@@ -230,7 +242,13 @@ select public.service_ingest_refund_gmail_message(
   false,
   now() - interval '5 minutes',
   null,
-  '[]'::jsonb
+  '[]'::jsonb,
+  '{}'::text[],
+  array['support@example.test'],
+  'direct_human',
+  false,
+  false,
+  '{}'::text[]
 );
 
 select is(
@@ -244,7 +262,7 @@ select is(
   'A customer follow-up adds one chronological message to the same case'
 );
 
-select public.service_ingest_refund_gmail_message(
+select public.service_ingest_refund_gmail_message_v2(
   repeat('a', 64),
   'gmail-thread-2',
   'gmail-message-3',
@@ -260,7 +278,13 @@ select public.service_ingest_refund_gmail_message(
   false,
   now() - interval '2 minutes',
   (select public_reference from public.refund_cases where intake_source = 'gmail' order by created_at limit 1),
-  '[]'::jsonb
+  '[]'::jsonb,
+  '{}'::text[],
+  array['support@example.test'],
+  'direct_human',
+  false,
+  false,
+  '{}'::text[]
 );
 
 select is(
@@ -273,6 +297,10 @@ select is(
   2,
   'A safe threading change creates another provider-thread link to the same case'
 );
+
+update public.refund_cases
+set reporting_machine_id = '77300000-0000-4000-8000-000000000001'
+where intake_source = 'gmail';
 
 insert into public.refund_case_messages (
   id,
@@ -294,13 +322,15 @@ values (
 );
 
 create temporary table outbound_claim as
-select public.service_claim_refund_gmail_outbound(
+select public.service_claim_refund_gmail_outbound_v2(
   (select id from public.refund_cases where intake_source = 'gmail' order by created_at limit 1),
   '77500000-0000-4000-8000-000000000001',
   'refund-case-message:77500000-0000-4000-8000-000000000001',
   'support@example.test',
   'refund-customer@example.test',
-  'Please share the missing purchase details.'
+  'Please share the missing purchase details.',
+  array['support@example.test'],
+  'manual'
 ) as result;
 
 select is(
@@ -310,13 +340,15 @@ select is(
 );
 select is(
   (
-    public.service_claim_refund_gmail_outbound(
+    public.service_claim_refund_gmail_outbound_v2(
       (select id from public.refund_cases where intake_source = 'gmail' order by created_at limit 1),
       '77500000-0000-4000-8000-000000000001',
       'refund-case-message:77500000-0000-4000-8000-000000000001',
       'support@example.test',
       'refund-customer@example.test',
-      'Please share the missing purchase details.'
+      'Please share the missing purchase details.',
+      array['support@example.test'],
+      'manual'
     ) ->> 'claimed'
   )::boolean,
   false,
@@ -344,6 +376,10 @@ select is(
   false,
   'A sent Gmail reply cannot be finalized twice'
 );
+
+update public.refund_cases
+set reporting_machine_id = null
+where intake_source = 'gmail';
 
 select set_config('request.jwt.claim.sub', '77000000-0000-4000-8000-000000000001', true);
 
@@ -391,7 +427,7 @@ select ok(
 
 select is(
   (public.service_start_refund_gmail_sync(
-    'scheduled:refund-gmail-test-1',
+    'github-scheduled:2001:1',
     'scheduled',
     now(),
     repeat('a', 64),
@@ -403,7 +439,7 @@ select is(
 );
 select is(
   (public.service_start_refund_gmail_sync(
-    'scheduled:refund-gmail-test-1',
+    'github-scheduled:2001:1',
     'scheduled',
     now(),
     repeat('a', 64),
@@ -415,7 +451,7 @@ select is(
 );
 select is(
   public.service_finish_refund_gmail_sync(
-    (select id from public.refund_gmail_sync_runs where run_key = 'scheduled:refund-gmail-test-1'),
+    (select id from public.refund_gmail_sync_runs where run_key = 'github-scheduled:2001:1'),
     'succeeded',
     2,
     4,
@@ -441,36 +477,25 @@ select is(
   'Gmail health output is explicitly aggregate-only and redacted'
 );
 
-update public.refund_gmail_attachments
-set
-  status = 'quarantined',
-  storage_bucket = 'refund-gmail-quarantine',
-  storage_path = 'synthetic/expired-receipt.pdf',
-  retention_expires_at = now() - interval '1 minute';
-
-select is(
-  public.service_mark_refund_gmail_attachment(
-    (select id from public.refund_gmail_attachments limit 1),
-    'deleted',
-    null,
-    null,
-    'retention_expired'
+select ok(
+  not has_function_privilege(
+    'service_role',
+    'public.service_mark_refund_gmail_attachment(uuid,text,text,text,text)',
+    'execute'
   ),
-  true,
-  'Retention cleanup can mark a quarantined attachment deleted'
+  'The legacy caller-shaped attachment marker is unavailable to the service worker'
 );
 select ok(
   (
-    select provider_attachment_id like 'deleted-%'
-      and file_name = '[Deleted after Gmail retention period]'
-      and content_type = 'application/octet-stream'
-      and byte_size = 0
+    select provider_attachment_id not like 'retention-deleted:%'
+      and file_name <> '[Deleted after Gmail retention period]'
       and storage_bucket is null
       and storage_path is null
+      and deleted_at is null
     from public.refund_gmail_attachments
     limit 1
   ),
-  'Deleted Gmail attachment metadata no longer retains provider IDs, filenames, types, sizes, or storage paths'
+  'Revoking the legacy marker preserves attachment linkage and cannot fabricate deletion'
 );
 
 update public.refund_gmail_messages
@@ -478,27 +503,22 @@ set retention_expires_at = now() - interval '1 minute';
 update public.refund_gmail_threads
 set retention_expires_at = now() - interval '1 minute';
 
-select is(
-  public.service_purge_refund_gmail_expired_message_content(200),
-  4,
-  'Expired Gmail message content is purged in a bounded retention pass'
+select ok(
+  not has_function_privilege(
+    'service_role',
+    'public.service_purge_refund_gmail_expired_message_content(integer)',
+    'execute'
+  ),
+  'The service worker cannot invoke the legacy unclaimed message purge'
 );
 select ok(
-  not exists (
+  exists (
     select 1
     from public.refund_gmail_messages
     where content_deleted_at is null
-      or subject <> '[Deleted after Gmail retention period]'
-      or plain_body <> '[Deleted after Gmail retention period]'
-      or sender_email is not null
-      or recipient_email is not null
-  )
-  and not exists (
-    select 1
-    from public.refund_gmail_threads
-    where thread_subject <> '[Deleted after Gmail retention period]'
+      and subject <> '[Deleted after Gmail retention period]'
   ),
-  'Expired Gmail messages and thread subjects no longer retain copied customer content'
+  'Revoking the legacy purge prevents metadata deletion ahead of attachment-byte settlement'
 );
 
 select set_config('request.jwt.claim.sub', '', true);

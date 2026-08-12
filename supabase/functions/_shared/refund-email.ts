@@ -1,10 +1,25 @@
 import { sendTransactionalEmail } from "./internal-email.ts";
 import { resolveRefundPublicLabels } from "./refund-location.ts";
+import { getRefundGmailMailboxIdentities } from "./refund-gmail.ts";
+import {
+  REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
+  sanitizeRefundMissingFields,
+  type RefundFollowUpReason,
+  type RefundMissingField,
+} from "./refund-deterministic-follow-up.ts";
+
+export {
+  REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
+  sanitizeRefundMissingFields,
+  type RefundMissingField,
+} from "./refund-deterministic-follow-up.ts";
 
 export type RefundCustomerMessageType =
   | "confirmation"
   | "more_info"
   | "reminder"
+  | "no_safe_match"
+  | "information_received"
   | "wallet_correction"
   | "wallet_correction_reminder"
   | "status_update"
@@ -22,7 +37,26 @@ export type RefundCustomerEmailInput = {
   refundAmountCents?: number | null;
   paymentMethod?: string | null;
   decisionReason?: string | null;
+  missingFields?: RefundMissingField[];
+  followUpReason?: RefundFollowUpReason;
+  incidentLocalDateTime?: string | null;
+  cardWalletUsed?: boolean;
+  cardLast4?: string | null;
+  managerCcEmails?: string[];
 };
+
+const refundMissingFieldRequest: Record<RefundMissingField, string> = {
+  location_or_machine: "the machine or Bloomjoy location",
+  incident_date: "the purchase date",
+  incident_time: "the approximate purchase time, including AM or PM",
+  payment_method: "whether you paid by card, Apple Pay, Google Pay, or cash",
+  amount: "the exact amount charged",
+  card_last4:
+    "only the last four digits shown on the card charge (do not email wallet or device-card digits)",
+};
+
+export const describeRefundMissingFields = (value: unknown) =>
+  sanitizeRefundMissingFields(value).map((field) => refundMissingFieldRequest[field]);
 
 const escapeHtml = (value: string) =>
   value
@@ -37,6 +71,41 @@ const sanitizeText = (value: unknown, maxLength = 800) =>
     ? String(value).trim().slice(0, maxLength)
     : "";
 
+const REFUND_MANAGER_CC_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
+
+export const requireRefundManagerCcEmailsForSend = (
+  managerCcEmails: string[] | undefined,
+  customerEmail: string,
+) => {
+  if (!Array.isArray(managerCcEmails)) {
+    throw new Error(
+      "Refund customer email requires at least one current mapped Machine Manager in CC.",
+    );
+  }
+
+  const normalized = managerCcEmails.map((email) => email.trim().toLowerCase());
+  const excluded = new Set([
+    customerEmail.trim().toLowerCase(),
+    ...getRefundGmailMailboxIdentities(),
+  ]);
+  if (
+    normalized.length < 1 ||
+    normalized.length > 3 ||
+    new Set(normalized).size !== normalized.length ||
+    normalized.some((email) =>
+      email.length > 320 ||
+      !REFUND_MANAGER_CC_PATTERN.test(email) ||
+      excluded.has(email)
+    )
+  ) {
+    throw new Error(
+      "Refund customer email requires at least one current mapped Machine Manager in CC.",
+    );
+  }
+
+  return normalized;
+};
+
 export const getRefundReplyToEmail = () =>
   sanitizeText(Deno.env.get("REFUND_REPLY_TO_EMAIL"), 320) || "info@bloomjoysweets.com";
 
@@ -46,6 +115,8 @@ export const sanitizeRefundMessageType = (value: unknown): RefundCustomerMessage
     normalized === "confirmation" ||
     normalized === "more_info" ||
     normalized === "reminder" ||
+    normalized === "no_safe_match" ||
+    normalized === "information_received" ||
     normalized === "wallet_correction" ||
     normalized === "wallet_correction_reminder" ||
     normalized === "status_update" ||
@@ -73,6 +144,10 @@ const getSubject = (messageType: RefundCustomerMessageType, publicReference: str
       return `A quick detail check for your Bloomjoy refund request ${publicReference}`;
     case "reminder":
       return `Still here to help with your Bloomjoy refund request ${publicReference}`;
+    case "no_safe_match":
+      return `A careful check of your Bloomjoy refund request ${publicReference}`;
+    case "information_received":
+      return `We added your information to Bloomjoy refund request ${publicReference}`;
     case "wallet_correction":
       return `Please check your mobile-wallet card details for refund request ${publicReference}`;
     case "wallet_correction_reminder":
@@ -97,6 +172,10 @@ const getHeadline = (messageType: RefundCustomerMessageType) => {
       return "A tiny bit more information";
     case "reminder":
       return "We are still here to help";
+    case "no_safe_match":
+      return "We checked carefully";
+    case "information_received":
+      return "Thank you for the added details";
     case "wallet_correction":
     case "wallet_correction_reminder":
       return "One quick wallet detail check";
@@ -118,23 +197,59 @@ const getBodyParagraphs = ({
   messageType,
   refundAmountCents,
   paymentMethod,
-  decisionReason,
+  missingFields,
+  followUpReason,
+  cardWalletUsed,
+  cardLast4,
 }: RefundCustomerEmailInput) => {
   const refundAmount = formatCurrency(refundAmountCents);
   const amountPhrase = refundAmount ? ` for ${refundAmount}` : "";
   const isCash = paymentMethod === "cash";
+  const missingFieldRequests = describeRefundMissingFields(missingFields);
+  const requestedDetails = missingFieldRequests.join("; ");
+
+  if (cardWalletUsed && sanitizeRefundMissingFields(missingFields).includes("card_last4")) {
+    throw new Error(
+      "Mobile-wallet last-four corrections must use the secure correction flow, not email.",
+    );
+  }
 
   switch (messageType) {
     case "more_info":
+      if (missingFieldRequests.length === 0) {
+        throw new Error("A deterministic missing-field list is required for a more-information message.");
+      }
       return [
-        "Thank you again for reaching out. We want to review this carefully, and we need one more detail before we can confidently match the request to a machine transaction.",
-        "Please reply with anything that may help, such as the exact purchase time, amount paid, card last 4 shown on the charge, or a photo of the machine/payment screen.",
-        "Once we have that, our team will continue the review. Our target is to complete refund reviews within 5 business days.",
+        "Thank you again for reaching out. We are sorry this needs another step, and we want to make sure we review the right transaction.",
+        `Please reply with ${requestedDetails}.`,
+        "Please do not send a full card number, security code, expiration date, PIN, password, or payment-screen screenshot. Once we receive the requested details, we will continue the review and keep ownership of the next step.",
       ];
     case "reminder":
+      if (followUpReason === "no_safe_match") {
+        return [
+          "We are checking in once because we still want to help with your refund request. There is no need to resend the information you already shared.",
+          "Please reply only if any detail shown below needs a correction, such as the machine or location, purchase date or approximate time, amount, or payment method. If everything is correct, no action is needed from you and a person will continue the review.",
+          "For your safety, please never send a full card number, security code, expiration date, PIN, password, wallet digits, or screenshot.",
+        ];
+      }
+      if (missingFieldRequests.length === 0) {
+        throw new Error("A deterministic missing-field list is required for a reminder message.");
+      }
       return [
-        "We are checking in because we still need one more detail to finish reviewing your request.",
-        "If you have the exact purchase time, amount paid, card last 4 shown on the charge, or a photo of the machine/payment screen, please reply here and we will continue the review.",
+        "We are checking in once because we still need the specific details below to continue the review. There is no need to resend anything else.",
+        `When you have a moment, please reply with ${requestedDetails}.`,
+        "For your safety, please never send a full card number, security code, expiration date, PIN, password, or payment-screen screenshot.",
+      ];
+    case "no_safe_match":
+      return [
+        "Thank you for the details you shared. We checked the available machine transaction records carefully, but we could not identify one transaction that we can safely match to your request yet. This does not mean you did anything wrong.",
+        "Please reply only if any of the details shown below need a correction, such as the machine or location, purchase date or approximate time, amount, or payment method.",
+        "Please do not send a full card number, security code, expiration date, PIN, password, or screenshot. We will take another careful look after any correction, and a person will review the case if there still is not one clear match.",
+      ];
+    case "information_received":
+      return [
+        "Thank you for sending the additional information. We added it to your refund request, so you do not need to resend it.",
+        "Our team will check the updated details against the available transaction records. This message confirms receipt only. It is not yet a refund decision and is not a promise that a payment has been completed.",
       ];
     case "wallet_correction":
     case "wallet_correction_reminder":
@@ -154,19 +269,19 @@ const getBodyParagraphs = ({
     case "denied":
       return [
         "Thank you for giving us the chance to review this. We were not able to approve the refund based on the transaction and machine information available.",
-        decisionReason
-          ? `Our review note: ${decisionReason}`
-          : "If any of the details were submitted incorrectly, please reply and we will take another careful look.",
+        "If any of the purchase details were submitted incorrectly, please reply and we will take another careful look. Internal review notes are never included in this email.",
         "We are sorry this visit was frustrating, and we appreciate you reaching out.",
       ];
-    case "completed":
+    case "completed": {
+      const maskedCard = sanitizeText(cardLast4, 4);
       return [
-        `Your approved refund request${amountPhrase} has been marked complete by our team.`,
+        `We issued your refund${amountPhrase}${!isCash && /^\d{4}$/.test(maskedCard) ? ` to the card ending in ${maskedCard}` : ""}.`,
         isCash
-          ? "For Zelle, please allow normal bank processing time after the payment is sent."
-          : "For card refunds, your bank or card issuer may take a little additional time to show the credit.",
+          ? "The Zelle payment has been sent. Please allow normal bank processing time for it to appear."
+          : "Your bank or card issuer may take up to 4 business days to show the credit. If it is not visible after that, reply to this email and include your reference below.",
         "Thank you for letting us help make this right.",
       ];
+    }
     case "status_update":
       return [
         "We are still reviewing your request and have not forgotten about you.",
@@ -189,20 +304,23 @@ export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
     machineLabel: input.machineLabel,
     locationName: input.locationName,
   });
-  const decisionReason = sanitizeText(input.decisionReason, 500);
   const subject = getSubject(input.messageType, publicReference);
   const greeting = customerName ? `Hi ${customerName},` : "Hi there,";
-  const paragraphs = getBodyParagraphs({
-    ...input,
-    decisionReason,
-  });
+  const paragraphs = getBodyParagraphs(input);
   const details = [`Reference: ${publicReference}`];
   if (machineLabel) details.push(`Machine: ${machineLabel}`);
   if (locationName) details.push(`Location: ${locationName}`);
   const refundAmount = formatCurrency(input.refundAmountCents);
   if (refundAmount) {
-    details.push(`Refund amount: ${refundAmount}`);
+    const amountLabel = input.messageType === "approved" || input.messageType === "completed"
+      ? "Refund amount"
+      : "Reported amount";
+    details.push(`${amountLabel}: ${refundAmount}`);
   }
+  const incidentLocalDateTime = sanitizeText(input.incidentLocalDateTime, 40);
+  if (incidentLocalDateTime) details.push(`Reported purchase time: ${incidentLocalDateTime}`);
+  if (input.paymentMethod === "card") details.push("Payment method: Card or mobile wallet");
+  if (input.paymentMethod === "cash") details.push("Payment method: Cash");
 
   const text = [
     greeting,
@@ -294,7 +412,10 @@ export const buildEditableRefundCustomerEmail = ({
   if (locationName) details.push(`Location: ${locationName}`);
   const refundAmount = formatCurrency(input.refundAmountCents);
   if (refundAmount) {
-    details.push(`Refund amount: ${refundAmount}`);
+    const amountLabel = ["approved", "completed"].includes(input.messageType)
+      ? "Refund amount"
+      : "Reported amount";
+    details.push(`${amountLabel}: ${refundAmount}`);
   }
 
   const text = [
@@ -359,8 +480,13 @@ export const buildEditableRefundCustomerEmail = ({
 
 export const sendRefundCustomerEmail = async (input: RefundCustomerEmailInput) => {
   const email = buildRefundCustomerEmail(input);
+  const managerCcEmails = requireRefundManagerCcEmailsForSend(
+    input.managerCcEmails,
+    input.customerEmail,
+  );
   await sendTransactionalEmail({
     to: [input.customerEmail],
+    cc: managerCcEmails,
     subject: email.subject,
     text: email.text,
     html: email.html,
@@ -378,6 +504,7 @@ export type RefundWalletCorrectionEmailInput = {
   locationName?: string | null;
   correctionUrl: string;
   reminder?: boolean;
+  managerCcEmails?: string[];
 };
 
 export const buildRefundWalletCorrectionEmail = (
@@ -461,8 +588,13 @@ export const sendRefundWalletCorrectionEmail = async (
   input: RefundWalletCorrectionEmailInput,
 ) => {
   const email = buildRefundWalletCorrectionEmail(input);
+  const managerCcEmails = requireRefundManagerCcEmailsForSend(
+    input.managerCcEmails,
+    input.customerEmail,
+  );
   await sendTransactionalEmail({
     to: [input.customerEmail],
+    cc: managerCcEmails,
     subject: email.subject,
     text: email.text,
     html: email.html,

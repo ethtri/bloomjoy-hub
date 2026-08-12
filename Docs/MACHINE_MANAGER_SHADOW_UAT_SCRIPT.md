@@ -1,6 +1,6 @@
 # Machine Manager Shadow UAT Script
 
-Last updated: 2026-07-22
+Last updated: 2026-08-03
 
 ## Purpose
 
@@ -21,8 +21,9 @@ This is a manager-experience test, not an Admin setup test. Use synthetic or spo
 - Confirm the selected machines and manager are approved in `#427`.
 - Confirm the tested release commit and Refund Operations release manifest match the deployed environment.
 - Confirm live Nayax execution state:
-  - **Shadow mode:** execution disabled, dry run on, kill switch on, and sponsor flag unset.
-  - **Controlled execution:** only after the explicit `#430` sponsor gate; use the approved low-value case, allowlist, and caps.
+  - **Current candidate/shadow mode:** the production adapter is statically disabled before attempt reservation or provider access. Keep execution disabled, dry run on, kill switch on, provider-contract confirmation false, and sponsor flag unset; these historical controls are defense in depth and cannot activate a live call.
+  - **Future controlled execution:** only after `#430` adds and reviews the real adapter and account contract, the controlled low-value smoke/caps/allowlist are approved, and a separate owner-approved gate-on change passes.
+- Confirm the official-action database gate is still statically false for current shadow UAT. Any later official-action UAT requires the current active mapped Machine Manager to use the owner-approved manager-only account and personally complete the fresh action-bound TOTP step-up; a Super Admin, Scoped Admin, agent, shared session, email, scheduler, or GPT identity is invalid evidence.
 - Confirm customer-email and automation tests use synthetic addresses unless the sponsor approved a real pilot case.
 - Do not capture customer names, contact details, card digits, payout contacts, complaint text, raw provider identifiers/payloads, Gmail content, or secrets in screenshots or notes.
 - Do not use `?demo=on` as functional evidence. Demo mode is for visual review only.
@@ -40,20 +41,21 @@ Pass only if every boundary holds. Any access leak stops the pilot.
 
 ## B. Ordinary matched card case
 
-1. Open a prepared high-confidence card case.
-2. Without coaching, ask the manager what they believe the next action is.
-3. Confirm the screen shows the customer request beside the **Recommended card sale** on a typical laptop viewport.
-4. Confirm the explanation includes the mapped location/machine, amount, local time difference, card-last-four evidence when available, and any wallet warning without exposing raw provider IDs or internal score points.
-5. Confirm alternate candidates, timeline, internal notes, and retry tools are not competing with the normal path.
-6. Confirm exactly one dominant action is visible: **Refund $X and notify customer**. No manual status or decision selector should be required on this path.
-7. Clear the selected sale. Confirm the old refund action disappears immediately and an unsaved candidate cannot expose final refund execution.
-8. Re-select the recommended sale and use **Confirm this card sale**. Confirm execution eligibility appears only after the server saves the manager confirmation.
-9. Open the refund confirmation. Confirm it restates location, machine, transaction time, amount, card last four, and the completion-email preview.
-10. Choose **Go back**. Confirm no provider call, case completion, or email occurs.
-11. Reopen the confirmation and submit once:
-    - In shadow mode, confirm the safe blocked result keeps the case open and sends no completion email.
-    - In an approved `#430` execution pilot, confirm the button disables while processing and provider-confirmed success produces one receipt, one completed case, and one customer email.
-12. Refresh the page and confirm the durable state is correct.
+1. Open a prepared high-confidence card case through its canonical `/refunds?case=<case-id>` link. Confirm opening the link, selecting the row, changing filters, and the initial render cause zero Nayax lookup, official-action, case-update, customer-message, or provider calls.
+2. Choose **Check Nayax transaction**. Confirm this explicit control starts exactly one lookup and **Refresh** was not available before the first result.
+3. Without coaching, ask the manager what they believe the next action is.
+4. Confirm the screen shows the customer request beside the **Recommended card sale** on a typical laptop viewport.
+5. Confirm the explanation includes the mapped location/machine, amount, local time difference, card-last-four evidence when available, and any wallet warning without exposing raw provider IDs or internal score points.
+6. Confirm alternate candidates, timeline, internal notes, and retry tools are not competing with the normal path.
+7. Confirm exactly one dominant evidence action is visible: **Save possible transaction**. No approval, payment, manual card-success status, or editable approval/completion email selector is available from candidate selection.
+8. Clear the selected sale. Confirm the old refund action disappears immediately and an unsaved candidate cannot expose final refund execution.
+9. Re-select the recommended sale and use **Save possible transaction**. Confirm the dialog says it saves review evidence only and explicitly says **No refund has been issued**. The case remains in review with no decision or customer email.
+10. In the current containment build, confirm saving evidence alone exposes no refund action. In the future approved lifecycle, the separate manager decision must freeze the exact reviewed transaction and amount.
+11. In the synthetic official-action harness, freeze that separate action and personally complete the fresh challenge for the owner-approved TOTP factor. Confirm stale, same-second, replayed, shared/agent-session, mapping/case/evidence-drift, and concurrent attempts fail closed.
+12. Submit the separate approved refund action once:
+    - In current shadow mode, confirm the statically disabled provider result keeps the case open and sends no success or fallback email.
+    - In a future approved `#430` execution pilot, confirm the button disables while processing and only token-bound confirmed provider success atomically records one provider outcome, one completed case, and one reporting adjustment before one customer completion becomes claimable in the verified original Gmail thread with the full send-time current active mapped-manager set visibly CC'd. No separate manager completion email is created.
+13. Refresh the page and confirm the durable state is correct. Replays and repeated clicks create no second provider attempt, transition, adjustment, or email.
 
 Record time-to-decision, click/decision count, recommendation accepted yes/no, structured disagreement reason if no, and whether coaching was needed.
 
@@ -68,14 +70,14 @@ Run one prepared case for each state:
 - duplicate or already-refunded transaction
 - provider outcome unknown
 
-For each case, confirm there is one plain-language recovery action, alternate evidence stays secondary, and no enabled refund action or completion email is available. An unknown outcome must tell the manager to reconcile Nayax before retrying.
+For each case, confirm there is one plain-language recovery action, alternate evidence stays secondary, and no enabled refund action or completion email is available. Rejection, timeout, and unknown outcomes leave the case open and send no success or fallback message. Timeout/unknown requires reconciliation and never offers a blind retry.
 
 ## D. Cash/manual payout case
 
 1. Open a matched cash/Zelle case.
 2. Confirm no Nayax or card-refund action appears in the primary workflow.
 3. Confirm the current state has one dominant next action and denial/missing-information choices are behind **Other decisions**.
-4. Approve the cash refund. Confirm the approval email and next step are clear; Bloomjoy Hub must not claim it sent the external payout.
+4. In the synthetic official-action harness, approve the cash/manual path only as the current mapped Machine Manager after the fresh action-bound TOTP step-up. If a human-reviewed non-success status message is deliberately sent, confirm it is humble, stays in the original Gmail thread with the full current mapped-manager CC set, and does not claim that the external payout was sent.
 5. After the approved manual payout is actually sent, enter:
    - refund amount no greater than the recorded customer payment
    - payment sent date/time
@@ -83,17 +85,17 @@ For each case, confirm there is one plain-language recovery action, alternate ev
    - the explicit **payment was sent** confirmation
 6. Confirm account/routing/card/contact/credential-like values are rejected.
 7. Open the final confirmation and verify the amount, time, reference summary, and customer-email preview.
-8. Submit once and confirm one completion, one redacted audit event, one reporting adjustment when eligible, and one customer email.
+8. Submit once and confirm one completion, one redacted audit event, one reporting adjustment when eligible, and one customer email in the original Gmail thread with the full send-time current active mapped-manager set visibly CC'd.
 9. Repeat/double-submit and confirm no duplicate state change, audit event, adjustment, or email.
 10. Run one denied or missing-information cash case and confirm no reporting adjustment is created.
 
 ## E. Communications and recovery
 
-1. Verify acknowledgement and more-information message state from the case.
-2. Preview approval, denial, and completion copy. Confirm it is empathetic, includes the case reference, and does not overpromise timing or approval.
-3. Simulate a failed send and confirm the case remains accurate with one clear retry path.
-4. Simulate an uncertain send and confirm the manager is told to reconcile the mailbox before retrying.
-5. Confirm a retry produces no duplicate customer message.
+1. Verify exactly-once acknowledgement and deterministic more-information/follow-up message state from the case.
+2. Preview human-reviewed denial copy only after a valid official denial, and preview the DB-owned provider-success completion separately. Confirm the copy is humble, includes the case reference, does not overpromise, and never treats card approval as customer success.
+3. Simulate a known failed send and confirm the case remains accurate with one deliberate recovery path.
+4. Simulate an uncertain send and confirm the manager is told to reconcile the mailbox; no blind retry is offered.
+5. Confirm deliberate recovery after a known failure produces no duplicate customer message, and provider completion never creates a duplicate manager-only notice.
 6. Confirm automation health is understandable to the manager without exposing run ledgers or customer data.
 
 ## F. Mobile and keyboard check
@@ -109,7 +111,7 @@ For each case, confirm there is one plain-language recovery action, alternate ev
 - A normal card case needs one transaction confirmation and one refund confirmation, not manual status editing.
 - Unsafe card states fail closed.
 - Cash completion records a manual payout without storing sensitive payment data.
-- Provider success is required before case completion and customer success email.
+- Token-bound confirmed provider success plus atomic case/reporting completion is required before the one original-thread customer success email with the full current active mapped-manager CC set.
 - Access, emails, audit history, reporting, and duplicate controls behave consistently after refresh.
 - The manager completes three consecutive ordinary cases without PM/backchannel help and with fewer manual decisions than the legacy workflow.
 

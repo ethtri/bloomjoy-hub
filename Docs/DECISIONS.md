@@ -1,5 +1,19 @@
 # Decisions
 
+## 2026-08-11 - The first refund-assistant pilot is email-only and attachment-free (`#707`, `#757`, `#758`)
+
+The first controlled pilot is limited to the designated support mailbox and the Bloomjoy hosted form. EasyText and the SMS Google Form remain unchanged. The Hub is the system of record; Gmail is intake and reply transport only.
+
+- One generic acknowledgement may send in the original thread before machine mapping and carries no manager CC. Every case-specific message requires the full current mapped-manager CC route.
+- The private email link completes the originating draft case and cannot be replayed. Website/email duplicates are held for manager reconciliation instead of creating competing payment work.
+- Attachments are off for this pilot. The public form has no file control, hosted intake rejects attachment bytes, and Gmail copies no attachment metadata or bytes. This supersedes the earlier quarantine-only attachment rule until scanning, retention, and download access receive separate approval.
+- Managers receive a separate sanitized notice with the exact portal case link only when action, aging, or an exception needs their attention. Customer-facing messages never contain that private portal link.
+- Choosing a possible Nayax transaction records evidence only. It does not approve, pay, close, or email the customer. Only a currently mapped Machine Manager may perform an official action after a fresh action-bound TOTP challenge.
+- Only token-bound confirmed provider success may complete a card case, create the reporting adjustment, and authorize the one original-thread completion receipt. Rejection, timeout, or unknown outcome leaves a persistent hold and forbids blind retry, fallback payment, and success copy.
+- The completion receipt states the exact amount, masked card destination when available, action date, and that the bank may take up to 4 business days to show the credit. Internal denial notes are never copied into customer mail.
+
+Production Gmail, automatic customer contact, official actions, and live Nayax execution remain independently disabled until the release gates and owner-controlled pilot proof pass.
+
 ## 2026-08-11 - Refund product category comes from the selected machine (`#753`)
 
 The hosted refund form does not ask the customer to identify a product or selection. The selected machine already determines whether the purchase is a phone case or cotton candy, so a separate customer answer would add effort without improving transaction matching.

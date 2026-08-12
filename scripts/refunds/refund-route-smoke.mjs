@@ -17,6 +17,14 @@ export const refundRouteSmokeExpectations = Object.freeze([
   { slug: 'nayax-card-refund', expectedStatus: 200 },
 ]);
 
+// These owner-authenticated manager endpoints are present in the pending
+// integrated release inventory, but are not part of the established eight-route
+// production OPTIONS smoke until their separate reviewed deployment is approved.
+export const refundRouteSmokeExcludedFunctionSlugs = Object.freeze([
+  'refund-manager-action-step-up',
+  'refund-manager-totp-enrollment',
+]);
+
 const usage = () => {
   console.error(
     'Usage: npm run refunds:smoke-routes -- --project-ref <project-ref> --confirm-project-ref <project-ref>\n' +
@@ -117,8 +125,14 @@ export const runRefundRouteSmoke = async ({
   }
 
   const expectedSlugs = refundRouteSmokeExpectations.map(({ slug }) => slug);
-  if (JSON.stringify(expectedSlugs) !== JSON.stringify(requiredFunctionSlugs)) {
-    throw new Error('Route smoke expectations do not match the approved refund release function order.');
+  const accountedReleaseSlugs = [
+    ...expectedSlugs,
+    ...refundRouteSmokeExcludedFunctionSlugs,
+  ];
+  if (JSON.stringify(accountedReleaseSlugs) !== JSON.stringify(requiredFunctionSlugs)) {
+    throw new Error(
+      'Route smoke probes and explicit pending-endpoint exclusions do not match the refund release function order.'
+    );
   }
 
   const results = await Promise.all(

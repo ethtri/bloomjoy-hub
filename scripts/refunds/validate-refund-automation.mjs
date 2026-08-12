@@ -12,7 +12,13 @@ const checks = [];
 const check = (name, condition) => checks.push({ name, pass: Boolean(condition) });
 
 const migration = read('supabase/migrations/202607210005_refund_automation_scheduler_health.sql');
+const followUpMigration = read('supabase/migrations/202608030005_refund_deterministic_follow_up_cycles.sql');
+const managerAgingMigration = read('supabase/migrations/202608040001_refund_manager_aging_reminders.sql');
 const sweep = read('supabase/functions/refund-case-automation-sweep/index.ts');
+const intake = read('supabase/functions/refund-case-intake/index.ts');
+const deterministicFollowUp = read('supabase/functions/_shared/refund-deterministic-follow-up.ts');
+const gmailTransport = read('supabase/functions/_shared/refund-gmail-transport.ts');
+const managerNotification = read('supabase/functions/_shared/refund-manager-notification.ts');
 const schedulerWorkflow = read('.github/workflows/refund-automation-sweep.yml');
 const healthWorkflow = read('.github/workflows/refund-automation-health.yml');
 
@@ -43,6 +49,68 @@ check(
     sweep.includes('automation_disabled')
 );
 check(
+  'Automatic customer contact requires both the environment gate and the database kill switch',
+  deterministicFollowUp.includes('REFUND_AUTOMATIC_CUSTOMER_CONTACT_ENABLED') &&
+    sweep.includes('automaticCustomerContactAllowed') &&
+    sweep.includes('.from("refund_customer_contact_settings")') &&
+    intake.includes('automaticCustomerContactAllowed') &&
+    intake.includes('.from("refund_customer_contact_settings")') &&
+    followUpMigration.includes('automatic_customer_contact_enabled boolean not null default false') &&
+    followUpMigration.includes("raise exception 'Automatic customer contact is disabled'")
+);
+check(
+  'Deterministic follow-up claims are bounded, versioned, and service-only',
+  followUpMigration.includes('create table if not exists public.refund_follow_up_cycles') &&
+    followUpMigration.includes('cycle_number between 1 and 2') &&
+    followUpMigration.includes("template_version = 'refund_follow_up_v1'") &&
+    followUpMigration.includes('service_claim_refund_follow_up_cycle') &&
+    followUpMigration.includes('service_claim_due_refund_follow_up_reminders') &&
+    followUpMigration.includes('service_claim_refund_follow_up_customer_reply') &&
+    followUpMigration.includes('from public, anon, authenticated')
+);
+check(
+  'Automatic delivery revalidates kill switch, terminal state, manager CC, and source Gmail thread at transport time',
+  followUpMigration.includes('service_authorize_refund_customer_outbound') &&
+    followUpMigration.includes('service_claim_refund_gmail_outbound_v3') &&
+    followUpMigration.includes("'source_thread_required'") &&
+    followUpMigration.includes("'automatic_contact_disabled'") &&
+    followUpMigration.includes("'terminal_case'") &&
+    followUpMigration.includes('p_target_gmail_thread_id') &&
+    followUpMigration.includes('from public, anon, authenticated, service_role') &&
+    gmailTransport.includes('service_claim_refund_gmail_outbound_v3') &&
+    gmailTransport.includes('p_target_gmail_thread_id: gmailThreadId') &&
+    sweep.includes('resolveFollowUpGmailThreadId')
+);
+check(
+  'Abandoned customer-delivery claims fail closed into durable manager review without blind resend',
+  followUpMigration.includes('service_settle_stale_refund_follow_up_claims') &&
+    followUpMigration.includes("status = 'delivery_unknown'") &&
+    followUpMigration.includes("'refund_follow_up_delivery_reconciled'") &&
+    followUpMigration.includes("'known_gmail_delivery_reconciled'") &&
+    followUpMigration.includes("status = 'manual_review'") &&
+    followUpMigration.includes("'refund_follow_up_claim_settled'") &&
+    sweep.includes('settleStaleFollowUpClaims(counters)') &&
+    sweep.includes('stale_follow_up_claim_settled')
+);
+check(
+  'Reminder and verified-customer reply workers consume the exact database contract',
+  sweep.includes('Array.isArray(claim.reminders) ? claim.reminders : []') &&
+    sweep.includes('.in("status", ["waiting", "customer_replied"])') &&
+    sweep.includes('.is("recheck_claimed_at", null)') &&
+    !sweep.includes('.is("reply_message_id", null)') &&
+    followUpMigration.includes("message.participant_role = 'customer'") &&
+    followUpMigration.includes("message.participant_trust = 'verified'") &&
+    followUpMigration.includes("message.message_kind = 'message'") &&
+    followUpMigration.includes('message.content_deleted_at is null')
+);
+check(
+  'Provider exceptions are redacted manager-only actions',
+  sweep.includes('service_claim_refund_provider_exception_action') &&
+    sweep.includes('No customer or payment action was taken by this notice.') &&
+    followUpMigration.includes("'provider_exception'") &&
+    followUpMigration.includes("'payload_redacted', true")
+);
+check(
   'Customer-touching work is constrained to a named local policy window',
   sweep.includes('REFUND_AUTOMATION_TIMEZONE') &&
     sweep.includes('REFUND_AUTOMATION_START_HOUR') &&
@@ -55,14 +123,16 @@ check(
   sweep.includes('service_claim_refund_automation_action') &&
     sweep.includes('nayax_lookup:') &&
     sweep.includes('reminder:') &&
-    sweep.includes('escalation:') &&
+    sweep.includes('manager_aging:') &&
+    managerAgingMigration.includes("'manager_reminder'") &&
+    managerAgingMigration.includes("'manager_escalation'") &&
     sweep.includes('ops_alert:')
 );
 check(
   'The response and alert paths expose aggregate redacted fields only',
   sweep.includes('payloadRedacted: true') &&
     sweep.includes('reasonCounts') &&
-    sweep.includes('Customer PII, payment details, complaint text, and provider payloads are intentionally omitted')
+    managerNotification.includes('Customer PII, payment details, complaint text, and provider payloads are intentionally omitted')
 );
 check(
   'A safe failure-test mode exercises the ops alert without customer actions',

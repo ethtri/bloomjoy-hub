@@ -15,12 +15,17 @@ import {
   calculateMigrationVersionSetDigest,
   compareCaptureState,
   comparePreMigrationCompatibilityState,
+  compareLocalState,
   compareProductionState,
   discoverRefundMigrationFiles,
+  manifestPath,
   parseFunctionDeploymentConfig,
+  prepareManifestForLocalRefresh,
+  repoRoot,
   requiredFunctionSlugs,
   sanitizeProductionMetadata,
   validateManifestShape,
+  validateReleaseManifestGitAnchorState,
 } from './refund-release.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -39,32 +44,41 @@ assert.match(
 );
 assert.match(
   productionRunbook,
-  /exact expected 13-row mismatch[\s\S]*five approved repository sources[\s\S]*all eight deployed versions/,
-  'The compatibility bridge must name the complete expected production mismatch shape'
+  /PR `#760`[\s\S]*ten manifest-tracked Refund Operations functions[\s\S]*41 required refund\/Nayax migrations/,
+  'The runbook must name the current production-readiness release shape'
 );
 
-const bridgeStart = productionRunbook.indexOf('#### #629/#716 bridge override');
-const commerceStart = productionRunbook.indexOf('Commerce cutover order is fail-closed', bridgeStart);
-assert(bridgeStart >= 0 && commerceStart > bridgeStart, 'The bridge override must precede commerce cutover');
-const bridgeDeployBlock = productionRunbook.slice(bridgeStart, commerceStart);
+const refundDeployStart = productionRunbook.indexOf('Before deploying Refund Operations functions');
+const refundDeployEnd = productionRunbook.indexOf(
+  'After deploying the ten manifest-tracked Refund Operations functions',
+  refundDeployStart
+);
+assert(
+  refundDeployStart >= 0 && refundDeployEnd > refundDeployStart,
+  'The runbook must contain the reviewed Refund Operations deployment block'
+);
+const refundDeployBlock = productionRunbook.slice(refundDeployStart, refundDeployEnd);
 let previousDeployIndex = -1;
 for (const slug of requiredFunctionSlugs) {
-  const deployIndex = bridgeDeployBlock.indexOf(`supabase functions deploy ${slug} --no-verify-jwt`);
-  assert(deployIndex > previousDeployIndex, `Bridge deploy order is missing or out of order for ${slug}`);
+  const deployIndex = refundDeployBlock.indexOf(`supabase functions deploy ${slug} --no-verify-jwt`);
+  assert(
+    deployIndex > previousDeployIndex,
+    `Refund Operations deploy order is missing or out of order for ${slug}`
+  );
   previousDeployIndex = deployIndex;
 }
 
 for (const requiredFailClosedControl of [
-  'do not execute any mutating Step A command until bridge steps 1-4',
-  'NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO MICRO_CHECKOUT_ENABLED --yes',
+  'NAYAX_REFUND_EXECUTION_ENABLED=false',
+  'NAYAX_REFUND_EXECUTION_DRY_RUN=true',
+  'NAYAX_REFUND_EXECUTION_KILL_SWITCH=true',
+  'NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false',
+  'Do not set `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO`',
   'REFUND_AUTOMATION_ENABLED=false',
   'REFUND_GMAIL_ENABLED=false',
   'REFUND_GPT_TRIAGE_ENABLED=false',
   'OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false',
-  'REFUND_AUTOMATION_SWEEP_ENABLED --repo ethtri/bloomjoy-hub --body false',
-  'REFUND_GMAIL_SYNC_ENABLED --repo ethtri/bloomjoy-hub --body false',
-  'REFUND_GPT_TRIAGE_SYNC_ENABLED --repo ethtri/bloomjoy-hub --body false',
-  'update public.refund_gpt_triage_settings set enabled = false',
+  'official-action database gate and production Nayax provider adapter remain statically disabled',
 ]) {
   assert(
     productionRunbook.includes(requiredFailClosedControl),
@@ -72,31 +86,30 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 26 current required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 41 current required refund\/Nayax migrations/);
 assert.match(
   cutoverPacket,
-  /exact expected standard production mismatch \(five unpaired reviewed sources plus eight version-only differences, and no other failure\)/
+  /all ten manifest-tracked Refund Operations functions/
 );
-const bridgeSmokeOrder = cutoverPacket.indexOf(
-  'For the `#629/#716` bridge, use this exact post-deployment order:'
-);
-const routeSmoke = cutoverPacket.indexOf('Run the no-auth route smoke', bridgeSmokeOrder);
-const publicOptionsSmoke = cutoverPacket.indexOf('Run the aggregate public-options smoke', routeSmoke);
+assert.match(cutoverPacket, /historical `#629\/#716` five-migration bridge does not apply/);
+const smokeOrder = cutoverPacket.indexOf('Use this exact post-deployment order:');
+const routeSmoke = cutoverPacket.indexOf('refunds:smoke-routes', smokeOrder);
+const publicOptionsSmoke = cutoverPacket.indexOf('refunds:smoke-public-options', routeSmoke);
 const captureManifest = cutoverPacket.indexOf(
-  'Capture production metadata, update and independently review the manifest-only change',
+  'Capture production function metadata, update and independently review the manifest-only change',
   publicOptionsSmoke
 );
 const cleanDrift = cutoverPacket.indexOf(
-  'Verify the standard production drift check passes against that final manifest',
+  'require the standard production drift check to pass for all ten functions',
   captureManifest
 );
 assert(
-  bridgeSmokeOrder >= 0 &&
-    routeSmoke > bridgeSmokeOrder &&
+  smokeOrder >= 0 &&
+    routeSmoke > smokeOrder &&
     publicOptionsSmoke > routeSmoke &&
     captureManifest > publicOptionsSmoke &&
     cleanDrift > captureManifest,
-  'The bridge smoke order must be routes, public options, capture/review, then clean production drift'
+  'The smoke order must be routes, public options, capture/review, then clean production drift'
 );
 assert.doesNotMatch(
   cutoverPacket,
@@ -106,8 +119,91 @@ assert.doesNotMatch(
 
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-release-test-'));
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
+const reviewedManagerSourceSha256 = {
+  'refund-manager-action-step-up':
+    '5f98adb0346837b1129271a9415091f064c4cc12cca0bb9ed6443bb33259938d',
+  'refund-manager-totp-enrollment':
+    'aba46b82064ab5b26f31cf02349f24db780797a8aff3970dea1ef6f8996a93ca',
+};
 
 try {
+  assert.equal(requiredFunctionSlugs.length, 10, 'Refund release inventory must cover exactly ten functions');
+  assert.deepEqual(
+    requiredFunctionSlugs.slice(-2),
+    ['refund-manager-action-step-up', 'refund-manager-totp-enrollment'],
+    'Manager step-up and TOTP enrollment must be in the release inventory'
+  );
+  const repositoryManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  validateManifestShape(repositoryManifest);
+  assert.match(
+    repositoryManifest.sourceGitCommit,
+    /^[a-f0-9]{40}$/,
+    'Integrated release source commit must be a full immutable Git SHA'
+  );
+  const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
+  assert.equal(
+    repositoryMigrations.length,
+    41,
+    'Refund release inventory must cover exactly 41 discovered refund/Nayax migrations'
+  );
+  assert(
+    repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
+    'Provider orchestration migration must be in the discovered release inventory'
+  );
+  assert.deepEqual(
+    repositoryManifest.requiredMigrations,
+    repositoryMigrations,
+    'Repository manifest must list every discovered refund/Nayax migration in order'
+  );
+  assert.equal(
+    repositoryManifest.functions.length,
+    10,
+    'Repository release manifest must contain exactly ten functions'
+  );
+  const repositoryLocalState = buildLocalReleaseState(repoRoot, repositoryManifest);
+  assert.deepEqual(
+    compareLocalState(repositoryManifest, repositoryLocalState),
+    [],
+    'Repository function and migration digests must align with the anchored manifest'
+  );
+  for (const managerSlug of ['refund-manager-action-step-up', 'refund-manager-totp-enrollment']) {
+    const localEntry = repositoryManifest.functions.find((entry) => entry.slug === managerSlug);
+    const localStateEntry = repositoryLocalState.functions.find((entry) => entry.slug === managerSlug);
+    assert(localStateEntry, `${managerSlug} must be present in the local release state`);
+    assert.equal(
+      localStateEntry.sourceSha256,
+      reviewedManagerSourceSha256[managerSlug],
+      `${managerSlug} local source must match its independently reviewed digest`
+    );
+    const baselineEntry = repositoryManifest.preDeploymentProduction.find(
+      (entry) => entry.slug === managerSlug
+    );
+    const restoreEntry = repositoryManifest.approvedRestoreSource.functions.find(
+      (entry) => entry.slug === managerSlug
+    );
+    assert.equal(localEntry.verifyJwt, false, `${managerSlug} must keep verify_jwt disabled`);
+    assert.equal(
+      localEntry.sourceSha256,
+      reviewedManagerSourceSha256[managerSlug],
+      `${managerSlug} manifest source must match its independently reviewed digest`
+    );
+    assert(
+      localEntry.production &&
+        localEntry.production.version === 1 &&
+        localEntry.production.sourceSha256 === reviewedManagerSourceSha256[managerSlug],
+      `${managerSlug} must record its deployed v1 source pairing`
+    );
+    assert.deepEqual(
+      baselineEntry,
+      { slug: managerSlug, status: 'MISSING' },
+      `${managerSlug} must retain an explicit missing pre-deployment baseline`
+    );
+    assert.deepEqual(
+      restoreEntry,
+      { slug: managerSlug, restoreAction: 'disable' },
+      `${managerSlug} rollback must disable the newly introduced function`
+    );
+  }
   fs.mkdirSync(path.join(functionsRoot, 'example'), { recursive: true });
   fs.mkdirSync(path.join(functionsRoot, '_shared'), { recursive: true });
   fs.writeFileSync(
@@ -188,10 +284,122 @@ try {
     },
   };
   validateManifestShape(shapeManifest);
-  const fixtureLocalState = buildLocalReleaseState(fixtureRoot, shapeManifest);
+  const fixtureManifestPath = 'scripts/refunds/refund-production-release.json';
+  const validAnchorState = {
+    manifest: shapeManifest,
+    headGitCommit: 'c'.repeat(40),
+    sourceCommitExists: true,
+    sourceIsAncestor: true,
+    worktreeIsClean: true,
+    changedPaths: [fixtureManifestPath],
+    manifestRelativePath: fixtureManifestPath,
+  };
+  assert.deepEqual(
+    validateReleaseManifestGitAnchorState(validAnchorState),
+    {
+      sourceGitCommit: 'a'.repeat(40),
+      anchorGitCommit: 'c'.repeat(40),
+      changedPaths: [fixtureManifestPath],
+    },
+    'A final release anchor must be exactly one manifest-only commit after its source'
+  );
+  assert.throws(
+    () => validateReleaseManifestGitAnchorState({
+      ...validAnchorState,
+      manifest: { ...shapeManifest, sourceGitCommit: 'pending' },
+    }),
+    /sourceGitCommit is invalid/,
+    'A pending source commit must fail once the release is anchored'
+  );
+  assert.throws(
+    () => validateReleaseManifestGitAnchorState({
+      ...validAnchorState,
+      headGitCommit: 'not-a-commit',
+    }),
+    /anchor Git commit is invalid/,
+    'An invalid release-anchor commit must fail closed'
+  );
+  assert.throws(
+    () => validateReleaseManifestGitAnchorState({
+      ...validAnchorState,
+      sourceCommitExists: false,
+    }),
+    /does not exist as a Git commit/,
+    'A wrong or missing source commit must fail closed'
+  );
+  assert.throws(
+    () => validateReleaseManifestGitAnchorState({
+      ...validAnchorState,
+      sourceIsAncestor: false,
+    }),
+    /not an ancestor/,
+    'A stale source outside the current release ancestry must fail closed'
+  );
+  assert.throws(
+    () => validateReleaseManifestGitAnchorState({
+      ...validAnchorState,
+      worktreeIsClean: false,
+    }),
+    /require a clean Git worktree/,
+    'A dirty release anchor must fail before release validation'
+  );
+  assert.throws(
+    () => validateReleaseManifestGitAnchorState({
+      ...validAnchorState,
+      headGitCommit: shapeManifest.sourceGitCommit,
+      changedPaths: [],
+    }),
+    /Only the refund production release manifest may differ/,
+    'The source commit cannot also serve as its own manifest anchor'
+  );
+  assert.throws(
+    () => validateReleaseManifestGitAnchorState({
+      ...validAnchorState,
+      changedPaths: ['supabase/functions/refund-case-intake/index.ts'],
+    }),
+    /Only the refund production release manifest may differ/,
+    'A wrong-path-only anchor must fail closed'
+  );
+  assert.throws(
+    () => validateReleaseManifestGitAnchorState({
+      ...validAnchorState,
+      changedPaths: [fixtureManifestPath, 'supabase/functions/refund-case-intake/index.ts'],
+    }),
+    /Only the refund production release manifest may differ/,
+    'Any source change between the approved source and manifest anchor must fail closed'
+  );
+  assert.throws(
+    () => validateReleaseManifestGitAnchorState({
+      ...validAnchorState,
+      changedPaths: [],
+    }),
+    /Only the refund production release manifest may differ/,
+    'A source commit without a separate manifest-only anchor must fail closed'
+  );
+  const refreshLocalStateManifest = prepareManifestForLocalRefresh(shapeManifest, {
+    worktreeIsClean: true,
+  });
+  assert.equal(
+    refreshLocalStateManifest.sourceGitCommit,
+    'pending',
+    'Manifest refresh may bypass only the stale approved-source comparison'
+  );
+  assert.deepEqual(
+    Object.keys(shapeManifest).filter(
+      (key) => JSON.stringify(shapeManifest[key]) !== JSON.stringify(refreshLocalStateManifest[key])
+    ),
+    ['sourceGitCommit'],
+    'Manifest refresh must preserve inventory, configuration, and every existing digest input'
+  );
+  assert.throws(
+    () => prepareManifestForLocalRefresh(shapeManifest, { worktreeIsClean: false }),
+    /requires a clean source worktree/,
+    'A dirty source worktree must never enter manifest refresh mode'
+  );
+  const fixtureLocalState = buildLocalReleaseState(fixtureRoot, refreshLocalStateManifest);
   assert.equal(fixtureLocalState.functions.length, requiredFunctionSlugs.length);
   const updatedLocalManifest = buildUpdatedLocalManifest(
-    { ...shapeManifest, sourceGitCommit: 'pending' },
+    refreshLocalStateManifest,
     fixtureLocalState,
     'c'.repeat(40)
   );
@@ -201,6 +409,20 @@ try {
     'Local manifest refresh must bind the approved source to the current immutable commit'
   );
   validateManifestShape(updatedLocalManifest);
+  assert.deepEqual(
+    compareLocalState(updatedLocalManifest, fixtureLocalState),
+    [],
+    'A refreshed manifest must align every function and migration digest'
+  );
+  const staleDigestManifest = {
+    ...updatedLocalManifest,
+    migrationFilesSha256: 'd'.repeat(64),
+  };
+  assert.match(
+    compareLocalState(staleDigestManifest, fixtureLocalState).join('\n'),
+    /migration source differs/,
+    'A stale migration source digest must fail local release alignment'
+  );
 
   const disableOnlySlug = 'refund-gmail-sync';
   const disableOnlyIndex = requiredFunctionSlugs.indexOf(disableOnlySlug);
@@ -211,6 +433,22 @@ try {
     restoreAction: 'disable',
   };
   validateManifestShape(disableOnlyRestoreManifest);
+
+  for (const managerSlug of ['refund-manager-action-step-up', 'refund-manager-totp-enrollment']) {
+    const managerIndex = requiredFunctionSlugs.indexOf(managerSlug);
+    assert.notEqual(managerIndex, -1, `${managerSlug} must be covered by the refund release allowlist`);
+    const managerDisableManifest = structuredClone(shapeManifest);
+    managerDisableManifest.approvedRestoreSource.functions[managerIndex] = {
+      slug: managerSlug,
+      restoreAction: 'disable',
+    };
+    validateManifestShape(managerDisableManifest);
+    assert.equal(
+      managerDisableManifest.preDeploymentProduction[managerIndex].status,
+      'MISSING',
+      `${managerSlug} must retain an explicit missing pre-deployment baseline`
+    );
+  }
 
   const invalidDisableRestoreManifest = structuredClone(disableOnlyRestoreManifest);
   invalidDisableRestoreManifest.approvedRestoreSource.functions[disableOnlyIndex].sourceSha256 =
