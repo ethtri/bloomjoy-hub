@@ -134,13 +134,17 @@ select ok(
 
 select is(
   (select cleanup_enabled from public.refund_gmail_retention_settings where singleton),
-  false,
-  'Production cleanup policy defaults off'
+  true,
+  'The reviewed production cleanup policy records owner approval'
 );
 select is(
   (select approved_retention_days from public.refund_gmail_retention_settings where singleton),
-  null,
-  'The proposed 180-day duration is not silently owner-approved'
+  180,
+  'The reviewed production cleanup policy records exactly 180 days'
+);
+select ok(
+  (select owner_approved_at is not null from public.refund_gmail_retention_settings where singleton),
+  'The reviewed production cleanup policy has an approval record'
 );
 select is(
   (select attachment_quarantine_approved from public.refund_gmail_retention_settings where singleton),
@@ -208,19 +212,19 @@ create temporary table default_off_run as
 select public.service_claim_refund_gmail_retention_run(
   'retention:github-retention:1001:1',
   'retention',
-  true,
+  false,
   'refund_gmail_retention_v1'
 ) as result;
 
 select is(
   (select result ->> 'status' from default_off_run),
   'suppressed',
-  'Cleanup is suppressed until the owner policy is approved'
+  'Cleanup is suppressed while the independent worker switch is off'
 );
 select is(
   (select failure_code from public.refund_gmail_retention_runs where run_key = 'retention:github-retention:1001:1'),
-  'retention_policy_not_approved',
-  'Default-off suppression stores only a redacted reason code'
+  'retention_worker_disabled',
+  'Worker-off suppression stores only a redacted reason code'
 );
 select is(
   (

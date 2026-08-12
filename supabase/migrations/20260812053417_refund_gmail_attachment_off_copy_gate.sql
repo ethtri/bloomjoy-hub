@@ -3,6 +3,19 @@
 -- healthy cleanup state. Scanner/quarantine approval is required only when
 -- the caller can actually copy attachment metadata or bytes.
 
+-- The owner approved the 180-day sanitized-text policy on 2026-08-11 PT.
+-- Recording that decision here authorizes cleanup policy only. The worker,
+-- Gmail transport, schedules, and automatic contact retain independent
+-- server-side default-off switches.
+update public.refund_gmail_retention_settings
+set
+  cleanup_enabled = true,
+  approved_retention_days = 180,
+  owner_approved_at = coalesce(owner_approved_at, clock_timestamp()),
+  attachment_quarantine_approved = false,
+  scanner_version = null
+where singleton;
+
 create or replace function public.service_authorize_refund_gmail_copy(
   p_worker_enabled boolean,
   p_policy_version text,

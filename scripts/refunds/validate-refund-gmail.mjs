@@ -1035,6 +1035,9 @@ const retentionAuthorizeBlock = retentionMigration.slice(
 );
 assert(
   attachmentOffCopyGateMigration.includes('p_attachments_enabled boolean') &&
+    attachmentOffCopyGateMigration.includes('approved_retention_days = 180') &&
+    attachmentOffCopyGateMigration.includes('owner_approved_at = coalesce(owner_approved_at, clock_timestamp())') &&
+    attachmentOffCopyGateMigration.includes('attachment_quarantine_approved = false') &&
     attachmentOffCopyGateMigration.includes('coalesce(p_attachments_enabled, false) and (') &&
     attachmentOffCopyGateMigration.includes(
       'revoke execute on function public.service_authorize_refund_gmail_copy(boolean,text,boolean,text)',
