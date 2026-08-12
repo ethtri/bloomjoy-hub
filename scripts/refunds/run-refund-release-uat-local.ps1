@@ -1,11 +1,12 @@
 param(
   [switch]$PortalOnly,
   [switch]$QrOnly,
-  [switch]$ManagerOnly
+  [switch]$ManagerOnly,
+  [switch]$ProviderOnly
 )
 
 $ErrorActionPreference = "Stop"
-if (@($PortalOnly, $QrOnly, $ManagerOnly).Where({ $_ }).Count -gt 1) {
+if (@($PortalOnly, $QrOnly, $ManagerOnly, $ProviderOnly).Where({ $_ }).Count -gt 1) {
   throw "Choose only one focused browser suite."
 }
 $startedAt = [DateTime]::UtcNow.ToString("o")
@@ -77,7 +78,7 @@ $env:VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoi
 
 $server = $null
 try {
-  if (-not ($PortalOnly -or $QrOnly -or $ManagerOnly)) {
+  if (-not ($PortalOnly -or $QrOnly -or $ManagerOnly -or $ProviderOnly)) {
     Invoke-CheckedNpm @("run", "db:validate-migrations", "--", "--evidence-dir", $FragmentDir)
     Invoke-CheckedNpm @(
       "run",
@@ -142,6 +143,21 @@ try {
       $ArtifactDir
     )
     Write-Output "Synthetic manager-assignment diagnostics ready: $ArtifactDir"
+    return
+  }
+
+  if ($ProviderOnly) {
+    Invoke-CheckedNpm @(
+      "run",
+      "refunds:validate-portal-uat",
+      "--",
+      "--provider-outcomes-only",
+      "--app-url",
+      "http://127.0.0.1:8081",
+      "--artifact-dir",
+      $ArtifactDir
+    )
+    Write-Output "Synthetic provider-outcome diagnostics ready: $ArtifactDir"
     return
   }
 

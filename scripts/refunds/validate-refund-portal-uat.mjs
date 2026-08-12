@@ -41,6 +41,7 @@ const parseArgs = (argv) => {
     runToken: process.env.REFUND_UAT_EVIDENCE_RUN_TOKEN || '',
     headed: false,
     managerStepUpOnly: false,
+    providerOutcomesOnly: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -53,6 +54,11 @@ const parseArgs = (argv) => {
 
     if (arg === '--manager-step-up-only') {
       args.managerStepUpOnly = true;
+      continue;
+    }
+
+    if (arg === '--provider-outcomes-only') {
+      args.providerOutcomesOnly = true;
       continue;
     }
 
@@ -105,7 +111,7 @@ const parseArgs = (argv) => {
   args.appUrl = args.appUrl.replace(/\/+$/, '');
   args.artifactDir = path.resolve(process.cwd(), args.artifactDir);
   args.fragmentDir = path.resolve(process.cwd(), args.fragmentDir);
-  if (!args.managerStepUpOnly) requireEvidenceRunToken(args.runToken);
+  if (!args.managerStepUpOnly && !args.providerOutcomesOnly) requireEvidenceRunToken(args.runToken);
   return args;
 };
 
@@ -830,6 +836,7 @@ const installMockSupabaseRoutes = async (
   } = {}
 ) => {
   const officialActionVersions = new Map();
+  let nayaxSettlementCompleted = false;
   const withOfficialActionState = (overview) => ({
     ...overview,
     cases: (overview.cases ?? []).map((refundCase) => {
@@ -973,20 +980,22 @@ const installMockSupabaseRoutes = async (
       if (nayaxCardRefundDelayMs > 0) {
         await new Promise((resolve) => setTimeout(resolve, nayaxCardRefundDelayMs));
       }
+      const responseBody = nayaxCardRefundResponse ?? {
+        executed: false,
+        status: 'preflight_blocked',
+        errorCode: 'feature_disabled',
+        blocks: ['feature_disabled'],
+        dryRun: true,
+        killSwitchActive: true,
+        message: 'Card refund execution is disabled for this pilot environment.',
+      };
+      if (responseBody.executed === true && responseBody.status === 'succeeded') {
+        nayaxSettlementCompleted = true;
+      }
       return route.fulfill({
         status: nayaxCardRefundStatus,
         contentType: 'application/json',
-        body: JSON.stringify(
-          nayaxCardRefundResponse ?? {
-            executed: false,
-            status: 'preflight_blocked',
-            errorCode: 'feature_disabled',
-            blocks: ['feature_disabled'],
-            dryRun: true,
-            killSwitchActive: true,
-            message: 'Card refund execution is disabled for this pilot environment.',
-          }
-        ),
+        body: JSON.stringify(responseBody),
       });
     }
 
@@ -1287,7 +1296,27 @@ const installMockSupabaseRoutes = async (
     }
 
     if (url.includes('/admin_get_refund_operations_overview')) {
-      return route.fulfill(jsonResponse(withOfficialActionState(refundOverview())));
+      const currentOverview = refundOverview();
+      const settledOverview = nayaxSettlementCompleted
+        ? {
+            ...currentOverview,
+            cases: currentOverview.cases.map((refundCase) =>
+              refundCase.id === 'case-card-1'
+                ? {
+                    ...refundCase,
+                    status: 'completed',
+                    decision: 'approved',
+                    providerHold: false,
+                    latestCustomerMessageStatus: 'sent',
+                    latestCustomerMessageType: 'completed',
+                    customerCommunicationStatus: 'sent',
+                    updatedAt: now.toISOString(),
+                  }
+                : refundCase
+            ),
+          }
+        : currentOverview;
+      return route.fulfill(jsonResponse(withOfficialActionState(settledOverview)));
     }
 
     if (url.includes('/admin_update_refund_case')) {
@@ -3629,6 +3658,14 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
         (scenario.name !== 'success' ||
           await page.getByText('Confirmation: NAYAX-PROVIDER-REF-1').isVisible())
     );
+    if (scenario.name === 'success') {
+      recorder.assert(
+        'Successful card refund leaves no repeat action and moves the case to Completed',
+        await page.getByRole('button', { name: 'Completed 1', exact: true }).isVisible() &&
+          await page.getByRole('button', { name: 'Needs action 0', exact: true }).isVisible() &&
+          (await page.getByRole('button', { name: /Refund .* and notify customer/i }).count()) === 0
+      );
+    }
 
     if (scenario.name === 'success') evidence.providerSuccessStateCount += 1;
     else evidence.providerNonSuccessStateCount += 1;
@@ -3775,7 +3812,15 @@ const run = async () => {
 
   const browser = await chromium.launch({ headless: !args.headed });
   try {
-    if (args.managerStepUpOnly) {
+    if (args.providerOutcomesOnly) {
+      await runNayaxExecutionOutcomeChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+        evidence,
+      });
+    } else if (args.managerStepUpOnly) {
       await runManagerStepUpChecks({
         browser,
         appUrl: args.appUrl,
@@ -3865,6 +3910,17 @@ const run = async () => {
     }
   } finally {
     await browser.close();
+  }
+
+  if (args.providerOutcomesOnly) {
+    const focusedFailures = recorder.failed();
+    if (focusedFailures.length > 0) {
+      console.error(`\nRefund provider outcome UAT failed: ${focusedFailures.length} check(s).`);
+      process.exit(1);
+    }
+    console.log('\nRefund provider outcome UAT passed.');
+    console.log(`Screenshots written to ${args.artifactDir}`);
+    return;
   }
 
   if (!args.managerStepUpOnly) {
