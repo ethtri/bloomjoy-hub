@@ -63,6 +63,10 @@ const providerEvidenceProducer = read(files.providerEvidenceProducer);
 const providerOrchestrationDatabaseTest = read(files.providerOrchestrationDatabaseTest);
 const officialActionHelper = read(files.officialActionHelper);
 const fn = read(files.function);
+const availabilityBranch = fn.slice(
+  fn.indexOf('if (operation === "availability")'),
+  fn.indexOf('const caseId = sanitizeText'),
+);
 const config = read(files.config);
 const envExample = read(files.envExample);
 const preflight = read(files.commercePreflight);
@@ -147,7 +151,7 @@ assert(
 );
 assert(
   fn.includes('resolveNayaxRefundExecutionConfig') &&
-    fn.indexOf('if (!actorCanPerformOfficialAction)') <
+    fn.indexOf('if (authError || !user)') <
       fn.indexOf('const executionConfig = resolveNayaxRefundExecutionConfig') &&
     fn.indexOf('preExecutionBlocks.length > 0') <
       fn.indexOf('const idempotencyKey = await buildNayaxRefundIdempotencyKey') &&
@@ -159,6 +163,41 @@ assert(
     providerGates.includes('NAYAX_REFUND_DAILY_COUNT_CAP') &&
     providerGatesTest.includes('reports every fail-closed gate'),
   'Every rollout/configuration block, dedicated secret, executor assertion, and bounded daily cap must fail before orchestration.'
+);
+assert(
+  fn.includes('operation === "availability"') &&
+    fn.includes('resolveNayaxRefundAvailability({') &&
+    fn.includes('executionConfig,') &&
+    fn.includes('NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED') &&
+    fn.indexOf('if (authError || !user)') <
+      fn.indexOf('const operation = sanitizeText') &&
+    fn.indexOf('const operation = sanitizeText') <
+      fn.indexOf('const executionConfig = resolveNayaxRefundExecutionConfig') &&
+    fn.indexOf('operation === "availability"') <
+      fn.indexOf('const caseId = sanitizeText') &&
+    fn.indexOf('operation === "availability"') <
+      fn.indexOf('const refundCase = await getRefundCase') &&
+    fn.indexOf('operation === "availability"') <
+      fn.indexOf('await supabase.rpc(') &&
+    fn.indexOf('operation === "availability"') <
+      fn.indexOf('const idempotencyKey = await buildNayaxRefundIdempotencyKey') &&
+    fn.indexOf('operation === "availability"') <
+      fn.indexOf('await orchestrateNayaxRefund') &&
+    providerGates.includes('payloadRedacted: true') &&
+    providerGates.includes('NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = false') &&
+    providerGatesTest.includes('performs zero execution side effects'),
+  'Authenticated availability must use the already-resolved shared gates and return before case parsing, RPCs, HMAC, reservation, provider execution, orchestration, or mutation.'
+);
+assert(
+  providerGates.includes('official_actions_disabled') &&
+    providerGates.includes('kill_switch_active') &&
+    providerGates.includes('configuration_missing') &&
+    providerGates.includes('contract_unconfirmed') &&
+    !availabilityBranch.includes('...executionConfig') &&
+    !availabilityBranch.includes('executionConfig.blocks') &&
+    !availabilityBranch.includes('idempotencySecret') &&
+    !availabilityBranch.includes('executorAssertion'),
+  'Availability must collapse private configuration into the approved redacted reason enum without interpolating raw config or blocks.'
 );
 assert(
   providerGates.includes('buildNayaxRefundIdempotencyKey') &&

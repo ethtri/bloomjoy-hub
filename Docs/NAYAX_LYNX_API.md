@@ -153,6 +153,10 @@ The real `nayax-card-refund` HTTP function still always uses the disabled adapte
 
 There is intentionally no automated or internal "mark successful" resolver for timeout, pending, duplicate, already-refunded, or unknown outcomes. Without an account-confirmed read-only reconciliation contract, software cannot distinguish a completed refund from a failed one safely. These attempts stay on a durable reconciliation hold with no retry, fallback payment, reporting adjustment, or success email. A manager may inspect Nayax's Dynamic Transactions Monitor, but an audited state-changing resolver remains blocked until Nayax confirms which evidence is authoritative and how it can be retrieved without issuing another refund.
 
+### Read-only execution availability
+
+An authenticated caller may POST `{ "operation": "availability" }` to `nayax-card-refund` before rendering an execution control. This global operation evaluates the exact same resolved server configuration object and hard-off official-action gate used by execution. It returns only `{ available, status, blockReason, payloadRedacted }`, where `blockReason` is null or one of `official_actions_disabled`, `kill_switch_active`, `configuration_missing`, and `contract_unconfirmed`. It never accepts or parses a case identifier and returns before any case read, RPC, manager authorization, HMAC, attempt reservation, provider adapter, orchestration, case mutation, or customer communication. Missing or invalid configuration is collapsed into the safe reason enum; secret presence, values, caps, and raw configuration block names are never returned.
+
 ## Official Refund Contract Audit (2026-07-22)
 
 Nayax's public Lynx documentation now confirms that a card refund is a two-step operation, even if Bloomjoy presents it as one manager action:

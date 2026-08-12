@@ -24,6 +24,24 @@ export type NayaxRefundExecutionConfig = {
   executorAssertion: string | null;
 };
 
+export type NayaxRefundAvailabilityBlockReason =
+  | "official_actions_disabled"
+  | "kill_switch_active"
+  | "configuration_missing"
+  | "contract_unconfirmed";
+
+export type NayaxRefundAvailability = {
+  available: boolean;
+  status: "available" | "unavailable";
+  blockReason: NayaxRefundAvailabilityBlockReason | null;
+  payloadRedacted: true;
+};
+
+// The Nayax execution and availability paths share this hard-off gate. A
+// future enablement must also change the independent database official-action
+// gate in a separately reviewed rollout.
+export const NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = false;
+
 export type NayaxRefundIdempotencyEvidence = {
   caseId: string;
   transactionId: string;
@@ -119,6 +137,48 @@ export const resolveNayaxRefundExecutionConfig = (
     idempotencySecret,
     executorAssertion,
   };
+};
+
+export const resolveNayaxRefundAvailability = ({
+  executionConfig,
+  officialActionsEnabled,
+}: {
+  executionConfig: NayaxRefundExecutionConfig;
+  officialActionsEnabled: boolean;
+}): NayaxRefundAvailability => {
+  let blockReason: NayaxRefundAvailabilityBlockReason | null = null;
+  if (!officialActionsEnabled) {
+    blockReason = "official_actions_disabled";
+  } else if (executionConfig.blocks.includes("kill_switch_active")) {
+    blockReason = "kill_switch_active";
+  } else if (
+    executionConfig.blocks.includes("provider_contract_unconfirmed")
+  ) {
+    blockReason = "contract_unconfirmed";
+  } else if (executionConfig.blocks.length > 0) {
+    blockReason = "configuration_missing";
+  }
+
+  return {
+    available: blockReason === null,
+    status: blockReason === null ? "available" : "unavailable",
+    blockReason,
+    payloadRedacted: true,
+  };
+};
+
+export const readNayaxRefundAvailability = async ({
+  readEnv,
+  officialActionsEnabled,
+}: {
+  readEnv: (name: string) => string | undefined;
+  officialActionsEnabled: boolean;
+}) => {
+  const executionConfig = resolveNayaxRefundExecutionConfig(readEnv);
+  return resolveNayaxRefundAvailability({
+    executionConfig,
+    officialActionsEnabled,
+  });
 };
 
 const hmacSha256Hex = async (secret: string, value: string) => {

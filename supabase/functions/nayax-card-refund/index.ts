@@ -8,6 +8,8 @@ import {
 } from "../_shared/refund-official-action.ts";
 import {
   buildNayaxRefundIdempotencyKey,
+  NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
+  resolveNayaxRefundAvailability,
   resolveNayaxRefundExecutionConfig,
 } from "../_shared/nayax-refund-gates.ts";
 import {
@@ -239,6 +241,21 @@ serve(async (req) => {
     }
 
     const body = await req.json();
+    const operation = sanitizeText(body?.operation, 40) || "execute";
+    if (!new Set(["execute", "availability"]).has(operation)) {
+      return jsonResponse({ error: "Unsupported operation." }, 400);
+    }
+
+    const executionConfig = resolveNayaxRefundExecutionConfig((name) =>
+      Deno.env.get(name)
+    );
+    if (operation === "availability") {
+      return jsonResponse(resolveNayaxRefundAvailability({
+        executionConfig,
+        officialActionsEnabled: NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
+      }));
+    }
+
     const caseId = sanitizeText(body?.caseId, 80);
     if (!isUuid(caseId)) {
       return jsonResponse({ error: "Refund case is required." }, 400);
@@ -263,9 +280,6 @@ serve(async (req) => {
       }, 403);
     }
 
-    const executionConfig = resolveNayaxRefundExecutionConfig((name) =>
-      Deno.env.get(name)
-    );
     const preflightBlocks = getPreflightBlocks({
       refundCase,
       actorCanManageCase: true,
@@ -278,6 +292,9 @@ serve(async (req) => {
 
     const preExecutionBlocks = Array.from(
       new Set([
+        ...(NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED
+          ? []
+          : ["official_actions_disabled"]),
         ...preflightBlocks,
         ...duplicateTransactionBlocks,
         ...executionConfig.blocks,
@@ -286,6 +303,8 @@ serve(async (req) => {
     if (preExecutionBlocks.length > 0) {
       const preferredError = preExecutionBlocks.includes("authorization_failed")
         ? "authorization_failed"
+        : preExecutionBlocks.includes("official_actions_disabled")
+        ? "official_actions_disabled"
         : preExecutionBlocks.includes("already_refunded")
         ? "already_refunded"
         : preExecutionBlocks.includes("amount_cap_exceeded")

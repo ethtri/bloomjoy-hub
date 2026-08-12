@@ -1,5 +1,7 @@
 import {
   buildNayaxRefundIdempotencyKey,
+  readNayaxRefundAvailability,
+  resolveNayaxRefundAvailability,
   resolveNayaxRefundExecutionConfig,
 } from "./nayax-refund-gates.ts";
 
@@ -124,4 +126,89 @@ Deno.test("idempotency never falls back to a service key or local default", asyn
       error.message.includes("dedicated Nayax refund idempotency secret");
   }
   assert(failed, "missing dedicated secret must fail before HMAC");
+});
+
+Deno.test("availability returns only the redacted safe contract", () => {
+  const result = resolveNayaxRefundAvailability({
+    executionConfig: resolveNayaxRefundExecutionConfig(
+      envReader(enabledConfig),
+    ),
+    officialActionsEnabled: true,
+  });
+  assert(result.available, "complete config must be available");
+  assert(result.status === "available", "status must be available");
+  assert(result.blockReason === null, "available must have no reason");
+  assert(result.payloadRedacted === true, "payload must be redacted");
+  assert(
+    Object.keys(result).sort().join("|") ===
+      "available|blockReason|payloadRedacted|status",
+    "availability must expose only the approved fields",
+  );
+  assert(
+    !JSON.stringify(result).includes(
+      enabledConfig.NAYAX_REFUND_IDEMPOTENCY_SECRET,
+    ),
+    "availability must not expose secret values",
+  );
+});
+
+Deno.test("availability fail-closes to the bounded reason precedence", () => {
+  const defaultConfig = resolveNayaxRefundExecutionConfig(envReader({}));
+  const enabled = resolveNayaxRefundExecutionConfig(envReader(enabledConfig));
+  const cases = [
+    {
+      officialActionsEnabled: false,
+      config: defaultConfig,
+      reason: "official_actions_disabled",
+    },
+    {
+      officialActionsEnabled: true,
+      config: resolveNayaxRefundExecutionConfig(envReader({
+        ...enabledConfig,
+        NAYAX_REFUND_EXECUTION_KILL_SWITCH: "true",
+      })),
+      reason: "kill_switch_active",
+    },
+    {
+      officialActionsEnabled: true,
+      config: resolveNayaxRefundExecutionConfig(envReader({
+        ...enabledConfig,
+        NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED: "false",
+      })),
+      reason: "contract_unconfirmed",
+    },
+    {
+      officialActionsEnabled: true,
+      config: defaultConfig,
+      reason: "kill_switch_active",
+    },
+  ];
+  for (const fixture of cases) {
+    const result = resolveNayaxRefundAvailability({
+      executionConfig: fixture.config,
+      officialActionsEnabled: fixture.officialActionsEnabled,
+    });
+    assert(!result.available, `${fixture.reason} must be unavailable`);
+    assert(
+      result.blockReason === fixture.reason,
+      `${fixture.reason} must be the safe reason`,
+    );
+    assert(result.payloadRedacted, "every blocked result must be redacted");
+  }
+});
+
+Deno.test("availability reads gates only and performs zero execution side effects", async () => {
+  const providerCalls = 0;
+  const reservations = 0;
+  const mutations = 0;
+  const result = await readNayaxRefundAvailability({
+    readEnv: envReader(enabledConfig),
+    officialActionsEnabled: true,
+  });
+  // Provider, reservation, and mutation dependencies are intentionally absent
+  // from the read-only operation's type and therefore cannot be invoked.
+  assert(result.available, "bounded gates should report available");
+  assert(providerCalls === 0, "availability must not call a provider");
+  assert(reservations === 0, "availability must not reserve an attempt");
+  assert(mutations === 0, "availability must not mutate a case");
 });
