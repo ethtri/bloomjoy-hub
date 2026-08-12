@@ -199,7 +199,8 @@ assert(
     adminUpdate.includes('service_complete_cash_refund_official') &&
     adminUpdate.includes('expectedOfficialActionVersion') &&
     nayaxExecution.includes('disabledNayaxProviderAdapter') &&
-    nayaxExecution.includes('Disabled production adapter cannot reserve an attempt.') &&
+    nayaxExecution.includes('authorizeRefundOfficialAction') &&
+    nayaxExecution.includes('service_reserve_and_consume_nayax_refund_attempt_v2') &&
     providerOrchestrationMigration.includes(
       'create or replace function public.service_reserve_and_consume_nayax_refund_attempt'
     ) &&

@@ -489,6 +489,10 @@ const handler = fs.readFileSync(
   path.join(repoRoot, 'supabase/functions/nayax-card-refund/index.ts'),
   'utf8',
 );
+const gates = fs.readFileSync(
+  path.join(repoRoot, 'supabase/functions/_shared/nayax-refund-gates.ts'),
+  'utf8',
+);
 const envExample = fs.readFileSync(path.join(repoRoot, '.env.example'), 'utf8');
 const capMigration = fs.readFileSync(
   path.join(
@@ -513,11 +517,23 @@ check(
 );
 check(handler.includes('provider: disabledNayaxProviderAdapter'), 'The existing production handler remains statically fail-closed in this bounded adapter PR.');
 check(!handler.includes('createNayaxRefundProviderAdapter'), 'The new live adapter cannot be selected by request or environment in this PR.');
+check(
+  handler.includes('service_reserve_and_consume_nayax_refund_attempt_v2') &&
+    handler.includes('service_settle_nayax_refund_attempt'),
+  'The unreachable live dependencies use only the capped reservation and token-bound settlement RPCs.',
+);
+check(
+  gates.includes('NAYAX_REFUND_EXECUTOR_ASSERTION') &&
+    gates.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET') &&
+    !handler.includes('supabaseServiceRoleKey || "local-dev"'),
+  'Function identity and idempotency require dedicated secrets without broad-key fallbacks.',
+);
 check(/^NAYAX_REFUND_EXECUTION_ENABLED=false$/m.test(envExample), 'Execution defaults to disabled.');
 check(/^NAYAX_REFUND_EXECUTION_DRY_RUN=true$/m.test(envExample), 'Dry-run defaults to enabled.');
 check(/^NAYAX_REFUND_EXECUTION_KILL_SWITCH=true$/m.test(envExample), 'The kill switch defaults to active.');
 check(/^NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false$/m.test(envExample), 'Provider-contract confirmation defaults to false.');
 check(/^NAYAX_REFUND_PROVIDER_CONTRACT_JSON=$/m.test(envExample), 'The exact provider contract defaults to unset.');
 check(/^NAYAX_REFUND_API_TOKEN_ACCOUNT_KEY=$/m.test(envExample), 'The dedicated account-scoped write credential defaults to unset.');
+check(/^NAYAX_REFUND_EXECUTOR_ASSERTION=$/m.test(envExample), 'The function-scoped executor assertion defaults to unset.');
 
 console.log(`Nayax refund provider adapter validated (${assertionCount} assertions).`);

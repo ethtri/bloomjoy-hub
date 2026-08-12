@@ -54,6 +54,7 @@ Set the following values before launch.
 | `NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS` | Server-only | `nayax-card-refund` | Global daily amount cap for first execution pilot | Release owner |
 | `NAYAX_REFUND_DAILY_COUNT_CAP` | Server-only | `nayax-card-refund` | Global daily count cap for first execution pilot | Release owner |
 | `NAYAX_REFUND_IDEMPOTENCY_SECRET` | Server-only | `nayax-card-refund` | Generated HMAC secret for execution idempotency | Technical owner |
+| `NAYAX_REFUND_EXECUTOR_ASSERTION` | Server-only | `nayax-card-refund` | Separate generated function identity; only its SHA-256 digest is registered in the database during an approved gate-on change | Technical owner |
 | `REFUND_AUTOMATION_SWEEP_SECRET` | Server-only | `refund-case-automation-sweep` | Scheduler secret; may match `REPORT_SCHEDULER_SECRET` | Technical owner |
 | `REFUND_AUTOMATION_ENABLED` | Server-only | `refund-case-automation-sweep` | Default `false`; set `true` only after synthetic manual-run and alert proof | Release owner |
 | `REFUND_AUTOMATION_TIMEZONE` | Server-only | `refund-case-automation-sweep` | Customer-contact policy timezone; default `America/Los_Angeles` | Release owner |
@@ -183,6 +184,7 @@ supabase secrets set NAYAX_REFUND_MAX_AMOUNT_CENTS=1000
 supabase secrets set NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS=5000
 supabase secrets set NAYAX_REFUND_DAILY_COUNT_CAP=10
 supabase secrets set NAYAX_REFUND_IDEMPOTENCY_SECRET=...
+supabase secrets set NAYAX_REFUND_EXECUTOR_ASSERTION=...
 supabase secrets set REFUND_AUTOMATION_SWEEP_SECRET=...
 supabase secrets set REFUND_AUTOMATIC_CUSTOMER_CONTACT_ENABLED=false
 supabase secrets set REFUND_MANAGER_AGING_NOTICES_ENABLED=false
@@ -192,7 +194,7 @@ supabase secrets set REFUND_GMAIL_ATTACHMENT_SCANNER_ENABLED=false
 supabase secrets set REFUND_GPT_TRIAGE_ENABLED=false
 ```
 
-Do not set `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` during shadow-mode setup. It stays unset until a separate live card-refund execution pilot is explicitly approved.
+Do not set `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` during shadow-mode setup. It stays unset until a separate live card-refund execution pilot is explicitly approved. Generate the idempotency secret and executor assertion independently; neither may reuse the Supabase service-role key. Do not register an executor assertion in `refund_nayax_provider_callers` until the vendor contract, QA proof, independent review, and owner-controlled gate-on are complete. The raw assertion belongs only in the Edge Function secret; the database stores its SHA-256 digest.
 
 Gmail and GPT credentials are enablement-time secrets, not prerequisites for the initial all-switches-off core deployment. Do not configure Gmail OAuth/mailbox secrets before the approvals in `#634`, and do not configure the production OpenAI key before the privacy/data-control approval in `#635`. Both functions deploy safely without Gmail or OpenAI credentials and remain inaccessible/disabled until their dedicated scheduler secret and enablement gates are configured.
 
