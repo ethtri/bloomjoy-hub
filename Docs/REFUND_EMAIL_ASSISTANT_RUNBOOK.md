@@ -1,8 +1,8 @@
 # Refund Email Assistant Operating Runbook
 
-Last updated: 2026-08-05
+Last updated: 2026-08-12
 
-Status: approved operating direction. The safety slices described below are implemented for review in an unmerged integration candidate; production Gmail, automatic customer follow-up, manager CC, manager aging, retention cleanup, GPT, official manager actions, and live Nayax execution remain disabled until their separate release gates pass.
+Status: approved operating direction with a deployed, default-off safety foundation. The bounded isolated first-contact and private email-linked form continuation have passed; case-specific mapped-manager-CC delivery, scheduled inbox operation, owner TOTP enrollment, and live Nayax execution have not. Production Gmail schedules, automatic customer follow-up, manager aging, GPT, official manager actions, and live Nayax execution remain disabled until their separate release gates pass.
 
 Tracking epic: [#683 Refund Email Assistant and Manager Communications](https://github.com/ethtri/bloomjoy-hub/issues/683)
 
@@ -19,17 +19,18 @@ The assistant is not a refund approver and is not a payment operator. The target
 - Nayax/Lynx is the card-transaction and refund provider, subject to the account-specific production gate in `#430`.
 - The legacy Google Form/Sheet/AppSheet process remains available to EasyText/SMS during the email-only pilot. Email customers use only the Bloomjoy hosted form.
 - Agents use an owner-approved direct OAuth/delegated connection to the designated mailbox; they do not receive a forwarded copy in a personal inbox. That connection may let an authorized agent read, search, label, and prepare drafts within the approved refund scope, but it does not configure or enable the production Hub Gmail integration in `#634`.
-- Info/Support aliases may route into the same designated mailbox. Treat a configured alias as Bloomjoy-mailbox-origin only when the alias is in the approved mailbox configuration and Gmail `SENT`-label evidence confirms the outbound message; an address string alone is not proof. The proposed `support@bloomjoysweets.com` alias and send-as state are currently **Pending**, not assumed.
+- Info/Support/Refunds aliases route into the same designated mailbox and their Gmail send-as identities are verified. Treat one as Bloomjoy-mailbox-origin only when the approved mailbox configuration and Gmail `SENT`-label evidence agree for the message; an address string alone is not proof.
 - Sending from an alias requires the mailbox owner to configure and verify that Gmail send-as identity. Agents may prepare approved drafts, but they do not add or self-verify aliases or treat browser sign-in as production OAuth proof.
 
 Do not forward the designated support mailbox into a personal inbox. Agents and operators should work from the label-scoped support mailbox and the Hub queue. Personal inboxes should receive only intentionally routed exception or executive-attention notices.
 
-### Mailbox evidence observed on 2026-08-03
+### Verified mailbox checkpoint on 2026-08-12
 
-- An agent connection showed the `info@bloomjoysweets.com` mailbox profile and a `Refund Operations` label.
-- That observation proves neither production Hub OAuth/secrets nor that a mailbox filter is populating the label correctly.
-- The legacy automatic-responder inventory and cutover state are **Pending**.
-- Any `support@bloomjoysweets.com` alias, verified send-as identity, and matching Gmail `SENT` evidence are **Pending**.
+- The server OAuth profile resolves exactly to `info@bloomjoysweets.com` with Gmail read-only and send scopes; Info/Support/Refunds send-as identities are verified.
+- The isolated pilot label differed from the production refund label, accepted only the owner-controlled synthetic population, and was excluded from the legacy responder for that population.
+- One eligible synthetic thread received exactly one original-thread `refund_first_contact_v1` acknowledgement. Replay and a later reply produced no second acknowledgement; teardown restored disabled mode and the production label.
+- After the native date/time fix, the private hosted-form context completed that existing Gmail draft exactly once and the sole current mapped manager was assigned under the shared intake rule.
+- The remaining mailbox proof is one case-specific original-thread reply with the complete current mapped-manager set visibly CC'd. Normal customer mail still uses the legacy responder; Hub schedules and automatic contact remain off.
 - A browser sign-in or agent connector is not a substitute for the server integration, and no forwarding into a personal inbox is part of the operating model.
 
 ## Authority matrix
@@ -52,7 +53,7 @@ The Gmail OAuth identity, automation scheduler, GPT runner, and agent tools must
 
 The official-action boundary uses the exact current active machine mapping as its sole grant. Admin access alone, unrelated or revoked managers, service identities, email identities, schedulers, GPT, and agents cannot perform an official decision or Nayax action. A mapped manager who also has separate Super Admin or Scoped Admin access remains authorized only through that mapping; the additional role neither grants nor revokes refund authority. A future break-glass path would require a separate owner-approved, reason-required, time-bounded, notified, immutable-audit policy; none exists today.
 
-A valid mapped-manager login is necessary but not sufficient. The unmerged `#692` implementation candidate prepares one two-minute, single-use, single-live-per-actor intent after the manager reviews the exact action. The intent freezes the actor, case, action, target function, case version, active manager mapping/version, owner-approved enrollment version, amount and exact payload hash, and the applicable transaction/evidence fingerprint. The manager must personally enter a fresh code for the exact owner-approved, purpose-bound TOTP factor in a non-shared, non-agent-controlled session. The refreshed JWT must be AAL2 and contain exactly one parseable newest TOTP authentication timestamp strictly newer than the intent's whole second and no more than 30 seconds in the future; stale, same-second, refresh-only, future-skewed, ambiguous, or malformed evidence fails closed.
+A valid mapped-manager login is necessary but not sufficient. The merged `#692` safety path prepares one two-minute, single-use, single-live-per-actor intent after the manager reviews the exact action. The intent freezes the actor, case, action, target function, case version, active manager mapping/version, owner-approved enrollment version, amount and exact payload hash, and the applicable transaction/evidence fingerprint. The manager must personally enter a fresh code for the exact owner-approved, purpose-bound TOTP factor in a non-shared, non-agent-controlled session. The refreshed JWT must be AAL2 and contain exactly one parseable newest TOTP authentication timestamp strictly newer than the intent's whole second and no more than 30 seconds in the future; stale, same-second, refresh-only, future-skewed, ambiguous, or malformed evidence fails closed. Production enrollment still depends on the default-closed, self-only owner window in `#782`; no agent may view, copy, enter, or screenshot its QR or code.
 
 The trusted server flow mints a random 256-bit one-use proof to carry the successful challenge into the database; only its domain-separated digest is stored, while the raw proof is server-to-server only, is never logged, and is consumed once. The approved factor is also purpose-bound through a one-way hash rather than a stored factor identifier. Per-actor and row locks prevent concurrent preparation or consumption from authorizing two actions. Preparing a new intent supersedes the old one, and cancellation, expiry, replay, enrollment change, case/mapping/evidence drift, or a reused TOTP authentication invalidates it. Nayax execution rechecks its locked machine/account/refund-control fingerprint when the service consumes the receipt. First-factor enrollment and recovery are owner-targeted, short-lived, one-use, manager-only, and human-supervised; approval/audit recording is durable, and partial recording failure triggers durable revocation and a best-effort Auth-factor removal. TOTP codes, factor identifiers, secrets, QR material, raw JWTs, raw one-use proofs, and customer/payment payloads never enter refund records, logs, screenshots, support evidence, issues, or PRs.
 
@@ -75,7 +76,7 @@ Each lane is separately disabled. Enabling or disabling one does not silently en
 | Gmail ingestion | GitHub `REFUND_GMAIL_SYNC_ENABLED`; Edge `REFUND_GMAIL_ENABLED` | Both off; the shared Edge gate also stops Gmail outbound before OAuth/provider access |
 | Deterministic customer contact | Edge `REFUND_AUTOMATIC_CUSTOMER_CONTACT_ENABLED`; database `refund_customer_contact_settings.automatic_customer_contact_enabled` | Both off; Gmail may be connected without automatic customer contact |
 | Manager aging | GitHub `REFUND_AUTOMATION_SWEEP_ENABLED`; Edge `REFUND_AUTOMATION_ENABLED`; Edge `REFUND_MANAGER_AGING_NOTICES_ENABLED` | All off; disabling aging must produce zero fetch, claim, reservation, or send work for that lane |
-| Gmail-copy retention | GitHub and Edge `REFUND_GMAIL_RETENTION_ENABLED`; database `refund_gmail_retention_settings.cleanup_enabled` plus recorded owner approval | Independent of sync/OAuth; cleanup stays off until approved but must still be able to purge eligible local copies after OAuth revocation |
+| Gmail-copy retention | GitHub and Edge `REFUND_GMAIL_RETENTION_ENABLED`; database `refund_gmail_retention_settings.cleanup_enabled` plus recorded owner approval | The 180-day sanitized-copy policy is approved; recurring cleanup remains off until its independent three-part enablement, and it must still be able to purge eligible local copies after OAuth revocation |
 | Attachments | Pilot code gate in hosted form and Gmail ingestion; later scanner/version policy if attachments are introduced | Disabled for the email pilot; no attachment bytes are accepted or copied |
 | GPT triage | GitHub `REFUND_GPT_TRIAGE_SYNC_ENABLED`; Edge `REFUND_GPT_TRIAGE_ENABLED`; database `refund_gpt_triage_settings.enabled`; `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED` | All off; GPT never auto-sends and never receives payment authority |
 | Official manager actions | Immutable database gate returned by `refund_official_actions_enabled()` | Statically false in the candidate; only a later reviewed migration may change it |
@@ -154,7 +155,7 @@ Every automatic message uses a versioned deterministic template, a durable opera
 | `refund_manager_aging_v1` | Internal mapped-manager reminder/escalation with the exact authenticated case link | Manager-only; one reminder at two and one escalation at five business days per attention version; independent aging gate |
 | `refund_nayax_completion_v2` | Humble original-thread customer receipt with exact amount, masked card destination when available, action date, and up-to-4-business-day timing | Claimable only after token-bound confirmed provider success and atomic case/reporting completion; all current managers CC'd; no manager-only duplicate |
 
-The registry is implemented for review in the unmerged candidate and is not a production enablement record. Wallet-correction templates retain their separately reviewed versions. Approval or completion language cannot be supplied as an arbitrary subject/body or ordinary status-message edit.
+The registry is merged in the default-off safety foundation and is not a production enablement record. Wallet-correction templates retain their separately reviewed versions. Approval or completion language cannot be supplied as an arbitrary subject/body or ordinary status-message edit.
 
 ### Human review required
 
@@ -214,7 +215,7 @@ Every case-specific customer-facing refund message requires a resolved machine a
 
 Use one permanent Gmail intake label owned by mailbox configuration, such as `Refund Operations`. The Hub reads only that explicit label.
 
-The `Refund Operations` label was visible in the connected `info@bloomjoysweets.com` mailbox on 2026-08-03, but filter population has not been proven. Until the mailbox owner verifies the rule with synthetic inbound evidence, the label is an observed organizing surface, not a production-ingestion guarantee.
+The production and isolated pilot labels were verified on 2026-08-12. The isolated label/sender population and responder exclusion passed for the bounded synthetic first-contact test; that does not authorize the production label or broad polling. Normal customer mail remains under the legacy responder until the remaining case-specific CC proof and explicit cutover approval pass.
 
 The Hub - not Gmail sublabels - is authoritative for operational state:
 
@@ -228,7 +229,7 @@ Agents should work the Hub queue and labeled mailbox rather than scanning all ma
 
 ## Proposed pilot cadence and service targets
 
-No refund inbox cadence is live today. The current candidate is a scheduled poll, not an instant webhook: when enabled, a new email should normally be acknowledged within the ten-minute poll interval plus workflow startup time. Calling it “instantaneous” would be inaccurate. A faster event-driven responder is deferred unless the sponsor makes it a pilot requirement. The values below are proposed planning targets only and may start only after the applicable OAuth, privacy, recipient, template, kill-switch, synthetic-UAT, and owner go/no-go gates pass. The 30-minute business-hours target requires an Operations owner and staffing coverage decision and must not appear in customer copy. Customer waiting reminders belong to the bounded `#687` follow-up cycle; manager-only aging notices belong to `#685` and require scheduler implementation and fixture proof before enablement.
+No refund inbox cadence is live today. The production design is a scheduled poll, not an instant webhook: when enabled, a new email should normally be acknowledged within the ten-minute poll interval plus workflow startup time. Calling it “instantaneous” would be inaccurate. A faster event-driven responder is deferred unless the sponsor makes it a pilot requirement. The values below are proposed planning targets only and may start only after the applicable recipient, template, kill-switch, remaining synthetic-UAT, staffing, and owner go/no-go gates pass. The 30-minute business-hours target requires an Operations owner and staffing coverage decision and must not appear in customer copy. Customer waiting reminders belong to the bounded `#687` follow-up cycle; manager-only aging notices belong to `#685` and require the remaining staffed synthetic proof before enablement.
 
 - Gmail ingestion: every 10 minutes, 24/7, when enabled.
 - GPT draft preparation: every 10 minutes, staggered after ingestion, when enabled.
@@ -259,7 +260,7 @@ For `#685`, a business day is Monday through Friday in `America/Los_Angeles`, pr
 
 ## Integrated synthetic evidence contract
 
-Before this candidate can be considered release-ready, the same fresh workflow run must create exactly 42 reviewed synthetic screenshots plus these five strict, sanitized JSON artifacts:
+The current safe-foundation release produced exactly 42 reviewed synthetic screenshots plus these five strict, sanitized JSON artifacts:
 
 - `refund-portal-assertions.json`;
 - `refund-database-counts.json`;
@@ -267,7 +268,7 @@ Before this candidate can be considered release-ready, the same fresh workflow r
 - `refund-kill-switches.json`;
 - `refund-provider-outcomes.json`.
 
-The evidence finalizer must reject stale, missing, extra, malformed, duplicate-image, PII-bearing, identifier-bearing, URL-bearing, or free-text-bearing artifacts. Database migration/test-file totals and the final release SHA are derived from the final integrated tree and remain **Pending** until that run succeeds; this runbook does not invent them. The provider artifact must prove one local synthetic success, rejection, timeout, and unknown outcome with zero provider retry on replay; the portal artifact must prove navigation-only zero-call behavior before the explicit lookup click. Synthetic evidence is not a live Nayax or production Gmail smoke.
+The evidence finalizer rejects stale, missing, extra, malformed, duplicate-image, PII-bearing, identifier-bearing, URL-bearing, or free-text-bearing artifacts. Database migration/test-file totals and the release SHA must always be derived from the final integrated tree rather than copied from an older run. The provider artifact proves local synthetic success, rejection, timeout, and unknown outcomes with zero provider retry on replay; the portal artifact proves navigation-only zero-call behavior before the explicit lookup click. Synthetic evidence is not a live Nayax or production Gmail smoke.
 
 ## Agent procedure
 
@@ -315,13 +316,11 @@ The evidence finalizer must reject stale, missing, extra, malformed, duplicate-i
 
 ## Production gates that remain open
 
-- designated production Gmail OAuth, label ownership, and synthetic smoke (`#634`);
-- mailbox-filter population, legacy responder inventory/cutover, and any verified `support@bloomjoysweets.com` alias/send-as plus matching Gmail `SENT` evidence;
-- 180-day copied-content retention, visible-CC privacy, and attachment-off approval;
-- visible CC recipient/privacy review and participant-classification UAT (`#686`);
-- merge and integrated UAT for the exact mapped Machine Manager authority boundary in `#689`; no break-glass policy is approved;
-- owner-supervised mapped-manager TOTP enrollment and recovery ownership, privacy/security review, owner UAT, enrollment-window closure after the cohort is verified, and a separate reviewed gate-on migration for `#692`; separate admin access neither grants nor revokes exact-machine manager authority, and official actions remain hard-off;
+- one bounded case-specific original-thread reply proving the complete current mapped-manager CC route, followed by production-label/legacy-responder cutover and rollback approval (`#634`, `#686`, `#688`);
+- owner-supervised mapped-manager TOTP enrollment and recovery ownership after the default-closed self-only enrollment control in `#782` is reviewed and deployed; official actions remain hard-off;
+- one staffed synthetic reminder/escalation plus manager-visible health and teardown under `#632`; the alert/replay/disabled-lane plumbing proof has passed, but schedules remain off;
+- a Bloomjoy-project-only Edge Functions Read credential and successful protected `main` drift run under `#768`; until then, use the owner-controlled local read-only release check and never store a broad owner PAT;
 - OpenAI retention/data-control approval for GPT (`#635`);
-- Nayax account-specific write contract and controlled live pilot (`#430`);
+- Nayax account-specific write contract, the audited provider-outcome resolution path in `#767`, and one owner-supervised capped live pilot (`#430`);
 - alternative compensation decision (`#666`);
-- assigned-scope production UAT with a clean Machine Manager-only persona, dual-role mapped-manager official-action UAT, and legacy cutover approval.
+- assigned-scope production UAT with a clean Machine Manager-only persona and final legacy-cutover approval. The exact dual-role mapping predicate is deployed and verified, but personal TOTP/provider action UAT is still pending.
