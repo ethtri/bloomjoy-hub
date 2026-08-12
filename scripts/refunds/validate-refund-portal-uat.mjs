@@ -3659,6 +3659,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
           await page.getByText('Confirmation: NAYAX-PROVIDER-REF-1').isVisible())
     );
     if (scenario.name === 'success') {
+      await page.getByRole('button', { name: 'Completed 1', exact: true }).waitFor({ timeout: 10000 });
       recorder.assert(
         'Successful card refund leaves no repeat action and moves the case to Completed',
         await page.getByRole('button', { name: 'Completed 1', exact: true }).isVisible() &&
