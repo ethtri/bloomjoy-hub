@@ -41,6 +41,7 @@ import {
   completeRefundCaseAdminStepUp,
   createRefundAttachmentSignedUrl,
   executeNayaxCardRefund,
+  fetchNayaxCardRefundAvailability,
   fetchRefundAutomationHealth,
   fetchRefundCaseReconciliation,
   fetchRefundGmailCaseContext,
@@ -672,10 +673,22 @@ const getCustomerContactAgeLabel = (refundCase: RefundCaseRecord) => {
   return `Last contact ${formatAge(latest.sentAt ?? latest.createdAt)} ago`;
 };
 
-const isReadyToPayCase = (refundCase: RefundCaseRecord) =>
+const hasCardRefundAuthority = (refundCase: RefundCaseRecord) =>
+  refundCase.canPerformOfficialAction === true &&
+  Number(refundCase.officialActionVersion ?? 0) > 0 &&
+  refundCase.reconciliationActionBlocked !== true;
+
+const isReadyToPayCase = (
+  refundCase: RefundCaseRecord,
+  cardRefundAvailabilityConfirmed = false
+) =>
   ['approved', 'card_refund_pending', 'cash_zelle_pending'].includes(refundCase.status) &&
   refundCase.providerHold !== true &&
-  (refundCase.paymentMethod !== 'card' || refundCase.nayaxMatchExecutionEligible === true);
+  (refundCase.paymentMethod !== 'card' || (
+    refundCase.nayaxMatchExecutionEligible === true &&
+    hasCardRefundAuthority(refundCase) &&
+    cardRefundAvailabilityConfirmed
+  ));
 
 const isBlockedCase = (refundCase: RefundCaseRecord) => {
   const lookupStatus = refundCase.nayaxLookupSummary?.lookupStatus;
@@ -691,10 +704,13 @@ const isBlockedCase = (refundCase: RefundCaseRecord) => {
   );
 };
 
-const caseUrgencyRank = (refundCase: RefundCaseRecord) => {
+const caseUrgencyRank = (
+  refundCase: RefundCaseRecord,
+  cardRefundAvailabilityConfirmed = false
+) => {
   if (refundCase.possibleDuplicate || refundCase.confirmedDuplicate) return 0;
   if (getLatestCustomerMessage(refundCase)?.status === 'failed') return 0;
-  if (isReadyToPayCase(refundCase)) return 1;
+  if (isReadyToPayCase(refundCase, cardRefundAvailabilityConfirmed)) return 1;
   if (refundCase.status === 'draft') return 2;
   if (isBlockedCase(refundCase)) return 3;
   if (refundCase.status === 'submitted' || refundCase.status === 'needs_review' || refundCase.status === 'correlated') {
@@ -706,7 +722,10 @@ const caseUrgencyRank = (refundCase: RefundCaseRecord) => {
   return 6;
 };
 
-const getOperationalSignals = (refundCase: RefundCaseRecord) => {
+const getOperationalSignals = (
+  refundCase: RefundCaseRecord,
+  cardRefundAvailabilityConfirmed = false
+) => {
   const signals: Array<{ label: string; className: string }> = [];
   if (refundCase.possibleDuplicate) {
     signals.push({ label: 'Possible duplicate', className: 'border-rose-200 bg-rose-50 text-rose-900' });
@@ -751,7 +770,15 @@ const getOperationalSignals = (refundCase: RefundCaseRecord) => {
   if (refundCase.status === 'waiting_on_customer') {
     signals.push({ label: 'Waiting on customer', className: 'border-orange-200 bg-orange-50 text-orange-900' });
   }
-  if (isReadyToPayCase(refundCase)) {
+  if (
+    refundCase.paymentMethod === 'card' &&
+    ['approved', 'card_refund_pending'].includes(refundCase.status) &&
+    refundCase.nayaxMatchExecutionEligible === true &&
+    !cardRefundAvailabilityConfirmed
+  ) {
+    signals.push({ label: 'Card refunds unavailable', className: 'border-orange-200 bg-orange-50 text-orange-900' });
+  }
+  if (isReadyToPayCase(refundCase, cardRefundAvailabilityConfirmed)) {
     signals.push({ label: 'Ready to refund', className: 'border-sky-200 bg-sky-50 text-sky-700' });
   }
   return signals.slice(0, 3);
@@ -1266,7 +1293,8 @@ const isRefundCustomerDeliveryUncertain = (errorMessage: string | null | undefin
 const primaryActionConfig = (
   refundCase: RefundCaseRecord,
   editor: EditorState,
-  candidates: NayaxLookupCandidate[]
+  candidates: NayaxLookupCandidate[],
+  cardRefundActionAvailable = false
 ): PrimaryActionConfig => {
   const latestMessage = getLatestCustomerMessage(refundCase);
   if (latestMessage?.status === 'failed') {
@@ -1409,6 +1437,13 @@ const primaryActionConfig = (
         return {
           label: 'Manual card review required',
           helper: 'This transaction was not the one clear match, so automatic card refund stays unavailable.',
+          disabled: true,
+        };
+      }
+      if (!cardRefundActionAvailable) {
+        return {
+          label: 'Card refunds aren\u2019t available right now',
+          helper: 'Bloomjoy Hub could not confirm the payment connection is ready for this manager. No refund has been issued. Refresh and try again later.',
           disabled: true,
         };
       }
@@ -1859,12 +1894,35 @@ export default function AdminRefundsPage() {
     staleTime: 1000 * 30,
   });
 
+  const {
+    data: nayaxCardRefundAvailability,
+    isLoading: nayaxCardRefundAvailabilityIsLoading,
+    isFetching: nayaxCardRefundAvailabilityIsFetching,
+    error: nayaxCardRefundAvailabilityError,
+  } = useQuery({
+    queryKey: ['nayax-card-refund-availability'],
+    queryFn: fetchNayaxCardRefundAvailability,
+    enabled: !forceDemoData,
+    staleTime: 1000 * 30,
+    retry: false,
+  });
+  const cardRefundAvailabilityConfirmed =
+    !forceDemoData &&
+    nayaxCardRefundAvailability?.available === true &&
+    nayaxCardRefundAvailability.status === 'available' &&
+    nayaxCardRefundAvailability.blockReason === null &&
+    nayaxCardRefundAvailability.payloadRedacted === true &&
+    !nayaxCardRefundAvailabilityIsLoading &&
+    !nayaxCardRefundAvailabilityIsFetching &&
+    !nayaxCardRefundAvailabilityError;
+
   const refresh = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-automation-health'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-gmail-health'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-gmail-case-context'] }),
+      queryClient.invalidateQueries({ queryKey: ['nayax-card-refund-availability'] }),
     ]);
   };
   const isUsingDemoData = canUseLocalRefundDemoData();
@@ -1890,7 +1948,10 @@ export default function AdminRefundsPage() {
       if (statusFilter === 'aging' && !refundCase.aging) return false;
       if (statusFilter === 'provider_hold' && !refundCase.providerHold) return false;
       if (statusFilter === 'waiting_on_customer' && refundCase.status !== 'waiting_on_customer') return false;
-      if (statusFilter === 'ready_to_pay' && !isReadyToPayCase(refundCase)) return false;
+      if (
+        statusFilter === 'ready_to_pay' &&
+        !isReadyToPayCase(refundCase, cardRefundAvailabilityConfirmed)
+      ) return false;
       if (statusFilter === 'blocked' && !isBlockedCase(refundCase)) return false;
       if (statusFilter === 'completed' && refundCase.status !== 'completed') return false;
 
@@ -1907,11 +1968,12 @@ export default function AdminRefundsPage() {
         .toLowerCase()
         .includes(normalizedSearch);
     }).sort((left, right) => {
-      const rankDelta = caseUrgencyRank(left) - caseUrgencyRank(right);
+      const rankDelta = caseUrgencyRank(left, cardRefundAvailabilityConfirmed) -
+        caseUrgencyRank(right, cardRefundAvailabilityConfirmed);
       if (rankDelta !== 0) return rankDelta;
       return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
     });
-  }, [overview.cases, search, statusFilter]);
+  }, [cardRefundAvailabilityConfirmed, overview.cases, search, statusFilter]);
 
   const primaryQueueCounts = useMemo(() => ({
     needs_action: overview.cases.filter((refundCase) =>
@@ -2151,8 +2213,15 @@ export default function AdminRefundsPage() {
     }
   };
   const primaryAction = useMemo(
-    () => (selectedCase && editor ? primaryActionConfig(selectedCase, editor, nayaxCandidates) : null),
-    [editor, nayaxCandidates, selectedCase]
+    () => (selectedCase && editor
+      ? primaryActionConfig(
+          selectedCase,
+          editor,
+          nayaxCandidates,
+          cardRefundAvailabilityConfirmed && hasCardRefundAuthority(selectedCase)
+        )
+      : null),
+    [cardRefundAvailabilityConfirmed, editor, nayaxCandidates, selectedCase]
   );
   const primaryActionNeedsOfficialAccess = primaryActionRequiresOfficialAction(primaryAction);
   const primaryActionEditor = useMemo(
@@ -2343,6 +2412,9 @@ export default function AdminRefundsPage() {
   const applyNayaxExecutionResult = async (
     result: NayaxCardRefundExecutionResponse
   ) => {
+    const availabilityRefresh = isUsingDemoData
+      ? Promise.resolve()
+      : queryClient.invalidateQueries({ queryKey: ['nayax-card-refund-availability'] });
     const reference = getNayaxExecutionReference(result);
     const completion = result.customerCompletion ?? null;
     const hasCommittedSuccess =
@@ -2385,6 +2457,7 @@ export default function AdminRefundsPage() {
         toast.error('The refund is complete, but the customer email still needs attention.');
       }
       await refresh();
+      await availabilityRefresh;
       return;
     }
 
@@ -2450,6 +2523,7 @@ export default function AdminRefundsPage() {
     if (result.providerAttempted === true || result.replayed === true) {
       await refresh();
     }
+    await availabilityRefresh;
   };
 
   const handleRunNayaxRefund = async () => {
@@ -4644,9 +4718,9 @@ export default function AdminRefundsPage() {
                           {getCustomerContactAgeLabel(refundCase)}
                         </div>
                       </div>
-                      {getOperationalSignals(refundCase).length > 0 && (
+                      {getOperationalSignals(refundCase, cardRefundAvailabilityConfirmed).length > 0 && (
                         <div className="mt-3 flex flex-wrap gap-1.5">
-                          {getOperationalSignals(refundCase).map((signal) => (
+                          {getOperationalSignals(refundCase, cardRefundAvailabilityConfirmed).map((signal) => (
                             <Badge key={signal.label} className={cn('rounded-md text-[11px]', signal.className)}>
                               {signal.label}
                             </Badge>
@@ -4735,9 +4809,9 @@ export default function AdminRefundsPage() {
                           <div className="mt-1 text-xs font-medium text-foreground">
                             {formatCurrency(refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}
                           </div>
-                          {getOperationalSignals(refundCase).length > 0 && (
+                          {getOperationalSignals(refundCase, cardRefundAvailabilityConfirmed).length > 0 && (
                             <div className="mt-2 flex flex-wrap gap-1">
-                              {getOperationalSignals(refundCase).map((signal) => (
+                              {getOperationalSignals(refundCase, cardRefundAvailabilityConfirmed).map((signal) => (
                                 <Badge key={signal.label} className={cn('rounded-md text-[11px]', signal.className)}>
                                   {signal.label}
                                 </Badge>
@@ -4962,9 +5036,9 @@ export default function AdminRefundsPage() {
                           <p className="mt-1 font-medium text-foreground">{formatAge(selectedCase.createdAt)} old</p>
                         </div>
                       </div>
-                      {getOperationalSignals(selectedCase).length > 0 && (
+                      {getOperationalSignals(selectedCase, cardRefundAvailabilityConfirmed).length > 0 && (
                         <div className="mt-3 flex flex-wrap gap-1.5">
-                          {getOperationalSignals(selectedCase).map((signal) => (
+                          {getOperationalSignals(selectedCase, cardRefundAvailabilityConfirmed).map((signal) => (
                             <Badge key={signal.label} className={cn('rounded-md', signal.className)}>
                               {signal.label}
                             </Badge>

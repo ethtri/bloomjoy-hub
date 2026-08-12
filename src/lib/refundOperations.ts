@@ -746,6 +746,18 @@ export type NayaxCardRefundExecutionResponse = {
   } | null;
 };
 
+export type NayaxCardRefundAvailabilityResponse = {
+  available: boolean;
+  status: 'available' | 'unavailable';
+  blockReason:
+    | null
+    | 'official_actions_disabled'
+    | 'kill_switch_active'
+    | 'configuration_missing'
+    | 'contract_unconfirmed';
+  payloadRedacted: true;
+};
+
 export type NayaxCardRefundExecutionError =
   EdgeFunctionError<NayaxCardRefundExecutionResponse>;
 
@@ -1717,6 +1729,16 @@ export const executeNayaxCardRefund = async ({
     {
       requireUserAuth: true,
       authErrorMessage: 'Log in to execute Nayax card refunds.',
+    }
+  );
+
+export const fetchNayaxCardRefundAvailability = () =>
+  invokeEdgeFunction<NayaxCardRefundAvailabilityResponse>(
+    'nayax-card-refund',
+    { operation: 'availability' },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Log in to check card refund availability.',
     }
   );
 

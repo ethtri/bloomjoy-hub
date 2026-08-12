@@ -43,6 +43,8 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-portal-uat-unique-qr-wallet-recommendation.png',
   'refund-portal-uat-wallet-manual-review.png',
   'refund-provider-rejected.png',
+  'refund-provider-config-blocked.png',
+  'refund-provider-pending.png',
   'refund-provider-success.png',
   'refund-provider-timeout.png',
   'refund-provider-unknown.png',
@@ -287,7 +289,7 @@ const validatePortalAssertions = (payload) => {
     'Portal primary-check post-action lookup call count'
   );
   assertLiteral(payload.providerSuccessStateCount, 1, 'Portal provider success-state count');
-  assertLiteral(payload.providerNonSuccessStateCount, 4, 'Portal provider non-success-state count');
+  assertLiteral(payload.providerNonSuccessStateCount, 5, 'Portal provider non-success-state count');
   assertLiteral(payload.intakeAvailable, true, 'Portal intake-availability assertion');
   assertLiteral(payload.portalAvailable, true, 'Portal availability assertion');
 };

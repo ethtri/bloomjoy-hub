@@ -129,7 +129,7 @@ Security rule:
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds` passes
 - [ ] `npm run refunds:validate-release-tooling` passes.
 - [ ] `npm run refunds:release:check` confirms that the ten candidate Refund Operations functions, required migrations, source commit, and `verify_jwt` settings match the approved release manifest. Do not substitute the separate eight-route `OPTIONS` smoke count for the manifest count.
-- [ ] The same fresh `Refund UAT Evidence` run contains exactly 40 reviewed synthetic screenshots and the five sanitized JSON artifacts named below; the final manifest hashes every artifact and binds to the reviewed PR head. Final migration/test-file counts and SHA are generated from that tree, not copied from an earlier branch or written by hand.
+- [ ] The same fresh `Refund UAT Evidence` run contains exactly 42 reviewed synthetic screenshots and the five sanitized JSON artifacts named below; the final manifest hashes every artifact and binds to the reviewed PR head. Final migration/test-file counts and SHA are generated from that tree, not copied from an earlier branch or written by hand.
 - [ ] Before deployment, `supabase db push --dry-run` reports exactly the reviewed pending migration set and no unexpected migration. Save the sanitized command result; the Edge Function drift check does not prove remote migration parity.
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
 - [ ] Stripe products/prices verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_STICKS_MEMBER_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
@@ -361,7 +361,7 @@ Refund provider candidate validation:
 - Live account contract, credentials, amount units, caps, allowlist, response/status semantics, provider identifiers, idempotency, reconciliation, controlled smoke, and gate-on review remain deferred to `#430`. Passing synthetic UAT does not authorize a live call.
 
 Integrated Refund UAT evidence:
-- In one fresh workflow run, generate exactly 40 reviewed synthetic screenshots and exactly five sanitized JSON artifacts: `refund-portal-assertions.json`, `refund-database-counts.json`, `refund-gmail-mime-roles.json`, `refund-kill-switches.json`, and `refund-provider-outcomes.json`.
+- In one fresh workflow run, generate exactly 42 reviewed synthetic screenshots and exactly five sanitized JSON artifacts: `refund-portal-assertions.json`, `refund-database-counts.json`, `refund-gmail-mime-roles.json`, `refund-kill-switches.json`, and `refund-provider-outcomes.json`.
 - The finalizer rejects stale, missing, extra, malformed, duplicate-image, PII-bearing, UUID/provider-ID-bearing, URL-bearing, or free-text-bearing artifacts. The database producer derives exact migration and test-file counts from the final tree; do not write those counts or the final release SHA by hand.
 - The portal evidence must prove zero side effects from exact links, filter/queue navigation, and initial render; exactly one lookup after **Check Nayax transaction**; and no admin-update or message shortcut on provider success. The provider JSON must prove one success, rejection, timeout, and unknown attempt with zero provider attempts on replay.
 

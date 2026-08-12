@@ -818,6 +818,10 @@ const installMockSupabaseRoutes = async (
     functionBodies = [],
     nayaxLookupResponse = null,
     nayaxCardRefundResponse = null,
+    nayaxCardRefundAvailabilityResponse = null,
+    nayaxCardRefundAvailabilityAfterExecutionResponse = null,
+    nayaxCardRefundAvailabilityStatus = 200,
+    nayaxCardRefundAvailabilityDelayMs = 0,
     nayaxCardRefundStatus = 409,
     nayaxCardRefundDelayMs = 0,
     requireManagerStepUp = false,
@@ -837,6 +841,12 @@ const installMockSupabaseRoutes = async (
 ) => {
   const officialActionVersions = new Map();
   let nayaxSettlementResult = null;
+  let currentNayaxCardRefundAvailability = nayaxCardRefundAvailabilityResponse ?? {
+    available: true,
+    status: 'available',
+    blockReason: null,
+    payloadRedacted: true,
+  };
   const providerCheckRequired = (result) => Boolean(
     result &&
       (result.reconciliationRequired === true ||
@@ -887,7 +897,6 @@ const installMockSupabaseRoutes = async (
 
   await context.route('**/functions/v1/**', async (route) => {
     const functionName = new URL(route.request().url()).pathname.split('/').pop() ?? '';
-    functionCalls.push(functionName);
     let requestBody = null;
     if (route.request().method() !== 'GET') {
       try {
@@ -897,6 +906,9 @@ const installMockSupabaseRoutes = async (
       }
       functionBodies.push({ functionName, body: requestBody });
     }
+    const isNayaxAvailabilityRequest =
+      functionName === 'nayax-card-refund' && requestBody?.operation === 'availability';
+    if (!isNayaxAvailabilityRequest) functionCalls.push(functionName);
 
     if (functionName === 'nayax-transaction-lookup') {
       const lookupResponse = nayaxLookupResponse ?? {
@@ -969,6 +981,15 @@ const installMockSupabaseRoutes = async (
     }
 
     if (functionName === 'nayax-card-refund') {
+      if (isNayaxAvailabilityRequest) {
+        if (nayaxCardRefundAvailabilityDelayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, nayaxCardRefundAvailabilityDelayMs));
+        }
+        return route.fulfill({
+          ...jsonResponse(currentNayaxCardRefundAvailability),
+          status: nayaxCardRefundAvailabilityStatus,
+        });
+      }
       if (requireManagerStepUp && !requestBody?.stepUpIntentId) {
         return route.fulfill({
           status: 428,
@@ -997,6 +1018,9 @@ const installMockSupabaseRoutes = async (
       };
       if (responseBody.providerAttempted === true || responseBody.replayed === true || responseBody.executed === true) {
         nayaxSettlementResult = responseBody;
+      }
+      if (nayaxCardRefundAvailabilityAfterExecutionResponse) {
+        currentNayaxCardRefundAvailability = nayaxCardRefundAvailabilityAfterExecutionResponse;
       }
       return route.fulfill({
         status: nayaxCardRefundStatus,
@@ -1791,7 +1815,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   const saveBodies = functionBodies.filter((entry) => entry.functionName === 'refund-case-admin-update');
   const lastSaveBody = saveBodies.at(-1)?.body ?? {};
   const nayaxExecutionBody = functionBodies.find(
-    (entry) => entry.functionName === 'nayax-card-refund'
+    (entry) => entry.functionName === 'nayax-card-refund' && entry.body?.operation !== 'availability'
   )?.body ?? {};
   recorder.assert(
     'Primary action attempts guarded card refund before completion',
@@ -3433,7 +3457,7 @@ const runManagerStepUpChecks = async ({ browser, appUrl, artifactDir, recorder }
     timeout: 10000,
   });
   const originalActionBody = functionBodies
-    .filter((entry) => entry.functionName === 'nayax-card-refund')
+    .filter((entry) => entry.functionName === 'nayax-card-refund' && entry.body?.operation !== 'availability')
     .at(-1)?.body ?? {};
   const verifiedActionBody = functionBodies
     .filter((entry) => entry.functionName === 'refund-manager-action-step-up')
@@ -3542,6 +3566,94 @@ const runManagerStepUpChecks = async ({ browser, appUrl, artifactDir, recorder }
 };
 
 const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, recorder, evidence }) => {
+  const availabilityScenarios = [
+    {
+      name: 'loading',
+      delayMs: 2000,
+      status: 200,
+      response: {
+        available: true,
+        status: 'available',
+        blockReason: null,
+        payloadRedacted: true,
+      },
+      eventuallyAvailable: true,
+    },
+    {
+      name: 'request error',
+      delayMs: 0,
+      status: 503,
+      response: { error: 'Synthetic availability request failed.' },
+      eventuallyAvailable: false,
+    },
+    {
+      name: 'malformed response',
+      delayMs: 0,
+      status: 200,
+      response: { available: true, status: 'available' },
+      eventuallyAvailable: false,
+    },
+  ];
+
+  for (const scenario of availabilityScenarios) {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    const functionCalls = [];
+    const functionBodies = [];
+    await installMockSupabaseRoutes(context, {
+      functionCalls,
+      functionBodies,
+      nayaxCardRefundAvailabilityResponse: scenario.response,
+      nayaxCardRefundAvailabilityStatus: scenario.status,
+      nayaxCardRefundAvailabilityDelayMs: scenario.delayMs,
+    });
+
+    const page = await context.newPage();
+    let availabilityResponse;
+    await signInRefundUser(page, appUrl, '/refunds', () => {
+      availabilityResponse = page.waitForResponse((response) => {
+        if (!new URL(response.url()).pathname.endsWith('/functions/v1/nayax-card-refund')) return false;
+        try {
+          return response.request().postDataJSON()?.operation === 'availability';
+        } catch {
+          return false;
+        }
+      });
+    });
+    await page.getByText('1 visible of 2 total cases').waitFor({ timeout: 10000 });
+    await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
+
+    if (scenario.name === 'loading') {
+      recorder.assert(
+        'Card refund availability loading state fails closed',
+        (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+          await page.getByRole('button', { name: 'Card refunds aren\u2019t available right now', exact: true }).isDisabled()
+      );
+    }
+    await availabilityResponse;
+    if (scenario.eventuallyAvailable) {
+      await page.getByTestId('refund-run-nayax-refund').waitFor({ state: 'visible', timeout: 10000 });
+    } else {
+      await page.getByRole('button', { name: 'Card refunds aren\u2019t available right now', exact: true })
+        .waitFor({ timeout: 10000 });
+    }
+
+    const availabilityBodies = functionBodies.filter(
+      (entry) => entry.functionName === 'nayax-card-refund' && entry.body?.operation === 'availability'
+    );
+    recorder.assert(
+      `Card refund availability ${scenario.name} state has no provider or official-action call`,
+      functionCalls.filter((name) => name === 'nayax-card-refund').length === 0 &&
+        availabilityBodies.length === 1 &&
+        JSON.stringify(availabilityBodies[0].body) === JSON.stringify({ operation: 'availability' }) &&
+        (scenario.eventuallyAvailable || (
+          (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+          await page.getByRole('button', { name: 'Card refunds aren\u2019t available right now', exact: true }).isDisabled()
+        )),
+      JSON.stringify({ functionCalls, availabilityBodies })
+    );
+    await context.close();
+  }
+
   const scenarios = [
     {
       name: 'success',
@@ -3634,6 +3746,24 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
         message: 'Nayax returned an outcome Bloomjoy cannot safely classify.',
       },
     },
+    {
+      name: 'config_blocked',
+      screenshot: 'refund-provider-config-blocked.png',
+      expectedTitle: 'Refund not sent',
+      response: {
+        executed: false,
+        status: 'preflight_blocked',
+        errorCode: 'feature_disabled',
+        blocks: ['feature_disabled'],
+        providerAttempted: false,
+        replayed: false,
+        reconciliationRequired: false,
+        fallbackIssued: false,
+        reportingAdjustmentPresent: false,
+        customerCompletion: null,
+        message: 'Card refund execution is disabled for this synthetic environment.',
+      },
+    },
   ];
 
   for (const scenario of scenarios) {
@@ -3646,6 +3776,14 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
       nayaxCardRefundStatus: 200,
       nayaxCardRefundDelayMs: scenario.name === 'success' ? 800 : 0,
       nayaxCardRefundResponse: scenario.response,
+      nayaxCardRefundAvailabilityAfterExecutionResponse: scenario.name === 'config_blocked'
+        ? {
+            available: false,
+            status: 'unavailable',
+            blockReason: 'kill_switch_active',
+            payloadRedacted: true,
+          }
+        : null,
     });
 
     const page = await context.newPage();
@@ -3669,7 +3807,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
 
     await page.getByTestId('refund-action-receipt').waitFor({ state: 'visible', timeout: 10000 });
     const nayaxExecutionBody = functionBodies.find(
-      (entry) => entry.functionName === 'nayax-card-refund'
+      (entry) => entry.functionName === 'nayax-card-refund' && entry.body?.operation !== 'availability'
     )?.body ?? {};
     recorder.assert(
       `Synthetic browser ${scenario.name} submits exactly one reviewed Nayax action`,
@@ -3725,9 +3863,11 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
       const caseRow = page.locator('tr', { hasText: 'RF-UAT-CARD' });
       await caseRow.waitFor({ state: 'visible', timeout: 10000 });
       await caseRow.click();
-      const expectedDisabledAction = providerCheckRequired
-        ? 'Provider check needed'
-        : 'Manual card review required';
+      const expectedDisabledAction = scenario.name === 'config_blocked'
+        ? 'Card refunds aren\u2019t available right now'
+        : providerCheckRequired
+          ? 'Provider check needed'
+          : 'Manual card review required';
       recorder.assert(
         `Synthetic browser ${scenario.name} suppresses contradictory ready badges and refund actions`,
         (await caseRow.getByText('Ready to refund', { exact: true }).count()) === 0 &&
@@ -3737,10 +3877,48 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
       );
       recorder.assert(
         `Synthetic browser ${scenario.name} shows a plain-language non-ready state`,
-        providerCheckRequired
+        scenario.name === 'config_blocked'
+          ? (await caseRow.getByText('Card refunds unavailable', { exact: true }).count()) > 0
+          : providerCheckRequired
           ? (await caseRow.getByText('Payment check needed', { exact: true }).count()) > 0
           : (await caseRow.getByText('Card review needed', { exact: true }).count()) > 0
       );
+      if (scenario.name === 'config_blocked') {
+        const availabilityBodiesBeforeRefresh = functionBodies.filter(
+          (entry) => entry.functionName === 'nayax-card-refund' && entry.body?.operation === 'availability'
+        );
+        recorder.assert(
+          'Config-blocked execution is fail-closed before the provider boundary',
+          scenario.response.providerAttempted === false &&
+            functionCalls.filter((name) => name === 'nayax-card-refund').length === 1 &&
+            !functionCalls.includes('refund-case-admin-update') &&
+            !functionCalls.includes('refund-case-message-send') &&
+            availabilityBodiesBeforeRefresh.length >= 2 &&
+            availabilityBodiesBeforeRefresh.every(
+              (entry) => JSON.stringify(entry.body) === JSON.stringify({ operation: 'availability' })
+            ),
+          JSON.stringify({ functionCalls, availabilityBodiesBeforeRefresh })
+        );
+
+        const refreshedAvailability = page.waitForResponse((response) => {
+          if (!new URL(response.url()).pathname.endsWith('/functions/v1/nayax-card-refund')) return false;
+          try {
+            return response.request().postDataJSON()?.operation === 'availability';
+          } catch {
+            return false;
+          }
+        });
+        await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+        await refreshedAvailability;
+        await page.getByRole('button', { name: 'Card refunds aren\u2019t available right now', exact: true })
+          .waitFor({ timeout: 10000 });
+        recorder.assert(
+          'Config-blocked refresh stays fail-closed without a refund CTA or Ready badge',
+          (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+            (await caseRow.getByText('Ready to refund', { exact: true }).count()) === 0 &&
+            await page.getByRole('button', { name: 'Card refunds aren\u2019t available right now', exact: true }).isDisabled()
+        );
+      }
     }
 
     if (scenario.name === 'success') evidence.providerSuccessStateCount += 1;
@@ -4013,7 +4191,7 @@ const run = async () => {
         evidence.primaryCheckLookupCallCountBefore === 0 &&
         evidence.primaryCheckLookupCallCountAfter === 1 &&
         evidence.providerSuccessStateCount === 1 &&
-        evidence.providerNonSuccessStateCount === 4 &&
+        evidence.providerNonSuccessStateCount === 5 &&
         evidence.intakeAvailable === true &&
         evidence.portalAvailable === true,
       JSON.stringify(evidence)
