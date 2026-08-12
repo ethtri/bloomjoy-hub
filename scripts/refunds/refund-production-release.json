@@ -50,7 +50,8 @@
     "20260812134500_refund_provider_hold_decision_freeze.sql",
     "20260812160000_refund_case_manager_assignment.sql",
     "20260812190000_refund_dual_role_manager_authority.sql",
-    "20260812200000_refund_owner_totp_enrollment_window.sql"
+    "20260812200000_refund_owner_totp_enrollment_window.sql",
+    "20260812210000_refund_legacy_card_state_normalization.sql"
   ],
   "migrationFilesSha256": "4ef1ad54bab40db8df413783691ca2454d82634db856f4f3f7706b68da864b20",
   "migrationVersionSetSha256": "d424d34703a4eb6ee0ceab7f49a7379e39348f9d5a7c46297a53d3d1248a14ec",

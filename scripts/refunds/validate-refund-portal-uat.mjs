@@ -45,6 +45,7 @@ const parseArgs = (argv) => {
     dualRoleOnly: false,
     providerOutcomesOnly: false,
     ownerTotpOnly: false,
+    legacyStateOnly: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -72,6 +73,11 @@ const parseArgs = (argv) => {
 
     if (arg === '--owner-totp-only') {
       args.ownerTotpOnly = true;
+      continue;
+    }
+
+    if (arg === '--legacy-state-only') {
+      args.legacyStateOnly = true;
       continue;
     }
 
@@ -124,7 +130,8 @@ const parseArgs = (argv) => {
   args.appUrl = args.appUrl.replace(/\/+$/, '');
   args.artifactDir = path.resolve(process.cwd(), args.artifactDir);
   args.fragmentDir = path.resolve(process.cwd(), args.fragmentDir);
-  if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.providerOutcomesOnly && !args.ownerTotpOnly) {
+  if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
+    !args.ownerTotpOnly && !args.legacyStateOnly) {
     requireEvidenceRunToken(args.runToken);
   }
   return args;
@@ -348,6 +355,56 @@ const buildEmptyRefundOverview = () => ({
   managerAssignments: [],
   cases: [],
 });
+
+const buildLegacyStateReviewOverview = () => {
+  const overview = buildMockRefundOverview();
+  const historicalCase = overview.cases[0];
+
+  return {
+    machines: overview.machines.slice(0, 1),
+    managerAssignments: overview.managerAssignments,
+    cases: [{
+      ...historicalCase,
+      id: 'case-legacy-state-1',
+      publicReference: 'RF-UAT-HISTORY',
+      status: 'needs_review',
+      correlationStatus: 'manual_review',
+      correlationSummary: 'A historical approval exists, but no provider refund attempt was recorded.',
+      hasMatchedNayaxTransaction: false,
+      nayaxMatchExecutionEligible: false,
+      nayaxRecommendationState: null,
+      matchedNayaxMachineAuthTime: null,
+      matchedNayaxAmountCents: null,
+      matchedNayaxCardLast4: null,
+      matchedNayaxCurrencyCode: null,
+      nayaxLookupCandidates: [],
+      decision: null,
+      decisionReason: null,
+      decidedAt: null,
+      refundAmountCents: null,
+      events: [
+        ...historicalCase.events,
+        {
+          id: 'event-legacy-state-1',
+          eventType: 'legacy_card_state_normalized',
+          message: 'Historical card state moved to manager review without provider or customer action.',
+          createdAt: isoHoursAgo(1),
+        },
+      ],
+      messages: [{
+        id: 'msg-legacy-approved-1',
+        messageType: 'approved',
+        status: 'sent',
+        recipientEmail: 'customer-history@example.test',
+        subject: 'Historical Bloomjoy refund update RF-UAT-HISTORY',
+        body: 'Historical message retained for audit review.',
+        sentAt: isoHoursAgo(2),
+        errorMessage: null,
+        createdAt: isoHoursAgo(2),
+      }],
+    }],
+  };
+};
 
 const buildMockGmailDraftCases = () => ([
   {
@@ -2234,6 +2291,119 @@ const runEmailPilotDuplicateChecks = async ({ browser, appUrl, artifactDir, reco
     rpcCalls.filter((name) => name === 'admin_resolve_refund_case_reconciliation').length === 2 &&
       functionCalls.length === 0,
     JSON.stringify({ rpcCalls, functionCalls })
+  );
+
+  await context.close();
+};
+
+const runLegacyStateNormalizationChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const functionCalls = [];
+  const rpcCalls = [];
+  const legacyCaseId = 'case-legacy-state-1';
+
+  await installMockSupabaseRoutes(context, {
+    refundOverview: buildLegacyStateReviewOverview,
+    functionCalls,
+    rpcCalls,
+    emailQueueStates: [{
+      caseId: legacyCaseId,
+      intakeSource: 'form',
+      exactCasePath: `/refunds?case=${legacyCaseId}`,
+      missingInformation: false,
+      possibleDuplicate: false,
+      confirmedDuplicate: false,
+      duplicateOfCaseId: null,
+      aging: false,
+      providerHold: false,
+      providerOutcome: 'not_attempted',
+      legacyStateReviewRequired: true,
+      actionBlocked: true,
+      payloadRedacted: true,
+    }],
+  });
+
+  const page = await context.newPage();
+  const consoleErrors = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text());
+  });
+  page.on('pageerror', (error) => consoleErrors.push(error.message));
+
+  await signInRefundUser(page, appUrl);
+  await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
+  await page.locator('tr', { hasText: 'RF-UAT-HISTORY' }).click();
+  await page.getByTestId('refund-legacy-state-review-banner').waitFor({ timeout: 10000 });
+  await page.getByText('Signed in. Redirecting...', { exact: true })
+    .waitFor({ state: 'hidden', timeout: 5000 })
+    .catch(() => undefined);
+
+  recorder.assert(
+    'Normalized legacy case explains the truthful manager task in plain language',
+    await page.getByText('Historical payment review', { exact: true }).isVisible() &&
+      await page.getByText('Payment history check', { exact: true }).last().isVisible() &&
+      await page.getByText('Historical payment review required', { exact: true }).isVisible() &&
+      await page.getByText('Fresh check needed', { exact: true }).last().isVisible() &&
+      await page.getByText(
+        'Run the fresh read-only transaction check before making any decision.',
+        { exact: true }
+      ).isVisible()
+  );
+  recorder.assert(
+    'Normalized legacy case states that no provider refund was issued',
+    await page.getByText(/No refund has been issued\./).first().isVisible() &&
+      await page.getByText('Historical approval email sent', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-legacy-state-freeze').isVisible()
+  );
+  recorder.assert(
+    'Normalized legacy case keeps only the read-only transaction check available',
+    await page.getByTestId('nayax-check-transaction').isVisible() &&
+      (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+      (await page.getByTestId('legacy-refund-run-nayax-refund').count()) === 0 &&
+      (await page.getByRole('button', { name: /Deny (request|instead)/ }).count()) === 0 &&
+      (await page.getByRole('button', { name: /Ask customer/ }).count()) === 0 &&
+      (await page.getByText('Preview customer email', { exact: true }).count()) === 0
+  );
+  recorder.assert(
+    'Opening normalized legacy review performs no official, provider, or customer action',
+    isReadOnlyNavigationActivity({ functionCalls, rpcCalls }),
+    JSON.stringify({ functionCalls, rpcCalls })
+  );
+
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-legacy-state-review-desktop.png'),
+    fullPage: true,
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByTestId('refund-legacy-state-review-banner').scrollIntoViewIfNeeded();
+  const mobileOverflow = await page.evaluate(() => ({
+    innerWidth: window.innerWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+    bodyScrollWidth: document.body.scrollWidth,
+  }));
+  recorder.assert(
+    'Normalized legacy review has no mobile horizontal overflow',
+    mobileOverflow.scrollWidth <= mobileOverflow.innerWidth + 1 &&
+      mobileOverflow.bodyScrollWidth <= mobileOverflow.innerWidth + 1,
+    JSON.stringify(mobileOverflow)
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-legacy-state-review-mobile.png'),
+    fullPage: true,
+  });
+
+  await page.goto(`${appUrl}/refunds?case=${legacyCaseId}`, { waitUntil: 'networkidle' });
+  await page.getByTestId('refund-legacy-state-review-banner').waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Normalized legacy review remains blocked after reload',
+    await page.getByTestId('refund-legacy-state-freeze').isVisible() &&
+      (await page.getByTestId('legacy-refund-run-nayax-refund').count()) === 0
+  );
+  recorder.assert(
+    'Normalized legacy review reports no browser console or page errors',
+    consoleErrors.length === 0,
+    consoleErrors.slice(0, 3).join(' | ')
   );
 
   await context.close();
@@ -4505,7 +4675,8 @@ const run = async () => {
   );
 
   await mkdir(args.artifactDir, { recursive: true });
-  if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.ownerTotpOnly) {
+  if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.ownerTotpOnly &&
+    !args.legacyStateOnly) {
     await mkdir(args.fragmentDir, { recursive: true });
   }
   await waitForServer(args.appUrl);
@@ -4514,6 +4685,13 @@ const run = async () => {
   try {
     if (args.ownerTotpOnly) {
       await runOwnerTotpEnrollmentChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
+    } else if (args.legacyStateOnly) {
+      await runLegacyStateNormalizationChecks({
         browser,
         appUrl: args.appUrl,
         artifactDir: args.artifactDir,
@@ -4635,6 +4813,17 @@ const run = async () => {
     }
   } finally {
     await browser.close();
+  }
+
+  if (args.legacyStateOnly) {
+    const focusedFailures = recorder.failed();
+    if (focusedFailures.length > 0) {
+      console.error(`\nRefund legacy-state UAT failed: ${focusedFailures.length} check(s).`);
+      process.exit(1);
+    }
+    console.log('\nRefund legacy-state UAT passed.');
+    console.log(`Screenshots written to ${args.artifactDir}`);
+    return;
   }
 
   if (args.providerOutcomesOnly) {

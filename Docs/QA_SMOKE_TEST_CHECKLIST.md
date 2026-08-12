@@ -753,3 +753,13 @@ Current production-readiness checkpoint (2026-08-12): the ten-function/45-migrat
 - [ ] Super-admin can grant and revoke super-admin role with reason metadata
 - [ ] Audit log view supports filtering and shows role + operational actions (support, orders, machine inventory)
 - [ ] Signed-in super-admin can reach `/admin` from visible navigation without typing the URL manually
+## Legacy card-state normalization (`#784`)
+
+- [ ] In a disposable local Supabase project, seed only the exact legacy structure: card, `card_refund_pending`, `decision=approved`, `not_requested`, zero provider attempts, exactly one sent approved message, and no completion/reference/adjustment evidence.
+- [ ] Run the owner operation with its exact confirmation phrase. Confirm current state becomes **Payment history check**, stale current match/recommendation fields are cleared into presence-only immutable history, the page says **No provider refund is recorded**, and the historical approval message/event remains unchanged.
+- [ ] Confirm refresh preserves **Historical payment review required** and shows only the read-only **Check Nayax transaction** next step; refund/retry, approval, denial, and customer-email controls remain unavailable.
+- [ ] Repeat at desktop `1440x1000` and mobile `390x844`; the state, explanation, and next step remain visible without horizontal overflow.
+- [ ] Attempt an official decision, customer message, and provider-attempt insert before a fresh transaction evaluation; all three fail closed. Confirm operation replay adds no event and no provider/message row.
+- [ ] Add a later sanitized `nayax_recommendation_evaluated` event through the synthetic lookup flow. Confirm only the historical-review freeze clears: the case remains `needs_review`, decisionless, provider `not_requested`, and execution-ineligible.
+- [ ] Near-miss fixtures (wrong confirmation, no sent historical approval, or any provider attempt) are rejected without row changes.
+- [ ] Do not run the owner operation in production during PR/UAT. Live normalization requires separate owner approval, backup, exact aggregate precheck, and the private runbook ceremony.

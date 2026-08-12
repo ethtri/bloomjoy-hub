@@ -149,8 +149,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    46,
-    'Refund release inventory must cover exactly 46 discovered refund/Nayax migrations'
+    47,
+    'Refund release inventory must cover exactly 47 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -163,6 +163,10 @@ try {
   assert(
     repositoryMigrations.includes('20260812200000_refund_owner_totp_enrollment_window.sql'),
     'The owner-only refund authenticator window migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260812210000_refund_legacy_card_state_normalization.sql'),
+    'The legacy no-provider-attempt normalization migration must be in the discovered release inventory'
   );
   assert.deepEqual(
     repositoryManifest.requiredMigrations,
