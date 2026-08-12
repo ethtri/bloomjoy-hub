@@ -96,7 +96,7 @@ jobs:
           echo "### Refund Operations synthetic UAT evidence" >> "$GITHUB_STEP_SUMMARY"
           echo "- Artifact: ${{ steps.upload.outputs.artifact-url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Digest: ${{ steps.upload.outputs.artifact-digest }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Screenshots: 38 synthetic states; no production data" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Screenshots: 40 synthetic states; no production data" >> "$GITHUB_STEP_SUMMARY"
           echo "- Machine-readable evidence: 5 strict, sanitized, hashed JSON artifacts" >> "$GITHUB_STEP_SUMMARY"
       - name: Stop synthetic UAT app
         if: always()

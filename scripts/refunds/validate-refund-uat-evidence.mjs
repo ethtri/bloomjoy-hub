@@ -302,7 +302,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 38, 'Evidence must enumerate all 38 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 40, 'Evidence must enumerate all 40 reviewed screenshots');
   assert.deepEqual(
     EXPECTED_MACHINE_READABLE_ARTIFACTS,
     Object.keys(machineFixtures),
