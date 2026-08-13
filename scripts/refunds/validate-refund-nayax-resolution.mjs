@@ -141,7 +141,7 @@ assert(
 );
 
 assert(
-  concurrencyTests.includes('select plan(13)') &&
+  concurrencyTests.includes('select plan(15)') &&
     concurrencyTests.includes('dblink_send_query') &&
     concurrencyTests.includes('Exactly one database session can consume the same verified resolution intent') &&
     concurrencyTests.includes('The race commits exactly one immutable support-resolution record') &&
@@ -150,6 +150,8 @@ assert(
     concurrencyTests.includes('The concurrent generic-message loser creates no second customer-message row') &&
     concurrencyTests.includes('A committed generic message blocks the reverse-order resolution consume') &&
     concurrencyTests.includes('Reverse-order rejection creates no resolution, completion, or provider attempt') &&
+    concurrencyTests.includes('First-contact delivery-unknown state blocks completed resolution') &&
+    concurrencyTests.includes('Automation delivery-reconciliation state blocks completed resolution') &&
     concurrencyTests.includes('Concurrent regression restores the production hard-off gate'),
   'Two-session pgTAP must prove one winner, one immutable result, and zero duplicate action.'
 );
@@ -192,6 +194,9 @@ assert(
     migration.includes('guard_refund_nayax_completion_message_lane') &&
     migration.includes('Unresolved Nayax completion blocks every other customer message') &&
     migration.includes('Settle the existing customer message before recording a completed Nayax resolution') &&
+    migration.includes("outbound.status in ('pending_send', 'delivery_unknown')") &&
+    migration.includes("first_contact.status in ('pending_send', 'delivery_unknown')") &&
+    migration.includes("'gmail_delivery_reconciliation_required'") &&
     migration.includes("statement_timestamp() - interval '5 minutes'") &&
     migration.includes("when outbound_row.id is null then 'failed'") &&
     migration.includes("else 'delivery_unknown'") &&

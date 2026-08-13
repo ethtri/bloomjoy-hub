@@ -1726,10 +1726,30 @@ begin
         )
         and (
           customer_message.status = 'pending'
+          or exists (
+            select 1
+            from public.refund_gmail_messages outbound
+            where outbound.refund_case_id = case_row.id
+              and outbound.refund_case_message_id = customer_message.id
+              and outbound.direction = 'outbound'
+              and outbound.message_kind = 'message'
+              and outbound.status in ('pending_send', 'delivery_unknown')
+          )
+          or exists (
+            select 1
+            from public.refund_gmail_first_contact_operations first_contact
+            where first_contact.refund_case_id = case_row.id
+              and first_contact.refund_case_message_id = customer_message.id
+              and first_contact.status in ('pending_send', 'delivery_unknown')
+          )
           or (
             customer_message.status = 'failed'
-            and customer_message.error_message =
-              'Gmail delivery could not be confirmed. Check the original thread before retrying.'
+            and customer_message.error_message in (
+              'Gmail delivery could not be confirmed. Check the original thread before retrying.',
+              'Gmail delivery could not be confirmed. Reconcile the original thread before retrying.',
+              'gmail_delivery_reconciliation_required',
+              'refund_gmail_delivery_reconciliation_required'
+            )
           )
         )
     ) then

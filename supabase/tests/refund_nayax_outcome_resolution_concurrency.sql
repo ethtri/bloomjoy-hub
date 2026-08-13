@@ -299,7 +299,7 @@ $$;
 
 commit;
 
-select plan(13);
+select plan(15);
 
 create temporary table nayax_resolution_race_results (
   connection_name text primary key,
@@ -341,6 +341,30 @@ select ok(
        where refund_case_id = 'b2600000-0000-4000-8000-000000000001'),
   'Reverse-order rejection creates no resolution, completion, or provider attempt'
 );
+update public.refund_case_messages
+set status = 'failed',
+    error_message =
+      'Gmail delivery could not be confirmed. Reconcile the original thread before retrying.'
+where refund_case_id = 'b2600000-0000-4000-8000-000000000001'
+  and template_key = 'refund_status_update_editable_v1';
+select ok((
+  select not (result ->> 'ok')::boolean
+  from extensions.dblink(
+    'nayax_resolution_race_b',
+    'select refund_nayax_resolution_race_test.consume()'
+  ) as response(result jsonb)
+), 'First-contact delivery-unknown state blocks completed resolution');
+update public.refund_case_messages
+set error_message = 'gmail_delivery_reconciliation_required'
+where refund_case_id = 'b2600000-0000-4000-8000-000000000001'
+  and template_key = 'refund_status_update_editable_v1';
+select ok((
+  select not (result ->> 'ok')::boolean
+  from extensions.dblink(
+    'nayax_resolution_race_b',
+    'select refund_nayax_resolution_race_test.consume()'
+  ) as response(result jsonb)
+), 'Automation delivery-reconciliation state blocks completed resolution');
 delete from public.refund_case_messages
 where refund_case_id = 'b2600000-0000-4000-8000-000000000001'
   and template_key = 'refund_status_update_editable_v1';
