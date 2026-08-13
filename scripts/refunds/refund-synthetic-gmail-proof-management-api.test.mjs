@@ -181,7 +181,7 @@ test('six fixed operations use the exact endpoint, parameter arrays, and owner-r
     if (body.query.includes('can_manage_refund_case')) {
       return response([{ database_owner_session: true, allowed: true }]);
     }
-    if (body.query.includes('active_authorization_count') && body.query.includes('max(')) {
+    if (body.query.includes('active_authorization_count') && body.query.includes('authorization_id')) {
       return response([{
         database_owner_session: true,
         active_authorization_count: 1,
@@ -258,7 +258,7 @@ test('closed registry pins every full SQL string and semantically read-only lane
       canManageCase: '57fd76027efd76f7097da1290d69944f44ca95d3037340b85c68617521e6ea7b',
       prepare: '174c5440d49cff521dc795f4a280ba4a15d4266cc307104e2f405a255d127026',
       findActiveAuthorizationId:
-        '917b76bd4815441a9313877f77a35de3f95b7b035568f0c1a1aae7ff04f13620',
+        'c287cf36f2af415a9acf7e4f83416690640d66ee89302fd8c92cec24115a3b8e',
       summary: 'e03758ac0ce0c85468f2a27784f3cbed82ebaf0e3ac0320a996db51a2851a1e0',
       close: 'd2c8ca79c3480de32fa3ac70333e65a77e1b5458e956f21c70b6e03c2c57382a',
     },
@@ -459,7 +459,7 @@ test('timed-out prepare is not retried and recovery waits until Gmail is proven 
       activeAuthorizationCount = 0;
       return response([{ database_owner_session: true, result: closeResult }]);
     }
-    if (request.query.includes('active_authorization_count') && request.query.includes('max(')) {
+    if (request.query.includes('active_authorization_count') && request.query.includes('authorization_id')) {
       calls.push('database.findActiveAuthorizationId');
       return response([{
         database_owner_session: true,

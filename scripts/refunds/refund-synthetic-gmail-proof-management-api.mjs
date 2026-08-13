@@ -134,11 +134,9 @@ with owner_gate as (
 )
 select
   owner_gate.database_owner_session,
-  count(active_authorization.id)::integer as active_authorization_count,
-  max(active_authorization.id)::text as authorization_id
+  (select count(*)::integer from active_authorization) as active_authorization_count,
+  (select active_authorization.id::text from active_authorization limit 1) as authorization_id
 from owner_gate
-left join active_authorization on true
-group by owner_gate.database_owner_session
 `,
   }),
   summary: Object.freeze({
