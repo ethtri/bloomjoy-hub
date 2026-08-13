@@ -23,7 +23,10 @@ const UUID_PATTERN =
 
 const genericFailure = (code) => new SyntheticGmailProofRunnerError(code);
 const numberValue = (value) => Number.parseInt(String(value), 10);
-const createSafeChildEnvironment = (extra = {}) => {
+const createSafeChildEnvironment = (
+  extra = {},
+  { environment = process.env, includeWindowsGithubConfig = false } = {},
+) => {
   const result = { ...extra };
   for (const name of [
     'PATH',
@@ -38,7 +41,14 @@ const createSafeChildEnvironment = (extra = {}) => {
     'HOME',
     'USERPROFILE',
   ]) {
-    if (typeof process.env[name] === 'string') result[name] = process.env[name];
+    if (typeof environment[name] === 'string') result[name] = environment[name];
+  }
+  if (
+    includeWindowsGithubConfig &&
+    typeof environment.APPDATA === 'string' &&
+    environment.APPDATA.trim()
+  ) {
+    result.APPDATA = environment.APPDATA;
   }
   return result;
 };
@@ -329,10 +339,18 @@ export const assertSyntheticGmailProofProductionAligned = async ({
   }
 };
 
-const getGithubVariable = async (name, { repoRoot }) => {
-  const gh = process.platform === 'win32' ? 'gh.exe' : 'gh';
+export const getSyntheticGmailProofGithubVariable = async (
+  name,
+  {
+    repoRoot,
+    execFileImpl = execFileAsync,
+    platform = process.platform,
+    environment = process.env,
+  },
+) => {
+  const gh = platform === 'win32' ? 'gh.exe' : 'gh';
   try {
-    const { stdout } = await execFileAsync(
+    const { stdout } = await execFileImpl(
       gh,
       ['variable', 'get', name, '--repo', REFUND_REPOSITORY],
       {
@@ -340,8 +358,15 @@ const getGithubVariable = async (name, { repoRoot }) => {
         encoding: 'utf8',
         timeout: 15_000,
         windowsHide: true,
+        shell: false,
         maxBuffer: 32_768,
-        env: createSafeChildEnvironment(),
+        env: createSafeChildEnvironment(
+          {},
+          {
+            environment,
+            includeWindowsGithubConfig: platform === 'win32',
+          },
+        ),
       },
     );
     const value = stdout.trim().toLowerCase();
@@ -434,10 +459,10 @@ const createControlClient = ({ projectRef, managementToken, repoRoot }) => {
         await Promise.all([
           readSecrets(),
           readBackupHealth(),
-          getGithubVariable('REFUND_GMAIL_SYNC_ENABLED', { repoRoot }),
-          getGithubVariable('REFUND_GMAIL_RETENTION_ENABLED', { repoRoot }),
-          getGithubVariable('REFUND_AUTOMATION_SWEEP_ENABLED', { repoRoot }),
-          getGithubVariable('REFUND_GPT_TRIAGE_SYNC_ENABLED', { repoRoot }),
+          getSyntheticGmailProofGithubVariable('REFUND_GMAIL_SYNC_ENABLED', { repoRoot }),
+          getSyntheticGmailProofGithubVariable('REFUND_GMAIL_RETENTION_ENABLED', { repoRoot }),
+          getSyntheticGmailProofGithubVariable('REFUND_AUTOMATION_SWEEP_ENABLED', { repoRoot }),
+          getSyntheticGmailProofGithubVariable('REFUND_GPT_TRIAGE_SYNC_ENABLED', { repoRoot }),
           assertProductionAligned(),
         ]);
       return {

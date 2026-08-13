@@ -4,11 +4,13 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   assertSyntheticGmailProofProductionAligned,
+  getSyntheticGmailProofGithubVariable,
   installRedactedDatabaseErrorBoundary,
 } from './refund-synthetic-gmail-proof-runner-clients.mjs';
 import {
   DIRECT_POSTGRES_DATABASE_ADAPTER,
   MANAGEMENT_API_OWNER_DATABASE_ADAPTER,
+  REFUND_REPOSITORY,
   REFUND_PRODUCTION_PROJECT_REF,
   REFUND_SYNTHETIC_PROOF_LIVE_CONFIRMATION,
   SyntheticGmailProofRunnerError,
@@ -25,6 +27,7 @@ const USER_TOKEN_SENTINEL = 'header.owner_private_user_jwt.signature';
 const MANAGEMENT_TOKEN_SENTINEL = 'owner_private_management_token_810000';
 const DATABASE_SECRET_SENTINEL = 'owner-private-database-password-810000';
 const CHILD_ERROR_SENTINEL = 'private-child-process-detail-never-print-817000';
+const GH_CHILD_SECRET_SENTINEL = 'private-github-child-detail-never-print-820000';
 
 const baseConfig = (overrides = {}) => ({
   mode: 'live',
@@ -750,4 +753,83 @@ test('production alignment refuses a non-production project before spawning', as
     (error) => error.code === 'production_release_not_aligned',
   );
   assert.equal(calls, 0);
+});
+
+test('Windows GitHub variable discovery keeps only APPDATA and the existing safe child paths', async () => {
+  const calls = [];
+  const appData = 'C:\\Users\\Owner\\AppData\\Roaming';
+  const result = await getSyntheticGmailProofGithubVariable('REFUND_GMAIL_SYNC_ENABLED', {
+    repoRoot: 'C:\\Private Folder\\Bloomjoy Hub',
+    platform: 'win32',
+    environment: {
+      PATH: 'C:\\safe-bin',
+      HOME: 'C:\\Users\\Owner',
+      APPDATA: appData,
+      GH_TOKEN: GH_CHILD_SECRET_SENTINEL,
+      GITHUB_TOKEN: GH_CHILD_SECRET_SENTINEL,
+      SUPABASE_ACCESS_TOKEN: GH_CHILD_SECRET_SENTINEL,
+      REFUND_SYNTHETIC_GMAIL_PROOF_MANAGEMENT_TOKEN: GH_CHILD_SECRET_SENTINEL,
+      UNRELATED_PRIVATE_VALUE: GH_CHILD_SECRET_SENTINEL,
+    },
+    execFileImpl: async (file, args, options) => {
+      calls.push({ file, args, options });
+      return { stdout: 'true\n', stderr: '' };
+    },
+  });
+  assert.equal(result, true);
+  assert.equal(calls.length, 1);
+  const [{ file, args, options }] = calls;
+  assert.equal(file, 'gh.exe');
+  assert.deepEqual(args, [
+    'variable',
+    'get',
+    'REFUND_GMAIL_SYNC_ENABLED',
+    '--repo',
+    REFUND_REPOSITORY,
+  ]);
+  assert.equal(options.shell, false);
+  assert.equal(options.cwd, 'C:\\Private Folder\\Bloomjoy Hub');
+  assert.equal(options.env.APPDATA, appData);
+  assert.deepEqual(Object.keys(options.env).sort(), ['APPDATA', 'HOME', 'PATH']);
+  for (const name of [
+    'GH_TOKEN',
+    'GITHUB_TOKEN',
+    'SUPABASE_ACCESS_TOKEN',
+    'REFUND_SYNTHETIC_GMAIL_PROOF_MANAGEMENT_TOKEN',
+    'UNRELATED_PRIVATE_VALUE',
+  ]) {
+    assert.equal(Object.hasOwn(options.env, name), false);
+  }
+  assert.doesNotMatch(JSON.stringify(options.env), new RegExp(GH_CHILD_SECRET_SENTINEL));
+});
+
+test('GitHub variable discovery omits APPDATA outside Windows and redacts child failures', async () => {
+  const calls = [];
+  await assert.rejects(
+    getSyntheticGmailProofGithubVariable('REFUND_GMAIL_SYNC_ENABLED', {
+      repoRoot: process.cwd(),
+      platform: 'linux',
+      environment: {
+        PATH: '/safe-bin',
+        HOME: '/safe-home',
+        APPDATA: '/must-not-pass',
+        GH_TOKEN: GH_CHILD_SECRET_SENTINEL,
+      },
+      execFileImpl: async (file, args, options) => {
+        calls.push({ file, args, options });
+        const error = new Error(GH_CHILD_SECRET_SENTINEL);
+        error.stderr = GH_CHILD_SECRET_SENTINEL;
+        throw error;
+      },
+    }),
+    (error) => {
+      assert.equal(error.code, 'github_variable_read_failed');
+      assert.doesNotMatch(`${error.message}${JSON.stringify(error)}`, new RegExp(GH_CHILD_SECRET_SENTINEL));
+      return true;
+    },
+  );
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].file, 'gh');
+  assert.equal(calls[0].options.shell, false);
+  assert.deepEqual(Object.keys(calls[0].options.env).sort(), ['HOME', 'PATH']);
 });
