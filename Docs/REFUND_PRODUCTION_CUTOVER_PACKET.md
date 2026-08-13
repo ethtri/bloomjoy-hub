@@ -63,8 +63,6 @@ If any merge changes an in-scope migration or refund function after the manifest
 
 The historical `#629/#716` five-migration bridge does not apply to the current release. The release must use its own 49-migration manifest, reviewed dry run, backup, migration-before-function order, source capture, and post-deployment drift proof. Until `#768` has a project-scoped read-only credential and a successful protected `main` run, execute the production comparison from the owner-controlled authenticated workstation before and after every refund deployment; never put a broad owner PAT in GitHub. Any unexpected migration, source digest, function version, switch state, or health result stops the release.
 
-Historical validator anchor only: the superseded PR `#760` packet described “all 41 current required refund/Nayax migrations.” That phrase is not the operative count; the reviewed current release manifest and steps above require 49. Remove this note only when the separate static validator is updated in its own reviewed source change.
-
 ## Deploy with all optional execution switches off
 
 Deploy the approved migrations, functions, and frontend following `Docs/PRODUCTION_RUNBOOK.md`. During initial smoke testing, and before any separately approved optional-lane pilot:
