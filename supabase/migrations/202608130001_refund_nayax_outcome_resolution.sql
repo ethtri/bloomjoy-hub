@@ -343,7 +343,8 @@ alter table public.refund_case_nayax_refund_attempts
     references public.refund_nayax_outcome_resolutions (id) on delete restrict,
   add column if not exists support_resolution_result text,
   add column if not exists support_resolution_recorded_at timestamptz,
-  add column if not exists completion_delivery_retry_count integer not null default 0;
+  add column if not exists completion_delivery_retry_count integer not null default 0,
+  add column if not exists completion_delivery_attempted_at timestamptz;
 
 alter table public.refund_case_nayax_refund_attempts
   drop constraint if exists refund_nayax_attempt_support_resolution_shape,
@@ -1888,7 +1889,8 @@ begin
     set
       completion_message_id = completion_message_row.id,
       completion_gmail_thread_id = completion_thread_row.id,
-      completion_delivery_status = 'pending'
+      completion_delivery_status = 'pending',
+      completion_delivery_attempted_at = statement_timestamp()
     where id = attempt_row.id;
 
     completion_committed := true;
@@ -2073,7 +2075,8 @@ begin
   update public.refund_case_nayax_refund_attempts
   set
     completion_delivery_status = 'pending',
-    completion_delivery_retry_count = 1
+    completion_delivery_retry_count = 1,
+    completion_delivery_attempted_at = statement_timestamp()
   where id = attempt_row.id;
 
   insert into public.refund_case_events (
@@ -2108,6 +2111,142 @@ begin
     'body', message_row.body,
     'retryCount', 1,
     'originalThread', true,
+    'payloadRedacted', true
+  );
+end;
+$$;
+
+create or replace function public.service_recover_stale_nayax_completion(
+  p_executor_assertion text,
+  p_refund_case_message_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  message_row public.refund_case_messages%rowtype;
+  attempt_row public.refund_case_nayax_refund_attempts%rowtype;
+  case_row public.refund_cases%rowtype;
+  outbound_row public.refund_gmail_messages%rowtype;
+  recovery_status text;
+  recovery_result jsonb;
+begin
+  perform public.assert_nayax_provider_executor(p_executor_assertion);
+
+  if p_refund_case_message_id is null then
+    raise exception 'Exact Nayax completion message required';
+  end if;
+
+  select message.*
+  into message_row
+  from public.refund_case_messages message
+  where message.id = p_refund_case_message_id
+  for update;
+
+  select attempt.*
+  into attempt_row
+  from public.refund_case_nayax_refund_attempts attempt
+  where attempt.id = message_row.nayax_refund_attempt_id
+  for update;
+
+  select refund_case.*
+  into case_row
+  from public.refund_cases refund_case
+  where refund_case.id = message_row.refund_case_id
+  for share;
+
+  if message_row.id is null
+    or message_row.message_type is distinct from 'completed'
+    or message_row.template_version is distinct from 'refund_nayax_completion_v2'
+    or message_row.status is distinct from 'pending'
+    or attempt_row.id is null
+    or attempt_row.refund_case_id is distinct from message_row.refund_case_id
+    or attempt_row.completion_message_id is distinct from message_row.id
+    or attempt_row.completion_gmail_thread_id is null
+    or attempt_row.completion_delivery_status is distinct from 'pending'
+    or attempt_row.completion_delivery_retry_count not between 0 and 1
+    or attempt_row.status is distinct from 'succeeded'
+    or attempt_row.provider_outcome is distinct from 'success'
+    or attempt_row.reconciliation_required
+    or attempt_row.reporting_adjustment_id is null
+    or attempt_row.case_finalization_committed_at is null
+    or case_row.status is distinct from 'completed'
+    or case_row.reporting_adjustment_id is distinct from attempt_row.reporting_adjustment_id
+    or lower(btrim(message_row.recipient_email)) is distinct from
+      lower(btrim(case_row.customer_email)) then
+    raise exception 'One exact pending Nayax completion is required';
+  end if;
+
+  if attempt_row.completion_delivery_attempted_at is null
+    or attempt_row.completion_delivery_attempted_at >
+      statement_timestamp() - interval '5 minutes' then
+    raise exception 'Wait for the bounded completion attempt before recovery';
+  end if;
+
+  select outbound.*
+  into outbound_row
+  from public.refund_gmail_messages outbound
+  where outbound.operation_key =
+      'refund-case-message:' || message_row.id::text
+    and outbound.refund_case_id = case_row.id
+    and outbound.refund_case_message_id = message_row.id
+    and outbound.gmail_thread_id = attempt_row.completion_gmail_thread_id
+    and outbound.direction = 'outbound'
+    and outbound.message_kind = 'message'
+  for update;
+
+  recovery_status := case
+    when outbound_row.id is null then 'failed'
+    when outbound_row.status = 'failed'
+      and outbound_row.sent_at is null
+      and outbound_row.provider_message_id is null then 'failed'
+    when outbound_row.status = 'sent'
+      and outbound_row.sent_at is not null
+      and outbound_row.provider_message_id is not null then 'sent'
+    else 'delivery_unknown'
+  end;
+
+  recovery_result := public.service_finish_nayax_refund_completion(
+    p_executor_assertion,
+    attempt_row.id,
+    recovery_status
+  );
+
+  insert into public.refund_case_events (
+    refund_case_id,
+    actor_user_id,
+    event_type,
+    message,
+    metadata
+  ) values (
+    case_row.id,
+    attempt_row.actor_user_id,
+    'nayax_customer_completion_interruption_recovered',
+    case
+      when recovery_status = 'failed'
+        then 'An interrupted customer completion was proven not sent and moved to the bounded retry path.'
+      when recovery_status = 'sent'
+        then 'An interrupted customer completion was reconciled from exact sent Gmail evidence.'
+      else 'An interrupted customer completion has possible delivery and requires original-thread reconciliation.'
+    end,
+    jsonb_build_object(
+      'recovery_status', recovery_status,
+      'outbound_present', outbound_row.id is not null,
+      'retry_count', attempt_row.completion_delivery_retry_count,
+      'provider_call_made', false,
+      'payload_redacted', true
+    )
+  );
+
+  return jsonb_build_object(
+    'recovered', true,
+    'status', recovery_result ->> 'status',
+    'transport', 'gmail_thread',
+    'originalThread', true,
+    'outboundPresent', outbound_row.id is not null,
+    'providerCallMade', false,
     'payloadRedacted', true
   );
 end;
@@ -2178,6 +2317,13 @@ grant execute on function public.service_prepare_nayax_completion_retry(
   text, uuid
 ) to service_role;
 
+revoke execute on function public.service_recover_stale_nayax_completion(
+  text, uuid
+) from public, anon, authenticated, service_role;
+grant execute on function public.service_recover_stale_nayax_completion(
+  text, uuid
+) to service_role;
+
 revoke execute on function public.admin_consume_refund_nayax_resolution_intent(
   uuid, uuid, uuid, text, text, text, timestamptz, text, text
 ) from public, anon, authenticated, service_role;
@@ -2201,5 +2347,7 @@ comment on column public.refund_cases.nayax_refund_attempt_generation is
 
 comment on function public.service_prepare_nayax_completion_retry(text, uuid) is
   'Reopens the exact safely failed Nayax completion message for one bounded original-thread retry. It refuses sent, uncertain, mismatched, or already-retried evidence and never calls the payment provider.';
+comment on function public.service_recover_stale_nayax_completion(text, uuid) is
+  'Classifies one stale pending Nayax completion without sending: no outbound or a proven safe failure enters the bounded retry path, sent evidence finalizes once, and every possibly delivered claim becomes reconciliation-only.';
 
 select pg_notify('pgrst', 'reload schema');

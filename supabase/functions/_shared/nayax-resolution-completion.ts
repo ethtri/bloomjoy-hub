@@ -15,6 +15,14 @@ type DeliverNayaxCompletionOnceInput = {
   isDeliveryUncertain: (error: unknown) => boolean;
 };
 
+type DeliverPreparedNayaxCompletionOnceInput<T> = Omit<
+  DeliverNayaxCompletionOnceInput,
+  "deliver"
+> & {
+  load: () => Promise<T>;
+  deliverLoaded: (loaded: T) => Promise<boolean>;
+};
+
 const fallbackResult = (
   status: NayaxCompletionDeliveryStatus,
 ): NayaxCompletionResult => ({
@@ -50,3 +58,15 @@ export const deliverNayaxCompletionOnce = async ({
     }
   }
 };
+
+export const deliverPreparedNayaxCompletionOnce = async <T>({
+  load,
+  deliverLoaded,
+  finish,
+  isDeliveryUncertain,
+}: DeliverPreparedNayaxCompletionOnceInput<T>) =>
+  await deliverNayaxCompletionOnce({
+    deliver: async () => deliverLoaded(await load()),
+    finish,
+    isDeliveryUncertain,
+  });

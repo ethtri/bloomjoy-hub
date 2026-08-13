@@ -8,7 +8,7 @@ import {
 } from "../_shared/refund-manager-totp.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
-import { deliverNayaxCompletionOnce } from "../_shared/nayax-resolution-completion.ts";
+import { deliverPreparedNayaxCompletionOnce } from "../_shared/nayax-resolution-completion.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
@@ -243,72 +243,85 @@ serve(async (req) => {
         ? frozenPayload.attemptId
         : "";
       let customerCompletion: Record<string, unknown> = {
-        status: "delivery_unknown",
+        status: "pending",
         transport: "gmail_thread",
         managerCcCount: 0,
         originalThread: true,
         operationApplied: false,
         managerCompletionNoticeSent: false,
       };
-      if (isUuid(completionMessageId) && isUuid(attemptId)) {
-        const [{ data: message }, { data: attempt }] = await Promise.all([
-          serviceClient.from("refund_case_messages")
-            .select("id,refund_case_id,recipient_email,subject,body")
-            .eq("id", completionMessageId)
-            .eq("nayax_refund_attempt_id", attemptId)
-            .single(),
-          serviceClient.from("refund_case_nayax_refund_attempts")
-            .select("completion_gmail_thread_id")
-            .eq("id", attemptId)
-            .single(),
-        ]);
-        if (
-          message && attempt && isUuid(message.refund_case_id) &&
-          isUuid(attempt.completion_gmail_thread_id) &&
-          typeof message.recipient_email === "string" &&
-          typeof message.subject === "string" &&
-          typeof message.body === "string"
-        ) {
-          const messageBody = message.body as string;
-          customerCompletion = await deliverNayaxCompletionOnce({
-            deliver: async () => {
-              const gmailDelivery = await dispatchRefundCaseGmailReply({
-                supabase: serviceClient,
-                refundCaseId: message.refund_case_id,
-                refundCaseMessageId: message.id,
-                recipientEmail: message.recipient_email,
-                email: {
-                  subject: message.subject,
-                  text: messageBody,
-                  html: messageBody.split("\n").map((line: string) =>
-                    line ? `<p>${escapeHtml(line)}</p>` : "<br>"
-                  ).join(""),
-                },
-                deliveryKind: "manual",
-                gmailThreadId: attempt.completion_gmail_thread_id,
-              });
-              return gmailDelivery.usedGmail;
-            },
-            finish: async (status) => {
-              const { data: finished, error: finishError } = await serviceClient.rpc(
-                "service_finish_nayax_refund_completion",
-                {
-                  p_executor_assertion: nayaxExecutorAssertion,
-                  p_attempt_id: attemptId,
-                  p_delivery_status: status,
-                },
-              );
-              if (finishError || !finished || typeof finished !== "object") {
-                throw new Error("completion_settlement_failed");
-              }
-              return finished as Record<string, unknown> & {
-                status: "sent" | "failed" | "delivery_unknown" | "already_sent";
-              };
-            },
-            isDeliveryUncertain: (error) =>
-              error instanceof RefundGmailError && error.deliveryUncertain,
-          });
+      const finishCompletion = async (
+        status: "sent" | "failed" | "delivery_unknown",
+      ) => {
+        const { data: finished, error: finishError } = await serviceClient.rpc(
+          "service_finish_nayax_refund_completion",
+          {
+            p_executor_assertion: nayaxExecutorAssertion,
+            p_attempt_id: attemptId,
+            p_delivery_status: status,
+          },
+        );
+        if (finishError || !finished || typeof finished !== "object") {
+          throw new Error("completion_settlement_failed");
         }
+        return finished as Record<string, unknown> & {
+          status: "sent" | "failed" | "delivery_unknown" | "already_sent";
+        };
+      };
+      if (isUuid(attemptId)) {
+        customerCompletion = await deliverPreparedNayaxCompletionOnce({
+          load: async () => {
+            if (!isUuid(completionMessageId)) {
+              throw new Error("completion_message_invalid");
+            }
+            const [messageResult, attemptResult] = await Promise.all([
+              serviceClient.from("refund_case_messages")
+                .select("id,refund_case_id,recipient_email,subject,body")
+                .eq("id", completionMessageId)
+                .eq("nayax_refund_attempt_id", attemptId)
+                .single(),
+              serviceClient.from("refund_case_nayax_refund_attempts")
+                .select("completion_gmail_thread_id")
+                .eq("id", attemptId)
+                .single(),
+            ]);
+            const message = messageResult.data;
+            const attempt = attemptResult.data;
+            if (
+              messageResult.error || attemptResult.error || !message || !attempt ||
+              !isUuid(message.refund_case_id) ||
+              !isUuid(attempt.completion_gmail_thread_id) ||
+              typeof message.recipient_email !== "string" ||
+              typeof message.subject !== "string" ||
+              typeof message.body !== "string"
+            ) {
+              throw new Error("completion_lookup_failed");
+            }
+            return { message, attempt };
+          },
+          deliverLoaded: async ({ message, attempt }) => {
+            const messageBody = message.body as string;
+            const gmailDelivery = await dispatchRefundCaseGmailReply({
+              supabase: serviceClient,
+              refundCaseId: message.refund_case_id,
+              refundCaseMessageId: message.id,
+              recipientEmail: message.recipient_email,
+              email: {
+                subject: message.subject,
+                text: messageBody,
+                html: messageBody.split("\n").map((line: string) =>
+                  line ? `<p>${escapeHtml(line)}</p>` : "<br>"
+                ).join(""),
+              },
+              deliveryKind: "manual",
+              gmailThreadId: attempt.completion_gmail_thread_id,
+            });
+            return gmailDelivery.usedGmail;
+          },
+          finish: finishCompletion,
+          isDeliveryUncertain: (error) =>
+            error instanceof RefundGmailError && error.deliveryUncertain,
+        });
       }
 
       const safeResolution = { ...resolutionBody };

@@ -58,6 +58,7 @@ import {
   openRefundManagerTotpEnrollmentWindow,
   prepareRefundNayaxOutcomeResolution,
   recoverRefundGmailCustomerContact,
+  recoverRefundNayaxCompletion,
   rejectRefundGptTriage,
   resolveRefundGmailDeliveryNotFound,
   resolveRefundCaseReconciliation,
@@ -114,22 +115,22 @@ const nayaxResolutionResultOptions: Array<{
   {
     value: 'remain_on_hold',
     label: 'Keep the provider hold',
-    helper: 'Record the review while keeping the case frozen and preventing another payment attempt.',
+    helper: 'Record the review while keeping the case frozen. This outcome does not retry Nayax or contact the customer.',
   },
   {
     value: 'provider_confirmed_retry_safe',
     label: 'Confirmed safe for a fresh review',
-    helper: 'Return the case to review without retrying Nayax. A later payment action still needs its own approval and code.',
+    helper: 'Return the case to review without retrying Nayax or contacting the customer. A later payment action still needs its own approval and code.',
   },
   {
     value: 'provider_confirmed_success',
     label: 'Provider confirms the refund succeeded',
-    helper: 'Commit the authoritative Nayax outcome and reporting adjustment. Customer email remains a separate controlled step.',
+    helper: 'Commit the authoritative Nayax outcome and reporting adjustment, then create one fixed completion reply and attempt to send it once in the original Gmail thread with every current mapped manager copied.',
   },
   {
     value: 'documented_manual_completion',
     label: 'Manual Nayax refund is documented',
-    helper: 'Commit an already-completed manual refund using its immutable evidence reference.',
+    helper: 'Commit the already-completed manual refund, then create one fixed completion reply and attempt to send it once in the original Gmail thread with every current mapped manager copied.',
   },
 ];
 
@@ -1446,6 +1447,7 @@ const isRefundCustomerDeliveryUncertain = (errorMessage: string | null | undefin
     normalized === 'gmail_delivery_record_failed' ||
     normalized === 'gmail_send_unconfirmed' ||
     normalized === 'gmail_response_invalid' ||
+    normalized === 'gmail_completion_delivery_unknown' ||
     normalized === 'gmail_delivery_reconciliation_required' ||
     /^gmail_http_5\d\d$/.test(normalized);
 };
@@ -2303,13 +2305,22 @@ export default function AdminRefundsPage() {
   const customerDeliveryNeedsReconciliation = Boolean(
     selectedCase && isRefundCustomerDeliveryUncertain(getLatestCustomerMessage(selectedCase)?.errorMessage)
   );
-  const latestFailedNayaxCompletionMessage = selectedCase?.messages
+  const latestNayaxCompletionMessage = selectedCase?.messages
     .filter((message) =>
       message.messageType === 'completed' &&
-      message.templateVersion === 'refund_nayax_completion_v2' &&
-      message.status === 'failed'
+      message.templateVersion === 'refund_nayax_completion_v2'
     )
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ?? null;
+  const latestPendingNayaxCompletionMessage = latestNayaxCompletionMessage?.status === 'pending'
+    ? latestNayaxCompletionMessage
+    : null;
+  const recoverablePendingNayaxCompletionMessage = latestPendingNayaxCompletionMessage &&
+      !isRefundCustomerDeliveryUncertain(latestPendingNayaxCompletionMessage.errorMessage)
+    ? latestPendingNayaxCompletionMessage
+    : null;
+  const latestFailedNayaxCompletionMessage = latestNayaxCompletionMessage?.status === 'failed'
+    ? latestNayaxCompletionMessage
+    : null;
   const failedNayaxCompletionMessage = latestFailedNayaxCompletionMessage &&
       !isRefundCustomerDeliveryUncertain(latestFailedNayaxCompletionMessage.errorMessage) &&
       latestFailedNayaxCompletionMessage.errorMessage !== 'gmail_completion_retry_exhausted'
@@ -2317,6 +2328,11 @@ export default function AdminRefundsPage() {
     : null;
   const nayaxCompletionRetryExhausted =
     latestFailedNayaxCompletionMessage?.errorMessage === 'gmail_completion_retry_exhausted';
+  const nayaxCompletionNeedsReconciliation = Boolean(
+    latestNayaxCompletionMessage &&
+      ['pending', 'failed'].includes(latestNayaxCompletionMessage.status) &&
+      isRefundCustomerDeliveryUncertain(latestNayaxCompletionMessage.errorMessage)
+  );
   const selectedCaseOfficialActionBlockReason = selectedCase?.officialActionBlockReason ??
     (selectedCase?.canPerformOfficialAction !== true ? 'manager_mapping_required' : null);
   const selectedCaseIsReviewOnly = selectedCase?.reconciliationActionBlocked === true ||
@@ -3872,6 +3888,53 @@ export default function AdminRefundsPage() {
     }
   };
 
+  const handleRecoverPendingNayaxCompletion = async () => {
+    if (!selectedCase || !recoverablePendingNayaxCompletionMessage) return;
+    if (isUsingDemoData) {
+      toast.info('Demo cases are read-only.');
+      return;
+    }
+
+    setIsSendingCustomerMessage(true);
+    try {
+      const recovery = await recoverRefundNayaxCompletion(
+        selectedCase.id,
+        recoverablePendingNayaxCompletionMessage.id
+      );
+      if (recovery.status === 'sent' || recovery.status === 'already_sent') {
+        toast.success('The original Gmail thread confirms that the completion reply was sent.');
+        setRefundActionReceipt({
+          tone: 'success',
+          title: 'Customer completion reconciled',
+          message: 'Exact Gmail sent evidence finalized the stored completion. No message or payment was repeated.',
+        });
+      } else if (recovery.status === 'failed') {
+        toast.warning('No Gmail send was started. The exact stored reply now has one controlled retry.');
+        setRefundActionReceipt({
+          tone: 'warning',
+          title: 'Interrupted completion recovered safely',
+          message: 'No outbound Gmail claim exists. Only the same stored reply may be retried once; no payment or provider action can repeat.',
+        });
+      } else {
+        toast.warning('Delivery may have started. Reconcile the original Gmail thread and do not send another message.');
+        setRefundActionReceipt({
+          tone: 'warning',
+          title: 'Customer completion needs reconciliation',
+          message: 'A Gmail claim exists but delivery is not proven. The reply cannot be retried until the original thread is reconciled.',
+        });
+      }
+      await refresh();
+    } catch (recoveryError) {
+      const message = recoveryError instanceof Error
+        ? recoveryError.message
+        : 'Unable to recover the interrupted customer completion.';
+      toast.error(message);
+      await refresh();
+    } finally {
+      setIsSendingCustomerMessage(false);
+    }
+  };
+
   const renderCardSaleCandidates = () => {
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return null;
     // A normalized legacy case must never reuse lookup cache or match fields
@@ -4503,8 +4566,9 @@ export default function AdminRefundsPage() {
                     <div>
                       <p className="font-semibold">Payment-support evidence review</p>
                       <p className="mt-1 text-sm leading-6">
-                        This records an authoritative support result for the exact held attempt. It never calls Nayax,
-                        retries a payment, or emails the customer.
+                        This never calls Nayax or retries a payment. Confirmed-success and documented-manual outcomes
+                        also create one fixed customer completion reply and attempt to send it once in the original Gmail
+                        thread with every current mapped manager copied. Hold and retry-safe outcomes contact nobody.
                       </p>
                     </div>
                   </div>
@@ -5812,6 +5876,71 @@ export default function AdminRefundsPage() {
                         ? renderCardDecisionWorkbench()
                         : renderCashDecisionWorkbench()}
 
+                    {(latestPendingNayaxCompletionMessage || latestFailedNayaxCompletionMessage) && (
+                      <section
+                        data-testid="refund-nayax-completion-recovery"
+                        className="rounded-xl border border-slate-300 bg-slate-50 p-4 text-sm text-slate-950"
+                      >
+                        {nayaxCompletionNeedsReconciliation ? (
+                          <div>
+                            <p className="font-semibold">Customer completion needs reconciliation</p>
+                            <p className="mt-1 leading-6">
+                              Gmail delivery may have started. Do not send another completion or use a generic reply. Check the original Gmail thread and escalate the stored delivery record for support review.
+                            </p>
+                          </div>
+                        ) : recoverablePendingNayaxCompletionMessage ? (
+                          <div>
+                            <p className="font-semibold">Customer completion is still pending</p>
+                            <p className="mt-1 leading-6">
+                              If the verified step was interrupted, wait five minutes and recover this exact stored reply. Recovery never sends: it proves no Gmail claim and opens the one bounded retry, finalizes exact sent evidence, or blocks all sends for original-thread reconciliation.
+                            </p>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="mt-3"
+                              onClick={() => void handleRecoverPendingNayaxCompletion()}
+                              disabled={isUsingDemoData || isSendingCustomerMessage}
+                            >
+                              {isSendingCustomerMessage ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <ShieldCheck className="mr-2 h-4 w-4" />
+                              )}
+                              Recover interrupted completion
+                            </Button>
+                          </div>
+                        ) : failedNayaxCompletionMessage ? (
+                          <div>
+                            <p className="font-semibold">Customer completion needs one controlled retry</p>
+                            <p className="mt-1 leading-6">
+                              This retries only the same stored completion reply in the original Gmail thread. It cannot change the customer, copy list, wording, payment, or provider outcome.
+                            </p>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="mt-3"
+                              onClick={() => void handleRetryNayaxCompletionMessage()}
+                              disabled={isUsingDemoData || isSendingCustomerMessage}
+                            >
+                              {isSendingCustomerMessage ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <Send className="mr-2 h-4 w-4" />
+                              )}
+                              Retry exact completion email once
+                            </Button>
+                          </div>
+                        ) : nayaxCompletionRetryExhausted ? (
+                          <div>
+                            <p className="font-semibold">Customer completion retry is exhausted</p>
+                            <p className="mt-1 leading-6">
+                              Do not send another completion message or repeat the payment. Reconcile the original Gmail thread and escalate the delivery record for support review.
+                            </p>
+                          </div>
+                        ) : null}
+                      </section>
+                    )}
+
                     {/* Local-only rollback reference while the cash workbench completes UAT. */}
                     {showLegacyCashWorkbench && selectedCase.paymentMethod === 'cash' && (
                     <div className="contents">
@@ -6419,46 +6548,12 @@ export default function AdminRefundsPage() {
                         </details>
                       )}
                       <details
-                        open={getLatestCustomerMessage(selectedCase)?.status === 'failed'}
+                        open={Boolean(latestPendingNayaxCompletionMessage || latestFailedNayaxCompletionMessage)}
                         className="rounded-md border border-border bg-muted/20 p-3"
                       >
                       <summary className="cursor-pointer text-sm font-medium text-foreground">
                           Advanced email preview and retry
                         </summary>
-                      {failedNayaxCompletionMessage && (
-                        <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-                          <p className="font-medium">Customer completion needs one controlled retry</p>
-                          <p className="mt-1">
-                            This retries only the same stored completion reply in the original Gmail thread. It cannot change the customer, copy list, wording, payment, or provider outcome.
-                          </p>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="mt-3"
-                            onClick={() => void handleRetryNayaxCompletionMessage()}
-                            disabled={
-                              isUsingDemoData ||
-                              isSendingCustomerMessage ||
-                              customerDeliveryNeedsReconciliation
-                            }
-                          >
-                            {isSendingCustomerMessage ? (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            ) : (
-                              <Send className="mr-2 h-4 w-4" />
-                            )}
-                            Retry exact completion email once
-                          </Button>
-                        </div>
-                      )}
-                      {nayaxCompletionRetryExhausted && (
-                        <div className="mt-3 rounded-md border border-slate-300 bg-slate-50 p-3 text-sm text-slate-900">
-                          <p className="font-medium">Customer completion retry is exhausted</p>
-                          <p className="mt-1">
-                            Do not send another completion message or repeat the payment. Reconcile the original Gmail thread and escalate the delivery record for support review.
-                          </p>
-                        </div>
-                      )}
                       <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
                         <div>
                           <Label>Template</Label>
@@ -6516,7 +6611,7 @@ export default function AdminRefundsPage() {
                           isUsingDemoData ||
                           isSendingCustomerMessage ||
                           customerDeliveryNeedsReconciliation ||
-                          Boolean(latestFailedNayaxCompletionMessage) ||
+                          Boolean(latestPendingNayaxCompletionMessage || latestFailedNayaxCompletionMessage) ||
                           !messageBody.trim()
                         }
                       >
@@ -7000,7 +7095,11 @@ export default function AdminRefundsPage() {
             </p>
             <p className="mt-2">
               {pendingNayaxResolutionPayload
-                ? 'This records only the evidence result shown below. It does not call Nayax, retry a payment, or contact the customer.'
+                ? ['provider_confirmed_success', 'documented_manual_completion'].includes(
+                    pendingNayaxResolutionPayload.resolutionResult
+                  )
+                  ? 'This does not call Nayax or retry a payment. Committing this result will create one fixed customer completion reply and immediately attempt to send it once in the original Gmail thread with every current mapped manager copied.'
+                  : 'This records only the evidence result shown below. It does not call Nayax, retry a payment, or contact the customer.'
                 : 'You can take this action because you are currently assigned to manage this machine. Admin access by itself is never enough to issue a refund.'}
             </p>
           </div>

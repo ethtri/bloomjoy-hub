@@ -214,6 +214,67 @@ serve(async (req) => {
       body?.nayaxCompletionMessageId,
       80,
     );
+    const nayaxCompletionRecoveryMessageId = sanitizeText(
+      body?.nayaxCompletionRecoveryMessageId,
+      80,
+    );
+    if (nayaxCompletionMessageId && nayaxCompletionRecoveryMessageId) {
+      return jsonResponse({
+        error: "Choose one exact customer-completion recovery action.",
+      }, 400);
+    }
+    if (nayaxCompletionRecoveryMessageId) {
+      if (
+        !isUuid(nayaxCompletionRecoveryMessageId) ||
+        Object.keys(body ?? {}).some((key) =>
+          !["caseId", "nayaxCompletionRecoveryMessageId"].includes(key)
+        )
+      ) {
+        return jsonResponse({
+          error: "Review the exact interrupted completion before recovering it.",
+        }, 400);
+      }
+      if (!/^[A-Za-z0-9_-]{32,200}$/.test(nayaxExecutorAssertion)) {
+        return jsonResponse({
+          error: "The controlled completion recovery is not configured.",
+        }, 503);
+      }
+
+      const { data: canManageCase, error: accessError } = await supabase.rpc(
+        "can_manage_refund_case",
+        { p_user_id: user.id, p_refund_case_id: caseId },
+      );
+      if (accessError) throw accessError;
+      if (!canManageCase) {
+        return jsonResponse({ error: "Refund case access required." }, 403);
+      }
+
+      const { data: recovered, error: recoveryError } = await supabase.rpc(
+        "service_recover_stale_nayax_completion",
+        {
+          p_executor_assertion: nayaxExecutorAssertion,
+          p_refund_case_message_id: nayaxCompletionRecoveryMessageId,
+        },
+      );
+      const recovery = recovered && typeof recovered === "object"
+        ? recovered as Record<string, unknown>
+        : null;
+      if (
+        recoveryError || recovery?.recovered !== true ||
+        !["sent", "already_sent", "failed", "delivery_unknown"].includes(
+          typeof recovery.status === "string" ? recovery.status : "",
+        ) || recovery.transport !== "gmail_thread" ||
+        recovery.originalThread !== true || recovery.providerCallMade !== false ||
+        recovery.payloadRedacted !== true
+      ) {
+        return jsonResponse({
+          error:
+            "The interrupted completion is not ready for safe recovery. Wait five minutes, refresh, and inspect the original Gmail thread.",
+        }, 409);
+      }
+
+      return jsonResponse({ recovery });
+    }
     if (nayaxCompletionMessageId) {
       if (
         !isUuid(nayaxCompletionMessageId) ||

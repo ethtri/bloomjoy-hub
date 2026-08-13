@@ -1819,6 +1819,37 @@ export const sendRefundCaseMessage = async (input: SendRefundCaseMessageInput) =
   return data.message;
 };
 
+export type RefundNayaxCompletionRecoveryResult = {
+  recovered: true;
+  status: 'sent' | 'already_sent' | 'failed' | 'delivery_unknown';
+  transport: 'gmail_thread';
+  originalThread: true;
+  outboundPresent: boolean;
+  providerCallMade: false;
+  payloadRedacted: true;
+};
+
+export const recoverRefundNayaxCompletion = async (
+  caseId: string,
+  nayaxCompletionRecoveryMessageId: string
+) => {
+  const data = await invokeEdgeFunction<{
+    error?: string;
+    recovery?: RefundNayaxCompletionRecoveryResult;
+  }>('refund-case-message-send', {
+    caseId,
+    nayaxCompletionRecoveryMessageId,
+  }, {
+    requireUserAuth: true,
+    authErrorMessage: 'Log in to recover the interrupted customer completion.',
+  });
+
+  if (!data.recovery) {
+    throw new Error(data.error || 'Unable to recover the interrupted customer completion.');
+  }
+  return data.recovery;
+};
+
 export const resolveRefundGmailDeliveryNotFound = async (refundCaseMessageId: string) => {
   const { data, error } = await supabaseClient.rpc(
     'admin_resolve_refund_gmail_delivery_not_found',

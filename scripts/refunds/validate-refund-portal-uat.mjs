@@ -865,6 +865,47 @@ const buildNayaxResolutionRefundOverview = () => {
   return overview;
 };
 
+const buildInterruptedNayaxCompletionOverview = () => {
+  const overview = buildMockRefundOverview();
+  const refundCase = overview.cases[0];
+  overview.cases = [{
+    ...refundCase,
+    status: 'completed',
+    providerHold: false,
+    providerOutcome: 'success',
+    nayaxRefundExecutionStatus: 'succeeded',
+    hasReportingAdjustment: true,
+    messages: [
+      ...refundCase.messages,
+      {
+        id: '8a820000-0000-4000-8000-000000000001',
+        messageType: 'completed',
+        status: 'pending',
+        recipientEmail: 'customer-card@example.test',
+        subject: 'Your $7.00 Bloomjoy refund is on its way',
+        body: 'Synthetic fixed completion copy.',
+        templateVersion: 'refund_nayax_completion_v2',
+        deliveryKind: 'manual',
+        contentSource: 'deterministic_template',
+        sentAt: null,
+        errorMessage: null,
+        createdAt: isoHoursAgo(1),
+      },
+    ],
+  }];
+  return overview;
+};
+
+const buildUncertainNayaxCompletionOverview = () => {
+  const overview = buildInterruptedNayaxCompletionOverview();
+  overview.cases[0].messages = overview.cases[0].messages.map((message) =>
+    message.templateVersion === 'refund_nayax_completion_v2'
+      ? { ...message, errorMessage: 'gmail_completion_delivery_unknown' }
+      : message
+  );
+  return overview;
+};
+
 const buildOfficialActionVersionResetOverview = () => {
   const overview = buildMockRefundOverview();
   const validCase = {
@@ -4077,7 +4118,8 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
           await panel.getByLabel('Refund issued at (UTC from evidence)').isVisible() &&
           (await panel.locator('textarea').count()) === 0 &&
           (await panel.getByLabel(/recipient|email subject|message body|retry provider/i).count()) === 0 &&
-          await panel.getByText('It never calls Nayax', { exact: false }).isVisible()
+          await panel.getByText('This never calls Nayax or retries a payment.', { exact: false }).isVisible() &&
+          await panel.getByText('every current mapped manager copied', { exact: false }).first().isVisible()
       );
       await panel.getByTestId('refund-nayax-resolution-reference')
         .fill('DTM:4111111111111111');
@@ -4126,6 +4168,13 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
           ? await frozenSummary.getByText('Refund issued at', { exact: true }).isVisible() &&
             await frozenSummary.getByText(/UTC$/).isVisible()
           : (await frozenSummary.getByText('Refund issued at', { exact: true }).count()) === 0) &&
+        (['provider_confirmed_success', 'documented_manual_completion'].includes(scenario.result)
+          ? await page.getByTestId('refund-manager-step-up-dialog')
+            .getByText('will create one fixed customer completion reply', { exact: false }).isVisible() &&
+            await page.getByTestId('refund-manager-step-up-dialog')
+              .getByText('every current mapped manager copied', { exact: false }).isVisible()
+          : await page.getByTestId('refund-manager-step-up-dialog')
+            .getByText('does not call Nayax, retry a payment, or contact the customer', { exact: false }).isVisible()) &&
         rpcCalls.filter((name) => name === 'admin_prepare_refund_nayax_resolution_intent').length === 1 &&
         !functionCalls.includes('refund-manager-action-step-up') &&
         !functionCalls.includes('nayax-card-refund') &&
@@ -4191,6 +4240,83 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
 
     await context.close();
   }
+
+  const interruptionContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const interruptionFunctionCalls = [];
+  await installMockSupabaseRoutes(interruptionContext, {
+    refundOverview: buildInterruptedNayaxCompletionOverview,
+    functionCalls: interruptionFunctionCalls,
+  });
+  const interruptionPage = await interruptionContext.newPage();
+  await signInRefundUser(interruptionPage, appUrl);
+  await interruptionPage.getByRole('button', { name: 'Completed 1', exact: true }).click();
+  await interruptionPage.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
+  const recoverButton = interruptionPage.getByRole('button', {
+    name: 'Recover interrupted completion',
+    exact: true,
+  });
+  const genericSendButton = interruptionPage.getByRole('button', {
+    name: 'Send manual/retry email',
+    exact: true,
+  });
+  const genericSendCount = await genericSendButton.count();
+  const interruptionState = {
+    recoverVisible: await recoverButton.isVisible().catch(() => false),
+    genericSendBlocked: genericSendCount === 0 || await genericSendButton.isDisabled().catch(() => false),
+    functionCalls: interruptionFunctionCalls,
+  };
+  recorder.assert(
+    'Pending Nayax completion blocks generic customer messages and exposes only no-send recovery',
+    interruptionState.recoverVisible &&
+      interruptionState.genericSendBlocked &&
+      !interruptionFunctionCalls.includes('refund-case-message-send'),
+    JSON.stringify(interruptionState)
+  );
+  await interruptionContext.close();
+
+  const uncertainContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const uncertainFunctionCalls = [];
+  await installMockSupabaseRoutes(uncertainContext, {
+    refundOverview: buildUncertainNayaxCompletionOverview,
+    functionCalls: uncertainFunctionCalls,
+  });
+  const uncertainPage = await uncertainContext.newPage();
+  await signInRefundUser(uncertainPage, appUrl);
+  await uncertainPage.getByRole('button', { name: 'Completed 1', exact: true }).click();
+  await uncertainPage.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
+  const uncertainGenericSend = uncertainPage.getByRole('button', {
+    name: 'Send manual/retry email',
+    exact: true,
+  });
+  const uncertainGenericSendCount = await uncertainGenericSend.count();
+  const uncertainState = {
+    reconciliationVisible: await uncertainPage
+      .getByTestId('refund-nayax-completion-recovery')
+      .getByText('Customer completion needs reconciliation', { exact: true })
+      .isVisible()
+      .catch(() => false),
+    recoverCount: await uncertainPage.getByRole('button', {
+      name: 'Recover interrupted completion',
+      exact: true,
+    }).count(),
+    retryCount: await uncertainPage.getByRole('button', {
+      name: 'Retry exact completion email once',
+      exact: true,
+    }).count(),
+    genericSendBlocked: uncertainGenericSendCount === 0 ||
+      await uncertainGenericSend.isDisabled().catch(() => false),
+    functionCalls: uncertainFunctionCalls,
+  };
+  recorder.assert(
+    'Uncertain Nayax completion blocks recovery, retry, and generic customer messaging',
+    uncertainState.reconciliationVisible &&
+      uncertainState.recoverCount === 0 &&
+      uncertainState.retryCount === 0 &&
+      uncertainState.genericSendBlocked &&
+      !uncertainFunctionCalls.includes('refund-case-message-send'),
+    JSON.stringify(uncertainState)
+  );
+  await uncertainContext.close();
 };
 
 const runOwnerTotpEnrollmentChecks = async ({ browser, appUrl, artifactDir, recorder }) => {

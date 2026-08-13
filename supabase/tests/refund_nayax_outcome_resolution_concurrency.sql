@@ -312,7 +312,7 @@ select ok((
     and (result ->> 'customerMessageCreated')::boolean
   from nayax_resolution_race_results
   where (result ->> 'ok')::boolean
-), 'The winner proves resolution without a provider call or customer message');
+), 'The winner proves resolution without a provider call and with one bound customer message');
 select is(
   (select count(*)::integer from public.refund_nayax_outcome_resolutions
     where refund_case_id = 'b2600000-0000-4000-8000-000000000001'),

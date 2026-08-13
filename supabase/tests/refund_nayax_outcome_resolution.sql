@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(65);
+select plan(71);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -893,6 +893,85 @@ select ok((
     and message.template_version = 'refund_nayax_completion_v2'
     and message.nayax_refund_attempt_id = 'b1700000-0000-4000-8000-000000000004'
 ), 'Manual completion also binds one pending original-thread customer reply atomically');
+
+update public.refund_case_nayax_refund_attempts
+set completion_delivery_attempted_at = statement_timestamp() - interval '6 minutes'
+where id = 'b1700000-0000-4000-8000-000000000004';
+select lives_ok($sql$
+  select public.service_recover_stale_nayax_completion(
+    'resolution-test-executor',
+    (select completion_message_id
+      from public.refund_case_nayax_refund_attempts
+      where id = 'b1700000-0000-4000-8000-000000000004')
+  )
+$sql$, 'A stale completion with no Gmail claim is proven safe without sending');
+select ok((
+  select attempt.completion_delivery_status = 'failed'
+    and attempt.completion_delivery_retry_count = 0
+    and message.status = 'failed'
+    and message.error_message = 'gmail_completion_failed'
+  from public.refund_case_nayax_refund_attempts attempt
+  join public.refund_case_messages message on message.id = attempt.completion_message_id
+  where attempt.id = 'b1700000-0000-4000-8000-000000000004'
+), 'Pre-claim interruption enters only the one bounded customer-message retry path');
+select lives_ok($sql$
+  select public.service_prepare_nayax_completion_retry(
+    'resolution-test-executor',
+    (select completion_message_id
+      from public.refund_case_nayax_refund_attempts
+      where id = 'b1700000-0000-4000-8000-000000000004')
+  )
+$sql$, 'The recovered pre-claim interruption can prepare its exact one retry');
+
+insert into public.refund_gmail_messages (
+  gmail_thread_id, refund_case_id, refund_case_message_id, operation_key,
+  direction, message_kind, status, sender_email, recipient_email,
+  recipient_cc_emails, recipient_cc_count, recipient_resolution_status,
+  delivery_kind, participant_role, participant_trust, subject, plain_body,
+  received_at, retention_expires_at
+)
+select
+  attempt.completion_gmail_thread_id,
+  attempt.refund_case_id,
+  attempt.completion_message_id,
+  'refund-case-message:' || attempt.completion_message_id::text,
+  'outbound', 'message', 'pending_send', 'info@bloomjoysweets.com',
+  message.recipient_email, array['manager@example.test'], 1, 'resolved',
+  'manual', 'mailbox', 'verified', message.subject, message.body,
+  statement_timestamp() - interval '6 minutes',
+  statement_timestamp() + interval '180 days'
+from public.refund_case_nayax_refund_attempts attempt
+join public.refund_case_messages message on message.id = attempt.completion_message_id
+where attempt.id = 'b1700000-0000-4000-8000-000000000004';
+update public.refund_case_nayax_refund_attempts
+set completion_delivery_attempted_at = statement_timestamp() - interval '6 minutes'
+where id = 'b1700000-0000-4000-8000-000000000004';
+select lives_ok($sql$
+  select public.service_recover_stale_nayax_completion(
+    'resolution-test-executor',
+    (select completion_message_id
+      from public.refund_case_nayax_refund_attempts
+      where id = 'b1700000-0000-4000-8000-000000000004')
+  )
+$sql$, 'A stale completion with an unconfirmed Gmail claim becomes reconciliation-only');
+select ok((
+  select attempt.completion_delivery_status = 'delivery_unknown'
+    and attempt.completion_delivery_retry_count = 1
+    and message.status = 'pending'
+    and message.error_message = 'gmail_completion_delivery_unknown'
+  from public.refund_case_nayax_refund_attempts attempt
+  join public.refund_case_messages message on message.id = attempt.completion_message_id
+  where attempt.id = 'b1700000-0000-4000-8000-000000000004'
+), 'A possibly delivered retry cannot become a second customer send');
+select ok(pg_temp.capture_error($sql$
+  select public.service_prepare_nayax_completion_retry(
+    'resolution-test-executor',
+    (select completion_message_id
+      from public.refund_case_nayax_refund_attempts
+      where id = 'b1700000-0000-4000-8000-000000000004')
+  )
+$sql$) like '%One safely failed Nayax completion is required%',
+  'Delivery-unknown interruption recovery cannot be retried');
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id in (
     'b1600000-0000-4000-8000-000000000001',

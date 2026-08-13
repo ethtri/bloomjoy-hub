@@ -1,5 +1,8 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { deliverNayaxCompletionOnce } from "./nayax-resolution-completion.ts";
+import {
+  deliverNayaxCompletionOnce,
+  deliverPreparedNayaxCompletionOnce,
+} from "./nayax-resolution-completion.ts";
 
 const runScenario = async ({
   deliveryError,
@@ -89,4 +92,33 @@ Deno.test("failed uncertainty settlement returns a fixed aggregate result", asyn
     operationApplied: false,
     managerCompletionNoticeSent: false,
   });
+});
+
+Deno.test("post-commit lookup failure settles failed before any Gmail call", async () => {
+  let gmailCalls = 0;
+  const finishCalls: string[] = [];
+  const result = await deliverPreparedNayaxCompletionOnce({
+    load: async () => {
+      throw new Error("fixed_lookup_failure");
+    },
+    deliverLoaded: async () => {
+      gmailCalls += 1;
+      return true;
+    },
+    finish: async (status) => {
+      finishCalls.push(status);
+      return {
+        status,
+        transport: "gmail_thread",
+        originalThread: true,
+        managerCcCount: 0,
+        operationApplied: true,
+        managerCompletionNoticeSent: false,
+      };
+    },
+    isDeliveryUncertain: () => false,
+  });
+  assertEquals(gmailCalls, 0);
+  assertEquals(finishCalls, ["failed"]);
+  assertEquals(result.status, "failed");
 });

@@ -99,7 +99,7 @@ assert(
 );
 
 assert(
-  databaseTests.includes('select plan(65)') &&
+  databaseTests.includes('select plan(71)') &&
     databaseTests.includes('The default-off gate blocks preparation before any write') &&
     databaseTests.includes('PAN, phone, account, and other long digit-shaped references are rejected') &&
     databaseTests.includes('Grouped card, phone, and account digit shapes are rejected') &&
@@ -112,6 +112,9 @@ assert(
     databaseTests.includes('The exact safely failed completion can be reopened once for original-thread delivery') &&
     databaseTests.includes('A failed bounded retry is durably marked exhausted') &&
     databaseTests.includes('A second customer-completion retry is impossible') &&
+    databaseTests.includes('A stale completion with no Gmail claim is proven safe without sending') &&
+    databaseTests.includes('A stale completion with an unconfirmed Gmail claim becomes reconciliation-only') &&
+    databaseTests.includes('Delivery-unknown interruption recovery cannot be retried') &&
     databaseTests.includes('Customer and reporting dates preserve the UTC action time across a local-date boundary') &&
     databaseTests.includes('Retry-safe returns through the real manager step-up preparation path with generation one frozen') &&
     databaseTests.includes('A new manager approval can reserve one fresh attempt after retry-safe generation') &&
@@ -149,7 +152,8 @@ assert(
     stepUpEdge.includes('dispatchRefundCaseGmailReply') &&
     stepUpEdge.includes('gmailThreadId: attempt.completion_gmail_thread_id') &&
     stepUpEdge.includes('service_finish_nayax_refund_completion') &&
-    stepUpEdge.includes('deliverNayaxCompletionOnce') &&
+    stepUpEdge.includes('deliverPreparedNayaxCompletionOnce') &&
+    nayaxCompletionTests.includes('post-commit lookup failure settles failed before any Gmail call') &&
     stepUpEdge.includes('The payment-support resolution could not be committed. The provider hold remains in place.'),
   'The shared step-up endpoint must use the frozen exact-factor RPC chain and one original-thread completion attempt.'
 );
@@ -171,6 +175,25 @@ assert(
 );
 
 assert(
+  migration.includes('service_recover_stale_nayax_completion') &&
+    migration.includes("statement_timestamp() - interval '5 minutes'") &&
+    migration.includes("when outbound_row.id is null then 'failed'") &&
+    migration.includes("else 'delivery_unknown'") &&
+    messageSendEdge.includes('nayaxCompletionRecoveryMessageId') &&
+    messageSendEdge.includes('service_recover_stale_nayax_completion') &&
+    messageSendEdge.includes('recovery.providerCallMade !== false') &&
+    stepUpEdge.includes('deliverPreparedNayaxCompletionOnce') &&
+    stepUpEdge.includes('messageResult.error || attemptResult.error') &&
+    nayaxCompletionTests.includes('assertEquals(gmailCalls, 0)') &&
+    nayaxCompletionTests.includes('assertEquals(finishCalls, ["failed"])') &&
+    operations.includes('recoverRefundNayaxCompletion') &&
+    portal.includes('Recover interrupted completion') &&
+    portal.includes('Recovery never sends') &&
+    portal.includes('latestPendingNayaxCompletionMessage || latestFailedNayaxCompletionMessage'),
+  'Every interrupted pending completion must become exact sent evidence, one safe retry, or reconciliation-only without sending during recovery.'
+);
+
+assert(
   operations.includes("| 'nayax_resolve'") &&
     operations.includes("targetFunction: 'refund-nayax-outcome-resolve'") &&
     operations.includes("'admin_prepare_refund_nayax_resolution_intent'") &&
@@ -186,15 +209,18 @@ assert(
     portal.includes('Refund issued at (UTC from evidence)') &&
     portal.includes('Retry exact completion email once') &&
     portal.includes('gmail_completion_retry_exhausted') &&
+    portal.includes("normalized === 'gmail_completion_delivery_unknown'") &&
     portal.includes('Customer completion retry is exhausted') &&
     portal.includes('It cannot change the customer, copy list, wording, payment, or provider outcome.') &&
     migration.includes('mark_refund_nayax_completion_retry_exhausted') &&
-    portal.includes('It never calls Nayax,') &&
-    portal.includes('retries a payment, or emails the customer.') &&
+    portal.includes('Confirmed-success and documented-manual outcomes') &&
+    portal.includes('every current mapped manager copied') &&
+    portal.includes('will create one fixed customer completion reply') &&
+    portal.includes('It does not call Nayax, retry a payment, or contact the customer.') &&
     !portal.includes('refund-nayax-resolution-recipient') &&
     !portal.includes('refund-nayax-resolution-body') &&
     !portal.includes('refund-nayax-resolution-recipient'),
-  'The manager surface must expose structured UTC evidence plus only one exact non-editable completion retry.'
+  'The manager surface must expose structured UTC evidence, outcome-specific customer-contact consent, and only one exact non-editable completion retry.'
 );
 
 assert(
@@ -202,6 +228,7 @@ assert(
     portalUat.includes('runNayaxResolutionChecks') &&
     portalUat.includes('Payment support sees exactly four structured outcomes and no arbitrary communication controls') &&
     portalUat.includes('Verified ${scenario.result} submits one frozen result with no provider or separate message endpoint') &&
+    portalUat.includes('Pending Nayax completion blocks generic customer messages and exposes only no-send recovery') &&
     portalUat.includes('Payment-support verification remains usable without mobile horizontal overflow') &&
     evidenceManifest.includes("'refund-nayax-support-resolution-desktop.png'") &&
     evidenceManifest.includes("'refund-nayax-support-resolution-mobile.png'"),
