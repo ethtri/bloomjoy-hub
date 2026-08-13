@@ -25,6 +25,7 @@ import {
   requiredFunctionSlugs,
   sanitizeProductionMetadata,
   validateManifestShape,
+  validatePreMigrationCompatibilitySource,
   validateReleaseManifestGitAnchorState,
 } from './refund-release.mjs';
 
@@ -196,6 +197,23 @@ try {
     [],
     'Repository function and migration digests must align with the anchored manifest'
   );
+  assert.equal(
+    repositoryManifest.preMigrationCompatibility?.sourceGitCommit,
+    'ed85425d93cce89b67a3bb91d5f680c58eaa0823',
+    'The production bridge must bind to the exact canonical 49-migration release'
+  );
+  assert.equal(
+    repositoryManifest.preMigrationCompatibility.requiredMigrations.length,
+    49,
+    'The production bridge must cover exactly the currently deployed 49 migrations'
+  );
+  assert(
+    !repositoryManifest.preMigrationCompatibility.requiredMigrations.includes(
+      '202608130001_refund_nayax_outcome_resolution.sql'
+    ),
+    'The production bridge must not claim that the pending outcome-resolution migration is deployed'
+  );
+  validatePreMigrationCompatibilitySource(repoRoot, repositoryManifest);
   for (const managerSlug of ['refund-manager-action-step-up', 'refund-manager-totp-enrollment']) {
     const localEntry = repositoryManifest.functions.find((entry) => entry.slug === managerSlug);
     const localStateEntry = repositoryLocalState.functions.find((entry) => entry.slug === managerSlug);
@@ -224,10 +242,15 @@ try {
       localEntry.production.sourceSha256 === deployedManagerSourceSha256[managerSlug],
       `${managerSlug} must preserve the independently reviewed production source pairing`
     );
-    assert.deepEqual(
-      baselineEntry,
-      { slug: managerSlug, status: 'MISSING' },
-      `${managerSlug} must retain an explicit missing pre-deployment baseline`
+    assert(
+      baselineEntry &&
+        baselineEntry.status === 'ACTIVE' &&
+        baselineEntry.version === localEntry.production.version &&
+        baselineEntry.verifyJwt === localEntry.verifyJwt &&
+        baselineEntry.importMap === false &&
+        baselineEntry.ezbrSha256 === localEntry.production.ezbrSha256 &&
+        baselineEntry.sourceSha256 === localEntry.production.sourceSha256,
+      `${managerSlug} must retain the fresh deployed pre-deployment baseline`
     );
     assert.deepEqual(
       restoreEntry,

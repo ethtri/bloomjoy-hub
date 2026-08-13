@@ -58,6 +58,63 @@
   ],
   "migrationFilesSha256": "6a06b8946874738d231553e72ca02f0d5177f93d1be13038f32ffce172913bde",
   "migrationVersionSetSha256": "73de962d076bdf93649ed30fd41d739ea784e8fbf6c12032d14273745ecac2c3",
+  "preMigrationCompatibility": {
+    "releaseId": "refund-ops-2026-08-12-gmail-proof",
+    "sourceGitCommit": "ed85425d93cce89b67a3bb91d5f680c58eaa0823",
+    "requiredMigrations": [
+      "202604270001_refund_adjustment_review_matching.sql",
+      "202604270002_live_refund_sheet_ingestion.sql",
+      "202604270003_partner_scoped_refund_review_warnings.sql",
+      "202604280001_refund_canonical_machine_identity.sql",
+      "202605020001_refund_settlement_guardrails.sql",
+      "202605090001_refund_operations_mvp.sql",
+      "202605110001_refund_operations_overview_privacy.sql",
+      "202605120001_refund_manager_setup_rpc.sql",
+      "202605120002_refund_full_automation_foundation.sql",
+      "202605130001_refund_nayax_lookup_candidate_tokens.sql",
+      "202605130002_admin_machine_refund_readiness_config.sql",
+      "202605130003_refund_scope_and_readiness_hardening.sql",
+      "20260515154432_refund_manager_workflow_hardening.sql",
+      "20260515195500_refund_manager_rescue_overview.sql",
+      "202605160001_refund_nayax_execution_manager_authorization.sql",
+      "202607210001_refund_public_location_label_guard.sql",
+      "202607210002_refund_manager_location_label_guard.sql",
+      "202607210003_refund_nayax_recommendation_state.sql",
+      "202607210004_refund_cash_completion_audit.sql",
+      "202607210005_refund_automation_scheduler_health.sql",
+      "202607210006_refund_gmail_thread_linkage.sql",
+      "202607210007_refund_gpt_triage_foundation.sql",
+      "202607220001_refund_gpt_triage_runner.sql",
+      "202607260001_refund_qr_claim_context.sql",
+      "202607260002_refund_qr_aware_nayax_recommendation.sql",
+      "202607270001_refund_wallet_correction.sql",
+      "202608020001_refund_portfolio_wide_intake.sql",
+      "202608030001_refund_gmail_first_contact.sql",
+      "202608030002_refund_manager_official_action_boundary.sql",
+      "202608030003_refund_gmail_participant_cc.sql",
+      "202608030004_refund_manager_action_step_up.sql",
+      "202608030005_refund_deterministic_follow_up_cycles.sql",
+      "202608040001_refund_manager_aging_reminders.sql",
+      "202608040002_refund_gmail_retention_safety.sql",
+      "202608040003_refund_first_contact_manager_cc.sql",
+      "202608040004_refund_nayax_provider_orchestration.sql",
+      "202608050001_refund_email_pilot_linkage.sql",
+      "202608050002_refund_email_duplicate_reconciliation.sql",
+      "202608050003_refund_email_queue_state.sql",
+      "202608110001_refund_evidence_clarity.sql",
+      "202608110020_refund_nayax_provider_caps.sql",
+      "20260812053417_refund_gmail_attachment_off_copy_gate.sql",
+      "20260812134500_refund_provider_hold_decision_freeze.sql",
+      "20260812160000_refund_case_manager_assignment.sql",
+      "20260812190000_refund_dual_role_manager_authority.sql",
+      "20260812200000_refund_owner_totp_enrollment_window.sql",
+      "20260812210000_refund_legacy_card_state_normalization.sql",
+      "20260812220000_refund_legacy_confirmation_normalization.sql",
+      "20260812230000_refund_synthetic_gmail_proof_authorization.sql"
+    ],
+    "migrationFilesSha256": "dd95f7e958227bcde93fca4aa4cc94cd41a253e686625597ff2ed013debd951e",
+    "migrationVersionSetSha256": "4012897899dbadcf43638348f053e6be75fe71e92e6bd681ce9ddd1710648ebb"
+  },
   "functions": [
     {
       "slug": "refund-case-intake",
@@ -160,66 +217,66 @@
       }
     }
   ],
-  "preDeploymentCapturedAt": "2026-08-12T00:50:28.719Z",
+  "preDeploymentCapturedAt": "2026-08-13T21:49:22.255Z",
   "preDeploymentProduction": [
     {
       "slug": "refund-case-intake",
       "status": "ACTIVE",
-      "version": 11,
+      "version": 42,
       "verifyJwt": false,
       "importMap": false,
-      "ezbrSha256": "19e36a21ab11af3e122c463499b65b9ac3a085af22ee7c5ee1a4212d41e89e80",
-      "sourceSha256": "8c28ed52051e477fb6c5cf57fe81eb1a123fd9247988bee2a8ebab603c38a68e"
+      "ezbrSha256": "5f733c0b22443631b007f8418229ea36e61e95aae677148c40f755f98cca6ee1",
+      "sourceSha256": "b7f179900f3a395457d15a64aa8ebfe609e2b284d093bf9c96b690bbb58e5c15"
     },
     {
       "slug": "nayax-transaction-lookup",
       "status": "ACTIVE",
-      "version": 10,
+      "version": 39,
       "verifyJwt": false,
       "importMap": false,
-      "ezbrSha256": "fb21840723b0d477f3ea57d841b832ac49e8877f0e6352b9d94cd6cb3e047f8f",
-      "sourceSha256": "24f1c685be8050d326fbbf85d3c9ca1dcf507bfff5b25cae8d6133be96545de5"
+      "ezbrSha256": "ae854beecd247f3c4b876a08843bd39cd7829d168fd737074cc09989f9ea7800",
+      "sourceSha256": "a2d566ce771496796ca9b4540b7a4d83043b849f76b1f19cb0b7c7f8e33ce79a"
     },
     {
       "slug": "refund-case-admin-update",
       "status": "ACTIVE",
-      "version": 10,
+      "version": 42,
       "verifyJwt": false,
       "importMap": false,
-      "ezbrSha256": "93c709d34bf9402545b97c3ea33697c9c7b81628cfb4ffcbbc74c0fa1a42cb6b",
-      "sourceSha256": "edbdfaa6942010f3cccf821bb44142047571bb9cdfe724a7105dee22455de863"
+      "ezbrSha256": "151743a1d22fab9c834ecf807cb9fd09afe2627914456e90e95c54ea3ec2fe71",
+      "sourceSha256": "51bbb90d4a6dec34365ded5e3a5992a9c6c72aa23533661452b7a13ec554cc36"
     },
     {
       "slug": "refund-case-message-send",
       "status": "ACTIVE",
-      "version": 9,
+      "version": 40,
       "verifyJwt": false,
       "importMap": false,
-      "ezbrSha256": "ebf5a6ffe169c740d5e85b2b7d3413c5472ac5428f1c06ec60c63dea4191bf49",
-      "sourceSha256": "19a5c51374c9ca17746c420c2259c29356facaf20b577183d880dce79e4a88af"
+      "ezbrSha256": "edb6f0034e31e0e03e39b1e77311e26aadf9e15c2f7cd519a90ec298d842844e",
+      "sourceSha256": "e3231afff84c9c4eb47779563ed474dbee8d37842aaf86ef778bb39251d3f32b"
     },
     {
       "slug": "refund-case-automation-sweep",
       "status": "ACTIVE",
-      "version": 10,
+      "version": 41,
       "verifyJwt": false,
       "importMap": false,
-      "ezbrSha256": "cc3a18d10796ed22dd7305cf5a0a7bb12804e16e876505f3ddba65796f79cf64",
-      "sourceSha256": "2fae18fb778f4f4e46c31d313864dc733cff86dbbbd817086b0addbbc647c07b"
+      "ezbrSha256": "bbd47883b4ca1f3da33af8c7da1ff13270dfba0d0367c81f8f627b5aee8b838c",
+      "sourceSha256": "535e10f444a6ed068da3625103c59a3bdc11eb98fee17194a998ece41dcfaee2"
     },
     {
       "slug": "refund-gmail-sync",
       "status": "ACTIVE",
-      "version": 8,
+      "version": 38,
       "verifyJwt": false,
       "importMap": false,
-      "ezbrSha256": "4282c11096ba8fa4b209b11d341b791bb1208ff03e911a459b507b6f8d74f7c3",
-      "sourceSha256": "19697ba2c49915c4d0167f4e16aa0948a0a7845d2ffa9e0f0a32c653e4eacaf9"
+      "ezbrSha256": "3a93a0793322581ab9083cc692c978bc25ef5cfd921716f35364d34e4c831dd5",
+      "sourceSha256": "8fd54d8195b1abbd441b6340d973956b75b01c8c48c5673b1b091a352e3ef86f"
     },
     {
       "slug": "refund-gpt-triage",
       "status": "ACTIVE",
-      "version": 8,
+      "version": 36,
       "verifyJwt": false,
       "importMap": false,
       "ezbrSha256": "1ef839d0183516c9373b531b043d015197c365cb23785e6d16017ad9706714fd",
@@ -228,19 +285,29 @@
     {
       "slug": "nayax-card-refund",
       "status": "ACTIVE",
-      "version": 9,
+      "version": 39,
       "verifyJwt": false,
       "importMap": false,
-      "ezbrSha256": "81931fe45f118a93b88c8226d2054e8fe0062d7c98b9359304a7d7079c9dc36b",
-      "sourceSha256": "22fd4e70c28e196761f82dc11ea9f9aa17c175cbbf49d7e3eec4681f1eb428b9"
+      "ezbrSha256": "d6f72367ee684559ccaeeeb4f8034e059759d337fba6a7a5d96dbd56c96c9e5f",
+      "sourceSha256": "c1d58503507f2adbdef8920fe4572b25a474a7092b83a45a821364b67d9bda40"
     },
     {
       "slug": "refund-manager-action-step-up",
-      "status": "MISSING"
+      "status": "ACTIVE",
+      "version": 30,
+      "verifyJwt": false,
+      "importMap": false,
+      "ezbrSha256": "a87e4e43044fa1f4cfed4767345e21d012fe38b48a5dfb510123d0eca85558ba",
+      "sourceSha256": "cd147f13796e0218512a281e38271ed1f1fbd2ad8aad947b10dda8d1f8336278"
     },
     {
       "slug": "refund-manager-totp-enrollment",
-      "status": "MISSING"
+      "status": "ACTIVE",
+      "version": 30,
+      "verifyJwt": false,
+      "importMap": false,
+      "ezbrSha256": "2bec4ebb48cb4449262c287928f71dac004c303e9e0214f1f9e0019958cab906",
+      "sourceSha256": "f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511"
     }
   ],
   "approvedRestoreSource": {
