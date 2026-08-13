@@ -47,6 +47,14 @@ create unique index if not exists refund_synthetic_gmail_proof_one_unclosed_idx
 create index if not exists refund_synthetic_gmail_proof_case_idx
   on public.refund_synthetic_gmail_proof_authorizations (refund_case_id, prepared_at desc);
 
+alter table public.refund_case_messages
+  add column if not exists synthetic_gmail_proof_authorization_id uuid
+  references public.refund_synthetic_gmail_proof_authorizations(id) on delete restrict;
+
+create unique index if not exists refund_case_messages_one_synthetic_gmail_proof_idx
+  on public.refund_case_messages (synthetic_gmail_proof_authorization_id)
+  where synthetic_gmail_proof_authorization_id is not null;
+
 alter table public.refund_synthetic_gmail_proof_authorizations enable row level security;
 revoke all on table public.refund_synthetic_gmail_proof_authorizations
   from public, anon, authenticated, service_role;
@@ -91,6 +99,149 @@ as $$
     'hex'
   );
 $$;
+
+create or replace function public.guard_refund_synthetic_gmail_proof_message_insert()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  proof_auth public.refund_synthetic_gmail_proof_authorizations%rowtype;
+  proof_case public.refund_cases%rowtype;
+  recipient_resolution jsonb;
+  manager_emails text[] := '{}'::text[];
+begin
+  perform pg_advisory_xact_lock(
+    hashtextextended('refund-synthetic-gmail-proof-exclusive-window', 800)
+  );
+
+  select existing.*
+  into proof_auth
+  from public.refund_synthetic_gmail_proof_authorizations existing
+  where existing.cancelled_at is null
+  for update;
+
+  if proof_auth.id is null then
+    if new.synthetic_gmail_proof_authorization_id is not null then
+      raise exception 'Synthetic Gmail proof authorization is not active';
+    end if;
+    return new;
+  end if;
+
+  if new.synthetic_gmail_proof_authorization_id is distinct from proof_auth.id then
+    raise exception 'Synthetic Gmail proof window blocks every unbound customer message insert';
+  end if;
+
+  select refund_case.*
+  into proof_case
+  from public.refund_cases refund_case
+  where refund_case.id = proof_auth.refund_case_id
+  for update;
+
+  if proof_auth.cancelled_at is not null
+    or proof_auth.consumed_at is null
+    or proof_auth.refund_case_message_id is not null
+    or proof_auth.expires_at <= statement_timestamp()
+    or new.refund_case_id is distinct from proof_auth.refund_case_id
+    or new.message_type is distinct from proof_auth.expected_message_type
+    or new.status is distinct from 'pending'
+    or new.delivery_kind is distinct from 'manual'
+    or new.content_source is distinct from 'manager_authored'
+    or new.template_key is distinct from 'refund_status_update_editable_v1'
+    or proof_case.id is null
+    or proof_case.intake_source is distinct from 'gmail'
+    or proof_case.status is distinct from 'needs_review'
+    or proof_case.reporting_machine_id is null
+    or lower(btrim(coalesce(new.recipient_email, ''))) is distinct from
+      lower(btrim(coalesce(proof_case.customer_email, '')))
+    or encode(extensions.digest(
+      convert_to(lower(btrim(coalesce(new.recipient_email, ''))), 'UTF8'),
+      'sha256'
+    ), 'hex') is distinct from proof_auth.recipient_digest
+    or not public.refund_synthetic_gmail_proof_recipient_allowed(
+      proof_case.customer_email
+    )
+    or (select count(*) from public.refund_gmail_threads thread
+      where thread.refund_case_id = proof_case.id) <> 1
+    or not exists (
+      select 1
+      from public.refund_gmail_threads thread
+      where thread.id = proof_auth.gmail_thread_id
+        and thread.refund_case_id = proof_case.id
+    )
+    or exists (
+      select 1
+      from public.refund_gmail_attachments attachment
+      where attachment.refund_case_id = proof_case.id
+    ) then
+    raise exception 'Synthetic Gmail proof message insert no longer matches its frozen authorization';
+  end if;
+
+  recipient_resolution := public.service_resolve_refund_customer_manager_cc(
+    proof_case.id,
+    proof_case.customer_email,
+    array[
+      'info@bloomjoysweets.com',
+      'support@bloomjoysweets.com',
+      'refunds@bloomjoysweets.com'
+    ]::text[]
+  );
+  select coalesce(array_agg(value order by value), '{}'::text[])
+  into manager_emails
+  from jsonb_array_elements_text(
+    coalesce(recipient_resolution -> 'managerCcEmails', '[]'::jsonb)
+  ) value;
+
+  if recipient_resolution ->> 'status' is distinct from 'resolved'
+    or cardinality(manager_emails) is distinct from proof_auth.expected_manager_count
+    or public.refund_synthetic_gmail_proof_route_digest(manager_emails)
+      is distinct from proof_auth.manager_route_digest then
+    raise exception 'Synthetic Gmail proof manager route changed before message insert';
+  end if;
+
+  return new;
+end;
+$$;
+
+create or replace function public.bind_refund_synthetic_gmail_proof_message_insert()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.synthetic_gmail_proof_authorization_id is null then
+    return new;
+  end if;
+
+  update public.refund_synthetic_gmail_proof_authorizations
+  set refund_case_message_id = new.id
+  where id = new.synthetic_gmail_proof_authorization_id
+    and refund_case_id = new.refund_case_id
+    and consumed_at is not null
+    and cancelled_at is null
+    and refund_case_message_id is null;
+
+  if not found then
+    raise exception 'Synthetic Gmail proof message binding failed';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists guard_refund_synthetic_gmail_proof_message_insert
+  on public.refund_case_messages;
+create trigger guard_refund_synthetic_gmail_proof_message_insert
+before insert on public.refund_case_messages
+for each row execute function public.guard_refund_synthetic_gmail_proof_message_insert();
+
+drop trigger if exists bind_refund_synthetic_gmail_proof_message_insert
+  on public.refund_case_messages;
+create trigger bind_refund_synthetic_gmail_proof_message_insert
+after insert on public.refund_case_messages
+for each row execute function public.bind_refund_synthetic_gmail_proof_message_insert();
 
 create or replace function public.owner_prepare_refund_synthetic_gmail_proof(
   p_refund_case_id uuid,
@@ -429,60 +580,6 @@ begin
     'expectedManagerCount', proof_auth.expected_manager_count,
     'payloadRedacted', true
   );
-end;
-$$;
-
-create or replace function public.service_bind_refund_synthetic_gmail_proof_message(
-  p_authorization_id uuid,
-  p_refund_case_id uuid,
-  p_refund_case_message_id uuid
-)
-returns boolean
-language plpgsql
-security definer
-set search_path = public, auth
-as $$
-declare
-  proof_auth public.refund_synthetic_gmail_proof_authorizations%rowtype;
-  proof_message public.refund_case_messages%rowtype;
-begin
-  if auth.role() is distinct from 'service_role' then
-    raise exception 'Synthetic Gmail proof binding is service-only';
-  end if;
-
-  select existing.*
-  into proof_auth
-  from public.refund_synthetic_gmail_proof_authorizations existing
-  where existing.id = p_authorization_id
-  for update;
-
-  select message.*
-  into proof_message
-  from public.refund_case_messages message
-  where message.id = p_refund_case_message_id
-  for update;
-
-  if proof_auth.id is null
-    or proof_auth.cancelled_at is not null
-    or proof_auth.consumed_at is null
-    or proof_auth.refund_case_id is distinct from p_refund_case_id
-    or proof_auth.refund_case_message_id is not null
-    or proof_message.id is null
-    or proof_message.refund_case_id is distinct from p_refund_case_id
-    or proof_message.status is distinct from 'pending'
-    or proof_message.message_type is distinct from proof_auth.expected_message_type
-    or proof_message.delivery_kind is distinct from 'manual'
-    or proof_message.content_source is distinct from 'manager_authored'
-    or proof_message.template_key is distinct from 'refund_status_update_editable_v1' then
-    return false;
-  end if;
-
-  update public.refund_synthetic_gmail_proof_authorizations
-  set refund_case_message_id = proof_message.id
-  where id = proof_auth.id
-    and refund_case_message_id is null;
-
-  return found;
 end;
 $$;
 
@@ -851,6 +948,10 @@ revoke all on function public.refund_synthetic_gmail_proof_recipient_allowed(tex
   from public, anon, authenticated, service_role;
 revoke all on function public.refund_synthetic_gmail_proof_route_digest(text[])
   from public, anon, authenticated, service_role;
+revoke all on function public.guard_refund_synthetic_gmail_proof_message_insert()
+  from public, anon, authenticated, service_role;
+revoke all on function public.bind_refund_synthetic_gmail_proof_message_insert()
+  from public, anon, authenticated, service_role;
 revoke all on function public.owner_prepare_refund_synthetic_gmail_proof(uuid,text,text)
   from public, anon, authenticated, service_role;
 revoke all on function public.owner_get_refund_synthetic_gmail_proof_summary(uuid,text)
@@ -859,14 +960,10 @@ revoke all on function public.owner_close_refund_synthetic_gmail_proof(uuid,text
   from public, anon, authenticated, service_role;
 revoke all on function public.service_authorize_refund_synthetic_gmail_proof(uuid,text,text,text,boolean)
   from public, anon, authenticated, service_role;
-revoke all on function public.service_bind_refund_synthetic_gmail_proof_message(uuid,uuid,uuid)
-  from public, anon, authenticated, service_role;
 revoke all on function public.service_verify_refund_synthetic_gmail_proof_transport(uuid,uuid,text,uuid)
   from public, anon, authenticated, service_role;
 
 grant execute on function public.service_authorize_refund_synthetic_gmail_proof(uuid,text,text,text,boolean)
-  to service_role;
-grant execute on function public.service_bind_refund_synthetic_gmail_proof_message(uuid,uuid,uuid)
   to service_role;
 grant execute on function public.service_verify_refund_synthetic_gmail_proof_transport(uuid,uuid,text,uuid)
   to service_role;

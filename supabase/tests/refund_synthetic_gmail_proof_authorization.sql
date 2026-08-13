@@ -238,6 +238,80 @@ select is(
 select set_config('request.jwt.claim.role', 'service_role', true);
 select set_config('request.jwt.claims', '{"role":"service_role"}', true);
 
+select throws_ok(
+  format(
+    $$insert into public.refund_case_messages
+      (id, refund_case_id, message_type, status, recipient_email, subject, body,
+       template_key, created_by, content_source, delivery_kind, requested_fields)
+      values (%L, %L, 'status_update', 'pending', %L, 'Blocked', 'Blocked',
+       'refund_status_update_editable_v1', %L, 'manager_authored', 'manual', '{}')$$,
+    '80050000-0000-4000-8000-000000000011',
+    (select result ->> 'caseId' from synthetic_proof_ingest),
+    'etrifari+refundpilot-db@bloomjoysweets.com',
+    '80000000-0000-4000-8000-000000000001'
+  ),
+  'P0001',
+  'Synthetic Gmail proof window blocks every unbound customer message insert',
+  'The admin-update lane cannot insert a customer message during the proof window'
+);
+select throws_ok(
+  format(
+    $$insert into public.refund_case_messages
+      (id, refund_case_id, message_type, status, recipient_email, subject, body,
+       template_key, created_by, content_source, delivery_kind, requested_fields)
+      values (%L, %L, 'first_contact', 'pending', %L, 'Blocked', 'Blocked',
+       'refund_first_contact_v1', %L, 'deterministic_template', 'automatic', '{}')$$,
+    '80050000-0000-4000-8000-000000000012',
+    (select result ->> 'caseId' from synthetic_proof_ingest),
+    'etrifari+refundpilot-db@bloomjoysweets.com',
+    '80000000-0000-4000-8000-000000000001'
+  ),
+  'P0001',
+  'Synthetic Gmail proof window blocks every unbound customer message insert',
+  'The Gmail intake/first-contact lane cannot insert during the proof window'
+);
+select throws_ok(
+  format(
+    $$insert into public.refund_case_messages
+      (id, refund_case_id, message_type, status, recipient_email, subject, body,
+       template_key, created_by, content_source, delivery_kind, requested_fields)
+      values (%L, %L, 'more_info', 'pending', %L, 'Blocked', 'Blocked',
+       'refund_more_info_editable_v1', %L, 'deterministic_template', 'automatic', '{}')$$,
+    '80050000-0000-4000-8000-000000000013',
+    (select result ->> 'caseId' from synthetic_proof_ingest),
+    'etrifari+refundpilot-db@bloomjoysweets.com',
+    '80000000-0000-4000-8000-000000000001'
+  ),
+  'P0001',
+  'Synthetic Gmail proof window blocks every unbound customer message insert',
+  'The automatic follow-up lane cannot insert during the proof window'
+);
+select throws_ok(
+  format(
+    $$insert into public.refund_case_messages
+      (id, refund_case_id, message_type, status, recipient_email, subject, body,
+       template_key, created_by, content_source, delivery_kind, requested_fields)
+      values (%L, %L, 'completed', 'pending', %L, 'Blocked', 'Blocked',
+       'refund_completed_v1', %L, 'deterministic_template', 'automatic', '{}')$$,
+    '80050000-0000-4000-8000-000000000014',
+    (select result ->> 'caseId' from synthetic_proof_ingest),
+    'etrifari+refundpilot-db@bloomjoysweets.com',
+    '80000000-0000-4000-8000-000000000001'
+  ),
+  'P0001',
+  'Synthetic Gmail proof window blocks every unbound customer message insert',
+  'The provider-completion automation lane cannot insert during the proof window'
+);
+select is(
+  (
+    select count(*)::integer
+    from public.refund_gmail_messages
+    where direction = 'outbound'
+  ),
+  0,
+  'All blocked creator lanes reach zero transport, OAuth, or Gmail claim work'
+);
+
 select is(
   public.service_authorize_refund_synthetic_gmail_proof(
     '80090000-0000-4000-8000-000000000099',
@@ -385,7 +459,8 @@ select is(
 
 insert into public.refund_case_messages (
   id, refund_case_id, message_type, status, recipient_email, subject, body,
-  template_key, created_by, content_source, delivery_kind, requested_fields
+  template_key, created_by, content_source, delivery_kind, requested_fields,
+  synthetic_gmail_proof_authorization_id
 )
 values (
   '80050000-0000-4000-8000-000000000001',
@@ -396,16 +471,18 @@ values (
   'Thank you for your patience. We are reviewing your request.',
   'refund_status_update_editable_v1',
   '80000000-0000-4000-8000-000000000001',
-  'manager_authored', 'manual', '{}'::text[]
+  'manager_authored', 'manual', '{}'::text[],
+  (select (result ->> 'authorizationId')::uuid from delivery_authorized)
 );
 
-select ok(
-  public.service_bind_refund_synthetic_gmail_proof_message(
-    (select (result ->> 'authorizationId')::uuid from delivery_authorized),
-    (select (result ->> 'caseId')::uuid from synthetic_proof_ingest),
-    '80050000-0000-4000-8000-000000000001'
+select is(
+  (
+    select refund_case_message_id
+    from public.refund_synthetic_gmail_proof_authorizations
+    where id = (select (result ->> 'authorizationId')::uuid from delivery_authorized)
   ),
-  'The consumed authorization binds exactly one compliant case message'
+  '80050000-0000-4000-8000-000000000001'::uuid,
+  'The database trigger atomically binds exactly one compliant case message'
 );
 select is(
   public.service_verify_refund_synthetic_gmail_proof_transport(

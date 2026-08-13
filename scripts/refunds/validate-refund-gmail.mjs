@@ -1415,23 +1415,23 @@ const proofMessageInsert = sendFunction.indexOf(
   '.from("refund_case_messages")',
   proofAuthorizationCall,
 );
-const proofBindingCall = sendFunction.indexOf(
-  'bindRefundSyntheticGmailProofMessage({',
+const proofDatabaseBinding = sendFunction.indexOf(
+  'synthetic_gmail_proof_authorization_id:',
   proofMessageInsert,
 );
 const proofTransportCall = sendFunction.indexOf(
   'dispatchRefundCaseGmailReply({',
-  proofBindingCall,
+  proofDatabaseBinding,
 );
 assert(
   proofAuthorizationCall >= 0 &&
     proofMessageInsert > proofAuthorizationCall &&
-    proofBindingCall > proofMessageInsert &&
-    proofTransportCall > proofBindingCall &&
+    proofDatabaseBinding > proofMessageInsert &&
+    proofTransportCall > proofDatabaseBinding &&
     sendFunction.includes('runToken: body?.syntheticProofRunToken') &&
     sendFunction.includes('defaultTemplateOnly: !triageSuggestionId') &&
     sendFunction.includes('syntheticProofAuthorizationId: syntheticProof.authorizationId'),
-  'The case-message Edge path must reject outside the proof boundary before insert, then bind before transport',
+  'The case-message Edge path must authorize before insert, then pass its internal binding through the shared database boundary before transport',
 );
 const proofTransportVerification = gmailTransport.indexOf(
   'verifyRefundSyntheticGmailProofTransport({',
@@ -1463,6 +1463,18 @@ assert(
     ) &&
     syntheticProofMigration.includes("expires_at <= prepared_at + interval '5 minutes'") &&
     syntheticProofMigration.includes('expected_message_type = \'status_update\'') &&
+    syntheticProofMigration.includes(
+      'guard_refund_synthetic_gmail_proof_message_insert',
+    ) &&
+    syntheticProofMigration.includes(
+      'before insert on public.refund_case_messages',
+    ) &&
+    syntheticProofMigration.includes(
+      'synthetic_gmail_proof_authorization_id',
+    ) &&
+    syntheticProofMigration.includes(
+      'Synthetic Gmail proof window blocks every unbound customer message insert',
+    ) &&
     syntheticProofMigration.includes('baseline_global_case_message_count') &&
     syntheticProofMigration.includes("'activeAuthorizationCount'") &&
     syntheticProofMigration.includes("'proofPassed'") &&
@@ -1494,6 +1506,13 @@ assert(
     transportTest.includes('approved one-shot synthetic proof pins one original-thread send') &&
     transportTest.includes('changed manager route after claim and before OAuth or send') &&
     syntheticProofDbTest.includes('Rejected proof requests create zero case messages') &&
+    syntheticProofDbTest.includes('admin-update lane cannot insert') &&
+    syntheticProofDbTest.includes('Gmail intake/first-contact lane cannot insert') &&
+    syntheticProofDbTest.includes('automatic follow-up lane cannot insert') &&
+    syntheticProofDbTest.includes('provider-completion automation lane cannot insert') &&
+    syntheticProofDbTest.includes(
+      'All blocked creator lanes reach zero transport, OAuth, or Gmail claim work',
+    ) &&
     syntheticProofDbTest.includes('The approved path adds no attachment') &&
     syntheticProofDbTest.includes('Final teardown verifies every exclusive proof gate is closed') &&
     syntheticProofConcurrencyTest.includes(

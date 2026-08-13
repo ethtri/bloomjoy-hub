@@ -4,7 +4,6 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   authorizeRefundSyntheticGmailProof,
-  bindRefundSyntheticGmailProofMessage,
   verifyRefundSyntheticGmailProofTransport,
 } from "./refund-synthetic-gmail-proof.ts";
 import { RefundGmailError, sha256Hex } from "./refund-gmail.ts";
@@ -149,14 +148,11 @@ Deno.test("invalid or missing opaque token is never forwarded in clear text", as
   assertEquals(observedDigest, "");
 });
 
-Deno.test("message binding and transport verification use only the internal authorization id", async () => {
+Deno.test("transport verification uses only the database-bound internal authorization id", async () => {
   const calls: string[] = [];
   const supabase = {
     rpc: async (name: string) => {
       calls.push(name);
-      if (name === "service_bind_refund_synthetic_gmail_proof_message") {
-        return { data: true, error: null };
-      }
       return {
         data: {
           required: true,
@@ -171,12 +167,6 @@ Deno.test("message binding and transport verification use only the internal auth
     },
   };
 
-  await bindRefundSyntheticGmailProofMessage({
-    supabase: supabase as never,
-    authorizationId: AUTHORIZATION_ID,
-    refundCaseId: CASE_ID,
-    refundCaseMessageId: MESSAGE_ID,
-  });
   const verified = await verifyRefundSyntheticGmailProofTransport({
     supabase: supabase as never,
     refundCaseId: CASE_ID,
@@ -191,7 +181,6 @@ Deno.test("message binding and transport verification use only the internal auth
     managerRouteDigest: MANAGER_ROUTE_DIGEST,
   });
   assertEquals(calls, [
-    "service_bind_refund_synthetic_gmail_proof_message",
     "service_verify_refund_synthetic_gmail_proof_transport",
   ]);
 });

@@ -85,33 +85,6 @@ export const authorizeRefundSyntheticGmailProof = async ({
   };
 };
 
-export const bindRefundSyntheticGmailProofMessage = async ({
-  supabase,
-  authorizationId,
-  refundCaseId,
-  refundCaseMessageId,
-}: {
-  supabase: SupabaseClient;
-  authorizationId: string;
-  refundCaseId: string;
-  refundCaseMessageId: string;
-}) => {
-  const { data, error } = await supabase.rpc(
-    "service_bind_refund_synthetic_gmail_proof_message",
-    {
-      p_authorization_id: authorizationId,
-      p_refund_case_id: refundCaseId,
-      p_refund_case_message_id: refundCaseMessageId,
-    },
-  );
-  if (error || data !== true) {
-    throw new RefundGmailError(
-      "synthetic_proof_message_binding_failed",
-      "The one-shot synthetic message could not be bound before delivery.",
-    );
-  }
-};
-
 export const verifyRefundSyntheticGmailProofTransport = async ({
   supabase,
   refundCaseId,

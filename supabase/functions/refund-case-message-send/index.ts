@@ -23,10 +23,7 @@ import {
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
 import { validateRefundGptReviewedDraft } from "../_shared/refund-gpt-triage-policy.mjs";
 import { validateRefundCustomerMessageRequest } from "../_shared/refund-evidence-selection.ts";
-import {
-  authorizeRefundSyntheticGmailProof,
-  bindRefundSyntheticGmailProofMessage,
-} from "../_shared/refund-synthetic-gmail-proof.ts";
+import { authorizeRefundSyntheticGmailProof } from "../_shared/refund-synthetic-gmail-proof.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -392,20 +389,12 @@ serve(async (req) => {
         reason_code: messageType === "more_info" ? "missing_information" : null,
         template_version: null,
         requested_fields: messageType === "more_info" ? missingFields : [],
+        synthetic_gmail_proof_authorization_id: syntheticProof.authorizationId,
       })
       .select("id")
       .single();
 
     if (messageError) throw messageError;
-
-    if (syntheticProof.required) {
-      await bindRefundSyntheticGmailProofMessage({
-        supabase,
-        authorizationId: syntheticProof.authorizationId,
-        refundCaseId: refundCase.id,
-        refundCaseMessageId: messageRow.id,
-      });
-    }
 
     try {
       const gmailDelivery = await dispatchRefundCaseGmailReply({
