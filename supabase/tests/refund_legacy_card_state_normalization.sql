@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(39);
+select plan(40);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -149,7 +149,8 @@ from (values
   ('8d500000-0000-4000-8000-000000000010'::uuid, 'draft-case@example.test', 'Draft-case near miss', 'draft'),
   ('8d500000-0000-4000-8000-000000000011'::uuid, 'duplicate-confirmation@example.test', 'Duplicate-confirmation near miss', 'card_refund_pending'),
   ('8d500000-0000-4000-8000-000000000012'::uuid, 'duplicate-approval@example.test', 'Duplicate-approval near miss', 'card_refund_pending'),
-  ('8d500000-0000-4000-8000-000000000013'::uuid, 'other-message@example.test', 'Other-message near miss', 'card_refund_pending')
+  ('8d500000-0000-4000-8000-000000000013'::uuid, 'other-message@example.test', 'Other-message near miss', 'card_refund_pending'),
+  ('8d500000-0000-4000-8000-000000000014'::uuid, 'skipped-message@example.test', 'Skipped-message near miss', 'card_refund_pending')
 ) fixture(case_id, customer_email, fixture_name, case_status);
 
 -- Model the misleading current match/approval fields the normalization must
@@ -282,6 +283,14 @@ values
   (
     '8d500000-0000-4000-8000-000000000013', 'approved', 'sent',
     'other-message@example.test', 'Historical approval', 'Historical body.', now() - interval '1 day'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000014', 'confirmation', 'skipped',
+    'skipped-message@example.test', 'Skipped confirmation', 'Skipped confirmation body.', null
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000014', 'approved', 'sent',
+    'skipped-message@example.test', 'Historical approval', 'Historical body.', now() - interval '1 day'
   );
 alter table public.refund_case_messages
   enable trigger refund_case_messages_nayax_attempt_guard;
@@ -609,6 +618,13 @@ select ok(
     'NORMALIZE_LEGACY_CARD_STATE_WITHOUT_PROVIDER_ACTION'
   )$$) like '%does not match the exact legacy confirmation-and-approval structure%',
   'Any other message type is rejected'
+);
+select ok(
+  pg_temp.capture_error($$select public.owner_normalize_refund_legacy_card_state(
+    '8d500000-0000-4000-8000-000000000014',
+    'NORMALIZE_LEGACY_CARD_STATE_WITHOUT_PROVIDER_ACTION'
+  )$$) like '%does not match the exact legacy confirmation-and-approval structure%',
+  'A skipped historical message is rejected'
 );
 select ok(
   pg_temp.capture_error($$update public.refund_cases

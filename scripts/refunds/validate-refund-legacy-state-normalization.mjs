@@ -140,7 +140,7 @@ assert(
 );
 
 assert(
-  databaseTests.includes('select plan(39)') &&
+  databaseTests.includes('select plan(40)') &&
     databaseTests.includes('The private operation is owned by the exact database owner') &&
     databaseTests.includes('Normalization removes every stale replaceable lookup candidate') &&
     databaseTests.includes('Normalization creates no provider attempt') &&
@@ -150,6 +150,7 @@ assert(
     databaseTests.includes('A pending historical message is rejected') &&
     databaseTests.includes('A completed historical message type is rejected') &&
     databaseTests.includes('A failed historical message is rejected') &&
+    databaseTests.includes('A skipped historical message is rejected') &&
     databaseTests.includes('A draft case is rejected even when its two messages otherwise match') &&
     databaseTests.includes('Duplicate confirmations are rejected') &&
     databaseTests.includes('Duplicate approvals are rejected') &&
