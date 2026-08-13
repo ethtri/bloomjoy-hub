@@ -478,7 +478,6 @@ export const runWithTimeout = async ({ timeoutMs, signal, run }) => {
     () => controller.abort(new SyntheticGmailProofRunnerError('proof_timeout')),
     timeoutMs,
   );
-  timer.unref?.();
   try {
     return await run(controller.signal);
   } finally {
