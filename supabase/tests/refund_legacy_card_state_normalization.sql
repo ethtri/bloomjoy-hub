@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(30);
+select plan(40);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -20,6 +20,11 @@ $$;
 create temporary table normalization_results (
   result_key text primary key,
   result jsonb not null
+);
+
+create temporary table historical_message_snapshots (
+  result_key text primary key,
+  messages jsonb not null
 );
 
 insert into auth.users (
@@ -113,6 +118,41 @@ values
     false, 'not_requested', 'approved', 'matched', 'form'
   );
 
+insert into public.refund_cases (
+  id, reporting_machine_id, reporting_location_id, customer_email,
+  issue_summary, incident_at, payment_method, payment_amount_cents,
+  card_last4, status, decision, decided_by, decided_at,
+  nayax_match_execution_eligible, nayax_refund_execution_status,
+  automation_state, correlation_status, intake_source
+)
+select
+  case_id,
+  '8d300000-0000-4000-8000-000000000001'::uuid,
+  '8d200000-0000-4000-8000-000000000001'::uuid,
+  customer_email,
+  fixture_name,
+  now() - interval '2 days',
+  'card', 700, '4242', case_status,
+  case when case_status = 'draft' then null else 'approved' end,
+  case when case_status = 'draft' then null else '8d000000-0000-4000-8000-000000000001'::uuid end,
+  case when case_status = 'draft' then null else now() - interval '1 day' end,
+  false, 'not_requested',
+  case when case_status = 'draft' then 'submitted' else 'approved' end,
+  case when case_status = 'draft' then 'not_started' else 'matched' end,
+  case when case_status = 'draft' then 'gmail' else 'form' end
+from (values
+  ('8d500000-0000-4000-8000-000000000005'::uuid, 'one-message@example.test', 'One-message near miss', 'card_refund_pending'),
+  ('8d500000-0000-4000-8000-000000000006'::uuid, 'three-messages@example.test', 'Three-message near miss', 'card_refund_pending'),
+  ('8d500000-0000-4000-8000-000000000007'::uuid, 'pending-message@example.test', 'Pending-message near miss', 'card_refund_pending'),
+  ('8d500000-0000-4000-8000-000000000008'::uuid, 'completed-message@example.test', 'Completed-message near miss', 'card_refund_pending'),
+  ('8d500000-0000-4000-8000-000000000009'::uuid, 'failed-message@example.test', 'Failed-message near miss', 'card_refund_pending'),
+  ('8d500000-0000-4000-8000-000000000010'::uuid, 'draft-case@example.test', 'Draft-case near miss', 'draft'),
+  ('8d500000-0000-4000-8000-000000000011'::uuid, 'duplicate-confirmation@example.test', 'Duplicate-confirmation near miss', 'card_refund_pending'),
+  ('8d500000-0000-4000-8000-000000000012'::uuid, 'duplicate-approval@example.test', 'Duplicate-approval near miss', 'card_refund_pending'),
+  ('8d500000-0000-4000-8000-000000000013'::uuid, 'other-message@example.test', 'Other-message near miss', 'card_refund_pending'),
+  ('8d500000-0000-4000-8000-000000000014'::uuid, 'skipped-message@example.test', 'Skipped-message near miss', 'card_refund_pending')
+) fixture(case_id, customer_email, fixture_name, case_status);
+
 -- Model the misleading current match/approval fields the normalization must
 -- preserve in history and clear before the manager can run a fresh check.
 update public.refund_cases
@@ -141,24 +181,116 @@ insert into public.refund_case_messages (
 )
 values
   (
+    '8d500000-0000-4000-8000-000000000001', 'confirmation', 'sent',
+    'legacy-target-customer@example.test', 'Historical confirmation', 'Historical confirmation body.', now() - interval '25 hours'
+  ),
+  (
     '8d500000-0000-4000-8000-000000000001', 'approved', 'sent',
     'legacy-target-customer@example.test', 'Historical approval', 'Historical body.', now() - interval '1 day'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000002', 'confirmation', 'sent',
+    'wrong-confirmation-customer@example.test', 'Historical confirmation', 'Historical confirmation body.', now() - interval '25 hours'
   ),
   (
     '8d500000-0000-4000-8000-000000000002', 'approved', 'sent',
     'wrong-confirmation-customer@example.test', 'Historical approval', 'Historical body.', now() - interval '1 day'
   ),
   (
-    '8d500000-0000-4000-8000-000000000003', 'approved', 'sent',
-    'extra-message-customer@example.test', 'Historical approval', 'Historical body.', now() - interval '1 day'
-  ),
-  (
-    '8d500000-0000-4000-8000-000000000003', 'status_update', 'pending',
-    'extra-message-customer@example.test', 'Pending update', 'Pending body.', null
+    '8d500000-0000-4000-8000-000000000004', 'confirmation', 'sent',
+    'provider-attempt-customer@example.test', 'Historical confirmation', 'Historical confirmation body.', now() - interval '25 hours'
   ),
   (
     '8d500000-0000-4000-8000-000000000004', 'approved', 'sent',
     'provider-attempt-customer@example.test', 'Historical approval', 'Historical body.', now() - interval '1 day'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000005', 'approved', 'sent',
+    'one-message@example.test', 'Historical approval', 'Historical body.', now() - interval '1 day'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000006', 'confirmation', 'sent',
+    'three-messages@example.test', 'Historical confirmation', 'Historical confirmation body.', now() - interval '25 hours'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000006', 'approved', 'sent',
+    'three-messages@example.test', 'Historical approval', 'Historical body.', now() - interval '1 day'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000006', 'status_update', 'sent',
+    'three-messages@example.test', 'Historical update', 'Historical update body.', now() - interval '23 hours'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000007', 'confirmation', 'pending',
+    'pending-message@example.test', 'Pending confirmation', 'Pending confirmation body.', null
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000007', 'approved', 'sent',
+    'pending-message@example.test', 'Historical approval', 'Historical body.', now() - interval '1 day'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000008', 'completed', 'sent',
+    'completed-message@example.test', 'Historical completion', 'Historical completion body.', now() - interval '25 hours'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000008', 'approved', 'sent',
+    'completed-message@example.test', 'Historical approval', 'Historical body.', now() - interval '1 day'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000009', 'confirmation', 'failed',
+    'failed-message@example.test', 'Failed confirmation', 'Failed confirmation body.', null
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000009', 'approved', 'sent',
+    'failed-message@example.test', 'Historical approval', 'Historical body.', now() - interval '1 day'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000010', 'confirmation', 'sent',
+    'draft-case@example.test', 'Historical confirmation', 'Historical confirmation body.', now() - interval '25 hours'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000010', 'approved', 'sent',
+    'draft-case@example.test', 'Historical approval', 'Historical body.', now() - interval '1 day'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000011', 'confirmation', 'sent',
+    'duplicate-confirmation@example.test', 'Historical confirmation one', 'Historical confirmation body one.', now() - interval '26 hours'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000011', 'confirmation', 'sent',
+    'duplicate-confirmation@example.test', 'Historical confirmation two', 'Historical confirmation body two.', now() - interval '25 hours'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000011', 'approved', 'sent',
+    'duplicate-confirmation@example.test', 'Historical approval', 'Historical body.', now() - interval '1 day'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000012', 'confirmation', 'sent',
+    'duplicate-approval@example.test', 'Historical confirmation', 'Historical confirmation body.', now() - interval '26 hours'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000012', 'approved', 'sent',
+    'duplicate-approval@example.test', 'Historical approval one', 'Historical approval body one.', now() - interval '25 hours'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000012', 'approved', 'sent',
+    'duplicate-approval@example.test', 'Historical approval two', 'Historical approval body two.', now() - interval '1 day'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000013', 'status_update', 'sent',
+    'other-message@example.test', 'Historical update', 'Historical update body.', now() - interval '25 hours'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000013', 'approved', 'sent',
+    'other-message@example.test', 'Historical approval', 'Historical body.', now() - interval '1 day'
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000014', 'confirmation', 'skipped',
+    'skipped-message@example.test', 'Skipped confirmation', 'Skipped confirmation body.', null
+  ),
+  (
+    '8d500000-0000-4000-8000-000000000014', 'approved', 'sent',
+    'skipped-message@example.test', 'Historical approval', 'Historical body.', now() - interval '1 day'
   );
 alter table public.refund_case_messages
   enable trigger refund_case_messages_nayax_attempt_guard;
@@ -227,6 +359,13 @@ select ok(
   'The private operation is owned by the exact database owner'
 );
 
+insert into historical_message_snapshots (result_key, messages)
+select
+  'target',
+  jsonb_agg(to_jsonb(message) order by message.id)
+from public.refund_case_messages message
+where message.refund_case_id = '8d500000-0000-4000-8000-000000000001';
+
 insert into normalization_results (result_key, result)
 select 'target', public.owner_normalize_refund_legacy_card_state(
   '8d500000-0000-4000-8000-000000000001',
@@ -237,12 +376,15 @@ select ok(
   (select (result ->> 'normalized')::boolean from normalization_results where result_key = 'target')
   and not (select (result ->> 'alreadyNormalized')::boolean from normalization_results where result_key = 'target')
   and (select result ->> 'status' from normalization_results where result_key = 'target') = 'needs_review'
-  and (select result ->> 'decision' from normalization_results where result_key = 'target') is null,
+  and (select result ->> 'decision' from normalization_results where result_key = 'target') is null
+  and (select (result ->> 'legacyConfirmationMessageCount')::integer from normalization_results where result_key = 'target') = 1
+  and (select (result ->> 'legacyApprovedMessageCount')::integer from normalization_results where result_key = 'target') = 1
+  and (select (result ->> 'totalHistoricalMessageCount')::integer from normalization_results where result_key = 'target') = 2,
   'The exact legacy target returns only truthful review state'
 );
 select ok(
   (select result::text from normalization_results where result_key = 'target')
-    !~ '8d5|example|4242|Historical|LEGACY-NORMALIZATION'
+    !~ '8d5|example|4242|Historical (body|confirmation)|LEGACY-NORMALIZATION'
   and (select (result ->> 'payloadRedacted')::boolean from normalization_results where result_key = 'target'),
   'The owner operation returns sanitized aggregate evidence only'
 );
@@ -287,17 +429,14 @@ select is(
   'Normalization removes every stale replaceable lookup candidate'
 );
 select ok(
-  exists (
-    select 1 from public.refund_case_messages
-    where refund_case_id = '8d500000-0000-4000-8000-000000000001'
-      and message_type = 'approved'
-      and status = 'sent'
-      and subject = 'Historical approval'
-      and body = 'Historical body.'
+  (select messages from historical_message_snapshots where result_key = 'target') = (
+    select jsonb_agg(to_jsonb(message) order by message.id)
+    from public.refund_case_messages message
+    where message.refund_case_id = '8d500000-0000-4000-8000-000000000001'
   )
   and (select count(*) from public.refund_case_messages
-    where refund_case_id = '8d500000-0000-4000-8000-000000000001') = 1,
-  'The historical customer message remains unchanged and no message is sent'
+    where refund_case_id = '8d500000-0000-4000-8000-000000000001') = 2,
+  'Both historical customer messages remain byte-for-byte unchanged and no message is sent'
 );
 select is(
   (select count(*)::integer from public.refund_case_events
@@ -321,7 +460,9 @@ select ok(
       and (event.metadata ->> 'previous_match_amount_present')::boolean
       and event.metadata ->> 'previous_recommendation_state' = 'manual_exception'
       and (event.metadata ->> 'previous_recommendation_policy_present')::boolean
-      and (event.metadata ->> 'total_historical_message_count')::integer = 1
+      and (event.metadata ->> 'legacy_confirmation_message_count')::integer = 1
+      and (event.metadata ->> 'legacy_approved_message_count')::integer = 1
+      and (event.metadata ->> 'total_historical_message_count')::integer = 2
       and (event.metadata ->> 'stale_lookup_candidate_count')::integer = 1
       and (event.metadata ->> 'provider_attempt_count')::integer = 0
       and event.metadata ->> 'provider_execution_status' = 'not_requested'
@@ -405,15 +546,85 @@ select ok(
   pg_temp.capture_error($$select public.owner_normalize_refund_legacy_card_state(
     '8d500000-0000-4000-8000-000000000003',
     'NORMALIZE_LEGACY_CARD_STATE_WITHOUT_PROVIDER_ACTION'
-  )$$) like '%does not match the exact legacy no-provider-attempt structure%',
-  'A case without exactly one sent historical approval is rejected'
+  )$$) like '%does not match the exact legacy confirmation-and-approval structure%',
+  'A case with zero historical messages is rejected'
 );
 select ok(
   pg_temp.capture_error($$select public.owner_normalize_refund_legacy_card_state(
     '8d500000-0000-4000-8000-000000000004',
     'NORMALIZE_LEGACY_CARD_STATE_WITHOUT_PROVIDER_ACTION'
-  )$$) like '%does not match the exact legacy no-provider-attempt structure%',
+  )$$) like '%does not match the exact legacy confirmation-and-approval structure%',
   'Any existing provider attempt excludes a case from normalization'
+);
+select ok(
+  pg_temp.capture_error($$select public.owner_normalize_refund_legacy_card_state(
+    '8d500000-0000-4000-8000-000000000005',
+    'NORMALIZE_LEGACY_CARD_STATE_WITHOUT_PROVIDER_ACTION'
+  )$$) like '%does not match the exact legacy confirmation-and-approval structure%',
+  'The former one-approval-only fixture is deliberately rejected'
+);
+select ok(
+  pg_temp.capture_error($$select public.owner_normalize_refund_legacy_card_state(
+    '8d500000-0000-4000-8000-000000000006',
+    'NORMALIZE_LEGACY_CARD_STATE_WITHOUT_PROVIDER_ACTION'
+  )$$) like '%does not match the exact legacy confirmation-and-approval structure%',
+  'Three or more historical messages are rejected'
+);
+select ok(
+  pg_temp.capture_error($$select public.owner_normalize_refund_legacy_card_state(
+    '8d500000-0000-4000-8000-000000000007',
+    'NORMALIZE_LEGACY_CARD_STATE_WITHOUT_PROVIDER_ACTION'
+  )$$) like '%does not match the exact legacy confirmation-and-approval structure%',
+  'A pending historical message is rejected'
+);
+select ok(
+  pg_temp.capture_error($$select public.owner_normalize_refund_legacy_card_state(
+    '8d500000-0000-4000-8000-000000000008',
+    'NORMALIZE_LEGACY_CARD_STATE_WITHOUT_PROVIDER_ACTION'
+  )$$) like '%does not match the exact legacy confirmation-and-approval structure%',
+  'A completed historical message type is rejected'
+);
+select ok(
+  pg_temp.capture_error($$select public.owner_normalize_refund_legacy_card_state(
+    '8d500000-0000-4000-8000-000000000009',
+    'NORMALIZE_LEGACY_CARD_STATE_WITHOUT_PROVIDER_ACTION'
+  )$$) like '%does not match the exact legacy confirmation-and-approval structure%',
+  'A failed historical message is rejected'
+);
+select ok(
+  pg_temp.capture_error($$select public.owner_normalize_refund_legacy_card_state(
+    '8d500000-0000-4000-8000-000000000010',
+    'NORMALIZE_LEGACY_CARD_STATE_WITHOUT_PROVIDER_ACTION'
+  )$$) like '%does not match the exact legacy confirmation-and-approval structure%',
+  'A draft case is rejected even when its two messages otherwise match'
+);
+select ok(
+  pg_temp.capture_error($$select public.owner_normalize_refund_legacy_card_state(
+    '8d500000-0000-4000-8000-000000000011',
+    'NORMALIZE_LEGACY_CARD_STATE_WITHOUT_PROVIDER_ACTION'
+  )$$) like '%does not match the exact legacy confirmation-and-approval structure%',
+  'Duplicate confirmations are rejected'
+);
+select ok(
+  pg_temp.capture_error($$select public.owner_normalize_refund_legacy_card_state(
+    '8d500000-0000-4000-8000-000000000012',
+    'NORMALIZE_LEGACY_CARD_STATE_WITHOUT_PROVIDER_ACTION'
+  )$$) like '%does not match the exact legacy confirmation-and-approval structure%',
+  'Duplicate approvals are rejected'
+);
+select ok(
+  pg_temp.capture_error($$select public.owner_normalize_refund_legacy_card_state(
+    '8d500000-0000-4000-8000-000000000013',
+    'NORMALIZE_LEGACY_CARD_STATE_WITHOUT_PROVIDER_ACTION'
+  )$$) like '%does not match the exact legacy confirmation-and-approval structure%',
+  'Any other message type is rejected'
+);
+select ok(
+  pg_temp.capture_error($$select public.owner_normalize_refund_legacy_card_state(
+    '8d500000-0000-4000-8000-000000000014',
+    'NORMALIZE_LEGACY_CARD_STATE_WITHOUT_PROVIDER_ACTION'
+  )$$) like '%does not match the exact legacy confirmation-and-approval structure%',
+  'A skipped historical message is rejected'
 );
 select ok(
   pg_temp.capture_error($$update public.refund_cases

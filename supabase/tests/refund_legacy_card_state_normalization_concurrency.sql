@@ -78,23 +78,27 @@ from (values
   (4, '8e500000-0000-4000-8000-000000000004'::uuid)
 ) fixture(ordinal, case_id);
 
--- Recreate only the one historical sent approval required by the legacy
--- structure. Current production boundaries cannot create this contradiction.
+-- Recreate only the exact historical pair required by the legacy structure:
+-- one sent confirmation and one sent approval. Current production boundaries
+-- cannot create this contradiction.
 alter table public.refund_case_messages
   disable trigger refund_case_messages_nayax_attempt_guard;
 insert into public.refund_case_messages (
   refund_case_id, message_type, status, recipient_email, subject, body, sent_at
 )
 select
-  case_id, 'approved', 'sent',
+  case_id, message_type, 'sent',
   'legacy-race-' || ordinal::text || '@example.test',
-  'Historical approval', 'Historical body.', now() - interval '1 day'
+  case when message_type = 'confirmation' then 'Historical confirmation' else 'Historical approval' end,
+  case when message_type = 'confirmation' then 'Historical confirmation body.' else 'Historical approval body.' end,
+  now() - case when message_type = 'confirmation' then interval '25 hours' else interval '1 day' end
 from (values
   (1, '8e500000-0000-4000-8000-000000000001'::uuid),
   (2, '8e500000-0000-4000-8000-000000000002'::uuid),
   (3, '8e500000-0000-4000-8000-000000000003'::uuid),
   (4, '8e500000-0000-4000-8000-000000000004'::uuid)
-) fixture(ordinal, case_id);
+) fixture(ordinal, case_id)
+cross join (values ('confirmation'), ('approved')) message(message_type);
 alter table public.refund_case_messages
   enable trigger refund_case_messages_nayax_attempt_guard;
 
@@ -325,8 +329,8 @@ select ok(
 select is(
   (select count(*)::integer from public.refund_case_messages
     where refund_case_id = '8e500000-0000-4000-8000-000000000003'),
-  1,
-  'The message race preserves only the one historical sent approval'
+  2,
+  'The message race preserves only the exact historical confirmation and approval pair'
 );
 
 -- A competing case decision also revalidates after the owner operation.
@@ -394,14 +398,14 @@ select ok(
       '8e500000-0000-4000-8000-000000000003',
       '8e500000-0000-4000-8000-000000000004'
     ) and event_type = 'legacy_card_state_normalized')
-  and (select count(*) = 4 from public.refund_case_messages
+  and (select count(*) = 8 from public.refund_case_messages
     where refund_case_id in (
       '8e500000-0000-4000-8000-000000000001',
       '8e500000-0000-4000-8000-000000000002',
       '8e500000-0000-4000-8000-000000000003',
       '8e500000-0000-4000-8000-000000000004'
     )),
-  'All races create one redacted event per case and no customer communication'
+  'All races create one redacted event per case and preserve the exact message pairs without new communication'
 );
 
 do $$
