@@ -322,6 +322,30 @@ try {
     ownerScreenshotIndex >= 0 && ownerQrOpenIndex > ownerScreenshotIndex,
     'The only owner enrollment evidence screenshot must be captured before private QR setup opens'
   );
+  const providerReceiptAssertionIndex = portalUatSource.indexOf(
+    '`Synthetic browser ${scenario.name} renders the settled domain outcome`'
+  );
+  const providerScreenshotExpression =
+    'page.screenshot({ path: path.join(artifactDir, scenario.screenshot), fullPage: true })';
+  const providerScreenshotIndexes = [...portalUatSource.matchAll(
+    /page\.screenshot\(\{ path: path\.join\(artifactDir, scenario\.screenshot\), fullPage: true \}\)/g
+  )].map((match) => match.index);
+  const providerPersistenceIndex = portalUatSource.indexOf(
+    "if (scenario.name === 'success') {",
+    providerReceiptAssertionIndex
+  );
+  assert.equal(
+    providerScreenshotIndexes.length,
+    1,
+    'Each provider scenario must have exactly one reviewed screenshot capture'
+  );
+  assert(
+    providerReceiptAssertionIndex >= 0 &&
+      portalUatSource.indexOf('page.getByText(scenario.expectedTitle, { exact: true }).isVisible()', providerReceiptAssertionIndex) <
+        providerScreenshotIndexes[0] &&
+      providerScreenshotIndexes[0] < providerPersistenceIndex,
+    `Provider screenshots must capture the asserted scenario-specific receipt before normalized persistence checks: ${providerScreenshotExpression}`
+  );
   assert.deepEqual(
     EXPECTED_MACHINE_READABLE_ARTIFACTS,
     Object.keys(machineFixtures),

@@ -4415,6 +4415,9 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
         (scenario.name !== 'success' ||
           await page.getByText('Confirmation: NAYAX-PROVIDER-REF-1').isVisible())
     );
+    // Capture the scenario-specific provider receipt before later reload checks
+    // intentionally normalize ambiguous outcomes into the same persisted queue state.
+    await page.screenshot({ path: path.join(artifactDir, scenario.screenshot), fullPage: true });
     if (scenario.name === 'success') {
       await page.getByRole('button', { name: 'Completed 1', exact: true }).waitFor({ timeout: 10000 });
       recorder.assert(
@@ -4555,7 +4558,6 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
 
     if (scenario.name === 'success') evidence.providerSuccessStateCount += 1;
     else evidence.providerNonSuccessStateCount += 1;
-    await page.screenshot({ path: path.join(artifactDir, scenario.screenshot), fullPage: true });
     await context.close();
   }
 };
