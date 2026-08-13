@@ -11,6 +11,8 @@ export const REFUND_SYNTHETIC_PROOF_CLOSE_CONFIRMATION =
   'CLOSE_SYNTHETIC_GMAIL_PROOF_WINDOW';
 export const REFUND_SYNTHETIC_PROOF_LIVE_CONFIRMATION =
   'RUN_ONE_OWNER_CONTROLLED_SYNTHETIC_GMAIL_PROOF';
+export const DIRECT_POSTGRES_DATABASE_ADAPTER = 'direct-postgres';
+export const MANAGEMENT_API_OWNER_DATABASE_ADAPTER = 'management-api-owner';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -79,32 +81,47 @@ export const validateSyntheticGmailProofConfig = (config) => {
   if (!UUID_PATTERN.test(config.caseId ?? '') || config.confirmCaseId !== config.caseId) {
     fail('case_not_confirmed', 'The exact private refund case must be confirmed.');
   }
-  if (typeof config.databaseUrl !== 'string' || !config.databaseUrl.startsWith('postgres')) {
-    fail('database_url_missing', 'A private database-owner connection is required.');
+  const databaseAdapter = config.databaseAdapter ?? DIRECT_POSTGRES_DATABASE_ADAPTER;
+  if (
+    ![
+      DIRECT_POSTGRES_DATABASE_ADAPTER,
+      MANAGEMENT_API_OWNER_DATABASE_ADAPTER,
+    ].includes(databaseAdapter)
+  ) {
+    fail('database_adapter_invalid', 'The database adapter is not approved.');
   }
-  let databaseUrl;
-  try {
-    databaseUrl = new URL(config.databaseUrl);
-  } catch {
-    fail('database_url_invalid', 'The database-owner connection is malformed.');
-  }
-  if (!['postgres:', 'postgresql:'].includes(databaseUrl.protocol)) {
-    fail('database_url_invalid', 'The database-owner connection must use PostgreSQL.');
-  }
-  let databaseUsername;
-  try {
-    databaseUsername = decodeURIComponent(databaseUrl.username);
-  } catch {
-    fail('database_url_invalid', 'The database-owner connection is malformed.');
-  }
-  const directDatabaseHost = `db.${config.projectRef}.supabase.co`;
-  const poolerDatabaseHost =
-    /^[a-z0-9-]+\.pooler\.supabase\.com$/u.test(databaseUrl.hostname) &&
-    databaseUsername === `postgres.${config.projectRef}`;
-  const databaseProjectBound =
-    databaseUrl.hostname === directDatabaseHost || poolerDatabaseHost;
-  if (!databaseProjectBound) {
-    fail('database_project_mismatch', 'The database connection is not bound to the exact project.');
+  if (databaseAdapter === MANAGEMENT_API_OWNER_DATABASE_ADAPTER) {
+    if ((config.databaseUrl ?? '') !== '') {
+      fail('database_url_forbidden', 'The Management API adapter does not accept a database URL.');
+    }
+  } else {
+    if (typeof config.databaseUrl !== 'string' || !config.databaseUrl.startsWith('postgres')) {
+      fail('database_url_missing', 'A private database-owner connection is required.');
+    }
+    let databaseUrl;
+    try {
+      databaseUrl = new URL(config.databaseUrl);
+    } catch {
+      fail('database_url_invalid', 'The database-owner connection is malformed.');
+    }
+    if (!['postgres:', 'postgresql:'].includes(databaseUrl.protocol)) {
+      fail('database_url_invalid', 'The database-owner connection must use PostgreSQL.');
+    }
+    let databaseUsername;
+    try {
+      databaseUsername = decodeURIComponent(databaseUrl.username);
+    } catch {
+      fail('database_url_invalid', 'The database-owner connection is malformed.');
+    }
+    const directDatabaseHost = `db.${config.projectRef}.supabase.co`;
+    const poolerDatabaseHost =
+      /^[a-z0-9-]+\.pooler\.supabase\.com$/u.test(databaseUrl.hostname) &&
+      databaseUsername === `postgres.${config.projectRef}`;
+    const databaseProjectBound =
+      databaseUrl.hostname === directDatabaseHost || poolerDatabaseHost;
+    if (!databaseProjectBound) {
+      fail('database_project_mismatch', 'The database connection is not bound to the exact project.');
+    }
   }
   if (typeof config.managementToken !== 'string' || config.managementToken.length < 20) {
     fail('management_token_missing', 'The private Supabase management token is required.');

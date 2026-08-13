@@ -97,6 +97,7 @@ const buildConfig = ({ mode, timeoutSeconds, env }) => ({
   confirmProjectRef: env.REFUND_SYNTHETIC_GMAIL_PROOF_CONFIRM_PROJECT_REF ?? '',
   caseId: env.REFUND_SYNTHETIC_GMAIL_PROOF_CASE_ID ?? '',
   confirmCaseId: env.REFUND_SYNTHETIC_GMAIL_PROOF_CONFIRM_CASE_ID ?? '',
+  databaseAdapter: env.REFUND_SYNTHETIC_GMAIL_PROOF_DATABASE_ADAPTER ?? 'direct-postgres',
   databaseUrl: env.REFUND_SYNTHETIC_GMAIL_PROOF_DATABASE_URL ?? '',
   managementToken: env.REFUND_SYNTHETIC_GMAIL_PROOF_MANAGEMENT_TOKEN ?? '',
   anonKey: env.REFUND_SYNTHETIC_GMAIL_PROOF_ANON_KEY ?? '',

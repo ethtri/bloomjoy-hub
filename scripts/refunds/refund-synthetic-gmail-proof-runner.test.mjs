@@ -3,6 +3,8 @@ import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { installRedactedDatabaseErrorBoundary } from './refund-synthetic-gmail-proof-runner-clients.mjs';
 import {
+  DIRECT_POSTGRES_DATABASE_ADAPTER,
+  MANAGEMENT_API_OWNER_DATABASE_ADAPTER,
   REFUND_PRODUCTION_PROJECT_REF,
   REFUND_SYNTHETIC_PROOF_LIVE_CONFIRMATION,
   SyntheticGmailProofRunnerError,
@@ -26,6 +28,7 @@ const baseConfig = (overrides = {}) => ({
   confirmProjectRef: REFUND_PRODUCTION_PROJECT_REF,
   caseId: CASE_ID,
   confirmCaseId: CASE_ID,
+  databaseAdapter: DIRECT_POSTGRES_DATABASE_ADAPTER,
   databaseUrl:
     `postgresql://postgres.${REFUND_PRODUCTION_PROJECT_REF}:${DATABASE_SECRET_SENTINEL}` +
     '@aws-0-us-west-1.pooler.supabase.com/postgres',
@@ -196,6 +199,13 @@ const createHarness = (overrides = {}) => {
 test('config is pinned to the exact project and case with an exact live confirmation', () => {
   assert.equal(validateSyntheticGmailProofConfig(baseConfig()).caseId, CASE_ID);
   assert.equal(
+    validateSyntheticGmailProofConfig(baseConfig({
+      databaseAdapter: MANAGEMENT_API_OWNER_DATABASE_ADAPTER,
+      databaseUrl: '',
+    })).databaseAdapter,
+    MANAGEMENT_API_OWNER_DATABASE_ADAPTER,
+  );
+  assert.equal(
     validateSyntheticGmailProofConfig(
       baseConfig({
         databaseUrl:
@@ -210,6 +220,13 @@ test('config is pinned to the exact project and case with an exact live confirma
     baseConfig({ confirmProjectRef: 'a'.repeat(20) }),
     baseConfig({ confirmCaseId: '81000000-0000-4000-8000-000000000003' }),
     baseConfig({ liveConfirmation: '' }),
+    baseConfig({ databaseAdapter: 'arbitrary-database-adapter' }),
+    baseConfig({
+      databaseAdapter: MANAGEMENT_API_OWNER_DATABASE_ADAPTER,
+      databaseUrl:
+        `postgresql://postgres.${REFUND_PRODUCTION_PROJECT_REF}:${DATABASE_SECRET_SENTINEL}` +
+        '@aws-0-us-west-1.pooler.supabase.com/postgres',
+    }),
     baseConfig({ databaseUrl: 'postgresql://postgres:secret@localhost/postgres' }),
     baseConfig({
       databaseUrl:
