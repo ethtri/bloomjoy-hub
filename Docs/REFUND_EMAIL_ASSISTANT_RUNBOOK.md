@@ -18,19 +18,20 @@ The assistant is not a refund approver and is not a payment operator. The target
 - Bloomjoy Hub is the system of record for the refund case, status, matching evidence, manager decision, provider attempt, reporting adjustment, and audit history.
 - Nayax/Lynx is the card-transaction and refund provider, subject to the account-specific production gate in `#430`.
 - The legacy Google Form/Sheet/AppSheet process remains available to EasyText/SMS during the email-only pilot. Email customers use only the Bloomjoy hosted form.
-- Agents use an owner-approved direct OAuth/delegated connection to the designated mailbox; they do not receive a forwarded copy in a personal inbox. That connection may let an authorized agent read, search, label, and prepare drafts within the approved refund scope, but it does not configure or enable the production Hub Gmail integration in `#634`.
-- Info/Support/Refunds aliases route into the same designated mailbox and their Gmail send-as identities are verified. Treat one as Bloomjoy-mailbox-origin only when the approved mailbox configuration and Gmail `SENT`-label evidence agree for the message; an address string alone is not proof.
+- Agents use the owner-approved direct OAuth/delegated connection to the production customer-service mailbox, `info@bloomjoysweets.com`; they do not receive a forwarded copy in a personal inbox. That connection may let an authorized agent read, search, label, and prepare drafts within the approved refund scope, but it does not configure or enable the production Hub Gmail integration in `#634`.
+- The verified Info/Support/Refunds send-as identities route through and remain identities of that designated mailbox. Treat one as Bloomjoy-mailbox-origin only when the approved mailbox configuration and provider `SENT`-label evidence agree for the message and every existing delivery gate passes; an address string alone is not proof.
 - Sending from an alias requires the mailbox owner to configure and verify that Gmail send-as identity. Agents may prepare approved drafts, but they do not add or self-verify aliases or treat browser sign-in as production OAuth proof.
+- `etrifari@bloomjoysweets.com` and its plus-addresses may be used only as an owner-controlled synthetic customer/test sender or recipient, or for vendor/account correspondence. They are not the production refund-assistant mailbox.
 
 Do not forward the designated support mailbox into a personal inbox. Agents and operators should work from the label-scoped support mailbox and the Hub queue. Personal inboxes should receive only intentionally routed exception or executive-attention notices.
 
 ### Verified mailbox checkpoint on 2026-08-12
 
-- The server OAuth profile resolves exactly to `info@bloomjoysweets.com` with Gmail read-only and send scopes; Info/Support/Refunds send-as identities are verified.
+- The server OAuth profile resolves exactly to the directly connected production customer-service mailbox, `info@bloomjoysweets.com`, with Gmail read-only and send scopes; Info/Support/Refunds send-as mailbox identities are verified.
 - The isolated pilot label differed from the production refund label, accepted only the owner-controlled synthetic population, and was excluded from the legacy responder for that population.
 - One eligible synthetic thread received exactly one original-thread `refund_first_contact_v1` acknowledgement. Replay and a later reply produced no second acknowledgement; teardown restored disabled mode and the production label.
 - After the native date/time fix, the private hosted-form context completed that existing Gmail draft exactly once and the sole current mapped manager was assigned under the shared intake rule.
-- The remaining mailbox proof is one case-specific original-thread reply with the complete current mapped-manager set visibly CC'd. Normal customer mail still uses the legacy responder; Hub schedules and automatic contact remain off.
+- After machine resolution, every case-specific customer-facing refund reply must originate through the designated support mailbox in the original Gmail thread with the complete current mapped-manager set visibly CC'd. That is the remaining mailbox proof. Normal customer mail still uses the legacy responder; Hub schedules and automatic contact remain off.
 - A browser sign-in or agent connector is not a substitute for the server integration, and no forwarding into a personal inbox is part of the operating model.
 
 ## Authority matrix
