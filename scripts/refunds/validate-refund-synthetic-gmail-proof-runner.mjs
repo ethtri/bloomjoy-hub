@@ -13,6 +13,7 @@ const read = (relativePath) => fs.readFileSync(path.join(repoRoot, relativePath)
 
 const cli = read('scripts/refunds/refund-synthetic-gmail-proof-runner.mjs');
 const clients = read('scripts/refunds/refund-synthetic-gmail-proof-runner-clients.mjs');
+const managementApi = read('scripts/refunds/refund-synthetic-gmail-proof-management-api.mjs');
 const library = read('scripts/refunds/refund-synthetic-gmail-proof-runner-lib.mjs');
 const portal = read('src/pages/admin/Refunds.tsx');
 const portalClient = read('src/lib/refundOperations.ts');
@@ -34,6 +35,12 @@ assert.match(library, /if \(gmailDisabled\)[\s\S]*database\.close/u);
 assert.doesNotMatch(library, /logger\([^\n]*(?:caseId|authorizationId|runToken|userAccessToken)/u);
 
 assert.match(clients, /refund-case-message-send/u);
+assert.match(clients, /createManagementApiOwnerDatabaseClient/u);
+assert.match(
+  clients,
+  /const database = config\.databaseAdapter === MANAGEMENT_API_OWNER_DATABASE_ADAPTER[\s\S]*identity: createIdentityClient\(\{ database \}\)/u,
+  'Identity authorization and runner operations must use the same selected database adapter',
+);
 assert.match(clients, /client\.on\('error', \(\) => \{/u);
 assert.match(clients, /failureState\.failed/u);
 assert.match(clients, /\/database\/backups/u);
@@ -47,6 +54,7 @@ assert.doesNotMatch(clients, /REFUND_SYNTHETIC_GMAIL_PROOF_(?:RECIPIENT|SUBJECT|
 assert.doesNotMatch(clients, /env:\s*\{\s*\.\.\.process\.env/u);
 assert.doesNotMatch(cli, /--(?:case|recipient|subject|body|endpoint|token|jwt)/u);
 assert.match(cli, /Use only --mode, --env-file, and --timeout-seconds/u);
+assert.match(cli, /REFUND_SYNTHETIC_GMAIL_PROOF_DATABASE_ADAPTER/u);
 assert.doesNotMatch(cli, /console\.(?:log|error)/u);
 
 assert.doesNotMatch(portal, /syntheticProofRunToken/u);
@@ -60,15 +68,19 @@ assert.match(runbook, /RUN_ONE_OWNER_CONTROLLED_SYNTHETIC_GMAIL_PROOF/u);
 assert.match(runbook, /backups_read/u);
 assert.match(runbook, /latest completed production backup/u);
 assert.match(runbook, /zero unresolved Gmail outbound/u);
+assert.match(runbook, /read_only=false/u);
+assert.match(runbook, /closed immutable registry/u);
 assert.match(runbook, /do not rerun it/u);
 assert.match(runbook, /leaves the exclusive authorization open/u);
 assert.match(checklist, /refunds:validate-synthetic-gmail-proof-runner/u);
-assert.match(currentStatus, /P0 `#810` tracks the required owner-only one-command runner/u);
+assert.match(currentStatus, /P0 `#810` delivered the required owner-only one-command runner/u);
+assert.match(currentStatus, /P0 `#814` adds the explicit owner-grade Management API database path/u);
 for (const name of [
   'REFUND_SYNTHETIC_GMAIL_PROOF_PROJECT_REF',
   'REFUND_SYNTHETIC_GMAIL_PROOF_CONFIRM_PROJECT_REF',
   'REFUND_SYNTHETIC_GMAIL_PROOF_CASE_ID',
   'REFUND_SYNTHETIC_GMAIL_PROOF_CONFIRM_CASE_ID',
+  'REFUND_SYNTHETIC_GMAIL_PROOF_DATABASE_ADAPTER',
   'REFUND_SYNTHETIC_GMAIL_PROOF_DATABASE_URL',
   'REFUND_SYNTHETIC_GMAIL_PROOF_MANAGEMENT_TOKEN',
   'REFUND_SYNTHETIC_GMAIL_PROOF_ANON_KEY',
@@ -84,9 +96,21 @@ assert.equal(
 );
 assert.equal(
   packageJson.scripts['refunds:validate-synthetic-gmail-proof-runner'],
-  'node --test scripts/refunds/refund-synthetic-gmail-proof-runner.test.mjs && node scripts/refunds/validate-refund-synthetic-gmail-proof-runner.mjs',
+  'node --test scripts/refunds/refund-synthetic-gmail-proof-runner.test.mjs scripts/refunds/refund-synthetic-gmail-proof-management-api.test.mjs && node scripts/refunds/validate-refund-synthetic-gmail-proof-runner.mjs',
 );
 assert.match(packageJson.scripts.test, /refunds:validate-synthetic-gmail-proof-runner/u);
+
+assert.match(managementApi, /MANAGEMENT_API_OWNER_DATABASE_ADAPTER/u);
+assert.match(managementApi, /api\.supabase\.com\/v1\/projects\/\$\{REFUND_PRODUCTION_PROJECT_REF\}\/database\/query/u);
+assert.match(managementApi, /READ_OPERATION_NAMES/u);
+assert.match(managementApi, /SQL_MUTATION_PATTERN/u);
+assert.match(managementApi, /operation\.sql\.includes\(';'\)/u);
+assert.match(managementApi, /read_only: operation\.managementApiReadOnly/u);
+assert.match(managementApi, /operation\.managementApiReadOnly !== false/u);
+assert.match(managementApi, /response\?\.status !== 201/u);
+assert.match(managementApi, /body\.length !== 1/u);
+assert.match(managementApi, /requestTimeoutMs = MANAGEMENT_API_REQUEST_TIMEOUT_MS/u);
+assert.doesNotMatch(managementApi, /console\.(?:log|error)/u);
 
 const sentinel = 'owner_private_cli_secret_never_print_810000';
 const cliPath = path.join(repoRoot, 'scripts', 'refunds', 'refund-synthetic-gmail-proof-runner.mjs');

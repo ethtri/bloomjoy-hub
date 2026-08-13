@@ -6,10 +6,14 @@ import pg from 'pg';
 import {
   REFUND_REPOSITORY,
   REFUND_SYNTHETIC_PROOF_MESSAGE_TYPE,
+  MANAGEMENT_API_OWNER_DATABASE_ADAPTER,
   SyntheticGmailProofRunnerError,
   evaluateBackupHealth,
   sha256Hex,
 } from './refund-synthetic-gmail-proof-runner-lib.mjs';
+import {
+  createManagementApiOwnerDatabaseClient,
+} from './refund-synthetic-gmail-proof-management-api.mjs';
 
 const execFileAsync = promisify(execFile);
 const { Client } = pg;
@@ -514,7 +518,13 @@ const createEdgeClient = () => ({
 });
 
 export const createSyntheticGmailProofClients = (config, { repoRoot }) => {
-  const database = createDatabaseClient({ databaseUrl: config.databaseUrl });
+  const database = config.databaseAdapter === MANAGEMENT_API_OWNER_DATABASE_ADAPTER
+    ? createManagementApiOwnerDatabaseClient({
+        projectRef: config.projectRef,
+        confirmProjectRef: config.confirmProjectRef,
+        managementToken: config.managementToken,
+      })
+    : createDatabaseClient({ databaseUrl: config.databaseUrl });
   return {
     database,
     identity: createIdentityClient({ database }),
