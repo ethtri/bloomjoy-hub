@@ -78,7 +78,7 @@ for (const requiredFailClosedControl of [
   'REFUND_GMAIL_ENABLED=false',
   'REFUND_GPT_TRIAGE_ENABLED=false',
   'OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false',
-  'official-action database gate and production Nayax provider adapter remain statically disabled',
+  'Keep official actions statically false, keep the production Nayax adapter disabled',
 ]) {
   assert(
     productionRunbook.includes(requiredFailClosedControl),
@@ -121,7 +121,7 @@ const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-relea
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
 const reviewedManagerSourceSha256 = {
   'refund-manager-action-step-up':
-    'cd147f13796e0218512a281e38271ed1f1fbd2ad8aad947b10dda8d1f8336278',
+    '026befe26fd4f59b089be81814cd13dab64958f6cc18d4c440d58b2a6895588d',
   'refund-manager-totp-enrollment':
     'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
 };
