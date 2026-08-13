@@ -1865,6 +1865,12 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'Machine setup controls are hidden from the refund workflow',
     (await page.getByText('Machine Managers').count()) === 0
   );
+  recorder.assert(
+    'Owner-only Gmail proof controls are absent from the manager portal',
+    (await page.locator('[name="syntheticProofRunToken"]').count()) === 0 &&
+      (await page.getByText(/refundpilot/i).count()) === 0 &&
+      !(await page.locator('body').innerText()).includes('syntheticProofRunToken')
+  );
 
   const officialActionCallsBeforeLinkNavigation = functionCalls.filter((name) =>
     name === 'nayax-card-refund' || name === 'refund-case-admin-update'
@@ -4409,6 +4415,9 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
         (scenario.name !== 'success' ||
           await page.getByText('Confirmation: NAYAX-PROVIDER-REF-1').isVisible())
     );
+    // Capture the scenario-specific provider receipt before later reload checks
+    // intentionally normalize ambiguous outcomes into the same persisted queue state.
+    await page.screenshot({ path: path.join(artifactDir, scenario.screenshot), fullPage: true });
     if (scenario.name === 'success') {
       await page.getByRole('button', { name: 'Completed 1', exact: true }).waitFor({ timeout: 10000 });
       recorder.assert(
@@ -4549,7 +4558,6 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
 
     if (scenario.name === 'success') evidence.providerSuccessStateCount += 1;
     else evidence.providerNonSuccessStateCount += 1;
-    await page.screenshot({ path: path.join(artifactDir, scenario.screenshot), fullPage: true });
     await context.close();
   }
 };

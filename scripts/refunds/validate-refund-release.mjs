@@ -86,7 +86,7 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 41 current required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 49 current required refund\/Nayax migrations/);
 assert.match(
   cutoverPacket,
   /all ten manifest-tracked Refund Operations functions/
@@ -149,8 +149,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    48,
-    'Refund release inventory must cover exactly 48 discovered refund/Nayax migrations'
+    49,
+    'Refund release inventory must cover exactly 49 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -171,6 +171,10 @@ try {
   assert(
     repositoryMigrations.includes('20260812220000_refund_legacy_confirmation_normalization.sql'),
     'The exact confirmation-and-approval normalization migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260812230000_refund_synthetic_gmail_proof_authorization.sql'),
+    'The one-shot synthetic Gmail proof migration must be in the discovered release inventory'
   );
   assert.deepEqual(
     repositoryManifest.requiredMigrations,

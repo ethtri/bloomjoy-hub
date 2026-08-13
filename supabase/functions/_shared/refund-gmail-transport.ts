@@ -9,6 +9,7 @@ import {
 } from "./refund-gmail.ts";
 import { automaticRefundCustomerContactEnabled } from "./refund-deterministic-follow-up.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
+import { verifyRefundSyntheticGmailProofTransport } from "./refund-synthetic-gmail-proof.ts";
 
 type RefundEmailPayload = {
   subject: string;
@@ -102,6 +103,7 @@ export const dispatchRefundCaseGmailReply = async ({
   email,
   deliveryKind = "manual",
   gmailThreadId = null,
+  syntheticProofAuthorizationId = null,
 }: {
   supabase: SupabaseClient;
   refundCaseId: string;
@@ -110,6 +112,7 @@ export const dispatchRefundCaseGmailReply = async ({
   email: RefundEmailPayload;
   deliveryKind?: "manual" | "automatic";
   gmailThreadId?: string | null;
+  syntheticProofAuthorizationId?: string | null;
 }) => {
   if (
     deliveryKind === "automatic" &&
@@ -127,12 +130,35 @@ export const dispatchRefundCaseGmailReply = async ({
     );
   }
 
+  // An unclosed synthetic proof authorization is an exclusive transport
+  // boundary. Verify it before link selection, Gmail configuration, OAuth,
+  // delivery claim, provider access, or transactional fallback.
+  const syntheticProof = await verifyRefundSyntheticGmailProofTransport({
+    supabase,
+    refundCaseId,
+    refundCaseMessageId,
+    recipientEmail,
+    authorizationId: syntheticProofAuthorizationId,
+  });
+  const targetGmailThreadId = syntheticProof.required
+    ? syntheticProof.gmailThreadId
+    : gmailThreadId;
+  if (
+    syntheticProof.required && gmailThreadId &&
+    gmailThreadId !== targetGmailThreadId
+  ) {
+    throw new RefundGmailError(
+      "synthetic_proof_thread_mismatch",
+      "The synthetic proof is not bound to this Gmail conversation.",
+    );
+  }
+
   let linkQuery = supabase
     .from("refund_gmail_threads")
     .select("id,mailbox_hash")
     .eq("refund_case_id", refundCaseId);
-  linkQuery = gmailThreadId
-    ? linkQuery.eq("id", gmailThreadId)
+  linkQuery = targetGmailThreadId
+    ? linkQuery.eq("id", targetGmailThreadId)
     : linkQuery.order("latest_message_at", { ascending: false });
   const { data: link, error: linkError } = await linkQuery
     .limit(1)
@@ -145,7 +171,7 @@ export const dispatchRefundCaseGmailReply = async ({
     );
   }
   if (!link) {
-    if (gmailThreadId) {
+    if (targetGmailThreadId) {
       throw new RefundGmailError(
         "gmail_source_thread_invalid",
         "The source Gmail conversation is no longer linked to this refund case.",
@@ -211,6 +237,15 @@ export const dispatchRefundCaseGmailReply = async ({
       "Gmail reply transport is not configured.",
     );
   }
+  if (
+    syntheticProof.required &&
+    config.mailbox.trim().toLowerCase() !== "info@bloomjoysweets.com"
+  ) {
+    throw new RefundGmailError(
+      "synthetic_proof_sender_mismatch",
+      "The synthetic proof requires the reviewed Info mailbox sender.",
+    );
+  }
   const mailboxHash = await sha256Hex(config.mailbox);
   if (link.mailbox_hash !== mailboxHash) {
     throw new RefundGmailError(
@@ -231,7 +266,7 @@ export const dispatchRefundCaseGmailReply = async ({
       p_plain_body: email.text,
       p_mailbox_identities: config.mailboxIdentities,
       p_delivery_kind: deliveryKind,
-      p_target_gmail_thread_id: gmailThreadId,
+      p_target_gmail_thread_id: targetGmailThreadId,
     },
   );
   if (claimError) {
@@ -357,6 +392,28 @@ export const dispatchRefundCaseGmailReply = async ({
       "gmail_send_claim_invalid",
       "Gmail reply claim was incomplete.",
     );
+  }
+
+  if (syntheticProof.required) {
+    const managerRouteDigest = await sha256Hex(
+      [...managerCcEmails].sort().join(","),
+    );
+    if (
+      managerCcEmails.length !== syntheticProof.expectedManagerCount ||
+      managerRouteDigest !== syntheticProof.managerRouteDigest
+    ) {
+      await supabase.rpc("service_finish_refund_gmail_outbound", {
+        p_transport_message_id: transportMessageId,
+        p_status: "failed",
+        p_provider_message_id: null,
+        p_provider_message_header: null,
+        p_error_code: "synthetic_proof_manager_route_changed",
+      });
+      throw new RefundGmailError(
+        "synthetic_proof_manager_route_changed",
+        "The mapped Machine Manager route changed after proof authorization.",
+      );
+    }
   }
 
   try {
