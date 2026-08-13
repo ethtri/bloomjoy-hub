@@ -52,6 +52,16 @@ assert.match(
 );
 assert.doesNotMatch(clients, /REFUND_SYNTHETIC_GMAIL_PROOF_(?:RECIPIENT|SUBJECT|BODY|ENDPOINT)/u);
 assert.doesNotMatch(clients, /env:\s*\{\s*\.\.\.process\.env/u);
+assert.match(clients, /assertSyntheticGmailProofProductionAligned/u);
+assert.match(clients, /process\.execPath/u);
+assert.match(clients, /path\.resolve\([\s\S]*'refund-release\.mjs'/u);
+assert.match(
+  clients,
+  /\[\s*releaseScript,\s*'--production',\s*'--project-ref',\s*projectRef,\s*'--confirm-project-ref',\s*projectRef,\s*\]/u,
+);
+assert.match(clients, /shell: false/u);
+assert.doesNotMatch(clients, /npm\.cmd/u);
+assert.doesNotMatch(clients, /refunds:release:check-production/u);
 assert.doesNotMatch(cli, /--(?:case|recipient|subject|body|endpoint|token|jwt)/u);
 assert.match(cli, /Use only --mode, --env-file, and --timeout-seconds/u);
 assert.match(cli, /REFUND_SYNTHETIC_GMAIL_PROOF_DATABASE_ADAPTER/u);
