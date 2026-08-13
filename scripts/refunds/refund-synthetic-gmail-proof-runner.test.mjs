@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import path from 'node:path';
 import test from 'node:test';
-import { installRedactedDatabaseErrorBoundary } from './refund-synthetic-gmail-proof-runner-clients.mjs';
+import {
+  assertSyntheticGmailProofProductionAligned,
+  installRedactedDatabaseErrorBoundary,
+} from './refund-synthetic-gmail-proof-runner-clients.mjs';
 import {
   DIRECT_POSTGRES_DATABASE_ADAPTER,
   MANAGEMENT_API_OWNER_DATABASE_ADAPTER,
@@ -20,6 +24,7 @@ const TOKEN_SENTINEL = 'owner_private_run_token_never_print_810000';
 const USER_TOKEN_SENTINEL = 'header.owner_private_user_jwt.signature';
 const MANAGEMENT_TOKEN_SENTINEL = 'owner_private_management_token_810000';
 const DATABASE_SECRET_SENTINEL = 'owner-private-database-password-810000';
+const CHILD_ERROR_SENTINEL = 'private-child-process-detail-never-print-817000';
 
 const baseConfig = (overrides = {}) => ({
   mode: 'live',
@@ -650,4 +655,99 @@ test('owner interrupt aborts an in-flight send and still completes teardown', as
   assert.equal(sendCalls, 1);
   assert.equal(harness.getState().gmailEnabled, false);
   assert.equal(harness.getState().activeAuthorizationCount, 0);
+});
+
+test('production alignment launches the exact release script with Node and no shell or cmd shim', async () => {
+  const calls = [];
+  const windowsRepoRoot = 'C:\\Private Folder\\Bloomjoy Hub';
+  const result = await assertSyntheticGmailProofProductionAligned({
+    repoRoot: windowsRepoRoot,
+    projectRef: REFUND_PRODUCTION_PROJECT_REF,
+    managementToken: MANAGEMENT_TOKEN_SENTINEL,
+    execFileImpl: async (file, args, options) => {
+      calls.push({ file, args, options });
+      return { stdout: '', stderr: '' };
+    },
+    readFileImpl: (file) =>
+      file.endsWith('nayax-refund-gates.ts')
+        ? 'export const NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = false;'
+        : 'const runtime = { provider: disabledNayaxProviderAdapter };',
+  });
+  assert.equal(result, true);
+  assert.equal(calls.length, 1);
+  const [{ file, args, options }] = calls;
+  assert.equal(file, process.execPath);
+  assert.equal(path.isAbsolute(file), true);
+  assert.doesNotMatch(file, /(?:npm|\.cmd)$/iu);
+  assert.deepEqual(args, [
+    path.resolve(windowsRepoRoot, 'scripts', 'refunds', 'refund-release.mjs'),
+    '--production',
+    '--project-ref',
+    REFUND_PRODUCTION_PROJECT_REF,
+    '--confirm-project-ref',
+    REFUND_PRODUCTION_PROJECT_REF,
+  ]);
+  assert.equal(options.shell, false);
+  assert.equal(options.cwd, windowsRepoRoot);
+  assert.equal(options.env.SUPABASE_ACCESS_TOKEN, MANAGEMENT_TOKEN_SENTINEL);
+  assert.equal(options.timeout, 90_000);
+  assert.equal(options.windowsHide, true);
+});
+
+test('production alignment child and gate failures remain generic and redacted', async () => {
+  const cases = [
+    {
+      execFileImpl: async () => {
+        const error = new Error(CHILD_ERROR_SENTINEL);
+        error.stdout = CHILD_ERROR_SENTINEL;
+        error.stderr = CHILD_ERROR_SENTINEL;
+        throw error;
+      },
+      readFileImpl: () => '',
+    },
+    {
+      execFileImpl: async () => ({ stdout: CHILD_ERROR_SENTINEL, stderr: CHILD_ERROR_SENTINEL }),
+      readFileImpl: () => CHILD_ERROR_SENTINEL,
+    },
+  ];
+  for (const scenario of cases) {
+    let calls = 0;
+    await assert.rejects(
+      assertSyntheticGmailProofProductionAligned({
+        repoRoot: process.cwd(),
+        projectRef: REFUND_PRODUCTION_PROJECT_REF,
+        managementToken: MANAGEMENT_TOKEN_SENTINEL,
+        execFileImpl: async (...args) => {
+          calls += 1;
+          return await scenario.execFileImpl(...args);
+        },
+        readFileImpl: scenario.readFileImpl,
+      }),
+      (error) => {
+        assert.equal(error.code, 'production_release_not_aligned');
+        const serialized = `${error.message}${JSON.stringify(error)}`;
+        assert.doesNotMatch(serialized, new RegExp(CHILD_ERROR_SENTINEL));
+        assert.doesNotMatch(serialized, new RegExp(MANAGEMENT_TOKEN_SENTINEL));
+        return true;
+      },
+    );
+    assert.equal(calls, 1);
+  }
+});
+
+test('production alignment refuses a non-production project before spawning', async () => {
+  let calls = 0;
+  await assert.rejects(
+    assertSyntheticGmailProofProductionAligned({
+      repoRoot: process.cwd(),
+      projectRef: 'a'.repeat(20),
+      managementToken: MANAGEMENT_TOKEN_SENTINEL,
+      execFileImpl: async () => {
+        calls += 1;
+      },
+      readFileImpl: () => '',
+    }),
+    (error) => error.code === 'production_release_not_aligned',
+  );
+  assert.equal(calls, 0);
 });

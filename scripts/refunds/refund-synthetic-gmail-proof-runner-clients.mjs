@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import pg from 'pg';
 import {
   REFUND_REPOSITORY,
+  REFUND_PRODUCTION_PROJECT_REF,
   REFUND_SYNTHETIC_PROOF_MESSAGE_TYPE,
   MANAGEMENT_API_OWNER_DATABASE_ADAPTER,
   SyntheticGmailProofRunnerError,
@@ -271,6 +272,63 @@ const firstContactMode = (secrets) => {
   throw genericFailure('first_contact_mode_not_disabled');
 };
 
+export const assertSyntheticGmailProofProductionAligned = async ({
+  repoRoot,
+  projectRef,
+  managementToken,
+  execFileImpl = execFileAsync,
+  readFileImpl = fs.readFileSync,
+}) => {
+  if (projectRef !== REFUND_PRODUCTION_PROJECT_REF) {
+    throw genericFailure('production_release_not_aligned');
+  }
+  try {
+    const releaseScript = path.resolve(
+      repoRoot,
+      'scripts',
+      'refunds',
+      'refund-release.mjs',
+    );
+    await execFileImpl(
+      process.execPath,
+      [
+        releaseScript,
+        '--production',
+        '--project-ref',
+        projectRef,
+        '--confirm-project-ref',
+        projectRef,
+      ],
+      {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        timeout: 90_000,
+        windowsHide: true,
+        shell: false,
+        maxBuffer: 2_000_000,
+        env: createSafeChildEnvironment({ SUPABASE_ACCESS_TOKEN: managementToken }),
+      },
+    );
+    const gateSource = readFileImpl(
+      path.join(repoRoot, 'supabase/functions/_shared/nayax-refund-gates.ts'),
+      'utf8',
+    );
+    const handlerSource = readFileImpl(
+      path.join(repoRoot, 'supabase/functions/nayax-card-refund/index.ts'),
+      'utf8',
+    );
+    if (
+      !gateSource.includes('NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = false') ||
+      !handlerSource.includes('provider: disabledNayaxProviderAdapter')
+    ) {
+      throw genericFailure('static_provider_gate_invalid');
+    }
+    return true;
+  } catch {
+    throw genericFailure('production_release_not_aligned');
+  }
+};
+
 const getGithubVariable = async (name, { repoRoot }) => {
   const gh = process.platform === 'win32' ? 'gh.exe' : 'gh';
   try {
@@ -353,48 +411,11 @@ const createControlClient = ({ projectRef, managementToken, repoRoot }) => {
   };
   const assertProductionAligned = () => {
     if (!productionAlignedPromise) {
-      productionAlignedPromise = (async () => {
-        const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-        try {
-          await execFileAsync(
-            npm,
-            [
-              'run',
-              'refunds:release:check-production',
-              '--',
-              '--project-ref',
-              projectRef,
-              '--confirm-project-ref',
-              projectRef,
-            ],
-            {
-              cwd: repoRoot,
-              encoding: 'utf8',
-              timeout: 90_000,
-              windowsHide: true,
-              maxBuffer: 2_000_000,
-              env: createSafeChildEnvironment({ SUPABASE_ACCESS_TOKEN: managementToken }),
-            },
-          );
-          const gateSource = fs.readFileSync(
-            path.join(repoRoot, 'supabase/functions/_shared/nayax-refund-gates.ts'),
-            'utf8',
-          );
-          const handlerSource = fs.readFileSync(
-            path.join(repoRoot, 'supabase/functions/nayax-card-refund/index.ts'),
-            'utf8',
-          );
-          if (
-            !gateSource.includes('NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = false') ||
-            !handlerSource.includes('provider: disabledNayaxProviderAdapter')
-          ) {
-            throw genericFailure('static_provider_gate_invalid');
-          }
-          return true;
-        } catch {
-          throw genericFailure('production_release_not_aligned');
-        }
-      })();
+      productionAlignedPromise = assertSyntheticGmailProofProductionAligned({
+        repoRoot,
+        projectRef,
+        managementToken,
+      });
     }
     return productionAlignedPromise;
   };
