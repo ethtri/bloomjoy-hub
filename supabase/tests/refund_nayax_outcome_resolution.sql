@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(71);
+select plan(79);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -783,6 +783,51 @@ select ok(
 
 select set_config('request.jwt.claim.role', 'service_role', true);
 select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+savepoint exact_sent_recovery;
+update public.refund_case_nayax_refund_attempts
+set completion_delivery_attempted_at = statement_timestamp() - interval '6 minutes'
+where id = 'b1700000-0000-4000-8000-000000000003';
+insert into public.refund_gmail_messages (
+  gmail_thread_id, refund_case_id, refund_case_message_id, operation_key,
+  provider_message_id, direction, message_kind, status, sender_email,
+  recipient_email, recipient_cc_emails, recipient_cc_count,
+  recipient_resolution_status, delivery_kind, participant_role,
+  participant_trust, subject, plain_body, sent_at, received_at,
+  retention_expires_at
+)
+select
+  attempt.completion_gmail_thread_id,
+  attempt.refund_case_id,
+  attempt.completion_message_id,
+  'refund-case-message:' || attempt.completion_message_id::text,
+  'nayax-completion-sent-evidence',
+  'outbound', 'message', 'sent', 'info@bloomjoysweets.com',
+  message.recipient_email, array['resolution-manager@example.test'], 1, 'resolved',
+  'manual', 'mailbox', 'verified', message.subject, message.body,
+  statement_timestamp() - interval '6 minutes',
+  statement_timestamp() - interval '6 minutes',
+  statement_timestamp() + interval '180 days'
+from public.refund_case_nayax_refund_attempts attempt
+join public.refund_case_messages message on message.id = attempt.completion_message_id
+where attempt.id = 'b1700000-0000-4000-8000-000000000003';
+select lives_ok($sql$
+  select public.service_recover_stale_nayax_completion(
+    'resolution-test-executor',
+    'b1600000-0000-4000-8000-000000000003',
+    (select completion_message_id
+      from public.refund_case_nayax_refund_attempts
+      where id = 'b1700000-0000-4000-8000-000000000003')
+  )
+$sql$, 'Exact sent Gmail evidence settles an interrupted completion without another send');
+select ok((
+  select attempt.completion_delivery_status = 'sent'
+    and message.status = 'sent'
+    and message.error_message is null
+  from public.refund_case_nayax_refund_attempts attempt
+  join public.refund_case_messages message on message.id = attempt.completion_message_id
+  where attempt.id = 'b1700000-0000-4000-8000-000000000003'
+), 'Sent-evidence recovery durably reconciles the exact attempt and message');
+rollback to savepoint exact_sent_recovery;
 select lives_ok($sql$
   select public.service_finish_nayax_refund_completion(
     'resolution-test-executor',
@@ -897,9 +942,25 @@ select ok((
 update public.refund_case_nayax_refund_attempts
 set completion_delivery_attempted_at = statement_timestamp() - interval '6 minutes'
 where id = 'b1700000-0000-4000-8000-000000000004';
+select throws_ok($sql$
+  select public.service_recover_stale_nayax_completion(
+    'resolution-test-executor',
+    'b1600000-0000-4000-8000-000000000003',
+    (select completion_message_id
+      from public.refund_case_nayax_refund_attempts
+      where id = 'b1700000-0000-4000-8000-000000000004')
+  )
+$sql$, 'P0001', 'One exact pending Nayax completion is required',
+  'Recovery refuses a message that is not bound to the exact authorized case');
+select is((
+  select attempt.completion_delivery_status
+  from public.refund_case_nayax_refund_attempts attempt
+  where attempt.id = 'b1700000-0000-4000-8000-000000000004'
+), 'pending', 'Wrong-case recovery leaves the exact completion pending and unchanged');
 select lives_ok($sql$
   select public.service_recover_stale_nayax_completion(
     'resolution-test-executor',
+    'b1600000-0000-4000-8000-000000000004',
     (select completion_message_id
       from public.refund_case_nayax_refund_attempts
       where id = 'b1700000-0000-4000-8000-000000000004')
@@ -949,6 +1010,7 @@ where id = 'b1700000-0000-4000-8000-000000000004';
 select lives_ok($sql$
   select public.service_recover_stale_nayax_completion(
     'resolution-test-executor',
+    'b1600000-0000-4000-8000-000000000004',
     (select completion_message_id
       from public.refund_case_nayax_refund_attempts
       where id = 'b1700000-0000-4000-8000-000000000004')
@@ -972,6 +1034,48 @@ select ok(pg_temp.capture_error($sql$
   )
 $sql$) like '%One safely failed Nayax completion is required%',
   'Delivery-unknown interruption recovery cannot be retried');
+select ok(pg_temp.capture_error($sql$
+  insert into public.refund_case_messages (
+    refund_case_id, message_type, status, recipient_email, subject, body,
+    template_key, created_by, content_source, delivery_kind, requested_fields
+  ) values (
+    'b1600000-0000-4000-8000-000000000004', 'status_update', 'pending',
+    'customer4@example.test', 'Generic bypass', 'Generic bypass',
+    'refund_status_update_editable_v1', 'b1000000-0000-4000-8000-000000000001',
+    'manager_authored', 'manual', '{}'::text[]
+  )
+$sql$) like '%Unresolved Nayax completion blocks every other customer message%',
+  'A direct generic customer-message insert cannot bypass delivery-unknown reconciliation');
+select is((select count(*)::integer from public.refund_case_messages
+  where refund_case_id = 'b1600000-0000-4000-8000-000000000004'
+    and template_version is distinct from 'refund_nayax_completion_v2'), 0,
+  'The blocked generic path creates no second customer-message row');
+select set_config('request.jwt.claim.role', 'service_role', true);
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+select is(
+  public.service_refund_nayax_completion_message_lane_open(
+    'b1600000-0000-4000-8000-000000000004'
+  ),
+  false,
+  'The Edge pre-insert lane probe reports the unresolved completion as closed'
+);
+set local role authenticated;
+select pg_temp.set_auth_claims(
+  'b1000000-0000-4000-8000-000000000001',
+  'aal1',
+  '[]'::jsonb
+);
+select throws_ok(
+  $sql$select public.service_refund_nayax_completion_message_lane_open(
+    'b1600000-0000-4000-8000-000000000004'
+  )$sql$,
+  '42501',
+  null,
+  'Only the service role can read the generic-message lane preflight'
+);
+reset role;
+select set_config('request.jwt.claim.role', 'service_role', true);
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id in (
     'b1600000-0000-4000-8000-000000000001',

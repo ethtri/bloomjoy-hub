@@ -25,6 +25,10 @@ import { validateRefundGptReviewedDraft } from "../_shared/refund-gpt-triage-pol
 import { validateRefundCustomerMessageRequest } from "../_shared/refund-evidence-selection.ts";
 import { authorizeRefundSyntheticGmailProof } from "../_shared/refund-synthetic-gmail-proof.ts";
 import { deliverNayaxCompletionOnce } from "../_shared/nayax-resolution-completion.ts";
+import {
+  assertOpenNayaxCompletionMessageLane,
+  RefundNayaxCompletionMessageLaneBlockedError,
+} from "../_shared/nayax-resolution-message-lane.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -49,12 +53,13 @@ const sanitizeText = (value: unknown, maxLength = 800) =>
     ? String(value).trim().slice(0, maxLength)
     : "";
 
-const escapeHtml = (value: string) => value
-  .replaceAll("&", "&amp;")
-  .replaceAll("<", "&lt;")
-  .replaceAll(">", "&gt;")
-  .replaceAll('"', "&quot;")
-  .replaceAll("'", "&#039;");
+const escapeHtml = (value: string) =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -231,7 +236,8 @@ serve(async (req) => {
         )
       ) {
         return jsonResponse({
-          error: "Review the exact interrupted completion before recovering it.",
+          error:
+            "Review the exact interrupted completion before recovering it.",
         }, 400);
       }
       if (!/^[A-Za-z0-9_-]{32,200}$/.test(nayaxExecutorAssertion)) {
@@ -253,6 +259,7 @@ serve(async (req) => {
         "service_recover_stale_nayax_completion",
         {
           p_executor_assertion: nayaxExecutorAssertion,
+          p_refund_case_id: caseId,
           p_refund_case_message_id: nayaxCompletionRecoveryMessageId,
         },
       );
@@ -261,10 +268,13 @@ serve(async (req) => {
         : null;
       if (
         recoveryError || recovery?.recovered !== true ||
+        recovery.refundCaseId !== caseId ||
+        recovery.refundCaseMessageId !== nayaxCompletionRecoveryMessageId ||
         !["sent", "already_sent", "failed", "delivery_unknown"].includes(
           typeof recovery.status === "string" ? recovery.status : "",
         ) || recovery.transport !== "gmail_thread" ||
-        recovery.originalThread !== true || recovery.providerCallMade !== false ||
+        recovery.originalThread !== true ||
+        recovery.providerCallMade !== false ||
         recovery.payloadRedacted !== true
       ) {
         return jsonResponse({
@@ -312,7 +322,8 @@ serve(async (req) => {
         ? prepared as Record<string, unknown>
         : null;
       if (
-        prepareError || retry?.prepared !== true || retry.refundCaseId !== caseId ||
+        prepareError || retry?.prepared !== true ||
+        retry.refundCaseId !== caseId ||
         retry.refundCaseMessageId !== nayaxCompletionMessageId ||
         typeof retry.attemptId !== "string" || !isUuid(retry.attemptId) ||
         typeof retry.gmailThreadId !== "string" ||
@@ -453,6 +464,17 @@ serve(async (req) => {
     if (!canManageCase) {
       return jsonResponse({ error: "Refund case access required." }, 403);
     }
+
+    await assertOpenNayaxCompletionMessageLane({
+      checkOpen: async () => {
+        const { data: laneOpen, error: laneError } = await supabase.rpc(
+          "service_refund_nayax_completion_message_lane_open",
+          { p_refund_case_id: caseId },
+        );
+        if (laneError) throw laneError;
+        return laneOpen === true;
+      },
+    });
 
     const refundCase = await getRefundCase(caseId);
     if (!refundCase) {
@@ -742,6 +764,12 @@ serve(async (req) => {
       }, 502);
     }
   } catch (error) {
+    if (error instanceof RefundNayaxCompletionMessageLaneBlockedError) {
+      return jsonResponse({
+        error:
+          "Resolve the stored Nayax customer completion before sending another customer message.",
+      }, 409);
+    }
     console.error("refund-case-message-send error", {
       errorType: error instanceof Error ? error.name : typeof error,
     });

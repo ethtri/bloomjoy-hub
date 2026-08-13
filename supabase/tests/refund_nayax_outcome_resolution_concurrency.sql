@@ -245,9 +245,36 @@ exception when others then
 end;
 $$;
 
+create function refund_nayax_resolution_race_test.try_generic_message()
+returns boolean
+language plpgsql
+as $$
+begin
+  insert into public.refund_case_messages (
+    refund_case_id, message_type, status, recipient_email, subject, body,
+    template_key, created_by, content_source, delivery_kind, requested_fields
+  ) values (
+    'b2600000-0000-4000-8000-000000000001',
+    'status_update',
+    'pending',
+    'resolution-race-customer@example.test',
+    'Generic race bypass',
+    'Generic race bypass',
+    'refund_status_update_editable_v1',
+    'b2000000-0000-4000-8000-000000000001',
+    'manager_authored',
+    'manual',
+    '{}'::text[]
+  );
+  return true;
+exception when others then
+  return false;
+end;
+$$;
+
 commit;
 
-select plan(9);
+select plan(11);
 
 create temporary table nayax_resolution_race_results (
   connection_name text primary key,
@@ -356,6 +383,48 @@ select ok(
     where refund_case_id = 'b2600000-0000-4000-8000-000000000001'),
   'Concurrency creates one adjustment, one bound message, and no additional provider attempt'
 );
+
+-- Hold the exact case row while another database session attempts a generic
+-- customer message. The remote insert must wait, re-check the unresolved
+-- completion after the lock is released, and fail before creating a row.
+do $$
+declare
+  local_connection text := 'host=db port=' || current_setting('port')
+    || ' dbname=' || current_database()
+    || ' user=postgres password=postgres sslmode=disable';
+begin
+  perform extensions.dblink_connect(
+    'nayax_resolution_message_race',
+    local_connection
+  );
+end;
+$$;
+begin;
+select 1 from public.refund_cases
+where id = 'b2600000-0000-4000-8000-000000000001'
+for update;
+select extensions.dblink_send_query(
+  'nayax_resolution_message_race',
+  'select refund_nayax_resolution_race_test.try_generic_message()'
+);
+commit;
+
+select is(
+  (select inserted from extensions.dblink_get_result(
+    'nayax_resolution_message_race'
+  ) as response(inserted boolean)),
+  false,
+  'A concurrent direct generic customer-message insert loses to the unresolved completion guard'
+);
+select is(
+  (select count(*)::integer from public.refund_case_messages
+   where refund_case_id = 'b2600000-0000-4000-8000-000000000001'
+     and template_version is distinct from 'refund_nayax_completion_v2'),
+  0,
+  'The concurrent generic-message loser creates no second customer-message row'
+);
+
+select extensions.dblink_disconnect('nayax_resolution_message_race');
 
 do $$
 begin

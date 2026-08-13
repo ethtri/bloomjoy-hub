@@ -3,6 +3,10 @@ import {
   deliverNayaxCompletionOnce,
   deliverPreparedNayaxCompletionOnce,
 } from "./nayax-resolution-completion.ts";
+import {
+  assertOpenNayaxCompletionMessageLane,
+  RefundNayaxCompletionMessageLaneBlockedError,
+} from "./nayax-resolution-message-lane.ts";
 
 const runScenario = async ({
   deliveryError,
@@ -121,4 +125,27 @@ Deno.test("post-commit lookup failure settles failed before any Gmail call", asy
   assertEquals(gmailCalls, 0);
   assertEquals(finishCalls, ["failed"]);
   assertEquals(result.status, "failed");
+});
+
+Deno.test("unresolved completion blocks generic message, outbound, and Gmail work", async () => {
+  let messageInsertCalls = 0;
+  let outboundClaimCalls = 0;
+  let gmailCalls = 0;
+  let blocked = false;
+
+  try {
+    await assertOpenNayaxCompletionMessageLane({
+      checkOpen: async () => false,
+    });
+    messageInsertCalls += 1;
+    outboundClaimCalls += 1;
+    gmailCalls += 1;
+  } catch (error) {
+    blocked = error instanceof RefundNayaxCompletionMessageLaneBlockedError;
+  }
+
+  assertEquals(blocked, true);
+  assertEquals(messageInsertCalls, 0);
+  assertEquals(outboundClaimCalls, 0);
+  assertEquals(gmailCalls, 0);
 });

@@ -23,6 +23,7 @@ const nayaxGates = read('supabase/functions/_shared/nayax-refund-gates.ts');
 const nayaxGatesTests = read('supabase/functions/_shared/nayax-refund-gates.test.ts');
 const nayaxCompletion = read('supabase/functions/_shared/nayax-resolution-completion.ts');
 const nayaxCompletionTests = read('supabase/functions/_shared/nayax-resolution-completion.test.ts');
+const nayaxMessageLane = read('supabase/functions/_shared/nayax-resolution-message-lane.ts');
 const operations = read('src/lib/refundOperations.ts');
 const portal = read('src/pages/admin/Refunds.tsx');
 const portalUat = read('scripts/refunds/validate-refund-portal-uat.mjs');
@@ -99,7 +100,7 @@ assert(
 );
 
 assert(
-  databaseTests.includes('select plan(71)') &&
+  databaseTests.includes('select plan(79)') &&
     databaseTests.includes('The default-off gate blocks preparation before any write') &&
     databaseTests.includes('PAN, phone, account, and other long digit-shaped references are rejected') &&
     databaseTests.includes('Grouped card, phone, and account digit shapes are rejected') &&
@@ -108,12 +109,17 @@ assert(
     databaseTests.includes('stores only a one-way evidence-reference digest') &&
     databaseTests.includes('A generic AAL2 token cannot replace the trusted exact-factor proof') &&
     databaseTests.includes('A session-local resolution ID cannot bypass the provider hold') &&
+    databaseTests.includes('A direct generic customer-message insert cannot bypass delivery-unknown reconciliation') &&
     databaseTests.includes('Success atomically binds one pending original-thread completion without calling the provider') &&
     databaseTests.includes('The exact safely failed completion can be reopened once for original-thread delivery') &&
     databaseTests.includes('A failed bounded retry is durably marked exhausted') &&
     databaseTests.includes('A second customer-completion retry is impossible') &&
     databaseTests.includes('A stale completion with no Gmail claim is proven safe without sending') &&
     databaseTests.includes('A stale completion with an unconfirmed Gmail claim becomes reconciliation-only') &&
+    databaseTests.includes('Exact sent Gmail evidence settles an interrupted completion without another send') &&
+    databaseTests.includes('Sent-evidence recovery durably reconciles the exact attempt and message') &&
+    databaseTests.includes('Recovery refuses a message that is not bound to the exact authorized case') &&
+    databaseTests.includes('Wrong-case recovery leaves the exact completion pending and unchanged') &&
     databaseTests.includes('Delivery-unknown interruption recovery cannot be retried') &&
     databaseTests.includes('Customer and reporting dates preserve the UTC action time across a local-date boundary') &&
     databaseTests.includes('Retry-safe returns through the real manager step-up preparation path with generation one frozen') &&
@@ -133,11 +139,13 @@ assert(
 );
 
 assert(
-  concurrencyTests.includes('select plan(9)') &&
+  concurrencyTests.includes('select plan(11)') &&
     concurrencyTests.includes('dblink_send_query') &&
     concurrencyTests.includes('Exactly one database session can consume the same verified resolution intent') &&
     concurrencyTests.includes('The race commits exactly one immutable support-resolution record') &&
     concurrencyTests.includes('Concurrency creates one adjustment, one bound message, and no additional provider attempt') &&
+    concurrencyTests.includes('A concurrent direct generic customer-message insert loses to the unresolved completion guard') &&
+    concurrencyTests.includes('The concurrent generic-message loser creates no second customer-message row') &&
     concurrencyTests.includes('Concurrent regression restores the production hard-off gate'),
   'Two-session pgTAP must prove one winner, one immutable result, and zero duplicate action.'
 );
@@ -176,11 +184,24 @@ assert(
 
 assert(
   migration.includes('service_recover_stale_nayax_completion') &&
+    migration.includes('p_refund_case_id uuid') &&
+    migration.includes('guard_refund_nayax_completion_message_lane') &&
+    migration.includes('Unresolved Nayax completion blocks every other customer message') &&
     migration.includes("statement_timestamp() - interval '5 minutes'") &&
     migration.includes("when outbound_row.id is null then 'failed'") &&
     migration.includes("else 'delivery_unknown'") &&
     messageSendEdge.includes('nayaxCompletionRecoveryMessageId') &&
     messageSendEdge.includes('service_recover_stale_nayax_completion') &&
+    messageSendEdge.includes('service_refund_nayax_completion_message_lane_open') &&
+    messageSendEdge.indexOf('service_refund_nayax_completion_message_lane_open') <
+      messageSendEdge.indexOf('.from("refund_case_messages")') &&
+    messageSendEdge.includes('assertOpenNayaxCompletionMessageLane') &&
+    messageSendEdge.includes('p_refund_case_id: caseId') &&
+    messageSendEdge.includes('recovery.refundCaseId !== caseId') &&
+    nayaxMessageLane.includes('RefundNayaxCompletionMessageLaneBlockedError') &&
+    nayaxCompletionTests.includes('unresolved completion blocks generic message, outbound, and Gmail work') &&
+    nayaxCompletionTests.includes('assertEquals(messageInsertCalls, 0)') &&
+    nayaxCompletionTests.includes('assertEquals(outboundClaimCalls, 0)') &&
     messageSendEdge.includes('recovery.providerCallMade !== false') &&
     stepUpEdge.includes('deliverPreparedNayaxCompletionOnce') &&
     stepUpEdge.includes('messageResult.error || attemptResult.error') &&
@@ -229,6 +250,7 @@ assert(
     portalUat.includes('Payment support sees exactly four structured outcomes and no arbitrary communication controls') &&
     portalUat.includes('Verified ${scenario.result} submits one frozen result with no provider or separate message endpoint') &&
     portalUat.includes('Pending Nayax completion blocks generic customer messages and exposes only no-send recovery') &&
+    portalUat.includes('Uncertain Nayax completion blocks recovery, retry, and generic customer messaging') &&
     portalUat.includes('Payment-support verification remains usable without mobile horizontal overflow') &&
     evidenceManifest.includes("'refund-nayax-support-resolution-desktop.png'") &&
     evidenceManifest.includes("'refund-nayax-support-resolution-mobile.png'"),

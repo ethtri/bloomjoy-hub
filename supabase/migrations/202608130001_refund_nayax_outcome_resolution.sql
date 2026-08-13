@@ -399,6 +399,82 @@ create trigger mark_refund_nayax_completion_retry_exhausted
 before update of status, error_message on public.refund_case_messages
 for each row execute function public.mark_refund_nayax_completion_retry_exhausted();
 
+create or replace function public.guard_refund_nayax_completion_message_lane()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  locked_case_id uuid;
+begin
+  select refund_case.id
+  into locked_case_id
+  from public.refund_cases refund_case
+  where refund_case.id = new.refund_case_id
+  for update;
+
+  if locked_case_id is null then
+    return new;
+  end if;
+
+  if new.message_type = 'completed'
+    and new.template_version = 'refund_nayax_completion_v2'
+    and new.nayax_refund_attempt_id is not null then
+    return new;
+  end if;
+
+  if new.message_type <> 'manual_note'
+    and exists (
+      select 1
+      from public.refund_case_messages completion
+      where completion.refund_case_id = new.refund_case_id
+        and completion.message_type = 'completed'
+        and completion.template_version = 'refund_nayax_completion_v2'
+        and completion.nayax_refund_attempt_id is not null
+        and completion.status in ('pending', 'failed')
+    ) then
+    raise exception 'Unresolved Nayax completion blocks every other customer message';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists refund_case_messages_guard_nayax_completion_lane
+  on public.refund_case_messages;
+create trigger refund_case_messages_guard_nayax_completion_lane
+before insert on public.refund_case_messages
+for each row execute function public.guard_refund_nayax_completion_message_lane();
+
+create or replace function public.service_refund_nayax_completion_message_lane_open(
+  p_refund_case_id uuid
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.role() is distinct from 'service_role' then
+    raise exception 'Service role required';
+  end if;
+
+  if p_refund_case_id is null then
+    raise exception 'Refund case required';
+  end if;
+
+  return not exists (
+    select 1
+    from public.refund_case_messages completion
+    where completion.refund_case_id = p_refund_case_id
+      and completion.message_type = 'completed'
+      and completion.template_version = 'refund_nayax_completion_v2'
+      and completion.nayax_refund_attempt_id is not null
+      and completion.status in ('pending', 'failed')
+  );
+end;
+$$;
+
 create unique index if not exists refund_nayax_attempt_support_resolution_idx
   on public.refund_case_nayax_refund_attempts (support_resolution_id)
   where support_resolution_id is not null;
@@ -2118,6 +2194,7 @@ $$;
 
 create or replace function public.service_recover_stale_nayax_completion(
   p_executor_assertion text,
+  p_refund_case_id uuid,
   p_refund_case_message_id uuid
 )
 returns jsonb
@@ -2135,14 +2212,15 @@ declare
 begin
   perform public.assert_nayax_provider_executor(p_executor_assertion);
 
-  if p_refund_case_message_id is null then
-    raise exception 'Exact Nayax completion message required';
+  if p_refund_case_id is null or p_refund_case_message_id is null then
+    raise exception 'Exact Nayax completion case and message required';
   end if;
 
   select message.*
   into message_row
   from public.refund_case_messages message
   where message.id = p_refund_case_message_id
+    and message.refund_case_id = p_refund_case_id
   for update;
 
   select attempt.*
@@ -2242,6 +2320,8 @@ begin
 
   return jsonb_build_object(
     'recovered', true,
+    'refundCaseId', case_row.id,
+    'refundCaseMessageId', message_row.id,
     'status', recovery_result ->> 'status',
     'transport', 'gmail_thread',
     'originalThread', true,
@@ -2273,6 +2353,12 @@ revoke execute on function public.guard_refund_nayax_attempt_generation()
   from public, anon, authenticated, service_role;
 revoke execute on function public.mark_refund_nayax_completion_retry_exhausted()
   from public, anon, authenticated, service_role;
+revoke execute on function public.guard_refund_nayax_completion_message_lane()
+  from public, anon, authenticated, service_role;
+revoke execute on function public.service_refund_nayax_completion_message_lane_open(uuid)
+  from public, anon, authenticated, service_role;
+grant execute on function public.service_refund_nayax_completion_message_lane_open(uuid)
+  to service_role;
 
 revoke execute on function public.admin_get_refund_nayax_resolution_readiness(uuid)
   from public, anon, authenticated, service_role;
@@ -2318,10 +2404,10 @@ grant execute on function public.service_prepare_nayax_completion_retry(
 ) to service_role;
 
 revoke execute on function public.service_recover_stale_nayax_completion(
-  text, uuid
+  text, uuid, uuid
 ) from public, anon, authenticated, service_role;
 grant execute on function public.service_recover_stale_nayax_completion(
-  text, uuid
+  text, uuid, uuid
 ) to service_role;
 
 revoke execute on function public.admin_consume_refund_nayax_resolution_intent(
@@ -2347,7 +2433,7 @@ comment on column public.refund_cases.nayax_refund_attempt_generation is
 
 comment on function public.service_prepare_nayax_completion_retry(text, uuid) is
   'Reopens the exact safely failed Nayax completion message for one bounded original-thread retry. It refuses sent, uncertain, mismatched, or already-retried evidence and never calls the payment provider.';
-comment on function public.service_recover_stale_nayax_completion(text, uuid) is
+comment on function public.service_recover_stale_nayax_completion(text, uuid, uuid) is
   'Classifies one stale pending Nayax completion without sending: no outbound or a proven safe failure enters the bounded retry path, sent evidence finalizes once, and every possibly delivered claim becomes reconciliation-only.';
 
 select pg_notify('pgrst', 'reload schema');
