@@ -90,6 +90,7 @@ Deno.test("idempotency is deterministic for an exact replay and changes with imm
   const secret = "s".repeat(64);
   const evidence = {
     caseId: "76000000-0000-4000-8000-000000000001",
+    attemptGeneration: 0,
     transactionId: "123456789",
     siteId: 42,
     machineAuthorizationTime: "2026-07-22T17:30:00Z",
@@ -102,8 +103,16 @@ Deno.test("idempotency is deterministic for an exact replay and changes with imm
     ...evidence,
     amountCents: 701,
   });
+  const retryGeneration = await buildNayaxRefundIdempotencyKey(secret, {
+    ...evidence,
+    attemptGeneration: 1,
+  });
   assert(first === replay, "exact replay must retain one key");
   assert(first !== changed, "changed evidence must change the key");
+  assert(
+    first !== retryGeneration,
+    "a support-approved retry generation must create a fresh key",
+  );
   assert(
     /^nayax-refund-[a-f0-9]{64}$/.test(first),
     "key must match the database contract",
@@ -115,6 +124,7 @@ Deno.test("idempotency never falls back to a service key or local default", asyn
   try {
     await buildNayaxRefundIdempotencyKey(null, {
       caseId: "76000000-0000-4000-8000-000000000001",
+      attemptGeneration: 0,
       transactionId: "123456789",
       siteId: 42,
       machineAuthorizationTime: "2026-07-22T17:30:00Z",

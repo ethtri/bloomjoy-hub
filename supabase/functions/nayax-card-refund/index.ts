@@ -47,6 +47,7 @@ const isUuid = (value: string) =>
 
 type RefundCaseForExecution = {
   id: string;
+  nayax_refund_attempt_generation: number;
   public_reference: string;
   status: string;
   decision: string | null;
@@ -86,6 +87,7 @@ const getRefundCase = async (
     .from("refund_cases")
     .select(`
       id,
+      nayax_refund_attempt_generation,
       public_reference,
       status,
       decision,
@@ -341,6 +343,7 @@ serve(async (req) => {
       executionConfig.idempotencySecret,
       {
         caseId: refundCase.id,
+        attemptGeneration: refundCase.nayax_refund_attempt_generation,
         transactionId: refundCase.matched_nayax_transaction_id!,
         siteId: refundCase.matched_nayax_site_id!,
         machineAuthorizationTime: refundCase.matched_nayax_machine_auth_time!,

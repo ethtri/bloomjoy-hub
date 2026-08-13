@@ -302,7 +302,14 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 43, 'Evidence must enumerate all 43 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 45, 'Evidence must enumerate all 45 reviewed screenshots');
+  assert.equal(
+    EXPECTED_SCREENSHOTS.filter((name) =>
+      name.startsWith('refund-nayax-support-resolution-')
+    ).length,
+    2,
+    'Evidence must include exactly one desktop and one mobile support-resolution state'
+  );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name === 'refund-owner-totp-readiness.png').length,
     1,
@@ -321,6 +328,30 @@ try {
   assert(
     ownerScreenshotIndex >= 0 && ownerQrOpenIndex > ownerScreenshotIndex,
     'The only owner enrollment evidence screenshot must be captured before private QR setup opens'
+  );
+  const supportPanelAssertionIndex = portalUatSource.indexOf(
+    "'Payment support sees exactly four structured outcomes and no arbitrary communication controls'"
+  );
+  const supportDesktopScreenshotIndex = portalUatSource.indexOf(
+    "path.join(artifactDir, 'refund-nayax-support-resolution-desktop.png')"
+  );
+  const supportStepUpAssertionIndex = portalUatSource.indexOf(
+    'requires fresh exact human verification`'
+  );
+  const supportMobileScreenshotIndex = portalUatSource.indexOf(
+    "path.join(artifactDir, 'refund-nayax-support-resolution-mobile.png')"
+  );
+  const supportSubmitIndex = portalUatSource.indexOf(
+    "page.getByLabel('Current authenticator code').fill('123456')",
+    supportMobileScreenshotIndex
+  );
+  assert(
+    supportPanelAssertionIndex >= 0 &&
+      supportDesktopScreenshotIndex > supportPanelAssertionIndex &&
+      supportStepUpAssertionIndex > supportDesktopScreenshotIndex &&
+      supportMobileScreenshotIndex > supportStepUpAssertionIndex &&
+      supportSubmitIndex > supportMobileScreenshotIndex,
+    'Support-resolution evidence must show structured desktop and mobile pre-action states before synthetic verification'
   );
   const providerReceiptAssertionIndex = portalUatSource.indexOf(
     '`Synthetic browser ${scenario.name} renders the settled domain outcome`'

@@ -44,6 +44,7 @@ export const NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = false;
 
 export type NayaxRefundIdempotencyEvidence = {
   caseId: string;
+  attemptGeneration: number;
   transactionId: string;
   siteId: number;
   machineAuthorizationTime: string;
@@ -210,6 +211,9 @@ export const buildNayaxRefundIdempotencyKey = async (
   }
   if (
     !evidence.caseId ||
+    !Number.isSafeInteger(evidence.attemptGeneration) ||
+    evidence.attemptGeneration < 0 ||
+    evidence.attemptGeneration > 1000 ||
     !evidence.transactionId ||
     !Number.isSafeInteger(evidence.siteId) ||
     evidence.siteId <= 0 ||
@@ -223,6 +227,7 @@ export const buildNayaxRefundIdempotencyKey = async (
 
   const fingerprint = [
     evidence.caseId,
+    evidence.attemptGeneration,
     evidence.transactionId,
     evidence.siteId,
     evidence.machineAuthorizationTime,

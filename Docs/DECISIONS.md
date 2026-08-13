@@ -1,5 +1,17 @@
 # Decisions
 
+## 2026-08-13 - Uncertain Nayax outcomes require a separate immutable support decision (`#767`)
+
+A timeout, unknown, or rejected Nayax attempt remains frozen until authoritative evidence is reviewed. Resolving that hold is a separate payment-support action, not a provider retry and not a generic case edit.
+
+- The feature is hard-disabled by an immutable database gate, seeds no operator, and has no browser/service setter. A future launch requires an explicit owner-approved payment-support operator who is also the current mapped Machine Manager, plus the existing durable TOTP enrollment and a fresh code bound to the exact case, attempt, evidence, and versions.
+- The only outcomes are: keep the hold; confirm safe for a fresh manager review; confirm provider success; or document a manual Nayax completion. Each accepts only an approved evidence-source/reason pair and a prefixed monitor/support/manual reference. Card-, account-, contact-, and customer-like references are rejected before preparation; the database keeps only a SHA-256 reference digest, never the raw reference or pasted provider content.
+- Two database sessions racing the same verified intent produce one immutable result. The original provider outcome remains preserved. Confirmed success/manual completion may atomically commit the case and reporting adjustment; safe-to-review releases the case without calling Nayax; hold changes no case outcome.
+- Confirmed success/manual completion must freeze the authoritative payment-action time as UTC from the evidence. Reporting and customer copy use that UTC time, not the support-review time or the reviewing browser's timezone. Safe-to-review increments a bounded attempt generation so a later separately authorized action receives a fresh idempotency key without altering or reusing the old attempt.
+- The final fresh-code dialog repeats the exact frozen outcome, evidence source/result, reference, and authoritative action time where applicable. The manager must be the exact current case manager with an active durable authenticator enrollment before the readiness control is offered.
+- The resolution operation never calls Nayax or creates another provider attempt. A completed outcome atomically binds one deterministic completion message to the original Gmail thread; the Edge step-up then attempts only that reply with the complete current mapped-manager CC route. Safe failure permits one exact non-editable email-only retry, while uncertain delivery requires reconciliation. Hold and safe-to-review create no customer message. No recipient, copy, body, attachment, payment-retry, or provider control is exposed.
+- Passing local/hosted synthetic checks does not activate the feature. The account-specific contract in `#430`, controlled synthetic deployment UAT, explicit operator grant, owner/sponsor approval, caps/allowlist, and supervised low-value pilot remain required.
+
 ## 2026-08-12 - Refund authenticator setup is private, self-only, and temporary (`#782`, `#692`)
 
 The first refund-operator authenticator can be enrolled only by the exact preapproved owner-manager while signed into their own portal session. The database stores only a SHA-256 binding of the private, immutable, high-entropy Auth user UUID—not an email literal or guessable email hash—and the browser API accepts no target identity.

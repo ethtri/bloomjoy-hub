@@ -40,6 +40,7 @@ import {
   canUseLocalRefundDemoData,
   closeRefundManagerTotpEnrollmentWindow,
   completeNayaxRefundStepUp,
+  completeRefundNayaxResolutionStepUp,
   completeRefundCaseAdminStepUp,
   createRefundAttachmentSignedUrl,
   executeNayaxCardRefund,
@@ -49,12 +50,15 @@ import {
   fetchRefundGmailCaseContext,
   fetchRefundGmailHealth,
   fetchRefundManagerTotpEnrollmentReadiness,
+  fetchRefundNayaxResolutionReadiness,
   fetchRefundOperationsOverview,
   getRefundManagerStepUpRequest,
   isLocalUatDemoForced,
   lookupNayaxTransactions,
   openRefundManagerTotpEnrollmentWindow,
+  prepareRefundNayaxOutcomeResolution,
   recoverRefundGmailCustomerContact,
+  recoverRefundNayaxCompletion,
   rejectRefundGptTriage,
   resolveRefundGmailDeliveryNotFound,
   resolveRefundCaseReconciliation,
@@ -73,6 +77,11 @@ import {
   type RefundManagerTotpEnrollmentReadiness,
   type RefundNayaxLookupStatus,
   type RefundNayaxLookupSummary,
+  type RefundNayaxResolutionEvidenceType,
+  type RefundNayaxResolutionReadiness,
+  type RefundNayaxResolutionReason,
+  type RefundNayaxResolutionResult,
+  type ResolveRefundNayaxOutcomeInput,
   type RefundCaseStatus,
   type RefundCustomerPortalMessageType,
   type RefundDecision,
@@ -97,6 +106,104 @@ const noDecisionStatuses = new Set<RefundCaseStatus>([
   'waiting_on_customer',
   'correlated',
 ]);
+
+const nayaxResolutionResultOptions: Array<{
+  value: RefundNayaxResolutionResult;
+  label: string;
+  helper: string;
+}> = [
+  {
+    value: 'remain_on_hold',
+    label: 'Keep the provider hold',
+    helper: 'Record the review while keeping the case frozen. This outcome does not retry Nayax or contact the customer.',
+  },
+  {
+    value: 'provider_confirmed_retry_safe',
+    label: 'Confirmed safe for a fresh review',
+    helper: 'Return the case to review without retrying Nayax or contacting the customer. A later payment action still needs its own approval and code.',
+  },
+  {
+    value: 'provider_confirmed_success',
+    label: 'Provider confirms the refund succeeded',
+    helper: 'Commit the authoritative Nayax outcome and reporting adjustment, then create one fixed completion reply and attempt to send it once in the original Gmail thread with every current mapped manager copied.',
+  },
+  {
+    value: 'documented_manual_completion',
+    label: 'Manual Nayax refund is documented',
+    helper: 'Commit the already-completed manual refund, then create one fixed completion reply and attempt to send it once in the original Gmail thread with every current mapped manager copied.',
+  },
+];
+
+const nayaxResolutionEvidenceOptions: Record<
+  RefundNayaxResolutionResult,
+  Array<{ value: RefundNayaxResolutionEvidenceType; label: string }>
+> = {
+  provider_confirmed_success: [
+    { value: 'nayax_dtm_transaction', label: 'Dynamic Transactions Monitor' },
+    { value: 'nayax_support_ticket', label: 'Nayax support confirmation' },
+  ],
+  provider_confirmed_retry_safe: [
+    { value: 'nayax_dtm_transaction', label: 'Dynamic Transactions Monitor' },
+    { value: 'nayax_support_ticket', label: 'Nayax support confirmation' },
+  ],
+  documented_manual_completion: [
+    { value: 'documented_manual_refund', label: 'Documented manual Nayax refund' },
+  ],
+  remain_on_hold: [
+    { value: 'nayax_support_ticket', label: 'Nayax support ticket' },
+    { value: 'nayax_dtm_transaction', label: 'Dynamic Transactions Monitor' },
+  ],
+};
+
+const nayaxResolutionReasonOptions: Record<
+  RefundNayaxResolutionResult,
+  Array<{ value: RefundNayaxResolutionReason; label: string }>
+> = {
+  provider_confirmed_success: [
+    { value: 'nayax_dtm_settled', label: 'DTM shows the refund settled' },
+    { value: 'nayax_support_confirmed_success', label: 'Nayax support confirms success' },
+  ],
+  provider_confirmed_retry_safe: [
+    { value: 'nayax_dtm_not_refunded', label: 'DTM confirms no refund was made' },
+    { value: 'nayax_support_retry_safe', label: 'Nayax support confirms a fresh review is safe' },
+  ],
+  documented_manual_completion: [
+    { value: 'manual_nayax_completion', label: 'Manual Nayax refund is complete' },
+  ],
+  remain_on_hold: [
+    { value: 'evidence_incomplete', label: 'Evidence is incomplete' },
+    { value: 'provider_still_pending', label: 'Provider still shows pending' },
+    { value: 'evidence_conflict', label: 'Evidence conflicts' },
+  ],
+};
+
+const defaultNayaxResolutionSelection = (
+  result: RefundNayaxResolutionResult
+): { evidenceType: RefundNayaxResolutionEvidenceType; reason: RefundNayaxResolutionReason } => ({
+  evidenceType: nayaxResolutionEvidenceOptions[result][0].value,
+  reason: nayaxResolutionReasonOptions[result][0].value,
+});
+
+const nayaxResolutionReasonsForEvidence = (
+  result: RefundNayaxResolutionResult,
+  evidenceType: RefundNayaxResolutionEvidenceType
+) => {
+  if (result === 'provider_confirmed_success') {
+    return nayaxResolutionReasonOptions[result].filter(({ value }) =>
+      evidenceType === 'nayax_support_ticket'
+        ? value === 'nayax_support_confirmed_success'
+        : value === 'nayax_dtm_settled'
+    );
+  }
+  if (result === 'provider_confirmed_retry_safe') {
+    return nayaxResolutionReasonOptions[result].filter(({ value }) =>
+      evidenceType === 'nayax_support_ticket'
+        ? value === 'nayax_support_retry_safe'
+        : value === 'nayax_dtm_not_refunded'
+    );
+  }
+  return nayaxResolutionReasonOptions[result];
+};
 
 const statusesByDecision: Record<'none' | 'approved' | 'denied', RefundCaseStatus[]> = {
   none: ['draft', 'submitted', 'needs_review', 'waiting_on_customer', 'correlated'],
@@ -305,6 +412,37 @@ const getManualPaymentReferenceIssue = (value: string): string | null => {
     digitCount >= 8
   ) {
     return 'Do not enter bank, card, contact, or other sensitive payment details.';
+  }
+  return null;
+};
+
+const getNayaxResolutionReferenceIssue = (
+  value: string,
+  evidenceType: RefundNayaxResolutionEvidenceType
+): string | null => {
+  const normalized = value.trim();
+  const digitCount = normalized.replace(/[^0-9]/g, '').length;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{7,119}$/.test(normalized)) {
+    return 'Use an 8–120 character DTM, SUPPORT, or MANUAL reference.';
+  }
+  const requiredPrefix = evidenceType === 'nayax_dtm_transaction'
+    ? /^DTM[:/-]/
+    : evidenceType === 'nayax_support_ticket'
+      ? /^SUPPORT[:/-]/
+      : /^MANUAL[:/-]/;
+  if (!requiredPrefix.test(normalized)) {
+    return `Start this reference with ${evidenceType === 'nayax_dtm_transaction' ? 'DTM:' : evidenceType === 'nayax_support_ticket' ? 'SUPPORT:' : 'MANUAL:'}.`;
+  }
+  const approvedNumericVendorReference =
+    (evidenceType === 'nayax_support_ticket' && /^SUPPORT:NAYAX-[0-9]{8}$/.test(normalized)) ||
+    (evidenceType === 'nayax_dtm_transaction' && /^DTM:NAYAX-[0-9]{9}$/.test(normalized));
+  if (
+    normalized.includes('@') ||
+    (digitCount >= 8 && !approvedNumericVendorReference) ||
+    /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i.test(normalized) ||
+    /(?:account|bank|card|customer|email|password|passcode|phone|pin|routing|security.?code|cvv|pan)/i.test(normalized)
+  ) {
+    return 'Do not enter card, bank, contact, customer, or account identifiers.';
   }
   return null;
 };
@@ -1309,6 +1447,7 @@ const isRefundCustomerDeliveryUncertain = (errorMessage: string | null | undefin
     normalized === 'gmail_delivery_record_failed' ||
     normalized === 'gmail_send_unconfirmed' ||
     normalized === 'gmail_response_invalid' ||
+    normalized === 'gmail_completion_delivery_unknown' ||
     normalized === 'gmail_delivery_reconciliation_required' ||
     /^gmail_http_5\d\d$/.test(normalized);
 };
@@ -1888,6 +2027,15 @@ export default function AdminRefundsPage() {
   const [nayaxCandidates, setNayaxCandidates] = useState<NayaxLookupCandidate[]>([]);
   const [nayaxLookupNotice, setNayaxLookupNotice] = useState<NayaxLookupNotice | null>(null);
   const [nayaxExecutionNotice, setNayaxExecutionNotice] = useState<NayaxLookupNotice | null>(null);
+  const [nayaxResolutionResult, setNayaxResolutionResult] =
+    useState<RefundNayaxResolutionResult>('remain_on_hold');
+  const [nayaxResolutionEvidenceType, setNayaxResolutionEvidenceType] =
+    useState<RefundNayaxResolutionEvidenceType>('nayax_support_ticket');
+  const [nayaxResolutionEvidenceReference, setNayaxResolutionEvidenceReference] = useState('');
+  const [nayaxResolutionEvidenceOccurredAt, setNayaxResolutionEvidenceOccurredAt] = useState('');
+  const [nayaxResolutionReason, setNayaxResolutionReason] =
+    useState<RefundNayaxResolutionReason>('evidence_incomplete');
+  const [isPreparingNayaxResolution, setIsPreparingNayaxResolution] = useState(false);
   const [nayaxLookupSummary, setNayaxLookupSummary] = useState<RefundNayaxLookupSummary | null>(null);
   const [messageType, setMessageType] = useState<RefundCustomerPortalMessageType>('status_update');
   const [messageSubject, setMessageSubject] = useState('');
@@ -1982,6 +2130,7 @@ export default function AdminRefundsPage() {
       queryClient.invalidateQueries({ queryKey: ['refund-gmail-case-context'] }),
       queryClient.invalidateQueries({ queryKey: ['nayax-card-refund-availability'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-manager-totp-enrollment-readiness'] }),
+      queryClient.invalidateQueries({ queryKey: ['refund-nayax-resolution-readiness'] }),
     ]);
   };
   const isUsingDemoData = canUseLocalRefundDemoData();
@@ -2134,8 +2283,55 @@ export default function AdminRefundsPage() {
   }, [selectedId, selectionRevision]);
 
   const selectedCase = filteredCases.find((refundCase) => refundCase.id === selectedId) ?? null;
+  const pendingNayaxResolutionPayload = pendingManagerStepUp?.targetFunction ===
+      'refund-nayax-outcome-resolve'
+    ? pendingManagerStepUp.frozenPayload as ResolveRefundNayaxOutcomeInput
+    : null;
+  const {
+    data: nayaxResolutionReadiness,
+    isFetching: nayaxResolutionReadinessIsFetching,
+  } = useQuery<RefundNayaxResolutionReadiness>({
+    queryKey: ['refund-nayax-resolution-readiness', selectedCase?.id],
+    queryFn: () => fetchRefundNayaxResolutionReadiness(selectedCase?.id ?? ''),
+    enabled:
+      !forceDemoData &&
+      Boolean(
+        selectedCase?.id &&
+          (selectedCase.providerHold || selectedCase.providerOutcome === 'rejected')
+      ),
+    staleTime: 1000 * 10,
+    retry: false,
+  });
   const customerDeliveryNeedsReconciliation = Boolean(
     selectedCase && isRefundCustomerDeliveryUncertain(getLatestCustomerMessage(selectedCase)?.errorMessage)
+  );
+  const latestNayaxCompletionMessage = selectedCase?.messages
+    .filter((message) =>
+      message.messageType === 'completed' &&
+      message.templateVersion === 'refund_nayax_completion_v2'
+    )
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ?? null;
+  const latestPendingNayaxCompletionMessage = latestNayaxCompletionMessage?.status === 'pending'
+    ? latestNayaxCompletionMessage
+    : null;
+  const recoverablePendingNayaxCompletionMessage = latestPendingNayaxCompletionMessage &&
+      !isRefundCustomerDeliveryUncertain(latestPendingNayaxCompletionMessage.errorMessage)
+    ? latestPendingNayaxCompletionMessage
+    : null;
+  const latestFailedNayaxCompletionMessage = latestNayaxCompletionMessage?.status === 'failed'
+    ? latestNayaxCompletionMessage
+    : null;
+  const failedNayaxCompletionMessage = latestFailedNayaxCompletionMessage &&
+      !isRefundCustomerDeliveryUncertain(latestFailedNayaxCompletionMessage.errorMessage) &&
+      latestFailedNayaxCompletionMessage.errorMessage !== 'gmail_completion_retry_exhausted'
+    ? latestFailedNayaxCompletionMessage
+    : null;
+  const nayaxCompletionRetryExhausted =
+    latestFailedNayaxCompletionMessage?.errorMessage === 'gmail_completion_retry_exhausted';
+  const nayaxCompletionNeedsReconciliation = Boolean(
+    latestNayaxCompletionMessage &&
+      ['pending', 'failed'].includes(latestNayaxCompletionMessage.status) &&
+      isRefundCustomerDeliveryUncertain(latestNayaxCompletionMessage.errorMessage)
   );
   const selectedCaseOfficialActionBlockReason = selectedCase?.officialActionBlockReason ??
     (selectedCase?.canPerformOfficialAction !== true ? 'manager_mapping_required' : null);
@@ -2156,6 +2352,11 @@ export default function AdminRefundsPage() {
   useEffect(() => {
     const nextVersion = Number(selectedCase?.officialActionVersion ?? 0);
     setOfficialActionVersion(nextVersion > 0 ? nextVersion : 0);
+    setNayaxResolutionResult('remain_on_hold');
+    setNayaxResolutionEvidenceType('nayax_support_ticket');
+    setNayaxResolutionEvidenceReference('');
+    setNayaxResolutionEvidenceOccurredAt('');
+    setNayaxResolutionReason('evidence_incomplete');
   }, [selectedCase?.id, selectedCase?.officialActionVersion]);
   const {
     data: gmailContext,
@@ -2347,7 +2548,10 @@ export default function AdminRefundsPage() {
 
   const handleSelectCase = (refundCase: RefundCaseRecord) => {
     if (pendingManagerStepUp) {
-      void cancelRefundManagerStepUp(pendingManagerStepUp.intentId).catch(() => undefined);
+      void cancelRefundManagerStepUp(
+        pendingManagerStepUp.intentId,
+        pendingManagerStepUp.targetFunction
+      ).catch(() => undefined);
       clearManagerStepUp();
     }
     setSelectedId(refundCase.id);
@@ -2668,6 +2872,67 @@ export default function AdminRefundsPage() {
     }
   };
 
+  const handlePrepareNayaxResolution = async () => {
+    if (
+      !selectedCase ||
+      !nayaxResolutionReadiness?.available ||
+      !nayaxResolutionReadiness.attemptId ||
+      officialActionVersion <= 0 ||
+      isPreparingNayaxResolution
+    ) {
+      toast.error('The exact provider-held attempt is not ready for payment-support resolution.');
+      return;
+    }
+    const evidenceReference = nayaxResolutionEvidenceReference.trim();
+    const referenceIssue = getNayaxResolutionReferenceIssue(
+      evidenceReference,
+      nayaxResolutionEvidenceType
+    );
+    if (referenceIssue) {
+      toast.error(referenceIssue);
+      return;
+    }
+    const completedPaymentOutcome = nayaxResolutionResult === 'provider_confirmed_success' ||
+      nayaxResolutionResult === 'documented_manual_completion';
+    const evidenceOccurredAtValue = completedPaymentOutcome
+      ? new Date(`${nayaxResolutionEvidenceOccurredAt}:00Z`)
+      : null;
+    if (
+      completedPaymentOutcome &&
+      (!nayaxResolutionEvidenceOccurredAt ||
+        !evidenceOccurredAtValue ||
+        Number.isNaN(evidenceOccurredAtValue.getTime()) ||
+        evidenceOccurredAtValue.getTime() > Date.now() + 30_000)
+    ) {
+      toast.error('Enter the authoritative refund issue time shown by the evidence.');
+      return;
+    }
+
+    setIsPreparingNayaxResolution(true);
+    setNayaxExecutionNotice(null);
+    try {
+      const request = await prepareRefundNayaxOutcomeResolution({
+        caseId: selectedCase.id,
+        attemptId: nayaxResolutionReadiness.attemptId,
+        resolutionResult: nayaxResolutionResult,
+        evidenceType: nayaxResolutionEvidenceType,
+        evidenceReference,
+        evidenceOccurredAt: evidenceOccurredAtValue?.toISOString() ?? null,
+        reasonCode: nayaxResolutionReason,
+        expectedCaseVersion: officialActionVersion,
+      });
+      openManagerStepUp(request);
+    } catch (resolutionError) {
+      const message = resolutionError instanceof Error
+        ? resolutionError.message
+        : 'The provider hold remains in place.';
+      setNayaxExecutionNotice({ tone: 'warning', message });
+      toast.error(message);
+    } finally {
+      setIsPreparingNayaxResolution(false);
+    }
+  };
+
   const handleResolveGmailDeliveryNotFound = async () => {
     const latestMessage = selectedCase ? getLatestCustomerMessage(selectedCase) : null;
     if (!latestMessage || !isRefundCustomerDeliveryUncertain(latestMessage.errorMessage)) {
@@ -2782,12 +3047,15 @@ export default function AdminRefundsPage() {
   };
 
   const handleCancelManagerStepUp = async () => {
-    const intentId = pendingManagerStepUp?.intentId;
+    const pendingRequest = pendingManagerStepUp;
     const shouldCancelEnrollment = Boolean(totpEnrollmentQrCode);
     clearManagerStepUp();
     await Promise.all([
-      intentId
-        ? cancelRefundManagerStepUp(intentId).catch(() => undefined)
+      pendingRequest
+        ? cancelRefundManagerStepUp(
+            pendingRequest.intentId,
+            pendingRequest.targetFunction
+          ).catch(() => undefined)
         : Promise.resolve(),
       shouldCancelEnrollment
         ? cancelRefundManagerTotpEnrollment().catch(() => undefined)
@@ -2830,6 +3098,42 @@ export default function AdminRefundsPage() {
             ? 'The official action succeeded, but the customer email needs a retry.'
             : 'Your fresh authenticator verification authorized only this reviewed action.',
         });
+        clearManagerStepUp();
+        return;
+      }
+
+      if (pendingManagerStepUp.targetFunction === 'refund-nayax-outcome-resolve') {
+        const result = await completeRefundNayaxResolutionStepUp(
+          pendingManagerStepUp,
+          managerStepUpCode
+        );
+        await refresh();
+        const completion = result.customerCompletion ?? null;
+        const completionSent = completion?.status === 'sent' ||
+          completion?.status === 'already_sent';
+        const completionFailed = completion?.status === 'failed';
+        setRefundActionReceipt({
+          tone: result.caseCompleted && completionSent ? 'success' : 'warning',
+          title: result.caseCompleted
+            ? completionSent
+              ? 'Payment outcome committed and customer notified'
+              : completionFailed
+                ? 'Payment outcome committed; customer email needs attention'
+                : 'Payment outcome committed; email status needs checking'
+            : result.retryReadyForFreshReview
+              ? 'Returned to fresh review'
+              : 'Provider hold kept in place',
+          message: result.caseCompleted
+            ? completionSent
+              ? 'The authoritative payment fact and reporting adjustment were committed, and the exact completion reply was sent in the original Gmail thread. No provider call or payment retry occurred.'
+              : completionFailed
+                ? 'The payment fact and reporting adjustment are committed. Do not retry the payment. Use the one controlled retry for the same customer completion email.'
+                : 'The payment fact and reporting adjustment are committed. Do not retry the payment or send another message until the original Gmail thread is reconciled.'
+            : result.retryReadyForFreshReview
+              ? 'The hold was released to a new manager review. This action did not retry Nayax or contact the customer.'
+              : 'Payment support recorded the evidence review without changing the case outcome, retrying Nayax, or contacting the customer.',
+        });
+        setNayaxResolutionEvidenceReference('');
         clearManagerStepUp();
         return;
       }
@@ -3545,6 +3849,92 @@ export default function AdminRefundsPage() {
     }
   };
 
+  const handleRetryNayaxCompletionMessage = async () => {
+    if (!selectedCase || !failedNayaxCompletionMessage) return;
+    if (customerDeliveryNeedsReconciliation) {
+      toast.error('Gmail delivery is uncertain. Reconcile the original thread before any retry.');
+      return;
+    }
+    if (isUsingDemoData) {
+      toast.info('Demo cases are read-only.');
+      return;
+    }
+
+    setIsSendingCustomerMessage(true);
+    try {
+      const sentMessage = await sendRefundCaseMessage({
+        caseId: selectedCase.id,
+        nayaxCompletionMessageId: failedNayaxCompletionMessage.id,
+      });
+      if (sentMessage.transport !== 'gmail_thread') {
+        throw new Error('The original Gmail thread was not used.');
+      }
+      toast.success('The exact completion reply was sent in the original Gmail thread.');
+      setRefundActionReceipt({
+        tone: 'success',
+        title: 'Customer completion sent',
+        message:
+          'Only the failed customer reply was retried. No payment or provider action was repeated.',
+      });
+      await refresh();
+    } catch (sendError) {
+      const message = sendError instanceof Error
+        ? sendError.message
+        : 'Unable to retry the customer completion email.';
+      toast.error(message);
+      await refresh();
+    } finally {
+      setIsSendingCustomerMessage(false);
+    }
+  };
+
+  const handleRecoverPendingNayaxCompletion = async () => {
+    if (!selectedCase || !recoverablePendingNayaxCompletionMessage) return;
+    if (isUsingDemoData) {
+      toast.info('Demo cases are read-only.');
+      return;
+    }
+
+    setIsSendingCustomerMessage(true);
+    try {
+      const recovery = await recoverRefundNayaxCompletion(
+        selectedCase.id,
+        recoverablePendingNayaxCompletionMessage.id
+      );
+      if (recovery.status === 'sent' || recovery.status === 'already_sent') {
+        toast.success('The original Gmail thread confirms that the completion reply was sent.');
+        setRefundActionReceipt({
+          tone: 'success',
+          title: 'Customer completion reconciled',
+          message: 'Exact Gmail sent evidence finalized the stored completion. No message or payment was repeated.',
+        });
+      } else if (recovery.status === 'failed') {
+        toast.warning('No Gmail send was started. The exact stored reply now has one controlled retry.');
+        setRefundActionReceipt({
+          tone: 'warning',
+          title: 'Interrupted completion recovered safely',
+          message: 'No outbound Gmail claim exists. Only the same stored reply may be retried once; no payment or provider action can repeat.',
+        });
+      } else {
+        toast.warning('Delivery may have started. Reconcile the original Gmail thread and do not send another message.');
+        setRefundActionReceipt({
+          tone: 'warning',
+          title: 'Customer completion needs reconciliation',
+          message: 'A Gmail claim exists but delivery is not proven. The reply cannot be retried until the original thread is reconciled.',
+        });
+      }
+      await refresh();
+    } catch (recoveryError) {
+      const message = recoveryError instanceof Error
+        ? recoveryError.message
+        : 'Unable to recover the interrupted customer completion.';
+      toast.error(message);
+      await refresh();
+    } finally {
+      setIsSendingCustomerMessage(false);
+    }
+  };
+
   const renderCardSaleCandidates = () => {
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return null;
     // A normalized legacy case must never reuse lookup cache or match fields
@@ -4148,22 +4538,221 @@ export default function AdminRefundsPage() {
           )}
 
           {selectedCase.legacyStateReviewRequired || selectedCase.providerHold || selectedCase.providerOutcome === 'rejected' ? (
-            <div
-              data-testid={selectedCase.legacyStateReviewRequired
-                ? 'refund-legacy-state-freeze'
-                : 'refund-customer-decision-freeze'}
-              role="status"
-              className="mt-4 flex items-start gap-2 border-t border-border pt-4 text-sm text-muted-foreground"
-            >
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-orange-800" />
-              <p>
-                {selectedCase.legacyStateReviewRequired
-                  ? 'Customer decisions and email are paused during this payment history check.'
-                  : selectedCase.providerOutcome === 'rejected'
-                  ? 'Customer decisions and email are paused while payment support resolves the rejection. Do not approve, deny, or send another outcome message from this case.'
-                  : 'Customer decisions and email are paused until the payment status is resolved. Do not approve, deny, or send another outcome message from this case.'}
-              </p>
-            </div>
+            <>
+              <div
+                data-testid={selectedCase.legacyStateReviewRequired
+                  ? 'refund-legacy-state-freeze'
+                  : 'refund-customer-decision-freeze'}
+                role="status"
+                className="mt-4 flex items-start gap-2 border-t border-border pt-4 text-sm text-muted-foreground"
+              >
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-orange-800" />
+                <p>
+                  {selectedCase.legacyStateReviewRequired
+                    ? 'Customer decisions and email are paused during this payment history check.'
+                    : selectedCase.providerOutcome === 'rejected'
+                    ? 'Customer decisions and email are paused while payment support resolves the rejection. Do not approve, deny, or send another outcome message from this case.'
+                    : 'Customer decisions and email are paused until the payment status is resolved. Do not approve, deny, or send another outcome message from this case.'}
+                </p>
+              </div>
+
+              {!selectedCase.legacyStateReviewRequired && nayaxResolutionReadiness?.visible && (
+                <div
+                  data-testid="refund-nayax-resolution-panel"
+                  className="mt-4 space-y-4 rounded-lg border border-orange-200 bg-orange-50 p-4 text-orange-950"
+                >
+                  <div className="flex items-start gap-3">
+                    <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
+                    <div>
+                      <p className="font-semibold">Payment-support evidence review</p>
+                      <p className="mt-1 text-sm leading-6">
+                        This never calls Nayax or retries a payment. Confirmed-success and documented-manual outcomes
+                        also create one fixed customer completion reply and attempt to send it once in the original Gmail
+                        thread with every current mapped manager copied. Hold and retry-safe outcomes contact nobody.
+                      </p>
+                    </div>
+                  </div>
+
+                  {!nayaxResolutionReadiness.available ? (
+                    <div
+                      data-testid="refund-nayax-resolution-blocked"
+                      className="rounded-md border border-orange-300 bg-background/80 p-3 text-sm"
+                    >
+                      <p className="font-medium">Resolution controls are closed.</p>
+                      <p className="mt-1 text-muted-foreground">
+                        {nayaxResolutionReadiness.blockReason === 'already_resolved'
+                          ? 'This exact provider attempt already has a terminal support resolution.'
+                          : nayaxResolutionReadiness.blockReason === 'exact_attempt_required'
+                            ? 'The latest exact held provider attempt could not be verified.'
+                            : nayaxResolutionReadiness.blockReason === 'authenticator_required'
+                              ? 'Set up the owner-approved refund authenticator before reviewing payment-support evidence.'
+                            : nayaxResolutionReadiness.blockReason === 'provider_hold_required'
+                              ? 'The case is no longer in the provider-held state required for this review.'
+                              : 'The audited payment-support resolution gate remains off until the provider contract and supervised launch are approved.'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid gap-4">
+                      <div>
+                        <Label htmlFor="refund-nayax-resolution-result">Verified outcome</Label>
+                        <select
+                          id="refund-nayax-resolution-result"
+                          data-testid="refund-nayax-resolution-result"
+                          value={nayaxResolutionResult}
+                          onChange={(event) => {
+                            const nextResult = event.target.value as RefundNayaxResolutionResult;
+                            const defaults = defaultNayaxResolutionSelection(nextResult);
+                            setNayaxResolutionResult(nextResult);
+                            setNayaxResolutionEvidenceType(defaults.evidenceType);
+                            setNayaxResolutionReason(defaults.reason);
+                            setNayaxResolutionEvidenceReference('');
+                            if (![
+                              'provider_confirmed_success',
+                              'documented_manual_completion',
+                            ].includes(nextResult)) {
+                              setNayaxResolutionEvidenceOccurredAt('');
+                            }
+                          }}
+                          className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        >
+                          {nayaxResolutionResultOptions.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                        <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                          {nayaxResolutionResultOptions.find(({ value }) => value === nayaxResolutionResult)?.helper}
+                        </p>
+                      </div>
+
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div>
+                          <Label htmlFor="refund-nayax-resolution-evidence-type">Evidence source</Label>
+                          <select
+                            id="refund-nayax-resolution-evidence-type"
+                            data-testid="refund-nayax-resolution-evidence-type"
+                            value={nayaxResolutionEvidenceType}
+                            onChange={(event) => {
+                              const nextEvidenceType = event.target.value as RefundNayaxResolutionEvidenceType;
+                              const nextReasons = nayaxResolutionReasonsForEvidence(
+                                nayaxResolutionResult,
+                                nextEvidenceType
+                              );
+                              setNayaxResolutionEvidenceType(nextEvidenceType);
+                              setNayaxResolutionReason(nextReasons[0].value);
+                              setNayaxResolutionEvidenceReference('');
+                            }}
+                            className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                          >
+                            {nayaxResolutionEvidenceOptions[nayaxResolutionResult].map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <Label htmlFor="refund-nayax-resolution-reason">Evidence result</Label>
+                          <select
+                            id="refund-nayax-resolution-reason"
+                            data-testid="refund-nayax-resolution-reason"
+                            value={nayaxResolutionReason}
+                            onChange={(event) =>
+                              setNayaxResolutionReason(event.target.value as RefundNayaxResolutionReason)
+                            }
+                            className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                          >
+                            {nayaxResolutionReasonsForEvidence(
+                              nayaxResolutionResult,
+                              nayaxResolutionEvidenceType
+                            ).map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label htmlFor="refund-nayax-resolution-reference">Evidence reference</Label>
+                        <Input
+                          id="refund-nayax-resolution-reference"
+                          data-testid="refund-nayax-resolution-reference"
+                          value={nayaxResolutionEvidenceReference}
+                          onChange={(event) => setNayaxResolutionEvidenceReference(event.target.value)}
+                          placeholder="DTM or support reference only"
+                          autoComplete="off"
+                          className="mt-2 bg-background"
+                        />
+                        <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                          Use DTM:, SUPPORT:, or MANUAL: plus the non-sensitive evidence number. Numeric Nayax IDs use
+                          DTM:NAYAX- plus 9 digits or SUPPORT:NAYAX- plus 8 digits. The raw reference is checked here,
+                          hashed before storage, and never written to the audit record.
+                        </p>
+                        {getNayaxResolutionReferenceIssue(
+                          nayaxResolutionEvidenceReference,
+                          nayaxResolutionEvidenceType
+                        ) && nayaxResolutionEvidenceReference.trim() ? (
+                          <p className="mt-2 text-xs font-medium text-destructive" role="alert">
+                            {getNayaxResolutionReferenceIssue(
+                              nayaxResolutionEvidenceReference,
+                              nayaxResolutionEvidenceType
+                            )}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      {(nayaxResolutionResult === 'provider_confirmed_success' ||
+                        nayaxResolutionResult === 'documented_manual_completion') && (
+                        <div>
+                          <Label htmlFor="refund-nayax-resolution-occurred-at">
+                            Refund issued at (UTC from evidence)
+                          </Label>
+                          <Input
+                            id="refund-nayax-resolution-occurred-at"
+                            data-testid="refund-nayax-resolution-occurred-at"
+                            type="datetime-local"
+                            value={nayaxResolutionEvidenceOccurredAt}
+                            onChange={(event) => setNayaxResolutionEvidenceOccurredAt(event.target.value)}
+                            autoComplete="off"
+                            className="mt-2 bg-background"
+                          />
+                          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                            Enter the actual UTC payment action time from DTM or the support record. This UTC instant—not
+                            today’s review time or your browser timezone—will be used in reporting and the customer receipt.
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-xs leading-5 text-muted-foreground">
+                          A current Machine Manager must personally enter a fresh code for this exact evidence result.
+                        </p>
+                        <Button
+                          type="button"
+                          data-testid="refund-nayax-resolution-prepare"
+                          onClick={() => void handlePrepareNayaxResolution()}
+                          disabled={
+                            nayaxResolutionReadinessIsFetching ||
+                            isPreparingNayaxResolution ||
+                            Boolean(getNayaxResolutionReferenceIssue(
+                              nayaxResolutionEvidenceReference,
+                              nayaxResolutionEvidenceType
+                            )) ||
+                            ((nayaxResolutionResult === 'provider_confirmed_success' ||
+                              nayaxResolutionResult === 'documented_manual_completion') &&
+                              !nayaxResolutionEvidenceOccurredAt)
+                          }
+                          className="min-h-11 shrink-0"
+                        >
+                          {(nayaxResolutionReadinessIsFetching || isPreparingNayaxResolution) && (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          )}
+                          Review exact support result
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           ) : (
           <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
             <details className="text-sm">
@@ -5287,6 +5876,71 @@ export default function AdminRefundsPage() {
                         ? renderCardDecisionWorkbench()
                         : renderCashDecisionWorkbench()}
 
+                    {(latestPendingNayaxCompletionMessage || latestFailedNayaxCompletionMessage) && (
+                      <section
+                        data-testid="refund-nayax-completion-recovery"
+                        className="rounded-xl border border-slate-300 bg-slate-50 p-4 text-sm text-slate-950"
+                      >
+                        {nayaxCompletionNeedsReconciliation ? (
+                          <div>
+                            <p className="font-semibold">Customer completion needs reconciliation</p>
+                            <p className="mt-1 leading-6">
+                              Gmail delivery may have started. Do not send another completion or use a generic reply. Check the original Gmail thread and escalate the stored delivery record for support review.
+                            </p>
+                          </div>
+                        ) : recoverablePendingNayaxCompletionMessage ? (
+                          <div>
+                            <p className="font-semibold">Customer completion is still pending</p>
+                            <p className="mt-1 leading-6">
+                              If the verified step was interrupted, wait five minutes and recover this exact stored reply. Recovery never sends: it proves no Gmail claim and opens the one bounded retry, finalizes exact sent evidence, or blocks all sends for original-thread reconciliation.
+                            </p>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="mt-3"
+                              onClick={() => void handleRecoverPendingNayaxCompletion()}
+                              disabled={isUsingDemoData || isSendingCustomerMessage}
+                            >
+                              {isSendingCustomerMessage ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <ShieldCheck className="mr-2 h-4 w-4" />
+                              )}
+                              Recover interrupted completion
+                            </Button>
+                          </div>
+                        ) : failedNayaxCompletionMessage ? (
+                          <div>
+                            <p className="font-semibold">Customer completion needs one controlled retry</p>
+                            <p className="mt-1 leading-6">
+                              This retries only the same stored completion reply in the original Gmail thread. It cannot change the customer, copy list, wording, payment, or provider outcome.
+                            </p>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="mt-3"
+                              onClick={() => void handleRetryNayaxCompletionMessage()}
+                              disabled={isUsingDemoData || isSendingCustomerMessage}
+                            >
+                              {isSendingCustomerMessage ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <Send className="mr-2 h-4 w-4" />
+                              )}
+                              Retry exact completion email once
+                            </Button>
+                          </div>
+                        ) : nayaxCompletionRetryExhausted ? (
+                          <div>
+                            <p className="font-semibold">Customer completion retry is exhausted</p>
+                            <p className="mt-1 leading-6">
+                              Do not send another completion message or repeat the payment. Reconcile the original Gmail thread and escalate the delivery record for support review.
+                            </p>
+                          </div>
+                        ) : null}
+                      </section>
+                    )}
+
                     {/* Local-only rollback reference while the cash workbench completes UAT. */}
                     {showLegacyCashWorkbench && selectedCase.paymentMethod === 'cash' && (
                     <div className="contents">
@@ -5894,10 +6548,10 @@ export default function AdminRefundsPage() {
                         </details>
                       )}
                       <details
-                        open={getLatestCustomerMessage(selectedCase)?.status === 'failed'}
+                        open={Boolean(latestPendingNayaxCompletionMessage || latestFailedNayaxCompletionMessage)}
                         className="rounded-md border border-border bg-muted/20 p-3"
                       >
-                        <summary className="cursor-pointer text-sm font-medium text-foreground">
+                      <summary className="cursor-pointer text-sm font-medium text-foreground">
                           Advanced email preview and retry
                         </summary>
                       <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
@@ -5957,6 +6611,7 @@ export default function AdminRefundsPage() {
                           isUsingDemoData ||
                           isSendingCustomerMessage ||
                           customerDeliveryNeedsReconciliation ||
+                          Boolean(latestPendingNayaxCompletionMessage || latestFailedNayaxCompletionMessage) ||
                           !messageBody.trim()
                         }
                       >
@@ -6422,18 +7077,30 @@ export default function AdminRefundsPage() {
                   ? 'Complete the reviewed cash refund'
                   : pendingManagerStepUp?.action === 'nayax_execute'
                     ? 'Issue the reviewed Nayax card refund'
+                    : pendingManagerStepUp?.action === 'nayax_resolve'
+                      ? 'Commit this payment-support evidence result'
                     : 'Approve the reviewed refund'}{' '}
               for {selectedCase?.publicReference ?? 'this case'}. This request expires in two minutes and can be used once.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
           <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950">
-            <p className="font-medium">Human Machine Manager verification only</p>
+            <p className="font-medium">
+              {pendingManagerStepUp?.action === 'nayax_resolve'
+                ? 'Human payment-support and Machine Manager verification only'
+                : 'Human Machine Manager verification only'}
+            </p>
             <p className="mt-1">
-              Enter the code yourself in your private manager session. Do not use an agent-controlled or shared browser for this payment action.
+              Enter the code yourself in your private manager session. Do not use an agent-controlled or shared browser for this exact review.
             </p>
             <p className="mt-2">
-              You can take this action because you are currently assigned to manage this machine. Admin access by itself is never enough to issue a refund.
+              {pendingNayaxResolutionPayload
+                ? ['provider_confirmed_success', 'documented_manual_completion'].includes(
+                    pendingNayaxResolutionPayload.resolutionResult
+                  )
+                  ? 'This does not call Nayax or retry a payment. Committing this result will create one fixed customer completion reply and immediately attempt to send it once in the original Gmail thread with every current mapped manager copied.'
+                  : 'This records only the evidence result shown below. It does not call Nayax, retry a payment, or contact the customer.'
+                : 'You can take this action because you are currently assigned to manage this machine. Admin access by itself is never enough to issue a refund.'}
             </p>
           </div>
 
@@ -6456,6 +7123,55 @@ export default function AdminRefundsPage() {
               <p className="mt-1 font-medium text-foreground">{selectedCase?.machineLabel ?? 'Review required'}</p>
             </div>
           </div>
+
+          {pendingNayaxResolutionPayload && (
+            <div
+              className="grid gap-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm sm:grid-cols-2"
+              data-testid="refund-nayax-resolution-step-up-summary"
+            >
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-orange-800">Verified outcome</p>
+                <p className="mt-1 font-medium text-orange-950">
+                  {nayaxResolutionResultOptions.find(
+                    ({ value }) => value === pendingNayaxResolutionPayload.resolutionResult
+                  )?.label ?? 'Review required'}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-orange-800">Evidence source</p>
+                <p className="mt-1 font-medium text-orange-950">
+                  {nayaxResolutionEvidenceOptions[pendingNayaxResolutionPayload.resolutionResult].find(
+                    ({ value }) => value === pendingNayaxResolutionPayload.evidenceType
+                  )?.label ?? 'Review required'}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-orange-800">Evidence result</p>
+                <p className="mt-1 font-medium text-orange-950">
+                  {nayaxResolutionReasonOptions[pendingNayaxResolutionPayload.resolutionResult].find(
+                    ({ value }) => value === pendingNayaxResolutionPayload.reasonCode
+                  )?.label ?? 'Review required'}
+                </p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-medium uppercase tracking-wide text-orange-800">Evidence reference</p>
+                <p className="mt-1 break-all font-mono text-xs font-medium text-orange-950">
+                  {pendingNayaxResolutionPayload.evidenceReference}
+                </p>
+              </div>
+              {pendingNayaxResolutionPayload.evidenceOccurredAt && (
+                <div className="sm:col-span-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-orange-800">Refund issued at</p>
+                  <p className="mt-1 font-medium text-orange-950">
+                    {new Date(pendingNayaxResolutionPayload.evidenceOccurredAt).toLocaleString(undefined, {
+                      year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+                      timeZone: 'UTC', timeZoneName: 'short',
+                    })}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {totpEnrollmentQrCode ? (
             <div className="space-y-3 rounded-lg border border-border p-3" data-testid="refund-totp-enrollment-panel">

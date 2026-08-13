@@ -24,9 +24,16 @@ import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
 import { validateRefundGptReviewedDraft } from "../_shared/refund-gpt-triage-policy.mjs";
 import { validateRefundCustomerMessageRequest } from "../_shared/refund-evidence-selection.ts";
 import { authorizeRefundSyntheticGmailProof } from "../_shared/refund-synthetic-gmail-proof.ts";
+import { deliverNayaxCompletionOnce } from "../_shared/nayax-resolution-completion.ts";
+import {
+  assertOpenNayaxCompletionMessageLane,
+  RefundNayaxCompletionMessageLaneBlockedError,
+} from "../_shared/nayax-resolution-message-lane.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const nayaxExecutorAssertion = Deno.env.get("NAYAX_REFUND_EXECUTOR_ASSERTION")
+  ?.trim() ?? "";
 
 const supabase = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -45,6 +52,14 @@ const sanitizeText = (value: unknown, maxLength = 800) =>
     typeof value === "boolean"
     ? String(value).trim().slice(0, maxLength)
     : "";
+
+const escapeHtml = (value: string) =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -200,6 +215,199 @@ serve(async (req) => {
       return jsonResponse({ error: "Refund case is required." }, 400);
     }
 
+    const nayaxCompletionMessageId = sanitizeText(
+      body?.nayaxCompletionMessageId,
+      80,
+    );
+    const nayaxCompletionRecoveryMessageId = sanitizeText(
+      body?.nayaxCompletionRecoveryMessageId,
+      80,
+    );
+    if (nayaxCompletionMessageId && nayaxCompletionRecoveryMessageId) {
+      return jsonResponse({
+        error: "Choose one exact customer-completion recovery action.",
+      }, 400);
+    }
+    if (nayaxCompletionRecoveryMessageId) {
+      if (
+        !isUuid(nayaxCompletionRecoveryMessageId) ||
+        Object.keys(body ?? {}).some((key) =>
+          !["caseId", "nayaxCompletionRecoveryMessageId"].includes(key)
+        )
+      ) {
+        return jsonResponse({
+          error:
+            "Review the exact interrupted completion before recovering it.",
+        }, 400);
+      }
+      if (!/^[A-Za-z0-9_-]{32,200}$/.test(nayaxExecutorAssertion)) {
+        return jsonResponse({
+          error: "The controlled completion recovery is not configured.",
+        }, 503);
+      }
+
+      const { data: canManageCase, error: accessError } = await supabase.rpc(
+        "can_manage_refund_case",
+        { p_user_id: user.id, p_refund_case_id: caseId },
+      );
+      if (accessError) throw accessError;
+      if (!canManageCase) {
+        return jsonResponse({ error: "Refund case access required." }, 403);
+      }
+
+      const { data: recovered, error: recoveryError } = await supabase.rpc(
+        "service_recover_stale_nayax_completion",
+        {
+          p_executor_assertion: nayaxExecutorAssertion,
+          p_refund_case_id: caseId,
+          p_refund_case_message_id: nayaxCompletionRecoveryMessageId,
+        },
+      );
+      const recovery = recovered && typeof recovered === "object"
+        ? recovered as Record<string, unknown>
+        : null;
+      if (
+        recoveryError || recovery?.recovered !== true ||
+        recovery.refundCaseId !== caseId ||
+        recovery.refundCaseMessageId !== nayaxCompletionRecoveryMessageId ||
+        !["sent", "already_sent", "failed", "delivery_unknown"].includes(
+          typeof recovery.status === "string" ? recovery.status : "",
+        ) || recovery.transport !== "gmail_thread" ||
+        recovery.originalThread !== true ||
+        recovery.providerCallMade !== false ||
+        recovery.payloadRedacted !== true
+      ) {
+        return jsonResponse({
+          error:
+            "The interrupted completion is not ready for safe recovery. Wait five minutes, refresh, and inspect the original Gmail thread.",
+        }, 409);
+      }
+
+      return jsonResponse({ recovery });
+    }
+    if (nayaxCompletionMessageId) {
+      if (
+        !isUuid(nayaxCompletionMessageId) ||
+        Object.keys(body ?? {}).some((key) =>
+          !["caseId", "nayaxCompletionMessageId"].includes(key)
+        )
+      ) {
+        return jsonResponse({
+          error: "Review the exact failed completion before retrying it.",
+        }, 400);
+      }
+      if (!/^[A-Za-z0-9_-]{32,200}$/.test(nayaxExecutorAssertion)) {
+        return jsonResponse({
+          error: "The controlled completion retry is not configured.",
+        }, 503);
+      }
+
+      const { data: canManageCase, error: accessError } = await supabase.rpc(
+        "can_manage_refund_case",
+        { p_user_id: user.id, p_refund_case_id: caseId },
+      );
+      if (accessError) throw accessError;
+      if (!canManageCase) {
+        return jsonResponse({ error: "Refund case access required." }, 403);
+      }
+
+      const { data: prepared, error: prepareError } = await supabase.rpc(
+        "service_prepare_nayax_completion_retry",
+        {
+          p_executor_assertion: nayaxExecutorAssertion,
+          p_refund_case_message_id: nayaxCompletionMessageId,
+        },
+      );
+      const retry = prepared && typeof prepared === "object"
+        ? prepared as Record<string, unknown>
+        : null;
+      if (
+        prepareError || retry?.prepared !== true ||
+        retry.refundCaseId !== caseId ||
+        retry.refundCaseMessageId !== nayaxCompletionMessageId ||
+        typeof retry.attemptId !== "string" || !isUuid(retry.attemptId) ||
+        typeof retry.gmailThreadId !== "string" ||
+        !isUuid(retry.gmailThreadId) ||
+        typeof retry.recipientEmail !== "string" ||
+        typeof retry.subject !== "string" || typeof retry.body !== "string"
+      ) {
+        return jsonResponse({
+          error:
+            "This completion is not eligible for a safe retry. Refresh and reconcile the original Gmail thread.",
+        }, 409);
+      }
+
+      const retryAttemptId = retry.attemptId as string;
+      const retryGmailThreadId = retry.gmailThreadId as string;
+      const retryRecipientEmail = retry.recipientEmail as string;
+      const retrySubject = retry.subject as string;
+      const retryBody = retry.body as string;
+
+      const customerCompletion = await deliverNayaxCompletionOnce({
+        deliver: async () => {
+          const gmailDelivery = await dispatchRefundCaseGmailReply({
+            supabase,
+            refundCaseId: caseId,
+            refundCaseMessageId: nayaxCompletionMessageId,
+            recipientEmail: retryRecipientEmail,
+            email: {
+              subject: retrySubject,
+              text: retryBody,
+              html: retryBody.split("\n").map((line: string) =>
+                line ? `<p>${escapeHtml(line)}</p>` : "<br>"
+              ).join(""),
+            },
+            deliveryKind: "manual",
+            gmailThreadId: retryGmailThreadId,
+          });
+          return gmailDelivery.usedGmail;
+        },
+        finish: async (status) => {
+          const { data: finished, error: finishError } = await supabase.rpc(
+            "service_finish_nayax_refund_completion",
+            {
+              p_executor_assertion: nayaxExecutorAssertion,
+              p_attempt_id: retryAttemptId,
+              p_delivery_status: status,
+            },
+          );
+          if (finishError || !finished || typeof finished !== "object") {
+            throw new Error("completion_settlement_failed");
+          }
+          return finished as Record<string, unknown> & {
+            status: "sent" | "failed" | "delivery_unknown" | "already_sent";
+          };
+        },
+        isDeliveryUncertain: (error) =>
+          error instanceof RefundGmailError && error.deliveryUncertain,
+      });
+
+      if (
+        customerCompletion.status === "sent" ||
+        customerCompletion.status === "already_sent"
+      ) {
+        return jsonResponse({
+          message: {
+            id: nayaxCompletionMessageId,
+            type: "completed",
+            status: "sent",
+            subject: retrySubject,
+            transport: "gmail_thread",
+          },
+          customerCompletion,
+        });
+      }
+
+      return jsonResponse({
+        error: customerCompletion.status === "delivery_unknown"
+          ? REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE
+          : "Unable to send the controlled customer completion email.",
+        errorCode: customerCompletion.status === "delivery_unknown"
+          ? "gmail_delivery_reconciliation_required"
+          : "customer_email_delivery_failed",
+      }, 502);
+    }
+
     const messageType = sanitizeRefundMessageType(body?.messageType);
     if (!messageType || !allowedPortalMessageTypes.has(messageType)) {
       return jsonResponse({
@@ -256,6 +464,17 @@ serve(async (req) => {
     if (!canManageCase) {
       return jsonResponse({ error: "Refund case access required." }, 403);
     }
+
+    await assertOpenNayaxCompletionMessageLane({
+      checkOpen: async () => {
+        const { data: laneOpen, error: laneError } = await supabase.rpc(
+          "service_refund_nayax_completion_message_lane_open",
+          { p_refund_case_id: caseId },
+        );
+        if (laneError) throw laneError;
+        return laneOpen === true;
+      },
+    });
 
     const refundCase = await getRefundCase(caseId);
     if (!refundCase) {
@@ -545,6 +764,12 @@ serve(async (req) => {
       }, 502);
     }
   } catch (error) {
+    if (error instanceof RefundNayaxCompletionMessageLaneBlockedError) {
+      return jsonResponse({
+        error:
+          "Resolve the stored Nayax customer completion before sending another customer message.",
+      }, 409);
+    }
     console.error("refund-case-message-send error", {
       errorType: error instanceof Error ? error.name : typeof error,
     });

@@ -44,7 +44,7 @@ assert.match(
 );
 assert.match(
   productionRunbook,
-  /PR `#760`[\s\S]*ten manifest-tracked Refund Operations functions[\s\S]*41 required refund\/Nayax migrations/,
+  /ten-function\/49-migration default-off foundation[\s\S]*`#767` candidate adds one required outcome-resolution migration/,
   'The runbook must name the current production-readiness release shape'
 );
 
@@ -78,7 +78,7 @@ for (const requiredFailClosedControl of [
   'REFUND_GMAIL_ENABLED=false',
   'REFUND_GPT_TRIAGE_ENABLED=false',
   'OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false',
-  'official-action database gate and production Nayax provider adapter remain statically disabled',
+  'Keep official actions statically false, keep the production Nayax adapter disabled',
 ]) {
   assert(
     productionRunbook.includes(requiredFailClosedControl),
@@ -86,7 +86,7 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 49 current required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 50 current required refund\/Nayax migrations/);
 assert.match(
   cutoverPacket,
   /all ten manifest-tracked Refund Operations functions/
@@ -121,7 +121,7 @@ const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-relea
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
 const reviewedManagerSourceSha256 = {
   'refund-manager-action-step-up':
-    'cd147f13796e0218512a281e38271ed1f1fbd2ad8aad947b10dda8d1f8336278',
+    'b4bfb6a6b89ef93b2ed1d8ac3c286dfa079fb198afca27418a4ceb030d7ebd4d',
   'refund-manager-totp-enrollment':
     'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
 };
@@ -149,8 +149,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    49,
-    'Refund release inventory must cover exactly 49 discovered refund/Nayax migrations'
+    50,
+    'Refund release inventory must cover exactly 50 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -175,6 +175,10 @@ try {
   assert(
     repositoryMigrations.includes('20260812230000_refund_synthetic_gmail_proof_authorization.sql'),
     'The one-shot synthetic Gmail proof migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('202608130001_refund_nayax_outcome_resolution.sql'),
+    'The default-off Nayax outcome-resolution migration must be in the discovered release inventory'
   );
   assert.deepEqual(
     repositoryManifest.requiredMigrations,
