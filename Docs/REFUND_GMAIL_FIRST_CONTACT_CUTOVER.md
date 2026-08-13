@@ -4,8 +4,8 @@ Issue `#688` replaces the repeating legacy canned response with one deterministi
 
 ## Current checkpoint — 2026-08-12
 
-- Exact server OAuth to `info@bloomjoysweets.com` passed with Gmail read-only/send scopes, and the Info/Support/Refunds send-as identities are verified.
-- An isolated label and owner-controlled sender population were kept separate from the production label and excluded from the legacy responder.
+- Exact server OAuth to the directly connected production customer-service mailbox, `info@bloomjoysweets.com`, passed with Gmail read-only/send scopes, and the Info/Support/Refunds send-as mailbox identities are verified subject to provider `SENT` evidence and the existing delivery gates.
+- An isolated label and owner-controlled synthetic sender population were kept separate from the production label and excluded from the legacy responder. `etrifari@bloomjoysweets.com` or its plus-addresses may participate only as an owner-controlled synthetic customer/test sender or recipient, or as vendor/account correspondence; they are not the production refund-assistant mailbox.
 - One eligible synthetic thread received exactly one original-thread `refund_first_contact_v1` acknowledgement. Scheduler replay and a later reply sent nothing further; teardown restored disabled mode and the production label.
 - After the native date/time correction, the private hosted-form context completed the existing Gmail draft exactly once and the shared direct/email intake rule assigned its sole current mapped manager.
 - This is not active cutover evidence. One case-specific reply with the complete current mapped-manager CC route, the final production-label boundary, rollback staffing, and explicit owner go/no-go remain required. The legacy responder is still authoritative for normal customer mail, and Hub schedules/automatic contact remain off.
@@ -17,7 +17,7 @@ Issue `#688` replaces the repeating legacy canned response with one deterministi
 - Bounces, automated messages, outbound messages from the mailbox or any configured Gmail send-as alias, and messages that do not match the case customer are ineligible.
 - The reply stays in the original Gmail thread and carries `Auto-Submitted: auto-generated` plus `X-Auto-Response-Suppress: All`.
 - The customer is the sole To recipient. The generic first-contact form-link acknowledgement is the one narrow pre-mapping exception and has no manager CC because the machine is not known yet. It carries one private, expiring, one-time hosted-form context that completes the original Gmail draft instead of creating a second case.
-- After the hosted form resolves the machine, every case-specific customer message requires one to three current active mapped Machine Managers in visible CC. Verified direct-customer evidence, open-case state, case-wide delivery pauses, and the manager route are revalidated immediately before delivery; unresolved or invalid routing sends nothing.
+- After the hosted form resolves the machine, every case-specific customer-facing refund reply originates through the designated support mailbox in the original Gmail thread and requires one to three current active mapped Machine Managers in visible CC. Verified direct-customer evidence, open-case state, case-wide delivery pauses, and the manager route are revalidated immediately before delivery; unresolved or invalid routing sends nothing.
 - Customer copy is deterministic, humble, and safety-focused. It includes only public self-service links and the public refund reference; it never includes `/refunds?case=...` or asks for complete card or wallet credentials.
 - An uncertain Gmail outcome is never retried blindly. Every portal and automated reply path for that thread remains blocked until deterministic Message-ID reconciliation confirms the original delivery. Reconciliation uses a five-minute in-flight lease and an incrementing attempt version, so a delayed older positive or negative result cannot overwrite a newer check. If repeated automatic checks find no matching message, an authorized portal user must inspect the original thread and record the audited **I checked; no message was sent** resolution before a controlled follow-up becomes available.
 - The legacy responder and Hub responder must never be authoritative for the same thread population at the same time.
@@ -50,7 +50,7 @@ Never use `VITE_` for any setting below.
 - `REFUND_GMAIL_FIRST_CONTACT_REFUND_URL`
 - `REFUND_GMAIL_FIRST_CONTACT_SUPPORT_URL`
 
-The isolated label must differ from the production refund label, and the isolated sender allowlist must contain only owner-controlled synthetic addresses. Both URLs must use approved Bloomjoy public HTTPS hosts. Email customers receive one refund CTA: the Bloomjoy hosted request form. EasyText/SMS may continue using the Google Form outside this pilot, but the email template must never include it.
+The isolated label must differ from the production refund label, and the isolated sender allowlist must contain only owner-controlled synthetic addresses. An owner address such as `etrifari@bloomjoysweets.com` or one of its plus-addresses may be a synthetic sender or recipient for this bounded test, but it must never replace `info@bloomjoysweets.com` as the production refund-assistant mailbox. Both URLs must use approved Bloomjoy public HTTPS hosts. Email customers receive one refund CTA: the Bloomjoy hosted request form. EasyText/SMS may continue using the Google Form outside this pilot, but the email template must never include it.
 
 ## Inventory the legacy sender
 
