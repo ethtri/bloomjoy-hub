@@ -1711,6 +1711,31 @@ begin
     raise exception 'Provider-held attempt changed; review authoritative evidence again';
   end if;
 
+  if normalized_result in (
+      'provider_confirmed_success',
+      'documented_manual_completion'
+    ) and exists (
+      select 1
+      from public.refund_case_messages customer_message
+      where customer_message.refund_case_id = case_row.id
+        and customer_message.message_type <> 'manual_note'
+        and not (
+          customer_message.message_type = 'completed'
+          and customer_message.template_version = 'refund_nayax_completion_v2'
+          and customer_message.nayax_refund_attempt_id is not null
+        )
+        and (
+          customer_message.status = 'pending'
+          or (
+            customer_message.status = 'failed'
+            and customer_message.error_message =
+              'Gmail delivery could not be confirmed. Check the original thread before retrying.'
+          )
+        )
+    ) then
+    raise exception 'Settle the existing customer message before recording a completed Nayax resolution';
+  end if;
+
   verified_at_value := public.refund_verified_totp_after_intent(intent_row.not_before);
   if verified_at_value is null then
     raise exception 'A new authenticator code entered after reviewing this resolution is required';
@@ -2286,11 +2311,25 @@ begin
     else 'delivery_unknown'
   end;
 
-  recovery_result := public.service_finish_nayax_refund_completion(
-    p_executor_assertion,
-    attempt_row.id,
-    recovery_status
-  );
+  begin
+    recovery_result := public.service_finish_nayax_refund_completion(
+      p_executor_assertion,
+      attempt_row.id,
+      recovery_status
+    );
+  exception when others then
+    if recovery_status = 'sent'
+      and sqlerrm = 'Sent Gmail proof with current mapped manager CC is required' then
+      recovery_status := 'delivery_unknown';
+      recovery_result := public.service_finish_nayax_refund_completion(
+        p_executor_assertion,
+        attempt_row.id,
+        recovery_status
+      );
+    else
+      raise;
+    end if;
+  end;
 
   insert into public.refund_case_events (
     refund_case_id,

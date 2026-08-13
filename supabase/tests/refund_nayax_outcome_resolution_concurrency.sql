@@ -116,8 +116,31 @@ insert into public.refund_cases (
   'RESOLUTION-RACE-TX', 909,
   statement_timestamp() - interval '2 hours',
   909, '4242', 'USD', 'high_confidence',
-  'resolution-race-v1', statement_timestamp(), false, 'failed'
+  'resolution-race-v1', statement_timestamp(), false, 'not_requested'
 );
+
+-- Model the reverse ordering with a customer message that committed before the
+-- provider outcome entered its payment-support hold. Once the case is held,
+-- the older provider-hold trigger correctly prevents creating a new generic
+-- message, so seeding the already-in-flight row first is the only reachable
+-- generic-first state.
+insert into public.refund_case_messages (
+  refund_case_id, message_type, status, recipient_email, subject, body,
+  template_key, created_by, content_source, delivery_kind, requested_fields
+) values (
+  'b2600000-0000-4000-8000-000000000001',
+  'status_update', 'pending',
+  'resolution-race-customer@example.test',
+  'Generic message already in flight',
+  'Generic message already in flight',
+  'refund_status_update_editable_v1',
+  'b2000000-0000-4000-8000-000000000001',
+  'manager_authored', 'manual', '{}'::text[]
+);
+
+update public.refund_cases
+set nayax_refund_execution_status = 'failed'
+where id = 'b2600000-0000-4000-8000-000000000001';
 
 insert into public.refund_case_nayax_refund_attempts (
   id, refund_case_id, actor_user_id, execution_mode, status, idempotency_key,
@@ -172,7 +195,9 @@ begin
     'DTM:RACE-SETTLED-0001',
     statement_timestamp(),
     'nayax_dtm_settled',
-    1
+    (select official_action_version
+     from public.refund_cases
+     where id = 'b2600000-0000-4000-8000-000000000001')
   );
 
   perform set_config('request.jwt.claim.role', 'service_role', true);
@@ -274,7 +299,7 @@ $$;
 
 commit;
 
-select plan(11);
+select plan(13);
 
 create temporary table nayax_resolution_race_results (
   connection_name text primary key,
@@ -291,6 +316,34 @@ begin
   perform extensions.dblink_connect('nayax_resolution_race_b', local_connection);
 end;
 $$;
+
+-- Reverse lock order: the separately committed generic customer message won
+-- the case lane before the provider hold. Resolution must now observe that
+-- pending lane and fail before it can commit payment facts or a completion.
+select ok((
+  select not (result ->> 'ok')::boolean
+    and result ->> 'error' = 'resolution_not_consumed'
+  from extensions.dblink(
+    'nayax_resolution_race_b',
+    'select refund_nayax_resolution_race_test.consume()'
+  ) as response(result jsonb)
+), 'A committed generic message blocks the reverse-order resolution consume');
+select ok(
+  (select count(*) = 0
+   from public.refund_nayax_outcome_resolutions
+   where refund_case_id = 'b2600000-0000-4000-8000-000000000001')
+  and (select count(*) = 0
+       from public.refund_case_messages
+       where refund_case_id = 'b2600000-0000-4000-8000-000000000001'
+         and template_version = 'refund_nayax_completion_v2')
+  and (select count(*) = 1
+       from public.refund_case_nayax_refund_attempts
+       where refund_case_id = 'b2600000-0000-4000-8000-000000000001'),
+  'Reverse-order rejection creates no resolution, completion, or provider attempt'
+);
+delete from public.refund_case_messages
+where refund_case_id = 'b2600000-0000-4000-8000-000000000001'
+  and template_key = 'refund_status_update_editable_v1';
 
 -- Hold the exact actor lock while both remote transactions are launched.
 -- Releasing this transaction queues both callers on the production lock and

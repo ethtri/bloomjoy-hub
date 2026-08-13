@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(79);
+select plan(81);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -828,6 +828,54 @@ select ok((
   where attempt.id = 'b1700000-0000-4000-8000-000000000003'
 ), 'Sent-evidence recovery durably reconciles the exact attempt and message');
 rollback to savepoint exact_sent_recovery;
+savepoint mapping_drift_sent_recovery;
+update public.refund_case_nayax_refund_attempts
+set completion_delivery_attempted_at = statement_timestamp() - interval '6 minutes'
+where id = 'b1700000-0000-4000-8000-000000000003';
+insert into public.refund_gmail_messages (
+  gmail_thread_id, refund_case_id, refund_case_message_id, operation_key,
+  provider_message_id, direction, message_kind, status, sender_email,
+  recipient_email, recipient_cc_emails, recipient_cc_count,
+  recipient_resolution_status, delivery_kind, participant_role,
+  participant_trust, subject, plain_body, sent_at, received_at,
+  retention_expires_at
+)
+select
+  attempt.completion_gmail_thread_id,
+  attempt.refund_case_id,
+  attempt.completion_message_id,
+  'refund-case-message:' || attempt.completion_message_id::text,
+  'nayax-completion-mapping-drift-evidence',
+  'outbound', 'message', 'sent', 'info@bloomjoysweets.com',
+  message.recipient_email, array['resolution-manager@example.test'], 1,
+  'resolved', 'manual', 'mailbox', 'verified', message.subject, message.body,
+  statement_timestamp() - interval '6 minutes',
+  statement_timestamp() - interval '6 minutes',
+  statement_timestamp() + interval '180 days'
+from public.refund_case_nayax_refund_attempts attempt
+join public.refund_case_messages message on message.id = attempt.completion_message_id
+where attempt.id = 'b1700000-0000-4000-8000-000000000003';
+update public.reporting_machine_refund_managers
+set manager_email = 'replacement-manager@example.test'
+where id = 'b1400000-0000-4000-8000-000000000001';
+select lives_ok($sql$
+  select public.service_recover_stale_nayax_completion(
+    'resolution-test-executor',
+    'b1600000-0000-4000-8000-000000000003',
+    (select completion_message_id
+      from public.refund_case_nayax_refund_attempts
+      where id = 'b1700000-0000-4000-8000-000000000003')
+  )
+$sql$, 'Sent evidence with later manager-route drift becomes reconciliation-only without another send');
+select ok((
+  select attempt.completion_delivery_status = 'delivery_unknown'
+    and message.status = 'pending'
+    and message.error_message = 'gmail_completion_delivery_unknown'
+  from public.refund_case_nayax_refund_attempts attempt
+  join public.refund_case_messages message on message.id = attempt.completion_message_id
+  where attempt.id = 'b1700000-0000-4000-8000-000000000003'
+), 'Manager-route drift cannot strand sent evidence or permit a customer-message retry');
+rollback to savepoint mapping_drift_sent_recovery;
 select lives_ok($sql$
   select public.service_finish_nayax_refund_completion(
     'resolution-test-executor',
@@ -1059,21 +1107,13 @@ select is(
   false,
   'The Edge pre-insert lane probe reports the unresolved completion as closed'
 );
-set local role authenticated;
-select pg_temp.set_auth_claims(
-  'b1000000-0000-4000-8000-000000000001',
-  'aal1',
-  '[]'::jsonb
-);
-select throws_ok(
-  $sql$select public.service_refund_nayax_completion_message_lane_open(
-    'b1600000-0000-4000-8000-000000000004'
-  )$sql$,
-  '42501',
-  null,
+select ok(not has_function_privilege(
+    'authenticated',
+    'public.service_refund_nayax_completion_message_lane_open(uuid)',
+    'execute'
+  ),
   'Only the service role can read the generic-message lane preflight'
 );
-reset role;
 select set_config('request.jwt.claim.role', 'service_role', true);
 select set_config('request.jwt.claims', '{"role":"service_role"}', true);
 select is((select count(*)::integer from public.refund_case_messages

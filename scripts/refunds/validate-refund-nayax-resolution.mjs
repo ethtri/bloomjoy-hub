@@ -100,7 +100,7 @@ assert(
 );
 
 assert(
-  databaseTests.includes('select plan(79)') &&
+  databaseTests.includes('select plan(81)') &&
     databaseTests.includes('The default-off gate blocks preparation before any write') &&
     databaseTests.includes('PAN, phone, account, and other long digit-shaped references are rejected') &&
     databaseTests.includes('Grouped card, phone, and account digit shapes are rejected') &&
@@ -118,6 +118,8 @@ assert(
     databaseTests.includes('A stale completion with an unconfirmed Gmail claim becomes reconciliation-only') &&
     databaseTests.includes('Exact sent Gmail evidence settles an interrupted completion without another send') &&
     databaseTests.includes('Sent-evidence recovery durably reconciles the exact attempt and message') &&
+    databaseTests.includes('Sent evidence with later manager-route drift becomes reconciliation-only without another send') &&
+    databaseTests.includes('Manager-route drift cannot strand sent evidence or permit a customer-message retry') &&
     databaseTests.includes('Recovery refuses a message that is not bound to the exact authorized case') &&
     databaseTests.includes('Wrong-case recovery leaves the exact completion pending and unchanged') &&
     databaseTests.includes('Delivery-unknown interruption recovery cannot be retried') &&
@@ -139,13 +141,15 @@ assert(
 );
 
 assert(
-  concurrencyTests.includes('select plan(11)') &&
+  concurrencyTests.includes('select plan(13)') &&
     concurrencyTests.includes('dblink_send_query') &&
     concurrencyTests.includes('Exactly one database session can consume the same verified resolution intent') &&
     concurrencyTests.includes('The race commits exactly one immutable support-resolution record') &&
     concurrencyTests.includes('Concurrency creates one adjustment, one bound message, and no additional provider attempt') &&
     concurrencyTests.includes('A concurrent direct generic customer-message insert loses to the unresolved completion guard') &&
     concurrencyTests.includes('The concurrent generic-message loser creates no second customer-message row') &&
+    concurrencyTests.includes('A committed generic message blocks the reverse-order resolution consume') &&
+    concurrencyTests.includes('Reverse-order rejection creates no resolution, completion, or provider attempt') &&
     concurrencyTests.includes('Concurrent regression restores the production hard-off gate'),
   'Two-session pgTAP must prove one winner, one immutable result, and zero duplicate action.'
 );
@@ -187,6 +191,7 @@ assert(
     migration.includes('p_refund_case_id uuid') &&
     migration.includes('guard_refund_nayax_completion_message_lane') &&
     migration.includes('Unresolved Nayax completion blocks every other customer message') &&
+    migration.includes('Settle the existing customer message before recording a completed Nayax resolution') &&
     migration.includes("statement_timestamp() - interval '5 minutes'") &&
     migration.includes("when outbound_row.id is null then 'failed'") &&
     migration.includes("else 'delivery_unknown'") &&
