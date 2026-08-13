@@ -93,6 +93,7 @@
         "npm:lovable-tagger@^1.1.13",
         "npm:lucide-react@0.462",
         "npm:next-themes@0.3",
+        "npm:pg@^8.23.0",
         "npm:playwright@^1.59.1",
         "npm:postcss@^8.5.6",
         "npm:react-day-picker@^8.10.1",

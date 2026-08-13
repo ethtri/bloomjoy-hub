@@ -170,6 +170,8 @@ Nayax defines `IsRefundedExternally=true` only for a refund the customer's billi
 
 Nayax also documents a manual reconciliation path: a successfully requested refund remains `Pending` and appears in **Reports > Online Reports > Dynamic Transactions Monitor** under the `Refund Requested` status; approval or decline updates that status. This gives Bloomjoy a fail-safe manual check after a timeout or uncertain response, but the public Lynx documentation still does not identify a read-only API endpoint for programmatic refund-status reconciliation.
 
+Nayax's current Dynamic Transactions Monitor guide defines Transaction Status ID `12` as **Approved** and describes the other listed IDs as cancellation reasons; it also exposes refund requester, date, and reason fields. The current MoMa guide says only **Settled** transactions are refund-eligible and a separate user with refund-approval permission must approve. These facts strengthen a human support check, but they do not identify which Bloomjoy Last Sales/API field maps to that status, name the exact Lynx write role, establish amount units, prove blank-email suppression, or supply a safe readback API after an uncertain request. They therefore do not remove the account-specific contract blocker.
+
 Primary references:
 - [Refund flow overview](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/refunds/payments)
 - [Request a refund](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/refunds/request-refunds)
@@ -177,6 +179,8 @@ Primary references:
 - [Upload refund documentation](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/refunds/upload-refund-document)
 - [Last Sales response](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/machines/getting-a-machines-last-sales)
 - [Security and token handling](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/security)
+- [Dynamic Transactions Monitor overview](https://nayax-u.nayax.com/article/dynamic-transaction-monitor-dtm-in-nayax-core-overview-10787)
+- [MoMa refund eligibility and approval](https://nayax-u.nayax.com/article/how-to-use-mo-ma-on-a-route-80366)
 
 This public documentation is enough to define the expected request shape, but not enough to enable production execution safely. It uses QA host examples and does not establish all of the following for Bloomjoy's account:
 - the production refund hostname/path and whether the existing reporting token has refund request and approval permissions;

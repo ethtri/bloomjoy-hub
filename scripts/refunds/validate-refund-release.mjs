@@ -44,7 +44,7 @@ assert.match(
 );
 assert.match(
   productionRunbook,
-  /PR `#760`[\s\S]*ten manifest-tracked Refund Operations functions[\s\S]*41 required refund\/Nayax migrations/,
+  /ten-function\/49-migration default-off foundation[\s\S]*`#767` candidate adds one required outcome-resolution migration/,
   'The runbook must name the current production-readiness release shape'
 );
 
@@ -86,7 +86,7 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 49 current required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 50 current required refund\/Nayax migrations/);
 assert.match(
   cutoverPacket,
   /all ten manifest-tracked Refund Operations functions/
@@ -149,8 +149,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    49,
-    'Refund release inventory must cover exactly 49 discovered refund/Nayax migrations'
+    50,
+    'Refund release inventory must cover exactly 50 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -175,6 +175,10 @@ try {
   assert(
     repositoryMigrations.includes('20260812230000_refund_synthetic_gmail_proof_authorization.sql'),
     'The one-shot synthetic Gmail proof migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('202608130001_refund_nayax_outcome_resolution.sql'),
+    'The default-off Nayax outcome-resolution migration must be in the discovered release inventory'
   );
   assert.deepEqual(
     repositoryManifest.requiredMigrations,

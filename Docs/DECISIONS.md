@@ -1,5 +1,15 @@
 # Decisions
 
+## 2026-08-13 - Uncertain Nayax outcomes require a separate immutable support decision (`#767`)
+
+A timeout, unknown, or rejected Nayax attempt remains frozen until authoritative evidence is reviewed. Resolving that hold is a separate payment-support action, not a provider retry and not a generic case edit.
+
+- The feature is hard-disabled by an immutable database gate, seeds no operator, and has no browser/service setter. A future launch requires an explicit owner-approved payment-support operator who is also the current mapped Machine Manager, plus the existing durable TOTP enrollment and a fresh code bound to the exact case, attempt, evidence, and versions.
+- The only outcomes are: keep the hold; confirm safe for a fresh manager review; confirm provider success; or document a manual Nayax completion. Each accepts only an approved evidence-source/reason pair and a bounded monitor/support/manual reference, never pasted provider content, customer data, or card data.
+- Two database sessions racing the same verified intent produce one immutable result. The original provider outcome remains preserved. Confirmed success/manual completion may atomically commit the case and reporting adjustment; safe-to-review releases the case without calling Nayax; hold changes no case outcome.
+- The resolution operation never calls Nayax, creates another provider attempt, sends customer mail, or exposes recipient/copy/body/attachment/retry controls. Any customer completion remains a separate, post-commit controlled operation.
+- Passing local/hosted synthetic checks does not activate the feature. The account-specific contract in `#430`, controlled synthetic deployment UAT, explicit operator grant, owner/sponsor approval, caps/allowlist, and supervised low-value pilot remain required.
+
 ## 2026-08-12 - Refund authenticator setup is private, self-only, and temporary (`#782`, `#692`)
 
 The first refund-operator authenticator can be enrolled only by the exact preapproved owner-manager while signed into their own portal session. The database stores only a SHA-256 binding of the private, immutable, high-entropy Auth user UUID—not an email literal or guessable email hash—and the browser API accepts no target identity.

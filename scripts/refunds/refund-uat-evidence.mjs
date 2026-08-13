@@ -24,6 +24,8 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-manager-step-up-expired.png',
   'refund-manager-step-up-mobile.png',
   'refund-manager-step-up-required.png',
+  'refund-nayax-support-resolution-desktop.png',
+  'refund-nayax-support-resolution-mobile.png',
   'refund-portal-demo-fallback.png',
   'refund-portal-gmail-draft-desktop.png',
   'refund-portal-gmail-draft-mobile.png',

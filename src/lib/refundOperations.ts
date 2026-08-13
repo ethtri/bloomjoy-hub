@@ -578,18 +578,81 @@ export type RefundOfficialActionName =
   | 'approve'
   | 'decline'
   | 'cash_complete'
-  | 'nayax_execute';
+  | 'nayax_execute'
+  | 'nayax_resolve';
 
 export type RefundOfficialActionTarget =
   | 'refund-case-admin-update'
-  | 'nayax-card-refund';
+  | 'nayax-card-refund'
+  | 'refund-nayax-outcome-resolve';
+
+export type RefundNayaxResolutionResult =
+  | 'provider_confirmed_success'
+  | 'provider_confirmed_retry_safe'
+  | 'documented_manual_completion'
+  | 'remain_on_hold';
+
+export type RefundNayaxResolutionEvidenceType =
+  | 'nayax_dtm_transaction'
+  | 'nayax_support_ticket'
+  | 'documented_manual_refund';
+
+export type RefundNayaxResolutionReason =
+  | 'nayax_dtm_settled'
+  | 'nayax_support_confirmed_success'
+  | 'nayax_dtm_not_refunded'
+  | 'nayax_support_retry_safe'
+  | 'manual_nayax_completion'
+  | 'evidence_incomplete'
+  | 'provider_still_pending'
+  | 'evidence_conflict';
+
+export type RefundNayaxResolutionReadiness = {
+  visible: boolean;
+  available: boolean;
+  blockReason?:
+    | 'resolution_disabled'
+    | 'exact_attempt_required'
+    | 'already_resolved'
+    | 'provider_hold_required'
+    | null;
+  attemptId?: string | null;
+  providerOutcome?: 'rejected' | 'timeout' | 'unknown' | null;
+  expectedCaseVersion?: number | null;
+  allowedResults?: RefundNayaxResolutionResult[];
+  payloadRedacted: true;
+};
+
+export type ResolveRefundNayaxOutcomeInput = {
+  caseId: string;
+  attemptId: string;
+  resolutionResult: RefundNayaxResolutionResult;
+  evidenceType: RefundNayaxResolutionEvidenceType;
+  evidenceReference: string;
+  reasonCode: RefundNayaxResolutionReason;
+  expectedCaseVersion: number;
+};
+
+export type ResolveRefundNayaxOutcomeResponse = {
+  resolved: boolean;
+  result: RefundNayaxResolutionResult;
+  caseCompleted: boolean;
+  retryReadyForFreshReview: boolean;
+  customerCompletionAvailable: boolean;
+  providerCallMade: false;
+  customerMessageCreated: false;
+  payloadRedacted: true;
+};
 
 export type RefundManagerStepUpRequest = {
   intentId: string;
   expiresAt: string;
   action: RefundOfficialActionName;
   targetFunction: RefundOfficialActionTarget;
-  frozenPayload: UpdateRefundCaseInput | ExecuteNayaxCardRefundInput;
+  frozenPayload:
+    | UpdateRefundCaseInput
+    | ExecuteNayaxCardRefundInput
+    | ResolveRefundNayaxOutcomeInput;
 };
 
 type RefundManagerStepUpRequiredResponse = {
@@ -1487,6 +1550,58 @@ export const updateRefundCaseAdmin = async (input: UpdateRefundCaseInput) => {
   return requireUpdatedRefundCase(data);
 };
 
+export const fetchRefundNayaxResolutionReadiness = async (
+  caseId: string
+): Promise<RefundNayaxResolutionReadiness> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_get_refund_nayax_resolution_readiness',
+    { p_refund_case_id: caseId }
+  );
+  if (error || !data || typeof data !== 'object') {
+    throw new Error('Unable to load the payment-support resolution boundary.');
+  }
+  return data as RefundNayaxResolutionReadiness;
+};
+
+export const prepareRefundNayaxOutcomeResolution = async (
+  input: ResolveRefundNayaxOutcomeInput
+): Promise<RefundManagerStepUpRequest> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_prepare_refund_nayax_resolution_intent',
+    {
+      p_case_id: input.caseId,
+      p_attempt_id: input.attemptId,
+      p_resolution_result: input.resolutionResult,
+      p_evidence_type: input.evidenceType,
+      p_evidence_reference: input.evidenceReference,
+      p_reason_code: input.reasonCode,
+      p_expected_case_version: input.expectedCaseVersion,
+    }
+  );
+  if (
+    error ||
+    !data ||
+    typeof data !== 'object' ||
+    typeof (data as { intentId?: unknown }).intentId !== 'string' ||
+    typeof (data as { expiresAt?: unknown }).expiresAt !== 'string' ||
+    (data as { action?: unknown }).action !== 'nayax_resolve' ||
+    (data as { targetFunction?: unknown }).targetFunction !==
+      'refund-nayax-outcome-resolve'
+  ) {
+    throw new Error(
+      error?.message ||
+        'The provider hold could not be prepared for payment-support review.'
+    );
+  }
+  return {
+    intentId: (data as { intentId: string }).intentId,
+    expiresAt: (data as { expiresAt: string }).expiresAt,
+    action: 'nayax_resolve',
+    targetFunction: 'refund-nayax-outcome-resolve',
+    frozenPayload: input,
+  };
+};
+
 export const getRefundManagerStepUpRequest = (
   error: unknown,
   frozenPayload: UpdateRefundCaseInput | ExecuteNayaxCardRefundInput
@@ -1549,9 +1664,20 @@ export const completeNayaxRefundStepUp = (
   code: string
 ) => completeRefundManagerStepUp<NayaxCardRefundExecutionResponse>({ request, code });
 
-export const cancelRefundManagerStepUp = async (intentId: string) => {
+export const completeRefundNayaxResolutionStepUp = (
+  request: RefundManagerStepUpRequest,
+  code: string
+) =>
+  completeRefundManagerStepUp<ResolveRefundNayaxOutcomeResponse>({ request, code });
+
+export const cancelRefundManagerStepUp = async (
+  intentId: string,
+  targetFunction?: RefundOfficialActionTarget
+) => {
   const { error } = await supabaseClient.rpc(
-    'admin_cancel_refund_action_step_up_intent',
+    targetFunction === 'refund-nayax-outcome-resolve'
+      ? 'admin_cancel_refund_nayax_resolution_intent'
+      : 'admin_cancel_refund_action_step_up_intent',
     { p_intent_id: intentId }
   );
   if (error) {

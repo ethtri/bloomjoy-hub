@@ -53,7 +53,8 @@
     "20260812200000_refund_owner_totp_enrollment_window.sql",
     "20260812210000_refund_legacy_card_state_normalization.sql",
     "20260812220000_refund_legacy_confirmation_normalization.sql",
-    "20260812230000_refund_synthetic_gmail_proof_authorization.sql"
+    "20260812230000_refund_synthetic_gmail_proof_authorization.sql",
+    "202608130001_refund_nayax_outcome_resolution.sql"
   ],
   "migrationFilesSha256": "dd95f7e958227bcde93fca4aa4cc94cd41a253e686625597ff2ed013debd951e",
   "migrationVersionSetSha256": "4012897899dbadcf43638348f053e6be75fe71e92e6bd681ce9ddd1710648ebb",
