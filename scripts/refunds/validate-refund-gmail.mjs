@@ -1475,6 +1475,12 @@ assert(
     syntheticProofMigration.includes(
       'Synthetic Gmail proof window blocks every unbound customer message insert',
     ) &&
+    syntheticProofMigration.includes(
+      "if auth.role() is distinct from 'service_role' then",
+    ) &&
+    syntheticProofMigration.includes(
+      'Synthetic Gmail proof message binding is service-only',
+    ) &&
     syntheticProofMigration.includes('baseline_global_case_message_count') &&
     syntheticProofMigration.includes("'activeAuthorizationCount'") &&
     syntheticProofMigration.includes("'proofPassed'") &&
@@ -1510,6 +1516,12 @@ assert(
     syntheticProofDbTest.includes('Gmail intake/first-contact lane cannot insert') &&
     syntheticProofDbTest.includes('automatic follow-up lane cannot insert') &&
     syntheticProofDbTest.includes('provider-completion automation lane cannot insert') &&
+    syntheticProofDbTest.includes(
+      'An authenticated caller cannot forge the exact internal proof authorization id',
+    ) &&
+    syntheticProofDbTest.includes(
+      'The forged authenticated insert creates zero message binding',
+    ) &&
     syntheticProofDbTest.includes(
       'All blocked creator lanes reach zero transport, OAuth, or Gmail claim work',
     ) &&

@@ -457,6 +457,38 @@ select is(
   'A replay cannot authorize a second message'
 );
 
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+select throws_ok(
+  format(
+    $$insert into public.refund_case_messages
+      (id, refund_case_id, message_type, status, recipient_email, subject, body,
+       template_key, created_by, content_source, delivery_kind, requested_fields,
+       synthetic_gmail_proof_authorization_id)
+      values (%L, %L, 'status_update', 'pending', %L, 'Blocked', 'Blocked',
+       'refund_status_update_editable_v1', %L, 'manager_authored', 'manual', '{}', %L)$$,
+    '80050000-0000-4000-8000-000000000015',
+    (select result ->> 'caseId' from synthetic_proof_ingest),
+    'etrifari+refundpilot-db@bloomjoysweets.com',
+    '80000000-0000-4000-8000-000000000001',
+    (select result ->> 'authorizationId' from delivery_authorized)
+  ),
+  'P0001',
+  'Synthetic Gmail proof message binding is service-only',
+  'An authenticated caller cannot forge the exact internal proof authorization id'
+);
+select is(
+  (
+    select refund_case_message_id
+    from public.refund_synthetic_gmail_proof_authorizations
+    where id = (select (result ->> 'authorizationId')::uuid from delivery_authorized)
+  ),
+  null::uuid,
+  'The forged authenticated insert creates zero message binding'
+);
+select set_config('request.jwt.claim.role', 'service_role', true);
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+
 insert into public.refund_case_messages (
   id, refund_case_id, message_type, status, recipient_email, subject, body,
   template_key, created_by, content_source, delivery_kind, requested_fields,

@@ -133,6 +133,10 @@ begin
     raise exception 'Synthetic Gmail proof window blocks every unbound customer message insert';
   end if;
 
+  if auth.role() is distinct from 'service_role' then
+    raise exception 'Synthetic Gmail proof message binding is service-only';
+  end if;
+
   select refund_case.*
   into proof_case
   from public.refund_cases refund_case
