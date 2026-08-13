@@ -52,6 +52,13 @@ assert.match(
 );
 assert.doesNotMatch(clients, /REFUND_SYNTHETIC_GMAIL_PROOF_(?:RECIPIENT|SUBJECT|BODY|ENDPOINT)/u);
 assert.doesNotMatch(clients, /env:\s*\{\s*\.\.\.process\.env/u);
+assert.match(clients, /getSyntheticGmailProofGithubVariable/u);
+assert.match(clients, /includeWindowsGithubConfig: platform === 'win32'/u);
+assert.match(
+  clients,
+  /includeWindowsGithubConfig &&[\s\S]*typeof environment\.APPDATA === 'string'[\s\S]*result\.APPDATA = environment\.APPDATA/u,
+);
+assert.doesNotMatch(clients, /GH_TOKEN|GITHUB_TOKEN/u);
 assert.match(clients, /assertSyntheticGmailProofProductionAligned/u);
 assert.match(clients, /process\.execPath/u);
 assert.match(clients, /path\.resolve\([\s\S]*'refund-release\.mjs'/u);
