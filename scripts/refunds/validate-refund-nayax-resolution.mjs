@@ -17,6 +17,12 @@ const concurrencyTests = read(
   'supabase/tests/refund_nayax_outcome_resolution_concurrency.sql'
 );
 const stepUpEdge = read('supabase/functions/refund-manager-action-step-up/index.ts');
+const messageSendEdge = read('supabase/functions/refund-case-message-send/index.ts');
+const nayaxExecutionEdge = read('supabase/functions/nayax-card-refund/index.ts');
+const nayaxGates = read('supabase/functions/_shared/nayax-refund-gates.ts');
+const nayaxGatesTests = read('supabase/functions/_shared/nayax-refund-gates.test.ts');
+const nayaxCompletion = read('supabase/functions/_shared/nayax-resolution-completion.ts');
+const nayaxCompletionTests = read('supabase/functions/_shared/nayax-resolution-completion.test.ts');
 const operations = read('src/lib/refundOperations.ts');
 const portal = read('src/pages/admin/Refunds.tsx');
 const portalUat = read('scripts/refunds/validate-refund-portal-uat.mjs');
@@ -65,12 +71,13 @@ assert(
     consume.includes("'documented_manual_completion'") &&
     consume.includes("normalized_result = 'provider_confirmed_retry_safe'") &&
     consume.includes("'providerCallMade', false") &&
-    consume.includes("'customerMessageCreated', false") &&
+    consume.includes("'customerMessageCreated', completion_committed") &&
+    consume.includes("'refund_nayax_completion_v2'") &&
+    consume.includes("completion_gmail_thread_id = completion_thread_row.id") &&
     !consume.includes('http_post') &&
     !consume.includes('net.http') &&
-    !consume.includes('fetch(') &&
-    !consume.includes('gmail'),
-  'Consume must use exact function-owner/actor serialization and commit no provider or customer side effect.'
+    !consume.includes('fetch('),
+  'Consume must serialize the exact actor, make no provider call, and bind completed outcomes to one pending original-thread customer message.'
 );
 
 assert(
@@ -83,20 +90,43 @@ assert(
     migration.includes("resolution_result = 'documented_manual_completion'") &&
     migration.includes("evidence_type = 'documented_manual_refund'") &&
     migration.includes("resolution_result = 'remain_on_hold'") &&
-    migration.includes("evidence_reference ~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{7,119}$'") &&
+    migration.includes('refund_nayax_resolution_reference_is_safe') &&
+    migration.includes('evidence_reference_digest') &&
+    !migration.includes('evidence_reference text not null') &&
+    migration.includes('evidence_occurred_at') &&
     migration.includes('attempt_evidence_hash'),
-  'Only four exact evidence/result pairs and one bounded reference may be authorized.'
+  'Only four exact evidence/result pairs, a privacy-safe digest, and truthful action time may be authorized.'
 );
 
 assert(
-  databaseTests.includes('select plan(47)') &&
+  databaseTests.includes('select plan(65)') &&
     databaseTests.includes('The default-off gate blocks preparation before any write') &&
+    databaseTests.includes('PAN, phone, account, and other long digit-shaped references are rejected') &&
+    databaseTests.includes('Grouped card, phone, and account digit shapes are rejected') &&
+    databaseTests.includes('eight-digit Nayax support-ticket shape remains usable') &&
+    databaseTests.includes('nine-digit Nayax DTM transaction shape remains usable') &&
+    databaseTests.includes('stores only a one-way evidence-reference digest') &&
     databaseTests.includes('A generic AAL2 token cannot replace the trusted exact-factor proof') &&
     databaseTests.includes('A session-local resolution ID cannot bypass the provider hold') &&
-    databaseTests.includes('Success commits one reporting fact before any separately controlled customer message') &&
-    databaseTests.includes('Documented manual completion commits the exact reference and one reporting fact') &&
+    databaseTests.includes('Success atomically binds one pending original-thread completion without calling the provider') &&
+    databaseTests.includes('The exact safely failed completion can be reopened once for original-thread delivery') &&
+    databaseTests.includes('A failed bounded retry is durably marked exhausted') &&
+    databaseTests.includes('A second customer-completion retry is impossible') &&
+    databaseTests.includes('Customer and reporting dates preserve the UTC action time across a local-date boundary') &&
+    databaseTests.includes('Retry-safe returns through the real manager step-up preparation path with generation one frozen') &&
+    databaseTests.includes('A new manager approval can reserve one fresh attempt after retry-safe generation') &&
     databaseTests.includes('Manual completion preserves the original rejected outcome and exact evidence classification'),
-  'pgTAP must prove the default-off, factor-bound, immutable, zero-side-effect resolution boundary.'
+  'pgTAP must prove the default-off, factor-bound, immutable, provider-free resolution and bounded completion boundary.'
+);
+
+assert(
+  migration.includes('nayax_refund_attempt_generation') &&
+    migration.includes('guard_refund_nayax_attempt_generation') &&
+    migration.includes("resolution_row.next_attempt_generation") &&
+    nayaxExecutionEdge.includes('nayax_refund_attempt_generation') &&
+    nayaxGates.includes('attemptGeneration') &&
+    nayaxGatesTests.includes('support-approved retry generation must create a fresh key'),
+  'Retry-safe must advance one guarded generation included in both reviewed evidence and HMAC idempotency.'
 );
 
 assert(
@@ -104,7 +134,7 @@ assert(
     concurrencyTests.includes('dblink_send_query') &&
     concurrencyTests.includes('Exactly one database session can consume the same verified resolution intent') &&
     concurrencyTests.includes('The race commits exactly one immutable support-resolution record') &&
-    concurrencyTests.includes('Concurrency creates one adjustment, no message, and no additional provider attempt') &&
+    concurrencyTests.includes('Concurrency creates one adjustment, one bound message, and no additional provider attempt') &&
     concurrencyTests.includes('Concurrent regression restores the production hard-off gate'),
   'Two-session pgTAP must prove one winner, one immutable result, and zero duplicate action.'
 );
@@ -115,8 +145,29 @@ assert(
     stepUpEdge.includes('admin_refund_nayax_resolution_factor_is_approved') &&
     stepUpEdge.includes('service_mark_refund_nayax_resolution_factor_verified') &&
     stepUpEdge.includes('admin_consume_refund_nayax_resolution_intent') &&
+    stepUpEdge.includes('p_evidence_occurred_at: frozenPayload.evidenceOccurredAt') &&
+    stepUpEdge.includes('dispatchRefundCaseGmailReply') &&
+    stepUpEdge.includes('gmailThreadId: attempt.completion_gmail_thread_id') &&
+    stepUpEdge.includes('service_finish_nayax_refund_completion') &&
+    stepUpEdge.includes('deliverNayaxCompletionOnce') &&
     stepUpEdge.includes('The payment-support resolution could not be committed. The provider hold remains in place.'),
-  'The shared step-up endpoint must use the dedicated frozen resolution and exact-factor RPC chain.'
+  'The shared step-up endpoint must use the frozen exact-factor RPC chain and one original-thread completion attempt.'
+);
+
+assert(
+  messageSendEdge.includes('service_prepare_nayax_completion_retry') &&
+    messageSendEdge.includes('nayaxCompletionMessageId') &&
+    messageSendEdge.includes('Object.keys(body ?? {}).some') &&
+    messageSendEdge.includes('gmailThreadId: retryGmailThreadId') &&
+    messageSendEdge.includes('service_finish_nayax_refund_completion') &&
+    messageSendEdge.includes('deliverNayaxCompletionOnce') &&
+    !messageSendEdge.includes('nayaxCompletionRecipient') &&
+    migration.includes('completion_delivery_retry_count between 0 and 1') &&
+    migration.includes('Nayax completion delivery requires reconciliation, not retry') &&
+    nayaxCompletion.includes('deliveryReturned || isDeliveryUncertain(error)') &&
+    nayaxCompletionTests.includes('post-send settlement failure cannot be downgraded to safe failure') &&
+    nayaxCompletionTests.includes('deliveryCalls, 1'),
+  'Only the exact safely failed attempt-bound completion may receive one non-editable original-thread retry.'
 );
 
 assert(
@@ -128,19 +179,29 @@ assert(
     portal.includes('data-testid="refund-nayax-resolution-evidence-type"') &&
     portal.includes('data-testid="refund-nayax-resolution-reason"') &&
     portal.includes('data-testid="refund-nayax-resolution-reference"') &&
+    portal.includes('data-testid="refund-nayax-resolution-occurred-at"') &&
+    portal.includes('data-testid="refund-nayax-resolution-step-up-summary"') &&
+    portal.includes('The raw reference is') &&
+    portal.includes('hashed before storage') &&
+    portal.includes('Refund issued at (UTC from evidence)') &&
+    portal.includes('Retry exact completion email once') &&
+    portal.includes('gmail_completion_retry_exhausted') &&
+    portal.includes('Customer completion retry is exhausted') &&
+    portal.includes('It cannot change the customer, copy list, wording, payment, or provider outcome.') &&
+    migration.includes('mark_refund_nayax_completion_retry_exhausted') &&
     portal.includes('It never calls Nayax,') &&
     portal.includes('retries a payment, or emails the customer.') &&
     !portal.includes('refund-nayax-resolution-recipient') &&
     !portal.includes('refund-nayax-resolution-body') &&
-    !portal.includes('refund-nayax-resolution-retry'),
-  'The manager surface must expose only structured evidence fields and no recipient, copy, retry, or provider control.'
+    !portal.includes('refund-nayax-resolution-recipient'),
+  'The manager surface must expose structured UTC evidence plus only one exact non-editable completion retry.'
 );
 
 assert(
   portalUat.includes("if (arg === '--nayax-resolution-only')") &&
     portalUat.includes('runNayaxResolutionChecks') &&
     portalUat.includes('Payment support sees exactly four structured outcomes and no arbitrary communication controls') &&
-    portalUat.includes('Verified ${scenario.result} submits one frozen result with zero provider or customer calls') &&
+    portalUat.includes('Verified ${scenario.result} submits one frozen result with no provider or separate message endpoint') &&
     portalUat.includes('Payment-support verification remains usable without mobile horizontal overflow') &&
     evidenceManifest.includes("'refund-nayax-support-resolution-desktop.png'") &&
     evidenceManifest.includes("'refund-nayax-support-resolution-mobile.png'"),

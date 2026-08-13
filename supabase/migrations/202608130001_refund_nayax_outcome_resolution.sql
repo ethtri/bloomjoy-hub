@@ -2,7 +2,8 @@
 -- Nayax provider outcomes.
 --
 -- This migration is deliberately default-off. It adds no operator, enables no
--- official action, calls no provider, and sends no customer message. A later
+-- official action, calls no provider, and sends no customer message while the
+-- gate is off. A later
 -- owner-reviewed activation must replace the immutable false gate and seed an
 -- exact payment-support operator only after the Nayax reconciliation contract
 -- and capped production proof are approved.
@@ -15,6 +16,15 @@ set search_path = public
 as $$
   select false;
 $$;
+
+alter table public.refund_cases
+  add column if not exists nayax_refund_attempt_generation integer not null default 0;
+
+alter table public.refund_cases
+  drop constraint if exists refund_cases_nayax_attempt_generation_check,
+  add constraint refund_cases_nayax_attempt_generation_check check (
+    nayax_refund_attempt_generation between 0 and 1000
+  );
 
 create table if not exists public.refund_nayax_resolution_operators (
   actor_user_id uuid primary key references auth.users (id) on delete restrict,
@@ -65,10 +75,10 @@ create table if not exists public.refund_nayax_resolution_intents (
       'documented_manual_refund'
     )
   ),
-  evidence_reference text not null check (
-    length(evidence_reference) between 8 and 120
-    and evidence_reference ~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{7,119}$'
+  evidence_reference_digest text not null check (
+    evidence_reference_digest ~ '^[a-f0-9]{64}$'
   ),
+  evidence_occurred_at timestamptz,
   reason_code text not null check (
     reason_code in (
       'nayax_dtm_settled',
@@ -125,6 +135,22 @@ create table if not exists public.refund_nayax_resolution_intents (
     or (
       resolution_result = 'remain_on_hold'
       and reason_code in ('evidence_incomplete', 'provider_still_pending', 'evidence_conflict')
+    )
+  ),
+  constraint refund_nayax_resolution_intent_evidence_time_check check (
+    (
+      resolution_result in (
+        'provider_confirmed_success',
+        'documented_manual_completion'
+      )
+      and evidence_occurred_at is not null
+    )
+    or (
+      resolution_result in (
+        'provider_confirmed_retry_safe',
+        'remain_on_hold'
+      )
+      and evidence_occurred_at is null
     )
   ),
   constraint refund_nayax_resolution_intent_expiry_check check (
@@ -209,14 +235,20 @@ create table if not exists public.refund_nayax_outcome_resolutions (
       'documented_manual_refund'
     )
   ),
-  evidence_reference text not null check (
-    length(evidence_reference) between 8 and 120
-    and evidence_reference ~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{7,119}$'
+  evidence_reference_digest text not null check (
+    evidence_reference_digest ~ '^[a-f0-9]{64}$'
   ),
+  evidence_occurred_at timestamptz,
   reason_code text not null,
   prior_attempt_status text not null,
   prior_provider_outcome text not null,
   prior_reconciliation_required boolean not null,
+  prior_attempt_generation integer not null check (
+    prior_attempt_generation between 0 and 1000
+  ),
+  next_attempt_generation integer not null check (
+    next_attempt_generation between 0 and 1000
+  ),
   attempt_evidence_hash text not null check (attempt_evidence_hash ~ '^[a-f0-9]{64}$'),
   payload_redacted boolean not null default true check (payload_redacted),
   created_at timestamptz not null default statement_timestamp(),
@@ -251,6 +283,32 @@ create table if not exists public.refund_nayax_outcome_resolutions (
       and evidence_type in ('nayax_dtm_transaction', 'nayax_support_ticket')
       and reason_code in ('evidence_incomplete', 'provider_still_pending', 'evidence_conflict')
     )
+  ),
+  constraint refund_nayax_outcome_resolution_evidence_time_check check (
+    (
+      resolution_result in (
+        'provider_confirmed_success',
+        'documented_manual_completion'
+      )
+      and evidence_occurred_at is not null
+    )
+    or (
+      resolution_result in (
+        'provider_confirmed_retry_safe',
+        'remain_on_hold'
+      )
+      and evidence_occurred_at is null
+    )
+  ),
+  constraint refund_nayax_outcome_resolution_generation_check check (
+    (
+      resolution_result = 'provider_confirmed_retry_safe'
+      and next_attempt_generation = prior_attempt_generation + 1
+    )
+    or (
+      resolution_result <> 'provider_confirmed_retry_safe'
+      and next_attempt_generation = prior_attempt_generation
+    )
   )
 );
 
@@ -284,7 +342,8 @@ alter table public.refund_case_nayax_refund_attempts
   add column if not exists support_resolution_id uuid
     references public.refund_nayax_outcome_resolutions (id) on delete restrict,
   add column if not exists support_resolution_result text,
-  add column if not exists support_resolution_recorded_at timestamptz;
+  add column if not exists support_resolution_recorded_at timestamptz,
+  add column if not exists completion_delivery_retry_count integer not null default 0;
 
 alter table public.refund_case_nayax_refund_attempts
   drop constraint if exists refund_nayax_attempt_support_resolution_shape,
@@ -305,9 +364,108 @@ alter table public.refund_case_nayax_refund_attempts
     )
   );
 
+alter table public.refund_case_nayax_refund_attempts
+  drop constraint if exists refund_nayax_attempt_completion_retry_count_check,
+  add constraint refund_nayax_attempt_completion_retry_count_check check (
+    completion_delivery_retry_count between 0 and 1
+  );
+
+create or replace function public.mark_refund_nayax_completion_retry_exhausted()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.template_version = 'refund_nayax_completion_v2'
+    and new.status = 'failed'
+    and new.error_message = 'gmail_completion_failed'
+    and exists (
+      select 1
+      from public.refund_case_nayax_refund_attempts attempt
+      where attempt.completion_message_id = new.id
+        and attempt.completion_delivery_retry_count = 1
+    ) then
+    new.error_message := 'gmail_completion_retry_exhausted';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists mark_refund_nayax_completion_retry_exhausted
+  on public.refund_case_messages;
+create trigger mark_refund_nayax_completion_retry_exhausted
+before update of status, error_message on public.refund_case_messages
+for each row execute function public.mark_refund_nayax_completion_retry_exhausted();
+
 create unique index if not exists refund_nayax_attempt_support_resolution_idx
   on public.refund_case_nayax_refund_attempts (support_resolution_id)
   where support_resolution_id is not null;
+
+create or replace function public.guard_refund_nayax_attempt_generation()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  resolution_id uuid := nullif(
+    current_setting('bloomjoy.nayax_support_resolution_id', true),
+    ''
+  )::uuid;
+  database_owner text;
+  resolver_owner text;
+  exact_generation_advance boolean := false;
+begin
+  if new.nayax_refund_attempt_generation is not distinct from
+      old.nayax_refund_attempt_generation then
+    return new;
+  end if;
+
+  select pg_get_userbyid(database.datdba)
+  into database_owner
+  from pg_database database
+  where database.datname = current_database();
+
+  select pg_get_userbyid(procedure.proowner)
+  into resolver_owner
+  from pg_proc procedure
+  where procedure.oid =
+    'public.admin_consume_refund_nayax_resolution_intent(uuid,uuid,uuid,text,text,text,timestamptz,text,text)'::regprocedure;
+
+  if resolution_id is not null then
+    select exists (
+      select 1
+      from public.refund_nayax_outcome_resolutions resolution
+      join public.refund_case_nayax_refund_attempts attempt
+        on attempt.id = resolution.nayax_refund_attempt_id
+      where resolution.id = resolution_id
+        and resolution.refund_case_id = old.id
+        and resolution.resolution_result = 'provider_confirmed_retry_safe'
+        and resolution.prior_attempt_generation =
+          old.nayax_refund_attempt_generation
+        and resolution.next_attempt_generation =
+          new.nayax_refund_attempt_generation
+        and attempt.support_resolution_id = resolution.id
+        and attempt.support_resolution_result =
+          'provider_confirmed_retry_safe'
+    ) into exact_generation_advance;
+  end if;
+
+  if not exact_generation_advance
+    or current_user is distinct from database_owner
+    or resolver_owner is distinct from database_owner then
+    raise exception 'Nayax attempt generation advances only through one exact retry-safe support resolution';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists refund_cases_guard_nayax_attempt_generation
+  on public.refund_cases;
+create trigger refund_cases_guard_nayax_attempt_generation
+before update of nayax_refund_attempt_generation on public.refund_cases
+for each row execute function public.guard_refund_nayax_attempt_generation();
 
 create or replace function public.refund_nayax_resolution_operator_is_active(
   p_user_id uuid
@@ -330,6 +488,122 @@ as $$
     );
 $$;
 
+create or replace function public.refund_nayax_resolution_reference_is_safe(
+  p_reference text,
+  p_evidence_type text
+)
+returns boolean
+language sql
+immutable
+set search_path = public
+as $$
+  with normalized as (
+    select
+      btrim(coalesce(p_reference, '')) as reference_value,
+      lower(btrim(coalesce(p_evidence_type, ''))) as evidence_type
+  )
+  select reference_value ~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{7,119}$'
+    and reference_value !~ '@'
+    and reference_value !~* '[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
+    and reference_value !~* '(account|bank|card|customer|email|password|passcode|phone|pin|routing|security.?code|cvv|pan)'
+    and (
+      length(regexp_replace(reference_value, '[^0-9]', '', 'g')) < 8
+      or (
+        evidence_type = 'nayax_support_ticket'
+        and reference_value ~ '^SUPPORT:NAYAX-[0-9]{8}$'
+      )
+      or (
+        evidence_type = 'nayax_dtm_transaction'
+        and reference_value ~ '^DTM:NAYAX-[0-9]{9}$'
+      )
+    )
+    and case evidence_type
+      when 'nayax_dtm_transaction' then reference_value ~ '^DTM[:/-]'
+      when 'nayax_support_ticket' then reference_value ~ '^SUPPORT[:/-]'
+      when 'documented_manual_refund' then reference_value ~ '^MANUAL[:/-]'
+      else false
+    end
+  from normalized;
+$$;
+
+create or replace function public.refund_nayax_resolution_reference_digest(
+  p_reference text
+)
+returns text
+language sql
+immutable
+strict
+set search_path = public, extensions
+as $$
+  select encode(
+    extensions.digest(
+      convert_to(
+        'bloomjoy-refund-nayax-resolution-reference-v1:' || btrim(p_reference),
+        'UTF8'
+      ),
+      'sha256'
+    ),
+    'hex'
+  );
+$$;
+
+-- A support-approved fresh review is a new payment attempt, not a replay of
+-- the old uncertain request. Freeze the monotonically increasing generation
+-- into the manager's reviewed execution evidence as well as the Edge HMAC.
+create or replace function public.refund_nayax_execution_evidence_hash(
+  p_case public.refund_cases,
+  p_machine public.reporting_machines
+)
+returns text
+language sql
+immutable
+strict
+set search_path = public
+as $$
+  select encode(
+    extensions.digest(
+      jsonb_build_array(
+        'refund_nayax_execution_evidence_v2',
+        p_case.id,
+        p_case.official_action_version,
+        p_case.nayax_refund_attempt_generation,
+        p_case.reporting_machine_id,
+        p_case.status,
+        p_case.decision,
+        p_case.payment_method,
+        p_case.incident_at,
+        p_case.incident_local_datetime,
+        p_case.card_last4,
+        p_case.payment_amount_cents,
+        p_case.refund_amount_cents,
+        p_case.card_wallet_used,
+        p_case.correlation_status,
+        p_case.correlation_source,
+        p_case.nayax_recommendation_state,
+        p_case.nayax_recommendation_policy_version,
+        p_case.nayax_recommendation_evaluated_at,
+        p_case.nayax_match_execution_eligible,
+        p_case.matched_nayax_transaction_id,
+        p_case.matched_nayax_site_id,
+        p_case.matched_nayax_machine_auth_time,
+        p_case.matched_nayax_amount_cents,
+        p_case.matched_nayax_card_last4,
+        p_case.matched_nayax_currency_code,
+        p_case.reporting_adjustment_id,
+        p_case.nayax_refund_execution_status,
+        p_machine.id,
+        p_machine.status,
+        p_machine.nayax_machine_id,
+        p_machine.nayax_account_key,
+        p_machine.nayax_refunds_enabled,
+        p_machine.nayax_refund_max_amount_cents
+      )::text,
+      'sha256'
+    ),
+    'hex'
+  );
+$$;
+
 create or replace function public.refund_nayax_resolution_evidence_hash(
   p_case public.refund_cases,
   p_attempt public.refund_case_nayax_refund_attempts
@@ -346,6 +620,7 @@ as $$
         'refund_nayax_resolution_evidence_v1',
         p_case.id,
         p_case.official_action_version,
+        p_case.nayax_refund_attempt_generation,
         p_case.reporting_machine_id,
         p_case.status,
         p_case.decision,
@@ -458,7 +733,7 @@ begin
     into resolver_owner
     from pg_proc procedure
     where procedure.oid =
-      'public.admin_consume_refund_nayax_resolution_intent(uuid,uuid,uuid,text,text,text,text,text)'::regprocedure;
+      'public.admin_consume_refund_nayax_resolution_intent(uuid,uuid,uuid,text,text,text,timestamptz,text,text)'::regprocedure;
 
     select exists (
       select 1
@@ -548,7 +823,7 @@ begin
     into resolver_owner
     from pg_proc procedure
     where procedure.oid =
-      'public.admin_consume_refund_nayax_resolution_intent(uuid,uuid,uuid,text,text,text,text,text)'::regprocedure;
+      'public.admin_consume_refund_nayax_resolution_intent(uuid,uuid,uuid,text,text,text,timestamptz,text,text)'::regprocedure;
 
     select exists (
       select 1
@@ -673,6 +948,8 @@ declare
   case_row public.refund_cases%rowtype;
   attempt_row public.refund_case_nayax_refund_attempts%rowtype;
   operator_row public.refund_nayax_resolution_operators%rowtype;
+  exact_manager_mapping boolean := false;
+  has_active_enrollment boolean := false;
 begin
   if auth.role() is distinct from 'authenticated' or current_actor_user_id is null then
     raise exception 'Authenticated payment-support session required';
@@ -703,6 +980,31 @@ begin
     raise exception 'Refund case not found';
   end if;
 
+  select exists (
+    select 1
+    from public.reporting_machine_refund_managers manager
+    where manager.reporting_machine_id = case_row.reporting_machine_id
+      and manager.manager_user_id = current_actor_user_id
+      and manager.status = 'active'
+      and manager.revoked_at is null
+  ) into exact_manager_mapping;
+
+  if not exact_manager_mapping then
+    return jsonb_build_object(
+      'visible', false,
+      'available', false,
+      'payloadRedacted', true
+    );
+  end if;
+
+  select exists (
+    select 1
+    from public.refund_manager_totp_enrollments enrollment
+    where enrollment.actor_user_id = current_actor_user_id
+      and enrollment.status = 'active'
+      and enrollment.revoked_at is null
+  ) into has_active_enrollment;
+
   select attempt.*
   into attempt_row
   from public.refund_case_nayax_refund_attempts attempt
@@ -715,6 +1017,7 @@ begin
     'visible', true,
     'available',
       public.refund_nayax_outcome_resolution_enabled()
+      and has_active_enrollment
       and attempt_row.id is not null
       and public.refund_nayax_provider_outcome_state(
         case_row.nayax_refund_execution_status
@@ -723,6 +1026,7 @@ begin
     'blockReason', case
       when not public.refund_nayax_outcome_resolution_enabled()
         then 'resolution_disabled'
+      when not has_active_enrollment then 'authenticator_required'
       when attempt_row.id is null then 'exact_attempt_required'
       when attempt_row.support_resolution_id is not null then 'already_resolved'
       when public.refund_nayax_provider_outcome_state(
@@ -750,6 +1054,7 @@ create or replace function public.admin_prepare_refund_nayax_resolution_intent(
   p_resolution_result text,
   p_evidence_type text,
   p_evidence_reference text,
+  p_evidence_occurred_at timestamptz,
   p_reason_code text,
   p_expected_case_version bigint
 )
@@ -764,6 +1069,7 @@ declare
   normalized_type text := lower(btrim(coalesce(p_evidence_type, '')));
   normalized_reference text := btrim(coalesce(p_evidence_reference, ''));
   normalized_reason text := lower(btrim(coalesce(p_reason_code, '')));
+  reference_digest text;
   case_row public.refund_cases%rowtype;
   attempt_row public.refund_case_nayax_refund_attempts%rowtype;
   manager_mapping public.reporting_machine_refund_managers%rowtype;
@@ -778,8 +1084,27 @@ begin
   if not public.refund_nayax_outcome_resolution_enabled() then
     raise exception 'Payment-support outcome resolution is disabled pending contract proof and controlled UAT';
   end if;
-  if normalized_reference !~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{7,119}$' then
+  if not public.refund_nayax_resolution_reference_is_safe(
+    normalized_reference,
+    normalized_type
+  ) then
     raise exception 'A safe authoritative evidence reference is required';
+  end if;
+
+  if (
+    normalized_result in (
+      'provider_confirmed_success',
+      'documented_manual_completion'
+    )
+    and p_evidence_occurred_at is null
+  ) or (
+    normalized_result in (
+      'provider_confirmed_retry_safe',
+      'remain_on_hold'
+    )
+    and p_evidence_occurred_at is not null
+  ) then
+    raise exception 'Authoritative refund action time is required only for a completed payment outcome';
   end if;
 
   if not (
@@ -861,6 +1186,14 @@ begin
     raise exception 'Exact latest provider-held Nayax attempt is required';
   end if;
 
+  if p_evidence_occurred_at is not null
+    and (
+      p_evidence_occurred_at < attempt_row.created_at
+      or p_evidence_occurred_at > statement_timestamp() + interval '30 seconds'
+    ) then
+    raise exception 'Authoritative refund action time must be within the reviewed attempt window';
+  end if;
+
   select resolution_operator.*
   into operator_row
   from public.refund_nayax_resolution_operators resolution_operator
@@ -899,6 +1232,9 @@ begin
   end if;
 
   evidence_hash := public.refund_nayax_resolution_evidence_hash(case_row, attempt_row);
+  reference_digest := public.refund_nayax_resolution_reference_digest(
+    normalized_reference
+  );
 
   update public.refund_nayax_resolution_intents existing
   set
@@ -922,7 +1258,8 @@ begin
     expected_case_version,
     resolution_result,
     evidence_type,
-    evidence_reference,
+    evidence_reference_digest,
+    evidence_occurred_at,
     reason_code,
     attempt_evidence_hash,
     not_before,
@@ -938,7 +1275,8 @@ begin
     case_row.official_action_version,
     normalized_result,
     normalized_type,
-    normalized_reference,
+    reference_digest,
+    p_evidence_occurred_at,
     normalized_reason,
     evidence_hash,
     statement_timestamp(),
@@ -1163,6 +1501,7 @@ create or replace function public.admin_consume_refund_nayax_resolution_intent(
   p_resolution_result text,
   p_evidence_type text,
   p_evidence_reference text,
+  p_evidence_occurred_at timestamptz,
   p_reason_code text,
   p_factor_verification_proof text
 )
@@ -1177,6 +1516,7 @@ declare
   normalized_type text := lower(btrim(coalesce(p_evidence_type, '')));
   normalized_reference text := btrim(coalesce(p_evidence_reference, ''));
   normalized_reason text := lower(btrim(coalesce(p_reason_code, '')));
+  reference_digest text;
   intent_row public.refund_nayax_resolution_intents%rowtype;
   case_row public.refund_cases%rowtype;
   attempt_row public.refund_case_nayax_refund_attempts%rowtype;
@@ -1185,6 +1525,10 @@ declare
   enrollment_row public.refund_manager_totp_enrollments%rowtype;
   resolution_row public.refund_nayax_outcome_resolutions%rowtype;
   adjustment_row public.sales_adjustment_facts%rowtype;
+  completion_thread_row public.refund_gmail_threads%rowtype;
+  completion_message_row public.refund_case_messages%rowtype;
+  completion_subject text;
+  completion_body text;
   verified_at_value timestamptz;
   current_evidence_hash text;
   resolved_at timestamptz := statement_timestamp();
@@ -1197,6 +1541,16 @@ begin
   if not public.refund_nayax_outcome_resolution_enabled() then
     raise exception 'Payment-support outcome resolution is disabled pending contract proof and controlled UAT';
   end if;
+
+  if not public.refund_nayax_resolution_reference_is_safe(
+    normalized_reference,
+    normalized_type
+  ) then
+    raise exception 'A safe authoritative evidence reference is required';
+  end if;
+  reference_digest := public.refund_nayax_resolution_reference_digest(
+    normalized_reference
+  );
 
   perform pg_advisory_xact_lock(hashtextextended(current_actor_user_id::text, 767));
 
@@ -1214,7 +1568,8 @@ begin
     or intent_row.expires_at <= resolved_at
     or intent_row.resolution_result is distinct from normalized_result
     or intent_row.evidence_type is distinct from normalized_type
-    or intent_row.evidence_reference is distinct from normalized_reference
+    or intent_row.evidence_reference_digest is distinct from reference_digest
+    or intent_row.evidence_occurred_at is distinct from p_evidence_occurred_at
     or intent_row.reason_code is distinct from normalized_reason then
     raise exception 'Payment-support verification request is invalid, changed, or already used';
   end if;
@@ -1324,11 +1679,14 @@ begin
     actor_user_id,
     resolution_result,
     evidence_type,
-    evidence_reference,
+    evidence_reference_digest,
+    evidence_occurred_at,
     reason_code,
     prior_attempt_status,
     prior_provider_outcome,
     prior_reconciliation_required,
+    prior_attempt_generation,
+    next_attempt_generation,
     attempt_evidence_hash
   ) values (
     case_row.id,
@@ -1337,11 +1695,18 @@ begin
     current_actor_user_id,
     normalized_result,
     normalized_type,
-    normalized_reference,
+    reference_digest,
+    p_evidence_occurred_at,
     normalized_reason,
     attempt_row.status,
     attempt_row.provider_outcome,
     attempt_row.reconciliation_required,
+    case_row.nayax_refund_attempt_generation,
+    case
+      when normalized_result = 'provider_confirmed_retry_safe'
+        then case_row.nayax_refund_attempt_generation + 1
+      else case_row.nayax_refund_attempt_generation
+    end,
     intent_row.attempt_evidence_hash
   )
   returning * into resolution_row;
@@ -1360,9 +1725,9 @@ begin
     set
       status = 'completed',
       decision = 'approved',
-      manual_refund_reference = normalized_reference,
+      manual_refund_reference = 'Support evidence recorded',
       refund_completed_by = current_actor_user_id,
-      refund_completed_at = resolved_at,
+      refund_completed_at = intent_row.evidence_occurred_at,
       automation_state = 'completed',
       nayax_refund_execution_status = 'approved',
       nayax_match_execution_eligible = false
@@ -1387,7 +1752,7 @@ begin
     ) values (
       case_row.reporting_machine_id,
       case_row.reporting_location_id,
-      resolved_at::date,
+      (intent_row.evidence_occurred_at at time zone 'UTC')::date,
       'refund',
       case_row.refund_amount_cents,
       1,
@@ -1434,10 +1799,11 @@ begin
     set
       status = 'succeeded',
       provider_outcome = 'success',
+      provider_outcome_recorded_at = intent_row.evidence_occurred_at,
       reconciliation_required = false,
       reporting_adjustment_id = adjustment_row.id,
       case_finalization_committed_at = resolved_at,
-      completed_at = resolved_at,
+      completed_at = intent_row.evidence_occurred_at,
       support_resolution_id = resolution_row.id,
       support_resolution_result = normalized_result,
       support_resolution_recorded_at = resolved_at,
@@ -1445,8 +1811,84 @@ begin
         'support_resolution_result', normalized_result,
         'initial_provider_outcome', resolution_row.prior_provider_outcome,
         'evidence_reference_present', true,
+        'evidence_action_time_present', true,
         'payload_redacted', true
       )
+    where id = attempt_row.id;
+
+    select thread.*
+    into completion_thread_row
+    from public.refund_gmail_threads thread
+    where thread.refund_case_id = case_row.id
+    order by thread.first_message_at, thread.id
+    limit 1
+    for update;
+
+    if completion_thread_row.id is null then
+      raise exception 'Original Gmail thread required before committing a customer-visible refund completion';
+    end if;
+
+    completion_subject :=
+      'Your ' ||
+      to_char(case_row.refund_amount_cents::numeric / 100, 'FM$999999990.00') ||
+      ' Bloomjoy refund is on its way';
+    completion_body := concat_ws(
+      E'\n\n',
+      'Hi there,',
+      'We issued your ' ||
+        to_char(case_row.refund_amount_cents::numeric / 100, 'FM$999999990.00') ||
+        ' refund' ||
+        case
+          when case_row.matched_nayax_card_last4 ~ '^[0-9]{4}$'
+            then ' to the card ending in ' || case_row.matched_nayax_card_last4
+          else ''
+        end ||
+        ' on ' ||
+        to_char(
+          intent_row.evidence_occurred_at at time zone 'UTC',
+          'Mon FMDD, YYYY'
+        ) || ' UTC.',
+      'Your bank or card issuer may take up to 4 business days to show the credit. If it is not visible after that, reply to this email with the reference below. We are sorry this needed a refund, and we appreciate the chance to make it right.',
+      'Reference: ' || case_row.public_reference,
+      E'Warmly,\nBloomjoy Sweets'
+    );
+
+    insert into public.refund_case_messages (
+      refund_case_id,
+      message_type,
+      status,
+      recipient_email,
+      subject,
+      body,
+      template_key,
+      created_by,
+      content_source,
+      delivery_kind,
+      template_version,
+      requested_fields,
+      nayax_refund_attempt_id
+    ) values (
+      case_row.id,
+      'completed',
+      'pending',
+      case_row.customer_email,
+      completion_subject,
+      completion_body,
+      'refund_nayax_completed_v2',
+      current_actor_user_id,
+      'deterministic_template',
+      'manual',
+      'refund_nayax_completion_v2',
+      '{}'::text[],
+      attempt_row.id
+    )
+    returning * into completion_message_row;
+
+    update public.refund_case_nayax_refund_attempts
+    set
+      completion_message_id = completion_message_row.id,
+      completion_gmail_thread_id = completion_thread_row.id,
+      completion_delivery_status = 'pending'
     where id = attempt_row.id;
 
     completion_committed := true;
@@ -1455,12 +1897,6 @@ begin
       raise exception 'Case evidence is not safe to release for a separately reviewed retry';
     end if;
 
-    update public.refund_cases
-    set
-      nayax_refund_execution_status = 'not_requested',
-      nayax_match_execution_eligible = true
-    where id = case_row.id;
-
     update public.refund_case_nayax_refund_attempts
     set
       reconciliation_required = false,
@@ -1468,6 +1904,14 @@ begin
       support_resolution_result = normalized_result,
       support_resolution_recorded_at = resolved_at
     where id = attempt_row.id;
+
+    update public.refund_cases
+    set
+      nayax_refund_execution_status = 'not_requested',
+      nayax_match_execution_eligible = true,
+      nayax_refund_attempt_generation =
+        resolution_row.next_attempt_generation
+    where id = case_row.id;
 
     retry_released := true;
   end if;
@@ -1509,7 +1953,7 @@ begin
         then 'Payment support preserved the provider hold; no case outcome, retry, or customer message was created.'
       when normalized_result = 'provider_confirmed_retry_safe'
         then 'Authoritative payment evidence released the hold to fresh review; no provider retry or customer message was created.'
-      else 'Authoritative payment evidence committed the refund fact and reporting atomically before any customer completion message.'
+      else 'Authoritative payment evidence committed the refund fact, reporting, and one pending original-thread customer completion atomically.'
     end,
     jsonb_build_object(
       'resolution_id', resolution_row.id,
@@ -1522,7 +1966,7 @@ begin
       'completion_committed', completion_committed,
       'retry_released', retry_released,
       'provider_call_made', false,
-      'customer_message_created', false,
+      'customer_message_created', completion_committed,
       'payload_redacted', true
     )
   );
@@ -1534,7 +1978,136 @@ begin
     'retryReadyForFreshReview', retry_released,
     'customerCompletionAvailable', completion_committed,
     'providerCallMade', false,
-    'customerMessageCreated', false,
+    'customerMessageCreated', completion_committed,
+    'customerCompletionMessageId', completion_message_row.id,
+    'payloadRedacted', true
+  );
+end;
+$$;
+
+create or replace function public.service_prepare_nayax_completion_retry(
+  p_executor_assertion text,
+  p_refund_case_message_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  message_row public.refund_case_messages%rowtype;
+  attempt_row public.refund_case_nayax_refund_attempts%rowtype;
+  case_row public.refund_cases%rowtype;
+  outbound_row public.refund_gmail_messages%rowtype;
+  v_operation_key text;
+begin
+  perform public.assert_nayax_provider_executor(p_executor_assertion);
+
+  if p_refund_case_message_id is null then
+    raise exception 'Exact Nayax completion message required';
+  end if;
+
+  select message.*
+  into message_row
+  from public.refund_case_messages message
+  where message.id = p_refund_case_message_id
+  for update;
+
+  select attempt.*
+  into attempt_row
+  from public.refund_case_nayax_refund_attempts attempt
+  where attempt.id = message_row.nayax_refund_attempt_id
+  for update;
+
+  select refund_case.*
+  into case_row
+  from public.refund_cases refund_case
+  where refund_case.id = message_row.refund_case_id
+  for share;
+
+  if message_row.id is null
+    or message_row.message_type is distinct from 'completed'
+    or message_row.template_version is distinct from 'refund_nayax_completion_v2'
+    or message_row.status is distinct from 'failed'
+    or attempt_row.id is null
+    or attempt_row.refund_case_id is distinct from message_row.refund_case_id
+    or attempt_row.completion_message_id is distinct from message_row.id
+    or attempt_row.completion_gmail_thread_id is null
+    or attempt_row.completion_delivery_status is distinct from 'failed'
+    or attempt_row.completion_delivery_retry_count is distinct from 0
+    or attempt_row.status is distinct from 'succeeded'
+    or attempt_row.provider_outcome is distinct from 'success'
+    or attempt_row.reconciliation_required
+    or attempt_row.reporting_adjustment_id is null
+    or attempt_row.case_finalization_committed_at is null
+    or case_row.status is distinct from 'completed'
+    or case_row.reporting_adjustment_id is distinct from attempt_row.reporting_adjustment_id
+    or lower(btrim(message_row.recipient_email)) is distinct from
+      lower(btrim(case_row.customer_email)) then
+    raise exception 'One safely failed Nayax completion is required';
+  end if;
+
+  v_operation_key := 'refund-case-message:' || message_row.id::text;
+  select outbound.*
+  into outbound_row
+  from public.refund_gmail_messages outbound
+  where outbound.operation_key = v_operation_key
+  for update;
+
+  if outbound_row.id is not null then
+    if outbound_row.status is distinct from 'failed'
+      or outbound_row.sent_at is not null
+      or outbound_row.provider_message_id is not null then
+      raise exception 'Nayax completion delivery requires reconciliation, not retry';
+    end if;
+
+    update public.refund_gmail_messages
+    set operation_key = v_operation_key || ':failed:1'
+    where id = outbound_row.id;
+  end if;
+
+  update public.refund_case_messages
+  set status = 'pending', error_message = null
+  where id = message_row.id;
+
+  update public.refund_case_nayax_refund_attempts
+  set
+    completion_delivery_status = 'pending',
+    completion_delivery_retry_count = 1
+  where id = attempt_row.id;
+
+  insert into public.refund_case_events (
+    refund_case_id,
+    actor_user_id,
+    event_type,
+    message,
+    metadata
+  ) values (
+    case_row.id,
+    attempt_row.actor_user_id,
+    'nayax_customer_completion_retry_prepared',
+    'One bounded retry was prepared for the same completion message in the original Gmail thread.',
+    jsonb_build_object(
+      'attempt_id', attempt_row.id,
+      'refund_case_message_id', message_row.id,
+      'retry_count', 1,
+      'original_thread', true,
+      'provider_call_made', false,
+      'payload_redacted', true
+    )
+  );
+
+  return jsonb_build_object(
+    'prepared', true,
+    'refundCaseId', case_row.id,
+    'refundCaseMessageId', message_row.id,
+    'attemptId', attempt_row.id,
+    'gmailThreadId', attempt_row.completion_gmail_thread_id,
+    'recipientEmail', case_row.customer_email,
+    'subject', message_row.subject,
+    'body', message_row.body,
+    'retryCount', 1,
+    'originalThread', true,
     'payloadRedacted', true
   );
 end;
@@ -1544,6 +2117,11 @@ revoke execute on function public.refund_nayax_outcome_resolution_enabled()
   from public, anon, authenticated, service_role;
 revoke execute on function public.refund_nayax_resolution_operator_is_active(uuid)
   from public, anon, authenticated, service_role;
+revoke execute on function public.refund_nayax_resolution_reference_is_safe(
+  text, text
+) from public, anon, authenticated, service_role;
+revoke execute on function public.refund_nayax_resolution_reference_digest(text)
+  from public, anon, authenticated, service_role;
 revoke execute on function public.refund_nayax_resolution_evidence_hash(
   public.refund_cases, public.refund_case_nayax_refund_attempts
 ) from public, anon, authenticated, service_role;
@@ -1552,6 +2130,10 @@ revoke execute on function public.refund_nayax_retry_safe_case_is_current(
 ) from public, anon, authenticated, service_role;
 revoke execute on function public.guard_refund_nayax_outcome_resolution_immutable()
   from public, anon, authenticated, service_role;
+revoke execute on function public.guard_refund_nayax_attempt_generation()
+  from public, anon, authenticated, service_role;
+revoke execute on function public.mark_refund_nayax_completion_retry_exhausted()
+  from public, anon, authenticated, service_role;
 
 revoke execute on function public.admin_get_refund_nayax_resolution_readiness(uuid)
   from public, anon, authenticated, service_role;
@@ -1559,10 +2141,10 @@ grant execute on function public.admin_get_refund_nayax_resolution_readiness(uui
   to authenticated;
 
 revoke execute on function public.admin_prepare_refund_nayax_resolution_intent(
-  uuid, uuid, text, text, text, text, bigint
+  uuid, uuid, text, text, text, timestamptz, text, bigint
 ) from public, anon, authenticated, service_role;
 grant execute on function public.admin_prepare_refund_nayax_resolution_intent(
-  uuid, uuid, text, text, text, text, bigint
+  uuid, uuid, text, text, text, timestamptz, text, bigint
 ) to authenticated;
 
 revoke execute on function public.admin_get_refund_nayax_resolution_intent(uuid)
@@ -1589,22 +2171,35 @@ grant execute on function public.service_mark_refund_nayax_resolution_factor_ver
   uuid, uuid, text
 ) to service_role;
 
+revoke execute on function public.service_prepare_nayax_completion_retry(
+  text, uuid
+) from public, anon, authenticated, service_role;
+grant execute on function public.service_prepare_nayax_completion_retry(
+  text, uuid
+) to service_role;
+
 revoke execute on function public.admin_consume_refund_nayax_resolution_intent(
-  uuid, uuid, uuid, text, text, text, text, text
+  uuid, uuid, uuid, text, text, text, timestamptz, text, text
 ) from public, anon, authenticated, service_role;
 grant execute on function public.admin_consume_refund_nayax_resolution_intent(
-  uuid, uuid, uuid, text, text, text, text, text
+  uuid, uuid, uuid, text, text, text, timestamptz, text, text
 ) to authenticated;
 
 comment on table public.refund_nayax_resolution_operators is
   'Owner-controlled exact payment-support capability. No row is seeded and no authenticated/service setter exists.';
 comment on table public.refund_nayax_resolution_intents is
-  'Two-minute one-use resolution intents bound to an exact provider-held attempt, immutable evidence reference, current manager mapping, owner-approved TOTP enrollment, and payment-support capability version.';
+  'Two-minute one-use resolution intents bound to an exact provider-held attempt, digest-only evidence reference, authoritative payment action time when applicable, current manager mapping, owner-approved TOTP enrollment, and payment-support capability version.';
 comment on table public.refund_nayax_outcome_resolutions is
-  'Immutable redacted payment-support resolution audit. Evidence references only; never stores vendor content, customer copy, secrets, codes, or payment payloads.';
+  'Immutable redacted payment-support resolution audit. Stores only an evidence-reference digest and authoritative action time; never stores the raw reference, vendor content, customer copy, secrets, codes, or payment payloads.';
 comment on function public.admin_consume_refund_nayax_resolution_intent(
-  uuid, uuid, uuid, text, text, text, text, text
+  uuid, uuid, uuid, text, text, text, timestamptz, text, text
 ) is
-  'Consumes one exact fresh-TOTP payment-support intent. It never calls Nayax or sends email; success/manual facts commit case and reporting before customer completion becomes separately claimable, while retry-safe only returns the case to fresh review.';
+  'Consumes one exact fresh-TOTP payment-support intent. It never calls Nayax; success/manual facts use the authoritative UTC action time and atomically commit case/reporting plus one pending original-thread completion, while retry-safe increments the attempt generation before returning the case to fresh review.';
+
+comment on column public.refund_cases.nayax_refund_attempt_generation is
+  'Monotonic generation included in the Nayax manager evidence hash and HMAC idempotency key. It advances only after an authoritative retry-safe support resolution.';
+
+comment on function public.service_prepare_nayax_completion_retry(text, uuid) is
+  'Reopens the exact safely failed Nayax completion message for one bounded original-thread retry. It refuses sent, uncertain, mismatched, or already-retried evidence and never calls the payment provider.';
 
 select pg_notify('pgrst', 'reload schema');

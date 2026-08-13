@@ -615,6 +615,7 @@ export type RefundNayaxResolutionReadiness = {
     | 'exact_attempt_required'
     | 'already_resolved'
     | 'provider_hold_required'
+    | 'authenticator_required'
     | null;
   attemptId?: string | null;
   providerOutcome?: 'rejected' | 'timeout' | 'unknown' | null;
@@ -629,6 +630,7 @@ export type ResolveRefundNayaxOutcomeInput = {
   resolutionResult: RefundNayaxResolutionResult;
   evidenceType: RefundNayaxResolutionEvidenceType;
   evidenceReference: string;
+  evidenceOccurredAt: string | null;
   reasonCode: RefundNayaxResolutionReason;
   expectedCaseVersion: number;
 };
@@ -640,7 +642,8 @@ export type ResolveRefundNayaxOutcomeResponse = {
   retryReadyForFreshReview: boolean;
   customerCompletionAvailable: boolean;
   providerCallMade: false;
-  customerMessageCreated: false;
+  customerMessageCreated: boolean;
+  customerCompletion?: NayaxCustomerCompletionResult | null;
   payloadRedacted: true;
 };
 
@@ -786,6 +789,15 @@ export type ExecuteNayaxCardRefundInput = {
   expectedOfficialActionVersion: number;
 };
 
+export type NayaxCustomerCompletionResult = {
+  status: 'pending' | 'sent' | 'failed' | 'delivery_unknown' | 'already_sent';
+  transport: 'gmail_thread' | null;
+  managerCcCount: number;
+  originalThread: boolean;
+  operationApplied: boolean;
+  managerCompletionNoticeSent: false;
+};
+
 export type NayaxCardRefundExecutionResponse = {
   error?: string;
   errorCode?: NayaxCardRefundExecutionErrorCode;
@@ -803,14 +815,7 @@ export type NayaxCardRefundExecutionResponse = {
   reconciliationRequired?: boolean;
   fallbackIssued?: boolean;
   reportingAdjustmentPresent?: boolean;
-  customerCompletion?: {
-    status: 'sent' | 'failed' | 'delivery_unknown' | 'already_sent';
-    transport: 'gmail_thread' | null;
-    managerCcCount: number;
-    originalThread: boolean;
-    operationApplied: boolean;
-    managerCompletionNoticeSent: false;
-  } | null;
+  customerCompletion?: NayaxCustomerCompletionResult | null;
 };
 
 export type NayaxCardRefundAvailabilityResponse = {
@@ -835,14 +840,25 @@ export type RefundCustomerPortalMessageType =
   | 'denied'
   | 'completed';
 
-export type SendRefundCaseMessageInput = {
-  caseId: string;
-  messageType: RefundCustomerPortalMessageType;
-  subject?: string;
-  body?: string;
-  triageSuggestionId?: string;
-  missingFields?: RefundMissingField[];
-};
+export type SendRefundCaseMessageInput =
+  | {
+      caseId: string;
+      messageType: RefundCustomerPortalMessageType;
+      subject?: string;
+      body?: string;
+      triageSuggestionId?: string;
+      missingFields?: RefundMissingField[];
+      nayaxCompletionMessageId?: never;
+    }
+  | {
+      caseId: string;
+      nayaxCompletionMessageId: string;
+      messageType?: never;
+      subject?: never;
+      body?: never;
+      triageSuggestionId?: never;
+      missingFields?: never;
+    };
 
 export type RefundMissingField =
   | 'location_or_machine'
@@ -1574,6 +1590,7 @@ export const prepareRefundNayaxOutcomeResolution = async (
       p_resolution_result: input.resolutionResult,
       p_evidence_type: input.evidenceType,
       p_evidence_reference: input.evidenceReference,
+      p_evidence_occurred_at: input.evidenceOccurredAt,
       p_reason_code: input.reasonCode,
       p_expected_case_version: input.expectedCaseVersion,
     }

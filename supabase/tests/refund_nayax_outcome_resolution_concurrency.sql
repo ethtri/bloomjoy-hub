@@ -136,6 +136,19 @@ insert into public.refund_case_nayax_refund_attempts (
   '{"payload_redacted":true}'::jsonb
 );
 
+insert into public.refund_gmail_threads (
+  id, refund_case_id, mailbox_hash, provider_thread_id, thread_subject,
+  first_message_at, latest_message_at, retention_expires_at
+) values (
+  'b2800000-0000-4000-8000-000000000001',
+  'b2600000-0000-4000-8000-000000000001',
+  repeat('8', 64), 'resolution-race-original-thread',
+  'Original race refund conversation',
+  statement_timestamp() - interval '2 days',
+  statement_timestamp() - interval '1 day',
+  statement_timestamp() + interval '180 days'
+);
+
 create or replace function public.refund_nayax_outcome_resolution_enabled()
 returns boolean language sql immutable set search_path = public as $$ select true; $$;
 
@@ -157,6 +170,7 @@ begin
     'provider_confirmed_success',
     'nayax_dtm_transaction',
     'DTM:RACE-SETTLED-0001',
+    statement_timestamp(),
     'nayax_dtm_settled',
     1
   );
@@ -181,12 +195,14 @@ as $$
 declare
   state_row refund_nayax_resolution_race_test.run_state%rowtype;
   intent_not_before timestamptz;
+  evidence_occurred_at timestamptz;
   result jsonb;
 begin
   select state.* into strict state_row
   from refund_nayax_resolution_race_test.run_state state;
 
-  select intent.not_before into strict intent_not_before
+  select intent.not_before, intent.evidence_occurred_at
+  into strict intent_not_before, evidence_occurred_at
   from public.refund_nayax_resolution_intents intent
   where intent.id = state_row.intent_id;
 
@@ -213,6 +229,7 @@ begin
     'provider_confirmed_success',
     'nayax_dtm_transaction',
     'DTM:RACE-SETTLED-0001',
+    evidence_occurred_at,
     'nayax_dtm_settled',
     state_row.proof
   );
@@ -292,7 +309,7 @@ select is(
 select ok((
   select (result ->> 'resolved')::boolean
     and not (result ->> 'providerCallMade')::boolean
-    and not (result ->> 'customerMessageCreated')::boolean
+    and (result ->> 'customerMessageCreated')::boolean
   from nayax_resolution_race_results
   where (result ->> 'ok')::boolean
 ), 'The winner proves resolution without a provider call or customer message');
@@ -330,11 +347,14 @@ select ok((
 select ok(
   (select count(*) = 1 from public.sales_adjustment_facts
     where refund_case_id = 'b2600000-0000-4000-8000-000000000001')
-  and (select count(*) = 0 from public.refund_case_messages
-    where refund_case_id = 'b2600000-0000-4000-8000-000000000001')
+  and (select count(*) = 1 from public.refund_case_messages
+    where refund_case_id = 'b2600000-0000-4000-8000-000000000001'
+      and message_type = 'completed'
+      and status = 'pending'
+      and nayax_refund_attempt_id = 'b2700000-0000-4000-8000-000000000001')
   and (select count(*) = 1 from public.refund_case_nayax_refund_attempts
     where refund_case_id = 'b2600000-0000-4000-8000-000000000001'),
-  'Concurrency creates one adjustment, no message, and no additional provider attempt'
+  'Concurrency creates one adjustment, one bound message, and no additional provider attempt'
 );
 
 do $$
@@ -350,6 +370,10 @@ $$;
 begin;
 set local session_replication_role = replica;
 delete from public.refund_case_events
+where refund_case_id = 'b2600000-0000-4000-8000-000000000001';
+delete from public.refund_case_messages
+where refund_case_id = 'b2600000-0000-4000-8000-000000000001';
+delete from public.refund_gmail_threads
 where refund_case_id = 'b2600000-0000-4000-8000-000000000001';
 delete from public.refund_nayax_outcome_resolutions
 where refund_case_id = 'b2600000-0000-4000-8000-000000000001';

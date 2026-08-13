@@ -6,10 +6,22 @@ import {
   RefundManagerTotpError,
   verifyRefundManagerTotp,
 } from "../_shared/refund-manager-totp.ts";
+import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
+import { RefundGmailError } from "../_shared/refund-gmail.ts";
+import { deliverNayaxCompletionOnce } from "../_shared/nayax-resolution-completion.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const nayaxExecutorAssertion = Deno.env.get("NAYAX_REFUND_EXECUTOR_ASSERTION")
+  ?.trim() ?? "";
+
+const escapeHtml = (value: string) => value
+  .replaceAll("&", "&amp;")
+  .replaceAll("<", "&lt;")
+  .replaceAll(">", "&gt;")
+  .replaceAll('"', "&quot;")
+  .replaceAll("'", "&#039;");
 
 const serviceClient = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -106,6 +118,20 @@ serve(async (req) => {
       );
     }
     const resolutionTarget = targetFunction === "refund-nayax-outcome-resolve";
+    const completedResolution = resolutionTarget && [
+      "provider_confirmed_success",
+      "documented_manual_completion",
+    ].includes(String(frozenPayload.resolutionResult ?? ""));
+    if (
+      completedResolution &&
+      (!/^[A-Za-z0-9_-]{32,200}$/.test(nayaxExecutorAssertion))
+    ) {
+      return jsonResponse({
+        error:
+          "Customer completion delivery is not configured. The provider hold remains in place.",
+        errorCode: "configuration_missing",
+      }, 503);
+    }
     const { data: intent, error: intentError } = await originalUserClient.rpc(
       resolutionTarget
         ? "admin_get_refund_nayax_resolution_intent"
@@ -193,6 +219,7 @@ serve(async (req) => {
             p_resolution_result: frozenPayload.resolutionResult,
             p_evidence_type: frozenPayload.evidenceType,
             p_evidence_reference: frozenPayload.evidenceReference,
+            p_evidence_occurred_at: frozenPayload.evidenceOccurredAt,
             p_reason_code: frozenPayload.reasonCode,
             p_factor_verification_proof: stepUpFactorProof,
           },
@@ -204,7 +231,89 @@ serve(async (req) => {
           errorCode: "resolution_failed",
         }, 409);
       }
-      return jsonResponse(resolution as Record<string, unknown>);
+      const resolutionBody = resolution as Record<string, unknown>;
+      if (!completedResolution) {
+        return jsonResponse(resolutionBody);
+      }
+
+      const completionMessageId = typeof resolutionBody.customerCompletionMessageId === "string"
+        ? resolutionBody.customerCompletionMessageId
+        : "";
+      const attemptId = typeof frozenPayload.attemptId === "string"
+        ? frozenPayload.attemptId
+        : "";
+      let customerCompletion: Record<string, unknown> = {
+        status: "delivery_unknown",
+        transport: "gmail_thread",
+        managerCcCount: 0,
+        originalThread: true,
+        operationApplied: false,
+        managerCompletionNoticeSent: false,
+      };
+      if (isUuid(completionMessageId) && isUuid(attemptId)) {
+        const [{ data: message }, { data: attempt }] = await Promise.all([
+          serviceClient.from("refund_case_messages")
+            .select("id,refund_case_id,recipient_email,subject,body")
+            .eq("id", completionMessageId)
+            .eq("nayax_refund_attempt_id", attemptId)
+            .single(),
+          serviceClient.from("refund_case_nayax_refund_attempts")
+            .select("completion_gmail_thread_id")
+            .eq("id", attemptId)
+            .single(),
+        ]);
+        if (
+          message && attempt && isUuid(message.refund_case_id) &&
+          isUuid(attempt.completion_gmail_thread_id) &&
+          typeof message.recipient_email === "string" &&
+          typeof message.subject === "string" &&
+          typeof message.body === "string"
+        ) {
+          const messageBody = message.body as string;
+          customerCompletion = await deliverNayaxCompletionOnce({
+            deliver: async () => {
+              const gmailDelivery = await dispatchRefundCaseGmailReply({
+                supabase: serviceClient,
+                refundCaseId: message.refund_case_id,
+                refundCaseMessageId: message.id,
+                recipientEmail: message.recipient_email,
+                email: {
+                  subject: message.subject,
+                  text: messageBody,
+                  html: messageBody.split("\n").map((line: string) =>
+                    line ? `<p>${escapeHtml(line)}</p>` : "<br>"
+                  ).join(""),
+                },
+                deliveryKind: "manual",
+                gmailThreadId: attempt.completion_gmail_thread_id,
+              });
+              return gmailDelivery.usedGmail;
+            },
+            finish: async (status) => {
+              const { data: finished, error: finishError } = await serviceClient.rpc(
+                "service_finish_nayax_refund_completion",
+                {
+                  p_executor_assertion: nayaxExecutorAssertion,
+                  p_attempt_id: attemptId,
+                  p_delivery_status: status,
+                },
+              );
+              if (finishError || !finished || typeof finished !== "object") {
+                throw new Error("completion_settlement_failed");
+              }
+              return finished as Record<string, unknown> & {
+                status: "sent" | "failed" | "delivery_unknown" | "already_sent";
+              };
+            },
+            isDeliveryUncertain: (error) =>
+              error instanceof RefundGmailError && error.deliveryUncertain,
+          });
+        }
+      }
+
+      const safeResolution = { ...resolutionBody };
+      delete safeResolution.customerCompletionMessageId;
+      return jsonResponse({ ...safeResolution, customerCompletion });
     }
 
     const targetResponse = await fetch(
