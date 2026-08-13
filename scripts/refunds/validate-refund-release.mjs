@@ -45,8 +45,8 @@ assert.match(
 );
 assert.match(
   productionRunbook,
-  /ten-function\/49-migration default-off foundation[\s\S]*`#767` candidate adds one required outcome-resolution migration/,
-  'The runbook must name the current production-readiness release shape'
+  /historical ten-function\/49-migration default-off foundation[\s\S]*pre-deployment evidence only/,
+  'The runbook must identify the 49-migration bridge as historical pre-deployment evidence'
 );
 
 const refundDeployStart = productionRunbook.indexOf('Before deploying Refund Operations functions');
@@ -126,7 +126,7 @@ const reviewedManagerSourceSha256 = {
   'refund-manager-totp-enrollment':
     'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
 };
-const deployedManagerSourceSha256 = {
+const historicalPreDeploymentManagerSourceSha256 = {
   'refund-manager-action-step-up':
     'cd147f13796e0218512a281e38271ed1f1fbd2ad8aad947b10dda8d1f8336278',
   'refund-manager-totp-enrollment':
@@ -205,15 +205,72 @@ try {
   assert.equal(
     repositoryManifest.preMigrationCompatibility.requiredMigrations.length,
     49,
-    'The production bridge must cover exactly the currently deployed 49 migrations'
+    'The historical production bridge must cover exactly the 49 migrations captured before deployment'
   );
   assert(
     !repositoryManifest.preMigrationCompatibility.requiredMigrations.includes(
       '202608130001_refund_nayax_outcome_resolution.sql'
     ),
-    'The production bridge must not claim that the pending outcome-resolution migration is deployed'
+    'The historical production bridge must exclude the outcome-resolution migration applied after capture'
   );
   validatePreMigrationCompatibilitySource(repoRoot, repositoryManifest);
+  const currentProductionMayAdvance = structuredClone(repositoryManifest);
+  currentProductionMayAdvance.functions[0].production.sourceSha256 = 'a'.repeat(64);
+  validatePreMigrationCompatibilitySource(repoRoot, currentProductionMayAdvance);
+
+  for (const [label, mutate, expectedFailure] of [
+    [
+      'missing historical entry',
+      (manifest) => manifest.preDeploymentProduction.pop(),
+      /preDeploymentProduction function allowlist is invalid/,
+    ],
+    [
+      'duplicate historical entry',
+      (manifest) => {
+        manifest.preDeploymentProduction[1].slug = manifest.preDeploymentProduction[0].slug;
+      },
+      /preDeploymentProduction function allowlist is invalid/,
+    ],
+    [
+      'non-ACTIVE historical entry',
+      (manifest) => {
+        manifest.preDeploymentProduction[0] = {
+          slug: manifest.preDeploymentProduction[0].slug,
+          status: 'MISSING',
+        };
+      },
+      /historical baseline must be ACTIVE/,
+    ],
+    [
+      'historical verifyJwt drift',
+      (manifest) => {
+        manifest.preDeploymentProduction[0].verifyJwt = true;
+      },
+      /historical security pairing does not match/,
+    ],
+    [
+      'historical import-map drift',
+      (manifest) => {
+        manifest.preDeploymentProduction[0].importMap = true;
+      },
+      /historical security pairing does not match/,
+    ],
+    [
+      'historical source drift',
+      (manifest) => {
+        manifest.preDeploymentProduction[0].sourceSha256 = 'a'.repeat(64);
+      },
+      /source commit does not match the historical baseline/,
+    ],
+  ]) {
+    const invalidHistoricalManifest = structuredClone(repositoryManifest);
+    mutate(invalidHistoricalManifest);
+    assert.throws(
+      () => validatePreMigrationCompatibilitySource(repoRoot, invalidHistoricalManifest),
+      expectedFailure,
+      `${label} must fail the historical pre-migration bridge closed`
+    );
+  }
   for (const managerSlug of ['refund-manager-action-step-up', 'refund-manager-totp-enrollment']) {
     const localEntry = repositoryManifest.functions.find((entry) => entry.slug === managerSlug);
     const localStateEntry = repositoryLocalState.functions.find((entry) => entry.slug === managerSlug);
@@ -236,21 +293,13 @@ try {
       `${managerSlug} manifest source must match its independently reviewed digest`
     );
     assert(
-      localEntry.production &&
-        Number.isInteger(localEntry.production.version) &&
-        localEntry.production.version > 0 &&
-      localEntry.production.sourceSha256 === deployedManagerSourceSha256[managerSlug],
-      `${managerSlug} must preserve the independently reviewed production source pairing`
-    );
-    assert(
       baselineEntry &&
         baselineEntry.status === 'ACTIVE' &&
-        baselineEntry.version === localEntry.production.version &&
         baselineEntry.verifyJwt === localEntry.verifyJwt &&
         baselineEntry.importMap === false &&
-        baselineEntry.ezbrSha256 === localEntry.production.ezbrSha256 &&
-        baselineEntry.sourceSha256 === localEntry.production.sourceSha256,
-      `${managerSlug} must retain the fresh deployed pre-deployment baseline`
+        baselineEntry.sourceSha256 ===
+          historicalPreDeploymentManagerSourceSha256[managerSlug],
+      `${managerSlug} must retain the exact historical pre-deployment source and security pairing`
     );
     assert.deepEqual(
       restoreEntry,

@@ -450,6 +450,7 @@ export const validateApprovedRestoreSource = (rootDirectory, manifest) => {
 };
 
 export const validatePreMigrationCompatibilitySource = (rootDirectory, manifest) => {
+  validateManifestShape(manifest);
   const compatibility = manifest.preMigrationCompatibility;
   assert(compatibility, 'preMigrationCompatibility is missing');
   assert(
@@ -463,16 +464,31 @@ export const validatePreMigrationCompatibilitySource = (rootDirectory, manifest)
     'preMigrationCompatibility migration set differs from the approved bridge'
   );
 
+  assert(
+    manifest.preDeploymentProduction.length === requiredFunctionSlugs.length,
+    'preMigrationCompatibility historical baseline function count is invalid'
+  );
+
   for (const entry of manifest.functions) {
-    assert(entry.production, `preMigrationCompatibility production baseline is missing for ${entry.slug}`);
+    const historicalEntry = manifest.preDeploymentProduction.find(
+      (candidate) => candidate.slug === entry.slug
+    );
+    assert(
+      historicalEntry?.status === 'ACTIVE',
+      `preMigrationCompatibility historical baseline must be ACTIVE for ${entry.slug}`
+    );
+    assert(
+      historicalEntry.verifyJwt === entry.verifyJwt && historicalEntry.importMap === false,
+      `preMigrationCompatibility historical security pairing does not match ${entry.slug}`
+    );
     const committedSource = calculateFunctionSourceAtGitCommit(
       rootDirectory,
       compatibility.sourceGitCommit,
       entry.slug
     );
     assert(
-      committedSource.sourceSha256 === entry.production.sourceSha256,
-      `preMigrationCompatibility source commit does not match ${entry.slug}`
+      committedSource.sourceSha256 === historicalEntry.sourceSha256,
+      `preMigrationCompatibility source commit does not match the historical baseline for ${entry.slug}`
     );
   }
 };
@@ -1029,7 +1045,7 @@ const main = () => {
       console.log(`${entry.slug}: COMPATIBLE v${entry.version} ${entry.ezbrSha256.slice(0, 12)}`);
     }
     console.log(
-      `Approved pre-migration bridge covers exactly ${manifest.preMigrationCompatibility.requiredMigrations.length} pinned migrations. Standard production drift must pass before commerce deployment continues.`
+      `Approved historical pre-migration bridge covers exactly ${manifest.preMigrationCompatibility.requiredMigrations.length} pinned pre-deployment migrations. Standard production drift must pass before commerce deployment continues.`
     );
     return;
   }

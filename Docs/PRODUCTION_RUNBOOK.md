@@ -4,7 +4,7 @@ Purpose: provide a single launch-day procedure for Bloomjoy Hub production relea
 
 Last updated: 2026-08-13
 
-Refund release-state note: production runs the reviewed ten-function/49-migration default-off foundation. The `#767` candidate adds one required outcome-resolution migration and updates the existing manager step-up function, but it must remain hard-disabled with zero operator grants. Gmail automation, automatic customer contact, manager reminders, GPT triage, official actions, and live Nayax execution stay off; the production Nayax provider adapter remains statically disabled until its separate reviewed gates pass.
+Refund release-state note: the manifest's compatibility bridge records the historical ten-function/49-migration default-off foundation as pre-deployment evidence only. The later `#767` outcome-resolution migration and function deployment must remain hard-disabled with zero operator grants. Gmail automation, automatic customer contact, manager reminders, GPT triage, official actions, and live Nayax execution stay off; the production Nayax provider adapter remains statically disabled until its separate reviewed gates pass.
 
 ## 1) Roles and ownership
 - Release owner: coordinates launch window and final go/no-go call.
