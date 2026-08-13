@@ -78,7 +78,7 @@ Deploy the approved migrations, functions, and frontend following `Docs/PRODUCTI
 - Gmail Edge switch: `false`
 - Automatic customer contact Edge and database switches: `false`
 - Manager-aging notice Edge switch: `false`
-- Gmail retention GitHub, Edge, and database switches: `false`
+- Gmail retention database policy: armed for the approved 180-day sanitized-copy period; GitHub and Edge runtime switches: `false` (recurring cleanup is dormant)
 - GPT triage GitHub switch: `false`
 - GPT triage Edge switch: `false`
 - GPT triage database switch: `false`

@@ -16,7 +16,7 @@ Verified on 2026-08-12: the production Hub OAuth profile resolves exactly to `in
 - To support mapped-manager CC, raw To/CC recipient addresses may exist only in the service-only message/delivery record and authorized review preview for the minimum operational period. They follow the same approved 180-day Gmail-copy purge and may not be copied into durable audit payloads.
 - Customer-visible recipient and CC lists are computed at send time and are not copied into logs, health output, GitHub evidence, or browser-visible service payloads beyond the authorized message review surface.
 - Authorization revocation or disablement affects only Gmail intake/replies. Hosted-form intake and manual refund work remain available.
-- Retention cleanup is an independent local-data lane. Its GitHub, Edge, and database owner-approval gates remain off by default; once all three are deliberately enabled, Gmail sync may stay off and OAuth revocation must not prevent eligible local cleanup.
+- Retention cleanup is an independent local-data lane. Its database policy is armed for the approved 180-day sanitized-copy period, while its GitHub and Edge runtime gates remain off, so recurring cleanup is dormant. When both runtime gates are deliberately enabled, Gmail sync may stay off and OAuth revocation must not prevent eligible local cleanup.
 
 ## Future crash-safe quarantine and retention contract
 
