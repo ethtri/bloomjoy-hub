@@ -34,6 +34,8 @@ assert.match(library, /if \(gmailDisabled\)[\s\S]*database\.close/u);
 assert.doesNotMatch(library, /logger\([^\n]*(?:caseId|authorizationId|runToken|userAccessToken)/u);
 
 assert.match(clients, /refund-case-message-send/u);
+assert.match(clients, /client\.on\('error', \(\) => \{/u);
+assert.match(clients, /failureState\.failed/u);
 assert.match(clients, /\/database\/backups/u);
 assert.match(clients, /status in \('pending_send', 'delivery_unknown'\)/u);
 assert.match(

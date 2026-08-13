@@ -46,6 +46,14 @@ const abortableFetch = async (url, options, code) => {
   }
 };
 
+export const installRedactedDatabaseErrorBoundary = (client) => {
+  const state = { failed: false };
+  client.on('error', () => {
+    state.failed = true;
+  });
+  return state;
+};
+
 const createDatabaseClient = ({ databaseUrl }) => {
   const client = new Client({
     connectionString: databaseUrl,
@@ -55,18 +63,23 @@ const createDatabaseClient = ({ databaseUrl }) => {
     query_timeout: 15_000,
     ssl: { rejectUnauthorized: true },
   });
+  const failureState = installRedactedDatabaseErrorBoundary(client);
   let connected = false;
   const connect = async () => {
+    if (failureState.failed) throw genericFailure('database_connection_failed');
     if (connected) return;
     try {
       await client.connect();
+      if (failureState.failed) throw genericFailure('database_connection_failed');
       connected = true;
     } catch {
       throw genericFailure('database_connect_failed');
     }
   };
   const query = async (text, values = []) => {
+    if (failureState.failed) throw genericFailure('database_connection_failed');
     await connect();
+    if (failureState.failed) throw genericFailure('database_connection_failed');
     try {
       return await client.query({ text, values });
     } catch {

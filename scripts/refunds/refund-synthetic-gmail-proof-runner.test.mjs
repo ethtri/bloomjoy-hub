@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
+import { installRedactedDatabaseErrorBoundary } from './refund-synthetic-gmail-proof-runner-clients.mjs';
 import {
   REFUND_PRODUCTION_PROJECT_REF,
   REFUND_SYNTHETIC_PROOF_LIVE_CONFIRMATION,
@@ -522,6 +524,52 @@ test('final database teardown fails if a customer-contact gate changes during th
   );
   assert.equal(harness.getState().gmailEnabled, false);
   assert.equal(harness.getState().activeAuthorizationCount, 0);
+});
+
+test('idle database socket error during send cannot crash cleanup or retry the send', async () => {
+  const idleClient = new EventEmitter();
+  const databaseFailure = installRedactedDatabaseErrorBoundary(idleClient);
+  let sendCalls = 0;
+  const failIfDatabaseUnavailable = () => {
+    if (databaseFailure.failed) {
+      throw new SyntheticGmailProofRunnerError('database_connection_failed');
+    }
+  };
+  const harness = createHarness({
+    preflightFactory: ({ activeAuthorizationCount, callCount }) => {
+      if (callCount > 1) failIfDatabaseUnavailable();
+      return preflightState(activeAuthorizationCount);
+    },
+    summary: async () => {
+      failIfDatabaseUnavailable();
+      return successfulSummary(true);
+    },
+    close: async () => {
+      failIfDatabaseUnavailable();
+    },
+    send: async () => {
+      sendCalls += 1;
+      assert.doesNotThrow(() => idleClient.emit('error', new Error('private_socket_detail')));
+      return {
+        sent: true,
+        status: 'sent',
+        messageType: 'status_update',
+        transport: 'gmail_thread',
+      };
+    },
+  });
+  await assert.rejects(
+    executeSyntheticGmailProof({
+      config: baseConfig(),
+      clients: harness.clients,
+      tokenFactory: () => TOKEN_SENTINEL,
+    }),
+    (error) => error.code === 'database_connection_failed',
+  );
+  assert.equal(databaseFailure.failed, true);
+  assert.equal(sendCalls, 1);
+  assert.equal(harness.getState().gmailEnabled, false);
+  assert.equal(harness.getState().activeAuthorizationCount, 1);
 });
 
 test('backup proof requires the latest backup to be completed and fresh', () => {
