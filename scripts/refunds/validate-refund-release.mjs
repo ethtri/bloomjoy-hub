@@ -86,7 +86,7 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 41 current required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 49 current required refund\/Nayax migrations/);
 assert.match(
   cutoverPacket,
   /all ten manifest-tracked Refund Operations functions/
