@@ -1,0 +1,106 @@
+#!/usr/bin/env node
+
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const repoRoot = path.resolve(__dirname, '..', '..');
+const read = (relativePath) => fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
+
+const cli = read('scripts/refunds/refund-synthetic-gmail-proof-runner.mjs');
+const clients = read('scripts/refunds/refund-synthetic-gmail-proof-runner-clients.mjs');
+const library = read('scripts/refunds/refund-synthetic-gmail-proof-runner-lib.mjs');
+const portal = read('src/pages/admin/Refunds.tsx');
+const portalClient = read('src/lib/refundOperations.ts');
+const runbook = read('Docs/PRODUCTION_RUNBOOK.md');
+const checklist = read('Docs/QA_SMOKE_TEST_CHECKLIST.md');
+const currentStatus = read('Docs/CURRENT_STATUS.md');
+const envExample = read('.env.example');
+const packageJson = JSON.parse(read('package.json'));
+
+assert.match(library, /ygbzkgxktzqsiygjlqyg/u, 'Runner must pin the exact production project');
+assert.match(library, /RUN_ONE_OWNER_CONTROLLED_SYNTHETIC_GMAIL_PROOF/u);
+assert.match(library, /PREPARE_ONE_OWNER_CONTROLLED_SYNTHETIC_GMAIL_SEND/u);
+assert.match(library, /READ_REDACTED_SYNTHETIC_GMAIL_PROOF/u);
+assert.match(library, /CLOSE_SYNTHETIC_GMAIL_PROOF_WINDOW/u);
+assert.match(library, /randomBytes\(32\)\.toString\('base64url'\)/u);
+assert.match(library, /ensureGmailDisabled/u);
+assert.match(library, /for \(let attempt = 0; attempt < 3; attempt \+= 1\)/u);
+assert.match(library, /if \(gmailDisabled\)[\s\S]*database\.close/u);
+assert.doesNotMatch(library, /logger\([^\n]*(?:caseId|authorizationId|runToken|userAccessToken)/u);
+
+assert.match(clients, /refund-case-message-send/u);
+assert.match(clients, /client\.on\('error', \(\) => \{/u);
+assert.match(clients, /failureState\.failed/u);
+assert.match(clients, /\/database\/backups/u);
+assert.match(clients, /status in \('pending_send', 'delivery_unknown'\)/u);
+assert.match(
+  clients,
+  /JSON\.stringify\(\{\s*caseId,\s*messageType: REFUND_SYNTHETIC_PROOF_MESSAGE_TYPE,\s*syntheticProofRunToken: runToken,\s*\}\)/u,
+  'The live request must have only the exact fixed proof fields',
+);
+assert.doesNotMatch(clients, /REFUND_SYNTHETIC_GMAIL_PROOF_(?:RECIPIENT|SUBJECT|BODY|ENDPOINT)/u);
+assert.doesNotMatch(clients, /env:\s*\{\s*\.\.\.process\.env/u);
+assert.doesNotMatch(cli, /--(?:case|recipient|subject|body|endpoint|token|jwt)/u);
+assert.match(cli, /Use only --mode, --env-file, and --timeout-seconds/u);
+assert.doesNotMatch(cli, /console\.(?:log|error)/u);
+
+assert.doesNotMatch(portal, /syntheticProofRunToken/u);
+assert.doesNotMatch(portalClient, /syntheticProofRunToken/u);
+assert.doesNotMatch(portal, /refundpilot/iu);
+assert.doesNotMatch(portalClient, /refundpilot/iu);
+
+assert.match(runbook, /Do not perform the remaining case-specific proof as a manual dashboard\/portal ceremony/u);
+assert.match(runbook, /--mode dry-run --env-file <private-absolute-path>/u);
+assert.match(runbook, /RUN_ONE_OWNER_CONTROLLED_SYNTHETIC_GMAIL_PROOF/u);
+assert.match(runbook, /backups_read/u);
+assert.match(runbook, /latest completed production backup/u);
+assert.match(runbook, /zero unresolved Gmail outbound/u);
+assert.match(runbook, /do not rerun it/u);
+assert.match(runbook, /leaves the exclusive authorization open/u);
+assert.match(checklist, /refunds:validate-synthetic-gmail-proof-runner/u);
+assert.match(currentStatus, /P0 `#810` tracks the required owner-only one-command runner/u);
+for (const name of [
+  'REFUND_SYNTHETIC_GMAIL_PROOF_PROJECT_REF',
+  'REFUND_SYNTHETIC_GMAIL_PROOF_CONFIRM_PROJECT_REF',
+  'REFUND_SYNTHETIC_GMAIL_PROOF_CASE_ID',
+  'REFUND_SYNTHETIC_GMAIL_PROOF_CONFIRM_CASE_ID',
+  'REFUND_SYNTHETIC_GMAIL_PROOF_DATABASE_URL',
+  'REFUND_SYNTHETIC_GMAIL_PROOF_MANAGEMENT_TOKEN',
+  'REFUND_SYNTHETIC_GMAIL_PROOF_ANON_KEY',
+  'REFUND_SYNTHETIC_GMAIL_PROOF_USER_ACCESS_TOKEN',
+  'REFUND_SYNTHETIC_GMAIL_PROOF_LIVE_CONFIRMATION',
+]) {
+  assert.match(envExample, new RegExp(`^${name}=$`, 'mu'));
+}
+
+assert.equal(
+  packageJson.scripts['refunds:synthetic-gmail-proof'],
+  'node scripts/refunds/refund-synthetic-gmail-proof-runner.mjs',
+);
+assert.equal(
+  packageJson.scripts['refunds:validate-synthetic-gmail-proof-runner'],
+  'node --test scripts/refunds/refund-synthetic-gmail-proof-runner.test.mjs && node scripts/refunds/validate-refund-synthetic-gmail-proof-runner.mjs',
+);
+assert.match(packageJson.scripts.test, /refunds:validate-synthetic-gmail-proof-runner/u);
+
+const sentinel = 'owner_private_cli_secret_never_print_810000';
+const cliPath = path.join(repoRoot, 'scripts', 'refunds', 'refund-synthetic-gmail-proof-runner.mjs');
+const unsafeArgument = spawnSync(process.execPath, [cliPath, `--${sentinel}`], {
+  cwd: repoRoot,
+  encoding: 'utf8',
+  env: { ...process.env, REFUND_SYNTHETIC_GMAIL_PROOF_MANAGEMENT_TOKEN: sentinel },
+});
+assert.equal(unsafeArgument.status, 1);
+assert.match(unsafeArgument.stderr, /"phase":"failed_closed"/u);
+assert.match(unsafeArgument.stderr, /"code":"unsupported_argument"/u);
+assert.doesNotMatch(`${unsafeArgument.stdout}\n${unsafeArgument.stderr}`, new RegExp(sentinel));
+
+console.log('PASS: proof runner is exact-project, exact-case-confirmed, and owner-only');
+console.log('PASS: live payload is one fixed status_update with no recipient/copy/endpoint setter');
+console.log('PASS: try/finally teardown, no-retry send, signal/timeout, and redacted logs are executable');
+console.log('PASS: the customer/manager portal exposes no synthetic proof control');
