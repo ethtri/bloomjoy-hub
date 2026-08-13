@@ -19,9 +19,11 @@ const [
   firstContactHelper,
   retentionMigration,
   attachmentOffCopyGateMigration,
+  syntheticProofMigration,
   gmailHelper,
   retentionHelper,
   gmailTransport,
+  syntheticProofHelper,
   refundEmail,
   managerNotification,
   syncFunction,
@@ -34,6 +36,9 @@ const [
   client,
   preflight,
   transportTest,
+  syntheticProofTest,
+  syntheticProofDbTest,
+  syntheticProofConcurrencyTest,
   firstContactCcTest,
   evidenceHarness,
   packageJson,
@@ -50,9 +55,11 @@ const [
     read('supabase/functions/_shared/refund-first-contact.ts'),
     read('supabase/migrations/202608040002_refund_gmail_retention_safety.sql'),
     read('supabase/migrations/20260812053417_refund_gmail_attachment_off_copy_gate.sql'),
+    read('supabase/migrations/20260812230000_refund_synthetic_gmail_proof_authorization.sql'),
     read('supabase/functions/_shared/refund-gmail.ts'),
     read('supabase/functions/_shared/refund-gmail-retention.ts'),
     read('supabase/functions/_shared/refund-gmail-transport.ts'),
+    read('supabase/functions/_shared/refund-synthetic-gmail-proof.ts'),
     read('supabase/functions/_shared/refund-email.ts'),
     read('supabase/functions/_shared/refund-manager-notification.ts'),
     read('supabase/functions/refund-gmail-sync/index.ts'),
@@ -65,6 +72,9 @@ const [
     read('src/lib/refundOperations.ts'),
     read('scripts/refunds/refund-gmail-preflight.mjs'),
     read('supabase/functions/_shared/refund-gmail-transport.test.ts'),
+    read('supabase/functions/_shared/refund-synthetic-gmail-proof.test.ts'),
+    read('supabase/tests/refund_synthetic_gmail_proof_authorization.sql'),
+    read('supabase/tests/refund_synthetic_gmail_proof_concurrency.sql'),
     read('supabase/tests/refund_gmail_first_contact_manager_cc.sql'),
     read('scripts/refunds/generate-refund-gmail-evidence.ts'),
     read('package.json'),
@@ -1396,6 +1406,107 @@ assert(
   !adminUpdate.includes('sendRefundManagerActionNotice') &&
     !sendFunction.includes('sendRefundManagerActionNotice'),
   'Completion and ordinary customer-message paths must not emit a duplicate manager-only completion notice',
+);
+
+const proofAuthorizationCall = sendFunction.indexOf(
+  'authorizeRefundSyntheticGmailProof({',
+);
+const proofMessageInsert = sendFunction.indexOf(
+  '.from("refund_case_messages")',
+  proofAuthorizationCall,
+);
+const proofBindingCall = sendFunction.indexOf(
+  'bindRefundSyntheticGmailProofMessage({',
+  proofMessageInsert,
+);
+const proofTransportCall = sendFunction.indexOf(
+  'dispatchRefundCaseGmailReply({',
+  proofBindingCall,
+);
+assert(
+  proofAuthorizationCall >= 0 &&
+    proofMessageInsert > proofAuthorizationCall &&
+    proofBindingCall > proofMessageInsert &&
+    proofTransportCall > proofBindingCall &&
+    sendFunction.includes('runToken: body?.syntheticProofRunToken') &&
+    sendFunction.includes('defaultTemplateOnly: !triageSuggestionId') &&
+    sendFunction.includes('syntheticProofAuthorizationId: syntheticProof.authorizationId'),
+  'The case-message Edge path must reject outside the proof boundary before insert, then bind before transport',
+);
+const proofTransportVerification = gmailTransport.indexOf(
+  'verifyRefundSyntheticGmailProofTransport({',
+);
+assert(
+  proofTransportVerification >= 0 &&
+    proofTransportVerification < gmailTransport.indexOf('.from("refund_gmail_threads")') &&
+    proofTransportVerification < gmailTransport.indexOf('getRefundGmailConfig()') &&
+    proofTransportVerification < gmailTransport.indexOf(
+      'service_claim_refund_gmail_outbound_v3',
+    ) &&
+    proofTransportVerification < gmailTransport.indexOf(
+      'sendRefundGmailReply({',
+    ) &&
+    gmailTransport.includes(
+      'config.mailbox.trim().toLowerCase() !== "info@bloomjoysweets.com"',
+    ) &&
+    gmailTransport.includes('syntheticProof.expectedManagerCount') &&
+    gmailTransport.includes('syntheticProof.managerRouteDigest'),
+  'Exclusive proof transport verification must precede link/config/OAuth/claim/send and pin Info plus the complete route',
+);
+assert(
+  syntheticProofMigration.includes(
+    'refund_synthetic_gmail_proof_one_unclosed_idx',
+  ) &&
+    syntheticProofMigration.includes('where cancelled_at is null') &&
+    syntheticProofMigration.includes(
+      "^etrifari\\+refundpilot([._-][a-z0-9][a-z0-9._-]{0,48})?@bloomjoysweets\\.com$",
+    ) &&
+    syntheticProofMigration.includes("expires_at <= prepared_at + interval '5 minutes'") &&
+    syntheticProofMigration.includes('expected_message_type = \'status_update\'') &&
+    syntheticProofMigration.includes('baseline_global_case_message_count') &&
+    syntheticProofMigration.includes("'activeAuthorizationCount'") &&
+    syntheticProofMigration.includes("'proofPassed'") &&
+    syntheticProofMigration.includes("'payloadRedacted', true"),
+  'The private database boundary must allow only one short owner-controlled status send with redacted pre/post and teardown evidence',
+);
+assert(
+  syntheticProofMigration.includes(
+    'revoke all on table public.refund_synthetic_gmail_proof_authorizations',
+  ) &&
+    syntheticProofMigration.includes(
+      'from public, anon, authenticated, service_role',
+    ) &&
+    !syntheticProofMigration.includes('p_recipient_email text,\n  p_expires_at') &&
+    !syntheticProofMigration.includes('p_expected_manager_emails') &&
+    !syntheticProofMigration.includes('p_manager_route_digest'),
+  'No browser or service caller can set an arbitrary proof case, recipient, manager route, or expiry',
+);
+assert(
+  syntheticProofHelper.includes('RUN_TOKEN_PATTERN') &&
+    syntheticProofHelper.includes('await sha256Hex(normalizedToken)') &&
+    syntheticProofHelper.includes('if (normalizedToken) throw proofError("unexpected_token")') &&
+    syntheticProofTest.includes('JSON.stringify(calls).includes(RUN_TOKEN), false') &&
+    syntheticProofTest.includes('invalid or missing opaque token is never forwarded in clear text'),
+  'The proof run token must be opaque, hashed before RPC, and never logged or persisted in clear text',
+);
+assert(
+  transportTest.includes('before link lookup, claim, OAuth, or send') &&
+    transportTest.includes('approved one-shot synthetic proof pins one original-thread send') &&
+    transportTest.includes('changed manager route after claim and before OAuth or send') &&
+    syntheticProofDbTest.includes('Rejected proof requests create zero case messages') &&
+    syntheticProofDbTest.includes('The approved path adds no attachment') &&
+    syntheticProofDbTest.includes('Final teardown verifies every exclusive proof gate is closed') &&
+    syntheticProofConcurrencyTest.includes(
+      'Exactly one of two concurrent sessions consumes the one-shot authorization',
+    ),
+  'Executable Edge, database, and two-session tests must cover reject-before-send, one approved send, no attachments, replay, and teardown',
+);
+assert(
+  !ui.includes('syntheticProofRunToken') &&
+    !client.includes('syntheticProofRunToken') &&
+    !ui.includes('refundpilot') &&
+    !client.includes('refundpilot'),
+  'The manager portal and client expose no arbitrary synthetic proof target or token setter',
 );
 
 console.log('Refund Gmail validation passed: default-off zero-call transport shutdown, label-only intake, idempotent no-CC pre-mapping acknowledgement, private email-to-form linkage, participant-safe original threading, current mapped-manager CC for case-specific mail, deterministic follow-ups, bounce recovery, retention, health, and least-privilege boundaries are present.');

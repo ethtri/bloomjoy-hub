@@ -84,15 +84,27 @@ class FakeLinkQuery {
 const fakeSupabase = ({
   link,
   rpc,
+  proofVerification,
 }: {
   link: Record<string, unknown> | null;
   rpc: (name: string, args: Record<string, unknown>) => Promise<{
     data: unknown;
     error: null;
   }>;
+  proofVerification?: Record<string, unknown>;
 }) => ({
   from: () => new FakeLinkQuery(link),
-  rpc,
+  rpc: (name: string, args: Record<string, unknown>) =>
+    name === "service_verify_refund_synthetic_gmail_proof_transport"
+      ? Promise.resolve({
+        data: proofVerification ?? {
+          required: false,
+          allowed: true,
+          status: "not_required",
+        },
+        error: null,
+      })
+      : rpc(name, args),
 });
 
 const email = {
@@ -313,6 +325,269 @@ Deno.test("automatic-contact shutdown remains independent and stops before Gmail
   );
 });
 
+Deno.test("exclusive synthetic proof rejects an unrelated transport before link lookup, claim, OAuth, or send", async () => {
+  await withEnvironment(
+    { ...SYNTHETIC_ENV, REFUND_GMAIL_ENABLED: "true" },
+    async () => {
+      let linkLookups = 0;
+      let claimCalls = 0;
+      let fetchCalls = 0;
+      const supabase = {
+        from: () => {
+          linkLookups += 1;
+          return new FakeLinkQuery(null);
+        },
+        rpc: async (name: string) => {
+          if (
+            name === "service_verify_refund_synthetic_gmail_proof_transport"
+          ) {
+            return {
+              data: {
+                required: true,
+                allowed: false,
+                status: "authorization_mismatch",
+              },
+              error: null,
+            };
+          }
+          if (name === "service_claim_refund_gmail_outbound_v3") {
+            claimCalls += 1;
+          }
+          throw new Error(`unexpected proof rejection RPC: ${name}`);
+        },
+      };
+
+      await withFetch(
+        async () => {
+          fetchCalls += 1;
+          throw new Error("rejected synthetic proof attempted provider access");
+        },
+        async () => {
+          let caught: unknown = null;
+          try {
+            await dispatchRefundCaseGmailReply({
+              supabase: supabase as never,
+              refundCaseId: "79850000-0000-4000-8000-000000000099",
+              refundCaseMessageId: "79860000-0000-4000-8000-000000000099",
+              recipientEmail: "real-customer@example.test",
+              email,
+              deliveryKind: "manual",
+            });
+          } catch (error) {
+            caught = error;
+          }
+          assert(caught instanceof RefundGmailError);
+          assertEquals(
+            caught.code,
+            "synthetic_proof_authorization_mismatch",
+          );
+        },
+      );
+
+      assertEquals(linkLookups, 0);
+      assertEquals(claimCalls, 0);
+      assertEquals(fetchCalls, 0);
+    },
+  );
+});
+
+Deno.test("approved one-shot synthetic proof pins one original-thread send", async () => {
+  await withEnvironment(
+    {
+      ...SYNTHETIC_ENV,
+      GMAIL_SUPPORT_MAILBOX: "info@bloomjoysweets.com",
+      GMAIL_SUPPORT_SEND_AS_ALIASES:
+        "support@bloomjoysweets.com,refunds@bloomjoysweets.com",
+      REFUND_GMAIL_ENABLED: "true",
+    },
+    async () => {
+      const authorizationId = "79880000-0000-4000-8000-000000000001";
+      const threadRecordId = "79890000-0000-4000-8000-000000000001";
+      const providerThreadId = "synthetic-proof-provider-thread";
+      const mailboxHash = await sha256Hex("info@bloomjoysweets.com");
+      const managerRouteDigest = await sha256Hex(
+        "proof-manager@example.test",
+      );
+      let claimCalls = 0;
+      let finishCalls = 0;
+      let gmailCalls = 0;
+      const supabase = fakeSupabase({
+        link: { id: threadRecordId, mailbox_hash: mailboxHash },
+        proofVerification: {
+          required: true,
+          allowed: true,
+          status: "authorized",
+          gmailThreadId: threadRecordId,
+          expectedManagerCount: 1,
+          managerRouteDigest,
+        },
+        rpc: async (name, args) => {
+          if (name === "service_claim_refund_gmail_outbound_v3") {
+            claimCalls += 1;
+            assertEquals(args.p_target_gmail_thread_id, threadRecordId);
+            return {
+              data: {
+                linked: true,
+                claimed: true,
+                status: "pending_send",
+                transportMessageId: "79870000-0000-4000-8000-000000000099",
+                providerThreadId,
+                subject: email.subject,
+                inReplyTo: "<synthetic-proof-source@example.test>",
+                references: "<synthetic-proof-source@example.test>",
+                recipientResolutionStatus: "resolved",
+                managerCcEmails: ["proof-manager@example.test"],
+              },
+              error: null,
+            };
+          }
+          if (name === "service_finish_refund_gmail_outbound") {
+            finishCalls += 1;
+            return { data: true, error: null };
+          }
+          throw new Error(`unexpected approved proof RPC: ${name}`);
+        },
+      });
+
+      await withFetch(
+        async (input) => {
+          const url = typeof input === "string"
+            ? input
+            : input instanceof URL
+            ? input.href
+            : input.url;
+          if (url.includes("oauth2.googleapis.com/token")) {
+            return new Response(
+              JSON.stringify({
+                access_token: "synthetic-access",
+                expires_in: 3600,
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            );
+          }
+          if (
+            url.includes("gmail.googleapis.com/gmail/v1/users/me/messages/send")
+          ) {
+            gmailCalls += 1;
+            return new Response(
+              JSON.stringify({
+                id: "synthetic-proof-message",
+                threadId: providerThreadId,
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            );
+          }
+          throw new Error(`unexpected approved proof URL: ${url}`);
+        },
+        async () => {
+          const result = await dispatchRefundCaseGmailReply({
+            supabase: supabase as never,
+            refundCaseId: "79850000-0000-4000-8000-000000000098",
+            refundCaseMessageId: "79860000-0000-4000-8000-000000000098",
+            recipientEmail: "proof-customer@example.test",
+            email,
+            deliveryKind: "manual",
+            syntheticProofAuthorizationId: authorizationId,
+          });
+          assertEquals(result.usedGmail, true);
+          assertEquals(result.managerCcCount, 1);
+        },
+      );
+
+      assertEquals(claimCalls, 1);
+      assertEquals(finishCalls, 1);
+      assertEquals(gmailCalls, 1);
+    },
+  );
+});
+
+Deno.test("synthetic proof rejects a changed manager route after claim and before OAuth or send", async () => {
+  await withEnvironment(
+    {
+      ...SYNTHETIC_ENV,
+      GMAIL_SUPPORT_MAILBOX: "info@bloomjoysweets.com",
+      GMAIL_SUPPORT_SEND_AS_ALIASES:
+        "support@bloomjoysweets.com,refunds@bloomjoysweets.com",
+      REFUND_GMAIL_ENABLED: "true",
+    },
+    async () => {
+      const authorizationId = "79880000-0000-4000-8000-000000000002";
+      const threadRecordId = "79890000-0000-4000-8000-000000000002";
+      const mailboxHash = await sha256Hex("info@bloomjoysweets.com");
+      const expectedRouteDigest = await sha256Hex(
+        "proof-manager@example.test",
+      );
+      let finishCalls = 0;
+      let fetchCalls = 0;
+      const supabase = fakeSupabase({
+        link: { id: threadRecordId, mailbox_hash: mailboxHash },
+        proofVerification: {
+          required: true,
+          allowed: true,
+          status: "authorized",
+          gmailThreadId: threadRecordId,
+          expectedManagerCount: 1,
+          managerRouteDigest: expectedRouteDigest,
+        },
+        rpc: async (name) => {
+          if (name === "service_claim_refund_gmail_outbound_v3") {
+            return {
+              data: {
+                linked: true,
+                claimed: true,
+                status: "pending_send",
+                transportMessageId: "79870000-0000-4000-8000-000000000098",
+                providerThreadId: "synthetic-proof-provider-thread",
+                subject: email.subject,
+                inReplyTo: "<synthetic-proof-source@example.test>",
+                references: "<synthetic-proof-source@example.test>",
+                recipientResolutionStatus: "resolved",
+                managerCcEmails: ["changed-manager@example.test"],
+              },
+              error: null,
+            };
+          }
+          if (name === "service_finish_refund_gmail_outbound") {
+            finishCalls += 1;
+            return { data: true, error: null };
+          }
+          throw new Error(`unexpected manager-route RPC: ${name}`);
+        },
+      });
+
+      let caught: unknown = null;
+      await withFetch(
+        async () => {
+          fetchCalls += 1;
+          throw new Error("manager-route rejection attempted provider access");
+        },
+        async () => {
+          try {
+            await dispatchRefundCaseGmailReply({
+              supabase: supabase as never,
+              refundCaseId: "79850000-0000-4000-8000-000000000097",
+              refundCaseMessageId: "79860000-0000-4000-8000-000000000097",
+              recipientEmail: "proof-customer@example.test",
+              email,
+              deliveryKind: "manual",
+              syntheticProofAuthorizationId: authorizationId,
+            });
+          } catch (caughtError) {
+            caught = caughtError;
+          }
+        },
+      );
+      assert(caught instanceof RefundGmailError);
+      assertEquals(
+        caught.code,
+        "synthetic_proof_manager_route_changed",
+      );
+      assertEquals(finishCalls, 1);
+      assertEquals(fetchCalls, 0);
+    },
+  );
+});
+
 Deno.test("enabled linked delivery preserves exact thread, customer To, two manager CCs, and automatic reply MIME", async () => {
   await withEnvironment(
     { ...SYNTHETIC_ENV, REFUND_GMAIL_ENABLED: "true" },
@@ -378,7 +653,8 @@ Deno.test("enabled linked delivery preserves exact thread, customer To, two mana
             url.includes("gmail.googleapis.com/gmail/v1/users/me/messages/send")
           ) {
             gmailCalls += 1;
-            providerRequest = JSON.parse(String(init?.body ?? "{}"));
+            const requestBody = init && "body" in init ? init.body : null;
+            providerRequest = JSON.parse(String(requestBody ?? "{}"));
             return new Response(
               JSON.stringify({
                 id: "synthetic-provider-message",

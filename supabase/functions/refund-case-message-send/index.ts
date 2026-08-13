@@ -23,6 +23,10 @@ import {
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
 import { validateRefundGptReviewedDraft } from "../_shared/refund-gpt-triage-policy.mjs";
 import { validateRefundCustomerMessageRequest } from "../_shared/refund-evidence-selection.ts";
+import {
+  authorizeRefundSyntheticGmailProof,
+  bindRefundSyntheticGmailProofMessage,
+} from "../_shared/refund-synthetic-gmail-proof.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -46,7 +50,8 @@ const sanitizeText = (value: unknown, maxLength = 800) =>
     : "";
 
 const isUuid = (value: string) =>
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i.test(value);
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    .test(value);
 
 type OneOrMany<T> = T | T[] | null | undefined;
 
@@ -357,6 +362,18 @@ serve(async (req) => {
       }
     }
 
+    const syntheticProof = await authorizeRefundSyntheticGmailProof({
+      supabase,
+      refundCaseId: refundCase.id,
+      recipientEmail: refundCase.customer_email,
+      runToken: body?.syntheticProofRunToken,
+      messageType,
+      defaultTemplateOnly: !triageSuggestionId &&
+        suppliedMissingFields.length === 0 &&
+        !requestedSubject &&
+        !requestedBody,
+    });
+
     const { data: messageRow, error: messageError } = await supabase
       .from("refund_case_messages")
       .insert({
@@ -381,6 +398,15 @@ serve(async (req) => {
 
     if (messageError) throw messageError;
 
+    if (syntheticProof.required) {
+      await bindRefundSyntheticGmailProofMessage({
+        supabase,
+        authorizationId: syntheticProof.authorizationId,
+        refundCaseId: refundCase.id,
+        refundCaseMessageId: messageRow.id,
+      });
+    }
+
     try {
       const gmailDelivery = await dispatchRefundCaseGmailReply({
         supabase,
@@ -389,6 +415,8 @@ serve(async (req) => {
         recipientEmail: refundCase.customer_email,
         email,
         deliveryKind: "manual",
+        gmailThreadId: syntheticProof.gmailThreadId,
+        syntheticProofAuthorizationId: syntheticProof.authorizationId,
       });
       if (!gmailDelivery.usedGmail) {
         await sendTransactionalEmail({

@@ -78,7 +78,10 @@ check(
     followUpMigration.includes('p_target_gmail_thread_id') &&
     followUpMigration.includes('from public, anon, authenticated, service_role') &&
     gmailTransport.includes('service_claim_refund_gmail_outbound_v3') &&
-    gmailTransport.includes('p_target_gmail_thread_id: gmailThreadId') &&
+    gmailTransport.includes('p_target_gmail_thread_id: targetGmailThreadId') &&
+    gmailTransport.includes(
+      'verifyRefundSyntheticGmailProofTransport({',
+    ) &&
     sweep.includes('resolveFollowUpGmailThreadId')
 );
 check(

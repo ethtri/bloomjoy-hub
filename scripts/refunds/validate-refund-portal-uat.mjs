@@ -1865,6 +1865,12 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'Machine setup controls are hidden from the refund workflow',
     (await page.getByText('Machine Managers').count()) === 0
   );
+  recorder.assert(
+    'Owner-only Gmail proof controls are absent from the manager portal',
+    (await page.locator('[name="syntheticProofRunToken"]').count()) === 0 &&
+      (await page.getByText(/refundpilot/i).count()) === 0 &&
+      !(await page.locator('body').innerText()).includes('syntheticProofRunToken')
+  );
 
   const officialActionCallsBeforeLinkNavigation = functionCalls.filter((name) =>
     name === 'nayax-card-refund' || name === 'refund-case-admin-update'
