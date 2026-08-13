@@ -127,9 +127,9 @@ const reviewedManagerSourceSha256 = {
 };
 const deployedManagerSourceSha256 = {
   'refund-manager-action-step-up':
-    '5f98adb0346837b1129271a9415091f064c4cc12cca0bb9ed6443bb33259938d',
+    'cd147f13796e0218512a281e38271ed1f1fbd2ad8aad947b10dda8d1f8336278',
   'refund-manager-totp-enrollment':
-    'aba46b82064ab5b26f31cf02349f24db780797a8aff3970dea1ef6f8996a93ca',
+    'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
 };
 
 try {
@@ -210,7 +210,7 @@ try {
         Number.isInteger(localEntry.production.version) &&
         localEntry.production.version > 0 &&
       localEntry.production.sourceSha256 === deployedManagerSourceSha256[managerSlug],
-      `${managerSlug} must preserve the last deployed production source pairing until this reviewed candidate is deployed`
+      `${managerSlug} must preserve the independently reviewed production source pairing`
     );
     assert.deepEqual(
       baselineEntry,
