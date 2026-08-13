@@ -25,6 +25,7 @@ import {
   requiredFunctionSlugs,
   sanitizeProductionMetadata,
   validateManifestShape,
+  validateHistoricalPreMigrationCompatibilityEntries,
   validatePreMigrationCompatibilitySource,
   validateReleaseManifestGitAnchorState,
 } from './refund-release.mjs';
@@ -213,23 +214,28 @@ try {
     ),
     'The historical production bridge must exclude the outcome-resolution migration applied after capture'
   );
-  validatePreMigrationCompatibilitySource(repoRoot, repositoryManifest);
   const currentProductionMayAdvance = structuredClone(repositoryManifest);
   currentProductionMayAdvance.functions[0].production.sourceSha256 = 'a'.repeat(64);
   validatePreMigrationCompatibilitySource(repoRoot, currentProductionMayAdvance);
+  const historicalSourceBySlug = new Map(
+    repositoryManifest.preDeploymentProduction.map((entry) => [
+      entry.slug,
+      entry.sourceSha256,
+    ])
+  );
 
   for (const [label, mutate, expectedFailure] of [
     [
       'missing historical entry',
       (manifest) => manifest.preDeploymentProduction.pop(),
-      /preDeploymentProduction function allowlist is invalid/,
+      /historical baseline function allowlist is invalid/,
     ],
     [
       'duplicate historical entry',
       (manifest) => {
         manifest.preDeploymentProduction[1].slug = manifest.preDeploymentProduction[0].slug;
       },
-      /preDeploymentProduction function allowlist is invalid/,
+      /historical baseline function allowlist is invalid/,
     ],
     [
       'non-ACTIVE historical entry',
@@ -266,7 +272,11 @@ try {
     const invalidHistoricalManifest = structuredClone(repositoryManifest);
     mutate(invalidHistoricalManifest);
     assert.throws(
-      () => validatePreMigrationCompatibilitySource(repoRoot, invalidHistoricalManifest),
+      () => validateHistoricalPreMigrationCompatibilityEntries({
+        functions: invalidHistoricalManifest.functions,
+        preDeploymentProduction: invalidHistoricalManifest.preDeploymentProduction,
+        historicalSourceBySlug,
+      }),
       expectedFailure,
       `${label} must fail the historical pre-migration bridge closed`
     );

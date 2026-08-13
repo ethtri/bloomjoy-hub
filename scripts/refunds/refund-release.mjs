@@ -120,16 +120,25 @@ export const calculateFunctionSource = (rootDirectory, slug) => {
   };
 };
 
-const readGitFileAtCommit = (rootDirectory, commit, repositoryPath) => {
+const readGitFileAtCommit = (rootDirectory, commit, repositoryPath, sourceCache) => {
+  const cacheKey = `${commit}:${repositoryPath}`;
+  if (sourceCache?.has(cacheKey)) return sourceCache.get(cacheKey);
   const result = spawnSync('git', ['show', `${commit}:${repositoryPath}`], {
     cwd: rootDirectory,
     encoding: 'utf8',
     windowsHide: true,
   });
-  return result.status === 0 ? normalizeText(result.stdout) : null;
+  const source = result.status === 0 ? normalizeText(result.stdout) : null;
+  sourceCache?.set(cacheKey, source);
+  return source;
 };
 
-export const calculateFunctionSourceAtGitCommit = (rootDirectory, commit, slug) => {
+export const calculateFunctionSourceAtGitCommit = (
+  rootDirectory,
+  commit,
+  slug,
+  { sourceCache = new Map() } = {}
+) => {
   assert(gitCommitPattern.test(commit), 'Source Git commit must be a full 40-character SHA');
   const functionsRoot = 'supabase/functions';
   const entrypoint = `${functionsRoot}/${slug}/index.ts`;
@@ -145,7 +154,7 @@ export const calculateFunctionSourceAtGitCommit = (rootDirectory, commit, slug) 
       `Relative import escapes supabase/functions for ${slug}`
     );
 
-    const source = readGitFileAtCommit(rootDirectory, commit, currentFile);
+    const source = readGitFileAtCommit(rootDirectory, commit, currentFile, sourceCache);
     assert(source !== null, `Missing Edge Function source at ${commit.slice(0, 12)}: ${currentFile}`);
     visited.add(currentFile);
     sourceByPath.set(currentFile, source);
@@ -163,7 +172,8 @@ export const calculateFunctionSourceAtGitCommit = (rootDirectory, commit, slug) 
             `${unresolved}/index.ts`,
           ];
       const dependency = candidates.find(
-        (candidate) => readGitFileAtCommit(rootDirectory, commit, candidate) !== null
+        (candidate) =>
+          readGitFileAtCommit(rootDirectory, commit, candidate, sourceCache) !== null
       );
       assert(dependency, `Unresolved relative import ${specifier} at ${commit.slice(0, 12)} in ${currentFile}`);
       pending.push(dependency);
@@ -403,6 +413,7 @@ export const buildLocalReleaseState = (rootDirectory, manifest) => {
     'Required migrations do not match every refund/Nayax migration in the repository'
   );
   const verifyJwtConfig = parseFunctionDeploymentConfig(rootDirectory);
+  const committedSourceCache = new Map();
 
   return {
     migrationFilesSha256: calculateMigrationDigest(rootDirectory, manifest.requiredMigrations),
@@ -418,7 +429,8 @@ export const buildLocalReleaseState = (rootDirectory, manifest) => {
         const committedSource = calculateFunctionSourceAtGitCommit(
           rootDirectory,
           manifest.sourceGitCommit,
-          entry.slug
+          entry.slug,
+          { sourceCache: committedSourceCache }
         );
         assert(
           committedSource.sourceSha256 === localSource.sourceSha256,
@@ -435,16 +447,61 @@ export const buildLocalReleaseState = (rootDirectory, manifest) => {
 };
 
 export const validateApprovedRestoreSource = (rootDirectory, manifest) => {
+  const committedSourceCache = new Map();
   for (const entry of manifest.approvedRestoreSource.functions) {
     if (entry.restoreAction === 'disable') continue;
     const committedSource = calculateFunctionSourceAtGitCommit(
       rootDirectory,
       manifest.approvedRestoreSource.sourceGitCommit,
-      entry.slug
+      entry.slug,
+      { sourceCache: committedSourceCache }
     );
     assert(
       committedSource.sourceSha256 === entry.sourceSha256,
       `approvedRestoreSource does not match ${entry.slug}`
+    );
+  }
+};
+
+export const validateHistoricalPreMigrationCompatibilityEntries = ({
+  functions,
+  preDeploymentProduction,
+  historicalSourceBySlug,
+}) => {
+  assert(
+    JSON.stringify(functions.map((entry) => entry.slug)) ===
+      JSON.stringify(requiredFunctionSlugs),
+    'preMigrationCompatibility current function allowlist is invalid'
+  );
+  assert(
+    JSON.stringify(preDeploymentProduction.map((entry) => entry.slug)) ===
+      JSON.stringify(requiredFunctionSlugs),
+    'preMigrationCompatibility historical baseline function allowlist is invalid'
+  );
+  assert(
+    historicalSourceBySlug instanceof Map &&
+      historicalSourceBySlug.size === requiredFunctionSlugs.length &&
+      requiredFunctionSlugs.every((slug) =>
+        digestPattern.test(historicalSourceBySlug.get(slug) ?? '')
+      ),
+    'preMigrationCompatibility historical source map is invalid'
+  );
+
+  for (const entry of functions) {
+    const historicalEntry = preDeploymentProduction.find(
+      (candidate) => candidate.slug === entry.slug
+    );
+    assert(
+      historicalEntry?.status === 'ACTIVE',
+      `preMigrationCompatibility historical baseline must be ACTIVE for ${entry.slug}`
+    );
+    assert(
+      historicalEntry.verifyJwt === entry.verifyJwt && historicalEntry.importMap === false,
+      `preMigrationCompatibility historical security pairing does not match ${entry.slug}`
+    );
+    assert(
+      historicalSourceBySlug.get(entry.slug) === historicalEntry.sourceSha256,
+      `preMigrationCompatibility source commit does not match the historical baseline for ${entry.slug}`
     );
   }
 };
@@ -464,33 +521,23 @@ export const validatePreMigrationCompatibilitySource = (rootDirectory, manifest)
     'preMigrationCompatibility migration set differs from the approved bridge'
   );
 
-  assert(
-    manifest.preDeploymentProduction.length === requiredFunctionSlugs.length,
-    'preMigrationCompatibility historical baseline function count is invalid'
+  const historicalSourceCache = new Map();
+  const historicalSourceBySlug = new Map(
+    manifest.functions.map((entry) => [
+      entry.slug,
+      calculateFunctionSourceAtGitCommit(
+        rootDirectory,
+        compatibility.sourceGitCommit,
+        entry.slug,
+        { sourceCache: historicalSourceCache }
+      ).sourceSha256,
+    ])
   );
-
-  for (const entry of manifest.functions) {
-    const historicalEntry = manifest.preDeploymentProduction.find(
-      (candidate) => candidate.slug === entry.slug
-    );
-    assert(
-      historicalEntry?.status === 'ACTIVE',
-      `preMigrationCompatibility historical baseline must be ACTIVE for ${entry.slug}`
-    );
-    assert(
-      historicalEntry.verifyJwt === entry.verifyJwt && historicalEntry.importMap === false,
-      `preMigrationCompatibility historical security pairing does not match ${entry.slug}`
-    );
-    const committedSource = calculateFunctionSourceAtGitCommit(
-      rootDirectory,
-      compatibility.sourceGitCommit,
-      entry.slug
-    );
-    assert(
-      committedSource.sourceSha256 === historicalEntry.sourceSha256,
-      `preMigrationCompatibility source commit does not match the historical baseline for ${entry.slug}`
-    );
-  }
+  validateHistoricalPreMigrationCompatibilityEntries({
+    functions: manifest.functions,
+    preDeploymentProduction: manifest.preDeploymentProduction,
+    historicalSourceBySlug,
+  });
 };
 
 export const compareLocalState = (manifest, localState) => {
