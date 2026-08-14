@@ -23,6 +23,8 @@ const cutoverPacket = read('Docs/REFUND_PRODUCTION_CUTOVER_PACKET.md');
 const emailRunbook = read('Docs/REFUND_EMAIL_ASSISTANT_RUNBOOK.md');
 const emailPilotUat = read('Docs/REFUND_EMAIL_PILOT_UAT_SCRIPT.md');
 const gmailDataHandling = read('Docs/REFUND_GMAIL_DATA_HANDLING.md');
+const firstContactCutover = read('Docs/REFUND_GMAIL_FIRST_CONTACT_CUTOVER.md');
+const demoPacket = read('Docs/REFUND_EMAIL_PILOT_DEMO_PACKET.md');
 const currentStatus = read('Docs/CURRENT_STATUS.md');
 const envExample = read('.env.example');
 const packageJson = JSON.parse(read('package.json'));
@@ -100,9 +102,22 @@ assert.match(cutoverPacket, /The case-specific mapped-manager-CC evidence is com
 assert.match(emailPilotUat, /Passed through the reviewed owner-only runner/u);
 assert.match(gmailDataHandling, /bounded owner-controlled proof also passed exactly one case-specific original-thread message/u);
 assert.match(emailRunbook, /Cutover is a sequenced no-overlap handoff/u);
+assert.match(firstContactCutover, /Staffed, sequenced no-overlap production cutover/u);
+assert.match(firstContactCutover, /Keep Hub disabled throughout this verification/u);
+assert.match(firstContactCutover, /Manually review and handle any messages that arrive in the transition interval/u);
+assert.match(demoPacket, /staffed, sequenced no-overlap cutover/u);
 assert.doesNotMatch(
-  [runbook, checklist, cutoverPacket, emailRunbook, emailPilotUat, gmailDataHandling].join('\n'),
-  /remaining case-specific|still-required case-specific|case-specific mapped-manager-CC UAT and the active-cutover gates are pending|Cutover is atomic/iu,
+  [
+    runbook,
+    checklist,
+    cutoverPacket,
+    emailRunbook,
+    emailPilotUat,
+    gmailDataHandling,
+    firstContactCutover,
+    demoPacket,
+  ].join('\n'),
+  /remaining case-specific|still-required case-specific|case-specific mapped-manager-CC UAT and the active-cutover gates are pending|Cutover is atomic|Atomic production cutover|atomic no-overlap cutover/iu,
   'Operational Gmail docs must record the completed case-specific proof and describe only the remaining no-overlap cutover gate',
 );
 assert.match(currentStatus, /P0 `#810` delivered the required owner-only one-command runner/u);

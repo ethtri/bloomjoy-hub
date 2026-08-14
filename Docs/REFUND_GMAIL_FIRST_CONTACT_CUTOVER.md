@@ -77,7 +77,7 @@ Record only the mechanism, owner, enabled/disabled state, affected label/populat
 9. Simulate a known send failure and an uncertain outcome. Confirm both are visible in case history, every guided and advanced reply control is disabled during uncertainty, and sync health stays degraded while rotating through all unresolved operations until deterministic Gmail reconciliation succeeds. For a synthetic genuine no-send outcome, require the latest versioned Gmail search to complete with exactly zero results, inspect the original thread, use the explicit not-delivered confirmation, confirm the actor and redacted resolution event are recorded, and only then send one controlled follow-up. Provider errors, ambiguous results, and stale or in-flight search versions must not permit that confirmation.
 10. Return Hub mode to `disabled` after the isolated window unless the owner has approved the production cutover below.
 
-## Atomic production cutover
+## Staffed, sequenced no-overlap production cutover
 
 All items require recorded evidence on `#688` and linked UAT evidence before active mode:
 
@@ -93,10 +93,10 @@ Within that window:
 
 1. Set Hub mode to `disabled`.
 2. Disable every inventoried legacy sender for the production population.
-3. Verify the legacy sender is disabled using settings state and one synthetic no-response check. Do not infer success from the save click alone.
-4. Record the UTC boundary as `REFUND_GMAIL_FIRST_CONTACT_CUTOVER_AT` so older threads cannot receive a backfilled acknowledgement.
+3. Verify the legacy sender is disabled using settings state and one synthetic no-response check. Do not infer success from the save click alone. Keep Hub disabled throughout this verification.
+4. Record a fresh UTC boundary as `REFUND_GMAIL_FIRST_CONTACT_CUTOVER_AT` so older threads cannot receive a backfilled acknowledgement. Manually review and handle any messages that arrive in the transition interval after the legacy sender is proven off and before Hub becomes active.
 5. Set `REFUND_GMAIL_LEGACY_RESPONDER_DISABLED=true` and `REFUND_GMAIL_FIRST_CONTACT_CUTOVER_APPROVED=true` only after steps 2-4 are proven.
-6. Set mode to `active` for the bounded window.
+6. Only then set mode to `active` for the bounded window.
 7. Send one new synthetic thread and repeat the no-duplicate checks before allowing the normal labeled population.
 8. Monitor aggregate counts and case events. Any nonzero reconciliation-outstanding count must keep Gmail health degraded; never put message content or addresses in logs or GitHub evidence.
 

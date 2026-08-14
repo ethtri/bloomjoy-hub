@@ -64,7 +64,7 @@ Purpose: give the sponsor one review surface for the email-only pilot candidate.
 ## Gates before production
 
 - Controlled inbox script passes with no real customer or payment data.
-- Legacy responder inventory and atomic no-overlap cutover are complete.
+- Legacy responder inventory and the staffed, sequenced no-overlap cutover are complete: Hub stays disabled through legacy-off verification, a fresh UTC boundary is recorded, transition-interval messages are manually reviewed and handled, and only then may Hub be enabled.
 - Primary/backup operating coverage and final triage/reminder service targets are approved.
 - Production mailbox alias/send-as requirement is decided and verified if used.
 - Full active-machine manager coverage, an owner-approved currently mapped manager identity, owner-supervised TOTP enrollment/recovery, retention/privacy, provider contract, live execution, and switch-by-switch go/no-go are recorded. Separate admin access is context only and never substitutes for the exact machine assignment.
