@@ -288,9 +288,15 @@ function writeRefundGmailIntakeShadowAdapterTest(tempRoot) {
   if (/\$[12]\b/u.test(renderedQuery)) {
     throw new Error('Gmail intake-shadow owner postflight parameters were not bound.');
   }
+  const testRelativePath = path.posix.join(
+    'supabase',
+    'tests',
+    'refund_gmail_intake_shadow_owner_adapter.sql',
+  );
   const testPath = path.join(
     tempRoot,
     'supabase',
+    'tests',
     'refund_gmail_intake_shadow_owner_adapter.sql',
   );
   fs.writeFileSync(testPath, `
@@ -306,7 +312,7 @@ ${renderedQuery}
 select * from finish();
 rollback;
 `, 'utf8');
-  return testPath;
+  return { testPath, testRelativePath };
 }
 
 function stopSupabase(tempRoot, debug) {
@@ -379,9 +385,12 @@ async function main() {
     run('supabase', args, { stdio: 'inherit' });
     log('\nSupabase migration apply validation passed.');
 
-    const ownerAdapterTestPath = writeRefundGmailIntakeShadowAdapterTest(tempRoot);
+    const {
+      testPath: ownerAdapterTestPath,
+      testRelativePath: ownerAdapterTestRelativePath,
+    } = writeRefundGmailIntakeShadowAdapterTest(tempRoot);
     const ownerAdapterArgs = [
-      'test', 'db', ownerAdapterTestPath, '--workdir', tempRoot,
+      'test', 'db', ownerAdapterTestRelativePath, '--workdir', tempRoot,
     ];
     if (options.debug) ownerAdapterArgs.push('--debug');
     run('supabase', ownerAdapterArgs, { relayOutput: true });
