@@ -2,9 +2,9 @@
 
 Purpose: provide a single launch-day procedure for Bloomjoy Hub production release and rollback.
 
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 
-Refund release-state note: the manifest's compatibility bridge records the historical ten-function/49-migration default-off foundation as pre-deployment evidence only. The later `#767` outcome-resolution migration and function deployment must remain hard-disabled with zero operator grants. Gmail automation, automatic customer contact, manager reminders, GPT triage, official actions, and live Nayax execution stay off; the production Nayax provider adapter remains statically disabled until its separate reviewed gates pass.
+Refund release-state note: the manifest preserves the historical ten-function/49-migration object only as immutable predeployment evidence. The current strict production release is the reviewed ten-function/50-migration default-off foundation: `#767` outcome resolution is deployed, its database gate is false, and its operator cohort is empty. Gmail automation, automatic customer contact, manager reminders, GPT triage, official actions, and live Nayax execution stay off; the production Nayax provider adapter remains statically disabled until its separate reviewed gates pass.
 
 ## 1) Roles and ownership
 - Release owner: coordinates launch window and final go/no-go call.
@@ -262,7 +262,7 @@ Before deploying reporting functions, confirm Step B has completed and `supabase
 
 After applying the reviewed migrations, rerun `supabase db push --dry-run` and require zero pending migrations before deploying dependent Refund Operations functions.
 
-Before deploying Refund Operations functions, run `npm run refunds:release:check`. For the unmerged candidate, deploy only the ten explicitly listed refund functions from the final reviewed release worktree. Keep official actions statically false, keep the production Nayax adapter disabled, and keep `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` unset. Issue `#430` requires a separate implementation/contract review and controlled go/no-go; this candidate cannot be turned live by setting an environment value.
+Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit. Revalidate the manifest and transitive source binding immediately before deployment. Keep all activation gates off, keep official actions statically false, keep the production Nayax adapter disabled, and keep `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` unset. Issue `#430` requires a separate implementation/contract review and controlled go/no-go; a reviewed default-off deployment cannot be turned live by setting an environment value alone.
 
 ```bash
 supabase functions deploy stripe-sugar-checkout --no-verify-jwt

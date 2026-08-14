@@ -208,7 +208,7 @@ Every case-specific customer-facing refund message requires a resolved machine a
 - Do not trigger on bounces, mailing lists, bulk/automated messages, outbound messages, or later replies.
 - Use standard automatic-response suppression headers.
 - A known send failure becomes visible retry work. Uncertain delivery is reconciled and never retried blindly.
-- While the legacy responder remains authoritative, the Hub runs in "would send" shadow mode with no outbound delivery. Any active-send proof uses an isolated synthetic test mailbox or label that the legacy responder cannot see.
+- While the legacy responder remains authoritative, the Hub runs in "would send" shadow mode with no Hub customer first-contact Gmail delivery. New ingestion may still create a Hub case and send the deterministic internal action-needed notice to the resolved current manager route or the operations fallback; the customer is never a recipient of that internal notice. A pilot that requires literally zero outbound delivery needs a separately reviewed suppression gate; documentation alone cannot provide it. Any active-send proof uses an isolated synthetic test mailbox or label that the legacy responder cannot see.
 - Cutover is atomic: disable and verify the legacy sender first, then enable the Hub sender for a bounded synthetic check. At no point may both responders be active for the same thread population.
 - Keep a documented instant rollback that disables the Hub sender before re-enabling the legacy sender, so only one responder is ever active.
 
@@ -216,7 +216,7 @@ Every case-specific customer-facing refund message requires a resolved machine a
 
 Use one permanent Gmail intake label owned by mailbox configuration, such as `Refund Operations`. The Hub reads only that explicit label.
 
-The production and isolated pilot labels were verified on 2026-08-12. The isolated label/sender population and responder exclusion passed for the bounded synthetic first-contact test; that does not authorize the production label or broad polling. Normal customer mail remains under the legacy responder until the remaining case-specific CC proof and explicit cutover approval pass.
+The production and isolated pilot labels were verified on 2026-08-12. The isolated label/sender population and responder exclusion passed for the bounded synthetic first-contact test; that does not authorize the production label or broad polling. The owner-controlled case-specific original-thread proof has also passed with exactly one case message, one Gmail outbound, the complete current mapped-manager CC route, and zero unresolved delivery. Normal customer mail remains under the legacy responder until explicit production-label and legacy-responder cutover approval passes.
 
 The Hub - not Gmail sublabels - is authoritative for operational state:
 
@@ -317,11 +317,11 @@ The evidence finalizer rejects stale, missing, extra, malformed, duplicate-image
 
 ## Production gates that remain open
 
-- one bounded case-specific original-thread reply proving the complete current mapped-manager CC route, followed by production-label/legacy-responder cutover and rollback approval (`#634`, `#686`, `#688`);
+- production-label/legacy-responder cutover and rollback approval (`#634`, `#686`, `#688`); the bounded case-specific original-thread reply with the complete current mapped-manager CC route is already proved;
 - owner-supervised mapped-manager TOTP enrollment and recovery ownership after the default-closed self-only enrollment control in `#782` is reviewed and deployed; official actions remain hard-off;
 - one staffed synthetic reminder/escalation plus manager-visible health and teardown under `#632`; the alert/replay/disabled-lane plumbing proof has passed, but schedules remain off;
 - a Bloomjoy-project-only Edge Functions Read credential and successful protected `main` drift run under `#768`; until then, use the owner-controlled local read-only release check and never store a broad owner PAT;
 - OpenAI retention/data-control approval for GPT (`#635`);
-- Nayax account-specific write contract, the audited provider-outcome resolution path in `#767`, and one owner-supervised capped live pilot (`#430`);
+- Nayax account-specific write contract, activation of the deployed default-off audited provider-outcome resolution foundation, and one owner-supervised capped live pilot (`#430`);
 - alternative compensation decision (`#666`);
 - assigned-scope production UAT with a clean Machine Manager-only persona and final legacy-cutover approval. The exact dual-role mapping predicate is deployed and verified, but personal TOTP/provider action UAT is still pending.
