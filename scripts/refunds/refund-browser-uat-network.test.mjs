@@ -4,13 +4,16 @@ import test from 'node:test';
 
 import {
   closeUatSuiteResources,
+  closeUatSuiteResourcesAfterPageDrain,
   createTrackedUatBrowser,
   describeFailedUatRequest,
   describeFailedUatResponse,
   evaluateUatSuiteFailures,
   getUatPageFailures,
   isFixtureOwnedUatRequestFailure,
+  navigateUatPageAfterDrain,
   redactUatRequestTarget,
+  waitForUatPageRequestDrain,
 } from './refund-browser-uat-network.mjs';
 
 const APP_URL = 'http://127.0.0.1:8081';
@@ -128,7 +131,11 @@ test('an unrelated 404 and a network failure are never ignored', () => {
   );
 });
 
-const createMockPage = () => new EventEmitter();
+const createMockPage = ({ evaluate } = {}) => {
+  const page = new EventEmitter();
+  page.evaluate = evaluate ?? (async () => new Promise((resolve) => setImmediate(resolve)));
+  return page;
+};
 
 const createMockBrowser = () => {
   const contexts = [];
@@ -285,6 +292,381 @@ test('a labelled abort is allowed only while its owning context is closing', asy
   assert.deepEqual(failures, [
     'NETWORK_FAILED ERR_ABORTED POST fetch [loopback]/rest/v1/rpc/[redacted]',
   ]);
+});
+
+test('request drain resets when a late script starts and waits for it to finish', async () => {
+  const boundaries = [];
+  const { browser, contexts } = createMockBrowser();
+  const trackedBrowser = createTrackedUatBrowser(browser, {
+    appUrl: APP_URL,
+    failures: [],
+  });
+  const context = await trackedBrowser.newContext();
+  const page = await context.newPage();
+  page.evaluate = async () => new Promise((resolve) => boundaries.push(resolve));
+
+  let drained = false;
+  const draining = waitForUatPageRequestDrain(page, { timeout: 500 }).then(() => {
+    drained = true;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(boundaries.length, 1);
+
+  const lateScript = mockRequest({
+    url: `${APP_URL}/src/pages/admin/Refunds.tsx`,
+    resourceType: 'script',
+    page,
+  });
+  contexts[0].emit('request', lateScript);
+  boundaries.shift()();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(drained, false);
+
+  contexts[0].emit('requestfinished', lateScript);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(boundaries.length, 1);
+  boundaries.shift()();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(drained, false);
+  assert.equal(boundaries.length, 1);
+  boundaries.shift()();
+  await draining;
+  assert.equal(drained, true);
+});
+
+test('request drain resets when a request starts after the first stable boundary', async () => {
+  const boundaries = [];
+  const { browser, contexts } = createMockBrowser();
+  const trackedBrowser = createTrackedUatBrowser(browser, {
+    appUrl: APP_URL,
+    failures: [],
+  });
+  const context = await trackedBrowser.newContext();
+  const page = await context.newPage();
+  page.evaluate = async () => new Promise((resolve) => boundaries.push(resolve));
+
+  let drained = false;
+  const draining = waitForUatPageRequestDrain(page, { timeout: 500 }).then(() => {
+    drained = true;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  boundaries.shift()();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(boundaries.length, 1);
+  assert.equal(drained, false);
+
+  const lateScript = mockRequest({
+    url: `${APP_URL}/src/pages/admin/Refunds.tsx`,
+    resourceType: 'script',
+    page,
+  });
+  contexts[0].emit('request', lateScript);
+  boundaries.shift()();
+  contexts[0].emit('requestfinished', lateScript);
+  await new Promise((resolve) => setImmediate(resolve));
+  boundaries.shift()();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(drained, false);
+  boundaries.shift()();
+  await draining;
+  assert.equal(drained, true);
+});
+
+test('request ledger captures an initial request before the page event', async () => {
+  const { browser, contexts } = createMockBrowser();
+  const trackedBrowser = createTrackedUatBrowser(browser, {
+    appUrl: APP_URL,
+    failures: [],
+  });
+  await trackedBrowser.newContext();
+
+  const popup = createMockPage();
+  const initialDocument = mockRequest({
+    url: `${APP_URL}/refunds`,
+    resourceType: 'document',
+    page: popup,
+  });
+  contexts[0].emit('request', initialDocument);
+  contexts[0].emit('page', popup);
+
+  let drained = false;
+  const draining = waitForUatPageRequestDrain(popup, { timeout: 100 }).then(() => {
+    drained = true;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(drained, false);
+  contexts[0].emit('requestfinished', initialDocument);
+  await draining;
+  assert.equal(drained, true);
+});
+
+test('request drain times out when a request never finishes', async () => {
+  const { browser, contexts } = createMockBrowser();
+  const trackedBrowser = createTrackedUatBrowser(browser, {
+    appUrl: APP_URL,
+    failures: [],
+  });
+  const context = await trackedBrowser.newContext();
+  const page = await context.newPage();
+  contexts[0].emit('request', mockRequest({ page, resourceType: 'script' }));
+
+  await assert.rejects(
+    waitForUatPageRequestDrain(page, { timeout: 20 }),
+    /refund_uat_request_drain_timeout/
+  );
+});
+
+test('request drain fails closed after a request failure', async () => {
+  const failures = [];
+  const { browser, contexts } = createMockBrowser();
+  const trackedBrowser = createTrackedUatBrowser(browser, { appUrl: APP_URL, failures });
+  const context = await trackedBrowser.newContext();
+  const page = await context.newPage();
+  const failed = mockRequest({
+    page,
+    resourceType: 'script',
+    failure: { errorText: 'net::ERR_ABORTED' },
+  });
+  contexts[0].emit('request', failed);
+  contexts[0].emit('requestfailed', failed);
+
+  await assert.rejects(
+    waitForUatPageRequestDrain(page),
+    /refund_uat_request_failed_before_drain/
+  );
+  assert.deepEqual(failures, ['NETWORK_FAILED ERR_ABORTED GET script /[redacted.svg]']);
+});
+
+test('only an exact fixture-owned expected failure remains drain-eligible', async () => {
+  const exactPath = '/functions/v1/refund-case-intake';
+  const createExpectedPredicate = (ownedRequests) => (request) =>
+    isFixtureOwnedUatRequestFailure(request, {
+      ownedRequests,
+      failureCode: 'ERR_FAILED',
+      method: 'POST',
+      resourceType: 'fetch',
+      validateRequest: (candidate) => new URL(candidate.url()).pathname === exactPath,
+    });
+
+  const expectedFailures = [];
+  const expectedOwned = new WeakSet();
+  const expectedFixture = createMockBrowser();
+  const expectedBrowser = createTrackedUatBrowser(expectedFixture.browser, {
+    appUrl: APP_URL,
+    failures: expectedFailures,
+    isExpectedRequestFailure: createExpectedPredicate(expectedOwned),
+  });
+  const expectedContext = await expectedBrowser.newContext();
+  const expectedPage = await expectedContext.newPage();
+  const expected = mockRequest({
+    url: `http://127.0.0.1:54321${exactPath}`,
+    method: 'POST',
+    resourceType: 'fetch',
+    failure: { errorText: 'net::ERR_FAILED' },
+    page: expectedPage,
+  });
+  expectedOwned.add(expected);
+  expectedFixture.contexts[0].emit('request', expected);
+  expectedFixture.contexts[0].emit('requestfailed', expected);
+  await waitForUatPageRequestDrain(expectedPage);
+  assert.deepEqual(expectedFailures, []);
+
+  const wrongShapes = [
+    { owned: false },
+    { owned: true, failure: { errorText: 'net::ERR_ABORTED' } },
+    { owned: true, method: 'GET' },
+    { owned: true, resourceType: 'xhr' },
+  ];
+  for (const shape of wrongShapes) {
+    const failures = [];
+    const ownedRequests = new WeakSet();
+    const fixture = createMockBrowser();
+    const trackedBrowser = createTrackedUatBrowser(fixture.browser, {
+      appUrl: APP_URL,
+      failures,
+      isExpectedRequestFailure: createExpectedPredicate(ownedRequests),
+    });
+    const context = await trackedBrowser.newContext();
+    const page = await context.newPage();
+    const request = mockRequest({
+      url: `http://127.0.0.1:54321${exactPath}`,
+      method: shape.method ?? 'POST',
+      resourceType: shape.resourceType ?? 'fetch',
+      failure: shape.failure ?? { errorText: 'net::ERR_FAILED' },
+      page,
+    });
+    if (shape.owned) ownedRequests.add(request);
+    fixture.contexts[0].emit('request', request);
+    fixture.contexts[0].emit('requestfailed', request);
+
+    await assert.rejects(
+      waitForUatPageRequestDrain(page),
+      /refund_uat_request_failed_before_drain/
+    );
+    assert.equal(failures.length, 1);
+  }
+});
+
+test('an exact close-only failure does not poison the page request ledger', async () => {
+  const failures = [];
+  const ownedRequests = new WeakSet();
+  const { browser, contexts } = createMockBrowser();
+  const trackedBrowser = createTrackedUatBrowser(browser, {
+    appUrl: APP_URL,
+    failures,
+    isExpectedClosingRequestFailure: (request) =>
+      ownedRequests.has(request) &&
+      request.failure()?.errorText === 'net::ERR_ABORTED' &&
+      request.method() === 'POST' &&
+      request.resourceType() === 'fetch',
+  });
+  const context = await trackedBrowser.newContext();
+  const page = await context.newPage();
+  const closingAbort = mockRequest({
+    url: 'http://127.0.0.1:54321/rest/v1/rpc/read_only_fixture',
+    method: 'POST',
+    resourceType: 'fetch',
+    failure: { errorText: 'net::ERR_ABORTED' },
+    page,
+  });
+  ownedRequests.add(closingAbort);
+  contexts[0].close = async () => {
+    contexts[0].emit('request', closingAbort);
+    contexts[0].emit('requestfailed', closingAbort);
+  };
+
+  await context.close();
+  await waitForUatPageRequestDrain(page);
+  assert.deepEqual(failures, []);
+});
+
+test('browser-boundary evaluation errors are normalized without raw detail', async () => {
+  const { browser } = createMockBrowser();
+  const trackedBrowser = createTrackedUatBrowser(browser, {
+    appUrl: APP_URL,
+    failures: [],
+  });
+  const context = await trackedBrowser.newContext();
+  const page = await context.newPage();
+  page.evaluate = async () => {
+    throw new Error('private browser and request detail');
+  };
+
+  await assert.rejects(
+    waitForUatPageRequestDrain(page),
+    (error) => error.message === 'refund_uat_request_drain_boundary_failed'
+  );
+});
+
+test('unobserved finish and failure events do not mutate the ledger but still record globally', async () => {
+  const failures = [];
+  const boundaries = [];
+  const { browser, contexts } = createMockBrowser();
+  const trackedBrowser = createTrackedUatBrowser(browser, { appUrl: APP_URL, failures });
+  const context = await trackedBrowser.newContext();
+  const page = await context.newPage();
+  page.evaluate = async () => new Promise((resolve) => boundaries.push(resolve));
+
+  const draining = waitForUatPageRequestDrain(page, { timeout: 500 });
+  await new Promise((resolve) => setImmediate(resolve));
+  contexts[0].emit('requestfinished', mockRequest({ page, resourceType: 'script' }));
+  boundaries.shift()();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  contexts[0].emit('requestfailed', mockRequest({
+    page,
+    resourceType: 'script',
+    failure: { errorText: 'net::ERR_ABORTED' },
+  }));
+  boundaries.shift()();
+  await draining;
+
+  assert.deepEqual(failures, ['NETWORK_FAILED ERR_ABORTED GET script /[redacted.svg]']);
+});
+
+test('request ledgers remain independent across pages in one context', async () => {
+  const { browser, contexts } = createMockBrowser();
+  const trackedBrowser = createTrackedUatBrowser(browser, {
+    appUrl: APP_URL,
+    failures: [],
+  });
+  const context = await trackedBrowser.newContext();
+  const first = await context.newPage();
+  const second = await context.newPage();
+  contexts[0].emit('request', mockRequest({ page: first, resourceType: 'script' }));
+
+  await waitForUatPageRequestDrain(second, { timeout: 100 });
+  await assert.rejects(
+    waitForUatPageRequestDrain(first, { timeout: 20 }),
+    /refund_uat_request_drain_timeout/
+  );
+});
+
+test('late image completion blocks deliberate navigation until the ledger drains', async () => {
+  const { browser, contexts } = createMockBrowser();
+  const trackedBrowser = createTrackedUatBrowser(browser, {
+    appUrl: APP_URL,
+    failures: [],
+  });
+  const context = await trackedBrowser.newContext();
+  const page = await context.newPage();
+  const navigations = [];
+  page.goto = async (...args) => {
+    navigations.push(args);
+    return 'navigated';
+  };
+  const lateImage = mockRequest({
+    url: `${APP_URL}/src/assets/logo.png`,
+    resourceType: 'image',
+    page,
+  });
+  contexts[0].emit('request', lateImage);
+
+  const navigating = navigateUatPageAfterDrain(
+    page,
+    `${APP_URL}/admin/machines?demo=on`,
+    { waitUntil: 'networkidle' },
+    { timeout: 100 }
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(navigations, []);
+  contexts[0].emit('requestfinished', lateImage);
+
+  assert.equal(await navigating, 'navigated');
+  assert.deepEqual(navigations, [[
+    `${APP_URL}/admin/machines?demo=on`,
+    { waitUntil: 'networkidle' },
+  ]]);
+});
+
+test('incomplete pre-teardown request fails generically and both closes still run last', async () => {
+  const { browser, contexts } = createMockBrowser();
+  const trackedBrowser = createTrackedUatBrowser(browser, {
+    appUrl: APP_URL,
+    failures: [],
+  });
+  const context = await trackedBrowser.newContext();
+  const page = await context.newPage();
+  const closeOrder = [];
+  contexts[0].close = async () => closeOrder.push('context');
+  browser.close = async () => closeOrder.push('browser');
+  contexts[0].emit('request', mockRequest({
+    url: `${APP_URL}/src/assets/logo.png`,
+    resourceType: 'image',
+    page,
+  }));
+
+  const closing = closeUatSuiteResourcesAfterPageDrain({
+    page,
+    context,
+    browser,
+    drainOptions: { timeout: 20 },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(closeOrder, []);
+
+  assert.deepEqual(await closing, ['PAGE_REQUEST_DRAIN_FAILED']);
+  assert.deepEqual(closeOrder, ['context', 'browser']);
 });
 
 test('a close-time network failure is visible before the suite aggregate is evaluated', async () => {

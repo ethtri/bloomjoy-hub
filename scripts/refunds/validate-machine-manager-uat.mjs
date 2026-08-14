@@ -4,10 +4,11 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import {
-  closeUatSuiteResources,
+  closeUatSuiteResourcesAfterPageDrain,
   createTrackedUatBrowser,
   evaluateUatSuiteFailures,
   getUatPageFailures,
+  navigateUatPageAfterDrain,
 } from './refund-browser-uat-network.mjs';
 
 const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
@@ -632,7 +633,11 @@ const run = async () => {
     const savePayloadBeforeDemo = JSON.stringify(state.savePayload);
     state.rpcCalls.length = 0;
 
-    await page.goto(`${args.appUrl}/admin/machines?demo=on`, { waitUntil: 'networkidle' });
+    await navigateUatPageAfterDrain(
+      page,
+      `${args.appUrl}/admin/machines?demo=on`,
+      { waitUntil: 'networkidle' }
+    );
     await page.getByText('DEMO DATA - visual review only').waitFor({ timeout: 10000 });
     await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Edit' }).click();
     await page.getByRole('heading', { name: 'Machine Managers' }).waitFor({ timeout: 10000 });
@@ -674,7 +679,11 @@ const run = async () => {
     });
 
   } finally {
-    teardownFailures = await closeUatSuiteResources({ context, browser });
+    teardownFailures = await closeUatSuiteResourcesAfterPageDrain({
+      page,
+      context,
+      browser,
+    });
   }
 
   const suiteFailures = evaluateUatSuiteFailures({

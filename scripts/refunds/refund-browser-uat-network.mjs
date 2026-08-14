@@ -36,7 +36,121 @@ const SAFE_EXACT_PATHS = new Set([
 ]);
 const SAFE_FILE_EXTENSION = /\.(css|gif|html|ico|jpe?g|js|json|map|mjs|mp4|png|svg|ts|tsx|ttf|webmanifest|webp|woff2?)$/i;
 const pageNetworkFailures = new WeakMap();
+const pageRequestLedgers = new WeakMap();
 const SYNTHETIC_RESOURCE_HEADER = 'x-bloomjoy-uat-synthetic-resource';
+const REQUIRED_STABLE_REQUEST_BOUNDARIES = 2;
+
+const ensurePageRequestLedger = (page) => {
+  if (!pageRequestLedgers.has(page)) {
+    pageRequestLedgers.set(page, {
+      activeRequests: new Set(),
+      failedRequestCount: 0,
+      generation: 0,
+      listeners: new Set(),
+    });
+  }
+  return pageRequestLedgers.get(page);
+};
+
+const publishLedgerChange = (ledger) => {
+  ledger.generation += 1;
+  for (const listener of [...ledger.listeners]) listener();
+};
+
+const waitForLedgerChange = (ledger, timeout) => {
+  let timer;
+  let listener;
+  const promise = new Promise((resolve, reject) => {
+    listener = () => {
+      clearTimeout(timer);
+      ledger.listeners.delete(listener);
+      resolve('changed');
+    };
+    ledger.listeners.add(listener);
+    timer = setTimeout(() => {
+      ledger.listeners.delete(listener);
+      reject(new Error('refund_uat_request_drain_timeout'));
+    }, timeout);
+  });
+  return {
+    promise,
+    cancel: () => {
+      clearTimeout(timer);
+      ledger.listeners.delete(listener);
+    },
+  };
+};
+
+const waitForBrowserTaskAndRenderBoundary = async (page, timeout) => {
+  let timer;
+  try {
+    try {
+      await Promise.race([
+        page.evaluate(() => new Promise((resolve) => {
+          requestAnimationFrame(() => setTimeout(resolve, 0));
+        })),
+        new Promise((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('refund_uat_request_drain_timeout')),
+            timeout
+          );
+        }),
+      ]);
+    } catch {
+      throw new Error('refund_uat_request_drain_boundary_failed');
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+export const waitForUatPageRequestDrain = async (page, { timeout = 10_000 } = {}) => {
+  const ledger = pageRequestLedgers.get(page);
+  if (!ledger) throw new Error('refund_uat_request_ledger_missing');
+
+  const deadline = Date.now() + timeout;
+  let stableBoundaryCount = 0;
+  while (Date.now() < deadline) {
+    if (ledger.failedRequestCount > 0) {
+      throw new Error('refund_uat_request_failed_before_drain');
+    }
+
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    if (ledger.activeRequests.size > 0) {
+      stableBoundaryCount = 0;
+      await waitForLedgerChange(ledger, remaining).promise;
+      continue;
+    }
+
+    const stableGeneration = ledger.generation;
+    const change = waitForLedgerChange(ledger, remaining);
+    let boundaryCompleted = false;
+    try {
+      const outcome = await Promise.race([
+        waitForBrowserTaskAndRenderBoundary(page, remaining).then(() => 'boundary'),
+        change.promise,
+      ]);
+      boundaryCompleted = outcome === 'boundary';
+    } finally {
+      change.cancel();
+    }
+
+    if (
+      boundaryCompleted &&
+      ledger.failedRequestCount === 0 &&
+      ledger.activeRequests.size === 0 &&
+      ledger.generation === stableGeneration
+    ) {
+      stableBoundaryCount += 1;
+      if (stableBoundaryCount >= REQUIRED_STABLE_REQUEST_BOUNDARIES) return;
+      continue;
+    }
+    stableBoundaryCount = 0;
+  }
+
+  throw new Error('refund_uat_request_drain_timeout');
+};
 
 const redactUnknownSegment = (segment) => {
   const extension = segment.match(SAFE_FILE_EXTENSION)?.[0]?.toLowerCase();
@@ -228,6 +342,30 @@ export const closeUatSuiteResources = async ({ context, browser }) => {
   return teardownFailures;
 };
 
+const collectUatPageDrainFailures = async (page, options) => {
+  try {
+    await waitForUatPageRequestDrain(page, options);
+    return [];
+  } catch {
+    return ['PAGE_REQUEST_DRAIN_FAILED'];
+  }
+};
+
+export const navigateUatPageAfterDrain = async (page, url, gotoOptions, drainOptions) => {
+  await waitForUatPageRequestDrain(page, drainOptions);
+  return page.goto(url, gotoOptions);
+};
+
+export const closeUatSuiteResourcesAfterPageDrain = async ({
+  page,
+  context,
+  browser,
+  drainOptions,
+}) => [
+  ...await collectUatPageDrainFailures(page, drainOptions),
+  ...await closeUatSuiteResources({ context, browser }),
+];
+
 export const evaluateUatSuiteFailures = ({
   networkFailures,
   consoleErrors,
@@ -269,6 +407,7 @@ export const createTrackedUatBrowser = (
     if (!page || trackedPages.has(page)) return page;
     trackedPages.add(page);
     if (!pageNetworkFailures.has(page)) pageNetworkFailures.set(page, []);
+    ensurePageRequestLedger(page);
     return page;
   };
 
@@ -292,13 +431,38 @@ export const createTrackedUatBrowser = (
   const wrapContext = async (context) => {
     let isClosing = false;
     await installSyntheticExternalResources(context);
+    context.on('request', (request) => {
+      const page = pageForRequest(request);
+      if (!page) return;
+      const ledger = ensurePageRequestLedger(attachPage(page));
+      if (!ledger.activeRequests.has(request)) {
+        ledger.activeRequests.add(request);
+        publishLedgerChange(ledger);
+      }
+    });
+    context.on('requestfinished', (request) => {
+      const page = pageForRequest(request);
+      if (!page) return;
+      const ledger = ensurePageRequestLedger(attachPage(page));
+      if (ledger.activeRequests.delete(request)) publishLedgerChange(ledger);
+    });
     context.on('response', (response) => {
       if (safelyExpected(isExpectedResponse, response)) return;
       record(describeFailedUatResponse(response, appUrl), response.request());
     });
     context.on('requestfailed', (request) => {
-      if (safelyExpected(isExpectedRequestFailure, request)) return;
-      if (isClosing && safelyExpected(isExpectedClosingRequestFailure, request)) return;
+      const isExpected =
+        safelyExpected(isExpectedRequestFailure, request) ||
+        (isClosing && safelyExpected(isExpectedClosingRequestFailure, request));
+      const page = pageForRequest(request);
+      if (page) {
+        const ledger = ensurePageRequestLedger(attachPage(page));
+        if (ledger.activeRequests.delete(request)) {
+          if (!isExpected) ledger.failedRequestCount += 1;
+          publishLedgerChange(ledger);
+        }
+      }
+      if (isExpected) return;
       record(describeFailedUatRequest(request, appUrl), request);
     });
     context.on('page', attachPage);

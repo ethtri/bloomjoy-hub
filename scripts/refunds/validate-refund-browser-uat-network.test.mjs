@@ -34,7 +34,13 @@ const sources = (source = coveredSource) => Object.fromEntries(
         labelFixtureOwnedPortalRpc(route, 'public_refund_machine_options');
       `
       : `${source}
-        teardownFailures = await closeUatSuiteResources({ context, browser });
+        await page.goto(appUrl);
+        await navigateUatPageAfterDrain(page, appUrl + '/admin/machines?demo=on', { waitUntil: 'networkidle' });
+        teardownFailures = await closeUatSuiteResourcesAfterPageDrain({
+          page,
+          context,
+          browser,
+        });
         const suiteFailures = evaluateUatSuiteFailures({});
         recorder.assert(
           'No browser console/page/network or teardown errors during mocked Machine Manager QA pass',
@@ -84,12 +90,25 @@ test('Machine Manager must evaluate and assert its aggregate only after teardown
   const unsafe = sources();
   unsafe['validate-machine-manager-uat.mjs'] = unsafe['validate-machine-manager-uat.mjs']
     .replace(
-      'teardownFailures = await closeUatSuiteResources({ context, browser });',
+      'teardownFailures = await closeUatSuiteResourcesAfterPageDrain({',
       'teardownFailures = [];'
     );
   assert.match(
     validateRefundBrowserUatNetworkCoverage(unsafe).join(' | '),
     /suite aggregate must be evaluated and asserted after teardown/
+  );
+});
+
+test('Machine Manager deliberate navigation must use the request-drain boundary', () => {
+  const unsafe = sources();
+  unsafe['validate-machine-manager-uat.mjs'] = unsafe['validate-machine-manager-uat.mjs']
+    .replace(
+      "await navigateUatPageAfterDrain(page, appUrl + '/admin/machines?demo=on', { waitUntil: 'networkidle' });",
+      "await page.goto(appUrl + '/admin/machines?demo=on', { waitUntil: 'networkidle' });"
+    );
+  assert.match(
+    validateRefundBrowserUatNetworkCoverage(unsafe).join(' | '),
+    /deliberate demo navigation is missing.*only the initial blank-page navigation/s
   );
 });
 

@@ -49,7 +49,9 @@ export const validateRefundBrowserUatNetworkCoverage = (sources) => {
       failures.push(`${filename}: obsolete Machine Manager-only helper remains`);
     }
     if (filename === 'validate-machine-manager-uat.mjs') {
-      const teardownIndex = source.indexOf('teardownFailures = await closeUatSuiteResources({ context, browser });');
+      const teardownIndex = source.indexOf(
+        'teardownFailures = await closeUatSuiteResourcesAfterPageDrain({'
+      );
       const aggregateIndex = source.indexOf('const suiteFailures = evaluateUatSuiteFailures({');
       const assertionIndex = source.indexOf(
         "'No browser console/page/network or teardown errors during mocked Machine Manager QA pass'"
@@ -60,6 +62,12 @@ export const validateRefundBrowserUatNetworkCoverage = (sources) => {
         assertionIndex < aggregateIndex
       ) {
         failures.push(`${filename}: suite aggregate must be evaluated and asserted after teardown`);
+      }
+      if (!/navigateUatPageAfterDrain\([\s\S]*?\/admin\/machines\?demo=on[\s\S]*?waitUntil: 'networkidle'/s.test(source)) {
+        failures.push(`${filename}: deliberate demo navigation is missing the request-drain boundary`);
+      }
+      if (countMatches(source, /await page\.goto\(/g) !== 1) {
+        failures.push(`${filename}: only the initial blank-page navigation may call page.goto directly`);
       }
     }
     if (filename === 'validate-refund-qr-intake-uat.mjs') {

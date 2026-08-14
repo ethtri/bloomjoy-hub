@@ -13,6 +13,9 @@ import {
   navigateRefundPortalPage,
   reloadRefundPortalPage,
   settleRefundPortalPage,
+  waitForRefundPortalDemoAccessReads,
+  waitForRefundPortalRouteCommitted,
+  withRefundPortalContext,
 } from './refund-portal-uat-lifecycle.mjs';
 import {
   createTrackedUatBrowser,
@@ -5201,15 +5204,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
 };
 
 const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
-  const context = await browser.newContext({
-    viewport: { width: 1440, height: 1000 },
-  });
-  const rpcCalls = [];
-  await installMockSupabaseRoutes(context, { refundOverview: buildEmptyRefundOverview, rpcCalls });
-
-  let page = await context.newPage();
   const consoleErrors = [];
-
   const trackErrors = (targetPage) => {
     targetPage.on('console', (message) => {
       if (shouldRecordConsoleError(message)) {
@@ -5220,96 +5215,100 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
       consoleErrors.push(error.message);
     });
   };
+  const createDemoContext = () => browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  const openSignedInDemoPage = async (context, rpcCalls, initialPath) => {
+    await installMockSupabaseRoutes(context, { refundOverview: buildEmptyRefundOverview, rpcCalls });
+    const page = await context.newPage();
+    trackErrors(page);
+    let accessReadBarrier;
+    await signInRefundUser(page, appUrl, initialPath, () => {
+      accessReadBarrier = waitForRefundPortalDemoAccessReads(page);
+    });
+    if (!accessReadBarrier) throw new Error('refund_portal_demo_access_read_barrier_missing');
+    await accessReadBarrier;
+    await waitForRefundPortalRouteCommitted(page);
+    return page;
+  };
 
-  trackErrors(page);
-  await signInRefundUser(page, appUrl);
-  await closeRefundPortalPage(page);
+  await withRefundPortalContext(createDemoContext, async (context) => {
+    const rpcCalls = [];
+    const page = await openSignedInDemoPage(context, rpcCalls, '/refunds?demo=on');
+    await page.getByText('DEMO DATA - visual review only').waitFor({ timeout: 10000 });
 
-  rpcCalls.length = 0;
-  page = await context.newPage();
-  trackErrors(page);
-  await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=on`, { waitUntil: 'networkidle' });
-  await page.getByText('DEMO DATA - visual review only').waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Explicit local demo mode shows read-only visual cases',
+      await page.getByText('1 visible of 3 total cases').isVisible()
+    );
+    recorder.assert(
+      'Demo visual review keeps waiting cases out of the needs-action queue',
+      (await page.getByText('RF-UAT-CARD').count()) > 0 &&
+        (await page.getByText('RF-UAT-WAIT').count()) === 0
+    );
 
-  recorder.assert(
-    'Explicit local demo mode shows read-only visual cases',
-    await page.getByText('1 visible of 3 total cases').isVisible()
-  );
-  recorder.assert(
-    'Demo visual review keeps waiting cases out of the needs-action queue',
-    (await page.getByText('RF-UAT-CARD').count()) > 0 &&
-      (await page.getByText('RF-UAT-WAIT').count()) === 0
-  );
+    const demoQueueFilter = page.getByLabel('Filter refund cases by status');
+    await demoQueueFilter.selectOption('waiting_on_customer');
+    await page.getByText('1 visible of 3 total cases').waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Demo visual review shows waiting cases in their dedicated queue',
+      (await page.getByText('RF-UAT-WAIT').count()) > 0 &&
+        (await page.getByText('RF-UAT-CARD').count()) === 0
+    );
+    await demoQueueFilter.selectOption('needs_action');
+    await page.getByText('1 visible of 3 total cases').waitFor({ timeout: 10000 });
 
-  const demoQueueFilter = page.getByLabel('Filter refund cases by status');
-  await demoQueueFilter.selectOption('waiting_on_customer');
-  await page.getByText('1 visible of 3 total cases').waitFor({ timeout: 10000 });
-  recorder.assert(
-    'Demo visual review shows waiting cases in their dedicated queue',
-    (await page.getByText('RF-UAT-WAIT').count()) > 0 &&
-      (await page.getByText('RF-UAT-CARD').count()) === 0
-  );
-  await demoQueueFilter.selectOption('needs_action');
-  await page.getByText('1 visible of 3 total cases').waitFor({ timeout: 10000 });
+    await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
+    await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Demo Nayax execution action is disabled',
+      (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+        await page.getByTestId('refund-action-status').isVisible()
+    );
+    recorder.assert(
+      'Demo hides advanced Nayax rerun action by default',
+      await page.getByText('Transaction search details').isVisible() &&
+        !(await page.getByRole('button', { name: /Refresh result/i }).isVisible())
+    );
+    recorder.assert(
+      'Demo keeps the final refund action safely disabled',
+      (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+        await page.getByTestId('refund-action-status').isVisible() &&
+        (await page.getByTestId('refund-confirmation-dialog').count()) === 0
+    );
 
-  await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
-  await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
+    await page.locator('select').first().selectOption('all');
+    await page.getByText('3 visible of 3 total cases').waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Demo visual review completed cash case appears under All cases',
+      (await page.getByText('RF-UAT-CASH').count()) > 0
+    );
+    await page.screenshot({
+      path: path.join(artifactDir, 'refund-portal-demo-fallback.png'),
+      fullPage: true,
+    });
+    recorder.assert(
+      'Explicit demo mode does not fetch live refund overview RPC data',
+      !rpcCalls.includes('admin_get_refund_operations_overview'),
+      rpcCalls.join(', ')
+    );
+  });
 
-  recorder.assert(
-    'Demo Nayax execution action is disabled',
-    (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-      await page.getByTestId('refund-action-status').isVisible()
-  );
-  recorder.assert(
-    'Demo hides advanced Nayax rerun action by default',
-    await page.getByText('Transaction search details').isVisible() &&
-      !(await page.getByRole('button', { name: /Refresh result/i }).isVisible())
-  );
-  recorder.assert(
-    'Demo keeps the final refund action safely disabled',
-    (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-      await page.getByTestId('refund-action-status').isVisible() &&
-      (await page.getByTestId('refund-confirmation-dialog').count()) === 0
-  );
-
-  await page.locator('select').first().selectOption('all');
-  await page.getByText('3 visible of 3 total cases').waitFor({ timeout: 10000 });
-  recorder.assert(
-    'Demo visual review completed cash case appears under All cases',
-    (await page.getByText('RF-UAT-CASH').count()) > 0
-  );
-
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-portal-demo-fallback.png'),
-    fullPage: true,
+  let demoOffPage;
+  await withRefundPortalContext(createDemoContext, async (context) => {
+    demoOffPage = await openSignedInDemoPage(context, [], '/refunds?demo=off');
+    await demoOffPage.getByText('No refund cases are assigned here yet.').last().waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Demo mode off shows the true empty state',
+      await demoOffPage.getByText('0 visible of 0 total cases').isVisible()
+    );
   });
 
   recorder.assert(
-    'Explicit demo mode does not fetch live refund overview RPC data',
-    !rpcCalls.includes('admin_get_refund_operations_overview'),
-    rpcCalls.join(', ')
-  );
-
-  // Do not replace or close the fully rendered demo document in-place. A fixture
-  // read can still begin after a visible assertion; closing this page would turn
-  // that into a correctly fail-closed open-page abort. Keep it open, render the
-  // demo-off state in a separate page, and settle both under the wrapped context
-  // teardown below.
-  page = await context.newPage();
-  trackErrors(page);
-  await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=off`, { waitUntil: 'networkidle' });
-  await page.getByText('No refund cases are assigned here yet.').last().waitFor({ timeout: 10000 });
-  recorder.assert(
-    'Demo mode off shows the true empty state',
-    await page.getByText('0 visible of 0 total cases').isVisible()
-  );
-  recorder.assert(
     'No browser console/page errors during explicit demo QA pass',
-    getUatPageFailures(page, consoleErrors).length === 0,
-    getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
+    getUatPageFailures(demoOffPage, consoleErrors).length === 0,
+    getUatPageFailures(demoOffPage, consoleErrors).slice(0, 3).join(' | ')
   );
-
-  await closeRefundPortalContext(context);
 };
 
 const run = async () => {
