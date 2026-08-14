@@ -147,8 +147,8 @@ test('owner query registry is closed, immutable, parameterized, and semantic SEL
       authorizeDispatch: '5e8a4950baa2a8cf6e50bd961fe6a2887ec09ac7292d1578f53d1c2a5da3bc41',
       closeDispatch: '69aacf1290242cb3778c51c0ab35accf1ef5037acd19baf4391b6bde9450efb0',
       recoverExpiredDispatches: 'cc3d3d07ea94d7a97c88503014b5e99ff340eb65138b31efc208a55f1152801e',
-      completeDueCleanup: 'b5d8f18e7d1695d98971b7e1c385a4bb175bc5b982d57016f61a19b6d2f42c2a',
-      postflight: '2159c2fac3c3292259c8862454cd2c747e7a516f61d29c83ded7ebf2da2db760',
+      completeDueCleanup: '924503166c03490919d789283f4618187ef31501cd621e3a356ffcb515faf2d0',
+      postflight: '85eb8f02c76f5191b0b38d5364514b16929d56f9ed9756e61efda504900684cb',
     },
   );
   const mutationPattern =
@@ -172,6 +172,32 @@ test('owner query registry is closed, immutable, parameterized, and semantic SEL
   assert.match(snapshots.completeDueCleanup.sql, /owner_complete_due_refund_gmail_intake_shadow_cleanup/u);
   assert.match(snapshots.postflight.sql, /run_key = \$1::text/u);
   assert.match(snapshots.postflight.sql, /can_manage_refund_case\(\$2::uuid/u);
+  assert.match(
+    snapshots.postflight.sql,
+    /select cleanup_task_handle::text from exact_cleanup limit 1/u,
+  );
+  assert.doesNotMatch(snapshots.postflight.sql, /min\(cleanup_task_handle\)/u);
+});
+
+test('a stale completed cleanup handle cannot pass while a newer assignment remains', async () => {
+  let calls = 0;
+  const client = createDatabase(async () => {
+    calls += 1;
+    return response([{
+      database_owner_session: true,
+      completed_now: '0',
+      assigned_overdue: '0',
+      assigned_outstanding: '1',
+      task_found: true,
+      task_status: 'completed',
+      payload_redacted: true,
+    }]);
+  });
+  await assert.rejects(
+    client.completeDueCleanup({ cleanupTaskHandle: CLEANUP_TASK_HANDLE }),
+    (error) => error.code === 'database_cleanup_completion_failed',
+  );
+  assert.equal(calls, 1);
 });
 
 test('database adapter pins project, owner endpoint, owner-role flag, and parameter arrays', async () => {
@@ -203,6 +229,7 @@ test('database adapter pins project, owner endpoint, owner-role flag, and parame
         database_owner_session: true,
         completed_now: '1',
         assigned_overdue: '0',
+        assigned_outstanding: '0',
         task_found: true,
         task_status: 'completed',
         payload_redacted: true,
@@ -314,6 +341,7 @@ test('database adapter rejects wrong project before fetch and re-proves owner on
           database_owner_session: false,
           completed_now: '1',
           assigned_overdue: '0',
+          assigned_outstanding: '0',
           task_found: true,
           task_status: 'completed',
           payload_redacted: true,

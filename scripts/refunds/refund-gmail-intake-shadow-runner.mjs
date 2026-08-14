@@ -64,6 +64,7 @@ try {
     ...(result.mode === 'cleanup-verify' ? {
       completedNow: result.completedNow,
       assignedOverdue: result.assignedOverdue,
+      assignedOutstanding: result.assignedOutstanding,
       taskFound: result.taskFound,
       taskStatus: result.taskStatus,
     } : {}),
@@ -118,6 +119,10 @@ try {
     ...(error instanceof RefundGmailIntakeShadowRunnerError &&
       error.safeDetails.emergencyIndependentClosedStateVerificationRequired === true
       ? { emergencyIndependentClosedStateVerificationRequired: true }
+      : {}),
+    ...(error instanceof RefundGmailIntakeShadowRunnerError &&
+      typeof error.safeDetails.cleanupTaskHandle === 'string'
+      ? { cleanupTaskHandle: error.safeDetails.cleanupTaskHandle }
       : {}),
     payloadRedacted: true,
   })}\n`);

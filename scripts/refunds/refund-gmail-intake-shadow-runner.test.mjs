@@ -287,6 +287,7 @@ const harness = ({
         return {
           completedNow: 1,
           assignedOverdue: 0,
+          assignedOutstanding: 0,
           taskFound: true,
           taskStatus: 'completed',
           payloadRedacted: true,
@@ -645,6 +646,25 @@ test('an unreadable postflight emits outcome_unknown before failing without repl
   assert.equal(sample.calls.filter((call) => call === 'edge.run').length, 1);
 });
 
+test('a known partial incident emits and propagates the PII-free cleanup task handle', async () => {
+  const sample = harness({
+    edgeError: new Error('private timeout response'),
+    postflight: completePostflight({ refundCaseDelta: 2 }),
+  });
+  const logs = [];
+  await assert.rejects(
+    execute(sample, { logger: (entry) => logs.push(entry) }),
+    (error) => {
+      assert.equal(error.code, 'intake_partial_incident');
+      assert.equal(error.safeDetails.cleanupTaskHandle, CLEANUP_TASK_HANDLE);
+      return true;
+    },
+  );
+  assert.equal(logs.at(-1).effectsClassification, 'partial_incident');
+  assert.equal(logs.at(-1).cleanupTaskHandle, CLEANUP_TASK_HANDLE);
+  assert.equal(JSON.stringify(logs).includes('private'), false);
+});
+
 test('a replay-shaped claimed-false response never gets a second Edge POST', async () => {
   const sample = harness({
     edgeResult: { status: 'succeeded', claimed: false, payloadRedacted: true },
@@ -695,6 +715,7 @@ test('dispatch closure cannot exceed two attempts and unknown gate readback neve
     ownerManageableCaseCount: 1,
     earliestRetentionDueAt: '2998-01-01T00:00:00.000Z',
     latestRetentionDueAt: '2998-01-02T00:00:00.000Z',
+    cleanupTaskHandle: CLEANUP_TASK_HANDLE,
   });
   assert.equal(JSON.stringify(logs).includes('private'), false);
 });
@@ -706,7 +727,7 @@ test('two dispatch close failures remain bounded while terminal consumed DB stat
   assert.equal(sample.calls.filter((call) => call === 'edge.run').length, 1);
 });
 
-test('cleanup verification is DB-only and proves no overdue assigned obligation', async () => {
+test('cleanup verification is DB-only and proves zero assigned obligations', async () => {
   const sample = harness();
   const result = await executeRefundGmailIntakeShadow({
     config: config({ mode: 'cleanup-verify', cleanupTaskHandle: CLEANUP_TASK_HANDLE }),
@@ -717,6 +738,7 @@ test('cleanup verification is DB-only and proves no overdue assigned obligation'
     mode: 'cleanup-verify',
     completedNow: 1,
     assignedOverdue: 0,
+    assignedOutstanding: 0,
     taskFound: true,
     taskStatus: 'completed',
     payloadRedacted: true,

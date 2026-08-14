@@ -20,6 +20,7 @@ const intakeTests = read('supabase/functions/refund-gmail-sync/intake-shadow.tes
 const migration = read('supabase/migrations/202608140001_refund_gmail_intake_shadow.sql');
 const dbTests = read('supabase/tests/refund_gmail_intake_shadow.sql');
 const concurrencyTests = read('supabase/tests/refund_gmail_intake_shadow_concurrency.sql');
+const migrationValidator = read('scripts/validate-supabase-migrations.mjs');
 const runbook = read('Docs/REFUND_GMAIL_INTAKE_SHADOW_RUNBOOK.md');
 const emailRunbook = read('Docs/REFUND_EMAIL_ASSISTANT_RUNBOOK.md');
 const checklist = read('Docs/QA_SMOKE_TEST_CHECKLIST.md');
@@ -57,6 +58,7 @@ assert.match(cli, /SIGTERM/u);
 assert.match(cli, /phase: 'failed_closed'/u);
 assert.match(cli, /metadataReconciliationRequired/u);
 assert.match(cli, /closedStateVerified/u);
+assert.match(cli, /error\.safeDetails\.cleanupTaskHandle/u);
 assert.doesNotMatch(cli, /console\.(?:log|error)/u);
 
 assert.match(library, /refund_gmail_retention_v1/u);
@@ -83,6 +85,7 @@ assert.match(library, /exactNoticeCount === 1/u);
 assert.match(library, /exactFirstContactOperationCount === 1/u);
 assert.match(library, /cleanupObligationCount === 1/u);
 assert.match(library, /UUID_PATTERN\.test\(postflight\.cleanupTaskHandle/u);
+assert.match(library, /withCleanupTaskHandle/u);
 assert.match(library, /exactThreadMessageCount === 2/u);
 assert.match(library, /managerNoticeOutboundAttemptDelta !== 0/u);
 assert.match(runnerTests, /unreadable postflight emits outcome_unknown/u);
@@ -92,6 +95,7 @@ assert.match(runnerTests, /bounded idempotent recovery/u);
 assert.match(runnerTests, /delayed terminal state/u);
 assert.match(runnerTests, /cancelled dispatch with no DB run becomes no_effect/u);
 assert.match(runnerTests, /cleanup verification is DB-only/u);
+assert.match(runnerTests, /known partial incident emits and propagates the PII-free cleanup task handle/u);
 assert.match(runnerTests, /expired hard-stop recovery is DB-only/u);
 assert.match(runnerTests, /seeds and re-proves only the closed state/u);
 assert.match(runnerTests, /timed-out initialization performs no retry/u);
@@ -112,6 +116,9 @@ assert.match(clients, /owner_cancel_refund_gmail_intake_shadow_dispatch/u);
 assert.match(clients, /owner_recover_expired_refund_gmail_intake_shadow_dispatches/u);
 assert.match(clients, /owner_complete_due_refund_gmail_intake_shadow_cleanup/u);
 assert.match(clients, /cleanupTaskHandle/u);
+assert.match(clients, /assignedOutstanding/u);
+assert.match(clients, /select cleanup_task_handle::text from exact_cleanup limit 1/u);
+assert.doesNotMatch(clients, /min\(cleanup_task_handle\)/u);
 assert.match(clients, /coalesce\(\(select min\(status\) from exact_dispatch\), 'absent'\)/u);
 assert.match(clients, /exact_first_contact_operation_count/u);
 assert.match(clients, /cleanup_obligation_count/u);
@@ -175,6 +182,11 @@ assert.match(
   /pg_advisory_xact_lock\(\s*hashtextextended\('refund-gmail-intake-shadow-dispatch-authorize', 854\)\s*\)/u,
 );
 assert.match(migration, /refund_gmail_intake_shadow_one_armed_dispatch_idx/u);
+assert.match(migration, /refund_gmail_intake_shadow_dispatch_control/u);
+assert.match(migration, /authorization_requested_at timestamptz := clock_timestamp\(\)/u);
+assert.match(migration, /authorization_requested_at <= last_recovery_at_value/u);
+assert.match(migration, /set last_recovery_at = clock_timestamp\(\)/u);
+assert.match(migration, /expires_at <= clock_timestamp\(\)/u);
 assert.match(migration, /Exact intake-shadow dispatch was already closed or used/u);
 assert.match(migration, /repeat\('0', 64\), statement_timestamp\(\), 'cancelled'/u);
 assert.match(migration, /owner_recover_expired_refund_gmail_intake_shadow_dispatches/u);
@@ -187,6 +199,19 @@ assert.match(migration, /status = 'consumed',[\s\S]*consumed_run_id = run_row\.i
 assert.match(migration, /dispatch_row\.owner_sender_digest/u);
 assert.match(migration, /source_row\.received_at < dispatch_row\.start_at/u);
 assert.match(migration, /owner_complete_due_refund_gmail_intake_shadow_cleanup/u);
+assert.equal(
+  migration.match(/refund-gmail-intake-shadow-cleanup-obligations/g)?.length,
+  2,
+  'Obligation creation and completion must share one fixed global cleanup lock.',
+);
+for (const purgeField of [
+  'sender_name',
+  'provider_message_header',
+  'references_header',
+  'recipient_cc_emails',
+  'recipient_cc_count',
+  'thread_subject',
+]) assert.match(migration, new RegExp(purgeField, 'u'));
 assert.doesNotMatch(migration, /service_record_refund_gmail_intake_shadow_(?:notice|first_contact)/u);
 assert.match(migration, /Hub sent no customer first-contact message/u);
 assert.match(migration, /mailbox_acknowledgement_observed/u);
@@ -194,8 +219,16 @@ assert.match(migration, /later_hub_first_contact_excluded/u);
 assert.match(migration, /revoke execute on function public\.refund_gmail_workflow_run_key_is_valid/u);
 assert.match(migration, /grant execute on function public\.service_complete_refund_gmail_intake_shadow/u);
 assert.match(dbTests, /late gateway worker is rejected after owner cancellation/u);
+assert.match(dbTests, /durable global recovery epoch/u);
+assert.match(dbTests, /Recovery epoch state is RLS-enabled and unavailable/u);
 assert.match(dbTests, /source sender not bound to the consumed authorization/u);
-assert.match(dbTests, /cleanup completion proves both exact messages purged/u);
+assert.match(dbTests, /Cleanup rejects a retained sender name/u);
+assert.match(dbTests, /Cleanup rejects a retained provider message header/u);
+assert.match(dbTests, /Cleanup rejects a retained references header/u);
+assert.match(dbTests, /Cleanup rejects a retained CC address array/u);
+assert.match(dbTests, /Cleanup rejects a retained CC recipient count/u);
+assert.match(dbTests, /Cleanup rejects a retained linked Gmail thread subject/u);
+assert.match(dbTests, /stale completed task handle cannot hide the newer assigned cleanup/u);
 assert.match(dbTests, /different or prior cleanup handle cannot satisfy/u);
 assert.match(dbTests, /superseded caller-trusted notice recorder is absent/u);
 assert.match(dbTests, /durable PII-free assigned cleanup obligation/u);
@@ -207,6 +240,9 @@ assert.match(concurrencyTests, /Exactly one concurrent owner authorization succe
 assert.match(concurrencyTests, /The concurrent loser fails closed before arming a second digest/u);
 assert.match(concurrencyTests, /Concurrency teardown leaves no armed intake-shadow authorization/u);
 assert.match(concurrencyTests, /Delayed authorization cannot arm after close created an absent-row tombstone/u);
+assert.match(concurrencyTests, /Recovery-first ordering rejects the already-pending authorization/u);
+assert.match(migrationValidator, /writeRefundGmailIntakeShadowAdapterTest/u);
+assert.match(migrationValidator, /Exact Gmail intake-shadow owner postflight adapter query executes on PostgreSQL/u);
 
 for (const name of [
   'REFUND_GMAIL_INTAKE_ENABLED',
@@ -241,6 +277,8 @@ assert.match(runbook, /earliest reported expiry/u);
 assert.match(runbook, /verify cleanup after the latest/u);
 assert.match(runbook, /five-minute fresh query lookback is anchored at owner DB authorization/u);
 assert.match(runbook, /random PII-free cleanup task handle/u);
+assert.match(runbook, /assignedOutstanding=0/u);
+assert.match(runbook, /previously completed handle cannot hide newer work/u);
 assert.match(runbook, /--mode cleanup-verify/u);
 assert.match(runbook, /--mode recover-expired/u);
 assert.match(runbook, /no-target function takes the same global advisory lock/iu);

@@ -96,7 +96,10 @@ declare
 begin
   perform extensions.dblink_disconnect('gmail_intake_shadow_race_a');
   perform extensions.dblink_disconnect('gmail_intake_shadow_race_b');
-  perform extensions.dblink_connect('gmail_intake_shadow_race_late', local_connection);
+  perform extensions.dblink_connect(
+    'gmail_intake_shadow_race_late',
+    local_connection || ' application_name=gmail_intake_shadow_race_late'
+  );
 end;
 $$;
 
@@ -189,6 +192,88 @@ select ok(
     where run_key_digest = repeat('3', 64)
   ),
   'Delayed authorization cannot arm after close created an absent-row tombstone'
+);
+
+do $$
+declare
+  local_connection text := 'host=db port=' || current_setting('port')
+    || ' dbname=' || current_database()
+    || ' user=postgres password=postgres sslmode=disable';
+begin
+  perform extensions.dblink_disconnect('gmail_intake_shadow_race_late');
+  perform extensions.dblink_connect(
+    'gmail_intake_shadow_race_late',
+    local_connection || ' application_name=gmail_intake_shadow_race_late'
+  );
+end;
+$$;
+
+-- A pending authorize must also lose to no-target recovery. The durable
+-- recovery epoch distinguishes it from a new authorize that begins after
+-- recovery returns.
+begin;
+select pg_advisory_xact_lock(
+  hashtextextended('refund-gmail-intake-shadow-dispatch-authorize', 854)
+);
+select extensions.dblink_send_query(
+  'gmail_intake_shadow_race_late',
+  $query$
+    select refund_gmail_intake_shadow_race_test.authorize(repeat('4', 64))
+  $query$
+);
+do $$
+declare
+  attempt integer;
+begin
+  for attempt in 1..100 loop
+    exit when exists (
+      select 1
+      from pg_catalog.pg_stat_activity activity
+      where activity.application_name = 'gmail_intake_shadow_race_late'
+        and activity.wait_event_type = 'Lock'
+    );
+    perform pg_sleep(0.01);
+  end loop;
+  if not exists (
+    select 1
+    from pg_catalog.pg_stat_activity activity
+    where activity.application_name = 'gmail_intake_shadow_race_late'
+      and activity.wait_event_type = 'Lock'
+  ) then
+    raise exception 'Delayed authorization did not reach the production lock';
+  end if;
+end;
+$$;
+select is(
+  public.owner_recover_expired_refund_gmail_intake_shadow_dispatches(),
+  jsonb_build_object(
+    'recoveredExpiredCount', 0,
+    'armedAuthorizationCount', 0,
+    'consumedRunningCount', 0,
+    'payloadRedacted', true
+  ),
+  'No-target recovery records its epoch before releasing a pending authorize'
+);
+commit;
+
+insert into refund_gmail_intake_shadow_race_test.results (connection_name, result)
+select 'recovery_late', result
+from extensions.dblink_get_result('gmail_intake_shadow_race_late') as response(result jsonb);
+
+select ok(
+  (
+    select result ->> 'status' = 'rejected'
+      and (result ->> 'authorized')::boolean is false
+      and (result ->> 'payloadRedacted')::boolean
+    from refund_gmail_intake_shadow_race_test.results
+    where connection_name = 'recovery_late'
+  )
+  and not exists (
+    select 1
+    from public.refund_gmail_intake_shadow_dispatch_authorizations
+    where run_key_digest = repeat('4', 64)
+  ),
+  'Recovery-first ordering rejects the already-pending authorization and leaves no arm'
 );
 
 do $$

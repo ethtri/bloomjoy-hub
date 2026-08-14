@@ -62,6 +62,17 @@ create unique index if not exists refund_gmail_intake_shadow_one_armed_dispatch_
   on public.refund_gmail_intake_shadow_dispatch_authorizations (status)
   where status = 'armed';
 
+create table if not exists public.refund_gmail_intake_shadow_dispatch_control (
+  singleton boolean primary key default true check (singleton),
+  last_recovery_at timestamptz not null default '-infinity'::timestamptz
+);
+insert into public.refund_gmail_intake_shadow_dispatch_control (singleton)
+values (true)
+on conflict (singleton) do nothing;
+alter table public.refund_gmail_intake_shadow_dispatch_control enable row level security;
+revoke all on table public.refund_gmail_intake_shadow_dispatch_control
+  from public, anon, authenticated, service_role;
+
 alter table public.refund_gmail_intake_shadow_dispatch_authorizations
   add constraint refund_gmail_intake_shadow_dispatch_owner_digest_check check (
     owner_sender_digest ~ '^[a-f0-9]{64}$'
@@ -81,13 +92,13 @@ as $$
 declare
   normalized_digest text := lower(btrim(coalesce(p_run_key_digest, '')));
   normalized_owner_digest text := lower(btrim(coalesce(p_owner_sender_digest, '')));
+  authorization_requested_at timestamptz := clock_timestamp();
+  authorization_clock timestamptz;
+  last_recovery_at_value timestamptz;
 begin
   if normalized_digest !~ '^[a-f0-9]{64}$'
     or normalized_owner_digest !~ '^[a-f0-9]{64}$'
-    or normalized_owner_digest = repeat('0', 64)
-    or p_start_at is null
-    or p_start_at < statement_timestamp() - interval '15 minutes'
-    or p_start_at > statement_timestamp() + interval '30 seconds' then
+    or normalized_owner_digest = repeat('0', 64) then
     raise exception 'Exact fresh intake-shadow dispatch authorization required';
   end if;
 
@@ -98,6 +109,17 @@ begin
   perform pg_advisory_xact_lock(
     hashtextextended('refund-gmail-intake-shadow-dispatch-authorize', 854)
   );
+  authorization_clock := clock_timestamp();
+  select control.last_recovery_at into last_recovery_at_value
+  from public.refund_gmail_intake_shadow_dispatch_control control
+  where control.singleton
+  for update;
+  if authorization_requested_at <= last_recovery_at_value
+    or p_start_at is null
+    or p_start_at < authorization_clock - interval '15 minutes'
+    or p_start_at > authorization_clock + interval '30 seconds' then
+    raise exception 'Exact fresh intake-shadow dispatch authorization required';
+  end if;
   if exists (
     select 1
     from public.refund_gmail_intake_shadow_dispatch_authorizations dispatch
@@ -124,7 +146,7 @@ begin
     run_key_digest, owner_sender_digest, start_at, status, expires_at
   ) values (
     normalized_digest, normalized_owner_digest, p_start_at,
-    'armed', statement_timestamp() + interval '10 minutes'
+    'armed', authorization_clock + interval '10 minutes'
   );
   return jsonb_build_object(
     'authorized', true,
@@ -197,10 +219,14 @@ begin
     hashtextextended('refund-gmail-intake-shadow-dispatch-authorize', 854)
   );
 
+  update public.refund_gmail_intake_shadow_dispatch_control
+  set last_recovery_at = clock_timestamp()
+  where singleton;
+
   update public.refund_gmail_intake_shadow_dispatch_authorizations
-  set status = 'cancelled', cancelled_at = statement_timestamp()
+  set status = 'cancelled', cancelled_at = clock_timestamp()
   where status = 'armed'
-    and expires_at <= statement_timestamp();
+    and expires_at <= clock_timestamp();
   get diagnostics recovered_expired_count = row_count;
 
   select count(*)::integer into armed_authorization_count
@@ -271,7 +297,7 @@ begin
     for update;
     if dispatch_authorization.run_key_digest is null
       or dispatch_authorization.status <> 'armed'
-      or dispatch_authorization.expires_at <= statement_timestamp() then
+      or dispatch_authorization.expires_at <= clock_timestamp() then
       raise exception 'Active owner intake-shadow dispatch authorization required';
     end if;
   end if;
@@ -316,7 +342,7 @@ begin
     set
       status = 'consumed',
       consumed_run_id = run_row.id,
-      consumed_at = statement_timestamp()
+      consumed_at = clock_timestamp()
     where run_key_digest = normalized_run_key_digest;
   end if;
 
@@ -677,6 +703,9 @@ begin
     raise exception 'Exact run, source message, and refund case required';
   end if;
 
+  perform pg_advisory_xact_lock(
+    hashtextextended('refund-gmail-intake-shadow-cleanup-obligations', 854)
+  );
   perform pg_advisory_xact_lock(hashtextextended(p_source_message_id::text, 0));
 
   select * into run_row
@@ -899,9 +928,13 @@ as $$
 declare
   completed_now integer := 0;
   assigned_overdue integer := 0;
+  assigned_outstanding integer := 0;
   task_found boolean := false;
   task_status text := 'absent';
 begin
+  perform pg_advisory_xact_lock(
+    hashtextextended('refund-gmail-intake-shadow-cleanup-obligations', 854)
+  );
   with verified_due as (
     select obligation.run_id
     from public.refund_gmail_intake_shadow_cleanup_obligations obligation
@@ -911,6 +944,8 @@ begin
       and notice.refund_case_id = obligation.refund_case_id
     join public.refund_gmail_messages source
       on source.id = notice.source_message_id
+    join public.refund_gmail_threads thread
+      on thread.id = source.gmail_thread_id
     where obligation.status = 'assigned'
       and obligation.cleanup_task_handle = p_cleanup_task_handle
       and obligation.latest_retention_due_at <= statement_timestamp()
@@ -926,12 +961,18 @@ begin
           and (
             message.content_deleted_at is null
             or message.sender_email is not null
+            or message.sender_name is not null
             or message.recipient_email is not null
+            or cardinality(message.recipient_cc_emails) <> 0
+            or message.recipient_cc_count <> 0
             or message.provider_message_id is not null
+            or message.provider_message_header is not null
+            or message.references_header is not null
             or message.subject <> '[Deleted after Gmail retention period]'
             or message.plain_body <> '[Deleted after Gmail retention period]'
           )
       )
+      and thread.thread_subject = '[Deleted after Gmail retention period]'
     for update of obligation
   )
   update public.refund_gmail_intake_shadow_cleanup_obligations obligation
@@ -944,6 +985,9 @@ begin
   from public.refund_gmail_intake_shadow_cleanup_obligations obligation
   where obligation.status = 'assigned'
     and obligation.latest_retention_due_at <= statement_timestamp();
+  select count(*)::integer into assigned_outstanding
+  from public.refund_gmail_intake_shadow_cleanup_obligations obligation
+  where obligation.status = 'assigned';
   select true, obligation.status
   into task_found, task_status
   from public.refund_gmail_intake_shadow_cleanup_obligations obligation
@@ -952,6 +996,7 @@ begin
   return jsonb_build_object(
     'completedNow', completed_now,
     'assignedOverdue', assigned_overdue,
+    'assignedOutstanding', assigned_outstanding,
     'taskFound', coalesce(task_found, false),
     'taskStatus', coalesce(task_status, 'absent'),
     'payloadRedacted', true

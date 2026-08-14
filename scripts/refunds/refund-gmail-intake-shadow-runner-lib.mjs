@@ -54,6 +54,9 @@ export class RefundGmailIntakeShadowRunnerError extends Error {
       ...(safeDetails.emergencyIndependentClosedStateVerificationRequired === true
         ? { emergencyIndependentClosedStateVerificationRequired: true }
         : {}),
+      ...(UUID_PATTERN.test(safeDetails.cleanupTaskHandle ?? '')
+        ? { cleanupTaskHandle: safeDetails.cleanupTaskHandle }
+        : {}),
     });
   }
 }
@@ -409,6 +412,9 @@ const emit = (logger, phase, detail = {}) => {
       result[key] = detail[key];
     }
   }
+  if (UUID_PATTERN.test(detail.cleanupTaskHandle ?? '')) {
+    result.cleanupTaskHandle = detail.cleanupTaskHandle;
+  }
   logger(result);
 };
 
@@ -416,6 +422,14 @@ const normalizeError = (error, fallback) =>
   error instanceof RefundGmailIntakeShadowRunnerError
     ? error
     : new RefundGmailIntakeShadowRunnerError(fallback);
+
+const withCleanupTaskHandle = (error, postflight) =>
+  UUID_PATTERN.test(postflight?.cleanupTaskHandle ?? '')
+    ? new RefundGmailIntakeShadowRunnerError(error.code, {
+      ...error.safeDetails,
+      cleanupTaskHandle: postflight.cleanupTaskHandle,
+    })
+    : error;
 
 const isClosedState = (state, config) => {
   try {
@@ -701,7 +715,7 @@ export const executeRefundGmailIntakeShadow = async ({
     }
   }
 
-  if (cleanupError) throw cleanupError;
+  if (cleanupError) throw withCleanupTaskHandle(cleanupError, postflight);
   if (effectsClassification === 'no_effect') {
     throw primaryError ?? new RefundGmailIntakeShadowRunnerError('intake_no_effect');
   }

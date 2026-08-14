@@ -165,6 +165,7 @@ select
   ${OWNER_SQL} as database_owner_session,
   (completion.value ->> 'completedNow')::integer as completed_now,
   (completion.value ->> 'assignedOverdue')::integer as assigned_overdue,
+  (completion.value ->> 'assignedOutstanding')::integer as assigned_outstanding,
   (completion.value ->> 'taskFound')::boolean as task_found,
   completion.value ->> 'taskStatus' as task_status,
   (completion.value ->> 'payloadRedacted')::boolean as payload_redacted
@@ -275,7 +276,7 @@ select
     as exact_first_contact_event_count,
   (select count(*) from exact_action_events) as exact_action_event_count,
   (select count(*) from exact_cleanup) as cleanup_obligation_count,
-  (select min(cleanup_task_handle)::text from exact_cleanup) as cleanup_task_handle,
+  (select cleanup_task_handle::text from exact_cleanup limit 1) as cleanup_task_handle,
   (select min(assigned_owner_role) from exact_cleanup) as cleanup_assigned_owner_role,
   (select min(status) from exact_cleanup) as cleanup_status,
   (select min(route_class) from exact_notice) as route_class,
@@ -633,18 +634,21 @@ export const createRefundGmailIntakeShadowDatabaseClient = ({
       const row = await query('completeDueCleanup', [cleanupTaskHandle], signal);
       requireExactKeys(row, [
         'database_owner_session', 'completed_now', 'assigned_overdue',
+        'assigned_outstanding',
         'task_found', 'task_status', 'payload_redacted',
       ]);
       requireDatabaseOwnerSession(row.database_owner_session);
       const result = {
         completedNow: requireCount(row.completed_now),
         assignedOverdue: requireCount(row.assigned_overdue),
+        assignedOutstanding: requireCount(row.assigned_outstanding),
         taskFound: requireBoolean(row.task_found),
         taskStatus: requireNullableText(row.task_status, ['absent', 'assigned', 'completed']),
         payloadRedacted: requireBoolean(row.payload_redacted),
       };
       if (
-        result.assignedOverdue !== 0 || result.taskFound !== true ||
+        result.assignedOverdue !== 0 || result.assignedOutstanding !== 0 ||
+        result.taskFound !== true ||
         result.taskStatus !== 'completed' ||
         result.payloadRedacted !== true
       ) throw genericFailure('database_cleanup_completion_failed');

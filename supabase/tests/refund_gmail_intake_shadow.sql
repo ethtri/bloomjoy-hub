@@ -1,10 +1,33 @@
 begin;
-select plan(66);
+select plan(78);
 
 select has_table(
   'public',
   'refund_gmail_intake_shadow_dispatch_authorizations',
   'Gmail intake shadow has an owner-armed exact-run dispatch ledger'
+);
+select has_table(
+  'public',
+  'refund_gmail_intake_shadow_dispatch_control',
+  'Gmail intake shadow has a durable global recovery epoch'
+);
+select ok(
+  (select relrowsecurity
+   from pg_catalog.pg_class relation
+   join pg_catalog.pg_namespace namespace on namespace.oid = relation.relnamespace
+   where namespace.nspname = 'public'
+     and relation.relname = 'refund_gmail_intake_shadow_dispatch_control')
+  and not has_table_privilege(
+    'service_role',
+    'public.refund_gmail_intake_shadow_dispatch_control',
+    'select'
+  )
+  and not has_table_privilege(
+    'authenticated',
+    'public.refund_gmail_intake_shadow_dispatch_control',
+    'select'
+  ),
+  'Recovery epoch state is RLS-enabled and unavailable to service or authenticated roles'
 );
 
 select has_table(
@@ -809,6 +832,9 @@ set status = 'succeeded',
     attachments_quarantined = 0,
     messages_failed = 0
 where id = (select (result ->> 'runId')::uuid from intake_shadow_active_run);
+update public.refund_gmail_sync_state
+set connection_status = 'healthy'
+where singleton;
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -903,6 +929,12 @@ select is(
   'assigned_managers',
   'The shadow notice truthfully classifies a complete current manager route'
 );
+create temporary table intake_shadow_assigned_notice as
+select public.service_complete_refund_gmail_intake_shadow(
+  (select (result ->> 'runId')::uuid from intake_shadow_assigned_run),
+  (select (result ->> 'messageId')::uuid from intake_shadow_assigned_source),
+  (select (result ->> 'caseId')::uuid from intake_shadow_assigned_source)
+) as result;
 update public.refund_gmail_sync_runs
 set status = 'succeeded', finished_at = statement_timestamp()
 where id = (select (result ->> 'runId')::uuid from intake_shadow_assigned_run);
@@ -1107,6 +1139,7 @@ select is(
   jsonb_build_object(
     'completedNow', 0,
     'assignedOverdue', 1,
+    'assignedOutstanding', 2,
     'taskFound', false,
     'taskStatus', 'absent',
     'payloadRedacted', true
@@ -1151,6 +1184,187 @@ where message.gmail_thread_id = (
   )
 );
 
+update public.refund_gmail_threads thread
+set thread_subject = '[Deleted after Gmail retention period]'
+where thread.id = (
+  select source.gmail_thread_id
+  from public.refund_gmail_intake_shadow_notices notice
+  join public.refund_gmail_messages source on source.id = notice.source_message_id
+  where notice.run_id = (
+    select (result ->> 'runId')::uuid from intake_shadow_active_run
+  )
+);
+
+update public.refund_gmail_messages message
+set sender_name = 'retained identity'
+where message.id = (
+  select notice.source_message_id
+  from public.refund_gmail_intake_shadow_notices notice
+  where notice.run_id = (
+    select (result ->> 'runId')::uuid from intake_shadow_active_run
+  )
+);
+select is(
+  (public.owner_complete_due_refund_gmail_intake_shadow_cleanup(
+    (select cleanup_task_handle
+     from public.refund_gmail_intake_shadow_cleanup_obligations
+     where run_id = (select (result ->> 'runId')::uuid from intake_shadow_active_run))
+  ) ->> 'completedNow')::integer,
+  0,
+  'Cleanup rejects a retained sender name'
+);
+update public.refund_gmail_messages message
+set sender_name = null
+where message.id = (
+  select notice.source_message_id
+  from public.refund_gmail_intake_shadow_notices notice
+  where notice.run_id = (
+    select (result ->> 'runId')::uuid from intake_shadow_active_run
+  )
+);
+
+update public.refund_gmail_messages message
+set provider_message_header = '<retained@example.invalid>'
+where message.id = (
+  select notice.source_message_id
+  from public.refund_gmail_intake_shadow_notices notice
+  where notice.run_id = (
+    select (result ->> 'runId')::uuid from intake_shadow_active_run
+  )
+);
+select is(
+  (public.owner_complete_due_refund_gmail_intake_shadow_cleanup(
+    (select cleanup_task_handle
+     from public.refund_gmail_intake_shadow_cleanup_obligations
+     where run_id = (select (result ->> 'runId')::uuid from intake_shadow_active_run))
+  ) ->> 'completedNow')::integer,
+  0,
+  'Cleanup rejects a retained provider message header'
+);
+update public.refund_gmail_messages message
+set provider_message_header = null
+where message.id = (
+  select notice.source_message_id
+  from public.refund_gmail_intake_shadow_notices notice
+  where notice.run_id = (
+    select (result ->> 'runId')::uuid from intake_shadow_active_run
+  )
+);
+
+update public.refund_gmail_messages message
+set references_header = '<retained-reference@example.invalid>'
+where message.id = (
+  select notice.source_message_id
+  from public.refund_gmail_intake_shadow_notices notice
+  where notice.run_id = (
+    select (result ->> 'runId')::uuid from intake_shadow_active_run
+  )
+);
+select is(
+  (public.owner_complete_due_refund_gmail_intake_shadow_cleanup(
+    (select cleanup_task_handle
+     from public.refund_gmail_intake_shadow_cleanup_obligations
+     where run_id = (select (result ->> 'runId')::uuid from intake_shadow_active_run))
+  ) ->> 'completedNow')::integer,
+  0,
+  'Cleanup rejects a retained references header'
+);
+update public.refund_gmail_messages message
+set references_header = null
+where message.id = (
+  select notice.source_message_id
+  from public.refund_gmail_intake_shadow_notices notice
+  where notice.run_id = (
+    select (result ->> 'runId')::uuid from intake_shadow_active_run
+  )
+);
+
+update public.refund_gmail_messages message
+set recipient_cc_emails = array['retained@example.invalid']::text[]
+where message.id = (
+  select notice.source_message_id
+  from public.refund_gmail_intake_shadow_notices notice
+  where notice.run_id = (
+    select (result ->> 'runId')::uuid from intake_shadow_active_run
+  )
+);
+select is(
+  (public.owner_complete_due_refund_gmail_intake_shadow_cleanup(
+    (select cleanup_task_handle
+     from public.refund_gmail_intake_shadow_cleanup_obligations
+     where run_id = (select (result ->> 'runId')::uuid from intake_shadow_active_run))
+  ) ->> 'completedNow')::integer,
+  0,
+  'Cleanup rejects a retained CC address array'
+);
+update public.refund_gmail_messages message
+set recipient_cc_emails = '{}'::text[]
+where message.id = (
+  select notice.source_message_id
+  from public.refund_gmail_intake_shadow_notices notice
+  where notice.run_id = (
+    select (result ->> 'runId')::uuid from intake_shadow_active_run
+  )
+);
+
+update public.refund_gmail_messages message
+set recipient_cc_count = 1
+where message.id = (
+  select notice.source_message_id
+  from public.refund_gmail_intake_shadow_notices notice
+  where notice.run_id = (
+    select (result ->> 'runId')::uuid from intake_shadow_active_run
+  )
+);
+select is(
+  (public.owner_complete_due_refund_gmail_intake_shadow_cleanup(
+    (select cleanup_task_handle
+     from public.refund_gmail_intake_shadow_cleanup_obligations
+     where run_id = (select (result ->> 'runId')::uuid from intake_shadow_active_run))
+  ) ->> 'completedNow')::integer,
+  0,
+  'Cleanup rejects a retained CC recipient count'
+);
+update public.refund_gmail_messages message
+set recipient_cc_count = 0
+where message.id = (
+  select notice.source_message_id
+  from public.refund_gmail_intake_shadow_notices notice
+  where notice.run_id = (
+    select (result ->> 'runId')::uuid from intake_shadow_active_run
+  )
+);
+
+update public.refund_gmail_threads thread
+set thread_subject = 'retained thread subject'
+where thread.id = (
+  select source.gmail_thread_id
+  from public.refund_gmail_intake_shadow_notices notice
+  join public.refund_gmail_messages source on source.id = notice.source_message_id
+  where notice.run_id = (
+    select (result ->> 'runId')::uuid from intake_shadow_active_run
+  )
+);
+select is(
+  (public.owner_complete_due_refund_gmail_intake_shadow_cleanup(
+    (select cleanup_task_handle
+     from public.refund_gmail_intake_shadow_cleanup_obligations
+     where run_id = (select (result ->> 'runId')::uuid from intake_shadow_active_run))
+  ) ->> 'completedNow')::integer,
+  0,
+  'Cleanup rejects a retained linked Gmail thread subject'
+);
+update public.refund_gmail_threads thread
+set thread_subject = '[Deleted after Gmail retention period]'
+where thread.id = (
+  select source.gmail_thread_id
+  from public.refund_gmail_intake_shadow_notices notice
+  join public.refund_gmail_messages source on source.id = notice.source_message_id
+  where notice.run_id = (
+    select (result ->> 'runId')::uuid from intake_shadow_active_run
+  )
+);
+
 create temporary table intake_shadow_cleanup_completion as
 select public.owner_complete_due_refund_gmail_intake_shadow_cleanup(
   (select cleanup_task_handle
@@ -1162,21 +1376,127 @@ select ok(
     from intake_shadow_cleanup_completion) = 1
   and (select (result ->> 'assignedOverdue')::integer
     from intake_shadow_cleanup_completion) = 0
+  and (select (result ->> 'assignedOutstanding')::integer
+    from intake_shadow_cleanup_completion) = 1
   and (select (result ->> 'taskFound')::boolean
     from intake_shadow_cleanup_completion)
   and (select result ->> 'taskStatus'
     from intake_shadow_cleanup_completion) = 'completed'
   and (select (result ->> 'payloadRedacted')::boolean
     from intake_shadow_cleanup_completion),
-  'Owner cleanup completion proves both exact messages purged and clears overdue work'
+  'Cleanup A completes but the newer assigned cleanup B remains globally outstanding'
 );
 select is(
-  (select status from public.refund_gmail_intake_shadow_cleanup_obligations
-    where run_id = (
-      select (result ->> 'runId')::uuid from intake_shadow_active_run
-    )),
-  'completed',
-  'The exact run-bound cleanup obligation is durably completed'
+  public.owner_complete_due_refund_gmail_intake_shadow_cleanup(
+    (select cleanup_task_handle
+     from public.refund_gmail_intake_shadow_cleanup_obligations
+     where run_id = (select (result ->> 'runId')::uuid from intake_shadow_active_run))
+  ),
+  jsonb_build_object(
+    'completedNow', 0,
+    'assignedOverdue', 0,
+    'assignedOutstanding', 1,
+    'taskFound', true,
+    'taskStatus', 'completed',
+    'payloadRedacted', true
+  ),
+  'A stale completed task handle cannot hide the newer assigned cleanup B'
+);
+select is(
+  public.owner_complete_due_refund_gmail_intake_shadow_cleanup(
+    (select cleanup_task_handle
+     from public.refund_gmail_intake_shadow_cleanup_obligations
+     where run_id = (select (result ->> 'runId')::uuid from intake_shadow_assigned_run))
+  ),
+  jsonb_build_object(
+    'completedNow', 0,
+    'assignedOverdue', 0,
+    'assignedOutstanding', 1,
+    'taskFound', true,
+    'taskStatus', 'assigned',
+    'payloadRedacted', true
+  ),
+  'Cleanup B cannot complete before its exact latest due time'
+);
+
+update public.refund_gmail_intake_shadow_cleanup_obligations
+set earliest_retention_due_at = statement_timestamp() - interval '2 seconds',
+    latest_retention_due_at = statement_timestamp() - interval '1 second'
+where run_id = (select (result ->> 'runId')::uuid from intake_shadow_assigned_run);
+update public.refund_gmail_messages message
+set
+  provider_message_id = null,
+  provider_message_header = null,
+  references_header = null,
+  sender_email = null,
+  sender_name = null,
+  recipient_email = null,
+  recipient_cc_emails = '{}'::text[],
+  recipient_cc_count = 0,
+  subject = '[Deleted after Gmail retention period]',
+  plain_body = '[Deleted after Gmail retention period]',
+  content_deleted_at = statement_timestamp()
+where message.gmail_thread_id = (
+  select source.gmail_thread_id
+  from public.refund_gmail_intake_shadow_notices notice
+  join public.refund_gmail_messages source on source.id = notice.source_message_id
+  where notice.run_id = (
+    select (result ->> 'runId')::uuid from intake_shadow_assigned_run
+  )
+);
+
+update public.refund_gmail_threads thread
+set thread_subject = '[Deleted after Gmail retention period]'
+where thread.id = (
+  select source.gmail_thread_id
+  from public.refund_gmail_intake_shadow_notices notice
+  join public.refund_gmail_messages source on source.id = notice.source_message_id
+  where notice.run_id = (
+    select (result ->> 'runId')::uuid from intake_shadow_assigned_run
+  )
+);
+
+create temporary table intake_shadow_cleanup_b_completion as
+select public.owner_complete_due_refund_gmail_intake_shadow_cleanup(
+  (select cleanup_task_handle
+   from public.refund_gmail_intake_shadow_cleanup_obligations
+   where run_id = (select (result ->> 'runId')::uuid from intake_shadow_assigned_run))
+) as result;
+select ok(
+  (select (result ->> 'completedNow')::integer
+    from intake_shadow_cleanup_b_completion) = 1
+  and (select (result ->> 'assignedOverdue')::integer
+    from intake_shadow_cleanup_b_completion) = 0
+  and (select (result ->> 'assignedOutstanding')::integer
+    from intake_shadow_cleanup_b_completion) = 0
+  and (select (result ->> 'taskFound')::boolean
+    from intake_shadow_cleanup_b_completion)
+  and (select result ->> 'taskStatus'
+    from intake_shadow_cleanup_b_completion) = 'completed',
+  'Due and purged cleanup B completes only after all assigned work is discharged'
+);
+select is(
+  public.owner_complete_due_refund_gmail_intake_shadow_cleanup(
+    (select cleanup_task_handle
+     from public.refund_gmail_intake_shadow_cleanup_obligations
+     where run_id = (select (result ->> 'runId')::uuid from intake_shadow_assigned_run))
+  ),
+  jsonb_build_object(
+    'completedNow', 0,
+    'assignedOverdue', 0,
+    'assignedOutstanding', 0,
+    'taskFound', true,
+    'taskStatus', 'completed',
+    'payloadRedacted', true
+  ),
+  'An ambiguous successful cleanup B completion can be verified idempotently'
+);
+select is(
+  (select count(*)::integer
+   from public.refund_gmail_intake_shadow_cleanup_obligations
+   where status = 'completed'),
+  2,
+  'Both exact run-bound cleanup obligations are durably completed'
 );
 
 select * from finish();
