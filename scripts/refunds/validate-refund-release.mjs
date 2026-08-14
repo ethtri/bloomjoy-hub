@@ -143,9 +143,9 @@ const reviewedManagerSourceSha256 = {
   'refund-manager-totp-enrollment':
     'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
 };
-const historicalPreDeploymentManagerSourceSha256 = {
+const canonicalPreDeploymentManagerSourceSha256 = {
   'refund-manager-action-step-up':
-    'cd147f13796e0218512a281e38271ed1f1fbd2ad8aad947b10dda8d1f8336278',
+    'b4bfb6a6b89ef93b2ed1d8ac3c286dfa079fb198afca27418a4ceb030d7ebd4d',
   'refund-manager-totp-enrollment':
     'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
 };
@@ -328,8 +328,8 @@ try {
         baselineEntry.verifyJwt === localEntry.verifyJwt &&
         baselineEntry.importMap === false &&
         baselineEntry.sourceSha256 ===
-          historicalPreDeploymentManagerSourceSha256[managerSlug],
-      `${managerSlug} must retain the exact historical pre-deployment source and security pairing`
+          canonicalPreDeploymentManagerSourceSha256[managerSlug],
+      `${managerSlug} must retain the exact canonical-50 pre-deployment source and security pairing`
     );
     assert.deepEqual(
       restoreEntry,
