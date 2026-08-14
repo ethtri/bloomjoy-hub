@@ -33,7 +33,14 @@ const sources = (source = coveredSource) => Object.fromEntries(
         labelFixtureOwnedPortalRpc(route, 'public_refund_machine_options');
         labelFixtureOwnedPortalRpc(route, 'public_refund_machine_options');
       `
-      : source])
+      : `${source}
+        teardownFailures = await closeUatSuiteResources({ context, browser });
+        const suiteFailures = evaluateUatSuiteFailures({});
+        recorder.assert(
+          'No browser console/page/network or teardown errors during mocked Machine Manager QA pass',
+          suiteFailures.pass
+        );
+      `])
 );
 
 test('all three suites pass only with one wrapped launch and an asserted aggregate', () => {
@@ -70,6 +77,19 @@ test('a second Chromium launch fails completeness', () => {
   assert.match(
     validateRefundBrowserUatNetworkCoverage(duplicated).join(' | '),
     /expected exactly one Chromium launch/
+  );
+});
+
+test('Machine Manager must evaluate and assert its aggregate only after teardown', () => {
+  const unsafe = sources();
+  unsafe['validate-machine-manager-uat.mjs'] = unsafe['validate-machine-manager-uat.mjs']
+    .replace(
+      'teardownFailures = await closeUatSuiteResources({ context, browser });',
+      'teardownFailures = [];'
+    );
+  assert.match(
+    validateRefundBrowserUatNetworkCoverage(unsafe).join(' | '),
+    /suite aggregate must be evaluated and asserted after teardown/
   );
 });
 

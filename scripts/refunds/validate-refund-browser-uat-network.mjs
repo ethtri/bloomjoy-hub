@@ -33,7 +33,10 @@ export const validateRefundBrowserUatNetworkCoverage = (sources) => {
     if (!source.includes('const networkFailures = [];')) {
       failures.push(`${filename}: suite aggregate is missing`);
     }
-    if (!/networkFailures\.length\s*(?:===\s*0|,\s*0)/s.test(source)) {
+    const hasFailClosedAggregate = filename === 'validate-machine-manager-uat.mjs'
+      ? /recorder\.assert\([\s\S]*?suiteFailures\.pass/s.test(source)
+      : /networkFailures\.length\s*(?:===\s*0|,\s*0)/s.test(source);
+    if (!hasFailClosedAggregate) {
       failures.push(`${filename}: suite aggregate is not asserted fail-closed`);
     }
     if (/\.on\(['"](?:response|requestfailed)['"]/.test(source)) {
@@ -44,6 +47,20 @@ export const validateRefundBrowserUatNetworkCoverage = (sources) => {
     }
     if (source.includes('machine-manager-uat-network.mjs')) {
       failures.push(`${filename}: obsolete Machine Manager-only helper remains`);
+    }
+    if (filename === 'validate-machine-manager-uat.mjs') {
+      const teardownIndex = source.indexOf('teardownFailures = await closeUatSuiteResources({ context, browser });');
+      const aggregateIndex = source.indexOf('const suiteFailures = evaluateUatSuiteFailures({');
+      const assertionIndex = source.indexOf(
+        "'No browser console/page/network or teardown errors during mocked Machine Manager QA pass'"
+      );
+      if (
+        teardownIndex < 0 ||
+        aggregateIndex < teardownIndex ||
+        assertionIndex < aggregateIndex
+      ) {
+        failures.push(`${filename}: suite aggregate must be evaluated and asserted after teardown`);
+      }
     }
     if (filename === 'validate-refund-qr-intake-uat.mjs') {
       if (!source.includes('const fixtureOwnedQrAborts = new WeakSet();')) {

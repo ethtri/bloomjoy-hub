@@ -3,9 +3,11 @@ import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
 import {
+  closeUatSuiteResources,
   createTrackedUatBrowser,
   describeFailedUatRequest,
   describeFailedUatResponse,
+  evaluateUatSuiteFailures,
   getUatPageFailures,
   isFixtureOwnedUatRequestFailure,
   redactUatRequestTarget,
@@ -283,6 +285,61 @@ test('a labelled abort is allowed only while its owning context is closing', asy
   assert.deepEqual(failures, [
     'NETWORK_FAILED ERR_ABORTED POST fetch [loopback]/rest/v1/rpc/[redacted]',
   ]);
+});
+
+test('a close-time network failure is visible before the suite aggregate is evaluated', async () => {
+  const networkFailures = [];
+  const closeOrder = [];
+  const teardownFailures = await closeUatSuiteResources({
+    context: {
+      async close() {
+        closeOrder.push('context');
+        networkFailures.push('NETWORK_FAILED ERR_ABORTED GET script /src/pages/[redacted.tsx]');
+      },
+    },
+    browser: {
+      async close() {
+        closeOrder.push('browser');
+      },
+    },
+  });
+  const result = evaluateUatSuiteFailures({
+    networkFailures,
+    consoleErrors: [],
+    teardownFailures,
+    pageFailures: [...networkFailures],
+  });
+
+  assert.deepEqual(closeOrder, ['context', 'browser']);
+  assert.equal(result.pass, false);
+  assert.match(result.detail, /NETWORK_FAILED ERR_ABORTED GET script/);
+});
+
+test('context and browser teardown errors are both retained without exposing exceptions', async () => {
+  const teardownFailures = await closeUatSuiteResources({
+    context: {
+      async close() {
+        throw new Error('private context detail');
+      },
+    },
+    browser: {
+      async close() {
+        throw new Error('private browser detail');
+      },
+    },
+  });
+  const result = evaluateUatSuiteFailures({
+    networkFailures: [],
+    consoleErrors: [],
+    teardownFailures,
+    pageFailures: [],
+  });
+
+  assert.deepEqual(teardownFailures, ['CONTEXT_CLOSE_FAILED', 'BROWSER_CLOSE_FAILED']);
+  assert.deepEqual(result, {
+    pass: false,
+    detail: 'CONTEXT_CLOSE_FAILED | BROWSER_CLOSE_FAILED',
+  });
 });
 
 test('fixture ownership never suppresses a same-shaped unowned or wrong failure', () => {

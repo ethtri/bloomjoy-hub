@@ -213,6 +213,39 @@ export const getUatPageFailures = (page, consoleOrPageErrors = []) => [
   ...consoleOrPageErrors,
 ];
 
+export const closeUatSuiteResources = async ({ context, browser }) => {
+  const teardownFailures = [];
+  try {
+    await context.close();
+  } catch {
+    teardownFailures.push('CONTEXT_CLOSE_FAILED');
+  }
+  try {
+    await browser.close();
+  } catch {
+    teardownFailures.push('BROWSER_CLOSE_FAILED');
+  }
+  return teardownFailures;
+};
+
+export const evaluateUatSuiteFailures = ({
+  networkFailures,
+  consoleErrors,
+  teardownFailures,
+  pageFailures,
+}) => {
+  if (![networkFailures, consoleErrors, teardownFailures, pageFailures].every(Array.isArray)) {
+    return { pass: false, detail: 'UAT_FAILURE_STATE_INVALID' };
+  }
+  return {
+    pass:
+      networkFailures.length === 0 &&
+      consoleErrors.length === 0 &&
+      teardownFailures.length === 0,
+    detail: [...teardownFailures, ...pageFailures].slice(0, 5).join(' | '),
+  };
+};
+
 export const createTrackedUatBrowser = (
   browser,
   {

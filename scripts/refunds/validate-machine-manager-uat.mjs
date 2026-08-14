@@ -4,7 +4,9 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import {
+  closeUatSuiteResources,
   createTrackedUatBrowser,
+  evaluateUatSuiteFailures,
   getUatPageFailures,
 } from './refund-browser-uat-network.mjs';
 
@@ -455,6 +457,7 @@ const run = async () => {
 
   const page = await context.newPage();
   const consoleErrors = [];
+  let teardownFailures = [];
 
   page.on('console', (message) => {
     if (message.type() === 'error') {
@@ -670,15 +673,21 @@ const run = async () => {
       fullPage: true,
     });
 
-    recorder.assert(
-      'No browser console/page errors during mocked Machine Manager QA pass',
-      networkFailures.length === 0 && consoleErrors.length === 0,
-      getUatPageFailures(page, consoleErrors).slice(0, 5).join(' | ')
-    );
   } finally {
-    await context.close();
-    await browser.close();
+    teardownFailures = await closeUatSuiteResources({ context, browser });
   }
+
+  const suiteFailures = evaluateUatSuiteFailures({
+    networkFailures,
+    consoleErrors,
+    teardownFailures,
+    pageFailures: getUatPageFailures(page, consoleErrors),
+  });
+  recorder.assert(
+    'No browser console/page/network or teardown errors during mocked Machine Manager QA pass',
+    suiteFailures.pass,
+    suiteFailures.detail
+  );
 
   const failed = recorder.failed();
   if (failed.length > 0) {
