@@ -106,6 +106,7 @@ assert.match(emailPilotUat, /Passed through the reviewed owner-only runner/u);
 assert.match(gmailDataHandling, /bounded owner-controlled proof also passed exactly one case-specific original-thread message/u);
 assert.match(emailRunbook, /Cutover is a sequenced no-overlap handoff/u);
 assert.match(emailRunbook, /documented rapid, sequenced rollback/u);
+assert.doesNotMatch(emailRunbook, /instant rollback/iu);
 assert.match(runbook, /staffed, sequenced no-overlap handoff/u);
 assert.match(runbook, /manually review and handle transition-interval messages/u);
 assert.match(firstContactCutover, /Staffed, sequenced no-overlap production cutover/u);
@@ -114,8 +115,11 @@ assert.match(firstContactCutover, /remaining gate is the staffed production-labe
 assert.match(firstContactCutover, /Keep Hub disabled throughout this verification/u);
 assert.match(firstContactCutover, /Manually review and handle any messages that arrive in the transition interval/u);
 assert.match(demoPacket, /staffed, sequenced no-overlap cutover/u);
+assert.match(currentStatus, /owner-controlled, case-specific Gmail proof passed once[\s\S]*exactly one case message and one Gmail outbound/u);
+assert.match(currentStatus, /remaining email gate is the staffed production-label\/legacy-responder cutover and explicit owner go\/no-go/u);
 assert.doesNotMatch(
   [
+    currentStatus,
     runbook,
     checklist,
     cutoverPacket,
@@ -125,7 +129,7 @@ assert.doesNotMatch(
     firstContactCutover,
     demoPacket,
   ].join('\n'),
-  /remaining case-specific|still-required case-specific|case-specific mapped-manager-CC UAT and the active-cutover gates are pending|One case-specific reply[^.\n]*remain required|Cutover is atomic|Atomic production cutover|atomic no-overlap cutover|cut over atomically|instant rollback|new explicitly approved email window|The live case-specific proof must/iu,
+  /remaining case-specific|still-required case-specific|case-specific mapped-manager-CC UAT and the active-cutover gates are pending|One case-specific reply[^.\n]*remain required|Cutover is atomic|Atomic production cutover|atomic no-overlap cutover|cut over atomically|new explicitly approved email window|The live case-specific proof must/iu,
   'Operational Gmail docs must record the completed case-specific proof and describe only the remaining no-overlap cutover gate',
 );
 assert.match(currentStatus, /P0 `#810` delivered the required owner-only one-command runner/u);

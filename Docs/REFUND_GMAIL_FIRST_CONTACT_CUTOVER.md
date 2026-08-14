@@ -2,7 +2,7 @@
 
 Issue `#688` replaces the repeating legacy canned response with one deterministic acknowledgement for the first eligible customer message in each Gmail thread. This document is the operational contract for shadow testing, cutover, rollback, and evidence. It does not authorize production Gmail access or customer sending by itself.
 
-## Current checkpoint — 2026-08-12
+## Current checkpoint — 2026-08-14
 
 - Exact server OAuth to the directly connected production customer-service mailbox, `info@bloomjoysweets.com`, passed with Gmail read-only/send scopes, and the Info/Support/Refunds send-as mailbox identities are verified subject to provider `SENT` evidence and the existing delivery gates.
 - An isolated label and owner-controlled synthetic sender population were kept separate from the production label and excluded from the legacy responder. `etrifari@bloomjoysweets.com` or its plus-addresses may participate only as an owner-controlled synthetic customer/test sender or recipient, or as vendor/account correspondence; they are not the production refund-assistant mailbox.
