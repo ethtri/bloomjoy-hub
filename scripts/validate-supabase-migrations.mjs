@@ -9,6 +9,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { createAuthenticatedEvidenceFragment } from './refunds/refund-uat-fragment-provenance.mjs';
+import { getRefundGmailIntakeShadowOwnerQuerySnapshots } from './refunds/refund-gmail-intake-shadow-runner-clients.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -274,6 +275,46 @@ major_version = 15
   fs.writeFileSync(path.join(tempSupabaseDir, 'seed.sql'), '', 'utf8');
 }
 
+function writeRefundGmailIntakeShadowAdapterTest(tempRoot) {
+  const postflight = getRefundGmailIntakeShadowOwnerQuerySnapshots().postflight;
+  if (postflight?.parameterCount !== 2 || typeof postflight.sql !== 'string') {
+    throw new Error('Gmail intake-shadow owner postflight query is unavailable.');
+  }
+  const runKey = `owner-intake-shadow:${'a'.repeat(64)}`;
+  const ownerUserId = 'a1000000-0000-4000-8000-000000000001';
+  const renderedQuery = postflight.sql
+    .replace(/\$1\b/gu, `'${runKey}'::text`)
+    .replace(/\$2\b/gu, `'${ownerUserId}'::uuid`);
+  if (/\$[12]\b/u.test(renderedQuery)) {
+    throw new Error('Gmail intake-shadow owner postflight parameters were not bound.');
+  }
+  const testRelativePath = path.posix.join(
+    'supabase',
+    'tests',
+    'refund_gmail_intake_shadow_owner_adapter.sql',
+  );
+  const testPath = path.join(
+    tempRoot,
+    'supabase',
+    'tests',
+    'refund_gmail_intake_shadow_owner_adapter.sql',
+  );
+  fs.writeFileSync(testPath, `
+begin;
+select plan(1);
+select is(
+  (select count(*)::bigint from (
+${renderedQuery}
+  ) as exact_owner_adapter_query),
+  1::bigint,
+  'Exact Gmail intake-shadow owner postflight adapter query executes on PostgreSQL'
+);
+select * from finish();
+rollback;
+`, 'utf8');
+  return { testPath, testRelativePath };
+}
+
 function stopSupabase(tempRoot, debug) {
   const args = ['stop', '--workdir', tempRoot, '--no-backup'];
 
@@ -343,6 +384,18 @@ async function main() {
 
     run('supabase', args, { stdio: 'inherit' });
     log('\nSupabase migration apply validation passed.');
+
+    const {
+      testPath: ownerAdapterTestPath,
+      testRelativePath: ownerAdapterTestRelativePath,
+    } = writeRefundGmailIntakeShadowAdapterTest(tempRoot);
+    const ownerAdapterArgs = [
+      'test', 'db', ownerAdapterTestRelativePath, '--workdir', tempRoot,
+    ];
+    if (options.debug) ownerAdapterArgs.push('--debug');
+    run('supabase', ownerAdapterArgs, { relayOutput: true });
+    fs.rmSync(ownerAdapterTestPath);
+    log('Gmail intake-shadow exact owner postflight adapter query passed.');
 
     if (testFiles.length > 0) {
       const testArgs = ['test', 'db', '--workdir', tempRoot];

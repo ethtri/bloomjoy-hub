@@ -42,6 +42,18 @@ import {
   type RefundGmailRetentionSummary,
 } from "../_shared/refund-gmail-retention.ts";
 import { sendRefundManagerActionNotice } from "../_shared/refund-manager-notification.ts";
+import {
+  completeRefundGmailIntakeShadowFirstContact,
+  isRefundGmailIntakeShadowRunKey,
+  preflightRefundGmailIntakeShadowLabel,
+  REFUND_GMAIL_INTAKE_SHADOW_TRIGGER,
+  type RefundGmailIntakeShadowDispatch,
+  RefundGmailIntakeShadowError,
+  resolveRefundGmailIntakeShadowConfig,
+  startRefundGmailIntakeShadowDatabaseBoundary,
+  validateRefundGmailIntakeShadowRuntime,
+  validateRefundGmailIntakeShadowThread,
+} from "./intake-shadow.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -455,6 +467,8 @@ const processFirstContact = async ({
   customerEmail,
   threadHasOutbound,
   counters,
+  intakeShadow,
+  runId,
 }: {
   firstContact: RefundFirstContactConfig;
   config: NonNullable<ReturnType<typeof getRefundGmailConfig>>;
@@ -464,8 +478,26 @@ const processFirstContact = async ({
   customerName: string;
   customerEmail: string;
   threadHasOutbound: boolean;
-  counters: FirstContactCounters;
+  counters: FirstContactCounters & {
+    managerNoticeShadowed: number;
+    managerNoticeSentEvents: number;
+  };
+  intakeShadow: boolean;
+  runId: string;
 }) => {
+  if (intakeShadow) {
+    return await completeRefundGmailIntakeShadowFirstContact({
+      runId,
+      sourceMessageId,
+      refundCaseId,
+      counters,
+      complete: (parameters) =>
+        rpc<Record<string, unknown> | null>(
+          "service_complete_refund_gmail_intake_shadow",
+          parameters,
+        ),
+    });
+  }
   if (!firstContact.shouldClaim) return { failed: false };
   if (!isRefundFirstContactSenderAllowed(firstContact, customerEmail)) {
     counters.firstContactSuppressed += 1;
@@ -506,21 +538,19 @@ const processFirstContact = async ({
     }
   }
 
-  const claim = await claimRefundGmailDeliveryWhenEnabled(
-    () =>
-      rpc<Record<string, unknown> | null>(
-        "service_claim_refund_gmail_first_contact",
-        {
-          p_source_message_id: sourceMessageId,
-          p_mode: firstContact.mode,
-          p_cutover_at: firstContact.cutoverAt,
-          p_template_key: REFUND_FIRST_CONTACT_TEMPLATE_KEY,
-          p_sender_email: config.mailbox,
-          p_plain_body: email.text,
-          p_thread_has_outbound: threadHasOutbound,
-        },
-      ),
+  const claimFirstContact = () => rpc<Record<string, unknown> | null>(
+    "service_claim_refund_gmail_first_contact",
+    {
+      p_source_message_id: sourceMessageId,
+      p_mode: firstContact.mode,
+      p_cutover_at: firstContact.cutoverAt,
+      p_template_key: REFUND_FIRST_CONTACT_TEMPLATE_KEY,
+      p_sender_email: config.mailbox,
+      p_plain_body: email.text,
+      p_thread_has_outbound: threadHasOutbound,
+    },
   );
+  const claim = await claimRefundGmailDeliveryWhenEnabled(claimFirstContact);
 
   if (!claim?.eligible) {
     counters.firstContactSuppressed += 1;
@@ -644,12 +674,16 @@ const processFirstContact = async ({
 
 const sendGmailCaseActionNotice = async ({
   refundCaseId,
+  sourceMessageId,
   publicReference,
   reason,
+  counters,
 }: {
   refundCaseId: string;
+  sourceMessageId: string;
   publicReference: string;
   reason: "customer_message" | "hard_bounce";
+  counters: { managerNoticeShadowed: number; managerNoticeSentEvents: number };
 }) => {
   if (!supabase) return;
   try {
@@ -701,6 +735,7 @@ const sendGmailCaseActionNotice = async ({
         payload_redacted: true,
       },
     });
+    counters.managerNoticeSentEvents += 1;
   } catch (notificationError) {
     console.error("refund-gmail-sync manager action notice failed", {
       errorType: notificationError instanceof Error
@@ -1015,6 +1050,40 @@ const authorizeNewGmailCopies = async () => {
   }
 };
 
+const authorizeRefundGmailIntakeShadowDatabase = async () => {
+  const gate = await rpc<Record<string, unknown>>(
+    "service_preflight_refund_gmail_intake_shadow",
+    {
+      p_retention_worker_enabled: retentionRuntime.workerEnabled,
+      p_retention_policy_version: retentionRuntime.policyVersion,
+      p_attachments_enabled: refundEmailPilotAttachmentsEnabled,
+      p_scanner_enabled: retentionRuntime.scannerEnabled,
+      p_scanner_version: retentionRuntime.scannerVersion,
+    },
+  );
+  if (
+    gate?.allowed !== true || gate?.status !== "authorized" ||
+    gate?.activeProofAuthorizationCount !== 0 ||
+    gate?.unresolvedGmailOutboundCount !== 0 ||
+    gate?.unresolvedFirstContactCount !== 0 ||
+    gate?.automaticCustomerContactEnabled !== false ||
+    gate?.gptTriageEnabled !== false || gate?.gptAutoSendEnabled !== false ||
+    gate?.officialActionsEnabled !== false ||
+    gate?.activeOfficialAuthorizationCount !== 0 ||
+    gate?.pendingStepUpIntentCount !== 0 ||
+    gate?.nayaxResolutionEnabled !== false || gate?.nayaxOperatorCount !== 0 ||
+    gate?.nayaxResolutionIntentCount !== 0 ||
+    gate?.unresolvedNayaxProviderAttemptCount !== 0 ||
+    gate?.retentionPolicyHealthy !== true ||
+    gate?.attachmentsEnabled !== false || gate?.scannerEnabled !== false ||
+    gate?.payloadRedacted !== true
+  ) {
+    throw new RefundGmailIntakeShadowError(
+      "gmail_intake_shadow_database_preflight_failed",
+    );
+  }
+};
+
 serve(async (request) => {
   if (request.method !== "POST") {
     return jsonResponse({ error: "Method not allowed." }, 405);
@@ -1031,13 +1100,49 @@ serve(async (request) => {
   const requestedTrigger = sanitizeText(body.trigger, 40).toLowerCase() ||
     "scheduled";
   const runKey = sanitizeText(body.runKey, 255);
-  if (!isRefundGmailWorkflowRunKey(runKey, requestedTrigger)) {
+  const validRunKey = requestedTrigger === REFUND_GMAIL_INTAKE_SHADOW_TRIGGER
+    ? isRefundGmailIntakeShadowRunKey(runKey, requestedTrigger)
+    : isRefundGmailWorkflowRunKey(runKey, requestedTrigger);
+  if (!validRunKey) {
     return jsonResponse(
       { error: "Valid run key and trigger are required." },
       400,
     );
   }
   const triggerSource = requestedTrigger;
+  let intakeShadow;
+  let activeIntakeShadow: RefundGmailIntakeShadowDispatch | null = null;
+  try {
+    intakeShadow = resolveRefundGmailIntakeShadowConfig({
+      trigger: triggerSource,
+    });
+  } catch (error) {
+    const errorCode = error instanceof RefundGmailError
+      ? error.code
+      : "gmail_intake_shadow_configuration_invalid";
+    return jsonResponse({
+      status: "failed",
+      errorCode,
+      payloadRedacted: true,
+    }, 503);
+  }
+  const baseConfig = getRefundGmailConfig();
+  const firstContact = getFirstContactConfig();
+  if (intakeShadow) {
+    try {
+      await validateRefundGmailIntakeShadowRuntime({
+        intake: intakeShadow,
+        config: baseConfig,
+        firstContact,
+      });
+    } catch {
+      return jsonResponse({
+        status: "failed",
+        errorCode: "gmail_intake_shadow_pure_preflight_failed",
+        payloadRedacted: true,
+      }, 503);
+    }
+  }
 
   if (triggerSource === "retention") {
     try {
@@ -1067,10 +1172,13 @@ serve(async (request) => {
     }
   }
 
-  if (triggerSource !== "failure_test") {
+  if (triggerSource !== "failure_test" && !intakeShadow) {
     try {
       const summary = await runRetentionSweep({
-        runKey: refundGmailRetentionLedgerRunKey(runKey, triggerSource),
+        runKey: refundGmailRetentionLedgerRunKey(
+          runKey,
+          triggerSource as "manual" | "scheduled",
+        ),
         triggerSource: "pre_sync",
       });
       console.info("refund-gmail pre-sync retention completed", summary);
@@ -1094,8 +1202,20 @@ serve(async (request) => {
 
   // Gmail configuration and OAuth are intentionally unavailable until local
   // cleanup succeeds and the owner/scanner/copy-health gate authorizes copying.
-  const config = getRefundGmailConfig();
-  const firstContact = getFirstContactConfig();
+  let config = baseConfig && intakeShadow
+    ? {
+      ...baseConfig,
+      labelId: intakeShadow.shadowLabelId,
+      startAt: new Date("2999-01-01T00:00:00.000Z"),
+    }
+    : baseConfig;
+  if (intakeShadow && !config) {
+    return jsonResponse({
+      status: "failed",
+      errorCode: "gmail_intake_shadow_configuration_incomplete",
+      payloadRedacted: true,
+    }, 503);
+  }
   const mailboxHash = config
     ? await sha256Hex(config.mailbox)
     : await sha256Hex("not-configured");
@@ -1103,8 +1223,8 @@ serve(async (request) => {
     ? await sha256Hex(config.labelId)
     : await sha256Hex("not-configured");
   const enabled = triggerSource === "failure_test" ||
-    (isEnabled() && Boolean(config));
-  const start = await rpc("service_start_refund_gmail_sync", {
+    (intakeShadow ? Boolean(config) : isEnabled() && Boolean(config));
+  const startDatabaseRun = () => rpc("service_start_refund_gmail_sync", {
     p_run_key: runKey,
     p_trigger_source: triggerSource,
     p_started_at: new Date().toISOString(),
@@ -1112,6 +1232,48 @@ serve(async (request) => {
     p_label_hash: labelHash,
     p_enabled: enabled,
   });
+  let start;
+  if (intakeShadow) {
+    try {
+      const boundary = await startRefundGmailIntakeShadowDatabaseBoundary({
+        intake: intakeShadow,
+        start: startDatabaseRun,
+        preflight: authorizeRefundGmailIntakeShadowDatabase,
+        finishFailed: async ({ runId, errorCode }) => {
+          await rpc("service_finish_refund_gmail_sync", {
+            p_run_id: runId,
+            p_status: "failed",
+            p_threads_scanned: 0,
+            p_messages_seen: 0,
+            p_messages_created: 0,
+            p_messages_deduplicated: 0,
+            p_attachments_quarantined: 0,
+            p_messages_failed: 1,
+            p_history_id: null,
+            p_failure_category: "configuration",
+            p_error_code: errorCode,
+          });
+        },
+      });
+      start = boundary.start;
+      activeIntakeShadow = boundary.intake;
+      if (boundary.intake && config) {
+        config = { ...config, startAt: boundary.intake.startAt };
+      }
+    } catch (error) {
+      const errorCode = error instanceof RefundGmailError
+        ? error.code
+        : "gmail_copy_safety_gate_closed";
+      return jsonResponse({
+        status: "failed",
+        retentionOnly: false,
+        errorCode,
+        payloadRedacted: true,
+      }, 503);
+    }
+  } else {
+    start = await startDatabaseRun();
+  }
   if (!start?.claimed) {
     return jsonResponse({
       status: start?.status ?? "suppressed",
@@ -1126,7 +1288,6 @@ serve(async (request) => {
   if (!runId) {
     return jsonResponse({ error: "Refund Gmail sync claim was invalid." }, 500);
   }
-
   const counters = {
     threadsScanned: 0,
     messagesSeen: 0,
@@ -1142,6 +1303,11 @@ serve(async (request) => {
     outboundReconciled: 0,
     outboundReconciliationFailed: 0,
     outboundReconciliationOutstanding: 0,
+    customerInboundMessages: 0,
+    providerSentMailboxMessages: 0,
+    mailboxAcknowledgementObserved: false,
+    managerNoticeShadowed: 0,
+    managerNoticeSentEvents: 0,
   };
 
   if (triggerSource === "failure_test") {
@@ -1178,28 +1344,40 @@ serve(async (request) => {
       counters.firstContactFailed += 1;
       counters.messagesFailed += 1;
     }
-    await rpc<number>(
-      "service_mark_stale_refund_gmail_first_contacts_unknown",
-      {
+    if (!intakeShadow) {
+      await rpc<number>(
+        "service_mark_stale_refund_gmail_first_contacts_unknown",
+        {
+          p_stale_before: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
+        },
+      ).catch(() => {
+        counters.firstContactFailed += 1;
+        counters.messagesFailed += 1;
+        return 0;
+      });
+    }
+    if (!intakeShadow) {
+      await rpc<number>("service_mark_stale_refund_gmail_outbound_unknown", {
         p_stale_before: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
-      },
-    ).catch(() => {
-      counters.firstContactFailed += 1;
-      counters.messagesFailed += 1;
-      return 0;
-    });
-    await rpc<number>("service_mark_stale_refund_gmail_outbound_unknown", {
-      p_stale_before: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
-    }).catch(() => {
-      counters.outboundReconciliationFailed += 1;
-      counters.messagesFailed += 1;
-      return 0;
-    });
-    const profile = await verifyRefundGmailMailbox(config);
-    profileHistoryId = sanitizeText(profile.historyId, 255) || null;
-    await reconcileOutstandingFirstContacts({ config, counters });
-    await reconcileOutstandingOutbound({ config, counters });
-    const maxThreads = Math.min(
+      }).catch(() => {
+        counters.outboundReconciliationFailed += 1;
+        counters.messagesFailed += 1;
+        return 0;
+      });
+    }
+    let intakeThreadRefs: Array<{ id?: string; historyId?: string }> | null =
+      null;
+    if (intakeShadow) {
+      const preflight = await preflightRefundGmailIntakeShadowLabel({ config });
+      profileHistoryId = sanitizeText(preflight.profileHistoryId, 255) || null;
+      intakeThreadRefs = [preflight.thread];
+    } else {
+      const profile = await verifyRefundGmailMailbox(config);
+      profileHistoryId = sanitizeText(profile.historyId, 255) || null;
+      await reconcileOutstandingFirstContacts({ config, counters });
+      await reconcileOutstandingOutbound({ config, counters });
+    }
+    const maxThreads = intakeShadow ? 1 : Math.min(
       Math.max(
         Number(Deno.env.get("GMAIL_REFUND_MAX_THREADS_PER_RUN") ?? 100),
         1,
@@ -1208,7 +1386,9 @@ serve(async (request) => {
     );
     let nextPageToken: string | undefined;
     while (counters.threadsScanned < maxThreads) {
-      const page = await listLabeledRefundThreads(config, nextPageToken);
+      const page = intakeThreadRefs
+        ? { threads: intakeThreadRefs, nextPageToken: undefined }
+        : await listLabeledRefundThreads(config, nextPageToken);
       const threadRefs = page.threads ?? [];
       if (threadRefs.length === 0) break;
       for (const threadRef of threadRefs) {
@@ -1231,6 +1411,15 @@ serve(async (request) => {
               return signals.mailboxOrigin && signals.providerSentEvidence;
             })()
           );
+          if (intakeShadow) {
+            const intakeThreadShape = await validateRefundGmailIntakeShadowThread({
+              messages,
+              config,
+              intake: activeIntakeShadow!,
+            });
+            counters.mailboxAcknowledgementObserved =
+              intakeThreadShape.mailboxAcknowledgementObserved;
+          }
           await ingestRefundGmailThreadBeforeFirstContact<
             GmailMessage,
             FirstContactCandidate
@@ -1264,6 +1453,15 @@ serve(async (request) => {
                 : isAutomated
                 ? "system"
                 : "inbound";
+              if (intakeShadow && direction === "inbound") {
+                counters.customerInboundMessages += 1;
+              }
+              if (
+                intakeShadow && direction === "outbound" &&
+                mailboxOrigin && providerSentEvidence
+              ) {
+                counters.providerSentMailboxMessages += 1;
+              }
               if (!from.email && direction !== "system") {
                 counters.messagesFailed += 1;
                 return null;
@@ -1274,10 +1472,11 @@ serve(async (request) => {
               const rawBody = extractPlainTextBody(message.payload);
               const redactedSubject = redactPaymentCardNumbers(rawSubject);
               const redactedBody = redactPaymentCardNumbers(rawBody);
-              const attachmentDescriptors = refundEmailPilotAttachmentsEnabled &&
+              const attachmentDescriptors =
+                refundEmailPilotAttachmentsEnabled &&
                   direction === "inbound" && !isBounce
-                ? collectAttachmentDescriptors(message.payload)
-                : [];
+                  ? collectAttachmentDescriptors(message.payload)
+                  : [];
               const ingestion = await rpc(
                 "service_ingest_refund_gmail_message_v2",
                 {
@@ -1328,15 +1527,18 @@ serve(async (request) => {
               const automaticContactPaused =
                 ingestion?.automaticCustomerContactPaused === true;
               if (
-                ingestion?.created && caseId &&
+                !intakeShadow && ingestion?.created && caseId &&
+                internalMessageId &&
                 (participantRole === "customer" || automaticContactPaused)
               ) {
                 await sendGmailCaseActionNotice({
                   refundCaseId: caseId,
+                  sourceMessageId: internalMessageId,
                   publicReference,
                   reason: automaticContactPaused
                     ? "hard_bounce"
                     : "customer_message",
+                  counters,
                 });
               }
               const attachmentRows = Array.isArray(ingestion?.attachments)
@@ -1370,6 +1572,8 @@ serve(async (request) => {
                 ...firstContactCandidate,
                 threadHasOutbound,
                 counters,
+                intakeShadow: Boolean(intakeShadow),
+                runId,
               });
               if (firstContactResult.failed) counters.messagesFailed += 1;
             },
@@ -1380,6 +1584,25 @@ serve(async (request) => {
       }
       nextPageToken = page.nextPageToken;
       if (!nextPageToken) break;
+    }
+    if (
+      intakeShadow &&
+      (
+        counters.threadsScanned !== 1 ||
+        counters.customerInboundMessages !== 1 ||
+        counters.providerSentMailboxMessages !== 1 ||
+        counters.mailboxAcknowledgementObserved !== true ||
+        counters.messagesSeen !== 2 ||
+        counters.messagesCreated !== counters.messagesSeen ||
+        counters.managerNoticeShadowed !== 1 ||
+        counters.managerNoticeSentEvents !== 0 ||
+        counters.firstContactShadowed !== 1 ||
+        counters.firstContactSent !== 0
+      )
+    ) {
+      throw new RefundGmailIntakeShadowError(
+        "gmail_intake_shadow_aggregate_invalid",
+      );
     }
   } catch (error) {
     fatalError = error instanceof RefundGmailError
