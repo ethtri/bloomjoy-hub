@@ -1,10 +1,12 @@
 # Refund Operations Production Cutover Packet
 
-Last updated: 2026-08-12
+Last updated: 2026-08-14
 
 ## Outcome
 
 Use this packet to move epic `#628` from individually verified PRs to one tested production release. A green PR is necessary but is not deployment, live-payment, Gmail, GPT, or legacy-retirement approval.
+
+**Current operational truth:** the default-off Refund Operations foundation is deployed and strictly aligned at 10 functions / 50 migrations. The one-case Gmail proof passed with exactly one case message and one Gmail outbound, zero unresolved delivery, and all gates restored off. Outcome resolution `#767` and deployment `#829` are complete; live provider activation still belongs to `#430`. This packet now governs the remaining staffed pilot, private TOTP enrollment, manager cohort, fallback decision, and explicit legacy-responder cutover, not another foundation deployment.
 
 ## Evidence ledger
 

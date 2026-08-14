@@ -274,7 +274,7 @@ assert(
 );
 
 assert(
-  currentStatus.includes('P0 `#767` now has a default-off audited outcome-resolution candidate') &&
+  currentStatus.includes("P0 `#767`'s audited provider-outcome resolution is deployed default-off") &&
     decisions.includes('Uncertain Nayax outcomes require a separate immutable support decision (`#767`)') &&
     runbook.includes('Default-off Nayax outcome resolution (`#767`)') &&
     smoke.includes('npm run refunds:validate-nayax-resolution') &&

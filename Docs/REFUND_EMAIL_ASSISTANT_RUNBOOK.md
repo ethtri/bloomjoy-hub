@@ -1,8 +1,8 @@
 # Refund Email Assistant Operating Runbook
 
-Last updated: 2026-08-12
+Last updated: 2026-08-14
 
-Status: approved operating direction with a deployed, default-off safety foundation. The bounded isolated first-contact and private email-linked form continuation have passed; case-specific mapped-manager-CC delivery, scheduled inbox operation, owner TOTP enrollment, and live Nayax execution have not. Production Gmail schedules, automatic customer follow-up, manager aging, GPT, official manager actions, and live Nayax execution remain disabled until their separate release gates pass.
+Status: approved operating direction with a deployed, default-off safety foundation. The isolated first-contact, private email-linked form continuation, and one owner-controlled case-specific original-thread reply with the complete mapped-manager CC route have passed. Broad scheduled inbox operation, the legacy-responder cutover, private owner/manager TOTP enrollment, and live Nayax execution have not. Production Gmail schedules, automatic customer follow-up, manager aging, GPT, official manager actions, and live Nayax execution remain disabled until their separate release gates pass.
 
 Tracking epic: [#683 Refund Email Assistant and Manager Communications](https://github.com/ethtri/bloomjoy-hub/issues/683)
 
@@ -25,13 +25,13 @@ The assistant is not a refund approver and is not a payment operator. The target
 
 Do not forward the designated support mailbox into a personal inbox. Agents and operators should work from the label-scoped support mailbox and the Hub queue. Personal inboxes should receive only intentionally routed exception or executive-attention notices.
 
-### Verified mailbox checkpoint on 2026-08-12
+### Verified mailbox checkpoints through 2026-08-14
 
 - The server OAuth profile resolves exactly to the directly connected production customer-service mailbox, `info@bloomjoysweets.com`, with Gmail read-only and send scopes; Info/Support/Refunds send-as mailbox identities are verified.
 - The isolated pilot label differed from the production refund label, accepted only the owner-controlled synthetic population, and was excluded from the legacy responder for that population.
 - One eligible synthetic thread received exactly one original-thread `refund_first_contact_v1` acknowledgement. Replay and a later reply produced no second acknowledgement; teardown restored disabled mode and the production label.
 - After the native date/time fix, the private hosted-form context completed that existing Gmail draft exactly once and the sole current mapped manager was assigned under the shared intake rule.
-- After machine resolution, every case-specific customer-facing refund reply must originate through the designated support mailbox in the original Gmail thread with the complete current mapped-manager set visibly CC'd. P0 `#800` implements the default-off boundary for that remaining proof: database-owner preparation derives one exact existing owner-controlled Gmail case, recipient, original thread, and current manager route; a hashed one-shot token expires within five minutes; a shared `refund_case_messages` insert guard blocks admin, intake, follow-up, completion, and every other unbound customer-message creator before a customer-message row or transport work until explicit owner teardown. It does not roll back legitimate non-message case/update audit work performed earlier by those lanes. No browser or service caller can choose an arbitrary recipient, route, or expiry, and no production proof has run. Normal customer mail still uses the legacy responder; Hub schedules and automatic contact remain off.
+- After machine resolution, every case-specific customer-facing refund reply must originate through the designated support mailbox in the original Gmail thread with the complete current mapped-manager set visibly CC'd. P0 `#800` and the owner-only runner in `#810` proved that boundary once with an owner-controlled synthetic case: exactly one case message and one Gmail outbound from exact `info@`, the original thread and complete current manager route preserved, zero attachments, zero unresolved delivery, and all authorization/runtime gates restored off. The shared insert guard still blocks every unrelated customer-message creator before transport. Normal customer mail still uses the legacy responder; Hub schedules and automatic contact remain off until the staffed cutover decision in `#707`/`#409`.
 - A browser sign-in or agent connector is not a substitute for the server integration, and no forwarding into a personal inbox is part of the operating model.
 
 ## Authority matrix

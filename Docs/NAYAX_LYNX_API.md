@@ -1,11 +1,18 @@
 # Nayax Lynx API Notes
 
-Last updated: 2026-08-03
+Last updated: 2026-08-14
 
 ## Purpose
 Bloomjoy is evaluating Nayax Lynx as the server-side source for machine inventory and machine-level sales activity.
 
 Do not call Nayax directly from the browser. Any implementation should run through Supabase Edge Functions or another backend-only surface.
+
+## Current Release Status
+
+- Canonical production alignment passes for 10 Refund Operations Edge Functions and 50 refund/Nayax migrations.
+- The audited provider-outcome resolution migration and its three reviewed functions are deployed **default-off**. They seed no operator and do not enable an official action, a provider call, a refund, or a customer message.
+- Production still selects the statically disabled Nayax provider adapter. No machine is enabled for Nayax refunds, the global sponsor and executor controls are absent, and the execution kill switch/dry-run controls remain in their safe state.
+- Issue `#767` is complete. Issue `#430` remains the account-specific activation boundary: production write authority, response/amount semantics, machine allowlist, approved caps, idempotency/reconciliation behavior, and one owner-supervised capped test.
 
 ## Current Production Credential Status
 - Production Supabase project: `ygbzkgxktzqsiygjlqyg`
@@ -134,7 +141,7 @@ Do not build browser-side Nayax calls, and do not expose Nayax raw responses in 
 The versioned matching weights, states, timezone rules, privacy-safe evidence, fixtures, and rollback procedure are documented in [REFUND_NAYAX_MATCHING_RUNBOOK.md](./REFUND_NAYAX_MATCHING_RUNBOOK.md).
 Refund execution is separate from read-only Last Sales lookup.
 
-The deployed foundation added `nayax-card-refund` as a backend-only, fail-closed execution surface. In the current unmerged candidate, the production handler always selects a statically disabled adapter and stops before attempt reservation, manager-proof consumption, provider access, case/reporting mutation, or email. No request value, browser value, environment value, or combination of the historical rollout flags can activate a live call.
+The deployed foundation includes `nayax-card-refund` as a backend-only, fail-closed execution surface. The production handler always selects a statically disabled adapter and stops before attempt reservation, manager-proof consumption, provider access, case/reporting mutation, or email. No request value, browser value, environment value, or combination of the historical rollout flags can activate a live call.
 
 The historical rollout values remain defense-in-depth controls and must stay in their fail-closed state while the handler is disabled:
 - sponsor go/no-go unset;
@@ -143,7 +150,11 @@ The historical rollout values remain defense-in-depth controls and must stay in 
 - `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`; and
 - `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false`.
 
-The `#430` candidate now includes an unselected real provider adapter and a forward-only atomic daily-cap wrapper around the existing receipt-bound attempt reservation. The HTTP handler fail-closes on every rollout/configuration block before orchestration, requires separate strong idempotency and function-identity secrets, and pre-wires the single-use manager receipt through the atomic v2 count/amount-cap reservation and token-bound settlement RPCs. Those dependencies remain unreachable because the handler still imports only the disabled adapter. The adapter accepts only an exact versioned account contract, approved Nayax HTTPS hosts, a dedicated account-scoped write token, frozen case/payment evidence, and the documented request-then-approve sequence. It has no internal retry and treats duplicate, already-refunded, pending, timeout, malformed, network, and unknown outcomes as reconciliation states unless the exact configured success pair is returned. Account write authority, confirmed amount/response semantics, explicit machine allowlist, completion delivery, assertion-digest registration, and a controlled low-value smoke remain required before a separate gate-on change is considered. The official actor remains a current active Machine Manager mapped to the case's machine, personally completing the fresh action-bound TOTP step-up. Super Admin, Scoped Admin, service, email, scheduler, GPT, and agent authority cannot substitute for that mapping and step-up.
+Canonical source includes an unselected real provider adapter and a forward-only atomic daily-cap wrapper around the existing receipt-bound attempt reservation. The HTTP handler fail-closes on every rollout/configuration block before orchestration, requires separate strong idempotency and function-identity secrets, and pre-wires the single-use manager receipt through the atomic v2 count/amount-cap reservation and token-bound settlement RPCs. Those dependencies remain unreachable because the handler still imports only the disabled adapter. The adapter accepts only an exact versioned account contract, approved Nayax HTTPS hosts, a dedicated account-scoped write token, frozen case/payment evidence, and the documented request-then-approve sequence. It has no internal retry and treats duplicate, already-refunded, pending, timeout, malformed, network, and unknown outcomes as reconciliation states unless the exact configured success pair is returned. Account write authority, confirmed amount/response semantics, explicit machine allowlist, completion delivery, assertion-digest registration, and a controlled low-value smoke remain required under `#430` before a separate gate-on change is considered. The official actor remains a current active Machine Manager mapped to the case's machine, personally completing the fresh action-bound TOTP step-up. Super Admin, Scoped Admin, service, email, scheduler, GPT, and agent authority cannot substitute for that mapping and step-up.
+
+### Default-off provider-outcome resolution
+
+The audited outcome-resolution foundation is now deployed, but its database gate is false and the operator table is empty. It can eventually record one structured support-confirmed result for a held attempt without making another provider call, while preserving the original outcome and preventing blind retry or double compensation. Activation still requires the account contract and supervised rollout in `#430`, private TOTP enrollment/UAT in `#692`, an explicitly approved operator cohort, and a separate reviewed gate-on decision.
 
 ### Local orchestration proof (not a live-provider path)
 
