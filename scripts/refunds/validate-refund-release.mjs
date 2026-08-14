@@ -44,10 +44,19 @@ assert.match(
   new RegExp(productionDriftCommand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
   'The release runbook must call the production drift checker explicitly'
 );
-assert.match(
-  productionRunbook,
-  /historical ten-function\/49-migration default-off foundation[\s\S]*pre-deployment evidence only/,
-  'The runbook must identify the 49-migration bridge as historical pre-deployment evidence'
+assert(
+  productionRunbook.includes(
+    'historical ten-function/49-migration object only as immutable predeployment evidence'
+  ) &&
+    productionRunbook.includes(
+      'current strict production release is the reviewed ten-function/50-migration default-off foundation'
+    ) &&
+    productionRunbook.includes(
+      'Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit'
+    ) &&
+    !productionRunbook.includes('For the unmerged candidate') &&
+    !productionRunbook.includes('The later `#767` outcome-resolution migration and function deployment'),
+  'The runbook must separate immutable 49-migration history from the current canonical 10/50 default-off release'
 );
 
 const refundDeployStart = productionRunbook.indexOf('Before deploying Refund Operations functions');
