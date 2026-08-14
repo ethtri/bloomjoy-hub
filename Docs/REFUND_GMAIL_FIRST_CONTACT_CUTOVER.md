@@ -8,7 +8,7 @@ Issue `#688` replaces the repeating legacy canned response with one deterministi
 - An isolated label and owner-controlled synthetic sender population were kept separate from the production label and excluded from the legacy responder. `etrifari@bloomjoysweets.com` or its plus-addresses may participate only as an owner-controlled synthetic customer/test sender or recipient, or as vendor/account correspondence; they are not the production refund-assistant mailbox.
 - One eligible synthetic thread received exactly one original-thread `refund_first_contact_v1` acknowledgement. Scheduler replay and a later reply sent nothing further; teardown restored disabled mode and the production label.
 - After the native date/time correction, the private hosted-form context completed the existing Gmail draft exactly once and the shared direct/email intake rule assigned its sole current mapped manager.
-- This is not active cutover evidence. One case-specific reply with the complete current mapped-manager CC route, the final production-label boundary, rollback staffing, and explicit owner go/no-go remain required. The legacy responder is still authoritative for normal customer mail, and Hub schedules/automatic contact remain off.
+- This is not active cutover evidence. The bounded `#800`/`#810` owner-runner evidence completed one case-specific original-thread reply with the complete current mapped-manager CC route. The remaining gate is the staffed production-label/legacy-responder no-overlap handoff, one new post-boundary synthetic first-contact, rollback staffing, and explicit owner go/no-go. The legacy responder is still authoritative for normal customer mail, and Hub schedules/automatic contact remain off.
 
 ## Non-negotiable behavior
 
