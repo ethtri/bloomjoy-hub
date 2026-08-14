@@ -317,6 +317,7 @@ The evidence finalizer rejects stale, missing, extra, malformed, duplicate-image
 
 ## Production gates that remain open
 
+- the owner-only intake-shadow acceptance in `REFUND_GMAIL_INTAKE_SHADOW_RUNBOOK.md` remains default-off and separately authorized: one shadow-label thread, exactly one fresh owner inbound plus one strictly later mailbox-origin Gmail `SENT` acknowledgement, one POST/no retry, zero Hub/customer/manager delivery, conclusive safe-close, private queue verification, and an assigned earliest/latest retention cleanup obligation;
 - production-label/legacy-responder cutover and rollback approval (`#634`, `#686`, `#688`); the bounded case-specific original-thread reply with the complete current mapped-manager CC route is already proved;
 - owner-supervised mapped-manager TOTP enrollment and recovery ownership after the default-closed self-only enrollment control in `#782` is reviewed and deployed; official actions remain hard-off;
 - one staffed synthetic reminder/escalation plus manager-visible health and teardown under `#632`; the alert/replay/disabled-lane plumbing proof has passed, but schedules remain off;

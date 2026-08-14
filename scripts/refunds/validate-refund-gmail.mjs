@@ -596,15 +596,23 @@ assert(
   'Permitted attachments must use a DB-derived private quarantine target',
 );
 assert(syncFunction.includes('payloadRedacted: true'), 'Gmail logs and responses must be aggregate-only');
+const ordinaryPreSyncStart = syncFunction.indexOf(
+  'if (triggerSource !== "failure_test" && !intakeShadow)',
+);
+const intakeShadowCopyAuthorization = syncFunction.indexOf(
+  'await authorizeRefundGmailIntakeShadowDatabase()',
+);
+const resolvedGmailConfig = syncFunction.indexOf('const config = baseConfig && intakeShadow');
 assert(
-  syncFunction.indexOf('const summary = await runRetentionSweep({') >= 0 &&
-    syncFunction.indexOf('const summary = await runRetentionSweep({') <
-      syncFunction.indexOf('await authorizeNewGmailCopies()') &&
+  ordinaryPreSyncStart >= 0 &&
+    syncFunction.indexOf('const summary = await runRetentionSweep({', ordinaryPreSyncStart) <
+      syncFunction.indexOf('await authorizeNewGmailCopies()', ordinaryPreSyncStart) &&
     syncFunction.indexOf('await authorizeNewGmailCopies()') <
-      syncFunction.indexOf('const config = getRefundGmailConfig()') &&
-    syncFunction.indexOf('const config = getRefundGmailConfig()') <
-      syncFunction.indexOf('verifyRefundGmailMailbox(config)'),
-  'Claimed local retention and copy-health authorization must run before Gmail configuration or OAuth access',
+      resolvedGmailConfig &&
+    intakeShadowCopyAuthorization >= 0 &&
+    intakeShadowCopyAuthorization < resolvedGmailConfig &&
+    resolvedGmailConfig < syncFunction.indexOf('verifyRefundGmailMailbox(config)'),
+  'Ordinary retention and narrow intake-shadow copy authorization must run before Gmail OAuth access',
 );
 assert(
   syncFunction.includes('triggerSource === "retention"') &&
