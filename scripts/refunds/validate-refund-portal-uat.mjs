@@ -7,6 +7,12 @@ import {
   createAuthenticatedEvidenceFragment,
   requireEvidenceRunToken,
 } from './refund-uat-fragment-provenance.mjs';
+import {
+  closeRefundPortalContext,
+  navigateRefundPortalPage,
+  reloadRefundPortalPage,
+  settleRefundPortalPage,
+} from './refund-portal-uat-lifecycle.mjs';
 
 const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
 const DEFAULT_EVIDENCE_DIR = 'output/refund-uat-evidence';
@@ -48,6 +54,7 @@ const parseArgs = (argv) => {
     ownerTotpOnly: false,
     legacyStateOnly: false,
     nayaxResolutionOnly: false,
+    gmailDraftOnly: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -85,6 +92,11 @@ const parseArgs = (argv) => {
 
     if (arg === '--nayax-resolution-only') {
       args.nayaxResolutionOnly = true;
+      continue;
+    }
+
+    if (arg === '--gmail-draft-only') {
+      args.gmailDraftOnly = true;
       continue;
     }
 
@@ -515,7 +527,7 @@ const buildMockGmailContext = () => ({
       body: 'Following up with the last four only: 4242.',
       receivedAt: isoHoursAgo(0.5),
       sentAt: null,
-      sensitiveDataRedacted: false,
+      sensitiveDataRedacted: true,
       contentDeleted: false,
       attachments: [],
     },
@@ -1578,7 +1590,7 @@ const installMockSupabaseRoutes = async (
 };
 
 const signInRefundUser = async (page, appUrl, initialPath = '/refunds', beforeSubmit) => {
-  await page.goto(`${appUrl}${initialPath}`, { waitUntil: 'domcontentloaded' });
+  await navigateRefundPortalPage(page, `${appUrl}${initialPath}`, { waitUntil: 'domcontentloaded' });
   await page.waitForURL('**/login', { timeout: 10000 }).catch(() => undefined);
   try {
     await page.waitForSelector('#email-password', { timeout: 10000 });
@@ -1745,7 +1757,7 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder
   );
   const page = await context.newPage();
 
-  await page.goto(`${appUrl}/refunds`, { waitUntil: 'domcontentloaded' });
+  await navigateRefundPortalPage(page, `${appUrl}/refunds`, { waitUntil: 'domcontentloaded' });
   await page.waitForURL('**/login', { timeout: 10000 }).catch(() => undefined);
   recorder.assert(
     'Unauthenticated /refunds redirects to login',
@@ -1753,7 +1765,7 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder
     page.url()
   );
 
-  await page.goto(`${appUrl}/refunds/request?demo=on`, { waitUntil: 'domcontentloaded' });
+  await navigateRefundPortalPage(page, `${appUrl}/refunds/request?demo=on`, { waitUntil: 'domcontentloaded' });
   evidence.intakeAvailable = await page.getByRole('heading', { name: 'Request a refund' })
     .waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
   recorder.assert('Public refund intake is available', evidence.intakeAvailable);
@@ -1773,7 +1785,7 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder
   });
 
   const syntheticEmailContext = 'a'.repeat(43);
-  await page.goto(
+  await navigateRefundPortalPage(page,
     `${appUrl}/refunds/request?emailContext=${syntheticEmailContext}`,
     { waitUntil: 'domcontentloaded' }
   );
@@ -1785,7 +1797,7 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder
       await page.getByText(/reply in the same email conversation/i).isVisible()
   );
 
-  await context.close();
+  await closeRefundPortalContext(context);
 };
 
 const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) => {
@@ -1833,7 +1845,7 @@ const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) =>
     });
 
     const page = await context.newPage();
-    await page.goto(`${appUrl}${journey.path}`, { waitUntil: 'domcontentloaded' });
+    await navigateRefundPortalPage(page, `${appUrl}${journey.path}`, { waitUntil: 'domcontentloaded' });
     await page.getByLabel('Machine location').selectOption(machineId);
     await page.getByLabel('Name').fill('Synthetic Customer');
     await page.getByLabel('Email').fill('synthetic-customer@example.test');
@@ -1887,7 +1899,7 @@ const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) =>
       JSON.stringify({ emailContextToken: submission.emailContextToken })
     );
 
-    await context.close();
+    await closeRefundPortalContext(context);
   }
 };
 
@@ -1966,7 +1978,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   const officialActionCallsBeforeLinkNavigation = functionCalls.filter((name) =>
     name === 'nayax-card-refund' || name === 'refund-case-admin-update'
   ).length;
-  await page.goto(`${appUrl}/refunds?case=${encodeURIComponent('case-cash-1')}`, {
+  await navigateRefundPortalPage(page, `${appUrl}/refunds?case=${encodeURIComponent('case-cash-1')}`, {
     waitUntil: 'networkidle',
   });
   await page.getByRole('heading', { name: 'RF-UAT-WAIT' }).waitFor({ timeout: 10000 });
@@ -2015,6 +2027,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       await page.getByTestId('refund-request-summary').isVisible() &&
       await page.getByTestId('nayax-result-card').isVisible()
   );
+  await settleRefundPortalPage(page);
   const requestBox = await page.getByTestId('refund-request-summary').boundingBox();
   const matchBox = await page.getByTestId('nayax-result-card').boundingBox();
   const actionBox = await page.getByTestId('refund-primary-action').boundingBox();
@@ -2174,7 +2187,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       await page.getByTestId('refund-action-receipt').getByText(/case (is still|remains) open/i).isVisible()
   );
 
-  await page.goto(`${appUrl}/refunds`, { waitUntil: 'networkidle' });
+  await navigateRefundPortalPage(page, `${appUrl}/refunds`, { waitUntil: 'networkidle' });
   await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
   await page.getByTestId('refund-run-nayax-refund').waitFor({ state: 'visible' });
   await page.screenshot({
@@ -2182,14 +2195,14 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     fullPage: true,
   });
 
-  await page.goto(`${appUrl}/admin/refunds`, { waitUntil: 'networkidle' });
+  await navigateRefundPortalPage(page, `${appUrl}/admin/refunds`, { waitUntil: 'networkidle' });
   recorder.assert(
     'Authenticated /admin/refunds redirects to /refunds',
     pathname(page) === '/refunds',
     page.url()
   );
 
-  await page.goto(`${appUrl}/admin/refunds?demo=on`, { waitUntil: 'networkidle' });
+  await navigateRefundPortalPage(page, `${appUrl}/admin/refunds?demo=on`, { waitUntil: 'networkidle' });
   await page.waitForURL('**/refunds?demo=on', { timeout: 10000 });
   recorder.assert(
     'Admin refund compatibility route preserves demo query redirect',
@@ -2197,7 +2210,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     page.url()
   );
 
-  await page.goto(`${appUrl}/admin`, { waitUntil: 'networkidle' });
+  await navigateRefundPortalPage(page, `${appUrl}/admin`, { waitUntil: 'networkidle' });
   recorder.assert(
     'Refund-only /admin redirects to /refunds',
     pathname(page) === '/refunds',
@@ -2205,7 +2218,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${appUrl}/refunds`, { waitUntil: 'networkidle' });
+  await navigateRefundPortalPage(page, `${appUrl}/refunds`, { waitUntil: 'networkidle' });
   await page.getByRole('button', { name: /RF-UAT-CARD/ }).click();
   await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
   await page.waitForTimeout(100);
@@ -2263,7 +2276,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     consoleErrors.slice(0, 3).join(' | ')
   );
 
-  await context.close();
+  await closeRefundPortalContext(context);
 };
 
 const runEmailPilotDuplicateChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
@@ -2390,7 +2403,7 @@ const runEmailPilotDuplicateChecks = async ({ browser, appUrl, artifactDir, reco
     JSON.stringify({ rpcCalls, functionCalls })
   );
 
-  await page.goto(`${appUrl}/refunds?case=case-card-1`, { waitUntil: 'networkidle' });
+  await navigateRefundPortalPage(page, `${appUrl}/refunds?case=case-card-1`, { waitUntil: 'networkidle' });
   await page.getByText('Possible duplicate review', { exact: true }).waitFor({ timeout: 10000 });
   await page.getByRole('button', { name: 'Different purchases', exact: true }).click();
   await page.getByText('The cases are recorded as different purchases.', { exact: true }).waitFor({ timeout: 10000 });
@@ -2401,7 +2414,7 @@ const runEmailPilotDuplicateChecks = async ({ browser, appUrl, artifactDir, reco
     JSON.stringify({ rpcCalls, functionCalls })
   );
 
-  await context.close();
+  await closeRefundPortalContext(context);
 };
 
 const runLegacyStateNormalizationChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
@@ -2504,7 +2517,7 @@ const runLegacyStateNormalizationChecks = async ({ browser, appUrl, artifactDir,
     fullPage: true,
   });
 
-  await page.goto(`${appUrl}/refunds?case=${legacyCaseId}`, { waitUntil: 'networkidle' });
+  await navigateRefundPortalPage(page, `${appUrl}/refunds?case=${legacyCaseId}`, { waitUntil: 'networkidle' });
   await page.getByTestId('refund-legacy-state-review-banner').waitFor({ timeout: 10000 });
   recorder.assert(
     'Normalized legacy review remains blocked after reload',
@@ -2517,7 +2530,7 @@ const runLegacyStateNormalizationChecks = async ({ browser, appUrl, artifactDir,
     consoleErrors.slice(0, 3).join(' | ')
   );
 
-  await context.close();
+  await closeRefundPortalContext(context);
 };
 
 const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
@@ -2527,6 +2540,13 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   const functionCalls = [];
   const functionBodies = [];
   const rpcCalls = [];
+  await context.route('https://fonts.googleapis.com/css2**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/css',
+      body: '',
+    });
+  });
   await installMockSupabaseRoutes(context, {
     refundOverview: buildEmptyRefundOverview,
     rpcCalls,
@@ -2605,7 +2625,7 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
   recorder.assert(
     'Gmail conversation is chronological, redacted, and attachment-free for the pilot',
-    await page.getByTestId('refund-gmail-thread').getByText('Card number redacted').isVisible() &&
+    await page.getByTestId('refund-gmail-thread').getByText('Card number redacted').first().isVisible() &&
       (await page.getByTestId('refund-gmail-thread').getByText('receipt.pdf').count()) === 0 &&
       (await page.getByTestId('refund-gmail-thread').getByText('held for security review').count()) === 0 &&
       (await page.getByTestId('refund-gmail-thread').locator('a').count()) === 0
@@ -2684,13 +2704,29 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   });
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${appUrl}/refunds`, { waitUntil: 'networkidle' });
+  await navigateRefundPortalPage(page, `${appUrl}/refunds`, { waitUntil: 'networkidle' });
   await page.getByRole('button', { name: /RF-UAT-GMAIL/ }).click();
   await page.getByTestId('refund-gmail-draft-workbench').waitFor({ timeout: 10000 });
+  await settleRefundPortalPage(page);
   const overflow = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     bodyScrollWidth: document.body.scrollWidth,
     innerWidth: window.innerWidth,
+    offenders: [...document.querySelectorAll('body *')]
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          tag: element.tagName.toLowerCase(),
+          testId: element.getAttribute('data-testid'),
+          className: typeof element.className === 'string'
+            ? element.className.slice(0, 120)
+            : '',
+          left: Math.round(rect.left),
+          right: Math.round(rect.right),
+        };
+      })
+      .filter((entry) => entry.left < -1 || entry.right > window.innerWidth + 1)
+      .slice(0, 5),
   }));
   recorder.assert(
     'Gmail draft workbench has no mobile document overflow',
@@ -2698,6 +2734,36 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       overflow.bodyScrollWidth <= overflow.innerWidth + 1,
     JSON.stringify(overflow)
   );
+  const latestNoteHeaderLayout = await page
+    .getByTestId('refund-gmail-latest-note-header')
+    .evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const badge = element.querySelector('[data-testid="refund-gmail-latest-note-redacted"]');
+      const badgeRect = badge?.getBoundingClientRect();
+      return {
+        viewportWidth: window.innerWidth,
+        headerLeft: Math.round(rect.left),
+        headerRight: Math.round(rect.right),
+        badgeLeft: badgeRect ? Math.round(badgeRect.left) : null,
+        badgeRight: badgeRect ? Math.round(badgeRect.right) : null,
+        badgeClientWidth: badge instanceof HTMLElement ? badge.clientWidth : null,
+        badgeScrollWidth: badge instanceof HTMLElement ? badge.scrollWidth : null,
+      };
+    });
+  recorder.assert(
+    'Latest customer note header and redaction label stay inside the mobile workbench',
+    latestNoteHeaderLayout.headerLeft >= 0 &&
+      latestNoteHeaderLayout.headerRight <= latestNoteHeaderLayout.viewportWidth + 1 &&
+      latestNoteHeaderLayout.badgeLeft !== null &&
+      latestNoteHeaderLayout.badgeLeft >= 0 &&
+      latestNoteHeaderLayout.badgeRight !== null &&
+      latestNoteHeaderLayout.badgeRight <= latestNoteHeaderLayout.viewportWidth + 1 &&
+      latestNoteHeaderLayout.badgeClientWidth !== null &&
+      latestNoteHeaderLayout.badgeScrollWidth !== null &&
+      latestNoteHeaderLayout.badgeScrollWidth <= latestNoteHeaderLayout.badgeClientWidth + 1,
+    JSON.stringify(latestNoteHeaderLayout)
+  );
+  await page.getByTestId('refund-gmail-latest-note-header').scrollIntoViewIfNeeded();
   await page.screenshot({
     path: path.join(artifactDir, 'refund-portal-gmail-draft-mobile.png'),
     fullPage: false,
@@ -2708,7 +2774,7 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     consoleErrors.slice(0, 3).join(' | ')
   );
 
-  await context.close();
+  await closeRefundPortalContext(context);
 
   const rejectionRpcCalls = [];
   const rejectionContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
@@ -2730,7 +2796,7 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     rejectionRpcCalls.includes('admin_reject_refund_gpt_triage') &&
       await rejectionPage.getByText('Suggested reply rejected. No customer message was sent.', { exact: true }).isVisible()
   );
-  await rejectionContext.close();
+  await closeRefundPortalContext(rejectionContext);
 
   const humanReviewContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   await installMockSupabaseRoutes(humanReviewContext, {
@@ -2750,7 +2816,7 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       (await humanReviewPage.getByTestId('refund-gpt-editable-draft').count()) === 0 &&
       (await humanReviewPage.locator('[data-dominant-action="true"]:visible').count()) === 0
   );
-  await humanReviewContext.close();
+  await closeRefundPortalContext(humanReviewContext);
 };
 
 const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
@@ -2795,7 +2861,7 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
     (await alternativesPage.getByRole('button', { name: 'Ask customer for details', exact: true }).count()) === 0 &&
       (await alternativesPage.getByText('A quick detail check for your Bloomjoy refund request RF-UAT-CASH-REVIEW').count()) === 0
   );
-  await alternativesContext.close();
+  await closeRefundPortalContext(alternativesContext);
 
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
@@ -3019,7 +3085,7 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
     fullPage: true,
   });
 
-  await context.close();
+  await closeRefundPortalContext(context);
 };
 
 const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, recorder, evidence }) => {
@@ -3050,7 +3116,7 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
 
   const page = await context.newPage();
   await signInRefundUser(page, appUrl);
-  await page.goto(`${appUrl}/refunds?case=case-card-pending`, { waitUntil: 'domcontentloaded' });
+  await navigateRefundPortalPage(page, `${appUrl}/refunds?case=case-card-pending`, { waitUntil: 'domcontentloaded' });
   await page.getByRole('heading', { name: 'RF-UAT-PENDING' }).waitFor({ timeout: 10000 });
   await page.getByLabel('Filter refund cases by status').selectOption('all');
   await page.waitForTimeout(250);
@@ -3088,7 +3154,7 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
     name === 'nayax-card-refund' ||
     name === 'refund-case-admin-update'
   );
-  await page.goto(`${appUrl}/refunds?case=${encodeURIComponent('case-card-pending')}`, {
+  await navigateRefundPortalPage(page, `${appUrl}/refunds?case=${encodeURIComponent('case-card-pending')}`, {
     waitUntil: 'networkidle',
   });
   await page.getByRole('heading', { name: 'RF-UAT-PENDING' }).waitFor({ timeout: 10000 });
@@ -3165,7 +3231,7 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
     fullPage: false,
   });
 
-  await context.close();
+  await closeRefundPortalContext(context);
 };
 
 const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
@@ -3599,7 +3665,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       fullPage: false,
     });
 
-    await context.close();
+    await closeRefundPortalContext(context);
   }
 };
 
@@ -3678,7 +3744,7 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
       rpcCalls.includes('admin_cancel_refund_action_step_up_intent') &&
         !functionCalls.includes('refund-manager-action-step-up')
     );
-    await context.close();
+    await closeRefundPortalContext(context);
   }
 };
 
@@ -3711,7 +3777,7 @@ const runOfficialActionVersionResetChecks = async ({ browser, appUrl, recorder }
     functionCalls.join(', ')
   );
 
-  await context.close();
+  await closeRefundPortalContext(context);
 };
 
 const runCustomerCommsFailureChecks = async ({ browser, appUrl, recorder }) => {
@@ -3754,7 +3820,7 @@ const runCustomerCommsFailureChecks = async ({ browser, appUrl, recorder }) => {
     functionCalls.join(', ')
   );
 
-  await context.close();
+  await closeRefundPortalContext(context);
 };
 
 const openNayaxManagerStepUp = async (page) => {
@@ -3885,7 +3951,7 @@ const runManagerStepUpChecks = async ({ browser, appUrl, artifactDir, recorder }
       dialogVisible: await page.getByTestId('refund-manager-step-up-dialog').isVisible().catch(() => false),
     })
   );
-  await context.close();
+  await closeRefundPortalContext(context);
 
   const expiredContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const expiredFunctionCalls = [];
@@ -3910,7 +3976,7 @@ const runManagerStepUpChecks = async ({ browser, appUrl, artifactDir, recorder }
     path: path.join(artifactDir, 'refund-manager-step-up-expired.png'),
     fullPage: false,
   });
-  await expiredContext.close();
+  await closeRefundPortalContext(expiredContext);
 
   const mobileContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   await installMockSupabaseRoutes(mobileContext, {
@@ -3936,7 +4002,7 @@ const runManagerStepUpChecks = async ({ browser, appUrl, artifactDir, recorder }
     fullPage: false,
   });
   await mobilePage.getByRole('button', { name: 'Cancel; take no action' }).click();
-  await mobileContext.close();
+  await closeRefundPortalContext(mobileContext);
 
   const enrollmentContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const enrollmentFunctionBodies = [];
@@ -3968,7 +4034,7 @@ const runManagerStepUpChecks = async ({ browser, appUrl, artifactDir, recorder }
       entry.body?.operation === 'cancel'
     )
   );
-  await enrollmentContext.close();
+  await closeRefundPortalContext(enrollmentContext);
 };
 
 const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
@@ -4238,7 +4304,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
       consoleErrors.slice(0, 3).join(' | ')
     );
 
-    await context.close();
+    await closeRefundPortalContext(context);
   }
 
   const interruptionContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
@@ -4272,7 +4338,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
       !interruptionFunctionCalls.includes('refund-case-message-send'),
     JSON.stringify(interruptionState)
   );
-  await interruptionContext.close();
+  await closeRefundPortalContext(interruptionContext);
 
   const uncertainContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const uncertainFunctionCalls = [];
@@ -4316,7 +4382,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
       !uncertainFunctionCalls.includes('refund-case-message-send'),
     JSON.stringify(uncertainState)
   );
-  await uncertainContext.close();
+  await closeRefundPortalContext(uncertainContext);
 };
 
 const runOwnerTotpEnrollmentChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
@@ -4334,7 +4400,7 @@ const runOwnerTotpEnrollmentChecks = async ({ browser, appUrl, artifactDir, reco
     (await wrongPage.getByTestId('refund-owner-totp-readiness').count()) === 0 &&
       !wrongRpcCalls.includes('open_refund_manager_totp_enrollment_window_current_user')
   );
-  await wrongContext.close();
+  await closeRefundPortalContext(wrongContext);
 
   const successContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const successRpcCalls = [];
@@ -4405,7 +4471,7 @@ const runOwnerTotpEnrollmentChecks = async ({ browser, appUrl, artifactDir, reco
       !successFunctionCalls.includes('refund-case-admin-update') &&
       !successFunctionCalls.includes('refund-case-message-send')
   );
-  await successContext.close();
+  await closeRefundPortalContext(successContext);
 
   const authDisabledContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const authDisabledRpcCalls = [];
@@ -4436,7 +4502,7 @@ const runOwnerTotpEnrollmentChecks = async ({ browser, appUrl, artifactDir, reco
       authDisabledFunctionCalls.includes('refund-manager-totp-enrollment') &&
       authDisabledRpcCalls.includes('close_refund_manager_totp_enrollment_window_current_user')
   );
-  await authDisabledContext.close();
+  await closeRefundPortalContext(authDisabledContext);
 
   const failureContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const failureRpcCalls = [];
@@ -4474,7 +4540,7 @@ const runOwnerTotpEnrollmentChecks = async ({ browser, appUrl, artifactDir, reco
       !failureFunctionCalls.includes('refund-case-admin-update') &&
       !failureFunctionCalls.includes('refund-case-message-send')
   );
-  await failureContext.close();
+  await closeRefundPortalContext(failureContext);
 
   const expiryContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const expiryRpcCalls = [];
@@ -4515,7 +4581,7 @@ const runOwnerTotpEnrollmentChecks = async ({ browser, appUrl, artifactDir, reco
         entry.functionName === 'refund-manager-totp-enrollment' && entry.body?.operation === 'verify'
       )
   );
-  await expiryContext.close();
+  await closeRefundPortalContext(expiryContext);
 
   const navigationContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const navigationRpcCalls = [];
@@ -4548,7 +4614,7 @@ const runOwnerTotpEnrollmentChecks = async ({ browser, appUrl, artifactDir, reco
     ) &&
       navigationRpcCalls.includes('close_refund_manager_totp_enrollment_window_current_user')
   );
-  await navigationContext.close();
+  await closeRefundPortalContext(navigationContext);
 
   const mobileContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const mobileRpcCalls = [];
@@ -4589,7 +4655,7 @@ const runOwnerTotpEnrollmentChecks = async ({ browser, appUrl, artifactDir, reco
       mobileRpcCalls.includes('close_refund_manager_totp_enrollment_window_current_user') &&
       (await mobilePage.getByTestId('refund-owner-totp-enrollment-dialog').isVisible().catch(() => false)) === false
   );
-  await mobileContext.close();
+  await closeRefundPortalContext(mobileContext);
 };
 
 const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, recorder, evidence }) => {
@@ -4678,7 +4744,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
         )),
       JSON.stringify({ functionCalls, availabilityBodies })
     );
-    await context.close();
+    await closeRefundPortalContext(context);
   }
 
   const scenarios = [
@@ -4926,7 +4992,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
             (await page.getByRole('button', { name: 'Deny request', exact: true }).count()) === 0 &&
             (await page.getByText('Preview customer email', { exact: true }).count()) === 0
         );
-        await page.reload();
+        await reloadRefundPortalPage(page);
         await page.getByRole('button', { name: 'Processing / check needed 1', exact: true })
           .waitFor({ timeout: 10000 });
         await page.getByRole('button', { name: 'Processing / check needed 1', exact: true }).click();
@@ -4940,7 +5006,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
             (await page.getByTestId('refund-run-nayax-refund').count()) === 0
         );
       } else if (scenario.name === 'rejected') {
-        await page.reload();
+        await reloadRefundPortalPage(page);
         await page.getByRole('button', { name: 'Needs action 1', exact: true })
           .waitFor({ timeout: 10000 });
         const reloadedRejectedCaseRow = page.locator('tr', { hasText: 'RF-UAT-CARD' });
@@ -4997,7 +5063,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
 
     if (scenario.name === 'success') evidence.providerSuccessStateCount += 1;
     else evidence.providerNonSuccessStateCount += 1;
-    await context.close();
+    await closeRefundPortalContext(context);
   }
 };
 
@@ -5030,7 +5096,7 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
   rpcCalls.length = 0;
   page = await context.newPage();
   trackErrors(page);
-  await page.goto(`${appUrl}/refunds?demo=on`, { waitUntil: 'networkidle' });
+  await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=on`, { waitUntil: 'networkidle' });
   await page.getByText('DEMO DATA - visual review only').waitFor({ timeout: 10000 });
 
   recorder.assert(
@@ -5092,7 +5158,7 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
     rpcCalls.join(', ')
   );
 
-  await page.goto(`${appUrl}/refunds?demo=off`, { waitUntil: 'networkidle' });
+  await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=off`, { waitUntil: 'networkidle' });
   await page.getByText('No refund cases are assigned here yet.').last().waitFor({ timeout: 10000 });
   recorder.assert(
     'Demo mode off shows the true empty state',
@@ -5104,7 +5170,7 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
     consoleErrors.slice(0, 3).join(' | ')
   );
 
-  await context.close();
+  await closeRefundPortalContext(context);
 };
 
 const run = async () => {
@@ -5137,14 +5203,21 @@ const run = async () => {
 
   await mkdir(args.artifactDir, { recursive: true });
   if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.ownerTotpOnly &&
-    !args.legacyStateOnly && !args.nayaxResolutionOnly) {
+    !args.legacyStateOnly && !args.nayaxResolutionOnly && !args.gmailDraftOnly) {
     await mkdir(args.fragmentDir, { recursive: true });
   }
   await waitForServer(args.appUrl);
 
   const browser = await chromium.launch({ headless: !args.headed });
   try {
-    if (args.ownerTotpOnly) {
+    if (args.gmailDraftOnly) {
+      await runGmailDraftChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
+    } else if (args.ownerTotpOnly) {
       await runOwnerTotpEnrollmentChecks({
         browser,
         appUrl: args.appUrl,
@@ -5296,6 +5369,18 @@ const run = async () => {
       process.exit(1);
     }
     console.log('\nRefund legacy-state UAT passed.');
+    console.log(`Screenshots written to ${args.artifactDir}`);
+    return;
+  }
+
+  if (args.gmailDraftOnly) {
+    const focusedFailures = recorder.failed();
+    if (focusedFailures.length > 0) {
+      console.error(`\nRefund Gmail-draft UAT failed: ${focusedFailures.length} check(s).`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log('\nRefund Gmail-draft UAT passed.');
     console.log(`Screenshots written to ${args.artifactDir}`);
     return;
   }
