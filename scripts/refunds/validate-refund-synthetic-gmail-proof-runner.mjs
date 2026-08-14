@@ -19,6 +19,10 @@ const portal = read('src/pages/admin/Refunds.tsx');
 const portalClient = read('src/lib/refundOperations.ts');
 const runbook = read('Docs/PRODUCTION_RUNBOOK.md');
 const checklist = read('Docs/QA_SMOKE_TEST_CHECKLIST.md');
+const cutoverPacket = read('Docs/REFUND_PRODUCTION_CUTOVER_PACKET.md');
+const emailRunbook = read('Docs/REFUND_EMAIL_ASSISTANT_RUNBOOK.md');
+const emailPilotUat = read('Docs/REFUND_EMAIL_PILOT_UAT_SCRIPT.md');
+const gmailDataHandling = read('Docs/REFUND_GMAIL_DATA_HANDLING.md');
 const currentStatus = read('Docs/CURRENT_STATUS.md');
 const envExample = read('.env.example');
 const packageJson = JSON.parse(read('package.json'));
@@ -79,7 +83,8 @@ assert.doesNotMatch(portalClient, /syntheticProofRunToken/u);
 assert.doesNotMatch(portal, /refundpilot/iu);
 assert.doesNotMatch(portalClient, /refundpilot/iu);
 
-assert.match(runbook, /Do not perform the remaining case-specific proof as a manual dashboard\/portal ceremony/u);
+assert.match(runbook, /owner-controlled case-specific Gmail proof is completed historical evidence/u);
+assert.match(runbook, /If a future rerun is explicitly approved, use only the reviewed owner runner from `#810`/u);
 assert.match(runbook, /--mode dry-run --env-file <private-absolute-path>/u);
 assert.match(runbook, /RUN_ONE_OWNER_CONTROLLED_SYNTHETIC_GMAIL_PROOF/u);
 assert.match(runbook, /backups_read/u);
@@ -90,6 +95,16 @@ assert.match(runbook, /closed immutable registry/u);
 assert.match(runbook, /do not rerun it/u);
 assert.match(runbook, /leaves the exclusive authorization open/u);
 assert.match(checklist, /refunds:validate-synthetic-gmail-proof-runner/u);
+assert.match(checklist, /Preserve the completed isolated first-contact and case-specific evidence/u);
+assert.match(cutoverPacket, /The case-specific mapped-manager-CC evidence is complete/u);
+assert.match(emailPilotUat, /Passed through the reviewed owner-only runner/u);
+assert.match(gmailDataHandling, /bounded owner-controlled proof also passed exactly one case-specific original-thread message/u);
+assert.match(emailRunbook, /Cutover is a sequenced no-overlap handoff/u);
+assert.doesNotMatch(
+  [runbook, checklist, cutoverPacket, emailRunbook, emailPilotUat, gmailDataHandling].join('\n'),
+  /remaining case-specific|still-required case-specific|case-specific mapped-manager-CC UAT and the active-cutover gates are pending|Cutover is atomic/iu,
+  'Operational Gmail docs must record the completed case-specific proof and describe only the remaining no-overlap cutover gate',
+);
 assert.match(currentStatus, /P0 `#810` delivered the required owner-only one-command runner/u);
 assert.match(currentStatus, /P0 `#814` adds the explicit owner-grade Management API database path/u);
 for (const name of [

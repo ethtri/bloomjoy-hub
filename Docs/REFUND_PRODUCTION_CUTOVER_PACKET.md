@@ -101,7 +101,7 @@ Use this exact post-deployment order:
 8. Prove cash approve/deny/missing-info/completion and idempotency with a sponsor-approved test payout or a non-paying shadow fixture.
 9. Prove one reporting write-through and the negative controls.
 10. Keep automation off while preserving the completed PII-free alert, exact-key replay, and disabled-lane proofs. In one staffed synthetic-only window, prove one due reminder/escalation, manager-visible healthy state, replay, and teardown before considering scheduling.
-11. Enable Gmail only after the remaining case-specific mapped-manager-CC evidence and the production-label/legacy-responder cutover proof pass. The legacy responder remains authoritative for normal mail until then.
+11. The case-specific mapped-manager-CC evidence is complete. Enable Gmail only after the production-label/legacy-responder no-overlap cutover proof passes; the legacy responder remains authoritative for normal mail until then.
 12. Start GPT human-review evaluation only after the production Supabase secret destination and the exact OpenAI project retention/data-control mode in `#635` are approved. Keep `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false` until that record exists, then set it only for the approved evaluation window. `store=false` is not zero-retention approval, and the local developer key is not production approval.
 13. Start live Nayax execution only after the separate `#430` provider-contract decision, `#767` provider-outcome resolution path, private owner TOTP enrollment/UAT, and a controlled low-value test. Use the approved cohort, allowlist, per-refund cap, and UTC daily count/amount caps.
 
