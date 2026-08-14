@@ -262,7 +262,7 @@ Before deploying reporting functions, confirm Step B has completed and `supabase
 
 After applying the reviewed migrations, rerun `supabase db push --dry-run` and require zero pending migrations before deploying dependent Refund Operations functions.
 
-Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit. Revalidate the manifest and transitive source binding immediately before deployment. Keep all activation gates off, keep official actions statically false, keep the production Nayax adapter disabled, and keep `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` unset. Issue `#430` requires a separate implementation/contract review and controlled go/no-go; a reviewed default-off deployment cannot be turned live by setting an environment value alone.
+Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit. Revalidate the manifest and transitive source binding immediately before deployment. Keep official actions statically false, keep the production Nayax adapter disabled, keep all activation gates off, and keep `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` unset. Issue `#430` requires a separate implementation/contract review and controlled go/no-go; a reviewed default-off deployment cannot be turned live by setting an environment value alone.
 
 ```bash
 supabase functions deploy stripe-sugar-checkout --no-verify-jwt
