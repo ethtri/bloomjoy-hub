@@ -13,12 +13,22 @@ import {
   navigateRefundPortalPage,
   reloadRefundPortalPage,
   settleRefundPortalPage,
+  waitForRefundPortalDemoAccessReads,
+  waitForRefundPortalRouteCommitted,
+  withRefundPortalContext,
 } from './refund-portal-uat-lifecycle.mjs';
+import {
+  createTrackedUatBrowser,
+  getUatPageFailures,
+} from './refund-browser-uat-network.mjs';
 
 const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
 const DEFAULT_EVIDENCE_DIR = 'output/refund-uat-evidence';
 const DEFAULT_FRAGMENT_DIR = 'output/refund-uat-fragments';
+const EXPECTED_PORTAL_ERROR_HEADER = 'x-bloomjoy-uat-expected-error';
 const execFileAsync = promisify(execFile);
+const fixtureOwnedPortalRpcLabels = new WeakMap();
+const fixtureOwnedPortalFailureDiagnostics = [];
 
 const NAVIGATION_READ_ONLY_RPCS = new Set([
   'resolve_my_technician_entitlements',
@@ -30,6 +40,7 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'get_refund_automation_health',
   'get_refund_gmail_health',
   'get_refund_manager_totp_enrollment_readiness_current_user',
+  'public_refund_machine_options',
   'admin_get_refund_nayax_resolution_readiness',
   'admin_get_refund_email_queue_states',
   'admin_get_refund_case_reconciliation',
@@ -40,6 +51,13 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
 const isReadOnlyNavigationActivity = ({ functionCalls, rpcCalls }) =>
   functionCalls.length === 0 &&
   rpcCalls.every((name) => NAVIGATION_READ_ONLY_RPCS.has(name));
+
+const labelFixtureOwnedPortalRpc = (route, rpcName) => {
+  if (!NAVIGATION_READ_ONLY_RPCS.has(rpcName)) {
+    throw new Error('Synthetic RPC label is not allowlisted.');
+  }
+  fixtureOwnedPortalRpcLabels.set(route.request(), rpcName);
+};
 
 const parseArgs = (argv) => {
   const args = {
@@ -1166,12 +1184,16 @@ const installMockSupabaseRoutes = async (
         return route.fulfill({
           ...jsonResponse(currentNayaxCardRefundAvailability),
           status: nayaxCardRefundAvailabilityStatus,
+          ...(nayaxCardRefundAvailabilityStatus >= 400
+            ? { headers: { [EXPECTED_PORTAL_ERROR_HEADER]: 'nayax-availability' } }
+            : {}),
         });
       }
       if (requireManagerStepUp && !requestBody?.stepUpIntentId) {
         return route.fulfill({
           status: 428,
           contentType: 'application/json',
+          headers: { [EXPECTED_PORTAL_ERROR_HEADER]: 'nayax-step-up-required' },
           body: JSON.stringify({
             error: 'Enter a fresh authenticator code to personally authorize this exact action.',
             errorCode: 'manager_step_up_required',
@@ -1203,6 +1225,9 @@ const installMockSupabaseRoutes = async (
       return route.fulfill({
         status: nayaxCardRefundStatus,
         contentType: 'application/json',
+        ...(nayaxCardRefundStatus >= 400
+          ? { headers: { [EXPECTED_PORTAL_ERROR_HEADER]: 'nayax-execution-result' } }
+          : {}),
         body: JSON.stringify(responseBody),
       });
     }
@@ -1212,6 +1237,7 @@ const installMockSupabaseRoutes = async (
         return route.fulfill({
           status: 400,
           contentType: 'application/json',
+          headers: { [EXPECTED_PORTAL_ERROR_HEADER]: 'step-up-invalid-code' },
           body: JSON.stringify({
             error: 'That code was not accepted. Use the current six-digit code from your authenticator.',
             errorCode: 'invalid_code',
@@ -1235,6 +1261,9 @@ const installMockSupabaseRoutes = async (
         return route.fulfill({
           status: enrollmentStartStatus,
           contentType: 'application/json',
+          ...(enrollmentStartStatus >= 400
+            ? { headers: { [EXPECTED_PORTAL_ERROR_HEADER]: 'totp-enrollment-start' } }
+            : {}),
           body: JSON.stringify(enrollmentStartStatus === 200
             ? { qrCode: 'data:image/svg+xml,%3Csvg%3Eprivate%3C/svg%3E' }
             : enrollmentStartError),
@@ -1249,6 +1278,7 @@ const installMockSupabaseRoutes = async (
         return route.fulfill({
           status: 428,
           contentType: 'application/json',
+          headers: { [EXPECTED_PORTAL_ERROR_HEADER]: 'admin-step-up-required' },
           body: JSON.stringify({
             error: 'Enter a fresh authenticator code to personally authorize this exact action.',
             errorCode: 'manager_step_up_required',
@@ -1299,9 +1329,13 @@ const installMockSupabaseRoutes = async (
   });
 
   await context.route('**/rest/v1/rpc/**', async (route) => {
-    const url = route.request().url();
+    const request = route.request();
+    const url = request.url();
     const rpcName = new URL(url).pathname.split('/').pop() ?? '';
     rpcCalls.push(rpcName);
+    if (NAVIGATION_READ_ONLY_RPCS.has(rpcName)) {
+      fixtureOwnedPortalRpcLabels.set(request, rpcName);
+    }
 
     if (url.includes('/get_my_admin_access_context')) {
       return route.fulfill(
@@ -1710,23 +1744,8 @@ const computedContrastRatio = async (locator) => locator.evaluate((element) => {
 
 const pathname = (page) => new URL(page.url()).pathname;
 
-const isExpectedExternalFontFailure = (url) => {
-  try {
-    const parsed = new URL(url);
-    return (
-      parsed.hostname === 'fonts.gstatic.com' &&
-      /\.(?:woff2?|ttf|otf)$/i.test(parsed.pathname)
-    );
-  } catch {
-    return false;
-  }
-};
-
 const shouldRecordConsoleError = (message, { ignoreConflict = false } = {}) => {
   if (message.type() !== 'error') return false;
-
-  const locationUrl = message.location()?.url ?? '';
-  if (isExpectedExternalFontFailure(locationUrl)) return false;
 
   return !(
     ignoreConflict &&
@@ -1734,16 +1753,110 @@ const shouldRecordConsoleError = (message, { ignoreConflict = false } = {}) => {
   );
 };
 
-const trackHttpErrors = (page, errors) => {
-  page.on('response', (response) => {
-    if (
-      response.status() >= 400 &&
-      response.status() !== 409 &&
-      !isExpectedExternalFontFailure(response.url())
-    ) {
-      errors.push(`HTTP ${response.status()} ${response.url()}`);
+const requestJson = (request) => {
+  try {
+    return request.postDataJSON();
+  } catch {
+    return null;
+  }
+};
+
+const requestPath = (request) => {
+  try {
+    return new URL(request.url()).pathname;
+  } catch {
+    return '';
+  }
+};
+
+const isExpectedPortalUatResponse = (response) => {
+  const request = response.request();
+  if (request.method() !== 'POST') return false;
+  const status = response.status();
+  const path = requestPath(request);
+  const body = requestJson(request);
+  const marker = response.headers()[EXPECTED_PORTAL_ERROR_HEADER] ?? '';
+
+  if (
+    status === 503 &&
+    marker === 'nayax-availability' &&
+    path === '/functions/v1/nayax-card-refund' &&
+    body?.operation === 'availability' &&
+    Object.keys(body).every((key) => ['operation'].includes(key))
+  ) {
+    return true;
+  }
+
+  if (
+    status === 409 &&
+    marker === 'nayax-execution-result' &&
+    path === '/functions/v1/nayax-card-refund' &&
+    typeof body?.caseId === 'string' &&
+    Number.isInteger(body?.expectedOfficialActionVersion) &&
+    !('operation' in body)
+  ) {
+    return true;
+  }
+  if (
+    status === 428 &&
+    ['/functions/v1/nayax-card-refund', '/functions/v1/refund-case-admin-update']
+      .includes(path) &&
+    typeof body?.caseId === 'string' &&
+    Number.isInteger(body?.expectedOfficialActionVersion) &&
+    body?.stepUpIntentId === undefined &&
+    marker === (path === '/functions/v1/nayax-card-refund'
+      ? 'nayax-step-up-required'
+      : 'admin-step-up-required')
+  ) {
+    return true;
+  }
+  if (
+    status === 400 &&
+    marker === 'step-up-invalid-code' &&
+    path === '/functions/v1/refund-manager-action-step-up' &&
+    body?.code === '000000' &&
+    typeof body?.intentId === 'string'
+  ) {
+    return true;
+  }
+  return (
+    [403, 409, 422].includes(status) &&
+    marker === 'totp-enrollment-start' &&
+    path === '/functions/v1/refund-manager-totp-enrollment' &&
+    body?.operation === 'start' &&
+    Object.keys(body).every((key) => ['operation'].includes(key))
+  );
+};
+
+const isExpectedPortalUatRequestFailure = (request) => {
+  const fixtureRpcLabel = fixtureOwnedPortalRpcLabels.get(request);
+  if (NAVIGATION_READ_ONLY_RPCS.has(fixtureRpcLabel)) {
+    let pageState = 'unknown';
+    try {
+      pageState = request.frame().page().isClosed() ? 'closed' : 'open';
+    } catch {
+      pageState = 'unavailable';
     }
-  });
+    fixtureOwnedPortalFailureDiagnostics.push([
+      'FIXTURE_RPC',
+      fixtureRpcLabel,
+      request.failure()?.errorText === 'net::ERR_ABORTED' ? 'ERR_ABORTED' : 'OTHER_FAILURE',
+      request.method() === 'POST' ? 'POST' : 'OTHER_METHOD',
+      request.resourceType() === 'fetch' ? 'fetch' : 'other',
+      `page_${pageState}`,
+    ].join(' '));
+  }
+  return false;
+};
+
+const isExpectedPortalUatClosingRequestFailure = (request) => {
+  const fixtureRpcLabel = fixtureOwnedPortalRpcLabels.get(request);
+  return (
+    NAVIGATION_READ_ONLY_RPCS.has(fixtureRpcLabel) &&
+    request.failure()?.errorText === 'net::ERR_ABORTED' &&
+    request.method() === 'POST' &&
+    request.resourceType() === 'fetch'
+  );
 };
 
 const countLinksByName = async (page, name) =>
@@ -1753,9 +1866,10 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
   });
-  await context.route('**/rest/v1/rpc/public_refund_machine_options', async (route) =>
-    route.fulfill(jsonResponse([]))
-  );
+  await context.route('**/rest/v1/rpc/public_refund_machine_options', async (route) => {
+    labelFixtureOwnedPortalRpc(route, 'public_refund_machine_options');
+    await route.fulfill(jsonResponse([]));
+  });
   const page = await context.newPage();
 
   await navigateRefundPortalPage(page, `${appUrl}/refunds`, { waitUntil: 'domcontentloaded' });
@@ -1822,8 +1936,9 @@ const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) =>
       viewport: { width: 1280, height: 900 },
     });
     const submissions = [];
-    await context.route('**/rest/v1/rpc/public_refund_machine_options', async (route) =>
-      route.fulfill(jsonResponse([
+    await context.route('**/rest/v1/rpc/public_refund_machine_options', async (route) => {
+      labelFixtureOwnedPortalRpc(route, 'public_refund_machine_options');
+      await route.fulfill(jsonResponse([
         {
           machine_id: machineId,
           machine_label: 'Refund UAT Cotton Candy 01',
@@ -1831,8 +1946,8 @@ const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) =>
           location_name: 'Refund UAT Mall',
           location_timezone: 'America/Los_Angeles',
         },
-      ]))
-    );
+      ]));
+    });
     await context.route('**/functions/v1/refund-case-intake', async (route) => {
       submissions.push(route.request().postDataJSON());
       return route.fulfill(jsonResponse({
@@ -1923,7 +2038,6 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   page.on('pageerror', (error) => {
     consoleErrors.push(error.message);
   });
-  trackHttpErrors(page, consoleErrors);
 
   await signInRefundUser(page, appUrl);
   try {
@@ -1934,7 +2048,9 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       [
         'Refund queue summary was not visible after sign-in.',
         bodyText ? `Page body excerpt: ${bodyText.slice(0, 800)}` : '',
-        consoleErrors.length > 0 ? `Console errors: ${consoleErrors.join(' | ')}` : '',
+        getUatPageFailures(page, consoleErrors).length > 0
+          ? `Browser errors: ${getUatPageFailures(page, consoleErrors).join(' | ')}`
+          : '',
         error instanceof Error ? error.message : String(error),
       ]
         .filter(Boolean)
@@ -2273,8 +2389,8 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
   recorder.assert(
     'No browser console/page errors during mocked QA pass',
-    consoleErrors.length === 0,
-    consoleErrors.slice(0, 3).join(' | ')
+    getUatPageFailures(page, consoleErrors).length === 0,
+    getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
   );
 
   await closeRefundPortalContext(context);
@@ -2527,8 +2643,8 @@ const runLegacyStateNormalizationChecks = async ({ browser, appUrl, artifactDir,
   );
   recorder.assert(
     'Normalized legacy review reports no browser console or page errors',
-    consoleErrors.length === 0,
-    consoleErrors.slice(0, 3).join(' | ')
+    getUatPageFailures(page, consoleErrors).length === 0,
+    getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
   );
 
   await closeRefundPortalContext(context);
@@ -2578,7 +2694,6 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     if (shouldRecordConsoleError(message)) consoleErrors.push(message.text());
   });
   page.on('pageerror', (error) => consoleErrors.push(error.message));
-  trackHttpErrors(page, consoleErrors);
 
   await signInRefundUser(page, appUrl);
   await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
@@ -2792,8 +2907,8 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   });
   recorder.assert(
     'No browser console/page errors during Gmail draft QA pass',
-    consoleErrors.length === 0,
-    consoleErrors.slice(0, 3).join(' | ')
+    getUatPageFailures(page, consoleErrors).length === 0,
+    getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
   );
 
   await closeRefundPortalContext(context);
@@ -2903,7 +3018,6 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
     if (shouldRecordConsoleError(message)) consoleErrors.push(message.text());
   });
   page.on('pageerror', (error) => consoleErrors.push(error.message));
-  trackHttpErrors(page, consoleErrors);
   await signInRefundUser(page, appUrl);
   await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
   await page.locator('tr', { hasText: 'RF-UAT-CASH-REVIEW' }).click();
@@ -3099,8 +3213,8 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
   );
   recorder.assert(
     'No browser console or page errors during cash workflow UAT',
-    consoleErrors.length === 0,
-    consoleErrors.slice(0, 3).join(' | ')
+    getUatPageFailures(page, consoleErrors).length === 0,
+    getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
   );
   await page.screenshot({
     path: path.join(artifactDir, 'refund-portal-uat-cash-success.png'),
@@ -4322,8 +4436,8 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
     );
     recorder.assert(
       `Support-resolution ${scenario.result} completes without console or page errors`,
-      consoleErrors.length === 0,
-      consoleErrors.slice(0, 3).join(' | ')
+      getUatPageFailures(page, consoleErrors).length === 0,
+      getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
     );
 
     await closeRefundPortalContext(context);
@@ -5090,15 +5204,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
 };
 
 const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
-  const context = await browser.newContext({
-    viewport: { width: 1440, height: 1000 },
-  });
-  const rpcCalls = [];
-  await installMockSupabaseRoutes(context, { refundOverview: buildEmptyRefundOverview, rpcCalls });
-
-  let page = await context.newPage();
   const consoleErrors = [];
-
   const trackErrors = (targetPage) => {
     targetPage.on('console', (message) => {
       if (shouldRecordConsoleError(message)) {
@@ -5108,91 +5214,101 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
     targetPage.on('pageerror', (error) => {
       consoleErrors.push(error.message);
     });
-    trackHttpErrors(targetPage, consoleErrors);
+  };
+  const createDemoContext = () => browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  const openSignedInDemoPage = async (context, rpcCalls, initialPath) => {
+    await installMockSupabaseRoutes(context, { refundOverview: buildEmptyRefundOverview, rpcCalls });
+    const page = await context.newPage();
+    trackErrors(page);
+    let accessReadBarrier;
+    await signInRefundUser(page, appUrl, initialPath, () => {
+      accessReadBarrier = waitForRefundPortalDemoAccessReads(page);
+    });
+    if (!accessReadBarrier) throw new Error('refund_portal_demo_access_read_barrier_missing');
+    await accessReadBarrier;
+    await waitForRefundPortalRouteCommitted(page);
+    return page;
   };
 
-  trackErrors(page);
-  await signInRefundUser(page, appUrl);
-  await closeRefundPortalPage(page);
+  await withRefundPortalContext(createDemoContext, async (context) => {
+    const rpcCalls = [];
+    const page = await openSignedInDemoPage(context, rpcCalls, '/refunds?demo=on');
+    await page.getByText('DEMO DATA - visual review only').waitFor({ timeout: 10000 });
 
-  rpcCalls.length = 0;
-  page = await context.newPage();
-  trackErrors(page);
-  await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=on`, { waitUntil: 'networkidle' });
-  await page.getByText('DEMO DATA - visual review only').waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Explicit local demo mode shows read-only visual cases',
+      await page.getByText('1 visible of 3 total cases').isVisible()
+    );
+    recorder.assert(
+      'Demo visual review keeps waiting cases out of the needs-action queue',
+      (await page.getByText('RF-UAT-CARD').count()) > 0 &&
+        (await page.getByText('RF-UAT-WAIT').count()) === 0
+    );
 
-  recorder.assert(
-    'Explicit local demo mode shows read-only visual cases',
-    await page.getByText('1 visible of 3 total cases').isVisible()
-  );
-  recorder.assert(
-    'Demo visual review keeps waiting cases out of the needs-action queue',
-    (await page.getByText('RF-UAT-CARD').count()) > 0 &&
-      (await page.getByText('RF-UAT-WAIT').count()) === 0
-  );
+    const demoQueueFilter = page.getByLabel('Filter refund cases by status');
+    await demoQueueFilter.selectOption('waiting_on_customer');
+    await page.getByText('1 visible of 3 total cases').waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Demo visual review shows waiting cases in their dedicated queue',
+      (await page.getByText('RF-UAT-WAIT').count()) > 0 &&
+        (await page.getByText('RF-UAT-CARD').count()) === 0
+    );
+    await demoQueueFilter.selectOption('needs_action');
+    await page.getByText('1 visible of 3 total cases').waitFor({ timeout: 10000 });
 
-  const demoQueueFilter = page.getByLabel('Filter refund cases by status');
-  await demoQueueFilter.selectOption('waiting_on_customer');
-  await page.getByText('1 visible of 3 total cases').waitFor({ timeout: 10000 });
-  recorder.assert(
-    'Demo visual review shows waiting cases in their dedicated queue',
-    (await page.getByText('RF-UAT-WAIT').count()) > 0 &&
-      (await page.getByText('RF-UAT-CARD').count()) === 0
-  );
-  await demoQueueFilter.selectOption('needs_action');
-  await page.getByText('1 visible of 3 total cases').waitFor({ timeout: 10000 });
+    await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
+    await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Demo Nayax execution action is disabled',
+      (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+        await page.getByTestId('refund-action-status').isVisible()
+    );
+    recorder.assert(
+      'Demo hides advanced Nayax rerun action by default',
+      await page.getByText('Transaction search details').isVisible() &&
+        !(await page.getByRole('button', { name: /Refresh result/i }).isVisible())
+    );
+    recorder.assert(
+      'Demo keeps the final refund action safely disabled',
+      (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+        await page.getByTestId('refund-action-status').isVisible() &&
+        (await page.getByTestId('refund-confirmation-dialog').count()) === 0
+    );
 
-  await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
-  await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
+    await page.locator('select').first().selectOption('all');
+    await page.getByText('3 visible of 3 total cases').waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Demo visual review completed cash case appears under All cases',
+      (await page.getByText('RF-UAT-CASH').count()) > 0
+    );
+    await page.screenshot({
+      path: path.join(artifactDir, 'refund-portal-demo-fallback.png'),
+      fullPage: true,
+    });
+    recorder.assert(
+      'Explicit demo mode does not fetch live refund overview RPC data',
+      !rpcCalls.includes('admin_get_refund_operations_overview'),
+      rpcCalls.join(', ')
+    );
+  });
 
-  recorder.assert(
-    'Demo Nayax execution action is disabled',
-    (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-      await page.getByTestId('refund-action-status').isVisible()
-  );
-  recorder.assert(
-    'Demo hides advanced Nayax rerun action by default',
-    await page.getByText('Transaction search details').isVisible() &&
-      !(await page.getByRole('button', { name: /Refresh result/i }).isVisible())
-  );
-  recorder.assert(
-    'Demo keeps the final refund action safely disabled',
-    (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-      await page.getByTestId('refund-action-status').isVisible() &&
-      (await page.getByTestId('refund-confirmation-dialog').count()) === 0
-  );
-
-  await page.locator('select').first().selectOption('all');
-  await page.getByText('3 visible of 3 total cases').waitFor({ timeout: 10000 });
-  recorder.assert(
-    'Demo visual review completed cash case appears under All cases',
-    (await page.getByText('RF-UAT-CASH').count()) > 0
-  );
-
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-portal-demo-fallback.png'),
-    fullPage: true,
+  let demoOffPage;
+  await withRefundPortalContext(createDemoContext, async (context) => {
+    demoOffPage = await openSignedInDemoPage(context, [], '/refunds?demo=off');
+    await demoOffPage.getByText('No refund cases are assigned here yet.').last().waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Demo mode off shows the true empty state',
+      await demoOffPage.getByText('0 visible of 0 total cases').isVisible()
+    );
   });
 
   recorder.assert(
-    'Explicit demo mode does not fetch live refund overview RPC data',
-    !rpcCalls.includes('admin_get_refund_operations_overview'),
-    rpcCalls.join(', ')
-  );
-
-  await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=off`, { waitUntil: 'networkidle' });
-  await page.getByText('No refund cases are assigned here yet.').last().waitFor({ timeout: 10000 });
-  recorder.assert(
-    'Demo mode off shows the true empty state',
-    await page.getByText('0 visible of 0 total cases').isVisible()
-  );
-  recorder.assert(
     'No browser console/page errors during explicit demo QA pass',
-    consoleErrors.length === 0,
-    consoleErrors.slice(0, 3).join(' | ')
+    getUatPageFailures(demoOffPage, consoleErrors).length === 0,
+    getUatPageFailures(demoOffPage, consoleErrors).slice(0, 3).join(' | ')
   );
-
-  await closeRefundPortalContext(context);
 };
 
 const run = async () => {
@@ -5230,7 +5346,17 @@ const run = async () => {
   }
   await waitForServer(args.appUrl);
 
-  const browser = await chromium.launch({ headless: !args.headed });
+  const networkFailures = [];
+  const browser = createTrackedUatBrowser(
+    await chromium.launch({ headless: !args.headed }),
+    {
+      appUrl: args.appUrl,
+      failures: networkFailures,
+      isExpectedResponse: isExpectedPortalUatResponse,
+      isExpectedRequestFailure: isExpectedPortalUatRequestFailure,
+      isExpectedClosingRequestFailure: isExpectedPortalUatClosingRequestFailure,
+    }
+  );
   try {
     if (args.gmailDraftOnly) {
       await runGmailDraftChecks({
@@ -5383,6 +5509,12 @@ const run = async () => {
   } finally {
     await browser.close();
   }
+
+  recorder.assert(
+    'No unexpected HTTP or request failures across any Refund portal page',
+    networkFailures.length === 0,
+    [...networkFailures, ...fixtureOwnedPortalFailureDiagnostics].slice(0, 5).join(' | ')
+  );
 
   if (args.legacyStateOnly) {
     const focusedFailures = recorder.failed();

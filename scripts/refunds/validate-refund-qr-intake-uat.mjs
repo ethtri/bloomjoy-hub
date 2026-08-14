@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium } from 'playwright';
+import {
+  createTrackedUatBrowser,
+  getUatPageFailures,
+  isFixtureOwnedUatRequestFailure,
+} from './refund-browser-uat-network.mjs';
 
 const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
 const DEFAULT_ARTIFACT_DIR = 'output/playwright';
@@ -12,6 +17,9 @@ const eastridgeLocationId = '82000000-0000-4000-8000-000000000002';
 const openedAt = '2026-07-26T19:15:00.000Z';
 const validQrCode = 'refund_qr_public_uat_machine_one_000001';
 const invalidQrCode = 'refund_qr_public_uat_retired_code_00001';
+const networkQrCode = 'refund_qr_public_uat_network_error_00001';
+const EXPECTED_QR_ERROR_HEADER = 'x-bloomjoy-uat-expected-error';
+const fixtureOwnedQrAborts = new WeakSet();
 
 const parseArgs = (argv) => {
   const args = {
@@ -55,6 +63,17 @@ const jsonResponse = (body, status = 200) => ({
   contentType: 'application/json',
   body: JSON.stringify(body),
 });
+
+const expectedQrErrorResponse = (body) => {
+  const baseResponse = jsonResponse(body, 400);
+  return {
+    ...baseResponse,
+    headers: {
+      ...(baseResponse.headers ?? {}),
+      [EXPECTED_QR_ERROR_HEADER]: 'refund-qr-unavailable',
+    },
+  };
+};
 
 const waitForServer = async (appUrl) => {
   const deadline = Date.now() + 15_000;
@@ -124,20 +143,16 @@ const installPublicRefundRoutes = async (
 
     if (body.action === 'startQrClaim') {
       if (body.qrCode === abortQrCode) {
+        fixtureOwnedQrAborts.add(route.request());
         await route.abort('failed');
         return;
       }
       if (body.qrCode === rejectQrCode) {
-        await route.fulfill(
-          jsonResponse(
-            {
-              error:
-                "This machine's refund code is no longer available. Please use the regular refund form.",
-              errorCode: 'refund_qr_unavailable',
-            },
-            400
-          )
-        );
+        await route.fulfill(expectedQrErrorResponse({
+          error:
+            "This machine's refund code is no longer available. Please use the regular refund form.",
+          errorCode: 'refund_qr_unavailable',
+        }));
         return;
       }
 
@@ -147,16 +162,11 @@ const installPublicRefundRoutes = async (
     }
 
     if (rejectSubmit) {
-      await route.fulfill(
-        jsonResponse(
-          {
-            error:
-              "This machine's refund code is no longer available. Please use the regular refund form.",
-            errorCode: 'refund_qr_unavailable',
-          },
-          400
-        )
-      );
+      await route.fulfill(expectedQrErrorResponse({
+        error:
+          "This machine's refund code is no longer available. Please use the regular refund form.",
+        errorCode: 'refund_qr_unavailable',
+      }));
       return;
     }
 
@@ -183,6 +193,60 @@ const trackPageErrors = (page) => {
     if (message.type() === 'error') errors.push(message.text());
   });
   return errors;
+};
+
+const qrRequestJson = (request) => {
+  try {
+    return request.postDataJSON();
+  } catch {
+    return null;
+  }
+};
+
+const isExpectedQrUatResponse = (response) => {
+  const request = response.request();
+  const headers = response.headers();
+  let pathname = '';
+  try {
+    pathname = new URL(request.url()).pathname;
+  } catch {
+    return false;
+  }
+  const body = qrRequestJson(request);
+  return (
+    response.status() === 400 &&
+    request.method() === 'POST' &&
+    pathname === '/functions/v1/refund-case-intake' &&
+    headers[EXPECTED_QR_ERROR_HEADER] === 'refund-qr-unavailable' &&
+    (
+      (body?.action === 'startQrClaim' && body?.qrCode === invalidQrCode) ||
+      (
+        body?.action === undefined &&
+        body?.customerEmail === 'qr-customer@example.test' &&
+        /^refund_qr_claim_uat_token_/.test(body?.qrClaimToken ?? '')
+      )
+    )
+  );
+};
+
+const isExpectedQrUatRequestFailure = (request) => {
+  let pathname = '';
+  try {
+    pathname = new URL(request.url()).pathname;
+  } catch {
+    return false;
+  }
+  const body = qrRequestJson(request);
+  return isFixtureOwnedUatRequestFailure(request, {
+    ownedRequests: fixtureOwnedQrAborts,
+    failureCode: 'ERR_FAILED',
+    method: 'POST',
+    resourceType: 'fetch',
+    validateRequest: () =>
+      pathname === '/functions/v1/refund-case-intake' &&
+      body?.action === 'startQrClaim' &&
+      body?.qrCode === networkQrCode,
+  });
 };
 
 const fillRequiredRefundFields = async (page, { wallet = false } = {}) => {
@@ -254,7 +318,11 @@ const runDesktopQrJourney = async ({ browser, appUrl, artifactDir }) => {
   assert.equal('productDescription' in submission, false);
   assert.equal('attachments' in submission, false, 'Public refund intake must not submit attachment bytes.');
   assert.equal(routeState.getClaimCount(), 1);
-  assert.equal(pageErrors.length, 0, pageErrors.join(' | '));
+  assert.equal(
+    getUatPageFailures(page, pageErrors).length,
+    0,
+    getUatPageFailures(page, pageErrors).join(' | ')
+  );
 
   await context.close();
 };
@@ -398,7 +466,6 @@ const runUnavailableJourneys = async ({ browser, appUrl, artifactDir }) => {
   );
   await expiredContext.close();
 
-  const networkQrCode = 'refund_qr_public_uat_network_error_00001';
   const networkContext = await browser.newContext({ viewport: { width: 1024, height: 800 } });
   await installPublicRefundRoutes(networkContext, { abortQrCode: networkQrCode });
   const networkPage = await networkContext.newPage();
@@ -417,7 +484,16 @@ const run = async () => {
   await mkdir(args.artifactDir, { recursive: true });
   await waitForServer(args.appUrl);
 
-  const browser = await chromium.launch({ headless: !args.headed });
+  const networkFailures = [];
+  const browser = createTrackedUatBrowser(
+    await chromium.launch({ headless: !args.headed }),
+    {
+      appUrl: args.appUrl,
+      failures: networkFailures,
+      isExpectedResponse: isExpectedQrUatResponse,
+      isExpectedRequestFailure: isExpectedQrUatRequestFailure,
+    }
+  );
   try {
     await runDesktopQrJourney({ browser, ...args });
     await runRefreshJourney({ browser, ...args });
@@ -427,6 +503,12 @@ const run = async () => {
   } finally {
     await browser.close();
   }
+
+  assert.equal(
+    networkFailures.length,
+    0,
+    networkFailures.slice(0, 5).join(' | ')
+  );
 
   console.log('Refund QR intake browser UAT passed.');
   console.log(`Screenshots written to ${args.artifactDir}`);

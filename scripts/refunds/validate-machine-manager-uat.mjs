@@ -4,9 +4,12 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import {
-  describeFailedUatRequest,
-  describeFailedUatResponse,
-} from './machine-manager-uat-network.mjs';
+  closeUatSuiteResourcesAfterPageDrain,
+  createTrackedUatBrowser,
+  evaluateUatSuiteFailures,
+  getUatPageFailures,
+  navigateUatPageAfterDrain,
+} from './refund-browser-uat-network.mjs';
 
 const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
 const DEFAULT_ARTIFACT_DIR = 'output/playwright';
@@ -445,22 +448,17 @@ const run = async () => {
   await mkdir(args.artifactDir, { recursive: true });
   await waitForServer(args.appUrl);
 
-  const browser = await chromium.launch({ headless: !args.headed });
+  const networkFailures = [];
+  const browser = createTrackedUatBrowser(
+    await chromium.launch({ headless: !args.headed }),
+    { appUrl: args.appUrl, failures: networkFailures }
+  );
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   await installMockSupabaseRoutes(context, state);
 
   const page = await context.newPage();
-  const requestFailures = [];
   const consoleErrors = [];
-
-  page.on('response', (response) => {
-    const failure = describeFailedUatResponse(response, args.appUrl);
-    if (failure) requestFailures.push(failure);
-  });
-  page.on('requestfailed', (request) => {
-    const failure = describeFailedUatRequest(request, args.appUrl);
-    if (failure) requestFailures.push(failure);
-  });
+  let teardownFailures = [];
 
   page.on('console', (message) => {
     if (message.type() === 'error') {
@@ -635,7 +633,11 @@ const run = async () => {
     const savePayloadBeforeDemo = JSON.stringify(state.savePayload);
     state.rpcCalls.length = 0;
 
-    await page.goto(`${args.appUrl}/admin/machines?demo=on`, { waitUntil: 'networkidle' });
+    await navigateUatPageAfterDrain(
+      page,
+      `${args.appUrl}/admin/machines?demo=on`,
+      { waitUntil: 'networkidle' }
+    );
     await page.getByText('DEMO DATA - visual review only').waitFor({ timeout: 10000 });
     await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Edit' }).click();
     await page.getByRole('heading', { name: 'Machine Managers' }).waitFor({ timeout: 10000 });
@@ -676,15 +678,25 @@ const run = async () => {
       fullPage: true,
     });
 
-    recorder.assert(
-      'No browser console/page errors during mocked Machine Manager QA pass',
-      requestFailures.length === 0 && consoleErrors.length === 0,
-      [...requestFailures, ...consoleErrors].slice(0, 5).join(' | ')
-    );
   } finally {
-    await context.close();
-    await browser.close();
+    teardownFailures = await closeUatSuiteResourcesAfterPageDrain({
+      page,
+      context,
+      browser,
+    });
   }
+
+  const suiteFailures = evaluateUatSuiteFailures({
+    networkFailures,
+    consoleErrors,
+    teardownFailures,
+    pageFailures: getUatPageFailures(page, consoleErrors),
+  });
+  recorder.assert(
+    'No browser console/page/network or teardown errors during mocked Machine Manager QA pass',
+    suiteFailures.pass,
+    suiteFailures.detail
+  );
 
   const failed = recorder.failed();
   if (failed.length > 0) {
