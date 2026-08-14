@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "c22c0dfbe19ac313c26ae8c410ab42e35d0091a9",
+  "sourceGitCommit": "f77ccc0235afd93b62f4e7e31be24012d252c16e",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -151,9 +151,9 @@
       "verifyJwt": false,
       "sourceSha256": "ab0b32129ced2405001044ce4c6b80272624bff2619069e7b0e46a2b1cb8091c",
       "production": {
-        "version": 40,
-        "ezbrSha256": "edb6f0034e31e0e03e39b1e77311e26aadf9e15c2f7cd519a90ec298d842844e",
-        "sourceSha256": "e3231afff84c9c4eb47779563ed474dbee8d37842aaf86ef778bb39251d3f32b"
+        "version": 41,
+        "ezbrSha256": "c4168db5ac5c12d57c886df14ce3d8be740c1fb441cb62b9b0f801c33fb5e029",
+        "sourceSha256": "ab0b32129ced2405001044ce4c6b80272624bff2619069e7b0e46a2b1cb8091c"
       }
     },
     {
@@ -191,9 +191,9 @@
       "verifyJwt": false,
       "sourceSha256": "f3984f76169b77847373fe094e1b7dcf21bfe2f6ac7898900302548a7fe31262",
       "production": {
-        "version": 39,
-        "ezbrSha256": "d6f72367ee684559ccaeeeb4f8034e059759d337fba6a7a5d96dbd56c96c9e5f",
-        "sourceSha256": "c1d58503507f2adbdef8920fe4572b25a474a7092b83a45a821364b67d9bda40"
+        "version": 40,
+        "ezbrSha256": "42988decc1872608ac9391b25aae949dfb0efe51d6ec0d02191f030c8c6f864f",
+        "sourceSha256": "f3984f76169b77847373fe094e1b7dcf21bfe2f6ac7898900302548a7fe31262"
       }
     },
     {
@@ -201,9 +201,9 @@
       "verifyJwt": false,
       "sourceSha256": "b4bfb6a6b89ef93b2ed1d8ac3c286dfa079fb198afca27418a4ceb030d7ebd4d",
       "production": {
-        "version": 30,
-        "ezbrSha256": "a87e4e43044fa1f4cfed4767345e21d012fe38b48a5dfb510123d0eca85558ba",
-        "sourceSha256": "cd147f13796e0218512a281e38271ed1f1fbd2ad8aad947b10dda8d1f8336278"
+        "version": 31,
+        "ezbrSha256": "901835d03f25696aa47fd183cd07bf1d3e58c24b9bb55320841e71f5801a9860",
+        "sourceSha256": "b4bfb6a6b89ef93b2ed1d8ac3c286dfa079fb198afca27418a4ceb030d7ebd4d"
       }
     },
     {
