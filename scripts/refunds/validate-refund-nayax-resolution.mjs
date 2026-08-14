@@ -100,7 +100,13 @@ assert(
 );
 
 assert(
-  databaseTests.includes('select plan(81)') &&
+  databaseTests.includes('select plan(82)') &&
+    databaseTests.includes("select '2026-08-14 00:05:00+00'::timestamptz as now_at") &&
+    databaseTests.includes("occurred_at <= now_at + interval '30 seconds'") &&
+    databaseTests.includes(
+      "Previous-day UTC evidence stays in the past and crosses the LA date at 00:05 UTC"
+    ) &&
+    (databaseTests.match(/- interval '1 day' \+ interval '15 minutes'/g) ?? []).length === 3 &&
     databaseTests.includes('The default-off gate blocks preparation before any write') &&
     databaseTests.includes('PAN, phone, account, and other long digit-shaped references are rejected') &&
     databaseTests.includes('Grouped card, phone, and account digit shapes are rejected') &&
