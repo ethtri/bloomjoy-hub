@@ -140,6 +140,41 @@ test('context close settles every open page and skips already closed pages', asy
   assert.deepEqual(calls, ['close']);
 });
 
+test('context close holds a concurrent settle barrier across every open page', async () => {
+  const releases = [];
+  const calls = [];
+  const createBarrierPage = (name) => {
+    let loadStateCall = 0;
+    return {
+      isClosed: () => false,
+      waitForLoadState: async () => {
+        loadStateCall += 1;
+        calls.push(`${name}:load-${loadStateCall}`);
+        if (loadStateCall === 1) {
+          await new Promise((resolve) => releases.push(resolve));
+        }
+      },
+      evaluate: async () => calls.push(`${name}:fonts`),
+      waitForFunction: async () => calls.push(`${name}:images`),
+    };
+  };
+  const context = {
+    pages: () => [createBarrierPage('first'), createBarrierPage('second')],
+    close: async () => calls.push('context:close'),
+  };
+
+  const closing = closeRefundPortalContext(context);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, ['first:load-1', 'second:load-1']);
+  assert.equal(calls.includes('context:close'), false);
+  releases.splice(0).forEach((release) => release());
+  await closing;
+
+  assert.equal(calls.at(-1), 'context:close');
+  assert.ok(calls.indexOf('first:load-2') < calls.indexOf('context:close'));
+  assert.ok(calls.indexOf('second:load-2') < calls.indexOf('context:close'));
+});
+
 test('a late request failure blocks navigation instead of being ignored', async () => {
   const page = createPage({ failAt: 'load-2' });
   await assert.rejects(

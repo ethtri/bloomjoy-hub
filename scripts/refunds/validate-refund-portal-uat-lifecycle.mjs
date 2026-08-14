@@ -14,6 +14,10 @@ assert.match(portalSource, /navigateRefundPortalPage/);
 assert.match(portalSource, /reloadRefundPortalPage/);
 assert.match(portalSource, /closeRefundPortalPage/);
 assert.match(portalSource, /closeRefundPortalContext/);
+assert.match(
+  await readFile(new URL('./refund-portal-uat-lifecycle.mjs', import.meta.url), 'utf8'),
+  /const openPages = context\.pages\(\)\.filter[\s\S]*?Promise\.all\(openPages\.map\(\(page\) => settleRefundPortalPage\(page\)\)\)[\s\S]*?await context\.close\(\)/
+);
 assert.doesNotMatch(portalSource, /await\s+[A-Za-z_$][\w$]*\.goto\(/);
 assert.doesNotMatch(portalSource, /await\s+[A-Za-z_$][\w$]*\.reload\(/);
 assert.doesNotMatch(portalSource, /await\s+[A-Za-z_$][\w$]*Context\.close\(\)/);
@@ -21,7 +25,11 @@ assert.doesNotMatch(portalSource, /await\s+context\.close\(\)/);
 assert.doesNotMatch(portalSource, /await\s+(?!browser\b)[A-Za-z_$][\w$]*\.close\(\)/);
 assert.match(
   portalSource,
-  /Explicit demo mode does not fetch live refund overview RPC data[\s\S]*?await closeRefundPortalPage\(page\);[\s\S]*?page = await context\.newPage\(\);[\s\S]*?trackErrors\(page\);[\s\S]*?navigateRefundPortalPage\(page, `\$\{appUrl\}\/refunds\?demo=off`/
+  /Explicit demo mode does not fetch live refund overview RPC data[\s\S]*?page = await context\.newPage\(\);[\s\S]*?trackErrors\(page\);[\s\S]*?navigateRefundPortalPage\(page, `\$\{appUrl\}\/refunds\?demo=off`[\s\S]*?await closeRefundPortalContext\(context\);/
+);
+assert.doesNotMatch(
+  portalSource,
+  /Explicit demo mode does not fetch live refund overview RPC data[\s\S]*?closeRefundPortalPage\(page\)[\s\S]*?\/refunds\?demo=off/
 );
 assert.match(
   refundsSource,

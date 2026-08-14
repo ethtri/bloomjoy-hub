@@ -51,8 +51,7 @@ export const closeRefundPortalPage = async (page, settleOptions) => {
 };
 
 export const closeRefundPortalContext = async (context) => {
-  for (const page of context.pages()) {
-    if (!page.isClosed()) await settleRefundPortalPage(page);
-  }
+  const openPages = context.pages().filter((page) => !page.isClosed());
+  await Promise.all(openPages.map((page) => settleRefundPortalPage(page)));
   await context.close();
 };

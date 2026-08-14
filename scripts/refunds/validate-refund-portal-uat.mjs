@@ -5290,12 +5290,11 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
     rpcCalls.join(', ')
   );
 
-  // Do not replace the fully rendered demo document in-place. Vite can still be
-  // completing deterministic module work after the visible assertions, and an
-  // immediate same-page navigation would correctly surface that cancellation as
-  // an open-page request failure. Settle and close it before opening the separate
-  // demo-off document.
-  await closeRefundPortalPage(page);
+  // Do not replace or close the fully rendered demo document in-place. A fixture
+  // read can still begin after a visible assertion; closing this page would turn
+  // that into a correctly fail-closed open-page abort. Keep it open, render the
+  // demo-off state in a separate page, and settle both under the wrapped context
+  // teardown below.
   page = await context.newPage();
   trackErrors(page);
   await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=off`, { waitUntil: 'networkidle' });
