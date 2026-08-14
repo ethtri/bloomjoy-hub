@@ -14,15 +14,46 @@ const SAFE_RESOURCE_TYPES = new Set([
   'manifest',
   'other',
 ]);
-const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i;
-const LONG_IDENTIFIER_SHAPE = /^[A-Za-z0-9_-]{24,}$/;
+const SAFE_STATIC_PATH_SEGMENTS = new Set([
+  '.vite',
+  '.well-known',
+  '@react-refresh',
+  '@vite',
+  'admin',
+  'appspecific',
+  'assets',
+  'auth',
+  'bloomjoy-icon.png',
+  'client',
+  'com.chrome.devtools.json',
+  'deps',
+  'favicon.ico',
+  'favicon.svg',
+  'functions',
+  'index.html',
+  'login',
+  'machines',
+  'media',
+  'node_modules',
+  'pages',
+  'public',
+  'rest',
+  'robots.txt',
+  'rpc',
+  'seo',
+  'site.webmanifest',
+  'src',
+  'training-guides',
+  'v1',
+]);
+const SAFE_FILE_EXTENSION = /\.(css|gif|html|ico|jpe?g|js|json|map|mjs|mp4|png|svg|ts|tsx|ttf|webmanifest|webp|woff2?)$/i;
 
 const redactPathSegment = (segment) => {
   if (!segment) return segment;
-  if (UUID_SHAPE.test(segment) || LONG_IDENTIFIER_SHAPE.test(segment)) return '[id]';
-  if (segment.includes('@') || /%40/i.test(segment)) return '[identity]';
-  if (segment.length > 80 || !/^[A-Za-z0-9._~-]+$/.test(segment)) return '[redacted]';
-  return segment;
+  if (SAFE_STATIC_PATH_SEGMENTS.has(segment)) return segment;
+
+  const extension = segment.match(SAFE_FILE_EXTENSION)?.[0]?.toLowerCase();
+  return extension ? `[redacted${extension}]` : '[redacted]';
 };
 
 export const redactUatRequestTarget = (rawUrl, appUrl) => {
