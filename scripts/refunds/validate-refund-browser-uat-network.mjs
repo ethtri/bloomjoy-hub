@@ -45,6 +45,32 @@ export const validateRefundBrowserUatNetworkCoverage = (sources) => {
     if (source.includes('machine-manager-uat-network.mjs')) {
       failures.push(`${filename}: obsolete Machine Manager-only helper remains`);
     }
+    if (filename === 'validate-refund-qr-intake-uat.mjs') {
+      if (!source.includes('const fixtureOwnedQrAborts = new WeakSet();')) {
+        failures.push(`${filename}: private QR abort ownership is missing`);
+      }
+      if (!/fixtureOwnedQrAborts\.add\(route\.request\(\)\);\s*await route\.abort\(['"]failed['"]\)/s.test(source)) {
+        failures.push(`${filename}: QR abort ownership is not bound immediately before the deliberate abort`);
+      }
+      if (!source.includes('isFixtureOwnedUatRequestFailure(request')) {
+        failures.push(`${filename}: QR request-failure predicate does not require fixture ownership`);
+      }
+    }
+    if (
+      filename === 'validate-refund-portal-uat.mjs' &&
+      /fonts\.gstatic\.com|isExpectedExternalFontFailure/.test(source)
+    ) {
+      failures.push(`${filename}: global public-font failure exception remains`);
+    }
+    if (
+      filename === 'validate-refund-portal-uat.mjs' &&
+      countMatches(
+        source,
+        /labelFixtureOwnedPortalRpc\(route, ['"]public_refund_machine_options['"]\)/g
+      ) !== 2
+    ) {
+      failures.push(`${filename}: direct public-options RPC fixtures are not both ownership-labelled`);
+    }
   }
 
   return failures;

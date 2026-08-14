@@ -36,6 +36,7 @@ const SAFE_EXACT_PATHS = new Set([
 ]);
 const SAFE_FILE_EXTENSION = /\.(css|gif|html|ico|jpe?g|js|json|map|mjs|mp4|png|svg|ts|tsx|ttf|webmanifest|webp|woff2?)$/i;
 const pageNetworkFailures = new WeakMap();
+const SYNTHETIC_RESOURCE_HEADER = 'x-bloomjoy-uat-synthetic-resource';
 
 const redactUnknownSegment = (segment) => {
   const extension = segment.match(SAFE_FILE_EXTENSION)?.[0]?.toLowerCase();
@@ -152,6 +153,52 @@ const safelyExpected = (predicate, value) => {
   }
 };
 
+export const isFixtureOwnedUatRequestFailure = (
+  request,
+  {
+    ownedRequests,
+    failureCode,
+    method,
+    resourceType,
+    validateRequest,
+  }
+) => (
+  ownedRequests instanceof WeakSet &&
+  ownedRequests.has(request) &&
+  request?.failure?.()?.errorText === `net::${failureCode}` &&
+  request?.method?.() === method &&
+  request?.resourceType?.() === resourceType &&
+  safelyExpected(validateRequest, request)
+);
+
+const installSyntheticExternalResources = async (context) => {
+  await context.route('https://fonts.googleapis.com/**', async (route) => {
+    const request = route.request();
+    let isExactFontStylesheet = false;
+    try {
+      const target = new URL(request.url());
+      isExactFontStylesheet =
+        target.hostname === 'fonts.googleapis.com' &&
+        target.pathname === '/css2' &&
+        request.method() === 'GET' &&
+        request.resourceType() === 'stylesheet';
+    } catch {
+      isExactFontStylesheet = false;
+    }
+
+    if (!isExactFontStylesheet) {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/css',
+      headers: { [SYNTHETIC_RESOURCE_HEADER]: 'google-font-css' },
+      body: '',
+    });
+  });
+};
+
 const bindTargetValue = (target, property) => {
   const value = Reflect.get(target, property, target);
   return typeof value === 'function' ? value.bind(target) : value;
@@ -209,8 +256,9 @@ export const createTrackedUatBrowser = (
     pageNetworkFailures.get(page).push(failure);
   };
 
-  const wrapContext = (context) => {
+  const wrapContext = async (context) => {
     let isClosing = false;
+    await installSyntheticExternalResources(context);
     context.on('response', (response) => {
       if (safelyExpected(isExpectedResponse, response)) return;
       record(describeFailedUatResponse(response, appUrl), response.request());

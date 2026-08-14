@@ -21,7 +21,19 @@ assert(networkFailures.length === 0);
 `;
 
 const sources = (source = coveredSource) => Object.fromEntries(
-  filenames.map((filename) => [filename, source])
+  filenames.map((filename) => [filename, filename === 'validate-refund-qr-intake-uat.mjs'
+    ? `${source}
+      const fixtureOwnedQrAborts = new WeakSet();
+      fixtureOwnedQrAborts.add(route.request());
+      await route.abort('failed');
+      isFixtureOwnedUatRequestFailure(request);
+    `
+    : filename === 'validate-refund-portal-uat.mjs'
+      ? `${source}
+        labelFixtureOwnedPortalRpc(route, 'public_refund_machine_options');
+        labelFixtureOwnedPortalRpc(route, 'public_refund_machine_options');
+      `
+      : source])
 );
 
 test('all three suites pass only with one wrapped launch and an asserted aggregate', () => {
@@ -58,5 +70,48 @@ test('a second Chromium launch fails completeness', () => {
   assert.match(
     validateRefundBrowserUatNetworkCoverage(duplicated).join(' | '),
     /expected exactly one Chromium launch/
+  );
+});
+
+test('QR ownership must be private, adjacent to abort, and used by the predicate', () => {
+  const missingOwnership = sources();
+  missingOwnership['validate-refund-qr-intake-uat.mjs'] = coveredSource;
+  assert.match(
+    validateRefundBrowserUatNetworkCoverage(missingOwnership).join(' | '),
+    /private QR abort ownership.*not bound immediately.*does not require fixture ownership/s
+  );
+
+  const lateOwnership = sources();
+  lateOwnership['validate-refund-qr-intake-uat.mjs'] = `
+    ${coveredSource}
+    const fixtureOwnedQrAborts = new WeakSet();
+    await route.abort('failed');
+    fixtureOwnedQrAborts.add(route.request());
+    isFixtureOwnedUatRequestFailure(request);
+  `;
+  assert.match(
+    validateRefundBrowserUatNetworkCoverage(lateOwnership).join(' | '),
+    /not bound immediately before the deliberate abort/
+  );
+});
+
+test('a global public-font failure exception fails completeness', () => {
+  const unsafe = sources();
+  unsafe['validate-refund-portal-uat.mjs'] += `
+    const isExpectedExternalFontFailure = (url) => url.includes('fonts.gstatic.com');
+  `;
+  assert.match(
+    validateRefundBrowserUatNetworkCoverage(unsafe).join(' | '),
+    /global public-font failure exception remains/
+  );
+});
+
+test('both direct public-options RPC fixtures require ownership labels', () => {
+  const unsafe = sources();
+  unsafe['validate-refund-portal-uat.mjs'] = unsafe['validate-refund-portal-uat.mjs']
+    .replace("labelFixtureOwnedPortalRpc(route, 'public_refund_machine_options');", '');
+  assert.match(
+    validateRefundBrowserUatNetworkCoverage(unsafe).join(' | '),
+    /direct public-options RPC fixtures are not both ownership-labelled/
   );
 });
