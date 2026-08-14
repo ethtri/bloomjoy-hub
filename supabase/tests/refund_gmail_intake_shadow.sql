@@ -1,5 +1,11 @@
 begin;
-select plan(50);
+select plan(64);
+
+select has_table(
+  'public',
+  'refund_gmail_intake_shadow_dispatch_authorizations',
+  'Gmail intake shadow has an owner-armed exact-run dispatch ledger'
+);
 
 select has_table(
   'public',
@@ -16,6 +22,24 @@ select has_function(
   'service_preflight_refund_gmail_intake_shadow',
   array['boolean', 'text', 'boolean', 'boolean', 'text'],
   'Gmail intake shadow has a dedicated DB safety preflight'
+);
+select has_function(
+  'public',
+  'owner_authorize_refund_gmail_intake_shadow_dispatch',
+  array['text', 'text', 'timestamp with time zone'],
+  'The owner has one fixed dispatch-authorization boundary'
+);
+select has_function(
+  'public',
+  'owner_cancel_refund_gmail_intake_shadow_dispatch',
+  array['text'],
+  'The owner has one fixed dispatch-cancellation boundary'
+);
+select has_function(
+  'public',
+  'owner_complete_due_refund_gmail_intake_shadow_cleanup',
+  array[]::text[],
+  'The owner has one verified cleanup-obligation completion boundary'
 );
 select has_function(
   'public',
@@ -58,8 +82,23 @@ select ok(
     'service_role',
     'public.service_start_refund_gmail_sync(text,text,timestamptz,text,text,boolean)',
     'execute'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'public.owner_authorize_refund_gmail_intake_shadow_dispatch(text,text,timestamptz)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'public.owner_cancel_refund_gmail_intake_shadow_dispatch(text)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'public.owner_complete_due_refund_gmail_intake_shadow_cleanup()',
+    'execute'
   ),
-  'Run-key validation stays private and only the service role can start Gmail sync'
+  'Run-key validation and owner dispatch/cleanup controls stay private while only service role starts Gmail sync'
 );
 
 select ok(
@@ -100,46 +139,81 @@ select throws_ok(
   'The intake trigger rejects a generic manual run key at the DB boundary'
 );
 
-create temporary table intake_shadow_run as
-select public.service_start_refund_gmail_sync(
-  'owner-intake-shadow:' || repeat('c', 64),
-  'intake_shadow',
-  now(),
-  repeat('a', 64),
-  repeat('b', 64),
-  false
-) as result;
-
-select is(
-  (select result ->> 'status' from intake_shadow_run),
-  'suppressed',
-  'A valid default-off intake-shadow run is recorded without claiming provider work'
-);
-select is(
-  (select trigger_source from public.refund_gmail_sync_runs
-    where run_key = 'owner-intake-shadow:' || repeat('c', 64)),
-  'intake_shadow',
-  'The run ledger preserves truthful intake-shadow provenance'
-);
-select is(
-  (
-    public.service_start_refund_gmail_sync(
+select throws_ok(
+  $$
+    select public.service_start_refund_gmail_sync(
       'owner-intake-shadow:' || repeat('c', 64),
-      'intake_shadow',
-      now(),
-      repeat('a', 64),
-      repeat('b', 64),
-      false
-    ) ->> 'claimed'
-  )::boolean,
-  false,
-  'The exact repeated intake run key is an idempotent no-op'
+      'intake_shadow', now(), repeat('a', 64), repeat('b', 64), false
+    )
+  $$,
+  'P0001',
+  'Enabled exact intake-shadow run required',
+  'Static default-off configuration cannot create an intake-shadow run'
 );
+
+select throws_ok(
+  $$
+    select public.service_start_refund_gmail_sync(
+      'owner-intake-shadow:' || repeat('c', 64),
+      'intake_shadow', now(), repeat('a', 64), repeat('b', 64), true
+    )
+  $$,
+  'P0001',
+  'Active owner intake-shadow dispatch authorization required',
+  'A shared service credential cannot start an unarmed exact intake run'
+);
+
+create temporary table intake_shadow_cancelled as
+select public.owner_authorize_refund_gmail_intake_shadow_dispatch(
+  encode(extensions.digest(convert_to(
+    'owner-intake-shadow:' || repeat('c', 64), 'UTF8'
+  ), 'sha256'), 'hex'),
+  repeat('9', 64),
+  statement_timestamp() - interval '5 minutes'
+) as result;
+select is(
+  public.service_preflight_refund_gmail_intake_shadow(
+    false, 'refund_gmail_retention_v1', false, false, ''
+  ) ->> 'status',
+  'intake_shadow_dispatch_armed',
+  'Any preexisting armed DB dispatch blocks dry-run and a second ceremony'
+);
+select is(
+  public.owner_cancel_refund_gmail_intake_shadow_dispatch(
+    encode(extensions.digest(convert_to(
+      'owner-intake-shadow:' || repeat('c', 64), 'UTF8'
+    ), 'sha256'), 'hex')
+  ) ->> 'status',
+  'cancelled',
+  'Owner cancellation durably closes an armed exact run before provider work'
+);
+select throws_ok(
+  $$
+    select public.service_start_refund_gmail_sync(
+      'owner-intake-shadow:' || repeat('c', 64),
+      'intake_shadow', now(), repeat('a', 64), repeat('b', 64), true
+    )
+  $$,
+  'P0001',
+  'Active owner intake-shadow dispatch authorization required',
+  'A late gateway worker is rejected after owner cancellation'
+);
+
 select is(
   (select count(*)::integer from public.refund_gmail_sync_runs
     where run_key = 'owner-intake-shadow:' || repeat('c', 64)),
-  1,
-  'Run-key replay never creates a second attempt row'
+  0,
+  'Cancelled late-start rejection creates no attempt row'
+);
+
+select public.owner_authorize_refund_gmail_intake_shadow_dispatch(
+  encode(extensions.digest(convert_to(
+    'owner-intake-shadow:' || repeat('d', 64), 'UTF8'
+  ), 'sha256'), 'hex'),
+  encode(extensions.digest(convert_to(
+    'owner.synthetic@example.test', 'UTF8'
+  ), 'sha256'), 'hex'),
+  statement_timestamp() - interval '5 minutes'
 );
 
 create temporary table intake_shadow_active_run as
@@ -153,8 +227,33 @@ select public.service_start_refund_gmail_sync(
 ) as result;
 select ok(
   (select (result ->> 'claimed')::boolean from intake_shadow_active_run)
-  and (select result ->> 'status' from intake_shadow_active_run) = 'running',
-  'An enabled exact intake-shadow run is truthfully claimed before provider work'
+  and (select result ->> 'status' from intake_shadow_active_run) = 'running'
+  and (select (result ->> 'intakeShadowAuthorized')::boolean
+    from intake_shadow_active_run)
+  and (select result ->> 'intakeShadowOwnerSenderDigest'
+    from intake_shadow_active_run) = encode(extensions.digest(convert_to(
+      'owner.synthetic@example.test', 'UTF8'
+    ), 'sha256'), 'hex'),
+  'An owner-armed exact intake-shadow run atomically consumes its DB authorization'
+);
+select is(
+  (select status from public.refund_gmail_intake_shadow_dispatch_authorizations
+   where consumed_run_id = (
+     select (result ->> 'runId')::uuid from intake_shadow_active_run
+   )),
+  'consumed',
+  'The dispatch ledger is consumed by the exact truthful run'
+);
+select throws_ok(
+  $$
+    select public.service_start_refund_gmail_sync(
+      'owner-intake-shadow:' || repeat('d', 64),
+      'intake_shadow', now(), repeat('a', 64), repeat('b', 64), true
+    )
+  $$,
+  'P0001',
+  'Active owner intake-shadow dispatch authorization required',
+  'The consumed exact run key cannot replay'
 );
 
 create temporary table intake_shadow_source as
@@ -208,6 +307,47 @@ select public.service_ingest_refund_gmail_message_v2(
   false,
   '{}'::text[]
 ) as result;
+
+update public.refund_gmail_intake_shadow_dispatch_authorizations
+set owner_sender_digest = repeat('8', 64)
+where consumed_run_id = (
+  select (result ->> 'runId')::uuid from intake_shadow_active_run
+);
+select throws_ok(
+  format(
+    'select public.service_complete_refund_gmail_intake_shadow(%L::uuid, %L::uuid, %L::uuid)',
+    (select result ->> 'runId' from intake_shadow_active_run),
+    (select result ->> 'messageId' from intake_shadow_source),
+    (select result ->> 'caseId' from intake_shadow_source)
+  ),
+  'P0001',
+  'Exact active intake-shadow run and customer source required',
+  'The DB finalizer rejects a source sender not bound to the consumed authorization'
+);
+update public.refund_gmail_intake_shadow_dispatch_authorizations
+set owner_sender_digest = encode(extensions.digest(convert_to(
+  'owner.synthetic@example.test', 'UTF8'
+), 'sha256'), 'hex'),
+  start_at = statement_timestamp() + interval '20 seconds'
+where consumed_run_id = (
+  select (result ->> 'runId')::uuid from intake_shadow_active_run
+);
+select throws_ok(
+  format(
+    'select public.service_complete_refund_gmail_intake_shadow(%L::uuid, %L::uuid, %L::uuid)',
+    (select result ->> 'runId' from intake_shadow_active_run),
+    (select result ->> 'messageId' from intake_shadow_source),
+    (select result ->> 'caseId' from intake_shadow_source)
+  ),
+  'P0001',
+  'Exact active intake-shadow run and customer source required',
+  'The DB finalizer rejects a source older than the consumed fresh boundary'
+);
+update public.refund_gmail_intake_shadow_dispatch_authorizations
+set start_at = statement_timestamp() - interval '5 minutes'
+where consumed_run_id = (
+  select (result ->> 'runId')::uuid from intake_shadow_active_run
+);
 
 create temporary table first_notice as
 select public.service_complete_refund_gmail_intake_shadow(
@@ -715,6 +855,15 @@ select public.service_ingest_refund_gmail_message_v2(
   '[]'::jsonb, '{}'::text[], array['info@bloomjoysweets.com'],
   'automated', true, false, '{}'::text[]
 ) as result;
+select public.owner_authorize_refund_gmail_intake_shadow_dispatch(
+  encode(extensions.digest(convert_to(
+    'owner-intake-shadow:' || repeat('e', 64), 'UTF8'
+  ), 'sha256'), 'hex'),
+  encode(extensions.digest(convert_to(
+    'assigned-customer@example.test', 'UTF8'
+  ), 'sha256'), 'hex'),
+  statement_timestamp() - interval '5 minutes'
+);
 create temporary table intake_shadow_assigned_run as
 select public.service_start_refund_gmail_sync(
   'owner-intake-shadow:' || repeat('e', 64), 'intake_shadow', now(),
@@ -762,6 +911,15 @@ select public.service_ingest_refund_gmail_message_v2(
   '[]'::jsonb, '{}'::text[], array['info@bloomjoysweets.com'],
   'automated', true, false, '{}'::text[]
 ) as result;
+select public.owner_authorize_refund_gmail_intake_shadow_dispatch(
+  encode(extensions.digest(convert_to(
+    'owner-intake-shadow:' || repeat('f', 64), 'UTF8'
+  ), 'sha256'), 'hex'),
+  encode(extensions.digest(convert_to(
+    'ops-customer@example.test', 'UTF8'
+  ), 'sha256'), 'hex'),
+  statement_timestamp() - interval '5 minutes'
+);
 create temporary table intake_shadow_ops_run as
 select public.service_start_refund_gmail_sync(
   'owner-intake-shadow:' || repeat('f', 64), 'intake_shadow', now(),
@@ -897,6 +1055,68 @@ select is(
   ) ->> 'nayaxResolutionIntentCount')::integer,
   1,
   'A pending Nayax resolution intent is explicitly counted and blocks intake'
+);
+
+update public.refund_gmail_intake_shadow_cleanup_obligations
+set earliest_retention_due_at = statement_timestamp() - interval '2 seconds',
+    latest_retention_due_at = statement_timestamp() - interval '1 second'
+where run_id = (select (result ->> 'runId')::uuid from intake_shadow_active_run);
+
+select is(
+  (public.service_preflight_refund_gmail_intake_shadow(
+    false, 'refund_gmail_retention_v1', false, false, ''
+  ) ->> 'overdueCleanupObligationCount')::integer,
+  1,
+  'An overdue assigned intake-shadow cleanup obligation is visible in preflight'
+);
+select ok(
+  (public.owner_complete_due_refund_gmail_intake_shadow_cleanup()
+    ->> 'completedNow')::integer = 0
+  and (public.owner_complete_due_refund_gmail_intake_shadow_cleanup()
+    ->> 'assignedOverdue')::integer = 1,
+  'Cleanup completion fails closed while either exact message remains unpurged'
+);
+
+update public.refund_gmail_messages message
+set
+  provider_message_id = null,
+  provider_message_header = null,
+  references_header = null,
+  sender_email = null,
+  sender_name = null,
+  recipient_email = null,
+  recipient_cc_emails = '{}'::text[],
+  recipient_cc_count = 0,
+  subject = '[Deleted after Gmail retention period]',
+  plain_body = '[Deleted after Gmail retention period]',
+  content_deleted_at = statement_timestamp()
+where message.gmail_thread_id = (
+  select source.gmail_thread_id
+  from public.refund_gmail_intake_shadow_notices notice
+  join public.refund_gmail_messages source on source.id = notice.source_message_id
+  where notice.run_id = (
+    select (result ->> 'runId')::uuid from intake_shadow_active_run
+  )
+);
+
+create temporary table intake_shadow_cleanup_completion as
+select public.owner_complete_due_refund_gmail_intake_shadow_cleanup() as result;
+select ok(
+  (select (result ->> 'completedNow')::integer
+    from intake_shadow_cleanup_completion) = 1
+  and (select (result ->> 'assignedOverdue')::integer
+    from intake_shadow_cleanup_completion) = 0
+  and (select (result ->> 'payloadRedacted')::boolean
+    from intake_shadow_cleanup_completion),
+  'Owner cleanup completion proves both exact messages purged and clears overdue work'
+);
+select is(
+  (select status from public.refund_gmail_intake_shadow_cleanup_obligations
+    where run_id = (
+      select (result ->> 'runId')::uuid from intake_shadow_active_run
+    )),
+  'completed',
+  'The exact run-bound cleanup obligation is durably completed'
 );
 
 select * from finish();

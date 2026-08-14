@@ -15,6 +15,8 @@ export const REFUND_GMAIL_INTAKE_SHADOW_LIST_LIMIT = 2;
 export const REFUND_GMAIL_INTAKE_SHADOW_ZERO_DIGEST = "0".repeat(64);
 export const REFUND_GMAIL_INTAKE_SHADOW_RETENTION_POLICY_VERSION =
   "refund_gmail_retention_v1";
+export const REFUND_GMAIL_INTAKE_SHADOW_SAFE_START_AT =
+  "2999-01-01T00:00:00.000Z";
 
 const GMAIL_API_ROOT = "https://gmail.googleapis.com/gmail/v1/users/me";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -22,12 +24,14 @@ const REQUEST_TIMEOUT_MS = 20_000;
 const LABEL_ID_PATTERN = /^[A-Za-z0-9_-]{1,255}$/;
 
 export type RefundGmailIntakeShadowConfig = {
-  active: true;
   shadowLabelId: string;
-  ownerSenderDigest: string;
-  runKeyDigest: string;
-  startAt: Date;
   maxThreads: 1;
+};
+
+export type RefundGmailIntakeShadowDispatch = RefundGmailIntakeShadowConfig & {
+  active: true;
+  ownerSenderDigest: string;
+  startAt: Date;
 };
 
 export class RefundGmailIntakeShadowError extends RefundGmailError {
@@ -72,22 +76,112 @@ export const validateRefundGmailIntakeShadowRuntime = async ({
   intake,
   config,
   firstContact,
-  runKey,
 }: {
   intake: RefundGmailIntakeShadowConfig;
   config: RefundGmailConfig | null;
   firstContact: RefundFirstContactConfig;
-  runKey: string;
 }) => {
   if (
-    !config || firstContact.mode !== "shadow" ||
-    firstContact.shouldClaim !== true || firstContact.shouldSend !== false ||
-    firstContact.errorCode !== null ||
-    !constantTimeDigestEqual(await sha256Hex(runKey), intake.runKeyDigest)
+    !intake || !config || firstContact.mode !== "disabled" ||
+    firstContact.shouldClaim !== false || firstContact.shouldSend !== false ||
+    firstContact.errorCode !== null
   ) {
     fail("gmail_intake_shadow_pure_preflight_failed");
   }
   return config;
+};
+
+export const bindRefundGmailIntakeShadowDispatch = ({
+  intake,
+  start,
+  nowMs = Date.now(),
+}: {
+  intake: RefundGmailIntakeShadowConfig;
+  start: Record<string, unknown> | null;
+  nowMs?: number;
+}): RefundGmailIntakeShadowDispatch => {
+  const ownerSenderDigest = typeof start?.intakeShadowOwnerSenderDigest ===
+      "string"
+    ? start.intakeShadowOwnerSenderDigest.trim().toLowerCase()
+    : "";
+  const startAtValue = typeof start?.intakeShadowStartAt === "string"
+    ? start.intakeShadowStartAt
+    : "";
+  const startAt = new Date(startAtValue);
+  if (
+    start?.intakeShadowAuthorized !== true ||
+    start?.payloadRedacted !== true ||
+    !DIGEST_PATTERN.test(ownerSenderDigest) ||
+    ownerSenderDigest === REFUND_GMAIL_INTAKE_SHADOW_ZERO_DIGEST ||
+    !Number.isFinite(nowMs) || !Number.isFinite(startAt.getTime()) ||
+    startAt.getTime() < nowMs - 15 * 60 * 1000 ||
+    startAt.getTime() > nowMs + 30 * 1000
+  ) fail("gmail_intake_shadow_dispatch_invalid");
+  return { ...intake, active: true, ownerSenderDigest, startAt };
+};
+
+export type RefundGmailIntakeShadowCompletionCounters = {
+  firstContactShadowed: number;
+  firstContactSuppressed: number;
+  firstContactFailed: number;
+  managerNoticeShadowed: number;
+  managerNoticeSentEvents: number;
+};
+
+const INTAKE_SHADOW_ROUTE_CLASSES = new Set([
+  "assigned_managers",
+  "operations_fallback",
+  "unassigned_owner_ops_queue",
+]);
+
+export const completeRefundGmailIntakeShadowFirstContact = async ({
+  runId,
+  sourceMessageId,
+  refundCaseId,
+  counters,
+  complete,
+}: {
+  runId: string;
+  sourceMessageId: string;
+  refundCaseId: string;
+  counters: RefundGmailIntakeShadowCompletionCounters;
+  complete: (parameters: {
+    p_run_id: string;
+    p_source_message_id: string;
+    p_refund_case_id: string;
+  }) => Promise<Record<string, unknown> | null>;
+}) => {
+  const result = await complete({
+    p_run_id: runId,
+    p_source_message_id: sourceMessageId,
+    p_refund_case_id: refundCaseId,
+  });
+  const routeClass = typeof result?.routeClass === "string"
+    ? result.routeClass.trim()
+    : "";
+  const exactResult =
+    result?.mailboxAcknowledgementObserved === true &&
+    result?.hubCustomerDeliverySent === false &&
+    result?.laterHubFirstContactExcluded === true &&
+    result?.eventPresent === true &&
+    result?.firstContactPresent === true &&
+    result?.cleanupAssigned === true &&
+    INTAKE_SHADOW_ROUTE_CLASSES.has(routeClass) &&
+    result?.payloadRedacted === true;
+  if (!exactResult) {
+    counters.firstContactFailed += 1;
+    return { failed: true, recorded: false };
+  }
+  if (result?.recorded !== true) {
+    // A prior exact-run record is durable replay evidence, never a successful
+    // acceptance run and never authorization to call this boundary again.
+    counters.firstContactSuppressed += 1;
+    counters.firstContactFailed += 1;
+    return { failed: true, recorded: false };
+  }
+  counters.firstContactShadowed += 1;
+  counters.managerNoticeShadowed += 1;
+  return { failed: false, recorded: true };
 };
 
 export const validateRefundGmailIntakeShadowThread = async ({
@@ -98,7 +192,7 @@ export const validateRefundGmailIntakeShadowThread = async ({
 }: {
   messages: GmailMessage[];
   config: RefundGmailConfig;
-  intake: RefundGmailIntakeShadowConfig;
+  intake: RefundGmailIntakeShadowDispatch;
   nowMs?: number;
 }) => {
   if (messages.length !== 2 || !Number.isFinite(nowMs)) {
@@ -191,26 +285,20 @@ export const resolveRefundGmailIntakeShadowConfig = ({
     if (intakeEnabled) fail("gmail_intake_shadow_trigger_required");
     return null;
   }
-  if (!intakeEnabled) fail("gmail_intake_shadow_disabled");
+  if (intakeEnabled) fail("gmail_intake_shadow_gate_must_remain_disabled");
   if (exactBoolean(readEnv("REFUND_GMAIL_ENABLED"))) {
     fail("gmail_delivery_gate_must_remain_disabled");
   }
   if (
     (readEnv("REFUND_GMAIL_FIRST_CONTACT_MODE") ?? "").trim().toLowerCase() !==
-      "shadow"
+      "disabled"
   ) {
-    fail("gmail_intake_shadow_mode_required");
+    fail("gmail_intake_shadow_mode_must_remain_disabled");
   }
 
   const startAtValue = (readEnv("GMAIL_REFUND_START_AT") ?? "").trim();
-  const startAt = new Date(startAtValue);
-  if (
-    !startAtValue || !Number.isFinite(startAt.getTime()) ||
-    !Number.isFinite(nowMs) ||
-    startAt.getTime() < nowMs - 15 * 60 * 1000 ||
-    startAt.getTime() > nowMs + 30 * 1000
-  ) {
-    fail("gmail_intake_shadow_start_required");
+  if (startAtValue !== REFUND_GMAIL_INTAKE_SHADOW_SAFE_START_AT) {
+    fail("gmail_intake_shadow_safe_start_required");
   }
   if ((readEnv("GMAIL_REFUND_MAX_THREADS_PER_RUN") ?? "").trim() !== "1") {
     fail("gmail_intake_shadow_max_threads_invalid");
@@ -258,20 +346,14 @@ export const resolveRefundGmailIntakeShadowConfig = ({
     readEnv("REFUND_GMAIL_INTAKE_SHADOW_RUN_KEY_SHA256") ?? ""
   ).trim().toLowerCase();
   if (
-    !DIGEST_PATTERN.test(ownerSenderDigest) ||
-    !DIGEST_PATTERN.test(runKeyDigest) ||
-    ownerSenderDigest === REFUND_GMAIL_INTAKE_SHADOW_ZERO_DIGEST ||
-    runKeyDigest === REFUND_GMAIL_INTAKE_SHADOW_ZERO_DIGEST
+    ownerSenderDigest !== REFUND_GMAIL_INTAKE_SHADOW_ZERO_DIGEST ||
+    runKeyDigest !== REFUND_GMAIL_INTAKE_SHADOW_ZERO_DIGEST
   ) {
-    fail("gmail_intake_shadow_authorization_digest_invalid");
+    fail("gmail_intake_shadow_authorization_must_remain_closed");
   }
 
   return {
-    active: true,
     shadowLabelId,
-    ownerSenderDigest,
-    runKeyDigest,
-    startAt,
     maxThreads: REFUND_GMAIL_INTAKE_SHADOW_MAX_THREADS,
   };
 };

@@ -1,70 +1,83 @@
 # Owner-only Gmail intake-shadow ceremony
 
-Checkpoint: 2026-08-14. This is a reviewed, default-off acceptance lane for one owner-controlled Gmail thread. It is not a schedule, production-label cutover, customer-send approval, legacy-responder replacement, provider action, or permission to run the live ceremony without a separate owner go/no-go.
+Checkpoint: 2026-08-14. This is a reviewed, default-off acceptance lane for one owner-controlled Gmail thread. It is not a schedule, production-label cutover, customer-send approval, legacy-responder replacement, provider action, or authorization to run the live ceremony without a separate owner go/no-go.
 
 ## Fixed safety contract
 
-- The production Gmail label is never changed. The ceremony uses a separate server-only shadow label whose confirmed SHA-256 digest must differ from the production-label digest.
-- The five-minute fresh query window must contain exactly one matching thread. The dedicated label may retain older content outside that fixed window. Gmail is queried with `maxResults=2`; zero fresh matches, two fresh matches, or a continuation token fails before ingestion.
+- Default-off means the static `REFUND_GMAIL_INTAKE_ENABLED` availability secret remains `false` **and no DB dispatch authorization is armed**. The static secret is not the live gate and is never changed during a live ceremony.
+- The production Gmail label is never changed. A separate server-only shadow label is initialized once; its confirmed SHA-256 digest must differ from the production-label digest. Neither request nor CLI arguments can choose a label, sender, recipient, thread, body, schedule, or endpoint.
+- The five-minute fresh query window must contain exactly one matching thread. The dedicated label may retain older content outside that window. Gmail is queried with `maxResults=2`; zero fresh matches, two or more fresh matches, or a continuation token fails before ingestion.
 - The thread must contain exactly two ordered messages: one fresh direct-human owner inbound addressed only to the configured support mailbox, followed strictly later by one mailbox-origin Gmail `SENT` acknowledgement addressed only to that owner. One message is HOLD, not success.
-- The authenticated owner's normalized Auth email must hash to the same owner-sender digest. No raw sender, thread, message, case, label, JWT, token, address, subject, or body is printed.
-- `REFUND_GMAIL_ENABLED=false` remains the delivery boundary. Intake temporarily sets only `REFUND_GMAIL_INTAKE_ENABLED=true`, first-contact mode `shadow`, the fresh boundary, cap `1`, and the two run-bound digests. Retention, schedules, customer contact, GPT, aging, official actions, and Nayax execution remain off.
-- The lane copies the two messages, creates one Gmail draft case, durably records one first-contact exclusion and one PII-free manager-action shadow event, and proves the authenticated owner can manage the case. It sends no Gmail, Resend, provider, refund, customer, manager, or operations message and performs no mark-read, archive, relabel, delete, or attachment operation.
+- The authenticated owner's normalized Auth email, the DB authorization, and the sole inbound sender must share one SHA-256 digest. No raw sender, thread, message, case, label, JWT, token, address, subject, or body is printed.
+- `REFUND_GMAIL_ENABLED=false`, retention false, first-contact mode disabled, the far-future start, cap one, and the zero owner/run sentinels remain unchanged throughout live execution. Schedules, customer contact, GPT, aging, official actions, and Nayax execution remain off.
+- The lane copies two messages, creates one Gmail draft case, durably records one first-contact exclusion and one PII-free manager-action shadow event, and proves the authenticated owner can manage the case. It sends no Gmail, Resend, provider, refund, customer, manager, or operations message and performs no mark-read, archive, relabel, delete, or attachment operation.
 - The mailbox-origin Gmail `SENT` record proves only that a mailbox acknowledgement was observed. It does not identify the human or legacy actor that sent it.
 
 ## Private environment packet
 
-Use an absolute path to a gitignored file outside the repository. Relative and in-repository paths fail before any client call. Do not pass targets or secrets as CLI arguments. Populate only the fixed names documented in `.env.example`, including exact project double confirmation, `refund_gmail_retention_v1`, shadow-label digest double confirmation, owner-sender digest double confirmation, owner JWT, Supabase management token, sync secret, anon key, and the fixed live/cleanup confirmations.
+Use an absolute path to a gitignored file outside the repository. A relative/in-repository path, duplicate name, or unrecognized name fails before any client call. The file is the sole authority; ambient process values are ignored rather than merged. Do not pass targets or secrets as CLI arguments.
 
-The cleanup confirmation is exactly:
+Populate only the fixed names in `.env.example`, including exact project double confirmation, `refund_gmail_retention_v1`, shadow-label digest double confirmation, owner-sender digest double confirmation, owner JWT, Supabase Management token, sync secret, anon key, and the fixed mode confirmations. The cleanup confirmation is exactly:
 
 `ENABLE_REVIEWED_RETENTION_BEFORE_EARLIEST_VERIFY_AFTER_LATEST_OR_PURGE_AT_DUE`
 
-The typed confirmation acknowledges the obligation; the database atomically records the durable PII-free assignment against the exact run. The assigned Refund Operations owner must either enable the reviewed recurring retention worker before the earliest reported expiry and verify cleanup after the latest reported expiry, or perform the reviewed manual purge at or after each due time. A run before an expiry alone does not delete content.
+The database atomically creates a PII-free cleanup task assigned to the Refund Operations owner for the exact run. The owner must either enable reviewed recurring retention before the earliest reported expiry and verify cleanup after the latest, or perform reviewed purge at or after each due time. A run before expiry alone does not delete content.
 
-## One-time closed-state initialization
+## One-time closed-state initialization and release rollover
 
-After the reviewed function and migration are deployed but before any dry-run, privately create or identify the dedicated shadow label without moving a customer thread into it. Place its raw label ID only in `REFUND_GMAIL_INTAKE_SHADOW_INITIAL_LABEL_ID`, independently hash it, and double-confirm that digest through the two label-digest fields. Then run exactly:
+Immediately after the reviewed function and migration deployment, privately create or identify the dedicated shadow label without moving a customer thread into it. Put its raw label ID only in `REFUND_GMAIL_INTAKE_SHADOW_INITIAL_LABEL_ID`, independently hash it, and double-confirm the digest. Then run exactly:
 
 ```text
 npm run refunds:gmail-intake-shadow -- --mode initialize --env-file <private-absolute-outside-repo-path>
 ```
 
-The fixed initialization confirmation is `INITIALIZE_CLOSED_OWNER_GMAIL_INTAKE_SHADOW`. Initialization performs one owner Management API write and an exact digest readback. It seeds only intake/delivery/retention false, first contact disabled, the far-future start, cap one, the dedicated label, and zero owner/run sentinels. It cannot call Auth, the database, Edge, OAuth, or Gmail, and it never prints the label ID or a secret. A failed write/readback is HOLD; do not continue to dry-run.
+The fixed confirmation is `INITIALIZE_CLOSED_OWNER_GMAIL_INTAKE_SHADOW`. Initialization performs one owner Management API write and exact digest readback. It seeds only the static closed settings: intake/delivery/retention false, first contact disabled, far-future start, cap one, dedicated label, and zero owner/run sentinels. It cannot call Auth, DB, Edge, OAuth, or Gmail and never prints the label ID or a secret.
+
+Supabase secret writes advance function versions. Therefore initialization is incomplete until the exact production versions/bundle hashes/source hashes are captured, reviewed in a metadata-only PR, canonically anchored, and strict local plus read-only production `10/51` validation passes. **Do not run dry-run or live before that post-initialization canonical release exists.**
 
 ## Read-only preflight
 
-From the exact reviewed canonical-main worktree:
+From that exact reviewed canonical-main worktree:
 
 ```text
 npm run refunds:validate-gmail-intake-shadow-runner
-npm run refunds:gmail-intake-shadow -- --mode dry-run --env-file <private-absolute-path>
+npm run refunds:gmail-intake-shadow -- --mode dry-run --env-file <private-absolute-outside-repo-path>
 ```
 
-Require aggregate-only PASS for the exact production project, current canonical release and fresh completed backup, database/session owner, distinct label digests, closed intake/delivery/retention gates, future-safe start boundary, zero armed owner/run digests, schedules off, zero proof authorization, zero unresolved Gmail/first-contact delivery, official actions off, no active official authorization or step-up intent, Nayax resolution/execution/operator/unresolved attempt state off, and healthy approved attachment-free copy policy. Historical terminal Nayax attempts may exist; unresolved/active attempts may not.
+Require aggregate-only PASS for the exact project, canonical release, fresh completed backup, DB-owner session, distinct label digests, static closed secrets, schedules off, and **zero armed dispatch authorization**. Also require zero proof authorization, unresolved Gmail/first-contact delivery, official-action authorization/step-up intent, Nayax operator/resolution/unresolved attempt, or overdue intake cleanup; approved attachment-free copy health must be current. Historical terminal Nayax attempts may exist.
 
-Dry-run performs no identity lookup, secret change, Edge POST, OAuth request, Gmail query, database write, case creation, event creation, or send.
+Dry-run performs no identity lookup, DB authorization, secret change, Edge POST, OAuth request, Gmail query, database write, case/event creation, or send.
 
 ## Separately authorized live ceremony
 
-Only after the owner has privately confirmed the exact shadow label, the exact two-message shape, the owner-controlled sender, the fixed cleanup obligation, and the go/no-go:
+Only after private confirmation of the label, exact two-message shape, owner sender, cleanup obligation, and go/no-go:
 
 ```text
-npm run refunds:gmail-intake-shadow -- --mode live --env-file <private-absolute-path>
+npm run refunds:gmail-intake-shadow -- --mode live --env-file <private-absolute-outside-repo-path>
 ```
 
-The runner generates the run key in-process, arms only its SHA-256 digest, performs one authenticated `intake_shadow` POST with no retry, and immediately enters fail-closed teardown. `finally` closes intake, delivery, and retention; disables first contact; resets the start to the fixed far-future boundary; resets both authorization digests to the zero sentinel; and rereads state. If the first close or state read is ambiguous, exactly one reviewed idempotent close recovery is allowed.
+The runner generates one run key in-process. The DB owner arms an expiring authorization containing only its digest, the owner-sender digest, and fresh boundary. `service_start_refund_gmail_sync` must atomically lock and consume that authorization in the same transaction that inserts the exact truthful `intake_shadow` run; only then can OAuth/provider access occur. The runner performs one authenticated Edge POST with no retry.
 
-Client timeout does not cancel an already-running Edge worker. With gates held closed, the runner therefore reconciles the exact run key until a terminal `finished_at` and two unchanged owner snapshots are observed. The fixed 420-second dispatch-to-quiescence bound exceeds the hosted 400-second Edge worker wall-clock limit; a missing run may be `no_effect` only after that bound. A running, late, unstable, or unreadable result at the bound is `outcome_unknown`, never a replay signal.
+In `finally`, the owner cancels any still-armed authorization using at most two fixed idempotent calls. Cancel and service start lock the same exact row: a cancelled authorization with zero run proves `no_effect`, and a late gateway worker is rejected at the DB boundary. A consumed authorization must reconcile to one terminal exact run and two unchanged owner snapshots. A running run is bounded from its DB `started_at` by 420 seconds; expiry or unreadable/unstable state is `outcome_unknown`, never a replay signal.
+
+Live execution performs **zero project-secret writes and therefore zero live version mutation**. Postflight must prove the authorization is cancelled with no run, or consumed with one terminal run, while the static secrets still match the reviewed canonical release.
 
 ## Evidence and incident handling
 
-Output is aggregate-only and separately reports `effectsClassification` (`no_effect`, `complete_exact`, `partial_incident`, or `outcome_unknown`) and `gatesConclusivelyClosed`. Every classification has `replayAllowed=false`. Never replay or manually reconstruct the Edge POST. `ok:true` is possible only when effects are `complete_exact` and the final gate read proves closed.
+Output is aggregate-only and separately reports `effectsClassification` (`no_effect`, `complete_exact`, `partial_incident`, or `outcome_unknown`) and `gatesConclusivelyClosed`. Every classification has `replayAllowed=false`. `ok:true` is possible only for `complete_exact` with conclusive static-secret and DB-authorization closure.
 
-Success requires exactly one terminal run, one thread, two exact thread messages (one customer inbound plus one mailbox-origin `SENT` acknowledgement), one new Gmail case in `draft/customer_replied`, one exact run-bound first-contact operation/event, one exact run-bound PII-free manager-action shadow event and notice row, one assigned cleanup-obligation row, one owner-manageable case, zero attachments, zero Hub outbound operation, zero case-delivery row of any status, zero sent or failed manager/ops notice attempt, zero pending/sent/unknown first-contact delivery, zero new Nayax attempt, and zero unresolved delivery. The safe output includes only the fixed route class, owner-manageable count, aggregate deltas, and earliest/latest retention expiry.
+Success requires one terminal run, one thread, two exact messages, one draft/customer-replied Gmail case, one exact run-bound first-contact operation/event, one PII-free action event/notice, one assigned cleanup obligation, one owner-manageable case, zero attachments, zero Hub outbound operation, zero case-delivery row of any status, zero sent/failed manager notice attempt, zero pending/sent/unknown first-contact delivery, zero new Nayax attempt, and zero unresolved delivery. Safe output includes only fixed route class, owner-manageable count, aggregate deltas, and earliest/latest retention expiry.
 
-`partial_incident` or `outcome_unknown` is an incident even if every gate is conclusively closed. Copied messages, the case, exclusions, events, and cleanup obligation are durable; safe-close is not rollback. Preserve the redacted output, perform private owner reconciliation, verify the case in the expected draft/action queue without exposing its identifier, complete the retention obligation, and do not rerun.
+`partial_incident` proves durable state; `outcome_unknown` means durable state and cleanup need are unknown and must be assumed possible until private reconciliation. Safe close is not rollback. Preserve redacted evidence, do not rerun, verify the expected private draft/action queue without exposing an ID, and complete every discovered cleanup obligation.
 
-If both bounded close/readback attempts fail, the runner emits `gateState:unknown`, `ok:false`, and requires an emergency independent gate verification. It does not claim closure. Keep every schedule off, do not rerun, and have the owner use the reviewed fixed readback/close procedure until intake, delivery, and retention are conclusively false, first contact is disabled, the start is far-future, and both authorization digests are zero.
+If authorization cancellation and readback cannot prove closure, output is `gateState:unknown`, `ok:false`, with emergency independent verification required. It never claims closure. Keep schedules off and do not rerun. The owner must use the reviewed fixed DB cancel/readback plus static-secret readback until authorization is conclusively cancelled/consumed and all static settings remain closed.
 
-After any terminal result, independently reread the final Edge/GitHub/database gates and schedules. Require intake/delivery/retention false, first contact disabled, far-future start, cap one, zero armed owner/run digests, zero unresolved outbound, and no new provider/refund/official-action attempt. Remove the private env file and revoke the temporary owner JWT/token through the established owner procedure.
+## Retention cleanup discharge
+
+At or after the latest due time, after the reviewed retention worker or manual purge has removed both exact messages' retained content, run:
+
+```text
+npm run refunds:gmail-intake-shadow -- --mode cleanup-verify --env-file <private-absolute-outside-repo-path>
+```
+
+The owner-only completion function proves the exact two messages are purged, atomically marks the run-bound task completed, and returns only completed/overdue counts. Any still-assigned overdue task fails closed. Remove the private packet and revoke temporary owner credentials using the established owner procedure.

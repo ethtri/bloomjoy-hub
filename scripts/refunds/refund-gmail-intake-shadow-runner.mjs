@@ -57,6 +57,15 @@ try {
     phase: 'complete',
     ok: result.ok,
     mode: result.mode,
+    ...(result.mode === 'initialize' ? {
+      releaseMetadataReconciliationRequired:
+        result.releaseMetadataReconciliationRequired,
+    } : {}),
+    ...(result.mode === 'cleanup-verify' ? {
+      completedNow: result.completedNow,
+      assignedOverdue: result.assignedOverdue,
+      completedTotal: result.completedTotal,
+    } : {}),
     ...(result.mode === 'live' ? {
       effectsClassification: result.effectsClassification,
       gatesConclusivelyClosed: result.gatesConclusivelyClosed,
@@ -73,8 +82,8 @@ try {
       cleanupCommitment: result.cleanupCommitment,
       durableStateRequiresManualReconciliation:
         result.durableStateRequiresManualReconciliation,
-      durableStateCreated: result.durableStateCreated,
-      retentionCleanupRequired: result.retentionCleanupRequired,
+      durableStateStatus: result.durableStateStatus,
+      retentionCleanupStatus: result.retentionCleanupStatus,
       emergencyIndependentGateVerificationRequired:
         result.emergencyIndependentGateVerificationRequired,
       replayAllowed: result.replayAllowed,

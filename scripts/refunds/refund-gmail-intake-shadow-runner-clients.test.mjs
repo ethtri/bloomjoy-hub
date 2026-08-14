@@ -56,6 +56,7 @@ const preflightRow = (overrides = {}) => ({
   database_owner_session: true,
   gate_allowed: true,
   gate_status: 'authorized',
+  armed_dispatch_authorization_count: '0',
   active_proof_authorization_count: '0',
   unresolved_gmail_outbound_count: '0',
   unresolved_first_contact_count: '0',
@@ -70,6 +71,7 @@ const preflightRow = (overrides = {}) => ({
   nayax_resolution_intent_count: '0',
   nayax_provider_attempt_count: '7',
   unresolved_nayax_provider_attempt_count: '0',
+  overdue_cleanup_obligation_count: '0',
   retention_policy_healthy: true,
   attachments_enabled: false,
   scanner_enabled: false,
@@ -86,7 +88,9 @@ const postflightRow = (overrides = {}) => ({
   run_count: '1',
   trigger_source: 'intake_shadow',
   run_status: 'succeeded',
+  run_started_at: '2026-08-14T20:00:00.000Z',
   run_finished_at: '2026-08-14T20:00:10.000Z',
+  dispatch_status: 'consumed',
   threads_scanned: '1',
   messages_seen: '2',
   messages_created: '2',
@@ -123,15 +127,24 @@ const createDatabase = (fetchImpl, overrides = {}) =>
 
 test('owner query registry is closed, immutable, parameterized, and semantic SELECT-only', () => {
   const snapshots = getRefundGmailIntakeShadowOwnerQuerySnapshots();
-  assert.deepEqual(Object.keys(snapshots), ['preflight', 'postflight']);
+  assert.deepEqual(Object.keys(snapshots), [
+    'preflight',
+    'authorizeDispatch',
+    'closeDispatch',
+    'completeDueCleanup',
+    'postflight',
+  ]);
   assert.deepEqual(
     Object.fromEntries(Object.entries(snapshots).map(([name, operation]) => [
       name,
       createHash('sha256').update(operation.sql).digest('hex'),
     ])),
     {
-      preflight: '2aa347839bd0bbaff6ea2ec7aa84fd35cf7a76707f66cea0308d4377a3f4a4f3',
-      postflight: '544eaad69222f0825bce8d34b1901f16dd081e3f11393edc0b6421c2ab399108',
+      preflight: 'aa2cb352348de6b4512167fa0abf4067e2b6eaf8f657772a367a4963d4989e6a',
+      authorizeDispatch: '5e8a4950baa2a8cf6e50bd961fe6a2887ec09ac7292d1578f53d1c2a5da3bc41',
+      closeDispatch: '69aacf1290242cb3778c51c0ab35accf1ef5037acd19baf4391b6bde9450efb0',
+      completeDueCleanup: '766d353aac917206a847f4a23b457d9b6b165409c14eadca43eb9bbf21911099',
+      postflight: 'ad9267faa38c3e02edf9815739394ddef9037fc3392e0dd87714ec54555fbedd',
     },
   );
   const mutationPattern =
@@ -144,7 +157,13 @@ test('owner query registry is closed, immutable, parameterized, and semantic SEL
     assert.match(operation.sql, /pg_catalog\./u);
   }
   assert.equal(snapshots.preflight.parameterCount, 0);
+  assert.equal(snapshots.authorizeDispatch.parameterCount, 3);
+  assert.equal(snapshots.closeDispatch.parameterCount, 1);
+  assert.equal(snapshots.completeDueCleanup.parameterCount, 0);
   assert.equal(snapshots.postflight.parameterCount, 2);
+  assert.match(snapshots.authorizeDispatch.sql, /owner_authorize_refund_gmail_intake_shadow_dispatch/u);
+  assert.match(snapshots.closeDispatch.sql, /owner_cancel_refund_gmail_intake_shadow_dispatch/u);
+  assert.match(snapshots.completeDueCleanup.sql, /owner_complete_due_refund_gmail_intake_shadow_cleanup/u);
   assert.match(snapshots.postflight.sql, /run_key = \$1::text/u);
   assert.match(snapshots.postflight.sql, /can_manage_refund_case\(\$2::uuid/u);
 });
@@ -153,17 +172,52 @@ test('database adapter pins project, owner endpoint, owner-role flag, and parame
   const calls = [];
   const client = createDatabase(async (url, options) => {
     calls.push({ url, options, body: JSON.parse(options.body) });
-    return response(calls.length === 1 ? [preflightRow()] : [postflightRow()]);
+    return response([[
+      preflightRow(),
+      {
+        database_owner_session: true,
+        authorized: true,
+        status: 'armed',
+        payload_redacted: true,
+      },
+      {
+        database_owner_session: true,
+        closed: true,
+        status: 'consumed',
+        payload_redacted: true,
+      },
+      {
+        database_owner_session: true,
+        completed_now: '1',
+        assigned_overdue: '0',
+        completed_total: '1',
+        payload_redacted: true,
+      },
+      postflightRow(),
+    ][calls.length - 1]]);
   });
   const before = await client.preflight();
+  await client.authorizeDispatch({
+    runKeyDigest: sha256Hex(RUN_KEY),
+    ownerSenderDigest: OWNER_SENDER_DIGEST,
+    freshStartAt: '2026-08-14T20:00:00.000Z',
+  });
+  await client.closeDispatch({ runKeyDigest: sha256Hex(RUN_KEY) });
+  await client.completeDueCleanup();
   const result = await client.postflight({
     before,
     runKey: RUN_KEY,
     ownerUserId: OWNER_USER_ID,
   });
 
-  assert.equal(calls.length, 2);
-  assert.deepEqual(calls.map(({ body }) => body.parameters), [[], [RUN_KEY, OWNER_USER_ID]]);
+  assert.equal(calls.length, 5);
+  assert.deepEqual(calls.map(({ body }) => body.parameters), [
+    [],
+    [sha256Hex(RUN_KEY), OWNER_SENDER_DIGEST, '2026-08-14T20:00:00.000Z'],
+    [sha256Hex(RUN_KEY)],
+    [],
+    [RUN_KEY, OWNER_USER_ID],
+  ]);
   for (const call of calls) {
     assert.equal(call.url, DATABASE_ENDPOINT);
     assert.equal(call.options.method, 'POST');
@@ -209,14 +263,49 @@ test('database adapter rejects wrong project before fetch and re-proves owner on
     (error) => error.code === 'database_project_not_confirmed',
   );
   assert.equal(calls, 0);
-  for (const operation of ['preflight', 'postflight']) {
+  for (const operation of [
+    'preflight', 'authorizeDispatch', 'closeDispatch', 'completeDueCleanup',
+    'postflight',
+  ]) {
     const client = createDatabase(async () => response([
       operation === 'preflight'
         ? preflightRow({ database_owner_session: false })
+        : operation === 'authorizeDispatch'
+        ? {
+          database_owner_session: false,
+          authorized: true,
+          status: 'armed',
+          payload_redacted: true,
+        }
+        : operation === 'closeDispatch'
+        ? {
+          database_owner_session: false,
+          closed: true,
+          status: 'cancelled',
+          payload_redacted: true,
+        }
+        : operation === 'completeDueCleanup'
+        ? {
+          database_owner_session: false,
+          completed_now: '1',
+          assigned_overdue: '0',
+          completed_total: '1',
+          payload_redacted: true,
+        }
         : postflightRow({ database_owner_session: false }),
     ]));
     const invocation = operation === 'preflight'
       ? client.preflight()
+      : operation === 'authorizeDispatch'
+      ? client.authorizeDispatch({
+        runKeyDigest: sha256Hex(RUN_KEY),
+        ownerSenderDigest: OWNER_SENDER_DIGEST,
+        freshStartAt: '2026-08-14T20:00:00.000Z',
+      })
+      : operation === 'closeDispatch'
+      ? client.closeDispatch({ runKeyDigest: sha256Hex(RUN_KEY) })
+      : operation === 'completeDueCleanup'
+      ? client.completeDueCleanup()
       : client.postflight({
         before: { snapshot: snapshotRow() },
         runKey: RUN_KEY,
@@ -282,75 +371,18 @@ test('postflight rejects malformed input, extra keys, invalid counts, and negati
   }
 });
 
-test('control open and safe-close write only the reviewed eight settings with retention and delivery off', async () => {
-  const writes = [];
+test('control exposes no live secret mutation and initialization is the only POST boundary', async () => {
   const client = createRefundGmailIntakeShadowControlClient({
     projectRef: REFUND_INTAKE_SHADOW_PROJECT_REF,
     managementToken: MANAGEMENT_TOKEN,
     repoRoot: process.cwd(),
-    fetchImpl: async (url, options) => {
-      writes.push({ url, options, body: JSON.parse(options.body) });
-      return response({}, 201);
-    },
+    fetchImpl: async () => response({}, 201),
   });
-  const ownerDigest = 'b'.repeat(64);
-  const runDigest = 'c'.repeat(64);
-  const startAt = '2026-08-14T20:00:00.000Z';
-  await client.openIntake({ freshStartAt: startAt, ownerSenderDigest: ownerDigest, runKeyDigest: runDigest });
-  await client.safeClose();
-  assert.equal(writes.length, 2);
-  const [open, close] = writes.map(({ body }) => Object.fromEntries(
-    body.map(({ name, value }) => [name, value]),
-  ));
-  assert.deepEqual(Object.keys(open).sort(), Object.keys(close).sort());
-  assert.deepEqual(Object.keys(open).sort(), [
-    'GMAIL_REFUND_MAX_THREADS_PER_RUN',
-    'GMAIL_REFUND_START_AT',
-    'REFUND_GMAIL_ENABLED',
-    'REFUND_GMAIL_FIRST_CONTACT_MODE',
-    'REFUND_GMAIL_INTAKE_ENABLED',
-    'REFUND_GMAIL_INTAKE_SHADOW_OWNER_SENDER_SHA256',
-    'REFUND_GMAIL_INTAKE_SHADOW_RUN_KEY_SHA256',
-    'REFUND_GMAIL_RETENTION_ENABLED',
-  ].sort());
-  assert.equal(open.REFUND_GMAIL_INTAKE_ENABLED, 'true');
-  assert.equal(open.REFUND_GMAIL_ENABLED, 'false');
-  assert.equal(open.REFUND_GMAIL_RETENTION_ENABLED, 'false');
-  assert.equal(open.REFUND_GMAIL_FIRST_CONTACT_MODE, 'shadow');
-  assert.equal(open.GMAIL_REFUND_START_AT, startAt);
-  assert.equal(open.GMAIL_REFUND_MAX_THREADS_PER_RUN, '1');
-  assert.equal(open.REFUND_GMAIL_INTAKE_SHADOW_OWNER_SENDER_SHA256, ownerDigest);
-  assert.equal(open.REFUND_GMAIL_INTAKE_SHADOW_RUN_KEY_SHA256, runDigest);
-  assert.equal(close.REFUND_GMAIL_INTAKE_ENABLED, 'false');
-  assert.equal(close.REFUND_GMAIL_ENABLED, 'false');
-  assert.equal(close.REFUND_GMAIL_RETENTION_ENABLED, 'false');
-  assert.equal(close.REFUND_GMAIL_FIRST_CONTACT_MODE, 'disabled');
-  assert.equal(close.GMAIL_REFUND_START_AT, REFUND_INTAKE_SHADOW_SAFE_START_AT);
-  assert.equal(close.REFUND_GMAIL_INTAKE_SHADOW_OWNER_SENDER_SHA256, REFUND_INTAKE_SHADOW_ZERO_DIGEST);
-  assert.equal(close.REFUND_GMAIL_INTAKE_SHADOW_RUN_KEY_SHA256, REFUND_INTAKE_SHADOW_ZERO_DIGEST);
-  for (const { url, options } of writes) {
-    assert.equal(url, `https://api.supabase.com/v1/projects/${REFUND_INTAKE_SHADOW_PROJECT_REF}/secrets`);
-    assert.equal(options.method, 'POST');
-    assert.equal(options.headers.Authorization, `Bearer ${MANAGEMENT_TOKEN}`);
-  }
-});
-
-test('control rejects invalid open inputs before any mutation', async () => {
-  let calls = 0;
-  const client = createRefundGmailIntakeShadowControlClient({
-    projectRef: REFUND_INTAKE_SHADOW_PROJECT_REF,
-    managementToken: MANAGEMENT_TOKEN,
-    repoRoot: process.cwd(),
-    fetchImpl: async () => { calls += 1; },
-  });
-  for (const input of [
-    { freshStartAt: 'invalid', ownerSenderDigest: 'b'.repeat(64), runKeyDigest: 'c'.repeat(64) },
-    { freshStartAt: '2026-08-14T20:00:00Z', ownerSenderDigest: REFUND_INTAKE_SHADOW_ZERO_DIGEST, runKeyDigest: 'c'.repeat(64) },
-    { freshStartAt: '2026-08-14T20:00:00Z', ownerSenderDigest: 'b'.repeat(64), runKeyDigest: REFUND_INTAKE_SHADOW_ZERO_DIGEST },
-  ]) {
-    await assert.rejects(client.openIntake(input), (error) => error.code === 'intake_open_input_invalid');
-  }
-  assert.equal(calls, 0);
+  assert.equal(typeof client.initializeClosed, 'function');
+  assert.equal(typeof client.readInitializedClosedState, 'function');
+  assert.equal(typeof client.readState, 'function');
+  assert.equal('openIntake' in client, false);
+  assert.equal('safeClose' in client, false);
 });
 
 test('owner initialization writes only the dedicated label and exact closed settings', async () => {

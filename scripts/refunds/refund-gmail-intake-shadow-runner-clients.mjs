@@ -72,6 +72,8 @@ select
   coalesce((gate.value ->> 'allowed')::boolean, false) as gate_allowed,
   gate.value ->> 'status' as gate_status,
   (gate.value ->> 'activeProofAuthorizationCount')::integer as active_proof_authorization_count,
+  (gate.value ->> 'armedDispatchAuthorizationCount')::integer
+    as armed_dispatch_authorization_count,
   (gate.value ->> 'unresolvedGmailOutboundCount')::integer as unresolved_gmail_outbound_count,
   (gate.value ->> 'unresolvedFirstContactCount')::integer as unresolved_first_contact_count,
   (gate.value ->> 'automaticCustomerContactEnabled')::boolean as automatic_customer_contact_enabled,
@@ -86,6 +88,8 @@ select
   (gate.value ->> 'nayaxProviderAttemptCount')::integer as nayax_provider_attempt_count,
   (gate.value ->> 'unresolvedNayaxProviderAttemptCount')::integer
     as unresolved_nayax_provider_attempt_count,
+  (gate.value ->> 'overdueCleanupObligationCount')::integer
+    as overdue_cleanup_obligation_count,
   (gate.value ->> 'retentionPolicyHealthy')::boolean as retention_policy_healthy,
   (gate.value ->> 'attachmentsEnabled')::boolean as attachments_enabled,
   (gate.value ->> 'scannerEnabled')::boolean as scanner_enabled,
@@ -96,10 +100,73 @@ cross join gate
 where database.datname = pg_catalog.current_database()
 `,
   }),
+  authorizeDispatch: Object.freeze({
+    parameterCount: 3,
+    sql: `
+with authorization as (
+  select public.owner_authorize_refund_gmail_intake_shadow_dispatch(
+    $1::text
+    , $2::text
+    , $3::timestamptz
+  ) as value
+)
+select
+  ${OWNER_SQL} as database_owner_session,
+  (authorization.value ->> 'authorized')::boolean as authorized,
+  authorization.value ->> 'status' as status,
+  (authorization.value ->> 'payloadRedacted')::boolean as payload_redacted
+from pg_catalog.pg_database database
+cross join authorization
+where database.datname = pg_catalog.current_database()
+`,
+  }),
+  closeDispatch: Object.freeze({
+    parameterCount: 1,
+    sql: `
+with closure as (
+  select public.owner_cancel_refund_gmail_intake_shadow_dispatch(
+    $1::text
+  ) as value
+)
+select
+  ${OWNER_SQL} as database_owner_session,
+  (closure.value ->> 'closed')::boolean as closed,
+  closure.value ->> 'status' as status,
+  (closure.value ->> 'payloadRedacted')::boolean as payload_redacted
+from pg_catalog.pg_database database
+cross join closure
+where database.datname = pg_catalog.current_database()
+`,
+  }),
+  completeDueCleanup: Object.freeze({
+    parameterCount: 0,
+    sql: `
+with completion as (
+  select public.owner_complete_due_refund_gmail_intake_shadow_cleanup() as value
+)
+select
+  ${OWNER_SQL} as database_owner_session,
+  (completion.value ->> 'completedNow')::integer as completed_now,
+  (completion.value ->> 'assignedOverdue')::integer as assigned_overdue,
+  (completion.value ->> 'completedTotal')::integer as completed_total,
+  (completion.value ->> 'payloadRedacted')::boolean as payload_redacted
+from pg_catalog.pg_database database
+cross join completion
+where database.datname = pg_catalog.current_database()
+`,
+  }),
   postflight: Object.freeze({
     parameterCount: 2,
     sql: `
-with exact_run as (
+with exact_dispatch as (
+  select status
+  from public.refund_gmail_intake_shadow_dispatch_authorizations
+  where run_key_digest = encode(
+    extensions.digest(convert_to($1::text, 'UTF8'), 'sha256'),
+    'hex'
+  )
+),
+exact_run as (
   select id, trigger_source, status, started_at, finished_at,
     threads_scanned, messages_seen, messages_created, messages_failed
   from public.refund_gmail_sync_runs
@@ -176,7 +243,9 @@ select
   (select count(*) from exact_run) as run_count,
   (select min(trigger_source) from exact_run) as trigger_source,
   (select min(status) from exact_run) as run_status,
+  (select min(started_at)::text from exact_run) as run_started_at,
   (select min(finished_at)::text from exact_run) as run_finished_at,
+  coalesce((select min(status) from exact_dispatch), 'absent') as dispatch_status,
   (select min(threads_scanned) from exact_run) as threads_scanned,
   (select min(messages_seen) from exact_run) as messages_seen,
   (select min(messages_created) from exact_run) as messages_created,
@@ -219,7 +288,12 @@ where database.datname = pg_catalog.current_database()
 
 const assertClosedReadRegistry = () => {
   const entries = Object.entries(OWNER_QUERIES);
-  if (entries.length !== 2 || !OWNER_QUERIES.preflight || !OWNER_QUERIES.postflight) {
+  if (
+    entries.length !== 5 || !OWNER_QUERIES.preflight ||
+    !OWNER_QUERIES.authorizeDispatch || !OWNER_QUERIES.closeDispatch ||
+    !OWNER_QUERIES.completeDueCleanup ||
+    !OWNER_QUERIES.postflight
+  ) {
     throw new Error('Intake shadow owner query registry must remain closed.');
   }
   for (const [, value] of entries) {
@@ -227,7 +301,7 @@ const assertClosedReadRegistry = () => {
       !Number.isInteger(value.parameterCount) || value.parameterCount < 0 ||
       value.sql.includes(';') || SQL_MUTATION_PATTERN.test(value.sql) ||
       !/^\s*(?:select|with)\b/iu.test(value.sql)
-    ) throw new Error('Intake shadow owner query must remain SELECT-only.');
+    ) throw new Error('Intake shadow owner query must remain a fixed SELECT boundary.');
   }
 };
 assertClosedReadRegistry();
@@ -311,6 +385,7 @@ const PRE_KEYS = [
   'gate_allowed',
   'gate_status',
   'active_proof_authorization_count',
+  'armed_dispatch_authorization_count',
   'unresolved_gmail_outbound_count',
   'unresolved_first_contact_count',
   'automatic_customer_contact_enabled',
@@ -324,6 +399,7 @@ const PRE_KEYS = [
   'nayax_resolution_intent_count',
   'nayax_provider_attempt_count',
   'unresolved_nayax_provider_attempt_count',
+  'overdue_cleanup_obligation_count',
   'retention_policy_healthy',
   'attachments_enabled',
   'scanner_enabled',
@@ -339,7 +415,9 @@ const POST_KEYS = [
   'run_count',
   'trigger_source',
   'run_status',
+  'run_started_at',
   'run_finished_at',
+  'dispatch_status',
   'threads_scanned',
   'messages_seen',
   'messages_created',
@@ -430,6 +508,8 @@ export const createRefundGmailIntakeShadowDatabaseClient = ({
       const result = {
         databaseOwnerSession: requireDatabaseOwnerSession(row.database_owner_session),
         activeProofAuthorizationCount: requireCount(row.active_proof_authorization_count),
+        armedDispatchAuthorizationCount:
+          requireCount(row.armed_dispatch_authorization_count),
         unresolvedGmailOutboundCount: requireCount(row.unresolved_gmail_outbound_count),
         unresolvedFirstContactCount: requireCount(row.unresolved_first_contact_count),
         automaticCustomerContactEnabled: requireBoolean(row.automatic_customer_contact_enabled),
@@ -444,6 +524,8 @@ export const createRefundGmailIntakeShadowDatabaseClient = ({
         nayaxProviderAttemptCount: requireCount(row.nayax_provider_attempt_count),
         unresolvedNayaxProviderAttemptCount:
           requireCount(row.unresolved_nayax_provider_attempt_count),
+        overdueCleanupObligationCount:
+          requireCount(row.overdue_cleanup_obligation_count),
         retentionPolicyHealthy: requireBoolean(row.retention_policy_healthy),
         attachmentsEnabled: requireBoolean(row.attachments_enabled),
         scannerEnabled: requireBoolean(row.scanner_enabled),
@@ -453,6 +535,71 @@ export const createRefundGmailIntakeShadowDatabaseClient = ({
       if (
         requireBoolean(row.gate_allowed) !== true || row.gate_status !== 'authorized'
       ) throw genericFailure('database_preflight_invalid');
+      return result;
+    },
+
+    async authorizeDispatch({ runKeyDigest, ownerSenderDigest, freshStartAt, signal } = {}) {
+      if (
+        !SHA256_PATTERN.test(runKeyDigest ?? '') ||
+        !SHA256_PATTERN.test(ownerSenderDigest ?? '') ||
+        ownerSenderDigest === REFUND_INTAKE_SHADOW_ZERO_DIGEST ||
+        typeof freshStartAt !== 'string' || !Number.isFinite(Date.parse(freshStartAt))
+      ) {
+        throw genericFailure('database_dispatch_input_invalid');
+      }
+      const row = await query(
+        'authorizeDispatch',
+        [runKeyDigest, ownerSenderDigest, freshStartAt],
+        signal,
+      );
+      requireExactKeys(row, [
+        'database_owner_session', 'authorized', 'status', 'payload_redacted',
+      ]);
+      requireDatabaseOwnerSession(row.database_owner_session);
+      if (
+        requireBoolean(row.authorized) !== true || row.status !== 'armed' ||
+        requireBoolean(row.payload_redacted) !== true
+      ) throw genericFailure('database_dispatch_authorization_failed');
+      return { authorized: true, status: 'armed', payloadRedacted: true };
+    },
+
+    async closeDispatch({ runKeyDigest, signal } = {}) {
+      if (!SHA256_PATTERN.test(runKeyDigest ?? '')) {
+        throw genericFailure('database_dispatch_input_invalid');
+      }
+      const row = await query('closeDispatch', [runKeyDigest], signal);
+      requireExactKeys(row, [
+        'database_owner_session', 'closed', 'status', 'payload_redacted',
+      ]);
+      requireDatabaseOwnerSession(row.database_owner_session);
+      const status = requireNullableText(
+        row.status,
+        ['absent', 'cancelled', 'consumed'],
+      );
+      if (
+        requireBoolean(row.closed) !== true ||
+        requireBoolean(row.payload_redacted) !== true
+      ) throw genericFailure('database_dispatch_close_failed');
+      return { closed: true, status, payloadRedacted: true };
+    },
+
+    async completeDueCleanup({ signal } = {}) {
+      const row = await query('completeDueCleanup', [], signal);
+      requireExactKeys(row, [
+        'database_owner_session', 'completed_now', 'assigned_overdue',
+        'completed_total', 'payload_redacted',
+      ]);
+      requireDatabaseOwnerSession(row.database_owner_session);
+      const result = {
+        completedNow: requireCount(row.completed_now),
+        assignedOverdue: requireCount(row.assigned_overdue),
+        completedTotal: requireCount(row.completed_total),
+        payloadRedacted: requireBoolean(row.payload_redacted),
+      };
+      if (
+        result.assignedOverdue !== 0 || result.completedTotal < 1 ||
+        result.payloadRedacted !== true
+      ) throw genericFailure('database_cleanup_completion_failed');
       return result;
     },
 
@@ -476,6 +623,7 @@ export const createRefundGmailIntakeShadowDatabaseClient = ({
       };
       const earliestRetentionDueAt = parseRetentionDate(row.earliest_retention_due_at);
       const latestRetentionDueAt = parseRetentionDate(row.latest_retention_due_at);
+      const runStartedAt = parseRetentionDate(row.run_started_at);
       const runFinishedAt = parseRetentionDate(row.run_finished_at);
       if (
         earliestRetentionDueAt !== null && latestRetentionDueAt !== null &&
@@ -489,7 +637,12 @@ export const createRefundGmailIntakeShadowDatabaseClient = ({
         runCount,
         triggerSource: requireNullableText(row.trigger_source, [null, 'intake_shadow']),
         runStatus: requireNullableText(row.run_status, [null, 'running', 'succeeded', 'failed', 'suppressed']),
+        runStartedAt,
         runFinishedAt,
+        dispatchStatus: requireNullableText(
+          row.dispatch_status,
+          ['absent', 'armed', 'consumed', 'cancelled'],
+        ),
         threadsScanned: nullableCount(row.threads_scanned),
         messagesSeen: nullableCount(row.messages_seen),
         messagesCreated: nullableCount(row.messages_created),
@@ -573,6 +726,45 @@ const secretMode = (secrets) => {
   if (digest === sha256Hex('disabled')) return 'disabled';
   if (digest === sha256Hex('shadow')) return 'shadow';
   throw genericFailure('edge_secret_state_invalid');
+};
+
+const edgeStateFromSecrets = (secrets) => {
+  const maxDigest = secretDigest(secrets, 'GMAIL_REFUND_MAX_THREADS_PER_RUN');
+  return {
+    intakeEnabled: secretBoolean(secrets, 'REFUND_GMAIL_INTAKE_ENABLED'),
+    gmailEnabled: secretBoolean(secrets, 'REFUND_GMAIL_ENABLED'),
+    firstContactMode: secretMode(secrets),
+    startAtDigest: secretDigest(secrets, 'GMAIL_REFUND_START_AT'),
+    maxThreads: maxDigest === sha256Hex('1') ? 1 : 0,
+    productionLabelDigest: secretDigest(secrets, 'GMAIL_REFUND_LABEL_ID'),
+    shadowLabelDigest: secretDigest(secrets, 'GMAIL_REFUND_INTAKE_SHADOW_LABEL_ID'),
+    ownerSenderSecretDigest:
+      secretDigest(secrets, 'REFUND_GMAIL_INTAKE_SHADOW_OWNER_SENDER_SHA256'),
+    runKeySecretDigest:
+      secretDigest(secrets, 'REFUND_GMAIL_INTAKE_SHADOW_RUN_KEY_SHA256'),
+    automaticCustomerContactEnabled:
+      secretBoolean(secrets, 'REFUND_AUTOMATIC_CUSTOMER_CONTACT_ENABLED'),
+    automationEnabled: secretBoolean(secrets, 'REFUND_AUTOMATION_ENABLED'),
+    managerAgingEnabled:
+      secretBoolean(secrets, 'REFUND_MANAGER_AGING_NOTICES_ENABLED'),
+    gmailRetentionEnabled: secretBoolean(secrets, 'REFUND_GMAIL_RETENTION_ENABLED'),
+    attachmentScannerEnabled:
+      secretBoolean(secrets, 'REFUND_GMAIL_ATTACHMENT_SCANNER_ENABLED'),
+    gptTriageEnabled: secretBoolean(secrets, 'REFUND_GPT_TRIAGE_ENABLED'),
+    nayaxExecutionEnabled: secretBoolean(secrets, 'NAYAX_REFUND_EXECUTION_ENABLED'),
+    nayaxDryRun: secretBoolean(secrets, 'NAYAX_REFUND_EXECUTION_DRY_RUN'),
+    nayaxKillSwitch: secretBoolean(secrets, 'NAYAX_REFUND_EXECUTION_KILL_SWITCH'),
+    nayaxProviderContractConfirmed: secretBoolean(
+      secrets,
+      'NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED',
+      { absent: false },
+    ),
+    nayaxSponsorGoNoGo: secretBoolean(
+      secrets,
+      'NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO',
+      { absent: false },
+    ),
+  };
 };
 
 export const createRefundGmailIntakeShadowControlClient = ({
@@ -682,43 +874,8 @@ export const createRefundGmailIntakeShadowControlClient = ({
         getSyntheticGmailProofGithubVariable('REFUND_GPT_TRIAGE_SYNC_ENABLED', { repoRoot }),
         releasePromise,
       ]);
-      const maxDigest = secretDigest(secrets, 'GMAIL_REFUND_MAX_THREADS_PER_RUN');
       return {
-        edge: {
-          intakeEnabled: secretBoolean(secrets, 'REFUND_GMAIL_INTAKE_ENABLED'),
-          gmailEnabled: secretBoolean(secrets, 'REFUND_GMAIL_ENABLED'),
-          firstContactMode: secretMode(secrets),
-          startAtDigest: secretDigest(secrets, 'GMAIL_REFUND_START_AT'),
-          maxThreads: maxDigest === sha256Hex('1') ? 1 : 0,
-          productionLabelDigest: secretDigest(secrets, 'GMAIL_REFUND_LABEL_ID'),
-          shadowLabelDigest: secretDigest(secrets, 'GMAIL_REFUND_INTAKE_SHADOW_LABEL_ID'),
-          ownerSenderSecretDigest:
-            secretDigest(secrets, 'REFUND_GMAIL_INTAKE_SHADOW_OWNER_SENDER_SHA256'),
-          runKeySecretDigest:
-            secretDigest(secrets, 'REFUND_GMAIL_INTAKE_SHADOW_RUN_KEY_SHA256'),
-          automaticCustomerContactEnabled:
-            secretBoolean(secrets, 'REFUND_AUTOMATIC_CUSTOMER_CONTACT_ENABLED'),
-          automationEnabled: secretBoolean(secrets, 'REFUND_AUTOMATION_ENABLED'),
-          managerAgingEnabled:
-            secretBoolean(secrets, 'REFUND_MANAGER_AGING_NOTICES_ENABLED'),
-          gmailRetentionEnabled: secretBoolean(secrets, 'REFUND_GMAIL_RETENTION_ENABLED'),
-          attachmentScannerEnabled:
-            secretBoolean(secrets, 'REFUND_GMAIL_ATTACHMENT_SCANNER_ENABLED'),
-          gptTriageEnabled: secretBoolean(secrets, 'REFUND_GPT_TRIAGE_ENABLED'),
-          nayaxExecutionEnabled: secretBoolean(secrets, 'NAYAX_REFUND_EXECUTION_ENABLED'),
-          nayaxDryRun: secretBoolean(secrets, 'NAYAX_REFUND_EXECUTION_DRY_RUN'),
-          nayaxKillSwitch: secretBoolean(secrets, 'NAYAX_REFUND_EXECUTION_KILL_SWITCH'),
-          nayaxProviderContractConfirmed: secretBoolean(
-            secrets,
-            'NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED',
-            { absent: false },
-          ),
-          nayaxSponsorGoNoGo: secretBoolean(
-            secrets,
-            'NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO',
-            { absent: false },
-          ),
-        },
+        edge: edgeStateFromSecrets(secrets),
         github: {
           gmailSyncEnabled,
           gmailRetentionEnabled,
@@ -757,43 +914,8 @@ export const createRefundGmailIntakeShadowControlClient = ({
       ], 'intake_initialize_failed', signal);
     },
 
-    async openIntake({ freshStartAt, ownerSenderDigest, runKeyDigest, signal }) {
-      if (!Number.isFinite(Date.parse(freshStartAt)) ||
-          !SHA256_PATTERN.test(ownerSenderDigest ?? '') ||
-          !SHA256_PATTERN.test(runKeyDigest ?? '') ||
-          ownerSenderDigest === REFUND_INTAKE_SHADOW_ZERO_DIGEST ||
-          runKeyDigest === REFUND_INTAKE_SHADOW_ZERO_DIGEST) {
-        throw genericFailure('intake_open_input_invalid');
-      }
-      await setSecrets([
-        { name: 'REFUND_GMAIL_INTAKE_ENABLED', value: 'true' },
-        { name: 'REFUND_GMAIL_ENABLED', value: 'false' },
-        { name: 'REFUND_GMAIL_RETENTION_ENABLED', value: 'false' },
-        { name: 'REFUND_GMAIL_FIRST_CONTACT_MODE', value: 'shadow' },
-        { name: 'GMAIL_REFUND_START_AT', value: freshStartAt },
-        { name: 'GMAIL_REFUND_MAX_THREADS_PER_RUN', value: '1' },
-        { name: 'REFUND_GMAIL_INTAKE_SHADOW_OWNER_SENDER_SHA256', value: ownerSenderDigest },
-        { name: 'REFUND_GMAIL_INTAKE_SHADOW_RUN_KEY_SHA256', value: runKeyDigest },
-      ], 'intake_open_failed', signal);
-    },
-
-    async safeClose() {
-      await setSecrets([
-        { name: 'REFUND_GMAIL_INTAKE_ENABLED', value: 'false' },
-        { name: 'REFUND_GMAIL_ENABLED', value: 'false' },
-        { name: 'REFUND_GMAIL_RETENTION_ENABLED', value: 'false' },
-        { name: 'REFUND_GMAIL_FIRST_CONTACT_MODE', value: 'disabled' },
-        { name: 'GMAIL_REFUND_START_AT', value: REFUND_INTAKE_SHADOW_SAFE_START_AT },
-        { name: 'GMAIL_REFUND_MAX_THREADS_PER_RUN', value: '1' },
-        {
-          name: 'REFUND_GMAIL_INTAKE_SHADOW_OWNER_SENDER_SHA256',
-          value: REFUND_INTAKE_SHADOW_ZERO_DIGEST,
-        },
-        {
-          name: 'REFUND_GMAIL_INTAKE_SHADOW_RUN_KEY_SHA256',
-          value: REFUND_INTAKE_SHADOW_ZERO_DIGEST,
-        },
-      ], 'intake_safe_close_failed');
+    async readInitializedClosedState({ signal } = {}) {
+      return { edge: edgeStateFromSecrets(await readSecrets(signal)) };
     },
   };
 };

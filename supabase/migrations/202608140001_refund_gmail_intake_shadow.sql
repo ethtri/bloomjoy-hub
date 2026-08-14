@@ -32,6 +32,108 @@ as $$
   end;
 $$;
 
+create table if not exists public.refund_gmail_intake_shadow_dispatch_authorizations (
+  run_key_digest text primary key
+    check (run_key_digest ~ '^[a-f0-9]{64}$'),
+  owner_sender_digest text not null
+    check (owner_sender_digest ~ '^[a-f0-9]{64}$' and owner_sender_digest <> repeat('0', 64)),
+  start_at timestamptz not null,
+  status text not null default 'armed'
+    check (status in ('armed', 'consumed', 'cancelled')),
+  expires_at timestamptz not null,
+  consumed_run_id uuid unique
+    references public.refund_gmail_sync_runs (id) on delete restrict,
+  created_at timestamptz not null default now(),
+  consumed_at timestamptz,
+  cancelled_at timestamptz,
+  constraint refund_gmail_intake_shadow_dispatch_state_check check (
+    (status = 'armed' and consumed_run_id is null and consumed_at is null and cancelled_at is null)
+    or (status = 'consumed' and consumed_run_id is not null and consumed_at is not null and cancelled_at is null)
+    or (status = 'cancelled' and consumed_run_id is null and consumed_at is null and cancelled_at is not null)
+  )
+);
+
+alter table public.refund_gmail_intake_shadow_dispatch_authorizations
+  enable row level security;
+revoke all on table public.refund_gmail_intake_shadow_dispatch_authorizations
+  from public, anon, authenticated, service_role;
+
+create or replace function public.owner_authorize_refund_gmail_intake_shadow_dispatch(
+  p_run_key_digest text,
+  p_owner_sender_digest text,
+  p_start_at timestamptz
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  normalized_digest text := lower(btrim(coalesce(p_run_key_digest, '')));
+  normalized_owner_digest text := lower(btrim(coalesce(p_owner_sender_digest, '')));
+begin
+  if normalized_digest !~ '^[a-f0-9]{64}$'
+    or normalized_owner_digest !~ '^[a-f0-9]{64}$'
+    or normalized_owner_digest = repeat('0', 64)
+    or p_start_at is null
+    or p_start_at < statement_timestamp() - interval '15 minutes'
+    or p_start_at > statement_timestamp() + interval '30 seconds' then
+    raise exception 'Exact fresh intake-shadow dispatch authorization required';
+  end if;
+  insert into public.refund_gmail_intake_shadow_dispatch_authorizations (
+    run_key_digest, owner_sender_digest, start_at, status, expires_at
+  ) values (
+    normalized_digest, normalized_owner_digest, p_start_at,
+    'armed', statement_timestamp() + interval '10 minutes'
+  );
+  return jsonb_build_object(
+    'authorized', true,
+    'status', 'armed',
+    'payloadRedacted', true
+  );
+end;
+$$;
+
+create or replace function public.owner_cancel_refund_gmail_intake_shadow_dispatch(
+  p_run_key_digest text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  normalized_digest text := lower(btrim(coalesce(p_run_key_digest, '')));
+  authorization_row public.refund_gmail_intake_shadow_dispatch_authorizations;
+begin
+  if normalized_digest !~ '^[a-f0-9]{64}$' then
+    raise exception 'Exact intake-shadow run digest required';
+  end if;
+  select * into authorization_row
+  from public.refund_gmail_intake_shadow_dispatch_authorizations dispatch
+  where dispatch.run_key_digest = normalized_digest
+  for update;
+  if authorization_row.run_key_digest is null then
+    return jsonb_build_object(
+      'closed', true,
+      'status', 'absent',
+      'payloadRedacted', true
+    );
+  end if;
+  if authorization_row.status = 'armed' then
+    update public.refund_gmail_intake_shadow_dispatch_authorizations
+    set status = 'cancelled', cancelled_at = statement_timestamp()
+    where run_key_digest = normalized_digest;
+    authorization_row.status := 'cancelled';
+  end if;
+  return jsonb_build_object(
+    'closed', authorization_row.status in ('cancelled', 'consumed'),
+    'status', authorization_row.status,
+    'payloadRedacted', true
+  );
+end;
+$$;
+
 create or replace function public.service_start_refund_gmail_sync(
   p_run_key text,
   p_trigger_source text,
@@ -48,8 +150,10 @@ as $$
 declare
   run_row public.refund_gmail_sync_runs;
   state_row public.refund_gmail_sync_state;
+  dispatch_authorization public.refund_gmail_intake_shadow_dispatch_authorizations;
   normalized_run_key text := btrim(coalesce(p_run_key, ''));
   normalized_trigger text := lower(btrim(coalesce(p_trigger_source, '')));
+  normalized_run_key_digest text;
 begin
   if not public.refund_gmail_workflow_run_key_is_valid(
     normalized_run_key,
@@ -61,6 +165,25 @@ begin
   if coalesce(p_mailbox_hash, '') !~ '^[a-f0-9]{64}$'
     or coalesce(p_label_hash, '') !~ '^[a-f0-9]{64}$' then
     raise exception 'Redacted Gmail configuration fingerprints required';
+  end if;
+
+  if normalized_trigger = 'intake_shadow' then
+    if not coalesce(p_enabled, false) then
+      raise exception 'Enabled exact intake-shadow run required';
+    end if;
+    normalized_run_key_digest := encode(
+      extensions.digest(convert_to(normalized_run_key, 'UTF8'), 'sha256'),
+      'hex'
+    );
+    select * into dispatch_authorization
+    from public.refund_gmail_intake_shadow_dispatch_authorizations dispatch
+    where dispatch.run_key_digest = normalized_run_key_digest
+    for update;
+    if dispatch_authorization.run_key_digest is null
+      or dispatch_authorization.status <> 'armed'
+      or dispatch_authorization.expires_at <= statement_timestamp() then
+      raise exception 'Active owner intake-shadow dispatch authorization required';
+    end if;
   end if;
 
   insert into public.refund_gmail_sync_runs (
@@ -83,6 +206,9 @@ begin
   returning * into run_row;
 
   if run_row.id is null then
+    if normalized_trigger = 'intake_shadow' then
+      raise exception 'Exact intake-shadow run key already used';
+    end if;
     select * into run_row
     from public.refund_gmail_sync_runs
     where run_key = normalized_run_key;
@@ -93,6 +219,15 @@ begin
       'status', run_row.status,
       'reason', 'duplicate_run_key'
     );
+  end if;
+
+  if normalized_trigger = 'intake_shadow' then
+    update public.refund_gmail_intake_shadow_dispatch_authorizations
+    set
+      status = 'consumed',
+      consumed_run_id = run_row.id,
+      consumed_at = statement_timestamp()
+    where run_key_digest = normalized_run_key_digest;
   end if;
 
   select * into state_row
@@ -133,6 +268,18 @@ begin
     'claimed', p_enabled,
     'runId', run_row.id,
     'status', case when p_enabled then 'running' else 'suppressed' end,
+    'intakeShadowAuthorized', normalized_trigger = 'intake_shadow',
+    'intakeShadowOwnerSenderDigest', case
+      when normalized_trigger = 'intake_shadow'
+        then dispatch_authorization.owner_sender_digest
+      else null
+    end,
+    'intakeShadowStartAt', case
+      when normalized_trigger = 'intake_shadow'
+        then dispatch_authorization.start_at
+      else null
+    end,
+    'payloadRedacted', true,
     'lastHistoryId', state_row.last_history_id
   );
 end;
@@ -178,6 +325,8 @@ create table if not exists public.refund_gmail_intake_shadow_cleanup_obligations
   latest_retention_due_at timestamptz not null,
   assigned_owner_role text not null default 'refund_operations_owner'
     check (assigned_owner_role = 'refund_operations_owner'),
+  assigned_task_key text not null default 'refund-gmail-intake-shadow-retention-cleanup'
+    check (assigned_task_key = 'refund-gmail-intake-shadow-retention-cleanup'),
   status text not null default 'assigned'
     check (status in ('assigned', 'completed')),
   completed_at timestamptz,
@@ -212,6 +361,7 @@ declare
   retention_settings public.refund_gmail_retention_settings;
   retention_state public.refund_gmail_retention_state;
   active_proof_count integer := 0;
+  armed_dispatch_authorization_count integer := 0;
   unresolved_gmail_count integer := 0;
   unresolved_first_contact_count integer := 0;
   active_official_authorization_count integer := 0;
@@ -220,6 +370,7 @@ declare
   nayax_resolution_intent_count integer := 0;
   nayax_provider_attempt_count integer := 0;
   unresolved_nayax_provider_attempt_count integer := 0;
+  overdue_cleanup_obligation_count integer := 0;
   contact_enabled boolean := false;
   gpt_enabled boolean := false;
   gpt_auto_send_enabled boolean := false;
@@ -237,6 +388,9 @@ begin
   select count(*)::integer into active_proof_count
   from public.refund_synthetic_gmail_proof_authorizations
   where cancelled_at is null;
+  select count(*)::integer into armed_dispatch_authorization_count
+  from public.refund_gmail_intake_shadow_dispatch_authorizations dispatch
+  where dispatch.status = 'armed';
   select count(*)::integer into unresolved_gmail_count
   from public.refund_gmail_messages gmail_message
   where gmail_message.status in ('pending_send', 'delivery_unknown');
@@ -263,6 +417,10 @@ begin
   from public.refund_case_nayax_refund_attempts attempt
   where attempt.status in ('created', 'in_progress', 'requested', 'approved', 'ambiguous', 'manual_review')
     or coalesce(attempt.reconciliation_required, false);
+  select count(*)::integer into overdue_cleanup_obligation_count
+  from public.refund_gmail_intake_shadow_cleanup_obligations obligation
+  where obligation.status = 'assigned'
+    and obligation.latest_retention_due_at <= statement_timestamp();
   select coalesce(automatic_customer_contact_enabled, false)
   into contact_enabled
   from public.refund_customer_contact_settings
@@ -339,7 +497,9 @@ begin
         )
     );
 
-  if active_proof_count <> 0 then
+  if armed_dispatch_authorization_count <> 0 then
+    status := 'intake_shadow_dispatch_armed';
+  elsif active_proof_count <> 0 then
     status := 'synthetic_proof_open';
   elsif unresolved_gmail_count <> 0 or unresolved_first_contact_count <> 0 then
     status := 'gmail_delivery_unresolved';
@@ -354,6 +514,8 @@ begin
     or nayax_resolution_intent_count <> 0
     or unresolved_nayax_provider_attempt_count <> 0 then
     status := 'nayax_resolution_enabled';
+  elsif overdue_cleanup_obligation_count <> 0 then
+    status := 'intake_shadow_cleanup_overdue';
   elsif not retention_healthy then
     status := 'retention_policy_unhealthy';
   end if;
@@ -362,6 +524,7 @@ begin
   return jsonb_build_object(
     'allowed', allowed,
     'status', status,
+    'armedDispatchAuthorizationCount', armed_dispatch_authorization_count,
     'activeProofAuthorizationCount', active_proof_count,
     'unresolvedGmailOutboundCount', unresolved_gmail_count,
     'unresolvedFirstContactCount', unresolved_first_contact_count,
@@ -376,6 +539,7 @@ begin
     'nayaxResolutionIntentCount', nayax_resolution_intent_count,
     'nayaxProviderAttemptCount', nayax_provider_attempt_count,
     'unresolvedNayaxProviderAttemptCount', unresolved_nayax_provider_attempt_count,
+    'overdueCleanupObligationCount', overdue_cleanup_obligation_count,
     'retentionPolicyHealthy', retention_healthy,
     'attachmentsEnabled', coalesce(p_attachments_enabled, false),
     'scannerEnabled', coalesce(p_scanner_enabled, false),
@@ -403,6 +567,7 @@ declare
   truthful_message constant text :=
     'Hub sent no customer first-contact message. A mailbox acknowledgement was already observed, and this thread is durably excluded from later Hub first contact.';
   run_row public.refund_gmail_sync_runs;
+  dispatch_row public.refund_gmail_intake_shadow_dispatch_authorizations;
   source_row public.refund_gmail_messages;
   case_row public.refund_cases;
   operation_row public.refund_gmail_first_contact_operations;
@@ -434,6 +599,9 @@ begin
   select * into case_row
   from public.refund_cases
   where id = p_refund_case_id;
+  select * into dispatch_row
+  from public.refund_gmail_intake_shadow_dispatch_authorizations dispatch
+  where dispatch.consumed_run_id = p_run_id;
 
   if run_row.id is null
     or run_row.trigger_source <> 'intake_shadow'
@@ -442,6 +610,9 @@ begin
       run_row.run_key,
       run_row.trigger_source
     )
+    or dispatch_row.run_key_digest is null
+    or dispatch_row.status <> 'consumed'
+    or dispatch_row.consumed_run_id <> run_row.id
     or source_row.id is null
     or case_row.id is null
     or source_row.refund_case_id <> case_row.id
@@ -451,6 +622,15 @@ begin
     or source_row.participant_role <> 'customer'
     or source_row.participant_trust <> 'verified'
     or source_row.sender_email is null
+    or encode(
+      extensions.digest(
+        convert_to(lower(btrim(source_row.sender_email)), 'UTF8'),
+        'sha256'
+      ),
+      'hex'
+    ) <> dispatch_row.owner_sender_digest
+    or source_row.received_at < dispatch_row.start_at
+    or source_row.received_at > statement_timestamp() + interval '30 seconds'
     or source_row.content_deleted_at is not null
     or case_row.intake_source <> 'gmail'
     or case_row.status <> 'draft' then
@@ -595,11 +775,12 @@ begin
   insert into public.refund_gmail_intake_shadow_cleanup_obligations (
     run_id, source_message_id, refund_case_id,
     earliest_retention_due_at, latest_retention_due_at,
-    assigned_owner_role, status
+    assigned_owner_role, assigned_task_key, status
   ) values (
     run_row.id, source_row.id, case_row.id,
     earliest_due_at, latest_due_at,
-    'refund_operations_owner', 'assigned'
+    'refund_operations_owner',
+    'refund-gmail-intake-shadow-retention-cleanup', 'assigned'
   );
 
   return jsonb_build_object(
@@ -616,7 +797,79 @@ begin
 end;
 $$;
 
+create or replace function public.owner_complete_due_refund_gmail_intake_shadow_cleanup()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  completed_now integer := 0;
+  assigned_overdue integer := 0;
+  completed_total integer := 0;
+begin
+  with verified_due as (
+    select obligation.run_id
+    from public.refund_gmail_intake_shadow_cleanup_obligations obligation
+    join public.refund_gmail_intake_shadow_notices notice
+      on notice.run_id = obligation.run_id
+      and notice.source_message_id = obligation.source_message_id
+      and notice.refund_case_id = obligation.refund_case_id
+    join public.refund_gmail_messages source
+      on source.id = notice.source_message_id
+    where obligation.status = 'assigned'
+      and obligation.latest_retention_due_at <= statement_timestamp()
+      and (
+        select count(*)
+        from public.refund_gmail_messages message
+        where message.gmail_thread_id = source.gmail_thread_id
+      ) = 2
+      and not exists (
+        select 1
+        from public.refund_gmail_messages message
+        where message.gmail_thread_id = source.gmail_thread_id
+          and (
+            message.content_deleted_at is null
+            or message.sender_email is not null
+            or message.recipient_email is not null
+            or message.provider_message_id is not null
+            or message.subject <> '[Deleted after Gmail retention period]'
+            or message.plain_body <> '[Deleted after Gmail retention period]'
+          )
+      )
+    for update of obligation
+  )
+  update public.refund_gmail_intake_shadow_cleanup_obligations obligation
+  set status = 'completed', completed_at = statement_timestamp()
+  from verified_due
+  where obligation.run_id = verified_due.run_id;
+  get diagnostics completed_now = row_count;
+
+  select count(*)::integer into assigned_overdue
+  from public.refund_gmail_intake_shadow_cleanup_obligations obligation
+  where obligation.status = 'assigned'
+    and obligation.latest_retention_due_at <= statement_timestamp();
+  select count(*)::integer into completed_total
+  from public.refund_gmail_intake_shadow_cleanup_obligations obligation
+  where obligation.status = 'completed';
+
+  return jsonb_build_object(
+    'completedNow', completed_now,
+    'assignedOverdue', assigned_overdue,
+    'completedTotal', completed_total,
+    'payloadRedacted', true
+  );
+end;
+$$;
+
 revoke execute on function public.refund_gmail_workflow_run_key_is_valid(text, text)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.owner_authorize_refund_gmail_intake_shadow_dispatch(
+  text, text, timestamptz
+) from public, anon, authenticated, service_role;
+revoke execute on function public.owner_cancel_refund_gmail_intake_shadow_dispatch(text)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.owner_complete_due_refund_gmail_intake_shadow_cleanup()
   from public, anon, authenticated, service_role;
 revoke execute on function public.service_start_refund_gmail_sync(
   text, text, timestamptz, text, text, boolean
@@ -645,6 +898,8 @@ comment on table public.refund_gmail_intake_shadow_notices is
   'Service-only exact-run ledger binding the owner intake source, first-contact operation/event, and action-work event.';
 comment on table public.refund_gmail_intake_shadow_cleanup_obligations is
   'PII-free exact-run owner obligation for reviewed retention cleanup after one intake-shadow copy.';
+comment on table public.refund_gmail_intake_shadow_dispatch_authorizations is
+  'Owner-only expiring dispatch authorization atomically consumed by one exact intake-shadow run or cancelled before any late start.';
 comment on function public.service_preflight_refund_gmail_intake_shadow(
   boolean, text, boolean, boolean, text
 ) is

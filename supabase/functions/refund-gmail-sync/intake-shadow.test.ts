@@ -10,9 +10,13 @@ import {
   sha256Hex,
 } from "../_shared/refund-gmail.ts";
 import {
+  bindRefundGmailIntakeShadowDispatch,
+  completeRefundGmailIntakeShadowFirstContact,
   isRefundGmailIntakeShadowRunKey,
   preflightRefundGmailIntakeShadowLabel,
   REFUND_GMAIL_INTAKE_SHADOW_LIST_LIMIT,
+  REFUND_GMAIL_INTAKE_SHADOW_SAFE_START_AT,
+  REFUND_GMAIL_INTAKE_SHADOW_ZERO_DIGEST,
   RefundGmailIntakeShadowError,
   resolveRefundGmailIntakeShadowConfig,
   validateRefundGmailIntakeShadowRuntime,
@@ -20,15 +24,17 @@ import {
 } from "./intake-shadow.ts";
 
 const BASE_ENV: Record<string, string> = {
-  REFUND_GMAIL_INTAKE_ENABLED: "true",
+  REFUND_GMAIL_INTAKE_ENABLED: "false",
   REFUND_GMAIL_ENABLED: "false",
-  REFUND_GMAIL_FIRST_CONTACT_MODE: "shadow",
-  GMAIL_REFUND_START_AT: "2026-08-14T12:00:00.000Z",
+  REFUND_GMAIL_FIRST_CONTACT_MODE: "disabled",
+  GMAIL_REFUND_START_AT: REFUND_GMAIL_INTAKE_SHADOW_SAFE_START_AT,
   GMAIL_REFUND_MAX_THREADS_PER_RUN: "1",
   GMAIL_REFUND_LABEL_ID: "Label_production",
   GMAIL_REFUND_INTAKE_SHADOW_LABEL_ID: "Label_owner_shadow",
-  REFUND_GMAIL_INTAKE_SHADOW_OWNER_SENDER_SHA256: "a".repeat(64),
-  REFUND_GMAIL_INTAKE_SHADOW_RUN_KEY_SHA256: "b".repeat(64),
+  REFUND_GMAIL_INTAKE_SHADOW_OWNER_SENDER_SHA256:
+    REFUND_GMAIL_INTAKE_SHADOW_ZERO_DIGEST,
+  REFUND_GMAIL_INTAKE_SHADOW_RUN_KEY_SHA256:
+    REFUND_GMAIL_INTAKE_SHADOW_ZERO_DIGEST,
   REFUND_GMAIL_RETENTION_ENABLED: "false",
   REFUND_GMAIL_RETENTION_POLICY_VERSION: "refund_gmail_retention_v1",
   REFUND_AUTOMATIC_CUSTOMER_CONTACT_ENABLED: "false",
@@ -50,6 +56,85 @@ const resolve = (overrides: Record<string, string | undefined> = {}) =>
     nowMs: Date.parse("2026-08-14T12:05:00.000Z"),
   });
 
+Deno.test("intake completion consumes the exact run-bound RPC shape once without send counters", async () => {
+  const calls: Array<Record<string, string>> = [];
+  const counters = {
+    firstContactShadowed: 0,
+    firstContactSuppressed: 0,
+    firstContactFailed: 0,
+    managerNoticeShadowed: 0,
+    managerNoticeSentEvents: 0,
+  };
+  const result = await completeRefundGmailIntakeShadowFirstContact({
+    runId: "run-id",
+    sourceMessageId: "source-id",
+    refundCaseId: "case-id",
+    counters,
+    complete: async (parameters) => {
+      calls.push(parameters);
+      return {
+        recorded: true,
+        eventPresent: true,
+        firstContactPresent: true,
+        cleanupAssigned: true,
+        routeClass: "assigned_managers",
+        mailboxAcknowledgementObserved: true,
+        hubCustomerDeliverySent: false,
+        laterHubFirstContactExcluded: true,
+        payloadRedacted: true,
+      };
+    },
+  });
+  assertEquals(result, { failed: false, recorded: true });
+  assertEquals(calls, [{
+    p_run_id: "run-id",
+    p_source_message_id: "source-id",
+    p_refund_case_id: "case-id",
+  }]);
+  assertEquals(counters, {
+    firstContactShadowed: 1,
+    firstContactSuppressed: 0,
+    firstContactFailed: 0,
+    managerNoticeShadowed: 1,
+    managerNoticeSentEvents: 0,
+  });
+});
+
+Deno.test("intake completion treats an exact recorded-false response as replay failure", async () => {
+  const counters = {
+    firstContactShadowed: 0,
+    firstContactSuppressed: 0,
+    firstContactFailed: 0,
+    managerNoticeShadowed: 0,
+    managerNoticeSentEvents: 0,
+  };
+  const result = await completeRefundGmailIntakeShadowFirstContact({
+    runId: "run-id",
+    sourceMessageId: "source-id",
+    refundCaseId: "case-id",
+    counters,
+    complete: async () => ({
+      recorded: false,
+      eventPresent: true,
+      firstContactPresent: true,
+      cleanupAssigned: true,
+      routeClass: "operations_fallback",
+      mailboxAcknowledgementObserved: true,
+      hubCustomerDeliverySent: false,
+      laterHubFirstContactExcluded: true,
+      payloadRedacted: true,
+    }),
+  });
+  assertEquals(result, { failed: true, recorded: false });
+  assertEquals(counters, {
+    firstContactShadowed: 0,
+    firstContactSuppressed: 1,
+    firstContactFailed: 1,
+    managerNoticeShadowed: 0,
+    managerNoticeSentEvents: 0,
+  });
+});
+
 Deno.test("intake shadow requires the exact owner run key", () => {
   assert(isRefundGmailIntakeShadowRunKey(
     `owner-intake-shadow:${"a".repeat(64)}`,
@@ -70,20 +155,17 @@ Deno.test("intake shadow requires the exact owner run key", () => {
 
 Deno.test("intake shadow accepts only the isolated exact configuration", () => {
   const config = resolve();
-  assert(config?.active);
+  assert(config);
   assertEquals(config.shadowLabelId, "Label_owner_shadow");
   assertEquals(config.maxThreads, 1);
-  assertEquals(config.ownerSenderDigest, "a".repeat(64));
-  assertEquals(config.runKeyDigest, "b".repeat(64));
-  assertEquals(config.startAt.toISOString(), BASE_ENV.GMAIL_REFUND_START_AT);
 });
 
 for (
   const [name, overrides, code] of [
     [
-      "gate off",
-      { REFUND_GMAIL_INTAKE_ENABLED: "false" },
-      "gmail_intake_shadow_disabled",
+      "static availability secret on",
+      { REFUND_GMAIL_INTAKE_ENABLED: "true" },
+      "gmail_intake_shadow_gate_must_remain_disabled",
     ],
     [
       "delivery on",
@@ -91,29 +173,19 @@ for (
       "gmail_delivery_gate_must_remain_disabled",
     ],
     [
-      "mode active",
-      { REFUND_GMAIL_FIRST_CONTACT_MODE: "active" },
-      "gmail_intake_shadow_mode_required",
+      "mode shadow",
+      { REFUND_GMAIL_FIRST_CONTACT_MODE: "shadow" },
+      "gmail_intake_shadow_mode_must_remain_disabled",
     ],
     [
-      "start missing",
+      "safe start missing",
       { GMAIL_REFUND_START_AT: undefined },
-      "gmail_intake_shadow_start_required",
+      "gmail_intake_shadow_safe_start_required",
     ],
     [
-      "start invalid",
+      "safe start invalid",
       { GMAIL_REFUND_START_AT: "tomorrow" },
-      "gmail_intake_shadow_start_required",
-    ],
-    [
-      "start stale",
-      { GMAIL_REFUND_START_AT: "2026-08-14T11:49:59.999Z" },
-      "gmail_intake_shadow_start_required",
-    ],
-    [
-      "start too far ahead",
-      { GMAIL_REFUND_START_AT: "2026-08-14T12:05:30.001Z" },
-      "gmail_intake_shadow_start_required",
+      "gmail_intake_shadow_safe_start_required",
     ],
     [
       "max missing",
@@ -151,14 +223,14 @@ for (
       "gmail_intake_shadow_hard_off_invalid",
     ],
     [
-      "sender authorization reset",
-      { REFUND_GMAIL_INTAKE_SHADOW_OWNER_SENDER_SHA256: "0".repeat(64) },
-      "gmail_intake_shadow_authorization_digest_invalid",
+      "static owner authorization armed",
+      { REFUND_GMAIL_INTAKE_SHADOW_OWNER_SENDER_SHA256: "a".repeat(64) },
+      "gmail_intake_shadow_authorization_must_remain_closed",
     ],
     [
-      "run authorization missing",
+      "static run authorization missing",
       { REFUND_GMAIL_INTAKE_SHADOW_RUN_KEY_SHA256: undefined },
-      "gmail_intake_shadow_authorization_digest_invalid",
+      "gmail_intake_shadow_authorization_must_remain_closed",
     ],
   ] as const
 ) {
@@ -171,12 +243,13 @@ for (
   });
 }
 
-Deno.test("intake gate cannot remain on for another trigger", () => {
+Deno.test("static intake availability cannot be on for another trigger", () => {
   const error = assertThrows(
     () =>
       resolveRefundGmailIntakeShadowConfig({
         trigger: "manual",
-        readEnv: (name) => BASE_ENV[name],
+        readEnv: (name) =>
+          name === "REFUND_GMAIL_INTAKE_ENABLED" ? "true" : BASE_ENV[name],
       }),
     RefundGmailIntakeShadowError,
   );
@@ -194,9 +267,9 @@ Deno.test("ordinary trigger remains unchanged while intake gate is off", () => {
   );
 });
 
-const firstContactShadow = () => ({
-  mode: "shadow" as const,
-  shouldClaim: true,
+const firstContactDisabled = () => ({
+  mode: "disabled" as const,
+  shouldClaim: false,
   shouldSend: false,
   cutoverAt: null,
   errorCode: null,
@@ -205,44 +278,25 @@ const firstContactShadow = () => ({
   supportUrl: "https://www.bloomjoyusa.com/resources#support-boundaries",
 });
 
-Deno.test("pure runtime authorization binds the exact armed run key", async () => {
-  const runKey = `owner-intake-shadow:${"c".repeat(64)}`;
-  const intake = resolve({
-    REFUND_GMAIL_INTAKE_SHADOW_RUN_KEY_SHA256: await sha256Hex(runKey),
-  });
+Deno.test("pure runtime validates static closed configuration before DB authorization", async () => {
+  const intake = resolve();
   assert(intake);
   await validateRefundGmailIntakeShadowRuntime({
     intake,
     config: gmailConfig(),
-    firstContact: firstContactShadow(),
-    runKey,
+    firstContact: firstContactDisabled(),
   });
-  const error = await assertRejects(
-    () =>
-      validateRefundGmailIntakeShadowRuntime({
-        intake,
-        config: gmailConfig(),
-        firstContact: firstContactShadow(),
-        runKey: `owner-intake-shadow:${"d".repeat(64)}`,
-      }),
-    RefundGmailIntakeShadowError,
-  );
-  assertEquals(error.code, "gmail_intake_shadow_pure_preflight_failed");
 });
 
 Deno.test("pure runtime rejects incomplete base config and blocked first-contact before provider work", async () => {
-  const runKey = `owner-intake-shadow:${"e".repeat(64)}`;
-  const intake = resolve({
-    REFUND_GMAIL_INTAKE_SHADOW_RUN_KEY_SHA256: await sha256Hex(runKey),
-  });
+  const intake = resolve();
   assert(intake);
   await assertRejects(
     () =>
       validateRefundGmailIntakeShadowRuntime({
         intake,
         config: null,
-        firstContact: firstContactShadow(),
-        runKey,
+        firstContact: firstContactDisabled(),
       }),
     RefundGmailIntakeShadowError,
   );
@@ -252,16 +306,69 @@ Deno.test("pure runtime rejects incomplete base config and blocked first-contact
         intake,
         config: gmailConfig(),
         firstContact: {
-          ...firstContactShadow(),
+          ...firstContactDisabled(),
           mode: "blocked",
           shouldClaim: false,
           errorCode: "refund_url_invalid",
         },
-        runKey,
       }),
     RefundGmailIntakeShadowError,
   );
 });
+
+const bindDispatch = async ({
+  ownerEmail = "owner.synthetic@example.test",
+  startAt = "2026-08-14T12:00:00.000Z",
+  nowMs = Date.parse("2026-08-14T12:05:00.000Z"),
+  overrides = {},
+}: {
+  ownerEmail?: string;
+  startAt?: string;
+  nowMs?: number;
+  overrides?: Record<string, unknown>;
+} = {}) => {
+  const intake = resolve();
+  assert(intake);
+  return bindRefundGmailIntakeShadowDispatch({
+    intake,
+    nowMs,
+    start: {
+      intakeShadowAuthorized: true,
+      intakeShadowOwnerSenderDigest: await sha256Hex(ownerEmail),
+      intakeShadowStartAt: startAt,
+      payloadRedacted: true,
+      ...overrides,
+    },
+  });
+};
+
+Deno.test("DB start response binds the fresh owner dispatch without static secret changes", async () => {
+  const dispatch = await bindDispatch();
+  assert(dispatch.active);
+  assertEquals(
+    dispatch.ownerSenderDigest,
+    await sha256Hex("owner.synthetic@example.test"),
+  );
+  assertEquals(dispatch.startAt.toISOString(), "2026-08-14T12:00:00.000Z");
+  assertEquals(dispatch.shadowLabelId, "Label_owner_shadow");
+});
+
+for (const [name, overrides] of [
+  ["unarmed response", { intakeShadowAuthorized: false }],
+  ["zero owner digest", {
+    intakeShadowOwnerSenderDigest: REFUND_GMAIL_INTAKE_SHADOW_ZERO_DIGEST,
+  }],
+  ["stale boundary", { intakeShadowStartAt: "2026-08-14T11:49:59.999Z" }],
+  ["future boundary", { intakeShadowStartAt: "2026-08-14T12:05:30.001Z" }],
+  ["unredacted response", { payloadRedacted: false }],
+] as const) {
+  Deno.test(`DB dispatch binding fails closed for ${name}`, async () => {
+    await assertRejects(
+      () => bindDispatch({ overrides }),
+      RefundGmailIntakeShadowError,
+    );
+  });
+}
 
 const gmailConfig = (): RefundGmailConfig => ({
   clientId: "client",
@@ -270,7 +377,7 @@ const gmailConfig = (): RefundGmailConfig => ({
   mailbox: "info@example.test",
   mailboxIdentities: ["info@example.test"],
   labelId: "Label_owner_shadow",
-  startAt: new Date(BASE_ENV.GMAIL_REFUND_START_AT),
+  startAt: new Date("2026-08-14T12:00:00.000Z"),
 });
 
 const message = ({
@@ -306,10 +413,7 @@ const message = ({
 
 Deno.test("thread shape requires one fresh owner inbound and one Gmail-SENT mailbox message", async () => {
   const owner = "owner.synthetic@example.test";
-  const intake = resolve({
-    REFUND_GMAIL_INTAKE_SHADOW_OWNER_SENDER_SHA256: await sha256Hex(owner),
-  });
-  assert(intake);
+  const intake = await bindDispatch({ ownerEmail: owner });
   const result = await validateRefundGmailIntakeShadowThread({
     intake,
     config: gmailConfig(),
@@ -457,12 +561,7 @@ for (
   ] as const
 ) {
   Deno.test(`thread shape fails closed for ${name}`, async () => {
-    const intake = resolve({
-      REFUND_GMAIL_INTAKE_SHADOW_OWNER_SENDER_SHA256: await sha256Hex(
-        "owner.synthetic@example.test",
-      ),
-    });
-    assert(intake);
+    const intake = await bindDispatch();
     await assertRejects(
       () =>
         validateRefundGmailIntakeShadowThread({
@@ -534,7 +633,7 @@ Deno.test("provider preflight proves mailbox and exactly one capped shadow threa
   );
   assertEquals(
     listUrl.searchParams.get("q"),
-    `after:${Date.parse(BASE_ENV.GMAIL_REFUND_START_AT) / 1000}`,
+    `after:${Date.parse("2026-08-14T12:00:00.000Z") / 1000}`,
   );
 });
 

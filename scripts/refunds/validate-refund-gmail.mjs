@@ -602,7 +602,7 @@ const ordinaryPreSyncStart = syncFunction.indexOf(
 const intakeShadowCopyAuthorization = syncFunction.indexOf(
   'await authorizeRefundGmailIntakeShadowDatabase()',
 );
-const resolvedGmailConfig = syncFunction.indexOf('const config = baseConfig && intakeShadow');
+const resolvedGmailConfig = syncFunction.indexOf('let config = baseConfig && intakeShadow');
 assert(
   ordinaryPreSyncStart >= 0 &&
     syncFunction.indexOf('const summary = await runRetentionSweep({', ordinaryPreSyncStart) <
@@ -612,7 +612,7 @@ assert(
     intakeShadowCopyAuthorization >= 0 &&
     intakeShadowCopyAuthorization < resolvedGmailConfig &&
     resolvedGmailConfig < syncFunction.indexOf('verifyRefundGmailMailbox(config)'),
-  'Ordinary retention and narrow intake-shadow copy authorization must run before Gmail OAuth access',
+  'Ordinary retention and the narrow intake-shadow database preflight must run before Gmail OAuth access',
 );
 assert(
   syncFunction.includes('triggerSource === "retention"') &&

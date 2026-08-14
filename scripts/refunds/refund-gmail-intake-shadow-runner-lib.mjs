@@ -28,9 +28,10 @@ const ROUTE_CLASSES = new Set([
 ]);
 const SAFE_PHASES = new Set([
   'initialized_closed',
+  'cleanup_completed',
   'preflight_passed',
   'dry_run_passed',
-  'intake_opened',
+  'dispatch_authorized',
   'intake_posted',
   'intake_closed',
   'postflight_classified',
@@ -55,7 +56,9 @@ const exactBoolean = (value, expected) =>
   (value === true || value === false) && value === expected;
 
 export const validateRefundGmailIntakeShadowRunnerConfig = (config) => {
-  if (!['initialize', 'dry-run', 'live'].includes(config?.mode)) fail('mode_invalid');
+  if (!['initialize', 'cleanup-verify', 'dry-run', 'live'].includes(config?.mode)) {
+    fail('mode_invalid');
+  }
   if (config.retentionPolicyVersion !== REFUND_INTAKE_SHADOW_RETENTION_POLICY_VERSION) {
     fail('retention_policy_version_invalid');
   }
@@ -73,6 +76,7 @@ export const validateRefundGmailIntakeShadowRunnerConfig = (config) => {
   if (!Number.isInteger(config.timeoutMs) || config.timeoutMs < 450_000 || config.timeoutMs > 600_000) {
     fail('timeout_invalid');
   }
+  if (config.mode === 'cleanup-verify') return config;
   if (config.mode === 'initialize') {
     if (
       !LABEL_ID_PATTERN.test(config.initialShadowLabelId ?? '') ||
@@ -108,6 +112,7 @@ export const validateRefundGmailIntakeShadowRunnerConfig = (config) => {
 const requireDatabasePreflight = (value) => {
   if (
     value?.databaseOwnerSession !== true ||
+    value?.armedDispatchAuthorizationCount !== 0 ||
     value?.activeProofAuthorizationCount !== 0 ||
     value?.unresolvedGmailOutboundCount !== 0 ||
     value?.unresolvedFirstContactCount !== 0 ||
@@ -121,6 +126,7 @@ const requireDatabasePreflight = (value) => {
     value?.nayaxOperatorCount !== 0 ||
     value?.nayaxResolutionIntentCount !== 0 ||
     value?.unresolvedNayaxProviderAttemptCount !== 0 ||
+    value?.overdueCleanupObligationCount !== 0 ||
     value?.retentionPolicyHealthy !== true ||
     value?.attachmentsEnabled !== false ||
     value?.scannerEnabled !== false ||
@@ -128,7 +134,7 @@ const requireDatabasePreflight = (value) => {
   ) fail('database_preflight_invalid');
 };
 
-const requireSharedOperationalState = (state) => {
+const requireEdgeOperationalState = (state) => {
   if (
     state?.edge?.automaticCustomerContactEnabled !== false ||
     state?.edge?.automationEnabled !== false ||
@@ -140,7 +146,13 @@ const requireSharedOperationalState = (state) => {
     state?.edge?.nayaxDryRun !== true ||
     state?.edge?.nayaxKillSwitch !== true ||
     state?.edge?.nayaxProviderContractConfirmed !== false ||
-    state?.edge?.nayaxSponsorGoNoGo !== false ||
+    state?.edge?.nayaxSponsorGoNoGo !== false
+  ) fail('operational_preflight_invalid');
+};
+
+const requireSharedOperationalState = (state) => {
+  requireEdgeOperationalState(state);
+  if (
     state?.github?.gmailSyncEnabled !== false ||
     state?.github?.gmailRetentionEnabled !== false ||
     state?.github?.automationSweepEnabled !== false ||
@@ -179,6 +191,21 @@ export const requireRefundGmailIntakeShadowState = (
     state.edge.ownerSenderSecretDigest !== sha256Hex(ownerSenderDigest) ||
     state.edge.runKeySecretDigest !== sha256Hex(runKeyDigest)
   ) fail('intake_gate_state_invalid');
+};
+
+const requireInitializedClosedState = (state, config) => {
+  requireEdgeOperationalState(state);
+  requireLabelBoundary(state, config);
+  if (
+    state.edge.intakeEnabled !== false ||
+    state.edge.gmailEnabled !== false ||
+    state.edge.gmailRetentionEnabled !== false ||
+    state.edge.firstContactMode !== 'disabled' ||
+    state.edge.startAtDigest !== sha256Hex(REFUND_INTAKE_SHADOW_SAFE_START_AT) ||
+    state.edge.maxThreads !== 1 ||
+    state.edge.ownerSenderSecretDigest !== sha256Hex(REFUND_INTAKE_SHADOW_ZERO_DIGEST) ||
+    state.edge.runKeySecretDigest !== sha256Hex(REFUND_INTAKE_SHADOW_ZERO_DIGEST)
+  ) fail('intake_initialize_readback_invalid');
 };
 
 const requireEdgeSuccess = (result) => {
@@ -242,8 +269,14 @@ export const classifyRefundGmailIntakeShadowPostflight = (
   ) return 'partial_incident';
 
   const noEffect =
-    [0, 1].includes(postflight.runCount) &&
-    (postflight.runCount === 0 || ['failed', 'suppressed'].includes(postflight.runStatus)) &&
+    (
+      (postflight.runCount === 0 &&
+        ['absent', 'cancelled'].includes(postflight.dispatchStatus)) ||
+      (postflight.runCount === 1 && postflight.dispatchStatus === 'consumed' &&
+        ['failed', 'suppressed'].includes(postflight.runStatus) &&
+        typeof postflight.runFinishedAt === 'string' &&
+        Number.isFinite(Date.parse(postflight.runFinishedAt)))
+    ) &&
     hasZeroEffects(postflight);
   if (noEffect) return edgeConfirmed ? 'partial_incident' : 'no_effect';
 
@@ -251,6 +284,7 @@ export const classifyRefundGmailIntakeShadowPostflight = (
   const latestRetentionDueAt = Date.parse(postflight.latestRetentionDueAt ?? '');
   const complete =
     postflight.runCount === 1 &&
+    postflight.dispatchStatus === 'consumed' &&
     postflight.triggerSource === 'intake_shadow' &&
     postflight.runStatus === 'succeeded' &&
     typeof postflight.runFinishedAt === 'string' &&
@@ -322,13 +356,19 @@ const emit = (logger, phase, detail = {}) => {
     result.gatesConclusivelyClosed = gatesConclusivelyClosed;
     result.gateState = gatesConclusivelyClosed ? 'closed' : 'unknown';
     result.replayAllowed = false;
-    result.durableStateCreated = effectsClassification === 'complete_exact' ||
-      effectsClassification === 'partial_incident';
+    result.durableStateStatus = effectsClassification === 'no_effect'
+      ? 'not_created'
+      : effectsClassification === 'outcome_unknown'
+      ? 'unknown'
+      : 'created';
     result.durableStateRequiresManualReconciliation =
       effectsClassification === 'partial_incident' ||
       effectsClassification === 'outcome_unknown';
-    result.retentionCleanupRequired = effectsClassification === 'complete_exact' ||
-      effectsClassification === 'partial_incident';
+    result.retentionCleanupStatus = effectsClassification === 'no_effect'
+      ? 'not_required'
+      : effectsClassification === 'outcome_unknown'
+      ? 'unknown_reconcile_required'
+      : 'required';
     result.emergencyIndependentGateVerificationRequired = !gatesConclusivelyClosed;
   }
   if (ROUTE_CLASSES.has(detail.routeClass)) result.routeClass = detail.routeClass;
@@ -361,38 +401,22 @@ const isClosedState = (state, config) => {
   }
 };
 
-const conclusivelyClose = async ({ control, config }) => {
+const conclusivelyCloseDispatch = async ({ database, runKeyDigest }) => {
   let closeAttempts = 0;
   let closeError = null;
-  try {
-    closeAttempts += 1;
-    await control.safeClose();
-  } catch (error) {
-    closeError = error;
-  }
-  let state;
-  try {
-    state = await control.readState();
-  } catch {
-    state = null;
-  }
-  if (!state || !isClosedState(state, config)) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       closeAttempts += 1;
-      await control.safeClose();
+      const result = await database.closeDispatch({ runKeyDigest });
+      if (
+        result?.closed === true &&
+        ['absent', 'cancelled', 'consumed'].includes(result.status)
+      ) return { closeAttempts, status: result.status };
     } catch (error) {
       closeError = error;
     }
-    try {
-      state = await control.readState();
-    } catch (error) {
-      throw normalizeError(error, 'intake_safe_close_read_failed');
-    }
   }
-  if (!isClosedState(state, config)) {
-    throw normalizeError(closeError, 'intake_safe_close_failed');
-  }
-  return closeAttempts;
+  throw normalizeError(closeError, 'intake_dispatch_close_failed');
 };
 
 const stablePostflightFingerprint = (postflight) => JSON.stringify(postflight);
@@ -403,35 +427,32 @@ export const reconcileRefundGmailIntakeShadowPostflight = async ({
   runKey,
   ownerUserId,
   edgeDispatched,
-  dispatchStartedAtMs,
   clock = () => Date.now(),
   sleep = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)),
   reconciliationBoundMs = REFUND_INTAKE_SHADOW_RECONCILIATION_BOUND_MS,
   stablePollIntervalMs = REFUND_INTAKE_SHADOW_STABLE_POLL_INTERVAL_MS,
 }) => {
-  if (!edgeDispatched) {
-    return await database.postflight({ before, runKey, ownerUserId });
-  }
   if (
-    !Number.isFinite(dispatchStartedAtMs) ||
     !Number.isInteger(reconciliationBoundMs) || reconciliationBoundMs < 1 ||
     !Number.isInteger(stablePollIntervalMs) || stablePollIntervalMs < 1
   ) fail('intake_reconciliation_config_invalid');
 
-  const deadline = dispatchStartedAtMs + reconciliationBoundMs;
   let stableFingerprint = null;
   let stableReads = 0;
   while (true) {
     const postflight = await database.postflight({ before, runKey, ownerUserId });
+    if (!edgeDispatched) return postflight;
     const nowMs = clock();
     if (!Number.isFinite(nowMs)) fail('clock_invalid');
-    const noRunQuiescent = postflight.runCount === 0 && nowMs >= deadline;
+    const cancelledNoRun =
+      postflight.dispatchStatus === 'cancelled' && postflight.runCount === 0;
     const terminalRun =
+      postflight.dispatchStatus === 'consumed' &&
       postflight.runCount === 1 &&
       ['succeeded', 'failed', 'suppressed'].includes(postflight.runStatus) &&
       typeof postflight.runFinishedAt === 'string' &&
       Number.isFinite(Date.parse(postflight.runFinishedAt));
-    if (noRunQuiescent || terminalRun) {
+    if (cancelledNoRun || terminalRun) {
       const fingerprint = stablePostflightFingerprint(postflight);
       if (fingerprint === stableFingerprint) stableReads += 1;
       else {
@@ -439,11 +460,16 @@ export const reconcileRefundGmailIntakeShadowPostflight = async ({
         stableReads = 1;
       }
       if (stableReads >= 2) return postflight;
-    } else {
-      stableFingerprint = null;
-      stableReads = 0;
-    }
-    if (nowMs >= deadline && !noRunQuiescent && !terminalRun) {
+    } else if (
+      postflight.dispatchStatus !== 'consumed' || postflight.runCount !== 1 ||
+      postflight.runStatus !== 'running' ||
+      typeof postflight.runStartedAt !== 'string' ||
+      !Number.isFinite(Date.parse(postflight.runStartedAt))
+    ) {
+      fail('intake_dispatch_state_invalid');
+    } else if (
+      nowMs >= Date.parse(postflight.runStartedAt) + reconciliationBoundMs
+    ) {
       fail('intake_reconciliation_timeout');
     }
     await sleep(stablePollIntervalMs);
@@ -464,18 +490,27 @@ export const executeRefundGmailIntakeShadow = async ({
 }) => {
   validateRefundGmailIntakeShadowRunnerConfig(config);
   const { database, control, edge, identity } = clients;
+  if (config.mode === 'cleanup-verify') {
+    const result = await database.completeDueCleanup({ signal });
+    emit(logger, 'cleanup_completed');
+    return {
+      ok: true,
+      mode: 'cleanup-verify',
+      ...result,
+      payloadRedacted: true,
+    };
+  }
   if (config.mode === 'initialize') {
     await control.initializeClosed({ shadowLabelId: config.initialShadowLabelId, signal });
-    const initializedState = await control.readState({ signal });
-    requireRefundGmailIntakeShadowState(initializedState, config, {
-      intakeEnabled: false,
-      mode: 'disabled',
-      startAt: REFUND_INTAKE_SHADOW_SAFE_START_AT,
-      ownerSenderDigest: REFUND_INTAKE_SHADOW_ZERO_DIGEST,
-      runKeyDigest: REFUND_INTAKE_SHADOW_ZERO_DIGEST,
-    });
+    const initializedState = await control.readInitializedClosedState({ signal });
+    requireInitializedClosedState(initializedState, config);
     emit(logger, 'initialized_closed');
-    return { ok: true, mode: 'initialize', payloadRedacted: true };
+    return {
+      ok: true,
+      mode: 'initialize',
+      releaseMetadataReconciliationRequired: true,
+      payloadRedacted: true,
+    };
   }
   const before = await database.preflight({ signal });
   requireDatabasePreflight(before);
@@ -507,31 +542,21 @@ export const executeRefundGmailIntakeShadow = async ({
   let cleanupError = null;
   let edgeConfirmed = false;
   let edgeDispatched = false;
-  let dispatchStartedAtMs = null;
   let gatesConclusivelyClosed = false;
+  let dispatchClosureStatus = null;
   let postflight = null;
   let effectsClassification = 'outcome_unknown';
 
   try {
     signal?.throwIfAborted?.();
-    await control.openIntake({
-      freshStartAt,
-      ownerSenderDigest: config.ownerSenderDigest,
+    await database.authorizeDispatch({
       runKeyDigest,
+      ownerSenderDigest: config.ownerSenderDigest,
+      freshStartAt,
       signal,
     });
-    const openState = await control.readState({ signal });
-    requireRefundGmailIntakeShadowState(openState, config, {
-      intakeEnabled: true,
-      mode: 'shadow',
-      startAt: freshStartAt,
-      ownerSenderDigest: config.ownerSenderDigest,
-      runKeyDigest,
-    });
-    emit(logger, 'intake_opened');
+    emit(logger, 'dispatch_authorized');
 
-    dispatchStartedAtMs = clock();
-    if (!Number.isFinite(dispatchStartedAtMs)) fail('clock_invalid');
     edgeDispatched = true;
     const result = await edge.run({ runKey, signal });
     requireEdgeSuccess(result);
@@ -544,13 +569,12 @@ export const executeRefundGmailIntakeShadow = async ({
     );
   } finally {
     let closeError = null;
-    let closureProcedureFailed = false;
     try {
-      await conclusivelyClose({ control, config });
+      const closure = await conclusivelyCloseDispatch({ database, runKeyDigest });
+      dispatchClosureStatus = closure.status;
       emit(logger, 'intake_closed');
     } catch (error) {
-      closeError = normalizeError(error, 'intake_safe_close_failed');
-      closureProcedureFailed = true;
+      closeError = normalizeError(error, 'intake_dispatch_close_failed');
     }
 
     let reconciliationError = null;
@@ -561,7 +585,6 @@ export const executeRefundGmailIntakeShadow = async ({
         runKey,
         ownerUserId,
         edgeDispatched,
-        dispatchStartedAtMs,
         clock,
         ...(sleep ? { sleep } : {}),
         ...(reconciliationBoundMs ? { reconciliationBoundMs } : {}),
@@ -577,13 +600,18 @@ export const executeRefundGmailIntakeShadow = async ({
 
     try {
       const finalState = await control.readState();
-      gatesConclusivelyClosed = !closureProcedureFailed &&
-        isClosedState(finalState, config);
+      const dispatchClosed =
+        ['cancelled', 'consumed'].includes(dispatchClosureStatus) ||
+        ['cancelled', 'consumed'].includes(postflight?.dispatchStatus) ||
+        (!edgeDispatched && postflight?.dispatchStatus === 'absent');
+      gatesConclusivelyClosed = isClosedState(finalState, config) && dispatchClosed;
       if (!gatesConclusivelyClosed) {
-        closeError ??= new RefundGmailIntakeShadowRunnerError('intake_safe_close_unverified');
+        closeError ??= new RefundGmailIntakeShadowRunnerError('intake_gate_state_unverified');
+      } else {
+        closeError = null;
       }
     } catch (error) {
-      closeError ??= normalizeError(error, 'intake_safe_close_read_failed');
+      closeError ??= normalizeError(error, 'intake_gate_state_read_failed');
     }
 
     emit(logger, 'postflight_classified', {
@@ -623,9 +651,9 @@ export const executeRefundGmailIntakeShadow = async ({
     retentionCleanupObligation:
       'enable_reviewed_recurring_before_earliest_and_verify_after_latest_or_manual_purge_at_each_due',
     cleanupCommitment: true,
-    durableStateCreated: true,
+    durableStateStatus: 'created',
     durableStateRequiresManualReconciliation: false,
-    retentionCleanupRequired: true,
+    retentionCleanupStatus: 'required',
     emergencyIndependentGateVerificationRequired: false,
     replayAllowed: false,
     payloadRedacted: true,

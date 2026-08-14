@@ -43,6 +43,8 @@ import {
 } from "../_shared/refund-gmail-retention.ts";
 import { sendRefundManagerActionNotice } from "../_shared/refund-manager-notification.ts";
 import {
+  bindRefundGmailIntakeShadowDispatch,
+  completeRefundGmailIntakeShadowFirstContact,
   isRefundGmailIntakeShadowRunKey,
   preflightRefundGmailIntakeShadowLabel,
   REFUND_GMAIL_INTAKE_SHADOW_TRIGGER,
@@ -482,6 +484,19 @@ const processFirstContact = async ({
   intakeShadow: boolean;
   runId: string;
 }) => {
+  if (intakeShadow) {
+    return await completeRefundGmailIntakeShadowFirstContact({
+      runId,
+      sourceMessageId,
+      refundCaseId,
+      counters,
+      complete: (parameters) =>
+        rpc<Record<string, unknown> | null>(
+          "service_complete_refund_gmail_intake_shadow",
+          parameters,
+        ),
+    });
+  }
   if (!firstContact.shouldClaim) return { failed: false };
   if (!isRefundFirstContactSenderAllowed(firstContact, customerEmail)) {
     counters.firstContactSuppressed += 1;
@@ -534,34 +549,7 @@ const processFirstContact = async ({
       p_thread_has_outbound: threadHasOutbound,
     },
   );
-  const claim = intakeShadow
-    ? await rpc<Record<string, unknown> | null>(
-      "service_complete_refund_gmail_intake_shadow",
-      {
-        p_run_id: runId,
-        p_source_message_id: sourceMessageId,
-        p_refund_case_id: refundCaseId,
-      },
-    )
-    : await claimRefundGmailDeliveryWhenEnabled(claimFirstContact);
-
-  if (intakeShadow && (
-    claim?.mailboxAcknowledgementObserved !== true ||
-    claim?.hubCustomerDeliverySent !== false ||
-    claim?.laterHubFirstContactExcluded !== true ||
-    claim?.eventPresent !== true ||
-    claim?.firstContactPresent !== true ||
-    claim?.cleanupAssigned !== true ||
-    ![
-      "assigned_managers",
-      "operations_fallback",
-      "unassigned_owner_ops_queue",
-    ].includes(sanitizeText(claim?.routeClass, 80)) ||
-    claim?.payloadRedacted !== true
-  )) {
-    counters.firstContactFailed += 1;
-    return { failed: true };
-  }
+  const claim = await claimRefundGmailDeliveryWhenEnabled(claimFirstContact);
 
   if (!claim?.eligible) {
     counters.firstContactSuppressed += 1;
@@ -573,9 +561,6 @@ const processFirstContact = async ({
   }
   if (firstContact.mode === "shadow") {
     counters.firstContactShadowed += 1;
-    if (intakeShadow && claim.recorded === true) {
-      counters.managerNoticeShadowed += 1;
-    }
     return { failed: false };
   }
 
@@ -1147,7 +1132,6 @@ serve(async (request) => {
         intake: intakeShadow,
         config: baseConfig,
         firstContact,
-        runKey,
       });
     } catch {
       return jsonResponse({
@@ -1235,11 +1219,11 @@ serve(async (request) => {
 
   // Gmail configuration and OAuth are intentionally unavailable until local
   // cleanup succeeds and the owner/scanner/copy-health gate authorizes copying.
-  const config = baseConfig && intakeShadow
+  let config = baseConfig && intakeShadow
     ? {
       ...baseConfig,
       labelId: intakeShadow.shadowLabelId,
-      startAt: intakeShadow.startAt,
+      startAt: new Date("2999-01-01T00:00:00.000Z"),
     }
     : baseConfig;
   if (intakeShadow && !config) {
@@ -1278,6 +1262,34 @@ serve(async (request) => {
   const runId = sanitizeText(start.runId, 80);
   if (!runId) {
     return jsonResponse({ error: "Refund Gmail sync claim was invalid." }, 500);
+  }
+  if (intakeShadow) {
+    try {
+      intakeShadow = bindRefundGmailIntakeShadowDispatch({
+        intake: intakeShadow,
+        start,
+      });
+      config = config ? { ...config, startAt: intakeShadow.startAt } : config;
+    } catch {
+      await rpc("service_finish_refund_gmail_sync", {
+        p_run_id: runId,
+        p_status: "failed",
+        p_threads_scanned: 0,
+        p_messages_seen: 0,
+        p_messages_created: 0,
+        p_messages_deduplicated: 0,
+        p_attachments_quarantined: 0,
+        p_messages_failed: 1,
+        p_history_id: null,
+        p_failure_category: "configuration",
+        p_error_code: "gmail_intake_shadow_dispatch_invalid",
+      }).catch(() => null);
+      return jsonResponse({
+        status: "failed",
+        errorCode: "gmail_intake_shadow_dispatch_invalid",
+        payloadRedacted: true,
+      }, 503);
+    }
   }
 
   const counters = {

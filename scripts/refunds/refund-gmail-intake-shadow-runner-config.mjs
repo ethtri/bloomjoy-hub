@@ -4,9 +4,26 @@ import { fileURLToPath } from 'node:url';
 import { RefundGmailIntakeShadowRunnerError } from './refund-gmail-intake-shadow-runner-lib.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const PRIVATE_PACKET_NAMES = new Set([
+  'REFUND_GMAIL_INTAKE_SHADOW_PROJECT_REF',
+  'REFUND_GMAIL_INTAKE_SHADOW_CONFIRM_PROJECT_REF',
+  'REFUND_GMAIL_INTAKE_SHADOW_RETENTION_POLICY_VERSION',
+  'REFUND_GMAIL_INTAKE_SHADOW_LABEL_SHA256',
+  'REFUND_GMAIL_INTAKE_SHADOW_CONFIRM_LABEL_SHA256',
+  'REFUND_GMAIL_INTAKE_SHADOW_INITIAL_LABEL_ID',
+  'REFUND_GMAIL_INTAKE_SHADOW_OWNER_SENDER_SHA256',
+  'REFUND_GMAIL_INTAKE_SHADOW_CONFIRM_OWNER_SENDER_SHA256',
+  'REFUND_GMAIL_INTAKE_SHADOW_MANAGEMENT_TOKEN',
+  'REFUND_GMAIL_INTAKE_SHADOW_SYNC_SECRET',
+  'REFUND_GMAIL_INTAKE_SHADOW_ANON_KEY',
+  'REFUND_GMAIL_INTAKE_SHADOW_OWNER_USER_JWT',
+  'REFUND_GMAIL_INTAKE_SHADOW_LIVE_CONFIRMATION',
+  'REFUND_GMAIL_INTAKE_SHADOW_INITIALIZE_CONFIRMATION',
+  'REFUND_GMAIL_INTAKE_SHADOW_CLEANUP_COMMITMENT',
+]);
 
 export const parseRefundGmailIntakeShadowArgs = (argv) => {
-  const result = { mode: 'dry-run', envFile: '', timeoutSeconds: 480 };
+  const result = { mode: 'dry-run', envFile: '', timeoutSeconds: 600 };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     const next = argv[index + 1];
@@ -23,7 +40,7 @@ export const parseRefundGmailIntakeShadowArgs = (argv) => {
       throw new RefundGmailIntakeShadowRunnerError('unsupported_argument');
     }
   }
-  if (!['initialize', 'dry-run', 'live'].includes(result.mode)) {
+  if (!['initialize', 'cleanup-verify', 'dry-run', 'live'].includes(result.mode)) {
     throw new RefundGmailIntakeShadowRunnerError('mode_invalid');
   }
   if (!Number.isInteger(result.timeoutSeconds) ||
@@ -46,7 +63,7 @@ export const parseRefundGmailIntakeShadowEnvFile = (contents) => {
         (value.startsWith("'") && value.endsWith("'"))) {
       value = value.slice(1, -1);
     }
-    if (!/^[A-Z][A-Z0-9_]+$/u.test(name)) {
+    if (!PRIVATE_PACKET_NAMES.has(name) || Object.hasOwn(values, name)) {
       throw new RefundGmailIntakeShadowRunnerError('env_file_invalid');
     }
     values[name] = value;
@@ -55,7 +72,9 @@ export const parseRefundGmailIntakeShadowEnvFile = (contents) => {
 };
 
 export const loadRefundGmailIntakeShadowEnvironment = (envFile, parentEnv = process.env) => {
-  if (!envFile) return { ...parentEnv };
+  if (!envFile) {
+    throw new RefundGmailIntakeShadowRunnerError('env_file_path_invalid');
+  }
   if (!path.isAbsolute(envFile)) {
     throw new RefundGmailIntakeShadowRunnerError('env_file_path_invalid');
   }
@@ -75,7 +94,11 @@ export const loadRefundGmailIntakeShadowEnvironment = (envFile, parentEnv = proc
     if (error instanceof RefundGmailIntakeShadowRunnerError) throw error;
     throw new RefundGmailIntakeShadowRunnerError('env_file_unavailable');
   }
-  return { ...parsed, ...parentEnv };
+  // The reviewed private packet is the only authority. Ambient process values
+  // are deliberately ignored so stale credentials or confirmations cannot
+  // silently complete a partial packet.
+  void parentEnv;
+  return parsed;
 };
 
 export const buildRefundGmailIntakeShadowConfig = ({ mode, timeoutSeconds, env }) => ({
