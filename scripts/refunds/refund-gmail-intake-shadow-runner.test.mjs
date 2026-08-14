@@ -28,6 +28,7 @@ const SHADOW_DIGEST = sha256Hex('Label_owner_shadow');
 const PRODUCTION_DIGEST = sha256Hex('Label_production');
 const OWNER_SENDER_DIGEST = sha256Hex('owner.synthetic@example.test');
 const OWNER_USER_ID = 'a1000000-0000-4000-8000-000000000001';
+const CLEANUP_TASK_HANDLE = 'a2000000-0000-4000-8000-000000000001';
 
 const config = (overrides = {}) => ({
   mode: 'live',
@@ -44,6 +45,7 @@ const config = (overrides = {}) => ({
   ownerUserJwt: 'owner-jwt-private-value',
   liveConfirmation: REFUND_INTAKE_SHADOW_LIVE_CONFIRMATION,
   cleanupCommitment: REFUND_INTAKE_SHADOW_CLEANUP_COMMITMENT,
+  cleanupTaskHandle: '',
   timeoutMs: 480_000,
   ...overrides,
 });
@@ -173,6 +175,7 @@ const completePostflight = (overrides = {}) => ({
   exactFirstContactEventCount: 1,
   exactActionEventCount: 1,
   cleanupObligationCount: 1,
+  cleanupTaskHandle: CLEANUP_TASK_HANDLE,
   cleanupAssignedOwnerRole: 'refund_operations_owner',
   cleanupStatus: 'assigned',
   exactThreadMessageCount: 2,
@@ -269,12 +272,23 @@ const harness = ({
         if (behavior === 'invalid') return { closed: false, status: 'armed' };
         return { closed: true, status: behavior, payloadRedacted: true };
       },
-      async completeDueCleanup() {
+      async recoverExpiredDispatches() {
+        calls.push('database.recoverExpiredDispatches');
+        return {
+          recoveredExpiredCount: 1,
+          armedAuthorizationCount: 0,
+          consumedRunningCount: 0,
+          payloadRedacted: true,
+        };
+      },
+      async completeDueCleanup({ cleanupTaskHandle }) {
         calls.push('database.completeDueCleanup');
+        assert.equal(cleanupTaskHandle, CLEANUP_TASK_HANDLE);
         return {
           completedNow: 1,
           assignedOverdue: 0,
-          completedTotal: 1,
+          taskFound: true,
+          taskStatus: 'completed',
           payloadRedacted: true,
         };
       },
@@ -351,6 +365,7 @@ test('dry-run performs only aggregate/control reads with zero identity, mutation
 
 test('owner initialization seeds and re-proves only the closed state before any database or Gmail call', async () => {
   const sample = harness();
+  const logs = [];
   const result = await executeRefundGmailIntakeShadow({
     config: config({
       mode: 'initialize',
@@ -358,17 +373,104 @@ test('owner initialization seeds and re-proves only the closed state before any 
       initializeConfirmation: REFUND_INTAKE_SHADOW_INITIALIZE_CONFIRMATION,
     }),
     clients: sample.clients,
+    logger: (entry) => logs.push(entry),
   });
   assert.deepEqual(result, {
     ok: true,
     mode: 'initialize',
-    releaseMetadataReconciliationRequired: true,
+    metadataReconciliationRequired: true,
+    closedStateVerified: true,
     payloadRedacted: true,
   });
   assert.deepEqual(sample.calls, [
     'control.initializeClosed',
     'control.readInitializedClosedState',
   ]);
+  assert.deepEqual(logs, [{
+    phase: 'initialized_closed',
+    ok: true,
+    payloadRedacted: true,
+    metadataReconciliationRequired: true,
+    closedStateVerified: true,
+  }]);
+});
+
+test('timed-out initialization performs no retry, re-reads closed state, and requires metadata reconciliation', async () => {
+  const initiallyOpen = state();
+  initiallyOpen.edge.intakeEnabled = true;
+  const sample = harness({ initialState: initiallyOpen });
+  const logs = [];
+  const acceptedServerWrite = sample.clients.control.initializeClosed;
+  sample.clients.control.initializeClosed = async ({ shadowLabelId }) => {
+    await acceptedServerWrite({ shadowLabelId });
+    throw new RefundGmailIntakeShadowRunnerError('intake_timeout');
+  };
+  await assert.rejects(
+    executeRefundGmailIntakeShadow({
+      config: config({
+        mode: 'initialize',
+        initialShadowLabelId: 'Label_owner_shadow',
+        initializeConfirmation: REFUND_INTAKE_SHADOW_INITIALIZE_CONFIRMATION,
+      }),
+      clients: sample.clients,
+      logger: (entry) => logs.push(entry),
+    }),
+    (error) => {
+      assert.equal(error.code, 'intake_initialize_write_outcome_unknown');
+      assert.deepEqual(error.safeDetails, {
+        metadataReconciliationRequired: true,
+        closedStateVerified: true,
+      });
+      return true;
+    },
+  );
+  assert.deepEqual(sample.calls, [
+    'control.initializeClosed',
+    'control.readInitializedClosedState',
+  ]);
+  assert.deepEqual(logs, [{
+    phase: 'initialization_outcome_unknown',
+    ok: false,
+    payloadRedacted: true,
+    metadataReconciliationRequired: true,
+    closedStateVerified: true,
+  }]);
+});
+
+test('initialization readback failure emits an emergency closed-state verification requirement', async () => {
+  const sample = harness();
+  const logs = [];
+  sample.clients.control.readInitializedClosedState = async () => {
+    sample.calls.push('control.readInitializedClosedState');
+    throw new Error('private management read response');
+  };
+  await assert.rejects(
+    executeRefundGmailIntakeShadow({
+      config: config({
+        mode: 'initialize',
+        initialShadowLabelId: 'Label_owner_shadow',
+        initializeConfirmation: REFUND_INTAKE_SHADOW_INITIALIZE_CONFIRMATION,
+      }),
+      clients: sample.clients,
+      logger: (entry) => logs.push(entry),
+    }),
+    (error) => {
+      assert.equal(error.code, 'intake_initialize_closed_state_unverified');
+      assert.deepEqual(error.safeDetails, {
+        metadataReconciliationRequired: true,
+        closedStateVerified: false,
+        emergencyIndependentClosedStateVerificationRequired: true,
+      });
+      return true;
+    },
+  );
+  assert.deepEqual(sample.calls, [
+    'control.initializeClosed',
+    'control.readInitializedClosedState',
+  ]);
+  assert.equal(logs[0].phase, 'initialization_outcome_unknown');
+  assert.equal(logs[0].closedStateVerified, false);
+  assert.equal(logs[0].emergencyIndependentClosedStateVerificationRequired, true);
 });
 
 test('live success uses one DB authorization, records exact evidence, and performs zero secret writes', async () => {
@@ -389,6 +491,7 @@ test('live success uses one DB authorization, records exact evidence, and perfor
     ownerManageableCase: true,
     earliestRetentionDueAt: '2998-01-01T00:00:00.000Z',
     latestRetentionDueAt: '2998-01-02T00:00:00.000Z',
+    cleanupTaskHandle: CLEANUP_TASK_HANDLE,
     retentionCleanupObligation:
       'enable_reviewed_recurring_before_earliest_and_verify_after_latest_or_manual_purge_at_each_due',
     cleanupCommitment: true,
@@ -606,7 +709,7 @@ test('two dispatch close failures remain bounded while terminal consumed DB stat
 test('cleanup verification is DB-only and proves no overdue assigned obligation', async () => {
   const sample = harness();
   const result = await executeRefundGmailIntakeShadow({
-    config: config({ mode: 'cleanup-verify' }),
+    config: config({ mode: 'cleanup-verify', cleanupTaskHandle: CLEANUP_TASK_HANDLE }),
     clients: sample.clients,
   });
   assert.deepEqual(result, {
@@ -614,10 +717,28 @@ test('cleanup verification is DB-only and proves no overdue assigned obligation'
     mode: 'cleanup-verify',
     completedNow: 1,
     assignedOverdue: 0,
-    completedTotal: 1,
+    taskFound: true,
+    taskStatus: 'completed',
     payloadRedacted: true,
   });
   assert.deepEqual(sample.calls, ['database.completeDueCleanup']);
+});
+
+test('expired hard-stop recovery is DB-only, no-target, and aggregate-only', async () => {
+  const sample = harness();
+  const result = await executeRefundGmailIntakeShadow({
+    config: config({ mode: 'recover-expired' }),
+    clients: sample.clients,
+  });
+  assert.deepEqual(result, {
+    ok: true,
+    mode: 'recover-expired',
+    recoveredExpiredCount: 1,
+    armedAuthorizationCount: 0,
+    consumedRunningCount: 0,
+    payloadRedacted: true,
+  });
+  assert.deepEqual(sample.calls, ['database.recoverExpiredDispatches']);
 });
 
 test('unresolved delivery blocks before identity, secret mutation, or Gmail OAuth', async () => {
@@ -772,6 +893,34 @@ test('private env files must be absolute and outside the repository', () => {
     );
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('private env loader rejects an outside junction that resolves into the repository', () => {
+  const inRepoDirectory = fs.mkdtempSync(
+    path.join(process.cwd(), '.refund-intake-shadow-packet-'),
+  );
+  const outsideDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'refund-intake-shadow-link-'),
+  );
+  const packetPath = path.join(inRepoDirectory, 'private.env');
+  const linkPath = path.join(outsideDirectory, 'linked-packet');
+  try {
+    fs.writeFileSync(
+      packetPath,
+      'REFUND_GMAIL_INTAKE_SHADOW_PROJECT_REF=private\n',
+    );
+    fs.symlinkSync(inRepoDirectory, linkPath, 'junction');
+    assert.throws(
+      () => loadRefundGmailIntakeShadowEnvironment(
+        path.join(linkPath, 'private.env'),
+        {},
+      ),
+      (error) => error.code === 'env_file_path_invalid',
+    );
+  } finally {
+    fs.rmSync(outsideDirectory, { recursive: true, force: true });
+    fs.rmSync(inRepoDirectory, { recursive: true, force: true });
   }
 });
 

@@ -120,6 +120,57 @@ export const bindRefundGmailIntakeShadowDispatch = ({
   return { ...intake, active: true, ownerSenderDigest, startAt };
 };
 
+export const startRefundGmailIntakeShadowDatabaseBoundary = async ({
+  intake,
+  start,
+  preflight,
+  finishFailed,
+  nowMs = Date.now(),
+}: {
+  intake: RefundGmailIntakeShadowConfig;
+  start: () => Promise<Record<string, unknown> | null>;
+  preflight: () => Promise<void>;
+  finishFailed: (input: { runId: string; errorCode: string }) => Promise<void>;
+  nowMs?: number;
+}): Promise<{
+  start: Record<string, unknown> | null;
+  intake: RefundGmailIntakeShadowDispatch | null;
+}> => {
+  const startResult = await start();
+  if (startResult?.claimed !== true) return { start: startResult, intake: null };
+  const runId = typeof startResult.runId === "string"
+    ? startResult.runId.trim()
+    : "";
+  const finalizeAndFail = async (errorCode: string): Promise<never> => {
+    if (!runId) return fail("gmail_intake_shadow_dispatch_invalid");
+    try {
+      await finishFailed({ runId, errorCode });
+    } catch {
+      return fail("gmail_intake_shadow_run_finalization_failed");
+    }
+    return fail(errorCode);
+  };
+
+  let activeIntake: RefundGmailIntakeShadowDispatch;
+  try {
+    activeIntake = bindRefundGmailIntakeShadowDispatch({
+      intake,
+      start: startResult,
+      nowMs,
+    });
+  } catch {
+    return await finalizeAndFail("gmail_intake_shadow_dispatch_invalid");
+  }
+  try {
+    // The DB authorization is consumed and its truthful run exists before this
+    // copy-health posture check. OAuth/provider access is still unavailable.
+    await preflight();
+  } catch {
+    return await finalizeAndFail("gmail_copy_safety_gate_closed");
+  }
+  return { start: startResult, intake: activeIntake };
+};
+
 export type RefundGmailIntakeShadowCompletionCounters = {
   firstContactShadowed: number;
   firstContactSuppressed: number;

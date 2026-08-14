@@ -20,6 +20,7 @@ const PRIVATE_PACKET_NAMES = new Set([
   'REFUND_GMAIL_INTAKE_SHADOW_LIVE_CONFIRMATION',
   'REFUND_GMAIL_INTAKE_SHADOW_INITIALIZE_CONFIRMATION',
   'REFUND_GMAIL_INTAKE_SHADOW_CLEANUP_COMMITMENT',
+  'REFUND_GMAIL_INTAKE_SHADOW_CLEANUP_TASK_HANDLE',
 ]);
 
 export const parseRefundGmailIntakeShadowArgs = (argv) => {
@@ -40,7 +41,7 @@ export const parseRefundGmailIntakeShadowArgs = (argv) => {
       throw new RefundGmailIntakeShadowRunnerError('unsupported_argument');
     }
   }
-  if (!['initialize', 'cleanup-verify', 'dry-run', 'live'].includes(result.mode)) {
+  if (!['initialize', 'recover-expired', 'cleanup-verify', 'dry-run', 'live'].includes(result.mode)) {
     throw new RefundGmailIntakeShadowRunnerError('mode_invalid');
   }
   if (!Number.isInteger(result.timeoutSeconds) ||
@@ -79,7 +80,24 @@ export const loadRefundGmailIntakeShadowEnvironment = (envFile, parentEnv = proc
     throw new RefundGmailIntakeShadowRunnerError('env_file_path_invalid');
   }
   const absolutePath = path.resolve(envFile);
-  const relativeToRepo = path.relative(repoRoot, absolutePath);
+  const lexicalRelativeToRepo = path.relative(repoRoot, absolutePath);
+  if (
+    lexicalRelativeToRepo === '' ||
+    (!lexicalRelativeToRepo.startsWith(`..${path.sep}`) &&
+      lexicalRelativeToRepo !== '..' &&
+      !path.isAbsolute(lexicalRelativeToRepo))
+  ) {
+    throw new RefundGmailIntakeShadowRunnerError('env_file_path_invalid');
+  }
+  let canonicalRepoRoot;
+  let canonicalPacketPath;
+  try {
+    canonicalRepoRoot = fs.realpathSync(repoRoot);
+    canonicalPacketPath = fs.realpathSync(absolutePath);
+  } catch {
+    throw new RefundGmailIntakeShadowRunnerError('env_file_unavailable');
+  }
+  const relativeToRepo = path.relative(canonicalRepoRoot, canonicalPacketPath);
   if (
     relativeToRepo === '' ||
     (!relativeToRepo.startsWith(`..${path.sep}`) && relativeToRepo !== '..' &&
@@ -89,7 +107,9 @@ export const loadRefundGmailIntakeShadowEnvironment = (envFile, parentEnv = proc
   }
   let parsed;
   try {
-    parsed = parseRefundGmailIntakeShadowEnvFile(fs.readFileSync(absolutePath, 'utf8'));
+    parsed = parseRefundGmailIntakeShadowEnvFile(
+      fs.readFileSync(canonicalPacketPath, 'utf8'),
+    );
   } catch (error) {
     if (error instanceof RefundGmailIntakeShadowRunnerError) throw error;
     throw new RefundGmailIntakeShadowRunnerError('env_file_unavailable');
@@ -122,4 +142,5 @@ export const buildRefundGmailIntakeShadowConfig = ({ mode, timeoutSeconds, env }
   initializeConfirmation:
     env.REFUND_GMAIL_INTAKE_SHADOW_INITIALIZE_CONFIRMATION ?? '',
   cleanupCommitment: env.REFUND_GMAIL_INTAKE_SHADOW_CLEANUP_COMMITMENT ?? '',
+  cleanupTaskHandle: env.REFUND_GMAIL_INTAKE_SHADOW_CLEANUP_TASK_HANDLE ?? '',
 });

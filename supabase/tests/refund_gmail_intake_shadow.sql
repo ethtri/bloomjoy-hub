@@ -1,5 +1,5 @@
 begin;
-select plan(64);
+select plan(66);
 
 select has_table(
   'public',
@@ -37,8 +37,14 @@ select has_function(
 );
 select has_function(
   'public',
-  'owner_complete_due_refund_gmail_intake_shadow_cleanup',
+  'owner_recover_expired_refund_gmail_intake_shadow_dispatches',
   array[]::text[],
+  'The owner has one no-target expired-dispatch recovery boundary'
+);
+select has_function(
+  'public',
+  'owner_complete_due_refund_gmail_intake_shadow_cleanup',
+  array['uuid'],
   'The owner has one verified cleanup-obligation completion boundary'
 );
 select has_function(
@@ -95,7 +101,12 @@ select ok(
   )
   and not has_function_privilege(
     'service_role',
-    'public.owner_complete_due_refund_gmail_intake_shadow_cleanup()',
+    'public.owner_recover_expired_refund_gmail_intake_shadow_dispatches()',
+    'execute'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'public.owner_complete_due_refund_gmail_intake_shadow_cleanup(uuid)',
     'execute'
   ),
   'Run-key validation and owner dispatch/cleanup controls stay private while only service role starts Gmail sync'
@@ -785,6 +796,20 @@ where retention_run_id = '85400000-0000-4000-8000-000000000010';
 delete from public.refund_gmail_retention_runs
 where id = '85400000-0000-4000-8000-000000000010';
 
+-- The primary exact-run fixture has completed before independently exercising
+-- the two possible manager-route classifications. The production singleton
+-- correctly refuses a second authorization while a consumed run is running.
+update public.refund_gmail_sync_runs
+set status = 'succeeded',
+    finished_at = statement_timestamp(),
+    threads_scanned = 1,
+    messages_seen = 2,
+    messages_created = 2,
+    messages_deduplicated = 0,
+    attachments_quarantined = 0,
+    messages_failed = 0
+where id = (select (result ->> 'runId')::uuid from intake_shadow_active_run);
+
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
   raw_app_meta_data, raw_user_meta_data, created_at, updated_at
@@ -878,6 +903,9 @@ select is(
   'assigned_managers',
   'The shadow notice truthfully classifies a complete current manager route'
 );
+update public.refund_gmail_sync_runs
+set status = 'succeeded', finished_at = statement_timestamp()
+where id = (select (result ->> 'runId')::uuid from intake_shadow_assigned_run);
 
 insert into public.reporting_machines (id, account_id, location_id, machine_label)
 values (
@@ -934,6 +962,9 @@ select is(
   'operations_fallback',
   'The shadow notice truthfully classifies a machine with no active managers for ops'
 );
+update public.refund_gmail_sync_runs
+set status = 'succeeded', finished_at = statement_timestamp()
+where id = (select (result ->> 'runId')::uuid from intake_shadow_ops_run);
 
 insert into public.refund_manager_action_step_up_intents (
   id, actor_user_id, refund_case_id, action, target_function,
@@ -1069,10 +1100,31 @@ select is(
   1,
   'An overdue assigned intake-shadow cleanup obligation is visible in preflight'
 );
+select is(
+  public.owner_complete_due_refund_gmail_intake_shadow_cleanup(
+    '00000000-0000-4000-8000-000000000999'
+  ),
+  jsonb_build_object(
+    'completedNow', 0,
+    'assignedOverdue', 1,
+    'taskFound', false,
+    'taskStatus', 'absent',
+    'payloadRedacted', true
+  ),
+  'A different or prior cleanup handle cannot satisfy the current obligation'
+);
 select ok(
-  (public.owner_complete_due_refund_gmail_intake_shadow_cleanup()
+  (public.owner_complete_due_refund_gmail_intake_shadow_cleanup(
+    (select cleanup_task_handle
+     from public.refund_gmail_intake_shadow_cleanup_obligations
+     where run_id = (select (result ->> 'runId')::uuid from intake_shadow_active_run))
+  )
     ->> 'completedNow')::integer = 0
-  and (public.owner_complete_due_refund_gmail_intake_shadow_cleanup()
+  and (public.owner_complete_due_refund_gmail_intake_shadow_cleanup(
+    (select cleanup_task_handle
+     from public.refund_gmail_intake_shadow_cleanup_obligations
+     where run_id = (select (result ->> 'runId')::uuid from intake_shadow_active_run))
+  )
     ->> 'assignedOverdue')::integer = 1,
   'Cleanup completion fails closed while either exact message remains unpurged'
 );
@@ -1100,12 +1152,20 @@ where message.gmail_thread_id = (
 );
 
 create temporary table intake_shadow_cleanup_completion as
-select public.owner_complete_due_refund_gmail_intake_shadow_cleanup() as result;
+select public.owner_complete_due_refund_gmail_intake_shadow_cleanup(
+  (select cleanup_task_handle
+   from public.refund_gmail_intake_shadow_cleanup_obligations
+   where run_id = (select (result ->> 'runId')::uuid from intake_shadow_active_run))
+) as result;
 select ok(
   (select (result ->> 'completedNow')::integer
     from intake_shadow_cleanup_completion) = 1
   and (select (result ->> 'assignedOverdue')::integer
     from intake_shadow_cleanup_completion) = 0
+  and (select (result ->> 'taskFound')::boolean
+    from intake_shadow_cleanup_completion)
+  and (select result ->> 'taskStatus'
+    from intake_shadow_cleanup_completion) = 'completed'
   and (select (result ->> 'payloadRedacted')::boolean
     from intake_shadow_cleanup_completion),
   'Owner cleanup completion proves both exact messages purged and clears overdue work'

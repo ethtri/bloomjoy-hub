@@ -138,17 +138,35 @@ cross join closure
 where database.datname = pg_catalog.current_database()
 `,
   }),
-  completeDueCleanup: Object.freeze({
+  recoverExpiredDispatches: Object.freeze({
     parameterCount: 0,
     sql: `
+with recovery as (
+  select public.owner_recover_expired_refund_gmail_intake_shadow_dispatches() as value
+)
+select
+  ${OWNER_SQL} as database_owner_session,
+  (recovery.value ->> 'recoveredExpiredCount')::integer as recovered_expired_count,
+  (recovery.value ->> 'armedAuthorizationCount')::integer as armed_authorization_count,
+  (recovery.value ->> 'consumedRunningCount')::integer as consumed_running_count,
+  (recovery.value ->> 'payloadRedacted')::boolean as payload_redacted
+from pg_catalog.pg_database database
+cross join recovery
+where database.datname = pg_catalog.current_database()
+`,
+  }),
+  completeDueCleanup: Object.freeze({
+    parameterCount: 1,
+    sql: `
 with completion as (
-  select public.owner_complete_due_refund_gmail_intake_shadow_cleanup() as value
+  select public.owner_complete_due_refund_gmail_intake_shadow_cleanup($1::uuid) as value
 )
 select
   ${OWNER_SQL} as database_owner_session,
   (completion.value ->> 'completedNow')::integer as completed_now,
   (completion.value ->> 'assignedOverdue')::integer as assigned_overdue,
-  (completion.value ->> 'completedTotal')::integer as completed_total,
+  (completion.value ->> 'taskFound')::boolean as task_found,
+  completion.value ->> 'taskStatus' as task_status,
   (completion.value ->> 'payloadRedacted')::boolean as payload_redacted
 from pg_catalog.pg_database database
 cross join completion
@@ -257,6 +275,7 @@ select
     as exact_first_contact_event_count,
   (select count(*) from exact_action_events) as exact_action_event_count,
   (select count(*) from exact_cleanup) as cleanup_obligation_count,
+  (select min(cleanup_task_handle)::text from exact_cleanup) as cleanup_task_handle,
   (select min(assigned_owner_role) from exact_cleanup) as cleanup_assigned_owner_role,
   (select min(status) from exact_cleanup) as cleanup_status,
   (select min(route_class) from exact_notice) as route_class,
@@ -289,8 +308,9 @@ where database.datname = pg_catalog.current_database()
 const assertClosedReadRegistry = () => {
   const entries = Object.entries(OWNER_QUERIES);
   if (
-    entries.length !== 5 || !OWNER_QUERIES.preflight ||
+    entries.length !== 6 || !OWNER_QUERIES.preflight ||
     !OWNER_QUERIES.authorizeDispatch || !OWNER_QUERIES.closeDispatch ||
+    !OWNER_QUERIES.recoverExpiredDispatches ||
     !OWNER_QUERIES.completeDueCleanup ||
     !OWNER_QUERIES.postflight
   ) {
@@ -427,6 +447,7 @@ const POST_KEYS = [
   'exact_first_contact_event_count',
   'exact_action_event_count',
   'cleanup_obligation_count',
+  'cleanup_task_handle',
   'cleanup_assigned_owner_role',
   'cleanup_status',
   'route_class',
@@ -574,7 +595,7 @@ export const createRefundGmailIntakeShadowDatabaseClient = ({
       requireDatabaseOwnerSession(row.database_owner_session);
       const status = requireNullableText(
         row.status,
-        ['absent', 'cancelled', 'consumed'],
+        ['cancelled', 'consumed'],
       );
       if (
         requireBoolean(row.closed) !== true ||
@@ -583,21 +604,48 @@ export const createRefundGmailIntakeShadowDatabaseClient = ({
       return { closed: true, status, payloadRedacted: true };
     },
 
-    async completeDueCleanup({ signal } = {}) {
-      const row = await query('completeDueCleanup', [], signal);
+    async recoverExpiredDispatches({ signal } = {}) {
+      const row = await query('recoverExpiredDispatches', [], signal);
+      requireExactKeys(row, [
+        'database_owner_session', 'recovered_expired_count',
+        'armed_authorization_count', 'consumed_running_count',
+        'payload_redacted',
+      ]);
+      requireDatabaseOwnerSession(row.database_owner_session);
+      const result = {
+        recoveredExpiredCount: requireCount(row.recovered_expired_count),
+        armedAuthorizationCount: requireCount(row.armed_authorization_count),
+        consumedRunningCount: requireCount(row.consumed_running_count),
+        payloadRedacted: requireBoolean(row.payload_redacted),
+      };
+      if (
+        result.armedAuthorizationCount !== 0 ||
+        result.consumedRunningCount !== 0 ||
+        result.payloadRedacted !== true
+      ) throw genericFailure('database_dispatch_recovery_incomplete');
+      return result;
+    },
+
+    async completeDueCleanup({ cleanupTaskHandle, signal } = {}) {
+      if (!UUID_PATTERN.test(cleanupTaskHandle ?? '')) {
+        throw genericFailure('database_cleanup_handle_invalid');
+      }
+      const row = await query('completeDueCleanup', [cleanupTaskHandle], signal);
       requireExactKeys(row, [
         'database_owner_session', 'completed_now', 'assigned_overdue',
-        'completed_total', 'payload_redacted',
+        'task_found', 'task_status', 'payload_redacted',
       ]);
       requireDatabaseOwnerSession(row.database_owner_session);
       const result = {
         completedNow: requireCount(row.completed_now),
         assignedOverdue: requireCount(row.assigned_overdue),
-        completedTotal: requireCount(row.completed_total),
+        taskFound: requireBoolean(row.task_found),
+        taskStatus: requireNullableText(row.task_status, ['absent', 'assigned', 'completed']),
         payloadRedacted: requireBoolean(row.payload_redacted),
       };
       if (
-        result.assignedOverdue !== 0 || result.completedTotal < 1 ||
+        result.assignedOverdue !== 0 || result.taskFound !== true ||
+        result.taskStatus !== 'completed' ||
         result.payloadRedacted !== true
       ) throw genericFailure('database_cleanup_completion_failed');
       return result;
@@ -629,6 +677,10 @@ export const createRefundGmailIntakeShadowDatabaseClient = ({
         earliestRetentionDueAt !== null && latestRetentionDueAt !== null &&
         Date.parse(earliestRetentionDueAt) > Date.parse(latestRetentionDueAt)
       ) throw genericFailure('database_response_invalid');
+      const cleanupTaskHandle = row.cleanup_task_handle;
+      if (cleanupTaskHandle !== null && !UUID_PATTERN.test(cleanupTaskHandle)) {
+        throw genericFailure('database_response_invalid');
+      }
       return {
         databaseOwnerSession: requireDatabaseOwnerSession(row.database_owner_session),
         activeProofAuthorizationCount: requireCount(row.active_proof_authorization_count),
@@ -654,6 +706,7 @@ export const createRefundGmailIntakeShadowDatabaseClient = ({
           requireCount(row.exact_first_contact_event_count),
         exactActionEventCount: requireCount(row.exact_action_event_count),
         cleanupObligationCount: requireCount(row.cleanup_obligation_count),
+        cleanupTaskHandle,
         cleanupAssignedOwnerRole: requireNullableText(
           row.cleanup_assigned_owner_role,
           [null, 'refund_operations_owner'],

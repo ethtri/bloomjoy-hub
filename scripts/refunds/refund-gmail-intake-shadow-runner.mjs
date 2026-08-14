@@ -58,13 +58,19 @@ try {
     ok: result.ok,
     mode: result.mode,
     ...(result.mode === 'initialize' ? {
-      releaseMetadataReconciliationRequired:
-        result.releaseMetadataReconciliationRequired,
+      metadataReconciliationRequired: result.metadataReconciliationRequired,
+      closedStateVerified: result.closedStateVerified,
     } : {}),
     ...(result.mode === 'cleanup-verify' ? {
       completedNow: result.completedNow,
       assignedOverdue: result.assignedOverdue,
-      completedTotal: result.completedTotal,
+      taskFound: result.taskFound,
+      taskStatus: result.taskStatus,
+    } : {}),
+    ...(result.mode === 'recover-expired' ? {
+      recoveredExpiredCount: result.recoveredExpiredCount,
+      armedAuthorizationCount: result.armedAuthorizationCount,
+      consumedRunningCount: result.consumedRunningCount,
     } : {}),
     ...(result.mode === 'live' ? {
       effectsClassification: result.effectsClassification,
@@ -78,6 +84,7 @@ try {
       ownerManageableCase: result.ownerManageableCase,
       earliestRetentionDueAt: result.earliestRetentionDueAt,
       latestRetentionDueAt: result.latestRetentionDueAt,
+      cleanupTaskHandle: result.cleanupTaskHandle,
       retentionCleanupObligation: result.retentionCleanupObligation,
       cleanupCommitment: result.cleanupCommitment,
       durableStateRequiresManualReconciliation:
@@ -100,6 +107,18 @@ try {
     phase: 'failed_closed',
     ok: false,
     code,
+    ...(error instanceof RefundGmailIntakeShadowRunnerError &&
+      error.safeDetails.metadataReconciliationRequired === true
+      ? { metadataReconciliationRequired: true }
+      : {}),
+    ...(error instanceof RefundGmailIntakeShadowRunnerError &&
+      typeof error.safeDetails.closedStateVerified === 'boolean'
+      ? { closedStateVerified: error.safeDetails.closedStateVerified }
+      : {}),
+    ...(error instanceof RefundGmailIntakeShadowRunnerError &&
+      error.safeDetails.emergencyIndependentClosedStateVerificationRequired === true
+      ? { emergencyIndependentClosedStateVerificationRequired: true }
+      : {}),
     payloadRedacted: true,
   })}\n`);
   process.exitCode = interrupted ? 130 : 1;

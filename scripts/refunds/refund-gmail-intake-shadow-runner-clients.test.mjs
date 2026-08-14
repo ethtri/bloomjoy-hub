@@ -21,6 +21,7 @@ const OWNER_JWT = 'header.private_owner_jwt.signature';
 const ANON_KEY = 'private_anon_key_never_print_854';
 const PRIVATE_RESPONSE = 'private_response_never_print_854';
 const OWNER_USER_ID = '85400000-0000-4000-8000-000000000001';
+const CLEANUP_TASK_HANDLE = '85400000-0000-4000-8000-000000000002';
 const OWNER_EMAIL = 'owner.synthetic@example.test';
 const OWNER_SENDER_DIGEST = sha256Hex(OWNER_EMAIL);
 const RUN_KEY = `owner-intake-shadow:${'a'.repeat(64)}`;
@@ -100,6 +101,7 @@ const postflightRow = (overrides = {}) => ({
   exact_first_contact_event_count: '1',
   exact_action_event_count: '1',
   cleanup_obligation_count: '1',
+  cleanup_task_handle: CLEANUP_TASK_HANDLE,
   cleanup_assigned_owner_role: 'refund_operations_owner',
   cleanup_status: 'assigned',
   route_class: 'assigned_managers',
@@ -131,6 +133,7 @@ test('owner query registry is closed, immutable, parameterized, and semantic SEL
     'preflight',
     'authorizeDispatch',
     'closeDispatch',
+    'recoverExpiredDispatches',
     'completeDueCleanup',
     'postflight',
   ]);
@@ -143,8 +146,9 @@ test('owner query registry is closed, immutable, parameterized, and semantic SEL
       preflight: 'aa2cb352348de6b4512167fa0abf4067e2b6eaf8f657772a367a4963d4989e6a',
       authorizeDispatch: '5e8a4950baa2a8cf6e50bd961fe6a2887ec09ac7292d1578f53d1c2a5da3bc41',
       closeDispatch: '69aacf1290242cb3778c51c0ab35accf1ef5037acd19baf4391b6bde9450efb0',
-      completeDueCleanup: '766d353aac917206a847f4a23b457d9b6b165409c14eadca43eb9bbf21911099',
-      postflight: 'ad9267faa38c3e02edf9815739394ddef9037fc3392e0dd87714ec54555fbedd',
+      recoverExpiredDispatches: 'cc3d3d07ea94d7a97c88503014b5e99ff340eb65138b31efc208a55f1152801e',
+      completeDueCleanup: 'b5d8f18e7d1695d98971b7e1c385a4bb175bc5b982d57016f61a19b6d2f42c2a',
+      postflight: '2159c2fac3c3292259c8862454cd2c747e7a516f61d29c83ded7ebf2da2db760',
     },
   );
   const mutationPattern =
@@ -159,10 +163,12 @@ test('owner query registry is closed, immutable, parameterized, and semantic SEL
   assert.equal(snapshots.preflight.parameterCount, 0);
   assert.equal(snapshots.authorizeDispatch.parameterCount, 3);
   assert.equal(snapshots.closeDispatch.parameterCount, 1);
-  assert.equal(snapshots.completeDueCleanup.parameterCount, 0);
+  assert.equal(snapshots.recoverExpiredDispatches.parameterCount, 0);
+  assert.equal(snapshots.completeDueCleanup.parameterCount, 1);
   assert.equal(snapshots.postflight.parameterCount, 2);
   assert.match(snapshots.authorizeDispatch.sql, /owner_authorize_refund_gmail_intake_shadow_dispatch/u);
   assert.match(snapshots.closeDispatch.sql, /owner_cancel_refund_gmail_intake_shadow_dispatch/u);
+  assert.match(snapshots.recoverExpiredDispatches.sql, /owner_recover_expired_refund_gmail_intake_shadow_dispatches/u);
   assert.match(snapshots.completeDueCleanup.sql, /owner_complete_due_refund_gmail_intake_shadow_cleanup/u);
   assert.match(snapshots.postflight.sql, /run_key = \$1::text/u);
   assert.match(snapshots.postflight.sql, /can_manage_refund_case\(\$2::uuid/u);
@@ -188,9 +194,17 @@ test('database adapter pins project, owner endpoint, owner-role flag, and parame
       },
       {
         database_owner_session: true,
+        recovered_expired_count: '1',
+        armed_authorization_count: '0',
+        consumed_running_count: '0',
+        payload_redacted: true,
+      },
+      {
+        database_owner_session: true,
         completed_now: '1',
         assigned_overdue: '0',
-        completed_total: '1',
+        task_found: true,
+        task_status: 'completed',
         payload_redacted: true,
       },
       postflightRow(),
@@ -203,19 +217,21 @@ test('database adapter pins project, owner endpoint, owner-role flag, and parame
     freshStartAt: '2026-08-14T20:00:00.000Z',
   });
   await client.closeDispatch({ runKeyDigest: sha256Hex(RUN_KEY) });
-  await client.completeDueCleanup();
+  await client.recoverExpiredDispatches();
+  await client.completeDueCleanup({ cleanupTaskHandle: CLEANUP_TASK_HANDLE });
   const result = await client.postflight({
     before,
     runKey: RUN_KEY,
     ownerUserId: OWNER_USER_ID,
   });
 
-  assert.equal(calls.length, 5);
+  assert.equal(calls.length, 6);
   assert.deepEqual(calls.map(({ body }) => body.parameters), [
     [],
     [sha256Hex(RUN_KEY), OWNER_SENDER_DIGEST, '2026-08-14T20:00:00.000Z'],
     [sha256Hex(RUN_KEY)],
     [],
+    [CLEANUP_TASK_HANDLE],
     [RUN_KEY, OWNER_USER_ID],
   ]);
   for (const call of calls) {
@@ -264,7 +280,8 @@ test('database adapter rejects wrong project before fetch and re-proves owner on
   );
   assert.equal(calls, 0);
   for (const operation of [
-    'preflight', 'authorizeDispatch', 'closeDispatch', 'completeDueCleanup',
+    'preflight', 'authorizeDispatch', 'closeDispatch', 'recoverExpiredDispatches',
+    'completeDueCleanup',
     'postflight',
   ]) {
     const client = createDatabase(async () => response([
@@ -284,12 +301,21 @@ test('database adapter rejects wrong project before fetch and re-proves owner on
           status: 'cancelled',
           payload_redacted: true,
         }
+        : operation === 'recoverExpiredDispatches'
+        ? {
+          database_owner_session: false,
+          recovered_expired_count: '1',
+          armed_authorization_count: '0',
+          consumed_running_count: '0',
+          payload_redacted: true,
+        }
         : operation === 'completeDueCleanup'
         ? {
           database_owner_session: false,
           completed_now: '1',
           assigned_overdue: '0',
-          completed_total: '1',
+          task_found: true,
+          task_status: 'completed',
           payload_redacted: true,
         }
         : postflightRow({ database_owner_session: false }),
@@ -304,8 +330,10 @@ test('database adapter rejects wrong project before fetch and re-proves owner on
       })
       : operation === 'closeDispatch'
       ? client.closeDispatch({ runKeyDigest: sha256Hex(RUN_KEY) })
+      : operation === 'recoverExpiredDispatches'
+      ? client.recoverExpiredDispatches()
       : operation === 'completeDueCleanup'
-      ? client.completeDueCleanup()
+      ? client.completeDueCleanup({ cleanupTaskHandle: CLEANUP_TASK_HANDLE })
       : client.postflight({
         before: { snapshot: snapshotRow() },
         runKey: RUN_KEY,

@@ -28,7 +28,9 @@ const ROUTE_CLASSES = new Set([
 ]);
 const SAFE_PHASES = new Set([
   'initialized_closed',
+  'initialization_outcome_unknown',
   'cleanup_completed',
+  'expired_dispatch_recovered',
   'preflight_passed',
   'dry_run_passed',
   'dispatch_authorized',
@@ -38,10 +40,21 @@ const SAFE_PHASES = new Set([
 ]);
 
 export class RefundGmailIntakeShadowRunnerError extends Error {
-  constructor(code) {
+  constructor(code, safeDetails = {}) {
     super('Refund Gmail intake-only shadow runner failed closed.');
     this.name = 'RefundGmailIntakeShadowRunnerError';
     this.code = code;
+    this.safeDetails = Object.freeze({
+      ...(safeDetails.metadataReconciliationRequired === true
+        ? { metadataReconciliationRequired: true }
+        : {}),
+      ...(typeof safeDetails.closedStateVerified === 'boolean'
+        ? { closedStateVerified: safeDetails.closedStateVerified }
+        : {}),
+      ...(safeDetails.emergencyIndependentClosedStateVerificationRequired === true
+        ? { emergencyIndependentClosedStateVerificationRequired: true }
+        : {}),
+    });
   }
 }
 
@@ -56,7 +69,7 @@ const exactBoolean = (value, expected) =>
   (value === true || value === false) && value === expected;
 
 export const validateRefundGmailIntakeShadowRunnerConfig = (config) => {
-  if (!['initialize', 'cleanup-verify', 'dry-run', 'live'].includes(config?.mode)) {
+  if (!['initialize', 'recover-expired', 'cleanup-verify', 'dry-run', 'live'].includes(config?.mode)) {
     fail('mode_invalid');
   }
   if (config.retentionPolicyVersion !== REFUND_INTAKE_SHADOW_RETENTION_POLICY_VERSION) {
@@ -76,7 +89,13 @@ export const validateRefundGmailIntakeShadowRunnerConfig = (config) => {
   if (!Number.isInteger(config.timeoutMs) || config.timeoutMs < 450_000 || config.timeoutMs > 600_000) {
     fail('timeout_invalid');
   }
-  if (config.mode === 'cleanup-verify') return config;
+  if (config.mode === 'cleanup-verify') {
+    if (!UUID_PATTERN.test(config.cleanupTaskHandle ?? '')) {
+      fail('cleanup_task_handle_invalid');
+    }
+    return config;
+  }
+  if (config.mode === 'recover-expired') return config;
   if (config.mode === 'initialize') {
     if (
       !LABEL_ID_PATTERN.test(config.initialShadowLabelId ?? '') ||
@@ -271,7 +290,7 @@ export const classifyRefundGmailIntakeShadowPostflight = (
   const noEffect =
     (
       (postflight.runCount === 0 &&
-        ['absent', 'cancelled'].includes(postflight.dispatchStatus)) ||
+        postflight.dispatchStatus === 'cancelled') ||
       (postflight.runCount === 1 && postflight.dispatchStatus === 'consumed' &&
         ['failed', 'suppressed'].includes(postflight.runStatus) &&
         typeof postflight.runFinishedAt === 'string' &&
@@ -298,6 +317,7 @@ export const classifyRefundGmailIntakeShadowPostflight = (
     postflight.exactFirstContactEventCount === 1 &&
     postflight.exactActionEventCount === 1 &&
     postflight.cleanupObligationCount === 1 &&
+    UUID_PATTERN.test(postflight.cleanupTaskHandle ?? '') &&
     postflight.cleanupAssignedOwnerRole === 'refund_operations_owner' &&
     postflight.cleanupStatus === 'assigned' &&
     postflight.exactThreadMessageCount === 2 &&
@@ -334,10 +354,21 @@ const emit = (logger, phase, detail = {}) => {
   const gatesConclusivelyClosed = detail.gatesConclusivelyClosed === true;
   const result = {
     phase,
-    ok: phase !== 'postflight_classified' ||
-      (effectsClassification === 'complete_exact' && gatesConclusivelyClosed),
+    ok: phase === 'initialization_outcome_unknown'
+      ? false
+      : phase !== 'postflight_classified' ||
+        (effectsClassification === 'complete_exact' && gatesConclusivelyClosed),
     payloadRedacted: true,
   };
+  if (detail.metadataReconciliationRequired === true) {
+    result.metadataReconciliationRequired = true;
+  }
+  if (typeof detail.closedStateVerified === 'boolean') {
+    result.closedStateVerified = detail.closedStateVerified;
+  }
+  if (detail.emergencyIndependentClosedStateVerificationRequired === true) {
+    result.emergencyIndependentClosedStateVerificationRequired = true;
+  }
   for (const key of [
     'threadsScanned',
     'messagesSeen',
@@ -410,7 +441,7 @@ const conclusivelyCloseDispatch = async ({ database, runKeyDigest }) => {
       const result = await database.closeDispatch({ runKeyDigest });
       if (
         result?.closed === true &&
-        ['absent', 'cancelled', 'consumed'].includes(result.status)
+        ['cancelled', 'consumed'].includes(result.status)
       ) return { closeAttempts, status: result.status };
     } catch (error) {
       closeError = error;
@@ -490,8 +521,21 @@ export const executeRefundGmailIntakeShadow = async ({
 }) => {
   validateRefundGmailIntakeShadowRunnerConfig(config);
   const { database, control, edge, identity } = clients;
+  if (config.mode === 'recover-expired') {
+    const result = await database.recoverExpiredDispatches({ signal });
+    emit(logger, 'expired_dispatch_recovered');
+    return {
+      ok: true,
+      mode: 'recover-expired',
+      ...result,
+      payloadRedacted: true,
+    };
+  }
   if (config.mode === 'cleanup-verify') {
-    const result = await database.completeDueCleanup({ signal });
+    const result = await database.completeDueCleanup({
+      cleanupTaskHandle: config.cleanupTaskHandle,
+      signal,
+    });
     emit(logger, 'cleanup_completed');
     return {
       ok: true,
@@ -501,14 +545,45 @@ export const executeRefundGmailIntakeShadow = async ({
     };
   }
   if (config.mode === 'initialize') {
-    await control.initializeClosed({ shadowLabelId: config.initialShadowLabelId, signal });
-    const initializedState = await control.readInitializedClosedState({ signal });
-    requireInitializedClosedState(initializedState, config);
-    emit(logger, 'initialized_closed');
+    let writeError = null;
+    let readError = null;
+    let closedStateVerified = false;
+    try {
+      await control.initializeClosed({
+        shadowLabelId: config.initialShadowLabelId,
+        signal,
+      });
+    } catch (error) {
+      writeError = normalizeError(error, 'intake_initialize_write_outcome_unknown');
+    } finally {
+      try {
+        const initializedState = await control.readInitializedClosedState({ signal });
+        requireInitializedClosedState(initializedState, config);
+        closedStateVerified = true;
+      } catch (error) {
+        readError = normalizeError(error, 'intake_initialize_readback_failed');
+      }
+    }
+    const initializationEvidence = {
+      metadataReconciliationRequired: true,
+      closedStateVerified,
+      emergencyIndependentClosedStateVerificationRequired: !closedStateVerified,
+    };
+    if (writeError || readError || !closedStateVerified) {
+      emit(logger, 'initialization_outcome_unknown', initializationEvidence);
+      throw new RefundGmailIntakeShadowRunnerError(
+        writeError
+          ? 'intake_initialize_write_outcome_unknown'
+          : 'intake_initialize_closed_state_unverified',
+        initializationEvidence,
+      );
+    }
+    emit(logger, 'initialized_closed', initializationEvidence);
     return {
       ok: true,
       mode: 'initialize',
-      releaseMetadataReconciliationRequired: true,
+      metadataReconciliationRequired: true,
+      closedStateVerified: true,
       payloadRedacted: true,
     };
   }
@@ -602,8 +677,7 @@ export const executeRefundGmailIntakeShadow = async ({
       const finalState = await control.readState();
       const dispatchClosed =
         ['cancelled', 'consumed'].includes(dispatchClosureStatus) ||
-        ['cancelled', 'consumed'].includes(postflight?.dispatchStatus) ||
-        (!edgeDispatched && postflight?.dispatchStatus === 'absent');
+        ['cancelled', 'consumed'].includes(postflight?.dispatchStatus);
       gatesConclusivelyClosed = isClosedState(finalState, config) && dispatchClosed;
       if (!gatesConclusivelyClosed) {
         closeError ??= new RefundGmailIntakeShadowRunnerError('intake_gate_state_unverified');
@@ -648,6 +722,7 @@ export const executeRefundGmailIntakeShadow = async ({
     ownerManageableCase: true,
     earliestRetentionDueAt: postflight.earliestRetentionDueAt,
     latestRetentionDueAt: postflight.latestRetentionDueAt,
+    cleanupTaskHandle: postflight.cleanupTaskHandle,
     retentionCleanupObligation:
       'enable_reviewed_recurring_before_earliest_and_verify_after_latest_or_manual_purge_at_each_due',
     cleanupCommitment: true,

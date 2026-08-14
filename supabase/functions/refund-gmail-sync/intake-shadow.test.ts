@@ -19,6 +19,7 @@ import {
   REFUND_GMAIL_INTAKE_SHADOW_ZERO_DIGEST,
   RefundGmailIntakeShadowError,
   resolveRefundGmailIntakeShadowConfig,
+  startRefundGmailIntakeShadowDatabaseBoundary,
   validateRefundGmailIntakeShadowRuntime,
   validateRefundGmailIntakeShadowThread,
 } from "./intake-shadow.ts";
@@ -55,6 +56,84 @@ const resolve = (overrides: Record<string, string | undefined> = {}) =>
     readEnv: (name) => ({ ...BASE_ENV, ...overrides })[name],
     nowMs: Date.parse("2026-08-14T12:05:00.000Z"),
   });
+
+const exactConsumedStart = () => ({
+  claimed: true,
+  runId: "00000000-0000-4000-8000-000000000854",
+  intakeShadowAuthorized: true,
+  intakeShadowOwnerSenderDigest: "a".repeat(64),
+  intakeShadowStartAt: "2026-08-14T12:00:00.000Z",
+  payloadRedacted: true,
+});
+
+Deno.test("intake DB boundary consumes the exact authorization before preflight and OAuth", async () => {
+  const calls: string[] = [];
+  const boundary = await startRefundGmailIntakeShadowDatabaseBoundary({
+    intake: { shadowLabelId: "Label_owner_shadow", maxThreads: 1 },
+    nowMs: Date.parse("2026-08-14T12:05:00.000Z"),
+    start: async () => {
+      calls.push("service_start");
+      return exactConsumedStart();
+    },
+    preflight: async () => {
+      calls.push("service_preflight");
+    },
+    finishFailed: async () => {
+      throw new Error("finish must not run");
+    },
+  });
+  calls.push("gmail_oauth");
+  assertEquals(calls, ["service_start", "service_preflight", "gmail_oauth"]);
+  assertEquals(boundary.intake?.active, true);
+});
+
+Deno.test("post-consume preflight failure terminally fails the exact run before OAuth", async () => {
+  const calls: string[] = [];
+  const error = await assertRejects(
+    () =>
+      startRefundGmailIntakeShadowDatabaseBoundary({
+        intake: { shadowLabelId: "Label_owner_shadow", maxThreads: 1 },
+        nowMs: Date.parse("2026-08-14T12:05:00.000Z"),
+        start: async () => {
+          calls.push("service_start");
+          return exactConsumedStart();
+        },
+        preflight: async () => {
+          calls.push("service_preflight");
+          throw new Error("private posture detail");
+        },
+        finishFailed: async ({ runId, errorCode }) => {
+          calls.push(`service_finish:${runId}:${errorCode}`);
+        },
+      }),
+    RefundGmailIntakeShadowError,
+  );
+  assertEquals(error.code, "gmail_copy_safety_gate_closed");
+  assertEquals(calls, [
+    "service_start",
+    "service_preflight",
+    "service_finish:00000000-0000-4000-8000-000000000854:gmail_copy_safety_gate_closed",
+  ]);
+});
+
+Deno.test("unclaimed intake authorization never reaches preflight or OAuth", async () => {
+  const calls: string[] = [];
+  const boundary = await startRefundGmailIntakeShadowDatabaseBoundary({
+    intake: { shadowLabelId: "Label_owner_shadow", maxThreads: 1 },
+    start: async () => {
+      calls.push("service_start");
+      return { claimed: false, status: "suppressed", payloadRedacted: true };
+    },
+    preflight: async () => {
+      calls.push("service_preflight");
+    },
+    finishFailed: async () => {
+      calls.push("service_finish");
+    },
+  });
+  assertEquals(boundary.intake, null);
+  assertEquals(calls, ["service_start"]);
+});
 
 Deno.test("intake completion consumes the exact run-bound RPC shape once without send counters", async () => {
   const calls: Array<Record<string, string>> = [];
