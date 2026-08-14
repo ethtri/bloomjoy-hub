@@ -210,7 +210,7 @@ Every case-specific customer-facing refund message requires a resolved machine a
 - A known send failure becomes visible retry work. Uncertain delivery is reconciled and never retried blindly.
 - While the legacy responder remains authoritative, the Hub runs in "would send" shadow mode with no Hub customer first-contact Gmail delivery. New ingestion may still create a Hub case and send the deterministic internal action-needed notice to the resolved current manager route or the operations fallback; the customer is never a recipient of that internal notice. A pilot that requires literally zero outbound delivery needs a separately reviewed suppression gate; documentation alone cannot provide it. Any active-send proof uses an isolated synthetic test mailbox or label that the legacy responder cannot see.
 - Cutover is a sequenced no-overlap handoff: disable and verify the legacy sender first, then enable the Hub sender for a bounded synthetic check. At no point may both responders be active for the same thread population.
-- Keep a documented instant rollback that disables the Hub sender before re-enabling the legacy sender, so only one responder is ever active.
+- Keep a documented rapid, sequenced rollback that disables and verifies the Hub sender off before re-enabling the legacy sender, so only one responder is ever active.
 
 ## Mailbox organization
 
