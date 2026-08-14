@@ -20,6 +20,10 @@ assert.doesNotMatch(portalSource, /await\s+[A-Za-z_$][\w$]*Context\.close\(\)/);
 assert.doesNotMatch(portalSource, /await\s+context\.close\(\)/);
 assert.doesNotMatch(portalSource, /await\s+(?!browser\b)[A-Za-z_$][\w$]*\.close\(\)/);
 assert.match(
+  portalSource,
+  /Explicit demo mode does not fetch live refund overview RPC data[\s\S]*?await closeRefundPortalPage\(page\);[\s\S]*?page = await context\.newPage\(\);[\s\S]*?trackErrors\(page\);[\s\S]*?navigateRefundPortalPage\(page, `\$\{appUrl\}\/refunds\?demo=off`/
+);
+assert.match(
   refundsSource,
   /data-testid="refund-gmail-latest-note-header"[\s\S]*?flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between[\s\S]*?<div className="min-w-0">/
 );
