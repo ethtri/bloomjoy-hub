@@ -6713,7 +6713,7 @@ export default function AdminRefundsPage() {
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                className="mt-3 border-orange-400 bg-white text-orange-950 hover:bg-orange-100"
+                                className="mt-3 h-auto w-full whitespace-normal border-orange-400 bg-white py-2 text-center leading-5 text-orange-950 hover:bg-orange-100 sm:w-auto"
                                 disabled={isUsingDemoData || isRecoveringGmailContact}
                                 onClick={() => setIsGmailRecoveryOpen(true)}
                               >

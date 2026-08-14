@@ -8,6 +8,7 @@ import {
   requireEvidenceRunToken,
 } from './refund-uat-fragment-provenance.mjs';
 import {
+  closeRefundPortalPage,
   closeRefundPortalContext,
   navigateRefundPortalPage,
   reloadRefundPortalPage,
@@ -2763,6 +2764,27 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       latestNoteHeaderLayout.badgeScrollWidth <= latestNoteHeaderLayout.badgeClientWidth + 1,
     JSON.stringify(latestNoteHeaderLayout)
   );
+  const recoveryButtonLayout = await page
+    .getByTestId('refund-gmail-open-recovery')
+    .evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        viewportWidth: window.innerWidth,
+        left: Math.round(rect.left),
+        right: Math.round(rect.right),
+        clientWidth: element instanceof HTMLElement ? element.clientWidth : null,
+        scrollWidth: element instanceof HTMLElement ? element.scrollWidth : null,
+      };
+    });
+  recorder.assert(
+    'Gmail recovery control stays inside the mobile workbench without clipping its label',
+    recoveryButtonLayout.left >= 0 &&
+      recoveryButtonLayout.right <= recoveryButtonLayout.viewportWidth + 1 &&
+      recoveryButtonLayout.clientWidth !== null &&
+      recoveryButtonLayout.scrollWidth !== null &&
+      recoveryButtonLayout.scrollWidth <= recoveryButtonLayout.clientWidth + 1,
+    JSON.stringify(recoveryButtonLayout)
+  );
   await page.getByTestId('refund-gmail-latest-note-header').scrollIntoViewIfNeeded();
   await page.screenshot({
     path: path.join(artifactDir, 'refund-portal-gmail-draft-mobile.png'),
@@ -5091,7 +5113,7 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
 
   trackErrors(page);
   await signInRefundUser(page, appUrl);
-  await page.close();
+  await closeRefundPortalPage(page);
 
   rpcCalls.length = 0;
   page = await context.newPage();

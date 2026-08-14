@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  closeRefundPortalPage,
   closeRefundPortalContext,
   navigateRefundPortalPage,
   reloadRefundPortalPage,
   settleRefundPortalPage,
 } from './refund-portal-uat-lifecycle.mjs';
 
-const createPage = ({ closed = false, failAt = null } = {}) => {
+const createPage = ({ closed = false, failAt = null, hangAt = null } = {}) => {
   const calls = [];
   let loadStateCall = 0;
   const page = {
@@ -21,6 +22,7 @@ const createPage = ({ closed = false, failAt = null } = {}) => {
     evaluate: async () => {
       calls.push(['fonts']);
       if (failAt === 'fonts') throw new Error('settle_failed');
+      if (hangAt === 'fonts') return new Promise(() => {});
     },
     waitForFunction: async (_fn, value, options) => {
       calls.push(['images', value, options]);
@@ -33,6 +35,9 @@ const createPage = ({ closed = false, failAt = null } = {}) => {
     reload: async (options) => {
       calls.push(['reload', options]);
       return 'reloaded';
+    },
+    close: async () => {
+      calls.push(['close']);
     },
   };
   return page;
@@ -63,6 +68,25 @@ test('an initial in-flight request blocks before image evaluation or navigation'
   assert.deepEqual(page.calls.map(([kind]) => kind), ['load']);
 });
 
+test('a never-resolving font readiness promise rejects within the local bound', async () => {
+  const page = createPage({ hangAt: 'fonts' });
+  const startedAt = Date.now();
+
+  await assert.rejects(
+    settleRefundPortalPage(page, { timeout: 20 }),
+    /refund_portal_fonts_timeout/
+  );
+
+  assert.ok(Date.now() - startedAt < 500);
+  assert.deepEqual(page.calls.map(([kind]) => kind), ['load', 'fonts']);
+});
+
+test('a thrown font readiness error fails before images and is not suppressed', async () => {
+  const page = createPage({ failAt: 'fonts' });
+  await assert.rejects(settleRefundPortalPage(page), /settle_failed/);
+  assert.deepEqual(page.calls.map(([kind]) => kind), ['load', 'fonts']);
+});
+
 test('reload uses the same fail-closed settle boundary', async () => {
   const page = createPage();
   const result = await reloadRefundPortalPage(page, { waitUntil: 'domcontentloaded' });
@@ -75,6 +99,27 @@ test('reload uses the same fail-closed settle boundary', async () => {
     'load',
     'reload',
   ]);
+});
+
+test('page close settles before closing', async () => {
+  const page = createPage();
+  await closeRefundPortalPage(page);
+  assert.deepEqual(page.calls.map(([kind]) => kind), [
+    'load',
+    'fonts',
+    'images',
+    'load',
+    'close',
+  ]);
+});
+
+test('page close remains blocked when font readiness exceeds its bound', async () => {
+  const page = createPage({ hangAt: 'fonts' });
+  await assert.rejects(
+    closeRefundPortalPage(page, { timeout: 20 }),
+    /refund_portal_fonts_timeout/
+  );
+  assert.equal(page.calls.some(([kind]) => kind === 'close'), false);
 });
 
 test('context close settles every open page and skips already closed pages', async () => {
