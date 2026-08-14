@@ -4,9 +4,9 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import {
-  describeFailedUatRequest,
-  describeFailedUatResponse,
-} from './machine-manager-uat-network.mjs';
+  createTrackedUatBrowser,
+  getUatPageFailures,
+} from './refund-browser-uat-network.mjs';
 
 const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
 const DEFAULT_ARTIFACT_DIR = 'output/playwright';
@@ -445,22 +445,16 @@ const run = async () => {
   await mkdir(args.artifactDir, { recursive: true });
   await waitForServer(args.appUrl);
 
-  const browser = await chromium.launch({ headless: !args.headed });
+  const networkFailures = [];
+  const browser = createTrackedUatBrowser(
+    await chromium.launch({ headless: !args.headed }),
+    { appUrl: args.appUrl, failures: networkFailures }
+  );
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   await installMockSupabaseRoutes(context, state);
 
   const page = await context.newPage();
-  const requestFailures = [];
   const consoleErrors = [];
-
-  page.on('response', (response) => {
-    const failure = describeFailedUatResponse(response, args.appUrl);
-    if (failure) requestFailures.push(failure);
-  });
-  page.on('requestfailed', (request) => {
-    const failure = describeFailedUatRequest(request, args.appUrl);
-    if (failure) requestFailures.push(failure);
-  });
 
   page.on('console', (message) => {
     if (message.type() === 'error') {
@@ -678,8 +672,8 @@ const run = async () => {
 
     recorder.assert(
       'No browser console/page errors during mocked Machine Manager QA pass',
-      requestFailures.length === 0 && consoleErrors.length === 0,
-      [...requestFailures, ...consoleErrors].slice(0, 5).join(' | ')
+      networkFailures.length === 0 && consoleErrors.length === 0,
+      getUatPageFailures(page, consoleErrors).slice(0, 5).join(' | ')
     );
   } finally {
     await context.close();

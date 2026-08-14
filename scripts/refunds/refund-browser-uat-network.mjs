@@ -14,6 +14,15 @@ const SAFE_RESOURCE_TYPES = new Set([
   'manifest',
   'other',
 ]);
+const SAFE_NETWORK_FAILURE_CODES = new Set([
+  'ERR_ABORTED',
+  'ERR_CONNECTION_CLOSED',
+  'ERR_CONNECTION_REFUSED',
+  'ERR_CONNECTION_RESET',
+  'ERR_FAILED',
+  'ERR_NAME_NOT_RESOLVED',
+  'ERR_TIMED_OUT',
+]);
 const SAFE_EXACT_PATHS = new Set([
   '/.well-known/appspecific/com.chrome.devtools.json',
   '/@react-refresh',
@@ -26,6 +35,7 @@ const SAFE_EXACT_PATHS = new Set([
   '/site.webmanifest',
 ]);
 const SAFE_FILE_EXTENSION = /\.(css|gif|html|ico|jpe?g|js|json|map|mjs|mp4|png|svg|ts|tsx|ttf|webmanifest|webp|woff2?)$/i;
+const pageNetworkFailures = new WeakMap();
 
 const redactUnknownSegment = (segment) => {
   const extension = segment.match(SAFE_FILE_EXTENSION)?.[0]?.toLowerCase();
@@ -102,6 +112,11 @@ const safeResourceType = (resourceType) => {
   return SAFE_RESOURCE_TYPES.has(normalized) ? normalized : 'other';
 };
 
+const safeNetworkFailureCode = (failure) => {
+  const match = String(failure?.errorText ?? '').match(/^net::(ERR_[A-Z_]+)$/);
+  return match && SAFE_NETWORK_FAILURE_CODES.has(match[1]) ? match[1] : 'UNKNOWN';
+};
+
 export const describeFailedUatResponse = (response, appUrl) => {
   const status = Number(response?.status?.());
   if (!Number.isInteger(status) || status < 400 || status > 599) return null;
@@ -121,8 +136,113 @@ export const describeFailedUatRequest = (request, appUrl) => {
 
   return [
     'NETWORK_FAILED',
+    safeNetworkFailureCode(failure),
     safeMethod(request.method()),
     safeResourceType(request.resourceType()),
     redactUatRequestTarget(request.url(), appUrl),
   ].join(' ');
+};
+
+const safelyExpected = (predicate, value) => {
+  if (typeof predicate !== 'function') return false;
+  try {
+    return predicate(value) === true;
+  } catch {
+    return false;
+  }
+};
+
+const bindTargetValue = (target, property) => {
+  const value = Reflect.get(target, property, target);
+  return typeof value === 'function' ? value.bind(target) : value;
+};
+
+export const getUatPageNetworkFailures = (page) => [
+  ...(pageNetworkFailures.get(page) ?? []),
+];
+
+export const getUatPageFailures = (page, consoleOrPageErrors = []) => [
+  ...getUatPageNetworkFailures(page),
+  ...consoleOrPageErrors,
+];
+
+export const createTrackedUatBrowser = (
+  browser,
+  {
+    appUrl,
+    failures,
+    isExpectedResponse,
+    isExpectedRequestFailure,
+    isExpectedClosingRequestFailure,
+  }
+) => {
+  if (!browser || typeof browser.newContext !== 'function') {
+    throw new TypeError('A Playwright browser is required.');
+  }
+  if (!Array.isArray(failures)) {
+    throw new TypeError('A suite failure array is required.');
+  }
+
+  const trackedPages = new WeakSet();
+
+  const attachPage = (page) => {
+    if (!page || trackedPages.has(page)) return page;
+    trackedPages.add(page);
+    if (!pageNetworkFailures.has(page)) pageNetworkFailures.set(page, []);
+    return page;
+  };
+
+  const pageForRequest = (request) => {
+    try {
+      return request.frame().page();
+    } catch {
+      return null;
+    }
+  };
+
+  const record = (failure, request) => {
+    if (!failure) return;
+    failures.push(failure);
+    const page = pageForRequest(request);
+    if (!page) return;
+    if (!pageNetworkFailures.has(page)) pageNetworkFailures.set(page, []);
+    pageNetworkFailures.get(page).push(failure);
+  };
+
+  const wrapContext = (context) => {
+    let isClosing = false;
+    context.on('response', (response) => {
+      if (safelyExpected(isExpectedResponse, response)) return;
+      record(describeFailedUatResponse(response, appUrl), response.request());
+    });
+    context.on('requestfailed', (request) => {
+      if (safelyExpected(isExpectedRequestFailure, request)) return;
+      if (isClosing && safelyExpected(isExpectedClosingRequestFailure, request)) return;
+      record(describeFailedUatRequest(request, appUrl), request);
+    });
+    context.on('page', attachPage);
+    return new Proxy(context, {
+      get(target, property) {
+        if (property === 'newPage') {
+          return async (...args) => attachPage(await target.newPage(...args));
+        }
+        if (property === 'close') {
+          return async (...args) => {
+            isClosing = true;
+            return target.close(...args);
+          };
+        }
+        return bindTargetValue(target, property);
+      },
+    });
+  };
+
+  return new Proxy(browser, {
+    get(target, property) {
+      if (property === 'newContext') {
+        return async (...args) => wrapContext(await target.newContext(...args));
+      }
+      return bindTargetValue(target, property);
+    },
+  });
 };
