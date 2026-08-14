@@ -48,6 +48,7 @@ const snapshotRow = (offset = 0) => ({
   manager_notice_shadowed: String(2 + offset),
   manager_notice_outbound_attempts: '0',
   notice_ledger: String(2 + offset),
+  cleanup_obligations: String(2 + offset),
   nayax_provider_attempts: '7',
 });
 
@@ -85,11 +86,18 @@ const postflightRow = (overrides = {}) => ({
   run_count: '1',
   trigger_source: 'intake_shadow',
   run_status: 'succeeded',
+  run_finished_at: '2026-08-14T20:00:10.000Z',
   threads_scanned: '1',
   messages_seen: '2',
   messages_created: '2',
   messages_failed: '0',
   exact_notice_count: '1',
+  exact_first_contact_operation_count: '1',
+  exact_first_contact_event_count: '1',
+  exact_action_event_count: '1',
+  cleanup_obligation_count: '1',
+  cleanup_assigned_owner_role: 'refund_operations_owner',
+  cleanup_status: 'assigned',
   route_class: 'assigned_managers',
   exact_thread_message_count: '2',
   exact_customer_inbound_count: '1',
@@ -122,8 +130,8 @@ test('owner query registry is closed, immutable, parameterized, and semantic SEL
       createHash('sha256').update(operation.sql).digest('hex'),
     ])),
     {
-      preflight: '61f9fdc4af1670cf11b1d81912bc0715a731ce82a9cab927392497eaeeefa996',
-      postflight: '9f9aaac9df7b77af9626a836ae0d8ca8e02a5036caa79e244e108997e70b7132',
+      preflight: '2aa347839bd0bbaff6ea2ec7aa84fd35cf7a76707f66cea0308d4377a3f4a4f3',
+      postflight: '544eaad69222f0825bce8d34b1901f16dd081e3f11393edc0b6421c2ab399108',
     },
   );
   const mutationPattern =
@@ -174,6 +182,13 @@ test('database adapter pins project, owner endpoint, owner-role flag, and parame
   assert.equal(result.firstContactShadowedDelta, 1);
   assert.equal(result.managerNoticeShadowedDelta, 1);
   assert.equal(result.noticeLedgerDelta, 1);
+  assert.equal(result.cleanupObligationDelta, 1);
+  assert.equal(result.exactFirstContactOperationCount, 1);
+  assert.equal(result.exactFirstContactEventCount, 1);
+  assert.equal(result.exactActionEventCount, 1);
+  assert.equal(result.cleanupObligationCount, 1);
+  assert.equal(result.cleanupAssignedOwnerRole, 'refund_operations_owner');
+  assert.equal(result.cleanupStatus, 'assigned');
   assert.equal(result.nayaxProviderAttemptDelta, 0);
   assert.equal(result.ownerManageableCaseCount, 1);
   assert.equal(result.routeClass, 'assigned_managers');
@@ -336,6 +351,42 @@ test('control rejects invalid open inputs before any mutation', async () => {
     await assert.rejects(client.openIntake(input), (error) => error.code === 'intake_open_input_invalid');
   }
   assert.equal(calls, 0);
+});
+
+test('owner initialization writes only the dedicated label and exact closed settings', async () => {
+  const writes = [];
+  const client = createRefundGmailIntakeShadowControlClient({
+    projectRef: REFUND_INTAKE_SHADOW_PROJECT_REF,
+    managementToken: MANAGEMENT_TOKEN,
+    repoRoot: process.cwd(),
+    fetchImpl: async (_url, options) => {
+      writes.push(JSON.parse(options.body));
+      return response({}, 201);
+    },
+  });
+  await client.initializeClosed({ shadowLabelId: 'Label_owner_shadow' });
+  assert.equal(writes.length, 1);
+  const initialized = Object.fromEntries(
+    writes[0].map(({ name, value }) => [name, value]),
+  );
+  assert.deepEqual(initialized, {
+    REFUND_GMAIL_INTAKE_ENABLED: 'false',
+    REFUND_GMAIL_ENABLED: 'false',
+    REFUND_GMAIL_RETENTION_ENABLED: 'false',
+    REFUND_GMAIL_FIRST_CONTACT_MODE: 'disabled',
+    GMAIL_REFUND_START_AT: REFUND_INTAKE_SHADOW_SAFE_START_AT,
+    GMAIL_REFUND_MAX_THREADS_PER_RUN: '1',
+    GMAIL_REFUND_INTAKE_SHADOW_LABEL_ID: 'Label_owner_shadow',
+    REFUND_GMAIL_INTAKE_SHADOW_OWNER_SENDER_SHA256:
+      REFUND_INTAKE_SHADOW_ZERO_DIGEST,
+    REFUND_GMAIL_INTAKE_SHADOW_RUN_KEY_SHA256:
+      REFUND_INTAKE_SHADOW_ZERO_DIGEST,
+  });
+  await assert.rejects(
+    client.initializeClosed({ shadowLabelId: '' }),
+    (error) => error.code === 'intake_initialize_input_invalid',
+  );
+  assert.equal(writes.length, 1);
 });
 
 test('identity client uses the exact project endpoint and returns only the private owner UUID', async () => {

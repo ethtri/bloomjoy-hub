@@ -4,6 +4,8 @@ export const REFUND_INTAKE_SHADOW_PROJECT_REF = 'ygbzkgxktzqsiygjlqyg';
 export const REFUND_INTAKE_SHADOW_REPOSITORY = 'ethtri/bloomjoy-hub';
 export const REFUND_INTAKE_SHADOW_LIVE_CONFIRMATION =
   'RUN_ONE_OWNER_CONTROLLED_GMAIL_INTAKE_SHADOW';
+export const REFUND_INTAKE_SHADOW_INITIALIZE_CONFIRMATION =
+  'INITIALIZE_CLOSED_OWNER_GMAIL_INTAKE_SHADOW';
 export const REFUND_INTAKE_SHADOW_CLEANUP_COMMITMENT =
   'ENABLE_REVIEWED_RETENTION_BEFORE_EARLIEST_VERIFY_AFTER_LATEST_OR_PURGE_AT_DUE';
 export const REFUND_INTAKE_SHADOW_RETENTION_POLICY_VERSION =
@@ -11,9 +13,12 @@ export const REFUND_INTAKE_SHADOW_RETENTION_POLICY_VERSION =
 export const REFUND_INTAKE_SHADOW_SAFE_START_AT =
   '2999-01-01T00:00:00.000Z';
 export const REFUND_INTAKE_SHADOW_FRESH_LOOKBACK_MS = 5 * 60 * 1000;
+export const REFUND_INTAKE_SHADOW_RECONCILIATION_BOUND_MS = 420 * 1000;
+export const REFUND_INTAKE_SHADOW_STABLE_POLL_INTERVAL_MS = 2 * 1000;
 export const REFUND_INTAKE_SHADOW_ZERO_DIGEST = '0'.repeat(64);
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
+const LABEL_ID_PATTERN = /^[A-Za-z0-9_-]{1,255}$/u;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const ROUTE_CLASSES = new Set([
@@ -22,6 +27,7 @@ const ROUTE_CLASSES = new Set([
   'unassigned_owner_ops_queue',
 ]);
 const SAFE_PHASES = new Set([
+  'initialized_closed',
   'preflight_passed',
   'dry_run_passed',
   'intake_opened',
@@ -49,7 +55,7 @@ const exactBoolean = (value, expected) =>
   (value === true || value === false) && value === expected;
 
 export const validateRefundGmailIntakeShadowRunnerConfig = (config) => {
-  if (!['dry-run', 'live'].includes(config?.mode)) fail('mode_invalid');
+  if (!['initialize', 'dry-run', 'live'].includes(config?.mode)) fail('mode_invalid');
   if (config.retentionPolicyVersion !== REFUND_INTAKE_SHADOW_RETENTION_POLICY_VERSION) {
     fail('retention_policy_version_invalid');
   }
@@ -61,14 +67,25 @@ export const validateRefundGmailIntakeShadowRunnerConfig = (config) => {
     !SHA256_PATTERN.test(config.expectedShadowLabelDigest ?? '') ||
     config.confirmShadowLabelDigest !== config.expectedShadowLabelDigest
   ) fail('shadow_label_digest_not_confirmed');
+  if (typeof config.managementToken !== 'string' || config.managementToken.length < 20) {
+    fail('management_token_missing');
+  }
+  if (!Number.isInteger(config.timeoutMs) || config.timeoutMs < 450_000 || config.timeoutMs > 600_000) {
+    fail('timeout_invalid');
+  }
+  if (config.mode === 'initialize') {
+    if (
+      !LABEL_ID_PATTERN.test(config.initialShadowLabelId ?? '') ||
+      sha256Hex(config.initialShadowLabelId) !== config.expectedShadowLabelDigest ||
+      config.initializeConfirmation !== REFUND_INTAKE_SHADOW_INITIALIZE_CONFIRMATION
+    ) fail('initialization_not_confirmed');
+    return config;
+  }
   if (
     !SHA256_PATTERN.test(config.ownerSenderDigest ?? '') ||
     config.ownerSenderDigest === REFUND_INTAKE_SHADOW_ZERO_DIGEST ||
     config.confirmOwnerSenderDigest !== config.ownerSenderDigest
   ) fail('owner_sender_digest_not_confirmed');
-  if (typeof config.managementToken !== 'string' || config.managementToken.length < 20) {
-    fail('management_token_missing');
-  }
   if (typeof config.syncSecret !== 'string' || config.syncSecret.length < 20) {
     fail('sync_secret_missing');
   }
@@ -77,9 +94,6 @@ export const validateRefundGmailIntakeShadowRunnerConfig = (config) => {
   }
   if (typeof config.ownerUserJwt !== 'string' || config.ownerUserJwt.length < 20) {
     fail('owner_jwt_missing');
-  }
-  if (!Number.isInteger(config.timeoutMs) || config.timeoutMs < 30_000 || config.timeoutMs > 240_000) {
-    fail('timeout_invalid');
   }
   if (config.mode === 'live' && config.liveConfirmation !== REFUND_INTAKE_SHADOW_LIVE_CONFIRMATION) {
     fail('live_not_confirmed');
@@ -204,6 +218,7 @@ const ZERO_EFFECT_FIELDS = [
   'managerNoticeShadowedDelta',
   'managerNoticeOutboundAttemptDelta',
   'noticeLedgerDelta',
+  'cleanupObligationDelta',
   'nayaxProviderAttemptDelta',
 ];
 
@@ -238,11 +253,19 @@ export const classifyRefundGmailIntakeShadowPostflight = (
     postflight.runCount === 1 &&
     postflight.triggerSource === 'intake_shadow' &&
     postflight.runStatus === 'succeeded' &&
+    typeof postflight.runFinishedAt === 'string' &&
+    Number.isFinite(Date.parse(postflight.runFinishedAt)) &&
     postflight.threadsScanned === 1 &&
     postflight.messagesSeen === 2 &&
     postflight.messagesCreated === 2 &&
     postflight.messagesFailed === 0 &&
     postflight.exactNoticeCount === 1 &&
+    postflight.exactFirstContactOperationCount === 1 &&
+    postflight.exactFirstContactEventCount === 1 &&
+    postflight.exactActionEventCount === 1 &&
+    postflight.cleanupObligationCount === 1 &&
+    postflight.cleanupAssignedOwnerRole === 'refund_operations_owner' &&
+    postflight.cleanupStatus === 'assigned' &&
     postflight.exactThreadMessageCount === 2 &&
     postflight.exactCustomerInboundCount === 1 &&
     postflight.exactProviderSentMailboxCount === 1 &&
@@ -254,6 +277,7 @@ export const classifyRefundGmailIntakeShadowPostflight = (
     postflight.firstContactShadowedDelta === 1 &&
     postflight.managerNoticeShadowedDelta === 1 &&
     postflight.noticeLedgerDelta === 1 &&
+    postflight.cleanupObligationDelta === 1 &&
     postflight.ownerManageableCaseCount === 1 &&
     postflight.caseSource === 'gmail' &&
     postflight.caseStatus === 'draft' &&
@@ -268,9 +292,16 @@ export const classifyRefundGmailIntakeShadowPostflight = (
 
 const emit = (logger, phase, detail = {}) => {
   if (!SAFE_PHASES.has(phase)) fail('unsafe_log_phase');
+  const effectsClassification = [
+    'no_effect', 'complete_exact', 'partial_incident', 'outcome_unknown',
+  ].includes(detail.effectsClassification)
+    ? detail.effectsClassification
+    : null;
+  const gatesConclusivelyClosed = detail.gatesConclusivelyClosed === true;
   const result = {
     phase,
-    ok: phase !== 'postflight_classified' || detail.classification === 'complete_exact',
+    ok: phase !== 'postflight_classified' ||
+      (effectsClassification === 'complete_exact' && gatesConclusivelyClosed),
     payloadRedacted: true,
   };
   for (const key of [
@@ -286,12 +317,19 @@ const emit = (logger, phase, detail = {}) => {
   ]) {
     if (Number.isSafeInteger(detail[key])) result[key] = detail[key];
   }
-  if (['no_effect', 'complete_exact', 'partial_incident', 'outcome_unknown'].includes(
-    detail.classification,
-  )) {
-    result.classification = detail.classification;
+  if (effectsClassification) {
+    result.effectsClassification = effectsClassification;
+    result.gatesConclusivelyClosed = gatesConclusivelyClosed;
+    result.gateState = gatesConclusivelyClosed ? 'closed' : 'unknown';
     result.replayAllowed = false;
-    result.durableStateRequiresManualReconciliation = true;
+    result.durableStateCreated = effectsClassification === 'complete_exact' ||
+      effectsClassification === 'partial_incident';
+    result.durableStateRequiresManualReconciliation =
+      effectsClassification === 'partial_incident' ||
+      effectsClassification === 'outcome_unknown';
+    result.retentionCleanupRequired = effectsClassification === 'complete_exact' ||
+      effectsClassification === 'partial_incident';
+    result.emergencyIndependentGateVerificationRequired = !gatesConclusivelyClosed;
   }
   if (ROUTE_CLASSES.has(detail.routeClass)) result.routeClass = detail.routeClass;
   if (detail.ownerManageableCaseCount === 1) result.ownerManageableCaseCount = 1;
@@ -357,16 +395,88 @@ const conclusivelyClose = async ({ control, config }) => {
   return closeAttempts;
 };
 
+const stablePostflightFingerprint = (postflight) => JSON.stringify(postflight);
+
+export const reconcileRefundGmailIntakeShadowPostflight = async ({
+  database,
+  before,
+  runKey,
+  ownerUserId,
+  edgeDispatched,
+  dispatchStartedAtMs,
+  clock = () => Date.now(),
+  sleep = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)),
+  reconciliationBoundMs = REFUND_INTAKE_SHADOW_RECONCILIATION_BOUND_MS,
+  stablePollIntervalMs = REFUND_INTAKE_SHADOW_STABLE_POLL_INTERVAL_MS,
+}) => {
+  if (!edgeDispatched) {
+    return await database.postflight({ before, runKey, ownerUserId });
+  }
+  if (
+    !Number.isFinite(dispatchStartedAtMs) ||
+    !Number.isInteger(reconciliationBoundMs) || reconciliationBoundMs < 1 ||
+    !Number.isInteger(stablePollIntervalMs) || stablePollIntervalMs < 1
+  ) fail('intake_reconciliation_config_invalid');
+
+  const deadline = dispatchStartedAtMs + reconciliationBoundMs;
+  let stableFingerprint = null;
+  let stableReads = 0;
+  while (true) {
+    const postflight = await database.postflight({ before, runKey, ownerUserId });
+    const nowMs = clock();
+    if (!Number.isFinite(nowMs)) fail('clock_invalid');
+    const noRunQuiescent = postflight.runCount === 0 && nowMs >= deadline;
+    const terminalRun =
+      postflight.runCount === 1 &&
+      ['succeeded', 'failed', 'suppressed'].includes(postflight.runStatus) &&
+      typeof postflight.runFinishedAt === 'string' &&
+      Number.isFinite(Date.parse(postflight.runFinishedAt));
+    if (noRunQuiescent || terminalRun) {
+      const fingerprint = stablePostflightFingerprint(postflight);
+      if (fingerprint === stableFingerprint) stableReads += 1;
+      else {
+        stableFingerprint = fingerprint;
+        stableReads = 1;
+      }
+      if (stableReads >= 2) return postflight;
+    } else {
+      stableFingerprint = null;
+      stableReads = 0;
+    }
+    if (nowMs >= deadline && !noRunQuiescent && !terminalRun) {
+      fail('intake_reconciliation_timeout');
+    }
+    await sleep(stablePollIntervalMs);
+  }
+};
+
 export const executeRefundGmailIntakeShadow = async ({
   config,
   clients,
   logger = () => {},
   signal,
   now = () => Date.now(),
+  clock = () => Date.now(),
+  sleep,
+  reconciliationBoundMs,
+  stablePollIntervalMs,
   runKeyFactory = () => randomBytes(32).toString('hex'),
 }) => {
   validateRefundGmailIntakeShadowRunnerConfig(config);
   const { database, control, edge, identity } = clients;
+  if (config.mode === 'initialize') {
+    await control.initializeClosed({ shadowLabelId: config.initialShadowLabelId, signal });
+    const initializedState = await control.readState({ signal });
+    requireRefundGmailIntakeShadowState(initializedState, config, {
+      intakeEnabled: false,
+      mode: 'disabled',
+      startAt: REFUND_INTAKE_SHADOW_SAFE_START_AT,
+      ownerSenderDigest: REFUND_INTAKE_SHADOW_ZERO_DIGEST,
+      runKeyDigest: REFUND_INTAKE_SHADOW_ZERO_DIGEST,
+    });
+    emit(logger, 'initialized_closed');
+    return { ok: true, mode: 'initialize', payloadRedacted: true };
+  }
   const before = await database.preflight({ signal });
   requireDatabasePreflight(before);
   const initialState = await control.readState({ signal });
@@ -396,8 +506,11 @@ export const executeRefundGmailIntakeShadow = async ({
   let primaryError = null;
   let cleanupError = null;
   let edgeConfirmed = false;
+  let edgeDispatched = false;
+  let dispatchStartedAtMs = null;
+  let gatesConclusivelyClosed = false;
   let postflight = null;
-  let classification = 'outcome_unknown';
+  let effectsClassification = 'outcome_unknown';
 
   try {
     signal?.throwIfAborted?.();
@@ -417,6 +530,9 @@ export const executeRefundGmailIntakeShadow = async ({
     });
     emit(logger, 'intake_opened');
 
+    dispatchStartedAtMs = clock();
+    if (!Number.isFinite(dispatchStartedAtMs)) fail('clock_invalid');
+    edgeDispatched = true;
     const result = await edge.run({ runKey, signal });
     requireEdgeSuccess(result);
     edgeConfirmed = true;
@@ -427,38 +543,75 @@ export const executeRefundGmailIntakeShadow = async ({
       signal?.aborted ? 'intake_interrupted' : 'intake_execution_failed',
     );
   } finally {
+    let closeError = null;
+    let closureProcedureFailed = false;
     try {
       await conclusivelyClose({ control, config });
       emit(logger, 'intake_closed');
     } catch (error) {
-      cleanupError = normalizeError(error, 'intake_safe_close_failed');
+      closeError = normalizeError(error, 'intake_safe_close_failed');
+      closureProcedureFailed = true;
+    }
+
+    let reconciliationError = null;
+    try {
+      postflight = await reconcileRefundGmailIntakeShadowPostflight({
+        database,
+        before,
+        runKey,
+        ownerUserId,
+        edgeDispatched,
+        dispatchStartedAtMs,
+        clock,
+        ...(sleep ? { sleep } : {}),
+        ...(reconciliationBoundMs ? { reconciliationBoundMs } : {}),
+        ...(stablePollIntervalMs ? { stablePollIntervalMs } : {}),
+      });
+      effectsClassification = classifyRefundGmailIntakeShadowPostflight(postflight, {
+        edgeConfirmed,
+      });
+    } catch (error) {
+      effectsClassification = 'outcome_unknown';
+      reconciliationError = normalizeError(error, 'intake_postflight_failed');
     }
 
     try {
-      postflight = await database.postflight({ before, runKey, ownerUserId });
-      classification = classifyRefundGmailIntakeShadowPostflight(postflight, {
-        edgeConfirmed,
-      });
-      emit(logger, 'postflight_classified', { ...postflight, classification });
-      if (classification === 'partial_incident') {
-        cleanupError ??= new RefundGmailIntakeShadowRunnerError('intake_partial_incident');
+      const finalState = await control.readState();
+      gatesConclusivelyClosed = !closureProcedureFailed &&
+        isClosedState(finalState, config);
+      if (!gatesConclusivelyClosed) {
+        closeError ??= new RefundGmailIntakeShadowRunnerError('intake_safe_close_unverified');
       }
     } catch (error) {
-      classification = 'outcome_unknown';
-      emit(logger, 'postflight_classified', { classification });
-      cleanupError ??= normalizeError(error, 'intake_postflight_failed');
+      closeError ??= normalizeError(error, 'intake_safe_close_read_failed');
+    }
+
+    emit(logger, 'postflight_classified', {
+      ...(postflight ?? {}),
+      effectsClassification,
+      gatesConclusivelyClosed,
+    });
+    cleanupError = closeError ?? reconciliationError;
+    if (effectsClassification === 'partial_incident') {
+      cleanupError ??= new RefundGmailIntakeShadowRunnerError('intake_partial_incident');
+    } else if (effectsClassification === 'outcome_unknown') {
+      cleanupError ??= new RefundGmailIntakeShadowRunnerError('intake_outcome_unknown');
     }
   }
 
   if (cleanupError) throw cleanupError;
-  if (classification === 'no_effect') {
+  if (effectsClassification === 'no_effect') {
     throw primaryError ?? new RefundGmailIntakeShadowRunnerError('intake_no_effect');
   }
-  if (classification !== 'complete_exact') fail('intake_partial_incident');
+  if (effectsClassification !== 'complete_exact' || !gatesConclusivelyClosed) {
+    fail('intake_partial_incident');
+  }
   return {
     ok: true,
     mode: 'live',
-    classification,
+    effectsClassification,
+    gatesConclusivelyClosed: true,
+    gateState: 'closed',
     messagesSeen: postflight.messagesSeen,
     mailboxAcknowledgementObserved: true,
     managerNoticeShadowed: postflight.managerNoticeShadowedDelta,
@@ -470,7 +623,10 @@ export const executeRefundGmailIntakeShadow = async ({
     retentionCleanupObligation:
       'enable_reviewed_recurring_before_earliest_and_verify_after_latest_or_manual_purge_at_each_due',
     cleanupCommitment: true,
-    durableStateRequiresManualReconciliation: true,
+    durableStateCreated: true,
+    durableStateRequiresManualReconciliation: false,
+    retentionCleanupRequired: true,
+    emergencyIndependentGateVerificationRequired: false,
     replayAllowed: false,
     payloadRedacted: true,
   };

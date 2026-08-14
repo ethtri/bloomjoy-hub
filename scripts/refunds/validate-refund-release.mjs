@@ -167,8 +167,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    50,
-    'Refund release inventory must cover exactly 50 discovered refund/Nayax migrations'
+    51,
+    'Refund release inventory must cover exactly 51 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -198,6 +198,10 @@ try {
     repositoryMigrations.includes('202608130001_refund_nayax_outcome_resolution.sql'),
     'The default-off Nayax outcome-resolution migration must be in the discovered release inventory'
   );
+  assert(
+    repositoryMigrations.includes('202608140001_refund_gmail_intake_shadow.sql'),
+    'The exact-run owner Gmail intake-shadow migration must be in the discovered release inventory'
+  );
   assert.deepEqual(
     repositoryManifest.requiredMigrations,
     repositoryMigrations,
@@ -216,19 +220,19 @@ try {
   );
   assert.equal(
     repositoryManifest.preMigrationCompatibility?.sourceGitCommit,
-    'ed85425d93cce89b67a3bb91d5f680c58eaa0823',
-    'The production bridge must bind to the exact canonical 49-migration release'
+    '4323a22644cc3a8786b8002ab99a696e4c55b353',
+    'The production bridge must bind to the exact canonical 50-migration release'
   );
   assert.equal(
     repositoryManifest.preMigrationCompatibility.requiredMigrations.length,
-    49,
-    'The historical production bridge must cover exactly the 49 migrations captured before deployment'
+    50,
+    'The historical production bridge must cover exactly the 50 migrations captured before deployment'
   );
   assert(
     !repositoryManifest.preMigrationCompatibility.requiredMigrations.includes(
-      '202608130001_refund_nayax_outcome_resolution.sql'
+      '202608140001_refund_gmail_intake_shadow.sql'
     ),
-    'The historical production bridge must exclude the outcome-resolution migration applied after capture'
+    'The historical production bridge must exclude the intake-shadow migration applied after capture'
   );
   const currentProductionMayAdvance = structuredClone(repositoryManifest);
   currentProductionMayAdvance.functions[0].production.sourceSha256 = 'a'.repeat(64);

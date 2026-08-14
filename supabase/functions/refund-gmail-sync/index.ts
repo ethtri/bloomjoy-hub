@@ -465,6 +465,7 @@ const processFirstContact = async ({
   threadHasOutbound,
   counters,
   intakeShadow,
+  runId,
 }: {
   firstContact: RefundFirstContactConfig;
   config: NonNullable<ReturnType<typeof getRefundGmailConfig>>;
@@ -474,8 +475,12 @@ const processFirstContact = async ({
   customerName: string;
   customerEmail: string;
   threadHasOutbound: boolean;
-  counters: FirstContactCounters;
+  counters: FirstContactCounters & {
+    managerNoticeShadowed: number;
+    managerNoticeSentEvents: number;
+  };
   intakeShadow: boolean;
+  runId: string;
 }) => {
   if (!firstContact.shouldClaim) return { failed: false };
   if (!isRefundFirstContactSenderAllowed(firstContact, customerEmail)) {
@@ -531,10 +536,11 @@ const processFirstContact = async ({
   );
   const claim = intakeShadow
     ? await rpc<Record<string, unknown> | null>(
-      "service_record_refund_gmail_intake_shadow_first_contact",
+      "service_complete_refund_gmail_intake_shadow",
       {
+        p_run_id: runId,
         p_source_message_id: sourceMessageId,
-        p_template_key: REFUND_FIRST_CONTACT_TEMPLATE_KEY,
+        p_refund_case_id: refundCaseId,
       },
     )
     : await claimRefundGmailDeliveryWhenEnabled(claimFirstContact);
@@ -543,6 +549,14 @@ const processFirstContact = async ({
     claim?.mailboxAcknowledgementObserved !== true ||
     claim?.hubCustomerDeliverySent !== false ||
     claim?.laterHubFirstContactExcluded !== true ||
+    claim?.eventPresent !== true ||
+    claim?.firstContactPresent !== true ||
+    claim?.cleanupAssigned !== true ||
+    ![
+      "assigned_managers",
+      "operations_fallback",
+      "unassigned_owner_ops_queue",
+    ].includes(sanitizeText(claim?.routeClass, 80)) ||
     claim?.payloadRedacted !== true
   )) {
     counters.firstContactFailed += 1;
@@ -559,6 +573,9 @@ const processFirstContact = async ({
   }
   if (firstContact.mode === "shadow") {
     counters.firstContactShadowed += 1;
+    if (intakeShadow && claim.recorded === true) {
+      counters.managerNoticeShadowed += 1;
+    }
     return { failed: false };
   }
 
@@ -674,40 +691,15 @@ const sendGmailCaseActionNotice = async ({
   sourceMessageId,
   publicReference,
   reason,
-  intakeShadow,
   counters,
 }: {
   refundCaseId: string;
   sourceMessageId: string;
   publicReference: string;
   reason: "customer_message" | "hard_bounce";
-  intakeShadow: boolean;
   counters: { managerNoticeShadowed: number; managerNoticeSentEvents: number };
 }) => {
   if (!supabase) return;
-  if (intakeShadow) {
-    const result = await rpc<Record<string, unknown>>(
-      "service_record_refund_gmail_intake_shadow_notice",
-      {
-        p_source_message_id: sourceMessageId,
-        p_refund_case_id: refundCaseId,
-      },
-    );
-    if (
-      result?.eventPresent !== true || result?.payloadRedacted !== true ||
-      ![
-        "assigned_managers",
-        "operations_fallback",
-        "unassigned_owner_ops_queue",
-      ].includes(sanitizeText(result?.routeClass, 80))
-    ) {
-      throw new RefundGmailIntakeShadowError(
-        "gmail_intake_shadow_notice_event_failed",
-      );
-    }
-    if (result.recorded === true) counters.managerNoticeShadowed += 1;
-    return;
-  }
   try {
     const { data: refundCase, error: caseError } = await supabase
       .from("refund_cases")
@@ -1527,7 +1519,7 @@ serve(async (request) => {
               const automaticContactPaused =
                 ingestion?.automaticCustomerContactPaused === true;
               if (
-                (ingestion?.created || intakeShadow) && caseId &&
+                !intakeShadow && ingestion?.created && caseId &&
                 internalMessageId &&
                 (participantRole === "customer" || automaticContactPaused)
               ) {
@@ -1538,7 +1530,6 @@ serve(async (request) => {
                   reason: automaticContactPaused
                     ? "hard_bounce"
                     : "customer_message",
-                  intakeShadow: Boolean(intakeShadow),
                   counters,
                 });
               }
@@ -1574,6 +1565,7 @@ serve(async (request) => {
                 threadHasOutbound,
                 counters,
                 intakeShadow: Boolean(intakeShadow),
+                runId,
               });
               if (firstContactResult.failed) counters.messagesFailed += 1;
             },

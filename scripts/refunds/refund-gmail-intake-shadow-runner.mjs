@@ -58,7 +58,9 @@ try {
     ok: result.ok,
     mode: result.mode,
     ...(result.mode === 'live' ? {
-      classification: result.classification,
+      effectsClassification: result.effectsClassification,
+      gatesConclusivelyClosed: result.gatesConclusivelyClosed,
+      gateState: result.gateState,
       messagesSeen: result.messagesSeen,
       mailboxAcknowledgementObserved: result.mailboxAcknowledgementObserved,
       managerNoticeShadowed: result.managerNoticeShadowed,
@@ -71,6 +73,10 @@ try {
       cleanupCommitment: result.cleanupCommitment,
       durableStateRequiresManualReconciliation:
         result.durableStateRequiresManualReconciliation,
+      durableStateCreated: result.durableStateCreated,
+      retentionCleanupRequired: result.retentionCleanupRequired,
+      emergencyIndependentGateVerificationRequired:
+        result.emergencyIndependentGateVerificationRequired,
       replayAllowed: result.replayAllowed,
     } : {}),
     payloadRedacted: true,

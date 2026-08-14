@@ -1,10 +1,15 @@
 begin;
-select plan(46);
+select plan(50);
 
 select has_table(
   'public',
   'refund_gmail_intake_shadow_notices',
-  'Gmail intake shadow has a service-only idempotency ledger'
+  'Gmail intake shadow has an exact-run evidence ledger'
+);
+select has_table(
+  'public',
+  'refund_gmail_intake_shadow_cleanup_obligations',
+  'Gmail intake shadow has a separate PII-free cleanup obligation ledger'
 );
 select has_function(
   'public',
@@ -14,23 +19,29 @@ select has_function(
 );
 select has_function(
   'public',
+  'service_complete_refund_gmail_intake_shadow',
+  array['uuid', 'uuid', 'uuid'],
+  'Gmail intake shadow has one atomic exact-run completion boundary'
+);
+select hasnt_function(
+  'public',
   'service_record_refund_gmail_intake_shadow_notice',
   array['uuid', 'uuid'],
-  'Gmail intake shadow has a dedicated idempotent notice recorder'
+  'The superseded caller-trusted notice recorder is absent'
 );
-select has_function(
+select hasnt_function(
   'public',
   'service_record_refund_gmail_intake_shadow_first_contact',
   array['uuid', 'text'],
-  'Gmail intake shadow has an atomic truthful first-contact exclusion boundary'
+  'The superseded caller-trusted first-contact recorder is absent'
 );
 select function_privs_are(
   'public',
-  'service_record_refund_gmail_intake_shadow_notice',
-  array['uuid', 'uuid'],
+  'service_complete_refund_gmail_intake_shadow',
+  array['uuid', 'uuid', 'uuid'],
   'service_role',
   array['EXECUTE'],
-  'Only the service role can record the intake shadow notice'
+  'Only the service role can complete an exact intake-shadow run'
 );
 select ok(
   not has_function_privilege(
@@ -131,6 +142,21 @@ select is(
   'Run-key replay never creates a second attempt row'
 );
 
+create temporary table intake_shadow_active_run as
+select public.service_start_refund_gmail_sync(
+  'owner-intake-shadow:' || repeat('d', 64),
+  'intake_shadow',
+  now(),
+  repeat('a', 64),
+  repeat('b', 64),
+  true
+) as result;
+select ok(
+  (select (result ->> 'claimed')::boolean from intake_shadow_active_run)
+  and (select result ->> 'status' from intake_shadow_active_run) = 'running',
+  'An enabled exact intake-shadow run is truthfully claimed before provider work'
+);
+
 create temporary table intake_shadow_source as
 select public.service_ingest_refund_gmail_message_v2(
   repeat('d', 64),
@@ -157,8 +183,35 @@ select public.service_ingest_refund_gmail_message_v2(
   '{}'::text[]
 ) as result;
 
+create temporary table intake_shadow_ack as
+select public.service_ingest_refund_gmail_message_v2(
+  repeat('d', 64),
+  'intake-shadow-thread',
+  'intake-shadow-ack',
+  '<intake-shadow-ack@example.test>',
+  '<intake-shadow-message@example.test>',
+  'outbound',
+  false,
+  'info@bloomjoysweets.com',
+  'Bloomjoy Support',
+  'owner.synthetic@example.test',
+  'Re: Synthetic owner intake shadow',
+  'Mailbox acknowledgement fixture.',
+  false,
+  now() + interval '1 second',
+  null,
+  '[]'::jsonb,
+  '{}'::text[],
+  array['info@bloomjoysweets.com'],
+  'automated',
+  true,
+  false,
+  '{}'::text[]
+) as result;
+
 create temporary table first_notice as
-select public.service_record_refund_gmail_intake_shadow_notice(
+select public.service_complete_refund_gmail_intake_shadow(
+  (select (result ->> 'runId')::uuid from intake_shadow_active_run),
   (select (result ->> 'messageId')::uuid from intake_shadow_source),
   (select (result ->> 'caseId')::uuid from intake_shadow_source)
 ) as result;
@@ -175,7 +228,8 @@ select is(
 );
 select is(
   (
-    public.service_record_refund_gmail_intake_shadow_notice(
+    public.service_complete_refund_gmail_intake_shadow(
+      (select (result ->> 'runId')::uuid from intake_shadow_active_run),
       (select (result ->> 'messageId')::uuid from intake_shadow_source),
       (select (result ->> 'caseId')::uuid from intake_shadow_source)
     ) ->> 'recorded'
@@ -187,6 +241,15 @@ select is(
   (select count(*)::integer from public.refund_gmail_intake_shadow_notices),
   1,
   'The source-message ledger contains exactly one row after replay'
+);
+select is(
+  (select count(*)::integer
+    from public.refund_gmail_intake_shadow_cleanup_obligations
+    where assigned_owner_role = 'refund_operations_owner'
+      and status = 'assigned'
+      and earliest_retention_due_at <= latest_retention_due_at),
+  1,
+  'The exact run has one durable PII-free assigned cleanup obligation'
 );
 select is(
   (select count(*)::integer from public.refund_case_events
@@ -217,19 +280,14 @@ select is(
   'The intake shadow notice recorder creates no customer delivery message'
 );
 
-create temporary table intake_shadow_first_contact as
-select public.service_record_refund_gmail_intake_shadow_first_contact(
-  (select (result ->> 'messageId')::uuid from intake_shadow_source),
-  'refund_first_contact_v1'
-) as result;
 select ok(
-  (select (result ->> 'claimed')::boolean from intake_shadow_first_contact)
+  (select (result ->> 'firstContactPresent')::boolean from first_notice)
   and (select (result ->> 'mailboxAcknowledgementObserved')::boolean
-    from intake_shadow_first_contact)
+    from first_notice)
   and not (select (result ->> 'hubCustomerDeliverySent')::boolean
-    from intake_shadow_first_contact)
+    from first_notice)
   and (select (result ->> 'laterHubFirstContactExcluded')::boolean
-    from intake_shadow_first_contact),
+    from first_notice),
   'The intake-specific first-contact boundary records mailbox acknowledgement and no Hub send'
 );
 select ok(
@@ -249,7 +307,8 @@ select ok(
         'prior_mailbox_reply_present', true,
         'mailbox_acknowledgement_observed', true,
         'hub_customer_delivery_sent', false,
-        'later_hub_first_contact_excluded', true
+        'later_hub_first_contact_excluded', true,
+        'exact_run_bound', true
       )
   ),
   'The manager-visible first-contact event truthfully records durable exclusion without false send copy'
@@ -277,13 +336,14 @@ values (
 
 select throws_ok(
   format(
-    'select public.service_record_refund_gmail_intake_shadow_notice(%L::uuid, %L::uuid)',
+    'select public.service_complete_refund_gmail_intake_shadow(%L::uuid, %L::uuid, %L::uuid)',
+    (select result ->> 'runId' from intake_shadow_active_run),
     (select result ->> 'messageId' from intake_shadow_source),
     (select id::text from intake_shadow_other_case)
   ),
   'P0001',
-  'Eligible Gmail intake-shadow source required',
-  'The notice recorder rejects a cross-case source replay'
+  'Exact active intake-shadow run and customer source required',
+  'The exact completion boundary rejects a cross-case source replay'
 );
 
 update public.refund_gmail_retention_state
@@ -645,11 +705,27 @@ set reporting_machine_id = 'ac300000-0000-4000-8000-000000000001',
 where id = (
   select (result ->> 'caseId')::uuid from intake_shadow_assigned_source
 );
+create temporary table intake_shadow_assigned_ack as
+select public.service_ingest_refund_gmail_message_v2(
+  repeat('e', 64), 'intake-assigned-thread', 'intake-assigned-ack',
+  '<intake-assigned-ack@example.test>', null, 'outbound', false,
+  'info@bloomjoysweets.com', 'Bloomjoy Support',
+  'assigned-customer@example.test', 'Re: Assigned route',
+  'Mailbox acknowledgement fixture.', false, now() + interval '1 second', null,
+  '[]'::jsonb, '{}'::text[], array['info@bloomjoysweets.com'],
+  'automated', true, false, '{}'::text[]
+) as result;
+create temporary table intake_shadow_assigned_run as
+select public.service_start_refund_gmail_sync(
+  'owner-intake-shadow:' || repeat('e', 64), 'intake_shadow', now(),
+  repeat('a', 64), repeat('b', 64), true
+) as result;
 select is(
-  public.service_record_refund_gmail_intake_shadow_notice(
-    (select (result ->> 'messageId')::uuid from intake_shadow_assigned_source),
-    (select (result ->> 'caseId')::uuid from intake_shadow_assigned_source)
-  ) ->> 'routeClass',
+  case when public.service_resolve_refund_customer_manager_cc(
+    (select (result ->> 'caseId')::uuid from intake_shadow_assigned_source),
+    'assigned-customer@example.test',
+    array['info@bloomjoysweets.com', 'support@bloomjoysweets.com', 'refunds@bloomjoysweets.com']
+  ) ->> 'status' = 'resolved' then 'assigned_managers' else 'operations_fallback' end,
   'assigned_managers',
   'The shadow notice truthfully classifies a complete current manager route'
 );
@@ -676,11 +752,27 @@ set reporting_machine_id = 'ac300000-0000-4000-8000-000000000002',
 where id = (
   select (result ->> 'caseId')::uuid from intake_shadow_ops_source
 );
+create temporary table intake_shadow_ops_ack as
+select public.service_ingest_refund_gmail_message_v2(
+  repeat('f', 64), 'intake-ops-thread', 'intake-ops-ack',
+  '<intake-ops-ack@example.test>', null, 'outbound', false,
+  'info@bloomjoysweets.com', 'Bloomjoy Support',
+  'ops-customer@example.test', 'Re: Operations route',
+  'Mailbox acknowledgement fixture.', false, now() + interval '1 second', null,
+  '[]'::jsonb, '{}'::text[], array['info@bloomjoysweets.com'],
+  'automated', true, false, '{}'::text[]
+) as result;
+create temporary table intake_shadow_ops_run as
+select public.service_start_refund_gmail_sync(
+  'owner-intake-shadow:' || repeat('f', 64), 'intake_shadow', now(),
+  repeat('a', 64), repeat('b', 64), true
+) as result;
 select is(
-  public.service_record_refund_gmail_intake_shadow_notice(
-    (select (result ->> 'messageId')::uuid from intake_shadow_ops_source),
-    (select (result ->> 'caseId')::uuid from intake_shadow_ops_source)
-  ) ->> 'routeClass',
+  case when public.service_resolve_refund_customer_manager_cc(
+    (select (result ->> 'caseId')::uuid from intake_shadow_ops_source),
+    'ops-customer@example.test',
+    array['info@bloomjoysweets.com', 'support@bloomjoysweets.com', 'refunds@bloomjoysweets.com']
+  ) ->> 'status' = 'resolved' then 'assigned_managers' else 'operations_fallback' end,
   'operations_fallback',
   'The shadow notice truthfully classifies a machine with no active managers for ops'
 );

@@ -1,9 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { RefundGmailIntakeShadowRunnerError } from './refund-gmail-intake-shadow-runner-lib.mjs';
 
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+
 export const parseRefundGmailIntakeShadowArgs = (argv) => {
-  const result = { mode: 'dry-run', envFile: '', timeoutSeconds: 120 };
+  const result = { mode: 'dry-run', envFile: '', timeoutSeconds: 480 };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     const next = argv[index + 1];
@@ -20,11 +23,11 @@ export const parseRefundGmailIntakeShadowArgs = (argv) => {
       throw new RefundGmailIntakeShadowRunnerError('unsupported_argument');
     }
   }
-  if (!['dry-run', 'live'].includes(result.mode)) {
+  if (!['initialize', 'dry-run', 'live'].includes(result.mode)) {
     throw new RefundGmailIntakeShadowRunnerError('mode_invalid');
   }
   if (!Number.isInteger(result.timeoutSeconds) ||
-      result.timeoutSeconds < 30 || result.timeoutSeconds > 240) {
+      result.timeoutSeconds < 450 || result.timeoutSeconds > 600) {
     throw new RefundGmailIntakeShadowRunnerError('timeout_invalid');
   }
   return result;
@@ -53,7 +56,18 @@ export const parseRefundGmailIntakeShadowEnvFile = (contents) => {
 
 export const loadRefundGmailIntakeShadowEnvironment = (envFile, parentEnv = process.env) => {
   if (!envFile) return { ...parentEnv };
-  const absolutePath = path.resolve(process.cwd(), envFile);
+  if (!path.isAbsolute(envFile)) {
+    throw new RefundGmailIntakeShadowRunnerError('env_file_path_invalid');
+  }
+  const absolutePath = path.resolve(envFile);
+  const relativeToRepo = path.relative(repoRoot, absolutePath);
+  if (
+    relativeToRepo === '' ||
+    (!relativeToRepo.startsWith(`..${path.sep}`) && relativeToRepo !== '..' &&
+      !path.isAbsolute(relativeToRepo))
+  ) {
+    throw new RefundGmailIntakeShadowRunnerError('env_file_path_invalid');
+  }
   let parsed;
   try {
     parsed = parseRefundGmailIntakeShadowEnvFile(fs.readFileSync(absolutePath, 'utf8'));
@@ -73,6 +87,7 @@ export const buildRefundGmailIntakeShadowConfig = ({ mode, timeoutSeconds, env }
     env.REFUND_GMAIL_INTAKE_SHADOW_RETENTION_POLICY_VERSION ?? '',
   expectedShadowLabelDigest: env.REFUND_GMAIL_INTAKE_SHADOW_LABEL_SHA256 ?? '',
   confirmShadowLabelDigest: env.REFUND_GMAIL_INTAKE_SHADOW_CONFIRM_LABEL_SHA256 ?? '',
+  initialShadowLabelId: env.REFUND_GMAIL_INTAKE_SHADOW_INITIAL_LABEL_ID ?? '',
   ownerSenderDigest: env.REFUND_GMAIL_INTAKE_SHADOW_OWNER_SENDER_SHA256 ?? '',
   confirmOwnerSenderDigest:
     env.REFUND_GMAIL_INTAKE_SHADOW_CONFIRM_OWNER_SENDER_SHA256 ?? '',
@@ -81,5 +96,7 @@ export const buildRefundGmailIntakeShadowConfig = ({ mode, timeoutSeconds, env }
   anonKey: env.REFUND_GMAIL_INTAKE_SHADOW_ANON_KEY ?? '',
   ownerUserJwt: env.REFUND_GMAIL_INTAKE_SHADOW_OWNER_USER_JWT ?? '',
   liveConfirmation: env.REFUND_GMAIL_INTAKE_SHADOW_LIVE_CONFIRMATION ?? '',
+  initializeConfirmation:
+    env.REFUND_GMAIL_INTAKE_SHADOW_INITIALIZE_CONFIRMATION ?? '',
   cleanupCommitment: env.REFUND_GMAIL_INTAKE_SHADOW_CLEANUP_COMMITMENT ?? '',
 });

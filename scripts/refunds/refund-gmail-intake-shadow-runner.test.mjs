@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import {
   buildRefundGmailIntakeShadowConfig,
+  loadRefundGmailIntakeShadowEnvironment,
   parseRefundGmailIntakeShadowArgs,
   parseRefundGmailIntakeShadowEnvFile,
 } from './refund-gmail-intake-shadow-runner-config.mjs';
@@ -9,6 +13,7 @@ import {
   classifyRefundGmailIntakeShadowPostflight,
   executeRefundGmailIntakeShadow,
   REFUND_INTAKE_SHADOW_CLEANUP_COMMITMENT,
+  REFUND_INTAKE_SHADOW_INITIALIZE_CONFIRMATION,
   REFUND_INTAKE_SHADOW_LIVE_CONFIRMATION,
   REFUND_INTAKE_SHADOW_PROJECT_REF,
   REFUND_INTAKE_SHADOW_RETENTION_POLICY_VERSION,
@@ -39,7 +44,7 @@ const config = (overrides = {}) => ({
   ownerUserJwt: 'owner-jwt-private-value',
   liveConfirmation: REFUND_INTAKE_SHADOW_LIVE_CONFIRMATION,
   cleanupCommitment: REFUND_INTAKE_SHADOW_CLEANUP_COMMITMENT,
-  timeoutMs: 60_000,
+  timeoutMs: 480_000,
   ...overrides,
 });
 
@@ -76,6 +81,7 @@ const databasePreflight = () => ({
     managerNoticeShadowed: 0,
     managerNoticeOutboundAttempts: 7,
     noticeLedger: 0,
+    cleanupObligations: 0,
     nayaxProviderAttempts: 3,
   },
 });
@@ -153,11 +159,18 @@ const completePostflight = (overrides = {}) => ({
   runCount: 1,
   triggerSource: 'intake_shadow',
   runStatus: 'succeeded',
+  runFinishedAt: '2026-08-14T12:10:10.000Z',
   threadsScanned: 1,
   messagesSeen: 2,
   messagesCreated: 2,
   messagesFailed: 0,
   exactNoticeCount: 1,
+  exactFirstContactOperationCount: 1,
+  exactFirstContactEventCount: 1,
+  exactActionEventCount: 1,
+  cleanupObligationCount: 1,
+  cleanupAssignedOwnerRole: 'refund_operations_owner',
+  cleanupStatus: 'assigned',
   exactThreadMessageCount: 2,
   exactCustomerInboundCount: 1,
   exactProviderSentMailboxCount: 1,
@@ -173,6 +186,7 @@ const completePostflight = (overrides = {}) => ({
   managerNoticeShadowedDelta: 1,
   managerNoticeOutboundAttemptDelta: 0,
   noticeLedgerDelta: 1,
+  cleanupObligationDelta: 1,
   nayaxProviderAttemptDelta: 0,
   ownerManageableCaseCount: 1,
   caseSource: 'gmail',
@@ -191,6 +205,7 @@ const noEffectPostflight = (overrides = {}) => ({
   unresolvedFirstContactCount: 0,
   runCount: 0,
   runStatus: null,
+  runFinishedAt: null,
   ...Object.fromEntries([
     'refundCaseDelta',
     'gmailMessageDelta',
@@ -204,6 +219,7 @@ const noEffectPostflight = (overrides = {}) => ({
     'managerNoticeShadowedDelta',
     'managerNoticeOutboundAttemptDelta',
     'noticeLedgerDelta',
+    'cleanupObligationDelta',
     'nayaxProviderAttemptDelta',
   ].map((key) => [key, 0])),
   ...overrides,
@@ -214,6 +230,7 @@ const harness = ({
   edgeError,
   preflight = databasePreflight(),
   postflight = completePostflight(),
+  postflightSequence,
   postflightError,
   initialState,
   closeBehaviors = [],
@@ -223,6 +240,7 @@ const harness = ({
   let currentState = initialState ?? state();
   let closeIndex = 0;
   let postCloseReadIndex = 0;
+  let postflightIndex = 0;
   const clients = {
     database: {
       async preflight() {
@@ -234,7 +252,9 @@ const harness = ({
         assert.match(runKey, /^owner-intake-shadow:[a-f0-9]{64}$/u);
         assert.equal(ownerUserId, OWNER_USER_ID);
         if (postflightError) throw postflightError;
-        return postflight;
+        return postflightSequence
+          ? postflightSequence[Math.min(postflightIndex++, postflightSequence.length - 1)]
+          : postflight;
       },
     },
     identity: {
@@ -244,6 +264,11 @@ const harness = ({
       },
     },
     control: {
+      async initializeClosed({ shadowLabelId }) {
+        calls.push('control.initializeClosed');
+        assert.equal(sha256Hex(shadowLabelId), SHADOW_DIGEST);
+        currentState = state();
+      },
       async readState() {
         calls.push('control.readState');
         if (
@@ -281,13 +306,20 @@ const harness = ({
 };
 
 const execute = (sample, overrides = {}) =>
-  executeRefundGmailIntakeShadow({
+  (() => {
+    let clockMs = Date.parse('2026-08-14T12:10:00.000Z');
+    return executeRefundGmailIntakeShadow({
     config: config(),
     clients: sample.clients,
     now: () => Date.parse('2026-08-14T12:10:00.000Z'),
+    clock: () => clockMs,
+    sleep: async (delayMs) => { clockMs += delayMs; },
+    reconciliationBoundMs: 5,
+    stablePollIntervalMs: 1,
     runKeyFactory: () => 'a'.repeat(64),
     ...overrides,
-  });
+    });
+  })();
 
 test('dry-run performs only aggregate/control reads with zero identity, mutation, or Edge POST', async () => {
   const sample = harness();
@@ -299,6 +331,27 @@ test('dry-run performs only aggregate/control reads with zero identity, mutation
   assert.deepEqual(sample.calls, ['database.preflight', 'control.readState']);
 });
 
+test('owner initialization seeds and re-proves only the closed state before any database or Gmail call', async () => {
+  const sample = harness();
+  const result = await executeRefundGmailIntakeShadow({
+    config: config({
+      mode: 'initialize',
+      initialShadowLabelId: 'Label_owner_shadow',
+      initializeConfirmation: REFUND_INTAKE_SHADOW_INITIALIZE_CONFIRMATION,
+    }),
+    clients: sample.clients,
+  });
+  assert.deepEqual(result, {
+    ok: true,
+    mode: 'initialize',
+    payloadRedacted: true,
+  });
+  assert.deepEqual(sample.calls, [
+    'control.initializeClosed',
+    'control.readState',
+  ]);
+});
+
 test('live success binds run authorization, records exact evidence, and closes once', async () => {
   const sample = harness();
   const logs = [];
@@ -306,7 +359,9 @@ test('live success binds run authorization, records exact evidence, and closes o
   assert.deepEqual(result, {
     ok: true,
     mode: 'live',
-    classification: 'complete_exact',
+    effectsClassification: 'complete_exact',
+    gatesConclusivelyClosed: true,
+    gateState: 'closed',
     messagesSeen: 2,
     mailboxAcknowledgementObserved: true,
     managerNoticeShadowed: 1,
@@ -318,7 +373,10 @@ test('live success binds run authorization, records exact evidence, and closes o
     retentionCleanupObligation:
       'enable_reviewed_recurring_before_earliest_and_verify_after_latest_or_manual_purge_at_each_due',
     cleanupCommitment: true,
-    durableStateRequiresManualReconciliation: true,
+    durableStateCreated: true,
+    durableStateRequiresManualReconciliation: false,
+    retentionCleanupRequired: true,
+    emergencyIndependentGateVerificationRequired: false,
     replayAllowed: false,
     payloadRedacted: true,
   });
@@ -332,6 +390,8 @@ test('live success binds run authorization, records exact evidence, and closes o
     'control.safeClose',
     'control.readState',
     'database.postflight',
+    'database.postflight',
+    'control.readState',
   ]);
   assert.equal(JSON.stringify(logs).includes('private'), false);
 });
@@ -349,7 +409,56 @@ test('one-message Edge shape is a HOLD with no ingestion and no retry', async ()
 test('an ambiguous Edge response reconciles a complete exact DB run without replay', async () => {
   const sample = harness({ edgeError: new Error('private timeout response') });
   const result = await execute(sample);
-  assert.equal(result.classification, 'complete_exact');
+  assert.equal(result.effectsClassification, 'complete_exact');
+  assert.equal(sample.calls.filter((call) => call === 'edge.run').length, 1);
+});
+
+test('post-close reconciliation waits through delayed run start and delayed finish without replay', async () => {
+  for (const postflightSequence of [
+    [noEffectPostflight(), completePostflight(), completePostflight()],
+    [
+      completePostflight({ runStatus: 'running', runFinishedAt: null }),
+      completePostflight(),
+      completePostflight(),
+    ],
+    [
+      completePostflight({ exactNoticeCount: 0 }),
+      completePostflight(),
+      completePostflight(),
+    ],
+  ]) {
+    const sample = harness({
+      edgeError: new Error('private timeout response'),
+      postflightSequence,
+    });
+    assert.equal((await execute(sample)).effectsClassification, 'complete_exact');
+    assert.equal(sample.calls.filter((call) => call === 'edge.run').length, 1);
+    assert.ok(sample.calls.filter((call) => call === 'database.postflight').length >= 3);
+  }
+});
+
+test('a dispatched run cannot become no_effect until the full quiescence bound passes', async () => {
+  const sample = harness({
+    edgeError: new Error('private timeout response'),
+    postflight: noEffectPostflight(),
+  });
+  await assert.rejects(execute(sample), (error) => error.code === 'intake_execution_failed');
+  assert.ok(sample.calls.filter((call) => call === 'database.postflight').length >= 7);
+  assert.equal(sample.calls.filter((call) => call === 'edge.run').length, 1);
+});
+
+test('a nonterminal run at the reviewed bound is outcome_unknown and cannot replay', async () => {
+  const sample = harness({
+    edgeError: new Error('private timeout response'),
+    postflight: completePostflight({ runStatus: 'running', runFinishedAt: null }),
+  });
+  const logs = [];
+  await assert.rejects(
+    execute(sample, { logger: (entry) => logs.push(entry) }),
+    (error) => error.code === 'intake_reconciliation_timeout',
+  );
+  assert.equal(logs.at(-1).effectsClassification, 'outcome_unknown');
+  assert.equal(logs.at(-1).replayAllowed, false);
   assert.equal(sample.calls.filter((call) => call === 'edge.run').length, 1);
 });
 
@@ -382,9 +491,14 @@ test('any partial DB effect is an incident even when Edge failed ambiguously', a
     gmailMessageDelta: 0,
     refundCaseDelta: 1,
     managerNoticeShadowedDelta: 0,
-    classification: 'partial_incident',
+    effectsClassification: 'partial_incident',
+    gatesConclusivelyClosed: true,
+    gateState: 'closed',
     replayAllowed: false,
+    durableStateCreated: true,
     durableStateRequiresManualReconciliation: true,
+    retentionCleanupRequired: true,
+    emergencyIndependentGateVerificationRequired: false,
   });
 });
 
@@ -399,9 +513,14 @@ test('an unreadable postflight emits outcome_unknown before failing without repl
     phase: 'postflight_classified',
     ok: false,
     payloadRedacted: true,
-    classification: 'outcome_unknown',
+    effectsClassification: 'outcome_unknown',
+    gatesConclusivelyClosed: true,
+    gateState: 'closed',
     replayAllowed: false,
+    durableStateCreated: false,
     durableStateRequiresManualReconciliation: true,
+    retentionCleanupRequired: false,
+    emergencyIndependentGateVerificationRequired: false,
   });
   assert.equal(sample.calls.filter((call) => call === 'edge.run').length, 1);
 });
@@ -427,7 +546,7 @@ test('safe-close throw while open performs one bounded idempotent recovery and r
   const result = await execute(sample);
   assert.equal(result.ok, true);
   assert.equal(sample.calls.filter((call) => call === 'control.safeClose').length, 2);
-  assert.equal(sample.calls.filter((call) => call === 'control.readState').length, 4);
+  assert.equal(sample.calls.filter((call) => call === 'control.readState').length, 5);
 });
 
 test('safe-close never exits without conclusive closed state', async () => {
@@ -450,12 +569,37 @@ test('two failed post-close reads fail after exactly two close attempts', async 
     closeBehaviors: ['open_throw', 'closed'],
     postCloseReadBehaviors: ['throw', 'throw'],
   });
+  const logs = [];
   await assert.rejects(
-    execute(sample),
+    execute(sample, { logger: (entry) => logs.push(entry) }),
     (error) => error.code === 'intake_safe_close_read_failed',
   );
   assert.equal(sample.calls.filter((call) => call === 'control.safeClose').length, 2);
-  assert.equal(sample.calls.filter((call) => call === 'control.readState').length, 4);
+  assert.equal(sample.calls.filter((call) => call === 'control.readState').length, 5);
+  assert.deepEqual(logs.at(-1), {
+    phase: 'postflight_classified',
+    ok: false,
+    payloadRedacted: true,
+    threadsScanned: 1,
+    messagesSeen: 2,
+    messagesCreated: 2,
+    refundCaseDelta: 1,
+    gmailMessageDelta: 2,
+    managerNoticeShadowedDelta: 1,
+    effectsClassification: 'complete_exact',
+    gatesConclusivelyClosed: false,
+    gateState: 'unknown',
+    replayAllowed: false,
+    durableStateCreated: true,
+    durableStateRequiresManualReconciliation: false,
+    retentionCleanupRequired: true,
+    emergencyIndependentGateVerificationRequired: true,
+    routeClass: 'assigned_managers',
+    ownerManageableCaseCount: 1,
+    earliestRetentionDueAt: '2998-01-01T00:00:00.000Z',
+    latestRetentionDueAt: '2998-01-02T00:00:00.000Z',
+  });
+  assert.equal(JSON.stringify(logs).includes('private'), false);
 });
 
 test('unresolved delivery blocks before identity, secret mutation, or Gmail OAuth', async () => {
@@ -548,10 +692,10 @@ test('CLI dry-run and live config map the exact retention policy from private en
     `REFUND_GMAIL_INTAKE_SHADOW_RETENTION_POLICY_VERSION=${REFUND_INTAKE_SHADOW_RETENTION_POLICY_VERSION}`,
   ].join('\n'));
   for (const mode of ['dry-run', 'live']) {
-    const args = parseRefundGmailIntakeShadowArgs(['--mode', mode, '--timeout-seconds', '60']);
+    const args = parseRefundGmailIntakeShadowArgs(['--mode', mode, '--timeout-seconds', '480']);
     const built = buildRefundGmailIntakeShadowConfig({ ...args, env: parsed });
     assert.equal(built.mode, mode);
-    assert.equal(built.timeoutMs, 60_000);
+    assert.equal(built.timeoutMs, 480_000);
     assert.equal(
       built.retentionPolicyVersion,
       REFUND_INTAKE_SHADOW_RETENTION_POLICY_VERSION,
@@ -561,6 +705,32 @@ test('CLI dry-run and live config map the exact retention policy from private en
     () => parseRefundGmailIntakeShadowArgs(['--sender', 'private@example.test']),
     (error) => error.code === 'unsupported_argument',
   );
+});
+
+test('private env files must be absolute and outside the repository', () => {
+  assert.throws(
+    () => loadRefundGmailIntakeShadowEnvironment('relative.env', {}),
+    (error) => error.code === 'env_file_path_invalid',
+  );
+  assert.throws(
+    () => loadRefundGmailIntakeShadowEnvironment(
+      path.join(process.cwd(), 'private-intake.env'),
+      {},
+    ),
+    (error) => error.code === 'env_file_path_invalid',
+  );
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'refund-intake-shadow-'));
+  const envPath = path.join(directory, 'private.env');
+  try {
+    fs.writeFileSync(envPath, 'REFUND_GMAIL_INTAKE_SHADOW_PROJECT_REF=private\n');
+    assert.equal(
+      loadRefundGmailIntakeShadowEnvironment(envPath, {})
+        .REFUND_GMAIL_INTAKE_SHADOW_PROJECT_REF,
+      'private',
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('timeout aborts the one attempt with a generic error', async () => {

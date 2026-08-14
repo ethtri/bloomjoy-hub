@@ -141,8 +141,14 @@ $$;
 create table if not exists public.refund_gmail_intake_shadow_notices (
   source_message_id uuid primary key
     references public.refund_gmail_messages (id) on delete restrict,
+  run_id uuid not null unique
+    references public.refund_gmail_sync_runs (id) on delete restrict,
   refund_case_id uuid not null
     references public.refund_cases (id) on delete restrict,
+  first_contact_operation_id uuid not null unique
+    references public.refund_gmail_first_contact_operations (id) on delete restrict,
+  first_contact_event_id uuid not null unique
+    references public.refund_case_events (id) on delete restrict,
   event_id uuid not null unique
     references public.refund_case_events (id) on delete restrict,
   route_class text not null check (
@@ -159,6 +165,34 @@ create table if not exists public.refund_gmail_intake_shadow_notices (
 
 alter table public.refund_gmail_intake_shadow_notices enable row level security;
 revoke all on table public.refund_gmail_intake_shadow_notices
+  from public, anon, authenticated, service_role;
+
+create table if not exists public.refund_gmail_intake_shadow_cleanup_obligations (
+  run_id uuid primary key
+    references public.refund_gmail_sync_runs (id) on delete restrict,
+  source_message_id uuid not null unique
+    references public.refund_gmail_messages (id) on delete restrict,
+  refund_case_id uuid not null
+    references public.refund_cases (id) on delete restrict,
+  earliest_retention_due_at timestamptz not null,
+  latest_retention_due_at timestamptz not null,
+  assigned_owner_role text not null default 'refund_operations_owner'
+    check (assigned_owner_role = 'refund_operations_owner'),
+  status text not null default 'assigned'
+    check (status in ('assigned', 'completed')),
+  completed_at timestamptz,
+  created_at timestamptz not null default now(),
+  constraint refund_gmail_intake_shadow_cleanup_due_order check (
+    latest_retention_due_at >= earliest_retention_due_at
+  ),
+  constraint refund_gmail_intake_shadow_cleanup_completion_check check (
+    (status = 'assigned' and completed_at is null)
+    or (status = 'completed' and completed_at is not null)
+  )
+);
+
+alter table public.refund_gmail_intake_shadow_cleanup_obligations enable row level security;
+revoke all on table public.refund_gmail_intake_shadow_cleanup_obligations
   from public, anon, authenticated, service_role;
 
 create or replace function public.service_preflight_refund_gmail_intake_shadow(
@@ -351,7 +385,11 @@ begin
 end;
 $$;
 
-create or replace function public.service_record_refund_gmail_intake_shadow_notice(
+-- This is the only intake-shadow completion boundary. It binds the exact run,
+-- stored provider evidence, both audit events, and cleanup obligation in one
+-- transaction without trusting caller-supplied template or outbound flags.
+create or replace function public.service_complete_refund_gmail_intake_shadow(
+  p_run_id uuid,
   p_source_message_id uuid,
   p_refund_case_id uuid
 )
@@ -361,20 +399,34 @@ security definer
 set search_path = public
 as $$
 declare
+  exact_template constant text := 'refund_first_contact_v1';
+  truthful_message constant text :=
+    'Hub sent no customer first-contact message. A mailbox acknowledgement was already observed, and this thread is durably excluded from later Hub first contact.';
+  run_row public.refund_gmail_sync_runs;
   source_row public.refund_gmail_messages;
   case_row public.refund_cases;
+  operation_row public.refund_gmail_first_contact_operations;
   existing_notice public.refund_gmail_intake_shadow_notices;
   route_resolution jsonb;
   route_status text;
   route_class text;
-  event_id_value uuid;
+  first_contact_event_id_value uuid;
+  action_event_id_value uuid;
+  thread_message_count integer := 0;
+  acknowledgement_count integer := 0;
+  earliest_due_at timestamptz;
+  latest_due_at timestamptz;
 begin
-  if p_source_message_id is null or p_refund_case_id is null then
-    raise exception 'Exact Gmail source message and refund case required';
+  if p_run_id is null or p_source_message_id is null or p_refund_case_id is null then
+    raise exception 'Exact run, source message, and refund case required';
   end if;
 
   perform pg_advisory_xact_lock(hashtextextended(p_source_message_id::text, 0));
 
+  select * into run_row
+  from public.refund_gmail_sync_runs
+  where id = p_run_id
+  for update;
   select * into source_row
   from public.refund_gmail_messages
   where id = p_source_message_id
@@ -383,32 +435,129 @@ begin
   from public.refund_cases
   where id = p_refund_case_id;
 
-  if source_row.id is null
+  if run_row.id is null
+    or run_row.trigger_source <> 'intake_shadow'
+    or run_row.status <> 'running'
+    or not public.refund_gmail_workflow_run_key_is_valid(
+      run_row.run_key,
+      run_row.trigger_source
+    )
+    or source_row.id is null
     or case_row.id is null
     or source_row.refund_case_id <> case_row.id
     or source_row.direction <> 'inbound'
     or source_row.message_kind <> 'message'
     or source_row.status <> 'received'
     or source_row.participant_role <> 'customer'
+    or source_row.participant_trust <> 'verified'
+    or source_row.sender_email is null
+    or source_row.content_deleted_at is not null
     or case_row.intake_source <> 'gmail'
     or case_row.status <> 'draft' then
-    raise exception 'Eligible Gmail intake-shadow source required';
+    raise exception 'Exact active intake-shadow run and customer source required';
+  end if;
+
+  select count(*)::integer, min(message.retention_expires_at),
+    max(message.retention_expires_at)
+  into thread_message_count, earliest_due_at, latest_due_at
+  from public.refund_gmail_messages message
+  where message.gmail_thread_id = source_row.gmail_thread_id;
+
+  select count(*)::integer
+  into acknowledgement_count
+  from public.refund_gmail_messages message
+  where message.gmail_thread_id = source_row.gmail_thread_id
+    and message.refund_case_id = source_row.refund_case_id
+    and message.direction = 'outbound'
+    and message.message_kind = 'message'
+    and message.status = 'sent'
+    and message.participant_role = 'mailbox'
+    and message.operation_key is null
+    and message.sent_at is not null
+    and message.received_at > source_row.received_at
+    and lower(btrim(coalesce(message.recipient_email, '')))
+      = lower(btrim(source_row.sender_email))
+    and coalesce(message.recipient_cc_count, 0) = 0
+    and message.content_deleted_at is null;
+
+  if thread_message_count <> 2 or acknowledgement_count <> 1
+    or earliest_due_at is null or latest_due_at is null then
+    raise exception 'Exact two-message mailbox-acknowledged thread required';
   end if;
 
   select * into existing_notice
   from public.refund_gmail_intake_shadow_notices
-  where source_message_id = p_source_message_id;
+  where source_message_id = source_row.id;
   if existing_notice.source_message_id is not null then
-    if existing_notice.refund_case_id <> p_refund_case_id then
-      raise exception 'Gmail intake-shadow source case mismatch';
+    if existing_notice.run_id <> run_row.id
+      or existing_notice.refund_case_id <> case_row.id then
+      raise exception 'Gmail intake-shadow source run or case mismatch';
     end if;
     return jsonb_build_object(
       'recorded', false,
       'eventPresent', true,
+      'firstContactPresent', true,
+      'cleanupAssigned', true,
       'routeClass', existing_notice.route_class,
+      'mailboxAcknowledgementObserved', true,
+      'hubCustomerDeliverySent', false,
+      'laterHubFirstContactExcluded', true,
       'payloadRedacted', true
     );
   end if;
+
+  select * into operation_row
+  from public.refund_gmail_first_contact_operations operation
+  where operation.gmail_thread_id = source_row.gmail_thread_id
+  for update;
+  if operation_row.id is null then
+    insert into public.refund_gmail_first_contact_operations (
+      gmail_thread_id,
+      refund_case_id,
+      source_message_id,
+      operation_key,
+      mode,
+      template_key,
+      prior_mailbox_reply_present,
+      status,
+      cutover_at
+    ) values (
+      source_row.gmail_thread_id,
+      case_row.id,
+      source_row.id,
+      'refund-first-contact:' || source_row.gmail_thread_id::text,
+      'shadow',
+      exact_template,
+      true,
+      'shadowed',
+      null
+    ) returning * into operation_row;
+  elsif operation_row.refund_case_id <> case_row.id
+    or operation_row.source_message_id <> source_row.id
+    or operation_row.mode <> 'shadow'
+    or operation_row.template_key <> exact_template
+    or operation_row.status <> 'shadowed'
+    or operation_row.prior_mailbox_reply_present is not true then
+    raise exception 'Exact intake-shadow first-contact operation required';
+  end if;
+
+  insert into public.refund_case_events (
+    refund_case_id, event_type, message, metadata
+  ) values (
+    case_row.id,
+    'gmail_first_contact_shadowed',
+    truthful_message,
+    jsonb_build_object(
+      'payload_redacted', true,
+      'template_key', exact_template,
+      'mode', 'shadow',
+      'prior_mailbox_reply_present', true,
+      'mailbox_acknowledgement_observed', true,
+      'hub_customer_delivery_sent', false,
+      'later_hub_first_contact_excluded', true,
+      'exact_run_bound', true
+    )
+  ) returning id into first_contact_event_id_value;
 
   route_resolution := public.service_resolve_refund_customer_manager_cc(
     case_row.id,
@@ -427,114 +576,38 @@ begin
   end;
 
   insert into public.refund_case_events (
-    refund_case_id,
-    event_type,
-    message,
-    metadata
-  )
-  values (
+    refund_case_id, event_type, message, metadata
+  ) values (
     case_row.id,
     'gmail_manager_action_notice_shadowed',
     'The intake-only shadow recorded action-needed work without sending an internal or customer message.',
-    jsonb_build_object(
-      'route_class', route_class,
-      'payload_redacted', true
-    )
-  )
-  returning id into event_id_value;
+    jsonb_build_object('route_class', route_class, 'payload_redacted', true)
+  ) returning id into action_event_id_value;
 
   insert into public.refund_gmail_intake_shadow_notices (
-    source_message_id,
-    refund_case_id,
-    event_id,
-    route_class
-  )
-  values (
-    source_row.id,
-    case_row.id,
-    event_id_value,
-    route_class
+    source_message_id, run_id, refund_case_id, first_contact_operation_id,
+    first_contact_event_id, event_id, route_class
+  ) values (
+    source_row.id, run_row.id, case_row.id, operation_row.id,
+    first_contact_event_id_value, action_event_id_value, route_class
+  );
+
+  insert into public.refund_gmail_intake_shadow_cleanup_obligations (
+    run_id, source_message_id, refund_case_id,
+    earliest_retention_due_at, latest_retention_due_at,
+    assigned_owner_role, status
+  ) values (
+    run_row.id, source_row.id, case_row.id,
+    earliest_due_at, latest_due_at,
+    'refund_operations_owner', 'assigned'
   );
 
   return jsonb_build_object(
     'recorded', true,
     'eventPresent', true,
+    'firstContactPresent', true,
+    'cleanupAssigned', true,
     'routeClass', route_class,
-    'payloadRedacted', true
-  );
-end;
-$$;
-
-create or replace function public.service_record_refund_gmail_intake_shadow_first_contact(
-  p_source_message_id uuid,
-  p_template_key text
-)
-returns jsonb
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  claim_result jsonb;
-  operation_row public.refund_gmail_first_contact_operations;
-  truthful_message constant text :=
-    'Hub sent no customer first-contact message. A mailbox acknowledgement was already observed, and this thread is durably excluded from later Hub first contact.';
-begin
-  if p_source_message_id is null or length(btrim(coalesce(p_template_key, ''))) not between 8 and 120 then
-    raise exception 'Exact intake-shadow first-contact source and template required';
-  end if;
-
-  claim_result := public.service_claim_refund_gmail_first_contact(
-    p_source_message_id,
-    'shadow',
-    null,
-    p_template_key,
-    '',
-    '',
-    true
-  );
-
-  select * into operation_row
-  from public.refund_gmail_first_contact_operations operation
-  where operation.source_message_id = p_source_message_id;
-
-  if coalesce((claim_result ->> 'eligible')::boolean, false) is not true
-    or operation_row.id is null
-    or operation_row.source_message_id <> p_source_message_id
-    or operation_row.mode <> 'shadow'
-    or operation_row.status <> 'shadowed'
-    or operation_row.prior_mailbox_reply_present is not true then
-    raise exception 'Eligible mailbox-acknowledged intake-shadow source required';
-  end if;
-
-  update public.refund_case_events event
-  set
-    message = truthful_message,
-    metadata = jsonb_build_object(
-      'payload_redacted', true,
-      'template_key', operation_row.template_key,
-      'mode', 'shadow',
-      'prior_mailbox_reply_present', true,
-      'mailbox_acknowledgement_observed', true,
-      'hub_customer_delivery_sent', false,
-      'later_hub_first_contact_excluded', true
-    )
-  where event.refund_case_id = operation_row.refund_case_id
-    and event.event_type = 'gmail_first_contact_shadowed'
-    and event.metadata ->> 'template_key' = operation_row.template_key;
-
-  if not found then
-    raise exception 'Truthful intake-shadow first-contact event required';
-  end if;
-
-  return jsonb_build_object(
-    'eligible', true,
-    'claimed', coalesce((claim_result ->> 'claimed')::boolean, false),
-    'operationId', operation_row.id,
-    'status', operation_row.status,
-    'mode', operation_row.mode,
-    'templateKey', operation_row.template_key,
-    'priorMailboxReplyPresent', true,
     'mailboxAcknowledgementObserved', true,
     'hubCustomerDeliverySent', false,
     'laterHubFirstContactExcluded', true,
@@ -559,24 +632,26 @@ grant execute on function public.service_preflight_refund_gmail_intake_shadow(
   boolean, text, boolean, boolean, text
 ) to service_role;
 
-revoke execute on function public.service_record_refund_gmail_intake_shadow_notice(uuid, uuid)
+revoke execute on function public.service_complete_refund_gmail_intake_shadow(
+  uuid, uuid, uuid
+)
   from public, anon, authenticated;
-grant execute on function public.service_record_refund_gmail_intake_shadow_notice(uuid, uuid)
-  to service_role;
-revoke execute on function public.service_record_refund_gmail_intake_shadow_first_contact(uuid, text)
-  from public, anon, authenticated;
-grant execute on function public.service_record_refund_gmail_intake_shadow_first_contact(uuid, text)
+grant execute on function public.service_complete_refund_gmail_intake_shadow(
+  uuid, uuid, uuid
+)
   to service_role;
 
 comment on table public.refund_gmail_intake_shadow_notices is
-  'Service-only idempotency ledger for the owner-controlled Gmail intake-shadow notice event.';
+  'Service-only exact-run ledger binding the owner intake source, first-contact operation/event, and action-work event.';
+comment on table public.refund_gmail_intake_shadow_cleanup_obligations is
+  'PII-free exact-run owner obligation for reviewed retention cleanup after one intake-shadow copy.';
 comment on function public.service_preflight_refund_gmail_intake_shadow(
   boolean, text, boolean, boolean, text
 ) is
   'Service-only redacted DB safety preflight for the default-off Gmail intake-shadow lane.';
-comment on function public.service_record_refund_gmail_intake_shadow_notice(uuid, uuid) is
-  'Service-only idempotent PII-free action-work shadow event for one received customer Gmail message.';
-comment on function public.service_record_refund_gmail_intake_shadow_first_contact(uuid, text) is
-  'Service-only atomic truthful shadow exclusion for a mailbox-acknowledged owner intake thread; sends no message.';
+comment on function public.service_complete_refund_gmail_intake_shadow(
+  uuid, uuid, uuid
+) is
+  'Service-only atomic run-bound two-message proof, truthful exclusion, PII-free action-work event, and assigned cleanup obligation; sends no message.';
 
 select pg_notify('pgrst', 'reload schema');

@@ -11,7 +11,8 @@ import {
   sha256Hex,
 } from './refund-gmail-intake-shadow-runner-lib.mjs';
 
-const REQUEST_TIMEOUT_MS = 15_000;
+const MANAGEMENT_REQUEST_TIMEOUT_MS = 15_000;
+const EDGE_REQUEST_TIMEOUT_MS = 150_000;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -48,6 +49,8 @@ const SNAPSHOT_SQL = `
       'gmail_manager_action_notice_failed'
     )) as manager_notice_outbound_attempts,
   (select count(*) from public.refund_gmail_intake_shadow_notices) as notice_ledger,
+  (select count(*) from public.refund_gmail_intake_shadow_cleanup_obligations)
+    as cleanup_obligations,
   (select count(*) from public.refund_case_nayax_refund_attempts) as nayax_provider_attempts
 `;
 
@@ -97,17 +100,17 @@ where database.datname = pg_catalog.current_database()
     parameterCount: 2,
     sql: `
 with exact_run as (
-  select trigger_source, status, started_at, finished_at,
+  select id, trigger_source, status, started_at, finished_at,
     threads_scanned, messages_seen, messages_created, messages_failed
   from public.refund_gmail_sync_runs
   where run_key = $1::text
 ),
 exact_notice as (
-  select notice.source_message_id, notice.refund_case_id, notice.route_class
+  select notice.source_message_id, notice.refund_case_id, notice.route_class,
+    notice.first_contact_operation_id, notice.first_contact_event_id,
+    notice.event_id
   from public.refund_gmail_intake_shadow_notices notice
-  join exact_run run
-    on notice.created_at >= run.started_at
-    and notice.created_at <= coalesce(run.finished_at, statement_timestamp()) + interval '30 seconds'
+  join exact_run run on run.id = notice.run_id
 ),
 exact_source as (
   select notice.refund_case_id, notice.route_class, source.gmail_thread_id
@@ -125,6 +128,42 @@ exact_cases as (
     refund_case.status, refund_case.automation_state
   from exact_notice notice
   join public.refund_cases refund_case on refund_case.id = notice.refund_case_id
+),
+exact_first_contact_operations as (
+  select operation.id
+  from exact_notice notice
+  join public.refund_gmail_first_contact_operations operation
+    on operation.id = notice.first_contact_operation_id
+    and operation.source_message_id = notice.source_message_id
+    and operation.refund_case_id = notice.refund_case_id
+    and operation.mode = 'shadow'
+    and operation.template_key = 'refund_first_contact_v1'
+    and operation.status = 'shadowed'
+    and operation.prior_mailbox_reply_present is true
+),
+exact_first_contact_events as (
+  select event.id
+  from exact_notice notice
+  join public.refund_case_events event
+    on event.id = notice.first_contact_event_id
+    and event.refund_case_id = notice.refund_case_id
+    and event.event_type = 'gmail_first_contact_shadowed'
+),
+exact_action_events as (
+  select event.id
+  from exact_notice notice
+  join public.refund_case_events event
+    on event.id = notice.event_id
+    and event.refund_case_id = notice.refund_case_id
+    and event.event_type = 'gmail_manager_action_notice_shadowed'
+),
+exact_cleanup as (
+  select obligation.*
+  from public.refund_gmail_intake_shadow_cleanup_obligations obligation
+  join exact_run run on run.id = obligation.run_id
+  join exact_notice notice
+    on notice.source_message_id = obligation.source_message_id
+    and notice.refund_case_id = obligation.refund_case_id
 )
 select
   ${OWNER_SQL} as database_owner_session,
@@ -137,11 +176,20 @@ select
   (select count(*) from exact_run) as run_count,
   (select min(trigger_source) from exact_run) as trigger_source,
   (select min(status) from exact_run) as run_status,
+  (select min(finished_at)::text from exact_run) as run_finished_at,
   (select min(threads_scanned) from exact_run) as threads_scanned,
   (select min(messages_seen) from exact_run) as messages_seen,
   (select min(messages_created) from exact_run) as messages_created,
   (select min(messages_failed) from exact_run) as messages_failed,
   (select count(*) from exact_notice) as exact_notice_count,
+  (select count(*) from exact_first_contact_operations)
+    as exact_first_contact_operation_count,
+  (select count(*) from exact_first_contact_events)
+    as exact_first_contact_event_count,
+  (select count(*) from exact_action_events) as exact_action_event_count,
+  (select count(*) from exact_cleanup) as cleanup_obligation_count,
+  (select min(assigned_owner_role) from exact_cleanup) as cleanup_assigned_owner_role,
+  (select min(status) from exact_cleanup) as cleanup_status,
   (select min(route_class) from exact_notice) as route_class,
   (select count(*) from exact_thread_messages) as exact_thread_message_count,
   (select count(*) from exact_thread_messages exact_message
@@ -158,9 +206,9 @@ select
   (select min(intake_source) from exact_cases) as case_source,
   (select min(status) from exact_cases) as case_status,
   (select min(automation_state) from exact_cases) as case_automation_state,
-  (select min(retention_expires_at)::text from exact_thread_messages)
+  (select min(earliest_retention_due_at)::text from exact_cleanup)
     as earliest_retention_due_at,
-  (select max(retention_expires_at)::text from exact_thread_messages)
+  (select max(latest_retention_due_at)::text from exact_cleanup)
     as latest_retention_due_at,
   ${SNAPSHOT_SQL}
 from pg_catalog.pg_database database
@@ -237,6 +285,7 @@ const SNAPSHOT_KEYS = [
   'manager_notice_shadowed',
   'manager_notice_outbound_attempts',
   'notice_ledger',
+  'cleanup_obligations',
   'nayax_provider_attempts',
 ];
 
@@ -253,6 +302,7 @@ const normalizeSnapshot = (row) => ({
   managerNoticeShadowed: requireCount(row.manager_notice_shadowed),
   managerNoticeOutboundAttempts: requireCount(row.manager_notice_outbound_attempts),
   noticeLedger: requireCount(row.notice_ledger),
+  cleanupObligations: requireCount(row.cleanup_obligations),
   nayaxProviderAttempts: requireCount(row.nayax_provider_attempts),
 });
 
@@ -289,11 +339,18 @@ const POST_KEYS = [
   'run_count',
   'trigger_source',
   'run_status',
+  'run_finished_at',
   'threads_scanned',
   'messages_seen',
   'messages_created',
   'messages_failed',
   'exact_notice_count',
+  'exact_first_contact_operation_count',
+  'exact_first_contact_event_count',
+  'exact_action_event_count',
+  'cleanup_obligation_count',
+  'cleanup_assigned_owner_role',
+  'cleanup_status',
   'route_class',
   'exact_thread_message_count',
   'exact_customer_inbound_count',
@@ -350,8 +407,8 @@ export const createRefundGmailIntakeShadowDatabaseClient = ({
       },
       body: JSON.stringify({ query: operation.sql, parameters, read_only: false }),
       signal: signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
-        : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        ? AbortSignal.any([signal, AbortSignal.timeout(MANAGEMENT_REQUEST_TIMEOUT_MS)])
+        : AbortSignal.timeout(MANAGEMENT_REQUEST_TIMEOUT_MS),
     }, 'database_query_failed');
     if (!response.ok) throw genericFailure('database_query_failed');
     let rows;
@@ -419,6 +476,7 @@ export const createRefundGmailIntakeShadowDatabaseClient = ({
       };
       const earliestRetentionDueAt = parseRetentionDate(row.earliest_retention_due_at);
       const latestRetentionDueAt = parseRetentionDate(row.latest_retention_due_at);
+      const runFinishedAt = parseRetentionDate(row.run_finished_at);
       if (
         earliestRetentionDueAt !== null && latestRetentionDueAt !== null &&
         Date.parse(earliestRetentionDueAt) > Date.parse(latestRetentionDueAt)
@@ -431,11 +489,26 @@ export const createRefundGmailIntakeShadowDatabaseClient = ({
         runCount,
         triggerSource: requireNullableText(row.trigger_source, [null, 'intake_shadow']),
         runStatus: requireNullableText(row.run_status, [null, 'running', 'succeeded', 'failed', 'suppressed']),
+        runFinishedAt,
         threadsScanned: nullableCount(row.threads_scanned),
         messagesSeen: nullableCount(row.messages_seen),
         messagesCreated: nullableCount(row.messages_created),
         messagesFailed: nullableCount(row.messages_failed),
         exactNoticeCount: requireCount(row.exact_notice_count),
+        exactFirstContactOperationCount:
+          requireCount(row.exact_first_contact_operation_count),
+        exactFirstContactEventCount:
+          requireCount(row.exact_first_contact_event_count),
+        exactActionEventCount: requireCount(row.exact_action_event_count),
+        cleanupObligationCount: requireCount(row.cleanup_obligation_count),
+        cleanupAssignedOwnerRole: requireNullableText(
+          row.cleanup_assigned_owner_role,
+          [null, 'refund_operations_owner'],
+        ),
+        cleanupStatus: requireNullableText(
+          row.cleanup_status,
+          [null, 'assigned', 'completed'],
+        ),
         routeClass: requireNullableText(row.route_class, [
           null,
           'assigned_managers',
@@ -473,6 +546,8 @@ export const createRefundGmailIntakeShadowDatabaseClient = ({
             beforeSnapshot.managerNoticeOutboundAttempts,
           ),
         noticeLedgerDelta: delta(after.noticeLedger, beforeSnapshot.noticeLedger),
+        cleanupObligationDelta:
+          delta(after.cleanupObligations, beforeSnapshot.cleanupObligations),
         nayaxProviderAttemptDelta:
           delta(after.nayaxProviderAttempts, beforeSnapshot.nayaxProviderAttempts),
       };
@@ -523,8 +598,8 @@ export const createRefundGmailIntakeShadowControlClient = ({
         },
         ...(body ? { body: JSON.stringify(body) } : {}),
         signal: signal
-          ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
-          : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          ? AbortSignal.any([signal, AbortSignal.timeout(MANAGEMENT_REQUEST_TIMEOUT_MS)])
+          : AbortSignal.timeout(MANAGEMENT_REQUEST_TIMEOUT_MS),
       },
       code,
     );
@@ -557,8 +632,8 @@ export const createRefundGmailIntakeShadowControlClient = ({
           Authorization: `Bearer ${managementToken}`,
         },
         signal: signal
-          ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
-          : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          ? AbortSignal.any([signal, AbortSignal.timeout(MANAGEMENT_REQUEST_TIMEOUT_MS)])
+          : AbortSignal.timeout(MANAGEMENT_REQUEST_TIMEOUT_MS),
       },
       'backup_health_read_failed',
     );
@@ -659,6 +734,29 @@ export const createRefundGmailIntakeShadowControlClient = ({
       };
     },
 
+    async initializeClosed({ shadowLabelId, signal } = {}) {
+      if (typeof shadowLabelId !== 'string' || !shadowLabelId.trim()) {
+        throw genericFailure('intake_initialize_input_invalid');
+      }
+      await setSecrets([
+        { name: 'REFUND_GMAIL_INTAKE_ENABLED', value: 'false' },
+        { name: 'REFUND_GMAIL_ENABLED', value: 'false' },
+        { name: 'REFUND_GMAIL_RETENTION_ENABLED', value: 'false' },
+        { name: 'REFUND_GMAIL_FIRST_CONTACT_MODE', value: 'disabled' },
+        { name: 'GMAIL_REFUND_START_AT', value: REFUND_INTAKE_SHADOW_SAFE_START_AT },
+        { name: 'GMAIL_REFUND_MAX_THREADS_PER_RUN', value: '1' },
+        { name: 'GMAIL_REFUND_INTAKE_SHADOW_LABEL_ID', value: shadowLabelId.trim() },
+        {
+          name: 'REFUND_GMAIL_INTAKE_SHADOW_OWNER_SENDER_SHA256',
+          value: REFUND_INTAKE_SHADOW_ZERO_DIGEST,
+        },
+        {
+          name: 'REFUND_GMAIL_INTAKE_SHADOW_RUN_KEY_SHA256',
+          value: REFUND_INTAKE_SHADOW_ZERO_DIGEST,
+        },
+      ], 'intake_initialize_failed', signal);
+    },
+
     async openIntake({ freshStartAt, ownerSenderDigest, runKeyDigest, signal }) {
       if (!Number.isFinite(Date.parse(freshStartAt)) ||
           !SHA256_PATTERN.test(ownerSenderDigest ?? '') ||
@@ -718,8 +816,8 @@ export const createRefundGmailIntakeShadowIdentityClient = ({
         method: 'GET',
         headers: { apikey: anonKey, Authorization: `Bearer ${ownerUserJwt}` },
         signal: signal
-          ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
-          : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          ? AbortSignal.any([signal, AbortSignal.timeout(MANAGEMENT_REQUEST_TIMEOUT_MS)])
+          : AbortSignal.timeout(MANAGEMENT_REQUEST_TIMEOUT_MS),
       },
       'owner_identity_failed',
     );
@@ -765,8 +863,8 @@ export const createRefundGmailIntakeShadowEdgeClient = ({
         },
         body: JSON.stringify({ runKey, trigger: 'intake_shadow' }),
         signal: signal
-          ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
-          : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          ? AbortSignal.any([signal, AbortSignal.timeout(EDGE_REQUEST_TIMEOUT_MS)])
+          : AbortSignal.timeout(EDGE_REQUEST_TIMEOUT_MS),
       },
       'edge_request_failed',
     );
