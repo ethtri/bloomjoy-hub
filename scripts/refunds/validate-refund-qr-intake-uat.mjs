@@ -5,6 +5,7 @@ import { chromium } from 'playwright';
 import {
   createTrackedUatBrowser,
   getUatPageFailures,
+  isFixtureOwnedUatRequestFailure,
 } from './refund-browser-uat-network.mjs';
 
 const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
@@ -18,6 +19,7 @@ const validQrCode = 'refund_qr_public_uat_machine_one_000001';
 const invalidQrCode = 'refund_qr_public_uat_retired_code_00001';
 const networkQrCode = 'refund_qr_public_uat_network_error_00001';
 const EXPECTED_QR_ERROR_HEADER = 'x-bloomjoy-uat-expected-error';
+const fixtureOwnedQrAborts = new WeakSet();
 
 const parseArgs = (argv) => {
   const args = {
@@ -141,6 +143,7 @@ const installPublicRefundRoutes = async (
 
     if (body.action === 'startQrClaim') {
       if (body.qrCode === abortQrCode) {
+        fixtureOwnedQrAborts.add(route.request());
         await route.abort('failed');
         return;
       }
@@ -234,12 +237,16 @@ const isExpectedQrUatRequestFailure = (request) => {
     return false;
   }
   const body = qrRequestJson(request);
-  return (
-    request.method() === 'POST' &&
-    pathname === '/functions/v1/refund-case-intake' &&
-    body?.action === 'startQrClaim' &&
-    body?.qrCode === networkQrCode
-  );
+  return isFixtureOwnedUatRequestFailure(request, {
+    ownedRequests: fixtureOwnedQrAborts,
+    failureCode: 'ERR_FAILED',
+    method: 'POST',
+    resourceType: 'fetch',
+    validateRequest: () =>
+      pathname === '/functions/v1/refund-case-intake' &&
+      body?.action === 'startQrClaim' &&
+      body?.qrCode === networkQrCode,
+  });
 };
 
 const fillRequiredRefundFields = async (page, { wallet = false } = {}) => {

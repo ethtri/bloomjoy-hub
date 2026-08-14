@@ -30,6 +30,7 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'get_refund_automation_health',
   'get_refund_gmail_health',
   'get_refund_manager_totp_enrollment_readiness_current_user',
+  'public_refund_machine_options',
   'admin_get_refund_nayax_resolution_readiness',
   'admin_get_refund_email_queue_states',
   'admin_get_refund_case_reconciliation',
@@ -40,6 +41,13 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
 const isReadOnlyNavigationActivity = ({ functionCalls, rpcCalls }) =>
   functionCalls.length === 0 &&
   rpcCalls.every((name) => NAVIGATION_READ_ONLY_RPCS.has(name));
+
+const labelFixtureOwnedPortalRpc = (route, rpcName) => {
+  if (!NAVIGATION_READ_ONLY_RPCS.has(rpcName)) {
+    throw new Error('Synthetic RPC label is not allowlisted.');
+  }
+  fixtureOwnedPortalRpcLabels.set(route.request(), rpcName);
+};
 
 const parseArgs = (argv) => {
   const args = {
@@ -1720,23 +1728,8 @@ const computedContrastRatio = async (locator) => locator.evaluate((element) => {
 
 const pathname = (page) => new URL(page.url()).pathname;
 
-const isExpectedExternalFontFailure = (url) => {
-  try {
-    const parsed = new URL(url);
-    return (
-      parsed.hostname === 'fonts.gstatic.com' &&
-      /\.(?:woff2?|ttf|otf)$/i.test(parsed.pathname)
-    );
-  } catch {
-    return false;
-  }
-};
-
 const shouldRecordConsoleError = (message, { ignoreConflict = false } = {}) => {
   if (message.type() !== 'error') return false;
-
-  const locationUrl = message.location()?.url ?? '';
-  if (isExpectedExternalFontFailure(locationUrl)) return false;
 
   return !(
     ignoreConflict &&
@@ -1761,8 +1754,6 @@ const requestPath = (request) => {
 };
 
 const isExpectedPortalUatResponse = (response) => {
-  if (isExpectedExternalFontFailure(response.url())) return true;
-
   const request = response.request();
   if (request.method() !== 'POST') return false;
   const status = response.status();
@@ -1839,7 +1830,7 @@ const isExpectedPortalUatRequestFailure = (request) => {
       `page_${pageState}`,
     ].join(' '));
   }
-  return request.method() === 'GET' && isExpectedExternalFontFailure(request.url());
+  return false;
 };
 
 const isExpectedPortalUatClosingRequestFailure = (request) => {
@@ -1859,9 +1850,10 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
   });
-  await context.route('**/rest/v1/rpc/public_refund_machine_options', async (route) =>
-    route.fulfill(jsonResponse([]))
-  );
+  await context.route('**/rest/v1/rpc/public_refund_machine_options', async (route) => {
+    labelFixtureOwnedPortalRpc(route, 'public_refund_machine_options');
+    await route.fulfill(jsonResponse([]));
+  });
   const page = await context.newPage();
 
   await page.goto(`${appUrl}/refunds`, { waitUntil: 'domcontentloaded' });
@@ -1928,8 +1920,9 @@ const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) =>
       viewport: { width: 1280, height: 900 },
     });
     const submissions = [];
-    await context.route('**/rest/v1/rpc/public_refund_machine_options', async (route) =>
-      route.fulfill(jsonResponse([
+    await context.route('**/rest/v1/rpc/public_refund_machine_options', async (route) => {
+      labelFixtureOwnedPortalRpc(route, 'public_refund_machine_options');
+      await route.fulfill(jsonResponse([
         {
           machine_id: machineId,
           machine_label: 'Refund UAT Cotton Candy 01',
@@ -1937,8 +1930,8 @@ const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) =>
           location_name: 'Refund UAT Mall',
           location_timezone: 'America/Los_Angeles',
         },
-      ]))
-    );
+      ]));
+    });
     await context.route('**/functions/v1/refund-case-intake', async (route) => {
       submissions.push(route.request().postDataJSON());
       return route.fulfill(jsonResponse({

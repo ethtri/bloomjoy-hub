@@ -7,6 +7,7 @@ import {
   describeFailedUatRequest,
   describeFailedUatResponse,
   getUatPageFailures,
+  isFixtureOwnedUatRequestFailure,
   redactUatRequestTarget,
 } from './refund-browser-uat-network.mjs';
 
@@ -153,6 +154,10 @@ const createMockBrowser = () => {
         context.emit('page', page);
         return page;
       };
+      context.routes = [];
+      context.route = async (pattern, handler) => {
+        context.routes.push({ pattern, handler });
+      };
       contexts.push(context);
       return context;
     },
@@ -278,4 +283,96 @@ test('a labelled abort is allowed only while its owning context is closing', asy
   assert.deepEqual(failures, [
     'NETWORK_FAILED ERR_ABORTED POST fetch [loopback]/rest/v1/rpc/[redacted]',
   ]);
+});
+
+test('fixture ownership never suppresses a same-shaped unowned or wrong failure', () => {
+  const ownedRequests = new WeakSet();
+  const expected = mockRequest({
+    url: 'http://127.0.0.1:54321/functions/v1/refund-case-intake',
+    method: 'POST',
+    resourceType: 'fetch',
+    failure: { errorText: 'net::ERR_FAILED' },
+  });
+  const unownedSameShape = mockRequest({
+    url: 'http://127.0.0.1:54321/functions/v1/refund-case-intake',
+    method: 'POST',
+    resourceType: 'fetch',
+    failure: { errorText: 'net::ERR_FAILED' },
+  });
+  const wrongCode = mockRequest({
+    url: 'http://127.0.0.1:54321/functions/v1/refund-case-intake',
+    method: 'POST',
+    resourceType: 'fetch',
+    failure: { errorText: 'net::ERR_ABORTED' },
+  });
+  const wrongType = mockRequest({
+    url: 'http://127.0.0.1:54321/functions/v1/refund-case-intake',
+    method: 'POST',
+    resourceType: 'xhr',
+    failure: { errorText: 'net::ERR_FAILED' },
+  });
+  for (const request of [expected, wrongCode, wrongType]) ownedRequests.add(request);
+  const isExpected = (request) => isFixtureOwnedUatRequestFailure(request, {
+    ownedRequests,
+    failureCode: 'ERR_FAILED',
+    method: 'POST',
+    resourceType: 'fetch',
+    validateRequest: (candidate) => new URL(candidate.url()).pathname ===
+      '/functions/v1/refund-case-intake',
+  });
+
+  assert.equal(isExpected(expected), true);
+  assert.equal(isExpected(unownedSameShape), false);
+  assert.equal(isExpected(wrongCode), false);
+  assert.equal(isExpected(wrongType), false);
+  assert.equal(isFixtureOwnedUatRequestFailure(expected, {
+    ownedRequests,
+    failureCode: 'ERR_FAILED',
+    method: 'POST',
+    resourceType: 'fetch',
+    validateRequest: () => {
+      throw new Error('validator errors must fail closed');
+    },
+  }), false);
+});
+
+test('tracked contexts replace only the exact public Google font stylesheet with empty CSS', async () => {
+  const failures = [];
+  const { browser, contexts } = createMockBrowser();
+  const trackedBrowser = createTrackedUatBrowser(browser, { appUrl: APP_URL, failures });
+  await trackedBrowser.newContext();
+  assert.equal(contexts[0].routes.length, 1);
+  assert.equal(contexts[0].routes[0].pattern, 'https://fonts.googleapis.com/**');
+
+  const exactActions = [];
+  await contexts[0].routes[0].handler({
+    request: () => mockRequest({
+      url: 'https://fonts.googleapis.com/css2?family=Inter',
+      method: 'GET',
+      resourceType: 'stylesheet',
+    }),
+    fulfill: async (value) => exactActions.push(['fulfill', value]),
+    continue: async () => exactActions.push(['continue']),
+  });
+  assert.deepEqual(exactActions, [[
+    'fulfill',
+    {
+      status: 200,
+      contentType: 'text/css',
+      headers: { 'x-bloomjoy-uat-synthetic-resource': 'google-font-css' },
+      body: '',
+    },
+  ]]);
+
+  const unrelatedActions = [];
+  await contexts[0].routes[0].handler({
+    request: () => mockRequest({
+      url: 'https://fonts.googleapis.com/private/alice',
+      method: 'GET',
+      resourceType: 'stylesheet',
+    }),
+    fulfill: async () => unrelatedActions.push(['fulfill']),
+    continue: async () => unrelatedActions.push(['continue']),
+  });
+  assert.deepEqual(unrelatedActions, [['continue']]);
 });
