@@ -197,7 +197,7 @@ supabase secrets set REFUND_GPT_TRIAGE_ENABLED=false
 
 Do not set `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` during shadow-mode setup. It stays unset until a separate live card-refund execution pilot is explicitly approved. Generate the idempotency secret and executor assertion independently; neither may reuse the Supabase service-role key. Do not register an executor assertion in `refund_nayax_provider_callers` until the vendor contract, QA proof, independent review, and owner-controlled gate-on are complete. The raw assertion belongs only in the Edge Function secret; the database stores its SHA-256 digest.
 
-Gmail and GPT credentials are enablement-time secrets, not prerequisites for the initial all-switches-off core deployment. Do not configure Gmail OAuth/mailbox secrets before the approvals in `#634`, and do not configure the production OpenAI key before the privacy/data-control approval in `#635`. Both functions deploy safely without Gmail or OpenAI credentials and remain inaccessible/disabled until their dedicated scheduler secret and enablement gates are configured.
+Gmail and GPT credentials were enablement-time secrets rather than prerequisites for the historical all-switches-off core deployment. The production Gmail OAuth/mailbox connection is now configured and proved under `#634`, while Gmail schedules, broad customer contact, and the legacy-responder cutover remain off. Do not configure the production OpenAI key before the privacy/data-control approval in `#635`. Both functions remain fail-closed unless their dedicated scheduler secret and enablement gates are configured.
 
 Before continuing, run:
 
@@ -207,9 +207,9 @@ npm run commerce:preflight -- --project-ref <project-ref> --include-refunds
 npm run refunds:preflight-gmail -- --project-ref <project-ref>
 ```
 
-Remote preflight validates secret presence by name. Before deploying, separately verify the fail-closed values are set as intended: `NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`, and `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false`. These historic safety values do not enable the candidate handler: its production provider adapter remains statically disabled, and the local synthetic adapter is available only through dependency injection in tests.
+Remote preflight validates secret presence by name. Before deploying, separately verify the fail-closed values are set as intended: `NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`, and `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false`. These safety values do not enable the deployed default-off handler: its production provider adapter remains statically disabled, and the local synthetic adapter is available only through dependency injection in tests.
 
-For the deployed `#644` baseline, use `Docs/REFUND_PRODUCTION_CUTOVER_PACKET.md` as the historical merge, deployment, smoke, rollback, pilot, and sponsor-decision record. Do not apply it unmodified to the unmerged `#409` integration candidate. The candidate requires its own reviewed final manifest/evidence and all open owner/provider/mailbox gates. `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` remains historical and must not be used to deploy the candidate.
+For the deployed `#644` baseline, use `Docs/REFUND_PRODUCTION_CUTOVER_PACKET.md` as the historical merge, deployment, smoke, rollback, pilot, and sponsor-decision record. The current strict release is governed by the exact reviewed canonical-main manifest and evidence. Issue `#409` tracks the remaining staffed shadow and production-label/legacy-responder no-overlap cutover; it is not an unmerged integration release candidate and does not require a separate release manifest. `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` remains historical and must not be used as current deployment authority.
 
 #### Refund Auth closed-state barrier (required before Step B)
 
