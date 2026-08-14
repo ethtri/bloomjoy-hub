@@ -484,43 +484,54 @@ export const reconcileRefundGmailIntakeShadowPostflight = async ({
 
   let stableFingerprint = null;
   let stableReads = 0;
+  let lastCleanupTaskHandle = null;
   while (true) {
-    const postflight = await database.postflight({ before, runKey, ownerUserId });
-    if (!edgeDispatched) return postflight;
-    const nowMs = clock();
-    if (!Number.isFinite(nowMs)) fail('clock_invalid');
-    const cancelledNoRun =
-      postflight.dispatchStatus === 'cancelled' && postflight.runCount === 0;
-    const terminalRun =
-      postflight.dispatchStatus === 'consumed' &&
-      postflight.runCount === 1 &&
-      ['succeeded', 'failed', 'suppressed'].includes(postflight.runStatus) &&
-      typeof postflight.runFinishedAt === 'string' &&
-      Number.isFinite(Date.parse(postflight.runFinishedAt));
-    if (cancelledNoRun || terminalRun) {
-      const fingerprint = stablePostflightFingerprint(postflight);
-      if (fingerprint === stableFingerprint) stableReads += 1;
-      else {
-        stableFingerprint = fingerprint;
-        stableReads = 1;
+    try {
+      const postflight = await database.postflight({ before, runKey, ownerUserId });
+      if (UUID_PATTERN.test(postflight.cleanupTaskHandle ?? '')) {
+        lastCleanupTaskHandle = postflight.cleanupTaskHandle;
       }
-      if (stableReads >= 2) return postflight;
-    } else if (
-      postflight.dispatchStatus !== 'consumed' || postflight.runCount !== 1 ||
-      postflight.runStatus !== 'running' ||
-      typeof postflight.runStartedAt !== 'string' ||
-      !Number.isFinite(Date.parse(postflight.runStartedAt))
-    ) {
-      fail('intake_dispatch_state_invalid');
-    } else if (
-      nowMs >= Date.parse(postflight.runStartedAt) + reconciliationBoundMs
-    ) {
-      throw new RefundGmailIntakeShadowRunnerError(
-        'intake_reconciliation_timeout',
-        { cleanupTaskHandle: postflight.cleanupTaskHandle },
-      );
+      if (!edgeDispatched) return postflight;
+      const nowMs = clock();
+      if (!Number.isFinite(nowMs)) fail('clock_invalid');
+      const cancelledNoRun =
+        postflight.dispatchStatus === 'cancelled' && postflight.runCount === 0;
+      const terminalRun =
+        postflight.dispatchStatus === 'consumed' &&
+        postflight.runCount === 1 &&
+        ['succeeded', 'failed', 'suppressed'].includes(postflight.runStatus) &&
+        typeof postflight.runFinishedAt === 'string' &&
+        Number.isFinite(Date.parse(postflight.runFinishedAt));
+      if (cancelledNoRun || terminalRun) {
+        const fingerprint = stablePostflightFingerprint(postflight);
+        if (fingerprint === stableFingerprint) stableReads += 1;
+        else {
+          stableFingerprint = fingerprint;
+          stableReads = 1;
+        }
+        if (stableReads >= 2) return postflight;
+      } else if (
+        postflight.dispatchStatus !== 'consumed' || postflight.runCount !== 1 ||
+        postflight.runStatus !== 'running' ||
+        typeof postflight.runStartedAt !== 'string' ||
+        !Number.isFinite(Date.parse(postflight.runStartedAt))
+      ) {
+        fail('intake_dispatch_state_invalid');
+      } else if (
+        nowMs >= Date.parse(postflight.runStartedAt) + reconciliationBoundMs
+      ) {
+        throw new RefundGmailIntakeShadowRunnerError('intake_reconciliation_timeout');
+      }
+      await sleep(stablePollIntervalMs);
+    } catch (error) {
+      const normalized = normalizeError(error, 'intake_postflight_failed');
+      throw UUID_PATTERN.test(lastCleanupTaskHandle ?? '')
+        ? new RefundGmailIntakeShadowRunnerError(normalized.code, {
+          ...normalized.safeDetails,
+          cleanupTaskHandle: lastCleanupTaskHandle,
+        })
+        : normalized;
     }
-    await sleep(stablePollIntervalMs);
   }
 };
 

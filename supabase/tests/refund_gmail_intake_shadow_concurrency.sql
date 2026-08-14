@@ -277,6 +277,92 @@ select ok(
 );
 
 do $$
+declare
+  local_connection text := 'host=db port=' || current_setting('port')
+    || ' dbname=' || current_database()
+    || ' user=postgres password=postgres sslmode=disable';
+begin
+  perform extensions.dblink_disconnect('gmail_intake_shadow_race_late');
+  perform extensions.dblink_connect(
+    'gmail_intake_shadow_race_late',
+    local_connection || ' application_name=gmail_intake_shadow_race_late'
+  );
+end;
+$$;
+
+-- A cleanup proof that wins the same global lock must also advance the
+-- durable epoch before releasing a pending authorization. The absent handle
+-- keeps this fixture PII-free while exercising the production cleanup RPC.
+begin;
+select pg_advisory_xact_lock(
+  hashtextextended('refund-gmail-intake-shadow-dispatch-authorize', 854)
+);
+select extensions.dblink_send_query(
+  'gmail_intake_shadow_race_late',
+  $query$
+    select refund_gmail_intake_shadow_race_test.authorize(repeat('5', 64))
+  $query$
+);
+do $$
+declare
+  attempt integer;
+begin
+  for attempt in 1..100 loop
+    exit when exists (
+      select 1
+      from pg_catalog.pg_stat_activity activity
+      where activity.application_name = 'gmail_intake_shadow_race_late'
+        and activity.wait_event_type = 'Lock'
+    );
+    perform pg_sleep(0.01);
+  end loop;
+  if not exists (
+    select 1
+    from pg_catalog.pg_stat_activity activity
+    where activity.application_name = 'gmail_intake_shadow_race_late'
+      and activity.wait_event_type = 'Lock'
+  ) then
+    raise exception 'Cleanup-delayed authorization did not reach the production lock';
+  end if;
+end;
+$$;
+select is(
+  public.owner_complete_due_refund_gmail_intake_shadow_cleanup(
+    '00000000-0000-4000-8000-000000000998'
+  ),
+  jsonb_build_object(
+    'completedNow', 0,
+    'assignedOverdue', 0,
+    'assignedOutstanding', 0,
+    'taskFound', false,
+    'taskStatus', 'absent',
+    'payloadRedacted', true
+  ),
+  'Cleanup advances its durable epoch while holding the global dispatch lock'
+);
+commit;
+
+insert into refund_gmail_intake_shadow_race_test.results (connection_name, result)
+select 'cleanup_late', result
+from extensions.dblink_get_result('gmail_intake_shadow_race_late') as response(result jsonb);
+
+select ok(
+  (
+    select result ->> 'status' = 'rejected'
+      and (result ->> 'authorized')::boolean is false
+      and (result ->> 'payloadRedacted')::boolean
+    from refund_gmail_intake_shadow_race_test.results
+    where connection_name = 'cleanup_late'
+  )
+  and not exists (
+    select 1
+    from public.refund_gmail_intake_shadow_dispatch_authorizations
+    where run_key_digest = repeat('5', 64)
+  ),
+  'Cleanup-first ordering rejects the already-pending authorization and leaves no arm'
+);
+
+do $$
 begin
   perform extensions.dblink_disconnect('gmail_intake_shadow_race_late');
 end;

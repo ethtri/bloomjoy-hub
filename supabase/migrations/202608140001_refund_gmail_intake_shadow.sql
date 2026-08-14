@@ -1010,6 +1010,13 @@ begin
   from public.refund_gmail_intake_shadow_cleanup_obligations obligation
   where obligation.cleanup_task_handle = p_cleanup_task_handle;
 
+  -- Invalidate every authorization request that began before or while this
+  -- dispatch-locked cleanup proof ran. A request already waiting behind the
+  -- lock must not arm immediately after cleanup reports a closed lane.
+  update public.refund_gmail_intake_shadow_dispatch_control
+  set last_recovery_at = clock_timestamp()
+  where singleton;
+
   return jsonb_build_object(
     'completedNow', completed_now,
     'assignedOverdue', assigned_overdue,

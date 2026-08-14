@@ -298,9 +298,11 @@ const harness = ({
         assert.match(runKey, /^owner-intake-shadow:[a-f0-9]{64}$/u);
         assert.equal(ownerUserId, OWNER_USER_ID);
         if (postflightError) throw postflightError;
-        return postflightSequence
+        const nextPostflight = postflightSequence
           ? postflightSequence[Math.min(postflightIndex++, postflightSequence.length - 1)]
           : postflight;
+        if (nextPostflight instanceof Error) throw nextPostflight;
+        return nextPostflight;
       },
     },
     identity: {
@@ -584,6 +586,31 @@ test('a nonterminal run preserves its cleanup handle in outcome_unknown and cann
   );
   assert.equal(logs.at(-1).effectsClassification, 'outcome_unknown');
   assert.equal(logs.at(-1).replayAllowed, false);
+  assert.equal(logs.at(-1).cleanupTaskHandle, CLEANUP_TASK_HANDLE);
+  assert.equal(sample.calls.filter((call) => call === 'edge.run').length, 1);
+});
+
+test('a later reconciliation read failure preserves the last verified cleanup handle', async () => {
+  const sample = harness({
+    edgeError: new Error('private timeout response'),
+    postflightSequence: [
+      completePostflight({ runStatus: 'running', runFinishedAt: null }),
+      new Error('private later database response'),
+    ],
+  });
+  const logs = [];
+  await assert.rejects(
+    execute(sample, {
+      logger: (entry) => logs.push(entry),
+      sleep: async () => {},
+    }),
+    (error) => {
+      assert.equal(error.code, 'intake_postflight_failed');
+      assert.equal(error.safeDetails.cleanupTaskHandle, CLEANUP_TASK_HANDLE);
+      return true;
+    },
+  );
+  assert.equal(logs.at(-1).effectsClassification, 'outcome_unknown');
   assert.equal(logs.at(-1).cleanupTaskHandle, CLEANUP_TASK_HANDLE);
   assert.equal(sample.calls.filter((call) => call === 'edge.run').length, 1);
 });

@@ -90,6 +90,7 @@ assert.match(library, /exactThreadMessageCount === 2/u);
 assert.match(library, /managerNoticeOutboundAttemptDelta !== 0/u);
 assert.match(runnerTests, /unreadable postflight emits outcome_unknown/u);
 assert.match(runnerTests, /nonterminal run preserves its cleanup handle in outcome_unknown/u);
+assert.match(runnerTests, /later reconciliation read failure preserves the last verified cleanup handle/u);
 assert.match(runnerTests, /exact local v1 contract before any client call/u);
 assert.match(runnerTests, /zero secret writes/u);
 assert.match(runnerTests, /bounded idempotent recovery/u);
@@ -212,6 +213,10 @@ assert.match(
   cleanupCompletionBlock,
   /dispatch\.status = 'armed'[\s\S]*run\.status = 'running'[\s\S]*Intake-shadow cleanup requires a closed dispatch lane/u,
 );
+assert.match(
+  cleanupCompletionBlock,
+  /refund_gmail_intake_shadow_dispatch_control[\s\S]*last_recovery_at = clock_timestamp\(\)/u,
+);
 assert.equal(
   migration.match(/refund-gmail-intake-shadow-cleanup-obligations/g)?.length,
   2,
@@ -257,6 +262,7 @@ assert.match(concurrencyTests, /The concurrent loser fails closed before arming 
 assert.match(concurrencyTests, /Concurrency teardown leaves no armed intake-shadow authorization/u);
 assert.match(concurrencyTests, /Delayed authorization cannot arm after close created an absent-row tombstone/u);
 assert.match(concurrencyTests, /Recovery-first ordering rejects the already-pending authorization/u);
+assert.match(concurrencyTests, /Cleanup-first ordering rejects the already-pending authorization/u);
 assert.match(migrationValidator, /writeRefundGmailIntakeShadowAdapterTest/u);
 assert.match(migrationValidator, /Exact Gmail intake-shadow owner postflight adapter query executes on PostgreSQL/u);
 
@@ -296,6 +302,7 @@ assert.match(runbook, /random PII-free cleanup task handle/u);
 assert.match(runbook, /assignedOutstanding=0/u);
 assert.match(runbook, /exact already-completed handle may idempotently re-prove completion/u);
 assert.match(runbook, /same global dispatch lock used by authorization/u);
+assert.match(runbook, /advances the durable dispatch epoch/u);
 assert.match(runbook, /--mode cleanup-verify/u);
 assert.match(runbook, /--mode recover-expired/u);
 assert.match(runbook, /no-target function takes the same global advisory lock/iu);
