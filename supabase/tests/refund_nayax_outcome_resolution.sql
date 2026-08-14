@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(81);
+select plan(82);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -681,20 +681,43 @@ select ok(
   and (select count(*) = 0 from public.sales_adjustment_facts where refund_case_id = 'b1600000-0000-4000-8000-000000000002'),
   'Retry-safe proves no provider call, customer message, or completion adjustment');
 
+select ok((
+  with simulated_clock as (
+    select '2026-08-14 00:05:00+00'::timestamptz as now_at
+  ), fixture_evidence as (
+    select
+      now_at,
+      (
+        date_trunc('day', now_at at time zone 'UTC')
+        - interval '1 day'
+        + interval '15 minutes'
+      ) at time zone 'UTC' as occurred_at
+    from simulated_clock
+  )
+  select
+    occurred_at <= now_at + interval '30 seconds'
+    and (occurred_at at time zone 'UTC')::date <>
+      (occurred_at at time zone 'America/Los_Angeles')::date
+  from fixture_evidence
+), 'Previous-day UTC evidence stays in the past and crosses the LA date at 00:05 UTC');
+
 update public.refund_case_nayax_refund_attempts
 set
   created_at = (
-    date_trunc('day', statement_timestamp() at time zone 'UTC') + interval '15 minutes'
+    date_trunc('day', statement_timestamp() at time zone 'UTC')
+    - interval '1 day' + interval '15 minutes'
   ) at time zone 'UTC' - interval '30 minutes',
   provider_outcome_recorded_at = (
-    date_trunc('day', statement_timestamp() at time zone 'UTC') + interval '15 minutes'
+    date_trunc('day', statement_timestamp() at time zone 'UTC')
+    - interval '1 day' + interval '15 minutes'
   ) at time zone 'UTC'
 where id = 'b1700000-0000-4000-8000-000000000003';
 set local role authenticated;
 select pg_temp.set_auth_claims('b1000000-0000-4000-8000-000000000001', 'aal1', '[]'::jsonb);
 with evidence as (
   select (
-    date_trunc('day', statement_timestamp() at time zone 'UTC') + interval '15 minutes'
+    date_trunc('day', statement_timestamp() at time zone 'UTC')
+    - interval '1 day' + interval '15 minutes'
   ) at time zone 'UTC' as occurred_at
 )
 insert into pg_temp.nayax_resolution_test_intents (intent_key, intent_id, evidence_occurred_at)
