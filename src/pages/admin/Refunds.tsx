@@ -3712,15 +3712,22 @@ export default function AdminRefundsPage() {
         )}
 
         <section className="rounded-xl border border-border bg-card p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
+          <div
+            data-testid="refund-gmail-latest-note-header"
+            className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div className="min-w-0">
               <p className="text-sm font-semibold text-foreground">Latest customer note</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 {latestInbound ? formatDate(latestInbound.receivedAt) : formatDate(selectedCase.createdAt)}
               </p>
             </div>
             {latestInbound?.sensitiveDataRedacted && (
-              <Badge variant="outline" className="border-orange-200 bg-orange-50 text-orange-900">
+              <Badge
+                variant="outline"
+                data-testid="refund-gmail-latest-note-redacted"
+                className="max-w-full whitespace-normal border-orange-200 bg-orange-50 text-left text-orange-900"
+              >
                 Full card number redacted
               </Badge>
             )}
@@ -6706,7 +6713,7 @@ export default function AdminRefundsPage() {
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                className="mt-3 border-orange-400 bg-white text-orange-950 hover:bg-orange-100"
+                                className="mt-3 h-auto w-full whitespace-normal border-orange-400 bg-white py-2 text-center leading-5 text-orange-950 hover:bg-orange-100 sm:w-auto"
                                 disabled={isUsingDemoData || isRecoveringGmailContact}
                                 onClick={() => setIsGmailRecoveryOpen(true)}
                               >
