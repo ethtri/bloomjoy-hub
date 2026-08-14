@@ -7,11 +7,18 @@ import {
   createAuthenticatedEvidenceFragment,
   requireEvidenceRunToken,
 } from './refund-uat-fragment-provenance.mjs';
+import {
+  createTrackedUatBrowser,
+  getUatPageFailures,
+} from './refund-browser-uat-network.mjs';
 
 const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
 const DEFAULT_EVIDENCE_DIR = 'output/refund-uat-evidence';
 const DEFAULT_FRAGMENT_DIR = 'output/refund-uat-fragments';
+const EXPECTED_PORTAL_ERROR_HEADER = 'x-bloomjoy-uat-expected-error';
 const execFileAsync = promisify(execFile);
+const fixtureOwnedPortalRpcLabels = new WeakMap();
+const fixtureOwnedPortalFailureDiagnostics = [];
 
 const NAVIGATION_READ_ONLY_RPCS = new Set([
   'resolve_my_technician_entitlements',
@@ -1153,12 +1160,16 @@ const installMockSupabaseRoutes = async (
         return route.fulfill({
           ...jsonResponse(currentNayaxCardRefundAvailability),
           status: nayaxCardRefundAvailabilityStatus,
+          ...(nayaxCardRefundAvailabilityStatus >= 400
+            ? { headers: { [EXPECTED_PORTAL_ERROR_HEADER]: 'nayax-availability' } }
+            : {}),
         });
       }
       if (requireManagerStepUp && !requestBody?.stepUpIntentId) {
         return route.fulfill({
           status: 428,
           contentType: 'application/json',
+          headers: { [EXPECTED_PORTAL_ERROR_HEADER]: 'nayax-step-up-required' },
           body: JSON.stringify({
             error: 'Enter a fresh authenticator code to personally authorize this exact action.',
             errorCode: 'manager_step_up_required',
@@ -1190,6 +1201,9 @@ const installMockSupabaseRoutes = async (
       return route.fulfill({
         status: nayaxCardRefundStatus,
         contentType: 'application/json',
+        ...(nayaxCardRefundStatus >= 400
+          ? { headers: { [EXPECTED_PORTAL_ERROR_HEADER]: 'nayax-execution-result' } }
+          : {}),
         body: JSON.stringify(responseBody),
       });
     }
@@ -1199,6 +1213,7 @@ const installMockSupabaseRoutes = async (
         return route.fulfill({
           status: 400,
           contentType: 'application/json',
+          headers: { [EXPECTED_PORTAL_ERROR_HEADER]: 'step-up-invalid-code' },
           body: JSON.stringify({
             error: 'That code was not accepted. Use the current six-digit code from your authenticator.',
             errorCode: 'invalid_code',
@@ -1222,6 +1237,9 @@ const installMockSupabaseRoutes = async (
         return route.fulfill({
           status: enrollmentStartStatus,
           contentType: 'application/json',
+          ...(enrollmentStartStatus >= 400
+            ? { headers: { [EXPECTED_PORTAL_ERROR_HEADER]: 'totp-enrollment-start' } }
+            : {}),
           body: JSON.stringify(enrollmentStartStatus === 200
             ? { qrCode: 'data:image/svg+xml,%3Csvg%3Eprivate%3C/svg%3E' }
             : enrollmentStartError),
@@ -1236,6 +1254,7 @@ const installMockSupabaseRoutes = async (
         return route.fulfill({
           status: 428,
           contentType: 'application/json',
+          headers: { [EXPECTED_PORTAL_ERROR_HEADER]: 'admin-step-up-required' },
           body: JSON.stringify({
             error: 'Enter a fresh authenticator code to personally authorize this exact action.',
             errorCode: 'manager_step_up_required',
@@ -1286,9 +1305,13 @@ const installMockSupabaseRoutes = async (
   });
 
   await context.route('**/rest/v1/rpc/**', async (route) => {
-    const url = route.request().url();
+    const request = route.request();
+    const url = request.url();
     const rpcName = new URL(url).pathname.split('/').pop() ?? '';
     rpcCalls.push(rpcName);
+    if (NAVIGATION_READ_ONLY_RPCS.has(rpcName)) {
+      fixtureOwnedPortalRpcLabels.set(request, rpcName);
+    }
 
     if (url.includes('/get_my_admin_access_context')) {
       return route.fulfill(
@@ -1721,16 +1744,112 @@ const shouldRecordConsoleError = (message, { ignoreConflict = false } = {}) => {
   );
 };
 
-const trackHttpErrors = (page, errors) => {
-  page.on('response', (response) => {
-    if (
-      response.status() >= 400 &&
-      response.status() !== 409 &&
-      !isExpectedExternalFontFailure(response.url())
-    ) {
-      errors.push(`HTTP ${response.status()} ${response.url()}`);
+const requestJson = (request) => {
+  try {
+    return request.postDataJSON();
+  } catch {
+    return null;
+  }
+};
+
+const requestPath = (request) => {
+  try {
+    return new URL(request.url()).pathname;
+  } catch {
+    return '';
+  }
+};
+
+const isExpectedPortalUatResponse = (response) => {
+  if (isExpectedExternalFontFailure(response.url())) return true;
+
+  const request = response.request();
+  if (request.method() !== 'POST') return false;
+  const status = response.status();
+  const path = requestPath(request);
+  const body = requestJson(request);
+  const marker = response.headers()[EXPECTED_PORTAL_ERROR_HEADER] ?? '';
+
+  if (
+    status === 503 &&
+    marker === 'nayax-availability' &&
+    path === '/functions/v1/nayax-card-refund' &&
+    body?.operation === 'availability' &&
+    Object.keys(body).every((key) => ['operation'].includes(key))
+  ) {
+    return true;
+  }
+
+  if (
+    status === 409 &&
+    marker === 'nayax-execution-result' &&
+    path === '/functions/v1/nayax-card-refund' &&
+    typeof body?.caseId === 'string' &&
+    Number.isInteger(body?.expectedOfficialActionVersion) &&
+    !('operation' in body)
+  ) {
+    return true;
+  }
+  if (
+    status === 428 &&
+    ['/functions/v1/nayax-card-refund', '/functions/v1/refund-case-admin-update']
+      .includes(path) &&
+    typeof body?.caseId === 'string' &&
+    Number.isInteger(body?.expectedOfficialActionVersion) &&
+    body?.stepUpIntentId === undefined &&
+    marker === (path === '/functions/v1/nayax-card-refund'
+      ? 'nayax-step-up-required'
+      : 'admin-step-up-required')
+  ) {
+    return true;
+  }
+  if (
+    status === 400 &&
+    marker === 'step-up-invalid-code' &&
+    path === '/functions/v1/refund-manager-action-step-up' &&
+    body?.code === '000000' &&
+    typeof body?.intentId === 'string'
+  ) {
+    return true;
+  }
+  return (
+    [403, 409, 422].includes(status) &&
+    marker === 'totp-enrollment-start' &&
+    path === '/functions/v1/refund-manager-totp-enrollment' &&
+    body?.operation === 'start' &&
+    Object.keys(body).every((key) => ['operation'].includes(key))
+  );
+};
+
+const isExpectedPortalUatRequestFailure = (request) => {
+  const fixtureRpcLabel = fixtureOwnedPortalRpcLabels.get(request);
+  if (NAVIGATION_READ_ONLY_RPCS.has(fixtureRpcLabel)) {
+    let pageState = 'unknown';
+    try {
+      pageState = request.frame().page().isClosed() ? 'closed' : 'open';
+    } catch {
+      pageState = 'unavailable';
     }
-  });
+    fixtureOwnedPortalFailureDiagnostics.push([
+      'FIXTURE_RPC',
+      fixtureRpcLabel,
+      request.failure()?.errorText === 'net::ERR_ABORTED' ? 'ERR_ABORTED' : 'OTHER_FAILURE',
+      request.method() === 'POST' ? 'POST' : 'OTHER_METHOD',
+      request.resourceType() === 'fetch' ? 'fetch' : 'other',
+      `page_${pageState}`,
+    ].join(' '));
+  }
+  return request.method() === 'GET' && isExpectedExternalFontFailure(request.url());
+};
+
+const isExpectedPortalUatClosingRequestFailure = (request) => {
+  const fixtureRpcLabel = fixtureOwnedPortalRpcLabels.get(request);
+  return (
+    NAVIGATION_READ_ONLY_RPCS.has(fixtureRpcLabel) &&
+    request.failure()?.errorText === 'net::ERR_ABORTED' &&
+    request.method() === 'POST' &&
+    request.resourceType() === 'fetch'
+  );
 };
 
 const countLinksByName = async (page, name) =>
@@ -1910,7 +2029,6 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   page.on('pageerror', (error) => {
     consoleErrors.push(error.message);
   });
-  trackHttpErrors(page, consoleErrors);
 
   await signInRefundUser(page, appUrl);
   try {
@@ -1921,7 +2039,9 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       [
         'Refund queue summary was not visible after sign-in.',
         bodyText ? `Page body excerpt: ${bodyText.slice(0, 800)}` : '',
-        consoleErrors.length > 0 ? `Console errors: ${consoleErrors.join(' | ')}` : '',
+        getUatPageFailures(page, consoleErrors).length > 0
+          ? `Browser errors: ${getUatPageFailures(page, consoleErrors).join(' | ')}`
+          : '',
         error instanceof Error ? error.message : String(error),
       ]
         .filter(Boolean)
@@ -2259,8 +2379,8 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
   recorder.assert(
     'No browser console/page errors during mocked QA pass',
-    consoleErrors.length === 0,
-    consoleErrors.slice(0, 3).join(' | ')
+    getUatPageFailures(page, consoleErrors).length === 0,
+    getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
   );
 
   await context.close();
@@ -2513,8 +2633,8 @@ const runLegacyStateNormalizationChecks = async ({ browser, appUrl, artifactDir,
   );
   recorder.assert(
     'Normalized legacy review reports no browser console or page errors',
-    consoleErrors.length === 0,
-    consoleErrors.slice(0, 3).join(' | ')
+    getUatPageFailures(page, consoleErrors).length === 0,
+    getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
   );
 
   await context.close();
@@ -2557,7 +2677,6 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     if (shouldRecordConsoleError(message)) consoleErrors.push(message.text());
   });
   page.on('pageerror', (error) => consoleErrors.push(error.message));
-  trackHttpErrors(page, consoleErrors);
 
   await signInRefundUser(page, appUrl);
   await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
@@ -2704,8 +2823,8 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   });
   recorder.assert(
     'No browser console/page errors during Gmail draft QA pass',
-    consoleErrors.length === 0,
-    consoleErrors.slice(0, 3).join(' | ')
+    getUatPageFailures(page, consoleErrors).length === 0,
+    getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
   );
 
   await context.close();
@@ -2815,7 +2934,6 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
     if (shouldRecordConsoleError(message)) consoleErrors.push(message.text());
   });
   page.on('pageerror', (error) => consoleErrors.push(error.message));
-  trackHttpErrors(page, consoleErrors);
   await signInRefundUser(page, appUrl);
   await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
   await page.locator('tr', { hasText: 'RF-UAT-CASH-REVIEW' }).click();
@@ -3011,8 +3129,8 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
   );
   recorder.assert(
     'No browser console or page errors during cash workflow UAT',
-    consoleErrors.length === 0,
-    consoleErrors.slice(0, 3).join(' | ')
+    getUatPageFailures(page, consoleErrors).length === 0,
+    getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
   );
   await page.screenshot({
     path: path.join(artifactDir, 'refund-portal-uat-cash-success.png'),
@@ -4234,8 +4352,8 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
     );
     recorder.assert(
       `Support-resolution ${scenario.result} completes without console or page errors`,
-      consoleErrors.length === 0,
-      consoleErrors.slice(0, 3).join(' | ')
+      getUatPageFailures(page, consoleErrors).length === 0,
+      getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
     );
 
     await context.close();
@@ -5020,7 +5138,6 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
     targetPage.on('pageerror', (error) => {
       consoleErrors.push(error.message);
     });
-    trackHttpErrors(targetPage, consoleErrors);
   };
 
   trackErrors(page);
@@ -5100,8 +5217,8 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
   );
   recorder.assert(
     'No browser console/page errors during explicit demo QA pass',
-    consoleErrors.length === 0,
-    consoleErrors.slice(0, 3).join(' | ')
+    getUatPageFailures(page, consoleErrors).length === 0,
+    getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
   );
 
   await context.close();
@@ -5142,7 +5259,17 @@ const run = async () => {
   }
   await waitForServer(args.appUrl);
 
-  const browser = await chromium.launch({ headless: !args.headed });
+  const networkFailures = [];
+  const browser = createTrackedUatBrowser(
+    await chromium.launch({ headless: !args.headed }),
+    {
+      appUrl: args.appUrl,
+      failures: networkFailures,
+      isExpectedResponse: isExpectedPortalUatResponse,
+      isExpectedRequestFailure: isExpectedPortalUatRequestFailure,
+      isExpectedClosingRequestFailure: isExpectedPortalUatClosingRequestFailure,
+    }
+  );
   try {
     if (args.ownerTotpOnly) {
       await runOwnerTotpEnrollmentChecks({
@@ -5288,6 +5415,12 @@ const run = async () => {
   } finally {
     await browser.close();
   }
+
+  recorder.assert(
+    'No unexpected HTTP or request failures across any Refund portal page',
+    networkFailures.length === 0,
+    [...networkFailures, ...fixtureOwnedPortalFailureDiagnostics].slice(0, 5).join(' | ')
+  );
 
   if (args.legacyStateOnly) {
     const focusedFailures = recorder.failed();
