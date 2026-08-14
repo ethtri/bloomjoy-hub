@@ -274,12 +274,24 @@ assert(
 );
 
 assert(
-  currentStatus.includes('P0 `#767` now has a default-off audited outcome-resolution candidate') &&
+  currentStatus.includes("P0 `#767`'s audited provider-outcome resolution is deployed default-off") &&
     decisions.includes('Uncertain Nayax outcomes require a separate immutable support decision (`#767`)') &&
     runbook.includes('Default-off Nayax outcome resolution (`#767`)') &&
+    runbook.includes('current strict production release is the reviewed ten-function/50-migration default-off foundation') &&
+    runbook.includes('Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit') &&
+    !runbook.includes('For the unmerged candidate') &&
+    !runbook.includes('The later `#767` outcome-resolution migration and function deployment') &&
     smoke.includes('npm run refunds:validate-nayax-resolution') &&
+    smoke.includes('deployed ten-function/50-migration default-off foundation') &&
+    smoke.includes('`#767` audited outcome-resolution foundation and the `#829` default-off production deployment are complete') &&
+    !smoke.includes('deployed ten-function/49-migration safe foundation') &&
+    !smoke.includes('The `#767` candidate adds one default-off outcome-resolution migration') &&
     providerNotes.includes('Transaction Status ID `12` as **Approved**') &&
-    providerNotes.includes('do not remove the account-specific contract blocker'),
+    providerNotes.includes('do not remove the account-specific contract blocker') &&
+    providerNotes.includes('no automatic or ad hoc "mark successful" shortcut') &&
+    providerNotes.includes('audited structured resolver foundation exists and is deployed default-off') &&
+    providerNotes.includes('activation and use remain blocked') &&
+    !providerNotes.includes('an audited state-changing resolver remains blocked'),
   'Status, decision, provider-contract, runbook, and QA docs must preserve the default-off launch boundary.'
 );
 

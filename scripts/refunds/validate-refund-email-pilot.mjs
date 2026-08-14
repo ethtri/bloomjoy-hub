@@ -19,6 +19,7 @@ const [
   client,
   portal,
   envExample,
+  emailRunbook,
 ] = await Promise.all([
   read('supabase/migrations/202608050001_refund_email_pilot_linkage.sql'),
   read('supabase/migrations/202608050002_refund_email_duplicate_reconciliation.sql'),
@@ -35,6 +36,7 @@ const [
   read('src/lib/refundOperations.ts'),
   read('src/pages/admin/Refunds.tsx'),
   read('.env.example'),
+  read('Docs/REFUND_EMAIL_ASSISTANT_RUNBOOK.md'),
 ]);
 
 assert(
@@ -159,6 +161,16 @@ assert(
     /^NAYAX_REFUND_EXECUTION_ENABLED=false$/m.test(envExample) &&
     !envExample.includes('REFUND_GMAIL_FIRST_CONTACT_LEGACY_URL='),
   'All production-sensitive switches must remain off and email copy must not configure Google Forms.',
+);
+assert(
+  emailRunbook.includes('with no Hub customer first-contact Gmail delivery') &&
+    emailRunbook.includes('send the deterministic internal action-needed notice to the resolved current manager route or the operations fallback') &&
+    emailRunbook.includes('the customer is never a recipient of that internal notice') &&
+    emailRunbook.includes('The owner-controlled case-specific original-thread proof has also passed') &&
+    emailRunbook.includes('explicit production-label and legacy-responder cutover approval') &&
+    !emailRunbook.includes('with no outbound delivery') &&
+    !emailRunbook.includes('until the remaining case-specific CC proof'),
+  'The email runbook must distinguish customer first-contact shadow delivery from internal manager notices and record the completed case-specific proof.',
 );
 
 console.log('Refund email pilot validation passed: one-link pre-mapping acknowledgement, private email-to-form linkage, attachment-off intake, duplicate guards, and manager queue signals are present with production switches off.');

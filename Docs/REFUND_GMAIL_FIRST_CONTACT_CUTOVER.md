@@ -2,13 +2,13 @@
 
 Issue `#688` replaces the repeating legacy canned response with one deterministic acknowledgement for the first eligible customer message in each Gmail thread. This document is the operational contract for shadow testing, cutover, rollback, and evidence. It does not authorize production Gmail access or customer sending by itself.
 
-## Current checkpoint — 2026-08-12
+## Current checkpoint — 2026-08-14
 
 - Exact server OAuth to the directly connected production customer-service mailbox, `info@bloomjoysweets.com`, passed with Gmail read-only/send scopes, and the Info/Support/Refunds send-as mailbox identities are verified subject to provider `SENT` evidence and the existing delivery gates.
 - An isolated label and owner-controlled synthetic sender population were kept separate from the production label and excluded from the legacy responder. `etrifari@bloomjoysweets.com` or its plus-addresses may participate only as an owner-controlled synthetic customer/test sender or recipient, or as vendor/account correspondence; they are not the production refund-assistant mailbox.
 - One eligible synthetic thread received exactly one original-thread `refund_first_contact_v1` acknowledgement. Scheduler replay and a later reply sent nothing further; teardown restored disabled mode and the production label.
 - After the native date/time correction, the private hosted-form context completed the existing Gmail draft exactly once and the shared direct/email intake rule assigned its sole current mapped manager.
-- This is not active cutover evidence. One case-specific reply with the complete current mapped-manager CC route, the final production-label boundary, rollback staffing, and explicit owner go/no-go remain required. The legacy responder is still authoritative for normal customer mail, and Hub schedules/automatic contact remain off.
+- This is not active cutover evidence. The bounded `#800`/`#810` owner-runner evidence completed one case-specific original-thread reply with the complete current mapped-manager CC route. The remaining gate is the staffed production-label/legacy-responder no-overlap handoff, one new post-boundary synthetic first-contact, rollback staffing, and explicit owner go/no-go. The legacy responder is still authoritative for normal customer mail, and Hub schedules/automatic contact remain off.
 
 ## Non-negotiable behavior
 
@@ -77,7 +77,7 @@ Record only the mechanism, owner, enabled/disabled state, affected label/populat
 9. Simulate a known send failure and an uncertain outcome. Confirm both are visible in case history, every guided and advanced reply control is disabled during uncertainty, and sync health stays degraded while rotating through all unresolved operations until deterministic Gmail reconciliation succeeds. For a synthetic genuine no-send outcome, require the latest versioned Gmail search to complete with exactly zero results, inspect the original thread, use the explicit not-delivered confirmation, confirm the actor and redacted resolution event are recorded, and only then send one controlled follow-up. Provider errors, ambiguous results, and stale or in-flight search versions must not permit that confirmation.
 10. Return Hub mode to `disabled` after the isolated window unless the owner has approved the production cutover below.
 
-## Atomic production cutover
+## Staffed, sequenced no-overlap production cutover
 
 All items require recorded evidence on `#688` and linked UAT evidence before active mode:
 
@@ -93,10 +93,10 @@ Within that window:
 
 1. Set Hub mode to `disabled`.
 2. Disable every inventoried legacy sender for the production population.
-3. Verify the legacy sender is disabled using settings state and one synthetic no-response check. Do not infer success from the save click alone.
-4. Record the UTC boundary as `REFUND_GMAIL_FIRST_CONTACT_CUTOVER_AT` so older threads cannot receive a backfilled acknowledgement.
+3. Verify the legacy sender is disabled using settings state and one synthetic no-response check. Do not infer success from the save click alone. Keep Hub disabled throughout this verification.
+4. Record a fresh UTC boundary as `REFUND_GMAIL_FIRST_CONTACT_CUTOVER_AT` so older threads cannot receive a backfilled acknowledgement. Manually review and handle any messages that arrive in the transition interval after the legacy sender is proven off and before Hub becomes active.
 5. Set `REFUND_GMAIL_LEGACY_RESPONDER_DISABLED=true` and `REFUND_GMAIL_FIRST_CONTACT_CUTOVER_APPROVED=true` only after steps 2-4 are proven.
-6. Set mode to `active` for the bounded window.
+6. Only then set mode to `active` for the bounded window.
 7. Send one new synthetic thread and repeat the no-duplicate checks before allowing the normal labeled population.
 8. Monitor aggregate counts and case events. Any nonzero reconciliation-outstanding count must keep Gmail health degraded; never put message content or addresses in logs or GitHub evidence.
 

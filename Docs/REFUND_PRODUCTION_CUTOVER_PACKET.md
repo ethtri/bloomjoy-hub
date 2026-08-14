@@ -1,10 +1,12 @@
 # Refund Operations Production Cutover Packet
 
-Last updated: 2026-08-12
+Last updated: 2026-08-14
 
 ## Outcome
 
 Use this packet to move epic `#628` from individually verified PRs to one tested production release. A green PR is necessary but is not deployment, live-payment, Gmail, GPT, or legacy-retirement approval.
+
+**Current operational truth:** the default-off Refund Operations foundation is deployed and strictly aligned at 10 functions / 50 migrations. The one-case Gmail proof passed with exactly one case message and one Gmail outbound, zero unresolved delivery, and all gates restored off. Outcome resolution `#767` and deployment `#829` are complete; live provider activation still belongs to `#430`. This packet now governs the remaining staffed pilot, private TOTP enrollment, manager cohort, fallback decision, and explicit legacy-responder cutover, not another foundation deployment.
 
 ## Evidence ledger
 
@@ -95,11 +97,11 @@ Use this exact post-deployment order:
 4. Run `npm run refunds:smoke-intake-email` first in read-only preflight mode for the privately approved machine. Do not create a case or send mail yet.
 5. Capture production function metadata, update and independently review the manifest-only change, then require the standard production drift check to pass for all ten functions.
 6. With all optional execution switches still off, prove high-confidence, ambiguous, no-match, wallet/manual, failed/unknown, duplicate, completed, and communication-failure manager states using synthetic data.
-7. Preserve the completed isolated evidence: one original-thread first-contact acknowledgement, replay/later-reply suppression, private form continuation without a duplicate case, exact sole-manager assignment, and teardown. For the new explicitly approved email window, prepare only `#800`'s database-owner one-shot authorization for an exact existing owner-controlled `etrifari+refundpilot...@bloomjoysweets.com` Gmail case. Keep every global Gmail/customer/GPT/aging/official/Nayax/schedule gate off until the staffed send instant; verify the exact case, original thread, attachment-free state, current one-to-three manager route, token digest, and five-minute expiry. Permit one default status reply from exact `info@`; then require redacted pre/post evidence of one case message, one Gmail outbound, the original thread, exact owner-controlled recipient digest, complete manager-route digest, zero attachments, and zero unresolved delivery. Close the authorization and require zero active authorizations before restoring every gate to off. This is not approval to process a real customer case or enable broad polling.
+7. Preserve the completed isolated evidence: one original-thread first-contact acknowledgement, replay/later-reply suppression, private form continuation without a duplicate case, exact sole-manager assignment, and the bounded `#800`/`#810` owner-runner proof of exactly one case-specific message/outbound with the complete manager route and disabled teardown. Do not repeat that one-case proof as a required production-cutover step. Rerun it only under separate explicit authorization through the reviewed owner runner if its evidence becomes stale. The next required Gmail proof is one post-boundary synthetic first-contact after the staffed production-label/legacy-responder no-overlap handoff; this is not approval to process a real customer case or enable broad polling.
 8. Prove cash approve/deny/missing-info/completion and idempotency with a sponsor-approved test payout or a non-paying shadow fixture.
 9. Prove one reporting write-through and the negative controls.
 10. Keep automation off while preserving the completed PII-free alert, exact-key replay, and disabled-lane proofs. In one staffed synthetic-only window, prove one due reminder/escalation, manager-visible healthy state, replay, and teardown before considering scheduling.
-11. Enable Gmail only after the remaining case-specific mapped-manager-CC evidence and the production-label/legacy-responder cutover proof pass. The legacy responder remains authoritative for normal mail until then.
+11. The case-specific mapped-manager-CC evidence is complete. Enable Gmail only after the production-label/legacy-responder no-overlap cutover proof passes; the legacy responder remains authoritative for normal mail until then.
 12. Start GPT human-review evaluation only after the production Supabase secret destination and the exact OpenAI project retention/data-control mode in `#635` are approved. Keep `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false` until that record exists, then set it only for the approved evaluation window. `store=false` is not zero-retention approval, and the local developer key is not production approval.
 13. Start live Nayax execution only after the separate `#430` provider-contract decision, `#767` provider-outcome resolution path, private owner TOTP enrollment/UAT, and a controlled low-value test. Use the approved cohort, allowlist, per-refund cap, and UTC daily count/amount caps.
 

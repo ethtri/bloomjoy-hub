@@ -2,7 +2,7 @@
 
 This document is the production-enable gate for Refund Operations Gmail intake (`#634`). It applies only to the directly connected production customer-service mailbox, `info@bloomjoysweets.com`; the hosted refund form and canonical refund cases continue independently.
 
-Verified on 2026-08-12: the production Hub OAuth profile resolves exactly to `info@bloomjoysweets.com` with Gmail read-only/send scopes; Info/Support/Refunds send-as identities are configured and verified; and a separate isolated label/sender population passed one exactly-once original-thread first-contact acknowledgement with replay/later-reply suppression and teardown. After the native date/time correction, the private email-context form completed the existing Gmail draft exactly once and assigned its sole current mapped manager. This does **not** prove the still-required case-specific original-thread message with complete current mapped-manager CC or authorize the production label, schedules, automatic contact, or legacy-responder retirement. The operating model uses direct scoped mailbox access, not forwarding into a personal inbox.
+Verified through 2026-08-14: the production Hub OAuth profile resolves exactly to `info@bloomjoysweets.com` with Gmail read-only/send scopes; Info/Support/Refunds send-as identities are configured and verified; and a separate isolated label/sender population passed one exactly-once original-thread first-contact acknowledgement with replay/later-reply suppression and teardown. After the native date/time correction, the private email-context form completed the existing Gmail draft exactly once and assigned its sole current mapped manager. A later bounded owner-controlled proof also passed exactly one case-specific original-thread message with the complete current mapped-manager CC set, one case message/outbound, zero unresolved delivery, and disabled teardown. This evidence does not authorize the production label, schedules, automatic contact, or legacy-responder retirement. The operating model uses direct scoped mailbox access, not forwarding into a personal inbox.
 
 ## Approved operating boundary
 
@@ -48,13 +48,13 @@ Verified on 2026-08-12: the production Hub OAuth profile resolves exactly to `in
 - Approved retention period: **180 days for the sanitized Gmail copy**
 - Attachment-off behavior accepted for the pilot: **Approved**
 - Visible-CC recipient/privacy behavior accepted: **Approved for the complete current portal-mapped Machine Manager set**
-- Participant-classification and case-specific mapped-manager recipient UAT: **Pending for one original-thread message with the complete current mapped-manager CC set**
+- Participant-classification and case-specific mapped-manager recipient UAT: **Passed once through the bounded owner-controlled original-thread proof with the complete current mapped-manager CC set**
 - Exactly-once first-contact and non-overlapping responder UAT: **Passed for the isolated synthetic population; production-label cutover/rollback approval remains pending**
 - Production Hub OAuth/secrets and mailbox-identity smoke: **Passed for `info@bloomjoysweets.com` with Gmail read-only and send scopes**
 - Refund-label filter population and legacy-responder inventory: **Legacy inventory complete; isolated label/sender/exclusion proof passed; production-label cutover remains pending**
 - Info/Support/Refunds alias/send-as configuration: **Verified; the isolated first-contact outbound was confirmed from the designated support mailbox**
 
-Both production switches remain `false` while case-specific mapped-manager-CC UAT and the active-cutover gates are pending. A later owner-approved bounded window may set only the controls required by the reviewed test and must reset them immediately afterward. Scheduled/broad enablement requires the remaining synthetic evidence plus an explicit go/no-go. Approval must be recorded in a reviewed PR or the linked GitHub issue without customer data, secrets, or provider identifiers.
+Both production switches remain `false` while the staffed production-label shadow/cutover and rollback gates are pending. A later owner-approved bounded window may set only the controls required by the reviewed test and must reset them immediately afterward. Scheduled/broad enablement requires that no-overlap cutover evidence plus an explicit owner go/no-go. Approval must be recorded in a reviewed PR or the linked GitHub issue without customer data, secrets, or provider identifiers.
 
 ## Deletion and incident procedure
 
