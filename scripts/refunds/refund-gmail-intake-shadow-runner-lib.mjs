@@ -515,7 +515,10 @@ export const reconcileRefundGmailIntakeShadowPostflight = async ({
     } else if (
       nowMs >= Date.parse(postflight.runStartedAt) + reconciliationBoundMs
     ) {
-      fail('intake_reconciliation_timeout');
+      throw new RefundGmailIntakeShadowRunnerError(
+        'intake_reconciliation_timeout',
+        { cleanupTaskHandle: postflight.cleanupTaskHandle },
+      );
     }
     await sleep(stablePollIntervalMs);
   }
@@ -685,6 +688,11 @@ export const executeRefundGmailIntakeShadow = async ({
     } catch (error) {
       effectsClassification = 'outcome_unknown';
       reconciliationError = normalizeError(error, 'intake_postflight_failed');
+      if (UUID_PATTERN.test(reconciliationError.safeDetails.cleanupTaskHandle ?? '')) {
+        postflight = {
+          cleanupTaskHandle: reconciliationError.safeDetails.cleanupTaskHandle,
+        };
+      }
     }
 
     try {

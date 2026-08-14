@@ -89,6 +89,7 @@ assert.match(library, /withCleanupTaskHandle/u);
 assert.match(library, /exactThreadMessageCount === 2/u);
 assert.match(library, /managerNoticeOutboundAttemptDelta !== 0/u);
 assert.match(runnerTests, /unreadable postflight emits outcome_unknown/u);
+assert.match(runnerTests, /nonterminal run preserves its cleanup handle in outcome_unknown/u);
 assert.match(runnerTests, /exact local v1 contract before any client call/u);
 assert.match(runnerTests, /zero secret writes/u);
 assert.match(runnerTests, /bounded idempotent recovery/u);
@@ -199,6 +200,18 @@ assert.match(migration, /status = 'consumed',[\s\S]*consumed_run_id = run_row\.i
 assert.match(migration, /dispatch_row\.owner_sender_digest/u);
 assert.match(migration, /source_row\.received_at < dispatch_row\.start_at/u);
 assert.match(migration, /owner_complete_due_refund_gmail_intake_shadow_cleanup/u);
+const cleanupCompletionBlock = migration.slice(
+  migration.indexOf('create or replace function public.owner_complete_due_refund_gmail_intake_shadow_cleanup'),
+  migration.indexOf('revoke execute on function public.refund_gmail_workflow_run_key_is_valid'),
+);
+assert.match(
+  cleanupCompletionBlock,
+  /refund-gmail-intake-shadow-dispatch-authorize/u,
+);
+assert.match(
+  cleanupCompletionBlock,
+  /dispatch\.status = 'armed'[\s\S]*run\.status = 'running'[\s\S]*Intake-shadow cleanup requires a closed dispatch lane/u,
+);
 assert.equal(
   migration.match(/refund-gmail-intake-shadow-cleanup-obligations/g)?.length,
   2,
@@ -229,6 +242,9 @@ assert.match(dbTests, /Cleanup rejects a retained CC address array/u);
 assert.match(dbTests, /Cleanup rejects a retained CC recipient count/u);
 assert.match(dbTests, /Cleanup rejects a retained linked Gmail thread subject/u);
 assert.match(dbTests, /stale completed task handle cannot hide the newer assigned cleanup/u);
+assert.match(dbTests, /ambiguous successful cleanup B completion can be verified idempotently/u);
+assert.match(dbTests, /Cleanup rejects an armed intake authorization/u);
+assert.match(dbTests, /Cleanup rejects a consumed nonterminal intake run/u);
 assert.match(dbTests, /different or prior cleanup handle cannot satisfy/u);
 assert.match(dbTests, /superseded caller-trusted notice recorder is absent/u);
 assert.match(dbTests, /durable PII-free assigned cleanup obligation/u);
@@ -278,7 +294,8 @@ assert.match(runbook, /verify cleanup after the latest/u);
 assert.match(runbook, /five-minute fresh query lookback is anchored at owner DB authorization/u);
 assert.match(runbook, /random PII-free cleanup task handle/u);
 assert.match(runbook, /assignedOutstanding=0/u);
-assert.match(runbook, /previously completed handle cannot hide newer work/u);
+assert.match(runbook, /exact already-completed handle may idempotently re-prove completion/u);
+assert.match(runbook, /same global dispatch lock used by authorization/u);
 assert.match(runbook, /--mode cleanup-verify/u);
 assert.match(runbook, /--mode recover-expired/u);
 assert.match(runbook, /no-target function takes the same global advisory lock/iu);

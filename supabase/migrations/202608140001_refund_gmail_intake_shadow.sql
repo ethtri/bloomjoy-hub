@@ -933,8 +933,25 @@ declare
   task_status text := 'absent';
 begin
   perform pg_advisory_xact_lock(
+    hashtextextended('refund-gmail-intake-shadow-dispatch-authorize', 854)
+  );
+  perform pg_advisory_xact_lock(
     hashtextextended('refund-gmail-intake-shadow-cleanup-obligations', 854)
   );
+  if exists (
+    select 1
+    from public.refund_gmail_intake_shadow_dispatch_authorizations dispatch
+    left join public.refund_gmail_sync_runs run
+      on run.id = dispatch.consumed_run_id
+    where dispatch.status = 'armed'
+       or (
+         dispatch.status = 'consumed'
+         and run.trigger_source = 'intake_shadow'
+         and run.status = 'running'
+       )
+  ) then
+    raise exception 'Intake-shadow cleanup requires a closed dispatch lane';
+  end if;
   with verified_due as (
     select obligation.run_id
     from public.refund_gmail_intake_shadow_cleanup_obligations obligation

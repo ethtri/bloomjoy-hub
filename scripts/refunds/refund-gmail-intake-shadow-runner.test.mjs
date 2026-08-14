@@ -568,7 +568,7 @@ test('a cancelled dispatch with no DB run becomes no_effect without a wall-clock
   assert.equal(sample.calls.filter((call) => call === 'edge.run').length, 1);
 });
 
-test('a nonterminal run at the reviewed bound is outcome_unknown and cannot replay', async () => {
+test('a nonterminal run preserves its cleanup handle in outcome_unknown and cannot replay', async () => {
   const sample = harness({
     edgeError: new Error('private timeout response'),
     postflight: completePostflight({ runStatus: 'running', runFinishedAt: null }),
@@ -576,10 +576,15 @@ test('a nonterminal run at the reviewed bound is outcome_unknown and cannot repl
   const logs = [];
   await assert.rejects(
     execute(sample, { logger: (entry) => logs.push(entry) }),
-    (error) => error.code === 'intake_reconciliation_timeout',
+    (error) => {
+      assert.equal(error.code, 'intake_reconciliation_timeout');
+      assert.equal(error.safeDetails.cleanupTaskHandle, CLEANUP_TASK_HANDLE);
+      return true;
+    },
   );
   assert.equal(logs.at(-1).effectsClassification, 'outcome_unknown');
   assert.equal(logs.at(-1).replayAllowed, false);
+  assert.equal(logs.at(-1).cleanupTaskHandle, CLEANUP_TASK_HANDLE);
   assert.equal(sample.calls.filter((call) => call === 'edge.run').length, 1);
 });
 

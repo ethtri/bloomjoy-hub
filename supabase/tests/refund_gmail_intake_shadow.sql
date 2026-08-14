@@ -1,5 +1,5 @@
 begin;
-select plan(78);
+select plan(80);
 
 select has_table(
   'public',
@@ -1131,6 +1131,51 @@ select is(
   ) ->> 'overdueCleanupObligationCount')::integer,
   1,
   'An overdue assigned intake-shadow cleanup obligation is visible in preflight'
+);
+
+select public.owner_authorize_refund_gmail_intake_shadow_dispatch(
+  encode(extensions.digest(convert_to(
+    'owner-intake-shadow:' || repeat('7', 64), 'UTF8'
+  ), 'sha256'), 'hex'),
+  repeat('7', 64),
+  statement_timestamp() - interval '5 minutes'
+);
+select throws_ok(
+  format(
+    'select public.owner_complete_due_refund_gmail_intake_shadow_cleanup(%L::uuid)',
+    (select cleanup_task_handle
+     from public.refund_gmail_intake_shadow_cleanup_obligations
+     where run_id = (select (result ->> 'runId')::uuid from intake_shadow_active_run))
+  ),
+  'P0001',
+  'Intake-shadow cleanup requires a closed dispatch lane',
+  'Cleanup rejects an armed intake authorization before reporting global completion'
+);
+create temporary table intake_shadow_cleanup_overlap_run as
+select public.service_start_refund_gmail_sync(
+  'owner-intake-shadow:' || repeat('7', 64), 'intake_shadow', now(),
+  repeat('a', 64), repeat('b', 64), true
+) as result;
+update public.refund_gmail_sync_runs
+set status = 'running', finished_at = null, error_code = null
+where id = (
+  select (result ->> 'runId')::uuid from intake_shadow_cleanup_overlap_run
+);
+select throws_ok(
+  format(
+    'select public.owner_complete_due_refund_gmail_intake_shadow_cleanup(%L::uuid)',
+    (select cleanup_task_handle
+     from public.refund_gmail_intake_shadow_cleanup_obligations
+     where run_id = (select (result ->> 'runId')::uuid from intake_shadow_active_run))
+  ),
+  'P0001',
+  'Intake-shadow cleanup requires a closed dispatch lane',
+  'Cleanup rejects a consumed nonterminal intake run before reporting global completion'
+);
+update public.refund_gmail_sync_runs
+set status = 'failed', finished_at = statement_timestamp(), error_code = 'test_closed'
+where id = (
+  select (result ->> 'runId')::uuid from intake_shadow_cleanup_overlap_run
 );
 select is(
   public.owner_complete_due_refund_gmail_intake_shadow_cleanup(
