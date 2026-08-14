@@ -14,57 +14,73 @@ const SAFE_RESOURCE_TYPES = new Set([
   'manifest',
   'other',
 ]);
-const SAFE_STATIC_PATH_SEGMENTS = new Set([
-  '.vite',
-  '.well-known',
-  '@react-refresh',
-  '@vite',
-  'admin',
-  'appspecific',
-  'assets',
-  'auth',
-  'bloomjoy-icon.png',
-  'client',
-  'com.chrome.devtools.json',
-  'deps',
-  'favicon.ico',
-  'favicon.svg',
-  'functions',
-  'index.html',
-  'login',
-  'machines',
-  'media',
-  'node_modules',
-  'pages',
-  'public',
-  'rest',
-  'robots.txt',
-  'rpc',
-  'seo',
-  'site.webmanifest',
-  'src',
-  'training-guides',
-  'v1',
+const SAFE_EXACT_PATHS = new Set([
+  '/.well-known/appspecific/com.chrome.devtools.json',
+  '/@react-refresh',
+  '/@vite/client',
+  '/bloomjoy-icon.png',
+  '/favicon.ico',
+  '/favicon.svg',
+  '/index.html',
+  '/robots.txt',
+  '/site.webmanifest',
 ]);
 const SAFE_FILE_EXTENSION = /\.(css|gif|html|ico|jpe?g|js|json|map|mjs|mp4|png|svg|ts|tsx|ttf|webmanifest|webp|woff2?)$/i;
 
-const redactPathSegment = (segment) => {
-  if (!segment) return segment;
-  if (SAFE_STATIC_PATH_SEGMENTS.has(segment)) return segment;
-
+const redactUnknownSegment = (segment) => {
   const extension = segment.match(SAFE_FILE_EXTENSION)?.[0]?.toLowerCase();
   return extension ? `[redacted${extension}]` : '[redacted]';
+};
+
+const redactUnknownPath = (pathname) =>
+  pathname
+    .split('/')
+    .map((segment) => (segment ? redactUnknownSegment(segment) : segment))
+    .join('/') || '/';
+
+const redactStaticPrefixPath = (pathname) => {
+  const twoPartStatic = pathname.match(/^\/(assets|media|seo|training-guides)\/([^/]+)$/);
+  if (twoPartStatic) {
+    return `/${twoPartStatic[1]}/${redactUnknownSegment(twoPartStatic[2])}`;
+  }
+
+  const viteDependency = pathname.match(/^\/node_modules\/\.vite\/deps\/([^/]+)$/);
+  if (viteDependency) {
+    return `/node_modules/.vite/deps/${redactUnknownSegment(viteDependency[1])}`;
+  }
+
+  const sourceModule = pathname.match(
+    /^\/src\/(pages|components|lib|data|hooks|assets|integrations|locales|i18n)\/(?:[^/]+\/)*([^/]+)$/
+  );
+  if (sourceModule) {
+    return `/src/${sourceModule[1]}/${redactUnknownSegment(sourceModule[2])}`;
+  }
+
+  const syntheticApi = pathname.match(
+    /^\/(auth|functions|rest)\/v1\/(?:rpc\/)?([^/]+)(?:\/([^/]+))?$/
+  );
+  if (syntheticApi) {
+    const rpcPrefix = pathname.includes('/v1/rpc/') ? '/rpc' : '';
+    const redactedTail = [syntheticApi[2], syntheticApi[3]]
+      .filter(Boolean)
+      .map(redactUnknownSegment)
+      .join('/');
+    return `/${syntheticApi[1]}/v1${rpcPrefix}/${redactedTail}`;
+  }
+
+  return null;
+};
+
+const redactPathname = (pathname) => {
+  if (SAFE_EXACT_PATHS.has(pathname)) return pathname;
+  return redactStaticPrefixPath(pathname) ?? redactUnknownPath(pathname);
 };
 
 export const redactUatRequestTarget = (rawUrl, appUrl) => {
   try {
     const target = new URL(rawUrl);
     const appOrigin = new URL(appUrl).origin;
-    const pathname = target.pathname
-      .split('/')
-      .map(redactPathSegment)
-      .join('/');
-    const safePathname = pathname || '/';
+    const safePathname = redactPathname(target.pathname);
 
     if (target.origin === appOrigin) return safePathname;
     if (target.hostname === '127.0.0.1' || target.hostname === 'localhost') {

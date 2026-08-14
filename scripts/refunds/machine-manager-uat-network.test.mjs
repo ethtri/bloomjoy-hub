@@ -43,6 +43,10 @@ test('same-origin failures retain only a safe pathname', () => {
     redactUatRequestTarget(`${APP_URL}/.well-known/appspecific/com.chrome.devtools.json`, APP_URL),
     '/.well-known/appspecific/com.chrome.devtools.json'
   );
+  assert.equal(
+    redactUatRequestTarget(`${APP_URL}/src/pages/admin/Machines.tsx?t=secret`, APP_URL),
+    '/src/pages/[redacted.tsx]'
+  );
 });
 
 test('external, short identity-shaped, token-shaped, and invalid targets never leak', () => {
@@ -68,6 +72,12 @@ test('external, short identity-shaped, token-shaped, and invalid targets never l
     redactUatRequestTarget('https://private-project.example/customer/jane-doe', APP_URL),
     '[external-origin]/[redacted]/[redacted]'
   );
+  for (const dynamicValue of ['admin', 'login', 'machines', 'v1']) {
+    assert.equal(
+      redactUatRequestTarget(`${APP_URL}/users/${dynamicValue}`, APP_URL),
+      '/[redacted]/[redacted]'
+    );
+  }
   assert.equal(redactUatRequestTarget('not a URL secret=unsafe', APP_URL), '[invalid-url]');
 });
 
