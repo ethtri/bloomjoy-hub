@@ -104,7 +104,7 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 52 required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 53 required refund\/Nayax migrations/);
 assert.match(cutoverPacket, /exact canonical 51-migration predeployment bridge/);
 assert.match(
   cutoverPacket,
@@ -168,8 +168,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    52,
-    'Refund release inventory must cover exactly 52 discovered refund/Nayax migrations'
+    53,
+    'Refund release inventory must cover exactly 53 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -194,6 +194,10 @@ try {
   assert(
     repositoryMigrations.includes('202608140002_refund_nayax_controlled_owner_pilot.sql'),
     'The default-off controlled owner Nayax pilot migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('202608150001_refund_automatic_nayax_lookup.sql'),
+    'The automatic read-only Nayax lookup migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260812230000_refund_synthetic_gmail_proof_authorization.sql'),

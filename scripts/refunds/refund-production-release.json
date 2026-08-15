@@ -56,7 +56,8 @@
     "20260812230000_refund_synthetic_gmail_proof_authorization.sql",
     "202608130001_refund_nayax_outcome_resolution.sql",
     "202608140001_refund_gmail_intake_shadow.sql",
-    "202608140002_refund_nayax_controlled_owner_pilot.sql"
+    "202608140002_refund_nayax_controlled_owner_pilot.sql",
+    "202608150001_refund_automatic_nayax_lookup.sql"
   ],
   "migrationFilesSha256": "13376b8be11d209a184c90098a30890fe3a9cac9133e9a2e93007392839d8e8d",
   "migrationVersionSetSha256": "d2eddb4d1685e9988baa4d19a4211f6a81d122c41ee88eee3c65bbc63f562a0d",
