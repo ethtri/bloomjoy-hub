@@ -104,7 +104,7 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 52 required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 53 required refund\/Nayax migrations/);
 assert.match(cutoverPacket, /exact canonical 51-migration predeployment bridge/);
 assert.match(
   cutoverPacket,
@@ -168,8 +168,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    52,
-    'Refund release inventory must cover exactly 52 discovered refund/Nayax migrations'
+    53,
+    'Refund release inventory must cover exactly 53 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
