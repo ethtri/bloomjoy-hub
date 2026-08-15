@@ -105,6 +105,11 @@ Deno.test("template identities are deterministic and versioned", () => {
       `refund_no_safe_match_reminder_${REFUND_DETERMINISTIC_FOLLOW_UP_VERSION}`,
     "reminder template should be versioned",
   );
+  assert(
+    refundFollowUpTemplateKey("missing_information", "request", "refund_follow_up_v1") ===
+      "refund_missing_information_refund_follow_up_v1",
+    "historical cycles should preserve their original template identity",
+  );
 });
 
 Deno.test("cycle fingerprints are stable and change with facts or source message", async () => {

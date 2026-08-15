@@ -55,6 +55,15 @@ const refundMissingFieldRequest: Record<RefundMissingField, string> = {
     "only the last four digits shown on the card charge (do not email wallet or device-card digits)",
 };
 
+const refundMissingFieldReplyLine: Record<RefundMissingField, string> = {
+  location_or_machine: "Machine or location:",
+  incident_date: "Purchase date (YYYY-MM-DD):",
+  incident_time: "Approximate purchase time (include AM or PM):",
+  payment_method: "Payment method (card, Apple Pay, Google Pay, or cash):",
+  amount: "Amount (for example, $7.25):",
+  card_last4: "Card last four:",
+};
+
 export const describeRefundMissingFields = (value: unknown) =>
   sanitizeRefundMissingFields(value).map((field) => refundMissingFieldRequest[field]);
 
@@ -207,6 +216,9 @@ const getBodyParagraphs = ({
   const isCash = paymentMethod === "cash";
   const missingFieldRequests = describeRefundMissingFields(missingFields);
   const requestedDetails = missingFieldRequests.join("; ");
+  const replyLines = sanitizeRefundMissingFields(missingFields)
+    .map((field) => refundMissingFieldReplyLine[field])
+    .join("\n");
 
   if (cardWalletUsed && sanitizeRefundMissingFields(missingFields).includes("card_last4")) {
     throw new Error(
@@ -222,6 +234,7 @@ const getBodyParagraphs = ({
       return [
         "Thank you again for reaching out. We are sorry this needs another step, and we want to make sure we review the right transaction.",
         `Please reply with ${requestedDetails}.`,
+        `For the fastest automatic update, copy these lines into your reply and fill in only the blanks:\n${replyLines}`,
         "Please do not send a full card number, security code, expiration date, PIN, password, or payment-screen screenshot. Once we receive the requested details, we will continue the review and keep ownership of the next step.",
       ];
     case "reminder":
@@ -336,7 +349,9 @@ export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
 
   const htmlParagraphs = paragraphs
     .map((paragraph) =>
-      `<p style="font-size:15px;line-height:24px;margin:0 0 16px;">${escapeHtml(paragraph)}</p>`
+      `<p style="font-size:15px;line-height:24px;margin:0 0 16px;">${
+        escapeHtml(paragraph).replaceAll("\n", "<br />")
+      }</p>`
     )
     .join("");
   const detailRows = details
@@ -350,10 +365,10 @@ export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
     <!doctype html>
     <html lang="en">
       <body style="margin:0;padding:0;background:#fff7f9;font-family:Arial,Helvetica,sans-serif;color:#2f2430;">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#fff7f9;padding:28px 0;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;background:#fff7f9;padding:28px 0;">
           <tr>
             <td align="center" style="padding:0 16px;">
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#ffffff;border:1px solid #f1d6de;border-radius:22px;overflow:hidden;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;max-width:620px;background:#ffffff;border:1px solid #f1d6de;border-radius:22px;overflow:hidden;">
                 <tr>
                   <td style="background:#e96b8f;color:#ffffff;padding:26px 28px;">
                     <div style="font-size:12px;letter-spacing:1.4px;text-transform:uppercase;font-weight:700;">Bloomjoy refund request</div>
