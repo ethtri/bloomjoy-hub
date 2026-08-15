@@ -100,6 +100,11 @@ serve(async (req) => {
         !Array.isArray(body.frozenPayload)
       ? body.frozenPayload as Record<string, unknown>
       : null;
+    const controlledPilot = targetFunction === "nayax-card-refund" &&
+      frozenPayload?.operation === "controlled_owner_pilot";
+    const pilotRunnerAssertion = req.headers.get(
+      "x-bloomjoy-nayax-pilot-assertion",
+    )?.trim() ?? "";
 
     if (
       !isUuid(intentId) || !allowedTargets.has(targetFunction) || !frozenPayload
@@ -108,6 +113,15 @@ serve(async (req) => {
         error: "Review the official action again before verifying it.",
         errorCode: "verification_failed",
       }, 400);
+    }
+    if (
+      controlledPilot &&
+      !/^[A-Za-z0-9_-]{32,200}$/.test(pilotRunnerAssertion)
+    ) {
+      return jsonResponse({
+        error: "The controlled owner pilot runner is not authorized.",
+        errorCode: "authorization_failed",
+      }, 403);
     }
 
     const originalUserClient = userClientFor(originalAccessToken);
@@ -338,6 +352,9 @@ serve(async (req) => {
           Authorization: `Bearer ${supabaseAnonKey}`,
           "x-supabase-auth-token": verification.accessToken,
           "Content-Type": "application/json",
+          ...(controlledPilot
+            ? { "x-bloomjoy-nayax-pilot-assertion": pilotRunnerAssertion }
+            : {}),
         },
         body: JSON.stringify({
           ...frozenPayload,

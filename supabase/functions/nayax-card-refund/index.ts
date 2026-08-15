@@ -18,6 +18,11 @@ import {
   type NayaxAttemptSettlement,
   orchestrateNayaxRefund,
 } from "../_shared/nayax-refund-orchestration.ts";
+// @deno-types="../_shared/nayax-refund-provider.d.ts"
+import {
+  createNayaxRefundProviderAdapter,
+  parseNayaxRefundProviderContract,
+} from "../_shared/nayax-refund-provider.mjs";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
@@ -44,6 +49,24 @@ const sanitizeText = (value: unknown, maxLength = 300) =>
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
     .test(value);
+
+const sha256Hex = async (value: string) => {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+};
+
+const normalizeAccountKey = (value: string) =>
+  value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+
+const securePilotAssertion = (value: string | undefined) => {
+  const normalized = value?.trim() ?? "";
+  return /^[A-Za-z0-9_-]{32,200}$/.test(normalized) ? normalized : null;
+};
 
 type RefundCaseForExecution = {
   id: string;
@@ -244,7 +267,7 @@ serve(async (req) => {
 
     const body = await req.json();
     const operation = sanitizeText(body?.operation, 40) || "execute";
-    if (!new Set(["execute", "availability"]).has(operation)) {
+    if (!new Set(["execute", "availability", "controlled_owner_pilot"]).has(operation)) {
       return jsonResponse({ error: "Unsupported operation." }, 400);
     }
 
@@ -291,6 +314,334 @@ serve(async (req) => {
     const duplicateTransactionBlocks = await getDuplicateTransactionBlocks(
       refundCase,
     );
+
+    if (operation === "controlled_owner_pilot") {
+      const suppliedRunnerAssertion = securePilotAssertion(
+        req.headers.get("x-bloomjoy-nayax-pilot-assertion") ?? undefined,
+      );
+      const configuredRunnerAssertion = securePilotAssertion(
+        Deno.env.get("NAYAX_REFUND_CONTROLLED_PILOT_RUNNER_ASSERTION"),
+      );
+      const pilotAuthorizationId = sanitizeText(
+        body?.pilotAuthorizationId,
+        80,
+      );
+      const amountCents = refundCase.payment_amount_cents ?? 0;
+      const machine = refundCase.reporting_machines;
+      const accountKey = normalizeAccountKey(machine?.nayax_account_key ?? "");
+      const rawContract = Deno.env.get(
+        "NAYAX_REFUND_CONTROLLED_PILOT_CONTRACT_JSON",
+      )?.trim() ?? "";
+      let parsedPilotContract: ReturnType<typeof parseNayaxRefundProviderContract> | null = null;
+      if (rawContract) {
+        try {
+          parsedPilotContract = parseNayaxRefundProviderContract(rawContract);
+        } catch {
+          parsedPilotContract = null;
+        }
+      }
+      const requestWriteToken = accountKey
+        ? Deno.env.get(`NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}`)?.trim() ?? ""
+        : "";
+      const approveWriteToken = accountKey
+        ? Deno.env.get(`NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}`)?.trim() ?? ""
+        : "";
+      const pilotCandidateBlocks = [
+        refundCase.status !== "correlated" || refundCase.decision !== null
+          ? "pilot_case_not_correlated"
+          : null,
+        refundCase.payment_method !== "card" || refundCase.card_wallet_used
+          ? "pilot_payment_not_exact_card"
+          : null,
+        refundCase.correlation_status !== "matched" ||
+            refundCase.correlation_source !== "nayax" ||
+            refundCase.nayax_recommendation_state !== "high_confidence" ||
+            !refundCase.nayax_match_execution_eligible
+          ? "pilot_match_not_execution_eligible"
+          : null,
+        !/^[1-9][0-9]{0,18}$/.test(
+            refundCase.matched_nayax_transaction_id ?? "",
+          ) || refundCase.matched_nayax_site_id === null ||
+            !refundCase.matched_nayax_machine_auth_time ||
+            refundCase.matched_nayax_currency_code !== "USD" ||
+            amountCents <= 0 || refundCase.matched_nayax_amount_cents !== amountCents
+          ? "pilot_transaction_evidence_invalid"
+          : null,
+        refundCase.reporting_adjustment_id
+          ? "pilot_already_refunded"
+          : null,
+        !machine || machine.status !== "active" ||
+            machine.nayax_refunds_enabled !== true ||
+            machine.nayax_refund_max_amount_cents !== amountCents
+          ? "pilot_machine_not_exactly_armed"
+          : null,
+      ];
+
+      const pilotBlocks = [
+        NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED
+          ? "global_official_actions_not_closed"
+          : null,
+        executionConfig.executionEnabled ? "global_execution_not_closed" : null,
+        !executionConfig.dryRun ? "global_dry_run_not_closed" : null,
+        !executionConfig.killSwitchActive ? "global_kill_switch_not_closed" : null,
+        // The broad production confirmations remain false. Exact sponsor and
+        // written-contract evidence is bound to the one database authorization
+        // by private SHA-256 digests instead of enabling shared provider gates.
+        executionConfig.maxAmountCents !== amountCents
+          ? "exact_amount_cap_missing"
+          : null,
+        executionConfig.dailyAmountCapCents !== amountCents
+          ? "exact_daily_amount_cap_missing"
+          : null,
+        executionConfig.dailyCountCap !== 1 ? "exact_count_cap_missing" : null,
+        !executionConfig.idempotencySecret ? "idempotency_secret_missing" : null,
+        !executionConfig.executorAssertion ? "executor_assertion_missing" : null,
+        !suppliedRunnerAssertion || !configuredRunnerAssertion
+          ? "runner_assertion_missing"
+          : null,
+        !isUuid(pilotAuthorizationId) ? "pilot_authorization_missing" : null,
+        !rawContract ? "provider_contract_missing" : null,
+        rawContract && !parsedPilotContract ? "provider_contract_invalid" : null,
+        parsedPilotContract &&
+            parsedPilotContract.baseUrl !== "https://lynx.nayax.com/operational/v1"
+          ? "provider_contract_host_invalid"
+          : null,
+        !requestWriteToken ? "request_write_credential_missing" : null,
+        !approveWriteToken ? "approve_write_credential_missing" : null,
+        !accountKey ? "machine_account_key_missing" : null,
+        ...pilotCandidateBlocks,
+        ...duplicateTransactionBlocks,
+      ].filter((block): block is string => block !== null);
+      if (
+        suppliedRunnerAssertion && configuredRunnerAssertion &&
+        await sha256Hex(suppliedRunnerAssertion) !==
+          await sha256Hex(configuredRunnerAssertion)
+      ) {
+        pilotBlocks.push("runner_assertion_invalid");
+      }
+      if (pilotBlocks.length > 0) {
+        return jsonResponse({
+          executed: false,
+          status: "preflight_blocked",
+          errorCode: "controlled_pilot_not_ready",
+          blocks: Array.from(new Set(pilotBlocks)),
+          providerAttempted: false,
+          customerCompletionAttempted: false,
+        }, 409);
+      }
+
+      const runnerAssertionDigest = await sha256Hex(suppliedRunnerAssertion!);
+      const contractDigest = await sha256Hex(rawContract);
+      const { data: postArmData, error: postArmError } = await supabase.rpc(
+        "service_validate_nayax_controlled_pilot_postarm",
+        {
+          p_executor_assertion: executionConfig.executorAssertion,
+          p_pilot_authorization_id: pilotAuthorizationId,
+          p_case_id: refundCase.id,
+          p_amount_cents: amountCents,
+          p_runner_assertion_digest: runnerAssertionDigest,
+          p_contract_digest: contractDigest,
+        },
+      );
+      const postArm = postArmData as Record<string, unknown> | null;
+      if (
+        postArmError || postArm?.ready !== true ||
+        postArm?.authorizationBound !== true ||
+        postArm?.machineArmed !== true || postArm?.amountCapExact !== true ||
+        postArm?.payloadRedacted !== true
+      ) {
+        return jsonResponse({
+          executed: false,
+          status: "preflight_blocked",
+          errorCode: "controlled_pilot_not_ready",
+          blocks: ["pilot_postarm_authorization_invalid"],
+          providerAttempted: false,
+          customerCompletionAttempted: false,
+        }, 409);
+      }
+
+      // Parse the exact contract, both dedicated write credentials, and the
+      // immutable provider evidence before TOTP consumption or reservation.
+      // The callback is installed now but cannot run until the attempt handle
+      // is filled after the atomic database reservation.
+      let pilotAttemptId = "";
+      const workerLeaseId = crypto.randomUUID();
+      const provider = createNayaxRefundProviderAdapter({
+        contract: rawContract,
+        requestToken: requestWriteToken,
+        approveToken: approveWriteToken,
+        evidence: {
+          caseId: refundCase.id,
+          amountCents,
+          currencyCode: "USD",
+          transactionId: refundCase.matched_nayax_transaction_id,
+          siteId: refundCase.matched_nayax_site_id,
+          machineAuthorizationTime: refundCase.matched_nayax_machine_auth_time,
+        },
+        onStageEvent: async (stageEvent) => {
+          if (!isUuid(pilotAttemptId)) {
+            throw new Error("controlled_pilot_attempt_not_reserved");
+          }
+          const result = "result" in stageEvent &&
+              stageEvent.result && typeof stageEvent.result === "object"
+            ? stageEvent.result as unknown as Record<string, unknown>
+            : {};
+          const stage = sanitizeText(stageEvent.stage, 20);
+          const event = sanitizeText(stageEvent.event, 20);
+          const outcome = sanitizeText(result.outcome, 40) || null;
+          const failureType = sanitizeText(result.failureType, 20) || null;
+          const contractMatched = result.contractMatched === true;
+          const responseClass = failureType
+            ? `transport_${failureType}`
+            : Number.isInteger(result.httpStatus) &&
+                Number(result.httpStatus) >= 200 && Number(result.httpStatus) < 300
+            ? "http_success"
+            : "http_failure";
+          const classificationDigest = "result" in stageEvent
+            ? await sha256Hex([
+              "controlled-pilot-provider-classification-v1",
+              stage,
+              outcome ?? "none",
+              Number.isInteger(result.httpStatus) ? String(result.httpStatus) : "none",
+              contractMatched ? "contract_match" : "contract_mismatch",
+              responseClass,
+            ].join("|"))
+            : null;
+          const { data, error } = await supabase.rpc(
+            "service_record_nayax_controlled_pilot_stage",
+            {
+              p_executor_assertion: executionConfig.executorAssertion,
+              p_pilot_authorization_id: pilotAuthorizationId,
+              p_attempt_id: pilotAttemptId,
+              p_worker_lease_id: workerLeaseId,
+              p_stage_event: `${stage}_${event}`,
+              p_outcome: outcome,
+              p_http_status: Number.isInteger(result.httpStatus)
+                ? result.httpStatus
+                : null,
+              p_provider_result: "result" in stageEvent
+                ? contractMatched ? "contract_match" : "contract_mismatch"
+                : null,
+              p_provider_status: "result" in stageEvent ? responseClass : null,
+              p_failure_type: failureType,
+              p_contract_matched: "result" in stageEvent ? contractMatched : null,
+              p_classification_digest: classificationDigest,
+            },
+          );
+          if (error || !data || typeof data !== "object") {
+            throw new Error("controlled_pilot_stage_journal_failed");
+          }
+        },
+      });
+
+      const idempotencyKey = await buildNayaxRefundIdempotencyKey(
+        executionConfig.idempotencySecret,
+        {
+          caseId: refundCase.id,
+          attemptGeneration: refundCase.nayax_refund_attempt_generation,
+          transactionId: refundCase.matched_nayax_transaction_id!,
+          siteId: refundCase.matched_nayax_site_id!,
+          machineAuthorizationTime: refundCase.matched_nayax_machine_auth_time!,
+          amountCents,
+          currencyCode: "USD",
+        },
+      );
+      const expectedOfficialActionVersion = Number(
+        body?.expectedOfficialActionVersion,
+      );
+      const stepUpIntentId = sanitizeText(body?.stepUpIntentId, 80) || null;
+      const stepUpFactorProof = sanitizeText(body?.stepUpFactorProof, 80) || null;
+      const authorization = await authorizeRefundOfficialAction({
+        supabaseUrl,
+        supabaseAnonKey,
+        accessToken,
+        context: {
+          caseId: refundCase.id,
+          action: "nayax_execute",
+          targetFunction: "nayax-card-refund",
+          pilotAuthorizationId,
+          pilotExecutorAssertion: executionConfig.executorAssertion,
+          pilotRunnerAssertionDigest: runnerAssertionDigest,
+          pilotContractDigest: contractDigest,
+          pilotIdempotencyKey: idempotencyKey,
+          pilotWorkerLeaseId: workerLeaseId,
+          stepUpIntentId,
+          stepUpFactorProof,
+          expectedCaseVersion: expectedOfficialActionVersion,
+          targetStatus: "card_refund_pending",
+          targetDecision: "approved",
+          refundAmountCents: amountCents,
+        },
+      });
+      const reservation = authorization.pilotReservation as
+        | NayaxAttemptReservation
+        | undefined;
+      if (!reservation) throw new Error("controlled_pilot_reservation_failed");
+      const attemptId = reservation.attempt?.attemptId ?? "";
+      const providerClaimToken = reservation.providerClaimToken ?? "";
+      if (!isUuid(attemptId) || providerClaimToken.length < 43) {
+        throw new Error("controlled_pilot_reservation_invalid");
+      }
+      pilotAttemptId = attemptId;
+
+      let providerOutcome;
+      try {
+        providerOutcome = await provider.execute({
+          caseId: refundCase.id,
+          idempotencyKey,
+          amountCents,
+          currencyCode: "USD",
+        });
+      } catch {
+        providerOutcome = {
+          kind: "unknown",
+          providerReference: null,
+          providerStatus: null,
+          errorCode: "provider_stage_or_transport_unknown",
+        };
+      }
+
+      const { data: settlementData, error: settlementError } = await supabase.rpc(
+        "service_settle_nayax_controlled_pilot_attempt",
+        {
+          p_executor_assertion: executionConfig.executorAssertion,
+          p_pilot_authorization_id: pilotAuthorizationId,
+          p_attempt_id: attemptId,
+          p_authorization_id: authorization.authorizationId,
+          p_case_id: refundCase.id,
+          p_idempotency_key: idempotencyKey,
+          p_amount_cents: amountCents,
+          p_currency_code: "USD",
+          p_provider_claim_token: providerClaimToken,
+          p_provider_outcome: providerOutcome.kind,
+          p_worker_lease_id: workerLeaseId,
+          p_evidence_reference: providerOutcome.providerReference ?? null,
+          p_provider_status: providerOutcome.providerStatus ?? null,
+          p_error_code: providerOutcome.errorCode ?? null,
+        },
+      );
+      if (settlementError || !settlementData || typeof settlementData !== "object") {
+        throw new Error("controlled_pilot_settlement_requires_reconciliation");
+      }
+      const settlement = settlementData as NayaxAttemptSettlement & {
+        pilotProviderOnly?: boolean;
+      };
+      const succeeded = settlement.attempt?.providerOutcome === "success" &&
+        settlement.attempt?.status === "succeeded" &&
+        settlement.reportingAdjustmentPresent === true;
+      return jsonResponse({
+        executed: succeeded,
+        status: succeeded ? "succeeded" : settlement.attempt?.status ?? "provider_hold",
+        errorCode: succeeded ? null : providerOutcome.errorCode ?? "provider_hold",
+        providerAttempted: true,
+        reconciliationRequired: !succeeded &&
+          settlement.attempt?.providerOutcome !== "rejected",
+        fallbackIssued: false,
+        providerOnly: true,
+        customerCompletionAttempted: false,
+        payloadRedacted: true,
+      }, succeeded ? 200 : 409);
+    }
 
     const preExecutionBlocks = Array.from(
       new Set([

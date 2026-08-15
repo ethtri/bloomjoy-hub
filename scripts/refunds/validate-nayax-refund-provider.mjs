@@ -45,7 +45,12 @@ const baseContract = {
   baseUrl: 'https://qa-lynx.nayax.com/operational/v1',
   authorizationMode: 'bearer',
   amountUnit: 'major',
+  amountRoundingMode: 'exact_cent',
   refundEmailListMode: 'omit',
+  providerEmailBehavior: 'suppressed_by_written_contract',
+  writeCredentialMode: 'separate',
+  sameWriteTokenContractConfirmed: false,
+  reconciliationMode: 'dtm_then_structured_resolution',
   requestResponses: [
     { result: 'True', status: 'Pending Approval', outcome: 'accepted' },
     { result: 'False', status: 'Rejected', outcome: 'rejected' },
@@ -73,7 +78,12 @@ for (const [mutate, pattern, message] of [
   [(value) => ({ ...value, schemaVersion: 2 }), /schemaVersion/, 'Unknown schema versions fail closed.'],
   [(value) => ({ ...value, authorizationMode: 'guess' }), /authorizationMode/, 'Authorization mode must be explicit.'],
   [(value) => ({ ...value, amountUnit: 'guess' }), /amountUnit/, 'Amount units must be explicit.'],
+  [(value) => ({ ...value, amountRoundingMode: 'guess' }), /amountRoundingMode/, 'Amount rounding must be exact.'],
   [(value) => ({ ...value, refundEmailListMode: 'guess' }), /refundEmailListMode/, 'Refund email ownership must be explicit.'],
+  [(value) => ({ ...value, providerEmailBehavior: 'unproven' }), /providerEmailBehavior/, 'Provider-originated email behavior must have written suppression or owner consent.'],
+  [(value) => ({ ...value, writeCredentialMode: 'guess' }), /writeCredentialMode/, 'Write credential ownership must be explicit.'],
+  [(value) => ({ ...value, reconciliationMode: 'guess' }), /reconciliationMode/, 'Reconciliation ownership must be explicit.'],
+  [(value) => ({ ...value, writeCredentialMode: 'same_token_explicit' }), /explicit contract confirmation/, 'Shared write credentials require a written contract assertion.'],
   [(value) => ({ ...value, baseUrl: 'http://qa-lynx.nayax.com/operational/v1' }), /approved HTTPS host/, 'HTTP is rejected.'],
   [(value) => ({ ...value, baseUrl: 'https://example.com/operational/v1' }), /approved HTTPS host/, 'Unapproved hosts are rejected.'],
   [(value) => ({ ...value, baseUrl: 'https://lynx.nayax.com:444/operational/v1' }), /approved HTTPS host/, 'Nonstandard ports are rejected.'],
@@ -202,9 +212,19 @@ deepEqual(
     httpStatus: 200,
     result: 'true',
     status: 'pending approval',
+    contractMatched: true,
     payloadRedacted: true,
   },
   'Only normalized Result and Status values survive classification.',
+);
+equal(
+  classifyNayaxRefundResponse({
+    stage: 'request', httpStatus: 200,
+    payload: { Result: 'owner@example.test', Status: '4111111111111111' },
+    patterns: contract.requestResponses,
+  }).contractMatched,
+  false,
+  'Unmatched provider text is never classified as a contract match.',
 );
 equal(
   classifyNayaxRefundResponse({
@@ -247,7 +267,8 @@ const successfulCalls = [];
 const successfulStages = [];
 const successfulResult = await executeNayaxRefundProvider({
   contract,
-  token: 'synthetic-test-token',
+  requestToken: 'synthetic-request-token',
+  approveToken: 'synthetic-approve-token',
   amountCents: 725,
   transactionId: '123456789',
   siteId: 42,
@@ -258,7 +279,7 @@ const successfulResult = await executeNayaxRefundProvider({
       ? response({ Result: 'True', Status: 'Pending Approval', raw: 'discard-me' })
       : response({ Result: 'True', Status: 'Approved', raw: 'discard-me' });
   },
-  onStage: async (stage) => successfulStages.push(stage),
+  onStageEvent: async (stage) => successfulStages.push(stage),
 });
 check(successfulResult.executed, 'Exact request acceptance plus exact approval is success.');
 equal(successfulCalls.length, 2, 'A successful flow makes one request and one approval.');
@@ -266,10 +287,42 @@ deepEqual(successfulCalls.map((call) => call.url), [
   'https://qa-lynx.nayax.com/operational/v1/payment/refund-request',
   'https://qa-lynx.nayax.com/operational/v1/payment/refund-approve',
 ], 'Only the two reviewed endpoints are called, in order.');
-equal(successfulCalls[0].options.headers.Authorization, 'Bearer synthetic-test-token', 'Bearer mode is explicit.');
+equal(successfulCalls[0].options.headers.Authorization, 'Bearer synthetic-request-token', 'Request write credential is exact.');
+equal(successfulCalls[1].options.headers.Authorization, 'Bearer synthetic-approve-token', 'Approval uses its dedicated write credential.');
 equal(successfulCalls[0].options.redirect, 'error', 'Redirects are rejected to protect the credential.');
 equal(JSON.parse(successfulCalls[1].options.body).IsRefundedExternally, false, 'Approval preserves the provider-execution flag.');
 check(!JSON.stringify(successfulStages).includes('discard-me'), 'Raw provider payload fields are discarded.');
+deepEqual(
+  successfulStages.map(({ stage, event }) => `${stage}_${event}`),
+  ['request_started', 'request_result', 'approve_started', 'approve_result'],
+  'Durable stage callbacks bracket each provider POST in exact order.',
+);
+
+let callsAfterJournalFailure = 0;
+await assert.rejects(
+  () => executeNayaxRefundProvider({
+    contract,
+    requestToken: 'synthetic-request-token',
+    approveToken: 'synthetic-approve-token',
+    amountCents: 725,
+    transactionId: '123456789',
+    siteId: 42,
+    machineAuthorizationTime: '2026-07-22T17:30:00Z',
+    fetchImpl: async () => {
+      callsAfterJournalFailure += 1;
+      return response({ Result: 'True', Status: 'Pending Approval' });
+    },
+    onStageEvent: async ({ stage, event }) => {
+      if (stage === 'request' && event === 'result') {
+        throw new Error('synthetic journal failure');
+      }
+    },
+  }),
+  /synthetic journal failure/,
+  'A response that cannot be journaled fails closed before approval.',
+);
+assertionCount += 1;
+equal(callsAfterJournalFailure, 1, 'Journal ambiguity never triggers a second provider POST.');
 
 let rawAuthorizationHeader = null;
 await postNayaxRefundStep({
@@ -297,7 +350,8 @@ for (const requestFixture of [
   let callCount = 0;
   const result = await executeNayaxRefundProvider({
     contract,
-    token: 'synthetic-test-token',
+    requestToken: 'synthetic-request-token',
+    approveToken: 'synthetic-approve-token',
     amountCents: 725,
     transactionId: '123456789',
     siteId: 42,
@@ -321,7 +375,8 @@ for (const approveFixture of [
   let callCount = 0;
   const result = await executeNayaxRefundProvider({
     contract,
-    token: 'synthetic-test-token',
+    requestToken: 'synthetic-request-token',
+    approveToken: 'synthetic-approve-token',
     amountCents: 725,
     transactionId: '123456789',
     siteId: 42,
@@ -352,6 +407,7 @@ deepEqual(networkResult, {
   httpStatus: null,
   result: null,
   status: null,
+  contractMatched: false,
   failureType: 'network',
   payloadRedacted: true,
 }, 'Network failures become sanitized unknown outcomes.');
@@ -396,7 +452,8 @@ const orchestrationRequest = {
 const adapterCalls = [];
 const adapter = createNayaxRefundProviderAdapter({
   contract: baseContract,
-  token: 'dedicated-write-token',
+  requestToken: 'dedicated-request-write-token',
+  approveToken: 'dedicated-approve-write-token',
   evidence: frozenEvidenceInput,
   fetchImpl: async (url) => {
     adapterCalls.push(url);
@@ -410,8 +467,35 @@ const adapterSuccess = await adapter.execute(orchestrationRequest);
 equal(adapter.mode, 'live', 'The production adapter is explicitly identified.');
 equal(adapter.contractVersion, baseContract.contractVersion, 'The adapter exposes only the sanitized contract version.');
 equal(adapterSuccess.kind, 'success', 'The adapter maps exact two-step success into the orchestration contract.');
-equal(adapterSuccess.providerReference, 'nayax-transaction-123456789', 'The reference is derived from frozen evidence, not mutable input.');
+check(/^nayax-evidence-[a-f0-9]{64}$/u.test(adapterSuccess.providerReference), 'Success returns only an internal redacted correlation digest.');
+check(!adapterSuccess.providerReference.includes('123456789'), 'The provider transaction ID is never represented as a provider refund receipt.');
 equal(adapterCalls.length, 2, 'One adapter execution makes at most one request and one approval.');
+
+throws(
+  () => createNayaxRefundProviderAdapter({
+    contract: baseContract,
+    requestToken: 'same-write-token',
+    approveToken: 'same-write-token',
+    evidence: frozenEvidenceInput,
+  }),
+  /requires separate request and approval write credentials/,
+  'A token cannot silently serve both write stages.',
+);
+const explicitSharedTokenContract = {
+  ...baseContract,
+  contractVersion: 'nayax-qa-shared-write-v1',
+  writeCredentialMode: 'same_token_explicit',
+  sameWriteTokenContractConfirmed: true,
+};
+check(
+  createNayaxRefundProviderAdapter({
+    contract: explicitSharedTokenContract,
+    requestToken: 'explicit-shared-write-token',
+    approveToken: 'explicit-shared-write-token',
+    evidence: frozenEvidenceInput,
+  }).mode === 'live',
+  'A shared token is accepted only with the exact written-contract assertion.',
+);
 
 for (const changedRequest of [
   { ...orchestrationRequest, caseId: '76000000-0000-4000-8000-000000000002' },
@@ -422,7 +506,8 @@ for (const changedRequest of [
   let transportCalls = 0;
   const boundAdapter = createNayaxRefundProviderAdapter({
     contract: baseContract,
-    token: 'dedicated-write-token',
+    requestToken: 'dedicated-request-write-token',
+    approveToken: 'dedicated-approve-write-token',
     evidence: { ...frozenEvidence, transactionId: '123456789' },
     fetchImpl: async () => {
       transportCalls += 1;
@@ -442,7 +527,8 @@ const adapterOutcomeFor = async ({ requestPayload, approvePayload, networkStage 
   let calls = 0;
   const candidate = createNayaxRefundProviderAdapter({
     contract: baseContract,
-    token: 'dedicated-write-token',
+    requestToken: 'dedicated-request-write-token',
+    approveToken: 'dedicated-approve-write-token',
     evidence: { ...frozenEvidence, transactionId: '123456789' },
     fetchImpl: async () => {
       calls += 1;
@@ -489,6 +575,10 @@ const handler = fs.readFileSync(
   path.join(repoRoot, 'supabase/functions/nayax-card-refund/index.ts'),
   'utf8',
 );
+const officialAction = fs.readFileSync(
+  path.join(repoRoot, 'supabase/functions/_shared/refund-official-action.ts'),
+  'utf8',
+);
 const gates = fs.readFileSync(
   path.join(repoRoot, 'supabase/functions/_shared/nayax-refund-gates.ts'),
   'utf8',
@@ -498,6 +588,13 @@ const capMigration = fs.readFileSync(
   path.join(
     repoRoot,
     'supabase/migrations/202608110020_refund_nayax_provider_caps.sql',
+  ),
+  'utf8',
+).replace(/\r\n/g, '\n');
+const pilotMigration = fs.readFileSync(
+  path.join(
+    repoRoot,
+    'supabase/migrations/202608140002_refund_nayax_controlled_owner_pilot.sql',
   ),
   'utf8',
 ).replace(/\r\n/g, '\n');
@@ -515,12 +612,41 @@ check(
     capMigration.includes('service_reserve_and_consume_nayax_refund_attempt_v2'),
   'The uncapped reservation entry point is revoked from service callers.',
 );
-check(handler.includes('provider: disabledNayaxProviderAdapter'), 'The existing production handler remains statically fail-closed in this bounded adapter PR.');
-check(!handler.includes('createNayaxRefundProviderAdapter'), 'The new live adapter cannot be selected by request or environment in this PR.');
+check(handler.includes('provider: disabledNayaxProviderAdapter'), 'The existing portal execution path remains statically fail-closed.');
 check(
-  handler.includes('service_reserve_and_consume_nayax_refund_attempt_v2') &&
-    handler.includes('service_settle_nayax_refund_attempt'),
-  'The unreachable live dependencies use only the capped reservation and token-bound settlement RPCs.',
+  handler.includes('operation === "controlled_owner_pilot"') &&
+    handler.includes('x-bloomjoy-nayax-pilot-assertion') &&
+    handler.includes('createNayaxRefundProviderAdapter'),
+  'Only the checked-in controlled runner operation can select the live adapter.',
+);
+check(
+  handler.includes('machine.nayax_refunds_enabled !== true') &&
+    handler.includes('machine.nayax_refund_max_amount_cents !== amountCents') &&
+    handler.includes('service_validate_nayax_controlled_pilot_postarm') &&
+    handler.indexOf('service_validate_nayax_controlled_pilot_postarm') <
+      handler.indexOf('authorizeRefundOfficialAction({') &&
+    pilotMigration.includes(
+      'machine.nayax_refunds_enabled is distinct from true',
+    ) &&
+    pilotMigration.includes(
+      'machine.nayax_refund_max_amount_cents is distinct from pilot.amount_cents',
+    ),
+  'The pilot requires its exact authorization-bound post-arm machine and cap before TOTP.',
+);
+check(
+  officialAction.includes('admin_consume_refund_nayax_controlled_pilot_intent') &&
+    pilotMigration.includes(
+      'reservation := public.service_reserve_and_consume_nayax_controlled_pilot_attempt(',
+    ) &&
+    !handler.includes('service_reserve_and_consume_nayax_controlled_pilot_attempt') &&
+    handler.includes('service_record_nayax_controlled_pilot_stage') &&
+    handler.includes('service_settle_nayax_controlled_pilot_attempt'),
+  'The custom TOTP RPC atomically reserves; Edge has no separate reservation gap.',
+);
+check(
+  pilotMigration.includes("'request_started', 'request_result', 'approve_started', 'approve_result'") &&
+    pilotMigration.includes('one exact owner pilot'),
+  'Migration 52 preserves one immutable four-stage provider journal.',
 );
 check(
   gates.includes('NAYAX_REFUND_EXECUTOR_ASSERTION') &&
@@ -532,8 +658,10 @@ check(/^NAYAX_REFUND_EXECUTION_ENABLED=false$/m.test(envExample), 'Execution def
 check(/^NAYAX_REFUND_EXECUTION_DRY_RUN=true$/m.test(envExample), 'Dry-run defaults to enabled.');
 check(/^NAYAX_REFUND_EXECUTION_KILL_SWITCH=true$/m.test(envExample), 'The kill switch defaults to active.');
 check(/^NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false$/m.test(envExample), 'Provider-contract confirmation defaults to false.');
-check(/^NAYAX_REFUND_PROVIDER_CONTRACT_JSON=$/m.test(envExample), 'The exact provider contract defaults to unset.');
-check(/^NAYAX_REFUND_API_TOKEN_ACCOUNT_KEY=$/m.test(envExample), 'The dedicated account-scoped write credential defaults to unset.');
+check(/^NAYAX_REFUND_CONTROLLED_PILOT_CONTRACT_JSON=$/m.test(envExample), 'The exact provider contract defaults to unset.');
+check(/^NAYAX_REFUND_REQUEST_WRITE_TOKEN_ACCOUNT_KEY=$/m.test(envExample), 'The dedicated request write credential defaults to unset.');
+check(/^NAYAX_REFUND_APPROVE_WRITE_TOKEN_ACCOUNT_KEY=$/m.test(envExample), 'The dedicated approval write credential defaults to unset.');
+check(/^NAYAX_REFUND_CONTROLLED_PILOT_RUNNER_ASSERTION=$/m.test(envExample), 'The runner-only assertion defaults to unset.');
 check(/^NAYAX_REFUND_EXECUTOR_ASSERTION=$/m.test(envExample), 'The function-scoped executor assertion defaults to unset.');
 
 console.log(`Nayax refund provider adapter validated (${assertionCount} assertions).`);

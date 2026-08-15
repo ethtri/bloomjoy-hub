@@ -149,20 +149,42 @@ assert(
     !fn.includes('actorIsSuperAdmin'),
   'The real HTTP function must pre-wire the single-use manager receipt through capped reservation/settlement while the disabled adapter keeps those dependencies unreachable.'
 );
+const controlledPilotStart = fn.indexOf('if (operation === "controlled_owner_pilot")');
+const controlledPilotGate = fn.indexOf('if (pilotBlocks.length > 0)', controlledPilotStart);
+const controlledPilotAdapter = fn.indexOf('createNayaxRefundProviderAdapter({', controlledPilotStart);
+const controlledPilotIdempotency = fn.indexOf(
+  'const idempotencyKey = await buildNayaxRefundIdempotencyKey',
+  controlledPilotStart,
+);
+const controlledPilotReservation = fn.indexOf(
+  'const authorization = await authorizeRefundOfficialAction({',
+  controlledPilotStart,
+);
+const controlledPilotProviderCall = fn.indexOf('providerOutcome = await provider.execute({', controlledPilotStart);
+const normalExecutionGate = fn.indexOf('if (preExecutionBlocks.length > 0)', controlledPilotProviderCall);
+const normalIdempotency = fn.indexOf(
+  'const idempotencyKey = await buildNayaxRefundIdempotencyKey',
+  controlledPilotIdempotency + 1,
+);
+const normalOrchestration = fn.indexOf('await orchestrateNayaxRefund', normalIdempotency);
 assert(
   fn.includes('resolveNayaxRefundExecutionConfig') &&
     fn.indexOf('if (authError || !user)') <
       fn.indexOf('const executionConfig = resolveNayaxRefundExecutionConfig') &&
-    fn.indexOf('preExecutionBlocks.length > 0') <
-      fn.indexOf('const idempotencyKey = await buildNayaxRefundIdempotencyKey') &&
-    fn.indexOf('preExecutionBlocks.length > 0') <
-      fn.indexOf('await orchestrateNayaxRefund') &&
+    controlledPilotStart >= 0 && controlledPilotGate > controlledPilotStart &&
+    controlledPilotAdapter > controlledPilotGate &&
+    controlledPilotIdempotency > controlledPilotAdapter &&
+    controlledPilotReservation > controlledPilotIdempotency &&
+    controlledPilotProviderCall > controlledPilotReservation &&
+    normalExecutionGate > controlledPilotProviderCall &&
+    normalIdempotency > normalExecutionGate &&
+    normalOrchestration > normalIdempotency &&
     providerGates.includes('NAYAX_REFUND_EXECUTOR_ASSERTION') &&
     providerGates.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET') &&
     providerGates.includes('NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS') &&
     providerGates.includes('NAYAX_REFUND_DAILY_COUNT_CAP') &&
     providerGatesTest.includes('reports every fail-closed gate'),
-  'Every rollout/configuration block, dedicated secret, executor assertion, and bounded daily cap must fail before orchestration.'
+  'Each pilot and normal path must fail its own rollout/configuration boundary before idempotency, reservation, or provider orchestration.'
 );
 assert(
   fn.includes('operation === "availability"') &&

@@ -6,7 +6,7 @@ Last updated: 2026-08-14
 
 Use this packet to move epic `#628` from individually verified PRs to one tested production release. A green PR is necessary but is not deployment, live-payment, Gmail, GPT, or legacy-retirement approval.
 
-**Current operational truth:** the default-off Refund Operations foundation is deployed and strictly aligned at 10 functions / 50 migrations. The one-case Gmail proof passed with exactly one case message and one Gmail outbound, zero unresolved delivery, and all gates restored off. Outcome resolution `#767` and deployment `#829` are complete; live provider activation still belongs to `#430`. This packet now governs the remaining staffed pilot, private TOTP enrollment, manager cohort, fallback decision, and explicit legacy-responder cutover, not another foundation deployment.
+**Current operational truth:** the default-off Refund Operations foundation is deployed and strictly aligned at 10 functions / 51 migrations. The one-case Gmail proof passed with exactly one case message and one Gmail outbound, zero unresolved delivery, and all gates restored off. Outcome resolution `#767` and deployment `#829` are complete; live provider activation still belongs to `#430`. This packet now governs the remaining staffed pilot, private TOTP enrollment, manager cohort, fallback decision, and explicit legacy-responder cutover, not another foundation deployment.
 
 ## Evidence ledger
 
@@ -32,7 +32,7 @@ Use this packet to move epic `#628` from individually verified PRs to one tested
 1. Freeze unrelated Refund Operations changes for the release window.
 2. Review the current integrated `main` release and its canonical release metadata; do not treat the historical PR `#760` head as the active deploy source.
 3. If `main` changed after final verification, sync the release branch with current `main`, resolve overlap, run `npm run refunds:release:write-local`, review and commit any valid manifest update, and rerun the full verification profile.
-4. Confirm the reviewed manifest covers all ten manifest-tracked Refund Operations functions and all 50 current required refund/Nayax migrations, including the default-off outcome-resolution boundary.
+4. Confirm the reviewed target manifest covers all ten manifest-tracked Refund Operations functions and all 52 required refund/Nayax migrations, with an immutable exact canonical 51-migration predeployment bridge before migration 52.
 5. Deploy only an immutable, pushed, independently reviewed release commit. Follow the migration-before-function order in `Docs/PRODUCTION_RUNBOOK.md`; never allow the frontend to expose a workflow whose required database and Edge Function foundations are not already present.
 6. After merge, use the resulting integrated `main` commit for deployment evidence and any later deploy. Never deploy from an unreviewed or local-only commit.
 7. On that immutable release commit, require:
@@ -63,7 +63,7 @@ If any merge changes an in-scope migration or refund function after the manifest
 
 ### No provisional compatibility bridge
 
-The historical `#629/#716` five-migration bridge does not apply to the current release. The release must use its own 50-migration manifest, reviewed dry run, backup, migration-before-function order, source capture, and post-deployment drift proof. Until `#768` has a project-scoped read-only credential and a successful protected `main` run, execute the production comparison from the owner-controlled authenticated workstation before and after every refund deployment; never put a broad owner PAT in GitHub. Any unexpected migration, source digest, function version, switch state, or health result stops the release.
+The historical `#629/#716` five-migration bridge does not apply to the current release. The migration-52 release must use its own target manifest plus the exact immutable canonical 51-migration predeployment bridge, reviewed dry run, backup, migration-before-function order, source capture, and post-deployment drift proof. Until `#768` has a project-scoped read-only credential and a successful protected `main` run, execute the production comparison from the owner-controlled authenticated workstation before and after every refund deployment; never put a broad owner PAT in GitHub. Any unexpected migration, source digest, function version, switch state, or health result stops the release.
 
 ## Deploy with all optional execution switches off
 
