@@ -4,7 +4,7 @@ Purpose: provide a single launch-day procedure for Bloomjoy Hub production relea
 
 Last updated: 2026-08-14
 
-Refund release-state note: the manifest preserves the historical ten-function/49-migration object only as immutable predeployment evidence. The current strict production release is the reviewed ten-function/50-migration default-off foundation: `#767` outcome resolution is deployed, its database gate is false, and its operator cohort is empty. Gmail automation, automatic customer contact, manager reminders, GPT triage, official actions, and live Nayax execution stay off; the production Nayax provider adapter remains statically disabled until its separate reviewed gates pass.
+Refund release-state note: the migration-52 release manifest must preserve the exact canonical ten-function/51-migration object only as immutable predeployment evidence. The current strict production release is the reviewed ten-function/51-migration default-off foundation: `#767` outcome resolution and the Gmail intake-shadow boundary are deployed with their database authorizations/gates closed and operator cohorts empty. Gmail automation, automatic customer contact, manager reminders, GPT triage, official actions, and live Nayax execution stay off. The controlled owner Nayax pilot is an in-review migration-52 source slice; it is not deployed, initialized, armed, or authorized for provider use.
 
 ## 1) Roles and ownership
 - Release owner: coordinates launch window and final go/no-go call.
@@ -263,6 +263,8 @@ Before deploying reporting functions, confirm Step B has completed and `supabase
 After applying the reviewed migrations, rerun `supabase db push --dry-run` and require zero pending migrations before deploying dependent Refund Operations functions.
 
 Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit. Revalidate the manifest and transitive source binding immediately before deployment. Keep official actions statically false, keep the production Nayax adapter disabled, keep all activation gates off, and keep `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` unset. Issue `#430` requires a separate implementation/contract review and controlled go/no-go; a reviewed default-off deployment cannot be turned live by setting an environment value alone.
+
+The held owner-only provider smoke is governed exclusively by `Docs/REFUND_NAYAX_CONTROLLED_OWNER_PILOT.md`. Source merge or a default-off migration/function deployment does not authorize initialization, dry-run, authorization, TOTP entry, provider access, or credential retirement. Each phase requires a fresh explicit owner/reviewer go/no-go. Live authorization is additionally hard-blocked until `refund_operations_owner` records a separately reviewed financial-audit retention duration and verified purge/discharge procedure; the current legal/incident hold has no automatic purge and is not resolved by this source. Any unreadable gate, stale release/backup, unexpected authorization/attempt, active worker lease, missing terminal acknowledgement, ambiguous provider result, nonzero Hub customer/Gmail delta, unproved provider-email contract/consent, or unproved close is a hard stop with no retry; preserve only the redacted aggregate and reconcile through the documented owner/DTM boundary.
 
 ```bash
 supabase functions deploy stripe-sugar-checkout --no-verify-jwt

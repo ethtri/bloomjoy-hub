@@ -28,6 +28,12 @@ export type RefundOfficialActionContext = {
   cashPaymentConfirmed?: boolean;
   matchedNayaxCandidateToken?: string | null;
   nayaxDisagreementReason?: string | null;
+  pilotAuthorizationId?: string | null;
+  pilotExecutorAssertion?: string | null;
+  pilotRunnerAssertionDigest?: string | null;
+  pilotContractDigest?: string | null;
+  pilotIdempotencyKey?: string | null;
+  pilotWorkerLeaseId?: string | null;
 };
 
 export type RefundOfficialActionAuthorization = {
@@ -36,6 +42,10 @@ export type RefundOfficialActionAuthorization = {
   expectedCaseVersion: number;
   mappingVersion: number;
   expiresAt: string;
+  pilotReservation?: {
+    attempt?: { attemptId?: string };
+    providerClaimToken?: string;
+  };
 };
 
 export class RefundOfficialActionAuthorizationError extends Error {
@@ -186,7 +196,18 @@ export const authorizeRefundOfficialAction = async ({
     p_nayax_disagreement_reason: context.nayaxDisagreementReason ?? null,
   };
 
+  const controlledPilot = typeof context.pilotAuthorizationId === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      .test(context.pilotAuthorizationId);
+
   if (!context.stepUpIntentId) {
+    if (controlledPilot) {
+      throw new RefundOfficialActionAuthorizationError(
+        "The reviewed controlled pilot verification request is required.",
+        409,
+        "authorization_failed",
+      );
+    }
     const { data, error } = await userClient.rpc(
       "admin_prepare_refund_action_step_up_intent",
       rpcArguments,
@@ -236,14 +257,31 @@ export const authorizeRefundOfficialAction = async ({
     );
   }
 
-  const { data, error } = await userClient.rpc(
-    "admin_consume_refund_action_step_up_intent",
-    {
-      p_intent_id: context.stepUpIntentId,
-      p_factor_verification_proof: context.stepUpFactorProof,
-      ...rpcArguments,
-    },
-  );
+  const { data, error } = controlledPilot
+    ? await userClient.rpc(
+      "admin_consume_refund_nayax_controlled_pilot_intent",
+      {
+        p_pilot_authorization_id: context.pilotAuthorizationId,
+        p_intent_id: context.stepUpIntentId,
+        p_case_id: context.caseId,
+        p_expected_case_version: context.expectedCaseVersion,
+        p_refund_amount_cents: context.refundAmountCents,
+        p_factor_verification_proof: context.stepUpFactorProof,
+        p_executor_assertion: context.pilotExecutorAssertion,
+        p_runner_assertion_digest: context.pilotRunnerAssertionDigest,
+        p_contract_digest: context.pilotContractDigest,
+        p_idempotency_key: context.pilotIdempotencyKey,
+        p_worker_lease_id: context.pilotWorkerLeaseId,
+      },
+    )
+    : await userClient.rpc(
+      "admin_consume_refund_action_step_up_intent",
+      {
+        p_intent_id: context.stepUpIntentId,
+        p_factor_verification_proof: context.stepUpFactorProof,
+        ...rpcArguments,
+      },
+    );
 
   if (error || !data || typeof data !== "object") {
     throw classifyAuthorizationError(safeErrorMessage(error?.message));
@@ -263,6 +301,23 @@ export const authorizeRefundOfficialAction = async ({
       "authorization_failed",
     );
   }
+  const pilotReservation = controlledPilot
+    ? (data as { pilotReservation?: RefundOfficialActionAuthorization["pilotReservation"] })
+      .pilotReservation
+    : undefined;
+  if (controlledPilot &&
+      (!pilotReservation ||
+        typeof pilotReservation.attempt?.attemptId !== "string" ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+          .test(pilotReservation.attempt.attemptId) ||
+        typeof pilotReservation.providerClaimToken !== "string" ||
+        pilotReservation.providerClaimToken.length < 43)) {
+    throw new RefundOfficialActionAuthorizationError(
+      "The controlled pilot reservation did not commit atomically.",
+      500,
+      "authorization_failed",
+    );
+  }
 
   return {
     authorizationId: authorization.authorizationId,
@@ -270,5 +325,8 @@ export const authorizeRefundOfficialAction = async ({
     expectedCaseVersion: Number(authorization.expectedCaseVersion),
     mappingVersion: Number(authorization.mappingVersion),
     expiresAt: authorization.expiresAt,
+    ...(controlledPilot
+      ? { pilotReservation }
+      : {}),
   };
 };

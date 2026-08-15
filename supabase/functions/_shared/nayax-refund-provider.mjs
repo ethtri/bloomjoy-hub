@@ -141,7 +141,12 @@ export function parseNayaxRefundProviderContract(rawValue) {
       "baseUrl",
       "authorizationMode",
       "amountUnit",
+      "amountRoundingMode",
       "refundEmailListMode",
+      "providerEmailBehavior",
+      "writeCredentialMode",
+      "sameWriteTokenContractConfirmed",
+      "reconciliationMode",
       "requestResponses",
       "approveResponses",
     ]),
@@ -162,6 +167,16 @@ export function parseNayaxRefundProviderContract(rawValue) {
     throw new Error("Nayax refund provider amountUnit must be major or minor.");
   }
 
+  const amountRoundingMode = text(
+    contract.amountRoundingMode,
+    40,
+  ).toLowerCase();
+  if (amountRoundingMode !== "exact_cent") {
+    throw new Error(
+      "Nayax refund provider amountRoundingMode must be exact_cent.",
+    );
+  }
+
   const authorizationMode = text(contract.authorizationMode, 40).toLowerCase();
   if (!new Set(["bearer", "raw"]).has(authorizationMode)) {
     throw new Error(
@@ -179,6 +194,50 @@ export function parseNayaxRefundProviderContract(rawValue) {
     );
   }
 
+  const providerEmailBehavior = text(
+    contract.providerEmailBehavior,
+    60,
+  ).toLowerCase();
+  if (!new Set([
+    "suppressed_by_written_contract",
+    "owner_consented_expected",
+  ]).has(providerEmailBehavior)) {
+    throw new Error(
+      "Nayax refund provider providerEmailBehavior requires written suppression or explicit owner consent.",
+    );
+  }
+
+
+  const writeCredentialMode = text(
+    contract.writeCredentialMode,
+    40,
+  ).toLowerCase();
+  if (!new Set(["separate", "same_token_explicit"]).has(writeCredentialMode)) {
+    throw new Error(
+      "Nayax refund provider writeCredentialMode is invalid.",
+    );
+  }
+  const sameWriteTokenContractConfirmed =
+    contract.sameWriteTokenContractConfirmed === true;
+  if (
+    (writeCredentialMode === "same_token_explicit") !==
+      sameWriteTokenContractConfirmed
+  ) {
+    throw new Error(
+      "Nayax same-token write credentials require an explicit contract confirmation.",
+    );
+  }
+
+  const reconciliationMode = text(
+    contract.reconciliationMode,
+    80,
+  ).toLowerCase();
+  if (reconciliationMode !== "dtm_then_structured_resolution") {
+    throw new Error(
+      "Nayax refund reconciliationMode must be dtm_then_structured_resolution.",
+    );
+  }
+
   const requestResponses = parsePatterns(contract.requestResponses, "request");
   const approveResponses = parsePatterns(contract.approveResponses, "approve");
   if (!requestResponses.some((pattern) => pattern.outcome === "accepted")) {
@@ -191,6 +250,21 @@ export function parseNayaxRefundProviderContract(rawValue) {
       "Nayax refund provider contract needs a succeeded approval response.",
     );
   }
+  for (const [stage, patterns] of [
+    ["request", requestResponses],
+    ["approve", approveResponses],
+  ]) {
+    if (!patterns.some((pattern) => pattern.outcome === "duplicate")) {
+      throw new Error(
+        `Nayax refund provider contract needs an exact duplicate ${stage} response.`,
+      );
+    }
+    if (!patterns.some((pattern) => pattern.outcome === "already_refunded")) {
+      throw new Error(
+        `Nayax refund provider contract needs an exact already-refunded ${stage} response.`,
+      );
+    }
+  }
 
   return Object.freeze({
     schemaVersion: 1,
@@ -198,7 +272,12 @@ export function parseNayaxRefundProviderContract(rawValue) {
     baseUrl: parseBaseUrl(contract.baseUrl),
     authorizationMode,
     amountUnit,
+    amountRoundingMode,
     refundEmailListMode,
+    providerEmailBehavior,
+    writeCredentialMode,
+    sameWriteTokenContractConfirmed,
+    reconciliationMode,
     requestResponses,
     approveResponses,
   });
@@ -353,6 +432,7 @@ export function classifyNayaxRefundResponse({
     httpStatus: Number.isInteger(httpStatus) ? httpStatus : null,
     result,
     status,
+    contractMatched: Boolean(pattern) && outcome !== "unknown",
     payloadRedacted: true,
   });
 }
@@ -424,6 +504,7 @@ export async function postNayaxRefundStep({
       httpStatus: null,
       result: null,
       status: null,
+      contractMatched: false,
       failureType: error?.name === "AbortError" ? "timeout" : "network",
       payloadRedacted: true,
     });
@@ -434,14 +515,15 @@ export async function postNayaxRefundStep({
 
 export async function executeNayaxRefundProvider({
   contract,
-  token,
+  requestToken,
+  approveToken,
   amountCents,
   transactionId,
   siteId,
   machineAuthorizationTime,
   fetchImpl = fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,
-  onStage = async (_stageResult) => {},
+  onStageEvent = async (_stageEvent) => {},
 }) {
   const requestBody = buildNayaxRefundRequestBody({
     contract,
@@ -450,15 +532,20 @@ export async function executeNayaxRefundProvider({
     siteId,
     machineAuthorizationTime,
   });
+  await onStageEvent(Object.freeze({ stage: "request", event: "started" }));
   const request = await postNayaxRefundStep({
     stage: "request",
     contract,
-    token,
+    token: requestToken,
     body: requestBody,
     fetchImpl,
     timeoutMs,
   });
-  await onStage(request);
+  await onStageEvent(Object.freeze({
+    stage: "request",
+    event: "result",
+    result: request,
+  }));
   if (request.outcome !== "accepted") {
     return Object.freeze({ request, approve: null, executed: false });
   }
@@ -468,15 +555,20 @@ export async function executeNayaxRefundProvider({
     siteId,
     machineAuthorizationTime,
   });
+  await onStageEvent(Object.freeze({ stage: "approve", event: "started" }));
   const approve = await postNayaxRefundStep({
     stage: "approve",
     contract,
-    token,
+    token: approveToken,
     body: approveBody,
     fetchImpl,
     timeoutMs,
   });
-  await onStage(approve);
+  await onStageEvent(Object.freeze({
+    stage: "approve",
+    event: "result",
+    result: approve,
+  }));
 
   return Object.freeze({
     request,
@@ -486,22 +578,50 @@ export async function executeNayaxRefundProvider({
 }
 
 const providerStatus = (stageResult) => {
-  const value = [stageResult.stage, stageResult.result, stageResult.status]
-    .filter(Boolean)
-    .join("_")
-    .toLowerCase()
-    .replace(/[^a-z0-9._:-]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 120);
-  return value || null;
+  const stage = new Set(["request", "approve"]).has(stageResult.stage)
+    ? stageResult.stage
+    : "provider";
+  const outcome = new Set([
+    "accepted", "succeeded", "rejected", "duplicate",
+    "already_refunded", "pending", "unknown",
+  ]).has(stageResult.outcome)
+    ? stageResult.outcome
+    : "unknown";
+  return `${stage}_${outcome}_${
+    stageResult.contractMatched === true ? "contract_match" : "contract_mismatch"
+  }`;
 };
 
-const orchestrationOutcome = (result, transactionId) => {
+const sha256Hex = async (value) => {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+};
+
+export const buildRedactedNayaxEvidenceReference = async ({
+  contractVersion,
+  idempotencyKey,
+}) => {
+  if (!SAFE_IDEMPOTENCY_KEY.test(text(idempotencyKey, 100))) {
+    throw new Error("Exact Nayax idempotency evidence is required.");
+  }
+  const digest = await sha256Hex(
+    `bloomjoy-nayax-provider-correlation-v1|${contractVersion}|${idempotencyKey}`,
+  );
+  return `nayax-evidence-${digest}`;
+};
+
+const orchestrationOutcome = async (result, contractVersion, idempotencyKey) => {
   const finalStage = result.approve ?? result.request;
   if (result.executed) {
     return {
       kind: "success",
-      providerReference: `nayax-transaction-${transactionId}`,
+      providerReference: await buildRedactedNayaxEvidenceReference({
+        contractVersion,
+        idempotencyKey,
+      }),
       providerStatus: providerStatus(finalStage),
       errorCode: null,
     };
@@ -538,13 +658,29 @@ const orchestrationOutcome = (result, transactionId) => {
 
 export function createNayaxRefundProviderAdapter({
   contract: rawContract,
-  token: rawToken,
+  requestToken: rawRequestToken,
+  approveToken: rawApproveToken,
   evidence: rawEvidence,
   fetchImpl = fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  onStageEvent = async (_stageEvent) => {},
 }) {
   const contract = parseNayaxRefundProviderContract(rawContract);
-  const token = parseToken(rawToken);
+  const requestToken = parseToken(rawRequestToken);
+  const approveToken = parseToken(rawApproveToken);
+  if (contract.writeCredentialMode === "separate" && requestToken === approveToken) {
+    throw new Error(
+      "Nayax refund contract requires separate request and approval write credentials.",
+    );
+  }
+  if (
+    contract.writeCredentialMode === "same_token_explicit" &&
+    requestToken !== approveToken
+  ) {
+    throw new Error(
+      "Nayax refund same-token contract does not match the supplied credentials.",
+    );
+  }
   const evidence = freezeNayaxRefundEvidence(rawEvidence);
   const boundedTimeoutMs = safeTimeoutMs(timeoutMs);
 
@@ -566,15 +702,21 @@ export function createNayaxRefundProviderAdapter({
 
       const result = await executeNayaxRefundProvider({
         contract,
-        token,
+        requestToken,
+        approveToken,
         amountCents: evidence.amountCents,
         transactionId: evidence.transactionId,
         siteId: evidence.siteId,
         machineAuthorizationTime: evidence.machineAuthorizationTime,
         fetchImpl,
         timeoutMs: boundedTimeoutMs,
+        onStageEvent,
       });
-      return Object.freeze(orchestrationOutcome(result, evidence.transactionId));
+      return Object.freeze(await orchestrationOutcome(
+        result,
+        contract.contractVersion,
+        input.idempotencyKey,
+      ));
     },
   });
 }

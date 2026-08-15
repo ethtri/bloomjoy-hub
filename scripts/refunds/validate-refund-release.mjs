@@ -46,10 +46,10 @@ assert.match(
 );
 assert(
   productionRunbook.includes(
-    'historical ten-function/49-migration object only as immutable predeployment evidence'
+    'exact canonical ten-function/51-migration object only as immutable predeployment evidence'
   ) &&
     productionRunbook.includes(
-      'current strict production release is the reviewed ten-function/50-migration default-off foundation'
+      'current strict production release is the reviewed ten-function/51-migration default-off foundation'
     ) &&
     productionRunbook.includes(
       'Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit'
@@ -63,7 +63,7 @@ assert(
     !productionRunbook.includes('candidate handler') &&
     !productionRunbook.includes('unmerged `#409` integration candidate') &&
     !productionRunbook.includes('The candidate requires its own reviewed final manifest/evidence'),
-  'The runbook must separate immutable 49-migration history from the current canonical 10/50 default-off release'
+  'The runbook must bind the immutable canonical 10/51 bridge and current default-off release'
 );
 
 const refundDeployStart = productionRunbook.indexOf('Before deploying Refund Operations functions');
@@ -104,7 +104,8 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 50 current required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 52 required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /exact canonical 51-migration predeployment bridge/);
 assert.match(
   cutoverPacket,
   /all ten manifest-tracked Refund Operations functions/
@@ -139,7 +140,7 @@ const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-relea
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
 const reviewedManagerSourceSha256 = {
   'refund-manager-action-step-up':
-    'b4bfb6a6b89ef93b2ed1d8ac3c286dfa079fb198afca27418a4ceb030d7ebd4d',
+    '612c82c4619f1ff9a21b2445a92033e5501b4ab0160d133bf4efda4f650f150b',
   'refund-manager-totp-enrollment':
     'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
 };
@@ -167,8 +168,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    51,
-    'Refund release inventory must cover exactly 51 discovered refund/Nayax migrations'
+    52,
+    'Refund release inventory must cover exactly 52 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -189,6 +190,10 @@ try {
   assert(
     repositoryMigrations.includes('20260812220000_refund_legacy_confirmation_normalization.sql'),
     'The exact confirmation-and-approval normalization migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('202608140002_refund_nayax_controlled_owner_pilot.sql'),
+    'The default-off controlled owner Nayax pilot migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260812230000_refund_synthetic_gmail_proof_authorization.sql'),
@@ -220,19 +225,19 @@ try {
   );
   assert.equal(
     repositoryManifest.preMigrationCompatibility?.sourceGitCommit,
-    '4323a22644cc3a8786b8002ab99a696e4c55b353',
-    'The production bridge must bind to the exact canonical 50-migration release'
+    '71eb076bc3ad95ccabd0c591b8140820bed6c393',
+    'The production bridge must bind to the exact canonical 51-migration release'
   );
   assert.equal(
     repositoryManifest.preMigrationCompatibility.requiredMigrations.length,
-    50,
-    'The historical production bridge must cover exactly the 50 migrations captured before deployment'
+    51,
+    'The historical production bridge must cover exactly the 51 migrations captured before deployment'
   );
   assert(
     !repositoryManifest.preMigrationCompatibility.requiredMigrations.includes(
-      '202608140001_refund_gmail_intake_shadow.sql'
+      '202608140002_refund_nayax_controlled_owner_pilot.sql'
     ),
-    'The historical production bridge must exclude the intake-shadow migration applied after capture'
+    'The historical production bridge must exclude the controlled-owner pilot migration applied after capture'
   );
   const currentProductionMayAdvance = structuredClone(repositoryManifest);
   currentProductionMayAdvance.functions[0].production.sourceSha256 = 'a'.repeat(64);
@@ -329,7 +334,7 @@ try {
         baselineEntry.importMap === false &&
         baselineEntry.sourceSha256 ===
           canonicalPreDeploymentManagerSourceSha256[managerSlug],
-      `${managerSlug} must retain the exact canonical-50 pre-deployment source and security pairing`
+      `${managerSlug} must retain the exact canonical-51 pre-deployment source and security pairing`
     );
     assert.deepEqual(
       restoreEntry,

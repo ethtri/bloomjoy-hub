@@ -312,8 +312,11 @@ assert.match(emailRunbook, /REFUND_GMAIL_INTAKE_SHADOW_RUNBOOK\.md/u);
 assert.match(checklist, /refunds:validate-gmail-intake-shadow-runner/u);
 assert.match(checklist, /Any partial\/unknown\/unverified closure is HOLD; never replay/u);
 assert.match(checklist, /no project-secret\/version mutation/u);
-assert.match(currentStatus, /P0 `#854` is the in-review, default-off owner-only Gmail intake-shadow/u);
+assert.match(currentStatus, /P0 `#854` delivered the deployed, default-off owner-only Gmail intake-shadow foundation/u);
 assert.match(currentStatus, /Live execution never changes project secrets/u);
 assert.match(currentStatus, /strict `10\/51` canonical release/u);
+assert.match(currentStatus, /inert until a separate owner-private initialization\/dry-run\/live ceremony is explicitly approved/u);
+assert.doesNotMatch(currentStatus, /P0 `#854` is the in-review/iu);
+assert.doesNotMatch(currentStatus, /#854[^\n]{0,200}(?:10\/50|not deployed)/iu);
 
 console.log('PASS Gmail intake-shadow runner static contract');
