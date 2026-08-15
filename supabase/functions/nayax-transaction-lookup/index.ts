@@ -7,6 +7,7 @@ import {
   NAYAX_RECOMMENDATION_POLICY,
   NayaxLookupRequestError,
 } from "../_shared/nayax-lookup.ts";
+import { persistNayaxLookupResult } from "../_shared/nayax-lookup-persistence.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -91,73 +92,13 @@ serve(async (req) => {
       actorUserId: user.id,
     });
 
-    if (result.configured) {
-      const correlationStatus = result.recommendationState === "ambiguous"
-        ? "multiple_candidates"
-        : result.recommendationState === "no_safe_match"
-        ? "no_match"
-        : "manual_review";
-      await supabase.from("refund_cases")
-        .update({
-          status: "needs_review",
-          correlation_status: correlationStatus,
-          correlation_source: "nayax",
-          correlation_confidence: 0,
-          correlation_summary: result.summary,
-          automation_state: result.recommendationState === "no_safe_match"
-            ? "more_info_needed"
-            : "under_review",
-          nayax_recommendation_state: result.recommendationState,
-          nayax_recommendation_policy_version: result.policyVersion,
-          nayax_recommendation_evaluated_at: result.lastCheckedAt,
-          nayax_match_execution_eligible: false,
-        })
-        .eq("id", caseId);
-
-      await supabase.from("refund_case_events").insert({
-        refund_case_id: caseId,
-        actor_user_id: user.id,
-        event_type: "nayax_recommendation_evaluated",
-        message:
-          "Nayax evaluated sanitized card-sale evidence for manager review.",
-        metadata: {
-          lookup_status: result.lookupStatus,
-          recommendation_state: result.recommendationState,
-          confidence_class: result.confidenceClass,
-          reason_codes: result.reasonCodes,
-          policy_version: result.policyVersion,
-          candidate_count: result.candidates.length,
-          recommended_rank: result.recommendationState === "high_confidence"
-            ? 1
-            : null,
-          one_click_base_eligible: result.oneClickEligible,
-          window_hours: result.windowHours,
-          provider_record_count: result.providerRecordCount ?? null,
-          provider_window_record_count: result.providerWindowRecordCount ??
-            null,
-          qr_claim_evidence_status: result.qrClaimEvidenceStatus,
-          payload_redacted: true,
-        },
-      });
-    }
-
-    if (!result.configured) {
-      await supabase.from("refund_case_events").insert({
-        refund_case_id: caseId,
-        actor_user_id: user.id,
-        event_type: "nayax_lookup_setup_needed",
-        message: "Nayax lookup could not run because setup is incomplete.",
-        metadata: {
-          lookup_status: result.lookupStatus,
-          window_hours: result.windowHours,
-          configured: false,
-          policy_version: result.policyVersion,
-          confidence_class: result.confidenceClass,
-          reason_codes: result.reasonCodes,
-          payload_redacted: true,
-        },
-      });
-    }
+    await persistNayaxLookupResult({
+      supabase,
+      caseId,
+      actorUserId: user.id,
+      result,
+      trigger: "manual",
+    });
 
     const { data: caseVersion, error: caseVersionError } = await supabase
       .from("refund_cases")
