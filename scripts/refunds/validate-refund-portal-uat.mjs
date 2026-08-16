@@ -2172,7 +2172,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   recorder.assert(
     'Normal card path has one visible dominant action',
     (await page.getByTestId('refund-primary-action').locator('button:visible').count()) === 1 &&
-      await page.getByRole('button', { name: 'Refund $7.00 and notify customer', exact: true }).isVisible()
+      await page.getByRole('button', { name: 'Refund $7.00', exact: true }).isVisible()
   );
   recorder.assert(
     'Normal card path hides manual status and decision selectors',
@@ -2182,7 +2182,8 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'Machine transaction comparison is visible and explicit',
     await page.getByTestId('nayax-result-card').isVisible() &&
       await page.getByTestId('nayax-result-card').getByText('Machine transaction', { exact: true }).isVisible() &&
-      await page.getByTestId('refund-primary-action').getByText('Transaction selected', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-primary-action').getByText('Ready for review', { exact: true }).isVisible() &&
+      await page.getByTestId('nayax-result-card').getByText('Transaction selected', { exact: true }).isVisible() &&
       await page.getByTestId('nayax-result-card').getByText('Selected', { exact: true }).isVisible()
   );
   recorder.assert(
@@ -2192,7 +2193,14 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   recorder.assert(
     'Selected match keeps one manager-owned action without policy copy',
     (await page.getByText(/transaction evidence, not a refund decision/i).count()) === 0 &&
-      (await page.getByRole('button', { name: 'Refund $7.00 and notify customer', exact: true }).count()) === 1
+      (await page.getByRole('button', { name: 'Refund $7.00', exact: true }).count()) === 1
+  );
+  recorder.assert(
+    'Case header separates current, payment, and customer states',
+    await page.getByTestId('refund-manager-state').getByText('Ready for review', { exact: true }).isVisible() &&
+      await page.getByText('Payment: Not issued', { exact: true }).isVisible() &&
+      (await page.getByText(/^Customer: /).count()) === 1 &&
+      await page.getByTestId('refund-manager-next-step').getByText(/^Next: /).isVisible()
   );
   recorder.assert(
     'Customer completion email is previewable before execution',
@@ -3384,7 +3392,8 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
   );
   recorder.assert(
     'Pending transaction result explains the unavailable state',
-    await page.getByTestId('refund-primary-action').getByText('Transaction search is unavailable', { exact: true }).isVisible() &&
+    await page.getByTestId('refund-primary-action').getByText('Multiple or no safe match', { exact: true }).isVisible() &&
+      await page.getByTestId('nayax-result-card').getByText('Transaction search is unavailable', { exact: true }).isVisible() &&
       await page.getByTestId('nayax-result-card').getByText('Needs attention', { exact: true }).isVisible() &&
       await page.getByTestId('nayax-result-card').getByText('This machine is not connected to transaction search yet. Ask the customer for any missing purchase details.').isVisible()
   );
@@ -3681,11 +3690,11 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     await page.getByText('Transaction search details', { exact: true }).click();
     await page.getByTestId('nayax-check-transaction').click();
     await page.getByTestId('nayax-result-card').getByText(scenario.expectedStatus, { exact: true }).waitFor({ timeout: 10000 });
-    await page.getByTestId('refund-primary-action').getByText(scenario.expectedHeading, { exact: true }).waitFor({ timeout: 10000 });
+    await page.getByTestId('nayax-result-card').getByText(scenario.expectedHeading, { exact: true }).waitFor({ timeout: 10000 });
 
     recorder.assert(
       `Nayax ${scenario.name} status is explicit`,
-      await page.getByTestId('refund-primary-action').getByText(scenario.expectedHeading, { exact: true }).isVisible() &&
+      await page.getByTestId('nayax-result-card').getByText(scenario.expectedHeading, { exact: true }).isVisible() &&
         await page.getByTestId('nayax-result-card').getByText(scenario.expectedStatus, { exact: true }).isVisible() &&
         (!scenario.expectedDescription ||
           await page.getByTestId('nayax-result-card').getByText(scenario.expectedDescription).isVisible()) &&
@@ -3704,7 +3713,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     );
     const statusText = scenario.expectedDescription
       ? page.getByTestId('nayax-result-card').getByText(scenario.expectedDescription)
-      : page.getByTestId('refund-primary-action').getByText(scenario.expectedHeading, { exact: true });
+      : page.getByTestId('nayax-result-card').getByText(scenario.expectedHeading, { exact: true });
     const statusTextContrast = await computedContrastRatio(statusText);
     recorder.assert(
       `Nayax ${scenario.name} status text meets contrast`,
@@ -3758,7 +3767,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         recorder.assert(
           'Transaction selection is presented as evidence review, not approval',
           await page.getByRole('button', { name: 'Save possible transaction' }).isVisible() &&
-            await page.getByTestId('refund-not-issued-notice').getByText('No refund has been issued.', { exact: true }).isVisible() &&
+            await page.getByText('Payment: Not issued', { exact: true }).isVisible() &&
             await page.getByText('No automatic email is queued for this state.').isVisible()
         );
 
@@ -3814,7 +3823,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     );
     recorder.assert(
       `Nayax ${scenario.name} does not expose an enabled refund action`,
-      (await page.getByRole('button', { name: /Refund .* and notify customer/i }).count()) === 0
+      (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0
     );
     recorder.assert(
       `Nayax ${scenario.name} keeps one clear manager action`,
@@ -3967,14 +3976,13 @@ const runCustomerCommsFailureChecks = async ({ browser, appUrl, recorder }) => {
 
   recorder.assert(
     'Failed customer email is visible as unresolved work',
-    failedCommsBodyText.includes('Customer email failed') &&
-      failedCommsBodyText.includes('Customer email needs retry')
+    failedCommsBodyText.includes('Customer: Customer email needs retry')
   );
   recorder.assert(
     'Premature card approval email cannot be retried',
     await page.getByRole('status', { name: 'Approval email blocked' }).isVisible() &&
       (await page.getByRole('button', { name: 'Approval email blocked' }).count()) === 0 &&
-      await page.getByTestId('refund-not-issued-notice').getByText('No refund has been issued.', { exact: true }).isVisible()
+      await page.getByText('Payment: Not issued', { exact: true }).isVisible()
   );
   recorder.assert(
     'Blocked approval email performs no customer-message request',
@@ -5096,7 +5104,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
         'Successful card refund leaves no repeat action and moves the case to Completed',
         await page.getByRole('button', { name: 'Completed 1', exact: true }).isVisible() &&
           await page.getByRole('button', { name: 'Needs action 0', exact: true }).isVisible() &&
-          (await page.getByRole('button', { name: /Refund .* and notify customer/i }).count()) === 0
+          (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0
       );
     } else {
       const providerCheckRequired = Boolean(
@@ -5146,10 +5154,10 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
         scenario.name === 'config_blocked'
           ? (await caseRow.getByText('Card refunds unavailable', { exact: true }).count()) > 0
           : providerCheckRequired
-          ? (await caseRow.getByText('Refund status not confirmed', { exact: true }).count()) === 1
+          ? (await caseRow.getByText('Check Nayax result', { exact: true }).count()) === 1
           : scenario.name === 'rejected'
-            ? (await caseRow.getByText('Nayax rejected refund', { exact: true }).count()) > 0
-            : (await caseRow.getByText('Card review needed', { exact: true }).count()) > 0
+            ? (await caseRow.getByText('Refund rejected', { exact: true }).count()) > 0
+            : (await caseRow.getByText('Multiple or no safe match', { exact: true }).count()) > 0
       );
       if (providerCheckRequired) {
         recorder.assert(

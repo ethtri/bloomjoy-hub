@@ -89,6 +89,11 @@ import {
   type UpdateRefundCaseResponse,
 } from '@/lib/refundOperations';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
+import {
+  getRefundManagerState,
+  getRefundPaymentStateLabel,
+  type RefundManagerStateTone,
+} from '@/lib/refundManagerState';
 import { cn } from '@/lib/utils';
 
 const statusDecisionMap: Partial<Record<RefundCaseStatus, Exclude<RefundDecision, null>>> = {
@@ -750,44 +755,19 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
   return 'Review the evidence and choose an available manager action. Customer questions are available only when a specific structured detail is missing.';
 };
 
-const taskLabel = (refundCase: RefundCaseRecord) => {
-  if (getLatestCustomerMessage(refundCase)?.status === 'failed') return 'Customer email failed';
-  if (refundCase.status === 'completed') return 'Done';
-  if (refundCase.status === 'denied' || refundCase.status === 'closed') return 'Closed';
-  if (refundCase.status === 'waiting_on_customer') return 'Needs customer info';
-  if (refundCase.status === 'draft') return 'Inbox triage';
-  if (refundCase.legacyStateReviewRequired) return 'Payment history check';
-  if (refundCase.providerHold) return 'Refund status not confirmed';
-  if (refundCase.providerOutcome === 'rejected') return 'Nayax rejected refund';
-  if (
-    refundCase.paymentMethod === 'card' &&
-    ['approved', 'card_refund_pending'].includes(refundCase.status) &&
-    refundCase.nayaxMatchExecutionEligible !== true
-  ) return 'Card review';
-  if (refundCase.status === 'card_refund_pending') return 'Card refund';
-  if (refundCase.status === 'cash_zelle_pending') return 'Zelle refund';
-  if (refundCase.status === 'approved') {
-    return refundCase.paymentMethod === 'card' ? 'Card refund' : 'Zelle refund';
-  }
-  return 'Review needed';
-};
+const taskLabel = (refundCase: RefundCaseRecord) => getRefundManagerState(refundCase).label;
 
-const taskBadgeClass = (refundCase: RefundCaseRecord) => {
-  if (getLatestCustomerMessage(refundCase)?.status === 'failed') return 'border-destructive/30 bg-destructive/10 text-destructive';
-  if (refundCase.status === 'completed') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
-  if (refundCase.status === 'denied' || refundCase.status === 'closed') return 'border-slate-200 bg-slate-50 text-slate-700';
-  if (refundCase.status === 'waiting_on_customer') return 'border-orange-200 bg-orange-50 text-orange-800';
-  if (refundCase.status === 'draft') return 'border-sky-200 bg-sky-50 text-sky-800';
-  if (refundCase.legacyStateReviewRequired) return 'border-orange-200 bg-orange-50 text-orange-900';
-  if (
-    refundCase.providerHold ||
-    (refundCase.paymentMethod === 'card' &&
-      ['approved', 'card_refund_pending'].includes(refundCase.status) &&
-      refundCase.nayaxMatchExecutionEligible !== true)
-  ) return 'border-orange-200 bg-orange-50 text-orange-900';
-  if (refundCase.status === 'approved' || refundCase.status.endsWith('_pending')) return 'border-sky-200 bg-sky-50 text-sky-700';
-  return 'border-primary/20 bg-primary/10 text-primary';
-};
+const managerStateBadgeClass = (tone: RefundManagerStateTone) =>
+  cn(
+    tone === 'neutral' && 'border-slate-200 bg-slate-50 text-slate-700',
+    tone === 'info' && 'border-sky-200 bg-sky-50 text-sky-800',
+    tone === 'warning' && 'border-orange-200 bg-orange-50 text-orange-900',
+    tone === 'success' && 'border-emerald-200 bg-emerald-50 text-emerald-800',
+    tone === 'danger' && 'border-destructive/30 bg-destructive/10 text-destructive'
+  );
+
+const taskBadgeClass = (refundCase: RefundCaseRecord) =>
+  managerStateBadgeClass(getRefundManagerState(refundCase).tone);
 
 const getLatestCustomerMessage = (refundCase: RefundCaseRecord) =>
   refundCase.messages?.[0] ?? null;
@@ -4218,9 +4198,13 @@ export default function AdminRefundsPage() {
       (selectedCase.legacyStateReviewRequired ? null : selectedCase.matchedNayaxMachineAuthTime) ||
       (selectedCase.legacyStateReviewRequired ? null : editor.matchedNayaxMachineAuthTime) ||
       selectedCase.incidentAt;
-    const actionLabel = `Refund ${formatCurrency(cardAmountCents)} and notify customer`;
+    const actionLabel = `Refund ${formatCurrency(cardAmountCents)}`;
     const hasReadyRefund = isCardCompletion && primaryAction?.disabled !== true;
     const topActionLabel = hasReadyRefund ? actionLabel : primaryAction?.label ?? 'Review this request';
+    const managerState = getRefundManagerState(
+      { ...selectedCase, nayaxLookupSummary: selectedNayaxSummary },
+      { isRefunding: isRunningNayaxRefund }
+    );
     const isActionDisabled =
       isSaving ||
       isSendingCustomerMessage ||
@@ -4269,33 +4253,27 @@ export default function AdminRefundsPage() {
           >
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Manager decision
+                Current state
               </p>
-              <h3 className="mt-1 text-xl font-semibold">
-                {selectedCase.legacyStateReviewRequired
-                  ? 'Waiting for a fresh transaction check'
-                  : nayaxDecisionHeading(selectedNayaxSummary, comparisonCandidate, hasSelectedMatch)}
+              <h3 data-testid="refund-manager-state" className="mt-1 text-xl font-semibold">
+                {managerState.label}
               </h3>
-              {selectedCase.status !== 'completed' &&
-                !selectedCase.providerHold &&
-                selectedCase.providerOutcome !== 'rejected' && (
-                <p data-testid="refund-not-issued-notice" className="mt-2 max-w-xl text-sm leading-5 text-muted-foreground">
-                  <span className="font-semibold text-foreground">No refund has been issued.</span>{' '}
-                  {selectedCase.legacyStateReviewRequired
-                    ? 'A fresh transaction check is required before any decision.'
-                    : 'Selecting a transaction saves review evidence only.'}
-                </p>
-              )}
+              <p className="mt-2 max-w-xl text-sm leading-5 text-muted-foreground">
+                {managerState.explanation}
+              </p>
+              <p data-testid="refund-manager-next-step" className="mt-1 max-w-xl text-sm font-medium leading-5 text-foreground">
+                Next: {managerState.nextStep}
+              </p>
             </div>
             <div className="flex flex-col gap-2 sm:items-end">
               <div className="flex flex-wrap gap-2 sm:justify-end">
                 <Badge
                   className={cn(
-                    'w-fit border-border bg-muted text-foreground',
-                    hasReadyRefund && 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                    'w-fit',
+                    managerStateBadgeClass(managerState.tone)
                   )}
                 >
-                  {matchResultLabel(selectedCase, editor, nayaxCandidates)}
+                  Payment: {getRefundPaymentStateLabel(selectedCase, { isRefunding: isRunningNayaxRefund })}
                 </Badge>
                 <Badge
                   className={cn(
@@ -4304,7 +4282,7 @@ export default function AdminRefundsPage() {
                       'border-rose-200 bg-rose-50 text-rose-800'
                   )}
                 >
-                  {getCustomerCommunicationLabel(selectedCase)}
+                  Customer: {getCustomerCommunicationLabel(selectedCase)}
                 </Badge>
               </div>
               {primaryAction?.disabled === true ? (
@@ -4400,6 +4378,11 @@ export default function AdminRefundsPage() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Machine transaction
                   </p>
+                  <h4 data-testid="nayax-decision-heading" className="mt-1 text-base font-semibold text-foreground">
+                    {selectedCase.legacyStateReviewRequired
+                      ? 'Waiting for a fresh transaction check'
+                      : nayaxDecisionHeading(selectedNayaxSummary, comparisonCandidate, hasSelectedMatch)}
+                  </h4>
                 </div>
                 <Badge className="w-fit border-border bg-background text-foreground">
                   {selectedCase.legacyStateReviewRequired
@@ -4978,6 +4961,8 @@ export default function AdminRefundsPage() {
       handleMessageTypeChange('denied');
     };
 
+    const managerState = getRefundManagerState(selectedCase);
+
     return (
       <div data-testid="refund-cash-workbench" className="space-y-4">
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-slate-950 text-white shadow-sm">
@@ -4987,11 +4972,15 @@ export default function AdminRefundsPage() {
           >
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-200">
-                Manager decision
+                Current state
               </p>
-              <h3 className="mt-1 text-xl font-semibold">
-                {isCashCompletion ? 'Ready to record payment' : primaryAction?.label ?? 'Review this request'}
+              <h3 data-testid="refund-manager-state" className="mt-1 text-xl font-semibold">
+                {managerState.label}
               </h3>
+              <p className="mt-2 max-w-xl text-sm leading-5 text-slate-300">{managerState.explanation}</p>
+              <p data-testid="refund-manager-next-step" className="mt-1 max-w-xl text-sm font-medium leading-5 text-white">
+                Next: {managerState.nextStep}
+              </p>
             </div>
             <div className="flex flex-col gap-2 sm:items-end">
               <div className="flex flex-wrap gap-2 sm:justify-end">
@@ -5001,7 +4990,7 @@ export default function AdminRefundsPage() {
                     cashMatchReady && 'border-emerald-300/40 bg-emerald-300/15 text-emerald-100'
                   )}
                 >
-                  {cashMatchReady ? 'Cash sale matched' : 'Cash sale needs review'}
+                  Payment: {getRefundPaymentStateLabel(selectedCase)}
                 </Badge>
                 <Badge
                   className={cn(
@@ -5010,7 +4999,7 @@ export default function AdminRefundsPage() {
                       'border-rose-300/40 bg-rose-300/15 text-rose-100'
                   )}
                 >
-                  {getCustomerCommunicationLabel(selectedCase)}
+                  Customer: {getCustomerCommunicationLabel(selectedCase)}
                 </Badge>
               </div>
               <Button

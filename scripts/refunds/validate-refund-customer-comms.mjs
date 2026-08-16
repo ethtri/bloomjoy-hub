@@ -48,8 +48,13 @@ const run = async () => {
     includesAll(adminUpdate, ['customer_message_failed', 'customer_email_delivery_failed', 'status: "failed"'])
   );
   assert(
-    'Portal treats failed customer emails as visible manager work',
-    includesAll(portalPage, ['Customer email failed', 'Retry customer email', 'getLatestCustomerMessage'])
+    'Portal shows failed customer email as separate visible manager work',
+    includesAll(portalPage, [
+      'Customer email needs retry',
+      'Customer: {getCustomerCommunicationLabel(selectedCase)}',
+      'Retry customer email',
+      'getLatestCustomerMessage',
+    ])
   );
   assert(
     'Portal primary case actions send the matching customer message type',
