@@ -5280,7 +5280,8 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
   await withRefundPortalContext(createDemoContext, async (context) => {
     const rpcCalls = [];
     const page = await openSignedInDemoPage(context, rpcCalls, '/refunds?demo=on');
-    await page.getByText('DEMO DATA - visual review only').waitFor({ timeout: 10000 });
+    await page.getByText('Demo cases are for visual review only.', { exact: false })
+      .waitFor({ timeout: 10000 });
 
     recorder.assert(
       'Explicit local demo mode shows read-only visual cases',
