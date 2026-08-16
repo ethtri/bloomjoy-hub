@@ -98,7 +98,7 @@ export const getRefundManagerState = (
     return state(
       'closed',
       'Closed',
-      'This legacy case is closed without claiming a new payment result.',
+      'This case is closed and no refund was recorded.',
       'Review the case history only if the customer follows up.',
       'neutral'
     );
@@ -108,8 +108,8 @@ export const getRefundManagerState = (
     return state(
       'refunding',
       'Refunding',
-      'Bloomjoy is sending the approved refund to Nayax.',
-      'Wait for the result. Do not click again or open Nayax separately.',
+      'Bloomjoy is sending the approved card refund.',
+      'Wait for the result. Do not try again while this is processing.',
       'info'
     );
   }
@@ -117,9 +117,9 @@ export const getRefundManagerState = (
   if (refundCase.providerHold || refundCase.providerOutcome === 'unconfirmed') {
     return state(
       'check_nayax_result',
-      'Check Nayax result',
-      'Nayax has not confirmed whether the refund completed.',
-      'Do not submit another refund. Use the payment-support review to confirm the result.',
+      'Confirm refund result',
+      'Bloomjoy could not confirm whether the refund completed.',
+      'Do not issue another refund. Ask payment support to confirm what happened.',
       'warning'
     );
   }
@@ -160,9 +160,9 @@ export const getRefundManagerState = (
   ) {
     return state(
       'checking_nayax',
-      'Checking Nayax automatically',
-      'Bloomjoy is checking recent transactions using the customer details.',
-      'Wait for the recommendation. No manager click is needed.',
+      'Checking',
+      'Bloomjoy is comparing the customer details with recent machine transactions.',
+      'Wait for the result.',
       'info'
     );
   }
@@ -182,13 +182,59 @@ export const getRefundManagerState = (
     lookupStatus === 'setup_needed' ||
     lookupStatus === 'lookup_failed'
   ) {
+    if (lookupStatus === 'lookup_failed') {
+      return state(
+        'match_attention',
+        'Transaction check failed',
+        'Bloomjoy could not finish checking transactions.',
+        'Select Refresh transaction results. No refund has been issued.',
+        'warning'
+      );
+    }
+
+    if (lookupStatus === 'setup_needed' || refundCase.correlationStatus === 'nayax_not_configured') {
+      return state(
+        'match_attention',
+        'Transaction search unavailable',
+        'Bloomjoy cannot check this machine\'s transactions right now.',
+        'Keep the case open and try again later.',
+        'warning'
+      );
+    }
+
+    if (
+      recommendationState === 'ambiguous' ||
+      refundCase.correlationStatus === 'multiple_candidates' ||
+      lookupStatus === 'multiple_matches'
+    ) {
+      return state(
+        'match_attention',
+        'More than one possible match',
+        'Two or more transactions could be this purchase.',
+        'Compare the details. Select one only if it is clearly the customer\'s purchase.',
+        'warning'
+      );
+    }
+
+    if (
+      recommendationState === 'no_safe_match' ||
+      refundCase.correlationStatus === 'no_match' ||
+      lookupStatus === 'no_match'
+    ) {
+      return state(
+        'match_attention',
+        'No matching transaction',
+        'No transaction matched the customer details closely enough.',
+        'Keep the case open. Ask for a missing detail if one would help.',
+        'warning'
+      );
+    }
+
     return state(
       'match_attention',
-      'Multiple or no safe match',
-      'Bloomjoy cannot safely identify one transaction from the available evidence.',
-      lookupStatus === 'lookup_failed'
-        ? 'Use Refresh transaction results. Keep the case open until one safe match is available.'
-        : 'Review the evidence or collect a missing detail. Do not guess a transaction.',
+      'Manager review needed',
+      'Bloomjoy could not recommend one transaction.',
+      'Review the case details before choosing the next step.',
       'warning'
     );
   }
@@ -196,10 +242,10 @@ export const getRefundManagerState = (
   return state(
     'ready_for_review',
     'Ready for review',
-    'The customer request and transaction evidence are ready for a manager decision.',
+    'The customer request and likely transaction are ready for your decision.',
     refundCase.paymentMethod === 'card'
       ? 'Confirm the transaction and amount, then choose Refund or deny the request.'
-      : 'Review the evidence and complete the available manager action.',
+      : 'Review the case details and choose the next step.',
     'success'
   );
 };
@@ -210,7 +256,7 @@ export const getRefundPaymentStateLabel = (
 ) => {
   if (refundCase.status === 'completed' || refundCase.providerOutcome === 'succeeded') return 'Refunded';
   if (options.isRefunding) return 'Refunding';
-  if (refundCase.providerHold || refundCase.providerOutcome === 'unconfirmed') return 'Check required';
+  if (refundCase.providerHold || refundCase.providerOutcome === 'unconfirmed') return 'Result unclear';
   if (refundCase.providerOutcome === 'rejected') return 'Rejected';
   return 'Not issued';
 };

@@ -2231,7 +2231,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
 
   await page.getByText('Transaction search details').click();
-  await page.getByRole('button', { name: 'Clear selected card sale' }).click();
+  await page.getByRole('button', { name: 'Clear selected transaction' }).click();
   recorder.assert(
     'Clearing a selected sale closes the old payment action immediately',
     (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
@@ -2525,7 +2525,7 @@ const runEmailPilotDuplicateChecks = async ({ browser, appUrl, artifactDir, reco
   });
   await page.getByRole('button', { name: /Same incident.*keep this case/i }).click();
   await page.getByText(
-    'The duplicate is linked and official actions remain on the canonical case.',
+    'The duplicate is linked. Decisions and refunds stay on the original case.',
     { exact: true }
   ).waitFor({ timeout: 10000 });
   recorder.assert(
@@ -2594,18 +2594,18 @@ const runLegacyStateNormalizationChecks = async ({ browser, appUrl, artifactDir,
   recorder.assert(
     'Normalized legacy case explains the truthful manager task in plain language',
     await page.getByText('Historical payment review', { exact: true }).isVisible() &&
-      await page.getByText('Payment history check', { exact: true }).last().isVisible() &&
-      await page.getByText('Historical payment review required', { exact: true }).isVisible() &&
+      await page.getByText('Manager review needed', { exact: true }).last().isVisible() &&
+      await page.getByText('Refresh transaction results', { exact: true }).isVisible() &&
       await page.getByText('Fresh check needed', { exact: true }).last().isVisible() &&
       await page.getByText(
-        'Run the fresh read-only transaction check before making any decision.',
+        'Refresh the transaction results before making any decision.',
         { exact: true }
       ).isVisible()
   );
   recorder.assert(
     'Normalized legacy case states that no provider refund was issued',
     await page.getByText(/No refund has been issued\./).first().isVisible() &&
-      await page.getByText('Historical approval email sent', { exact: true }).isVisible() &&
+      await page.getByText('Earlier approval sent', { exact: true }).isVisible() &&
       await page.getByTestId('refund-legacy-state-freeze').isVisible()
   );
   recorder.assert(
@@ -2764,12 +2764,12 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   recorder.assert(
     'Participant-safe Gmail view labels managers and unverified senders without raw addresses',
     await page.getByTestId('refund-gmail-thread').getByText('Manager correspondence').isVisible() &&
-      await page.getByTestId('refund-gmail-thread').getByText('Not customer evidence').isVisible() &&
+      await page.getByTestId('refund-gmail-thread').getByText('Not from customer').isVisible() &&
       (await page.getByTestId('refund-gmail-thread').getByText(/@example\.test/).count()) === 0
   );
   recorder.assert(
     'Mapped-manager CC is summarized without exposing recipient addresses',
-    await page.getByTestId('refund-gmail-thread').getByText('2 current mapped managers copied').isVisible()
+    await page.getByTestId('refund-gmail-thread').getByText('2 assigned managers copied').isVisible()
   );
   recorder.assert(
     'A hard bounce creates a clear manager recovery state',
@@ -3341,11 +3341,11 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
   ).length;
   recorder.assert(
     'Ready case explains that Bloomjoy starts the initial lookup automatically',
-    await page.getByText('Bloomjoy checks the payment automatically', { exact: true }).isVisible() &&
-      await page.getByText(/Opening this case does not start another check/i).isVisible() &&
+    await page.getByText('Automatic transaction check', { exact: true }).isVisible() &&
+      await page.getByText(/Opening the case does not run it again/i).isVisible() &&
       (await page.getByRole('button', { name: 'Check Nayax transaction' }).count()) === 0
   );
-  const automaticLookupGuidance = page.getByText('Bloomjoy checks the payment automatically', { exact: true });
+  const automaticLookupGuidance = page.getByText('Automatic transaction check', { exact: true });
   await automaticLookupGuidance.scrollIntoViewIfNeeded();
   await page.screenshot({
     path: path.join(artifactDir, 'refund-automatic-nayax-ready-desktop.png'),
@@ -3368,7 +3368,7 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
     await page.getByRole('button', { name: 'Refresh transaction results' }).isVisible()
   );
   await page.getByTestId('nayax-check-transaction').click();
-  await page.getByTestId('nayax-result-card').getByText('Setup needed before Nayax can check this card refund.').first().waitFor({
+  await page.getByTestId('nayax-result-card').getByText('Transaction search is unavailable for this machine.').first().waitFor({
     timeout: 10000,
   });
   evidence.primaryCheckLookupCallCountAfter = functionCalls.filter(
@@ -3383,7 +3383,7 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
   );
   recorder.assert(
     'Unavailable transaction search is visible in the manager workbench',
-    await page.getByTestId('nayax-result-card').getByText('This machine is not connected to transaction search yet. Ask the customer for any missing purchase details.').isVisible()
+    await page.getByTestId('nayax-result-card').getByText('Bloomjoy cannot check this machine\'s transactions right now. Keep the case open and try again later.').isVisible()
   );
   recorder.assert(
     'Provider setup state stays manager-only and cannot trigger customer correction copy',
@@ -3392,10 +3392,10 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
   );
   recorder.assert(
     'Pending transaction result explains the unavailable state',
-    await page.getByTestId('refund-primary-action').getByText('Multiple or no safe match', { exact: true }).isVisible() &&
+    await page.getByTestId('refund-primary-action').getByText('Transaction search unavailable', { exact: true }).isVisible() &&
       await page.getByTestId('nayax-result-card').getByText('Transaction search is unavailable', { exact: true }).isVisible() &&
       await page.getByTestId('nayax-result-card').getByText('Needs attention', { exact: true }).isVisible() &&
-      await page.getByTestId('nayax-result-card').getByText('This machine is not connected to transaction search yet. Ask the customer for any missing purchase details.').isVisible()
+      await page.getByTestId('nayax-result-card').getByText('Bloomjoy cannot check this machine\'s transactions right now. Keep the case open and try again later.').isVisible()
   );
   recorder.assert(
     'Nayax setup notice does not expose raw provider IDs',
@@ -3433,6 +3433,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       },
       expectedHeading: 'No clear transaction was found',
       expectedStatus: 'Needs attention',
+      expectedManagerNotice: 'No matching transaction was found.',
       expectedDescription: /none matched enough customer details/i,
       expectedAction: 'Manager review required',
       expectedBadge: 'No match found',
@@ -3508,6 +3509,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       },
       expectedHeading: 'More than one transaction could match',
       expectedStatus: 'Compare details',
+      expectedManagerNotice: '2 possible transactions were found.',
       expectedBadge: 'Multiple possible matches',
       expectedAction: 'Choose a transaction above',
       expectedCandidateCount: 2,
@@ -3570,10 +3572,11 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       },
       expectedHeading: 'One likely transaction was found',
       expectedStatus: 'Likely match',
+      expectedManagerNotice: 'Transaction results updated.',
       expectedBadge: 'Candidate found',
       expectedAction: 'Choose a transaction above',
       expectedCandidateCount: 1,
-      expectedConfidence: 'QR and timing agree, manager review only',
+      expectedConfidence: 'QR code and time agree, review needed',
     },
     {
       name: 'lookup failed',
@@ -3592,6 +3595,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       },
       expectedHeading: 'The transaction check did not finish',
       expectedStatus: 'Needs attention',
+      expectedManagerNotice: 'Bloomjoy could not finish checking transactions.',
       expectedDescription: /transaction search could not be completed/i,
       expectedAction: 'Manager review required',
       expectedBadge: 'Lookup failed',
@@ -3655,6 +3659,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       },
       expectedHeading: 'A possible transaction needs comparison',
       expectedStatus: 'Compare details',
+      expectedManagerNotice: 'Transaction results updated.',
       expectedBadge: 'Candidate found',
       expectedAction: 'Choose a transaction above',
       expectedCandidateCount: 1,
@@ -3698,7 +3703,8 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         await page.getByTestId('nayax-result-card').getByText(scenario.expectedStatus, { exact: true }).isVisible() &&
         (!scenario.expectedDescription ||
           await page.getByTestId('nayax-result-card').getByText(scenario.expectedDescription).isVisible()) &&
-        await page.getByTestId('nayax-result-card').getByText(scenario.response.summary).first().isVisible() &&
+        await page.getByTestId('nayax-result-card').getByText(scenario.expectedManagerNotice, { exact: true }).isVisible() &&
+        (await page.getByTestId('nayax-result-card').getByText(scenario.response.summary, { exact: true }).count()) === 0 &&
         functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 1,
       functionCalls.join(', ')
     );
@@ -3976,7 +3982,7 @@ const runCustomerCommsFailureChecks = async ({ browser, appUrl, recorder }) => {
 
   recorder.assert(
     'Failed customer email is visible as unresolved work',
-    failedCommsBodyText.includes('Customer: Customer email needs retry')
+    failedCommsBodyText.includes('Customer: Email needs attention')
   );
   recorder.assert(
     'Premature card approval email cannot be retried',
@@ -4330,7 +4336,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
     page.on('pageerror', (error) => consoleErrors.push(error.message));
 
     await signInRefundUser(page, appUrl);
-    await page.getByRole('button', { name: 'Processing / check needed 1', exact: true })
+    await page.getByRole('button', { name: 'Check refund result 1', exact: true })
       .click();
     await page.locator('tr', { hasText: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 })
       .catch(async () => {
@@ -4360,7 +4366,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
           (await panel.locator('textarea').count()) === 0 &&
           (await panel.getByLabel(/recipient|email subject|message body|retry provider/i).count()) === 0 &&
           await panel.getByText('This never calls Nayax or retries a payment.', { exact: false }).isVisible() &&
-          await panel.getByText('every current mapped manager copied', { exact: false }).first().isVisible()
+          await panel.getByText('email the customer in the original thread', { exact: false }).first().isVisible()
       );
       await panel.getByTestId('refund-nayax-resolution-reference')
         .fill('DTM:4111111111111111');
@@ -4413,7 +4419,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
           ? await page.getByTestId('refund-manager-step-up-dialog')
             .getByText('will create one fixed customer completion reply', { exact: false }).isVisible() &&
             await page.getByTestId('refund-manager-step-up-dialog')
-              .getByText('every current mapped manager copied', { exact: false }).isVisible()
+              .getByText('email the customer in the original thread', { exact: false }).isVisible()
           : await page.getByTestId('refund-manager-step-up-dialog')
             .getByText('does not call Nayax, retry a payment, or contact the customer', { exact: false }).isVisible()) &&
         rpcCalls.filter((name) => name === 'admin_prepare_refund_nayax_resolution_intent').length === 1 &&
@@ -5113,21 +5119,21 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
           ['provider_timeout', 'provider_outcome_unknown', 'success_finalization_incomplete'].includes(scenario.response.errorCode)
       );
       const targetQueueName = providerCheckRequired
-        ? 'Processing / check needed 1'
+        ? 'Check refund result 1'
         : 'Needs action 1';
       await page.getByRole('button', { name: targetQueueName, exact: true }).waitFor({ timeout: 10000 });
       if (providerCheckRequired) {
         recorder.assert(
-          `Synthetic browser ${scenario.name} leaves Needs action for Processing / check needed`,
-          await page.getByRole('button', { name: 'Processing / check needed 1', exact: true }).isVisible() &&
+          `Synthetic browser ${scenario.name} leaves Needs action for Check refund result`,
+          await page.getByRole('button', { name: 'Check refund result 1', exact: true }).isVisible() &&
             await page.getByRole('button', { name: 'Needs action 0', exact: true }).isVisible()
         );
-        await page.getByRole('button', { name: 'Processing / check needed 1', exact: true }).click();
+        await page.getByRole('button', { name: 'Check refund result 1', exact: true }).click();
       } else {
         recorder.assert(
           `Synthetic browser ${scenario.name} remains manager review without entering provider reconciliation`,
           await page.getByRole('button', { name: 'Needs action 1', exact: true }).isVisible() &&
-            await page.getByRole('button', { name: 'Processing / check needed 0', exact: true }).isVisible()
+            await page.getByRole('button', { name: 'Check refund result 0', exact: true }).isVisible()
         );
       }
 
@@ -5154,10 +5160,10 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
         scenario.name === 'config_blocked'
           ? (await caseRow.getByText('Card refunds unavailable', { exact: true }).count()) > 0
           : providerCheckRequired
-          ? (await caseRow.getByText('Check Nayax result', { exact: true }).count()) === 1
+          ? (await caseRow.getByText('Confirm refund result', { exact: true }).count()) === 1
           : scenario.name === 'rejected'
             ? (await caseRow.getByText('Refund rejected', { exact: true }).count()) > 0
-            : (await caseRow.getByText('Multiple or no safe match', { exact: true }).count()) > 0
+            : (await caseRow.getByText(/Manager review needed|More than one possible match|No matching transaction/, { exact: true }).count()) > 0
       );
       if (providerCheckRequired) {
         recorder.assert(
@@ -5168,9 +5174,9 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
             (await page.getByText('Preview customer email', { exact: true }).count()) === 0
         );
         await reloadRefundPortalPage(page);
-        await page.getByRole('button', { name: 'Processing / check needed 1', exact: true })
+        await page.getByRole('button', { name: 'Check refund result 1', exact: true })
           .waitFor({ timeout: 10000 });
-        await page.getByRole('button', { name: 'Processing / check needed 1', exact: true }).click();
+        await page.getByRole('button', { name: 'Check refund result 1', exact: true }).click();
         const reloadedCaseRow = page.locator('tr', { hasText: 'RF-UAT-CARD' });
         await reloadedCaseRow.click();
         recorder.assert(

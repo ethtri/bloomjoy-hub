@@ -411,17 +411,16 @@ assert(
     portal.includes('setOfficialActionVersion(nextVersion > 0 ? nextVersion : 0)') &&
     portal.includes('selectedCaseIsReviewOnly || officialActionVersion <= 0') &&
     portal.includes("selectedCaseOfficialActionBlockReason === 'official_actions_disabled'") &&
-    portal.includes('Live refund actions are paused until the remaining provider, owner-verification, and launch safeguards are approved.') &&
+    portal.includes('Refund actions are temporarily unavailable.') &&
     portal.includes('data-testid="refund-manager-step-up-dialog"') &&
-    portal.includes('Human Machine Manager verification only') &&
-    portal.includes('Do not use an agent-controlled or shared browser') &&
-    portal.includes('You can take this action because you are currently assigned to manage this machine') &&
-    portal.includes('Admin access by itself is never enough to issue a refund') &&
-    portal.includes('Never screenshot, copy, email, or share this QR code') &&
-    portal.includes('Support agents cannot reset or bypass this step') &&
+    portal.includes('Manager confirmation required') &&
+    portal.includes('Do not share the code') &&
+    portal.includes('You can take this action because you are assigned to manage this machine') &&
+    portal.includes('Do not screenshot, copy, email, or share it') &&
+    portal.includes('ask the account owner to help recover access before issuing refunds') &&
     portal.includes("? 'refund-manager-verification-banner'") &&
     portal.includes(": 'refund-review-only-banner'") &&
-    portal.includes('Only a currently mapped Machine Manager can approve, decline, complete, or issue this'),
+    portal.includes('only the assigned Machine Manager can decide or issue the refund'),
   'The portal must fail closed with explicit disabled, step-up-required, and mapping-required review-only states.'
 );
 

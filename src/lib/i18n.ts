@@ -154,7 +154,7 @@ export const translations = {
     'portal.nav.reportingUpsell':
       'Sales reporting is available only for machines Bloomjoy has granted to this account.',
     'portal.nav.refunds': 'Refunds',
-    'portal.nav.refundsDescription': 'Review assigned customer refund cases, evidence, and follow-up.',
+    'portal.nav.refundsDescription': 'Review assigned refund cases and take the next step.',
     'portal.nav.training': 'Training',
     'portal.nav.trainingDescription': 'Task-first videos, quick aids, and machine guides.',
     'portal.nav.trainingUpsell': 'Unlock the training hub, quick aids, and certificate path.',
