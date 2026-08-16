@@ -336,7 +336,7 @@ try {
     "path.join(artifactDir, 'refund-nayax-support-resolution-desktop.png')"
   );
   const supportStepUpAssertionIndex = portalUatSource.indexOf(
-    'requires fresh exact human verification`'
+    'requires fresh manager verification`'
   );
   const supportMobileScreenshotIndex = portalUatSource.indexOf(
     "path.join(artifactDir, 'refund-nayax-support-resolution-mobile.png')"

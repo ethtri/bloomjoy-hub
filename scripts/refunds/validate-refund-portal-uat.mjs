@@ -2235,7 +2235,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   recorder.assert(
     'Clearing a selected sale closes the old payment action immediately',
     (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-      await page.getByRole('button', { name: 'Save and recheck card sale' }).isVisible() &&
+      await page.getByRole('button', { name: 'Clear transaction and check again' }).isVisible() &&
       !functionCalls.includes('nayax-card-refund')
   );
 
@@ -4234,7 +4234,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
       reasonCode: 'nayax_dtm_settled',
       evidenceReference: 'DTM:NAYAX-123456789',
       evidenceOccurredAt: paymentEvidenceLocalValue,
-      receiptTitle: 'Payment outcome committed and customer notified',
+      receiptTitle: 'Refund result recorded and customer notified',
       caseCompleted: true,
       retryReadyForFreshReview: false,
       resolved: true,
@@ -4245,7 +4245,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
       reasonCode: 'nayax_support_retry_safe',
       evidenceReference: 'SUPPORT:NAYAX-03595795',
       evidenceOccurredAt: null,
-      receiptTitle: 'Returned to fresh review',
+      receiptTitle: 'Returned to manager review',
       caseCompleted: false,
       retryReadyForFreshReview: true,
       resolved: true,
@@ -4256,7 +4256,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
       reasonCode: 'manual_nayax_completion',
       evidenceReference: 'MANUAL:UAT-COMPLETE-0003',
       evidenceOccurredAt: paymentEvidenceLocalValue,
-      receiptTitle: 'Payment outcome committed and customer notified',
+      receiptTitle: 'Refund result recorded and customer notified',
       caseCompleted: true,
       retryReadyForFreshReview: false,
       resolved: true,
@@ -4267,7 +4267,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
       reasonCode: 'evidence_incomplete',
       evidenceReference: 'SUPPORT:UAT-HOLD-0004',
       evidenceOccurredAt: null,
-      receiptTitle: 'Provider hold kept in place',
+      receiptTitle: 'Still waiting for confirmation',
       caseCompleted: false,
       retryReadyForFreshReview: false,
       resolved: false,
@@ -4362,10 +4362,10 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
           await panel.getByTestId('refund-nayax-resolution-evidence-type').isVisible() &&
           await panel.getByTestId('refund-nayax-resolution-reason').isVisible() &&
           await panel.getByTestId('refund-nayax-resolution-reference').isVisible() &&
-          await panel.getByLabel('Refund issued at (UTC from evidence)').isVisible() &&
+          await panel.getByLabel('Refund date and time').isVisible() &&
           (await panel.locator('textarea').count()) === 0 &&
           (await panel.getByLabel(/recipient|email subject|message body|retry provider/i).count()) === 0 &&
-          await panel.getByText('This never calls Nayax or retries a payment.', { exact: false }).isVisible() &&
+          await panel.getByText('This does not try the refund again.', { exact: false }).isVisible() &&
           await panel.getByText('email the customer in the original thread', { exact: false }).first().isVisible()
       );
       await panel.getByTestId('refund-nayax-resolution-reference')
@@ -4402,14 +4402,14 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
     await page.getByTestId('refund-manager-step-up-dialog').waitFor({ timeout: 10000 });
     const frozenSummary = page.getByTestId('refund-nayax-resolution-step-up-summary');
     recorder.assert(
-      `Support resolution ${scenario.result} requires fresh exact human verification`,
-      await page.getByText('Commit this payment-support evidence result', { exact: false }).isVisible() &&
-        await page.getByText('Human payment-support and Machine Manager verification only').isVisible() &&
+      `Support resolution ${scenario.result} requires fresh manager verification`,
+      await page.getByText('Confirm this payment-support result', { exact: false }).isVisible() &&
+        await page.getByText('Payment-support confirmation required').isVisible() &&
         await frozenSummary.isVisible() &&
-        await frozenSummary.getByText('Verified outcome', { exact: true }).isVisible() &&
-        await frozenSummary.getByText('Evidence source', { exact: true }).isVisible() &&
-        await frozenSummary.getByText('Evidence result', { exact: true }).isVisible() &&
-        await frozenSummary.getByText('Evidence reference', { exact: true }).isVisible() &&
+        await frozenSummary.getByText('Confirmed outcome', { exact: true }).isVisible() &&
+        await frozenSummary.getByText('Confirmation source', { exact: true }).isVisible() &&
+        await frozenSummary.getByText('Confirmed result', { exact: true }).isVisible() &&
+        await frozenSummary.getByText('Reference number', { exact: true }).isVisible() &&
         await frozenSummary.getByText(scenario.evidenceReference, { exact: true }).isVisible() &&
         (scenario.evidenceOccurredAt
           ? await frozenSummary.getByText('Refund issued at', { exact: true }).isVisible() &&
@@ -4417,11 +4417,11 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
           : (await frozenSummary.getByText('Refund issued at', { exact: true }).count()) === 0) &&
         (['provider_confirmed_success', 'documented_manual_completion'].includes(scenario.result)
           ? await page.getByTestId('refund-manager-step-up-dialog')
-            .getByText('will create one fixed customer completion reply', { exact: false }).isVisible() &&
+            .getByText('Bloomjoy will record the confirmed result', { exact: false }).isVisible() &&
             await page.getByTestId('refund-manager-step-up-dialog')
               .getByText('email the customer in the original thread', { exact: false }).isVisible()
           : await page.getByTestId('refund-manager-step-up-dialog')
-            .getByText('does not call Nayax, retry a payment, or contact the customer', { exact: false }).isVisible()) &&
+            .getByText('does not retry the refund or contact the customer', { exact: false }).isVisible()) &&
         rpcCalls.filter((name) => name === 'admin_prepare_refund_nayax_resolution_intent').length === 1 &&
         !functionCalls.includes('refund-manager-action-step-up') &&
         !functionCalls.includes('nayax-card-refund') &&
@@ -4539,7 +4539,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
   const uncertainState = {
     reconciliationVisible: await uncertainPage
       .getByTestId('refund-nayax-completion-recovery')
-      .getByText('Customer completion needs reconciliation', { exact: true })
+      .getByText('Check whether the customer email was sent', { exact: true })
       .isVisible()
       .catch(() => false),
     recoverCount: await uncertainPage.getByRole('button', {
@@ -4956,7 +4956,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
     {
       name: 'rejected',
       screenshot: 'refund-provider-rejected.png',
-      expectedTitle: 'Refund rejected by Nayax',
+      expectedTitle: 'Refund was rejected',
       response: {
         executed: false,
         status: 'declined',
@@ -4990,7 +4990,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
     {
       name: 'pending',
       screenshot: 'refund-provider-pending.png',
-      expectedTitle: 'Nayax is still confirming',
+      expectedTitle: 'Refund confirmation is pending',
       response: {
         executed: false,
         status: 'requested',
