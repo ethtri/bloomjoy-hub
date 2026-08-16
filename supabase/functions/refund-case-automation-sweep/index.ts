@@ -44,6 +44,7 @@ import {
 } from "../_shared/refund-wallet-correction.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
+import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -1359,6 +1360,11 @@ const runMissingInformationSweep = async (
         .eq("id", refundCase.id)
         .eq("status", "draft");
       if (completeError) throw completeError;
+      await runAutomaticNayaxLookupIfReady({
+        supabase,
+        caseId: refundCase.id,
+        source: "customer_reply_recheck",
+      });
       await routeFollowUpManualReview({
         runId,
         refundCase: { ...refundCase, status: "needs_review", automation_state: "under_review" },
@@ -1681,6 +1687,13 @@ const runCustomerReplyFollowUpSweep = async (
           noticeKind: "customer_reply_review",
         });
       }
+      if (factsChanged) {
+        await runAutomaticNayaxLookupIfReady({
+          supabase,
+          caseId: refundCase.id,
+          source: "customer_reply_recheck",
+        });
+      }
       const { error: eventError } = await supabase.from("refund_case_events").insert({
         refund_case_id: refundCase.id,
         event_type: "refund_customer_reply_rechecked",
@@ -1771,7 +1784,7 @@ const runCardNayaxLookupSweep = async (
     const action = await claimAction(
       runId,
       refundCase.id,
-      `nayax_lookup:${refundCase.id}:${new Date().toISOString().slice(0, 10)}`,
+      `nayax_lookup:${refundCase.id}:v${refundCase.deterministic_fact_version}`,
       "nayax_lookup",
       refundCase.status,
       policyWindowStart,

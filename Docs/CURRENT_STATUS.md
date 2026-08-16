@@ -1,6 +1,6 @@
 # Current Status
 
-Last compacted: 2026-08-14
+Last compacted: 2026-08-15
 
 GitHub Issues and the Bloomjoy Project board are the operational source of truth for active work, priority, blockers, acceptance criteria, and closeout evidence.
 
@@ -20,7 +20,9 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 ## Current Themes
 
-### Refund Operations launch snapshot (authoritative as of 2026-08-14)
+### Refund Operations launch snapshot (authoritative as of 2026-08-15)
+
+- P0 `#630` connects the existing case fact-version/readiness transition to the existing Nayax Last Sales lookup. A lookup-ready card case now claims one automatic read-only lookup per deterministic evidence version during hosted intake/private email-linked completion or customer-reply recheck; unchanged page opens/renders do not trigger it. The existing deterministic recommendation, sanitized candidates, and plain-language reasons remain the manager result, while ambiguous, unmatched, setup, and failed cases stay open with a manual **Refresh transaction results** fallback. This slice does not call the Nayax refund adapter or enable payment execution.
 
 - The reviewed production foundation is deployed and aligned to canonical `main`: **10 Refund Operations Edge Functions and 51 refund/Nayax migrations**. The audited provider-outcome resolution and Gmail intake-shadow foundations are present but default-off. Official actions, live Nayax execution, automatic customer contact, broad Gmail polling, GPT triage, manager aging, and refund automation remain disabled.
 - The live hosted refund form exposes **29 active, customer-safe portfolio locations**, accepts no attachments, and passed the current desktop/mobile browser evidence, including the 390px manager experience without horizontal overflow.
