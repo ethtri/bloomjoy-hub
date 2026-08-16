@@ -152,7 +152,8 @@ Every automatic message uses a versioned deterministic template, a durable opera
 | Template/version | Audience and use | Automatic-send boundary |
 | --- | --- | --- |
 | `refund_first_contact_v1` | Generic Bloomjoy hosted-form link for the first eligible inbound Gmail message | Once per source thread; original-thread Gmail only; one private context; no manager CC; not case-specific |
-| `refund_follow_up_v1` | Exact missing-information request, one bounded reminder, safe no-match confirmation, and one received-information confirmation per correction cycle | Deterministic fields only; maximum two cycles; current mapped-manager CC and contact gates required |
+| `refund_follow_up_v1` | Historical deterministic missing-information, reminder, no-match, and receipt evidence | Retained as immutable historical evidence; no new cycle starts on this version |
+| `refund_follow_up_v2` | Exact missing-information request with safely parseable labeled reply fields, one bounded reminder, safe no-match confirmation, and one received-information confirmation per correction cycle | Deterministic fields only; maximum two cycles; current mapped-manager CC and contact gates required |
 | `refund_manager_aging_v1` | Internal mapped-manager reminder/escalation with the exact authenticated case link | Manager-only; one reminder at two and one escalation at five business days per attention version; independent aging gate |
 | `refund_nayax_completion_v2` | Humble original-thread customer receipt with exact amount, masked card destination when available, action date, and up-to-4-business-day timing | Claimable only after token-bound confirmed provider success and atomic case/reporting completion; all current managers CC'd; no manager-only duplicate |
 

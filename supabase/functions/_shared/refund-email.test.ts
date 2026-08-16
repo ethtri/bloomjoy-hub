@@ -26,6 +26,26 @@ Deno.test("missing-information templates request every approved missing field an
 
   assertIncludes(email.text, "the approximate purchase time, including AM or PM", "time request");
   assertIncludes(email.text, "the exact amount charged", "amount request");
+  assertIncludes(
+    email.text,
+    "Approximate purchase time (include AM or PM):",
+    "reply template includes only the missing time field",
+  );
+  assertIncludes(
+    email.text,
+    "Amount (for example, $7.25):",
+    "reply template includes only the missing amount field",
+  );
+  assertNotIncludes(
+    email.text,
+    "Machine or location:",
+    "reply template does not repeat a known location",
+  );
+  assertIncludes(
+    email.html,
+    "Approximate purchase time (include AM or PM):<br />Amount (for example, $7.25):",
+    "HTML reply template keeps one field per line",
+  );
   assertNotIncludes(email.text, "the machine or Bloomjoy location", "present location is not requested");
   assertNotIncludes(email.text, "payment-screen photo", "unnecessary photo request");
   assertNotIncludes(email.text, "anything that may help", "generic request");
@@ -43,7 +63,7 @@ Deno.test("missing-field normalization is allowlisted, ordered, and deduplicated
     "missing fields should use canonical order",
   );
   assert(describeRefundMissingFields(fields).length === 2, "two safe descriptions expected");
-  assert(REFUND_DETERMINISTIC_FOLLOW_UP_VERSION === "refund_follow_up_v1", "version is immutable");
+  assert(REFUND_DETERMINISTIC_FOLLOW_UP_VERSION === "refund_follow_up_v2", "version is immutable");
 });
 
 Deno.test("missing-information templates fail closed without an exact field list", () => {

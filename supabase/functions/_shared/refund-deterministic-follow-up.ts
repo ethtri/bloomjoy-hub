@@ -1,4 +1,8 @@
-export const REFUND_DETERMINISTIC_FOLLOW_UP_VERSION = "refund_follow_up_v1";
+export const REFUND_DETERMINISTIC_FOLLOW_UP_VERSION = "refund_follow_up_v2";
+export const REFUND_SUPPORTED_FOLLOW_UP_VERSIONS = new Set([
+  "refund_follow_up_v1",
+  REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
+]);
 
 export const REFUND_AUTOMATIC_CUSTOMER_CONTACT_ENV =
   "REFUND_AUTOMATIC_CUSTOMER_CONTACT_ENABLED";
@@ -98,14 +102,15 @@ export const deriveRefundMissingFields = (
 export const refundFollowUpTemplateKey = (
   reason: RefundFollowUpReason,
   messageClass: RefundFollowUpMessageClass,
+  templateVersion = REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
 ) => {
   if (messageClass === "information_received") {
-    return `refund_information_received_${REFUND_DETERMINISTIC_FOLLOW_UP_VERSION}`;
+    return `refund_information_received_${templateVersion}`;
   }
   if (messageClass === "reminder") {
-    return `refund_${reason}_reminder_${REFUND_DETERMINISTIC_FOLLOW_UP_VERSION}`;
+    return `refund_${reason}_reminder_${templateVersion}`;
   }
-  return `refund_${reason}_${REFUND_DETERMINISTIC_FOLLOW_UP_VERSION}`;
+  return `refund_${reason}_${templateVersion}`;
 };
 
 const sha256Hex = async (value: string) => {

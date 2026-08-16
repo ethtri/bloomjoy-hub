@@ -24,6 +24,7 @@ import {
   deriveRefundMissingFields,
   refundFollowUpTemplateKey,
   REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
+  REFUND_SUPPORTED_FOLLOW_UP_VERSIONS,
   sanitizeRefundMissingFields,
   type RefundFollowUpMessageClass,
   type RefundFollowUpReason,
@@ -535,7 +536,7 @@ const normalizeFollowUpCycle = (
   if (
     !id || !refundCaseId ||
     !["missing_information", "no_safe_match"].includes(reasonCode) ||
-    templateVersion !== REFUND_DETERMINISTIC_FOLLOW_UP_VERSION ||
+    !REFUND_SUPPORTED_FOLLOW_UP_VERSIONS.has(templateVersion) ||
     caseFactVersion < 1 || cycleNumber < 1 || cycleNumber > 2
   ) {
     return null;
@@ -618,7 +619,11 @@ const logDeterministicFollowUpMessage = async (
       recipient_email: refundCase.customer_email,
       subject: email.subject,
       body: email.text,
-      template_key: refundFollowUpTemplateKey(cycle.reasonCode, messageClass),
+      template_key: refundFollowUpTemplateKey(
+        cycle.reasonCode,
+        messageClass,
+        cycle.templateVersion,
+      ),
       content_source: "deterministic_template",
       delivery_kind: "automatic",
       reason_code: cycle.reasonCode,

@@ -25,6 +25,11 @@ import {
 } from "../_shared/refund-gmail.ts";
 import { ingestRefundGmailThreadBeforeFirstContact } from "../_shared/refund-gmail-orchestration.ts";
 import {
+  extractLabeledRefundEmailFacts,
+  resolveExactRefundMachineFact,
+  type RefundMachineFactCandidate,
+} from "../_shared/refund-email-fact-extraction.ts";
+import {
   buildRefundFirstContactEmail,
   isRefundFirstContactSenderAllowed,
   REFUND_FIRST_CONTACT_TEMPLATE_KEY,
@@ -42,6 +47,7 @@ import {
   type RefundGmailRetentionSummary,
 } from "../_shared/refund-gmail-retention.ts";
 import { sendRefundManagerActionNotice } from "../_shared/refund-manager-notification.ts";
+import { resolveLocalDateTimeInZone } from "../_shared/timezone-resolution.mjs";
 import {
   completeRefundGmailIntakeShadowFirstContact,
   isRefundGmailIntakeShadowRunKey,
@@ -670,6 +676,183 @@ const processFirstContact = async ({
   }).catch(() => false);
   counters.firstContactFailed += 1;
   return { failed: true };
+};
+
+const applyDeterministicCustomerReplyFacts = async ({
+  refundCaseId,
+  sourceMessageId,
+  body,
+  sensitiveDataRedacted,
+}: {
+  refundCaseId: string;
+  sourceMessageId: string;
+  body: string;
+  sensitiveDataRedacted: boolean;
+}) => {
+  if (!supabase) return { allowRoutineContact: false };
+  const extracted = extractLabeledRefundEmailFacts(body);
+  const manualReviewReason = sensitiveDataRedacted
+    ? "sensitive_or_escalated_content"
+    : extracted.manualReviewReason;
+  if (manualReviewReason) {
+    const { error: updateError } = await supabase.from("refund_cases").update({
+      status: "needs_review",
+      automation_state: "under_review",
+      automation_follow_up_due_at: null,
+    }).eq("id", refundCaseId);
+    if (updateError) throw updateError;
+    const { error: eventError } = await supabase.from("refund_case_events").insert({
+      refund_case_id: refundCaseId,
+      event_type: "gmail_customer_message_routed_to_manager",
+      message:
+        "A verified customer email required manager handling instead of a routine automatic reply.",
+      metadata: {
+        source_message_id: sourceMessageId,
+        reason: manualReviewReason,
+        payload_redacted: true,
+      },
+    });
+    if (eventError) throw eventError;
+    return { allowRoutineContact: false };
+  }
+
+  const { data: current, error: caseError } = await supabase
+    .from("refund_cases")
+    .select(
+      "id,deterministic_fact_version,reporting_machine_id,reporting_location_id,incident_at,incident_local_datetime,incident_timezone,incident_time_resolution,payment_method,payment_amount_cents,card_last4,card_wallet_used",
+    )
+    .eq("id", refundCaseId)
+    .maybeSingle();
+  if (caseError) throw caseError;
+  if (!current) return { allowRoutineContact: true };
+
+  const updates: Record<string, unknown> = {};
+  const appliedFields: string[] = [];
+  let resolvedMachine: RefundMachineFactCandidate | null = null;
+  if (extracted.locationOrMachine && !current.reporting_machine_id) {
+    const { data: machines, error: machineError } = await supabase
+      .from("reporting_machines")
+      .select(
+        "id,machine_label,refund_public_display_label,location_id,reporting_locations(id,name,timezone,status)",
+      )
+      .eq("status", "active")
+      .in("machine_type", ["commercial", "mini"])
+      .limit(250);
+    if (machineError) throw machineError;
+    const candidates = (machines ?? []).flatMap((machine) => {
+      const relation = Array.isArray(machine.reporting_locations)
+        ? machine.reporting_locations[0]
+        : machine.reporting_locations;
+      if (!relation || relation.status !== "active") return [];
+      return [{
+        machineId: String(machine.id),
+        locationId: String(machine.location_id),
+        timezone: String(relation.timezone),
+        machineLabel: String(machine.machine_label),
+        publicMachineLabel: machine.refund_public_display_label
+          ? String(machine.refund_public_display_label)
+          : null,
+        locationName: String(relation.name),
+      }];
+    });
+    resolvedMachine = resolveExactRefundMachineFact(
+      extracted.locationOrMachine,
+      candidates,
+    );
+    if (resolvedMachine) {
+      updates.reporting_machine_id = resolvedMachine.machineId;
+      updates.reporting_location_id = resolvedMachine.locationId;
+      appliedFields.push("location_or_machine");
+    }
+  }
+
+  let incidentTimezone = String(current.incident_timezone ?? "").trim() ||
+    resolvedMachine?.timezone || "";
+  if (!incidentTimezone && current.reporting_machine_id) {
+    const { data: machine, error: machineError } = await supabase
+      .from("reporting_machines")
+      .select("reporting_locations(timezone,status)")
+      .eq("id", current.reporting_machine_id)
+      .maybeSingle();
+    if (machineError) throw machineError;
+    const relation = Array.isArray(machine?.reporting_locations)
+      ? machine?.reporting_locations[0]
+      : machine?.reporting_locations;
+    if (relation?.status === "active") incidentTimezone = String(relation.timezone);
+  }
+
+  const existingLocal = String(current.incident_local_datetime ?? "");
+  const incidentDate = extracted.incidentDate || existingLocal.slice(0, 10);
+  const incidentTime = extracted.incidentTime || existingLocal.slice(11, 16);
+  if (
+    current.incident_time_resolution !== "exact" && incidentDate && incidentTime &&
+    incidentTimezone
+  ) {
+    const resolution = resolveLocalDateTimeInZone({
+      localDate: incidentDate,
+      localTime: incidentTime,
+      timeZone: incidentTimezone,
+    });
+    if (resolution.instant && resolution.resolution === "exact") {
+      updates.incident_at = resolution.instant;
+      updates.incident_local_datetime = `${incidentDate}T${incidentTime}`;
+      updates.incident_timezone = incidentTimezone;
+      updates.incident_time_resolution = "exact";
+      if (extracted.incidentDate) appliedFields.push("incident_date");
+      if (extracted.incidentTime) appliedFields.push("incident_time");
+    }
+  }
+
+  const currentPaymentMethod = String(current.payment_method ?? "").toLowerCase();
+  if (!['card', 'cash'].includes(currentPaymentMethod) && extracted.paymentMethod) {
+    updates.payment_method = extracted.paymentMethod;
+    updates.card_wallet_used = extracted.cardWalletUsed;
+    appliedFields.push("payment_method");
+  }
+  if (
+    (!Number.isInteger(current.payment_amount_cents) || Number(current.payment_amount_cents) <= 0) &&
+    extracted.amountCents
+  ) {
+    updates.payment_amount_cents = extracted.amountCents;
+    updates.refund_amount_cents = extracted.amountCents;
+    appliedFields.push("amount");
+  }
+  const walletUsed = updates.card_wallet_used === true || current.card_wallet_used === true;
+  const paymentMethod = String(updates.payment_method ?? current.payment_method ?? "").toLowerCase();
+  if (
+    paymentMethod === "card" && !walletUsed && !/^\d{4}$/.test(String(current.card_last4 ?? "")) &&
+    extracted.cardLast4
+  ) {
+    updates.card_last4 = extracted.cardLast4;
+    appliedFields.push("card_last4");
+  }
+
+  if (appliedFields.length === 0) return { allowRoutineContact: true };
+  updates.automation_state = "customer_replied";
+  updates.automation_follow_up_due_at = null;
+  const { data: updated, error: updateError } = await supabase.from("refund_cases")
+    .update(updates)
+    .eq("id", refundCaseId)
+    .eq("deterministic_fact_version", current.deterministic_fact_version)
+    .select("id")
+    .maybeSingle();
+  if (updateError) throw updateError;
+  if (updated) {
+    const { error: eventError } = await supabase.from("refund_case_events").insert({
+      refund_case_id: refundCaseId,
+      event_type: "gmail_customer_facts_applied",
+      message:
+        "Unambiguous labeled facts from a verified customer reply were added to the refund case.",
+      metadata: {
+        source_message_id: sourceMessageId,
+        applied_fields: appliedFields,
+        extraction_policy: "labeled_routine_facts_v1",
+        payload_redacted: true,
+      },
+    });
+    if (eventError) throw eventError;
+  }
+  return { allowRoutineContact: true };
 };
 
 const sendGmailCaseActionNotice = async ({
@@ -1526,6 +1709,29 @@ serve(async (request) => {
               );
               const automaticContactPaused =
                 ingestion?.automaticCustomerContactPaused === true;
+              let allowRoutineContact = true;
+              if (
+                !intakeShadow && ingestion?.created && caseId &&
+                internalMessageId && participantRole === "customer"
+              ) {
+                try {
+                  const factResult = await applyDeterministicCustomerReplyFacts({
+                    refundCaseId: caseId,
+                    sourceMessageId: internalMessageId,
+                    body: redactedBody.text,
+                    sensitiveDataRedacted: redactedSubject.redacted ||
+                      redactedBody.redacted,
+                  });
+                  allowRoutineContact = factResult.allowRoutineContact;
+                } catch (error) {
+                  allowRoutineContact = false;
+                  counters.messagesFailed += 1;
+                  console.error("refund Gmail deterministic fact update failed", {
+                    errorType: error instanceof Error ? error.name : typeof error,
+                    payloadRedacted: true,
+                  });
+                }
+              }
               if (
                 !intakeShadow && ingestion?.created && caseId &&
                 internalMessageId &&
@@ -1554,8 +1760,8 @@ serve(async (request) => {
                 counters.attachmentsQuarantined += attachmentResult.quarantined;
                 counters.messagesFailed += attachmentResult.failed;
               }
-              return participantRole === "customer" && caseId &&
-                  internalMessageId
+              return participantRole === "customer" && allowRoutineContact &&
+                  caseId && internalMessageId
                 ? {
                   refundCaseId: caseId,
                   sourceMessageId: internalMessageId,

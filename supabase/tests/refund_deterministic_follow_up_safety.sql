@@ -466,7 +466,9 @@ select is(
 );
 
 update public.refund_customer_contact_settings
-set automatic_customer_contact_enabled = true
+set
+  automatic_customer_contact_enabled = true,
+  template_version = 'refund_follow_up_v1'
 where singleton;
 
 select lives_ok(
