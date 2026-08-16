@@ -734,7 +734,7 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
       return 'No card-sale match is recorded. Keep the case in manager review; only the bounded automatic workflow may send confirmed no-safe-match copy.';
     }
 
-      return 'The card sale check runs when this case opens. Confirm a candidate before completion.';
+    return 'Bloomjoy starts the card sale check automatically as soon as the required customer details are available.';
   }
 
   if (refundCase.decision === 'approved' && refundCase.status !== 'completed') {
@@ -1089,7 +1089,7 @@ const transactionSearchDescription = (summary: RefundNayaxLookupSummary | null) 
     case 'multiple_matches':
       return `${summary.candidateCount || 'Several'} possible transactions were found. Compare them below.`;
     case 'not_started':
-      return 'The transaction search will run when this case opens.';
+      return 'Bloomjoy will start the transaction search automatically when the required customer details are available.';
     default:
       return 'Review the customer details and machine transaction before deciding.';
   }
@@ -3963,6 +3963,7 @@ export default function AdminRefundsPage() {
       (nayaxLookupNotice && !isLookingUpNayax)
     );
     const showPrimaryTransactionCheck = !hasSelectedMatch && !hasLookupResult;
+    const automaticLookupPending = selectedNayaxSummary?.lookupStatus === 'checking';
     const needsDisagreementReason = Boolean(selectedCandidate && selectedCandidate.isRecommended !== true);
     const selectCandidate = (candidate: NayaxLookupCandidate) => {
       if (candidate.selectionAllowed === false) return;
@@ -4007,6 +4008,9 @@ export default function AdminRefundsPage() {
           )}
         </span>
         <span className="mt-1 block text-muted-foreground">{formatCandidateSummary(candidate)}</span>
+        {candidate.matchReason && (
+          <span className="mt-2 block leading-5 text-foreground">Why it matches: {candidate.matchReason}</span>
+        )}
         {candidate.selectionAllowed === false && (
           <span className="mt-2 block font-medium text-orange-900">
             Unavailable because this sale conflicts with a required detail or is already in use.
@@ -4019,24 +4023,15 @@ export default function AdminRefundsPage() {
       <div className="mt-3 space-y-3">
         {showPrimaryTransactionCheck && (
           <div className="rounded-md border border-sky-200 bg-sky-50 p-3">
-            <p className="text-sm font-medium text-sky-950">Find the payment before deciding this case</p>
+            <p className="text-sm font-medium text-sky-950">Bloomjoy checks the payment automatically</p>
             <p className="mt-1 text-xs leading-5 text-sky-800">
-              This read-only check compares recent Nayax sales with the machine, amount, and reported time. It never issues a refund.
+              The read-only Nayax check starts when the required customer details are available. Opening this case does not start another check, and the check never issues a refund.
             </p>
-            <Button
-              data-testid="nayax-check-transaction"
-              type="button"
-              className="mt-3"
-              onClick={() => void handleNayaxLookup()}
-              disabled={isLookingUpNayax || isUsingDemoData}
-            >
-              {isLookingUpNayax ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Search className="mr-2 h-4 w-4" />
-              )}
-              Check Nayax transaction
-            </Button>
+          </div>
+        )}
+        {automaticLookupPending && (
+          <div data-testid="nayax-automatic-lookup-pending" className={nayaxLookupNoticeClass('info')}>
+            Bloomjoy is checking recent Nayax sales now. No manager click is needed.
           </div>
         )}
         {nayaxLookupNotice && !selectedCase.hasMatchedNayaxTransaction && (
@@ -4113,8 +4108,9 @@ export default function AdminRefundsPage() {
               Use these options only if the selected transaction looks wrong or out of date.
             </p>
             <div className="flex flex-wrap gap-2">
-              {hasLookupResult && (
+              {!automaticLookupPending && (
                 <Button
+                  data-testid="nayax-check-transaction"
                   type="button"
                   variant="outline"
                   size="sm"
@@ -4126,7 +4122,7 @@ export default function AdminRefundsPage() {
                   ) : (
                     <RefreshCw className="mr-2 h-4 w-4" />
                   )}
-                  Refresh result
+                  Refresh transaction results
                 </Button>
               )}
               {hasSelectedMatch && (

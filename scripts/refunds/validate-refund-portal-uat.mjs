@@ -73,6 +73,7 @@ const parseArgs = (argv) => {
     ownerTotpOnly: false,
     legacyStateOnly: false,
     nayaxResolutionOnly: false,
+    nayaxLookupOnly: false,
     gmailDraftOnly: false,
   };
 
@@ -111,6 +112,11 @@ const parseArgs = (argv) => {
 
     if (arg === '--nayax-resolution-only') {
       args.nayaxResolutionOnly = true;
+      continue;
+    }
+
+    if (arg === '--nayax-lookup-only') {
+      args.nayaxLookupOnly = true;
       continue;
     }
 
@@ -169,7 +175,8 @@ const parseArgs = (argv) => {
   args.artifactDir = path.resolve(process.cwd(), args.artifactDir);
   args.fragmentDir = path.resolve(process.cwd(), args.fragmentDir);
   if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
-    !args.ownerTotpOnly && !args.legacyStateOnly && !args.nayaxResolutionOnly) {
+    !args.ownerTotpOnly && !args.legacyStateOnly && !args.nayaxResolutionOnly &&
+    !args.nayaxLookupOnly) {
     requireEvidenceRunToken(args.runToken);
   }
   return args;
@@ -3325,9 +3332,32 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
     (name) => name === 'nayax-transaction-lookup'
   ).length;
   recorder.assert(
-    'Primary Check Nayax transaction is visible before any lookup and Refresh result is not',
-    await page.getByTestId('nayax-check-transaction').isVisible() &&
-      !(await page.getByRole('button', { name: 'Refresh result' }).isVisible())
+    'Ready case explains that Bloomjoy starts the initial lookup automatically',
+    await page.getByText('Bloomjoy checks the payment automatically', { exact: true }).isVisible() &&
+      await page.getByText(/Opening this case does not start another check/i).isVisible() &&
+      (await page.getByRole('button', { name: 'Check Nayax transaction' }).count()) === 0
+  );
+  const automaticLookupGuidance = page.getByText('Bloomjoy checks the payment automatically', { exact: true });
+  await automaticLookupGuidance.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-automatic-nayax-ready-desktop.png'),
+    fullPage: false,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await automaticLookupGuidance.scrollIntoViewIfNeeded();
+  recorder.assert(
+    'Automatic lookup guidance remains usable without narrow-width overflow',
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-automatic-nayax-ready-mobile.png'),
+    fullPage: false,
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByText('Transaction search details', { exact: true }).click();
+  recorder.assert(
+    'Manual Refresh transaction results remains available as an operational fallback',
+    await page.getByRole('button', { name: 'Refresh transaction results' }).isVisible()
   );
   await page.getByTestId('nayax-check-transaction').click();
   await page.getByTestId('nayax-result-card').getByText('Setup needed before Nayax can check this card refund.').first().waitFor({
@@ -3338,7 +3368,7 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
   ).length;
 
   recorder.assert(
-    'Explicit manager request runs Nayax lookup once when evidence is pending',
+    'Explicit manager fallback runs Nayax lookup once when evidence is pending',
     evidence.primaryCheckLookupCallCountBefore === 0 &&
       evidence.primaryCheckLookupCallCountAfter === 1,
     functionCalls.join(', ')
@@ -3648,6 +3678,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0,
       functionCalls.join(', ')
     );
+    await page.getByText('Transaction search details', { exact: true }).click();
     await page.getByTestId('nayax-check-transaction').click();
     await page.getByTestId('nayax-result-card').getByText(scenario.expectedStatus, { exact: true }).waitFor({ timeout: 10000 });
     await page.getByTestId('refund-primary-action').getByText(scenario.expectedHeading, { exact: true }).waitFor({ timeout: 10000 });
@@ -5341,7 +5372,8 @@ const run = async () => {
 
   await mkdir(args.artifactDir, { recursive: true });
   if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.ownerTotpOnly &&
-    !args.legacyStateOnly && !args.nayaxResolutionOnly && !args.gmailDraftOnly) {
+    !args.legacyStateOnly && !args.nayaxResolutionOnly && !args.nayaxLookupOnly &&
+    !args.gmailDraftOnly) {
     await mkdir(args.fragmentDir, { recursive: true });
   }
   await waitForServer(args.appUrl);
@@ -5381,6 +5413,20 @@ const run = async () => {
       });
     } else if (args.nayaxResolutionOnly) {
       await runNayaxResolutionChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
+    } else if (args.nayaxLookupOnly) {
+      await runNayaxLookupNoticeChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+        evidence,
+      });
+      await runNayaxLookupStatusMatrixChecks({
         browser,
         appUrl: args.appUrl,
         artifactDir: args.artifactDir,
@@ -5548,6 +5594,18 @@ const run = async () => {
     }
     console.log('\nRefund Nayax-resolution UAT passed.');
     console.log(`Safe screenshots written to ${args.artifactDir}`);
+    return;
+  }
+
+  if (args.nayaxLookupOnly) {
+    const focusedFailures = recorder.failed();
+    if (focusedFailures.length > 0) {
+      console.error(`\nRefund Nayax-lookup UAT failed: ${focusedFailures.length} check(s).`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log('\nRefund Nayax-lookup UAT passed.');
+    console.log(`Screenshots written to ${args.artifactDir}`);
     return;
   }
 

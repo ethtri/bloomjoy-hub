@@ -12,6 +12,8 @@ const __filename = fileURLToPath(import.meta.url);
 export const EXPECTED_SCREENSHOTS = [
   'admin-machines-machine-managers.png',
   'refund-direct-intake-desktop.png',
+  'refund-automatic-nayax-ready-desktop.png',
+  'refund-automatic-nayax-ready-mobile.png',
   'refund-email-pilot-duplicate-review-desktop.png',
   'refund-email-pilot-duplicate-review-mobile.png',
   'refund-email-pilot-hosted-form-desktop.png',

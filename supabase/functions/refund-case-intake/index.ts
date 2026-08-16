@@ -47,6 +47,7 @@ import {
   hashRefundWalletCorrectionToken,
   isRefundWalletCorrectionToken,
 } from "../_shared/refund-wallet-correction.ts";
+import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -1699,6 +1700,15 @@ serve(async (req) => {
           throw new Error("Unable to create refund case.");
         }
 
+        await runAutomaticNayaxLookupIfReady({
+          supabase,
+          caseId: dedupedRefundCase.id,
+          source: "hosted_intake",
+        }).catch((lookupError) => {
+          console.error("refund intake automatic Nayax trigger failed", {
+            errorType: lookupError instanceof Error ? lookupError.name : typeof lookupError,
+          });
+        });
         return new Response(
           JSON.stringify({
             refundCase: {
@@ -1738,6 +1748,16 @@ serve(async (req) => {
         candidate_sales_fact_ids: candidateIds,
         attachment_count: uploadedAttachments.length,
       },
+    });
+
+    await runAutomaticNayaxLookupIfReady({
+      supabase,
+      caseId: refundCase.id,
+      source: emailContextToken ? "linked_customer_update" : "hosted_intake",
+    }).catch((lookupError) => {
+      console.error("refund intake automatic Nayax trigger failed", {
+        errorType: lookupError instanceof Error ? lookupError.name : typeof lookupError,
+      });
     });
 
     await sendManagerIntakeNotification({

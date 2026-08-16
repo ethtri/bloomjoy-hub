@@ -46,6 +46,13 @@ export class NayaxLookupRequestError extends Error {
   }
 }
 
+export class NayaxLookupEvidenceChangedError extends Error {
+  constructor() {
+    super("Refund case matching evidence changed during Nayax lookup.");
+    this.name = "NayaxLookupEvidenceChangedError";
+  }
+}
+
 const parseIncidentAt = (value: unknown) => {
   const raw = sanitizeText(value, 80);
   const date = raw ? new Date(raw) : null;
@@ -316,12 +323,14 @@ export const lookupNayaxCandidatesForRefundCase = async ({
   supabase,
   caseId,
   actorUserId,
+  expectedFactVersion,
   nayaxBaseUrl = getNayaxBaseUrl(),
   windowHours = getNayaxLookupWindowHours(),
 }: {
   supabase: SupabaseServiceClient;
   caseId: string;
   actorUserId: string | null;
+  expectedFactVersion?: number;
   nayaxBaseUrl?: string;
   windowHours?: number;
 }): Promise<NayaxLookupResult> => {
@@ -344,11 +353,19 @@ export const lookupNayaxCandidatesForRefundCase = async ({
       card_last4,
       card_wallet_used,
       customer_email,
-      customer_name
+      customer_name,
+      deterministic_fact_version
     `)
     .eq("id", caseId)
     .maybeSingle();
   if (refundCaseError) throw refundCaseError;
+  const initialFactVersion = Number(refundCase?.deterministic_fact_version);
+  if (
+    !Number.isInteger(initialFactVersion) ||
+    (expectedFactVersion !== undefined && initialFactVersion !== expectedFactVersion)
+  ) {
+    throw new NayaxLookupEvidenceChangedError();
+  }
   if (refundCase?.payment_method !== "card") {
     throw new NayaxLookupRequestError("Nayax lookup is only available for card refund cases.", 400);
   }
@@ -549,6 +566,15 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     summary: string;
     recommendedAction: string;
   };
+  const { data: currentCase, error: currentCaseError } = await supabase
+    .from("refund_cases")
+    .select("deterministic_fact_version")
+    .eq("id", caseId)
+    .maybeSingle();
+  if (currentCaseError) throw currentCaseError;
+  if (Number(currentCase?.deterministic_fact_version) !== initialFactVersion) {
+    throw new NayaxLookupEvidenceChangedError();
+  }
   const candidates = await persistNayaxLookupCandidates({
     supabase,
     caseId,
