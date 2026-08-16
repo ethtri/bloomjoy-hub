@@ -440,8 +440,9 @@ assert(
 
 assert(
   portal.includes("refundCase.officialActionBlockReason === 'manager_verification_required'") &&
-    portalUat.includes('Fresh manager step-up names the exact action') &&
-    portalUat.includes('Personally authorize this exact action'),
+    portalUat.includes('Fresh manager confirmation names the exact action') &&
+    portalUat.includes('requires a private manager code') &&
+    portalUat.includes("getByText('Confirm this action')"),
   'A mapped manager awaiting fresh personal verification must retain only the action-bound authenticator entry point.'
 );
 
@@ -475,7 +476,7 @@ assert(
 assert(
   portalUat.includes("name: 'mapped Super Admin'") &&
     portalUat.includes("name: 'mapped Scoped Admin'") &&
-    portalUat.includes('reaches the exact mapped-manager verification instead of a review-only dead end') &&
+    portalUat.includes('reaches the assigned-manager confirmation instead of a review-only dead end') &&
     portalUat.includes('performs no payment action before personal verification') &&
     portalUat.includes('A case with a missing review version cannot inherit the previous case version') &&
     portalUat.includes('Deep link, status filter, and queue-row selection make no lookup or official-action call') &&
