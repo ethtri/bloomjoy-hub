@@ -3387,7 +3387,7 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
   );
   recorder.assert(
     'Provider setup state stays manager-only and cannot trigger customer correction copy',
-    (await page.getByText('Manager review required', { exact: true }).count()) >= 1 &&
+    (await page.getByText('Transaction search unavailable', { exact: true }).count()) >= 1 &&
       (await page.getByText('Ask customer for details', { exact: true }).count()) === 0
   );
   recorder.assert(
@@ -3435,7 +3435,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedStatus: 'Needs attention',
       expectedManagerNotice: 'No matching transaction was found.',
       expectedDescription: /none matched enough customer details/i,
-      expectedAction: 'Manager review required',
+      expectedAction: 'Do not select a transaction unless you can clearly identify it.',
       expectedBadge: 'No match found',
     },
     {
@@ -3511,7 +3511,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedStatus: 'Compare details',
       expectedManagerNotice: '2 possible transactions were found.',
       expectedBadge: 'Multiple possible matches',
-      expectedAction: 'Choose a transaction above',
+      expectedAction: 'Compare the details. Select one only if it is clearly the customer\'s purchase.',
       expectedCandidateCount: 2,
     },
     {
@@ -3574,7 +3574,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedStatus: 'Likely match',
       expectedManagerNotice: 'Transaction results updated.',
       expectedBadge: 'Candidate found',
-      expectedAction: 'Choose a transaction above',
+      expectedAction: 'Compare the customer, amount, and time.',
       expectedCandidateCount: 1,
       expectedConfidence: 'QR code and time agree, review needed',
     },
@@ -3597,8 +3597,8 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedStatus: 'Needs attention',
       expectedManagerNotice: 'Bloomjoy could not finish checking transactions.',
       expectedDescription: /transaction search could not be completed/i,
-      expectedAction: 'Manager review required',
-      expectedBadge: 'Lookup failed',
+      expectedAction: 'Select Refresh transaction results.',
+      expectedBadge: 'Check failed',
     },
     {
       name: 'wallet manual review',
@@ -3661,7 +3661,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedStatus: 'Compare details',
       expectedManagerNotice: 'Transaction results updated.',
       expectedBadge: 'Candidate found',
-      expectedAction: 'Choose a transaction above',
+      expectedAction: 'Review the case details before choosing the next step.',
       expectedCandidateCount: 1,
       expectedAmountMismatch: '$0.90',
       expectedWalletCardMismatch: true,
@@ -3772,12 +3772,12 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         await page.getByText('Preview customer email', { exact: true }).click();
         recorder.assert(
           'Transaction selection is presented as evidence review, not approval',
-          await page.getByRole('button', { name: 'Save possible transaction' }).isVisible() &&
+          await page.getByRole('button', { name: 'Confirm this transaction' }).isVisible() &&
             await page.getByText('Payment: Not issued', { exact: true }).isVisible() &&
             await page.getByText('No automatic email is queued for this state.').isVisible()
         );
 
-        await page.getByRole('button', { name: 'Save possible transaction' }).click();
+        await page.getByRole('button', { name: 'Confirm this transaction' }).click();
         const evidenceDialog = page.getByTestId('refund-evidence-confirmation-dialog');
         recorder.assert(
           'Evidence save confirmation states every excluded side effect',
@@ -3837,7 +3837,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         (await page.getByTestId('refund-primary-action').locator('button:visible').count()) === 1 ||
         (
           (await page.getByTestId('refund-primary-action').locator('button:visible').count()) === 0 &&
-          await page.getByTestId('refund-action-status').isVisible()
+          await page.getByTestId('refund-manager-next-step').isVisible()
         )
       ) &&
         (await page.getByText(/transaction evidence, not a refund decision/i).count()) === 0
@@ -4973,7 +4973,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
     {
       name: 'timeout',
       screenshot: 'refund-provider-timeout.png',
-      expectedTitle: 'Nayax did not respond',
+      expectedTitle: 'The refund result timed out',
       response: {
         executed: false,
         status: 'ambiguous',
@@ -5145,7 +5145,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
         : providerCheckRequired
           ? 'Refund status not confirmed'
           : scenario.name === 'rejected'
-            ? 'Nayax rejected this refund'
+            ? 'Refund was rejected'
             : 'Manual card review required';
       recorder.assert(
         `Synthetic browser ${scenario.name} suppresses contradictory ready badges and refund actions`,
@@ -5194,7 +5194,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
         await reloadedRejectedCaseRow.click();
         recorder.assert(
           'Synthetic browser rejected remains frozen after a full reload',
-          await page.getByRole('status', { name: 'Nayax rejected this refund', exact: true }).isVisible() &&
+          await page.getByRole('status', { name: 'Refund was rejected', exact: true }).isVisible() &&
             await page.getByTestId('refund-customer-decision-freeze').isVisible() &&
             (await page.getByRole('button', { name: 'Deny request', exact: true }).count()) === 0 &&
             (await page.getByText('Preview customer email', { exact: true }).count()) === 0 &&

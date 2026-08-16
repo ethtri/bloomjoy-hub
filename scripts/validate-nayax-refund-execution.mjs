@@ -450,7 +450,8 @@ assert(
   'The refund admin endpoint must enforce evidence-only Nayax selection and reject premature card approvals server-side.'
 );
 assert(
-  refundOperationsUi.includes("label: 'Save possible transaction'") &&
+  refundOperationsUi.includes("label: 'Confirm this transaction'") &&
+    refundOperationsUi.includes("This does not issue a refund or email the customer") &&
     refundOperationsUi.includes("targetStatus: 'needs_review'") &&
     refundOperationsUi.includes("mode: 'nayax_evidence_selection'") &&
     !refundOperationsUi.includes("label: 'Confirm this card sale'"),

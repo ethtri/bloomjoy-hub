@@ -111,7 +111,7 @@ export const translations = {
       'Timekeeping-based pay review, adjustments, finalization, and pay statements.',
     'admin.refunds': 'Refunds',
     'admin.refundsDescription':
-      'Refund intake, correlation evidence, manager decisions, and completion follow-up.',
+      'Review assigned refund cases and take the next step.',
 
     'portal.memberPortal': 'Member Portal',
     'portal.description':

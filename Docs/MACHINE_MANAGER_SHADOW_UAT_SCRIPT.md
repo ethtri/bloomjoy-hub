@@ -47,9 +47,9 @@ Pass only if every boundary holds. Any access leak stops the pilot.
 4. Confirm the screen shows the customer request beside the **Recommended card sale** on a typical laptop viewport.
 5. Confirm the explanation includes the mapped location/machine, amount, local time difference, card-last-four evidence when available, and any wallet warning without exposing raw provider IDs or internal score points.
 6. Confirm alternate candidates, timeline, internal notes, and retry tools are not competing with the normal path.
-7. Confirm exactly one dominant evidence action is visible: **Save possible transaction**. No approval, payment, manual card-success status, or editable approval/completion email selector is available from candidate selection.
+7. Confirm exactly one dominant evidence action is visible: **Confirm this transaction**. No approval, payment, manual card-success status, or editable approval/completion email selector is available from candidate selection.
 8. Clear the selected sale. Confirm the old refund action disappears immediately and an unsaved candidate cannot expose final refund execution.
-9. Re-select the recommended sale and use **Save possible transaction**. Confirm the dialog says it saves review evidence only and explicitly says **No refund has been issued**. The case remains in review with no decision or customer email.
+9. Re-select the recommended sale and use **Confirm this transaction**. Confirm the dialog says it records the selection for review only and explicitly says **No refund has been issued**. The case remains in review with no decision or customer email.
 10. In the current containment build, confirm saving evidence alone exposes no refund action. In the future approved lifecycle, the separate manager decision must freeze the exact reviewed transaction and amount.
 11. In the synthetic official-action harness, freeze that separate action and personally complete the fresh challenge for the owner-approved TOTP factor. Confirm stale, same-second, replayed, shared/agent-session, mapping/case/evidence-drift, and concurrent attempts fail closed.
 12. Submit the separate approved refund action once:

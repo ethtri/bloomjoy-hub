@@ -128,7 +128,7 @@ export const getRefundManagerState = (
     return state(
       'refund_rejected',
       'Refund rejected',
-      'Nayax rejected the refund, so no refund was confirmed.',
+      'The payment service rejected the refund, so no refund was confirmed.',
       'Keep the case open and ask payment support to review the rejection.',
       'danger'
     );
@@ -225,7 +225,7 @@ export const getRefundManagerState = (
         'match_attention',
         'No matching transaction',
         'No transaction matched the customer details closely enough.',
-        'Keep the case open. Ask for a missing detail if one would help.',
+        'Keep the case open. Do not select a transaction unless you can clearly identify it.',
         'warning'
       );
     }

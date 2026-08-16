@@ -241,7 +241,7 @@ assert(
     portal.includes('data-testid="refund-nayax-resolution-reference"') &&
     portal.includes('data-testid="refund-nayax-resolution-occurred-at"') &&
     portal.includes('data-testid="refund-nayax-resolution-step-up-summary"') &&
-    portal.includes('Enter the reference from Nayax or payment support') &&
+    portal.includes('Enter the reference from the transaction record or payment support') &&
     portal.includes('Do not include customer or card details') &&
     portal.includes('Refund date and time') &&
     portal.includes('Retry completion email') &&
