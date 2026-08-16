@@ -120,7 +120,7 @@ export const portalDestinations: PortalDestination[] = [
     href: '/refunds',
     label: 'Refunds',
     labelKey: 'portal.nav.refunds',
-    description: 'Review assigned customer refund cases, evidence, and follow-up.',
+    description: 'Review assigned refund cases and take the next step.',
     descriptionKey: 'portal.nav.refundsDescription',
     icon: ReceiptText,
     access: 'refunds',

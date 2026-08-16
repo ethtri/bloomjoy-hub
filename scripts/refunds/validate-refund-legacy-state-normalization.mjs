@@ -22,6 +22,7 @@ const concurrencyTests = read(
 );
 const operations = read('src/lib/refundOperations.ts');
 const portal = read('src/pages/admin/Refunds.tsx');
+const managerState = read('src/lib/refundManagerState.ts');
 const portalUat = read('scripts/refunds/validate-refund-portal-uat.mjs');
 const runbook = read('Docs/PRODUCTION_RUNBOOK.md');
 const smoke = read('Docs/QA_SMOKE_TEST_CHECKLIST.md');
@@ -110,16 +111,19 @@ assert(
   operations.includes('legacyStateReviewRequired?: boolean') &&
     operations.includes('legacyStateReviewRequired: boolean') &&
     operations.includes('legacyStateReviewRequired: state.legacyStateReviewRequired') &&
-    portal.includes("return 'Payment history check'") &&
+    managerState.includes('refundCase.legacyStateReviewRequired') &&
+    managerState.includes("'Manager review needed'") &&
+    managerState.includes("return 'Not issued'") &&
+    portal.includes('Payment: {getRefundPaymentStateLabel') &&
     portal.includes("return 'Fresh check needed'") &&
-    portal.includes("label: 'Historical payment review required'") &&
+    portal.includes("label: 'Refresh transaction results'") &&
     portal.includes('refund-legacy-state-review-banner') &&
     portal.includes('refund-legacy-state-freeze') &&
     portal.includes('const effectiveCandidates = selectedCase.legacyStateReviewRequired ? [] : nayaxCandidates') &&
     portal.includes("? 'Waiting for a fresh transaction check'") &&
     portal.includes('!selectedCase.legacyStateReviewRequired') &&
-    portal.includes('Historical approval email sent') &&
-    portal.includes('No provider refund is recorded.') &&
+    portal.includes('Earlier approval sent') &&
+    portal.includes('No refund is recorded.') &&
     portal.includes('Customer decisions and email are paused during this payment history check.'),
   'The portal must present one plain truthful state and keep customer decisions hidden.'
 );

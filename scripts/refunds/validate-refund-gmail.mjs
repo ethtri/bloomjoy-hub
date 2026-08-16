@@ -1307,7 +1307,7 @@ assert(
     ui.includes('refund-gmail-recovery-dialog') &&
     ui.includes('refund-gmail-recovery-verified') &&
     ui.includes('Resume all linked threads') &&
-    ui.includes('Not customer evidence'),
+    ui.includes('Not from customer'),
   'Managers must see case-wide hard-bounce recovery, deliberately verify it, and see unverified participant warnings',
 );
 assert(

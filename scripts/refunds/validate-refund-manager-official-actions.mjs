@@ -411,17 +411,16 @@ assert(
     portal.includes('setOfficialActionVersion(nextVersion > 0 ? nextVersion : 0)') &&
     portal.includes('selectedCaseIsReviewOnly || officialActionVersion <= 0') &&
     portal.includes("selectedCaseOfficialActionBlockReason === 'official_actions_disabled'") &&
-    portal.includes('Live refund actions are paused until the remaining provider, owner-verification, and launch safeguards are approved.') &&
+    portal.includes('Refund actions are temporarily unavailable.') &&
     portal.includes('data-testid="refund-manager-step-up-dialog"') &&
-    portal.includes('Human Machine Manager verification only') &&
-    portal.includes('Do not use an agent-controlled or shared browser') &&
-    portal.includes('You can take this action because you are currently assigned to manage this machine') &&
-    portal.includes('Admin access by itself is never enough to issue a refund') &&
-    portal.includes('Never screenshot, copy, email, or share this QR code') &&
-    portal.includes('Support agents cannot reset or bypass this step') &&
+    portal.includes('Manager confirmation required') &&
+    portal.includes('Do not share the code') &&
+    portal.includes('You can take this action because you are assigned to manage this machine') &&
+    portal.includes('Do not screenshot, copy, email, or share it') &&
+    portal.includes('ask the account owner to help recover access before issuing refunds') &&
     portal.includes("? 'refund-manager-verification-banner'") &&
     portal.includes(": 'refund-review-only-banner'") &&
-    portal.includes('Only a currently mapped Machine Manager can approve, decline, complete, or issue this'),
+    portal.includes('only the assigned Machine Manager can decide or issue the refund'),
   'The portal must fail closed with explicit disabled, step-up-required, and mapping-required review-only states.'
 );
 
@@ -441,8 +440,9 @@ assert(
 
 assert(
   portal.includes("refundCase.officialActionBlockReason === 'manager_verification_required'") &&
-    portalUat.includes('Fresh manager step-up names the exact action') &&
-    portalUat.includes('Personally authorize this exact action'),
+    portalUat.includes('Fresh manager confirmation names the exact action') &&
+    portalUat.includes('requires a private manager code') &&
+    portalUat.includes("getByText('Confirm this action')"),
   'A mapped manager awaiting fresh personal verification must retain only the action-bound authenticator entry point.'
 );
 
@@ -476,7 +476,7 @@ assert(
 assert(
   portalUat.includes("name: 'mapped Super Admin'") &&
     portalUat.includes("name: 'mapped Scoped Admin'") &&
-    portalUat.includes('reaches the exact mapped-manager verification instead of a review-only dead end') &&
+    portalUat.includes('reaches the assigned-manager confirmation instead of a review-only dead end') &&
     portalUat.includes('performs no payment action before personal verification') &&
     portalUat.includes('A case with a missing review version cannot inherit the previous case version') &&
     portalUat.includes('Deep link, status filter, and queue-row selection make no lookup or official-action call') &&

@@ -111,7 +111,7 @@ export const translations = {
       'Timekeeping-based pay review, adjustments, finalization, and pay statements.',
     'admin.refunds': 'Refunds',
     'admin.refundsDescription':
-      'Refund intake, correlation evidence, manager decisions, and completion follow-up.',
+      'Review assigned refund cases and take the next step.',
 
     'portal.memberPortal': 'Member Portal',
     'portal.description':
@@ -154,7 +154,7 @@ export const translations = {
     'portal.nav.reportingUpsell':
       'Sales reporting is available only for machines Bloomjoy has granted to this account.',
     'portal.nav.refunds': 'Refunds',
-    'portal.nav.refundsDescription': 'Review assigned customer refund cases, evidence, and follow-up.',
+    'portal.nav.refundsDescription': 'Review assigned refund cases and take the next step.',
     'portal.nav.training': 'Training',
     'portal.nav.trainingDescription': 'Task-first videos, quick aids, and machine guides.',
     'portal.nav.trainingUpsell': 'Unlock the training hub, quick aids, and certificate path.',

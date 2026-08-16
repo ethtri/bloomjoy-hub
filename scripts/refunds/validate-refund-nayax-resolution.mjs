@@ -225,7 +225,7 @@ assert(
     nayaxCompletionTests.includes('assertEquals(finishCalls, ["failed"])') &&
     operations.includes('recoverRefundNayaxCompletion') &&
     portal.includes('Recover interrupted completion') &&
-    portal.includes('Recovery never sends') &&
+    portal.includes('Bloomjoy will either confirm it was sent or make one safe retry available') &&
     portal.includes('latestPendingNayaxCompletionMessage || latestFailedNayaxCompletionMessage'),
   'Every interrupted pending completion must become exact sent evidence, one safe retry, or reconciliation-only without sending during recovery.'
 );
@@ -241,19 +241,18 @@ assert(
     portal.includes('data-testid="refund-nayax-resolution-reference"') &&
     portal.includes('data-testid="refund-nayax-resolution-occurred-at"') &&
     portal.includes('data-testid="refund-nayax-resolution-step-up-summary"') &&
-    portal.includes('The raw reference is') &&
-    portal.includes('hashed before storage') &&
-    portal.includes('Refund issued at (UTC from evidence)') &&
-    portal.includes('Retry exact completion email once') &&
+    portal.includes('Enter the reference from the transaction record or payment support') &&
+    portal.includes('Do not include customer or card details') &&
+    portal.includes('Refund date and time') &&
+    portal.includes('Retry completion email') &&
     portal.includes('gmail_completion_retry_exhausted') &&
     portal.includes("normalized === 'gmail_completion_delivery_unknown'") &&
     portal.includes('Customer completion retry is exhausted') &&
-    portal.includes('It cannot change the customer, copy list, wording, payment, or provider outcome.') &&
+    portal.includes('It does not retry or change the refund.') &&
     migration.includes('mark_refund_nayax_completion_retry_exhausted') &&
-    portal.includes('Confirmed-success and documented-manual outcomes') &&
-    portal.includes('every current mapped manager copied') &&
-    portal.includes('will create one fixed customer completion reply') &&
-    portal.includes('It does not call Nayax, retry a payment, or contact the customer.') &&
+    portal.includes('If the refund succeeded, Bloomjoy records it and emails the') &&
+    portal.includes('customer in the original thread') &&
+    portal.includes('This records the result shown below. It does not retry the refund or contact the customer.') &&
     !portal.includes('refund-nayax-resolution-recipient') &&
     !portal.includes('refund-nayax-resolution-body') &&
     !portal.includes('refund-nayax-resolution-recipient'),
