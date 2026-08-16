@@ -3898,11 +3898,11 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
     await openNayaxManagerStepUp(page);
 
     recorder.assert(
-      `${scenario.name} reaches the exact mapped-manager verification instead of a review-only dead end`,
+      `${scenario.name} reaches the assigned-manager confirmation instead of a review-only dead end`,
       await page.getByTestId('refund-manager-step-up-dialog').isVisible() &&
-        await page.getByText('Personally authorize this exact action').isVisible() &&
-        await page.getByText(/currently assigned to manage this machine/i).isVisible() &&
-        await page.getByText(/admin access by itself is never enough/i).isVisible() &&
+        await page.getByText('Confirm this action').isVisible() &&
+        await page.getByText('Issue this card refund', { exact: false }).isVisible() &&
+        await page.getByText(/you are assigned to manage this machine/i).isVisible() &&
         (await page.getByTestId('refund-review-only-banner').count()) === 0
     );
     recorder.assert(
@@ -4043,11 +4043,11 @@ const runManagerStepUpChecks = async ({ browser, appUrl, artifactDir, recorder }
   await openNayaxManagerStepUp(page);
 
   recorder.assert(
-    'Fresh manager step-up names the exact action and prohibits agent-controlled or shared sessions',
-    await page.getByText('Personally authorize this exact action').isVisible() &&
-      await page.getByText('Issue the reviewed Nayax card refund', { exact: false }).isVisible() &&
-      await page.getByText('Human Machine Manager verification only').isVisible() &&
-      await page.getByText('Do not use an agent-controlled or shared browser', { exact: false }).isVisible() &&
+    'Fresh manager confirmation names the exact action and requires a private manager code',
+    await page.getByText('Confirm this action').isVisible() &&
+      await page.getByText('Issue this card refund', { exact: false }).isVisible() &&
+      await page.getByText('Manager confirmation required').isVisible() &&
+      await page.getByText('Enter your authenticator code in your own manager session', { exact: false }).isVisible() &&
       await page.getByTestId('refund-manager-step-up-summary').getByText('RF-UAT-CARD').isVisible() &&
       await page.getByTestId('refund-manager-step-up-summary').getByText('$7.00').isVisible()
   );
@@ -4060,13 +4060,13 @@ const runManagerStepUpChecks = async ({ browser, appUrl, artifactDir, recorder }
     fullPage: false,
   });
 
-  await page.getByText('Need supervised authenticator setup?').click();
-  await page.getByRole('button', { name: 'Begin owner-approved setup' }).click();
+  await page.getByText('Need to set up your authenticator?').click();
+  await page.getByRole('button', { name: 'Begin setup' }).click();
   await page.getByRole('alert').getByText('owner-controlled enrollment window is closed', { exact: false })
     .waitFor({ timeout: 10000 });
   recorder.assert(
     'Closed enrollment fails safely with owner-controlled recovery guidance',
-    await page.getByText('Support agents cannot reset or bypass this step', { exact: false }).isVisible() &&
+    await page.getByText('If your device is lost or replaced, ask the account owner', { exact: false }).isVisible() &&
       functionBodies.some((entry) =>
         entry.functionName === 'refund-manager-totp-enrollment' &&
         entry.body?.operation === 'start'
@@ -4174,7 +4174,7 @@ const runManagerStepUpChecks = async ({ browser, appUrl, artifactDir, recorder }
   recorder.assert(
     'Manager step-up stays readable and action-safe at 390x844 without horizontal overflow',
     mobileLayout.documentWidth <= mobileLayout.viewportWidth &&
-      await mobilePage.getByText('Personally authorize this exact action').isVisible() &&
+      await mobilePage.getByText('Confirm this action').isVisible() &&
       await mobilePage.getByRole('button', { name: 'Cancel; take no action' }).isVisible() &&
       await mobilePage.getByTestId('refund-manager-step-up-submit').isVisible()
   );
@@ -4196,8 +4196,8 @@ const runManagerStepUpChecks = async ({ browser, appUrl, artifactDir, recorder }
   const enrollmentPage = await enrollmentContext.newPage();
   await signInRefundUser(enrollmentPage, appUrl);
   await openNayaxManagerStepUp(enrollmentPage);
-  await enrollmentPage.getByText('Need supervised authenticator setup?').click();
-  await enrollmentPage.getByRole('button', { name: 'Begin owner-approved setup' }).click();
+  await enrollmentPage.getByText('Need to set up your authenticator?').click();
+  await enrollmentPage.getByRole('button', { name: 'Begin setup' }).click();
   await enrollmentPage.getByTestId('refund-totp-enrollment-panel').waitFor({ timeout: 10000 });
   recorder.assert(
     'Supervised enrollment marks the transient QR as private and never places factor or secret material in the browser response',
