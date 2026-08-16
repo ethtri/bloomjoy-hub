@@ -248,6 +248,34 @@ Deno.test("fresh exact manager TOTP drives one success attempt, one finalization
   );
 });
 
+Deno.test("authenticated manager-session authorization can drive the same bounded provider attempt", async () => {
+  const harness = makeHarness({
+    mode: "synthetic",
+    execute: () => Promise.resolve({ kind: "success" }),
+  });
+  const originalReserve = harness.dependencies.reserveAndConsumeAttempt;
+  harness.dependencies.reserveAndConsumeAttempt = async (input) => {
+    const reservation = await originalReserve(input);
+    return {
+      ...reservation,
+      managerAction: {
+        ...reservation.managerAction,
+        authorizationMethod: "manager_session",
+        authorizedAt: "2026-08-16T18:00:01.000Z",
+        verifiedTotpAt: null,
+      },
+    };
+  };
+
+  const result = await orchestrateNayaxRefund({
+    request,
+    dependencies: harness.dependencies,
+  });
+
+  assert(result.executed && result.status === "succeeded", "manager session must be accepted");
+  assert(harness.state().providerAttempts === 1, "manager session must still produce exactly one provider attempt");
+});
+
 Deno.test("committed success stays successful when customer delivery throws", async () => {
   const harness = makeHarness({
     mode: "synthetic",
@@ -352,7 +380,7 @@ for (
   });
 }
 
-Deno.test("missing exact-factor evidence fails before provider execution", async () => {
+Deno.test("missing manager authorization timestamp fails before provider execution", async () => {
   const harness = makeHarness({
     mode: "synthetic",
     execute: () => Promise.resolve({ kind: "success" }),
@@ -383,9 +411,9 @@ Deno.test("missing exact-factor evidence fails before provider execution", async
     });
   } catch (error) {
     rejected = error instanceof Error &&
-      error.message.includes("exact TOTP evidence");
+      error.message.includes("Consumed manager authorization");
   }
-  assert(rejected, "missing exact-factor evidence must fail closed");
+  assert(rejected, "missing manager authorization must fail closed");
   assert(
     harness.state().providerAttempts === 0,
     "provider must remain untouched",

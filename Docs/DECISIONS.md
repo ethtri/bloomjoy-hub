@@ -1,5 +1,17 @@
 # Decisions
 
+## 2026-08-16 - Normal card refunds use the authenticated mapped-manager action (`#430`)
+
+For an ordinary high-confidence card case, the manager reviews the exact transaction and confirms **Refund $X** in Bloomjoy. That authenticated current Machine Manager action is the payment authority for the normal product path; it does not require a separate owner-only runner, sponsor packet, written Nayax approval, or TOTP ceremony.
+
+- The server uses the already configured account-specific Nayax token and existing two-step refund adapter. Provider credentials never enter the browser.
+- The database rechecks the exact manager-to-machine mapping, case version, stored amount, currency, selected Nayax transaction, recommendation eligibility, machine enablement/cap, duplicate links, idempotency key, and daily caps in one locked reservation.
+- One exact action can create one provider attempt. Concurrent or repeated requests return the original reservation and never overlap or blindly retry an uncertain result.
+- Confirmed provider success alone may complete the case, update reporting, and prepare one reply in the original customer thread. Rejection, timeout, unknown, or contract-mismatched responses keep the case open for review and send no success message.
+- The normal action is recorded as `manager_session`; it must not be described as TOTP-authorized. Existing TOTP rules remain in place for the separate legacy administrative/cash and controlled-pilot paths until those paths are changed separately.
+
+This decision supersedes older `#430` requirements for a sponsor-gated owner-only pilot as prerequisites to the normal manager experience. Deployment switches and machine caps remain off until the reviewed change is merged and the exact owner-authorized East Ridge transaction is safely identified.
+
 ## 2026-08-13 - Uncertain Nayax outcomes require a separate immutable support decision (`#767`)
 
 A timeout, unknown, or rejected Nayax attempt remains frozen until authoritative evidence is reviewed. Resolving that hold is a separate payment-support action, not a provider retry and not a generic case edit.

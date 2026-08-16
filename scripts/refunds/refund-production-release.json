@@ -58,7 +58,8 @@
     "202608140001_refund_gmail_intake_shadow.sql",
     "202608140002_refund_nayax_controlled_owner_pilot.sql",
     "202608150001_refund_automatic_nayax_lookup.sql",
-    "202608150002_refund_follow_up_reply_template_v2.sql"
+    "202608150002_refund_follow_up_reply_template_v2.sql",
+    "202608160001_refund_nayax_manager_session_execution.sql"
   ],
   "migrationFilesSha256": "9a387fd1dcfce3ad61eb993a91917dca8c78d0f341e3b289c29af54e42079594",
   "migrationVersionSetSha256": "2ed1ef556d746a3f2bd283c2fdf227c3bad6f877215b35aabb7f87372aa35702",

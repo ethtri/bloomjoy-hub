@@ -1,9 +1,7 @@
 export type NayaxRefundConfigBlock =
   | "kill_switch_active"
   | "feature_disabled"
-  | "sponsor_approval_missing"
   | "dry_run_active"
-  | "provider_contract_unconfirmed"
   | "per_refund_cap_missing"
   | "daily_amount_cap_missing"
   | "daily_count_cap_missing"
@@ -15,8 +13,6 @@ export type NayaxRefundExecutionConfig = {
   killSwitchActive: boolean;
   executionEnabled: boolean;
   dryRun: boolean;
-  sponsorApproved: boolean;
-  providerContractConfirmed: boolean;
   maxAmountCents: number | null;
   dailyAmountCapCents: number | null;
   dailyCountCap: number | null;
@@ -27,8 +23,7 @@ export type NayaxRefundExecutionConfig = {
 export type NayaxRefundAvailabilityBlockReason =
   | "official_actions_disabled"
   | "kill_switch_active"
-  | "configuration_missing"
-  | "contract_unconfirmed";
+  | "configuration_missing";
 
 export type NayaxRefundAvailability = {
   available: boolean;
@@ -37,10 +32,10 @@ export type NayaxRefundAvailability = {
   payloadRedacted: true;
 };
 
-// The Nayax execution and availability paths share this hard-off gate. A
-// future enablement must also change the independent database official-action
-// gate in a separately reviewed rollout.
-export const NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = false;
+// The normal card-refund function may reach the existing provider adapter, but
+// only after the authenticated mapped-manager, immutable evidence, per-machine
+// enablement, caps, kill-switch, dry-run, and idempotency checks all pass.
+export const NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = true;
 
 export type NayaxRefundIdempotencyEvidence = {
   caseId: string;
@@ -85,14 +80,6 @@ export const resolveNayaxRefundExecutionConfig = (
     readEnv("NAYAX_REFUND_EXECUTION_DRY_RUN"),
     "false",
   );
-  const sponsorApproved = exactFlag(
-    readEnv("NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO"),
-    "approved",
-  );
-  const providerContractConfirmed = exactFlag(
-    readEnv("NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED"),
-    "true",
-  );
   const maxAmountCents = boundedInteger(
     readEnv("NAYAX_REFUND_MAX_AMOUNT_CENTS"),
     1_000_000,
@@ -115,9 +102,7 @@ export const resolveNayaxRefundExecutionConfig = (
   const blocks = [
     killSwitchActive ? "kill_switch_active" : null,
     executionEnabled ? null : "feature_disabled",
-    sponsorApproved ? null : "sponsor_approval_missing",
     dryRun ? "dry_run_active" : null,
-    providerContractConfirmed ? null : "provider_contract_unconfirmed",
     maxAmountCents === null ? "per_refund_cap_missing" : null,
     dailyAmountCapCents === null ? "daily_amount_cap_missing" : null,
     dailyCountCap === null ? "daily_count_cap_missing" : null,
@@ -130,8 +115,6 @@ export const resolveNayaxRefundExecutionConfig = (
     killSwitchActive,
     executionEnabled,
     dryRun,
-    sponsorApproved,
-    providerContractConfirmed,
     maxAmountCents,
     dailyAmountCapCents,
     dailyCountCap,
@@ -152,10 +135,6 @@ export const resolveNayaxRefundAvailability = ({
     blockReason = "official_actions_disabled";
   } else if (executionConfig.blocks.includes("kill_switch_active")) {
     blockReason = "kill_switch_active";
-  } else if (
-    executionConfig.blocks.includes("provider_contract_unconfirmed")
-  ) {
-    blockReason = "contract_unconfirmed";
   } else if (executionConfig.blocks.length > 0) {
     blockReason = "configuration_missing";
   }

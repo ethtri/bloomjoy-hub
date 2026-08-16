@@ -5064,10 +5064,45 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
     await signInRefundUser(page, appUrl);
     await page.getByText('1 visible of 2 total cases').waitFor({ timeout: 10000 });
     await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
+
+    if (scenario.name === 'success') {
+      await page.getByText('Signed in. Redirecting...', { exact: true })
+        .waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
+      await page.screenshot({
+        path: path.join(artifactDir, 'refund-manager-ready-desktop.png'),
+        fullPage: true,
+      });
+      await page.setViewportSize({ width: 390, height: 844 });
+      recorder.assert(
+        'Ready card refund remains usable without narrow-screen overflow',
+        await page.getByTestId('refund-run-nayax-refund').isVisible() &&
+          await page.evaluate(() =>
+            document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1
+          )
+      );
+      await page.screenshot({
+        path: path.join(artifactDir, 'refund-manager-ready-narrow.png'),
+        fullPage: true,
+      });
+    }
+
     await page.getByTestId('refund-run-nayax-refund').click();
+    if (scenario.name === 'success') {
+      recorder.assert(
+        'Narrow confirmation repeats the reviewed refund before execution',
+        await page.getByTestId('refund-confirmation-dialog').isVisible() &&
+          await page.getByTestId('refund-confirm-nayax-refund').isVisible()
+      );
+      await page.waitForTimeout(300);
+      await page.screenshot({
+        path: path.join(artifactDir, 'refund-manager-confirm-narrow.png'),
+        fullPage: false,
+      });
+    }
     await page.getByTestId('refund-confirm-nayax-refund').click();
 
     if (scenario.name === 'success') {
+      await page.setViewportSize({ width: 1440, height: 1000 });
       await page.getByTestId('refund-confirm-nayax-refund').waitFor({ state: 'visible' });
       recorder.assert(
         'Processing state disables confirmation to prevent double submit',
@@ -5097,7 +5132,8 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
     );
     recorder.assert(
       `Synthetic browser ${scenario.name} renders the settled domain outcome`,
-      await page.getByText(scenario.expectedTitle, { exact: true }).isVisible() &&
+      await page.getByTestId('refund-action-receipt')
+        .getByText(scenario.expectedTitle, { exact: true }).isVisible() &&
         (scenario.name !== 'success' ||
           await page.getByText('Confirmation: NAYAX-PROVIDER-REF-1').isVisible())
     );

@@ -385,12 +385,10 @@ async function main() {
     run('supabase', args, { stdio: 'inherit' });
     log('\nSupabase migration apply validation passed.');
 
-    const {
-      testPath: ownerAdapterTestPath,
-      testRelativePath: ownerAdapterTestRelativePath,
-    } = writeRefundGmailIntakeShadowAdapterTest(tempRoot);
+    const { testPath: ownerAdapterTestPath } =
+      writeRefundGmailIntakeShadowAdapterTest(tempRoot);
     const ownerAdapterArgs = [
-      'test', 'db', ownerAdapterTestRelativePath, '--workdir', tempRoot,
+      'test', 'db', ownerAdapterTestPath, '--workdir', tempRoot,
     ];
     if (options.debug) ownerAdapterArgs.push('--debug');
     run('supabase', ownerAdapterArgs, { relayOutput: true });

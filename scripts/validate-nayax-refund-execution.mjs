@@ -11,6 +11,7 @@ const repoRoot = path.resolve(__dirname, '..');
 const files = {
   migration: 'supabase/migrations/202605120002_refund_full_automation_foundation.sql',
   managerAuthorizationMigration: 'supabase/migrations/202605160001_refund_nayax_execution_manager_authorization.sql',
+  managerSessionMigration: 'supabase/migrations/202608160001_refund_nayax_manager_session_execution.sql',
   officialActionMigration: 'supabase/migrations/202608030002_refund_manager_official_action_boundary.sql',
   providerOrchestrationMigration: 'supabase/migrations/202608040004_refund_nayax_provider_orchestration.sql',
   providerCapsMigration: 'supabase/migrations/202608110020_refund_nayax_provider_caps.sql',
@@ -50,6 +51,7 @@ const assert = (condition, message) => {
 
 const migration = read(files.migration);
 const managerAuthorizationMigration = read(files.managerAuthorizationMigration);
+const managerSessionMigration = read(files.managerSessionMigration);
 const officialActionMigration = read(files.officialActionMigration);
 const providerOrchestrationMigration = read(files.providerOrchestrationMigration);
 const providerCapsMigration = read(files.providerCapsMigration);
@@ -133,21 +135,21 @@ assert(
   providerGates.includes('NAYAX_REFUND_EXECUTION_KILL_SWITCH') &&
     providerGates.includes('NAYAX_REFUND_EXECUTION_ENABLED') &&
     providerGates.includes('NAYAX_REFUND_EXECUTION_DRY_RUN') &&
-    providerGates.includes('NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO') &&
-    providerGates.includes('NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED'),
-  'The hard-off HTTP boundary must continue reporting every legacy rollout gate.'
+    providerGates.includes('NAYAX_REFUND_EXECUTOR_ASSERTION') &&
+    providerGates.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET'),
+  'The HTTP boundary must retain the ordinary kill switch, enablement, dry-run, executor, and idempotency gates.'
 );
 assert(
   fn.includes('can_perform_refund_official_action') &&
-    fn.includes('provider: disabledNayaxProviderAdapter') &&
+    fn.includes('createNayaxRefundProviderAdapter') &&
+    fn.includes('service_reserve_nayax_refund_manager_action') &&
     fn.includes('orchestrateNayaxRefund') &&
     fn.includes('authorizeRefundOfficialAction') &&
-    fn.includes('service_reserve_and_consume_nayax_refund_attempt_v2') &&
     fn.includes('service_settle_nayax_refund_attempt') &&
     !fn.includes('service_consume_nayax_refund_official_action') &&
     !fn.includes('can_manage_refund_case') &&
     !fn.includes('actorIsSuperAdmin'),
-  'The real HTTP function must pre-wire the single-use manager receipt through capped reservation/settlement while the disabled adapter keeps those dependencies unreachable.'
+  'The HTTP function must use mapped-manager authorization for the normal path while retaining capped reservation/settlement and the controlled pilot path.'
 );
 const controlledPilotStart = fn.indexOf('if (operation === "controlled_owner_pilot")');
 const controlledPilotGate = fn.indexOf('if (pilotBlocks.length > 0)', controlledPilotStart);
@@ -183,6 +185,7 @@ assert(
     providerGates.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET') &&
     providerGates.includes('NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS') &&
     providerGates.includes('NAYAX_REFUND_DAILY_COUNT_CAP') &&
+    managerSessionMigration.includes('pg_catalog.pg_advisory_xact_lock') &&
     providerGatesTest.includes('reports every fail-closed gate'),
   'Each pilot and normal path must fail its own rollout/configuration boundary before idempotency, reservation, or provider orchestration.'
 );
@@ -206,7 +209,7 @@ assert(
     fn.indexOf('operation === "availability"') <
       fn.indexOf('await orchestrateNayaxRefund') &&
     providerGates.includes('payloadRedacted: true') &&
-    providerGates.includes('NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = false') &&
+    providerGates.includes('NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = true') &&
     providerGatesTest.includes('performs zero execution side effects'),
   'Authenticated availability must use the already-resolved shared gates and return before case parsing, RPCs, HMAC, reservation, provider execution, orchestration, or mutation.'
 );
@@ -214,7 +217,6 @@ assert(
   providerGates.includes('official_actions_disabled') &&
     providerGates.includes('kill_switch_active') &&
     providerGates.includes('configuration_missing') &&
-    providerGates.includes('contract_unconfirmed') &&
     !availabilityBranch.includes('...executionConfig') &&
     !availabilityBranch.includes('executionConfig.blocks') &&
     !availabilityBranch.includes('idempotencySecret') &&
@@ -248,11 +250,13 @@ assert(
 );
 assert(
   providerOrchestration.includes('provider_execution_not_yet_enabled') &&
-    fn.includes('provider: disabledNayaxProviderAdapter') &&
+    fn.includes('providerEmailBehavior: "recipient_omitted"') &&
+    fn.includes('provider,') &&
+    !fn.includes('provider: disabledNayaxProviderAdapter') &&
     !fn.includes('mode: "synthetic"') &&
     !fn.includes('/payment/refund-request') &&
     !fn.includes('/payment/refund-approve'),
-  'This release must expose no live or synthetic HTTP execution switch.'
+  'The normal path must select the live adapter without exposing a synthetic switch or duplicating provider endpoints in the handler.'
 );
 assert(
   providerAdapter.includes('ALLOWED_NAYAX_REFUND_HOSTS') &&
@@ -268,7 +272,7 @@ assert(
     providerAdapterTest.includes('Approval uncertainty is never retried internally') &&
     providerAdapterTest.includes('Evidence mismatch fails before any provider call') &&
     providerAdapterTest.includes('The kill switch defaults to active'),
-  'The unselected production adapter must be host-bounded, evidence-bound, exact-contract, redacted, timeout-safe, and comprehensively tested.'
+  'The production adapter must be host-bounded, evidence-bound, exact-contract, redacted, timeout-safe, and comprehensively tested.'
 );
 assert(
   providerCapsMigration.includes('pg_catalog.pg_advisory_xact_lock') &&

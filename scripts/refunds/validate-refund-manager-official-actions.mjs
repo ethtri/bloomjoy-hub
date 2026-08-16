@@ -30,6 +30,9 @@ const providerHoldDecisionFreezeMigration = read(
 const stepUpMigration = read(
   'supabase/migrations/202608030004_refund_manager_action_step_up.sql'
 );
+const managerSessionMigration = read(
+  'supabase/migrations/202608160001_refund_nayax_manager_session_execution.sql'
+);
 const dualRoleManagerAuthorityMigration = read(
   'supabase/migrations/20260812190000_refund_dual_role_manager_authority.sql'
 );
@@ -121,7 +124,7 @@ assert(
     stepUpDatabaseTests.includes('AAL1 cannot consume even with a TOTP-shaped AMR') &&
     stepUpDatabaseTests.includes('AAL2 without TOTP cannot consume') &&
     stepUpDatabaseTests.includes('A stale login-time TOTP cannot consume'),
-  'Official actions and enrollment must default closed, then require AAL2 with a TOTP proof strictly newer than the exact action intent.'
+  'Legacy administrative and cash official actions must remain closed by default and require a fresh action-bound TOTP proof.'
 );
 
 assert(
@@ -315,9 +318,10 @@ assert(
     adminUpdate.includes('service_apply_refund_official_case_update') &&
     adminUpdate.includes('service_complete_cash_refund_official') &&
     adminUpdate.includes('expectedOfficialActionVersion') &&
-    nayaxExecution.includes('disabledNayaxProviderAdapter') &&
+    nayaxExecution.includes('createNayaxRefundProviderAdapter') &&
+    nayaxExecution.includes('service_reserve_nayax_refund_manager_action') &&
+    !nayaxExecution.includes('provider: disabledNayaxProviderAdapter') &&
     nayaxExecution.includes('authorizeRefundOfficialAction') &&
-    nayaxExecution.includes('service_reserve_and_consume_nayax_refund_attempt_v2') &&
     providerOrchestrationMigration.includes(
       'create or replace function public.service_reserve_and_consume_nayax_refund_attempt'
     ) &&
@@ -326,7 +330,21 @@ assert(
     ) &&
     providerOrchestrationMigration.includes('p_authorization_id uuid') &&
     providerOrchestrationMigration.includes("authorization_row.action is distinct from 'nayax_execute'"),
-  'All portal official-action paths must authorize and consume the exact browser-reviewed action.'
+  'All portal official-action paths must authorize and consume the exact browser-reviewed action through their approved boundary.'
+);
+
+assert(
+  managerSessionMigration.includes("authorization_method = 'manager_session'") &&
+    managerSessionMigration.includes("action = 'nayax_execute'") &&
+    managerSessionMigration.includes("target_function = 'nayax-card-refund'") &&
+    managerSessionMigration.includes('public.can_perform_refund_official_action') &&
+    managerSessionMigration.includes('p_expected_case_version') &&
+    managerSessionMigration.includes('refund_nayax_execution_evidence_hash') &&
+    managerSessionMigration.includes('public.service_reserve_and_consume_nayax_refund_attempt_v2') &&
+    managerSessionMigration.includes('pg_catalog.pg_advisory_xact_lock') &&
+    managerSessionMigration.includes("authorization_method', 'manager_session'") &&
+    !managerSessionMigration.includes('/payment/refund-request'),
+  'Normal Nayax execution may use only the authenticated mapped-manager session while preserving exact evidence, idempotent reservation, and audit truth.'
 );
 
 assert(

@@ -13,7 +13,7 @@ import {
   resolveNayaxRefundExecutionConfig,
 } from "../_shared/nayax-refund-gates.ts";
 import {
-  disabledNayaxProviderAdapter,
+  type NayaxCompletionDelivery,
   type NayaxAttemptReservation,
   type NayaxAttemptSettlement,
   orchestrateNayaxRefund,
@@ -23,6 +23,9 @@ import {
   createNayaxRefundProviderAdapter,
   parseNayaxRefundProviderContract,
 } from "../_shared/nayax-refund-provider.mjs";
+import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
+import { RefundGmailError } from "../_shared/refund-gmail.ts";
+import { deliverNayaxCompletionOnce } from "../_shared/nayax-resolution-completion.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
@@ -46,6 +49,15 @@ const sanitizeText = (value: unknown, maxLength = 300) =>
     ? String(value).trim().slice(0, maxLength)
     : "";
 
+const escapeHtml = (value: string) =>
+  value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;",
+  })[character] ?? character);
+
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
     .test(value);
@@ -62,6 +74,33 @@ const sha256Hex = async (value: string) => {
 
 const normalizeAccountKey = (value: string) =>
   value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+
+const normalRefundProviderContract = (baseUrl: string) => JSON.stringify({
+  schemaVersion: 1,
+  contractVersion: "nayax-production-manager-v1",
+  baseUrl,
+  authorizationMode: "bearer",
+  amountUnit: "major",
+  amountRoundingMode: "exact_cent",
+  refundEmailListMode: "omit",
+  providerEmailBehavior: "recipient_omitted",
+  writeCredentialMode: "same_token_explicit",
+  sameWriteTokenContractConfirmed: true,
+  reconciliationMode: "dtm_then_structured_resolution",
+  requestResponses: [
+    { result: "True", status: "Pending Approval", outcome: "accepted" },
+    { result: "False", status: "Rejected", outcome: "rejected" },
+    { result: "False", status: "Duplicate", outcome: "duplicate" },
+    { result: "False", status: "Already Refunded", outcome: "already_refunded" },
+  ],
+  approveResponses: [
+    { result: "True", status: "Approved", outcome: "succeeded" },
+    { result: "False", status: "Rejected", outcome: "rejected" },
+    { result: "False", status: "Duplicate", outcome: "duplicate" },
+    { result: "False", status: "Already Refunded", outcome: "already_refunded" },
+    { result: "True", status: "Pending", outcome: "pending" },
+  ],
+});
 
 const securePilotAssertion = (value: string | undefined) => {
   const normalized = value?.trim() ?? "";
@@ -167,10 +206,17 @@ const getPreflightBlocks = ({
   const amountCents = resolveRefundAmountCents(refundCase);
 
   if (!actorCanManageCase) blocks.push("authorization_failed");
-  if (refundCase.status !== "card_refund_pending") {
+  if (!new Set([
+    "needs_review",
+    "correlated",
+    "approved",
+    "card_refund_pending",
+  ]).has(refundCase.status)) {
     blocks.push("validation_rejected");
   }
-  if (refundCase.decision !== "approved") blocks.push("validation_rejected");
+  if (refundCase.decision !== null && refundCase.decision !== "approved") {
+    blocks.push("validation_rejected");
+  }
   if (refundCase.payment_method !== "card") blocks.push("validation_rejected");
   if (refundCase.card_wallet_used) blocks.push("manual_review");
   if (refundCase.correlation_status !== "matched") {
@@ -643,6 +689,17 @@ serve(async (req) => {
       }, succeeded ? 200 : 409);
     }
 
+    const normalAccountKey = normalizeAccountKey(
+      refundCase.reporting_machines?.nayax_account_key ?? "",
+    );
+    const normalWriteToken = normalAccountKey
+      ? Deno.env.get(`NAYAX_LYNX_API_TOKEN_${normalAccountKey}`)?.trim() ||
+        Deno.env.get("NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB")?.trim() ||
+        Deno.env.get("NAYAX_LYNX_API_TOKEN")?.trim() || ""
+      : "";
+    const normalProviderBaseUrl = Deno.env.get("NAYAX_LYNX_BASE_URL")?.trim() ||
+      "https://lynx.nayax.com/operational/v1";
+
     const preExecutionBlocks = Array.from(
       new Set([
         ...(NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED
@@ -651,6 +708,8 @@ serve(async (req) => {
         ...preflightBlocks,
         ...duplicateTransactionBlocks,
         ...executionConfig.blocks,
+        ...(!normalAccountKey ? ["machine_account_key_missing"] : []),
+        ...(!normalWriteToken ? ["provider_credential_missing"] : []),
       ]),
     );
     if (preExecutionBlocks.length > 0) {
@@ -674,7 +733,9 @@ serve(async (req) => {
             ].includes(block)
           )
         ? "feature_disabled"
-        : executionConfig.blocks.length > 0
+        : executionConfig.blocks.length > 0 ||
+            preExecutionBlocks.includes("machine_account_key_missing") ||
+            preExecutionBlocks.includes("provider_credential_missing")
         ? "configuration_missing"
         : "validation_rejected";
 
@@ -703,40 +764,23 @@ serve(async (req) => {
       },
     );
 
+    const provider = createNayaxRefundProviderAdapter({
+      contract: normalRefundProviderContract(normalProviderBaseUrl),
+      requestToken: normalWriteToken,
+      approveToken: normalWriteToken,
+      evidence: {
+        caseId: refundCase.id,
+        amountCents: resolveRefundAmountCents(refundCase),
+        currencyCode: "USD",
+        transactionId: refundCase.matched_nayax_transaction_id,
+        siteId: refundCase.matched_nayax_site_id,
+        machineAuthorizationTime: refundCase.matched_nayax_machine_auth_time,
+      },
+    });
+
     const expectedOfficialActionVersion = Number(
       body?.expectedOfficialActionVersion,
     );
-    const stepUpIntentId = sanitizeText(body?.stepUpIntentId, 80) || null;
-    const stepUpFactorProof = sanitizeText(body?.stepUpFactorProof, 80) || null;
-    let authorizationPromise:
-      | ReturnType<
-        typeof authorizeRefundOfficialAction
-      >
-      | null = null;
-    const getOfficialAuthorization = () => {
-      authorizationPromise ??= authorizeRefundOfficialAction({
-        supabaseUrl,
-        supabaseAnonKey,
-        accessToken,
-        context: {
-          caseId: refundCase.id,
-          action: "nayax_execute",
-          targetFunction: "nayax-card-refund",
-          stepUpIntentId,
-          stepUpFactorProof,
-          expectedCaseVersion: expectedOfficialActionVersion,
-          targetStatus: "card_refund_pending",
-          targetDecision: "approved",
-          refundAmountCents: resolveRefundAmountCents(refundCase),
-        },
-      });
-      return authorizationPromise;
-    };
-
-    // There is deliberately no environment, request-body, or user-selectable
-    // adapter switch. The production handler still imports only the disabled
-    // adapter, so these database dependencies remain unreachable until a
-    // separately reviewed provider-contract change selects a live adapter.
     const result = await orchestrateNayaxRefund({
       request: {
         caseId: refundCase.id,
@@ -745,15 +789,15 @@ serve(async (req) => {
         currencyCode: "USD",
       },
       dependencies: {
-        provider: disabledNayaxProviderAdapter,
+        provider,
         reserveAndConsumeAttempt: async (request) => {
-          const authorization = await getOfficialAuthorization();
           const { data, error } = await supabase.rpc(
-            "service_reserve_and_consume_nayax_refund_attempt_v2",
+            "service_reserve_nayax_refund_manager_action",
             {
               p_executor_assertion: executionConfig.executorAssertion,
-              p_authorization_id: authorization.authorizationId,
+              p_actor_user_id: user.id,
               p_case_id: request.caseId,
+              p_expected_case_version: expectedOfficialActionVersion,
               p_idempotency_key: request.idempotencyKey,
               p_amount_cents: request.amountCents,
               p_daily_amount_cap_cents: executionConfig.dailyAmountCapCents,
@@ -762,7 +806,7 @@ serve(async (req) => {
             },
           );
           if (error || !data || typeof data !== "object") {
-            throw new Error("Unable to reserve the bounded Nayax attempt.");
+            throw new Error("Unable to reserve this Nayax refund safely.");
           }
           return data as NayaxAttemptReservation;
         },
@@ -789,10 +833,69 @@ serve(async (req) => {
           }
           return data as NayaxAttemptSettlement;
         },
-        deliverCustomerCompletion: () => {
-          throw new Error(
-            "Nayax customer completion remains disabled pending the controlled Gmail pilot.",
+        deliverCustomerCompletion: async (attemptId) => {
+          const { data: claimData, error: claimError } = await supabase.rpc(
+            "service_claim_nayax_refund_completion",
+            {
+              p_executor_assertion: executionConfig.executorAssertion,
+              p_attempt_id: attemptId,
+            },
           );
+          const claim = claimData && typeof claimData === "object"
+            ? claimData as Record<string, unknown>
+            : null;
+          if (
+            claimError || !claim ||
+            typeof claim.refundCaseId !== "string" ||
+            typeof claim.refundCaseMessageId !== "string" ||
+            typeof claim.gmailThreadId !== "string" ||
+            typeof claim.recipientEmail !== "string" ||
+            typeof claim.subject !== "string" ||
+            typeof claim.body !== "string" ||
+            !isUuid(claim.refundCaseId) ||
+            !isUuid(claim.refundCaseMessageId) ||
+            !isUuid(claim.gmailThreadId)
+          ) {
+            throw new Error("Nayax completion message could not be prepared.");
+          }
+
+          const messageBody = claim.body;
+          return await deliverNayaxCompletionOnce({
+            deliver: async () => {
+              const gmailDelivery = await dispatchRefundCaseGmailReply({
+                supabase,
+                refundCaseId: claim.refundCaseId as string,
+                refundCaseMessageId: claim.refundCaseMessageId as string,
+                recipientEmail: claim.recipientEmail as string,
+                email: {
+                  subject: claim.subject as string,
+                  text: messageBody,
+                  html: messageBody.split("\n").map((line) =>
+                    line ? `<p>${escapeHtml(line)}</p>` : "<br>"
+                  ).join(""),
+                },
+                deliveryKind: "automatic",
+                gmailThreadId: claim.gmailThreadId as string,
+              });
+              return gmailDelivery.usedGmail;
+            },
+            finish: async (status) => {
+              const { data, error } = await supabase.rpc(
+                "service_finish_nayax_refund_completion",
+                {
+                  p_executor_assertion: executionConfig.executorAssertion,
+                  p_attempt_id: attemptId,
+                  p_delivery_status: status,
+                },
+              );
+              if (error || !data || typeof data !== "object") {
+                throw new Error("Nayax completion status could not be recorded.");
+              }
+              return data as NayaxCompletionDelivery;
+            },
+            isDeliveryUncertain: (error) =>
+              error instanceof RefundGmailError && error.deliveryUncertain,
+          }) as NayaxCompletionDelivery;
         },
       },
     });
@@ -802,7 +905,7 @@ serve(async (req) => {
       blocks: executionConfig.blocks,
       dryRun: executionConfig.dryRun,
       killSwitchActive: executionConfig.killSwitchActive,
-    }, 409);
+    }, result.executed ? 200 : 409);
   } catch (error) {
     if (error instanceof RefundOfficialActionAuthorizationError) {
       return jsonResponse({

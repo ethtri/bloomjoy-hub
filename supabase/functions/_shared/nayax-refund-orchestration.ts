@@ -18,7 +18,9 @@ export type ConsumedNayaxManagerAction = {
   targetFunction: "nayax-card-refund";
   status: "consumed";
   stepUpIntentId: string;
-  verifiedTotpAt: string;
+  authorizationMethod?: "totp" | "manager_session";
+  authorizedAt?: string | null;
+  verifiedTotpAt?: string | null;
 };
 
 export type NayaxExecutionRequest = {
@@ -112,6 +114,10 @@ const assertConsumedManagerAction = (
   action: ConsumedNayaxManagerAction,
   request: NayaxExecutionRequest,
 ) => {
+  const authorizationMethod = action.authorizationMethod ?? "totp";
+  const authorizationTime = authorizationMethod === "manager_session"
+    ? action.authorizedAt
+    : action.verifiedTotpAt;
   if (
     !action.authorizationId ||
     action.caseId !== request.caseId ||
@@ -119,11 +125,12 @@ const assertConsumedManagerAction = (
     action.targetFunction !== "nayax-card-refund" ||
     action.status !== "consumed" ||
     !action.stepUpIntentId ||
-    !action.verifiedTotpAt ||
-    !Number.isFinite(Date.parse(action.verifiedTotpAt))
+    !new Set(["totp", "manager_session"]).has(authorizationMethod) ||
+    !authorizationTime ||
+    !Number.isFinite(Date.parse(authorizationTime))
   ) {
     throw new Error(
-      "Consumed manager action with exact TOTP evidence is required before provider execution.",
+      "Consumed manager authorization is required before provider execution.",
     );
   }
 };
