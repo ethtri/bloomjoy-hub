@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(11);
+select plan(14);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -134,6 +134,55 @@ values (
   'nayax-card-refund',
   encode(extensions.digest(convert_to('manager-session-executor', 'UTF8'), 'sha256'), 'hex')
 );
+
+select ok(
+  public.can_offer_nayax_refund_manager_action(
+    'b1000000-0000-4000-8000-000000000001',
+    'b1600000-0000-4000-8000-000000000003'
+  )
+  and not public.can_offer_nayax_refund_manager_action(
+    'b1000000-0000-4000-8000-000000000002',
+    'b1600000-0000-4000-8000-000000000003'
+  ),
+  'Only the exact mapped manager can be offered the selected-wallet Nayax action'
+);
+
+select set_config(
+  'request.jwt.claim.sub',
+  'b1000000-0000-4000-8000-000000000001',
+  true
+);
+
+select ok(
+  exists (
+    select 1
+    from jsonb_array_elements(
+      public.admin_get_refund_operations_overview() -> 'cases'
+    ) overview_case
+    where overview_case ->> 'id' =
+      'b1600000-0000-4000-8000-000000000003'
+      and (overview_case ->> 'canPerformOfficialAction')::boolean
+      and overview_case -> 'officialActionBlockReason' = 'null'::jsonb
+  ),
+  'The scoped overview exposes the exact selected-wallet manager-session action'
+);
+
+select ok(
+  exists (
+    select 1
+    from jsonb_array_elements(
+      public.admin_get_refund_operations_overview() -> 'cases'
+    ) overview_case
+    where overview_case ->> 'id' =
+      'b1600000-0000-4000-8000-000000000002'
+      and not (overview_case ->> 'canPerformOfficialAction')::boolean
+      and overview_case ->> 'officialActionBlockReason' =
+        'official_actions_disabled'
+  ),
+  'The overview keeps unrelated official actions behind the broad hard-off gate'
+);
+
+select set_config('request.jwt.claim.sub', '', true);
 
 select ok(
   has_function_privilege(
