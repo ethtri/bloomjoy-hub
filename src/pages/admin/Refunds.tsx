@@ -1294,12 +1294,6 @@ const nayaxStatusClass = (status: RefundNayaxLookupStatus, hasSelectedMatch = fa
       'border-slate-200 bg-slate-50 text-slate-700'
   );
 
-const nayaxConfidenceLabel = (confidenceClass?: RefundNayaxLookupSummary['confidenceClass']) => {
-  if (confidenceClass === 'strong_card') return 'Strong match';
-  if (confidenceClass === 'unique_qr_time') return 'QR code and time match';
-  return 'Needs review';
-};
-
 const hasSelectedCardEvidence = (refundCase: RefundCaseRecord, editor: EditorState) =>
   refundCase.paymentMethod === 'card' &&
   !editor.clearNayaxMatch &&
@@ -1655,12 +1649,12 @@ const primaryActionConfig = (
       };
     }
 
-    const oneClickEligible = refundCase.nayaxMatchExecutionEligible === true;
+    const selectedTransactionReady = hasSelectedCardEvidence(refundCase, editor);
     if (editor.decision === 'approved' || editor.status === 'card_refund_pending' || refundCase.status === 'card_refund_pending') {
-      if (!oneClickEligible) {
+      if (!selectedTransactionReady) {
         return {
-          label: 'Manual card review required',
-          helper: 'This transaction was not the one clear match, so automatic card refund stays unavailable.',
+          label: 'Choose a transaction above',
+          helper: 'Select the customer\'s transaction before issuing a refund.',
           disabled: true,
         };
       }
@@ -1689,7 +1683,7 @@ const primaryActionConfig = (
     }
 
     if (matched) {
-      if (oneClickEligible) {
+      if (selectedTransactionReady) {
         if (!cardRefundActionAvailable) {
           return {
             label: 'Card refunds aren’t available right now',
@@ -1708,7 +1702,7 @@ const primaryActionConfig = (
       }
       return {
         label: 'Manager review needed',
-        helper: 'No refund has been issued. Ask the customer for a missing detail, choose a different transaction, or leave this case in review.',
+        helper: 'No refund has been issued. Choose the correct transaction, ask for a missing detail, or leave this case open.',
         disabled: true,
       };
     }
@@ -4059,6 +4053,8 @@ export default function AdminRefundsPage() {
               matchedNayaxMachineAuthTime: candidate.machineAuthorizationTime,
               matchedNayaxAmount:
                 typeof candidate.amountCents === 'number' ? (candidate.amountCents / 100).toFixed(2) : '',
+              refundAmount:
+                typeof candidate.amountCents === 'number' ? (candidate.amountCents / 100).toFixed(2) : current.refundAmount,
               matchedNayaxCardLast4: candidate.cardLast4,
               matchedNayaxCurrencyCode: candidate.currencyCode,
               nayaxDisagreementReason: candidate.isRecommended ? '' : current.nayaxDisagreementReason,
@@ -4082,14 +4078,6 @@ export default function AdminRefundsPage() {
       >
         <span className="flex flex-wrap items-center gap-2 font-semibold">
           <span>{label}</span>
-          {candidate.confidenceClass === 'strong_card' && (
-            <Badge className="border-emerald-200 bg-emerald-50 text-emerald-800">
-              Card details agree{candidate.oneClickEligible ? '' : ', review needed'}
-            </Badge>
-          )}
-          {candidate.confidenceClass === 'unique_qr_time' && (
-            <Badge className="border-sky-200 bg-sky-100 text-sky-900">QR code and time agree, review needed</Badge>
-          )}
         </span>
         <span className="mt-1 block text-muted-foreground">{formatCandidateSummary(candidate)}</span>
         {candidate.matchReason && (
@@ -4134,23 +4122,18 @@ export default function AdminRefundsPage() {
             )}
             {leadCandidate && (
               <div>
-                {candidateOption(
-                  leadCandidate,
-                  leadCandidate.isRecommended
-                    ? 'Best match'
-                    : 'Possible match'
-                )}
+                {candidateOption(leadCandidate, 'Most likely transaction')}
               </div>
             )}
             {alternateCandidates.length > 0 && (
-              <details className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-2">
-                <summary className="cursor-pointer text-xs font-medium text-slate-800">
+              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-2">
+                <p className="text-xs font-medium text-slate-800">
                   Other possible transactions ({alternateCandidates.length})
-                </summary>
+                </p>
                 <div className="mt-2 space-y-2">
-                  {alternateCandidates.map((candidate) => candidateOption(candidate, 'Possible match'))}
+                  {alternateCandidates.map((candidate) => candidateOption(candidate, 'Possible transaction'))}
                 </div>
-              </details>
+              </div>
             )}
             {needsDisagreementReason && (
               <div className="mt-3 space-y-1.5">
@@ -6205,7 +6188,6 @@ export default function AdminRefundsPage() {
                               <span>Window: +/- {selectedNayaxSummary.windowHours ?? 6} hours</span>
                               <span>Checked: {formatDate(selectedNayaxSummary.lastCheckedAt)}</span>
                               <span>Transactions checked: {selectedNayaxSummary.providerWindowRecordCount ?? 'n/a'}</span>
-                              <span>Match strength: {nayaxConfidenceLabel(selectedNayaxSummary.confidenceClass)}</span>
                             </div>
                             <p className="mt-3 text-xs font-medium text-sky-950">
                               {nayaxNextActionText(selectedNayaxSummary, selectedCase, editor)}
@@ -6268,7 +6250,7 @@ export default function AdminRefundsPage() {
                         title={isCardCompletion ? 'Confirm refund amount' : primaryActionIsCompletion ? `Record ${completionActionName} completion` : 'Decision'}
                       >
                         {isCardCompletion
-                          ? 'Confirm the requested amount against the matched sale before refunding the card payment.'
+                          ? 'The refund uses the selected transaction amount. The customer\'s reported amount stays visible for comparison.'
                           : primaryActionIsCompletion
                             ? `Use this step after you ${completionOutsideAction}.`
                           : 'Use the recommended action. Customer email sends with the action when a message is required.'}
@@ -6310,7 +6292,7 @@ export default function AdminRefundsPage() {
                               <InfoHint>
                                 {isUsingDemoData
                                   ? 'Demo cases are read-only, so the amount cannot be changed.'
-                                  : 'The refund amount must match both the customer request and the selected transaction. Partial card refunds are not available.'}
+                                  : 'The refund amount must match the selected transaction. Partial card refunds are not available.'}
                               </InfoHint>
                             </div>
                           </div>

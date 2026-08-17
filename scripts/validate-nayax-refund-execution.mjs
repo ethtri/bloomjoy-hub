@@ -12,6 +12,7 @@ const files = {
   migration: 'supabase/migrations/202605120002_refund_full_automation_foundation.sql',
   managerAuthorizationMigration: 'supabase/migrations/202605160001_refund_nayax_execution_manager_authorization.sql',
   managerSessionMigration: 'supabase/migrations/202608160001_refund_nayax_manager_session_execution.sql',
+  managerSelectedMigration: 'supabase/migrations/202608170001_refund_manager_selected_nayax_execution.sql',
   officialActionMigration: 'supabase/migrations/202608030002_refund_manager_official_action_boundary.sql',
   providerOrchestrationMigration: 'supabase/migrations/202608040004_refund_nayax_provider_orchestration.sql',
   providerCapsMigration: 'supabase/migrations/202608110020_refund_nayax_provider_caps.sql',
@@ -52,6 +53,7 @@ const assert = (condition, message) => {
 const migration = read(files.migration);
 const managerAuthorizationMigration = read(files.managerAuthorizationMigration);
 const managerSessionMigration = read(files.managerSessionMigration);
+const managerSelectedMigration = read(files.managerSelectedMigration);
 const officialActionMigration = read(files.officialActionMigration);
 const providerOrchestrationMigration = read(files.providerOrchestrationMigration);
 const providerCapsMigration = read(files.providerCapsMigration);
@@ -65,6 +67,10 @@ const providerEvidenceProducer = read(files.providerEvidenceProducer);
 const providerOrchestrationDatabaseTest = read(files.providerOrchestrationDatabaseTest);
 const officialActionHelper = read(files.officialActionHelper);
 const fn = read(files.function);
+const normalPreflight = fn.slice(
+  fn.indexOf('const getPreflightBlocks'),
+  fn.indexOf('const getDuplicateTransactionBlocks'),
+);
 const availabilityBranch = fn.slice(
   fn.indexOf('if (operation === "availability")'),
   fn.indexOf('const caseId = sanitizeText'),
@@ -432,15 +438,21 @@ assert(
   'Browser refund UI must not store or submit raw Nayax transaction IDs.'
 );
 assert(
-  fn.includes('nayax_recommendation_state !== "high_confidence"') &&
-    fn.includes('!refundCase.nayax_match_execution_eligible') &&
-    fn.includes('refundCase.card_wallet_used') &&
+  !normalPreflight.includes('if (refundCase.card_wallet_used) blocks.push("manual_review")') &&
+    !normalPreflight.includes('refundCase.nayax_recommendation_state !== "high_confidence"') &&
+    !normalPreflight.includes('refundCase.payment_amount_cents !== amountCents') &&
+    normalPreflight.includes('refundCase.matched_nayax_amount_cents !== amountCents') &&
     fn.includes('duplicate_transaction') &&
-    nayaxRecommendationMigration.includes("refund_case.nayax_recommendation_state = 'high_confidence'") &&
-    nayaxRecommendationMigration.includes('refund_case.nayax_match_execution_eligible = true') &&
-    nayaxRecommendationMigration.includes('refund_cases_unique_matched_nayax_transaction_id_idx') &&
-    nayaxRecommendationMigration.includes("refund_case.card_wallet_used = false"),
-  'Nayax execution must require a manager-confirmed high-confidence recommendation in both the Edge Function and database predicate.'
+    managerSelectedMigration.includes("selection_event.event_type = 'nayax_match_selected'") &&
+    managerSelectedMigration.includes('create or replace function public.can_prepare_nayax_refund_execution') &&
+    managerSelectedMigration.includes("refund_case.nayax_recommendation_state = 'high_confidence'") &&
+    managerSelectedMigration.includes('or exists (') &&
+    managerSelectedMigration.includes('refund_case.refund_amount_cents is distinct from p_amount_cents') &&
+    managerSelectedMigration.includes('refund_case.matched_nayax_amount_cents is distinct from p_amount_cents') &&
+    !managerSelectedMigration.includes("refund_case.nayax_recommendation_state <> 'high_confidence'") &&
+    !managerSelectedMigration.includes('or refund_case.card_wallet_used') &&
+    nayaxRecommendationMigration.includes('refund_cases_unique_matched_nayax_transaction_id_idx'),
+  'Nayax execution must require an audited manager selection and the exact selected provider amount without treating wallet digits, confidence, or the reported amount as execution gates.'
 );
 assert(
   refundAdminUpdate.includes('selection_allowed') &&
@@ -460,6 +472,16 @@ assert(
     refundOperationsUi.includes("mode: 'nayax_evidence_selection'") &&
     !refundOperationsUi.includes("label: 'Confirm this card sale'"),
   'The manager UI must present transaction selection as evidence review, never as refund approval.'
+);
+assert(
+  refundOperationsUi.includes("candidateOption(leadCandidate, 'Most likely transaction')") &&
+    refundOperationsUi.includes('Other possible transactions') &&
+    refundOperationsUi.includes("candidateOption(candidate, 'Possible transaction')") &&
+    refundOperationsUi.includes('refundAmount:') &&
+    refundOperationsUi.includes('(candidate.amountCents / 100).toFixed(2)') &&
+    !refundOperationsUi.includes('Match strength:') &&
+    !refundOperationsUi.includes('Card details agree'),
+  'The manager UI must show all safe candidates in likely order without a confidence rating and prepare the exact selected transaction amount.'
 );
 assert(
   nayaxRecommendationMigration.includes('nayaxLookupCandidates') &&

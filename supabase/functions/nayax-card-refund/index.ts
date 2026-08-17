@@ -218,17 +218,12 @@ const getPreflightBlocks = ({
     blocks.push("validation_rejected");
   }
   if (refundCase.payment_method !== "card") blocks.push("validation_rejected");
-  if (refundCase.card_wallet_used) blocks.push("manual_review");
   if (refundCase.correlation_status !== "matched") {
     blocks.push("validation_rejected");
   }
   if (refundCase.correlation_source !== "nayax") {
     blocks.push("validation_rejected");
   }
-  if (refundCase.nayax_recommendation_state !== "high_confidence") {
-    blocks.push("manual_review");
-  }
-  if (!refundCase.nayax_match_execution_eligible) blocks.push("manual_review");
   if (!safeNayaxReference(refundCase.matched_nayax_transaction_id)) {
     blocks.push("validation_rejected");
   }
@@ -242,9 +237,6 @@ const getPreflightBlocks = ({
     blocks.push("validation_rejected");
   }
   if (amountCents <= 0) blocks.push("validation_rejected");
-  if (refundCase.payment_amount_cents !== amountCents) {
-    blocks.push("validation_rejected");
-  }
   if (refundCase.matched_nayax_amount_cents !== amountCents) {
     blocks.push("validation_rejected");
   }
