@@ -1,5 +1,9 @@
 # Decisions
 
+## 2026-08-17 - Manager selection resolves ordinary wallet/card ambiguity
+
+Bloomjoy shows the safe Nayax candidates in likely order using the existing deterministic time, location, amount, and card clues. Confidence is not a separate manager decision or refund gate. A current mapped manager may select any candidate that passed the existing hard safety exclusions; alternate selections keep the existing short reason and audit event. The card refund uses the exact selected Nayax amount even when a wallet token changes the last four digits or the customer reported a different amount. Customer-reported evidence remains unchanged and visible for comparison.
+
 ## 2026-08-16 - Normal card refunds use the authenticated mapped-manager action (`#430`)
 
 For an ordinary high-confidence card case, the manager reviews the exact transaction and confirms **Refund $X** in Bloomjoy. That authenticated current Machine Manager action is the payment authority for the normal product path; it does not require a separate owner-only runner, sponsor packet, written Nayax approval, or TOTP ceremony.

@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(9);
+select plan(11);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -100,6 +100,33 @@ insert into public.refund_cases (
   'needs_review', null, '4242', false, 'no_match', 'nayax', 0,
   null, null, null, null, null, null, 'no_safe_match',
   'manager-session-test-v1', statement_timestamp(), false
+),
+(
+  'b1600000-0000-4000-8000-000000000003', 'RF-MANAGER-SESSION-WALLET',
+  'b1300000-0000-4000-8000-000000000001',
+  'b1200000-0000-4000-8000-000000000001',
+  'customer-wallet@example.test', 'Manager selected a wallet transaction',
+  statement_timestamp() - interval '3 days', 'card', 1000, 1090,
+  'needs_review', null, '3303', true, 'matched', 'nayax', 0,
+  'MANAGER-SESSION-TX-003', 901, statement_timestamp() - interval '3 days',
+  1090, '8992', 'USD', 'manual_exception', 'manager-session-test-v1',
+  statement_timestamp(), false
+);
+
+insert into public.refund_case_events (
+  refund_case_id, actor_user_id, event_type, message, metadata
+) values
+(
+  'b1600000-0000-4000-8000-000000000001',
+  'b1000000-0000-4000-8000-000000000001',
+  'nayax_match_selected', 'Manager selected the transaction.',
+  '{"selected_recommended":true,"payload_redacted":true}'::jsonb
+),
+(
+  'b1600000-0000-4000-8000-000000000003',
+  'b1000000-0000-4000-8000-000000000001',
+  'nayax_match_selected', 'Manager selected the wallet transaction.',
+  '{"selected_recommended":false,"disagreement_reason_code":"closer_time","payload_redacted":true}'::jsonb
 );
 
 insert into public.refund_nayax_provider_callers (caller_id, assertion_digest)
@@ -221,14 +248,53 @@ select is(
   'The manager decision is auditable once'
 );
 
+insert into pg_temp.manager_session_results (result_key, result)
+select 'wallet', public.service_reserve_nayax_refund_manager_action(
+  'manager-session-executor',
+  'b1000000-0000-4000-8000-000000000001',
+  'b1600000-0000-4000-8000-000000000003',
+  (select official_action_version from public.refund_cases
+    where id = 'b1600000-0000-4000-8000-000000000003'),
+  'nayax-refund-' || repeat('4', 64), 1090, 100000, 100, 'USD'
+);
+
+select ok(
+  (select (result #>> '{attempt,shouldExecute}')::boolean
+    from pg_temp.manager_session_results where result_key = 'wallet')
+  and exists (
+    select 1 from public.refund_case_nayax_refund_attempts
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000003'
+      and amount_cents = 1090
+  ),
+  'A manager-selected wallet transaction uses the exact provider amount even when customer clues differ'
+);
+
+select ok(
+  pg_temp.capture_error(format(
+    $sql$select public.service_reserve_nayax_refund_manager_action(
+      'manager-session-executor', 'b1000000-0000-4000-8000-000000000001',
+      'b1600000-0000-4000-8000-000000000003', %s,
+      'nayax-refund-%s', 1000, 100000, 100, 'USD')$sql$,
+    (select official_action_version from public.refund_cases
+      where id = 'b1600000-0000-4000-8000-000000000003'),
+    repeat('5', 64)
+  )) like '%not ready for refund%'
+  and not exists (
+    select 1 from public.refund_case_nayax_refund_attempts
+    where idempotency_key = 'nayax-refund-' || repeat('5', 64)
+  ),
+  'The customer-reported amount cannot replace the exact selected provider amount'
+);
+
 select is(
   (select count(*)::integer from public.refund_case_nayax_refund_attempts
     where refund_case_id in (
       'b1600000-0000-4000-8000-000000000001',
-      'b1600000-0000-4000-8000-000000000002'
+      'b1600000-0000-4000-8000-000000000002',
+      'b1600000-0000-4000-8000-000000000003'
     )),
-  1,
-  'All repeated and rejected calls leave one total provider attempt'
+  2,
+  'All repeated and rejected calls leave only the two intended provider attempts'
 );
 
 select * from finish();

@@ -1151,7 +1151,7 @@ const installMockSupabaseRoutes = async (
             policyVersion: '2026-07-21.v1',
             matchFactors: [
               { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
-              { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
+              { key: 'amount', outcome: 'manual', label: 'Transaction amount differs by $0.90' },
               { key: 'card', outcome: 'match', label: 'Card last four matches' },
             ],
             matchReason: 'Exact mapped machine and location; exact amount; card last four matches',
@@ -3576,7 +3576,6 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedBadge: 'Candidate found',
       expectedAction: 'Compare the customer, amount, and time.',
       expectedCandidateCount: 1,
-      expectedConfidence: 'QR code and time agree, review needed',
     },
     {
       name: 'lookup failed',
@@ -3734,22 +3733,15 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       if (scenario.name === 'multiple candidates') {
         const alternateDisclosure = page.getByText('Other possible transactions (1)', { exact: true });
         recorder.assert(
-          'Ambiguous candidates stay behind progressive disclosure',
+          'Ambiguous candidates show every safe option in likely order',
           await alternateDisclosure.isVisible() &&
             await page.getByTestId('nayax-candidate-option').first().isVisible() &&
-            !(await page.getByTestId('nayax-candidate-option').nth(1).isVisible())
+            await page.getByTestId('nayax-candidate-option').nth(1).isVisible()
         );
-        await alternateDisclosure.click();
         await page.getByTestId('nayax-candidate-option').nth(1).click();
         recorder.assert(
           'Selecting an alternate requires a structured disagreement reason',
           await page.getByLabel('Why is this the right transaction?').isVisible()
-        );
-      }
-      if (scenario.expectedConfidence) {
-        recorder.assert(
-          `Nayax ${scenario.name} labels manual QR confidence`,
-          await page.getByText(scenario.expectedConfidence, { exact: true }).isVisible()
         );
       }
       if (scenario.expectedAmountMismatch) {
@@ -3811,6 +3803,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
             evidenceSaveBody.status === 'needs_review' &&
             evidenceSaveBody.decision === null &&
             evidenceSaveBody.matchedNayaxCandidateToken === scenario.response.candidates[0].candidateToken &&
+            evidenceSaveBody.refundAmountCents === scenario.response.candidates[0].amountCents &&
             evidenceSaveBody.customerMessageType == null,
           JSON.stringify(evidenceSaveBody)
         );
