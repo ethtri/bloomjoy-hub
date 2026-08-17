@@ -754,7 +754,7 @@ serve(async (req) => {
       return jsonResponse({ error: cardPreExecutionError }, 400);
     }
 
-    if (nayaxCandidate || clearNayaxMatch) {
+    if (clearNayaxMatch) {
       const { error: closeEligibilityError } = await supabase
         .from("refund_cases")
         .update({ nayax_match_execution_eligible: false })
@@ -897,6 +897,15 @@ serve(async (req) => {
       })
       : null;
 
+    const isNayaxEvidenceSelection = Boolean(
+      nayaxCandidate &&
+        !officialAction &&
+        !clearNayaxMatch &&
+        requestedStatus === "needs_review" &&
+        requestedDecision === null &&
+        requestedMessageType === null,
+    );
+
     const updateRpc = isCashCompletion && officialAuthorization
       ? await supabase.rpc("service_complete_cash_refund_official", {
         p_authorization_id: officialAuthorization.authorizationId,
@@ -922,6 +931,14 @@ serve(async (req) => {
         p_manual_refund_reference: officialManualRefundReference,
         p_matched_nayax_candidate_token: officialNayaxCandidateToken,
         p_nayax_disagreement_reason: officialNayaxDisagreementReason,
+      })
+      : isNayaxEvidenceSelection
+      ? await supabase.rpc("service_select_refund_nayax_candidate_as_actor", {
+        p_actor_user_id: user.id,
+        p_case_id: caseId,
+        p_expected_case_version: expectedOfficialActionVersion,
+        p_candidate_token: nayaxCandidateToken,
+        p_nayax_disagreement_reason: nayaxDisagreementReason || null,
       })
       : await supabase.rpc("service_update_refund_case_as_actor", {
         p_actor_user_id: user.id,
@@ -960,7 +977,7 @@ serve(async (req) => {
       return jsonResponse({ error: safeMessage }, 400);
     }
 
-    if (nayaxCandidate && !officialAction) {
+    if (nayaxCandidate && !officialAction && !isNayaxEvidenceSelection) {
       const recommendationState =
         sanitizeText(nayaxEvidence.recommendation_state, 80) ||
         "manual_exception";

@@ -33,6 +33,9 @@ const stepUpMigration = read(
 const managerSessionMigration = read(
   'supabase/migrations/202608160001_refund_nayax_manager_session_execution.sql'
 );
+const candidateSelectionMigration = read(
+  'supabase/migrations/202608170002_refund_nayax_manager_candidate_selection.sql'
+);
 const dualRoleManagerAuthorityMigration = read(
   'supabase/migrations/20260812190000_refund_dual_role_manager_authority.sql'
 );
@@ -331,6 +334,46 @@ assert(
     providerOrchestrationMigration.includes('p_authorization_id uuid') &&
     providerOrchestrationMigration.includes("authorization_row.action is distinct from 'nayax_execute'"),
   'All portal official-action paths must authorize and consume the exact browser-reviewed action through their approved boundary.'
+);
+
+assert(
+  candidateSelectionMigration.includes(
+    'service_select_refund_nayax_candidate_as_actor'
+  ) &&
+    candidateSelectionMigration.includes(
+      'refund_case.official_action_version is distinct from p_expected_case_version'
+    ) &&
+    candidateSelectionMigration.includes(
+      'lookup_candidate.actor_user_id = p_actor_user_id'
+    ) &&
+    candidateSelectionMigration.includes("refund_case.status <> 'needs_review'") &&
+    candidateSelectionMigration.includes('refund_case.decision is not null') &&
+    candidateSelectionMigration.includes(
+      "refund_case.nayax_refund_execution_status <> 'not_requested'"
+    ) &&
+    candidateSelectionMigration.includes(
+      'public.refund_case_has_unresolved_reconciliation(refund_case.id)'
+    ) &&
+    candidateSelectionMigration.includes("status = 'needs_review'") &&
+    candidateSelectionMigration.includes('decision = null') &&
+    candidateSelectionMigration.includes("'nayax_match_selected'") &&
+    candidateSelectionMigration.includes(
+      'from public, anon, authenticated'
+    ) &&
+    candidateSelectionMigration.includes('to service_role') &&
+    adminUpdate.includes(
+      'supabase.rpc("service_select_refund_nayax_candidate_as_actor"'
+    ) &&
+    adminUpdate.includes(
+      'nayaxCandidate && !officialAction && !isNayaxEvidenceSelection'
+    ) &&
+    databaseTests.includes(
+      'Candidate selection records exact redacted evidence while leaving the case undecided'
+    ) &&
+    databaseTests.includes(
+      'Evidence selection creates no authorization, provider attempt, or official completion evidence'
+    ),
+  'Manager-selected Nayax evidence must use its own service-only, actor-bound, non-financial transaction boundary.'
 );
 
 assert(

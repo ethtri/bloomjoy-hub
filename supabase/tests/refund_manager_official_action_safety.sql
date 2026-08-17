@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(55);
+select plan(63);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -1646,6 +1646,184 @@ select ok(
   ),
   'Receipt storage is hidden from browser and service identities and contains no customer or provider payload columns'
 );
+
+create temporary table nayax_selection_boundary_baseline as
+select
+  (select count(*) from public.refund_case_official_action_authorizations
+    where refund_case_id = '79600000-0000-4000-8000-000000000009') as authorization_count,
+  (select count(*) from public.refund_case_nayax_refund_attempts
+    where refund_case_id = '79600000-0000-4000-8000-000000000009') as attempt_count;
+grant select on table pg_temp.nayax_selection_boundary_baseline to service_role;
+
+select ok(
+  has_function_privilege(
+    'service_role',
+    'public.service_select_refund_nayax_candidate_as_actor(uuid,uuid,bigint,uuid,text)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'authenticated',
+    'public.service_select_refund_nayax_candidate_as_actor(uuid,uuid,bigint,uuid,text)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'anon',
+    'public.service_select_refund_nayax_candidate_as_actor(uuid,uuid,bigint,uuid,text)',
+    'execute'
+  ),
+  'Only the service workflow can invoke mapped-manager Nayax candidate selection'
+);
+
+set local role service_role;
+select lives_ok(
+  format(
+    $sql$
+      select public.service_select_refund_nayax_candidate_as_actor(
+        '79000000-0000-4000-8000-000000000001',
+        '79600000-0000-4000-8000-000000000009',
+        %s,
+        '79700000-0000-4000-8000-000000000001',
+        null
+      )
+    $sql$,
+    (select official_action_version from public.refund_cases
+      where id = '79600000-0000-4000-8000-000000000009')
+  ),
+  'A currently mapped manager can persist their actor-bound reviewed candidate without step-up'
+);
+reset role;
+
+select ok(
+  (
+    select status = 'needs_review'
+      and decision is null
+      and refund_amount_cents = 450
+      and matched_nayax_transaction_id = 'SAFE-TXN-79600009-ALTERED'
+      and matched_nayax_amount_cents = 450
+      and matched_nayax_currency_code = 'USD'
+      and correlation_status = 'matched'
+      and correlation_source = 'nayax'
+    from public.refund_cases
+    where id = '79600000-0000-4000-8000-000000000009'
+  )
+  and (
+    select count(*) = 1
+    from public.refund_case_events
+    where refund_case_id = '79600000-0000-4000-8000-000000000009'
+      and event_type = 'nayax_match_selected'
+      and actor_user_id = '79000000-0000-4000-8000-000000000001'
+      and metadata ->> 'payload_redacted' = 'true'
+  ),
+  'Candidate selection records exact redacted evidence while leaving the case undecided'
+);
+
+select ok(
+  (select count(*) from public.refund_case_official_action_authorizations
+    where refund_case_id = '79600000-0000-4000-8000-000000000009') =
+    (select authorization_count from pg_temp.nayax_selection_boundary_baseline)
+  and (select count(*) from public.refund_case_nayax_refund_attempts
+    where refund_case_id = '79600000-0000-4000-8000-000000000009') =
+    (select attempt_count from pg_temp.nayax_selection_boundary_baseline)
+  and not exists (
+    select 1 from public.refund_case_events
+    where refund_case_id = '79600000-0000-4000-8000-000000000009'
+      and event_type in ('official_action_committed', 'nayax_official_action_finalized')
+  ),
+  'Evidence selection creates no authorization, provider attempt, or official completion evidence'
+);
+
+set local role service_role;
+select ok(
+  pg_temp.capture_error(format(
+    $sql$
+      select public.service_select_refund_nayax_candidate_as_actor(
+        '79000000-0000-4000-8000-000000000002',
+        '79600000-0000-4000-8000-000000000009',
+        %s,
+        '79700000-0000-4000-8000-000000000001',
+        null
+      )
+    $sql$,
+    (select official_action_version from public.refund_cases
+      where id = '79600000-0000-4000-8000-000000000009')
+  )) like '%expired or belongs to another review session%',
+  'A different mapped manager cannot reuse another review session candidate token'
+);
+
+select ok(
+  pg_temp.capture_error($sql$
+    select public.service_select_refund_nayax_candidate_as_actor(
+      '79000000-0000-4000-8000-000000000001',
+      '79600000-0000-4000-8000-000000000009',
+      1,
+      '79700000-0000-4000-8000-000000000001',
+      null
+    )
+  $sql$) like '%changed since review%',
+  'A stale case version cannot select Nayax evidence'
+);
+reset role;
+
+insert into public.refund_nayax_lookup_candidates (
+  token, refund_case_id, actor_user_id, provider_transaction_id, site_id,
+  machine_authorization_time, amount_cents, card_last4, currency_code,
+  evidence_summary, expires_at
+)
+values
+  (
+    '79700000-0000-4000-8000-000000000002',
+    '79600000-0000-4000-8000-000000000009',
+    '79000000-0000-4000-8000-000000000001',
+    'SAFE-TXN-BLOCKED-79600009', 17, now() - interval '80 minutes', 450,
+    '4242', 'USD',
+    '{"selection_allowed":false,"is_recommended":false,"recommendation_state":"blocked","policy_version":"official-action-test.v1"}'::jsonb,
+    now() + interval '1 hour'
+  ),
+  (
+    '79700000-0000-4000-8000-000000000003',
+    '79600000-0000-4000-8000-000000000009',
+    '79000000-0000-4000-8000-000000000001',
+    'SAFE-TXN-EXPIRED-79600009', 17, now() - interval '70 minutes', 450,
+    '4242', 'USD',
+    '{"selection_allowed":true,"is_recommended":true,"recommendation_state":"high_confidence","policy_version":"official-action-test.v1"}'::jsonb,
+    now() - interval '1 minute'
+  );
+
+set local role service_role;
+select ok(
+  pg_temp.capture_error(format(
+    $sql$
+      select public.service_select_refund_nayax_candidate_as_actor(
+        '79000000-0000-4000-8000-000000000001',
+        '79600000-0000-4000-8000-000000000009',
+        %s,
+        '79700000-0000-4000-8000-000000000002',
+        'other_review_reason'
+      )
+    $sql$,
+    (select official_action_version from public.refund_cases
+      where id = '79600000-0000-4000-8000-000000000009')
+  )) like '%safety block%',
+  'A candidate with a safety block cannot be selected'
+);
+
+select ok(
+  pg_temp.capture_error(format(
+    $sql$
+      select public.service_select_refund_nayax_candidate_as_actor(
+        '79000000-0000-4000-8000-000000000001',
+        '79600000-0000-4000-8000-000000000009',
+        %s,
+        '79700000-0000-4000-8000-000000000003',
+        null
+      )
+    $sql$,
+    (select official_action_version from public.refund_cases
+      where id = '79600000-0000-4000-8000-000000000009')
+  )) like '%expired or belongs to another review session%',
+  'Expired Nayax lookup evidence cannot be selected'
+);
+reset role;
 
 select * from finish();
 rollback;
