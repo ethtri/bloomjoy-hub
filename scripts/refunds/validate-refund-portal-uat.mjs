@@ -4839,7 +4839,14 @@ const runOwnerTotpEnrollmentChecks = async ({ browser, appUrl, artifactDir, reco
   await closeRefundPortalContext(mobileContext);
 };
 
-const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, recorder, evidence }) => {
+const runNayaxExecutionOutcomeChecks = async ({
+  browser,
+  appUrl,
+  artifactDir,
+  recorder,
+  evidence,
+  captureManagerReviewScreenshots = false,
+}) => {
   const availabilityScenarios = [
     {
       name: 'loading',
@@ -5065,7 +5072,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
     await page.getByText('1 visible of 2 total cases').waitFor({ timeout: 10000 });
     await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
 
-    if (scenario.name === 'success') {
+    if (scenario.name === 'success' && captureManagerReviewScreenshots) {
       await page.getByText('Signed in. Redirecting...', { exact: true })
         .waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
       await page.screenshot({
@@ -5087,7 +5094,7 @@ const runNayaxExecutionOutcomeChecks = async ({ browser, appUrl, artifactDir, re
     }
 
     await page.getByTestId('refund-run-nayax-refund').click();
-    if (scenario.name === 'success') {
+    if (scenario.name === 'success' && captureManagerReviewScreenshots) {
       recorder.assert(
         'Narrow confirmation repeats the reviewed refund before execution',
         await page.getByTestId('refund-confirmation-dialog').isVisible() &&
@@ -5490,6 +5497,7 @@ const run = async () => {
         artifactDir: args.artifactDir,
         recorder,
         evidence,
+        captureManagerReviewScreenshots: true,
       });
     } else if (args.dualRoleOnly) {
       await runDualRoleOfficialActionChecks({
