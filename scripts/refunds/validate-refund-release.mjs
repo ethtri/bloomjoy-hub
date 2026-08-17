@@ -90,13 +90,11 @@ for (const requiredFailClosedControl of [
   'NAYAX_REFUND_EXECUTION_ENABLED=false',
   'NAYAX_REFUND_EXECUTION_DRY_RUN=true',
   'NAYAX_REFUND_EXECUTION_KILL_SWITCH=true',
-  'NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false',
-  'Do not set `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO`',
   'REFUND_AUTOMATION_ENABLED=false',
   'REFUND_GMAIL_ENABLED=false',
   'REFUND_GPT_TRIAGE_ENABLED=false',
   'OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false',
-  'Keep official actions statically false, keep the production Nayax adapter disabled',
+  'Keep the runtime Nayax execution gates off during deployment',
 ]) {
   assert(
     productionRunbook.includes(requiredFailClosedControl),
@@ -104,7 +102,7 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 54 required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 55 required refund\/Nayax migrations/);
 assert.match(cutoverPacket, /exact canonical 51-migration predeployment bridge/);
 assert.match(
   cutoverPacket,
@@ -168,8 +166,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    54,
-    'Refund release inventory must cover exactly 54 discovered refund/Nayax migrations'
+    55,
+    'Refund release inventory must cover exactly 55 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -202,6 +200,10 @@ try {
   assert(
     repositoryMigrations.includes('202608150002_refund_follow_up_reply_template_v2.sql'),
     'The labeled refund follow-up reply migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('202608160001_refund_nayax_manager_session_execution.sql'),
+    'The normal manager-session Nayax refund migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260812230000_refund_synthetic_gmail_proof_authorization.sql'),

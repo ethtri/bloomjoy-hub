@@ -16,6 +16,10 @@ const check = (condition, message) => {
 
 const migration = read('supabase/migrations/202608140002_refund_nayax_controlled_owner_pilot.sql');
 const handler = read('supabase/functions/nayax-card-refund/index.ts');
+const controlledPilotHandler = handler.slice(
+  handler.indexOf('if (operation === "controlled_owner_pilot")'),
+  handler.indexOf('const normalAccountKey'),
+);
 const stepUp = read('supabase/functions/refund-manager-action-step-up/index.ts');
 const officialAction = read('supabase/functions/_shared/refund-official-action.ts');
 const runner = read('scripts/refunds/nayax-controlled-owner-pilot-runner.mjs');
@@ -176,11 +180,11 @@ check(
   'The pilot requires every broad official/provider gate to remain closed.',
 );
 check(
-  handler.includes('NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}') &&
-    handler.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
-    !handler.includes('NAYAX_LYNX_API_TOKEN_') &&
-    !handler.includes('NAYAX_LYNX_API_TOKEN"'),
-  'The live adapter has no reporting/lookup token fallback.',
+  controlledPilotHandler.includes('NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}') &&
+    controlledPilotHandler.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
+    !controlledPilotHandler.includes('NAYAX_LYNX_API_TOKEN_') &&
+    !controlledPilotHandler.includes('NAYAX_LYNX_API_TOKEN"'),
+  'The controlled owner-pilot adapter has no reporting/lookup token fallback.',
 );
 for (const forbidden of [
   'body?.requestWriteToken', 'body?.approveWriteToken', 'body?.accountKey',
@@ -265,10 +269,11 @@ check(
   'Package scripts expose only the checked-in runner and its validation.',
 );
 check(
-  /\*\*10 Refund Operations Edge Functions and 51 refund\/Nayax migrations\*\*/u
-    .test(currentStatus) &&
-    currentStatus.includes('#430') && /migration 52/iu.test(currentStatus),
-  'CURRENT_STATUS preserves the deployed 10/51 baseline and default-off target 52 truth.',
+  currentStatus.includes('#430') &&
+    currentStatus.includes('live Nayax execution is still off') &&
+    currentStatus.includes('has not yet been merged or deployed') &&
+    currentStatus.includes('made no production provider or Gmail call'),
+  'CURRENT_STATUS distinguishes the implemented review branch from deployed or live provider execution.',
 );
 check(
   runbook.includes('provider-only owner smoke') &&
@@ -320,10 +325,10 @@ check(
   'No schedule or portal UI exposes the controlled pilot.',
 );
 check(
-  !handler.includes('NAYAX_LYNX_API_TOKEN_') &&
+  !controlledPilotHandler.includes('NAYAX_LYNX_API_TOKEN_') &&
     !runnerConfig.includes('REFUND_NAYAX_PILOT_PROVIDER_ADAPTER') &&
     !runnerConfig.includes('REFUND_NAYAX_PILOT_REQUEST_TARGET') &&
-    !handler.includes('customerCompletionAttempted: true') &&
+    !controlledPilotHandler.includes('customerCompletionAttempted: true') &&
     !read('.github/workflows/refund-automation-sweep.yml')
       .includes('nayax-controlled-owner-pilot'),
   'Static source forbids reporting-token fallback, runtime adapter/target selection, completion, and scheduling.',

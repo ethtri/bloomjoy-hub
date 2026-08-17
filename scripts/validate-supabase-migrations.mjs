@@ -79,10 +79,10 @@ export function parseArgs(argv) {
 function run(
   command,
   args,
-  { allowFailure = false, relayOutput = false, stdio = 'pipe' } = {}
+  { allowFailure = false, relayOutput = false, stdio = 'pipe', cwd = repoRoot } = {}
 ) {
   const result = spawnSync(command, args, {
-    cwd: repoRoot,
+    cwd,
     encoding: 'utf8',
     stdio,
     shell: false,
@@ -385,15 +385,13 @@ async function main() {
     run('supabase', args, { stdio: 'inherit' });
     log('\nSupabase migration apply validation passed.');
 
-    const {
-      testPath: ownerAdapterTestPath,
-      testRelativePath: ownerAdapterTestRelativePath,
-    } = writeRefundGmailIntakeShadowAdapterTest(tempRoot);
+    const { testPath: ownerAdapterTestPath, testRelativePath: ownerAdapterTestRelativePath } =
+      writeRefundGmailIntakeShadowAdapterTest(tempRoot);
     const ownerAdapterArgs = [
       'test', 'db', ownerAdapterTestRelativePath, '--workdir', tempRoot,
     ];
     if (options.debug) ownerAdapterArgs.push('--debug');
-    run('supabase', ownerAdapterArgs, { relayOutput: true });
+    run('supabase', ownerAdapterArgs, { relayOutput: true, cwd: tempRoot });
     fs.rmSync(ownerAdapterTestPath);
     log('Gmail intake-shadow exact owner postflight adapter query passed.');
 

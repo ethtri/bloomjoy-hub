@@ -598,6 +598,13 @@ const pilotMigration = fs.readFileSync(
   ),
   'utf8',
 ).replace(/\r\n/g, '\n');
+const managerSessionMigration = fs.readFileSync(
+  path.join(
+    repoRoot,
+    'supabase/migrations/202608160001_refund_nayax_manager_session_execution.sql',
+  ),
+  'utf8',
+).replace(/\r\n/g, '\n');
 check(capMigration.includes('pg_catalog.pg_advisory_xact_lock'), 'Daily cap checks and reservation share a transaction-scoped advisory lock.');
 check(capMigration.includes("attempt.execution_mode = 'request_and_approve'"), 'Only real provider-attempt reservations consume daily caps.');
 check(capMigration.includes('current_daily_count + 1 > p_daily_count_cap'), 'The daily count cap is checked before reservation.');
@@ -612,12 +619,22 @@ check(
     capMigration.includes('service_reserve_and_consume_nayax_refund_attempt_v2'),
   'The uncapped reservation entry point is revoked from service callers.',
 );
-check(handler.includes('provider: disabledNayaxProviderAdapter'), 'The existing portal execution path remains statically fail-closed.');
 check(
-  handler.includes('operation === "controlled_owner_pilot"') &&
-    handler.includes('x-bloomjoy-nayax-pilot-assertion') &&
-    handler.includes('createNayaxRefundProviderAdapter'),
-  'Only the checked-in controlled runner operation can select the live adapter.',
+  handler.includes('providerEmailBehavior: "recipient_omitted"') &&
+    handler.includes('NAYAX_LYNX_API_TOKEN_${normalAccountKey}') &&
+    handler.includes('provider,') &&
+    handler.includes('service_reserve_nayax_refund_manager_action') &&
+    !handler.includes('provider: disabledNayaxProviderAdapter'),
+  'The normal manager action selects the live adapter with the existing account token after server-side gates.',
+);
+check(
+  managerSessionMigration.includes('authorization_method') &&
+    managerSessionMigration.includes("'manager_session'") &&
+    managerSessionMigration.includes('public.can_perform_refund_official_action') &&
+    managerSessionMigration.includes('public.service_reserve_and_consume_nayax_refund_attempt_v2') &&
+    !managerSessionMigration.includes('/payment/refund-request') &&
+    !managerSessionMigration.includes('/payment/refund-approve'),
+  'The manager-session bridge reuses mapped-manager authority and the existing atomic reservation without making provider calls in SQL.',
 );
 check(
   handler.includes('machine.nayax_refunds_enabled !== true') &&

@@ -16,8 +16,6 @@ const enabledConfig = {
   NAYAX_REFUND_EXECUTION_KILL_SWITCH: "false",
   NAYAX_REFUND_EXECUTION_ENABLED: "true",
   NAYAX_REFUND_EXECUTION_DRY_RUN: "false",
-  NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO: "approved",
-  NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED: "true",
   NAYAX_REFUND_MAX_AMOUNT_CENTS: "1000",
   NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS: "5000",
   NAYAX_REFUND_DAILY_COUNT_CAP: "10",
@@ -31,9 +29,7 @@ Deno.test("default or missing rollout configuration reports every fail-closed ga
     const block of [
       "kill_switch_active",
       "feature_disabled",
-      "sponsor_approval_missing",
       "dry_run_active",
-      "provider_contract_unconfirmed",
       "per_refund_cap_missing",
       "daily_amount_cap_missing",
       "daily_count_cap_missing",
@@ -178,14 +174,6 @@ Deno.test("availability fail-closes to the bounded reason precedence", () => {
         NAYAX_REFUND_EXECUTION_KILL_SWITCH: "true",
       })),
       reason: "kill_switch_active",
-    },
-    {
-      officialActionsEnabled: true,
-      config: resolveNayaxRefundExecutionConfig(envReader({
-        ...enabledConfig,
-        NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED: "false",
-      })),
-      reason: "contract_unconfirmed",
     },
     {
       officialActionsEnabled: true,

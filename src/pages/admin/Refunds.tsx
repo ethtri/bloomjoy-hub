@@ -1689,11 +1689,26 @@ const primaryActionConfig = (
     }
 
     if (matched) {
+      if (oneClickEligible) {
+        if (!cardRefundActionAvailable) {
+          return {
+            label: 'Card refunds aren’t available right now',
+            helper: 'Bloomjoy could not confirm the payment connection is ready. No refund has been issued.',
+            disabled: true,
+          };
+        }
+        return {
+          label: 'Refund card payment',
+          helper: 'Review the amount and transaction, then issue the refund from this page. The customer is emailed only after it succeeds.',
+          targetStatus: 'completed',
+          targetDecision: 'approved',
+          messageType: 'completed',
+          mode: 'nayax_refund_execution',
+        };
+      }
       return {
-        label: oneClickEligible ? 'Transaction saved for review' : 'Manager review needed',
-        helper: oneClickEligible
-          ? 'No refund has been issued. Refunding is not available yet, but you can still review the case.'
-          : 'No refund has been issued. Ask the customer for a missing detail, choose a different transaction, or leave this case in review.',
+        label: 'Manager review needed',
+        helper: 'No refund has been issued. Ask the customer for a missing detail, choose a different transaction, or leave this case in review.',
         disabled: true,
       };
     }

@@ -201,9 +201,10 @@ export function parseNayaxRefundProviderContract(rawValue) {
   if (!new Set([
     "suppressed_by_written_contract",
     "owner_consented_expected",
+    "recipient_omitted",
   ]).has(providerEmailBehavior)) {
     throw new Error(
-      "Nayax refund provider providerEmailBehavior requires written suppression or explicit owner consent.",
+      "Nayax refund provider providerEmailBehavior must suppress or omit the provider recipient.",
     );
   }
 
