@@ -270,10 +270,10 @@ check(
 );
 check(
   currentStatus.includes('#430') &&
-    currentStatus.includes('live Nayax execution is still off') &&
-    currentStatus.includes('has not yet been merged or deployed') &&
-    currentStatus.includes('made no production provider or Gmail call'),
-  'CURRENT_STATUS distinguishes the implemented review branch from deployed or live provider execution.',
+    currentStatus.includes('database and Edge release is deployed') &&
+    currentStatus.includes('zero provider attempts') &&
+    currentStatus.includes('single owner-authorized $10.90 East Ridge acceptance'),
+  'CURRENT_STATUS distinguishes the deployed fail-closed release from the still-pending live provider acceptance.',
 );
 check(
   runbook.includes('provider-only owner smoke') &&
