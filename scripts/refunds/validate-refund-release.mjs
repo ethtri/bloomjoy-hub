@@ -166,8 +166,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    57,
-    'Refund release inventory must cover exactly 57 discovered refund/Nayax migrations'
+    58,
+    'Refund release inventory must cover exactly 58 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -192,6 +192,10 @@ try {
   assert(
     repositoryMigrations.includes('202608170002_refund_nayax_manager_candidate_selection.sql'),
     'The mapped-manager candidate-selection boundary must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('202608170003_refund_nayax_manager_overview_authority.sql'),
+    'The mapped-manager Nayax overview authority boundary must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('202608140002_refund_nayax_controlled_owner_pilot.sql'),

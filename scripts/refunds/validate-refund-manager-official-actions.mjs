@@ -36,6 +36,9 @@ const managerSessionMigration = read(
 const candidateSelectionMigration = read(
   'supabase/migrations/202608170002_refund_nayax_manager_candidate_selection.sql'
 );
+const managerOverviewAuthorityMigration = read(
+  'supabase/migrations/202608170003_refund_nayax_manager_overview_authority.sql'
+);
 const dualRoleManagerAuthorityMigration = read(
   'supabase/migrations/20260812190000_refund_dual_role_manager_authority.sql'
 );
@@ -76,6 +79,9 @@ const portal = read('src/pages/admin/Refunds.tsx');
 const portalUat = read('scripts/refunds/validate-refund-portal-uat.mjs');
 const databaseTests = read(
   'supabase/tests/refund_manager_official_action_safety.sql'
+);
+const managerSessionDatabaseTests = read(
+  'supabase/tests/refund_nayax_manager_session_execution.sql'
 );
 const stepUpDatabaseTests = read(
   'supabase/tests/refund_manager_action_step_up_safety.sql'
@@ -388,6 +394,31 @@ assert(
     managerSessionMigration.includes("authorization_method', 'manager_session'") &&
     !managerSessionMigration.includes('/payment/refund-request'),
   'Normal Nayax execution may use only the authenticated mapped-manager session while preserving exact evidence, idempotent reservation, and audit truth.'
+);
+
+assert(
+  managerOverviewAuthorityMigration.includes(
+    'public.can_offer_nayax_refund_manager_action'
+  ) &&
+    managerOverviewAuthorityMigration.includes(
+      'public.can_perform_refund_official_action(p_user_id, refund_case.id)'
+    ) &&
+    managerOverviewAuthorityMigration.includes("selection_event.event_type = 'nayax_match_selected'") &&
+    managerOverviewAuthorityMigration.includes('machine.nayax_refunds_enabled = true') &&
+    managerOverviewAuthorityMigration.includes(
+      "else to_jsonb('official_actions_disabled'::text)"
+    ) &&
+    managerOverviewAuthorityMigration.includes(
+      'from public, anon, authenticated'
+    ) &&
+    managerOverviewAuthorityMigration.includes('to service_role') &&
+    managerSessionDatabaseTests.includes(
+      'The scoped overview exposes the exact selected-wallet manager-session action'
+    ) &&
+    managerSessionDatabaseTests.includes(
+      'The overview keeps unrelated official actions behind the broad hard-off gate'
+    ),
+  'The overview may expose only an exact mapped-manager selected-transaction Nayax action while broad official actions remain hard-off.'
 );
 
 assert(
