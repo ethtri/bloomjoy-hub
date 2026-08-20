@@ -1,5 +1,17 @@
 # Decisions
 
+## 2026-08-19 - Nayax response contracts are evidence-driven; pending requests recover through one approval-only action (`#877`)
+
+The first normal production attempt proved that an HTTP-successful Nayax request can create a **Refund Requested** transaction while returning a `Result`/`Status` pair outside Bloomjoy's guessed request contract. Bloomjoy must not hardcode an unverified production response pair or infer success from HTTP status alone.
+
+- Normal manager execution requires an explicit versioned `NAYAX_REFUND_MANAGER_CONTRACT_JSON`. Missing or invalid contract configuration blocks before reservation or provider transport. The execution, dry-run, kill-switch, credential, machine, amount, daily-cap, and exact-manager gates remain independent.
+- Every normal request/approval stage is bracketed by an append-only database journal. It stores only stage/event, bounded HTTP/outcome classes, contract-match state, transport-failure class, and a keyed classification digest. Raw or unmatched provider values never enter database rows, logs, issues, or customer-facing surfaces.
+- A DTM-confirmed `Refund Requested` hold caused by a request-stage contract mismatch may reserve one approval-only recovery. The database requires the exact latest ambiguous attempt, current mapped-manager authority, unchanged case/version/provider evidence, no later attempt, and no prior approval-start marker. The original attempt has one unique recovery row, so replay cannot obtain another provider claim.
+- The recovery implementation has no request-stage function or endpoint. It may issue one `refund-approve` call, never `refund-request`; any timeout, HTTP error, malformed response, journal failure, or unfamiliar response consumes the recovery and remains held without retry, finalization, reporting, fallback, or customer mail.
+- Even an exact approval response is not customer completion. Dynamic Transactions Monitor or Nayax support must confirm the final provider outcome, after which the existing structured resolution boundary performs any case/reporting/email finalization.
+
+This decision narrows and supersedes the response-contract assumption in the 2026-08-16 normal-manager decision. It does not revoke the manager's business approval or authorize broad execution.
+
 ## 2026-08-17 - Manager selection resolves ordinary wallet/card ambiguity
 
 Bloomjoy shows the safe Nayax candidates in likely order using the existing deterministic time, location, amount, and card clues. Confidence is not a separate manager decision or refund gate. A current mapped manager may select any candidate that passed the existing hard safety exclusions; alternate selections keep the existing short reason and audit event. The card refund uses the exact selected Nayax amount even when a wallet token changes the last four digits or the customer reported a different amount. Customer-reported evidence remains unchanged and visible for comparison.
