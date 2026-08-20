@@ -305,7 +305,7 @@ check(
   'Nayax API documentation distinguishes the runner-only pilot from product execution.',
 );
 check(
-  productionRunbook.includes('ten-function/51-migration default-off foundation') &&
+  productionRunbook.includes('canonical ten-function/51-migration object remains immutable') &&
     productionRunbook.includes('Docs/REFUND_NAYAX_CONTROLLED_OWNER_PILOT.md') &&
     productionRunbook.includes('hard stop with no retry') &&
     productionRunbook.includes('retention duration and verified purge/discharge procedure'),

@@ -1,5 +1,12 @@
 # Decisions
 
+## 2026-08-20 - Support-confirmed refund is reconciled without another provider call
+
+- Nayax support confirmed that transaction `6841061866` appears refunded and identified missing user-level approval roles as the likely explanation for the earlier approval error. This is authoritative support evidence for the existing held attempt; Bloomjoy must not send another refund request or approval.
+- Closeout uses the already deployed structured outcome resolver with `provider_confirmed_success`, `nayax_support_ticket`, `nayax_support_confirmed_success`, the exact public support-ticket reference, and the authoritative provider action time. The resolver preserves the original unknown provider result, creates no new provider attempt, finalizes reporting once, and binds one customer completion to the original Gmail thread.
+- Activation is a reviewed, bounded database window rather than a permanent runtime switch. The opening migration seeds no operator and does not contact Nayax or Gmail. Production provisioning is limited to the exact current mapped owner-manager, a fresh refund-specific TOTP enrollment, and one two-minute resolution intent. The paired closing migration fails while an intent is pending or a completed resolution reply is not sent, then revokes the temporary enrollment/operator and restores the immutable false gate.
+- The support ticket uses Nayax's public `CS` reference shape. The privacy validator accepts only the exact `SUPPORT:NAYAX-CS` plus seven digits form in addition to the previously reviewed eight-digit support and nine-digit DTM forms; durable evidence still stores only a SHA-256 digest.
+
 ## 2026-08-19 - Nayax response contracts are evidence-driven; pending requests recover through one approval-only action (`#877`)
 
 The first normal production attempt proved that an HTTP-successful Nayax request can create a **Refund Requested** transaction while returning a `Result`/`Status` pair outside Bloomjoy's guessed request contract. Bloomjoy must not hardcode an unverified production response pair or infer success from HTTP status alone.

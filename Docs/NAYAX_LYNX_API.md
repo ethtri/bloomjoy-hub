@@ -1,6 +1,6 @@
 # Nayax Lynx API Notes
 
-Last updated: 2026-08-19
+Last updated: 2026-08-20
 
 ## Purpose
 Bloomjoy is evaluating Nayax Lynx as the server-side source for machine inventory and machine-level sales activity.
@@ -10,7 +10,7 @@ Do not call Nayax directly from the browser. Any implementation should run throu
 ## Current Release Status
 
 - The first normal production request created one DTM **Refund Requested** row but returned a response pair outside Bloomjoy's guessed contract. The attempt remains held; no reporting or customer completion occurred.
-- Nayax's API log records two identical approval POSTs. Both returned outer HTTP 500 because the inner service returned HTTP 400 with `refund_approve_refund_bad_request`, indicating insufficient approval permission or invalid transaction credential scope, and the row remains pending. The current Nayax user also lacks the documented portal **Approve/Decline Refund** action. No further request or approval call is allowed; Nayax permission/support resolution is the current customer-recovery blocker.
+- Nayax's API log records two identical approval POSTs. Both returned outer HTTP 500 because the inner service returned HTTP 400 with `refund_approve_refund_bad_request`. Nayax support has since confirmed transaction `6841061866` appears refunded and identified missing user-level approval roles as the likely cause. No further provider request or approval is allowed; only Bloomjoy's structured local reconciliation remains.
 - The audited provider-outcome resolution migration and its three reviewed functions are deployed **default-off**. They seed no operator and do not enable an official action, a provider call, a refund, or a customer message.
 - Production execution is closed: no machine/cap or active provider caller is enabled, and the execution kill switch/dry-run controls remain in their safe state.
 - Issue `#877` replaces the guessed normal response contract with an explicit reviewed environment contract, adds keyed redacted stage journaling, and adds a default-off single-use approval-only recovery. It does not authorize broad execution or finalization without DTM/support confirmation.
@@ -155,7 +155,7 @@ Canonical source includes a real provider adapter and a forward-only atomic dail
 
 ### Default-off provider-outcome resolution
 
-The audited outcome-resolution foundation is now deployed, but its database gate is false and the operator table is empty. It can eventually record one structured support-confirmed result for a held attempt without making another provider call, while preserving the original outcome and preventing blind retry or double compensation. Activation still requires the account contract and supervised rollout in `#430`, private TOTP enrollment/UAT in `#692`, an explicitly approved operator cohort, and a separate reviewed gate-on decision.
+The audited outcome-resolution foundation is deployed. Nayax support has now confirmed that transaction `6841061866` appears refunded and that missing user-level approval roles likely caused the earlier approval error. For this held attempt, another provider request or approval is prohibited. P0 `#427` uses a paired reviewed migration window to activate only the provider-free structured resolver, provision the exact current mapped owner-manager temporarily, require a fresh refund-specific TOTP, reconcile the support-confirmed result, and then revoke that temporary authority and restore the immutable false gate.
 
 ### Local orchestration proof (not a live-provider path)
 
@@ -163,7 +163,7 @@ The current orchestration proof injects a local synthetic provider adapter. Its 
 
 The normal product path and the historical controlled-owner pilot remain independently gated. The production account token proved that it can create the exact pending request, but Nayax recorded two identical approval POSTs that both failed and the signed-in portal role exposes no Approve/Decline action. The normal portal action remains unavailable. The separate read-only reporting token was not used for this incident; it has not been write-tested or confirmed broken, and it must never be used as a permission probe. This does not prove approval authority or final refund success. The `#877` approval-only recovery is default-off and single-use: it requires the exact latest request-stage mismatch plus DTM evidence, contains no request endpoint, and is unavailable after any approval-start marker. A successful approval response still waits for DTM/support confirmation and structured resolution before reporting or customer email.
 
-There is intentionally no automatic or ad hoc "mark successful" shortcut for timeout, pending, duplicate, already-refunded, or unknown outcomes. The audited structured resolver foundation exists and is deployed default-off, but activation and use remain blocked while its database gate is false, its operator cohort is empty, and the vendor-contract and owner-supervised prerequisites in `#430` remain incomplete. Without an account-confirmed read-only reconciliation contract, software cannot distinguish a completed refund from a failed one safely. These attempts stay on a durable reconciliation hold with no retry, fallback payment, reporting adjustment, or success email. A manager may inspect Nayax's Dynamic Transactions Monitor, but cannot bypass the structured resolver or mark an outcome successful manually.
+There is intentionally no automatic or ad hoc "mark successful" shortcut for timeout, pending, duplicate, already-refunded, or unknown outcomes. An attempt stays on a durable hold until exact DTM or support evidence exists. Even then, only the structured resolver may record the outcome: exact current mapping, named operator, durable TOTP enrollment, frozen evidence/version, one-use intent, and evidence-type-specific reference validation are mandatory. The resolver makes no provider call. Its bounded `#427` production window closes only after the exact completion is settled and returns the gate/operator state to off.
 
 ### Read-only execution availability
 

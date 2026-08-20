@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(82);
+select plan(83);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -441,6 +441,9 @@ reset role;
 select ok(public.refund_nayax_resolution_reference_is_safe(
   'SUPPORT:NAYAX-03595795', 'nayax_support_ticket'
 ), 'The documented eight-digit Nayax support-ticket shape remains usable');
+select ok(public.refund_nayax_resolution_reference_is_safe(
+  'SUPPORT:NAYAX-CS1500666', 'nayax_support_ticket'
+), 'The documented seven-digit Nayax CS support-ticket shape remains usable');
 select ok(public.refund_nayax_resolution_reference_is_safe(
   'DTM:NAYAX-123456789', 'nayax_dtm_transaction'
 ), 'The documented nine-digit Nayax DTM transaction shape remains usable');
