@@ -6,16 +6,13 @@ do $$
 declare
   active_operator_count bigint;
   completed_resolution_count bigint;
+  refund_case_count bigint;
 begin
   select count(*)
   into active_operator_count
   from public.refund_nayax_resolution_operators resolution_operator
   where resolution_operator.status = 'active'
     and resolution_operator.revoked_at is null;
-
-  if active_operator_count <> 1 then
-    raise exception 'Cannot close Nayax support resolution without exactly one active operator';
-  end if;
 
   if exists (
     select 1
@@ -24,6 +21,23 @@ begin
   ) then
     raise exception 'Cannot close Nayax support resolution with a pending intent';
   end if;
+
+  select count(*)
+  into refund_case_count
+  from public.refund_cases;
+
+  -- A fresh disposable or development database has no operational case to
+  -- reconcile. Its migration chain must still finish in the closed state.
+  -- Any database containing refund cases follows the strict production path.
+  if refund_case_count = 0 then
+    if active_operator_count <> 0
+      or exists (select 1 from public.refund_nayax_outcome_resolutions) then
+      raise exception 'Cannot bootstrap-close Nayax support resolution with operational state';
+    end if;
+  else
+    if active_operator_count <> 1 then
+      raise exception 'Cannot close Nayax support resolution without exactly one active operator';
+    end if;
 
   select count(*)
   into completed_resolution_count
@@ -64,6 +78,7 @@ begin
       and attempt.completion_delivery_status is distinct from 'sent'
   ) then
     raise exception 'Cannot close Nayax support resolution before customer completion is sent';
+  end if;
   end if;
 
   update public.refund_manager_totp_enrollments enrollment

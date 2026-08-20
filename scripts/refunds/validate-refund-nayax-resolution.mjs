@@ -71,6 +71,8 @@ assert(
   supportWindowCloseMigration.includes('Cannot close Nayax support resolution with a pending intent') &&
     supportWindowCloseMigration.includes('Cannot close Nayax support resolution without exactly one active operator') &&
     supportWindowCloseMigration.includes('Cannot close Nayax support resolution before exactly one confirmed refund is finalized and sent') &&
+    supportWindowCloseMigration.includes('Cannot bootstrap-close Nayax support resolution with operational state') &&
+    supportWindowCloseMigration.includes('if refund_case_count = 0 then') &&
     supportWindowCloseMigration.includes("completion_delivery_status is distinct from 'sent'") &&
     supportWindowCloseMigration.includes("status = 'revoked'") &&
     supportWindowCloseMigration.includes('operator_version = resolution_operator.operator_version + 1') &&
