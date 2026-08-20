@@ -12,6 +12,12 @@ const assert = (condition, message) => {
 const migration = read(
   'supabase/migrations/202608130001_refund_nayax_outcome_resolution.sql'
 );
+const supportWindowMigration = read(
+  'supabase/migrations/20260820143000_refund_nayax_support_resolution_window.sql'
+);
+const supportWindowCloseMigration = read(
+  'supabase/migrations/20260820150000_refund_nayax_support_resolution_close.sql'
+);
 const databaseTests = read('supabase/tests/refund_nayax_outcome_resolution.sql');
 const concurrencyTests = read(
   'supabase/tests/refund_nayax_outcome_resolution_concurrency.sql'
@@ -50,6 +56,30 @@ assert(
     !/insert into public\.refund_nayax_resolution_operators[\s\S]*values\s*\(/i.test(migration) &&
     !migration.includes('grant execute on function public.refund_nayax_outcome_resolution_enabled'),
   'Payment-support resolution must be hard off with no seeded operator or runtime setter.'
+);
+
+assert(
+  supportWindowMigration.includes('select true;') &&
+    supportWindowMigration.includes("'^SUPPORT:NAYAX-CS[0-9]{7}$'") &&
+    supportWindowMigration.includes('revoke execute on function public.refund_nayax_outcome_resolution_enabled()') &&
+    !supportWindowMigration.includes('insert into public.refund_nayax_resolution_operators') &&
+    !/\b(http_post|net\.http|fetch\s*\()/i.test(supportWindowMigration),
+  'The reviewed support window may only activate the existing provider-free resolver and exact CS ticket shape.'
+);
+
+assert(
+  supportWindowCloseMigration.includes('Cannot close Nayax support resolution with a pending intent') &&
+    supportWindowCloseMigration.includes('Cannot close Nayax support resolution without exactly one active operator') &&
+    supportWindowCloseMigration.includes('Cannot close Nayax support resolution before exactly one confirmed refund is finalized and sent') &&
+    supportWindowCloseMigration.includes('Cannot bootstrap-close Nayax support resolution with operational state') &&
+    supportWindowCloseMigration.includes('if refund_case_count = 0 then') &&
+    supportWindowCloseMigration.includes("completion_delivery_status is distinct from 'sent'") &&
+    supportWindowCloseMigration.includes("status = 'revoked'") &&
+    supportWindowCloseMigration.includes('operator_version = resolution_operator.operator_version + 1') &&
+    supportWindowCloseMigration.includes('enrollment_version = enrollment.enrollment_version + 1') &&
+    supportWindowCloseMigration.includes('select false;') &&
+    !/\b(http_post|net\.http|fetch\s*\()/i.test(supportWindowCloseMigration),
+  'The reviewed closure must fail on unfinished work, revoke temporary authority, and restore the immutable false gate.'
 );
 
 assert(
@@ -100,7 +130,7 @@ assert(
 );
 
 assert(
-  databaseTests.includes('select plan(82)') &&
+  databaseTests.includes('select plan(83)') &&
     databaseTests.includes("select '2026-08-14 00:05:00+00'::timestamptz as now_at") &&
     databaseTests.includes("occurred_at <= now_at + interval '30 seconds'") &&
     databaseTests.includes(
@@ -111,6 +141,7 @@ assert(
     databaseTests.includes('PAN, phone, account, and other long digit-shaped references are rejected') &&
     databaseTests.includes('Grouped card, phone, and account digit shapes are rejected') &&
     databaseTests.includes('eight-digit Nayax support-ticket shape remains usable') &&
+    databaseTests.includes('seven-digit Nayax CS support-ticket shape remains usable') &&
     databaseTests.includes('nine-digit Nayax DTM transaction shape remains usable') &&
     databaseTests.includes('stores only a one-way evidence-reference digest') &&
     databaseTests.includes('A generic AAL2 token cannot replace the trusted exact-factor proof') &&
@@ -273,27 +304,26 @@ assert(
 );
 
 assert(
-  currentStatus.includes("P0 `#767`'s audited provider-outcome resolution is deployed default-off") &&
-    decisions.includes('Uncertain Nayax outcomes require a separate immutable support decision (`#767`)') &&
-    runbook.includes('Default-off Nayax outcome resolution (`#767`)') &&
-    runbook.includes('current strict production release is the reviewed ten-function/51-migration default-off foundation') &&
+  currentStatus.includes('Nayax support has now confirmed that exact transaction `6841061866` appears **refunded**') &&
+    decisions.includes('Support-confirmed refund is reconciled without another provider call') &&
+    runbook.includes('Bounded Nayax outcome resolution (`#767`, `#427`)') &&
+    runbook.includes('paired provider-free resolution-window/closure sequence') &&
     runbook.includes('Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit') &&
     !runbook.includes('For the unmerged candidate') &&
     !runbook.includes('The later `#767` outcome-resolution migration and function deployment') &&
     smoke.includes('npm run refunds:validate-nayax-resolution') &&
-    smoke.includes('deployed ten-function/51-migration default-off foundation') &&
-    smoke.includes('`#767` audited outcome-resolution foundation') &&
-    smoke.includes('`#829` default-off production deployment') &&
-    smoke.includes('Gmail intake-shadow foundation are complete') &&
+    smoke.includes('single controlled provider attempt have passed their fail-closed checks') &&
+    smoke.includes('paired reviewed window/closure migrations') &&
+    smoke.includes('restore the false gate') &&
     !smoke.includes('deployed ten-function/49-migration safe foundation') &&
     !smoke.includes('The `#767` candidate adds one default-off outcome-resolution migration') &&
     providerNotes.includes('Transaction Status ID `12` as **Approved**') &&
     providerNotes.includes('do not remove the account-specific contract blocker') &&
     providerNotes.includes('no automatic or ad hoc "mark successful" shortcut') &&
-    providerNotes.includes('audited structured resolver foundation exists and is deployed default-off') &&
-    providerNotes.includes('activation and use remain blocked') &&
+    providerNotes.includes('paired reviewed migration window') &&
+    providerNotes.includes('returns the gate/operator state to off') &&
     !providerNotes.includes('an audited state-changing resolver remains blocked'),
-  'Status, decision, provider-contract, runbook, and QA docs must preserve the default-off launch boundary.'
+  'Status, decision, provider-contract, runbook, and QA docs must preserve the provider-free bounded-resolution boundary and final hard-off state.'
 );
 
 console.log('Refund Nayax outcome-resolution boundary validated.');

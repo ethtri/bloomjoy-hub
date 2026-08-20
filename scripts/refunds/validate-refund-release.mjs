@@ -46,10 +46,10 @@ assert.match(
 );
 assert(
   productionRunbook.includes(
-    'exact canonical ten-function/51-migration object only as immutable predeployment evidence'
+    'canonical ten-function/51-migration object remains immutable pre-`#427` evidence'
   ) &&
     productionRunbook.includes(
-      'current strict production release is the reviewed ten-function/51-migration default-off foundation'
+      'paired provider-free resolution-window/closure sequence'
     ) &&
     productionRunbook.includes(
       'Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit'
@@ -102,7 +102,7 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 56 required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 61 required refund\/Nayax migrations/);
 assert.match(cutoverPacket, /exact canonical 51-migration predeployment bridge/);
 assert.match(
   cutoverPacket,
@@ -166,8 +166,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    59,
-    'Refund release inventory must cover exactly 59 discovered refund/Nayax migrations'
+    61,
+    'Refund release inventory must cover exactly 61 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -200,6 +200,11 @@ try {
   assert(
     repositoryMigrations.includes('20260820041101_refund_nayax_pending_approval_recovery.sql'),
     'The fail-closed pending-approval recovery and provider stage journal must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260820143000_refund_nayax_support_resolution_window.sql') &&
+      repositoryMigrations.includes('20260820150000_refund_nayax_support_resolution_close.sql'),
+    'The reviewed support-resolution window and fail-closed closure must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('202608140002_refund_nayax_controlled_owner_pilot.sql'),

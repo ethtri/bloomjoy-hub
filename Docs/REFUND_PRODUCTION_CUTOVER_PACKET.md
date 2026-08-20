@@ -1,12 +1,12 @@
 # Refund Operations Production Cutover Packet
 
-Last updated: 2026-08-14
+Last updated: 2026-08-20
 
 ## Outcome
 
 Use this packet to move epic `#628` from individually verified PRs to one tested production release. A green PR is necessary but is not deployment, live-payment, Gmail, GPT, or legacy-retirement approval.
 
-**Current operational truth:** the default-off Refund Operations foundation is deployed and strictly aligned at 10 functions / 51 migrations. The one-case Gmail proof passed with exactly one case message and one Gmail outbound, zero unresolved delivery, and all gates restored off. Outcome resolution `#767` and deployment `#829` are complete; live provider activation still belongs to `#430`. This packet now governs the remaining staffed pilot, private TOTP enrollment, manager cohort, fallback decision, and explicit legacy-responder cutover, not another foundation deployment.
+**Current operational truth:** the default-off Refund Operations foundation and the pending-approval recovery are deployed at 10 functions / 59 migrations. Nayax support has confirmed the held transaction refunded, so `#427` adds two reviewed provider-free migrations for one structured resolution window and its fail-closed teardown. The one-case Gmail proof passed with exactly one case message and one Gmail outbound, zero unresolved delivery, and all gates restored off. Broad provider execution remains closed.
 
 ## Evidence ledger
 
@@ -32,7 +32,7 @@ Use this packet to move epic `#628` from individually verified PRs to one tested
 1. Freeze unrelated Refund Operations changes for the release window.
 2. Review the current integrated `main` release and its canonical release metadata; do not treat the historical PR `#760` head as the active deploy source.
 3. If `main` changed after final verification, sync the release branch with current `main`, resolve overlap, run `npm run refunds:release:write-local`, review and commit any valid manifest update, and rerun the full verification profile.
-4. Confirm the reviewed target manifest covers all ten manifest-tracked Refund Operations functions and all 56 required refund/Nayax migrations, with an immutable exact canonical 51-migration predeployment bridge before migration 52.
+4. Confirm the reviewed target manifest covers all ten manifest-tracked Refund Operations functions and all 61 required refund/Nayax migrations, with the immutable exact canonical 51-migration predeployment bridge preserved as historical evidence.
 5. Deploy only an immutable, pushed, independently reviewed release commit. Follow the migration-before-function order in `Docs/PRODUCTION_RUNBOOK.md`; never allow the frontend to expose a workflow whose required database and Edge Function foundations are not already present.
 6. After merge, use the resulting integrated `main` commit for deployment evidence and any later deploy. Never deploy from an unreviewed or local-only commit.
 7. On that immutable release commit, require:
