@@ -272,6 +272,7 @@ assert(
     portal.includes('data-testid="refund-nayax-resolution-reference"') &&
     portal.includes('data-testid="refund-nayax-resolution-occurred-at"') &&
     portal.includes('data-testid="refund-nayax-resolution-step-up-summary"') &&
+    portal.includes('/^SUPPORT:NAYAX-CS[0-9]{7}$/') &&
     portal.includes('Enter the reference from the transaction record or payment support') &&
     portal.includes('Do not include customer or card details') &&
     portal.includes('Refund date and time') &&
@@ -293,6 +294,7 @@ assert(
 assert(
   portalUat.includes("if (arg === '--nayax-resolution-only')") &&
     portalUat.includes('runNayaxResolutionChecks') &&
+    portalUat.includes("evidenceReference: 'SUPPORT:NAYAX-CS1500666'") &&
     portalUat.includes('Payment support sees exactly four structured outcomes and no arbitrary communication controls') &&
     portalUat.includes('Verified ${scenario.result} submits one frozen result with no provider or separate message endpoint') &&
     portalUat.includes('Pending Nayax completion blocks generic customer messages and exposes only no-send recovery') &&

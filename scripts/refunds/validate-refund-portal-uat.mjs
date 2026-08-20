@@ -4236,7 +4236,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
       result: 'provider_confirmed_retry_safe',
       evidenceType: 'nayax_support_ticket',
       reasonCode: 'nayax_support_retry_safe',
-      evidenceReference: 'SUPPORT:NAYAX-03595795',
+      evidenceReference: 'SUPPORT:NAYAX-CS1500666',
       evidenceOccurredAt: null,
       receiptTitle: 'Returned to manager review',
       caseCompleted: false,
