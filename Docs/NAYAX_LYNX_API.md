@@ -1,6 +1,6 @@
 # Nayax Lynx API Notes
 
-Last updated: 2026-08-14
+Last updated: 2026-08-19
 
 ## Purpose
 Bloomjoy is evaluating Nayax Lynx as the server-side source for machine inventory and machine-level sales activity.
@@ -9,10 +9,11 @@ Do not call Nayax directly from the browser. Any implementation should run throu
 
 ## Current Release Status
 
-- Canonical production alignment passes for 10 Refund Operations Edge Functions and 50 refund/Nayax migrations.
+- The first normal production request created one DTM **Refund Requested** row but returned a response pair outside Bloomjoy's guessed contract. The attempt remains held; no reporting or customer completion occurred.
+- Nayax's API log records two identical approval POSTs. Both returned outer HTTP 500 because the inner service returned HTTP 400 with `refund_approve_refund_bad_request`, indicating insufficient approval permission or invalid transaction credential scope, and the row remains pending. The current Nayax user also lacks the documented portal **Approve/Decline Refund** action. No further request or approval call is allowed; Nayax permission/support resolution is the current customer-recovery blocker.
 - The audited provider-outcome resolution migration and its three reviewed functions are deployed **default-off**. They seed no operator and do not enable an official action, a provider call, a refund, or a customer message.
-- Production still selects the statically disabled Nayax provider adapter. No machine is enabled for Nayax refunds, the global sponsor and executor controls are absent, and the execution kill switch/dry-run controls remain in their safe state.
-- Issue `#767` is complete. Issue `#430` remains the account-specific activation boundary: production write authority, response/amount semantics, machine allowlist, approved caps, idempotency/reconciliation behavior, and one owner-supervised capped test.
+- Production execution is closed: no machine/cap or active provider caller is enabled, and the execution kill switch/dry-run controls remain in their safe state.
+- Issue `#877` replaces the guessed normal response contract with an explicit reviewed environment contract, adds keyed redacted stage journaling, and adds a default-off single-use approval-only recovery. It does not authorize broad execution or finalization without DTM/support confirmation.
 
 ## Current Production Credential Status
 - Production Supabase project: `ygbzkgxktzqsiygjlqyg`
@@ -141,7 +142,7 @@ Do not build browser-side Nayax calls, and do not expose Nayax raw responses in 
 The versioned matching weights, states, timezone rules, privacy-safe evidence, fixtures, and rollback procedure are documented in [REFUND_NAYAX_MATCHING_RUNBOOK.md](./REFUND_NAYAX_MATCHING_RUNBOOK.md).
 Refund execution is separate from read-only Last Sales lookup.
 
-The deployed 10-function/51-migration foundation includes `nayax-card-refund` as a backend-only, fail-closed execution surface. Normal portal execution always selects the statically disabled adapter and stops before attempt reservation, manager-proof consumption, provider access, case/reporting mutation, or email. The in-review migration-52 source adds one separate `controlled_owner_pilot` runner operation, but it is not deployed, initialized, armed, or authorized for provider use. The normal portal action remains unavailable.
+The deployed foundation includes `nayax-card-refund` as a backend-only, fail-closed execution surface. One exact mapped-manager acceptance temporarily opened only the authorized machine/caps and reserved one provider attempt. The provider request created a DTM pending row, but Bloomjoy's guessed response contract classified the response as unknown and correctly stopped before approval/finalization. All runtime gates were closed afterward. P0 `#877` removes the guessed contract from source and requires an explicit reviewed environment contract before any future normal reservation or provider call.
 
 The historical rollout values remain defense-in-depth controls and must stay in their fail-closed state while the handler is disabled:
 - sponsor go/no-go unset;
@@ -160,7 +161,7 @@ The audited outcome-resolution foundation is now deployed, but its database gate
 
 The current orchestration proof injects a local synthetic provider adapter. Its executable evidence covers one each of success, rejection, timeout, and unknown outcome plus replay. Only token-bound confirmed success may atomically complete the case and reporting adjustment, then create one completion in the verified original Gmail thread with the full send-time set of current active mapped managers visibly CC'd. Rejection leaves the case open; timeout and unknown outcomes require reconciliation. None of these paths sends a fallback or a duplicate manager-only completion notice.
 
-The deployed production function still has no armed controlled-pilot authorization or temporary write credentials, and normal execution still uses the disabled adapter. In the proposed source, only the checked-in controlled owner runner can submit the exact pilot operation. It must prove the runner assertion, Auth-email-matched self-case/card/amount attestation, exact case/machine/account binding, dedicated request and approval secret slots, written contract, caps, sponsor/DTM evidence, and one fresh TOTP while every broad gate stays closed. The two dedicated slots may contain the same token only when Nayax/account-owner written evidence confirms that one least-privilege token has both roles. The current reporting token has passed read-only Last Sales checks, but it has not been write-tested or confirmed broken; it must never be used as a permission probe. Financial-audit retention is not resolved: `refund_operations_owner` owns a legal/incident-hold follow-up, no automatic purge or duration is approved, and live authorization stays hard false until a separately reviewed duration and verified purge/discharge procedure exist. Browser mocks, injected adapters, unit fixtures, source merge, migration deployment, or initialization are not a successful live provider test.
+The normal product path and the historical controlled-owner pilot remain independently gated. The production account token proved that it can create the exact pending request, but Nayax recorded two identical approval POSTs that both failed and the signed-in portal role exposes no Approve/Decline action. The normal portal action remains unavailable. The separate read-only reporting token was not used for this incident; it has not been write-tested or confirmed broken, and it must never be used as a permission probe. This does not prove approval authority or final refund success. The `#877` approval-only recovery is default-off and single-use: it requires the exact latest request-stage mismatch plus DTM evidence, contains no request endpoint, and is unavailable after any approval-start marker. A successful approval response still waits for DTM/support confirmation and structured resolution before reporting or customer email.
 
 There is intentionally no automatic or ad hoc "mark successful" shortcut for timeout, pending, duplicate, already-refunded, or unknown outcomes. The audited structured resolver foundation exists and is deployed default-off, but activation and use remain blocked while its database gate is false, its operator cohort is empty, and the vendor-contract and owner-supervised prerequisites in `#430` remain incomplete. Without an account-confirmed read-only reconciliation contract, software cannot distinguish a completed refund from a failed one safely. These attempts stay on a durable reconciliation hold with no retry, fallback payment, reporting adjustment, or success email. A manager may inspect Nayax's Dynamic Transactions Monitor, but cannot bypass the structured resolver or mark an outcome successful manually.
 
@@ -203,7 +204,7 @@ This public documentation is enough to define the expected request shape, but no
 
 A read-only Gmail and Drive audit on 2026-07-22 found no private technical refund contract that closes these gaps. The only internal token request located was explicitly for sales reporting, and the signed commercial agreement covers commercial/clearing terms rather than refund API semantics. Do not infer write authority from that token or agreement.
 
-Before connecting the adapter to the handler, obtain a sanitized Nayax account-owner response covering the unresolved items above and validate the two calls in Nayax's QA environment. The backend orchestrator must treat a successful request followed by a failed, timed-out, or unknown approval as unresolved: keep the case open, suppress Bloomjoy's success email and settlement adjustment, and route it to reconciliation. Live production calls remain prohibited by `Docs/DECISIONS.md` and issue `#430` until the separate sponsor pilot decision is recorded.
+Before reopening normal execution, obtain sanitized Nayax account-owner evidence covering the unresolved response pairs and approval permission, validate them in QA, and install the exact versioned manager contract as server configuration. The backend must treat a request/approval timeout, HTTP error, malformed response, contract mismatch, or journal failure as unresolved: keep the case open, suppress Bloomjoy's success email and settlement adjustment, and route it to reconciliation. No approval-only recovery may be used for the current incident unless Nayax confirms a fresh action is safe; two rejected approval POSTs have already been recorded for this transaction.
 
 ## Retest Commands
 Use a local-only `.env` value. Do not paste tokens into chat, issues, PRs, or docs.

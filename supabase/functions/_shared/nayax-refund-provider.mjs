@@ -22,6 +22,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_LENGTH = 16_384;
 const INT32_MAX = 2_147_483_647;
 const SAFE_IDEMPOTENCY_KEY = /^nayax-refund-[a-f0-9]{64}$/;
+const SAFE_CONTRACT_VERSION = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,79}$/;
 const SAFE_CASE_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -578,6 +579,101 @@ export async function executeNayaxRefundProvider({
   });
 }
 
+export function parseNayaxRefundApprovalContract(rawValue) {
+  let parsed;
+  try {
+    parsed = typeof rawValue === "string" ? JSON.parse(rawValue) : rawValue;
+  } catch {
+    throw new Error("Nayax refund approval contract is not valid JSON.");
+  }
+
+  const contract = assertPlainObject(parsed, "Nayax refund approval contract");
+  assertExactKeys(
+    contract,
+    new Set([
+      "schemaVersion",
+      "contractVersion",
+      "baseUrl",
+      "authorizationMode",
+      "reconciliationMode",
+      "approveResponses",
+    ]),
+    "Nayax refund approval contract",
+  );
+  if (contract.schemaVersion !== 1) {
+    throw new Error("Nayax refund approval contract schemaVersion must be 1.");
+  }
+  const contractVersion = text(contract.contractVersion, 80);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{5,79}$/.test(contractVersion)) {
+    throw new Error("Nayax refund approval contractVersion is invalid.");
+  }
+  const authorizationMode = text(contract.authorizationMode, 40).toLowerCase();
+  if (!new Set(["bearer", "raw"]).has(authorizationMode)) {
+    throw new Error("Nayax refund approval authorizationMode is invalid.");
+  }
+  if (
+    text(contract.reconciliationMode, 80).toLowerCase() !==
+      "dtm_then_structured_resolution"
+  ) {
+    throw new Error(
+      "Nayax refund approval reconciliationMode must be dtm_then_structured_resolution.",
+    );
+  }
+  const approveResponses = parsePatterns(contract.approveResponses, "approve");
+  for (const requiredOutcome of ["succeeded", "duplicate", "already_refunded"]) {
+    if (!approveResponses.some((pattern) => pattern.outcome === requiredOutcome)) {
+      throw new Error(
+        `Nayax refund approval contract needs an exact ${requiredOutcome} response.`,
+      );
+    }
+  }
+  return Object.freeze({
+    schemaVersion: 1,
+    contractVersion,
+    baseUrl: parseBaseUrl(contract.baseUrl),
+    authorizationMode,
+    reconciliationMode: "dtm_then_structured_resolution",
+    approveResponses,
+  });
+}
+
+export async function executeNayaxRefundApprovalOnly({
+  contract,
+  approveToken,
+  transactionId,
+  siteId,
+  machineAuthorizationTime,
+  fetchImpl = fetch,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  onStageEvent = async (_stageEvent) => {},
+}) {
+  const approveBody = buildNayaxRefundApprovalBody({
+    transactionId,
+    siteId,
+    machineAuthorizationTime,
+  });
+  await onStageEvent(Object.freeze({ stage: "approve", event: "started" }));
+  const approve = await postNayaxRefundStep({
+    stage: "approve",
+    contract,
+    token: approveToken,
+    body: approveBody,
+    fetchImpl,
+    timeoutMs,
+  });
+  await onStageEvent(Object.freeze({
+    stage: "approve",
+    event: "result",
+    result: approve,
+  }));
+
+  return Object.freeze({
+    request: null,
+    approve,
+    executed: approve.outcome === "succeeded",
+  });
+}
+
 const providerStatus = (stageResult) => {
   const stage = new Set(["request", "approve"]).has(stageResult.stage)
     ? stageResult.stage
@@ -601,6 +697,68 @@ const sha256Hex = async (value) => {
     .join("");
 };
 
+const hmacSha256Hex = async (secret, value) => {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const digest = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+};
+
+export const buildRedactedNayaxStageDigest = async ({
+  journalSecret,
+  attemptId,
+  contractVersion,
+  stageEvent,
+}) => {
+  const safeSecret = text(journalSecret, 4_096);
+  const safeAttemptId = text(attemptId, 80);
+  const safeContractVersion = text(contractVersion, 80);
+  const stage = new Set(["request", "approve"]).has(stageEvent?.stage)
+    ? stageEvent.stage
+    : null;
+  const event = new Set(["started", "result"]).has(stageEvent?.event)
+    ? stageEvent.event
+    : null;
+  if (
+    safeSecret.length < 32 ||
+    !SAFE_CASE_ID.test(safeAttemptId) ||
+    !SAFE_CONTRACT_VERSION.test(safeContractVersion) ||
+    !stage ||
+    !event
+  ) {
+    throw new Error("Exact redacted Nayax stage evidence is required.");
+  }
+
+  const result = event === "result" && stageEvent.result
+    ? stageEvent.result
+    : {};
+  const classification = JSON.stringify({
+    stage,
+    event,
+    outcome: text(result.outcome, 40) || null,
+    httpStatus: Number.isInteger(result.httpStatus) ? result.httpStatus : null,
+    result: normalizeResponseValue(result.result),
+    status: normalizeResponseValue(result.status),
+    contractMatched: result.contractMatched === true,
+    failureType: text(result.failureType, 40) || null,
+  });
+  return hmacSha256Hex(
+    safeSecret,
+    `bloomjoy-nayax-stage-v1|${safeAttemptId}|${safeContractVersion}|${classification}`,
+  );
+};
+
 export const buildRedactedNayaxEvidenceReference = async ({
   contractVersion,
   idempotencyKey,
@@ -614,7 +772,11 @@ export const buildRedactedNayaxEvidenceReference = async ({
   return `nayax-evidence-${digest}`;
 };
 
-const orchestrationOutcome = async (result, contractVersion, idempotencyKey) => {
+export const mapNayaxRefundExecutionOutcome = async (
+  result,
+  contractVersion,
+  idempotencyKey,
+) => {
   const finalStage = result.approve ?? result.request;
   if (result.executed) {
     return {
@@ -713,7 +875,7 @@ export function createNayaxRefundProviderAdapter({
         timeoutMs: boundedTimeoutMs,
         onStageEvent,
       });
-      return Object.freeze(await orchestrationOutcome(
+      return Object.freeze(await mapNayaxRefundExecutionOutcome(
         result,
         contract.contractVersion,
         input.idempotencyKey,

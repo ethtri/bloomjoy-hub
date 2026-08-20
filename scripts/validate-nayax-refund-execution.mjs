@@ -16,6 +16,7 @@ const files = {
   officialActionMigration: 'supabase/migrations/202608030002_refund_manager_official_action_boundary.sql',
   providerOrchestrationMigration: 'supabase/migrations/202608040004_refund_nayax_provider_orchestration.sql',
   providerCapsMigration: 'supabase/migrations/202608110020_refund_nayax_provider_caps.sql',
+  pendingApprovalRecoveryMigration: 'supabase/migrations/20260820041101_refund_nayax_pending_approval_recovery.sql',
   providerOrchestration: 'supabase/functions/_shared/nayax-refund-orchestration.ts',
   providerGates: 'supabase/functions/_shared/nayax-refund-gates.ts',
   providerGatesTest: 'supabase/functions/_shared/nayax-refund-gates.test.ts',
@@ -57,6 +58,7 @@ const managerSelectedMigration = read(files.managerSelectedMigration);
 const officialActionMigration = read(files.officialActionMigration);
 const providerOrchestrationMigration = read(files.providerOrchestrationMigration);
 const providerCapsMigration = read(files.providerCapsMigration);
+const pendingApprovalRecoveryMigration = read(files.pendingApprovalRecoveryMigration);
 const providerOrchestration = read(files.providerOrchestration);
 const providerGates = read(files.providerGates);
 const providerGatesTest = read(files.providerGatesTest);
@@ -256,13 +258,26 @@ assert(
 );
 assert(
   providerOrchestration.includes('provider_execution_not_yet_enabled') &&
-    fn.includes('providerEmailBehavior: "recipient_omitted"') &&
+    fn.includes('NAYAX_REFUND_MANAGER_CONTRACT_JSON') &&
+    fn.includes('service_record_nayax_refund_provider_stage') &&
     fn.includes('provider,') &&
+    !fn.includes('contractVersion: "nayax-production-manager-v1"') &&
     !fn.includes('provider: disabledNayaxProviderAdapter') &&
     !fn.includes('mode: "synthetic"') &&
     !fn.includes('/payment/refund-request') &&
     !fn.includes('/payment/refund-approve'),
   'The normal path must select the live adapter without exposing a synthetic switch or duplicating provider endpoints in the handler.'
+);
+assert(
+  fn.includes('operation === "approve_pending_request"') &&
+    fn.includes('executeNayaxRefundApprovalOnly') &&
+    fn.includes('service_reserve_nayax_pending_approval_recovery') &&
+    fn.includes('service_settle_nayax_pending_approval_recovery') &&
+    pendingApprovalRecoveryMigration.includes('nayax_refund_attempt_id uuid not null unique') &&
+    pendingApprovalRecoveryMigration.includes("provider_status is distinct from 'request_unknown_contract_mismatch'") &&
+    pendingApprovalRecoveryMigration.includes("journal.stage = 'approve'") &&
+    !pendingApprovalRecoveryMigration.includes('/payment/refund-request'),
+  'The pending-request recovery must be single-use, DTM-gated, approval-only, and blocked after any approval-start marker.'
 );
 assert(
   providerAdapter.includes('ALLOWED_NAYAX_REFUND_HOSTS') &&

@@ -6,11 +6,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   buildNayaxRefundApprovalBody,
+  buildRedactedNayaxStageDigest,
   buildNayaxRefundRequestBody,
   classifyNayaxRefundResponse,
   createNayaxRefundProviderAdapter,
+  executeNayaxRefundApprovalOnly,
   executeNayaxRefundProvider,
   freezeNayaxRefundEvidence,
+  parseNayaxRefundApprovalContract,
   parseNayaxRefundProviderContract,
   postNayaxRefundStep,
 } from '../../supabase/functions/_shared/nayax-refund-provider.mjs';
@@ -67,6 +70,27 @@ const baseContract = {
 };
 
 const contract = parseNayaxRefundProviderContract(baseContract);
+const approvalContract = parseNayaxRefundApprovalContract({
+  schemaVersion: 1,
+  contractVersion: 'nayax-qa-approval-v1',
+  baseUrl: 'https://qa-lynx.nayax.com/operational/v1',
+  authorizationMode: 'bearer',
+  reconciliationMode: 'dtm_then_structured_resolution',
+  approveResponses: baseContract.approveResponses,
+});
+equal(
+  approvalContract.approveResponses.length,
+  baseContract.approveResponses.length,
+  'Approval-only recovery has a contract that cannot guess request-stage responses.',
+);
+throws(
+  () => parseNayaxRefundApprovalContract({
+    ...approvalContract,
+    requestResponses: baseContract.requestResponses,
+  }),
+  /unsupported field/,
+  'Approval-only recovery rejects request-stage contract fields.',
+);
 
 check(Object.isFrozen(contract), 'The confirmed provider contract must be immutable.');
 check(Object.isFrozen(contract.requestResponses), 'Request patterns must be immutable.');
@@ -297,6 +321,55 @@ deepEqual(
   ['request_started', 'request_result', 'approve_started', 'approve_result'],
   'Durable stage callbacks bracket each provider POST in exact order.',
 );
+
+const approvalOnlyCalls = [];
+const approvalOnlyStages = [];
+const approvalOnlyResult = await executeNayaxRefundApprovalOnly({
+  contract: approvalContract,
+  approveToken: 'synthetic-approve-token',
+  transactionId: '123456789',
+  siteId: 42,
+  machineAuthorizationTime: '2026-07-22T17:30:00Z',
+  fetchImpl: async (url, options) => {
+    approvalOnlyCalls.push({ url, options });
+    return response({ Result: 'True', Status: 'Approved' });
+  },
+  onStageEvent: async (stage) => approvalOnlyStages.push(stage),
+});
+check(approvalOnlyResult.executed, 'Approval-only recovery accepts only the exact configured success pair.');
+equal(approvalOnlyResult.request, null, 'Approval-only recovery cannot contain a request result.');
+equal(approvalOnlyCalls.length, 1, 'Approval-only recovery makes exactly one provider call.');
+check(
+  approvalOnlyCalls[0].url.endsWith('/payment/refund-approve'),
+  'Approval-only recovery can call only the reviewed approval endpoint.',
+);
+check(
+  !approvalOnlyCalls[0].url.includes('refund-request'),
+  'Approval-only recovery cannot create another refund request.',
+);
+deepEqual(
+  approvalOnlyStages.map(({ stage, event }) => `${stage}_${event}`),
+  ['approve_started', 'approve_result'],
+  'Approval-only recovery journals only the one approval call.',
+);
+
+const stageDigest = await buildRedactedNayaxStageDigest({
+  journalSecret: 'synthetic-stage-journal-secret-'.padEnd(64, 'x'),
+  attemptId: '76000000-0000-4000-8000-000000000001',
+  contractVersion: approvalContract.contractVersion,
+  stageEvent: {
+    stage: 'request',
+    event: 'result',
+    result: classifyNayaxRefundResponse({
+      stage: 'request',
+      httpStatus: 200,
+      payload: { Result: 'owner@example.test', Status: '4111111111111111' },
+      patterns: contract.requestResponses,
+    }),
+  },
+});
+check(/^[a-f0-9]{64}$/u.test(stageDigest), 'Stage evidence is persisted only as an HMAC digest.');
+check(!stageDigest.includes('owner@example.test'), 'The stage digest never exposes unmatched response text.');
 
 let callsAfterJournalFailure = 0;
 await assert.rejects(
@@ -605,6 +678,13 @@ const managerSessionMigration = fs.readFileSync(
   ),
   'utf8',
 ).replace(/\r\n/g, '\n');
+const pendingApprovalRecoveryMigration = fs.readFileSync(
+  path.join(
+    repoRoot,
+    'supabase/migrations/20260820041101_refund_nayax_pending_approval_recovery.sql',
+  ),
+  'utf8',
+).replace(/\r\n/g, '\n');
 check(capMigration.includes('pg_catalog.pg_advisory_xact_lock'), 'Daily cap checks and reservation share a transaction-scoped advisory lock.');
 check(capMigration.includes("attempt.execution_mode = 'request_and_approve'"), 'Only real provider-attempt reservations consume daily caps.');
 check(capMigration.includes('current_daily_count + 1 > p_daily_count_cap'), 'The daily count cap is checked before reservation.');
@@ -620,12 +700,31 @@ check(
   'The uncapped reservation entry point is revoked from service callers.',
 );
 check(
-  handler.includes('providerEmailBehavior: "recipient_omitted"') &&
+  handler.includes('NAYAX_REFUND_MANAGER_CONTRACT_JSON') &&
     handler.includes('NAYAX_LYNX_API_TOKEN_${normalAccountKey}') &&
     handler.includes('provider,') &&
     handler.includes('service_reserve_nayax_refund_manager_action') &&
+    handler.includes('service_record_nayax_refund_provider_stage') &&
+    !handler.includes('contractVersion: "nayax-production-manager-v1"') &&
     !handler.includes('provider: disabledNayaxProviderAdapter'),
-  'The normal manager action selects the live adapter with the existing account token after server-side gates.',
+  'The normal manager action requires an external reviewed contract and journals every stage after server-side gates.',
+);
+check(
+  handler.includes('executeNayaxRefundApprovalOnly') &&
+    handler.includes('service_reserve_nayax_pending_approval_recovery') &&
+    handler.includes('service_settle_nayax_pending_approval_recovery') &&
+    pendingApprovalRecoveryMigration.includes("provider_status is distinct from 'request_unknown_contract_mismatch'") &&
+    pendingApprovalRecoveryMigration.includes("journal.stage = 'approve'") &&
+    pendingApprovalRecoveryMigration.includes('nayax_refund_attempt_id uuid not null unique') &&
+    !pendingApprovalRecoveryMigration.includes('/payment/refund-request'),
+  'The single-use pending-request recovery is approval-only and rejects any attempt with an approval-start marker.',
+);
+check(
+  pendingApprovalRecoveryMigration.includes('classification_digest') &&
+    pendingApprovalRecoveryMigration.includes('payload_redacted boolean not null default true') &&
+    pendingApprovalRecoveryMigration.includes('guard_refund_nayax_provider_stage_immutable') &&
+    handler.includes('buildRedactedNayaxStageDigest'),
+  'Normal and recovery provider stages retain only immutable keyed redacted evidence.',
 );
 check(
   managerSessionMigration.includes('authorization_method') &&
@@ -675,6 +774,9 @@ check(/^NAYAX_REFUND_EXECUTION_ENABLED=false$/m.test(envExample), 'Execution def
 check(/^NAYAX_REFUND_EXECUTION_DRY_RUN=true$/m.test(envExample), 'Dry-run defaults to enabled.');
 check(/^NAYAX_REFUND_EXECUTION_KILL_SWITCH=true$/m.test(envExample), 'The kill switch defaults to active.');
 check(/^NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false$/m.test(envExample), 'Provider-contract confirmation defaults to false.');
+check(/^NAYAX_REFUND_MANAGER_CONTRACT_JSON=$/m.test(envExample), 'The manager response contract defaults to unset.');
+check(/^NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_ENABLED=false$/m.test(envExample), 'Pending-request recovery defaults to disabled.');
+check(/^NAYAX_REFUND_PENDING_APPROVAL_CONTRACT_JSON=$/m.test(envExample), 'The approval-only contract defaults to unset.');
 check(/^NAYAX_REFUND_CONTROLLED_PILOT_CONTRACT_JSON=$/m.test(envExample), 'The exact provider contract defaults to unset.');
 check(/^NAYAX_REFUND_REQUEST_WRITE_TOKEN_ACCOUNT_KEY=$/m.test(envExample), 'The dedicated request write credential defaults to unset.');
 check(/^NAYAX_REFUND_APPROVE_WRITE_TOKEN_ACCOUNT_KEY=$/m.test(envExample), 'The dedicated approval write credential defaults to unset.');
