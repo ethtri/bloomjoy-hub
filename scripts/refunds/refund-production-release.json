@@ -69,7 +69,8 @@
     "20260821035000_refund_manager_session_simplification.sql",
     "20260821080000_refund_form_completion_transport.sql",
     "20260821083000_refund_completion_delivery_decoupling.sql",
-    "20260821090000_refund_form_only_case_creation.sql"
+    "20260821090000_refund_form_only_case_creation.sql",
+    "20260821091000_refund_nayax_inventory.sql"
   ],
   "migrationFilesSha256": "6919add3dc3844d18dff8ed1d337868ffe51c5bf91671e7a3f0663ca7fbd252d",
   "migrationVersionSetSha256": "8c352b333e5306d8336409e8a2cb59832a930756dbb374f8c76ad251b37f142e",
