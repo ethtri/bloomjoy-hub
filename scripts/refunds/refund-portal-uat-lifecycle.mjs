@@ -107,7 +107,7 @@ export const waitForRefundPortalRouteCommitted = async (
 ) => {
   try {
     await page
-      .getByLabel('Filter refund cases by status')
+      .getByLabel('Refund case views')
       .waitFor({ state: 'visible', timeout });
   } catch {
     throw new Error('refund_portal_route_commit_barrier_failed');

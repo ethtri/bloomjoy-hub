@@ -3094,7 +3094,13 @@ export default function AdminRefundsPage() {
     handledCaseQueryRef.current = caseIdFromUrl;
 
     if (!filteredCases.some((refundCase) => refundCase.id === caseFromUrl.id)) {
-      setStatusFilter('all');
+      setStatusFilter(
+        doneStatuses.has(caseFromUrl.status)
+          ? 'completed'
+          : caseFromUrl.status === 'waiting_on_customer'
+            ? 'waiting_on_customer'
+            : 'needs_action'
+      );
       setSearch('');
     }
     handleSelectCase(caseFromUrl);
@@ -5035,7 +5041,7 @@ export default function AdminRefundsPage() {
               <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-3">
                 <div>
                   <h2 className="text-sm font-semibold text-foreground">Queue</h2>
-                  <p className="mt-1 text-xs text-muted-foreground">
+                  <p data-testid="refund-queue-count" className="mt-1 text-xs text-muted-foreground">
                     {filteredCases.length} {filteredCases.length === 1 ? 'case' : 'cases'}
                   </p>
                 </div>
@@ -5068,6 +5074,7 @@ export default function AdminRefundsPage() {
                   filteredCases.map((refundCase) => (
                     <button
                       key={refundCase.id}
+                      data-testid="refund-case-queue-item"
                       type="button"
                       onClick={() => handleSelectCase(refundCase)}
                       className={cn(
@@ -5115,6 +5122,7 @@ export default function AdminRefundsPage() {
                 {!pageIsLoading && filteredCases.map((refundCase) => (
                   <button
                     key={refundCase.id}
+                    data-testid="refund-case-queue-item"
                     type="button"
                     aria-current={refundCase.id === selectedId ? 'true' : undefined}
                     onClick={() => handleSelectCase(refundCase)}
