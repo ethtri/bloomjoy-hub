@@ -347,15 +347,16 @@ export default function RefundRequestPage() {
                   </>
                 ) : (
                   <>
-                    We are getting this new Bloomjoy refund form ready for selected machines. For
-                    now, please use the{' '}
+                    We could not load the Bloomjoy machine list right now. Please try this page
+                    again shortly. If it still does not load,{' '}
                     <a
-                      href="https://forms.gle/qQDt2V7dFBFPqjyW6"
+                      href="mailto:info@bloomjoysweets.com?subject=Bloomjoy%20refund%20form%20help"
                       className="font-semibold underline underline-offset-2"
                     >
-                      current customer service form
-                    </a>{' '}
-                    and our team will review your request with care.
+                      email Bloomjoy customer service
+                    </a>
+                    . We will help you return to this Bloomjoy form. Sending an email does not
+                    submit a refund request.
                   </>
                 )}
               </div>
@@ -398,10 +399,10 @@ export default function RefundRequestPage() {
                         <Link to="/refunds/request">Use regular refund form</Link>
                       </Button>
                       <a
-                        href="https://forms.gle/qQDt2V7dFBFPqjyW6"
+                        href="mailto:info@bloomjoysweets.com?subject=Bloomjoy%20refund%20form%20help"
                         className="inline-flex min-h-9 items-center font-semibold underline underline-offset-2"
                       >
-                        Open current customer service form
+                        Email Bloomjoy customer service
                       </a>
                     </div>
                   </>

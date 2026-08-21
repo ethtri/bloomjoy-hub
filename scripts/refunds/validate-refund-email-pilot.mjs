@@ -96,8 +96,14 @@ assert(
     publicForm.includes('{hasEmailContext ? (') &&
     publicForm.includes('Please reply in the same email conversation') &&
     publicForm.includes('You do not need to complete a') &&
-    publicForm.includes('second form.'),
-  'The browser must strip the private token and keep email-linked failures in the original thread instead of exposing Google Forms.',
+    publicForm.includes('second form.') &&
+    publicForm.includes('Sending an email does not') &&
+    publicForm.includes('submit a refund request.') &&
+    publicForm.includes('mailto:info@bloomjoysweets.com') &&
+    !publicForm.includes('forms.gle') &&
+    !publicForm.includes('docs.google.com/forms') &&
+    !publicForm.includes('current customer service form'),
+  'The public form must keep email-linked failures in the original thread, remove every old Google Form fallback, and explain that customer contact alone does not submit a refund request.',
 );
 assert(
   gmailSync.includes('const refundEmailPilotAttachmentsEnabled = false') &&
