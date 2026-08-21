@@ -5090,8 +5090,17 @@ export default function AdminRefundsPage() {
                     >
                       <div className="flex min-w-0 items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold text-foreground">
-                            {refundCase.publicReference}
+                          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                            <span className="truncate text-sm font-semibold text-foreground">
+                              {refundCase.publicReference}
+                            </span>
+                            <Badge
+                              variant="outline"
+                              data-testid="refund-case-source"
+                              className={cn('shrink-0 px-1.5 py-0 text-[10px] font-semibold', intakeSourceBadgeClass(refundCase))}
+                            >
+                              {intakeSourceLabel(refundCase)}
+                            </Badge>
                           </div>
                         </div>
                         <Badge className={cn('shrink-0 whitespace-normal rounded-md text-left leading-tight', managerTaskBadgeClass(refundCase))}>
@@ -5139,9 +5148,18 @@ export default function AdminRefundsPage() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-foreground">
-                          {refundCase.publicReference}
-                        </p>
+                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                          <span className="truncate text-sm font-semibold text-foreground">
+                            {refundCase.publicReference}
+                          </span>
+                          <Badge
+                            variant="outline"
+                            data-testid="refund-case-source"
+                            className={cn('shrink-0 px-1.5 py-0 text-[10px] font-semibold', intakeSourceBadgeClass(refundCase))}
+                          >
+                            {intakeSourceLabel(refundCase)}
+                          </Badge>
+                        </div>
                         <p className="mt-1 truncate text-xs text-muted-foreground">
                           {formatRefundMachineLocation(refundCase.locationName, refundCase.machineLabel)}
                         </p>
@@ -5177,6 +5195,13 @@ export default function AdminRefundsPage() {
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <h2 className="font-semibold text-foreground">{selectedCase.publicReference}</h2>
+                        <Badge
+                          variant="outline"
+                          data-testid="refund-selected-case-source"
+                          className={intakeSourceBadgeClass(selectedCase)}
+                        >
+                          {intakeSourceLabel(selectedCase)}
+                        </Badge>
                         <Badge className={managerTaskBadgeClass(selectedCase)}>
                           {managerTaskLabel(selectedCase)}
                         </Badge>
