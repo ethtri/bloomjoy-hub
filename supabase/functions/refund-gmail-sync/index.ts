@@ -270,9 +270,10 @@ type FirstContactCounters = {
 };
 
 type FirstContactCandidate = {
-  refundCaseId: string;
+  refundCaseId?: string;
+  contactId?: string;
   sourceMessageId: string;
-  publicReference: string;
+  publicReference?: string;
   customerName: string;
   customerEmail: string;
 };
@@ -389,6 +390,83 @@ const reconcileOutstandingFirstContacts = async ({
   }
 };
 
+const reconcileOutstandingContactResponses = async ({
+  config,
+  counters,
+}: {
+  config: NonNullable<ReturnType<typeof getRefundGmailConfig>>;
+  counters: FirstContactCounters;
+}) => {
+  const outstanding = await rpc<FirstContactReconciliationRow[]>(
+    "service_claim_refund_gmail_contact_reconciliation_batch",
+    { p_limit: 100 },
+  );
+  for (const row of outstanding ?? []) {
+    const operationId = sanitizeText(row.operation_id, 80);
+    const operationKey = sanitizeText(row.operation_key, 255);
+    const providerThreadId = sanitizeText(row.provider_thread_id, 255);
+    const attemptVersion = Number(row.attempt_version);
+    if (
+      !operationId || !operationKey || !providerThreadId ||
+      !Number.isInteger(attemptVersion) || attemptVersion < 1
+    ) {
+      counters.firstContactFailed += 1;
+      continue;
+    }
+    try {
+      const providerResult = await inspectRefundGmailReplyByMessageHeader({
+        config,
+        providerThreadId,
+        operationKey,
+      });
+      if (providerResult.status === "no_match") {
+        const recorded = await rpc<boolean>(
+          "service_finish_refund_gmail_contact_response_no_match",
+          {
+            p_operation_id: operationId,
+            p_attempt_version: attemptVersion,
+          },
+        );
+        if (!recorded) counters.firstContactFailed += 1;
+        continue;
+      }
+      if (providerResult.status === "ambiguous") {
+        counters.firstContactFailed += 1;
+        continue;
+      }
+      const reconciled = await rpc<boolean>(
+        "service_finish_refund_gmail_contact_first_response",
+        {
+          p_operation_id: operationId,
+          p_status: "sent",
+          p_provider_message_id: providerResult.evidence.providerMessageId,
+          p_provider_message_header:
+            providerResult.evidence.providerMessageHeader,
+          p_error_code: null,
+          p_attempt_version: attemptVersion,
+        },
+      );
+      if (reconciled) counters.firstContactSent += 1;
+      else counters.firstContactFailed += 1;
+    } catch {
+      counters.firstContactFailed += 1;
+    }
+  }
+  try {
+    const remaining = await rpc<number>(
+      "service_count_refund_gmail_contact_response_reconciliation",
+      {},
+    );
+    counters.firstContactReconciliationOutstanding += remaining;
+  } catch {
+    counters.firstContactFailed += 1;
+    counters.firstContactReconciliationOutstanding = Math.max(
+      counters.firstContactReconciliationOutstanding,
+      1,
+    );
+  }
+};
+
 const reconcileOutstandingOutbound = async ({
   config,
   counters,
@@ -478,9 +556,10 @@ const processFirstContact = async ({
 }: {
   firstContact: RefundFirstContactConfig;
   config: NonNullable<ReturnType<typeof getRefundGmailConfig>>;
-  refundCaseId: string;
+  refundCaseId?: string;
+  contactId?: string;
   sourceMessageId: string;
-  publicReference: string;
+  publicReference?: string;
   customerName: string;
   customerEmail: string;
   threadHasOutbound: boolean;
@@ -492,6 +571,10 @@ const processFirstContact = async ({
   runId: string;
 }) => {
   if (intakeShadow) {
+    if (!refundCaseId) {
+      counters.firstContactFailed += 1;
+      return { failed: true };
+    }
     return await completeRefundGmailIntakeShadowFirstContact({
       runId,
       sourceMessageId,
@@ -523,7 +606,7 @@ const processFirstContact = async ({
   let email: ReturnType<typeof buildRefundFirstContactEmail>;
   try {
     email = buildRefundFirstContactEmail({
-      publicReference,
+      publicReference: publicReference ?? "",
       customerName,
       refundRequestUrl,
       supportUrl: firstContact.supportUrl,
@@ -545,7 +628,7 @@ const processFirstContact = async ({
   }
 
   const claimFirstContact = () => rpc<Record<string, unknown> | null>(
-    "service_claim_refund_gmail_first_contact",
+    "service_claim_refund_gmail_contact_first_response",
     {
       p_source_message_id: sourceMessageId,
       p_mode: firstContact.mode,
@@ -584,7 +667,7 @@ const processFirstContact = async ({
   let sent: Awaited<ReturnType<typeof sendRefundGmailReply>>;
   try {
     const intakeLinkRegistered = await rpc<boolean>(
-      "service_register_refund_gmail_intake_link",
+      "service_register_refund_gmail_contact_link",
       {
         p_operation_id: operationId,
         p_token_hash: await sha256Hex(intakeContextToken),
@@ -599,7 +682,7 @@ const processFirstContact = async ({
       );
     }
     const preparedDelivery = await rpc<Record<string, unknown>>(
-      "service_prepare_refund_gmail_first_contact_delivery",
+      "service_prepare_refund_gmail_contact_first_response",
       {
         p_operation_id: operationId,
         p_mailbox_identities: config.mailboxIdentities,
@@ -635,7 +718,7 @@ const processFirstContact = async ({
     const completionStatus = gmailError.deliveryUncertain
       ? "delivery_unknown"
       : "failed";
-    await rpc<boolean>("service_finish_refund_gmail_first_contact", {
+    await rpc<boolean>("service_finish_refund_gmail_contact_first_response", {
       p_operation_id: operationId,
       p_status: completionStatus,
       p_provider_message_id: null,
@@ -649,7 +732,7 @@ const processFirstContact = async ({
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const finished = await rpc<boolean>(
-        "service_finish_refund_gmail_first_contact",
+        "service_finish_refund_gmail_contact_first_response",
         {
           p_operation_id: operationId,
           p_status: "sent",
@@ -667,7 +750,7 @@ const processFirstContact = async ({
     }
   }
 
-  await rpc<boolean>("service_finish_refund_gmail_first_contact", {
+  await rpc<boolean>("service_finish_refund_gmail_contact_first_response", {
     p_operation_id: operationId,
     p_status: "delivery_unknown",
     p_provider_message_id: null,
@@ -1190,6 +1273,24 @@ const runRetentionSweep = async ({
       failureCode = "cleanup_batch_incomplete";
     }
 
+    const intakePurge = await rpc(
+      "service_purge_refund_gmail_intake_contacts",
+      {
+        p_run_id: runId,
+        p_run_token: runToken,
+        p_limit: 500,
+      },
+    );
+    if (
+      (
+        intakePurge?.purged !== true ||
+        Number(intakePurge?.remainingDue ?? 0) > 0
+      ) && requestedOutcome !== "manual_review"
+    ) {
+      requestedOutcome = "retry_required";
+      failureCode = "cleanup_batch_incomplete";
+    }
+
     const settlement = await rpc("service_settle_refund_gmail_retention_run", {
       p_run_id: runId,
       p_run_token: runToken,
@@ -1529,6 +1630,17 @@ serve(async (request) => {
     }
     if (!intakeShadow) {
       await rpc<number>(
+        "service_mark_stale_refund_gmail_contact_responses_unknown",
+        {
+          p_stale_before: new Date(Date.now() - 15 * 60 * 1000)
+            .toISOString(),
+        },
+      ).catch(() => {
+        counters.firstContactFailed += 1;
+        counters.messagesFailed += 1;
+        return 0;
+      });
+      await rpc<number>(
         "service_mark_stale_refund_gmail_first_contacts_unknown",
         {
           p_stale_before: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
@@ -1558,6 +1670,7 @@ serve(async (request) => {
       const profile = await verifyRefundGmailMailbox(config);
       profileHistoryId = sanitizeText(profile.historyId, 255) || null;
       await reconcileOutstandingFirstContacts({ config, counters });
+      await reconcileOutstandingContactResponses({ config, counters });
       await reconcileOutstandingOutbound({ config, counters });
     }
     const maxThreads = intakeShadow ? 1 : Math.min(
@@ -1661,7 +1774,9 @@ serve(async (request) => {
                   ? collectAttachmentDescriptors(message.payload)
                   : [];
               const ingestion = await rpc(
-                "service_ingest_refund_gmail_message_v2",
+                intakeShadow
+                  ? "service_ingest_refund_gmail_message_v2"
+                  : "service_ingest_refund_gmail_contact_v1",
                 {
                   p_mailbox_hash: mailboxHash,
                   p_provider_thread_id: providerThreadId,
@@ -1700,6 +1815,7 @@ serve(async (request) => {
               if (ingestion?.created) counters.messagesCreated += 1;
               if (ingestion?.duplicate) counters.messagesDeduplicated += 1;
               const caseId = sanitizeText(ingestion?.caseId, 80);
+              const contactId = sanitizeText(ingestion?.contactId, 80);
               const internalMessageId = sanitizeText(ingestion?.messageId, 80);
               const publicReference =
                 sanitizeText(ingestion?.publicReference, 80) || "refund case";
@@ -1760,12 +1876,16 @@ serve(async (request) => {
                 counters.attachmentsQuarantined += attachmentResult.quarantined;
                 counters.messagesFailed += attachmentResult.failed;
               }
+              const firstContactContextReady = intakeShadow
+                ? Boolean(caseId)
+                : ingestion?.contactOnly === true && Boolean(contactId);
               return participantRole === "customer" && allowRoutineContact &&
-                  caseId && internalMessageId
+                  firstContactContextReady && internalMessageId
                 ? {
-                  refundCaseId: caseId,
+                  refundCaseId: caseId || undefined,
+                  contactId: contactId || undefined,
                   sourceMessageId: internalMessageId,
-                  publicReference,
+                  publicReference: caseId ? publicReference : undefined,
                   customerName: from.name,
                   customerEmail: from.email,
                 }

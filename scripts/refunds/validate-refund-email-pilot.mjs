@@ -5,9 +5,11 @@ const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8
 
 const [
   linkageMigration,
+  formOnlyMigration,
   duplicateMigration,
   queueMigration,
   linkageTest,
+  formOnlyTest,
   duplicateTest,
   firstContact,
   gmailSync,
@@ -20,11 +22,14 @@ const [
   portal,
   envExample,
   emailRunbook,
+  decisions,
 ] = await Promise.all([
   read('supabase/migrations/202608050001_refund_email_pilot_linkage.sql'),
+  read('supabase/migrations/20260821090000_refund_form_only_case_creation.sql'),
   read('supabase/migrations/202608050002_refund_email_duplicate_reconciliation.sql'),
   read('supabase/migrations/202608050003_refund_email_queue_state.sql'),
   read('supabase/tests/refund_gmail_first_contact_manager_cc.sql'),
+  read('supabase/tests/refund_form_only_case_creation.sql'),
   read('supabase/tests/refund_email_duplicate_reconciliation.sql'),
   read('supabase/functions/_shared/refund-first-contact.ts'),
   read('supabase/functions/refund-gmail-sync/index.ts'),
@@ -37,6 +42,7 @@ const [
   read('src/pages/admin/Refunds.tsx'),
   read('.env.example'),
   read('Docs/REFUND_EMAIL_ASSISTANT_RUNBOOK.md'),
+  read('Docs/DECISIONS.md'),
 ]);
 
 assert(
@@ -47,15 +53,25 @@ assert(
 );
 assert(
   gmailSync.includes('createRefundGmailIntakeContextToken') &&
-    gmailSync.includes('service_register_refund_gmail_intake_link') &&
+    gmailSync.includes('service_register_refund_gmail_contact_link') &&
     gmailSync.includes('recipientPolicy: "premapping_acknowledgement"') &&
     gmailSync.includes('ccEmails: []'),
   'First contact must use a private context and the explicit no-CC pre-mapping exception.',
 );
 assert(
   gmailTransport.includes('recipientPolicy?: "manager_cc_required" | "premapping_acknowledgement"') &&
-    gmailTransport.includes('operationKey.startsWith("refund-first-contact:")'),
+    gmailTransport.includes('operationKey.startsWith("refund-contact-first-response:")'),
   'The no-CC transport exception must be structurally limited to automatic first contact.',
+);
+assert(
+  formOnlyMigration.includes('create table if not exists public.refund_gmail_intake_contacts') &&
+    formOnlyMigration.includes('status in (\'awaiting_form\', \'linked\', \'expired\')') &&
+    formOnlyMigration.includes('service_create_refund_case_from_gmail_contact_form') &&
+    formOnlyMigration.includes("'contact_alone_created_case', false") &&
+    formOnlyTest.includes('Customer contact creates zero refund cases') &&
+    formOnlyTest.includes('Submitting the hosted form creates exactly one refund case') &&
+    intake.includes('service_create_refund_case_from_gmail_contact_form'),
+  'The pilot must keep pre-form contact context private and create exactly one case only when the Bloomjoy form is submitted.',
 );
 assert(
   linkageMigration.includes('create table if not exists public.refund_gmail_intake_links') &&
@@ -82,8 +98,14 @@ assert(
     publicForm.includes('{hasEmailContext ? (') &&
     publicForm.includes('Please reply in the same email conversation') &&
     publicForm.includes('You do not need to complete a') &&
-    publicForm.includes('second form.'),
-  'The browser must strip the private token and keep email-linked failures in the original thread instead of exposing Google Forms.',
+    publicForm.includes('second form.') &&
+    publicForm.includes('Sending an email does not') &&
+    publicForm.includes('submit a refund request.') &&
+    publicForm.includes('mailto:info@bloomjoysweets.com') &&
+    !publicForm.includes('forms.gle') &&
+    !publicForm.includes('docs.google.com/forms') &&
+    !publicForm.includes('current customer service form'),
+  'The public form must keep email-linked failures in the original thread, remove every old Google Form fallback, and explain that customer contact alone does not submit a refund request.',
 );
 assert(
   gmailSync.includes('const refundEmailPilotAttachmentsEnabled = false') &&
@@ -163,13 +185,24 @@ assert(
 );
 assert(
   emailRunbook.includes('with no Hub customer first-contact Gmail delivery') &&
-    emailRunbook.includes('send the deterministic internal action-needed notice to the resolved current manager route or the operations fallback') &&
-    emailRunbook.includes('the customer is never a recipient of that internal notice') &&
+    emailRunbook.includes('may record a private pre-form contact but creates zero `refund_cases`') &&
+    emailRunbook.includes('the customer is never a recipient of an internal notice') &&
     emailRunbook.includes('The owner-controlled case-specific original-thread proof has also passed') &&
     emailRunbook.includes('explicit production-label and legacy-responder cutover approval') &&
+    emailRunbook.includes('customer contact alone never creates a Hub case') &&
     !emailRunbook.includes('with no outbound delivery') &&
     !emailRunbook.includes('until the remaining case-specific CC proof'),
-  'The email runbook must distinguish customer first-contact shadow delivery from internal manager notices and record the completed case-specific proof.',
+  'The email runbook must preserve zero-case pre-form contact, distinguish internal notices, and record the completed case-specific proof.',
+);
+assert(
+  decisions.includes('Customer contact points to the Bloomjoy form; submission creates the case (`#889`)') &&
+    decisions.includes('EasyText/SMS response population use the Bloomjoy hosted `/refunds/request` form') &&
+    decisions.includes('creates no `refund_cases` row') &&
+    decisions.includes('changes only the response link') &&
+    decisions.includes('supersedes the 2026-07-21 Gmail draft-on-contact rule') &&
+    decisions.includes('no SMS provider or text-message ingestion path') &&
+    decisions.includes('does not add TOTP/operator ceremony, GPT, QR-code rollout, Kexiazhan reporting, cash fallback, or a new SMS platform'),
+  'The authoritative decisions must supersede the old draft-on-contact and Google-Form response rules without adding a new SMS platform or parked pilot scope.',
 );
 
-console.log('Refund email pilot validation passed: one-link pre-mapping acknowledgement, private email-to-form linkage, attachment-off intake, duplicate guards, and manager queue signals are present with production switches off.');
+console.log('Refund email pilot validation passed: zero-case pre-form contact, exactly-once hosted-form case creation, attachment-off intake, duplicate guards, and manager queue signals are present with production switches off.');
