@@ -18,6 +18,7 @@ import {
   compareLocalState,
   compareProductionState,
   discoverRefundMigrationFiles,
+  isRefundReleaseProtectedPath,
   manifestPath,
   parseFunctionDeploymentConfig,
   prepareManifestForLocalRefresh,
@@ -474,8 +475,42 @@ try {
       anchorGitCommit: 'c'.repeat(40),
       changedPaths: [fixtureManifestPath],
     },
-    'A final release anchor must be exactly one manifest-only commit after its source'
+    'A final release anchor must include one manifest commit after its source'
   );
+  assert.deepEqual(
+    validateReleaseManifestGitAnchorState({
+      ...validAnchorState,
+      changedPaths: [fixtureManifestPath, 'AGENTS.md', 'Docs/LOCAL_DEV.md'],
+    }),
+    {
+      sourceGitCommit: 'a'.repeat(40),
+      anchorGitCommit: 'c'.repeat(40),
+      changedPaths: [fixtureManifestPath, 'AGENTS.md', 'Docs/LOCAL_DEV.md'],
+    },
+    'Release-neutral agent and local-development docs must not require a new refund manifest anchor'
+  );
+  for (const protectedPath of [
+    'src/pages/Home.tsx',
+    'supabase/functions/refund-case-intake/index.ts',
+    'supabase/migrations/202601010001_refund_fixture.sql',
+    'scripts/refunds/refund-uat-evidence.mjs',
+    '.github/workflows/refund-uat-evidence.yml',
+    'package.json',
+    'Docs/PRODUCTION_RUNBOOK.md',
+  ]) {
+    assert.equal(
+      isRefundReleaseProtectedPath(protectedPath),
+      true,
+      `${protectedPath} must remain inside the protected refund release boundary`
+    );
+  }
+  for (const neutralPath of ['AGENTS.md', 'Docs/LOCAL_DEV.md', 'README.md']) {
+    assert.equal(
+      isRefundReleaseProtectedPath(neutralPath),
+      false,
+      `${neutralPath} must remain release-neutral`
+    );
+  }
   assert.throws(
     () => validateReleaseManifestGitAnchorState({
       ...validAnchorState,
@@ -522,7 +557,7 @@ try {
       headGitCommit: shapeManifest.sourceGitCommit,
       changedPaths: [],
     }),
-    /Only the refund production release manifest may differ/,
+    /must anchor sourceGitCommit/,
     'The source commit cannot also serve as its own manifest anchor'
   );
   assert.throws(
@@ -530,7 +565,7 @@ try {
       ...validAnchorState,
       changedPaths: ['supabase/functions/refund-case-intake/index.ts'],
     }),
-    /Only the refund production release manifest may differ/,
+    /must anchor sourceGitCommit/,
     'A wrong-path-only anchor must fail closed'
   );
   assert.throws(
@@ -538,15 +573,15 @@ try {
       ...validAnchorState,
       changedPaths: [fixtureManifestPath, 'supabase/functions/refund-case-intake/index.ts'],
     }),
-    /Only the refund production release manifest may differ/,
-    'Any source change between the approved source and manifest anchor must fail closed'
+    /Protected refund release paths changed after sourceGitCommit/,
+    'Any protected source change after the approved source must fail closed'
   );
   assert.throws(
     () => validateReleaseManifestGitAnchorState({
       ...validAnchorState,
       changedPaths: [],
     }),
-    /Only the refund production release manifest may differ/,
+    /must anchor sourceGitCommit/,
     'A source commit without a separate manifest-only anchor must fail closed'
   );
   const refreshLocalStateManifest = prepareManifestForLocalRefresh(shapeManifest, {
