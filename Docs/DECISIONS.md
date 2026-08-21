@@ -1,5 +1,17 @@
 # Decisions
 
+## 2026-08-21 - Customer contact points to the Bloomjoy form; submission creates the case (`#889`)
+
+The eligible customer-service email and existing EasyText/SMS response population use the Bloomjoy hosted `/refunds/request` form. The old Google Form response is retired during the sequenced no-overlap cutover. An email or text contact by itself is not a refund request in Bloomjoy and creates no `refund_cases` row.
+
+- Gmail may record one private, replay-safe pre-form contact and send one warm hosted-form link in the original thread. The one-time private form context creates exactly one Email-sourced case only when the customer submits the Bloomjoy form; a direct website submission creates one Website-sourced case.
+- After submission, the deterministic email assistant asks only for missing safe information in the original thread. A verified customer reply updates the same case and permits one automatic matching rerun only when material matching facts change.
+- Email-linked and direct-form cases use the same manager queue, matching, duplicate reconciliation, transaction-confirmation, separate approval/denial, provider, reporting, and customer-message safeguards.
+- EasyText/SMS keeps its current platform and changes only the response link. Refund Operations v1 adds no SMS provider or text-message ingestion path; an inbound text cannot create a Hub case before hosted-form submission.
+- Production cutover must disable and verify the old responder before the Hub responder is enabled for the same population. Rollback disables and verifies Hub first, so both responders are never active together.
+
+This supersedes the 2026-07-21 Gmail draft-on-contact rule and the 2026-08-11 EasyText/Google-Form-unchanged rule for Refund Operations v1 intake. Their mailbox isolation, minimal OAuth, replay, privacy, retention, routing, and transport safeguards remain in force. It does not add TOTP/operator ceremony, GPT, QR-code rollout, Kexiazhan reporting, cash fallback, or a new SMS platform as a pilot requirement.
+
 ## 2026-08-20 - Refund Operations uses one mapped-manager session, not TOTP ceremony
 
 The normal manager experience is intentionally simple: a signed-in current Machine Manager reviews the case, confirms one action, and the server performs the exact guarded operation. Refund-specific TOTP enrollment, six-digit codes, temporary payment-support operators, and owner-controlled setup windows were controlled-pilot controls; they are retired from the manager product and are not prerequisites for approving, completing, or reconciling a refund.

@@ -22,6 +22,7 @@ const [
   portal,
   envExample,
   emailRunbook,
+  decisions,
 ] = await Promise.all([
   read('supabase/migrations/202608050001_refund_email_pilot_linkage.sql'),
   read('supabase/migrations/20260821090000_refund_form_only_case_creation.sql'),
@@ -41,6 +42,7 @@ const [
   read('src/pages/admin/Refunds.tsx'),
   read('.env.example'),
   read('Docs/REFUND_EMAIL_ASSISTANT_RUNBOOK.md'),
+  read('Docs/DECISIONS.md'),
 ]);
 
 assert(
@@ -191,6 +193,16 @@ assert(
     !emailRunbook.includes('with no outbound delivery') &&
     !emailRunbook.includes('until the remaining case-specific CC proof'),
   'The email runbook must preserve zero-case pre-form contact, distinguish internal notices, and record the completed case-specific proof.',
+);
+assert(
+  decisions.includes('Customer contact points to the Bloomjoy form; submission creates the case (`#889`)') &&
+    decisions.includes('EasyText/SMS response population use the Bloomjoy hosted `/refunds/request` form') &&
+    decisions.includes('creates no `refund_cases` row') &&
+    decisions.includes('changes only the response link') &&
+    decisions.includes('supersedes the 2026-07-21 Gmail draft-on-contact rule') &&
+    decisions.includes('no SMS provider or text-message ingestion path') &&
+    decisions.includes('does not add TOTP/operator ceremony, GPT, QR-code rollout, Kexiazhan reporting, cash fallback, or a new SMS platform'),
+  'The authoritative decisions must supersede the old draft-on-contact and Google-Form response rules without adding a new SMS platform or parked pilot scope.',
 );
 
 console.log('Refund email pilot validation passed: zero-case pre-form contact, exactly-once hosted-form case creation, attachment-off intake, duplicate guards, and manager queue signals are present with production switches off.');
