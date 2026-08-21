@@ -15,17 +15,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..', '..');
 const wrapperSource = fs.readFileSync(path.join(__dirname, 'refund-public-options-smoke.mjs'), 'utf8');
-const portfolioMigrationSource = fs.readFileSync(
-  path.join(repoRoot, 'supabase', 'migrations', '202608020001_refund_portfolio_wide_intake.sql'),
+const inventoryMigrationSource = fs.readFileSync(
+  path.join(repoRoot, 'supabase', 'migrations', '20260821091000_refund_nayax_inventory.sql'),
   'utf8'
 );
 const intakeFunctionSource = fs.readFileSync(
   path.join(repoRoot, 'supabase', 'functions', 'refund-case-intake', 'index.ts'),
   'utf8'
 );
-const publicOptionsFunctionSource = portfolioMigrationSource.slice(
-  portfolioMigrationSource.indexOf('create or replace function public.public_refund_machine_options()'),
-  portfolioMigrationSource.indexOf(
+const publicOptionsFunctionSource = inventoryMigrationSource.slice(
+  inventoryMigrationSource.indexOf('create or replace function public.public_refund_machine_options()'),
+  inventoryMigrationSource.indexOf(
     'create or replace function public.admin_set_reporting_machine_refund_intake_config('
   )
 );
@@ -49,14 +49,16 @@ assert.throws(() => parseArgs(['--unknown']), /Unknown or incomplete argument/);
 
 const readyRow = {
   read_only: true,
-  active_portfolio_machine_count: 29,
-  public_option_count: 29,
-  missing_portfolio_option_count: 0,
-  hidden_unsafe_location_count: 0,
+  active_inventory_machine_count: 39,
+  published_inventory_count: 35,
+  needs_setup_inventory_count: 0,
+  excluded_inventory_count: 4,
+  unaccounted_active_count: 0,
+  public_option_count: 35,
+  published_missing_public_option_count: 0,
+  stale_published_count: 0,
   unsafe_internal_label_count: 0,
-  atlanta_option_count: 1,
-  dc_option_count: 1,
-  seattle_option_count: 1,
+  snapcase_category_count: 3,
   duplicate_machine_row_count: 0,
   duplicate_display_row_count: 0,
 };
@@ -65,16 +67,16 @@ assert.equal(validateAggregateRow(readyRow), readyRow);
 assert.equal(determineReadiness(readyRow).ready, true);
 
 for (const patch of [
-  { missing_portfolio_option_count: 1, public_option_count: 28 },
-  { hidden_unsafe_location_count: 1, public_option_count: 28 },
-  { active_portfolio_machine_count: 30 },
+  { published_missing_public_option_count: 1, public_option_count: 34 },
+  { stale_published_count: 1 },
+  { active_inventory_machine_count: 40 },
+  { needs_setup_inventory_count: 1, published_inventory_count: 34 },
+  { unaccounted_active_count: 1 },
   { unsafe_internal_label_count: 1 },
-  { atlanta_option_count: 0 },
-  { dc_option_count: 0 },
-  { seattle_option_count: 0 },
+  { snapcase_category_count: 2 },
   { duplicate_machine_row_count: 1 },
   { duplicate_display_row_count: 1 },
-  { active_portfolio_machine_count: 0, public_option_count: 0 },
+  { active_inventory_machine_count: 0, published_inventory_count: 0, excluded_inventory_count: 0, public_option_count: 0 },
 ]) {
   assert.equal(determineReadiness({ ...readyRow, ...patch }).ready, false);
 }
@@ -92,21 +94,18 @@ assert.throws(
   /is invalid/
 );
 
-assert.match(PUBLIC_OPTIONS_QUERY, /^with\s+active_portfolio\s+as/i);
-assert.doesNotMatch(PUBLIC_OPTIONS_QUERY, /refund_intake_enabled/i);
-assert.match(PUBLIC_OPTIONS_QUERY, /hidden_by_unsafe_location/);
-assert.match(PUBLIC_OPTIONS_QUERY, /hidden_unsafe_location_count/);
-assert.match(publicOptionsFunctionSource, /machine\.machine_type in \('commercial', 'mini'\)/);
+assert.match(PUBLIC_OPTIONS_QUERY, /^with\s+active_inventory\s+as/i);
+assert.match(PUBLIC_OPTIONS_QUERY, /refund_nayax_machine_inventory/);
+assert.match(PUBLIC_OPTIONS_QUERY, /needs_setup_inventory_count/);
+assert.match(PUBLIC_OPTIONS_QUERY, /snapcase_category_count/);
+assert.doesNotMatch(publicOptionsFunctionSource, /machine\.machine_type in \('commercial', 'mini'\)/);
 assert.match(publicOptionsFunctionSource, /location\.status = 'active'/);
 assert.match(publicOptionsFunctionSource, /refund_public_display_label/);
-assert.doesNotMatch(publicOptionsFunctionSource, /refund_intake_enabled/i);
+assert.match(publicOptionsFunctionSource, /inventory\.reconciliation_state = 'published'/);
+assert.match(publicOptionsFunctionSource, /inventory\.refund_category in \('cotton_candy', 'snapcase'\)/);
 assert.doesNotMatch(intakeFunctionSource, /\.eq\("refund_intake_enabled", true\)/);
-assert.equal(
-  (intakeFunctionSource.match(/\.in\("machine_type", \["commercial", "mini"\]\)/g) ?? []).length,
-  2,
-  'QR claim and direct intake must share the supported portfolio machine types'
-);
-assert.match(PUBLIC_OPTIONS_QUERY, /\(dc\|washington\)/);
+assert.equal((intakeFunctionSource.match(/service_refund_machine_is_public/g) ?? []).length, 2,
+  'QR claim and direct form intake must share the explicit inventory eligibility RPC');
 assert.doesNotMatch(
   PUBLIC_OPTIONS_QUERY,
   /\b(insert|update|delete|merge|truncate|alter|create|drop|grant|revoke|call|copy)\b/i
@@ -118,7 +117,6 @@ assert.equal(wrapperSource.includes('console.log(row'), false);
 console.log('Refund public-options smoke validator passed.');
 console.log('- exact linked-project confirmation');
 console.log('- aggregate-only result allowlist');
-console.log('- full active-portfolio coverage gate');
-console.log('- hidden unsafe/missing public-location gate');
-console.log('- internal-label and duplicate fail-closed gates');
-console.log('- Atlanta/DC/Seattle presence checks');
+console.log('- every active Nayax machine is published, setup work, or explicitly excluded');
+console.log('- no setup or stale-published work remains at launch');
+console.log('- explicit Snapcase category and duplicate fail-closed gates');

@@ -58,11 +58,17 @@ import {
 } from '@/lib/adminAccounts';
 import {
   fetchRefundManagerSetup,
+  fetchRefundNayaxInventory,
   isLocalUatDemoForced,
+  reconcileRefundNayaxMachineAdmin,
   setMachineNayaxConfigAdmin,
   setMachineRefundIntakeConfigAdmin,
   setMachineRefundManagersAdmin,
   type RefundManagerSetup,
+  type RefundNayaxInventory,
+  type RefundNayaxInventoryCategory,
+  type RefundNayaxInventoryMachine,
+  type RefundNayaxInventoryState,
 } from '@/lib/refundOperations';
 import {
   lookupReportingUserByEmailAdmin,
@@ -112,6 +118,7 @@ type DemoRefundReadiness = {
 
 const setupQueryKey = ['admin-partnership-reporting-setup'];
 const refundManagerSetupQueryKey = ['admin-refund-manager-setup'];
+const refundNayaxInventoryQueryKey = ['admin-refund-nayax-inventory'];
 const initialReportingTaxStartDate = '2026-01-01';
 const hiddenManualMachineAccountName = 'Manual Reporting Machines';
 const hiddenFallbackLocationName = 'Unmapped source machines';
@@ -129,6 +136,41 @@ const emptySetup: PartnershipReportingSetup = {
 
 const emptyRefundManagerSetup: RefundManagerSetup = {
   machines: [],
+};
+
+const demoRefundNayaxInventory: RefundNayaxInventory = {
+  summary: { active: 3, published: 1, needsSetup: 1, excluded: 1, stalePublished: 0 },
+  lastRun: {
+    status: 'completed',
+    completedAt: new Date().toISOString(),
+    errorCode: null,
+    activeCount: 3,
+    previousActiveCount: 3,
+    largeDrop: false,
+  },
+  machines: [
+    {
+      id: 'demo-inventory-published', accountKey: 'DEMO_ACCOUNT', nayaxMachineId: 'DEMO-1001',
+      machineName: 'Refund UAT Cotton Candy 01', machineNumber: '1001', providerActive: true,
+      category: 'cotton_candy', reportingMachineId: 'demo-machine-1', state: 'published',
+      setupReason: 'ready', exclusionReason: null, missingSuccessfulSnapshots: 0,
+      lastSeenAt: new Date().toISOString(), lastSuccessfulSyncAt: new Date().toISOString(),
+    },
+    {
+      id: 'demo-inventory-snapcase', accountKey: 'DEMO_ACCOUNT', nayaxMachineId: 'DEMO-2001',
+      machineName: 'Snapcase UAT 01', machineNumber: '2001', providerActive: true,
+      category: 'snapcase', reportingMachineId: null, state: 'needs_setup',
+      setupReason: 'exact_mapping_required', exclusionReason: null, missingSuccessfulSnapshots: 0,
+      lastSeenAt: new Date().toISOString(), lastSuccessfulSyncAt: new Date().toISOString(),
+    },
+    {
+      id: 'demo-inventory-excluded', accountKey: 'DEMO_ACCOUNT', nayaxMachineId: 'DEMO-TEST',
+      machineName: 'Synthetic provider test machine', machineNumber: null, providerActive: true,
+      category: null, reportingMachineId: null, state: 'excluded', setupReason: 'explicitly_excluded',
+      exclusionReason: 'Synthetic test machine', missingSuccessfulSnapshots: 0,
+      lastSeenAt: new Date().toISOString(), lastSuccessfulSyncAt: new Date().toISOString(),
+    },
+  ],
 };
 
 const emptyAccountSummaries: AdminAccountSummary[] = [];
@@ -317,6 +359,17 @@ export default function AdminMachinesPage() {
     staleTime: 1000 * 30,
   });
 
+  const {
+    data: refundNayaxInventory,
+    isLoading: isRefundNayaxInventoryLoading,
+    error: refundNayaxInventoryError,
+  } = useQuery({
+    queryKey: refundNayaxInventoryQueryKey,
+    queryFn: fetchRefundNayaxInventory,
+    enabled: !isLocalDemoMode && (isSuperAdmin || isScopedAdmin),
+    staleTime: 1000 * 30,
+  });
+
   const isLoading = isLocalDemoMode ? false : liveIsLoading;
   const isFetching = isLocalDemoMode ? false : liveIsFetching;
   const isRefundManagerSetupLoading = isLocalDemoMode ? false : liveIsRefundManagerSetupLoading;
@@ -362,6 +415,7 @@ export default function AdminMachinesPage() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: setupQueryKey }),
       queryClient.invalidateQueries({ queryKey: refundManagerSetupQueryKey }),
+      queryClient.invalidateQueries({ queryKey: refundNayaxInventoryQueryKey }),
     ]);
   };
 
@@ -737,6 +791,17 @@ export default function AdminMachinesPage() {
               isWarning={readinessCounts.overlappingAssignments > 0}
             />
           </div>
+
+          {(isLocalDemoMode || isSuperAdmin || isScopedAdmin) && (
+            <RefundNayaxInventoryPanel
+              inventory={isLocalDemoMode ? demoRefundNayaxInventory : refundNayaxInventory ?? null}
+              machines={setup.machines}
+              isLoading={isLocalDemoMode ? false : isRefundNayaxInventoryLoading}
+              error={isLocalDemoMode ? null : refundNayaxInventoryError}
+              canReconcile={!isLocalDemoMode && isSuperAdmin}
+              onSaved={refresh}
+            />
+          )}
 
           <div className="mt-6 rounded-lg border border-border bg-card p-4">
             <div className="mb-4 rounded-md border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
@@ -1142,6 +1207,263 @@ function CellLabel({
   );
 }
 
+function RefundNayaxInventoryPanel({
+  inventory,
+  machines,
+  isLoading,
+  error,
+  canReconcile,
+  onSaved,
+}: {
+  inventory: RefundNayaxInventory | null;
+  machines: PartnershipSetupMachine[];
+  isLoading: boolean;
+  error: Error | null;
+  canReconcile: boolean;
+  onSaved: () => Promise<void>;
+}) {
+  const visibleMachines = inventory?.machines.filter((machine) => machine.providerActive) ?? [];
+  const lastRunNeedsAttention = inventory?.lastRun?.status === 'failed' || inventory?.lastRun?.largeDrop === true;
+
+  return (
+    <section className="mt-6 overflow-hidden rounded-lg border border-border bg-card" aria-labelledby="refund-nayax-inventory-title">
+      <div className="border-b border-border bg-muted/20 p-4 sm:flex sm:items-start sm:justify-between sm:gap-4">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 id="refund-nayax-inventory-title" className="font-semibold text-foreground">
+              Refund Nayax inventory
+            </h2>
+            {inventory && <Badge variant="outline">{inventory.summary.active} active</Badge>}
+          </div>
+          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+            Every active Nayax machine must be published, marked as needing setup, or explicitly
+            excluded. Names and Nayax machine types never publish a machine automatically.
+          </p>
+        </div>
+        {inventory?.lastRun && (
+          <div className="mt-3 text-left text-xs text-muted-foreground sm:mt-0 sm:text-right">
+            <div className={cn('font-semibold', lastRunNeedsAttention && 'text-destructive')}>
+              Last sync: {inventory.lastRun.largeDrop ? 'Large drop — review' : formatLabel(inventory.lastRun.status)}
+            </div>
+            <div>{formatDate(inventory.lastRun.completedAt)}</div>
+          </div>
+        )}
+      </div>
+
+      {error ? (
+        <div className="p-4 text-sm text-destructive">Unable to load the refund inventory.</div>
+      ) : isLoading ? (
+        <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading Nayax inventory...
+        </div>
+      ) : !inventory ? (
+        <div className="p-4 text-sm text-muted-foreground">No successful inventory snapshot is available yet.</div>
+      ) : (
+        <>
+          <div className="grid gap-px bg-border sm:grid-cols-4">
+            <InventoryMetric label="Published" value={inventory.summary.published} tone="ready" />
+            <InventoryMetric label="Needs setup" value={inventory.summary.needsSetup} tone="warning" />
+            <InventoryMetric label="Excluded" value={inventory.summary.excluded} tone="neutral" />
+            <InventoryMetric label="Stale published" value={inventory.summary.stalePublished} tone="danger" />
+          </div>
+          {visibleMachines.length === 0 ? (
+            <div className="p-4 text-sm text-muted-foreground">The latest snapshot has no active machines.</div>
+          ) : (
+            <div className="divide-y divide-border">
+              {visibleMachines.map((machine) => (
+                <RefundNayaxInventoryRow
+                  key={machine.id}
+                  inventoryMachine={machine}
+                  reportingMachines={machines}
+                  canReconcile={canReconcile}
+                  onSaved={onSaved}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function InventoryMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: 'ready' | 'warning' | 'neutral' | 'danger';
+}) {
+  return (
+    <div className="bg-card px-4 py-3">
+      <div className={cn(
+        'text-2xl font-bold tabular-nums text-foreground',
+        tone === 'warning' && value > 0 && 'text-amber-700',
+        tone === 'danger' && value > 0 && 'text-destructive',
+        tone === 'ready' && value > 0 && 'text-emerald-700'
+      )}>{value}</div>
+      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+    </div>
+  );
+}
+
+function RefundNayaxInventoryRow({
+  inventoryMachine,
+  reportingMachines,
+  canReconcile,
+  onSaved,
+}: {
+  inventoryMachine: RefundNayaxInventoryMachine;
+  reportingMachines: PartnershipSetupMachine[];
+  canReconcile: boolean;
+  onSaved: () => Promise<void>;
+}) {
+  const [state, setState] = useState<RefundNayaxInventoryState>(inventoryMachine.state);
+  const [category, setCategory] = useState<RefundNayaxInventoryCategory>(inventoryMachine.category);
+  const [reportingMachineId, setReportingMachineId] = useState(inventoryMachine.reportingMachineId ?? '');
+  const [exclusionReason, setExclusionReason] = useState(inventoryMachine.exclusionReason ?? '');
+  const [auditReason, setAuditReason] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    setState(inventoryMachine.state);
+    setCategory(inventoryMachine.category);
+    setReportingMachineId(inventoryMachine.reportingMachineId ?? '');
+    setExclusionReason(inventoryMachine.exclusionReason ?? '');
+  }, [inventoryMachine]);
+
+  const save = async () => {
+    if (auditReason.trim().length < 8) {
+      toast.error('Add a short audit reason before saving.');
+      return;
+    }
+    if (state === 'excluded' && !exclusionReason.trim()) {
+      toast.error('An explicit exclusion reason is required.');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await reconcileRefundNayaxMachineAdmin({
+        inventoryId: inventoryMachine.id,
+        state,
+        category,
+        reportingMachineId: reportingMachineId || null,
+        exclusionReason: state === 'excluded' ? exclusionReason.trim() : null,
+        reason: auditReason.trim(),
+      });
+      toast.success(`${inventoryMachine.machineName || 'Nayax machine'} reconciliation saved.`);
+      setAuditReason('');
+      await onSaved();
+    } catch (saveError) {
+      toast.error(saveError instanceof Error ? saveError.message : 'Unable to save the inventory decision.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="p-4">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)_minmax(0,1.2fr)_auto] xl:items-end">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="font-medium text-foreground">{inventoryMachine.machineName || 'Unnamed Nayax machine'}</div>
+            <Badge variant={inventoryMachine.state === 'published' ? 'default' : inventoryMachine.state === 'excluded' ? 'secondary' : 'outline'}>
+              {formatLabel(inventoryMachine.state)}
+            </Badge>
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {inventoryMachine.accountKey} · immutable ID {inventoryMachine.nayaxMachineId}
+            {inventoryMachine.machineNumber ? ` · machine ${inventoryMachine.machineNumber}` : ''}
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">Current reason: {formatLabel(inventoryMachine.setupReason)}</div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <Label htmlFor={`inventory-state-${inventoryMachine.id}`}>Status</Label>
+            <select
+              id={`inventory-state-${inventoryMachine.id}`}
+              value={state}
+              onChange={(event) => setState(event.target.value as RefundNayaxInventoryState)}
+              disabled={!canReconcile || isSaving}
+              className="h-10 w-full rounded-md border border-input bg-background px-2 text-sm"
+            >
+              <option value="needs_setup">Needs setup</option>
+              <option value="published">Published</option>
+              <option value="excluded">Excluded</option>
+            </select>
+          </div>
+          <div>
+            <Label htmlFor={`inventory-category-${inventoryMachine.id}`}>Category</Label>
+            <select
+              id={`inventory-category-${inventoryMachine.id}`}
+              value={category ?? ''}
+              onChange={(event) => setCategory((event.target.value || null) as RefundNayaxInventoryCategory)}
+              disabled={!canReconcile || isSaving}
+              className="h-10 w-full rounded-md border border-input bg-background px-2 text-sm"
+            >
+              <option value="">Not classified</option>
+              <option value="cotton_candy">Cotton candy</option>
+              <option value="snapcase">Snapcase</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div>
+            <Label htmlFor={`inventory-link-${inventoryMachine.id}`}>Exact Bloomjoy machine</Label>
+            <select
+              id={`inventory-link-${inventoryMachine.id}`}
+              value={reportingMachineId}
+              onChange={(event) => setReportingMachineId(event.target.value)}
+              disabled={!canReconcile || isSaving}
+              className="h-10 w-full rounded-md border border-input bg-background px-2 text-sm"
+            >
+              <option value="">Not linked</option>
+              {reportingMachines.map((machine) => (
+                <option key={machine.id} value={machine.id}>{machine.machine_label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label htmlFor={`inventory-reason-${inventoryMachine.id}`}>
+              {state === 'excluded' ? 'Exclusion reason' : 'Audit reason'}
+            </Label>
+            <Input
+              id={`inventory-reason-${inventoryMachine.id}`}
+              value={state === 'excluded' ? exclusionReason : auditReason}
+              onChange={(event) => state === 'excluded' ? setExclusionReason(event.target.value) : setAuditReason(event.target.value)}
+              placeholder={state === 'excluded' ? 'Test or internal machine' : 'Why this decision is safe'}
+              disabled={!canReconcile || isSaving}
+            />
+            {state === 'excluded' && (
+              <Input
+                className="mt-2"
+                value={auditReason}
+                onChange={(event) => setAuditReason(event.target.value)}
+                placeholder="Audit note"
+                aria-label="Exclusion audit note"
+                disabled={!canReconcile || isSaving}
+              />
+            )}
+          </div>
+        </div>
+
+        {canReconcile ? (
+          <Button size="sm" onClick={save} disabled={isSaving}>
+            {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Save
+          </Button>
+        ) : (
+          <Badge variant="outline">View only</Badge>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ReadinessCard({
   label,
   value,
@@ -1349,15 +1671,9 @@ function MachineDialog({
     const displayLabel = refundPublicDisplayLabel.trim();
     const normalizedNayaxMachineId = nayaxMachineId.trim();
     const normalizedNayaxAccountKey = nayaxAccountKey.trim() || 'TGPACI_USA_DB';
-    const supportsHostedRefundIntake = form.machineType === 'commercial' || form.machineType === 'mini';
 
     if (displayLabel.length > 120) {
       toast.error('Refund display label must be 120 characters or fewer.');
-      return null;
-    }
-
-    if (refundIntakeEnabled && !supportsHostedRefundIntake) {
-      toast.error('Refund automation currently supports Bloomjoy Commercial and Mini machines only.');
       return null;
     }
 
@@ -1741,10 +2057,8 @@ function MachineDialog({
   };
 
   const machineManagerCount = selectedMachineManagerEmails.length;
-  const supportsHostedRefundIntake = form.machineType === 'commercial' || form.machineType === 'mini';
   const isSavingMachineChanges = isSaving || isSavingRefundReadiness;
   const refundReadinessBlocks = [
-    supportsHostedRefundIntake ? null : 'Automated matching currently supports Bloomjoy Commercial and Mini machines only.',
     machineManagerCount > 0 ? null : 'Assign at least one Machine Manager.',
     nayaxMachineId.trim() ? null : 'Add the Nayax machine ID for card lookup.',
   ].filter(Boolean) as string[];
@@ -2015,8 +2329,8 @@ function MachineDialog({
               <div>
                 <h3 className="font-semibold text-foreground">Customer Refund Setup</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Active Commercial and Mini machines appear on the refund form automatically.
-                  Configure the customer label, manager routing, and Nayax matching readiness here.
+                  The refund form uses only machines published from the Nayax inventory above.
+                  Configure the exact mapping, customer label, and manager route here first.
                 </p>
               </div>
               <Badge variant={refundIntakeEnabled ? 'default' : 'outline'}>

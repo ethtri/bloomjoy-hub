@@ -1,5 +1,18 @@
 # QA Smoke Test Checklist
 
+## Refund Operations v1 Nayax inventory (`#890`)
+
+- [ ] With the sync switch false, scheduled and manual health paths make no Nayax request and no inventory mutation.
+- [ ] A complete synthetic snapshot creates one row per unique account + immutable Nayax machine ID. Replay of the same run key returns the original aggregate and creates no duplicate rows or decisions.
+- [ ] Every active row appears in Admin > Machines as Published, Needs setup, or Excluded. No active row is absent from all three counts.
+- [ ] Snapcase 03, SnapCase Gilroy, and SnapCase Great Mall are explicitly classified `snapcase`; none is inferred from its name or Nayax type, and none is treated as Sunze reporting data.
+- [ ] Publishing a cotton-candy or Snapcase machine fails until the exact Nayax mapping, active location, customer-safe label, and at least one current Machine Manager are present. The same row then appears once in `/refunds/request` with no provider ID exposed.
+- [ ] Test/internal machines remain hidden only after a Super Admin records an explicit exclusion reason and audit note. Removing that decision returns the row to Needs setup.
+- [ ] One successful snapshot missing a machine retains its active/public state. The second consecutive complete successful snapshot marks it inactive and removes it from the public selector. A failed or empty snapshot changes neither state nor absence count.
+- [ ] Duplicate IDs, malformed snapshots, provider failure, a large active-count drop, and stale/failed last run all fail safely and surface operational attention; they never delete or republish inventory.
+- [ ] Submit a stale/tampered machine ID directly to `refund-case-intake`; the server rejects it using the same public inventory eligibility gate used by the selector and creates no case.
+- [ ] Perform one controlled Snapcase transaction lookup only after its exact label/manager/mapping is reviewed. Confirm lookup is read-only, scoped to that immutable machine/account, and live refund execution remains off.
+
 Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Global

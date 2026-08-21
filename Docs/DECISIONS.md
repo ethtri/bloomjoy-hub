@@ -1,5 +1,16 @@
 # Decisions
 
+## 2026-08-21 - Refund eligibility comes from the complete Nayax inventory (`#890`)
+
+Refund Operations v1 discovers every machine from each configured production Nayax account and records it by account plus immutable Nayax machine ID. Every active discovered machine is visibly **Published**, **Needs setup**, or **Explicitly excluded**; test, internal, duplicate, unmapped, and incomplete machines are never silently omitted.
+
+- Cotton-candy and Snapcase use the same explicit refund-public eligibility path. Snapcase remains a separate payment/category source and is not reclassified as Sunze reporting data. Names and Nayax machine type alone never classify, map, publish, or exclude a machine.
+- Publication requires an exact Nayax mapping, explicit `cotton_candy` or `snapcase` category, active machine/location, customer-safe label, and at least one current Machine Manager route. A machine that does not meet every condition remains visible as setup work.
+- One absent successful snapshot does not remove a machine. Two complete successful snapshots are required before it becomes inactive; failed or empty syncs never remove or republish inventory. Large drops and failed/stale runs surface as operational attention.
+- The public form and server-side submission validation use the same published inventory gate. Provider transaction lookup and live refund execution remain separately gated, and duplicate-payment/idempotency protections are unchanged.
+- The sync and production schedule are default-off until reviewed deployment, inventory reconciliation, a controlled Snapcase lookup, and UAT are complete.
+
+This supersedes earlier Commercial/Mini-only and Snapcase-out language only for refund intake eligibility and Nayax matching. It does not add Kexiazhan reporting, payroll reporting, QR codes, cash fallback, TOTP/operator ceremony, GPT, or a new SMS platform to the pilot.
 ## 2026-08-21 - Customer contact points to the Bloomjoy form; submission creates the case (`#889`)
 
 The eligible customer-service email and existing EasyText/SMS response population use the Bloomjoy hosted `/refunds/request` form. The old Google Form response is retired during the sequenced no-overlap cutover. An email or text contact by itself is not a refund request in Bloomjoy and creates no `refund_cases` row.

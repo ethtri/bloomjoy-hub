@@ -516,6 +516,14 @@ const startRefundQrClaim = async (
     return refundQrUnavailableResponse();
   }
 
+  const { data: qrMachineIsPublic, error: qrMachineEligibilityError } = await supabase.rpc(
+    "service_refund_machine_is_public",
+    { p_machine_id: qrCodeRow.reporting_machine_id },
+  );
+  if (qrMachineEligibilityError || qrMachineIsPublic !== true) {
+    return refundQrUnavailableResponse();
+  }
+
   const { data: machine, error: machineError } = await supabase
     .from("reporting_machines")
     .select(
@@ -523,7 +531,6 @@ const startRefundQrClaim = async (
     )
     .eq("id", qrCodeRow.reporting_machine_id)
     .eq("status", "active")
-    .in("machine_type", ["commercial", "mini"])
     .single();
 
   if (machineError || !machine) {
@@ -1405,12 +1412,22 @@ serve(async (req) => {
       ? prepareAttachments(rawAttachments)
       : [];
 
+    const { data: machineIsPublic, error: machineEligibilityError } = await supabase.rpc(
+      "service_refund_machine_is_public",
+      { p_machine_id: machineId },
+    );
+    if (machineEligibilityError || machineIsPublic !== true) {
+      return new Response(JSON.stringify({ error: "That machine is not available for refund intake." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const { data: machine, error: machineError } = await supabase
       .from("reporting_machines")
       .select("id, machine_label, machine_type, location_id, refund_public_display_label, reporting_locations(id, name, timezone, status)")
       .eq("id", machineId)
       .eq("status", "active")
-      .in("machine_type", ["commercial", "mini"])
       .single();
 
     if (machineError || !machine) {
