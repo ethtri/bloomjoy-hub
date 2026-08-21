@@ -242,23 +242,39 @@ serve(async (req) => {
         if (!isUuid(completionMessageId)) {
           throw new Error("completion_message_invalid");
         }
-        const [messageResult, attemptResult] = await Promise.all([
-          serviceClient.from("refund_case_messages")
-            .select("id,refund_case_id,recipient_email,subject,body")
-            .eq("id", completionMessageId)
-            .eq("nayax_refund_attempt_id", attemptId)
-            .single(),
-          serviceClient.from("refund_case_nayax_refund_attempts")
-            .select("completion_gmail_thread_id")
-            .eq("id", attemptId)
-            .single(),
-        ]);
-        const message = messageResult.data;
-        const attempt = attemptResult.data;
+        const { data: loaded, error: loadError } = await serviceClient.rpc(
+          "service_load_nayax_refund_completion",
+          { p_attempt_id: attemptId },
+        );
+        const loadedBody = loaded && typeof loaded === "object"
+          ? loaded as Record<string, unknown>
+          : null;
+        const loadedMessage = loadedBody?.message &&
+            typeof loadedBody.message === "object"
+          ? loadedBody.message as Record<string, unknown>
+          : null;
+        const gmailThreadId = loadedBody?.gmailThreadId;
+        const message = loadedMessage
+          ? {
+            id: loadedMessage.id,
+            refund_case_id: loadedMessage.refundCaseId,
+            recipient_email: loadedMessage.recipientEmail,
+            subject: loadedMessage.subject,
+            body: loadedMessage.body,
+          }
+          : null;
+        const attempt = { completion_gmail_thread_id: gmailThreadId };
         if (
-          messageResult.error || attemptResult.error || !message || !attempt ||
+          loadError || !message || loadedBody?.payloadRedacted !== true ||
+          !["gmail_thread", "transactional_email"].includes(
+            typeof loadedBody?.transport === "string"
+              ? loadedBody.transport
+              : "",
+          ) ||
+          message.id !== completionMessageId ||
           !isUuid(message.refund_case_id) ||
           (attempt.completion_gmail_thread_id !== null &&
+            attempt.completion_gmail_thread_id !== undefined &&
             !isUuid(attempt.completion_gmail_thread_id)) ||
           typeof message.recipient_email !== "string" ||
           typeof message.subject !== "string" ||
@@ -266,7 +282,7 @@ serve(async (req) => {
         ) {
           throw new Error("completion_lookup_failed");
         }
-        completionTransport = attempt.completion_gmail_thread_id
+        completionTransport = isUuid(attempt.completion_gmail_thread_id)
           ? "gmail_thread"
           : "transactional_email";
         return { message, attempt };

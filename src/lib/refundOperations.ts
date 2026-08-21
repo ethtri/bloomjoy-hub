@@ -1834,8 +1834,8 @@ export const sendRefundCaseMessage = async (input: SendRefundCaseMessageInput) =
 export type RefundNayaxCompletionRecoveryResult = {
   recovered: true;
   status: 'sent' | 'already_sent' | 'failed' | 'delivery_unknown';
-  transport: 'gmail_thread';
-  originalThread: true;
+  transport: 'gmail_thread' | 'transactional_email';
+  originalThread: boolean;
   outboundPresent: boolean;
   providerCallMade: false;
   payloadRedacted: true;

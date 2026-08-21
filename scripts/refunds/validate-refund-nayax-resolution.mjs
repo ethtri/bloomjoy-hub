@@ -14,6 +14,7 @@ const supportWindow = read('supabase/migrations/20260820143000_refund_nayax_supp
 const legacyClose = read('supabase/migrations/20260820150000_refund_nayax_support_resolution_close.sql');
 const managerSession = read('supabase/migrations/20260821035000_refund_manager_session_simplification.sql');
 const formCompletion = read('supabase/migrations/20260821080000_refund_form_completion_transport.sql');
+const completionDelivery = read('supabase/migrations/20260821083000_refund_completion_delivery_decoupling.sql');
 const edge = read('supabase/functions/refund-nayax-outcome-resolve/index.ts');
 const completion = read('supabase/functions/_shared/nayax-resolution-completion.ts');
 const messageSend = read('supabase/functions/refund-case-message-send/index.ts');
@@ -27,6 +28,17 @@ assert(
     foundation.includes('evidence_reference_digest') &&
     !foundation.includes('evidence_reference text not null'),
   'The original support resolver must retain its default-off, immutable, digest-only evidence foundation.'
+);
+
+assert(
+  completionDelivery.includes('service_load_nayax_refund_completion') &&
+    completionDelivery.includes('service_prepare_nayax_form_completion_retry') &&
+    completionDelivery.includes("'provider_call_made', false") &&
+    completionDelivery.includes("'transport', 'transactional_email'") &&
+    completionDelivery.includes('completion_delivery_retry_count = 1') &&
+    completionDelivery.includes('Service-role delivery is authorized by the committed completion state') &&
+    !/\b(http_post|net\.http|fetch\s*\()/i.test(completionDelivery),
+  'Customer completion must keep payment tables private, stay provider-free, and permit only one form-email retry.'
 );
 
 assert(
@@ -119,6 +131,7 @@ assert(
     edge.includes('dispatchRefundCaseGmailReply') &&
     edge.includes('sendTransactionalEmail') &&
     edge.includes('service_authorize_nayax_refund_form_completion') &&
+    edge.includes('service_load_nayax_refund_completion') &&
     edge.includes('service_finish_nayax_refund_form_completion') &&
     edge.includes('formManagerRecipientOverlap') &&
     edge.includes('gmailThreadId: attempt.completion_gmail_thread_id') &&
@@ -131,6 +144,9 @@ assert(
 assert(
   completion.includes('deliveryReturned || isDeliveryUncertain(error)') &&
     messageSend.includes('service_prepare_nayax_completion_retry') &&
+    messageSend.includes('service_prepare_nayax_form_completion_retry') &&
+    messageSend.includes('transport: "transactional_email"') &&
+    messageSend.includes('p_executor_assertion: ""') &&
     messageSend.includes('service_recover_stale_nayax_completion') &&
     foundation.includes('completion_delivery_retry_count between 0 and 1'),
   'Interrupted customer completion must retain the existing bounded retry and reconciliation lane.'
