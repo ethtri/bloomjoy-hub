@@ -18,6 +18,15 @@ If docs and the GitHub board disagree on active task state, the board wins. If d
 - Prefer incremental, reviewable improvements over rewrites.
 - If a rewrite or new platform is necessary, propose it in the issue/plan and record the decision in `Docs/DECISIONS.md` before implementation.
 
+## Goal Continuity and Executive Decisions
+
+- Keep an active goal moving until its acceptance criteria are met. Routine friction is work to resolve, not a reason to pause the goal.
+- Diagnose, fix, and reverify routine implementation choices, failed checks, review feedback, merge conflicts, documentation gaps, recoverable external checks, and reversible migrations without asking the user to manage the workflow.
+- If one lane is waiting, continue every safe independent lane that remains in scope.
+- Pause only when no safe in-scope progress remains and continuing requires an executive decision or new authority, such as a material product-scope, brand, legal, or financial commitment; production go/no-go; credentials or account access; an irreversible external action; or permission to contact, pay, deploy, or destroy data that has not already been granted.
+- When an executive decision is required, state the exact decision, evidence, and consequence of each viable option. Keep unrelated safe work moving and do not represent the goal as complete.
+- Existing secret-handling, destructive-action, production-release, and issue-specific approval safeguards still apply.
+
 ## Do
 
 - Start active work from a GitHub issue and the project-board state, not from static markdown backlog files.
