@@ -5,6 +5,17 @@ set local search_path = public, extensions;
 
 select plan(19);
 
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password,
+  email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+)
+values (
+  '00000000-0000-0000-0000-000000000000',
+  '80000000-0000-4000-8000-000000000001',
+  'authenticated', 'authenticated', 'qr-manager@example.test', '', now(),
+  '{}'::jsonb, '{}'::jsonb, now(), now()
+);
+
 create function pg_temp.capture_error(statement text)
 returns text
 language plpgsql
@@ -46,7 +57,9 @@ insert into public.reporting_machines (
   machine_type,
   status,
   refund_intake_enabled,
-  refund_public_display_label
+  refund_public_display_label,
+  nayax_machine_id,
+  nayax_account_key
 )
 values
   (
@@ -56,8 +69,10 @@ values
     'Refund QR machine one',
     'commercial',
     'active',
-    false,
-    'Refund QR machine one'
+    true,
+    'Refund QR machine one',
+    'QR-NAYAX-1',
+    'QR_TEST'
   ),
   (
     '83000000-0000-4000-8000-000000000002',
@@ -67,8 +82,27 @@ values
     'mini',
     'active',
     true,
-    'Refund QR machine two'
+    'Refund QR machine two',
+    'QR-NAYAX-2',
+    'QR_TEST'
   );
+
+insert into public.refund_nayax_machine_inventory (
+  account_key, nayax_machine_id, machine_name, provider_is_active, refund_category,
+  reporting_machine_id, reconciliation_state, setup_reason
+)
+values
+  ('QR_TEST', 'QR-NAYAX-1', 'Refund QR machine one', true, 'cotton_candy',
+    '83000000-0000-4000-8000-000000000001', 'published', 'ready'),
+  ('QR_TEST', 'QR-NAYAX-2', 'Refund QR machine two', true, 'cotton_candy',
+    '83000000-0000-4000-8000-000000000002', 'published', 'ready');
+
+insert into public.reporting_machine_refund_managers (
+  reporting_machine_id, manager_user_id, manager_email, status, grant_reason
+)
+values
+  ('83000000-0000-4000-8000-000000000001', '80000000-0000-4000-8000-000000000001', 'qr-manager@example.test', 'active', 'QR eligibility test'),
+  ('83000000-0000-4000-8000-000000000002', '80000000-0000-4000-8000-000000000001', 'qr-manager@example.test', 'active', 'QR eligibility test');
 
 insert into public.refund_machine_qr_codes (
   id,
