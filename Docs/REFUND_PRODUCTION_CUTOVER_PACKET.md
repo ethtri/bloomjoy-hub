@@ -32,7 +32,7 @@ Use this packet to move epic `#628` from individually verified PRs to one tested
 1. Freeze unrelated Refund Operations changes for the release window.
 2. Review the current integrated `main` release and its canonical release metadata; do not treat the historical PR `#760` head as the active deploy source.
 3. If `main` changed after final verification, sync the release branch with current `main`, resolve overlap, run `npm run refunds:release:write-local`, review and commit any valid manifest update, and rerun the full verification profile.
-4. Confirm the reviewed target manifest covers all ten manifest-tracked Refund Operations functions and all 63 required refund/Nayax migrations, with the immutable exact canonical 51-migration predeployment bridge preserved as historical evidence.
+4. Confirm the reviewed target manifest covers all ten manifest-tracked Refund Operations functions and all 64 required refund/Nayax migrations, with the immutable exact canonical 51-migration predeployment bridge preserved as historical evidence.
 5. Deploy only an immutable, pushed, independently reviewed release commit. Follow the migration-before-function order in `Docs/PRODUCTION_RUNBOOK.md`; never allow the frontend to expose a workflow whose required database and Edge Function foundations are not already present.
 6. After merge, use the resulting integrated `main` commit for deployment evidence and any later deploy. Never deploy from an unreviewed or local-only commit.
 7. On that immutable release commit, require:

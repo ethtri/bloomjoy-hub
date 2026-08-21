@@ -9,7 +9,7 @@ create or replace function public.refund_nayax_outcome_resolution_enabled()
 returns boolean language sql immutable set search_path = public
 as $$ select false; $$;
 
-select plan(92);
+select plan(95);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -224,7 +224,7 @@ select
   'RF-RESOLUTION-' || series,
   'b1300000-0000-4000-8000-000000000001'::uuid,
   'b1200000-0000-4000-8000-000000000001'::uuid,
-  case when series = 6 then 'resolution-manager@example.test'
+  case when series in (6, 7) then 'resolution-manager@example.test'
     else 'resolution-customer-' || series || '@example.test' end,
   'Synthetic held provider attempt ' || series,
   statement_timestamp() - make_interval(hours => series),
@@ -242,9 +242,10 @@ select
     when 2 then 'declined'
     when 3 then 'failed'
     when 6 then 'ambiguous'
+    when 7 then 'ambiguous'
     else 'declined'
   end
-from generate_series(1, 6) series;
+from generate_series(1, 7) series;
 
 insert into public.refund_gmail_threads (
   id, refund_case_id, mailbox_hash, provider_thread_id, thread_subject,
@@ -305,6 +306,7 @@ select
     when 2 then 'declined'
     when 3 then 'failed'
     when 6 then 'ambiguous'
+    when 7 then 'ambiguous'
     else 'declined'
   end,
   'resolution-idempotency-' || series,
@@ -314,6 +316,7 @@ select
     when 2 then 'rejected'
     when 3 then 'timeout'
     when 6 then 'unknown'
+    when 7 then 'unknown'
     else 'rejected'
   end,
   statement_timestamp() - interval '10 minutes',
@@ -321,7 +324,7 @@ select
   jsonb_build_object('payload_redacted', true),
   jsonb_build_object('payload_redacted', true),
   statement_timestamp() - interval '20 minutes'
-from generate_series(1, 6) series;
+from generate_series(1, 7) series;
 
 select ok(not public.refund_nayax_outcome_resolution_enabled(),
   'Payment-support resolution is hard disabled by default');
@@ -570,6 +573,60 @@ select ok(
       and event.metadata ->> 'transport' = 'transactional_email'
   ),
   'Website completion has one sent message and redacted manager-recipient audit evidence');
+
+set local role authenticated;
+select pg_temp.set_auth_claims(
+  'b1000000-0000-4000-8000-000000000001', 'aal1',
+  jsonb_build_array(jsonb_build_object('method', 'password', 'timestamp', extract(epoch from statement_timestamp())))
+);
+insert into pg_temp.nayax_resolution_test_results (result_key, result)
+select 'form-retry-source', public.admin_resolve_refund_nayax_outcome_manager_session(
+  'b1600000-0000-4000-8000-000000000007',
+  'b1700000-0000-4000-8000-000000000007',
+  'provider_confirmed_success', 'nayax_support_ticket',
+  'SUPPORT:NAYAX-CS1500668', statement_timestamp() - interval '8 minutes',
+  'nayax_support_confirmed_success',
+  (select official_action_version from public.refund_cases
+    where id = 'b1600000-0000-4000-8000-000000000007')
+);
+reset role;
+select ok((
+  select (result ->> 'caseCompleted')::boolean
+    and (result ->> 'providerCallMade')::boolean is false
+  from pg_temp.nayax_resolution_test_results
+  where result_key = 'form-retry-source'
+), 'A second website-form fixture commits before exercising email-only recovery');
+
+set local role service_role;
+insert into pg_temp.nayax_resolution_test_results (result_key, result)
+select 'form-retry-prepared', public.service_prepare_nayax_form_completion_retry(
+  'b1600000-0000-4000-8000-000000000007',
+  (select (result ->> 'customerCompletionMessageId')::uuid
+    from pg_temp.nayax_resolution_test_results
+    where result_key = 'form-retry-source'),
+  array['refunds@example.test']::text[]
+);
+reset role;
+select ok((
+  select result ->> 'prepared' = 'true'
+    and result ->> 'transport' = 'transactional_email'
+    and result ->> 'providerCallMade' = 'false'
+    and (result ->> 'managerRecipientOverlap')::boolean
+    and (select completion_delivery_retry_count = 1
+      from public.refund_case_nayax_refund_attempts
+      where id = 'b1700000-0000-4000-8000-000000000007')
+  from pg_temp.nayax_resolution_test_results
+  where result_key = 'form-retry-prepared'
+), 'Website-form recovery claims exactly one email-only retry with no provider action');
+select ok(pg_temp.capture_error($sql$
+  select public.service_prepare_nayax_form_completion_retry(
+    'b1600000-0000-4000-8000-000000000007',
+    (select completion_message_id from public.refund_case_nayax_refund_attempts
+      where id = 'b1700000-0000-4000-8000-000000000007'),
+    array['refunds@example.test']::text[]
+  )
+$sql$) like '%One pending website-form Nayax completion is required%',
+  'The website-form email-only retry cannot be claimed twice');
 
 select ok(pg_temp.capture_error($sql$
   select public.admin_resolve_refund_nayax_outcome_manager_session(

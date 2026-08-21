@@ -3531,11 +3531,17 @@ export default function AdminRefundsPage() {
         recoverablePendingNayaxCompletionMessage.id
       );
       if (recovery.status === 'sent' || recovery.status === 'already_sent') {
-        toast.success('The original Gmail thread confirms that the completion reply was sent.');
+        toast.success(
+          recovery.transport === 'gmail_thread'
+            ? 'The original Gmail thread confirms that the completion reply was sent.'
+            : 'The customer completion email was sent from Bloomjoy.'
+        );
         setRefundActionReceipt({
           tone: 'success',
           title: 'Customer email confirmed',
-          message: 'Gmail confirms the completion email was sent. No email or refund was repeated.',
+          message: recovery.transport === 'gmail_thread'
+            ? 'Gmail confirms the completion email was sent. No email or refund was repeated.'
+            : 'The saved completion email was sent once. The refund was not attempted again.',
         });
       } else if (recovery.status === 'failed') {
         toast.warning('The email was not sent. One retry is now available.');
@@ -5314,7 +5320,9 @@ export default function AdminRefundsPage() {
                           <div>
                             <p className="font-semibold">Customer completion is still pending</p>
                             <p className="mt-1 leading-6">
-                              If the last step was interrupted, wait five minutes and check the saved reply. Bloomjoy will either confirm it was sent or make one safe retry available.
+                              {selectedCase.intakeSource === 'gmail'
+                                ? 'If the last step was interrupted, wait five minutes and check the saved reply. Bloomjoy will either confirm it was sent or make one safe retry available.'
+                                : 'The refund and reporting update are complete. Recover the saved customer email once; this cannot repeat the refund.'}
                             </p>
                             <Button
                               type="button"

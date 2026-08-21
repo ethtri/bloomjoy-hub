@@ -5,6 +5,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { sendTransactionalEmail } from "../_shared/internal-email.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import {
+  getRefundGmailMailboxIdentities,
   REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE,
   RefundGmailError,
 } from "../_shared/refund-gmail.ts";
@@ -240,12 +241,6 @@ serve(async (req) => {
             "Review the exact interrupted completion before recovering it.",
         }, 400);
       }
-      if (!/^[A-Za-z0-9_-]{32,200}$/.test(nayaxExecutorAssertion)) {
-        return jsonResponse({
-          error: "The controlled completion recovery is not configured.",
-        }, 503);
-      }
-
       const { data: canManageCase, error: accessError } = await supabase.rpc(
         "can_manage_refund_case",
         { p_user_id: user.id, p_refund_case_id: caseId },
@@ -255,6 +250,115 @@ serve(async (req) => {
         return jsonResponse({ error: "Refund case access required." }, 403);
       }
 
+      const { data: formPrepared, error: formPrepareError } = await supabase.rpc(
+        "service_prepare_nayax_form_completion_retry",
+        {
+          p_refund_case_id: caseId,
+          p_refund_case_message_id: nayaxCompletionRecoveryMessageId,
+          p_mailbox_identities: getRefundGmailMailboxIdentities(),
+        },
+      );
+      const formRetry = formPrepared && typeof formPrepared === "object"
+        ? formPrepared as Record<string, unknown>
+        : null;
+      if (formPrepareError) {
+        return jsonResponse({
+          error:
+            "The website completion is not ready for its one email-only retry.",
+        }, 409);
+      }
+      if (formRetry?.applicable === true) {
+        const managerCcEmails = Array.isArray(formRetry.managerCcEmails)
+          ? formRetry.managerCcEmails.filter((value): value is string =>
+            typeof value === "string"
+          ).map((value) => value.trim().toLowerCase())
+          : [];
+        const managerCcCount = Number(formRetry.managerCcCount);
+        const managerRecipientOverlap =
+          formRetry.managerRecipientOverlap === true;
+        const attemptId = typeof formRetry.attemptId === "string"
+          ? formRetry.attemptId
+          : "";
+        const recipientEmail = typeof formRetry.recipientEmail === "string"
+          ? formRetry.recipientEmail
+          : "";
+        const subject = typeof formRetry.subject === "string"
+          ? formRetry.subject
+          : "";
+        const messageBody = typeof formRetry.body === "string"
+          ? formRetry.body
+          : "";
+        if (
+          formRetry.prepared !== true || formRetry.refundCaseId !== caseId ||
+          formRetry.refundCaseMessageId !== nayaxCompletionRecoveryMessageId ||
+          !isUuid(attemptId) || !recipientEmail || !subject || !messageBody ||
+          !Number.isSafeInteger(managerCcCount) || managerCcCount < 0 ||
+          managerCcCount > 3 || managerCcCount !== managerCcEmails.length ||
+          new Set(managerCcEmails).size !== managerCcEmails.length ||
+          (managerCcCount === 0 && !managerRecipientOverlap) ||
+          formRetry.transport !== "transactional_email" ||
+          formRetry.originalThread !== false ||
+          formRetry.providerCallMade !== false ||
+          formRetry.payloadRedacted !== true
+        ) {
+          return jsonResponse({
+            error: "The website completion email route could not be verified.",
+          }, 409);
+        }
+
+        const customerCompletion = await deliverNayaxCompletionOnce({
+          deliver: async () => {
+            await sendTransactionalEmail({
+              to: [recipientEmail],
+              cc: managerCcEmails,
+              subject,
+              text: messageBody,
+              html: messageBody.split("\n").map((line: string) =>
+                line ? `<p>${escapeHtml(line)}</p>` : "<br>"
+              ).join(""),
+              replyTo: getRefundReplyToEmail(),
+            });
+            return true;
+          },
+          finish: async (status) => {
+            const { data: finished, error: finishError } = await supabase.rpc(
+              "service_finish_nayax_refund_form_completion",
+              {
+                p_executor_assertion: "",
+                p_attempt_id: attemptId,
+                p_delivery_status: status,
+                p_manager_cc_count: managerCcCount,
+                p_manager_recipient_overlap: managerRecipientOverlap,
+              },
+            );
+            if (finishError || !finished || typeof finished !== "object") {
+              throw new Error("completion_settlement_failed");
+            }
+            return finished as Record<string, unknown> & {
+              status: "sent" | "failed" | "delivery_unknown" | "already_sent";
+            };
+          },
+          isDeliveryUncertain: (error) => error instanceof TypeError,
+        });
+
+        return jsonResponse({
+          recovery: {
+            recovered: true,
+            status: customerCompletion.status,
+            transport: "transactional_email",
+            originalThread: false,
+            outboundPresent: false,
+            providerCallMade: false,
+            payloadRedacted: true,
+          },
+        });
+      }
+
+      if (!/^[A-Za-z0-9_-]{32,200}$/.test(nayaxExecutorAssertion)) {
+        return jsonResponse({
+          error: "The controlled Gmail completion recovery is not configured.",
+        }, 503);
+      }
       const { data: recovered, error: recoveryError } = await supabase.rpc(
         "service_recover_stale_nayax_completion",
         {
