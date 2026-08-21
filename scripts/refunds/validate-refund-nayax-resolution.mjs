@@ -13,6 +13,7 @@ const foundation = read('supabase/migrations/202608130001_refund_nayax_outcome_r
 const supportWindow = read('supabase/migrations/20260820143000_refund_nayax_support_resolution_window.sql');
 const legacyClose = read('supabase/migrations/20260820150000_refund_nayax_support_resolution_close.sql');
 const managerSession = read('supabase/migrations/20260821035000_refund_manager_session_simplification.sql');
+const formCompletion = read('supabase/migrations/20260821080000_refund_form_completion_transport.sql');
 const edge = read('supabase/functions/refund-nayax-outcome-resolve/index.ts');
 const completion = read('supabase/functions/_shared/nayax-resolution-completion.ts');
 const messageSend = read('supabase/functions/refund-case-message-send/index.ts');
@@ -26,6 +27,20 @@ assert(
     foundation.includes('evidence_reference_digest') &&
     !foundation.includes('evidence_reference text not null'),
   'The original support resolver must retain its default-off, immutable, digest-only evidence foundation.'
+);
+
+assert(
+  formCompletion.includes("case_row.intake_source is distinct from 'form'") &&
+    formCompletion.includes('service_authorize_nayax_refund_form_completion') &&
+    formCompletion.includes('service_finish_nayax_refund_form_completion') &&
+    formCompletion.includes("'managerRecipientOverlap', manager_recipient_overlap") &&
+    formCompletion.includes('manager_email <> normalized_customer') &&
+    formCompletion.includes("'transport', 'transactional_email'") &&
+    formCompletion.includes("'originalThread', false") &&
+    formCompletion.includes('completion_gmail_thread_id is not null') &&
+    formCompletion.includes('assert_nayax_provider_executor') &&
+    !/\b(http_post|net\.http|fetch\s*\()/i.test(formCompletion),
+  'Website-form completion must use the existing customer-email channel while Gmail-origin cases retain their linked thread.'
 );
 
 assert(
@@ -102,6 +117,10 @@ assert(
     edge.includes('admin_resolve_refund_nayax_outcome_manager_session') &&
     edge.includes('deliverPreparedNayaxCompletionOnce') &&
     edge.includes('dispatchRefundCaseGmailReply') &&
+    edge.includes('sendTransactionalEmail') &&
+    edge.includes('service_authorize_nayax_refund_form_completion') &&
+    edge.includes('service_finish_nayax_refund_form_completion') &&
+    edge.includes('formManagerRecipientOverlap') &&
     edge.includes('gmailThreadId: attempt.completion_gmail_thread_id') &&
     edge.includes('service_finish_nayax_refund_completion') &&
     !edge.includes('verifyRefundManagerTotp') &&
@@ -143,5 +162,5 @@ assert(
 );
 
 console.log('PASS: manager-session held-result reconciliation is exact, provider-free, and idempotent');
-console.log('PASS: reporting and one original-thread completion remain atomic and recoverable');
+console.log('PASS: reporting and one source-appropriate customer completion remain atomic and recoverable');
 console.log('PASS: the manager surface exposes one calm result form with no TOTP ceremony');

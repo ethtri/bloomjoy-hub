@@ -102,7 +102,7 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 62 required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 63 required refund\/Nayax migrations/);
 assert.match(cutoverPacket, /exact canonical 51-migration predeployment bridge/);
 assert.match(
   cutoverPacket,
@@ -166,8 +166,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    62,
-    'Refund release inventory must cover exactly 62 discovered refund/Nayax migrations'
+    63,
+    'Refund release inventory must cover exactly 63 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -196,6 +196,10 @@ try {
   assert(
     repositoryMigrations.includes('202608170003_refund_nayax_manager_overview_authority.sql'),
     'The mapped-manager Nayax overview authority boundary must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260821080000_refund_form_completion_transport.sql'),
+    'The source-appropriate Nayax customer completion transport must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260820041101_refund_nayax_pending_approval_recovery.sql'),

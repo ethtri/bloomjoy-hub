@@ -2,8 +2,13 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
+import { sendTransactionalEmail } from "../_shared/internal-email.ts";
+import { getRefundReplyToEmail } from "../_shared/refund-email.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
-import { RefundGmailError } from "../_shared/refund-gmail.ts";
+import {
+  getRefundGmailMailboxIdentities,
+  RefundGmailError,
+} from "../_shared/refund-gmail.ts";
 import { deliverPreparedNayaxCompletionOnce } from "../_shared/nayax-resolution-completion.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -42,7 +47,11 @@ const isUuid = (value: unknown): value is string =>
 
 const isSafeText = (value: unknown, maxLength: number): value is string =>
   typeof value === "string" && value.trim().length > 0 &&
-  value.trim().length <= maxLength;
+    value.trim().length <= maxLength;
+
+const EMAIL_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
+
+class TransactionalCompletionDeliveryUncertainError extends Error {}
 
 const allowedResults = new Set([
   "provider_confirmed_success",
@@ -197,15 +206,27 @@ serve(async (req) => {
       managerCompletionNoticeSent: false,
     };
 
+    let completionTransport: "gmail_thread" | "transactional_email" =
+      "gmail_thread";
+    let formManagerCcCount = 0;
+    let formManagerRecipientOverlap = false;
     const finishCompletion = async (
       status: "sent" | "failed" | "delivery_unknown",
     ) => {
       const { data: finished, error: finishError } = await serviceClient.rpc(
-        "service_finish_nayax_refund_completion",
+        completionTransport === "gmail_thread"
+          ? "service_finish_nayax_refund_completion"
+          : "service_finish_nayax_refund_form_completion",
         {
           p_executor_assertion: nayaxExecutorAssertion,
           p_attempt_id: attemptId,
           p_delivery_status: status,
+          ...(completionTransport === "transactional_email"
+            ? {
+              p_manager_cc_count: formManagerCcCount,
+              p_manager_recipient_overlap: formManagerRecipientOverlap,
+            }
+            : {}),
         },
       );
       if (finishError || !finished || typeof finished !== "object") {
@@ -237,37 +258,101 @@ serve(async (req) => {
         if (
           messageResult.error || attemptResult.error || !message || !attempt ||
           !isUuid(message.refund_case_id) ||
-          !isUuid(attempt.completion_gmail_thread_id) ||
+          (attempt.completion_gmail_thread_id !== null &&
+            !isUuid(attempt.completion_gmail_thread_id)) ||
           typeof message.recipient_email !== "string" ||
           typeof message.subject !== "string" ||
           typeof message.body !== "string"
         ) {
           throw new Error("completion_lookup_failed");
         }
+        completionTransport = attempt.completion_gmail_thread_id
+          ? "gmail_thread"
+          : "transactional_email";
         return { message, attempt };
       },
       deliverLoaded: async ({ message, attempt }) => {
         const messageBody = message.body as string;
-        const gmailDelivery = await dispatchRefundCaseGmailReply({
-          supabase: serviceClient,
-          refundCaseId: message.refund_case_id,
-          refundCaseMessageId: message.id,
-          recipientEmail: message.recipient_email,
-          email: {
-            subject: message.subject,
-            text: messageBody,
-            html: messageBody.split("\n").map((line: string) =>
-              line ? `<p>${escapeHtml(line)}</p>` : "<br>"
-            ).join(""),
+        const email = {
+          subject: message.subject,
+          text: messageBody,
+          html: messageBody.split("\n").map((line: string) =>
+            line ? `<p>${escapeHtml(line)}</p>` : "<br>"
+          ).join(""),
+        };
+        if (attempt.completion_gmail_thread_id) {
+          const gmailDelivery = await dispatchRefundCaseGmailReply({
+            supabase: serviceClient,
+            refundCaseId: message.refund_case_id,
+            refundCaseMessageId: message.id,
+            recipientEmail: message.recipient_email,
+            email,
+            deliveryKind: "manual",
+            gmailThreadId: attempt.completion_gmail_thread_id,
+          });
+          return gmailDelivery.usedGmail;
+        }
+
+        const { data: route, error: routeError } = await serviceClient.rpc(
+          "service_authorize_nayax_refund_form_completion",
+          {
+            p_executor_assertion: nayaxExecutorAssertion,
+            p_attempt_id: attemptId,
+            p_mailbox_identities: getRefundGmailMailboxIdentities(),
           },
-          deliveryKind: "manual",
-          gmailThreadId: attempt.completion_gmail_thread_id,
-        });
-        return gmailDelivery.usedGmail;
+        );
+        const routeBody = route && typeof route === "object"
+          ? route as Record<string, unknown>
+          : null;
+        const managerCcEmails = Array.isArray(routeBody?.managerCcEmails)
+          ? routeBody.managerCcEmails.filter((value): value is string =>
+            typeof value === "string"
+          ).map((value) => value.trim().toLowerCase())
+          : [];
+        const normalizedRecipient = message.recipient_email.trim().toLowerCase();
+        formManagerRecipientOverlap =
+          routeBody?.managerRecipientOverlap === true;
+        formManagerCcCount = Number(routeBody?.managerCcCount);
+        if (
+          routeError || routeBody?.status !== "resolved" ||
+          routeBody?.recipientEmail !== normalizedRecipient ||
+          !EMAIL_PATTERN.test(normalizedRecipient) ||
+          !Number.isSafeInteger(formManagerCcCount) ||
+          formManagerCcCount !== managerCcEmails.length ||
+          formManagerCcCount < 0 || formManagerCcCount > 3 ||
+          new Set(managerCcEmails).size !== managerCcEmails.length ||
+          managerCcEmails.some((value) =>
+            !EMAIL_PATTERN.test(value) || value === normalizedRecipient
+          ) ||
+          (formManagerCcCount === 0 && !formManagerRecipientOverlap)
+        ) {
+          throw new Error("form_completion_route_invalid");
+        }
+
+        try {
+          await sendTransactionalEmail({
+            to: [message.recipient_email],
+            cc: managerCcEmails,
+            subject: email.subject,
+            text: email.text,
+            html: email.html,
+            replyTo: getRefundReplyToEmail(),
+          });
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.message.startsWith("Resend request failed (")
+          ) {
+            throw error;
+          }
+          throw new TransactionalCompletionDeliveryUncertainError();
+        }
+        return true;
       },
       finish: finishCompletion,
       isDeliveryUncertain: (error) =>
-        error instanceof RefundGmailError && error.deliveryUncertain,
+        error instanceof TransactionalCompletionDeliveryUncertainError ||
+        (error instanceof RefundGmailError && error.deliveryUncertain),
     });
 
     const safeResolution = { ...resolutionBody };
