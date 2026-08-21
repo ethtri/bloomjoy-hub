@@ -19,6 +19,9 @@ create schema refund_nayax_controlled_pilot_race_test;
 create or replace function public.refund_nayax_controlled_pilot_audit_retention_approved()
 returns boolean language sql immutable set search_path = public
 as $$ select true; $$;
+create or replace function public.refund_official_actions_enabled()
+returns boolean language sql immutable set search_path = public
+as $$ select false; $$;
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -370,6 +373,9 @@ drop schema refund_nayax_controlled_pilot_race_test cascade;
 create or replace function public.refund_nayax_controlled_pilot_audit_retention_approved()
 returns boolean language sql immutable set search_path = public
 as $$ select false; $$;
+create or replace function public.refund_official_actions_enabled()
+returns boolean language sql immutable set search_path = public
+as $$ select true; $$;
 commit;
 
 select * from finish();

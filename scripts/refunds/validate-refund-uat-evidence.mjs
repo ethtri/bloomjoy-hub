@@ -302,7 +302,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 47, 'Evidence must enumerate all 47 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 41, 'Evidence must enumerate all 41 reviewed screenshots');
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) =>
       name.startsWith('refund-nayax-support-resolution-')
@@ -311,47 +311,43 @@ try {
     'Evidence must include exactly one desktop and one mobile support-resolution state'
   );
   assert.equal(
-    EXPECTED_SCREENSHOTS.filter((name) => name === 'refund-owner-totp-readiness.png').length,
-    1,
-    'The evidence allowlist must include exactly one pre-QR owner enrollment screenshot'
+    EXPECTED_SCREENSHOTS.filter((name) => name.includes('totp') || name.includes('step-up')).length,
+    0,
+    'The evidence allowlist must not preserve retired TOTP or step-up ceremony'
   );
   const portalUatSource = await readFile(
     new URL('./validate-refund-portal-uat.mjs', import.meta.url),
     'utf8'
   );
-  const ownerScreenshotIndex = portalUatSource.indexOf(
-    "path.join(artifactDir, 'refund-owner-totp-readiness.png')"
-  );
-  const ownerQrOpenIndex = portalUatSource.indexOf(
-    "successPage.getByTestId('refund-owner-totp-start').click()"
-  );
-  assert(
-    ownerScreenshotIndex >= 0 && ownerQrOpenIndex > ownerScreenshotIndex,
-    'The only owner enrollment evidence screenshot must be captured before private QR setup opens'
+  assert.equal(
+    EXPECTED_SCREENSHOTS.filter((name) => name.endsWith('mapped-manager-session.png')).length,
+    2,
+    'The evidence must show both mapped-manager session paths without a second factor'
   );
   const supportPanelAssertionIndex = portalUatSource.indexOf(
-    "'Payment support sees exactly four structured outcomes and no arbitrary communication controls'"
+    "'Managers see exactly four structured outcomes and no arbitrary communication controls'"
   );
   const supportDesktopScreenshotIndex = portalUatSource.indexOf(
     "path.join(artifactDir, 'refund-nayax-support-resolution-desktop.png')"
-  );
-  const supportStepUpAssertionIndex = portalUatSource.indexOf(
-    'requires fresh manager verification`'
   );
   const supportMobileScreenshotIndex = portalUatSource.indexOf(
     "path.join(artifactDir, 'refund-nayax-support-resolution-mobile.png')"
   );
   const supportSubmitIndex = portalUatSource.indexOf(
-    "page.getByLabel('Current authenticator code').fill('123456')",
+    "await panel.getByTestId('refund-nayax-resolution-prepare').click();",
     supportMobileScreenshotIndex
+  );
+  const supportManagerSessionAssertionIndex = portalUatSource.indexOf(
+    '`Manager-session ${scenario.result} submits one result with no provider or separate message endpoint`',
+    supportSubmitIndex
   );
   assert(
     supportPanelAssertionIndex >= 0 &&
       supportDesktopScreenshotIndex > supportPanelAssertionIndex &&
-      supportStepUpAssertionIndex > supportDesktopScreenshotIndex &&
-      supportMobileScreenshotIndex > supportStepUpAssertionIndex &&
-      supportSubmitIndex > supportMobileScreenshotIndex,
-    'Support-resolution evidence must show structured desktop and mobile pre-action states before synthetic verification'
+      supportMobileScreenshotIndex > supportDesktopScreenshotIndex &&
+      supportSubmitIndex > supportMobileScreenshotIndex &&
+      supportManagerSessionAssertionIndex > supportSubmitIndex,
+    'Support-resolution evidence must show structured desktop and mobile pre-action states before the mapped-manager submission'
   );
   const providerReceiptAssertionIndex = portalUatSource.indexOf(
     '`Synthetic browser ${scenario.name} renders the settled domain outcome`'

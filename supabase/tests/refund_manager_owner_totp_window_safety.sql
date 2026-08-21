@@ -3,6 +3,12 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
+-- Preserve the historical controlled-enrollment assumptions within this
+-- transaction; the current manager workflow no longer depends on enrollment.
+create or replace function public.refund_official_actions_enabled()
+returns boolean language sql immutable set search_path = public
+as $$ select false; $$;
+
 select plan(29);
 
 create function pg_temp.capture_error(statement text)

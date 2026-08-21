@@ -79,6 +79,9 @@ verify_jwt = false
 [functions.refund-manager-action-step-up]
 verify_jwt = false
 
+[functions.refund-nayax-outcome-resolve]
+verify_jwt = false
+
 [functions.refund-manager-totp-enrollment]
 verify_jwt = false
 

@@ -4,6 +4,18 @@ Purpose: provide a single launch-day procedure for Bloomjoy Hub production relea
 
 Last updated: 2026-08-20
 
+## Refund manager-session cutover (current authority)
+
+This section supersedes later TOTP/operator ceremony instructions for the normal refund manager flow.
+
+1. Confirm hosted Auth ends with TOTP enrollment off and verification on. No manager enrollment window is opened.
+2. Apply `20260820150000_refund_nayax_support_resolution_close.sql`, then `20260821035000_refund_manager_session_simplification.sql`. The first safely revokes legacy operator/enrollment authority; the second enables mapped-manager receipts and provider-free outcome confirmation.
+3. Deploy `refund-case-admin-update`, `nayax-card-refund`, and `refund-nayax-outcome-resolve` with `--no-verify-jwt`. The first two share the new manager-session authorizer; the resolver authenticates the user itself and never calls Nayax.
+4. Deploy the frontend and verify `/refunds` shows only **Action needed**, **Waiting**, **Done**, search, one current state, and one next action. No authenticator setup/code control or routine system-health banner may appear.
+5. Resolve the held case with the exact mapped manager, `provider_confirmed_success`, source `nayax_support_ticket`, public reference `SUPPORT:NAYAX-CS1500666`, and the authoritative refund time. Verify zero new provider attempts, one reporting adjustment, one completion in the original Gmail thread, and terminal case status.
+
+Rollback before a manager action: redeploy the prior frontend/functions and apply a new forward-only migration that restores the official-action and resolver gates to false. Rollback after a committed result must never reverse the reporting adjustment, reopen the attempt, resend the customer message, or call Nayax; preserve the immutable outcome and roll back UI/function availability only.
+
 Refund release-state note: the canonical ten-function/51-migration object remains immutable pre-`#427` evidence. Nayax support confirmed the held transaction refunded, so the reviewed closeout adds a paired provider-free resolution-window/closure sequence. No request or approval is permitted. Gmail automation, automatic customer contact, manager reminders, GPT triage, broad official actions, and live Nayax execution stay off; only the existing structured resolver and its one original-thread completion may run inside the exact window.
 
 ## 1) Roles and ownership
@@ -293,6 +305,7 @@ supabase functions deploy refund-gpt-triage --no-verify-jwt
 supabase functions deploy nayax-card-refund --no-verify-jwt
 supabase functions deploy refund-manager-action-step-up --no-verify-jwt
 supabase functions deploy refund-manager-totp-enrollment --no-verify-jwt
+supabase functions deploy refund-nayax-outcome-resolve --no-verify-jwt
 ```
 
 After deploying the ten manifest-tracked Refund Operations functions:

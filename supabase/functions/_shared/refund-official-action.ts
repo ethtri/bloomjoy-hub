@@ -208,45 +208,45 @@ export const authorizeRefundOfficialAction = async ({
         "authorization_failed",
       );
     }
+    const { p_target_function: _targetFunction, ...managerSessionArguments } =
+      rpcArguments;
     const { data, error } = await userClient.rpc(
-      "admin_prepare_refund_action_step_up_intent",
-      rpcArguments,
+      "admin_authorize_refund_official_action",
+      managerSessionArguments,
     );
 
     if (error || !data || typeof data !== "object") {
       throw classifyAuthorizationError(safeErrorMessage(error?.message));
     }
 
-    const intent = data as Partial<{
-      intentId: string;
+    const authorization = data as Partial<{
+      authorizationId: string;
       action: RefundOfficialAction;
-      targetFunction: RefundOfficialActionTarget;
+      expectedCaseVersion: number;
+      mappingVersion: number;
       expiresAt: string;
     }>;
     if (
-      typeof intent.intentId !== "string" ||
-      intent.action !== context.action ||
-      intent.targetFunction !== context.targetFunction ||
-      typeof intent.expiresAt !== "string"
+      typeof authorization.authorizationId !== "string" ||
+      authorization.action !== context.action ||
+      !Number.isSafeInteger(Number(authorization.expectedCaseVersion)) ||
+      !Number.isSafeInteger(Number(authorization.mappingVersion)) ||
+      typeof authorization.expiresAt !== "string"
     ) {
       throw new RefundOfficialActionAuthorizationError(
-        "Refund action verification returned an invalid request.",
+        "Refund action authorization returned an invalid receipt.",
         500,
         "authorization_failed",
       );
     }
 
-    throw new RefundOfficialActionAuthorizationError(
-      "Enter a fresh authenticator code to personally authorize this exact action.",
-      428,
-      "manager_step_up_required",
-      {
-        stepUpIntentId: intent.intentId,
-        stepUpExpiresAt: intent.expiresAt,
-        action: intent.action,
-        targetFunction: intent.targetFunction,
-      },
-    );
+    return {
+      authorizationId: authorization.authorizationId,
+      action: authorization.action,
+      expectedCaseVersion: Number(authorization.expectedCaseVersion),
+      mappingVersion: Number(authorization.mappingVersion),
+      expiresAt: authorization.expiresAt,
+    };
   }
 
   if (!/^[a-f0-9]{64}$/.test(context.stepUpFactorProof ?? "")) {

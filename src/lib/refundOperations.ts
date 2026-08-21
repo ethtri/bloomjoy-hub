@@ -615,7 +615,7 @@ export type RefundNayaxResolutionReadiness = {
     | 'exact_attempt_required'
     | 'already_resolved'
     | 'provider_hold_required'
-    | 'authenticator_required'
+    | 'manager_access_required'
     | null;
   attemptId?: string | null;
   providerOutcome?: 'rejected' | 'timeout' | 'unknown' | null;
@@ -1618,6 +1618,18 @@ export const prepareRefundNayaxOutcomeResolution = async (
     frozenPayload: input,
   };
 };
+
+export const resolveRefundNayaxOutcome = async (
+  input: ResolveRefundNayaxOutcomeInput
+): Promise<ResolveRefundNayaxOutcomeResponse> =>
+  invokeEdgeFunction<ResolveRefundNayaxOutcomeResponse>(
+    'refund-nayax-outcome-resolve',
+    input,
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Log in again before confirming this payment result.',
+    }
+  );
 
 export const getRefundManagerStepUpRequest = (
   error: unknown,

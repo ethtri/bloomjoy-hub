@@ -137,11 +137,10 @@ assert(
 for (const proof of [
   'Support email',
   'Website form',
-  'Possible duplicates',
-  'Missing information',
-  'Overdue cases',
+  'Possible duplicate',
+  'Ask for missing details',
+  'Overdue',
   'Refund status not confirmed',
-  'Copy exact link',
   'Same incident — keep this case',
   'Different purchases',
 ]) {

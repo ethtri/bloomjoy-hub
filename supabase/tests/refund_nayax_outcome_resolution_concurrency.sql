@@ -547,10 +547,10 @@ delete from auth.users
 where id = 'b2000000-0000-4000-8000-000000000001';
 drop schema refund_nayax_resolution_race_test cascade;
 create or replace function public.refund_nayax_outcome_resolution_enabled()
-returns boolean language sql immutable set search_path = public as $$ select false; $$;
+returns boolean language sql immutable set search_path = public as $$ select true; $$;
 commit;
 
-select ok(not public.refund_nayax_outcome_resolution_enabled(),
-  'Concurrent regression restores the production hard-off gate');
+select ok(public.refund_nayax_outcome_resolution_enabled(),
+  'Concurrent regression restores the reviewed manager-session resolver gate');
 
 select * from finish();

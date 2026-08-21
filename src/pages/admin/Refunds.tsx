@@ -34,64 +34,45 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
   buildLocalRefundDemoOverview,
-  beginRefundManagerTotpEnrollment,
-  cancelRefundManagerStepUp,
-  cancelRefundManagerTotpEnrollment,
   canUseLocalRefundDemoData,
-  closeRefundManagerTotpEnrollmentWindow,
-  completeNayaxRefundStepUp,
-  completeRefundNayaxResolutionStepUp,
-  completeRefundCaseAdminStepUp,
   createRefundAttachmentSignedUrl,
   executeNayaxCardRefund,
   fetchNayaxCardRefundAvailability,
-  fetchRefundAutomationHealth,
   fetchRefundCaseReconciliation,
   fetchRefundGmailCaseContext,
   fetchRefundGmailHealth,
-  fetchRefundManagerTotpEnrollmentReadiness,
   fetchRefundNayaxResolutionReadiness,
   fetchRefundOperationsOverview,
-  getRefundManagerStepUpRequest,
   isLocalUatDemoForced,
   lookupNayaxTransactions,
-  openRefundManagerTotpEnrollmentWindow,
-  prepareRefundNayaxOutcomeResolution,
   recoverRefundGmailCustomerContact,
   recoverRefundNayaxCompletion,
   rejectRefundGptTriage,
+  resolveRefundNayaxOutcome,
   resolveRefundGmailDeliveryNotFound,
   resolveRefundCaseReconciliation,
   sendRefundCaseMessage,
   updateRefundCaseAdmin,
-  verifyRefundManagerTotpEnrollment,
   isNayaxCardRefundExecutionError,
   type NayaxCardRefundExecutionResponse,
   type NayaxLookupCandidate,
   type NayaxDisagreementReason,
   type RefundCaseRecord,
   type RefundOperationsOverview,
-  type RefundAutomationHealth,
-  type RefundGmailHealth,
-  type RefundManagerStepUpRequest,
-  type RefundManagerTotpEnrollmentReadiness,
   type RefundNayaxLookupStatus,
   type RefundNayaxLookupSummary,
   type RefundNayaxResolutionEvidenceType,
   type RefundNayaxResolutionReadiness,
   type RefundNayaxResolutionReason,
   type RefundNayaxResolutionResult,
-  type ResolveRefundNayaxOutcomeInput,
   type RefundCaseStatus,
   type RefundCustomerPortalMessageType,
   type RefundDecision,
   type RefundMissingField,
   type UpdateRefundCaseResponse,
 } from '@/lib/refundOperations';
-import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import {
   getRefundManagerState,
-  getRefundPaymentStateLabel,
   type RefundManagerState,
   type RefundManagerStateTone,
 } from '@/lib/refundManagerState';
@@ -130,7 +111,7 @@ const nayaxResolutionResultOptions: Array<{
   },
   {
     value: 'provider_confirmed_success',
-    label: 'Payment support confirms the refund succeeded',
+    label: 'Refund succeeded',
     helper: 'Record the completed refund, update reporting, and email the customer in the original thread.',
   },
   {
@@ -227,6 +208,8 @@ const openStatuses = new Set<RefundCaseStatus>([
   'card_refund_pending',
   'cash_zelle_pending',
 ]);
+
+const doneStatuses = new Set<RefundCaseStatus>(['completed', 'denied', 'closed']);
 
 const customerMessageOptions: Array<{
   value: RefundCustomerPortalMessageType;
@@ -422,11 +405,28 @@ const getManualPaymentReferenceIssue = (value: string): string | null => {
   return null;
 };
 
+const normalizeNayaxResolutionReference = (
+  value: string,
+  evidenceType: RefundNayaxResolutionEvidenceType
+) => {
+  const trimmed = value.trim();
+  if (evidenceType !== 'nayax_support_ticket') return trimmed;
+
+  const upper = trimmed.toUpperCase();
+  if (/^CS[0-9]{7}$/.test(upper) || /^[0-9]{8}$/.test(upper)) {
+    return `SUPPORT:NAYAX-${upper}`;
+  }
+  if (/^NAYAX-(?:CS[0-9]{7}|[0-9]{8})$/.test(upper)) {
+    return `SUPPORT:${upper}`;
+  }
+  return trimmed;
+};
+
 const getNayaxResolutionReferenceIssue = (
   value: string,
   evidenceType: RefundNayaxResolutionEvidenceType
 ): string | null => {
-  const normalized = value.trim();
+  const normalized = normalizeNayaxResolutionReference(value, evidenceType);
   const digitCount = normalized.replace(/[^0-9]/g, '').length;
   if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{7,119}$/.test(normalized)) {
     return 'Enter the reference exactly as it appears in the selected confirmation source.';
@@ -463,109 +463,6 @@ const formatDate = (value: string | null) => {
     hour: 'numeric',
     minute: '2-digit',
   });
-};
-
-const automationHealthPresentation = (
-  health: RefundAutomationHealth | undefined,
-  unavailable: boolean
-) => {
-  if (unavailable) {
-    return {
-      title: 'Automatic reminders may be delayed',
-      description: 'The refund queue still works. Ask an administrator to check scheduled customer follow-ups.',
-      tone: 'warning' as const,
-    };
-  }
-  if (!health || health.status === 'waiting') {
-    return {
-      title: 'Automation is waiting for its first run',
-      description: 'Customer reminders stay manual until a successful scheduled run is recorded.',
-      tone: 'neutral' as const,
-    };
-  }
-  if (health.status === 'paused') {
-    return {
-      title: 'Automation is paused',
-      description: 'The core refund queue is available; scheduled reminders and escalations are disabled.',
-      tone: 'neutral' as const,
-    };
-  }
-  if (health.status === 'stale') {
-    return {
-      title: 'Automatic reminders may be delayed',
-      description: 'The refund queue still works. Ask an administrator to check scheduled customer follow-ups.',
-      tone: 'warning' as const,
-    };
-  }
-  if (health.status === 'failing') {
-    return {
-      title: 'Automatic reminders may be delayed',
-      description: 'The refund queue still works. Ask an administrator to check scheduled customer follow-ups.',
-      tone: 'warning' as const,
-    };
-  }
-  return {
-    title: 'Automation is healthy',
-    description: health.lastSuccessAt
-      ? `Last successful sweep: ${formatDate(health.lastSuccessAt)}.`
-      : 'The latest scheduled sweep completed successfully.',
-    tone: 'success' as const,
-  };
-};
-
-const gmailHealthPresentation = (
-  health: RefundGmailHealth | undefined,
-  unavailable: boolean
-) => {
-  if (unavailable) {
-    return {
-      title: 'Email requests may be delayed',
-      description: 'Form submissions still appear here. Ask an administrator to check inbox delivery.',
-      tone: 'warning' as const,
-    };
-  }
-  if (!health || health.status === 'waiting') {
-    return {
-      title: 'Gmail intake is waiting for its first test',
-      description: 'Only website form submissions are creating cases until Gmail intake is working.',
-      tone: 'neutral' as const,
-    };
-  }
-  if (health.status === 'paused') {
-    return {
-      title: 'Gmail intake is paused',
-      description: 'The refund queue and hosted form remain available; inbox messages are not being imported.',
-      tone: 'neutral' as const,
-    };
-  }
-  if (health.status === 'revoked') {
-    return {
-      title: 'Email requests are not arriving',
-      description: 'Form submissions still appear here. Ask an administrator to reconnect the support mailbox.',
-      tone: 'warning' as const,
-    };
-  }
-  if (health.status === 'stale') {
-    return {
-      title: 'Email requests may be delayed',
-      description: 'Form submissions still appear here. Ask an administrator to check inbox delivery.',
-      tone: 'warning' as const,
-    };
-  }
-  if (health.status === 'failing') {
-    return {
-      title: 'Email requests may be delayed',
-      description: 'Form submissions still appear here. Ask an administrator to check inbox delivery.',
-      tone: 'warning' as const,
-    };
-  }
-  return {
-    title: 'Gmail intake is healthy',
-    description: health.lastSuccessAt
-      ? `Last successful inbox sync: ${formatDate(health.lastSuccessAt)}.`
-      : 'The latest inbox sync completed successfully.',
-    tone: 'success' as const,
-  };
 };
 
 const formatAge = (value: string | null) => {
@@ -1555,7 +1452,7 @@ const primaryActionConfig = (
     };
   }
 
-  if (refundCase.status === 'completed' || editor.status === 'completed') {
+  if (refundCase.status === 'completed') {
     return {
       label: 'Case complete',
       helper: 'This case is complete. Review the history if you need context.',
@@ -1563,7 +1460,31 @@ const primaryActionConfig = (
     };
   }
 
-  if (refundCase.status === 'denied' || editor.status === 'denied' || editor.decision === 'denied') {
+  if (refundCase.status === 'denied') {
+    return {
+      label: 'Request denied',
+      helper: 'This request is denied. Review the history if you need context.',
+      disabled: true,
+    };
+  }
+
+  if (refundCase.status === 'closed') {
+    return {
+      label: 'Case closed',
+      helper: 'This case is closed. Review the history if you need context.',
+      disabled: true,
+    };
+  }
+
+  if (editor.status === 'completed') {
+    return {
+      label: 'Case complete',
+      helper: 'This case is complete. Review the history if you need context.',
+      disabled: true,
+    };
+  }
+
+  if (editor.status === 'denied' || editor.decision === 'denied') {
     return {
       label: 'Deny request',
       helper: 'Send a warm, specific denial reason based on the transaction review.',
@@ -2062,25 +1983,6 @@ export default function AdminRefundsPage() {
   const [isGmailResolutionOpen, setIsGmailResolutionOpen] = useState(false);
   const [isResolvingGmailDelivery, setIsResolvingGmailDelivery] = useState(false);
   const [isCashCompletionSubmitting, setIsCashCompletionSubmitting] = useState(false);
-  const [pendingManagerStepUp, setPendingManagerStepUp] = useState<RefundManagerStepUpRequest | null>(null);
-  const [managerStepUpCode, setManagerStepUpCode] = useState('');
-  const [managerStepUpError, setManagerStepUpError] = useState<string | null>(null);
-  const [isCompletingManagerStepUp, setIsCompletingManagerStepUp] = useState(false);
-  const [isStartingTotpEnrollment, setIsStartingTotpEnrollment] = useState(false);
-  const [isVerifyingTotpEnrollment, setIsVerifyingTotpEnrollment] = useState(false);
-  const [totpEnrollmentQrCode, setTotpEnrollmentQrCode] = useState<string | null>(null);
-  const [totpEnrollmentCode, setTotpEnrollmentCode] = useState('');
-  const [isOwnerTotpEnrollmentOpen, setIsOwnerTotpEnrollmentOpen] = useState(false);
-  const [isOpeningOwnerTotpEnrollment, setIsOpeningOwnerTotpEnrollment] = useState(false);
-  const [isVerifyingOwnerTotpEnrollment, setIsVerifyingOwnerTotpEnrollment] = useState(false);
-  const [isCancellingOwnerTotpEnrollment, setIsCancellingOwnerTotpEnrollment] = useState(false);
-  const [ownerTotpEnrollmentQrCode, setOwnerTotpEnrollmentQrCode] = useState<string | null>(null);
-  const [ownerTotpEnrollmentCode, setOwnerTotpEnrollmentCode] = useState('');
-  const [ownerTotpEnrollmentError, setOwnerTotpEnrollmentError] = useState<string | null>(null);
-  const [ownerTotpEnrollmentWindowExpiresAt, setOwnerTotpEnrollmentWindowExpiresAt] = useState<string | null>(null);
-  const ownerTotpEnrollmentActiveRef = useRef(false);
-  const ownerTotpEnrollmentCleanupInFlightRef = useRef(false);
-  const ownerTotpEnrollmentCleanupRef = useRef<(clearUi?: boolean) => Promise<void>>(async () => {});
   const [refundActionReceipt, setRefundActionReceipt] = useState<RefundActionReceipt | null>(null);
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
   const [nayaxCandidates, setNayaxCandidates] = useState<NayaxLookupCandidate[]>([]);
@@ -2127,39 +2029,6 @@ export default function AdminRefundsPage() {
   });
 
   const {
-    data: automationHealth,
-    isFetching: automationHealthIsFetching,
-    error: automationHealthError,
-  } = useQuery({
-    queryKey: ['refund-automation-health'],
-    queryFn: fetchRefundAutomationHealth,
-    enabled: !forceDemoData,
-    staleTime: 1000 * 30,
-  });
-
-  const {
-    data: gmailHealth,
-    isFetching: gmailHealthIsFetching,
-    error: gmailHealthError,
-  } = useQuery({
-    queryKey: ['refund-gmail-health'],
-    queryFn: fetchRefundGmailHealth,
-    enabled: !forceDemoData,
-    staleTime: 1000 * 30,
-  });
-
-  const {
-    data: totpEnrollmentReadiness,
-    isFetching: totpEnrollmentReadinessIsFetching,
-  } = useQuery<RefundManagerTotpEnrollmentReadiness>({
-    queryKey: ['refund-manager-totp-enrollment-readiness'],
-    queryFn: fetchRefundManagerTotpEnrollmentReadiness,
-    enabled: !forceDemoData,
-    staleTime: 1000 * 15,
-    retry: false,
-  });
-
-  const {
     data: nayaxCardRefundAvailability,
     isLoading: nayaxCardRefundAvailabilityIsLoading,
     isFetching: nayaxCardRefundAvailabilityIsFetching,
@@ -2171,6 +2040,18 @@ export default function AdminRefundsPage() {
     staleTime: 1000 * 30,
     retry: false,
   });
+  const { data: gmailHealth } = useQuery({
+    queryKey: ['refund-gmail-health'],
+    queryFn: fetchRefundGmailHealth,
+    enabled: !forceDemoData,
+    staleTime: 1000 * 60,
+    retry: false,
+  });
+  const gmailNeedsAttention =
+    gmailHealth?.status === 'stale' ||
+    gmailHealth?.status === 'failing' ||
+    gmailHealth?.status === 'paused' ||
+    gmailHealth?.status === 'revoked';
   const cardRefundAvailabilityConfirmed =
     !forceDemoData &&
     nayaxCardRefundAvailability?.available === true &&
@@ -2184,11 +2065,9 @@ export default function AdminRefundsPage() {
   const refresh = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] }),
-      queryClient.invalidateQueries({ queryKey: ['refund-automation-health'] }),
-      queryClient.invalidateQueries({ queryKey: ['refund-gmail-health'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-gmail-case-context'] }),
+      queryClient.invalidateQueries({ queryKey: ['refund-gmail-health'] }),
       queryClient.invalidateQueries({ queryKey: ['nayax-card-refund-availability'] }),
-      queryClient.invalidateQueries({ queryKey: ['refund-manager-totp-enrollment-readiness'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-nayax-resolution-readiness'] }),
     ]);
   };
@@ -2207,8 +2086,7 @@ export default function AdminRefundsPage() {
       if (
         statusFilter === 'needs_action' &&
         (!openStatuses.has(refundCase.status) ||
-          refundCase.status === 'waiting_on_customer' ||
-          refundCase.providerHold === true)
+          refundCase.status === 'waiting_on_customer')
       ) return false;
       if (statusFilter === 'missing_information' && !refundCase.missingInformation) return false;
       if (statusFilter === 'possible_duplicate' && !refundCase.possibleDuplicate && !refundCase.confirmedDuplicate) return false;
@@ -2220,7 +2098,7 @@ export default function AdminRefundsPage() {
         !isReadyToPayCase(refundCase, cardRefundAvailabilityConfirmed)
       ) return false;
       if (statusFilter === 'blocked' && !isBlockedCase(refundCase)) return false;
-      if (statusFilter === 'completed' && refundCase.status !== 'completed') return false;
+      if (statusFilter === 'completed' && !doneStatuses.has(refundCase.status)) return false;
 
       if (!normalizedSearch) return true;
       return [
@@ -2245,39 +2123,15 @@ export default function AdminRefundsPage() {
   const primaryQueueCounts = useMemo(() => ({
     needs_action: overview.cases.filter((refundCase) =>
       openStatuses.has(refundCase.status) &&
-      refundCase.status !== 'waiting_on_customer' &&
-      refundCase.providerHold !== true
+      refundCase.status !== 'waiting_on_customer'
     ).length,
     waiting_on_customer: overview.cases.filter(
       (refundCase) => refundCase.status === 'waiting_on_customer'
     ).length,
     provider_hold: overview.cases.filter((refundCase) => refundCase.providerHold === true).length,
-    completed: overview.cases.filter((refundCase) => refundCase.status === 'completed').length,
+    completed: overview.cases.filter((refundCase) => doneStatuses.has(refundCase.status)).length,
   }), [overview.cases]);
 
-  const automationPresentation = automationHealthPresentation(
-    automationHealth,
-    Boolean(automationHealthError) && !isUsingDemoData
-  );
-  const gmailPresentation = gmailHealthPresentation(
-    gmailHealth,
-    Boolean(gmailHealthError) && !isUsingDemoData
-  );
-  const systemHealthItems = [
-    {
-      key: 'automation',
-      testId: 'refund-automation-health',
-      presentation: automationPresentation,
-    },
-    {
-      key: 'gmail',
-      testId: 'refund-gmail-health',
-      presentation: gmailPresentation,
-    },
-  ] as const;
-  const systemHealthWarnings = systemHealthItems.filter(
-    (item) => item.presentation.tone === 'warning'
-  );
   const hasAnyCases = overview.cases.length > 0;
   const emptyQueueTitle = hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
   const emptyQueueDescription = hasAnyCases
@@ -2342,10 +2196,6 @@ export default function AdminRefundsPage() {
   }, [selectedId, selectionRevision]);
 
   const selectedCase = filteredCases.find((refundCase) => refundCase.id === selectedId) ?? null;
-  const pendingNayaxResolutionPayload = pendingManagerStepUp?.targetFunction ===
-      'refund-nayax-outcome-resolve'
-    ? pendingManagerStepUp.frozenPayload as ResolveRefundNayaxOutcomeInput
-    : null;
   const {
     data: nayaxResolutionReadiness,
     isFetching: nayaxResolutionReadinessIsFetching,
@@ -2394,16 +2244,17 @@ export default function AdminRefundsPage() {
   );
   const selectedCaseOfficialActionBlockReason = selectedCase?.officialActionBlockReason ??
     (selectedCase?.canPerformOfficialAction !== true ? 'manager_mapping_required' : null);
-  const selectedCaseIsReviewOnly = selectedCase?.reconciliationActionBlocked === true ||
+  const selectedCaseIsTerminal = selectedCase ? doneStatuses.has(selectedCase.status) : false;
+  const selectedCaseIsReviewOnly = selectedCaseIsTerminal ||
+    selectedCase?.reconciliationActionBlocked === true ||
     (selectedCase?.canPerformOfficialAction !== true &&
       selectedCaseOfficialActionBlockReason !== 'manager_verification_required');
   const selectedCaseOfficialActionBlockMessage = selectedCase?.legacyStateReviewRequired === true
     ? 'Run a fresh transaction check before approving, declining, completing, issuing a refund, or contacting the customer.'
     : selectedCase?.reconciliationActionBlocked === true
     ? 'Resolve the possible duplicate review before approving, declining, completing, or issuing this refund.'
-    : selectedCaseOfficialActionBlockReason ===
-      'manager_verification_required'
-    ? 'Enter your authenticator code before approving, denying, completing, or refunding this case.'
+    : selectedCaseOfficialActionBlockReason === 'manager_verification_required'
+    ? 'Your manager session needs to be refreshed before you can take this action.'
     : selectedCaseOfficialActionBlockReason === 'official_actions_disabled'
       ? 'Refund actions are temporarily unavailable.'
       : 'You can review this case, but only the assigned Machine Manager can decide or issue the refund.';
@@ -2588,24 +2439,6 @@ export default function AdminRefundsPage() {
     return override ? managerStateBadgeClass(override.tone) : taskBadgeClass(managerDisplayCase(refundCase));
   };
 
-  const openManagerStepUp = (request: RefundManagerStepUpRequest) => {
-    setPendingManagerStepUp(request);
-    setManagerStepUpCode('');
-    setManagerStepUpError(null);
-    setTotpEnrollmentQrCode(null);
-    setTotpEnrollmentCode('');
-    setIsRefundConfirmationOpen(false);
-    setIsCashConfirmationOpen(false);
-  };
-
-  const clearManagerStepUp = () => {
-    setPendingManagerStepUp(null);
-    setManagerStepUpCode('');
-    setManagerStepUpError(null);
-    setTotpEnrollmentQrCode(null);
-    setTotpEnrollmentCode('');
-  };
-
   const applyCaseUpdateResponse = async (
     result: UpdateRefundCaseResponse
   ): Promise<CaseSaveSuccess> => {
@@ -2626,13 +2459,6 @@ export default function AdminRefundsPage() {
   };
 
   const handleSelectCase = (refundCase: RefundCaseRecord) => {
-    if (pendingManagerStepUp) {
-      void cancelRefundManagerStepUp(
-        pendingManagerStepUp.intentId,
-        pendingManagerStepUp.targetFunction
-      ).catch(() => undefined);
-      clearManagerStepUp();
-    }
     setSelectedId(refundCase.id);
     setSelectionRevision((current) => current + 1);
     setIsMobileQueueExpanded(false);
@@ -2733,17 +2559,8 @@ export default function AdminRefundsPage() {
           ? derivePortalRefundMissingFields(selectedCase)
           : [],
       } as const;
-      try {
-        const result = await updateRefundCaseAdmin(updateInput);
-        return await applyCaseUpdateResponse(result);
-      } catch (saveError) {
-        const stepUpRequest = getRefundManagerStepUpRequest(saveError, updateInput);
-        if (stepUpRequest) {
-          openManagerStepUp(stepUpRequest);
-          return 'step_up_pending';
-        }
-        throw saveError;
-      }
+      const result = await updateRefundCaseAdmin(updateInput);
+      return await applyCaseUpdateResponse(result);
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : 'Unable to update refund case.';
       toast.error(message);
@@ -2924,11 +2741,6 @@ export default function AdminRefundsPage() {
       const result = await executeNayaxCardRefund(executionInput);
       await applyNayaxExecutionResult(result);
     } catch (executionError) {
-      const stepUpRequest = getRefundManagerStepUpRequest(executionError, executionInput);
-      if (stepUpRequest) {
-        openManagerStepUp(stepUpRequest);
-        return;
-      }
       const response = isNayaxCardRefundExecutionError(executionError)
         ? executionError.data
         : null;
@@ -2962,7 +2774,10 @@ export default function AdminRefundsPage() {
       toast.error('Bloomjoy could not find the refund attempt that needs payment-support review.');
       return;
     }
-    const evidenceReference = nayaxResolutionEvidenceReference.trim();
+    const evidenceReference = normalizeNayaxResolutionReference(
+      nayaxResolutionEvidenceReference,
+      nayaxResolutionEvidenceType
+    );
     const referenceIssue = getNayaxResolutionReferenceIssue(
       evidenceReference,
       nayaxResolutionEvidenceType
@@ -2974,7 +2789,7 @@ export default function AdminRefundsPage() {
     const completedPaymentOutcome = nayaxResolutionResult === 'provider_confirmed_success' ||
       nayaxResolutionResult === 'documented_manual_completion';
     const evidenceOccurredAtValue = completedPaymentOutcome
-      ? new Date(`${nayaxResolutionEvidenceOccurredAt}:00Z`)
+      ? new Date(nayaxResolutionEvidenceOccurredAt)
       : null;
     if (
       completedPaymentOutcome &&
@@ -2990,7 +2805,7 @@ export default function AdminRefundsPage() {
     setIsPreparingNayaxResolution(true);
     setNayaxExecutionNotice(null);
     try {
-      const request = await prepareRefundNayaxOutcomeResolution({
+      const result = await resolveRefundNayaxOutcome({
         caseId: selectedCase.id,
         attemptId: nayaxResolutionReadiness.attemptId,
         resolutionResult: nayaxResolutionResult,
@@ -3000,7 +2815,33 @@ export default function AdminRefundsPage() {
         reasonCode: nayaxResolutionReason,
         expectedCaseVersion: officialActionVersion,
       });
-      openManagerStepUp(request);
+      await refresh();
+      const completion = result.customerCompletion ?? null;
+      const completionSent = completion?.status === 'sent' ||
+        completion?.status === 'already_sent';
+      const completionFailed = completion?.status === 'failed';
+      setRefundActionReceipt({
+        tone: result.caseCompleted && completionSent ? 'success' : 'warning',
+        title: result.caseCompleted
+          ? completionSent
+            ? 'Refund completed and customer notified'
+            : completionFailed
+              ? 'Refund completed; customer email needs attention'
+              : 'Refund completed; email status needs checking'
+          : result.retryReadyForFreshReview
+            ? 'Returned to review'
+            : 'Still waiting for confirmation',
+        message: result.caseCompleted
+          ? completionSent
+            ? 'Bloomjoy recorded the existing refund, updated reporting, and emailed the customer. No second payment was attempted.'
+            : completionFailed
+              ? 'The refund and reporting update are saved. Retry only the customer email.'
+              : 'The refund and reporting update are saved. Check the original Gmail thread before sending anything else.'
+          : result.retryReadyForFreshReview
+            ? 'The case is ready for a fresh review. No payment was attempted and the customer was not contacted.'
+            : 'The hold remains in place. No payment was attempted and the customer was not contacted.',
+      });
+      setNayaxResolutionEvidenceReference('');
     } catch (resolutionError) {
       const message = resolutionError instanceof Error
         ? resolutionError.message
@@ -3124,310 +2965,6 @@ export default function AdminRefundsPage() {
       setIsCashCompletionSubmitting(false);
     }
   };
-
-  const handleCancelManagerStepUp = async () => {
-    const pendingRequest = pendingManagerStepUp;
-    const shouldCancelEnrollment = Boolean(totpEnrollmentQrCode);
-    clearManagerStepUp();
-    await Promise.all([
-      pendingRequest
-        ? cancelRefundManagerStepUp(
-            pendingRequest.intentId,
-            pendingRequest.targetFunction
-          ).catch(() => undefined)
-        : Promise.resolve(),
-      shouldCancelEnrollment
-        ? cancelRefundManagerTotpEnrollment().catch(() => undefined)
-        : Promise.resolve(),
-    ]);
-  };
-
-  const handleCompleteManagerStepUp = async () => {
-    if (
-      !pendingManagerStepUp ||
-      !/^\d{6}$/.test(managerStepUpCode) ||
-      isCompletingManagerStepUp
-    ) {
-      setManagerStepUpError('Enter the current six-digit code from your authenticator.');
-      return;
-    }
-    if (new Date(pendingManagerStepUp.expiresAt).getTime() <= Date.now()) {
-      setManagerStepUpError('This verification request expired. Close it and review the action again.');
-      setManagerStepUpCode('');
-      return;
-    }
-
-    setIsCompletingManagerStepUp(true);
-    setManagerStepUpError(null);
-    try {
-      if (pendingManagerStepUp.targetFunction === 'refund-case-admin-update') {
-        const result = await completeRefundCaseAdminStepUp(
-          pendingManagerStepUp,
-          managerStepUpCode
-        );
-        await applyCaseUpdateResponse(result);
-        setRefundActionReceipt({
-          tone: result.customerMessage?.status === 'failed' ? 'warning' : 'success',
-          title: pendingManagerStepUp.action === 'decline'
-            ? 'Decision recorded'
-            : pendingManagerStepUp.action === 'cash_complete'
-              ? 'Cash refund completed'
-              : 'Manager confirmation recorded',
-          message: result.customerMessage?.status === 'failed'
-          ? 'The case was updated, but the customer email needs attention.'
-            : 'Your authenticator code confirmed this action.',
-        });
-        clearManagerStepUp();
-        return;
-      }
-
-      if (pendingManagerStepUp.targetFunction === 'refund-nayax-outcome-resolve') {
-        const result = await completeRefundNayaxResolutionStepUp(
-          pendingManagerStepUp,
-          managerStepUpCode
-        );
-        await refresh();
-        const completion = result.customerCompletion ?? null;
-        const completionSent = completion?.status === 'sent' ||
-          completion?.status === 'already_sent';
-        const completionFailed = completion?.status === 'failed';
-        setRefundActionReceipt({
-          tone: result.caseCompleted && completionSent ? 'success' : 'warning',
-          title: result.caseCompleted
-            ? completionSent
-              ? 'Refund result recorded and customer notified'
-              : completionFailed
-                ? 'Refund result recorded; customer email needs attention'
-                : 'Refund result recorded; email status needs checking'
-            : result.retryReadyForFreshReview
-              ? 'Returned to manager review'
-              : 'Still waiting for confirmation',
-          message: result.caseCompleted
-            ? completionSent
-              ? 'The refund result was recorded, reporting was updated, and the customer was emailed in the original thread. No payment was attempted again.'
-              : completionFailed
-                ? 'The refund result and reporting update were saved. Do not retry the refund. Retry only the customer email.'
-                : 'The refund result and reporting update were saved. Do not retry the refund or send another email until the original Gmail thread is checked.'
-            : result.retryReadyForFreshReview
-              ? 'The case is ready for manager review again. No refund was retried and the customer was not contacted.'
-              : 'Payment support recorded the review without changing the case, retrying the refund, or contacting the customer.',
-        });
-        setNayaxResolutionEvidenceReference('');
-        clearManagerStepUp();
-        return;
-      }
-
-      const result = await completeNayaxRefundStepUp(
-        pendingManagerStepUp,
-        managerStepUpCode
-      );
-      await applyNayaxExecutionResult(result);
-      clearManagerStepUp();
-    } catch (stepUpError) {
-      const nayaxResponse = isNayaxCardRefundExecutionError(stepUpError)
-        ? stepUpError.data
-        : null;
-      const isNayaxTargetResult = Boolean(
-        nayaxResponse &&
-        (typeof nayaxResponse.executed === 'boolean' ||
-          typeof nayaxResponse.status === 'string' ||
-          Array.isArray(nayaxResponse.blocks))
-      );
-      if (
-        pendingManagerStepUp.targetFunction === 'nayax-card-refund' &&
-        nayaxResponse &&
-        isNayaxTargetResult
-      ) {
-        await applyNayaxExecutionResult(nayaxResponse);
-        clearManagerStepUp();
-        return;
-      }
-      const message = stepUpError instanceof Error
-        ? stepUpError.message
-        : 'The authenticator code was not accepted. Nothing was changed.';
-      setManagerStepUpError(message);
-      setManagerStepUpCode('');
-    } finally {
-      setIsCompletingManagerStepUp(false);
-    }
-  };
-
-  const handleBeginTotpEnrollment = async () => {
-    if (isStartingTotpEnrollment) return;
-    setIsStartingTotpEnrollment(true);
-    setManagerStepUpError(null);
-    try {
-      const result = await beginRefundManagerTotpEnrollment();
-      if (!result.qrCode) throw new Error('Enrollment did not return a QR code.');
-      setTotpEnrollmentQrCode(result.qrCode);
-      setTotpEnrollmentCode('');
-    } catch (enrollmentError) {
-      setManagerStepUpError(
-        enrollmentError instanceof Error
-          ? enrollmentError.message
-          : 'The owner-controlled enrollment window is closed.'
-      );
-    } finally {
-      setIsStartingTotpEnrollment(false);
-    }
-  };
-
-  const handleVerifyTotpEnrollment = async () => {
-    if (!/^\d{6}$/.test(totpEnrollmentCode) || isVerifyingTotpEnrollment) return;
-    setIsVerifyingTotpEnrollment(true);
-    setManagerStepUpError(null);
-    try {
-      const result = await verifyRefundManagerTotpEnrollment(totpEnrollmentCode);
-      if (!result.enrolled) throw new Error('Authenticator enrollment was not confirmed.');
-      setTotpEnrollmentQrCode(null);
-      setTotpEnrollmentCode('');
-      setManagerStepUpCode('');
-      toast.success('Authenticator enrolled. Use a new current code to authorize the reviewed action.');
-    } catch (enrollmentError) {
-      setManagerStepUpError(
-        enrollmentError instanceof Error
-          ? enrollmentError.message
-          : 'Authenticator enrollment could not be verified.'
-      );
-      setTotpEnrollmentCode('');
-    } finally {
-      setIsVerifyingTotpEnrollment(false);
-    }
-  };
-
-  const resetOwnerTotpEnrollment = () => {
-    ownerTotpEnrollmentActiveRef.current = false;
-    setIsOwnerTotpEnrollmentOpen(false);
-    setOwnerTotpEnrollmentQrCode(null);
-    setOwnerTotpEnrollmentCode('');
-    setOwnerTotpEnrollmentError(null);
-    setOwnerTotpEnrollmentWindowExpiresAt(null);
-  };
-
-  const bestEffortCleanupOwnerTotpEnrollment = async (clearUi = true) => {
-    if (ownerTotpEnrollmentCleanupInFlightRef.current) return;
-    ownerTotpEnrollmentCleanupInFlightRef.current = true;
-    ownerTotpEnrollmentActiveRef.current = false;
-    if (clearUi) resetOwnerTotpEnrollment();
-    try {
-      await Promise.allSettled([
-        cancelRefundManagerTotpEnrollment(),
-        closeRefundManagerTotpEnrollmentWindow(),
-      ]);
-      if (clearUi) {
-        await queryClient.invalidateQueries({
-          queryKey: ['refund-manager-totp-enrollment-readiness'],
-        });
-      }
-    } finally {
-      ownerTotpEnrollmentCleanupInFlightRef.current = false;
-    }
-  };
-  ownerTotpEnrollmentCleanupRef.current = bestEffortCleanupOwnerTotpEnrollment;
-
-  const handleOpenOwnerTotpEnrollment = async () => {
-    if (isOpeningOwnerTotpEnrollment) return;
-    setIsOpeningOwnerTotpEnrollment(true);
-    setOwnerTotpEnrollmentError(null);
-    try {
-      const windowResult = await openRefundManagerTotpEnrollmentWindow();
-      if (windowResult.status === 'already_enrolled') {
-        await queryClient.invalidateQueries({
-          queryKey: ['refund-manager-totp-enrollment-readiness'],
-        });
-        toast.success('Your refund authenticator is already ready.');
-        return;
-      }
-      if (!windowResult.windowOpen) {
-        throw new Error('The private setup window could not be opened.');
-      }
-      if (!windowResult.windowExpiresAt) {
-        throw new Error('The private setup window has no safe expiry.');
-      }
-
-      ownerTotpEnrollmentActiveRef.current = true;
-      setOwnerTotpEnrollmentWindowExpiresAt(windowResult.windowExpiresAt);
-
-      const enrollment = await beginRefundManagerTotpEnrollment();
-      if (!enrollment.qrCode) {
-        throw new Error('Authenticator setup did not return a one-time QR code.');
-      }
-      setOwnerTotpEnrollmentQrCode(enrollment.qrCode);
-      setOwnerTotpEnrollmentCode('');
-      setIsOwnerTotpEnrollmentOpen(true);
-    } catch (enrollmentError) {
-      await bestEffortCleanupOwnerTotpEnrollment();
-      toast.error(
-        enrollmentError instanceof Error
-          ? enrollmentError.message
-          : 'Authenticator setup could not be started.'
-      );
-    } finally {
-      setIsOpeningOwnerTotpEnrollment(false);
-    }
-  };
-
-  const handleCancelOwnerTotpEnrollment = async () => {
-    if (isCancellingOwnerTotpEnrollment || isVerifyingOwnerTotpEnrollment) return;
-    setIsCancellingOwnerTotpEnrollment(true);
-    try {
-      await bestEffortCleanupOwnerTotpEnrollment();
-    } finally {
-      setIsCancellingOwnerTotpEnrollment(false);
-    }
-  };
-
-  const handleVerifyOwnerTotpEnrollment = async () => {
-    if (!/^\d{6}$/.test(ownerTotpEnrollmentCode) || isVerifyingOwnerTotpEnrollment) return;
-    setIsVerifyingOwnerTotpEnrollment(true);
-    setOwnerTotpEnrollmentError(null);
-    try {
-      const result = await verifyRefundManagerTotpEnrollment(ownerTotpEnrollmentCode);
-      if (!result.enrolled) throw new Error('Authenticator enrollment was not confirmed.');
-      resetOwnerTotpEnrollment();
-      await queryClient.invalidateQueries({
-        queryKey: ['refund-manager-totp-enrollment-readiness'],
-      });
-      toast.success('Refund authenticator ready. No refund was issued.');
-    } catch (enrollmentError) {
-      const message = enrollmentError instanceof Error
-        ? enrollmentError.message
-        : 'Authenticator enrollment could not be verified.';
-      setOwnerTotpEnrollmentCode('');
-      setOwnerTotpEnrollmentError(message);
-      if (
-        message.includes('could not be safely completed') ||
-        message.includes('window is closed') ||
-        message.includes('temporarily enabled')
-      ) {
-        await bestEffortCleanupOwnerTotpEnrollment();
-      }
-    } finally {
-      setIsVerifyingOwnerTotpEnrollment(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!isOwnerTotpEnrollmentOpen || !ownerTotpEnrollmentWindowExpiresAt) return;
-    const remainingMs = new Date(ownerTotpEnrollmentWindowExpiresAt).getTime() - Date.now();
-    const expire = () => {
-      void ownerTotpEnrollmentCleanupRef.current().then(() => {
-        toast.error('The private setup window expired. No authenticator was enrolled.');
-      });
-    };
-    if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
-      expire();
-      return;
-    }
-    const timer = window.setTimeout(expire, remainingMs);
-    return () => window.clearTimeout(timer);
-  }, [isOwnerTotpEnrollmentOpen, ownerTotpEnrollmentWindowExpiresAt]);
-
-  useEffect(() => () => {
-    if (ownerTotpEnrollmentActiveRef.current) {
-      void ownerTotpEnrollmentCleanupRef.current(false);
-    }
-  }, []);
 
   const handleNayaxLookup = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!selectedCase) return;
@@ -3557,7 +3094,13 @@ export default function AdminRefundsPage() {
     handledCaseQueryRef.current = caseIdFromUrl;
 
     if (!filteredCases.some((refundCase) => refundCase.id === caseFromUrl.id)) {
-      setStatusFilter('all');
+      setStatusFilter(
+        doneStatuses.has(caseFromUrl.status)
+          ? 'completed'
+          : caseFromUrl.status === 'waiting_on_customer'
+            ? 'waiting_on_customer'
+            : 'needs_action'
+      );
       setSearch('');
     }
     handleSelectCase(caseFromUrl);
@@ -4288,7 +3831,10 @@ export default function AdminRefundsPage() {
     const topActionLabel = hasReadyRefund ? actionLabel : primaryAction?.label ?? 'Review this request';
     const baseManagerState = getRefundManagerState(
       { ...selectedCase, nayaxLookupSummary: selectedNayaxSummary },
-      { isRefunding: isRunningNayaxRefund }
+      {
+        isRefunding: isRunningNayaxRefund,
+        canResolveHeldResult: nayaxResolutionReadiness?.available === true,
+      }
     );
     const hasUnsavedTransactionChoice =
       !selectedCase.hasMatchedNayaxTransaction &&
@@ -4313,7 +3859,10 @@ export default function AdminRefundsPage() {
           }
       : baseManagerState;
     const showDisabledActionStatus =
-      primaryAction?.disabled === true && managerState.id !== 'match_attention';
+      primaryAction?.disabled === true &&
+      !selectedCaseIsTerminal &&
+      managerState.id !== 'match_attention' &&
+      managerState.id !== 'check_nayax_result';
     const isActionDisabled =
       isSaving ||
       isSendingCustomerMessage ||
@@ -4355,7 +3904,7 @@ export default function AdminRefundsPage() {
 
     return (
       <div data-testid="refund-card-workbench" className="space-y-4">
-        <section className="overflow-hidden rounded-xl border border-border bg-card text-foreground shadow-sm">
+        <section className="overflow-hidden rounded-xl border border-border bg-card text-foreground">
           <div
             data-testid="refund-primary-action"
             className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
@@ -4375,25 +3924,6 @@ export default function AdminRefundsPage() {
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:items-end">
-              <div className="flex flex-wrap gap-2 sm:justify-end">
-                <Badge
-                  className={cn(
-                    'w-fit',
-                    managerStateBadgeClass(managerState.tone)
-                  )}
-                >
-                  Payment: {getRefundPaymentStateLabel(selectedCase, { isRefunding: isRunningNayaxRefund })}
-                </Badge>
-                <Badge
-                  className={cn(
-                    'w-fit border-border bg-muted text-foreground',
-                    getLatestCustomerMessage(selectedCase)?.status === 'failed' &&
-                      'border-rose-200 bg-rose-50 text-rose-800'
-                  )}
-                >
-                  Customer: {getCustomerCommunicationLabel(selectedCase)}
-                </Badge>
-              </div>
               {showDisabledActionStatus ? (
                 <div
                   data-testid="refund-action-status"
@@ -4413,7 +3943,7 @@ export default function AdminRefundsPage() {
                 <Button
                   data-testid={hasReadyRefund ? 'refund-run-nayax-refund' : 'refund-save-case'}
                   type="button"
-                  className="h-auto min-h-11 w-full whitespace-normal px-4 py-2 text-center font-semibold leading-5 sm:w-auto"
+                  className="h-auto min-h-11 w-full whitespace-normal bg-foreground px-4 py-2 text-center font-semibold leading-5 text-background hover:bg-foreground/90 sm:w-auto"
                   onClick={() => {
                     if (hasReadyRefund) {
                       setNayaxExecutionNotice(null);
@@ -4599,7 +4129,7 @@ export default function AdminRefundsPage() {
           </div>
         </section>
 
-        <section data-testid="refund-action-details" className="rounded-xl border border-border bg-card p-4 shadow-sm">
+        <section data-testid="refund-action-details" className="rounded-xl border border-border bg-card p-4">
           {(editor.decision === 'denied' || editor.status === 'denied') && (
             <div className="border-b border-border pb-4">
               <Label htmlFor="card-denial-reason">Customer-facing denial reason</Label>
@@ -4639,30 +4169,28 @@ export default function AdminRefundsPage() {
                   ? 'refund-legacy-state-freeze'
                   : 'refund-customer-decision-freeze'}
                 role="status"
-                className="mt-4 flex items-start gap-2 border-t border-border pt-4 text-sm text-muted-foreground"
+                className="mt-4 border-t border-border pt-4 text-sm text-muted-foreground"
               >
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-orange-800" />
                 <p>
                   {selectedCase.legacyStateReviewRequired
                     ? 'Customer decisions and email are paused during this payment history check.'
                     : selectedCase.providerOutcome === 'rejected'
-                    ? 'Customer decisions and email are paused while payment support resolves the rejection. Do not approve, deny, or send another outcome message from this case.'
-                    : 'Customer decisions and email are paused until the payment status is resolved. Do not approve, deny, or send another outcome message from this case.'}
+                    ? 'The customer is not contacted until the payment result is confirmed.'
+                    : 'The customer is not contacted until the payment result is confirmed.'}
                 </p>
               </div>
 
               {!selectedCase.legacyStateReviewRequired && nayaxResolutionReadiness?.visible && (
                 <div
                   data-testid="refund-nayax-resolution-panel"
-                  className="mt-4 space-y-4 rounded-lg border border-orange-200 bg-orange-50 p-4 text-orange-950"
+                  className="mt-4 space-y-4 border-t border-border pt-4 text-foreground"
                 >
                   <div className="flex items-start gap-3">
-                    <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
+                    <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
                     <div>
-                      <p className="font-semibold">Confirm an unclear refund result</p>
+                      <p className="font-semibold">Confirm the payment result</p>
                       <p className="mt-1 text-sm leading-6">
-                        This does not try the refund again. If the refund succeeded, Bloomjoy records it and emails the
-                        customer in the original thread. Otherwise, the customer is not contacted.
+                        Record what the provider confirmed. Bloomjoy will never send a second refund from this step.
                       </p>
                     </div>
                   </div>
@@ -4670,25 +4198,25 @@ export default function AdminRefundsPage() {
                   {!nayaxResolutionReadiness.available ? (
                     <div
                       data-testid="refund-nayax-resolution-blocked"
-                      className="rounded-md border border-orange-300 bg-background/80 p-3 text-sm"
+                      className="rounded-md border border-border bg-muted/30 p-3 text-sm"
                     >
-                      <p className="font-medium">This review is not available.</p>
+                      <p className="font-medium">No manager action is available yet.</p>
                       <p className="mt-1 text-muted-foreground">
                         {nayaxResolutionReadiness.blockReason === 'already_resolved'
-                          ? 'Payment support has already recorded a final result for this refund.'
+                          ? 'The final payment result is already recorded.'
                           : nayaxResolutionReadiness.blockReason === 'exact_attempt_required'
-                            ? 'Bloomjoy could not identify the refund attempt that needs review.'
-                            : nayaxResolutionReadiness.blockReason === 'authenticator_required'
-                              ? 'Set up your refund authenticator before reviewing this result.'
+                            ? 'Bloomjoy could not identify the exact refund attempt.'
+                            : nayaxResolutionReadiness.blockReason === 'manager_access_required'
+                              ? 'Only the assigned Machine Manager can record this result.'
                             : nayaxResolutionReadiness.blockReason === 'provider_hold_required'
                               ? 'This case no longer has an unclear refund result.'
-                              : 'Payment-support review is temporarily unavailable.'}
+                              : 'Payment result confirmation is temporarily unavailable.'}
                       </p>
                     </div>
                   ) : (
                     <div className="grid gap-4">
                       <div>
-                        <Label htmlFor="refund-nayax-resolution-result">What did payment support confirm?</Label>
+                        <Label htmlFor="refund-nayax-resolution-result">What is the confirmed payment result?</Label>
                         <select
                           id="refund-nayax-resolution-result"
                           data-testid="refund-nayax-resolution-result"
@@ -4718,7 +4246,7 @@ export default function AdminRefundsPage() {
                         </p>
                       </div>
 
-                      <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
                         <div>
                           <Label htmlFor="refund-nayax-resolution-evidence-type">Confirmation source</Label>
                           <select
@@ -4742,26 +4270,6 @@ export default function AdminRefundsPage() {
                             ))}
                           </select>
                         </div>
-
-                        <div>
-                          <Label htmlFor="refund-nayax-resolution-reason">Confirmed result</Label>
-                          <select
-                            id="refund-nayax-resolution-reason"
-                            data-testid="refund-nayax-resolution-reason"
-                            value={nayaxResolutionReason}
-                            onChange={(event) =>
-                              setNayaxResolutionReason(event.target.value as RefundNayaxResolutionReason)
-                            }
-                            className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                          >
-                            {nayaxResolutionReasonsForEvidence(
-                              nayaxResolutionResult,
-                              nayaxResolutionEvidenceType
-                            ).map((option) => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                          </select>
-                        </div>
                       </div>
 
                       <div>
@@ -4776,7 +4284,7 @@ export default function AdminRefundsPage() {
                           className="mt-2 bg-background"
                         />
                         <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                          Enter the reference from the transaction record or payment support. Do not include customer or card details.
+                          Enter the Nayax ticket number (for example, CS1500666) or the reference from the transaction record. Do not include customer or card details.
                         </p>
                         {getNayaxResolutionReferenceIssue(
                           nayaxResolutionEvidenceReference,
@@ -4815,7 +4323,7 @@ export default function AdminRefundsPage() {
 
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-xs leading-5 text-muted-foreground">
-                          An assigned Machine Manager must confirm this result with an authenticator code.
+                          Only the assigned Machine Manager can save this result.
                         </p>
                         <Button
                           type="button"
@@ -4832,12 +4340,15 @@ export default function AdminRefundsPage() {
                               nayaxResolutionResult === 'documented_manual_completion') &&
                               !nayaxResolutionEvidenceOccurredAt)
                           }
-                          className="min-h-11 shrink-0"
+                          className="min-h-11 shrink-0 bg-foreground text-background hover:bg-foreground/90"
                         >
                           {(nayaxResolutionReadinessIsFetching || isPreparingNayaxResolution) && (
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           )}
-                          Review exact support result
+                          {nayaxResolutionResult === 'provider_confirmed_success' ||
+                          nayaxResolutionResult === 'documented_manual_completion'
+                            ? 'Complete case & notify customer'
+                            : 'Save payment result'}
                         </Button>
                       </div>
                     </div>
@@ -4988,6 +4499,7 @@ export default function AdminRefundsPage() {
                 type="button"
                 onClick={() => void handleRunNayaxRefund()}
                 disabled={isActionDisabled}
+                className="bg-foreground text-background hover:bg-foreground/90"
               >
                 {isRunningNayaxRefund ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -5071,48 +4583,29 @@ export default function AdminRefundsPage() {
 
     return (
       <div data-testid="refund-cash-workbench" className="space-y-4">
-        <section className="overflow-hidden rounded-xl border border-slate-200 bg-slate-950 text-white shadow-sm">
+        <section className="overflow-hidden rounded-xl border border-border bg-card">
           <div
             data-testid="refund-cash-primary-action-panel"
-            className="flex flex-col gap-3 border-b border-white/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
+            className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
           >
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-200">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Current state
               </p>
-              <h3 data-testid="refund-manager-state" className="mt-1 text-xl font-semibold">
+              <h3 data-testid="refund-manager-state" className="mt-1 text-xl font-semibold text-foreground">
                 {managerState.label}
               </h3>
-              <p className="mt-2 max-w-xl text-sm leading-5 text-slate-300">{managerState.explanation}</p>
-              <p data-testid="refund-manager-next-step" className="mt-1 max-w-xl text-sm font-medium leading-5 text-white">
+              <p className="mt-2 max-w-xl text-sm leading-5 text-muted-foreground">{managerState.explanation}</p>
+              <p data-testid="refund-manager-next-step" className="mt-1 max-w-xl text-sm font-medium leading-5 text-foreground">
                 Next: {managerState.nextStep}
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:items-end">
-              <div className="flex flex-wrap gap-2 sm:justify-end">
-                <Badge
-                  className={cn(
-                    'w-fit border-white/15 bg-white/10 text-white',
-                    cashMatchReady && 'border-emerald-300/40 bg-emerald-300/15 text-emerald-100'
-                  )}
-                >
-                  Payment: {getRefundPaymentStateLabel(selectedCase)}
-                </Badge>
-                <Badge
-                  className={cn(
-                    'w-fit border-white/15 bg-white/10 text-slate-100',
-                    getLatestCustomerMessage(selectedCase)?.status === 'failed' &&
-                      'border-rose-300/40 bg-rose-300/15 text-rose-100'
-                  )}
-                >
-                  Customer: {getCustomerCommunicationLabel(selectedCase)}
-                </Badge>
-              </div>
               <Button
                 data-testid="refund-cash-primary-action"
                 data-dominant-action="true"
                 type="button"
-                className="h-auto min-h-11 w-full whitespace-normal px-4 py-2 text-center font-semibold leading-5 sm:w-auto"
+                className="h-auto min-h-11 w-full whitespace-normal bg-foreground px-4 py-2 text-center font-semibold leading-5 text-background hover:bg-foreground/90 sm:w-auto"
                 onClick={() => {
                   if (isCashCompletion) {
                     setRefundActionReceipt(null);
@@ -5133,60 +4626,60 @@ export default function AdminRefundsPage() {
             </div>
           </div>
 
-          <div className="grid gap-px bg-white/10 lg:grid-cols-2">
-            <article data-testid="refund-cash-request-summary" className="bg-slate-950 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Customer request</p>
+          <div className="grid border-t border-border lg:grid-cols-2 lg:divide-x lg:divide-border">
+            <article data-testid="refund-cash-request-summary" className="p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer request</p>
               <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <p className="text-xs text-slate-400">Location</p>
-                  <p className="mt-1 font-medium text-white">{selectedCase.locationName}</p>
+                  <p className="text-xs text-muted-foreground">Location</p>
+                  <p className="mt-1 font-medium text-foreground">{selectedCase.locationName}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-slate-400">Machine</p>
-                  <p className="mt-1 font-medium text-white">{selectedCase.machineLabel}</p>
+                  <p className="text-xs text-muted-foreground">Machine</p>
+                  <p className="mt-1 font-medium text-foreground">{selectedCase.machineLabel}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-slate-400">Reported time</p>
-                  <p className="mt-1 font-medium text-white">{formatDate(selectedCase.incidentAt)}</p>
+                  <p className="text-xs text-muted-foreground">Reported time</p>
+                  <p className="mt-1 font-medium text-foreground">{formatDate(selectedCase.incidentAt)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-slate-400">Requested</p>
-                  <p className="mt-1 font-medium text-white">{formatCurrency(selectedCase.paymentAmountCents)}</p>
+                  <p className="text-xs text-muted-foreground">Requested</p>
+                  <p className="mt-1 font-medium text-foreground">{formatCurrency(selectedCase.paymentAmountCents)}</p>
                 </div>
               </div>
-              <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-300">{selectedCase.issueSummary}</p>
+              <p className="mt-3 line-clamp-3 text-sm leading-6 text-muted-foreground">{selectedCase.issueSummary}</p>
             </article>
 
-            <article data-testid="refund-cash-match-summary" className="bg-slate-900 p-4">
+            <article data-testid="refund-cash-match-summary" className="border-t border-border bg-muted/20 p-4 lg:border-t-0">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-200">Cash review</p>
-                  <p className="mt-2 text-lg font-semibold text-white">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cash review</p>
+                  <p className="mt-2 text-lg font-semibold text-foreground">
                     {cashMatchReady ? 'Payment found' : 'More information is needed'}
                   </p>
                 </div>
                 <Badge
                   className={cn(
-                    'border-white/15 bg-white/10 text-white',
-                    cashMatchReady && 'border-emerald-300/40 bg-emerald-300/15 text-emerald-100'
+                    'border-border bg-background text-foreground',
+                    cashMatchReady && 'border-emerald-200 bg-emerald-50 text-emerald-900'
                   )}
                 >
                   {matchResultLabel(selectedCase, editor, nayaxCandidates)}
                 </Badge>
               </div>
-              <p className="mt-3 text-sm leading-6 text-slate-300">
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">
                 {cashMatchReady
                   ? transactionMatchSummary(selectedCase, editor, [])
                   : canAskForCustomerDetails
                     ? 'Ask only for the purchase details that are still missing.'
                     : 'There is nothing else to ask the customer right now. Keep the case open and review the payment details.'}
               </p>
-              <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3 text-sm">
-                <p className="text-xs text-slate-400">Manual payment destination</p>
-                <p className="mt-1 break-words font-medium text-white">
+              <div className="mt-3 border-t border-border pt-3 text-sm">
+                <p className="text-xs text-muted-foreground">Manual payment destination</p>
+                <p className="mt-1 break-words font-medium text-foreground">
                   {selectedCase.zellePaymentContact || 'Not provided'}
                 </p>
-                <p className="mt-2 text-xs leading-5 text-slate-400">
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">
                   Cash and Zelle payments stay outside Bloomjoy Hub. This screen records the manager confirmation only.
                 </p>
               </div>
@@ -5283,10 +4776,10 @@ export default function AdminRefundsPage() {
                 className="mt-2"
                 placeholder="Example: Zelle confirmation ZP-4821"
               />
-              <div className="mt-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-xs leading-5 text-orange-950">
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">
                 Record only a short confirmation or reference. Never enter a bank or card number, routing number, PIN,
                 password, email address, phone number, or other payment credentials.
-              </div>
+              </p>
             </div>
 
             <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-muted/20 p-3">
@@ -5438,46 +4931,31 @@ export default function AdminRefundsPage() {
     <AppLayout>
       <section className="section-padding">
         <div className="container-page">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                Operations
-              </p>
-              <h1 className="mt-2 font-display text-3xl font-bold text-foreground">
-                Refund Review Queue
-              </h1>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Review assigned requests and take the next action.
-              </p>
+              <h1 className="text-2xl font-semibold text-foreground">Refunds</h1>
+              <p className="mt-1 text-sm text-muted-foreground">Review each request and take its next action.</p>
             </div>
-            <Button variant="outline" onClick={() => void refresh()} disabled={pageIsFetching || automationHealthIsFetching || gmailHealthIsFetching || isUsingDemoData}>
-              {pageIsFetching || automationHealthIsFetching || gmailHealthIsFetching ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="mr-2 h-4 w-4" />
-              )}
-              Refresh
-            </Button>
-          </div>
-
-          {!isUsingDemoData && systemHealthWarnings.length > 0 && (
-            <div className="mt-4 space-y-3">
-              {systemHealthWarnings.map((item) => (
-                <div
-                  key={item.key}
-                  data-testid={item.testId}
-                  role="alert"
-                  className="flex items-start gap-3 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-950"
+            <div className="flex flex-wrap items-center gap-3">
+              {gmailNeedsAttention && (
+                <span
+                  data-testid="refund-gmail-health"
+                  className="text-sm font-medium text-amber-800"
+                  title="Incoming refund email may be delayed. Existing cases and payment actions are still available."
                 >
-                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-800" />
-                  <div>
-                    <p className="font-semibold">{item.presentation.title}</p>
-                    <p className="mt-1 leading-6">{item.presentation.description}</p>
-                  </div>
-                </div>
-              ))}
+                  Email intake needs attention
+                </span>
+              )}
+              <Button variant="outline" onClick={() => void refresh()} disabled={pageIsFetching || isUsingDemoData}>
+                {pageIsFetching ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Refresh
+              </Button>
             </div>
-          )}
+          </div>
 
           {error && !isUsingDemoData && (
             <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -5488,48 +4966,6 @@ export default function AdminRefundsPage() {
           {isUsingDemoData && (
             <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
               Demo cases are for visual review only. Changes, transaction checks, emails, and refunds are disabled.
-            </div>
-          )}
-
-          {!isUsingDemoData && totpEnrollmentReadiness?.eligible && (
-            <div
-              data-testid="refund-owner-totp-readiness"
-              role="status"
-              className={cn(
-                'mt-4 flex flex-col gap-3 rounded-lg border px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between',
-                totpEnrollmentReadiness.enrolled
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-950'
-                  : 'border-sky-200 bg-sky-50 text-sky-950'
-              )}
-            >
-              <div className="flex items-start gap-3">
-                <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
-                <div>
-                  <p className="font-semibold">
-                    {totpEnrollmentReadiness.enrolled
-                      ? 'Refund authenticator ready'
-                      : 'Set up your refund authenticator'}
-                  </p>
-                  <p className="mt-1 leading-6">
-                    {totpEnrollmentReadiness.enrolled
-                      ? 'You will enter a new current code yourself for each exact refund action.'
-                      : 'Use your own private browser and authenticator. Setup alone cannot issue a refund.'}
-                  </p>
-                </div>
-              </div>
-              {!totpEnrollmentReadiness.enrolled && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  data-testid="refund-owner-totp-start"
-                  onClick={() => void handleOpenOwnerTotpEnrollment()}
-                  disabled={isOpeningOwnerTotpEnrollment || totpEnrollmentReadinessIsFetching}
-                  className="shrink-0 bg-white"
-                >
-                  {isOpeningOwnerTotpEnrollment && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Begin private setup
-                </Button>
-              )}
             </div>
           )}
 
@@ -5561,18 +4997,20 @@ export default function AdminRefundsPage() {
             </div>
           )}
 
-          <div className="mt-4 flex flex-wrap gap-2" aria-label="Refund case views">
+          <div className="mt-5 flex flex-wrap gap-2" aria-label="Refund case views">
             {([
-              ['needs_action', 'Needs action'],
-              ['waiting_on_customer', 'Waiting for customer'],
-              ['provider_hold', 'Check refund result'],
-              ['completed', 'Completed'],
+              ['needs_action', 'Action needed'],
+              ['waiting_on_customer', 'Waiting'],
+              ['completed', 'Done'],
             ] as const).map(([value, label]) => (
               <Button
                 key={value}
                 type="button"
-                variant={statusFilter === value ? 'default' : 'outline'}
-                className="min-h-11"
+                variant="outline"
+                className={cn(
+                  'min-h-11',
+                  statusFilter === value && 'border-foreground bg-foreground text-background hover:bg-foreground/90 hover:text-background'
+                )}
                 aria-pressed={statusFilter === value}
                 onClick={() => setStatusFilter(value)}
               >
@@ -5584,7 +5022,7 @@ export default function AdminRefundsPage() {
             ))}
           </div>
 
-          <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+          <div className="mt-4">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
@@ -5596,33 +5034,15 @@ export default function AdminRefundsPage() {
                 className="pl-9"
               />
             </div>
-            <select
-              id="refund-status-filter"
-              aria-label="Filter refund cases by status"
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value as QueueFilter)}
-              className="h-11 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              <option value="needs_action">Needs action</option>
-              <option value="missing_information">Missing information</option>
-              <option value="possible_duplicate">Possible duplicates</option>
-              <option value="aging">Overdue cases</option>
-              <option value="provider_hold">Check refund result</option>
-              <option value="waiting_on_customer">Waiting on customer</option>
-              <option value="ready_to_pay">Ready to refund</option>
-              <option value="blocked">Blocked / failed</option>
-              <option value="completed">Completed</option>
-              <option value="all">All cases</option>
-            </select>
           </div>
 
-          <div className="mt-6 grid min-w-0 gap-6 xl:grid-cols-[minmax(320px,0.82fr)_minmax(520px,1.18fr)]">
+          <div className="mt-6 grid min-w-0 gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
             <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
               <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-3">
                 <div>
                   <h2 className="text-sm font-semibold text-foreground">Queue</h2>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {filteredCases.length} visible of {overview.cases.length} total cases
+                  <p data-testid="refund-queue-count" className="mt-1 text-xs text-muted-foreground">
+                    {filteredCases.length} {filteredCases.length === 1 ? 'case' : 'cases'}
                   </p>
                 </div>
                 {selectedCase && (
@@ -5654,6 +5074,7 @@ export default function AdminRefundsPage() {
                   filteredCases.map((refundCase) => (
                     <button
                       key={refundCase.id}
+                      data-testid="refund-case-queue-item"
                       type="button"
                       onClick={() => handleSelectCase(refundCase)}
                       className={cn(
@@ -5666,9 +5087,6 @@ export default function AdminRefundsPage() {
                           <div className="truncate text-sm font-semibold text-foreground">
                             {refundCase.publicReference}
                           </div>
-                          <Badge className={cn('mt-1 rounded-md text-[11px]', intakeSourceBadgeClass(refundCase))}>
-                            {intakeSourceLabel(refundCase)}
-                          </Badge>
                         </div>
                         <Badge className={cn('shrink-0 whitespace-normal rounded-md text-left leading-tight', managerTaskBadgeClass(refundCase))}>
                           {managerTaskLabel(refundCase)}
@@ -5677,142 +5095,63 @@ export default function AdminRefundsPage() {
                       <div className="mt-2 text-xs text-muted-foreground">
                         {formatRefundMachineLocation(refundCase.locationName, refundCase.machineLabel)}
                       </div>
-                      <div className="mt-3 grid gap-2 text-xs text-muted-foreground min-[380px]:grid-cols-2">
-                        <div>
-                          <span className="font-medium text-foreground">Amount:</span>{' '}
+                      <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+                        <span className="font-medium text-foreground">
                           {formatCurrency(refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}
-                        </div>
-                        <div>
-                          <span className="font-medium text-foreground">Age:</span>{' '}
-                          {formatAge(refundCase.createdAt)}
-                        </div>
-                        <div>
-                          <span className="font-medium text-foreground">Match:</span>{' '}
-                          {matchResultLabel(refundCase, refundCase.id === selectedId ? editor : toEditorState(refundCase), refundCase.nayaxLookupCandidates ?? [])}
-                        </div>
-                        <div>
-                          <span className="font-medium text-foreground">Customer:</span>{' '}
-                          {getCustomerContactAgeLabel(refundCase)}
-                        </div>
+                        </span>
+                        <span className="text-muted-foreground">{formatAge(refundCase.createdAt)} old</span>
                       </div>
-                      {getOperationalSignals(managerDisplayCase(refundCase), cardRefundAvailabilityConfirmed).length > 0 && (
-                        <div className="mt-3 flex flex-wrap gap-1.5">
-                          {getOperationalSignals(managerDisplayCase(refundCase), cardRefundAvailabilityConfirmed).map((signal) => (
-                            <Badge key={signal.label} className={cn('rounded-md text-[11px]', signal.className)}>
-                              {signal.label}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                      <span className="mt-3 inline-flex text-xs font-semibold text-primary">Open review</span>
                     </button>
                   ))}
               </div>
 
-              <div className="hidden lg:block">
-              <table className="w-full table-fixed">
-                <colgroup>
-                  <col className="w-[42%]" />
-                  <col className="w-[18%]" />
-                  <col className="w-[20%]" />
-                  <col className="w-[20%]" />
-                </colgroup>
-                <thead className="border-b border-border bg-muted/40">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Case
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Task
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Match result
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Age / contact
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pageIsLoading && (
-                    <tr>
-                      <td colSpan={4} className="px-4 py-10 text-center text-sm text-muted-foreground">
-                        Loading refund queue...
-                      </td>
-                    </tr>
-                  )}
-                  {!pageIsLoading && filteredCases.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="px-4 py-10 text-center">
-                        <p className="text-sm font-medium text-foreground">{emptyQueueTitle}</p>
-                        <p className="mx-auto mt-1 max-w-lg text-sm text-muted-foreground">
-                          {emptyQueueDescription}
+              <div className="hidden divide-y divide-border/70 lg:block">
+                {pageIsLoading && (
+                  <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    Loading refund queue...
+                  </div>
+                )}
+                {!pageIsLoading && filteredCases.length === 0 && (
+                  <div className="px-4 py-10 text-center">
+                    <p className="text-sm font-medium text-foreground">{emptyQueueTitle}</p>
+                    <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+                      {emptyQueueDescription}
+                    </p>
+                  </div>
+                )}
+                {!pageIsLoading && filteredCases.map((refundCase) => (
+                  <button
+                    key={refundCase.id}
+                    data-testid="refund-case-queue-item"
+                    type="button"
+                    aria-current={refundCase.id === selectedId ? 'true' : undefined}
+                    onClick={() => handleSelectCase(refundCase)}
+                    className={cn(
+                      'block min-h-20 w-full px-4 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                      refundCase.id === selectedId && 'bg-muted/60'
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-foreground">
+                          {refundCase.publicReference}
                         </p>
-                      </td>
-                    </tr>
-                  )}
-                  {!pageIsLoading &&
-                    filteredCases.map((refundCase) => (
-                      <tr
-                        key={refundCase.id}
-                        onClick={() => handleSelectCase(refundCase)}
-                        className={cn(
-                          'cursor-pointer border-b border-border/70 transition-colors hover:bg-muted/40',
-                          refundCase.id === selectedId && 'bg-muted/50 ring-1 ring-primary/20'
-                        )}
-                      >
-                        <td className="px-4 py-3 align-top">
-                          <button
-                            type="button"
-                            className="min-h-11 w-full rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                            aria-label={`Open refund case ${refundCase.publicReference}`}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleSelectCase(refundCase);
-                            }}
-                          >
-                          <div className="truncate text-sm font-semibold text-foreground">
-                            {refundCase.publicReference}
-                          </div>
-                          <Badge className={cn('mt-1 rounded-md text-[11px]', intakeSourceBadgeClass(refundCase))}>
-                            {intakeSourceLabel(refundCase)}
-                          </Badge>
-                          <div className="mt-1 truncate text-xs text-muted-foreground">
-                            {refundCase.customerEmail}
-                          </div>
-                          <div className="mt-1 truncate text-xs text-muted-foreground">
-                            {formatRefundMachineLocation(refundCase.locationName, refundCase.machineLabel)}
-                          </div>
-                          <div className="mt-1 text-xs font-medium text-foreground">
-                            {formatCurrency(refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}
-                          </div>
-                          {getOperationalSignals(managerDisplayCase(refundCase), cardRefundAvailabilityConfirmed).length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              {getOperationalSignals(managerDisplayCase(refundCase), cardRefundAvailabilityConfirmed).map((signal) => (
-                                <Badge key={signal.label} className={cn('rounded-md text-[11px]', signal.className)}>
-                                  {signal.label}
-                                </Badge>
-                              ))}
-                            </div>
-                          )}
-                          </button>
-                        </td>
-                        <td className="px-4 py-3 align-top">
-                          <Badge className={cn('whitespace-normal rounded-md text-left leading-tight', managerTaskBadgeClass(refundCase))}>
-                            {managerTaskLabel(refundCase)}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3 align-top text-sm text-muted-foreground">
-                          <div>{matchResultLabel(refundCase, refundCase.id === selectedId ? editor : toEditorState(refundCase), refundCase.nayaxLookupCandidates ?? [])}</div>
-                        </td>
-                        <td className="px-4 py-3 align-top text-sm text-muted-foreground">
-                          <div>{formatAge(refundCase.createdAt)} old</div>
-                          <div className="mt-1 text-xs">{getCustomerContactAgeLabel(refundCase)}</div>
-                        </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">
+                          {formatRefundMachineLocation(refundCase.locationName, refundCase.machineLabel)}
+                        </p>
+                      </div>
+                      <Badge className={cn('shrink-0 rounded-md', managerTaskBadgeClass(refundCase))}>
+                        {managerTaskLabel(refundCase)}
+                      </Badge>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+                      <span className="font-medium text-foreground">
+                        {formatCurrency(refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}
+                      </span>
+                      <span className="text-muted-foreground">{formatAge(refundCase.createdAt)} old</span>
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -5835,38 +5174,14 @@ export default function AdminRefundsPage() {
                         <Badge className={managerTaskBadgeClass(selectedCase)}>
                           {managerTaskLabel(selectedCase)}
                         </Badge>
-                        <Badge className={cn('rounded-md', intakeSourceBadgeClass(selectedCase))}>
-                          {intakeSourceLabel(selectedCase)}
-                        </Badge>
                       </div>
-                      <p className="mt-1 break-words text-xs text-muted-foreground">
-                        {selectedCase.customerEmail} / {selectedCase.paymentMethod} /{' '}
+                      <p className="mt-1 break-words text-sm text-muted-foreground">
+                        {formatRefundMachineLocation(selectedCase.locationName, selectedCase.machineLabel)} ·{' '}
                         {formatCurrency(selectedCase.paymentAmountCents)}
                       </p>
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <Button asChild type="button" size="sm" variant="outline">
-                          <a
-                            href={selectedCase.exactCasePath ?? `/refunds?case=${selectedCase.id}`}
-                            aria-label={`Open exact case ${selectedCase.publicReference}`}
-                          >
-                            <ExternalLink className="mr-2 h-4 w-4" />
-                            Open exact case
-                          </a>
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => void copyExactCaseLink(
-                            selectedCase.exactCasePath ?? `/refunds?case=${selectedCase.id}`
-                          )}
-                        >
-                          Copy exact link
-                        </Button>
-                      </div>
                     </div>
 
-                    {selectedCaseIsReviewOnly && (
+                    {selectedCaseIsReviewOnly && !selectedCaseIsTerminal && !selectedCase.providerHold && (
                       <div
                         data-testid={
                           selectedCase.legacyStateReviewRequired
@@ -5875,12 +5190,10 @@ export default function AdminRefundsPage() {
                             ? 'refund-manager-verification-banner'
                             : 'refund-review-only-banner'
                         }
-                        className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"
+                        className="border-b border-border pb-4 text-sm text-muted-foreground"
                       >
-                        <div className="flex items-start gap-2">
-                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                          <div>
-                            <p className="font-semibold">
+                        <div>
+                            <p className="font-medium text-foreground">
                               {selectedCase.legacyStateReviewRequired
                                 ? 'Historical payment review'
                                 : selectedCaseOfficialActionBlockReason === 'manager_verification_required'
@@ -5895,7 +5208,6 @@ export default function AdminRefundsPage() {
                                 ? 'You can review the history and refresh the transaction results.'
                                 : 'You can still review the case, check transactions, and request information from the customer.'}
                             </p>
-                          </div>
                         </div>
                       </div>
                     )}
@@ -5965,11 +5277,26 @@ export default function AdminRefundsPage() {
                       </div>
                     )}
 
-                    {selectedCase.status === 'draft' || selectedCase.paymentMethod === 'unknown'
-                      ? renderGmailDraftWorkbench()
-                      : selectedCase.paymentMethod === 'card'
-                        ? renderCardDecisionWorkbench()
-                        : renderCashDecisionWorkbench()}
+                    {selectedCaseIsTerminal ? (
+                      <section data-testid="refund-terminal-history" className="border-t border-border pt-4">
+                        <p className="font-medium text-foreground">{primaryAction?.label}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">{primaryAction?.helper}</p>
+                        {selectedCase.decisionReason && (
+                          <div className="mt-4">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Decision reason
+                            </p>
+                            <p className="mt-1 whitespace-pre-line text-sm text-foreground">
+                              {selectedCase.decisionReason}
+                            </p>
+                          </div>
+                        )}
+                      </section>
+                    ) : selectedCase.status === 'draft' || selectedCase.paymentMethod === 'unknown'
+                        ? renderGmailDraftWorkbench()
+                        : selectedCase.paymentMethod === 'card'
+                          ? renderCardDecisionWorkbench()
+                          : renderCashDecisionWorkbench()}
 
                     {(latestPendingNayaxCompletionMessage || latestFailedNayaxCompletionMessage) && (
                       <section
@@ -7060,321 +6387,6 @@ export default function AdminRefundsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog
-        open={isOwnerTotpEnrollmentOpen}
-        onOpenChange={(open) => {
-          if (!open && !isVerifyingOwnerTotpEnrollment) {
-            void handleCancelOwnerTotpEnrollment();
-          }
-        }}
-      >
-        <AlertDialogContent
-          data-testid="refund-owner-totp-enrollment-dialog"
-          className="max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-lg overflow-y-auto p-4 sm:max-h-[calc(100dvh-2rem)] sm:w-full sm:p-6"
-        >
-          <AlertDialogHeader>
-            <AlertDialogTitle>Set up your refund authenticator</AlertDialogTitle>
-            <AlertDialogDescription>
-              This private setup window lasts five minutes and closes after one successful enrollment. No refund can be issued from this setup screen.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-
-          <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950">
-            <p className="font-medium">Only you should complete this step</p>
-            <p className="mt-1">
-              Scan and enter the code yourself in this private browser. Do not share the screen, QR code, or six-digit code with an agent or another person.
-            </p>
-          </div>
-
-          {ownerTotpEnrollmentWindowExpiresAt && (
-            <p className="text-sm text-muted-foreground" data-testid="refund-owner-totp-expiry">
-              Finish before {new Date(ownerTotpEnrollmentWindowExpiresAt).toLocaleTimeString([], {
-                hour: 'numeric',
-                minute: '2-digit',
-              })}. If time runs out, this screen closes and removes unfinished setup.
-            </p>
-          )}
-
-          {ownerTotpEnrollmentQrCode && (
-            <div className="space-y-3" data-testid="refund-owner-totp-enrollment-panel">
-              <div className="flex justify-center rounded-md bg-white p-3">
-                <img
-                  src={ownerTotpEnrollmentQrCode}
-                  alt="One-time refund authenticator enrollment QR code"
-                  className="h-48 w-48"
-                  data-private-no-screenshot="true"
-                />
-              </div>
-              <Label htmlFor="refund-owner-totp-enrollment-code">
-                Current code from the new authenticator
-              </Label>
-              <InputOTP
-                id="refund-owner-totp-enrollment-code"
-                maxLength={6}
-                inputMode="numeric"
-                pattern="[0-9]*"
-                value={ownerTotpEnrollmentCode}
-                onChange={setOwnerTotpEnrollmentCode}
-                disabled={isVerifyingOwnerTotpEnrollment || isCancellingOwnerTotpEnrollment}
-                autoFocus
-              >
-                <InputOTPGroup>
-                  {[0, 1, 2, 3, 4, 5].map((index) => (
-                    <InputOTPSlot key={index} index={index} />
-                  ))}
-                </InputOTPGroup>
-              </InputOTP>
-            </div>
-          )}
-
-          {ownerTotpEnrollmentError && (
-            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
-              {ownerTotpEnrollmentError}
-            </div>
-          )}
-
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isVerifyingOwnerTotpEnrollment || isCancellingOwnerTotpEnrollment}>
-              Cancel setup
-            </AlertDialogCancel>
-            <Button
-              type="button"
-              data-testid="refund-owner-totp-verify"
-              onClick={() => void handleVerifyOwnerTotpEnrollment()}
-              disabled={ownerTotpEnrollmentCode.length !== 6 || isVerifyingOwnerTotpEnrollment || isCancellingOwnerTotpEnrollment}
-            >
-              {isVerifyingOwnerTotpEnrollment && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Finish setup
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog
-        open={Boolean(pendingManagerStepUp)}
-        onOpenChange={(open) => {
-          if (!open && !isCompletingManagerStepUp) {
-            void handleCancelManagerStepUp();
-          }
-        }}
-      >
-        <AlertDialogContent
-          data-testid="refund-manager-step-up-dialog"
-          className="max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-lg overflow-y-auto p-4 sm:max-h-[calc(100dvh-2rem)] sm:w-full sm:p-6"
-        >
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirm this action</AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingManagerStepUp?.action === 'decline'
-                ? 'Record this refund decision'
-                : pendingManagerStepUp?.action === 'cash_complete'
-                  ? 'Complete the reviewed cash refund'
-                  : pendingManagerStepUp?.action === 'nayax_execute'
-                      ? 'Issue this card refund'
-                    : pendingManagerStepUp?.action === 'nayax_resolve'
-                      ? 'Confirm this payment-support result'
-                    : 'Approve this refund'}{' '}
-              for {selectedCase?.publicReference ?? 'this case'}. This confirmation expires in two minutes.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-
-          <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950">
-            <p className="font-medium">
-              {pendingManagerStepUp?.action === 'nayax_resolve'
-                ? 'Payment-support confirmation required'
-                : 'Manager confirmation required'}
-            </p>
-            <p className="mt-1">
-              Enter your authenticator code in your own manager session. Do not share the code.
-            </p>
-            <p className="mt-2">
-              {pendingNayaxResolutionPayload
-                ? ['provider_confirmed_success', 'documented_manual_completion'].includes(
-                    pendingNayaxResolutionPayload.resolutionResult
-                  )
-                  ? 'This does not retry the refund. Bloomjoy will record the confirmed result and email the customer in the original thread.'
-                  : 'This records the result shown below. It does not retry the refund or contact the customer.'
-                : 'You can take this action because you are assigned to manage this machine.'}
-            </p>
-          </div>
-
-          <div
-            className="grid gap-2 rounded-lg border border-border bg-muted/30 p-3 text-sm sm:grid-cols-3"
-            data-testid="refund-manager-step-up-summary"
-          >
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Case</p>
-              <p className="mt-1 font-medium text-foreground">{selectedCase?.publicReference ?? 'Review required'}</p>
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Amount</p>
-              <p className="mt-1 font-medium text-foreground">
-                {formatCurrency(selectedCase?.refundAmountCents ?? selectedCase?.paymentAmountCents ?? null)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Machine</p>
-              <p className="mt-1 font-medium text-foreground">{selectedCase?.machineLabel ?? 'Review required'}</p>
-            </div>
-          </div>
-
-          {pendingNayaxResolutionPayload && (
-            <div
-              className="grid gap-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm sm:grid-cols-2"
-              data-testid="refund-nayax-resolution-step-up-summary"
-            >
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-orange-800">Confirmed outcome</p>
-                <p className="mt-1 font-medium text-orange-950">
-                  {nayaxResolutionResultOptions.find(
-                    ({ value }) => value === pendingNayaxResolutionPayload.resolutionResult
-                  )?.label ?? 'Review required'}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-orange-800">Confirmation source</p>
-                <p className="mt-1 font-medium text-orange-950">
-                  {nayaxResolutionEvidenceOptions[pendingNayaxResolutionPayload.resolutionResult].find(
-                    ({ value }) => value === pendingNayaxResolutionPayload.evidenceType
-                  )?.label ?? 'Review required'}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-orange-800">Confirmed result</p>
-                <p className="mt-1 font-medium text-orange-950">
-                  {nayaxResolutionReasonOptions[pendingNayaxResolutionPayload.resolutionResult].find(
-                    ({ value }) => value === pendingNayaxResolutionPayload.reasonCode
-                  )?.label ?? 'Review required'}
-                </p>
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-medium uppercase tracking-wide text-orange-800">Reference number</p>
-                <p className="mt-1 break-all font-mono text-xs font-medium text-orange-950">
-                  {pendingNayaxResolutionPayload.evidenceReference}
-                </p>
-              </div>
-              {pendingNayaxResolutionPayload.evidenceOccurredAt && (
-                <div className="sm:col-span-2">
-                  <p className="text-xs font-medium uppercase tracking-wide text-orange-800">Refund issued at</p>
-                  <p className="mt-1 font-medium text-orange-950">
-                    {new Date(pendingNayaxResolutionPayload.evidenceOccurredAt).toLocaleString(undefined, {
-                      year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-                      timeZone: 'UTC', timeZoneName: 'short',
-                    })}
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {totpEnrollmentQrCode ? (
-            <div className="space-y-3 rounded-lg border border-border p-3" data-testid="refund-totp-enrollment-panel">
-              <div>
-                <p className="font-medium text-foreground">Set up your authenticator</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Scan this code once. Do not screenshot, copy, email, or share it.
-                </p>
-              </div>
-              <div className="flex justify-center rounded-md bg-white p-3">
-                <img
-                  src={totpEnrollmentQrCode}
-                  alt="One-time authenticator enrollment QR code"
-                  className="h-48 w-48"
-                  data-private-no-screenshot="true"
-                />
-              </div>
-              <Label htmlFor="refund-totp-enrollment-code">Verify the new authenticator</Label>
-              <InputOTP
-                id="refund-totp-enrollment-code"
-                maxLength={6}
-                inputMode="numeric"
-                pattern="[0-9]*"
-                value={totpEnrollmentCode}
-                onChange={setTotpEnrollmentCode}
-                disabled={isVerifyingTotpEnrollment}
-              >
-                <InputOTPGroup>
-                  {[0, 1, 2, 3, 4, 5].map((index) => (
-                    <InputOTPSlot key={index} index={index} />
-                  ))}
-                </InputOTPGroup>
-              </InputOTP>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void handleVerifyTotpEnrollment()}
-                disabled={totpEnrollmentCode.length !== 6 || isVerifyingTotpEnrollment}
-              >
-                {isVerifyingTotpEnrollment && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Finish setup
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <Label htmlFor="refund-manager-step-up-code">Current authenticator code</Label>
-              <InputOTP
-                id="refund-manager-step-up-code"
-                maxLength={6}
-                inputMode="numeric"
-                pattern="[0-9]*"
-                value={managerStepUpCode}
-                onChange={setManagerStepUpCode}
-                disabled={isCompletingManagerStepUp}
-                autoFocus
-              >
-                <InputOTPGroup>
-                  {[0, 1, 2, 3, 4, 5].map((index) => (
-                    <InputOTPSlot key={index} index={index} />
-                  ))}
-                </InputOTPGroup>
-              </InputOTP>
-              <details className="text-sm text-muted-foreground">
-                <summary className="cursor-pointer font-medium">Need to set up your authenticator?</summary>
-                <p className="mt-2">
-                  Setup is available only when an account owner enables it. Use your own private session.
-                </p>
-                <p className="mt-2">
-                  If your device is lost or replaced, ask the account owner to help recover access before issuing refunds.
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="mt-2"
-                  onClick={() => void handleBeginTotpEnrollment()}
-                  disabled={isStartingTotpEnrollment}
-                >
-                  {isStartingTotpEnrollment && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Begin setup
-                </Button>
-              </details>
-            </div>
-          )}
-
-          {managerStepUpError && (
-            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
-              {managerStepUpError}
-            </div>
-          )}
-
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isCompletingManagerStepUp || isVerifyingTotpEnrollment}>
-              Cancel; take no action
-            </AlertDialogCancel>
-            {!totpEnrollmentQrCode && (
-              <Button
-                type="button"
-                data-testid="refund-manager-step-up-submit"
-                onClick={() => void handleCompleteManagerStepUp()}
-                disabled={managerStepUpCode.length !== 6 || isCompletingManagerStepUp}
-              >
-                {isCompletingManagerStepUp && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Verify and authorize once
-              </Button>
-            )}
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </AppLayout>
   );
 }

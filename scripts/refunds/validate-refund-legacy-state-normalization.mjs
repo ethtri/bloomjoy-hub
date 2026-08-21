@@ -114,7 +114,8 @@ assert(
     managerState.includes('refundCase.legacyStateReviewRequired') &&
     managerState.includes("'Manager review needed'") &&
     managerState.includes("return 'Not issued'") &&
-    portal.includes('Payment: {getRefundPaymentStateLabel') &&
+    portal.includes('data-testid="refund-manager-state"') &&
+    portal.includes('data-testid="refund-manager-next-step"') &&
     portal.includes("return 'Fresh check needed'") &&
     portal.includes("label: 'Refresh transaction results'") &&
     portal.includes('refund-legacy-state-review-banner') &&

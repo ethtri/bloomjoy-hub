@@ -175,11 +175,10 @@ select ok(
     ) overview_case
     where overview_case ->> 'id' =
       'b1600000-0000-4000-8000-000000000002'
-      and not (overview_case ->> 'canPerformOfficialAction')::boolean
-      and overview_case ->> 'officialActionBlockReason' =
-        'official_actions_disabled'
+      and (overview_case ->> 'canPerformOfficialAction')::boolean
+      and overview_case -> 'officialActionBlockReason' = 'null'::jsonb
   ),
-  'The overview keeps unrelated official actions behind the broad hard-off gate'
+  'The mapped manager can review a non-Nayax case without a TOTP presentation gate'
 );
 
 select set_config('request.jwt.claim.sub', '', true);

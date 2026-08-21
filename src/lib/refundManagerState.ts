@@ -72,7 +72,7 @@ const state = (
 
 export const getRefundManagerState = (
   refundCase: RefundManagerCaseFacts,
-  options: { isRefunding?: boolean } = {}
+  options: { isRefunding?: boolean; canResolveHeldResult?: boolean } = {}
 ): RefundManagerState => {
   if (refundCase.status === 'completed') {
     return state(
@@ -115,12 +115,21 @@ export const getRefundManagerState = (
   }
 
   if (refundCase.providerHold || refundCase.providerOutcome === 'unconfirmed') {
+    if (options.canResolveHeldResult) {
+      return state(
+        'check_nayax_result',
+        'Provider confirmation ready',
+        'The payment provider has an authoritative result for this refund.',
+        'Record the result below. This step cannot send another refund.',
+        'info'
+      );
+    }
     return state(
       'check_nayax_result',
-      'Confirm refund result',
-      'Bloomjoy could not confirm whether the refund completed.',
-      'Do not issue another refund. Ask payment support to confirm what happened.',
-      'warning'
+      'Refund result is being checked',
+      'The payment provider has not confirmed the final result yet.',
+      'Do not refund again. Payment support owns the next step.',
+      'neutral'
     );
   }
 

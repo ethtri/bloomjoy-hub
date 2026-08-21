@@ -50,9 +50,9 @@ const run = async () => {
   assert(
     'Portal shows failed customer email as separate visible manager work',
     includesAll(portalPage, [
-      'Email needs attention',
-      'Customer: {getCustomerCommunicationLabel(selectedCase)}',
+      "latestMessage?.status === 'failed'",
       'Retry customer email',
+      'Resolve uncertain Gmail delivery',
       'getLatestCustomerMessage',
     ])
   );

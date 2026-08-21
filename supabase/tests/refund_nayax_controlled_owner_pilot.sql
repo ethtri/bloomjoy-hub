@@ -3,6 +3,12 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
+-- The controlled-pilot suite exercises the retired gate state. The replacement
+-- manager-session flow is covered independently.
+create or replace function public.refund_official_actions_enabled()
+returns boolean language sql immutable set search_path = public
+as $$ select false; $$;
+
 select plan(55);
 
 select is(

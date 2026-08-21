@@ -65,7 +65,7 @@ assert.match(
 );
 assert.match(
   lifecycleSource,
-  /getByLabel\('Filter refund cases by status'\)[\s\S]*?waitFor\(\{ state: 'visible', timeout \}\)[\s\S]*?refund_portal_route_commit_barrier_failed/
+  /getByLabel\('Refund case views'\)[\s\S]*?waitFor\(\{ state: 'visible', timeout \}\)[\s\S]*?refund_portal_route_commit_barrier_failed/
 );
 assert.doesNotMatch(portalSource, /await\s+[A-Za-z_$][\w$]*\.goto\(/);
 assert.doesNotMatch(portalSource, /await\s+[A-Za-z_$][\w$]*\.reload\(/);

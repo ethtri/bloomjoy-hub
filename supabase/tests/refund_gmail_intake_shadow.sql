@@ -1,4 +1,15 @@
 begin;
+
+-- This suite covers the retired intake-shadow window in isolation. The normal
+-- manager flow intentionally enables official actions in the current schema.
+create or replace function public.refund_official_actions_enabled()
+returns boolean language sql immutable set search_path = public
+as $$ select false; $$;
+
+create or replace function public.refund_nayax_outcome_resolution_enabled()
+returns boolean language sql immutable set search_path = public
+as $$ select false; $$;
+
 select plan(80);
 
 select has_table(

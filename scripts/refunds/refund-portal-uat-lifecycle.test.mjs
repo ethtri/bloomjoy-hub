@@ -314,7 +314,7 @@ test('route commit barrier requires the exact visible Refund workbench control',
   };
   await waitForRefundPortalRouteCommitted(page, { timeout: 1234 });
   assert.deepEqual(calls, [
-    ['label', 'Filter refund cases by status'],
+    ['label', 'Refund case views'],
     ['wait', { state: 'visible', timeout: 1234 }],
   ]);
 
