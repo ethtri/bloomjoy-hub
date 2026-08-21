@@ -5,9 +5,11 @@ const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8
 
 const [
   linkageMigration,
+  formOnlyMigration,
   duplicateMigration,
   queueMigration,
   linkageTest,
+  formOnlyTest,
   duplicateTest,
   firstContact,
   gmailSync,
@@ -22,9 +24,11 @@ const [
   emailRunbook,
 ] = await Promise.all([
   read('supabase/migrations/202608050001_refund_email_pilot_linkage.sql'),
+  read('supabase/migrations/20260821090000_refund_form_only_case_creation.sql'),
   read('supabase/migrations/202608050002_refund_email_duplicate_reconciliation.sql'),
   read('supabase/migrations/202608050003_refund_email_queue_state.sql'),
   read('supabase/tests/refund_gmail_first_contact_manager_cc.sql'),
+  read('supabase/tests/refund_form_only_case_creation.sql'),
   read('supabase/tests/refund_email_duplicate_reconciliation.sql'),
   read('supabase/functions/_shared/refund-first-contact.ts'),
   read('supabase/functions/refund-gmail-sync/index.ts'),
@@ -47,15 +51,25 @@ assert(
 );
 assert(
   gmailSync.includes('createRefundGmailIntakeContextToken') &&
-    gmailSync.includes('service_register_refund_gmail_intake_link') &&
+    gmailSync.includes('service_register_refund_gmail_contact_link') &&
     gmailSync.includes('recipientPolicy: "premapping_acknowledgement"') &&
     gmailSync.includes('ccEmails: []'),
   'First contact must use a private context and the explicit no-CC pre-mapping exception.',
 );
 assert(
   gmailTransport.includes('recipientPolicy?: "manager_cc_required" | "premapping_acknowledgement"') &&
-    gmailTransport.includes('operationKey.startsWith("refund-first-contact:")'),
+    gmailTransport.includes('operationKey.startsWith("refund-contact-first-response:")'),
   'The no-CC transport exception must be structurally limited to automatic first contact.',
+);
+assert(
+  formOnlyMigration.includes('create table if not exists public.refund_gmail_intake_contacts') &&
+    formOnlyMigration.includes('status in (\'awaiting_form\', \'linked\', \'expired\')') &&
+    formOnlyMigration.includes('service_create_refund_case_from_gmail_contact_form') &&
+    formOnlyMigration.includes("'contact_alone_created_case', false") &&
+    formOnlyTest.includes('Customer contact creates zero refund cases') &&
+    formOnlyTest.includes('Submitting the hosted form creates exactly one refund case') &&
+    intake.includes('service_create_refund_case_from_gmail_contact_form'),
+  'The pilot must keep pre-form contact context private and create exactly one case only when the Bloomjoy form is submitted.',
 );
 assert(
   linkageMigration.includes('create table if not exists public.refund_gmail_intake_links') &&
@@ -163,13 +177,14 @@ assert(
 );
 assert(
   emailRunbook.includes('with no Hub customer first-contact Gmail delivery') &&
-    emailRunbook.includes('send the deterministic internal action-needed notice to the resolved current manager route or the operations fallback') &&
-    emailRunbook.includes('the customer is never a recipient of that internal notice') &&
+    emailRunbook.includes('may record a private pre-form contact but creates zero `refund_cases`') &&
+    emailRunbook.includes('the customer is never a recipient of an internal notice') &&
     emailRunbook.includes('The owner-controlled case-specific original-thread proof has also passed') &&
     emailRunbook.includes('explicit production-label and legacy-responder cutover approval') &&
+    emailRunbook.includes('customer contact alone never creates a Hub case') &&
     !emailRunbook.includes('with no outbound delivery') &&
     !emailRunbook.includes('until the remaining case-specific CC proof'),
-  'The email runbook must distinguish customer first-contact shadow delivery from internal manager notices and record the completed case-specific proof.',
+  'The email runbook must preserve zero-case pre-form contact, distinguish internal notices, and record the completed case-specific proof.',
 );
 
-console.log('Refund email pilot validation passed: one-link pre-mapping acknowledgement, private email-to-form linkage, attachment-off intake, duplicate guards, and manager queue signals are present with production switches off.');
+console.log('Refund email pilot validation passed: zero-case pre-form contact, exactly-once hosted-form case creation, attachment-off intake, duplicate guards, and manager queue signals are present with production switches off.');
