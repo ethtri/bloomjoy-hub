@@ -919,7 +919,10 @@ export const sendRefundGmailReply = async ({
   const premappingNoCcAllowed =
     recipientPolicy === "premapping_acknowledgement" &&
     effectiveDeliveryKind === "automatic" &&
-    operationKey.startsWith("refund-first-contact:") &&
+    (
+      operationKey.startsWith("refund-first-contact:") ||
+      operationKey.startsWith("refund-contact-first-response:")
+    ) &&
     normalizedCc.length === 0 &&
     ccEmails.length === 0;
   if (

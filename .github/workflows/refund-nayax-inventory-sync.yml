@@ -1,0 +1,56 @@
+name: Refund Nayax Inventory Sync
+
+on:
+  schedule:
+    - cron: '11 * * * *'
+  workflow_dispatch:
+    inputs:
+      account_key:
+        description: 'Optional configured Nayax account key'
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refund-nayax-inventory-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SYNC_URL: ${{ secrets.REFUND_NAYAX_INVENTORY_SYNC_URL }}
+      SYNC_TOKEN: ${{ secrets.REFUND_NAYAX_INVENTORY_SYNC_TOKEN }}
+      SYNC_ENABLED: ${{ vars.REFUND_NAYAX_INVENTORY_SYNC_ENABLED || 'false' }}
+      ACCOUNT_KEY: ${{ inputs.account_key || '' }}
+    steps:
+      - name: Keep scheduled sync off until production activation
+        if: github.event_name == 'schedule' && env.SYNC_ENABLED != 'true'
+        run: echo "Refund Nayax inventory sync is disabled."
+
+      - name: Sync configured Nayax accounts
+        if: github.event_name == 'workflow_dispatch' || env.SYNC_ENABLED == 'true'
+        shell: bash
+        run: |
+          if [[ -z "$SYNC_URL" || -z "$SYNC_TOKEN" ]]; then
+            echo "Missing refund Nayax inventory sync URL or token."
+            exit 1
+          fi
+          RUN_KEY="github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          RESPONSE_FILE="$(mktemp)"
+          HTTP_STATUS=$(curl --silent --show-error --output "$RESPONSE_FILE" --write-out '%{http_code}' \
+            --request POST "$SYNC_URL" \
+            --header "Authorization: Bearer $SYNC_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data "$(jq -n --arg runKey "$RUN_KEY" --arg accountKey "$ACCOUNT_KEY" '{runKey:$runKey,accountKey:$accountKey}')")
+          jq '{status,accountCount,failedAccountCount,results:[.results[]? | {accountKey,status,discoveredCount,activeCount,needsSetupCount,publishedCount,excludedCount,largeDrop,replayed,errorCode}]}' "$RESPONSE_FILE"
+          if [[ "$HTTP_STATUS" -lt 200 || "$HTTP_STATUS" -ge 300 ]] || [[ "$(jq -r '.status // "failed"' "$RESPONSE_FILE")" != "completed" ]]; then
+            echo "Refund Nayax inventory sync requires attention."
+            exit 1
+          fi
+          if [[ "$(jq '[.results[]? | select(.largeDrop == true)] | length' "$RESPONSE_FILE")" != "0" ]]; then
+            echo "Refund Nayax inventory active count dropped by more than 20%; review before reconciliation."
+            exit 1
+          fi

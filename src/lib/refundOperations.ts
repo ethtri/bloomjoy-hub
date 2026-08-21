@@ -551,6 +551,45 @@ export type RefundManagerSetup = {
   machines: RefundManagerSetupMachine[];
 };
 
+export type RefundNayaxInventoryState = 'published' | 'needs_setup' | 'excluded';
+export type RefundNayaxInventoryCategory = 'cotton_candy' | 'snapcase' | null;
+
+export type RefundNayaxInventoryMachine = {
+  id: string;
+  accountKey: string;
+  nayaxMachineId: string;
+  machineName: string | null;
+  machineNumber: string | null;
+  providerActive: boolean;
+  category: RefundNayaxInventoryCategory;
+  reportingMachineId: string | null;
+  state: RefundNayaxInventoryState;
+  setupReason: string;
+  exclusionReason: string | null;
+  missingSuccessfulSnapshots: number;
+  lastSeenAt: string;
+  lastSuccessfulSyncAt: string;
+};
+
+export type RefundNayaxInventory = {
+  summary: {
+    active: number;
+    published: number;
+    needsSetup: number;
+    excluded: number;
+    stalePublished: number;
+  };
+  lastRun: {
+    status: 'completed' | 'failed';
+    completedAt: string;
+    errorCode: string | null;
+    activeCount: number;
+    previousActiveCount: number | null;
+    largeDrop: boolean;
+  } | null;
+  machines: RefundNayaxInventoryMachine[];
+};
+
 export type UpdateRefundCaseInput = {
   caseId: string;
   expectedOfficialActionVersion: number;
@@ -1536,6 +1575,44 @@ export const fetchRefundManagerSetup = async (): Promise<RefundManagerSetup> => 
     ...emptyRefundManagerSetup,
     ...((data as Partial<RefundManagerSetup> | null) ?? {}),
   };
+};
+
+export const fetchRefundNayaxInventory = async (): Promise<RefundNayaxInventory> => {
+  const { data, error } = await supabaseClient.rpc('admin_get_refund_nayax_inventory');
+  if (error) throw new Error(error.message || 'Unable to load the Nayax refund inventory.');
+  const inventory = data as Partial<RefundNayaxInventory> | null;
+  return {
+    summary: inventory?.summary ?? { active: 0, published: 0, needsSetup: 0, excluded: 0, stalePublished: 0 },
+    lastRun: inventory?.lastRun ?? null,
+    machines: Array.isArray(inventory?.machines) ? inventory.machines : [],
+  };
+};
+
+export const reconcileRefundNayaxMachineAdmin = async ({
+  inventoryId,
+  state,
+  category,
+  reportingMachineId,
+  exclusionReason,
+  reason,
+}: {
+  inventoryId: string;
+  state: RefundNayaxInventoryState;
+  category: RefundNayaxInventoryCategory;
+  reportingMachineId: string | null;
+  exclusionReason: string | null;
+  reason: string;
+}) => {
+  const { data, error } = await supabaseClient.rpc('admin_reconcile_refund_nayax_machine', {
+    p_inventory_id: inventoryId,
+    p_reconciliation_state: state,
+    p_refund_category: category,
+    p_reporting_machine_id: reportingMachineId,
+    p_exclusion_reason: exclusionReason,
+    p_reason: reason,
+  });
+  if (error || !data) throw new Error(error?.message || 'Unable to reconcile the Nayax machine.');
+  return data as { ok: boolean; inventoryId: string; state: RefundNayaxInventoryState };
 };
 
 export type UpdateRefundCaseResponse = {

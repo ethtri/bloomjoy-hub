@@ -15,6 +15,7 @@ const [
   participantMigration,
   firstContactCcMigration,
   pilotLinkageMigration,
+  formOnlyMigration,
   followUpMigration,
   firstContactHelper,
   retentionMigration,
@@ -40,6 +41,7 @@ const [
   syntheticProofDbTest,
   syntheticProofConcurrencyTest,
   firstContactCcTest,
+  formOnlyTest,
   evidenceHarness,
   packageJson,
   envExample,
@@ -51,6 +53,7 @@ const [
     read('supabase/migrations/202608030003_refund_gmail_participant_cc.sql'),
     read('supabase/migrations/202608040003_refund_first_contact_manager_cc.sql'),
     read('supabase/migrations/202608050001_refund_email_pilot_linkage.sql'),
+    read('supabase/migrations/20260821090000_refund_form_only_case_creation.sql'),
     read('supabase/migrations/202608030005_refund_deterministic_follow_up_cycles.sql'),
     read('supabase/functions/_shared/refund-first-contact.ts'),
     read('supabase/migrations/202608040002_refund_gmail_retention_safety.sql'),
@@ -76,6 +79,7 @@ const [
     read('supabase/tests/refund_synthetic_gmail_proof_authorization.sql'),
     read('supabase/tests/refund_synthetic_gmail_proof_concurrency.sql'),
     read('supabase/tests/refund_gmail_first_contact_manager_cc.sql'),
+    read('supabase/tests/refund_form_only_case_creation.sql'),
     read('scripts/refunds/generate-refund-gmail-evidence.ts'),
     read('package.json'),
     read('.env.example'),
@@ -657,14 +661,23 @@ assert(
 );
 assert(
   syncFunction.includes('processFirstContact') &&
-    syncFunction.includes('service_claim_refund_gmail_first_contact') &&
-    syncFunction.includes('service_register_refund_gmail_intake_link') &&
-    syncFunction.includes('service_prepare_refund_gmail_first_contact_delivery') &&
+    syncFunction.includes('service_claim_refund_gmail_contact_first_response') &&
+    syncFunction.includes('service_register_refund_gmail_contact_link') &&
+    syncFunction.includes('service_prepare_refund_gmail_contact_first_response') &&
     syncFunction.includes('ccEmails: []') &&
     syncFunction.includes('deliveryKind: "automatic"') &&
-    syncFunction.indexOf('service_prepare_refund_gmail_first_contact_delivery') <
+    syncFunction.indexOf('service_prepare_refund_gmail_contact_first_response') <
       syncFunction.indexOf('sent = await sendRefundGmailReply'),
-  'Gmail sync must claim one private hosted-form link and deliver the no-CC pre-mapping acknowledgement on the original thread',
+  'Gmail sync must claim one private pre-form contact link and deliver the no-CC response on the original thread',
+);
+assert(
+  formOnlyMigration.includes('create table if not exists public.refund_gmail_intake_contacts') &&
+    formOnlyMigration.includes('contact_alone_created_case') &&
+    formOnlyMigration.includes('service_create_refund_case_from_gmail_contact_form') &&
+    formOnlyMigration.includes("intake_source, intake_meta") &&
+    intakeFunction.includes('service_create_refund_case_from_gmail_contact_form') &&
+    !syncFunction.includes('"service_ingest_refund_gmail_message_v2",\n                {'),
+  'Normal Gmail contact must stay outside refund_cases until the hosted Bloomjoy form creates one case',
 );
 assert(
   pilotLinkageMigration.includes('service_prepare_refund_gmail_first_contact_delivery') &&
@@ -685,9 +698,19 @@ assert(
 assert(
   syncFunction.includes('service_claim_refund_gmail_first_contact_reconciliation_batch') &&
     syncFunction.includes('service_count_refund_gmail_first_contact_reconciliation') &&
+    syncFunction.includes('service_claim_refund_gmail_contact_reconciliation_batch') &&
+    syncFunction.includes('service_count_refund_gmail_contact_response_reconciliation') &&
     syncFunction.indexOf('await reconcileOutstandingFirstContacts') <
       syncFunction.indexOf('while (counters.threadsScanned < maxThreads)'),
   'Outstanding first-contact delivery must rotate and reconcile independently of new-send mode and sender eligibility',
+);
+assert(
+  formOnlyMigration.includes('service_purge_refund_gmail_intake_contacts') &&
+    formOnlyMigration.includes("retention_expires_at = clock_timestamp()") &&
+    syncFunction.includes('service_purge_refund_gmail_intake_contacts') &&
+    syncFunction.indexOf('service_purge_refund_gmail_intake_contacts') <
+      syncFunction.indexOf('service_settle_refund_gmail_retention_run'),
+  'Private pre-form contact copies must join the independently gated Gmail retention run',
 );
 const firstContactReconciliationSync = syncFunction.slice(
   syncFunction.indexOf('const reconcileOutstandingFirstContacts'),
@@ -723,6 +746,13 @@ assert(
       'service_finish_refund_gmail_first_contact_no_match',
     ),
   'First-contact sync may mint a versioned receipt only in the explicit no-match branch, never for ambiguity or provider errors',
+);
+assert(
+  formOnlyTest.includes('Customer contact creates zero refund cases') &&
+    formOnlyTest.includes('Submitting the hosted form creates exactly one refund case') &&
+    formOnlyTest.includes('A consumed email context cannot create a second case') &&
+    formOnlyTest.includes('The original inbound message and sent response move to the new case thread'),
+  'The form-only database fixture must prove zero cases on contact, one case on submit, replay safety, and original-thread linkage',
 );
 assert(
   syncFunction.includes('counters.firstContactReconciliationOutstanding === 0') &&
@@ -812,7 +842,7 @@ const firstContactProcess = syncFunction.slice(
 assert(
   firstContactProcess.indexOf('requireRefundGmailEnabled();') >= 0 &&
     firstContactProcess.indexOf('requireRefundGmailEnabled();') <
-      firstContactProcess.indexOf('service_claim_refund_gmail_first_contact') &&
+      firstContactProcess.indexOf('service_claim_refund_gmail_contact_first_response') &&
     firstContactProcess.includes('claimRefundGmailDeliveryWhenEnabled'),
   'First-contact send mode must obey the same Gmail switch before creating its delivery claim',
 );

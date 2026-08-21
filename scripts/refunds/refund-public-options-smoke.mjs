@@ -12,33 +12,25 @@ const linkedProjectRefPath = path.join(repoRoot, 'supabase', '.temp', 'project-r
 
 const RESULT_KEYS = [
   'read_only',
-  'active_portfolio_machine_count',
+  'active_inventory_machine_count',
+  'published_inventory_count',
+  'needs_setup_inventory_count',
+  'excluded_inventory_count',
+  'unaccounted_active_count',
   'public_option_count',
-  'missing_portfolio_option_count',
-  'hidden_unsafe_location_count',
+  'published_missing_public_option_count',
+  'stale_published_count',
   'unsafe_internal_label_count',
-  'atlanta_option_count',
-  'dc_option_count',
-  'seattle_option_count',
+  'snapcase_category_count',
   'duplicate_machine_row_count',
   'duplicate_display_row_count',
 ];
 
 export const PUBLIC_OPTIONS_QUERY = `
-with active_portfolio as (
-  select
-    machine.id as machine_id,
-    (
-      lower(trim(location.name)) like 'unmapped %'
-      or lower(trim(location.name)) like 'unknown %'
-      or lower(trim(location.name)) in ('unmapped', 'unknown')
-    ) and nullif(trim(machine.refund_public_display_label), '') is null
-      as hidden_by_unsafe_location
-  from public.reporting_machines machine
-  join public.reporting_locations location on location.id = machine.location_id
-  where machine.status = 'active'
-    and machine.machine_type in ('commercial', 'mini')
-    and location.status = 'active'
+with active_inventory as (
+  select inventory.*
+  from public.refund_nayax_machine_inventory inventory
+  where inventory.provider_is_active
 ),
 options as (
   select *
@@ -46,33 +38,34 @@ options as (
 )
 select
   true as read_only,
-  (select count(*)::integer from active_portfolio) as active_portfolio_machine_count,
+  (select count(*)::integer from active_inventory) as active_inventory_machine_count,
+  (select count(*)::integer from active_inventory where reconciliation_state = 'published') as published_inventory_count,
+  (select count(*)::integer from active_inventory where reconciliation_state = 'needs_setup') as needs_setup_inventory_count,
+  (select count(*)::integer from active_inventory where reconciliation_state = 'excluded') as excluded_inventory_count,
+  (
+    select count(*)::integer from active_inventory
+    where reconciliation_state not in ('published', 'needs_setup', 'excluded')
+  ) as unaccounted_active_count,
   count(*)::integer as public_option_count,
   (
     select count(*)::integer
-    from active_portfolio portfolio
-    left join options option on option.machine_id = portfolio.machine_id
-    where option.machine_id is null
-  ) as missing_portfolio_option_count,
+    from active_inventory inventory
+    left join options option on option.machine_id = inventory.reporting_machine_id
+    where inventory.reconciliation_state = 'published'
+      and option.machine_id is null
+  ) as published_missing_public_option_count,
   (
     select count(*)::integer
-    from active_portfolio portfolio
-    where portfolio.hidden_by_unsafe_location
-  ) as hidden_unsafe_location_count,
+    from public.refund_nayax_machine_inventory inventory
+    left join options option on option.machine_id = inventory.reporting_machine_id
+    where inventory.reconciliation_state = 'published'
+      and (not inventory.provider_is_active or option.machine_id is null)
+  ) as stale_published_count,
   count(*) filter (
     where lower(coalesce(machine_label, '') || ' ' || coalesce(location_name, ''))
       ~ '(unmapped|unknown)'
   )::integer as unsafe_internal_label_count,
-  count(*) filter (
-    where lower(coalesce(machine_label, '') || ' ' || coalesce(location_name, '')) like '%atlanta%'
-  )::integer as atlanta_option_count,
-  count(*) filter (
-    where lower(coalesce(machine_label, '') || ' ' || coalesce(location_name, ''))
-      ~ '(^|[^a-z])(dc|washington)([^a-z]|$)'
-  )::integer as dc_option_count,
-  count(*) filter (
-    where lower(coalesce(machine_label, '') || ' ' || coalesce(location_name, '')) like '%seattle%'
-  )::integer as seattle_option_count,
+  (select count(*)::integer from active_inventory where refund_category = 'snapcase') as snapcase_category_count,
   (count(*) - count(distinct machine_id))::integer as duplicate_machine_row_count,
   (
     count(*)
@@ -159,14 +152,17 @@ export function validateAggregateRow(row) {
 export function determineReadiness(row) {
   const checks = {
     hasPublicOptions: row.public_option_count >= 1,
-    fullPortfolioCoverage:
-      row.missing_portfolio_option_count === 0 &&
-      row.public_option_count === row.active_portfolio_machine_count,
-    noHiddenUnsafeLocations: row.hidden_unsafe_location_count === 0,
+    everyActiveMachineAccounted:
+      row.unaccounted_active_count === 0 &&
+      row.active_inventory_machine_count ===
+        row.published_inventory_count + row.needs_setup_inventory_count + row.excluded_inventory_count,
+    noSetupWorkRemaining: row.needs_setup_inventory_count === 0,
+    everyPublishedMachinePublic:
+      row.published_missing_public_option_count === 0 &&
+      row.stale_published_count === 0 &&
+      row.public_option_count === row.published_inventory_count,
     noInternalLabels: row.unsafe_internal_label_count === 0,
-    atlantaPresent: row.atlanta_option_count >= 1,
-    dcPresent: row.dc_option_count >= 1,
-    seattlePresent: row.seattle_option_count >= 1,
+    snapcaseAccounted: row.snapcase_category_count >= 3,
     noDuplicateMachineRows: row.duplicate_machine_row_count === 0,
     noDuplicateDisplayRows: row.duplicate_display_row_count === 0,
   };
@@ -214,14 +210,16 @@ function printAggregate(row, projectRef) {
   console.log('Refund public-options production smoke');
   console.log(`Project ref: ${projectRef}`);
   console.log('Read-only query: yes');
-  console.log(`Active portfolio machines: ${row.active_portfolio_machine_count}`);
+  console.log(`Active Nayax inventory machines: ${row.active_inventory_machine_count}`);
+  console.log(`Published inventory machines: ${row.published_inventory_count}`);
+  console.log(`Needs setup: ${row.needs_setup_inventory_count}`);
+  console.log(`Explicitly excluded: ${row.excluded_inventory_count}`);
+  console.log(`Unaccounted active machines: ${row.unaccounted_active_count}`);
   console.log(`Public options: ${row.public_option_count}`);
-  console.log(`Missing portfolio options: ${row.missing_portfolio_option_count}`);
-  console.log(`Hidden by unsafe/missing public location label: ${row.hidden_unsafe_location_count}`);
+  console.log(`Published but missing from public options: ${row.published_missing_public_option_count}`);
+  console.log(`Stale published machines: ${row.stale_published_count}`);
   console.log(`Unsafe internal labels: ${row.unsafe_internal_label_count}`);
-  console.log(`Atlanta options: ${row.atlanta_option_count}`);
-  console.log(`DC options: ${row.dc_option_count}`);
-  console.log(`Seattle options: ${row.seattle_option_count}`);
+  console.log(`Explicit Snapcase categories: ${row.snapcase_category_count}`);
   console.log(`Duplicate machine rows: ${row.duplicate_machine_row_count}`);
   console.log(`Duplicate display rows: ${row.duplicate_display_row_count}`);
   console.log(`Overall: ${readiness.ready ? 'PASS' : 'NOT READY'}`);

@@ -95,6 +95,7 @@
     "refunds:validate-manager-workbench": "deno test --no-lock src/lib/refundManagerState.test.ts",
     "refunds:smoke-nayax-mapping": "node scripts/refunds/nayax-mapping-smoke.mjs",
     "refunds:validate-nayax-mapping-smoke": "node scripts/refunds/validate-nayax-mapping-smoke.mjs",
+    "refunds:validate-nayax-inventory": "node scripts/refunds/validate-refund-nayax-inventory.mjs",
     "refunds:validate-automation": "node scripts/refunds/validate-refund-automation.mjs",
     "refunds:validate-manager-aging": "deno test --no-lock supabase/functions/_shared/refund-manager-aging.test.ts && node scripts/refunds/validate-refund-manager-aging.mjs",
     "refunds:build-manager-aging-kill-fragment": "deno run --no-lock --allow-env=REFUND_MANAGER_AGING_NOTICES_ENABLED,REFUND_UAT_EVIDENCE_RUN_TOKEN --allow-write=output/refund-uat-fragments scripts/refunds/build-refund-manager-aging-kill-fragment.ts",

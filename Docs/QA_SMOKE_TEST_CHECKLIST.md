@@ -1,5 +1,18 @@
 # QA Smoke Test Checklist
 
+## Refund Operations v1 Nayax inventory (`#890`)
+
+- [ ] With the sync switch false, scheduled and manual health paths make no Nayax request and no inventory mutation.
+- [ ] A complete synthetic snapshot creates one row per unique account + immutable Nayax machine ID. Replay of the same run key returns the original aggregate and creates no duplicate rows or decisions.
+- [ ] Every active row appears in Admin > Machines as Published, Needs setup, or Excluded. No active row is absent from all three counts.
+- [ ] Snapcase 03, SnapCase Gilroy, and SnapCase Great Mall are explicitly classified `snapcase`; none is inferred from its name or Nayax type, and none is treated as Sunze reporting data.
+- [ ] Publishing a cotton-candy or Snapcase machine fails until the exact Nayax mapping, active location, customer-safe label, and at least one current Machine Manager are present. The same row then appears once in `/refunds/request` with no provider ID exposed.
+- [ ] Test/internal machines remain hidden only after a Super Admin records an explicit exclusion reason and audit note. Removing that decision returns the row to Needs setup.
+- [ ] One successful snapshot missing a machine retains its active/public state. The second consecutive complete successful snapshot marks it inactive and removes it from the public selector. A failed or empty snapshot changes neither state nor absence count.
+- [ ] Duplicate IDs, malformed snapshots, provider failure, a large active-count drop, and stale/failed last run all fail safely and surface operational attention; they never delete or republish inventory.
+- [ ] Submit a stale/tampered machine ID directly to `refund-case-intake`; the server rejects it using the same public inventory eligibility gate used by the selector and creates no case.
+- [ ] Perform one controlled Snapcase transaction lookup only after its exact label/manager/mapping is reviewed. Confirm lookup is read-only, scoped to that immutable machine/account, and live refund execution remains off.
+
 Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Global
@@ -47,6 +60,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Transaction confirmation remains separate from approve/deny, and only confirmed provider success creates one completion email. Replay/double-submit produces no second provider attempt, reporting adjustment, or customer email.
 
 Current manager-session checkpoint (2026-08-20): signed-in mapped managers use one confirmation with no refund-specific TOTP, setup window, temporary operator, or six-digit code. This checkpoint supersedes later historical TOTP/operator checklist items. Provider execution still uses the existing exact transaction, mapping, version, caps, idempotency, duplicate, and settlement controls; outcome reconciliation remains provider-free.
+
+Refund Operations v1 scope checkpoint (2026-08-21): customer contact alone creates no case; hosted form submission creates one case; deterministic reply follow-up reruns matching after material facts change; transaction confirmation and refund approval/denial are separate. GPT, TOTP, operator ceremony, QR-code changes, Kexiazhan reporting, cash fallback, and a new SMS platform are outside this pilot. This checkpoint supersedes later historical checklist items when evaluating the v1 launch.
 
 Historical controlled-pilot regression evidence remains the **ten-function/51-migration default-off foundation**; it is retained for rollback/audit testing and does not define the current manager experience.
 
@@ -149,8 +164,14 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] Card lookup calls Nayax Last Sales for the mapped machine and returns only an opaque candidate token, sanitized factor labels, and time/amount deltas to authorized refund users; raw provider IDs, internal ranking points, and uncalibrated percentage-like confidence stay hidden.
 - [ ] Optional read-only machine products, status, and alerts enrich the sanitized evidence snapshot when available; failures on those optional endpoints do not fail Last Sales lookup, and none of that context changes ranking or proves a failed vend.
 - [ ] A card case with missing required facts runs zero Nayax lookups. When hosted intake, an email-linked completion, or a verified customer-reply recheck first supplies all facts required by `deriveRefundMissingFields`, the existing Nayax lookup runs exactly once for that deterministic fact version without a manager click. Reopening, filtering, rendering, refreshing, or replaying the unchanged case creates no new lookup; one material matching-evidence change permits one refreshed lookup, and concurrent triggers share the same fact-version claim.
+- [ ] An eligible customer email creates one private pre-form contact and zero `refund_cases`; replaying the same Gmail message creates neither another contact nor a case. The first warm Bloomjoy reply contains the hosted `/refunds/request` link, supports ordinary reply-based questions or appeals, and contains no Google Form link.
+- [ ] Force the machine-list-empty and QR-claim-error states on `/refunds/request`; neither state exposes the old Google Form, and the direct-email fallback says that emailing customer service does not submit a refund request.
+- [ ] Submitting the hosted form through the private email context creates exactly one case, links the original Gmail thread and messages, and consumes the context once. Replaying or concurrently submitting the same context creates no second case, email, matching run, or provider attempt.
+- [ ] The existing EasyText/SMS response template points to the same Bloomjoy hosted refund form before activation. No new SMS platform is introduced, and an inbound text without a submitted form creates no Hub case.
+- [ ] A missing-information reply is warm, branded, requests only the missing safe fields, and remains in the original replyable thread. A customer reply updates the same case and automatically reruns matching only when the deterministic matching facts materially change.
 - [ ] The manager sees the existing deterministic recommendation, amount, and plain-language match reasons before deciding. Ambiguous and unmatched results select no transaction and stay open; lookup failure shows an actionable **Refresh transaction results** fallback; the automatic checking state disables that fallback until the current read-only request finishes. No state in this flow invokes `nayax-card-refund` or issues a refund.
 - [ ] Manager confirmation of any candidate that passed the existing hard safety exclusions records one audited selection. Alternate selection requires a structured reason. Wallet digits, recommendation class, and the customer-reported amount do not block the selected transaction; the refund must equal the exact selected Nayax amount.
+- [ ] Transaction confirmation and refund approval/denial are two distinct manager actions. Confirming a transaction cannot issue a refund, approve/deny the case, or send final customer copy; approval or denial requires a current active manager mapping and the normal authenticated manager session, with no TOTP or operator ceremony.
 - [ ] Submit the same local incident date/time from browsers in different timezones and confirm the stored UTC instant is identical because the selected location timezone is canonical; spring-forward gaps and fall-back folds stay manual-review only.
 - [ ] Manager denial path requires a friendly customer-safe reason and does not write to `sales_adjustment_facts`; internal decision notes never appear in customer mail.
 - [ ] `refund-case-admin-update` may send appropriate more-info, safe status, and denial messages without exposing private payloads. Card completion communication is claimable only from confirmed provider settlement.

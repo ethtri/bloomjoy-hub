@@ -311,6 +311,70 @@ const installMockSupabaseRoutes = async (context, state) => {
       return route.fulfill(jsonResponse(buildMockRefundManagerSetup(state)));
     }
 
+    if (url.includes('/admin_get_refund_nayax_inventory')) {
+      return route.fulfill(jsonResponse({
+        summary: { active: 3, published: 1, needsSetup: 1, excluded: 1, stalePublished: 0 },
+        lastRun: {
+          status: 'completed',
+          completedAt: now.toISOString(),
+          errorCode: null,
+          activeCount: 3,
+          previousActiveCount: 3,
+          largeDrop: false,
+        },
+        machines: [
+          {
+            id: '55555555-5555-4555-8555-555555555551',
+            accountKey: 'UAT_ACCOUNT',
+            nayaxMachineId: 'UAT-NAYAX-001',
+            machineName: 'Cotton Candy 01',
+            machineNumber: '001',
+            providerActive: true,
+            category: 'cotton_candy',
+            reportingMachineId: machineId,
+            state: 'published',
+            setupReason: 'ready',
+            exclusionReason: null,
+            missingSuccessfulSnapshots: 0,
+            lastSeenAt: now.toISOString(),
+            lastSuccessfulSyncAt: now.toISOString(),
+          },
+          {
+            id: '55555555-5555-4555-8555-555555555552',
+            accountKey: 'UAT_ACCOUNT',
+            nayaxMachineId: 'UAT-NAYAX-SNAP',
+            machineName: 'Snapcase UAT',
+            machineNumber: '002',
+            providerActive: true,
+            category: 'snapcase',
+            reportingMachineId: null,
+            state: 'needs_setup',
+            setupReason: 'exact_mapping_required',
+            exclusionReason: null,
+            missingSuccessfulSnapshots: 0,
+            lastSeenAt: now.toISOString(),
+            lastSuccessfulSyncAt: now.toISOString(),
+          },
+          {
+            id: '55555555-5555-4555-8555-555555555553',
+            accountKey: 'UAT_ACCOUNT',
+            nayaxMachineId: 'UAT-NAYAX-TEST',
+            machineName: 'Synthetic provider test',
+            machineNumber: null,
+            providerActive: true,
+            category: null,
+            reportingMachineId: null,
+            state: 'excluded',
+            setupReason: 'explicitly_excluded',
+            exclusionReason: 'Synthetic test machine',
+            missingSuccessfulSnapshots: 0,
+            lastSeenAt: now.toISOString(),
+            lastSuccessfulSyncAt: now.toISOString(),
+          },
+        ],
+      }));
+    }
+
     if (url.includes('/admin_upsert_reporting_machine')) {
       const body = route.request().postDataJSON();
       state.machineSavePayload = body;
@@ -481,12 +545,19 @@ const run = async () => {
     ]);
 
     await page.getByRole('heading', { name: 'Machines' }).waitFor({ timeout: 10000 });
-    await page.getByText('Cotton Candy 01').waitFor({ timeout: 10000 });
+    await page.getByRole('table', { name: 'Machine setup' }).getByText('Cotton Candy 01').waitFor({ timeout: 10000 });
+    await page.getByRole('heading', { name: 'Refund Nayax inventory' }).waitFor({ timeout: 10000 });
 
     recorder.assert('Super admin lands on Admin > Machines', pathname(page) === '/admin/machines', page.url());
     recorder.assert(
       'Machines description uses machine manager language',
       await page.getByText(/machine managers/i).first().isVisible()
+    );
+    recorder.assert(
+      'Nayax inventory exposes published, setup, and excluded states',
+      await page.getByText('Snapcase UAT').isVisible()
+        && await page.getByText('Synthetic provider test').isVisible()
+        && await page.getByText('Needs setup', { exact: true }).first().isVisible()
     );
 
     await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Edit' }).click();
