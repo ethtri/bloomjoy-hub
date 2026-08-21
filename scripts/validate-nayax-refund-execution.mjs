@@ -34,6 +34,7 @@ const files = {
   nayaxLookupShared: 'supabase/functions/_shared/nayax-lookup.ts',
   refundAdminUpdate: 'supabase/functions/refund-case-admin-update/index.ts',
   refundCaseMessageSend: 'supabase/functions/refund-case-message-send/index.ts',
+  refundEmailShared: 'supabase/functions/_shared/refund-email.ts',
   refundOperationsLib: 'src/lib/refundOperations.ts',
   refundOperationsUi: 'src/pages/admin/Refunds.tsx',
   refundPortalUat: 'scripts/refunds/validate-refund-portal-uat.mjs',
@@ -84,6 +85,7 @@ const nayaxLookup = read(files.nayaxLookup);
 const nayaxLookupShared = read(files.nayaxLookupShared);
 const refundAdminUpdate = read(files.refundAdminUpdate);
 const refundCaseMessageSend = read(files.refundCaseMessageSend);
+const refundEmailShared = read(files.refundEmailShared);
 const refundOperationsLib = read(files.refundOperationsLib);
 const refundOperationsUi = read(files.refundOperationsUi);
 const refundPortalUat = read(files.refundPortalUat);
@@ -439,8 +441,10 @@ assert(
     refundCaseMessageSend.includes('replyTo: getRefundReplyToEmail()') &&
     refundCaseMessageSend.includes('created_by: user.id') &&
     refundCaseMessageSend.includes('validateRefundCustomerMessageRequest') &&
-    refundCaseMessageSend.includes('decisionReason: null'),
-  'Portal customer messaging must be authorized, logged, editable from approved templates, reply-to the support inbox, and reject premature card approval/completion messages without exposing internal decision notes.'
+    refundCaseMessageSend.includes('decisionReason: refundCase.decision_reason') &&
+    refundEmailShared.includes('sanitizeRefundCustomerSafeDenialReason') &&
+    refundEmailShared.includes('A customer-safe denial reason is required for a denial message.'),
+  'Portal customer messaging must be authorized, logged, editable from approved templates, reply-to the support inbox, reject premature card approval/completion messages, and expose only customer-safe denial reasons.'
 );
 assert(
   !refundOperationsLib.includes('transactionId: string') &&

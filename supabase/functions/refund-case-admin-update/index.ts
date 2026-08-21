@@ -73,6 +73,7 @@ type RefundCaseRow = {
   public_reference: string;
   status: string;
   decision: string | null;
+  decision_reason: string | null;
   customer_email: string;
   customer_name: string | null;
   payment_method: string | null;
@@ -118,6 +119,7 @@ const selectCaseQuery = `
   public_reference,
   status,
   decision,
+  decision_reason,
   customer_email,
   customer_name,
   payment_method,
@@ -291,6 +293,7 @@ const syncAutomationState = async (
     reminder: "more_info_needed",
     approved: "approved",
     denied: "denied",
+    appeal_received: "appeal_received",
     completed: "completed",
     confirmation: "submitted",
     status_update: "under_review",
@@ -343,7 +346,7 @@ const logCustomerMessage = async ({
     refundAmountCents: refundCase.refund_amount_cents ??
       refundCase.payment_amount_cents,
     paymentMethod: refundCase.payment_method,
-    decisionReason: null,
+    decisionReason: refundCase.decision_reason,
     missingFields,
     cardWalletUsed: refundCase.card_wallet_used,
   });
@@ -424,7 +427,7 @@ const sendAndLogCustomerMessage = async (
       refundAmountCents: refundCase.refund_amount_cents ??
         refundCase.payment_amount_cents,
       paymentMethod: refundCase.payment_method,
-      decisionReason: null,
+      decisionReason: refundCase.decision_reason,
       missingFields,
       cardWalletUsed: refundCase.card_wallet_used,
     };
@@ -625,10 +628,9 @@ serve(async (req) => {
       (officialAction || requestedMessageType)
     ) {
       return jsonResponse({
-        error:
-          beforeRow.nayax_refund_execution_status === "declined"
-            ? "Nayax rejected the refund. Leave the case open for payment support and do not send a customer decision from this case."
-            : "Nayax has not confirmed whether the refund was sent. Do not try again or contact the customer until the payment outcome is confirmed.",
+        error: beforeRow.nayax_refund_execution_status === "declined"
+          ? "Nayax rejected the refund. Leave the case open for payment support and do not send a customer decision from this case."
+          : "Nayax has not confirmed whether the refund was sent. Do not try again or contact the customer until the payment outcome is confirmed.",
         errorCode: beforeRow.nayax_refund_execution_status === "declined"
           ? "provider_refund_rejected"
           : "provider_outcome_unconfirmed",
@@ -730,8 +732,13 @@ serve(async (req) => {
       );
     }
 
-    if (requestedMessageType && !managerActionMessageTypes.has(requestedMessageType)) {
-      return jsonResponse({ error: "Choose an approved customer message type for this action." }, 400);
+    if (
+      requestedMessageType &&
+      !managerActionMessageTypes.has(requestedMessageType)
+    ) {
+      return jsonResponse({
+        error: "Choose an approved customer message type for this action.",
+      }, 400);
     }
 
     const evidenceSelectionError = validateRefundEvidenceSelectionRequest({
@@ -1057,7 +1064,8 @@ serve(async (req) => {
       ? requestedMessageType ?? resolveMessageType(beforeRow, afterRow)
       : null;
     const messageType = beforeRow.payment_method === "card" &&
-        (resolvedMessageType === "approved" || resolvedMessageType === "completed")
+        (resolvedMessageType === "approved" ||
+          resolvedMessageType === "completed")
       ? null
       : resolvedMessageType;
     const customerMessage = messageType

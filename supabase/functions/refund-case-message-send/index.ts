@@ -10,6 +10,7 @@ import {
   RefundGmailError,
 } from "../_shared/refund-gmail.ts";
 import {
+  buildBrandedRefundHtmlFromStoredText,
   buildEditableRefundCustomerEmail,
   buildRefundCustomerEmail,
   getRefundReplyToEmail,
@@ -54,14 +55,6 @@ const sanitizeText = (value: unknown, maxLength = 800) =>
     ? String(value).trim().slice(0, maxLength)
     : "";
 
-const escapeHtml = (value: string) =>
-  value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
     .test(value);
@@ -72,6 +65,7 @@ type RefundCaseRow = {
   id: string;
   public_reference: string;
   status: string;
+  decision_reason: string | null;
   customer_email: string;
   customer_name: string | null;
   payment_method: string | null;
@@ -114,6 +108,7 @@ const selectCaseQuery = `
   id,
   public_reference,
   status,
+  decision_reason,
   customer_email,
   customer_name,
   payment_method,
@@ -162,6 +157,7 @@ const syncAutomationFields = async (
     reminder: "more_info_needed",
     approved: "approved",
     denied: "denied",
+    appeal_received: "appeal_received",
     completed: "completed",
     confirmation: "submitted",
     status_update: "under_review",
@@ -250,14 +246,15 @@ serve(async (req) => {
         return jsonResponse({ error: "Refund case access required." }, 403);
       }
 
-      const { data: formPrepared, error: formPrepareError } = await supabase.rpc(
-        "service_prepare_nayax_form_completion_retry",
-        {
-          p_refund_case_id: caseId,
-          p_refund_case_message_id: nayaxCompletionRecoveryMessageId,
-          p_mailbox_identities: getRefundGmailMailboxIdentities(),
-        },
-      );
+      const { data: formPrepared, error: formPrepareError } = await supabase
+        .rpc(
+          "service_prepare_nayax_form_completion_retry",
+          {
+            p_refund_case_id: caseId,
+            p_refund_case_message_id: nayaxCompletionRecoveryMessageId,
+            p_mailbox_identities: getRefundGmailMailboxIdentities(),
+          },
+        );
       const formRetry = formPrepared && typeof formPrepared === "object"
         ? formPrepared as Record<string, unknown>
         : null;
@@ -313,9 +310,10 @@ serve(async (req) => {
               cc: managerCcEmails,
               subject,
               text: messageBody,
-              html: messageBody.split("\n").map((line: string) =>
-                line ? `<p>${escapeHtml(line)}</p>` : "<br>"
-              ).join(""),
+              html: buildBrandedRefundHtmlFromStoredText({
+                headline: "Your refund is on its way",
+                text: messageBody,
+              }),
               replyTo: getRefundReplyToEmail(),
             });
             return true;
@@ -457,9 +455,10 @@ serve(async (req) => {
             email: {
               subject: retrySubject,
               text: retryBody,
-              html: retryBody.split("\n").map((line: string) =>
-                line ? `<p>${escapeHtml(line)}</p>` : "<br>"
-              ).join(""),
+              html: buildBrandedRefundHtmlFromStoredText({
+                headline: "Your refund is on its way",
+                text: retryBody,
+              }),
             },
             deliveryKind: "manual",
             gmailThreadId: retryGmailThreadId,
@@ -653,7 +652,7 @@ serve(async (req) => {
       refundAmountCents: refundCase.refund_amount_cents ??
         refundCase.payment_amount_cents,
       paymentMethod: refundCase.payment_method,
-      decisionReason: null,
+      decisionReason: refundCase.decision_reason,
       missingFields,
       cardWalletUsed: refundCase.card_wallet_used,
     };

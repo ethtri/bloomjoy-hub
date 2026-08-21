@@ -187,7 +187,7 @@ export type RefundCaseMessage = {
   createdAt: string;
   contentSource?: 'deterministic_template' | 'manager_reviewed_gpt' | 'manager_authored' | null;
   deliveryKind?: 'automatic' | 'manual' | null;
-  reasonCode?: 'missing_information' | 'no_safe_match' | null;
+  reasonCode?: 'missing_information' | 'no_safe_match' | 'denial_appeal' | null;
   templateVersion?: string | null;
   requestedFields?: RefundMissingField[];
   followUpCycleId?: string | null;

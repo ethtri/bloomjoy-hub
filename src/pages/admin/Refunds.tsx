@@ -695,6 +695,10 @@ const taskBadgeClass = (refundCase: RefundCaseRecord) =>
 const getLatestCustomerMessage = (refundCase: RefundCaseRecord) =>
   refundCase.messages?.[0] ?? null;
 
+const hasPendingDenialAppeal = (refundCase: RefundCaseRecord) =>
+  refundCase.status === 'needs_review' &&
+  getLatestCustomerMessage(refundCase)?.messageType === 'appeal_received';
+
 const getCustomerCommunicationLabel = (refundCase: RefundCaseRecord) => {
   const latest = getLatestCustomerMessage(refundCase);
   if (!latest) return 'Not contacted';
@@ -713,6 +717,8 @@ const getCustomerCommunicationLabel = (refundCase: RefundCaseRecord) => {
         : 'Approval sent';
     case 'denied':
       return 'Decision sent';
+    case 'appeal_received':
+      return 'Appeal received';
     case 'completed':
       return 'Confirmation sent';
     case 'status_update':
@@ -4834,6 +4840,21 @@ export default function AdminRefundsPage() {
         )}
 
         <section className="rounded-xl border border-border bg-background p-4">
+          {hasPendingDenialAppeal(selectedCase) && (
+            <div
+              data-testid="refund-appeal-needs-review"
+              className="mb-4 flex items-start gap-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-orange-950"
+              role="status"
+            >
+              <MessageSquare className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <div>
+                <p className="text-sm font-semibold">Appeal needs review</p>
+                <p className="mt-1 text-xs leading-5">
+                  The customer replied to the denial. Recheck the same case and transaction, then make a new decision. No refund was authorized by the reply.
+                </p>
+              </div>
+            </div>
+          )}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer update</p>

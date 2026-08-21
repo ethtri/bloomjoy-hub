@@ -1,3 +1,5 @@
+import { renderBloomjoyRefundEmail } from "./refund-email-brand.ts";
+
 export const REFUND_FIRST_CONTACT_TEMPLATE_KEY = "refund_first_contact_v1";
 
 export type RefundFirstContactMode =
@@ -231,14 +233,6 @@ export const isRefundFirstContactSenderAllowed = (
     sanitizeText(senderEmail, 320).toLowerCase(),
   );
 
-const escapeHtml = (value: string) =>
-  value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-
 export const buildRefundFirstContactEmail = (
   input: RefundFirstContactEmailInput,
 ) => {
@@ -278,52 +272,32 @@ export const buildRefundFirstContactEmail = (
   ];
   const text = textParts.join("\n");
 
-  const html = `
-    <!doctype html>
-    <html lang="en">
-      <body style="margin:0;padding:0;background:#fff7f9;font-family:Arial,Helvetica,sans-serif;color:#2f2430;">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#fff7f9;padding:28px 0;">
-          <tr>
-            <td align="center" style="padding:0 16px;">
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#ffffff;border:1px solid #f1d6de;border-radius:22px;overflow:hidden;">
-                <tr>
-                  <td style="background:#e96b8f;color:#ffffff;padding:26px 28px;">
-                    <div style="font-size:12px;letter-spacing:1.4px;text-transform:uppercase;font-weight:700;">Bloomjoy customer care</div>
-                    <div style="font-size:28px;line-height:34px;font-weight:800;margin-top:8px;">We received your message</div>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding:28px;">
-                    <p style="font-size:15px;line-height:24px;margin:0 0 16px;">${
-    escapeHtml(greeting)
-  }</p>
-                    <p style="font-size:15px;line-height:24px;margin:0 0 18px;">Thank you for reaching out. We are sorry something went wrong with your Bloomjoy experience, and we want to make the next step as easy as possible.</p>
-                    <p style="font-size:15px;line-height:24px;margin:0 0 10px;">For a refund review, please use our short request form:</p>
-                    <p style="margin:0 0 18px;"><a href="${
-    escapeHtml(refundRequestUrl)
-  }" style="color:#b83262;font-weight:800;">Open the refund request form</a></p>
-                    <p style="font-size:14px;line-height:22px;margin:0 0 18px;color:#756877;">For troubleshooting or other support information, <a href="${
-    escapeHtml(supportUrl)
-  }" style="color:#b83262;font-weight:700;">visit Bloomjoy support resources</a>.</p>
-                    <p style="font-size:15px;line-height:24px;margin:0 0 18px;">If you already submitted a form, there is no need to submit it again. Reply in this same conversation and we will keep your information together.</p>
-                    ${
-    safePublicReference
-      ? `<p style="font-size:14px;line-height:22px;margin:0 0 18px;"><strong>Reference:</strong> ${
-        escapeHtml(safePublicReference)
-      }</p>`
-      : ""
-  }
-                    <p style="font-size:13px;line-height:21px;margin:0;color:#756877;">For your safety, never email complete payment-card details, security codes, passwords, or wallet screenshots.</p>
-                    <p style="font-size:14px;line-height:22px;margin:20px 0 0;color:#756877;">Warmly,<br />The Bloomjoy Sweets Team</p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-      </body>
-    </html>
-  `;
+  const html = renderBloomjoyRefundEmail({
+    preheader: subject,
+    eyebrow: "Bloomjoy customer care",
+    headline: "We received your message",
+    greeting,
+    paragraphs: [
+      "Thank you for reaching out. We are sorry something went wrong with your Bloomjoy experience, and we want to make the next step as easy as possible.",
+      "For a refund review, please use our short request form.",
+      "If you already submitted a form, there is no need to submit it again. Reply in this same conversation and we will keep your information together.",
+    ],
+    details: safePublicReference
+      ? [{ label: "Reference", value: safePublicReference }]
+      : [],
+    primaryLink: {
+      label: "Open the refund request form",
+      url: refundRequestUrl,
+    },
+    secondaryLink: {
+      label: "Visit Bloomjoy support resources",
+      url: supportUrl,
+    },
+    replyLine:
+      "Reply in this same conversation if you need help with the form.",
+    safetyLine:
+      "For your safety, never email complete payment-card details, security codes, passwords, or wallet screenshots.",
+  });
 
   return {
     templateKey: REFUND_FIRST_CONTACT_TEMPLATE_KEY,

@@ -1,5 +1,13 @@
 # Decisions
 
+## 2026-08-21 - Refund pilot uses one branded message system and same-case reply appeals
+
+- All pilot customer mail—first contact, missing-information collection, denial, appeal receipt, retries, and confirmed completion—uses one canonical warm Bloomjoy HTML/plain-text system with reply support.
+- A denial must include a customer-safe reason. A verified direct customer reply after that sent denial reopens the same case for manager review, clears the prior decision, and creates no payment authority or provider attempt. Forwarded, automated, spoof-suspected, manager, and unrelated messages do not reopen cases.
+- Appeal receipts are deterministic and independently default-off. Confirmed failures may use the controlled retry path; uncertain delivery is reconciliation-only and is never blindly retried.
+- The manager still confirms the transaction separately from approving or denying the refund. Only confirmed payment success permits the canonical completion sentence. Existing duplicate-payment and reporting guards are unchanged.
+- GPT, refund-specific TOTP/operator ceremony, QR codes, Kexiazhan reporting, cash fallback, and a new SMS platform are not Refund Operations v1 pilot requirements.
+
 ## 2026-08-20 - Refund Operations uses one mapped-manager session, not TOTP ceremony
 
 The normal manager experience is intentionally simple: a signed-in current Machine Manager reviews the case, confirms one action, and the server performs the exact guarded operation. Refund-specific TOTP enrollment, six-digit codes, temporary payment-support operators, and owner-controlled setup windows were controlled-pilot controls; they are retired from the manager product and are not prerequisites for approving, completing, or reconciling a refund.
