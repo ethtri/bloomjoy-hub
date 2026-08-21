@@ -65,7 +65,8 @@
     "202608170003_refund_nayax_manager_overview_authority.sql",
     "20260820041101_refund_nayax_pending_approval_recovery.sql",
     "20260820143000_refund_nayax_support_resolution_window.sql",
-    "20260820150000_refund_nayax_support_resolution_close.sql"
+    "20260820150000_refund_nayax_support_resolution_close.sql",
+    "20260821035000_refund_manager_session_simplification.sql"
   ],
   "migrationFilesSha256": "2a14ce3420f5ffeed331c6a5f267945d636cf6eb6fdbcb552c4368c5360ee356",
   "migrationVersionSetSha256": "3e033892411d525b521120321c38baf4105b88828132855b775c2eeb6495db5e",
