@@ -29,6 +29,39 @@ export const requiredFunctionSlugs = [
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const normalizeText = (value) => value.replace(/\r\n?/g, '\n');
 const normalizePath = (value) => value.split(path.sep).join('/');
+const refundReleaseProtectedExactPaths = new Set([
+  '.github/workflows/ci.yml',
+  'Docs/DECISIONS.md',
+  'Docs/PRODUCTION_RUNBOOK.md',
+  'Docs/QA_SMOKE_TEST_CHECKLIST.md',
+  'package-lock.json',
+  'package.json',
+  'postcss.config.js',
+  'scripts/check-supabase-migration-versions.mjs',
+  'scripts/validate-supabase-migrations.mjs',
+  'supabase/config.toml',
+  'tailwind.config.ts',
+  'tsconfig.app.json',
+  'tsconfig.json',
+  'vite.config.ts',
+]);
+const refundReleaseProtectedPrefixes = [
+  '.github/workflows/refund-',
+  'Docs/REFUND_',
+  'scripts/refunds/',
+  'src/',
+  'supabase/functions/',
+  'supabase/migrations/',
+  'supabase/tests/',
+];
+
+export const isRefundReleaseProtectedPath = (value) => {
+  const normalized = normalizePath(String(value));
+  return (
+    refundReleaseProtectedExactPaths.has(normalized) ||
+    refundReleaseProtectedPrefixes.some((prefix) => normalized.startsWith(prefix))
+  );
+};
 const projectRefPattern = /^[a-z0-9]{20}$/;
 const digestPattern = /^[a-f0-9]{64}$/;
 const gitCommitPattern = /^[a-f0-9]{40}$/;
@@ -846,9 +879,16 @@ export const validateReleaseManifestGitAnchorState = ({
   const normalizedManifestPath = normalizePath(manifestRelativePath);
   const normalizedChangedPaths = changedPaths.map((entry) => normalizePath(String(entry)));
   assert(
-    normalizedChangedPaths.length === 1 &&
-      normalizedChangedPaths[0] === normalizedManifestPath,
-    'Only the refund production release manifest may differ between sourceGitCommit and the current release anchor'
+    normalizedChangedPaths.includes(normalizedManifestPath),
+    'Refund production release manifest must anchor sourceGitCommit before later release-neutral changes'
+  );
+  const unanchoredProtectedPaths = normalizedChangedPaths.filter(
+    (changedPath) =>
+      changedPath !== normalizedManifestPath && isRefundReleaseProtectedPath(changedPath)
+  );
+  assert(
+    unanchoredProtectedPaths.length === 0,
+    `Protected refund release paths changed after sourceGitCommit: ${unanchoredProtectedPaths.join(', ')}`
   );
 
   return {
