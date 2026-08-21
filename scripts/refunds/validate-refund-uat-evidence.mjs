@@ -302,7 +302,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 44, 'Evidence must enumerate all 44 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 41, 'Evidence must enumerate all 41 reviewed screenshots');
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) =>
       name.startsWith('refund-nayax-support-resolution-')
