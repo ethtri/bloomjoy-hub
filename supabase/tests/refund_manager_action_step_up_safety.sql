@@ -214,8 +214,8 @@ set
   nayax_match_execution_eligible = true
 where id = '8a600000-0000-4000-8000-000000000003';
 
-select ok(not public.refund_official_actions_enabled(),
-  'Production official-action gate remains hard false');
+select ok(public.refund_official_actions_enabled(),
+  'Normal manager official actions are enabled by the reviewed cutover');
 select ok(not public.refund_manager_totp_enrollment_window_enabled(),
   'Owner-controlled TOTP enrollment window defaults closed');
 select ok(
@@ -246,14 +246,18 @@ select ok(
 set local role authenticated;
 select pg_temp.set_auth_claims('8a000000-0000-4000-8000-000000000001', 'aal2',
   jsonb_build_array(jsonb_build_object('method', 'totp', 'timestamp', extract(epoch from statement_timestamp()))));
-select ok(
-  pg_temp.capture_error($sql$
-    select public.admin_authorize_refund_official_action(
+select is(
+  (public.admin_authorize_refund_official_action(
       '8a600000-0000-4000-8000-000000000001', 'approve', 1,
-      'cash_zelle_pending', 'approved', null, null, null, 700, null, null, false, null, null)
-  $sql$) like '%Action-bound manager step-up intent required%',
-  'Legacy recent-AAL2 receipt minting is permanently blocked');
+      'cash_zelle_pending', 'approved', null, null, null, 700, null, null, false, null, null
+    ) ->> 'authorizationMethod'),
+  'manager_session',
+  'A mapped signed-in manager receives a direct session-bound receipt');
 reset role;
+
+delete from public.refund_case_official_action_authorizations
+where actor_user_id = '8a000000-0000-4000-8000-000000000001'
+  and refund_case_id = '8a600000-0000-4000-8000-000000000001';
 
 create or replace function public.refund_official_actions_enabled()
 returns boolean language sql immutable set search_path = public as $$ select true; $$;

@@ -506,8 +506,8 @@ select ok(
 );
 
 select ok(
-  not public.refund_official_actions_enabled(),
-  'Official refund actions are hard-disabled by the production protocol stub'
+  public.refund_official_actions_enabled(),
+  'Official refund actions are enabled by the reviewed manager-session cutover'
 );
 
 set local role authenticated;
@@ -517,15 +517,14 @@ select pg_temp.set_auth_claims(
   'totp',
   extract(epoch from statement_timestamp())
 );
-select ok(
-  pg_temp.capture_error($sql$
-    select public.admin_authorize_refund_official_action(
+select is(
+  (public.admin_authorize_refund_official_action(
       '79600000-0000-4000-8000-000000000001', 'approve',
       (select official_action_version from public.refund_cases where id = '79600000-0000-4000-8000-000000000001'),
       'cash_zelle_pending', 'approved', null, null, null, 700, null, null, false, null, null
-    )
-  $sql$) like '%Action-bound manager step-up intent required%',
-  'The legacy receipt authorizer cannot bypass the action-bound step-up protocol'
+    ) ->> 'authorizationMethod'),
+  'manager_session',
+  'A mapped signed-in manager receives a session-bound receipt without TOTP'
 );
 reset role;
 
@@ -548,14 +547,13 @@ select pg_temp.set_auth_claims(
   'totp',
   extract(epoch from statement_timestamp())
 );
-select ok(
-  pg_temp.capture_error($sql$
-    select public.admin_authorize_refund_official_action(
+select is(
+  (public.admin_authorize_refund_official_action(
       '79600000-0000-4000-8000-000000000001', 'approve', 1,
       'cash_zelle_pending', 'approved', null, null, null, 700, null, null, false, null, null
-    )
-  $sql$) like '%Action-bound manager step-up intent required%',
-  'AAL1 cannot use the legacy authorizer even with a TOTP-shaped AMR entry'
+    ) ->> 'authorizationMethod'),
+  'manager_session',
+  'AAL1 mapped-manager sessions use the same exact server-side receipt boundary'
 );
 
 select pg_temp.set_auth_claims(
@@ -564,14 +562,13 @@ select pg_temp.set_auth_claims(
   'password',
   extract(epoch from statement_timestamp())
 );
-select ok(
-  pg_temp.capture_error($sql$
-    select public.admin_authorize_refund_official_action(
+select is(
+  (public.admin_authorize_refund_official_action(
       '79600000-0000-4000-8000-000000000001', 'approve', 1,
       'cash_zelle_pending', 'approved', null, null, null, 700, null, null, false, null, null
-    )
-  $sql$) like '%Action-bound manager step-up intent required%',
-  'AAL2 without a TOTP AMR entry cannot use the legacy authorizer'
+    ) ->> 'authorizationMethod'),
+  'manager_session',
+  'Manager-session receipts do not depend on a TOTP AMR entry'
 );
 
 select pg_temp.set_auth_claims(
@@ -580,16 +577,19 @@ select pg_temp.set_auth_claims(
   'totp',
   extract(epoch from statement_timestamp() - interval '3 minutes')
 );
-select ok(
-  pg_temp.capture_error($sql$
-    select public.admin_authorize_refund_official_action(
+select is(
+  (public.admin_authorize_refund_official_action(
       '79600000-0000-4000-8000-000000000001', 'approve', 1,
       'cash_zelle_pending', 'approved', null, null, null, 700, null, null, false, null, null
-    )
-  $sql$) like '%Action-bound manager step-up intent required%',
-  'A stale TOTP AMR entry cannot use the legacy authorizer'
+    ) ->> 'authorizationMethod'),
+  'manager_session',
+  'A mapped manager session ignores historical TOTP freshness metadata'
 );
 reset role;
+
+delete from public.refund_case_official_action_authorizations
+where actor_user_id = '79000000-0000-4000-8000-000000000001'
+  and refund_case_id = '79600000-0000-4000-8000-000000000001';
 
 set local role authenticated;
 select pg_temp.set_auth_claims(
@@ -1574,12 +1574,11 @@ reset role;
 
 set local role service_role;
 select ok(
-  pg_temp.capture_error($sql$
-    select public.service_consume_nayax_refund_official_action(
-      (select authorization_id from pg_temp.official_action_test_receipts where receipt_key = 'nayax_execute'),
-      '79600000-0000-4000-8000-000000000007', 'card_refund_pending', 'approved', 500, null
-    )
-  $sql$) like '%permission denied%',
+  not has_function_privilege(
+    'service_role',
+    'public.service_consume_nayax_refund_official_action(uuid,uuid,text,text,integer,uuid)',
+    'execute'
+  ),
   'Legacy service-role Nayax receipt consumption is revoked in favor of the assertion-scoped atomic wrapper'
 );
 reset role;

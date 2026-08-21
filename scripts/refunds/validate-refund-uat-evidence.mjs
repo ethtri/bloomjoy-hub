@@ -330,28 +330,29 @@ try {
     'The only owner enrollment evidence screenshot must be captured before private QR setup opens'
   );
   const supportPanelAssertionIndex = portalUatSource.indexOf(
-    "'Payment support sees exactly four structured outcomes and no arbitrary communication controls'"
+    "'Managers see exactly four structured outcomes and no arbitrary communication controls'"
   );
   const supportDesktopScreenshotIndex = portalUatSource.indexOf(
     "path.join(artifactDir, 'refund-nayax-support-resolution-desktop.png')"
-  );
-  const supportStepUpAssertionIndex = portalUatSource.indexOf(
-    'requires fresh manager verification`'
   );
   const supportMobileScreenshotIndex = portalUatSource.indexOf(
     "path.join(artifactDir, 'refund-nayax-support-resolution-mobile.png')"
   );
   const supportSubmitIndex = portalUatSource.indexOf(
-    "page.getByLabel('Current authenticator code').fill('123456')",
+    "await panel.getByTestId('refund-nayax-resolution-prepare').click();",
     supportMobileScreenshotIndex
+  );
+  const supportManagerSessionAssertionIndex = portalUatSource.indexOf(
+    '`Manager-session ${scenario.result} submits one result with no provider or separate message endpoint`',
+    supportSubmitIndex
   );
   assert(
     supportPanelAssertionIndex >= 0 &&
       supportDesktopScreenshotIndex > supportPanelAssertionIndex &&
-      supportStepUpAssertionIndex > supportDesktopScreenshotIndex &&
-      supportMobileScreenshotIndex > supportStepUpAssertionIndex &&
-      supportSubmitIndex > supportMobileScreenshotIndex,
-    'Support-resolution evidence must show structured desktop and mobile pre-action states before synthetic verification'
+      supportMobileScreenshotIndex > supportDesktopScreenshotIndex &&
+      supportSubmitIndex > supportMobileScreenshotIndex &&
+      supportManagerSessionAssertionIndex > supportSubmitIndex,
+    'Support-resolution evidence must show structured desktop and mobile pre-action states before the mapped-manager submission'
   );
   const providerReceiptAssertionIndex = portalUatSource.indexOf(
     '`Synthetic browser ${scenario.name} renders the settled domain outcome`'

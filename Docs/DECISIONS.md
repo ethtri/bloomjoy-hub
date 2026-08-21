@@ -1,5 +1,16 @@
 # Decisions
 
+## 2026-08-20 - Refund Operations uses one mapped-manager session, not TOTP ceremony
+
+The normal manager experience is intentionally simple: a signed-in current Machine Manager reviews the case, confirms one action, and the server performs the exact guarded operation. Refund-specific TOTP enrollment, six-digit codes, temporary payment-support operators, and owner-controlled setup windows were controlled-pilot controls; they are retired from the manager product and are not prerequisites for approving, completing, or reconciling a refund.
+
+- The database still rechecks the exact active machine mapping, authenticated user, current case version, frozen action payload, selected transaction, amount, caps, duplicate state, and row lock. A 90-second single-use authorization receipt protects provider execution and ordinary case decisions without adding a second manager task.
+- An uncertain Nayax result is resolved through the same mapped-manager session. The resolver accepts only the four reviewed result/evidence shapes, stores only a digest of the safe reference, and can never call Nayax. Confirmed success atomically settles the held attempt, completes the case, creates one reporting adjustment, and prepares one reply in the original Gmail thread.
+- Historical TOTP/operator tables and functions remain only for immutable audit history and rollback compatibility. Active legacy enrollments/operators are revoked by the retirement migration; no setup or code UI remains.
+- The refund page has three queues—**Action needed**, **Waiting**, and **Done**—plus search. It shows one plain current state and one next action. Routine system-health notices, duplicate status badges, low-value warning banners, advanced status filters, and internal workflow terminology are removed from the manager surface.
+
+This decision supersedes the TOTP/operator requirements in the 2026-08-20 support-window decision, the 2026-08-13 uncertain-outcome decision, and the 2026-08-12 authenticator decision for the normal manager product. Their audit, privacy, idempotency, provider-call, reporting, and customer-delivery safeguards remain in force.
+
 ## 2026-08-20 - Support-confirmed refund is reconciled without another provider call
 
 - Nayax support confirmed that transaction `6841061866` appears refunded and identified missing user-level approval roles as the likely explanation for the earlier approval error. This is authoritative support evidence for the existing held attempt; Bloomjoy must not send another refund request or approval.

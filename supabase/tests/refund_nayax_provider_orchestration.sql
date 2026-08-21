@@ -282,15 +282,17 @@ select ok(
   'No Gmail, GPT, or scheduler provider executor identity exists'
 );
 
-set local role service_role;
-select ok(pg_temp.capture_error($sql$
-  select public.service_consume_nayax_refund_official_action(
-    '9a800000-0000-4000-8000-000000000001',
-    '9a600000-0000-4000-8000-000000000001',
-    'card_refund_pending', 'approved', 700, null)
-$sql$) like '%permission denied%',
-  'Direct legacy consumption is denied before it can burn manager evidence');
-reset role;
+-- PostgreSQL 15 can terminate the backend when a revoked SECURITY DEFINER
+-- function is invoked through dynamic SQL under SET ROLE. Prove the same
+-- boundary from the privilege catalog without executing the forbidden call.
+select ok(
+  not has_function_privilege(
+    'service_role',
+    'public.service_consume_nayax_refund_official_action(uuid,uuid,text,text,integer,uuid)',
+    'execute'
+  ),
+  'Direct legacy consumption is denied before it can burn manager evidence'
+);
 select is((select status from public.refund_case_official_action_authorizations
   where id = '9a800000-0000-4000-8000-000000000001'), 'authorized',
   'Denied legacy consumption leaves the fresh manager authorization usable');

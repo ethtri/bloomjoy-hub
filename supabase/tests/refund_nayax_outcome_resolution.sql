@@ -3,7 +3,13 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(83);
+-- Exercise the historical default-off branch before this transaction opens the
+-- resolver. The current reviewed schema enables the mapped-manager path.
+create or replace function public.refund_nayax_outcome_resolution_enabled()
+returns boolean language sql immutable set search_path = public
+as $$ select false; $$;
+
+select plan(88);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -231,7 +237,7 @@ select
   700 + series, (4200 + series)::text, 'USD', 'high_confidence',
   'resolution-test-v1', statement_timestamp(), false,
   case series when 1 then 'ambiguous' when 2 then 'declined' when 3 then 'failed' else 'declined' end
-from generate_series(1, 4) series;
+from generate_series(1, 5) series;
 
 insert into public.refund_gmail_threads (
   id, refund_case_id, mailbox_hash, provider_thread_id, thread_subject,
@@ -249,6 +255,14 @@ insert into public.refund_gmail_threads (
     'b1800000-0000-4000-8000-000000000004',
     'b1600000-0000-4000-8000-000000000004', repeat('4', 64),
     'resolution-original-thread-4', 'Original refund conversation 4',
+    statement_timestamp() - interval '2 days',
+    statement_timestamp() - interval '1 day',
+    statement_timestamp() + interval '180 days'
+  ),
+  (
+    'b1800000-0000-4000-8000-000000000005',
+    'b1600000-0000-4000-8000-000000000005', repeat('5', 64),
+    'resolution-original-thread-5', 'Original refund conversation 5',
     statement_timestamp() - interval '2 days',
     statement_timestamp() - interval '1 day',
     statement_timestamp() + interval '180 days'
@@ -288,7 +302,7 @@ select
   jsonb_build_object('payload_redacted', true),
   jsonb_build_object('payload_redacted', true),
   statement_timestamp() - interval '20 minutes'
-from generate_series(1, 4) series;
+from generate_series(1, 5) series;
 
 select ok(not public.refund_nayax_outcome_resolution_enabled(),
   'Payment-support resolution is hard disabled by default');
@@ -390,15 +404,90 @@ select pg_temp.set_auth_claims(
 );
 select ok((
   select (readiness ->> 'visible')::boolean
-    and not (readiness ->> 'available')::boolean
-    and readiness ->> 'blockReason' = 'authenticator_required'
+    and (readiness ->> 'available')::boolean
+    and readiness ->> 'blockReason' is null
   from (select public.admin_get_refund_nayax_resolution_readiness(
     'b1600000-0000-4000-8000-000000000001') readiness) checked
-), 'Readiness stays closed until the exact manager has an active owner-approved authenticator');
+), 'A mapped manager remains ready without an authenticator enrollment');
 reset role;
 update public.refund_manager_totp_enrollments
 set status = 'active', revoked_at = null
 where actor_user_id = 'b1000000-0000-4000-8000-000000000001';
+
+set local role authenticated;
+select pg_temp.set_auth_claims(
+  'b1000000-0000-4000-8000-000000000001', 'aal1',
+  jsonb_build_array(jsonb_build_object('method', 'password', 'timestamp', extract(epoch from statement_timestamp())))
+);
+insert into pg_temp.nayax_resolution_test_results (result_key, result)
+select 'manager-session-success', public.admin_resolve_refund_nayax_outcome_manager_session(
+  'b1600000-0000-4000-8000-000000000005',
+  'b1700000-0000-4000-8000-000000000005',
+  'provider_confirmed_success',
+  'nayax_support_ticket',
+  'SUPPORT:NAYAX-CS1500666',
+  statement_timestamp() - interval '15 minutes',
+  'nayax_support_confirmed_success',
+  (select official_action_version from public.refund_cases
+    where id = 'b1600000-0000-4000-8000-000000000005')
+);
+reset role;
+select ok((
+  select (result ->> 'caseCompleted')::boolean
+    and not (result ->> 'providerCallMade')::boolean
+    and result ->> 'authorizationMethod' = 'manager_session'
+  from pg_temp.nayax_resolution_test_results
+  where result_key = 'manager-session-success'
+), 'The mapped-manager session completes a confirmed result without another provider call');
+select ok((
+  select intent.authorization_method = 'manager_session'
+    and intent.manager_totp_enrollment_version is null
+    and intent.operator_version is null
+    and resolution.authorization_method = 'manager_session'
+  from public.refund_nayax_resolution_intents intent
+  join public.refund_nayax_outcome_resolutions resolution
+    on resolution.resolution_intent_id = intent.id
+  where intent.refund_case_id = 'b1600000-0000-4000-8000-000000000005'
+), 'Manager-session evidence records no TOTP enrollment or temporary operator');
+select ok((
+  select refund_case.status = 'completed'
+    and refund_case.reporting_adjustment_id is not null
+    and attempt.status = 'succeeded'
+    and attempt.provider_outcome = 'success'
+    and not attempt.reconciliation_required
+  from public.refund_cases refund_case
+  join public.refund_case_nayax_refund_attempts attempt
+    on attempt.refund_case_id = refund_case.id
+  where refund_case.id = 'b1600000-0000-4000-8000-000000000005'
+), 'Confirmed success atomically settles the case, reporting, and held attempt');
+select ok(
+  (select count(*) = 1 from public.sales_adjustment_facts
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000005')
+  and (select count(*) = 1 from public.refund_case_messages
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000005'
+      and template_version = 'refund_nayax_completion_v2')
+  and (select completion_gmail_thread_id = 'b1800000-0000-4000-8000-000000000005'
+    from public.refund_case_nayax_refund_attempts
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000005'),
+  'Confirmed success creates one adjustment and one original-thread completion');
+select ok(pg_temp.capture_error($sql$
+  select public.admin_resolve_refund_nayax_outcome_manager_session(
+    'b1600000-0000-4000-8000-000000000005',
+    'b1700000-0000-4000-8000-000000000005',
+    'provider_confirmed_success', 'nayax_support_ticket',
+    'SUPPORT:NAYAX-CS1500666', statement_timestamp() - interval '15 minutes',
+    'nayax_support_confirmed_success',
+    (select official_action_version from public.refund_cases
+      where id = 'b1600000-0000-4000-8000-000000000005')
+  )
+$sql$) is not null
+  and (select count(*) = 1 from public.sales_adjustment_facts
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000005')
+  and (select count(*) = 1 from public.refund_case_messages
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000005'),
+  'The same result cannot be replayed into duplicate reporting or customer contact');
+reset role;
+
 set local role authenticated;
 select pg_temp.set_auth_claims(
   'b1000000-0000-4000-8000-000000000001', 'aal1',

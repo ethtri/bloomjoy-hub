@@ -38,7 +38,16 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Refund Operations MVP
 
-Current production-readiness checkpoint (2026-08-20): the deployed ten-function/51-migration default-off foundation and the single controlled provider attempt have passed their fail-closed checks. Nayax support has confirmed the held transaction refunded. The remaining `#427` acceptance is a provider-free structured reconciliation inside a paired reviewed activation/closure window; broad provider execution, Gmail automation, customer-contact automation, GPT, and schedules remain off.
+Current manager-session checkpoint (2026-08-20): signed-in mapped managers use one confirmation with no refund-specific TOTP, setup window, temporary operator, or six-digit code. This checkpoint supersedes later historical TOTP/operator checklist items. Provider execution still uses the existing exact transaction, mapping, version, caps, idempotency, duplicate, and settlement controls; outcome reconciliation remains provider-free.
+
+Historical controlled-pilot regression evidence remains the **ten-function/51-migration default-off foundation**; it is retained for rollback/audit testing and does not define the current manager experience.
+
+- [ ] `/refunds` shows exactly three queue choices—**Action needed**, **Waiting**, **Done**—plus search. It has no advanced status selector, global email-health warning, authenticator banner, setup control, six-digit-code dialog, or repeated action-unavailable box.
+- [ ] Desktop and `390x844` mobile show one plain current state and one next action. Routine system health is absent; only a problem that changes the selected case's next action is shown inline.
+- [ ] A normal mapped manager can approve, decline, complete cash, or issue an eligible card refund from the current signed-in session. An unmapped/revoked manager, stale case version, changed payload, duplicate/reconciliation hold, missing selection, disabled machine, or exceeded cap still fails server-side.
+- [ ] A held Nayax result shows the compact **Confirm the payment result** form with only result, source, safe reference, and payment time when required. It contains no reason selector, TOTP, provider retry, recipient, subject, body, or attachment control.
+- [ ] `npm run refunds:validate-official-actions`, `npm run refunds:validate-nayax-resolution`, and `npm run db:validate-migrations` pass. Confirmed success creates zero new provider attempts, exactly one immutable manager-session outcome, one reporting adjustment, one original-thread completion, and no duplicates on replay.
+- [ ] Production closeout for `SUPPORT:NAYAX-CS1500666` ends with the case completed, the held attempt settled successful with reconciliation cleared, one sent/already-sent original-thread completion, zero active temporary resolution operators/enrollments, and Auth TOTP enrollment off / verification on.
 
 - [ ] Run `npm run refunds:validate-release-tooling`, `npm run refunds:release:check`, and `npm run refunds:release:check-production -- --project-ref <project-ref>`; all ten approved Refund Operations functions are `ACTIVE`, match the reviewed production metadata, and use the approved `verify_jwt` setting.
 - [ ] Run `npm run refunds:validate-route-smoke`, then post-deploy run `npm run refunds:smoke-routes -- --project-ref <project-ref> --confirm-project-ref <project-ref>`; all eight no-auth, no-body `OPTIONS` probes return their exact safe status, create no case/email/provider action, and manual/retry messaging does not return `404`.

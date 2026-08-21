@@ -997,6 +997,7 @@ const installMockSupabaseRoutes = async (
     requireManagerStepUp = false,
     managerStepUpExpiresAt = new Date(Date.now() + 2 * 60 * 1000).toISOString(),
     managerStepUpResponse = null,
+    nayaxResolutionResponse = null,
     nayaxResolutionReadiness = {
       visible: false,
       available: false,
@@ -1257,6 +1258,20 @@ const installMockSupabaseRoutes = async (
         errorCode: 'feature_disabled',
         blocks: ['feature_disabled'],
         message: 'Card refund execution remains disabled for this synthetic check.',
+      }));
+    }
+
+    if (functionName === 'refund-nayax-outcome-resolve') {
+      return route.fulfill(jsonResponse(nayaxResolutionResponse ?? {
+        resolved: false,
+        result: requestBody?.resolutionResult ?? 'remain_on_hold',
+        caseCompleted: false,
+        retryReadyForFreshReview: false,
+        customerCompletionAvailable: false,
+        providerCallMade: false,
+        customerMessageCreated: false,
+        customerCompletion: null,
+        payloadRedacted: true,
       }));
     }
 
@@ -4227,7 +4242,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
       reasonCode: 'nayax_dtm_settled',
       evidenceReference: 'DTM:NAYAX-123456789',
       evidenceOccurredAt: paymentEvidenceLocalValue,
-      receiptTitle: 'Refund result recorded and customer notified',
+      receiptTitle: 'Refund completed and customer notified',
       caseCompleted: true,
       retryReadyForFreshReview: false,
       resolved: true,
@@ -4238,7 +4253,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
       reasonCode: 'nayax_support_retry_safe',
       evidenceReference: 'SUPPORT:NAYAX-CS1500666',
       evidenceOccurredAt: null,
-      receiptTitle: 'Returned to manager review',
+      receiptTitle: 'Returned to review',
       caseCompleted: false,
       retryReadyForFreshReview: true,
       resolved: true,
@@ -4249,7 +4264,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
       reasonCode: 'manual_nayax_completion',
       evidenceReference: 'MANUAL:UAT-COMPLETE-0003',
       evidenceOccurredAt: paymentEvidenceLocalValue,
-      receiptTitle: 'Refund result recorded and customer notified',
+      receiptTitle: 'Refund completed and customer notified',
       caseCompleted: true,
       retryReadyForFreshReview: false,
       resolved: true,
@@ -4301,7 +4316,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
         allowedResults: scenarios.map(({ result }) => result),
         payloadRedacted: true,
       },
-      managerStepUpResponse: {
+      nayaxResolutionResponse: {
         resolved: scenario.resolved,
         result: scenario.result,
         caseCompleted: scenario.caseCompleted,
@@ -4329,9 +4344,10 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
     page.on('pageerror', (error) => consoleErrors.push(error.message));
 
     await signInRefundUser(page, appUrl);
-    await page.getByRole('button', { name: 'Check refund result 1', exact: true })
+    await page.getByRole('button', { name: 'Action needed 1', exact: true })
       .click();
-    await page.locator('tr', { hasText: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 })
+    const caseButton = page.getByRole('button', { name: /RF-UAT-CARD/ }).first();
+    await caseButton.waitFor({ timeout: 10000 })
       .catch(async () => {
         throw new Error(`Nayax resolution fixture was not visible: ${JSON.stringify({
           rpcCalls,
@@ -4339,26 +4355,23 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
           body: (await page.locator('body').innerText()).slice(0, 1200),
         })}`);
       });
-    await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
+    await caseButton.click();
     const panel = page.getByTestId('refund-nayax-resolution-panel');
     await panel.waitFor({ timeout: 10000 });
 
     await panel.getByTestId('refund-nayax-resolution-result').selectOption(scenario.result);
     await panel.getByTestId('refund-nayax-resolution-evidence-type')
       .selectOption(scenario.evidenceType);
-    await panel.getByTestId('refund-nayax-resolution-reason')
-      .selectOption(scenario.reasonCode);
     if (scenarioIndex === 0) {
       recorder.assert(
-        'Payment support sees exactly four structured outcomes and no arbitrary communication controls',
+        'Managers see exactly four structured outcomes and no arbitrary communication controls',
         await panel.getByTestId('refund-nayax-resolution-result').locator('option').count() === 4 &&
           await panel.getByTestId('refund-nayax-resolution-evidence-type').isVisible() &&
-          await panel.getByTestId('refund-nayax-resolution-reason').isVisible() &&
           await panel.getByTestId('refund-nayax-resolution-reference').isVisible() &&
           await panel.getByLabel('Refund date and time').isVisible() &&
           (await panel.locator('textarea').count()) === 0 &&
           (await panel.getByLabel(/recipient|email subject|message body|retry provider/i).count()) === 0 &&
-          await panel.getByText('This does not try the refund again.', { exact: false }).isVisible() &&
+          await panel.getByText('never send a second refund', { exact: false }).isVisible() &&
           await panel.getByText('email the customer in the original thread', { exact: false }).first().isVisible()
       );
       await panel.getByTestId('refund-nayax-resolution-reference')
@@ -4378,8 +4391,9 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
     }
 
     recorder.assert(
-      `Structured ${scenario.result} review is action-free before personal verification`,
+      `Structured ${scenario.result} review is action-free before the manager saves it`,
       !functionCalls.includes('refund-manager-action-step-up') &&
+        !functionCalls.includes('refund-nayax-outcome-resolve') &&
         !functionCalls.includes('nayax-card-refund') &&
         !functionCalls.includes('refund-case-message-send') &&
         !functionCalls.includes('refund-case-admin-update')
@@ -4389,39 +4403,6 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
         path: path.join(artifactDir, 'refund-nayax-support-resolution-desktop.png'),
         fullPage: true,
       });
-    }
-
-    await panel.getByTestId('refund-nayax-resolution-prepare').click();
-    await page.getByTestId('refund-manager-step-up-dialog').waitFor({ timeout: 10000 });
-    const frozenSummary = page.getByTestId('refund-nayax-resolution-step-up-summary');
-    recorder.assert(
-      `Support resolution ${scenario.result} requires fresh manager verification`,
-      await page.getByText('Confirm this payment-support result', { exact: false }).isVisible() &&
-        await page.getByText('Payment-support confirmation required').isVisible() &&
-        await frozenSummary.isVisible() &&
-        await frozenSummary.getByText('Confirmed outcome', { exact: true }).isVisible() &&
-        await frozenSummary.getByText('Confirmation source', { exact: true }).isVisible() &&
-        await frozenSummary.getByText('Confirmed result', { exact: true }).isVisible() &&
-        await frozenSummary.getByText('Reference number', { exact: true }).isVisible() &&
-        await frozenSummary.getByText(scenario.evidenceReference, { exact: true }).isVisible() &&
-        (scenario.evidenceOccurredAt
-          ? await frozenSummary.getByText('Refund issued at', { exact: true }).isVisible() &&
-            await frozenSummary.getByText(/UTC$/).isVisible()
-          : (await frozenSummary.getByText('Refund issued at', { exact: true }).count()) === 0) &&
-        (['provider_confirmed_success', 'documented_manual_completion'].includes(scenario.result)
-          ? await page.getByTestId('refund-manager-step-up-dialog')
-            .getByText('Bloomjoy will record the confirmed result', { exact: false }).isVisible() &&
-            await page.getByTestId('refund-manager-step-up-dialog')
-              .getByText('email the customer in the original thread', { exact: false }).isVisible()
-          : await page.getByTestId('refund-manager-step-up-dialog')
-            .getByText('does not retry the refund or contact the customer', { exact: false }).isVisible()) &&
-        rpcCalls.filter((name) => name === 'admin_prepare_refund_nayax_resolution_intent').length === 1 &&
-        !functionCalls.includes('refund-manager-action-step-up') &&
-        !functionCalls.includes('nayax-card-refund') &&
-        !functionCalls.includes('refund-case-message-send')
-    );
-
-    if (scenarioIndex === 0) {
       await page.setViewportSize({ width: 390, height: 844 });
       const mobileOverflow = await page.evaluate(() => ({
         scrollWidth: document.documentElement.scrollWidth,
@@ -4429,8 +4410,8 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
         innerWidth: window.innerWidth,
       }));
       recorder.assert(
-        'Payment-support verification remains usable without mobile horizontal overflow',
-        await page.getByTestId('refund-manager-step-up-submit').isVisible() &&
+        'Payment-result form remains usable without mobile horizontal overflow',
+        await panel.getByTestId('refund-nayax-resolution-prepare').isVisible() &&
           mobileOverflow.scrollWidth <= mobileOverflow.innerWidth + 1 &&
           mobileOverflow.bodyScrollWidth <= mobileOverflow.innerWidth + 1,
         JSON.stringify(mobileOverflow)
@@ -4439,37 +4420,36 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
         path: path.join(artifactDir, 'refund-nayax-support-resolution-mobile.png'),
         fullPage: false,
       });
+      await page.setViewportSize({ width: 1440, height: 1000 });
     }
 
-    await page.getByLabel('Current authenticator code').fill('123456');
-    await page.getByTestId('refund-manager-step-up-submit').click();
+    await panel.getByTestId('refund-nayax-resolution-prepare').click();
     await page.getByText(scenario.receiptTitle, { exact: true }).waitFor({ timeout: 10000 });
     const verifiedBody = functionBodies
-      .filter((entry) => entry.functionName === 'refund-manager-action-step-up')
+      .filter((entry) => entry.functionName === 'refund-nayax-outcome-resolve')
       .at(-1)?.body ?? {};
     recorder.assert(
-      `Verified ${scenario.result} submits one frozen result with no provider or separate message endpoint`,
-      functionCalls.filter((name) => name === 'refund-manager-action-step-up').length === 1 &&
+      `Manager-session ${scenario.result} submits one result with no provider or separate message endpoint`,
+      functionCalls.filter((name) => name === 'refund-nayax-outcome-resolve').length === 1 &&
+        !functionCalls.includes('refund-manager-action-step-up') &&
         !functionCalls.includes('nayax-card-refund') &&
         !functionCalls.includes('refund-case-message-send') &&
         !functionCalls.includes('refund-case-admin-update') &&
-        verifiedBody.targetFunction === 'refund-nayax-outcome-resolve' &&
-        verifiedBody.frozenPayload?.caseId === 'case-card-1' &&
-        verifiedBody.frozenPayload?.attemptId === '8a810000-0000-4000-8000-000000000001' &&
-        verifiedBody.frozenPayload?.resolutionResult === scenario.result &&
-        verifiedBody.frozenPayload?.evidenceType === scenario.evidenceType &&
-        verifiedBody.frozenPayload?.evidenceReference === scenario.evidenceReference &&
+        verifiedBody.caseId === 'case-card-1' &&
+        verifiedBody.attemptId === '8a810000-0000-4000-8000-000000000001' &&
+        verifiedBody.resolutionResult === scenario.result &&
+        verifiedBody.evidenceType === scenario.evidenceType &&
+        verifiedBody.evidenceReference === scenario.evidenceReference &&
         (scenario.evidenceOccurredAt
-          ? typeof verifiedBody.frozenPayload?.evidenceOccurredAt === 'string' &&
-            !Number.isNaN(Date.parse(verifiedBody.frozenPayload.evidenceOccurredAt))
-          : verifiedBody.frozenPayload?.evidenceOccurredAt === null) &&
-        verifiedBody.frozenPayload?.reasonCode === scenario.reasonCode &&
-        verifiedBody.frozenPayload?.expectedCaseVersion === 9,
+          ? typeof verifiedBody.evidenceOccurredAt === 'string' &&
+            !Number.isNaN(Date.parse(verifiedBody.evidenceOccurredAt))
+          : verifiedBody.evidenceOccurredAt === null) &&
+        verifiedBody.reasonCode === scenario.reasonCode &&
+        verifiedBody.expectedCaseVersion === 9,
       JSON.stringify({
         functionCalls,
         result: scenario.result,
-        targetFunction: verifiedBody.targetFunction ?? null,
-        frozenKeys: Object.keys(verifiedBody.frozenPayload ?? {}).sort(),
+        bodyKeys: Object.keys(verifiedBody).sort(),
       })
     );
     recorder.assert(
@@ -4489,8 +4469,8 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
   });
   const interruptionPage = await interruptionContext.newPage();
   await signInRefundUser(interruptionPage, appUrl);
-  await interruptionPage.getByRole('button', { name: 'Completed 1', exact: true }).click();
-  await interruptionPage.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
+  await interruptionPage.getByRole('button', { name: 'Done 1', exact: true }).click();
+  await interruptionPage.getByRole('button', { name: /RF-UAT-CARD/ }).first().click();
   const recoverButton = interruptionPage.getByRole('button', {
     name: 'Recover interrupted completion',
     exact: true,
@@ -4522,8 +4502,8 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
   });
   const uncertainPage = await uncertainContext.newPage();
   await signInRefundUser(uncertainPage, appUrl);
-  await uncertainPage.getByRole('button', { name: 'Completed 1', exact: true }).click();
-  await uncertainPage.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
+  await uncertainPage.getByRole('button', { name: 'Done 1', exact: true }).click();
+  await uncertainPage.getByRole('button', { name: /RF-UAT-CARD/ }).first().click();
   const uncertainGenericSend = uncertainPage.getByRole('button', {
     name: 'Send manual/retry email',
     exact: true,

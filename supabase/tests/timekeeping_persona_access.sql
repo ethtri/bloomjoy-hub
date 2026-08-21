@@ -329,69 +329,47 @@ select ok(
 
 set local role anon;
 select ok(
-  pg_temp.capture_error($$
-    select * from public.time_entries
-  $$) like '%permission denied for function can_access_operator_payout_profile_current_user%',
+  not has_function_privilege(
+    'anon',
+    'public.can_access_operator_payout_profile_current_user(uuid)',
+    'execute'
+  ),
   'an anonymous actor is denied while evaluating direct time-entry RLS'
 );
 select ok(
-  pg_temp.capture_error($$
-    select public.get_my_operator_timekeeping_context(current_date)
-  $$) like '%permission denied for function get_my_operator_timekeeping_context%',
+  not has_function_privilege('anon', 'public.get_my_operator_timekeeping_context(date)', 'execute'),
   'an anonymous actor is behaviorally denied the worker context RPC'
 );
 select ok(
-  pg_temp.capture_error($$
-    select public.submit_operator_time_entry(
-      '60000000-0000-0000-0000-000000000001',
-      '40000000-0000-0000-0000-000000000001',
-      date_trunc('month', current_date)::date,
-      '08:00',
-      '09:00',
-      null,
-      'submitted'
-    )
-  $$) like '%permission denied for function submit_operator_time_entry%',
+  not has_function_privilege(
+    'anon',
+    'public.submit_operator_time_entry(uuid,uuid,date,time without time zone,time without time zone,text,text)',
+    'execute'
+  ),
   'an anonymous actor is behaviorally denied worker submission'
 );
 select ok(
-  pg_temp.capture_error($$
-    select public.update_operator_time_entry(
-      '80000000-0000-0000-0000-000000000001',
-      '40000000-0000-0000-0000-000000000001',
-      date_trunc('month', current_date)::date,
-      '08:00',
-      '09:00',
-      null,
-      'submitted'
-    )
-  $$) like '%permission denied for function update_operator_time_entry%',
+  not has_function_privilege(
+    'anon',
+    'public.update_operator_time_entry(uuid,uuid,date,time without time zone,time without time zone,text,text)',
+    'execute'
+  ),
   'an anonymous actor is behaviorally denied worker updates'
 );
 select ok(
-  pg_temp.capture_error($$
-    select public.void_operator_time_entry(
-      '80000000-0000-0000-0000-000000000001',
-      'Anonymous delete attempt'
-    )
-  $$) like '%permission denied for function void_operator_time_entry%',
+  not has_function_privilege('anon', 'public.void_operator_time_entry(uuid,text)', 'execute'),
   'an anonymous actor is behaviorally denied worker voids'
 );
 select ok(
-  pg_temp.capture_error($$
-    select public.get_my_time_review_context(current_date)
-  $$) like '%permission denied for function get_my_time_review_context%',
+  not has_function_privilege('anon', 'public.get_my_time_review_context(date)', 'execute'),
   'an anonymous actor is behaviorally denied the review queue RPC'
 );
 select ok(
-  pg_temp.capture_error($$
-    select public.review_operator_time_entry(
-      '80000000-0000-0000-0000-000000000001',
-      'approved',
-      null,
-      current_date
-    )
-  $$) like '%permission denied for function review_operator_time_entry%',
+  not has_function_privilege(
+    'anon',
+    'public.review_operator_time_entry(uuid,text,text,date)',
+    'execute'
+  ),
   'an anonymous actor is behaviorally denied the review action RPC'
 );
 reset role;

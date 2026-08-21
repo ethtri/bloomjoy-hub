@@ -546,10 +546,10 @@ where id in (
 );
 drop schema refund_step_up_race_test cascade;
 create or replace function public.refund_official_actions_enabled()
-returns boolean language sql immutable set search_path = public as $$ select false; $$;
+returns boolean language sql immutable set search_path = public as $$ select true; $$;
 commit;
 
-select ok(not public.refund_official_actions_enabled(),
-  'Concurrent regression restores the production hard-off gate');
+select ok(public.refund_official_actions_enabled(),
+  'Concurrent regression restores the reviewed manager-session gate');
 
 select * from finish();

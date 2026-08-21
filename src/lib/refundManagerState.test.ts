@@ -62,8 +62,16 @@ Deno.test('manager state distinguishes in-flight, uncertain, rejected, completed
   assertEquals(getRefundManagerState(baseCase, { isRefunding: true }).label, 'Refunding', 'in-flight label');
   assertEquals(
     getRefundManagerState({ ...baseCase, providerHold: true, providerOutcome: 'unconfirmed' }).label,
-    'Confirm refund result',
+    'Refund result is being checked',
     'uncertain label'
+  );
+  assertEquals(
+    getRefundManagerState(
+      { ...baseCase, providerHold: true, providerOutcome: 'unconfirmed' },
+      { canResolveHeldResult: true }
+    ).label,
+    'Provider confirmation ready',
+    'actionable held-result label'
   );
   assertEquals(
     getRefundManagerState({ ...baseCase, providerOutcome: 'rejected' }).label,
