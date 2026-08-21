@@ -1633,7 +1633,7 @@ serve(async (req) => {
     let refundCase: SubmittedRefundCase | null = null;
     if (emailContextToken) {
       const { data: linkedRefundCase, error: linkError } = await supabase.rpc(
-        "service_link_refund_gmail_draft_from_hosted_form",
+        "service_create_refund_case_from_gmail_contact_form",
         {
           p_token_hash: await hashRefundEmailContextToken(emailContextToken),
           p_customer_email: customerEmail,

@@ -1938,6 +1938,17 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder
     fullPage: false,
   });
 
+  await navigateRefundPortalPage(page, `${appUrl}/refunds/request`, {
+    waitUntil: 'domcontentloaded',
+  });
+  await page.getByText(/Sending an email does not submit a refund request/i)
+    .waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Direct hosted-form fallback keeps customer contact case-free and removes the old Google Form',
+    (await page.locator('a[href*="forms.gle"], a[href*="docs.google.com/forms"]').count()) === 0 &&
+      await page.getByRole('link', { name: 'email Bloomjoy customer service' }).isVisible()
+  );
+
   const syntheticEmailContext = 'a'.repeat(43);
   await navigateRefundPortalPage(page,
     `${appUrl}/refunds/request?emailContext=${syntheticEmailContext}`,
@@ -1949,6 +1960,29 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder
     !page.url().includes('emailContext=') &&
       (await page.locator('a[href*="forms.gle"]').count()) === 0 &&
       await page.getByText(/reply in the same email conversation/i).isVisible()
+  );
+
+  await context.route('**/functions/v1/refund-case-intake', async (route) => {
+    const requestBody = route.request().postDataJSON();
+    if (requestBody?.action !== 'startQrClaim') {
+      await route.fulfill({
+        ...jsonResponse({ error: 'Unexpected synthetic refund intake request.' }),
+        status: 400,
+      });
+      return;
+    }
+    await route.fulfill(jsonResponse({ error: 'This refund code is not available.' }));
+  });
+  await navigateRefundPortalPage(page, `${appUrl}/refunds/request?qr=expired-uat-code`, {
+    waitUntil: 'domcontentloaded',
+  });
+  await page.getByText("This machine's refund code is not available.")
+    .waitFor({ timeout: 10000 });
+  recorder.assert(
+    'QR failure offers only the Bloomjoy form or customer-service email, never the old Google Form',
+    (await page.locator('a[href*="forms.gle"], a[href*="docs.google.com/forms"]').count()) === 0 &&
+      await page.getByRole('link', { name: 'Use regular refund form' }).isVisible() &&
+      await page.getByRole('link', { name: 'Email Bloomjoy customer service' }).isVisible()
   );
 
   await closeRefundPortalContext(context);
