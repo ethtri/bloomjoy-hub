@@ -68,7 +68,8 @@
     "20260820150000_refund_nayax_support_resolution_close.sql",
     "20260821035000_refund_manager_session_simplification.sql",
     "20260821080000_refund_form_completion_transport.sql",
-    "20260821083000_refund_completion_delivery_decoupling.sql"
+    "20260821083000_refund_completion_delivery_decoupling.sql",
+    "20260821090000_refund_form_only_case_creation.sql"
   ],
   "migrationFilesSha256": "ec17bd33f5195710dd7b7adae17d06b07e62577e3cd69cfeaba17dcb7adfd3d4",
   "migrationVersionSetSha256": "20a4173c78dd45b459a7c0cc792dac180865fbb475fa1bb473340c454ed4096f",
