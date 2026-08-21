@@ -302,7 +302,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 47, 'Evidence must enumerate all 47 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 44, 'Evidence must enumerate all 44 reviewed screenshots');
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) =>
       name.startsWith('refund-nayax-support-resolution-')
@@ -311,23 +311,18 @@ try {
     'Evidence must include exactly one desktop and one mobile support-resolution state'
   );
   assert.equal(
-    EXPECTED_SCREENSHOTS.filter((name) => name === 'refund-owner-totp-readiness.png').length,
-    1,
-    'The evidence allowlist must include exactly one pre-QR owner enrollment screenshot'
+    EXPECTED_SCREENSHOTS.filter((name) => name.includes('totp') || name.includes('step-up')).length,
+    0,
+    'The evidence allowlist must not preserve retired TOTP or step-up ceremony'
   );
   const portalUatSource = await readFile(
     new URL('./validate-refund-portal-uat.mjs', import.meta.url),
     'utf8'
   );
-  const ownerScreenshotIndex = portalUatSource.indexOf(
-    "path.join(artifactDir, 'refund-owner-totp-readiness.png')"
-  );
-  const ownerQrOpenIndex = portalUatSource.indexOf(
-    "successPage.getByTestId('refund-owner-totp-start').click()"
-  );
-  assert(
-    ownerScreenshotIndex >= 0 && ownerQrOpenIndex > ownerScreenshotIndex,
-    'The only owner enrollment evidence screenshot must be captured before private QR setup opens'
+  assert.equal(
+    EXPECTED_SCREENSHOTS.filter((name) => name.endsWith('mapped-manager-session.png')).length,
+    2,
+    'The evidence must show both mapped-manager session paths without a second factor'
   );
   const supportPanelAssertionIndex = portalUatSource.indexOf(
     "'Managers see exactly four structured outcomes and no arbitrary communication controls'"
