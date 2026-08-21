@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(20);
+select plan(23);
 
 insert into public.customer_accounts (id, name, account_type)
 values (
@@ -245,13 +245,14 @@ select is(
 
 select ok(
   (
-    select intake_source = 'form'
+    select intake_source = 'gmail'
       and intake_meta ->> 'gmail_contact_linked' = 'true'
+      and intake_meta ->> 'intake_path' = 'email_context_form'
       and intake_meta ->> 'contact_alone_created_case' = 'false'
     from public.refund_cases
     where id = (select (result ->> 'id')::uuid from linked_form_case)
   ),
-  'The created case records form origin and linked email context truthfully'
+  'The form-created case preserves its Email source and linked context truthfully'
 );
 
 select ok(
@@ -284,6 +285,63 @@ select is(
   (select count(*)::integer from public.refund_cases),
   (select count + 1 from case_baseline),
   'Context replay preserves exactly-one case creation'
+);
+
+insert into public.refund_cases (
+  id, reporting_machine_id, reporting_location_id, customer_email,
+  issue_summary, incident_at, payment_method, payment_amount_cents,
+  card_last4, card_wallet_used, status, correlation_status, intake_source,
+  intake_meta, server_dedupe_key, server_dedupe_window_started_at
+) values (
+  '88950000-0000-4000-8000-000000000001',
+  '88930000-0000-4000-8000-000000000001',
+  '88920000-0000-4000-8000-000000000001',
+  'form-only-customer@example.test',
+  'Synthetic direct website submission for the same purchase.',
+  '2026-08-21T16:49:00Z',
+  'card', 900, '4242', false, 'needs_review', 'needs_nayax', 'form',
+  jsonb_build_object(
+    'source', 'hosted_refund_intake',
+    'intake_path', 'direct_website_form',
+    'payload_redacted', true
+  ),
+  repeat('d', 64),
+  '2026-08-21T16:40:00Z'
+);
+
+select is(
+  (select count(*)::integer from public.refund_cases),
+  (select count + 2 from case_baseline),
+  'A separate direct website submission remains a separate reviewable case'
+);
+
+select is(
+  (
+    select count(*)::integer
+    from public.refund_case_reconciliation_reviews review
+    where '88950000-0000-4000-8000-000000000001' in (
+      review.left_refund_case_id,
+      review.right_refund_case_id
+    )
+      and (select (result ->> 'id')::uuid from linked_form_case) in (
+        review.left_refund_case_id,
+        review.right_refund_case_id
+      )
+      and review.status = 'pending'
+      and review.match_class = 'exact'
+  ),
+  1,
+  'Email-linked and direct Website forms create one visible duplicate review'
+);
+
+select ok(
+  public.refund_case_has_unresolved_reconciliation(
+    (select (result ->> 'id')::uuid from linked_form_case)
+  )
+  and public.refund_case_has_unresolved_reconciliation(
+    '88950000-0000-4000-8000-000000000001'
+  ),
+  'Both possible duplicates remain blocked from official action until manager review'
 );
 
 select * from finish();

@@ -975,7 +975,7 @@ begin
       nullif(p_case_values ->> 'matchedSalesFactId', '')::uuid,
       case when p_case_values ->> 'paymentMethod' = 'cash' then 1 else null end,
       (p_case_values ->> 'paymentAmountCents')::integer,
-      'form',
+      'gmail',
       coalesce(p_case_values -> 'intakeMeta', '{}'::jsonb) || jsonb_build_object(
         'source', 'hosted_refund_intake',
         'intake_path', 'email_context_form',
@@ -1096,6 +1096,6 @@ $$;
 comment on table public.refund_gmail_intake_contacts is
   'Private pre-form customer-service contacts. Rows are not refund cases and never authorize payment.';
 comment on function public.service_create_refund_case_from_gmail_contact_form(text,text,jsonb) is
-  'Consumes one private email context, creates exactly one form-origin refund case, and attaches the original Gmail thread without deciding or paying a refund.';
+  'Consumes one private email context, creates exactly one form-submitted refund case with its email source preserved, and attaches the original Gmail thread without deciding or paying a refund.';
 
 select pg_notify('pgrst', 'reload schema');
