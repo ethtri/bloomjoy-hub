@@ -9,7 +9,7 @@ create or replace function public.refund_nayax_outcome_resolution_enabled()
 returns boolean language sql immutable set search_path = public
 as $$ select false; $$;
 
-select plan(88);
+select plan(92);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -224,7 +224,8 @@ select
   'RF-RESOLUTION-' || series,
   'b1300000-0000-4000-8000-000000000001'::uuid,
   'b1200000-0000-4000-8000-000000000001'::uuid,
-  'resolution-customer-' || series || '@example.test',
+  case when series = 6 then 'resolution-manager@example.test'
+    else 'resolution-customer-' || series || '@example.test' end,
   'Synthetic held provider attempt ' || series,
   statement_timestamp() - make_interval(hours => series),
   'card', 700 + series, 700 + series, 'card_refund_pending', 'approved',
@@ -236,8 +237,14 @@ select
   statement_timestamp() - make_interval(hours => series),
   700 + series, (4200 + series)::text, 'USD', 'high_confidence',
   'resolution-test-v1', statement_timestamp(), false,
-  case series when 1 then 'ambiguous' when 2 then 'declined' when 3 then 'failed' else 'declined' end
-from generate_series(1, 5) series;
+  case series
+    when 1 then 'ambiguous'
+    when 2 then 'declined'
+    when 3 then 'failed'
+    when 6 then 'ambiguous'
+    else 'declined'
+  end
+from generate_series(1, 6) series;
 
 insert into public.refund_gmail_threads (
   id, refund_case_id, mailbox_hash, provider_thread_id, thread_subject,
@@ -293,16 +300,28 @@ select
   ('b1600000-0000-4000-8000-' || lpad(series::text, 12, '0'))::uuid,
   'b1000000-0000-4000-8000-000000000001'::uuid,
   'request_and_approve',
-  case series when 1 then 'ambiguous' when 2 then 'declined' when 3 then 'failed' else 'declined' end,
+  case series
+    when 1 then 'ambiguous'
+    when 2 then 'declined'
+    when 3 then 'failed'
+    when 6 then 'ambiguous'
+    else 'declined'
+  end,
   'resolution-idempotency-' || series,
   700 + series, true, true, true, repeat(series::text, 64), 'USD',
-  case series when 1 then 'unknown' when 2 then 'rejected' when 3 then 'timeout' else 'rejected' end,
+  case series
+    when 1 then 'unknown'
+    when 2 then 'rejected'
+    when 3 then 'timeout'
+    when 6 then 'unknown'
+    else 'rejected'
+  end,
   statement_timestamp() - interval '10 minutes',
   true,
   jsonb_build_object('payload_redacted', true),
   jsonb_build_object('payload_redacted', true),
   statement_timestamp() - interval '20 minutes'
-from generate_series(1, 5) series;
+from generate_series(1, 6) series;
 
 select ok(not public.refund_nayax_outcome_resolution_enabled(),
   'Payment-support resolution is hard disabled by default');
@@ -470,6 +489,88 @@ select ok(
     from public.refund_case_nayax_refund_attempts
     where refund_case_id = 'b1600000-0000-4000-8000-000000000005'),
   'Confirmed success creates one adjustment and one original-thread completion');
+
+set local role authenticated;
+select pg_temp.set_auth_claims(
+  'b1000000-0000-4000-8000-000000000001', 'aal1',
+  jsonb_build_array(jsonb_build_object('method', 'password', 'timestamp', extract(epoch from statement_timestamp())))
+);
+insert into pg_temp.nayax_resolution_test_results (result_key, result)
+select 'form-manager-session-success', public.admin_resolve_refund_nayax_outcome_manager_session(
+  'b1600000-0000-4000-8000-000000000006',
+  'b1700000-0000-4000-8000-000000000006',
+  'provider_confirmed_success',
+  'nayax_support_ticket',
+  'SUPPORT:NAYAX-CS1500667',
+  statement_timestamp() - interval '10 minutes',
+  'nayax_support_confirmed_success',
+  (select official_action_version from public.refund_cases
+    where id = 'b1600000-0000-4000-8000-000000000006')
+);
+reset role;
+select ok((
+  select (stored.result ->> 'caseCompleted')::boolean
+    and (stored.result ->> 'customerCompletionMessageId') is not null
+    and attempt.completion_gmail_thread_id is null
+  from pg_temp.nayax_resolution_test_results stored
+  join public.refund_case_nayax_refund_attempts attempt
+    on attempt.id = 'b1700000-0000-4000-8000-000000000006'
+  where stored.result_key = 'form-manager-session-success'
+), 'A website-form case prepares one customer completion without inventing a Gmail thread');
+
+set local role service_role;
+insert into pg_temp.nayax_resolution_test_results (result_key, result)
+select 'form-route', public.service_authorize_nayax_refund_form_completion(
+  'resolution-test-executor',
+  'b1700000-0000-4000-8000-000000000006',
+  array['refunds@example.test']::text[]
+);
+reset role;
+select ok((
+  select result ->> 'status' = 'resolved'
+    and (result ->> 'managerCcCount')::integer = 0
+    and (result ->> 'managerRecipientOverlap')::boolean
+    and result ->> 'recipientEmail' = 'resolution-manager@example.test'
+  from pg_temp.nayax_resolution_test_results
+  where result_key = 'form-route'
+), 'A mapped manager who is also the customer is covered once as the To recipient');
+
+set local role service_role;
+insert into pg_temp.nayax_resolution_test_results (result_key, result)
+select 'form-finish', public.service_finish_nayax_refund_form_completion(
+  'resolution-test-executor',
+  'b1700000-0000-4000-8000-000000000006',
+  'sent',
+  0,
+  true
+);
+reset role;
+select ok((
+  select result ->> 'status' = 'sent'
+    and result ->> 'transport' = 'transactional_email'
+    and (result ->> 'managerCcCount')::integer = 0
+    and (result ->> 'managerRecipientOverlap')::boolean
+  from pg_temp.nayax_resolution_test_results
+  where result_key = 'form-finish'
+), 'The website completion finalizer records the transactional route without a duplicate self-CC');
+select ok(
+  (select count(*) = 1 from public.refund_case_messages
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000006'
+      and template_version = 'refund_nayax_completion_v2'
+      and status = 'sent')
+  and (select completion_delivery_status = 'sent'
+      and completion_manager_cc_count = 0
+    from public.refund_case_nayax_refund_attempts
+    where id = 'b1700000-0000-4000-8000-000000000006')
+  and exists (
+    select 1 from public.refund_case_events event
+    where event.refund_case_id = 'b1600000-0000-4000-8000-000000000006'
+      and event.event_type = 'nayax_customer_completion_sent'
+      and (event.metadata ->> 'manager_recipient_overlap')::boolean
+      and event.metadata ->> 'transport' = 'transactional_email'
+  ),
+  'Website completion has one sent message and redacted manager-recipient audit evidence');
+
 select ok(pg_temp.capture_error($sql$
   select public.admin_resolve_refund_nayax_outcome_manager_session(
     'b1600000-0000-4000-8000-000000000005',
