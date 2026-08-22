@@ -129,6 +129,10 @@ for (const forbidden of [
 }
 
 assert.match(template, /^\s*--[\s\S]*\bwith\b/i);
+assert.match(template, /refund_nayax_machine_inventory/);
+assert.match(template, /inventory\.reconciliation_state = 'published'/);
+assert.match(template, /inventory\.refund_category in \('cotton_candy', 'snapcase'\)/);
+assert.doesNotMatch(template, /machine\.machine_type in \('commercial', 'mini'\)/);
 assert.doesNotMatch(
   template,
   /\b(insert|update|delete|merge|truncate|alter|create|drop|grant|revoke|call|copy)\b(?![^\n]*\bcounts?\b)/i
@@ -138,5 +142,5 @@ assert.doesNotMatch(template, /select\s+[^;]*(manager_email|manager_user_id|repo
 console.log('Mapped-manager UAT readiness validator passed.');
 console.log('- exact project confirmation and UUID-only pilot scope');
 console.log('- aggregate result allowlist and no local output');
-console.log('- exact mapped-manager, shadow-ready, and exact-pilot readiness gates');
+console.log('- exact mapped-manager, published inventory, and exact-pilot readiness gates');
 console.log('- reviewed SELECT-only SQL template');

@@ -74,10 +74,14 @@ assert.deepEqual(
 
 const preflightQuery = buildRefundIntakeEmailPreflightQuery(machineId);
 assert.match(preflightQuery, /true as read_only/);
-assert.match(preflightQuery, /refund_intake_enabled = true/);
+assert.match(preflightQuery, /public_refund_machine_options\(\)/);
 assert.match(preflightQuery, /reporting_machine_refund_managers/);
 assert.doesNotMatch(preflightQuery, /customer_email|customer_name|card_last4|issue_summary/);
 assert.throws(() => buildRefundIntakeEmailPreflightQuery("' or true --"), /Invalid machine UUID/);
+assert.doesNotMatch(
+  preflightQuery,
+  /machine_type in \('commercial', 'mini'\)/,
+);
 
 assert.deepEqual(
   validateRefundIntakeEmailPreflight({

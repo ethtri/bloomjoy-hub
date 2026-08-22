@@ -115,14 +115,9 @@ export const buildRefundIntakeEmailPreflightQuery = (machineId) => {
   if (!UUID_PATTERN.test(machineId)) throw new Error('Invalid machine UUID.');
   return `
 with selected_machine as (
-  select rm.id
-  from public.reporting_machines rm
-  join public.reporting_locations rl on rl.id = rm.location_id
-  where rm.id = '${machineId}'::uuid
-    and rm.status = 'active'
-    and rl.status = 'active'
-    and rm.machine_type in ('commercial', 'mini')
-    and rm.refund_intake_enabled = true
+  select option.machine_id as id
+  from public.public_refund_machine_options() option
+  where option.machine_id = '${machineId}'::uuid
 ), manager_assignments as (
   select count(*)::integer as assignment_count
   from public.reporting_machine_refund_managers rfrm
