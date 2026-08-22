@@ -40,7 +40,7 @@ The owner-authenticated read-only checks on 2026-08-21 produced this sanitized b
 - Local release alignment: ten manifest-tracked functions and 68 required refund/Nayax migrations.
 - Production baseline: ten deployed refund functions captured to a gitignored artifact.
 - Production drift: seven changed repository functions are not yet paired with production, so the release correctly remains undeployed.
-- `supabase db push --dry-run --linked`: deploy only the reviewed migrations absent from production, including `20260822190000_refund_portfolio_intake_inventory_correction.sql`; no database write occurs during the dry run.
+- `supabase db push --dry-run --linked`: the integrated set includes `20260821090000_refund_form_only_case_creation.sql`, `20260821091000_refund_nayax_inventory.sql`, `20260821100000_refund_branded_appeals.sql`, and `20260822190000_refund_portfolio_intake_inventory_correction.sql`; deploy only the reviewed migrations absent from production, and make no database write during the dry run.
 
 This evidence expires if `main`, any listed migration, or any manifest-tracked function changes before deployment.
 
