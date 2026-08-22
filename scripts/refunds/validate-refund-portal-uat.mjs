@@ -1992,6 +1992,30 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder
   );
 
   await closeRefundPortalContext(context);
+
+  const machineErrorContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+  });
+  await machineErrorContext.route('**/rest/v1/rpc/public_refund_machine_options', async (route) => {
+    labelFixtureOwnedPortalRpc(route, 'public_refund_machine_options');
+    await route.fulfill({
+      ...jsonResponse({ message: 'Synthetic machine-list outage.' }),
+      status: 503,
+    });
+  });
+  const machineErrorPage = await machineErrorContext.newPage();
+  await navigateRefundPortalPage(machineErrorPage, `${appUrl}/refunds/request`, {
+    waitUntil: 'domcontentloaded',
+  });
+  await machineErrorPage.getByText(/Sending an email does not submit a refund request/i)
+    .waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Machine-list service errors fail closed with the case-free email fallback',
+    await machineErrorPage.getByRole('button', { name: 'Send refund request' }).isDisabled() &&
+      await machineErrorPage.getByRole('link', { name: 'email Bloomjoy customer service' }).isVisible() &&
+      (await machineErrorPage.locator('a[href*="forms.gle"], a[href*="docs.google.com/forms"]').count()) === 0
+  );
+  await closeRefundPortalContext(machineErrorContext);
 };
 
 const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) => {

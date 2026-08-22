@@ -50,8 +50,8 @@ export default function RefundThankYouPage() {
                   purchase. We will compare your details with the machine's payment records.
                 </p>
                 <p>
-                  Card requests are reviewed against payment records. Approved cash refunds are
-                  sent through Zelle using the contact information provided.
+                  We will review the card payment against the machine's payment records before a
+                  manager makes a separate refund decision.
                 </p>
               </div>
             </div>

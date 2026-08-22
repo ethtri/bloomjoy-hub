@@ -17,7 +17,6 @@ import {
   submitRefundRequest,
   type RefundIncidentTimeConfidence,
   type RefundIssueCategory,
-  type RefundPaymentMethod,
   type RefundPaymentInteraction,
   type RefundQrClaim,
   type RefundWalletProvider,
@@ -28,10 +27,8 @@ const emptyForm = {
   customerName: '',
   customerEmail: '',
   customerPhone: '',
-  zellePaymentContact: '',
   incidentDate: '',
   incidentTime: '',
-  paymentMethod: 'card' as RefundPaymentMethod,
   paymentAmount: '',
   cardLast4: '',
   cardWalletUsed: false,
@@ -158,8 +155,7 @@ export default function RefundRequestPage() {
     !hasQrCode &&
     !isDemoMode &&
     !isLoadingMachines &&
-    !machineError &&
-    !hasAvailableMachines;
+    (Boolean(machineError) || !hasAvailableMachines);
   const isLoadingMachineContext = hasQrCode ? isLoadingQrClaim : isLoadingMachines;
   const hasQrClaimError = hasQrCode && !isLoadingQrClaim && Boolean(qrClaimError);
   const canShowForm = !hasQrCode || Boolean(qrClaim);
@@ -232,23 +228,18 @@ export default function RefundRequestPage() {
       return;
     }
 
-    if (form.paymentMethod === 'card' && !/^[0-9]{4}$/.test(form.cardLast4.trim())) {
+    if (!/^[0-9]{4}$/.test(form.cardLast4.trim())) {
       toast.error('Enter the last 4 digits shown for the card payment.');
       return;
     }
 
-    if (form.paymentMethod === 'card' && !form.paymentInteraction) {
+    if (!form.paymentInteraction) {
       toast.error('Tell us how you paid at the machine.');
       return;
     }
 
     if (form.paymentInteraction === 'phone_watch_wallet' && !form.walletProvider) {
       toast.error('Choose the phone or watch wallet you used.');
-      return;
-    }
-
-    if (form.paymentMethod === 'cash' && !form.zellePaymentContact.trim()) {
-      toast.error('Enter the phone number or email connected to your Zelle account.');
       return;
     }
 
@@ -272,17 +263,14 @@ export default function RefundRequestPage() {
         customerName: form.customerName.trim(),
         customerEmail: form.customerEmail.trim().toLowerCase(),
         customerPhone: form.customerPhone.trim(),
-        zellePaymentContact:
-          form.paymentMethod === 'cash' ? form.zellePaymentContact.trim() : undefined,
         issueSummary: form.issueSummary.trim(),
         incidentDate,
         incidentTime,
-        paymentMethod: form.paymentMethod,
+        paymentMethod: 'card',
         paymentAmount: form.paymentAmount.trim(),
-        cardLast4: form.paymentMethod === 'card' ? form.cardLast4.trim() : undefined,
+        cardLast4: form.cardLast4.trim(),
         cardWalletUsed: form.cardWalletUsed,
-        paymentInteraction:
-          form.paymentMethod === 'cash' ? 'cash' : form.paymentInteraction || 'unsure',
+        paymentInteraction: form.paymentInteraction || 'unsure',
         walletProvider:
           form.paymentInteraction === 'phone_watch_wallet' && form.walletProvider
             ? form.walletProvider
@@ -510,11 +498,6 @@ export default function RefundRequestPage() {
                           </option>
                         ))}
                       </select>
-                      {machineError && (
-                        <p className="mt-2 text-sm text-destructive">
-                          Unable to load locations. Please try again shortly.
-                        </p>
-                      )}
                     </div>
                   )}
 
@@ -613,25 +596,10 @@ export default function RefundRequestPage() {
 
                 <div className="grid gap-4 sm:grid-cols-[190px_1fr]">
                   <div>
-                    <Label htmlFor="payment-method">Payment method</Label>
-                    <select
-                      id="payment-method"
-                      value={form.paymentMethod}
-                      onChange={(event) => {
-                        const paymentMethod = event.target.value as RefundPaymentMethod;
-                        setForm((current) => ({
-                          ...current,
-                          paymentMethod,
-                          paymentInteraction: paymentMethod === 'cash' ? 'cash' : '',
-                          walletProvider: '',
-                          cardWalletUsed: false,
-                        }));
-                      }}
-                      className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
-                    >
-                      <option value="card">Credit card</option>
-                      <option value="cash">Cash</option>
-                    </select>
+                    <Label>Payment method</Label>
+                    <div className="mt-2 flex h-11 items-center rounded-md border border-input bg-muted/30 px-3 text-sm">
+                      Card
+                    </div>
                   </div>
                   <div>
                     <Label htmlFor="payment-amount">Amount charged</Label>
@@ -647,9 +615,8 @@ export default function RefundRequestPage() {
                   </div>
                 </div>
 
-                {form.paymentMethod === 'card' && (
-                  <div className="rounded-lg border border-pink-200 bg-pink-50 p-4 text-sm text-pink-950">
-                    <div className="grid gap-4">
+                <div className="rounded-lg border border-pink-200 bg-pink-50 p-4 text-sm text-pink-950">
+                  <div className="grid gap-4">
                       <div>
                         <Label htmlFor="payment-interaction">How did you pay at the machine?</Label>
                         <select
@@ -719,29 +686,8 @@ export default function RefundRequestPage() {
                             : 'Enter only the last 4 digits. Never send the full card number.'}
                         </p>
                       </div>
-                    </div>
                   </div>
-                )}
-
-                {form.paymentMethod === 'cash' && (
-                  <div className="rounded-lg border border-pink-200 bg-pink-50 p-4 text-sm text-pink-950">
-                    <p className="leading-6">
-                      For cash refunds, approved refunds are sent through Zelle. Please enter the
-                      phone number or email connected to your Zelle account.
-                    </p>
-                    <div className="mt-4">
-                      <Label htmlFor="zelle-payment-contact">Zelle phone number or email</Label>
-                      <Input
-                        id="zelle-payment-contact"
-                        value={form.zellePaymentContact}
-                        onChange={(event) => updateForm('zellePaymentContact', event.target.value)}
-                        autoComplete="email"
-                        required
-                        className="mt-2 bg-white"
-                      />
-                    </div>
-                  </div>
-                )}
+                </div>
 
                 <div className="border-t border-border pt-5">
                   <h2 className="text-lg font-semibold text-foreground">What happened</h2>
