@@ -118,15 +118,25 @@ export const getTaxStatusLabel = (status: TaxStatus) => {
   return 'Configured';
 };
 
+export const getReportablePartnershipIds = (setup: PartnershipReportingSetup) =>
+  new Set(
+    setup.partnerships
+      .filter((partnership) => partnership.status !== 'archived')
+      .map((partnership) => partnership.id)
+  );
+
 export const getActiveMachineAssignments = (
   setup: PartnershipReportingSetup,
   machineId: string,
-  currentDate = today()
-) =>
-  setup.assignments.filter(
+  currentDate = today(),
+  reportablePartnershipIds = getReportablePartnershipIds(setup)
+) => {
+  return setup.assignments.filter(
     (assignment) =>
       assignment.machine_id === machineId &&
+      reportablePartnershipIds.has(assignment.partnership_id) &&
       assignment.status === 'active' &&
       assignment.effective_start_date <= currentDate &&
       (!assignment.effective_end_date || assignment.effective_end_date >= currentDate)
   );
+};
