@@ -28,6 +28,13 @@ description: Use for Bloomjoy Hub GitHub issue or PR work, agent workflow upgrad
 - Do not commit secrets, raw customer data, payment IDs, vendor exports, or free-text complaint content.
 - For visible UI work, use `PRODUCT.md`, `DESIGN.md`, and `impeccable` guidance when design quality matters.
 
+## Proportional Coordination
+
+- Use sprint-style coordination only for an explicitly requested multi-issue, multi-PR, or genuinely independent multi-lane delivery.
+- Keep single issues, read-only reviews or audits, QA-only work, and ordinary planning with the primary agent unless independent delegation materially reduces risk or elapsed time.
+- Never create extra agents, issues, PRs, or documents merely to mirror a process template.
+- Escalate only decisions involving business or scope tradeoffs, new platforms or paid vendors, credentials or production actions, legal or privacy commitments, destructive data operations, or unresolved acceptance choices that materially change user outcomes. Handle routine product, implementation, verification, PR, issue, and board decisions autonomously.
+
 ## Subagents
 
 - Keep small single-lane fixes local to the primary agent.
@@ -44,4 +51,5 @@ description: Use for Bloomjoy Hub GitHub issue or PR work, agent workflow upgrad
 - Every repo change gets a PR into `main` with linked issue, summary, files changed, verification results, risk/overlap, and how-to-test steps.
 - Before an agent-initiated merge, run `npm run agent:merge-gate -- --pr <number>` and record the result in the PR.
 - Agents should proactively test, review, merge, and clean up Green and Yellow lane PRs after required evidence is complete. Red lane means an executive decision or unresolved blocker exists and requires explicit owner direction or blocker resolution.
+- Run a retro only after a meaningful multi-PR milestone, a materially troubled delivery, or an explicit request.
 - Put task chronology and closeout evidence in the issue or PR, not static markdown docs.
