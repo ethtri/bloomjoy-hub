@@ -1,5 +1,18 @@
 # Decisions
 
+## 2026-08-22 - Customer refund intake is not an automatic-payment readiness gate
+
+- `/refunds/request` lists every active customer-safe Commercial/Mini reporting location, plus Snapcase machines that are explicitly classified and represented in the reporting portfolio. A missing immutable Nayax mapping or manager route is setup work; it does not prevent the customer from asking Bloomjoy for help.
+- Exact Nayax inventory mapping, category, active provider state, manager routing, transaction confirmation, separate refund approval, caps, idempotency, duplicate-payment protection, and the execution kill switch still gate automatic payment. An explicitly excluded or provider-inactive mapped machine remains hidden.
+- Every active provider inventory row must still be Published, Needs setup, or Explicitly excluded. Missing exact mappings and being outside an earlier pilot cohort are not valid business exclusions and return to Needs setup.
+- This restores and extends the 2026-08-02 portfolio-intake decision for Snapcase. It supersedes only the 2026-08-21 statement that the public form uses the published automatic-payment inventory gate; all other inventory, matching, payment, and communication safeguards remain unchanged.
+
+## 2026-08-22 - Launch with temporary refund-volume limits, then review them
+
+- Normal production refunds start with a $50 maximum per refund, $500 total approved refunds per day, and 20 approved refunds per day.
+- These limits are temporary monitoring guardrails, not permanent product requirements. They provide a simple pause point if early production volume or behavior is unexpected without changing manager approval, matching, or customer communication.
+- The limits may be raised or removed after monitored production evidence is reviewed. Duplicate-payment protection, exact transaction binding, per-machine eligibility, idempotency, and no-retry handling of uncertain provider outcomes remain mandatory even if the temporary volume limits are removed.
+
 ## 2026-08-22 - The successful Nayax pilot removes permission confirmation as a launch prerequisite
 
 - The owner pilot proved that Bloomjoy's existing server-only Nayax token, production endpoint, amount units, identifiers, and request body can create a real refund that Nayax later confirmed as refunded. No additional Nayax role grant or written permission confirmation is a Refund Operations production prerequisite.

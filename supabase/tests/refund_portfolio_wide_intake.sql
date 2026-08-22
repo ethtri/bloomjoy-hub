@@ -189,12 +189,12 @@ select ok(
 );
 
 select ok(
-  not exists (
+  exists (
     select 1
     from public.public_refund_machine_options()
     where machine_id = '93000000-0000-4000-8000-000000000001'
   ),
-  'An active machine remains hidden until its inventory row is explicitly published'
+  'An active customer-safe portfolio machine remains available while automatic payment setup is incomplete'
 );
 
 select ok(
@@ -268,16 +268,16 @@ select is(
     from public.public_refund_machine_options()
     where machine_id::text like '93000000-0000-4000-8000-%'
   ),
-  3,
-  'Exactly the three eligible test portfolio machines are public'
+  4,
+  'Exactly the four customer-safe test portfolio machines are public'
 );
 
 select ok(
   position(
-    'machine_type'
+    'refund_intake_enabled'
     in pg_get_functiondef('public.public_refund_machine_options()'::regprocedure)
   ) = 0,
-  'Public eligibility does not contain a Commercial/Mini machine-type filter'
+  'Public intake eligibility is independent of automatic refund readiness'
 );
 
 select * from finish();

@@ -6,7 +6,7 @@ Last updated: 2026-08-21
 
 Use this packet to move epic `#628` from the fully integrated release on `main` to a simple, monitored production pilot. A green PR is necessary but is not production deployment, customer-contact activation, live-payment approval, schedule enablement, or legacy-responder retirement.
 
-**Current operational truth:** the reviewed repository target covers all ten manifest-tracked Refund Operations functions and all 67 required refund/Nayax migrations. The form-only intake, all-active Nayax inventory, warm branded messages and appeals, duplicate protection, and one source-aware manager queue are merged. The read-only production comparison fails closed because seven changed function sources are not yet paired with production, so this release is neither deployed nor activated.
+**Current operational truth:** the reviewed repository target covers all ten manifest-tracked Refund Operations functions and all 68 required refund/Nayax migrations. The automatic Nayax payment switch is kill-switched while the portfolio-intake correction is reviewed and deployed. The correction restores customer-safe form coverage independently of automatic-payment readiness and returns mapping/cohort gaps from Excluded to Needs setup; final activation remains withheld until production QA is green.
 
 ## Pilot scope boundary
 
@@ -24,7 +24,7 @@ Refund Operations v1 uses the existing customer-service email and text-response 
 
 | Gate | Required evidence | Authority to close |
 |---|---|---|
-| Integrated release | Immutable `main` commit, 10-function/67-migration manifest, full verification, reviewed migration dry run, restore source, and clean postdeploy drift | Release and technical owners |
+| Integrated release | Immutable `main` commit, 10-function/68-migration manifest, full verification, reviewed migration dry run, restore source, and clean postdeploy drift | Release and technical owners |
 | `#889` form-only intake | Contact-only zero cases, one Email-linked form case, one direct Website form case, one-time context/replay proof, missing-information reply on the same case, and matching rerun | QA and operations owners |
 | `#890` complete Nayax inventory | One controlled all-account sync; every active row explicitly published, needs setup, or excluded; zero unaccounted/setup-required rows at launch; cotton-candy and Snapcase mappings | Operations, release, and QA owners |
 | `#891` messages and appeals | Warm branded first contact, missing-information, denial, appeal receipt, retry, and confirmed completion in the original thread; reply appeal reopens the same case without payment | QA and operations owners |
@@ -37,10 +37,10 @@ Refund Operations v1 uses the existing customer-service email and text-response 
 
 The owner-authenticated read-only checks on 2026-08-21 produced this sanitized baseline:
 
-- Local release alignment: ten manifest-tracked functions and 67 required refund/Nayax migrations.
+- Local release alignment: ten manifest-tracked functions and 68 required refund/Nayax migrations.
 - Production baseline: ten deployed refund functions captured to a gitignored artifact.
 - Production drift: seven changed repository functions are not yet paired with production, so the release correctly remains undeployed.
-- `supabase db push --dry-run --linked`: exactly `20260821090000_refund_form_only_case_creation.sql`, `20260821091000_refund_nayax_inventory.sql`, and `20260821100000_refund_branded_appeals.sql`; no database write occurred.
+- `supabase db push --dry-run --linked`: the integrated set includes `20260821090000_refund_form_only_case_creation.sql`, `20260821091000_refund_nayax_inventory.sql`, `20260821100000_refund_branded_appeals.sql`, and `20260822190000_refund_portfolio_intake_inventory_correction.sql`; deploy only the reviewed migrations absent from production, and make no database write during the dry run.
 
 This evidence expires if `main`, any listed migration, or any manifest-tracked function changes before deployment.
 
@@ -49,7 +49,7 @@ This evidence expires if `main`, any listed migration, or any manifest-tracked f
 1. Freeze unrelated Refund Operations changes for the release window.
 2. Use the current integrated `main` commit as the only deploy source. Never deploy a historical PR head, local-only commit, or unreviewed merge.
 3. If `main` changes, refresh the manifest with `npm run refunds:release:write-local`, review and commit the manifest-only update, and rerun this entire verification profile.
-4. Confirm the manifest covers all ten manifest-tracked Refund Operations functions and all 67 required refund/Nayax migrations, with the exact canonical 51-migration predeployment bridge preserved only as historical restore evidence.
+4. Confirm the manifest covers all ten manifest-tracked Refund Operations functions and all 68 required refund/Nayax migrations, with the exact canonical 51-migration predeployment bridge preserved only as historical restore evidence.
 5. Run on the immutable release commit:
 
 ```bash
@@ -81,7 +81,7 @@ If any merge changes an in-scope migration or Refund Operations function after t
 
 ### No provisional compatibility bridge
 
-The historical `#629/#716` five-migration bridge does not apply. The 67-migration target uses its reviewed manifest plus the exact canonical 51-migration predeployment bridge only for historical compatibility evidence. Any unexpected migration, source digest, function version, switch state, or health result stops the release.
+The historical `#629/#716` five-migration bridge does not apply. The 68-migration target uses its reviewed manifest plus the exact canonical 51-migration predeployment bridge only for historical compatibility evidence. Any unexpected migration, source digest, function version, switch state, or health result stops the release.
 
 ## Default-off production deployment
 

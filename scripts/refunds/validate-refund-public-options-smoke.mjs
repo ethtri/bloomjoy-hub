@@ -15,19 +15,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..', '..');
 const wrapperSource = fs.readFileSync(path.join(__dirname, 'refund-public-options-smoke.mjs'), 'utf8');
-const inventoryMigrationSource = fs.readFileSync(
-  path.join(repoRoot, 'supabase', 'migrations', '20260821091000_refund_nayax_inventory.sql'),
+const portfolioCorrectionSource = fs.readFileSync(
+  path.join(repoRoot, 'supabase', 'migrations', '20260822190000_refund_portfolio_intake_inventory_correction.sql'),
   'utf8'
 );
 const intakeFunctionSource = fs.readFileSync(
   path.join(repoRoot, 'supabase', 'functions', 'refund-case-intake', 'index.ts'),
   'utf8'
 );
-const publicOptionsFunctionSource = inventoryMigrationSource.slice(
-  inventoryMigrationSource.indexOf('create or replace function public.public_refund_machine_options()'),
-  inventoryMigrationSource.indexOf(
-    'create or replace function public.admin_set_reporting_machine_refund_intake_config('
-  )
+const publicOptionsFunctionSource = portfolioCorrectionSource.slice(
+  portfolioCorrectionSource.indexOf('create or replace function public.public_refund_machine_options()'),
+  portfolioCorrectionSource.indexOf('create or replace function public.service_refund_machine_is_public(')
 );
 
 assert.deepEqual(
@@ -65,6 +63,8 @@ const readyRow = {
 
 assert.equal(validateAggregateRow(readyRow), readyRow);
 assert.equal(determineReadiness(readyRow).ready, true);
+assert.equal(determineReadiness({ ...readyRow, public_option_count: 39 }).ready, true,
+  'customer intake may include setup-pending portfolio machines beyond the automatic-payment cohort');
 
 for (const patch of [
   { published_missing_public_option_count: 1, public_option_count: 34 },
@@ -98,11 +98,12 @@ assert.match(PUBLIC_OPTIONS_QUERY, /^with\s+active_inventory\s+as/i);
 assert.match(PUBLIC_OPTIONS_QUERY, /refund_nayax_machine_inventory/);
 assert.match(PUBLIC_OPTIONS_QUERY, /needs_setup_inventory_count/);
 assert.match(PUBLIC_OPTIONS_QUERY, /snapcase_category_count/);
-assert.doesNotMatch(publicOptionsFunctionSource, /machine\.machine_type in \('commercial', 'mini'\)/);
+assert.match(publicOptionsFunctionSource, /machine\.machine_type in \('commercial', 'mini'\)/);
 assert.match(publicOptionsFunctionSource, /location\.status = 'active'/);
 assert.match(publicOptionsFunctionSource, /refund_public_display_label/);
-assert.match(publicOptionsFunctionSource, /inventory\.reconciliation_state = 'published'/);
-assert.match(publicOptionsFunctionSource, /inventory\.refund_category in \('cotton_candy', 'snapcase'\)/);
+assert.doesNotMatch(publicOptionsFunctionSource, /refund_intake_enabled/);
+assert.match(publicOptionsFunctionSource, /inventory\.refund_category = 'snapcase'/);
+assert.match(publicOptionsFunctionSource, /inventory\.reconciliation_state <> 'excluded'/);
 assert.doesNotMatch(intakeFunctionSource, /\.eq\("refund_intake_enabled", true\)/);
 assert.equal((intakeFunctionSource.match(/service_refund_machine_is_public/g) ?? []).length, 2,
   'QR claim and direct form intake must share the explicit inventory eligibility RPC');
@@ -119,4 +120,5 @@ console.log('- exact linked-project confirmation');
 console.log('- aggregate-only result allowlist');
 console.log('- every active Nayax machine is published, setup work, or explicitly excluded');
 console.log('- no setup or stale-published work remains at launch');
+console.log('- customer intake stays independent of automatic Nayax payment readiness');
 console.log('- explicit Snapcase category and duplicate fail-closed gates');
