@@ -1,5 +1,12 @@
 # Decisions
 
+## 2026-08-22 - Customer refund intake is not an automatic-payment readiness gate
+
+- `/refunds/request` lists every active customer-safe Commercial/Mini reporting location, plus Snapcase machines that are explicitly classified and represented in the reporting portfolio. A missing immutable Nayax mapping or manager route is setup work; it does not prevent the customer from asking Bloomjoy for help.
+- Exact Nayax inventory mapping, category, active provider state, manager routing, transaction confirmation, separate refund approval, caps, idempotency, duplicate-payment protection, and the execution kill switch still gate automatic payment. An explicitly excluded or provider-inactive mapped machine remains hidden.
+- Every active provider inventory row must still be Published, Needs setup, or Explicitly excluded. Missing exact mappings and being outside an earlier pilot cohort are not valid business exclusions and return to Needs setup.
+- This restores and extends the 2026-08-02 portfolio-intake decision for Snapcase. It supersedes only the 2026-08-21 statement that the public form uses the published automatic-payment inventory gate; all other inventory, matching, payment, and communication safeguards remain unchanged.
+
 ## 2026-08-22 - Launch with temporary refund-volume limits, then review them
 
 - Normal production refunds start with a $50 maximum per refund, $500 total approved refunds per day, and 20 approved refunds per day.

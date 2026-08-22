@@ -71,7 +71,8 @@
     "20260821083000_refund_completion_delivery_decoupling.sql",
     "20260821090000_refund_form_only_case_creation.sql",
     "20260821091000_refund_nayax_inventory.sql",
-    "20260821100000_refund_branded_appeals.sql"
+    "20260821100000_refund_branded_appeals.sql",
+    "20260822190000_refund_portfolio_intake_inventory_correction.sql"
   ],
   "migrationFilesSha256": "2014f37c413e7443909164975c499ee7d1f36fa3a87f0fae327dbe1f4cfaec3c",
   "migrationVersionSetSha256": "db7fb229e6b42df8f2a4fb3e43bf8108bd975b07986ba0311a73650222e70ea8",

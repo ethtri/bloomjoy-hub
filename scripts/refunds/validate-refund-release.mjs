@@ -102,7 +102,7 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 67 required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 68 required refund\/Nayax migrations/);
 assert.match(cutoverPacket, /exact canonical 51-migration predeployment bridge/);
 assert.match(
   cutoverPacket,
@@ -121,6 +121,7 @@ for (const requiredPilotBoundary of [
   '20260821090000_refund_form_only_case_creation.sql',
   '20260821091000_refund_nayax_inventory.sql',
   '20260821100000_refund_branded_appeals.sql',
+  '20260822190000_refund_portfolio_intake_inventory_correction.sql',
 ]) {
   assert(
     cutoverPacket.includes(requiredPilotBoundary),
@@ -207,8 +208,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    67,
-    'Refund release inventory must cover exactly 67 discovered refund/Nayax migrations'
+    68,
+    'Refund release inventory must cover exactly 68 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -257,6 +258,10 @@ try {
   assert(
     repositoryMigrations.includes('20260821100000_refund_branded_appeals.sql'),
     'The branded customer-message and same-case appeal boundary must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260822190000_refund_portfolio_intake_inventory_correction.sql'),
+    'The portfolio-intake and inventory-classification correction must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260820041101_refund_nayax_pending_approval_recovery.sql'),

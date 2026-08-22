@@ -159,8 +159,7 @@ export function determineReadiness(row) {
     noSetupWorkRemaining: row.needs_setup_inventory_count === 0,
     everyPublishedMachinePublic:
       row.published_missing_public_option_count === 0 &&
-      row.stale_published_count === 0 &&
-      row.public_option_count === row.published_inventory_count,
+      row.stale_published_count === 0,
     noInternalLabels: row.unsafe_internal_label_count === 0,
     snapcaseAccounted: row.snapcase_category_count >= 3,
     noDuplicateMachineRows: row.duplicate_machine_row_count === 0,
