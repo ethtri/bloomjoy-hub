@@ -109,24 +109,65 @@ assert.match(
   /all ten manifest-tracked Refund Operations functions/
 );
 assert.match(cutoverPacket, /historical `#629\/#716` five-migration bridge does not apply/);
-const smokeOrder = cutoverPacket.indexOf('Use this exact post-deployment order:');
+for (const requiredPilotBoundary of [
+  'Customer contact alone creates zero cases',
+  'A Bloomjoy form submission creates exactly one case',
+  'Every active Nayax machine',
+  'Snapcase is in scope',
+  'reopens the same case without payment authority',
+  'Cut over responders without overlap',
+  'Monitor for 72 hours',
+  'are not pilot requirements',
+  '20260821090000_refund_form_only_case_creation.sql',
+  '20260821091000_refund_nayax_inventory.sql',
+  '20260821100000_refund_branded_appeals.sql',
+]) {
+  assert(
+    cutoverPacket.includes(requiredPilotBoundary),
+    `Cutover packet is missing the current v1 boundary: ${requiredPilotBoundary}`
+  );
+}
+for (const retiredPilotGate of [
+  /\| `#633` cash workflow \|/,
+  /\| `#692` \/ `#782` human step-up \|/,
+  /\| `#635` GPT triage \|/,
+]) {
+  assert.doesNotMatch(
+    cutoverPacket,
+    retiredPilotGate,
+    'Retired optional work must not remain in the Refund Operations v1 evidence ledger'
+  );
+}
+assert.match(
+  productionRunbook,
+  /exactly 42 reviewed synthetic screenshots/,
+  'Production runbook must use the current 42-screenshot evidence inventory'
+);
+assert.doesNotMatch(
+  productionRunbook,
+  /exactly 47 reviewed synthetic screenshots/,
+  'Production runbook must not retain the retired 47-screenshot evidence count'
+);
+const smokeOrder = cutoverPacket.indexOf('## Exact postdeployment readiness order');
 const routeSmoke = cutoverPacket.indexOf('refunds:smoke-routes', smokeOrder);
-const publicOptionsSmoke = cutoverPacket.indexOf('refunds:smoke-public-options', routeSmoke);
 const captureManifest = cutoverPacket.indexOf(
   'Capture production function metadata, update and independently review the manifest-only change',
-  publicOptionsSmoke
+  routeSmoke
 );
 const cleanDrift = cutoverPacket.indexOf(
   'require the standard production drift check to pass for all ten functions',
   captureManifest
 );
+const inventorySync = cutoverPacket.indexOf('Run one controlled inventory sync', cleanDrift);
+const publicOptionsSmoke = cutoverPacket.indexOf('refunds:smoke-public-options', inventorySync);
 assert(
   smokeOrder >= 0 &&
     routeSmoke > smokeOrder &&
-    publicOptionsSmoke > routeSmoke &&
-    captureManifest > publicOptionsSmoke &&
-    cleanDrift > captureManifest,
-  'The smoke order must be routes, public options, capture/review, then clean production drift'
+    captureManifest > routeSmoke &&
+    cleanDrift > captureManifest &&
+    inventorySync > cleanDrift &&
+    publicOptionsSmoke > inventorySync,
+  'The smoke order must be routes, capture/review, clean drift, complete inventory, then public options'
 );
 assert.doesNotMatch(
   cutoverPacket,
