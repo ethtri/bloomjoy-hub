@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-08-22 - Launch with temporary refund-volume limits, then review them
+
+- Normal production refunds start with a $50 maximum per refund, $500 total approved refunds per day, and 20 approved refunds per day.
+- These limits are temporary monitoring guardrails, not permanent product requirements. They provide a simple pause point if early production volume or behavior is unexpected without changing manager approval, matching, or customer communication.
+- The limits may be raised or removed after monitored production evidence is reviewed. Duplicate-payment protection, exact transaction binding, per-machine eligibility, idempotency, and no-retry handling of uncertain provider outcomes remain mandatory even if the temporary volume limits are removed.
+
 ## 2026-08-22 - The successful Nayax pilot removes permission confirmation as a launch prerequisite
 
 - The owner pilot proved that Bloomjoy's existing server-only Nayax token, production endpoint, amount units, identifiers, and request body can create a real refund that Nayax later confirmed as refunded. No additional Nayax role grant or written permission confirmation is a Refund Operations production prerequisite.
