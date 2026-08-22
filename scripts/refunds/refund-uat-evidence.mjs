@@ -18,6 +18,7 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-email-pilot-duplicate-review-mobile.png',
   'refund-email-pilot-hosted-form-desktop.png',
   'refund-email-pilot-hosted-form-mobile.png',
+  'refund-email-pilot-source-badges-mobile.png',
   'refund-evidence-selection-desktop.png',
   'refund-evidence-selection-mobile.png',
   'refund-nayax-support-resolution-desktop.png',

@@ -75,6 +75,7 @@ const parseArgs = (argv) => {
     nayaxResolutionOnly: false,
     nayaxLookupOnly: false,
     gmailDraftOnly: false,
+    duplicateOnly: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -122,6 +123,11 @@ const parseArgs = (argv) => {
 
     if (arg === '--gmail-draft-only') {
       args.gmailDraftOnly = true;
+      continue;
+    }
+
+    if (arg === '--duplicate-only') {
+      args.duplicateOnly = true;
       continue;
     }
 
@@ -176,7 +182,7 @@ const parseArgs = (argv) => {
   args.fragmentDir = path.resolve(process.cwd(), args.fragmentDir);
   if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
     !args.ownerTotpOnly && !args.legacyStateOnly && !args.nayaxResolutionOnly &&
-    !args.nayaxLookupOnly) {
+    !args.nayaxLookupOnly && !args.duplicateOnly) {
     requireEvidenceRunToken(args.runToken);
   }
   return args;
@@ -2554,9 +2560,10 @@ const runEmailPilotDuplicateChecks = async ({ browser, appUrl, artifactDir, reco
   await page.getByText('Possible duplicate review', { exact: true }).waitFor({ timeout: 10000 });
 
   recorder.assert(
-    'Duplicate review identifies the linked intake source without cluttering the queue',
+    'The unified queue identifies the selected Email case and its linked Website case',
     await page.getByText('Website form', { exact: true }).last().isVisible() &&
-      (await page.getByText('Support email', { exact: true }).count()) === 0
+      (await page.getByText('Support email', { exact: true }).count()) >= 2 &&
+      await page.getByTestId('refund-selected-case-source').getByText('Support email', { exact: true }).isVisible()
   );
   recorder.assert(
     'Email pilot queue keeps advanced operational filters out of the manager workflow',
@@ -2587,6 +2594,11 @@ const runEmailPilotDuplicateChecks = async ({ browser, appUrl, artifactDir, reco
   });
 
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-email-pilot-source-badges-mobile.png'),
+    fullPage: false,
+  });
   await page.getByRole('button', { name: /Same incident.*keep this case/i })
     .scrollIntoViewIfNeeded();
   await page.screenshot({
@@ -5444,7 +5456,7 @@ const run = async () => {
   await mkdir(args.artifactDir, { recursive: true });
   if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.ownerTotpOnly &&
     !args.legacyStateOnly && !args.nayaxResolutionOnly && !args.nayaxLookupOnly &&
-    !args.gmailDraftOnly) {
+    !args.gmailDraftOnly && !args.duplicateOnly) {
     await mkdir(args.fragmentDir, { recursive: true });
   }
   await waitForServer(args.appUrl);
@@ -5461,7 +5473,14 @@ const run = async () => {
     }
   );
   try {
-    if (args.gmailDraftOnly) {
+    if (args.duplicateOnly) {
+      await runEmailPilotDuplicateChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
+    } else if (args.gmailDraftOnly) {
       await runGmailDraftChecks({
         browser,
         appUrl: args.appUrl,
@@ -5621,6 +5640,18 @@ const run = async () => {
     networkFailures.length === 0,
     [...networkFailures, ...fixtureOwnedPortalFailureDiagnostics].slice(0, 5).join(' | ')
   );
+
+  if (args.duplicateOnly) {
+    const focusedFailures = recorder.failed();
+    if (focusedFailures.length > 0) {
+      console.error(`\nRefund duplicate-queue UAT failed: ${focusedFailures.length} check(s).`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log('\nRefund duplicate-queue UAT passed.');
+    console.log(`Screenshots written to ${args.artifactDir}`);
+    return;
+  }
 
   if (args.legacyStateOnly) {
     const focusedFailures = recorder.failed();
