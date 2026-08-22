@@ -92,9 +92,9 @@ export const validateRefundBrowserUatNetworkCoverage = (sources) => {
       countMatches(
         source,
         /labelFixtureOwnedPortalRpc\(route, ['"]public_refund_machine_options['"]\)/g
-      ) !== 2
+      ) !== 3
     ) {
-      failures.push(`${filename}: direct public-options RPC fixtures are not both ownership-labelled`);
+      failures.push(`${filename}: direct public-options RPC fixtures are not all ownership-labelled`);
     }
   }
 
