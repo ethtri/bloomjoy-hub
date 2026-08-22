@@ -1807,6 +1807,15 @@ const isExpectedPortalUatResponse = (response) => {
 
   if (
     status === 503 &&
+    marker === 'public-machine-options' &&
+    path === '/rest/v1/rpc/public_refund_machine_options' &&
+    fixtureOwnedPortalRpcLabels.get(request) === 'public_refund_machine_options'
+  ) {
+    return true;
+  }
+
+  if (
+    status === 503 &&
     marker === 'nayax-availability' &&
     path === '/functions/v1/nayax-card-refund' &&
     body?.operation === 'availability' &&
@@ -2001,6 +2010,7 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder
     await route.fulfill({
       ...jsonResponse({ message: 'Synthetic machine-list outage.' }),
       status: 503,
+      headers: { [EXPECTED_PORTAL_ERROR_HEADER]: 'public-machine-options' },
     });
   });
   const machineErrorPage = await machineErrorContext.newPage();
