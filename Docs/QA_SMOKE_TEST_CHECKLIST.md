@@ -51,6 +51,14 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Refund Operations MVP
 
+- [ ] `npm run refunds:validate-branded-appeals` passes and all first-contact, follow-up, denial, appeal, retry, and completion paths use the canonical Bloomjoy HTML/plain-text renderer.
+- [ ] Customer contact before the Bloomjoy form creates no operational case; one form submission creates exactly one case; verified replies update that same case and rerun only deterministic read-only matching when safe.
+- [ ] A sent denial includes one customer-safe reason and invites a reply in the same conversation. A verified direct customer reply reopens that same case as **Appeal needs review**, clears the prior decision, and creates zero provider attempts, reporting adjustments, approvals, or payments.
+- [ ] Forwarded, automated, spoof-suspected, manager, unrelated, duplicate, and replayed Gmail messages cannot create an appeal or a second refund case.
+- [ ] Appeal acknowledgement requires both default-off automatic-contact gates. Confirmed failure is retryable through the controlled path; uncertain delivery remains reconciliation-only and cannot blindly resend.
+- [ ] First-contact, denial, appeal-received, and completion emails are visually checked at desktop and 390px mobile widths plus plain text. Copy is warm, branded, replyable, free of internal notes/links, and the confirmed completion begins **Good news—your refund request was approved, and your refund is on its way.**
+- [ ] Transaction confirmation remains separate from approve/deny, and only confirmed provider success creates one completion email. Replay/double-submit produces no second provider attempt, reporting adjustment, or customer email.
+
 Current manager-session checkpoint (2026-08-20): signed-in mapped managers use one confirmation with no refund-specific TOTP, setup window, temporary operator, or six-digit code. This checkpoint supersedes later historical TOTP/operator checklist items. Provider execution still uses the existing exact transaction, mapping, version, caps, idempotency, duplicate, and settlement controls; outcome reconciliation remains provider-free.
 
 Refund Operations v1 scope checkpoint (2026-08-21): customer contact alone creates no case; hosted form submission creates one case; deterministic reply follow-up reruns matching after material facts change; transaction confirmation and refund approval/denial are separate. GPT, TOTP, operator ceremony, QR-code changes, Kexiazhan reporting, cash fallback, and a new SMS platform are outside this pilot. This checkpoint supersedes later historical checklist items when evaluating the v1 launch.

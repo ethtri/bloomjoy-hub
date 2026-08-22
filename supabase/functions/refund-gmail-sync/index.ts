@@ -26,8 +26,8 @@ import {
 import { ingestRefundGmailThreadBeforeFirstContact } from "../_shared/refund-gmail-orchestration.ts";
 import {
   extractLabeledRefundEmailFacts,
-  resolveExactRefundMachineFact,
   type RefundMachineFactCandidate,
+  resolveExactRefundMachineFact,
 } from "../_shared/refund-email-fact-extraction.ts";
 import {
   buildRefundFirstContactEmail,
@@ -47,6 +47,12 @@ import {
   type RefundGmailRetentionSummary,
 } from "../_shared/refund-gmail-retention.ts";
 import { sendRefundManagerActionNotice } from "../_shared/refund-manager-notification.ts";
+import {
+  buildRefundCustomerEmail,
+  sendRefundCustomerEmail,
+} from "../_shared/refund-email.ts";
+import { automaticRefundCustomerContactEnabled } from "../_shared/refund-deterministic-follow-up.ts";
+import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { resolveLocalDateTimeInZone } from "../_shared/timezone-resolution.mjs";
 import {
   completeRefundGmailIntakeShadowFirstContact,
@@ -276,6 +282,134 @@ type FirstContactCandidate = {
   publicReference?: string;
   customerName: string;
   customerEmail: string;
+};
+
+type AppealCounters = {
+  appealsReceived: number;
+  appealConfirmationsSent: number;
+  appealConfirmationsFailed: number;
+  appealConfirmationsSuppressed: number;
+};
+
+const processDenialAppealConfirmation = async ({
+  appealId,
+  publicReference,
+  customerName,
+  customerEmail,
+  counters,
+}: {
+  appealId: string;
+  publicReference: string;
+  customerName: string;
+  customerEmail: string;
+  counters: AppealCounters;
+}) => {
+  if (!supabase || !automaticRefundCustomerContactEnabled()) {
+    counters.appealConfirmationsSuppressed += 1;
+    return { failed: false };
+  }
+
+  const { data: settings, error: settingsError } = await supabase
+    .from("refund_customer_contact_settings")
+    .select("automatic_customer_contact_enabled")
+    .eq("singleton", true)
+    .maybeSingle();
+  if (settingsError) {
+    counters.appealConfirmationsFailed += 1;
+    return { failed: true };
+  }
+  if (settings?.automatic_customer_contact_enabled !== true) {
+    counters.appealConfirmationsSuppressed += 1;
+    return { failed: false };
+  }
+
+  const emailInput = {
+    messageType: "appeal_received" as const,
+    publicReference,
+    customerName,
+    customerEmail,
+  };
+  const email = buildRefundCustomerEmail(emailInput);
+  const claim = await rpc<Record<string, unknown>>(
+    "service_claim_refund_denial_appeal_confirmation",
+    {
+      p_appeal_id: appealId,
+      p_subject: email.subject,
+      p_body: email.text,
+    },
+  );
+  if (claim?.claimed !== true) {
+    counters.appealConfirmationsSuppressed += 1;
+    return { failed: false };
+  }
+
+  const refundCaseId = sanitizeText(claim.refundCaseId, 80);
+  const refundCaseMessageId = sanitizeText(claim.refundCaseMessageId, 80);
+  const gmailThreadId = sanitizeText(claim.gmailThreadId, 80);
+  const claimedCustomerEmail = sanitizeText(
+    claim.recipientEmail,
+    320,
+  ).toLowerCase();
+  if (!refundCaseId || !refundCaseMessageId || !claimedCustomerEmail) {
+    await rpc<boolean>(
+      "service_finish_refund_denial_appeal_confirmation",
+      {
+        p_appeal_id: appealId,
+        p_refund_case_message_id: refundCaseMessageId || null,
+        p_delivery_status: "failed",
+        p_error_code: "appeal_confirmation_claim_invalid",
+      },
+    ).catch(() => false);
+    counters.appealConfirmationsFailed += 1;
+    return { failed: true };
+  }
+
+  let deliveryStatus: "sent" | "failed" | "delivery_unknown" = "sent";
+  let errorCode: string | null = null;
+  try {
+    const delivery = await dispatchRefundCaseGmailReply({
+      supabase,
+      refundCaseId,
+      refundCaseMessageId,
+      recipientEmail: claimedCustomerEmail,
+      email,
+      deliveryKind: "automatic",
+      gmailThreadId: gmailThreadId || null,
+    });
+    if (!delivery.usedGmail) {
+      await sendRefundCustomerEmail({
+        ...emailInput,
+        customerEmail: claimedCustomerEmail,
+        managerCcEmails: delivery.managerCcEmails,
+      });
+    }
+  } catch (error) {
+    const uncertain = error instanceof TypeError ||
+      (error instanceof RefundGmailError && error.deliveryUncertain);
+    deliveryStatus = uncertain ? "delivery_unknown" : "failed";
+    errorCode = error instanceof RefundGmailError
+      ? error.code
+      : uncertain
+      ? "appeal_confirmation_delivery_unknown"
+      : "appeal_confirmation_send_failed";
+  }
+
+  const finished = await rpc<boolean>(
+    "service_finish_refund_denial_appeal_confirmation",
+    {
+      p_appeal_id: appealId,
+      p_refund_case_message_id: refundCaseMessageId,
+      p_delivery_status: deliveryStatus,
+      p_error_code: errorCode,
+    },
+  ).catch(() => false);
+  if (deliveryStatus === "sent" && finished) {
+    counters.appealConfirmationsSent += 1;
+    return { failed: false };
+  }
+
+  counters.appealConfirmationsFailed += 1;
+  return { failed: true };
 };
 
 const createRefundGmailIntakeContextToken = () => {
@@ -784,17 +918,18 @@ const applyDeterministicCustomerReplyFacts = async ({
       automation_follow_up_due_at: null,
     }).eq("id", refundCaseId);
     if (updateError) throw updateError;
-    const { error: eventError } = await supabase.from("refund_case_events").insert({
-      refund_case_id: refundCaseId,
-      event_type: "gmail_customer_message_routed_to_manager",
-      message:
-        "A verified customer email required manager handling instead of a routine automatic reply.",
-      metadata: {
-        source_message_id: sourceMessageId,
-        reason: manualReviewReason,
-        payload_redacted: true,
-      },
-    });
+    const { error: eventError } = await supabase.from("refund_case_events")
+      .insert({
+        refund_case_id: refundCaseId,
+        event_type: "gmail_customer_message_routed_to_manager",
+        message:
+          "A verified customer email required manager handling instead of a routine automatic reply.",
+        metadata: {
+          source_message_id: sourceMessageId,
+          reason: manualReviewReason,
+          payload_redacted: true,
+        },
+      });
     if (eventError) throw eventError;
     return { allowRoutineContact: false };
   }
@@ -861,14 +996,17 @@ const applyDeterministicCustomerReplyFacts = async ({
     const relation = Array.isArray(machine?.reporting_locations)
       ? machine?.reporting_locations[0]
       : machine?.reporting_locations;
-    if (relation?.status === "active") incidentTimezone = String(relation.timezone);
+    if (relation?.status === "active") {
+      incidentTimezone = String(relation.timezone);
+    }
   }
 
   const existingLocal = String(current.incident_local_datetime ?? "");
   const incidentDate = extracted.incidentDate || existingLocal.slice(0, 10);
   const incidentTime = extracted.incidentTime || existingLocal.slice(11, 16);
   if (
-    current.incident_time_resolution !== "exact" && incidentDate && incidentTime &&
+    current.incident_time_resolution !== "exact" && incidentDate &&
+    incidentTime &&
     incidentTimezone
   ) {
     const resolution = resolveLocalDateTimeInZone({
@@ -886,24 +1024,32 @@ const applyDeterministicCustomerReplyFacts = async ({
     }
   }
 
-  const currentPaymentMethod = String(current.payment_method ?? "").toLowerCase();
-  if (!['card', 'cash'].includes(currentPaymentMethod) && extracted.paymentMethod) {
+  const currentPaymentMethod = String(current.payment_method ?? "")
+    .toLowerCase();
+  if (
+    !["card", "cash"].includes(currentPaymentMethod) && extracted.paymentMethod
+  ) {
     updates.payment_method = extracted.paymentMethod;
     updates.card_wallet_used = extracted.cardWalletUsed;
     appliedFields.push("payment_method");
   }
   if (
-    (!Number.isInteger(current.payment_amount_cents) || Number(current.payment_amount_cents) <= 0) &&
+    (!Number.isInteger(current.payment_amount_cents) ||
+      Number(current.payment_amount_cents) <= 0) &&
     extracted.amountCents
   ) {
     updates.payment_amount_cents = extracted.amountCents;
     updates.refund_amount_cents = extracted.amountCents;
     appliedFields.push("amount");
   }
-  const walletUsed = updates.card_wallet_used === true || current.card_wallet_used === true;
-  const paymentMethod = String(updates.payment_method ?? current.payment_method ?? "").toLowerCase();
+  const walletUsed = updates.card_wallet_used === true ||
+    current.card_wallet_used === true;
+  const paymentMethod = String(
+    updates.payment_method ?? current.payment_method ?? "",
+  ).toLowerCase();
   if (
-    paymentMethod === "card" && !walletUsed && !/^\d{4}$/.test(String(current.card_last4 ?? "")) &&
+    paymentMethod === "card" && !walletUsed &&
+    !/^\d{4}$/.test(String(current.card_last4 ?? "")) &&
     extracted.cardLast4
   ) {
     updates.card_last4 = extracted.cardLast4;
@@ -913,7 +1059,9 @@ const applyDeterministicCustomerReplyFacts = async ({
   if (appliedFields.length === 0) return { allowRoutineContact: true };
   updates.automation_state = "customer_replied";
   updates.automation_follow_up_due_at = null;
-  const { data: updated, error: updateError } = await supabase.from("refund_cases")
+  const { data: updated, error: updateError } = await supabase.from(
+    "refund_cases",
+  )
     .update(updates)
     .eq("id", refundCaseId)
     .eq("deterministic_fact_version", current.deterministic_fact_version)
@@ -921,18 +1069,19 @@ const applyDeterministicCustomerReplyFacts = async ({
     .maybeSingle();
   if (updateError) throw updateError;
   if (updated) {
-    const { error: eventError } = await supabase.from("refund_case_events").insert({
-      refund_case_id: refundCaseId,
-      event_type: "gmail_customer_facts_applied",
-      message:
-        "Unambiguous labeled facts from a verified customer reply were added to the refund case.",
-      metadata: {
-        source_message_id: sourceMessageId,
-        applied_fields: appliedFields,
-        extraction_policy: "labeled_routine_facts_v1",
-        payload_redacted: true,
-      },
-    });
+    const { error: eventError } = await supabase.from("refund_case_events")
+      .insert({
+        refund_case_id: refundCaseId,
+        event_type: "gmail_customer_facts_applied",
+        message:
+          "Unambiguous labeled facts from a verified customer reply were added to the refund case.",
+        metadata: {
+          source_message_id: sourceMessageId,
+          applied_fields: appliedFields,
+          extraction_policy: "labeled_routine_facts_v1",
+          payload_redacted: true,
+        },
+      });
     if (eventError) throw eventError;
   }
   return { allowRoutineContact: true };
@@ -1508,14 +1657,15 @@ serve(async (request) => {
     : await sha256Hex("not-configured");
   const enabled = triggerSource === "failure_test" ||
     (intakeShadow ? Boolean(config) : isEnabled() && Boolean(config));
-  const startDatabaseRun = () => rpc("service_start_refund_gmail_sync", {
-    p_run_key: runKey,
-    p_trigger_source: triggerSource,
-    p_started_at: new Date().toISOString(),
-    p_mailbox_hash: mailboxHash,
-    p_label_hash: labelHash,
-    p_enabled: enabled,
-  });
+  const startDatabaseRun = () =>
+    rpc("service_start_refund_gmail_sync", {
+      p_run_key: runKey,
+      p_trigger_source: triggerSource,
+      p_started_at: new Date().toISOString(),
+      p_mailbox_hash: mailboxHash,
+      p_label_hash: labelHash,
+      p_enabled: enabled,
+    });
   let start;
   if (intakeShadow) {
     try {
@@ -1592,6 +1742,10 @@ serve(async (request) => {
     mailboxAcknowledgementObserved: false,
     managerNoticeShadowed: 0,
     managerNoticeSentEvents: 0,
+    appealsReceived: 0,
+    appealConfirmationsSent: 0,
+    appealConfirmationsFailed: 0,
+    appealConfirmationsSuppressed: 0,
   };
 
   if (triggerSource === "failure_test") {
@@ -1708,11 +1862,12 @@ serve(async (request) => {
             })()
           );
           if (intakeShadow) {
-            const intakeThreadShape = await validateRefundGmailIntakeShadowThread({
-              messages,
-              config,
-              intake: activeIntakeShadow!,
-            });
+            const intakeThreadShape =
+              await validateRefundGmailIntakeShadowThread({
+                messages,
+                config,
+                intake: activeIntakeShadow!,
+              });
             counters.mailboxAcknowledgementObserved =
               intakeThreadShape.mailboxAcknowledgementObserved;
           }
@@ -1826,26 +1981,49 @@ serve(async (request) => {
               const automaticContactPaused =
                 ingestion?.automaticCustomerContactPaused === true;
               let allowRoutineContact = true;
+              const appealId = sanitizeText(ingestion?.appealId, 80);
+              const appealReceived = ingestion?.appealReceived === true &&
+                Boolean(appealId);
+              if (!intakeShadow && appealReceived) {
+                counters.appealsReceived += 1;
+                allowRoutineContact = false;
+                const appealResult = await processDenialAppealConfirmation({
+                  appealId,
+                  publicReference,
+                  customerName: from.name,
+                  customerEmail: from.email,
+                  counters,
+                });
+                if (appealResult.failed) counters.messagesFailed += 1;
+              }
               if (
-                !intakeShadow && ingestion?.created && caseId &&
+                !intakeShadow && !appealReceived && ingestion?.created &&
+                caseId &&
                 internalMessageId && participantRole === "customer"
               ) {
                 try {
-                  const factResult = await applyDeterministicCustomerReplyFacts({
-                    refundCaseId: caseId,
-                    sourceMessageId: internalMessageId,
-                    body: redactedBody.text,
-                    sensitiveDataRedacted: redactedSubject.redacted ||
-                      redactedBody.redacted,
-                  });
+                  const factResult = await applyDeterministicCustomerReplyFacts(
+                    {
+                      refundCaseId: caseId,
+                      sourceMessageId: internalMessageId,
+                      body: redactedBody.text,
+                      sensitiveDataRedacted: redactedSubject.redacted ||
+                        redactedBody.redacted,
+                    },
+                  );
                   allowRoutineContact = factResult.allowRoutineContact;
                 } catch (error) {
                   allowRoutineContact = false;
                   counters.messagesFailed += 1;
-                  console.error("refund Gmail deterministic fact update failed", {
-                    errorType: error instanceof Error ? error.name : typeof error,
-                    payloadRedacted: true,
-                  });
+                  console.error(
+                    "refund Gmail deterministic fact update failed",
+                    {
+                      errorType: error instanceof Error
+                        ? error.name
+                        : typeof error,
+                      payloadRedacted: true,
+                    },
+                  );
                 }
               }
               if (
