@@ -20,6 +20,7 @@ export type NayaxControlledPilotStageEvent =
 export function parseNayaxRefundProviderContract(rawValue: unknown): Readonly<{
   contractVersion: string;
   baseUrl: string;
+  requestAdvanceMode: "exact_response" | "http_2xx";
   providerEmailBehavior:
     | "suppressed_by_written_contract"
     | "owner_consented_expected"

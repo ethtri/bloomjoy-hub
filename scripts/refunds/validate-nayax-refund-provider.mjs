@@ -107,6 +107,7 @@ for (const [mutate, pattern, message] of [
   [(value) => ({ ...value, providerEmailBehavior: 'unproven' }), /providerEmailBehavior/, 'Provider-originated email behavior must have written suppression or owner consent.'],
   [(value) => ({ ...value, writeCredentialMode: 'guess' }), /writeCredentialMode/, 'Write credential ownership must be explicit.'],
   [(value) => ({ ...value, reconciliationMode: 'guess' }), /reconciliationMode/, 'Reconciliation ownership must be explicit.'],
+  [(value) => ({ ...value, requestAdvanceMode: 'guess' }), /requestAdvanceMode/, 'Request advancement must be explicit.'],
   [(value) => ({ ...value, writeCredentialMode: 'same_token_explicit' }), /explicit contract confirmation/, 'Shared write credentials require a written contract assertion.'],
   [(value) => ({ ...value, baseUrl: 'http://qa-lynx.nayax.com/operational/v1' }), /approved HTTPS host/, 'HTTP is rejected.'],
   [(value) => ({ ...value, baseUrl: 'https://example.com/operational/v1' }), /approved HTTPS host/, 'Unapproved hosts are rejected.'],
@@ -320,6 +321,70 @@ deepEqual(
   successfulStages.map(({ stage, event }) => `${stage}_${event}`),
   ['request_started', 'request_result', 'approve_started', 'approve_result'],
   'Durable stage callbacks bracket each provider POST in exact order.',
+);
+
+const observedRequestContract = parseNayaxRefundProviderContract({
+  ...baseContract,
+  contractVersion: 'nayax-qa-observed-request-v1',
+  requestAdvanceMode: 'http_2xx',
+});
+const observedRequestCalls = [];
+const observedRequestStages = [];
+const observedRequestResult = await executeNayaxRefundProvider({
+  contract: observedRequestContract,
+  requestToken: 'synthetic-request-token',
+  approveToken: 'synthetic-approve-token',
+  amountCents: 725,
+  transactionId: '123456789',
+  siteId: 42,
+  machineAuthorizationTime: '2026-07-22T17:30:00Z',
+  fetchImpl: async (url) => {
+    observedRequestCalls.push(url);
+    return observedRequestCalls.length === 1
+      ? response({ Result: 'unfamiliar', Status: 'provider wording changed' })
+      : response({ Result: 'True', Status: 'Approved' });
+  },
+  onStageEvent: async (stage) => observedRequestStages.push(stage),
+});
+check(
+  observedRequestResult.executed,
+  'An observed HTTP-success request may advance to the separate exact approval.',
+);
+equal(
+  observedRequestResult.request.outcome,
+  'unknown',
+  'Unfamiliar request wording remains classified as unknown instead of guessed success.',
+);
+equal(
+  observedRequestCalls.length,
+  2,
+  'HTTP-success request advancement makes exactly one request and one approval.',
+);
+deepEqual(
+  observedRequestStages.map(({ stage, event }) => `${stage}_${event}`),
+  ['request_started', 'request_result', 'approve_started', 'approve_result'],
+  'Observed HTTP-success request advancement retains the full durable stage journal.',
+);
+
+let failedObservedRequestCalls = 0;
+const failedObservedRequest = await executeNayaxRefundProvider({
+  contract: observedRequestContract,
+  requestToken: 'synthetic-request-token',
+  approveToken: 'synthetic-approve-token',
+  amountCents: 725,
+  transactionId: '123456789',
+  siteId: 42,
+  machineAuthorizationTime: '2026-07-22T17:30:00Z',
+  fetchImpl: async () => {
+    failedObservedRequestCalls += 1;
+    return response({ Result: 'True', Status: 'Unexpected' }, 500);
+  },
+});
+check(!failedObservedRequest.executed, 'A failed request never advances to approval.');
+equal(
+  failedObservedRequestCalls,
+  1,
+  'A failed request remains one no-retry provider call.',
 );
 
 const approvalOnlyCalls = [];
@@ -701,13 +766,15 @@ check(
 );
 check(
   handler.includes('NAYAX_REFUND_MANAGER_CONTRACT_JSON') &&
+    handler.includes('DEFAULT_NAYAX_MANAGER_CONTRACT') &&
+    handler.includes('requestAdvanceMode: "http_2xx"') &&
     handler.includes('NAYAX_LYNX_API_TOKEN_${normalAccountKey}') &&
     handler.includes('provider,') &&
     handler.includes('service_reserve_nayax_refund_manager_action') &&
     handler.includes('service_record_nayax_refund_provider_stage') &&
-    !handler.includes('contractVersion: "nayax-production-manager-v1"') &&
+    !handler.includes('...(!rawManagerContract ? ["provider_contract_missing"] : [])') &&
     !handler.includes('provider: disabledNayaxProviderAdapter'),
-  'The normal manager action requires an external reviewed contract and journals every stage after server-side gates.',
+  'The normal manager action has a reviewed pilot-derived default, permits a reviewed override, and journals every stage after server-side gates.',
 );
 check(
   handler.includes('executeNayaxRefundApprovalOnly') &&

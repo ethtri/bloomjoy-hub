@@ -43,6 +43,40 @@ const supabase = supabaseUrl && supabaseServiceRoleKey
   })
   : null;
 
+// The normal manager lane uses the production shape proven by the owner pilot.
+// Nayax documents any 2xx request as successfully processed and the request as
+// pending until the separate approval call. The pilot confirmed that behavior
+// even though its Result/Status wording did not match our initial guess, so the
+// request stage advances on 2xx while final success still requires the exact
+// approval response. An unfamiliar or failed approval remains a no-retry hold.
+const DEFAULT_NAYAX_MANAGER_CONTRACT = Object.freeze({
+  schemaVersion: 1,
+  contractVersion: "nayax-production-observed-2026-08-22",
+  baseUrl: "https://lynx.nayax.com/operational/v1",
+  authorizationMode: "bearer",
+  amountUnit: "major",
+  amountRoundingMode: "exact_cent",
+  refundEmailListMode: "omit",
+  providerEmailBehavior: "recipient_omitted",
+  writeCredentialMode: "same_token_explicit",
+  sameWriteTokenContractConfirmed: true,
+  reconciliationMode: "dtm_then_structured_resolution",
+  requestAdvanceMode: "http_2xx",
+  requestResponses: [
+    { result: "True", status: "Pending Approval", outcome: "accepted" },
+    { result: "False", status: "Rejected", outcome: "rejected" },
+    { result: "False", status: "Duplicate", outcome: "duplicate" },
+    { result: "False", status: "Already Refunded", outcome: "already_refunded" },
+  ],
+  approveResponses: [
+    { result: "True", status: "Approved", outcome: "succeeded" },
+    { result: "False", status: "Rejected", outcome: "rejected" },
+    { result: "False", status: "Duplicate", outcome: "duplicate" },
+    { result: "False", status: "Already Refunded", outcome: "already_refunded" },
+    { result: "True", status: "Pending", outcome: "pending" },
+  ],
+});
+
 const jsonResponse = (body: Record<string, unknown>, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -927,18 +961,18 @@ serve(async (req) => {
         Deno.env.get("NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB")?.trim() ||
         Deno.env.get("NAYAX_LYNX_API_TOKEN")?.trim() || ""
       : "";
-    const rawManagerContract = Deno.env.get(
+    const configuredManagerContract = Deno.env.get(
       "NAYAX_REFUND_MANAGER_CONTRACT_JSON",
     )?.trim() ?? "";
+    const rawManagerContract = configuredManagerContract ||
+      DEFAULT_NAYAX_MANAGER_CONTRACT;
     let managerContract:
       | ReturnType<typeof parseNayaxRefundProviderContract>
       | null = null;
-    if (rawManagerContract) {
-      try {
-        managerContract = parseNayaxRefundProviderContract(rawManagerContract);
-      } catch {
-        managerContract = null;
-      }
+    try {
+      managerContract = parseNayaxRefundProviderContract(rawManagerContract);
+    } catch {
+      managerContract = null;
     }
 
     const preExecutionBlocks = Array.from(
@@ -951,8 +985,7 @@ serve(async (req) => {
         ...executionConfig.blocks,
         ...(!normalAccountKey ? ["machine_account_key_missing"] : []),
         ...(!normalWriteToken ? ["provider_credential_missing"] : []),
-        ...(!rawManagerContract ? ["provider_contract_missing"] : []),
-        ...(rawManagerContract && !managerContract
+        ...(!managerContract
           ? ["provider_contract_invalid"]
           : []),
       ]),
