@@ -1,6 +1,6 @@
 # Nayax Lynx API Notes
 
-Last updated: 2026-08-20
+Last updated: 2026-08-22
 
 ## Purpose
 Bloomjoy is evaluating Nayax Lynx as the server-side source for machine inventory and machine-level sales activity.
@@ -9,11 +9,11 @@ Do not call Nayax directly from the browser. Any implementation should run throu
 
 ## Current Release Status
 
-- The first normal production request created one DTM **Refund Requested** row but returned a response pair outside Bloomjoy's guessed contract. The attempt remains held; no reporting or customer completion occurred.
-- Nayax's API log records two identical approval POSTs. Both returned outer HTTP 500 because the inner service returned HTTP 400 with `refund_approve_refund_bad_request`. Nayax support has since confirmed transaction `6841061866` appears refunded and identified missing user-level approval roles as the likely cause. No further provider request or approval is allowed; only Bloomjoy's structured local reconciliation remains.
+- The first normal production request created one DTM **Refund Requested** row but returned a response pair outside Bloomjoy's guessed contract. Nayax later confirmed the transaction appears refunded, and Bloomjoy reconciled that historical attempt exactly once with no duplicate provider call.
+- Nayax's API log records two identical approval POSTs for that historical attempt. Both returned outer HTTP 500 because the inner service returned HTTP 400 with `refund_approve_refund_bad_request`. Support described missing user-level roles only as a possibility, not a confirmed requirement. The successful refund is authoritative; no additional permission confirmation is required for routine launch and the historical transaction must never be called again.
 - The audited provider-outcome resolution migration and its three reviewed functions are deployed **default-off**. They seed no operator and do not enable an official action, a provider call, a refund, or a customer message.
-- Production execution is closed: no machine/cap or active provider caller is enabled, and the execution kill switch/dry-run controls remain in their safe state.
-- Issue `#877` replaces the guessed normal response contract with an explicit reviewed environment contract, adds keyed redacted stage journaling, and adds a default-off single-use approval-only recovery. It does not authorize broad execution or finalization without DTM/support confirmation.
+- The normal manager function contains the reviewed pilot-derived production request contract. A journaled request `2xx` advances once to the separate approval step even if the request payload wording is unfamiliar; final success still requires the exact configured approval result. Every HTTP failure, timeout, unfamiliar approval, duplicate, or already-refunded response remains a durable no-retry hold.
+- Issue `#877` added keyed redacted stage journaling and a default-off single-use approval-only recovery for the historical incident. Routine execution no longer depends on a temporary pilot contract secret, and an invalid environment override still fails closed.
 
 ## Current Production Credential Status
 - Production Supabase project: `ygbzkgxktzqsiygjlqyg`

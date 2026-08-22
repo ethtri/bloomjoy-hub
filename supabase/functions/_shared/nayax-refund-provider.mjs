@@ -148,6 +148,7 @@ export function parseNayaxRefundProviderContract(rawValue) {
       "writeCredentialMode",
       "sameWriteTokenContractConfirmed",
       "reconciliationMode",
+      "requestAdvanceMode",
       "requestResponses",
       "approveResponses",
     ]),
@@ -240,6 +241,16 @@ export function parseNayaxRefundProviderContract(rawValue) {
     );
   }
 
+  const requestAdvanceMode = text(
+    contract.requestAdvanceMode ?? "exact_response",
+    40,
+  ).toLowerCase();
+  if (!new Set(["exact_response", "http_2xx"]).has(requestAdvanceMode)) {
+    throw new Error(
+      "Nayax refund provider requestAdvanceMode must be exact_response or http_2xx.",
+    );
+  }
+
   const requestResponses = parsePatterns(contract.requestResponses, "request");
   const approveResponses = parsePatterns(contract.approveResponses, "approve");
   if (!requestResponses.some((pattern) => pattern.outcome === "accepted")) {
@@ -280,6 +291,7 @@ export function parseNayaxRefundProviderContract(rawValue) {
     writeCredentialMode,
     sameWriteTokenContractConfirmed,
     reconciliationMode,
+    requestAdvanceMode,
     requestResponses,
     approveResponses,
   });
@@ -548,7 +560,15 @@ export async function executeNayaxRefundProvider({
     event: "result",
     result: request,
   }));
-  if (request.outcome !== "accepted") {
+  const requestMayAdvance = request.outcome === "accepted" ||
+    (
+      contract.requestAdvanceMode === "http_2xx" &&
+      Number.isInteger(request.httpStatus) &&
+      request.httpStatus >= 200 &&
+      request.httpStatus < 300 &&
+      !request.failureType
+    );
+  if (!requestMayAdvance) {
     return Object.freeze({ request, approve: null, executed: false });
   }
 

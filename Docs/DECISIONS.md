@@ -1,5 +1,13 @@
 # Decisions
 
+## 2026-08-22 - The successful Nayax pilot removes permission confirmation as a launch prerequisite
+
+- The owner pilot proved that Bloomjoy's existing server-only Nayax token, production endpoint, amount units, identifiers, and request body can create a real refund that Nayax later confirmed as refunded. No additional Nayax role grant or written permission confirmation is a Refund Operations production prerequisite.
+- Nayax's public contract treats a `2xx` request as successfully processed and the refund as pending until the separate approval step. The normal manager lane therefore advances from a journaled `2xx` request even when the returned `Result`/`Status` wording is unfamiliar; it does not relabel that unfamiliar wording as final success.
+- Bloomjoy still sends at most one request and at most one approval for an attempt. Final case/reporting/customer completion requires the exact accepted approval result. HTTP failure, timeout, unfamiliar approval wording, duplicate, or already-refunded responses remain durable no-retry reconciliation holds.
+- The reviewed pilot-derived production contract is checked into the server function so routine execution no longer depends on a temporary pilot-only contract secret. A supplied environment override remains fail-closed if invalid.
+- Existing mapped-manager authority, exact transaction binding, per-machine and daily caps, idempotency reservation, duplicate-payment protection, kill switch, redacted stage journal, and reply-thread completion controls remain unchanged.
+
 ## 2026-08-21 - Refund pilot uses one branded message system and same-case reply appeals
 
 - All pilot customer mail—first contact, missing-information collection, denial, appeal receipt, retries, and confirmed completion—uses one canonical warm Bloomjoy HTML/plain-text system with reply support.
