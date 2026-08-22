@@ -3,15 +3,20 @@ import { resolveRefundPublicLabels } from "./refund-location.ts";
 import { getRefundGmailMailboxIdentities } from "./refund-gmail.ts";
 import {
   REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
-  sanitizeRefundMissingFields,
   type RefundFollowUpReason,
   type RefundMissingField,
+  sanitizeRefundMissingFields,
 } from "./refund-deterministic-follow-up.ts";
+import {
+  type RefundBrandDetail,
+  renderBloomjoyRefundEmail,
+  renderBloomjoyRefundStoredText,
+} from "./refund-email-brand.ts";
 
 export {
   REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
-  sanitizeRefundMissingFields,
   type RefundMissingField,
+  sanitizeRefundMissingFields,
 } from "./refund-deterministic-follow-up.ts";
 
 export type RefundCustomerMessageType =
@@ -25,6 +30,7 @@ export type RefundCustomerMessageType =
   | "status_update"
   | "approved"
   | "denied"
+  | "appeal_received"
   | "completed";
 
 export type RefundCustomerEmailInput = {
@@ -65,18 +71,13 @@ const refundMissingFieldReplyLine: Record<RefundMissingField, string> = {
 };
 
 export const describeRefundMissingFields = (value: unknown) =>
-  sanitizeRefundMissingFields(value).map((field) => refundMissingFieldRequest[field]);
-
-const escapeHtml = (value: string) =>
-  value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+  sanitizeRefundMissingFields(value).map((field) =>
+    refundMissingFieldRequest[field]
+  );
 
 const sanitizeText = (value: unknown, maxLength = 800) =>
-  typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+  typeof value === "string" || typeof value === "number" ||
+    typeof value === "boolean"
     ? String(value).trim().slice(0, maxLength)
     : "";
 
@@ -116,9 +117,12 @@ export const requireRefundManagerCcEmailsForSend = (
 };
 
 export const getRefundReplyToEmail = () =>
-  sanitizeText(Deno.env.get("REFUND_REPLY_TO_EMAIL"), 320) || "info@bloomjoysweets.com";
+  sanitizeText(Deno.env.get("REFUND_REPLY_TO_EMAIL"), 320) ||
+  "info@bloomjoysweets.com";
 
-export const sanitizeRefundMessageType = (value: unknown): RefundCustomerMessageType | null => {
+export const sanitizeRefundMessageType = (
+  value: unknown,
+): RefundCustomerMessageType | null => {
   const normalized = sanitizeText(value, 80).toLowerCase();
   if (
     normalized === "confirmation" ||
@@ -131,6 +135,7 @@ export const sanitizeRefundMessageType = (value: unknown): RefundCustomerMessage
     normalized === "status_update" ||
     normalized === "approved" ||
     normalized === "denied" ||
+    normalized === "appeal_received" ||
     normalized === "completed"
   ) {
     return normalized;
@@ -147,7 +152,10 @@ const formatCurrency = (cents?: number | null) => {
   }).format(cents / 100);
 };
 
-const getSubject = (messageType: RefundCustomerMessageType, publicReference: string) => {
+const getSubject = (
+  messageType: RefundCustomerMessageType,
+  publicReference: string,
+) => {
   switch (messageType) {
     case "more_info":
       return `A quick detail check for your Bloomjoy refund request ${publicReference}`;
@@ -165,6 +173,8 @@ const getSubject = (messageType: RefundCustomerMessageType, publicReference: str
       return `Your Bloomjoy refund request ${publicReference} was approved`;
     case "denied":
       return `Update on your Bloomjoy refund request ${publicReference}`;
+    case "appeal_received":
+      return `We are reviewing your reply about ${publicReference}`;
     case "completed":
       return `Your Bloomjoy refund request ${publicReference} is complete`;
     case "status_update":
@@ -192,6 +202,8 @@ const getHeadline = (messageType: RefundCustomerMessageType) => {
       return "Your request was approved";
     case "denied":
       return "An update from our team";
+    case "appeal_received":
+      return "We received your reply";
     case "completed":
       return "Your refund step is complete";
     case "status_update":
@@ -210,6 +222,7 @@ const getBodyParagraphs = ({
   followUpReason,
   cardWalletUsed,
   cardLast4,
+  decisionReason,
 }: RefundCustomerEmailInput) => {
   const refundAmount = formatCurrency(refundAmountCents);
   const amountPhrase = refundAmount ? ` for ${refundAmount}` : "";
@@ -220,7 +233,10 @@ const getBodyParagraphs = ({
     .map((field) => refundMissingFieldReplyLine[field])
     .join("\n");
 
-  if (cardWalletUsed && sanitizeRefundMissingFields(missingFields).includes("card_last4")) {
+  if (
+    cardWalletUsed &&
+    sanitizeRefundMissingFields(missingFields).includes("card_last4")
+  ) {
     throw new Error(
       "Mobile-wallet last-four corrections must use the secure correction flow, not email.",
     );
@@ -229,7 +245,9 @@ const getBodyParagraphs = ({
   switch (messageType) {
     case "more_info":
       if (missingFieldRequests.length === 0) {
-        throw new Error("A deterministic missing-field list is required for a more-information message.");
+        throw new Error(
+          "A deterministic missing-field list is required for a more-information message.",
+        );
       }
       return [
         "Thank you again for reaching out. We are sorry this needs another step, and we want to make sure we review the right transaction.",
@@ -246,7 +264,9 @@ const getBodyParagraphs = ({
         ];
       }
       if (missingFieldRequests.length === 0) {
-        throw new Error("A deterministic missing-field list is required for a reminder message.");
+        throw new Error(
+          "A deterministic missing-field list is required for a reminder message.",
+        );
       }
       return [
         "We are checking in once because we still need the specific details below to continue the review. There is no need to resend anything else.",
@@ -280,15 +300,34 @@ const getBodyParagraphs = ({
         "Thanks for giving us the chance to make this right.",
       ];
     case "denied":
+      if (!sanitizeRefundCustomerSafeDenialReason(decisionReason)) {
+        throw new Error(
+          "A customer-safe denial reason is required for a denial message.",
+        );
+      }
       return [
-        "Thank you for giving us the chance to review this. We were not able to approve the refund based on the transaction and machine information available.",
-        "If any of the purchase details were submitted incorrectly, please reply and we will take another careful look. Internal review notes are never included in this email.",
+        "Thank you for giving us the chance to review this. We were not able to approve the refund.",
+        `Here is the reason we can share: ${
+          sanitizeRefundCustomerSafeDenialReason(decisionReason)
+        }`,
+        "If we missed or misunderstood something, please reply in this same conversation. We will reopen this request for another review, and your reply will never issue a payment automatically.",
         "We are sorry this visit was frustrating, and we appreciate you reaching out.",
+      ];
+    case "appeal_received":
+      return [
+        "Thank you for replying. We reopened this same refund request so a manager can review what you shared.",
+        "You do not need to submit another form. This message confirms that your appeal was received; it is not a refund approval and cannot issue a payment automatically.",
+        "We will keep the original request and conversation together and follow up after the review.",
       ];
     case "completed": {
       const maskedCard = sanitizeText(cardLast4, 4);
       return [
-        `We issued your refund${amountPhrase}${!isCash && /^\d{4}$/.test(maskedCard) ? ` to the card ending in ${maskedCard}` : ""}.`,
+        "Good news—your refund request was approved, and your refund is on its way.",
+        `We issued your refund${amountPhrase}${
+          !isCash && /^\d{4}$/.test(maskedCard)
+            ? ` to the card ending in ${maskedCard}`
+            : ""
+        }.`,
         isCash
           ? "The Zelle payment has been sent. Please allow normal bank processing time for it to appear."
           : "Your bank or card issuer may take up to 4 business days to show the credit. If it is not visible after that, reply to this email and include your reference below.",
@@ -310,6 +349,23 @@ const getBodyParagraphs = ({
   }
 };
 
+const refundDenialProhibitedPatterns = [
+  /\b(?:internal|risk score|fraud score|nayax|provider error|api|token|secret|database|sql|stack trace)\b/iu,
+  /(?:https?:\/\/|\/refunds\?case=)/iu,
+  /\b(?:\d[ -]*?){12,19}\b/u,
+];
+
+export const sanitizeRefundCustomerSafeDenialReason = (value: unknown) => {
+  const normalized = sanitizeText(value, 360).replace(/\s+/gu, " ");
+  if (
+    normalized.length < 8 ||
+    refundDenialProhibitedPatterns.some((pattern) => pattern.test(normalized))
+  ) {
+    return "";
+  }
+  return /[.!?]$/u.test(normalized) ? normalized : `${normalized}.`;
+};
+
 export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
   const publicReference = sanitizeText(input.publicReference, 80);
   const customerName = sanitizeText(input.customerName, 160);
@@ -325,14 +381,19 @@ export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
   if (locationName) details.push(`Location: ${locationName}`);
   const refundAmount = formatCurrency(input.refundAmountCents);
   if (refundAmount) {
-    const amountLabel = input.messageType === "approved" || input.messageType === "completed"
-      ? "Refund amount"
-      : "Reported amount";
+    const amountLabel =
+      input.messageType === "approved" || input.messageType === "completed"
+        ? "Refund amount"
+        : "Reported amount";
     details.push(`${amountLabel}: ${refundAmount}`);
   }
   const incidentLocalDateTime = sanitizeText(input.incidentLocalDateTime, 40);
-  if (incidentLocalDateTime) details.push(`Reported purchase time: ${incidentLocalDateTime}`);
-  if (input.paymentMethod === "card") details.push("Payment method: Card or mobile wallet");
+  if (incidentLocalDateTime) {
+    details.push(`Reported purchase time: ${incidentLocalDateTime}`);
+  }
+  if (input.paymentMethod === "card") {
+    details.push("Payment method: Card or mobile wallet");
+  }
   if (input.paymentMethod === "cash") details.push("Payment method: Cash");
 
   const text = [
@@ -346,53 +407,21 @@ export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
     "Warmly,",
     "The Bloomjoy Sweets Team",
   ].join("\n");
-
-  const htmlParagraphs = paragraphs
-    .map((paragraph) =>
-      `<p style="font-size:15px;line-height:24px;margin:0 0 16px;">${
-        escapeHtml(paragraph).replaceAll("\n", "<br />")
-      }</p>`
-    )
-    .join("");
-  const detailRows = details
-    .map((detail) => {
-      const [label, ...valueParts] = detail.split(": ");
-      return `<tr><td style="font-size:13px;color:#756877;padding:4px 0;">${escapeHtml(label)}</td><td style="font-size:14px;font-weight:700;text-align:right;padding:4px 0;">${escapeHtml(valueParts.join(": "))}</td></tr>`;
-    })
-    .join("");
-
-  const html = `
-    <!doctype html>
-    <html lang="en">
-      <body style="margin:0;padding:0;background:#fff7f9;font-family:Arial,Helvetica,sans-serif;color:#2f2430;">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;background:#fff7f9;padding:28px 0;">
-          <tr>
-            <td align="center" style="padding:0 16px;">
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;max-width:620px;background:#ffffff;border:1px solid #f1d6de;border-radius:22px;overflow:hidden;">
-                <tr>
-                  <td style="background:#e96b8f;color:#ffffff;padding:26px 28px;">
-                    <div style="font-size:12px;letter-spacing:1.4px;text-transform:uppercase;font-weight:700;">Bloomjoy refund request</div>
-                    <div style="font-size:28px;line-height:34px;font-weight:800;margin-top:8px;">${escapeHtml(getHeadline(input.messageType))}</div>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding:28px;">
-                    <p style="font-size:15px;line-height:24px;margin:0 0 16px;">${escapeHtml(greeting)}</p>
-                    ${htmlParagraphs}
-                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #f1d6de;border-radius:16px;background:#fff3f7;padding:16px;margin:0 0 18px;">
-                      ${detailRows}
-                    </table>
-                    <p style="font-size:14px;line-height:22px;margin:0;color:#756877;">You can reply directly to this email if anything looks off.</p>
-                    <p style="font-size:14px;line-height:22px;margin:20px 0 0;color:#756877;">Warmly,<br />The Bloomjoy Sweets Team</p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-      </body>
-    </html>
-  `;
+  const brandDetails: RefundBrandDetail[] = details.map((detail) => {
+    const [label, ...valueParts] = detail.split(": ");
+    return { label, value: valueParts.join(": ") };
+  });
+  const html = renderBloomjoyRefundEmail({
+    preheader: subject,
+    eyebrow: "Bloomjoy refund request",
+    headline: getHeadline(input.messageType),
+    greeting,
+    paragraphs,
+    details: brandDetails,
+    replyLine: input.messageType === "denied"
+      ? "Reply in this same conversation if we missed or misunderstood something."
+      : "You can reply directly to this email if anything looks off.",
+  });
 
   return { subject, text, html };
 };
@@ -413,10 +442,12 @@ export const buildEditableRefundCustomerEmail = ({
     locationName: input.locationName,
   });
   const greeting = customerName ? `Hi ${customerName},` : "Hi there,";
-  const safeSubjectBase = sanitizeText(subject, 180) || getSubject(input.messageType, publicReference);
-  const finalSubject = safeSubjectBase.toLowerCase().includes(publicReference.toLowerCase())
-    ? safeSubjectBase
-    : `${safeSubjectBase} - ${publicReference}`;
+  const safeSubjectBase = sanitizeText(subject, 180) ||
+    getSubject(input.messageType, publicReference);
+  const finalSubject =
+    safeSubjectBase.toLowerCase().includes(publicReference.toLowerCase())
+      ? safeSubjectBase
+      : `${safeSubjectBase} - ${publicReference}`;
   const sanitizedBody = sanitizeText(body, 4000);
   const paragraphs = sanitizedBody
     .split(/\n{2,}/)
@@ -445,55 +476,27 @@ export const buildEditableRefundCustomerEmail = ({
     "The Bloomjoy Sweets Team",
   ].join("\n");
 
-  const htmlParagraphs = paragraphs
-    .map((paragraph) =>
-      `<p style="font-size:15px;line-height:24px;margin:0 0 16px;">${escapeHtml(paragraph)}</p>`
-    )
-    .join("");
-  const detailRows = details
-    .map((detail) => {
-      const [label, ...valueParts] = detail.split(": ");
-      return `<tr><td style="font-size:13px;color:#756877;padding:4px 0;">${escapeHtml(label)}</td><td style="font-size:14px;font-weight:700;text-align:right;padding:4px 0;">${escapeHtml(valueParts.join(": "))}</td></tr>`;
-    })
-    .join("");
-
-  const html = `
-    <!doctype html>
-    <html lang="en">
-      <body style="margin:0;padding:0;background:#fff7f9;font-family:Arial,Helvetica,sans-serif;color:#2f2430;">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#fff7f9;padding:28px 0;">
-          <tr>
-            <td align="center" style="padding:0 16px;">
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#ffffff;border:1px solid #f1d6de;border-radius:22px;overflow:hidden;">
-                <tr>
-                  <td style="background:#e96b8f;color:#ffffff;padding:26px 28px;">
-                    <div style="font-size:12px;letter-spacing:1.4px;text-transform:uppercase;font-weight:700;">Bloomjoy refund request</div>
-                    <div style="font-size:28px;line-height:34px;font-weight:800;margin-top:8px;">${escapeHtml(getHeadline(input.messageType))}</div>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding:28px;">
-                    <p style="font-size:15px;line-height:24px;margin:0 0 16px;">${escapeHtml(greeting)}</p>
-                    ${htmlParagraphs}
-                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #f1d6de;border-radius:16px;background:#fff3f7;padding:16px;margin:0 0 18px;">
-                      ${detailRows}
-                    </table>
-                    <p style="font-size:14px;line-height:22px;margin:0;color:#756877;">Please reply to this email if anything looks off. Replies go to our Bloomjoy support inbox.</p>
-                    <p style="font-size:14px;line-height:22px;margin:20px 0 0;color:#756877;">Warmly,<br />The Bloomjoy Sweets Team</p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-      </body>
-    </html>
-  `;
+  const brandDetails: RefundBrandDetail[] = details.map((detail) => {
+    const [label, ...valueParts] = detail.split(": ");
+    return { label, value: valueParts.join(": ") };
+  });
+  const html = renderBloomjoyRefundEmail({
+    preheader: finalSubject,
+    eyebrow: "Bloomjoy refund request",
+    headline: getHeadline(input.messageType),
+    greeting,
+    paragraphs,
+    details: brandDetails,
+    replyLine:
+      "Please reply to this email if anything looks off. Replies go to our Bloomjoy support inbox.",
+  });
 
   return { subject: finalSubject, text, html };
 };
 
-export const sendRefundCustomerEmail = async (input: RefundCustomerEmailInput) => {
+export const sendRefundCustomerEmail = async (
+  input: RefundCustomerEmailInput,
+) => {
   const email = buildRefundCustomerEmail(input);
   const managerCcEmails = requireRefundManagerCcEmailsForSend(
     input.managerCcEmails,
@@ -510,6 +513,9 @@ export const sendRefundCustomerEmail = async (input: RefundCustomerEmailInput) =
 
   return email;
 };
+
+export const buildBrandedRefundHtmlFromStoredText =
+  renderBloomjoyRefundStoredText;
 
 export type RefundWalletCorrectionEmailInput = {
   publicReference: string;
@@ -562,39 +568,25 @@ export const buildRefundWalletCorrectionEmail = (
     "The Bloomjoy Sweets Team",
   ].join("\n");
 
-  const html = `
-    <!doctype html>
-    <html lang="en">
-      <body style="margin:0;padding:0;background:#fff7f9;font-family:Arial,Helvetica,sans-serif;color:#2f2430;">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#fff7f9;padding:28px 0;">
-          <tr>
-            <td align="center" style="padding:0 16px;">
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#ffffff;border:1px solid #f1d6de;border-radius:22px;overflow:hidden;">
-                <tr>
-                  <td style="background:#e96b8f;color:#ffffff;padding:26px 28px;">
-                    <div style="font-size:12px;letter-spacing:1.4px;text-transform:uppercase;font-weight:700;">Bloomjoy refund request</div>
-                    <div style="font-size:28px;line-height:34px;font-weight:800;margin-top:8px;">One quick wallet detail check</div>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding:28px;">
-                    <p style="font-size:15px;line-height:24px;margin:0 0 16px;">${escapeHtml(greeting)}</p>
-                    <p style="font-size:15px;line-height:24px;margin:0 0 16px;">${escapeHtml(intro)}</p>
-                    <p style="font-size:15px;line-height:24px;margin:0 0 22px;">Enter only the virtual card's last four digits, your approximate purchase time, and confirmation of the amount.</p>
-                    <p style="margin:0 0 22px;">
-                      <a href="${escapeHtml(correctionUrl)}" style="display:inline-block;background:#d94f79;color:#ffffff;text-decoration:none;font-size:15px;font-weight:800;padding:14px 22px;border-radius:999px;">Check my wallet details</a>
-                    </p>
-                    <p style="font-size:13px;line-height:21px;margin:0 0 18px;color:#756877;">Do not send a full card number, security code, expiration date, wallet password, or screenshot. This link expires in 48 hours and can be used once.</p>
-                    <p style="font-size:14px;line-height:22px;margin:0;color:#756877;">After you submit it, our system will automatically check the corrected details against the machine transactions.</p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-      </body>
-    </html>
-  `;
+  const brandDetails: RefundBrandDetail[] = details.map((detail) => {
+    const [label, ...valueParts] = detail.split(": ");
+    return { label, value: valueParts.join(": ") };
+  });
+  const html = renderBloomjoyRefundEmail({
+    preheader: subject,
+    eyebrow: "Bloomjoy refund request",
+    headline: "One quick wallet detail check",
+    greeting,
+    paragraphs: [
+      intro,
+      "Enter only the virtual card's last four digits, your approximate purchase time, and confirmation of the amount.",
+      "After you submit it, our system will automatically check the corrected details against the machine transactions.",
+    ],
+    details: brandDetails,
+    primaryLink: { label: "Check my wallet details", url: correctionUrl },
+    safetyLine:
+      "Do not send a full card number, security code, expiration date, wallet password, or screenshot. This link expires in 48 hours and can be used once.",
+  });
 
   return { subject, text, html };
 };

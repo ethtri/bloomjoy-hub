@@ -1,5 +1,36 @@
 # Decisions
 
+## 2026-08-21 - Refund pilot uses one branded message system and same-case reply appeals
+
+- All pilot customer mail—first contact, missing-information collection, denial, appeal receipt, retries, and confirmed completion—uses one canonical warm Bloomjoy HTML/plain-text system with reply support.
+- A denial must include a customer-safe reason. A verified direct customer reply after that sent denial reopens the same case for manager review, clears the prior decision, and creates no payment authority or provider attempt. Forwarded, automated, spoof-suspected, manager, and unrelated messages do not reopen cases.
+- Appeal receipts are deterministic and independently default-off. Confirmed failures may use the controlled retry path; uncertain delivery is reconciliation-only and is never blindly retried.
+- The manager still confirms the transaction separately from approving or denying the refund. Only confirmed payment success permits the canonical completion sentence. Existing duplicate-payment and reporting guards are unchanged.
+- GPT, refund-specific TOTP/operator ceremony, QR codes, Kexiazhan reporting, cash fallback, and a new SMS platform are not Refund Operations v1 pilot requirements.
+
+## 2026-08-21 - Refund eligibility comes from the complete Nayax inventory (`#890`)
+
+Refund Operations v1 discovers every machine from each configured production Nayax account and records it by account plus immutable Nayax machine ID. Every active discovered machine is visibly **Published**, **Needs setup**, or **Explicitly excluded**; test, internal, duplicate, unmapped, and incomplete machines are never silently omitted.
+
+- Cotton-candy and Snapcase use the same explicit refund-public eligibility path. Snapcase remains a separate payment/category source and is not reclassified as Sunze reporting data. Names and Nayax machine type alone never classify, map, publish, or exclude a machine.
+- Publication requires an exact Nayax mapping, explicit `cotton_candy` or `snapcase` category, active machine/location, customer-safe label, and at least one current Machine Manager route. A machine that does not meet every condition remains visible as setup work.
+- One absent successful snapshot does not remove a machine. Two complete successful snapshots are required before it becomes inactive; failed or empty syncs never remove or republish inventory. Large drops and failed/stale runs surface as operational attention.
+- The public form and server-side submission validation use the same published inventory gate. Provider transaction lookup and live refund execution remain separately gated, and duplicate-payment/idempotency protections are unchanged.
+- The sync and production schedule are default-off until reviewed deployment, inventory reconciliation, a controlled Snapcase lookup, and UAT are complete.
+
+This supersedes earlier Commercial/Mini-only and Snapcase-out language only for refund intake eligibility and Nayax matching. It does not add Kexiazhan reporting, payroll reporting, QR codes, cash fallback, TOTP/operator ceremony, GPT, or a new SMS platform to the pilot.
+## 2026-08-21 - Customer contact points to the Bloomjoy form; submission creates the case (`#889`)
+
+The eligible customer-service email and existing EasyText/SMS response population use the Bloomjoy hosted `/refunds/request` form. The old Google Form response is retired during the sequenced no-overlap cutover. An email or text contact by itself is not a refund request in Bloomjoy and creates no `refund_cases` row.
+
+- Gmail may record one private, replay-safe pre-form contact and send one warm hosted-form link in the original thread. The one-time private form context creates exactly one Email-sourced case only when the customer submits the Bloomjoy form; a direct website submission creates one Website-sourced case.
+- After submission, the deterministic email assistant asks only for missing safe information in the original thread. A verified customer reply updates the same case and permits one automatic matching rerun only when material matching facts change.
+- Email-linked and direct-form cases use the same manager queue, matching, duplicate reconciliation, transaction-confirmation, separate approval/denial, provider, reporting, and customer-message safeguards.
+- EasyText/SMS keeps its current platform and changes only the response link. Refund Operations v1 adds no SMS provider or text-message ingestion path; an inbound text cannot create a Hub case before hosted-form submission.
+- Production cutover must disable and verify the old responder before the Hub responder is enabled for the same population. Rollback disables and verifies Hub first, so both responders are never active together.
+
+This supersedes the 2026-07-21 Gmail draft-on-contact rule and the 2026-08-11 EasyText/Google-Form-unchanged rule for Refund Operations v1 intake. Their mailbox isolation, minimal OAuth, replay, privacy, retention, routing, and transport safeguards remain in force. It does not add TOTP/operator ceremony, GPT, QR-code rollout, Kexiazhan reporting, cash fallback, or a new SMS platform as a pilot requirement.
+
 ## 2026-08-20 - Refund Operations uses one mapped-manager session, not TOTP ceremony
 
 The normal manager experience is intentionally simple: a signed-in current Machine Manager reviews the case, confirms one action, and the server performs the exact guarded operation. Refund-specific TOTP enrollment, six-digit codes, temporary payment-support operators, and owner-controlled setup windows were controlled-pilot controls; they are retired from the manager product and are not prerequisites for approving, completing, or reconciling a refund.

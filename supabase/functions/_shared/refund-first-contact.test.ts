@@ -173,6 +173,10 @@ Deno.test("first-contact copy is versioned, customer-first, and contains only pu
   assert(!email.text.includes("/refunds?case="));
   assert(!email.text.toLowerCase().includes("nayax"));
   assertStringIncludes(email.html, "Synthetic &lt;Customer&gt;");
+  assertStringIncludes(email.html, '<table role="presentation"');
+  assertStringIncludes(email.html, "#b83d64");
+  assertStringIncludes(email.html, "Georgia");
+  assertStringIncludes(email.html, "Bloomjoy Sweets customer care");
 });
 
 Deno.test("first-contact copy safely omits an unavailable public reference", () => {

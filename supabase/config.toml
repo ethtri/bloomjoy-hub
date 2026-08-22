@@ -85,6 +85,9 @@ verify_jwt = false
 [functions.refund-manager-totp-enrollment]
 verify_jwt = false
 
+[functions.refund-nayax-inventory-sync]
+verify_jwt = false
+
 [auth]
 site_url = "https://app.bloomjoyusa.com"
 additional_redirect_urls = [

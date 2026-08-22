@@ -5,6 +5,17 @@ set local search_path = public, extensions;
 
 select plan(12);
 
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password,
+  email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+)
+values (
+  '00000000-0000-0000-0000-000000000000',
+  '90000000-0000-4000-8000-000000000001',
+  'authenticated', 'authenticated', 'portfolio-manager@example.test', '', now(),
+  '{}'::jsonb, '{}'::jsonb, now(), now()
+);
+
 insert into public.customer_accounts (id, name, account_type)
 values ('91000000-0000-4000-8000-000000000001', 'Refund portfolio safety test', 'customer');
 
@@ -40,7 +51,9 @@ insert into public.reporting_machines (
   machine_type,
   status,
   refund_intake_enabled,
-  refund_public_display_label
+  refund_public_display_label,
+  nayax_machine_id,
+  nayax_account_key
 )
 values
   (
@@ -51,7 +64,9 @@ values
     'commercial',
     'active',
     false,
-    null
+    null,
+    'NAYAX-1',
+    'TEST_ACCOUNT'
   ),
   (
     '93000000-0000-4000-8000-000000000002',
@@ -61,7 +76,9 @@ values
     'mini',
     'active',
     true,
-    'Portfolio mini public label'
+    'Portfolio mini public label',
+    'NAYAX-2',
+    'TEST_ACCOUNT'
   ),
   (
     '93000000-0000-4000-8000-000000000003',
@@ -71,7 +88,9 @@ values
     'commercial',
     'active',
     false,
-    null
+    null,
+    'NAYAX-3',
+    'TEST_ACCOUNT'
   ),
   (
     '93000000-0000-4000-8000-000000000004',
@@ -80,8 +99,10 @@ values
     'Internal machine with public alias',
     'commercial',
     'active',
-    false,
-    'Portfolio public alias'
+    true,
+    'Portfolio public alias',
+    'NAYAX-4',
+    'TEST_ACCOUNT'
   ),
   (
     '93000000-0000-4000-8000-000000000005',
@@ -91,7 +112,9 @@ values
     'commercial',
     'inactive',
     false,
-    null
+    null,
+    'NAYAX-5',
+    'TEST_ACCOUNT'
   ),
   (
     '93000000-0000-4000-8000-000000000006',
@@ -100,8 +123,10 @@ values
     'Unsupported micro machine',
     'micro',
     'active',
-    false,
-    null
+    true,
+    'Explicit Snapcase public label',
+    'NAYAX-6',
+    'TEST_ACCOUNT'
   ),
   (
     '93000000-0000-4000-8000-000000000007',
@@ -111,8 +136,47 @@ values
     'commercial',
     'active',
     false,
-    null
+    null,
+    'NAYAX-7',
+    'TEST_ACCOUNT'
   );
+
+insert into public.refund_nayax_machine_inventory (
+  account_key, nayax_machine_id, machine_name, provider_is_active, refund_category,
+  reporting_machine_id, reconciliation_state, setup_reason
+)
+values
+  ('TEST_ACCOUNT', 'NAYAX-1', 'Needs setup machine', true, 'cotton_candy',
+    '93000000-0000-4000-8000-000000000001', 'needs_setup', 'refund_automation_not_enabled'),
+  ('TEST_ACCOUNT', 'NAYAX-2', 'Published mini', true, 'cotton_candy',
+    '93000000-0000-4000-8000-000000000002', 'published', 'ready'),
+  ('TEST_ACCOUNT', 'NAYAX-3', 'Placeholder machine', true, 'cotton_candy',
+    '93000000-0000-4000-8000-000000000003', 'needs_setup', 'customer_label_required'),
+  ('TEST_ACCOUNT', 'NAYAX-4', 'Published alias', true, 'cotton_candy',
+    '93000000-0000-4000-8000-000000000004', 'published', 'ready'),
+  ('TEST_ACCOUNT', 'NAYAX-5', 'Inactive reporting machine', true, 'cotton_candy',
+    '93000000-0000-4000-8000-000000000005', 'published', 'ready'),
+  ('TEST_ACCOUNT', 'NAYAX-6', 'Explicit Snapcase classification', true, 'snapcase',
+    '93000000-0000-4000-8000-000000000006', 'published', 'ready'),
+  ('TEST_ACCOUNT', 'NAYAX-7', 'Inactive reporting location', true, 'cotton_candy',
+    '93000000-0000-4000-8000-000000000007', 'published', 'ready');
+
+insert into public.reporting_machine_refund_managers (
+  reporting_machine_id, manager_user_id, manager_email, status, grant_reason
+)
+select
+  machine_id,
+  '90000000-0000-4000-8000-000000000001',
+  'portfolio-manager@example.test',
+  'active',
+  'Portfolio refund eligibility test'
+from unnest(array[
+  '93000000-0000-4000-8000-000000000002'::uuid,
+  '93000000-0000-4000-8000-000000000004'::uuid,
+  '93000000-0000-4000-8000-000000000005'::uuid,
+  '93000000-0000-4000-8000-000000000006'::uuid,
+  '93000000-0000-4000-8000-000000000007'::uuid
+]) machine_id;
 
 select ok(
   has_function_privilege('anon', 'public.public_refund_machine_options()', 'execute'),
@@ -125,12 +189,12 @@ select ok(
 );
 
 select ok(
-  exists (
+  not exists (
     select 1
     from public.public_refund_machine_options()
     where machine_id = '93000000-0000-4000-8000-000000000001'
   ),
-  'An active Commercial machine appears even when automation readiness is off'
+  'An active machine remains hidden until its inventory row is explicitly published'
 );
 
 select ok(
@@ -181,12 +245,12 @@ select ok(
 );
 
 select ok(
-  not exists (
+  exists (
     select 1
     from public.public_refund_machine_options()
     where machine_id = '93000000-0000-4000-8000-000000000006'
   ),
-  'Unsupported machine types remain hidden'
+  'An explicitly classified Snapcase option is eligible without a reporting-machine-type rule'
 );
 
 select ok(
@@ -210,10 +274,10 @@ select is(
 
 select ok(
   position(
-    'refund_intake_enabled'
+    'machine_type'
     in pg_get_functiondef('public.public_refund_machine_options()'::regprocedure)
   ) = 0,
-  'Portfolio visibility is independent of the legacy automation-readiness flag'
+  'Public eligibility does not contain a Commercial/Mini machine-type filter'
 );
 
 select * from finish();

@@ -11,10 +11,16 @@ const assert = (condition: unknown, message: string) => {
 };
 
 const assertIncludes = (value: string, expected: string, message: string) =>
-  assert(value.includes(expected), `${message}: expected ${JSON.stringify(expected)}`);
+  assert(
+    value.includes(expected),
+    `${message}: expected ${JSON.stringify(expected)}`,
+  );
 
 const assertNotIncludes = (value: string, expected: string, message: string) =>
-  assert(!value.includes(expected), `${message}: did not expect ${JSON.stringify(expected)}`);
+  assert(
+    !value.includes(expected),
+    `${message}: did not expect ${JSON.stringify(expected)}`,
+  );
 
 Deno.test("missing-information templates request every approved missing field and nothing generic", () => {
   const email = buildRefundCustomerEmail({
@@ -24,7 +30,11 @@ Deno.test("missing-information templates request every approved missing field an
     missingFields: ["incident_time", "amount", "incident_time"],
   });
 
-  assertIncludes(email.text, "the approximate purchase time, including AM or PM", "time request");
+  assertIncludes(
+    email.text,
+    "the approximate purchase time, including AM or PM",
+    "time request",
+  );
   assertIncludes(email.text, "the exact amount charged", "amount request");
   assertIncludes(
     email.text,
@@ -46,8 +56,16 @@ Deno.test("missing-information templates request every approved missing field an
     "Approximate purchase time (include AM or PM):<br />Amount (for example, $7.25):",
     "HTML reply template keeps one field per line",
   );
-  assertNotIncludes(email.text, "the machine or Bloomjoy location", "present location is not requested");
-  assertNotIncludes(email.text, "payment-screen photo", "unnecessary photo request");
+  assertNotIncludes(
+    email.text,
+    "the machine or Bloomjoy location",
+    "present location is not requested",
+  );
+  assertNotIncludes(
+    email.text,
+    "payment-screen photo",
+    "unnecessary photo request",
+  );
   assertNotIncludes(email.text, "anything that may help", "generic request");
 });
 
@@ -62,8 +80,14 @@ Deno.test("missing-field normalization is allowlisted, ordered, and deduplicated
     JSON.stringify(fields) === JSON.stringify(["incident_date", "card_last4"]),
     "missing fields should use canonical order",
   );
-  assert(describeRefundMissingFields(fields).length === 2, "two safe descriptions expected");
-  assert(REFUND_DETERMINISTIC_FOLLOW_UP_VERSION === "refund_follow_up_v2", "version is immutable");
+  assert(
+    describeRefundMissingFields(fields).length === 2,
+    "two safe descriptions expected",
+  );
+  assert(
+    REFUND_DETERMINISTIC_FOLLOW_UP_VERSION === "refund_follow_up_v2",
+    "version is immutable",
+  );
 });
 
 Deno.test("missing-information templates fail closed without an exact field list", () => {
@@ -92,14 +116,42 @@ Deno.test("no-safe-match copy is humble, correction-focused, and makes no refund
     incidentLocalDateTime: "2026-08-03 2:15 PM",
   });
 
-  assertIncludes(email.text, "This does not mean you did anything wrong", "non-blaming copy");
-  assertIncludes(email.text, "could not identify one transaction", "safe-match explanation");
+  assertIncludes(
+    email.text,
+    "This does not mean you did anything wrong",
+    "non-blaming copy",
+  );
+  assertIncludes(
+    email.text,
+    "could not identify one transaction",
+    "safe-match explanation",
+  );
   assertIncludes(email.text, "Please reply only if", "one next step");
-  assertIncludes(email.text, "Reported purchase time: 2026-08-03 2:15 PM", "safe fact restatement");
-  assertIncludes(email.text, "Reported amount: $7.25", "pre-decision amount label");
-  assertNotIncludes(email.text.toLowerCase(), "inside the wallet", "wallet digits are not requested by email");
-  assertNotIncludes(email.text.toLowerCase(), "your refund was approved", "approval promise");
-  assertNotIncludes(email.text.toLowerCase(), "refund has been sent", "completion promise");
+  assertIncludes(
+    email.text,
+    "Reported purchase time: 2026-08-03 2:15 PM",
+    "safe fact restatement",
+  );
+  assertIncludes(
+    email.text,
+    "Reported amount: $7.25",
+    "pre-decision amount label",
+  );
+  assertNotIncludes(
+    email.text.toLowerCase(),
+    "inside the wallet",
+    "wallet digits are not requested by email",
+  );
+  assertNotIncludes(
+    email.text.toLowerCase(),
+    "your refund was approved",
+    "approval promise",
+  );
+  assertNotIncludes(
+    email.text.toLowerCase(),
+    "refund has been sent",
+    "completion promise",
+  );
 });
 
 Deno.test("mobile-wallet last-four requests fail closed outside the secure correction flow", () => {
@@ -142,10 +194,26 @@ Deno.test("approved and completed copy labels only the confirmed refund amount",
     body: "Thank you for your patience while we check the available records.",
   });
 
-  assertIncludes(approved.text, "Refund amount: $7.25", "post-decision amount label");
-  assertIncludes(status.text, "Reported amount: $7.25", "pre-decision amount label");
-  assertIncludes(editedStatus.text, "Reported amount: $7.25", "edited pre-decision amount label");
-  assertNotIncludes(editedStatus.text, "Refund amount: $7.25", "edited pre-decision copy must not imply approval");
+  assertIncludes(
+    approved.text,
+    "Refund amount: $7.25",
+    "post-decision amount label",
+  );
+  assertIncludes(
+    status.text,
+    "Reported amount: $7.25",
+    "pre-decision amount label",
+  );
+  assertIncludes(
+    editedStatus.text,
+    "Reported amount: $7.25",
+    "edited pre-decision amount label",
+  );
+  assertNotIncludes(
+    editedStatus.text,
+    "Refund amount: $7.25",
+    "edited pre-decision copy must not imply approval",
+  );
 });
 
 Deno.test("completed card copy is a truthful receipt with masked destination and timing", () => {
@@ -158,22 +226,130 @@ Deno.test("completed card copy is a truthful receipt with masked destination and
     cardLast4: "1234",
   });
 
-  assertIncludes(completed.text, "We issued your refund for $7.25 to the card ending in 1234", "confirmed refund receipt");
-  assertIncludes(completed.text, "up to 4 business days", "provider display timeline");
-  assertNotIncludes(completed.text, "marked complete", "internal workflow wording");
+  assertIncludes(
+    completed.text,
+    "We issued your refund for $7.25 to the card ending in 1234",
+    "confirmed refund receipt",
+  );
+  assertIncludes(
+    completed.text,
+    "Good news—your refund request was approved, and your refund is on its way.",
+    "required completion opening",
+  );
+  assertIncludes(
+    completed.text,
+    "up to 4 business days",
+    "provider display timeline",
+  );
+  assertNotIncludes(
+    completed.text,
+    "marked complete",
+    "internal workflow wording",
+  );
 });
 
-Deno.test("denial copy never exposes an internal manager note", () => {
+Deno.test("denial copy gives a customer-safe reason and supports a reply appeal", () => {
   const denied = buildRefundCustomerEmail({
     messageType: "denied",
     publicReference: "RF-DENIED",
     customerEmail: "customer@example.com",
-    decisionReason: "INTERNAL: suspected duplicate risk score 91",
+    decisionReason:
+      "We could not confirm a matching purchase at the machine and time provided",
   });
 
-  assertIncludes(denied.text, "reply and we will take another careful look", "customer-safe recovery");
-  assertNotIncludes(denied.text, "suspected duplicate", "internal decision note");
-  assertNotIncludes(denied.text, "risk score", "internal scoring");
+  assertIncludes(
+    denied.text,
+    "could not confirm a matching purchase",
+    "customer-safe reason",
+  );
+  assertIncludes(
+    denied.text,
+    "reply in this same conversation",
+    "reply appeal",
+  );
+  assertIncludes(denied.html, "same conversation", "HTML appeal path");
+});
+
+Deno.test("denial copy fails closed instead of exposing an internal manager note", () => {
+  let failed = false;
+  try {
+    buildRefundCustomerEmail({
+      messageType: "denied",
+      publicReference: "RF-DENIED-INTERNAL",
+      customerEmail: "customer@example.com",
+      decisionReason: "INTERNAL: suspected duplicate risk score 91",
+    });
+  } catch {
+    failed = true;
+  }
+  assert(failed, "internal denial reasons must be rejected");
+});
+
+Deno.test("appeal receipt reopens the same case without promising a payment", () => {
+  const appeal = buildRefundCustomerEmail({
+    messageType: "appeal_received",
+    publicReference: "RF-APPEAL1",
+    customerName: "Jules",
+    customerEmail: "customer@example.com",
+  });
+
+  assertIncludes(appeal.text, "same refund request", "same-case boundary");
+  assertIncludes(
+    appeal.text,
+    "do not need to submit another form",
+    "one-form boundary",
+  );
+  assertIncludes(
+    appeal.text,
+    "not a refund approval and cannot issue a payment",
+    "payment boundary",
+  );
+  assertIncludes(appeal.text, "reply", "continued conversation");
+});
+
+Deno.test("customer templates share the branded, email-safe renderer", () => {
+  const samples = [
+    buildRefundCustomerEmail({
+      messageType: "confirmation",
+      publicReference: "RF-BRAND01",
+      customerEmail: "customer@example.com",
+    }),
+    buildRefundCustomerEmail({
+      messageType: "denied",
+      publicReference: "RF-BRAND02",
+      customerEmail: "customer@example.com",
+      decisionReason: "We could not confirm the purchase details provided",
+    }),
+    buildRefundCustomerEmail({
+      messageType: "completed",
+      publicReference: "RF-BRAND03",
+      customerEmail: "customer@example.com",
+      refundAmountCents: 725,
+      paymentMethod: "card",
+      cardLast4: "1234",
+    }),
+  ];
+
+  for (const sample of samples) {
+    assertIncludes(
+      sample.html,
+      '<table role="presentation"',
+      "email-safe table layout",
+    );
+    assertIncludes(sample.html, "#b83d64", "Bloomjoy plum accent");
+    assertIncludes(sample.html, "Georgia", "branded headline typography");
+    assertIncludes(
+      sample.html,
+      "Bloomjoy Sweets customer care",
+      "branded footer",
+    );
+    assertNotIncludes(sample.html, "/refunds?case=", "no internal case link");
+    assertNotIncludes(
+      sample.text.toLowerCase(),
+      "risk score",
+      "no internal scoring",
+    );
+  }
 });
 
 Deno.test("no-safe-match reminder is bounded and never solicits wallet digits", () => {
@@ -184,8 +360,16 @@ Deno.test("no-safe-match reminder is bounded and never solicits wallet digits", 
     customerEmail: "customer@example.com",
   });
   assertIncludes(email.text, "checking in once", "one reminder boundary");
-  assertIncludes(email.text, "no action is needed", "customer may wait for human review");
-  assertNotIncludes(email.text.toLowerCase(), "inside your mobile wallet", "wallet digits are not requested");
+  assertIncludes(
+    email.text,
+    "no action is needed",
+    "customer may wait for human review",
+  );
+  assertNotIncludes(
+    email.text.toLowerCase(),
+    "inside your mobile wallet",
+    "wallet digits are not requested",
+  );
 });
 
 Deno.test("information-received copy confirms receipt without a decision or completion claim", () => {
@@ -195,8 +379,16 @@ Deno.test("information-received copy confirms receipt without a decision or comp
     customerEmail: "customer@example.com",
   });
 
-  assertIncludes(email.text, "you do not need to resend it", "bounded acknowledgement");
+  assertIncludes(
+    email.text,
+    "you do not need to resend it",
+    "bounded acknowledgement",
+  );
   assertIncludes(email.text, "confirms receipt only", "receipt-only boundary");
   assertIncludes(email.text, "not yet a refund decision", "decision boundary");
-  assertIncludes(email.text, "not a promise that a payment has been completed", "payment boundary");
+  assertIncludes(
+    email.text,
+    "not a promise that a payment has been completed",
+    "payment boundary",
+  );
 });
