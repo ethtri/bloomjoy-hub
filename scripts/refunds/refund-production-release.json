@@ -74,7 +74,8 @@
     "20260821100000_refund_branded_appeals.sql",
     "20260822190000_refund_portfolio_intake_inventory_correction.sql",
     "20260822193500_refund_merlin_manager_routes.sql",
-    "20260822200000_refund_nayax_obvious_mapping_repair.sql"
+    "20260822200000_refund_nayax_obvious_mapping_repair.sql",
+    "20260822210000_refund_nayax_active_inventory_reconciliation.sql"
   ],
   "migrationFilesSha256": "d041ee1a0768755f6228c016bcbc7a680891c03f49f9697e421281f100b3fc08",
   "migrationVersionSetSha256": "0f2bb645148629c4c55461424110a12784509018f6f31f475a3bf9f3c54fd3a7",
