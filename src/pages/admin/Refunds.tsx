@@ -2428,11 +2428,6 @@ export default function AdminRefundsPage() {
     setNayaxResolutionEvidenceOccurredAt('');
     setNayaxResolutionReason(manualPortalAttempt ? 'manual_nayax_completion' : 'evidence_incomplete');
   }, [nayaxResolutionReadiness?.manualPortalAttempt, selectedCase?.id, selectedCase?.officialActionVersion]);
-  useEffect(() => {
-    if (selectedCase?.id) {
-      setNayaxCandidates(selectedCase.nayaxLookupCandidates ?? []);
-    }
-  }, [selectedCase?.id, selectedCase?.nayaxLookupCandidates]);
   const {
     data: gmailContext,
     isLoading: gmailContextIsLoading,
@@ -3089,6 +3084,13 @@ export default function AdminRefundsPage() {
       });
       toast.success('Nayax transaction saved for confirmation. No refund or email was sent.');
       await refresh();
+      const refreshedOverview = queryClient.getQueryData<RefundOperationsOverview>(
+        ['admin-refund-operations-overview']
+      );
+      setNayaxCandidates(
+        refreshedOverview?.cases.find((refundCase) => refundCase.id === selectedCase.id)
+          ?.nayaxLookupCandidates ?? []
+      );
     } catch (manualEvidenceError) {
       toast.error(
         manualEvidenceError instanceof Error
