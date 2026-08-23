@@ -141,8 +141,8 @@ for (const retiredPilotGate of [
 }
 assert.match(
   productionRunbook,
-  /exactly 42 reviewed synthetic screenshots/,
-  'Production runbook must use the current 42-screenshot evidence inventory'
+  /exactly 44 reviewed synthetic screenshots/,
+  'Production runbook must use the current 44-screenshot evidence inventory'
 );
 assert.doesNotMatch(
   productionRunbook,
