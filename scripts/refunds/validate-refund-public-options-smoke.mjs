@@ -27,6 +27,10 @@ const locationSelectionSource = fs.readFileSync(
   path.join(repoRoot, 'supabase', 'migrations', '20260823110000_refund_public_location_selections.sql'),
   'utf8'
 );
+const placeholderSelectionRepairSource = fs.readFileSync(
+  path.join(repoRoot, 'supabase', 'migrations', '20260823203839_repair_refund_placeholder_location_selections.sql'),
+  'utf8'
+);
 const locationSelectionTestSource = fs.readFileSync(
   path.join(repoRoot, 'supabase', 'tests', 'refund_public_location_selections.sql'),
   'utf8'
@@ -135,6 +139,17 @@ assert.match(locationSelectionSource, /when 'snapcase' then 'Phone cases \(SnapC
 assert.match(locationSelectionTestSource, /where display_label = 'Capital City Mall'/);
 assert.match(locationSelectionTestSource, /South Hills Village — Cotton candy/);
 assert.match(locationSelectionTestSource, /South Hills Village — Phone cases \(SnapCase\)/);
+assert.match(placeholderSelectionRepairSource, /partition by location_id, btrim\(location_name\)/);
+assert.match(
+  placeholderSelectionRepairSource,
+  /partition by location_id, btrim\(location_name\), refund_category/
+);
+assert.doesNotMatch(placeholderSelectionRepairSource, /partition by location_id\)/);
+assert.match(locationSelectionTestSource, /Bubble Planet - Atlanta/);
+assert.match(locationSelectionTestSource, /Bubble Planet DC/);
+assert.match(locationSelectionTestSource, /Bubble Planet Seattle/);
+assert.match(locationSelectionTestSource, /Carolina Place/);
+assert.match(locationSelectionTestSource, /Columbiana Centre/);
 assert.match(locationSelectionSource, /refund_livermore_selection_machine_ids\(\)/);
 assert.match(locationSelectionSource, /cardinality\(intake_selection_machine_ids\) = 2/);
 assert.equal((intakeFunctionSource.match(/service_refund_machine_is_public/g) ?? []).length, 2,
@@ -154,5 +169,6 @@ console.log('- every active Nayax machine is published, setup work, or explicitl
 console.log('- no setup or stale-published work remains at launch');
 console.log('- customer intake stays independent of automatic Nayax payment readiness');
 console.log('- opaque customer selections cover every public machine exactly once');
+console.log('- customer-safe placeholder labels remain separate exact-machine choices');
 console.log('- Livermore is one reviewed two-machine selection; mixed locations stay category-specific');
 console.log('- explicit Snapcase category and duplicate fail-closed gates');
