@@ -19,7 +19,12 @@ assert(sweep.includes('source: "customer_reply_recheck"'), "customer reply reche
 assert(sweep.includes("nayax_lookup:${refundCase.id}:v${refundCase.deterministic_fact_version}"), "sweep must share the fact-version action claim");
 assert(migration.includes("action.action_key ="), "manager state must resolve the current fact-version lookup operation");
 assert(portal.includes("Refresh transaction results"), "manual refresh fallback must remain available");
-assert(portal.includes("Why it matches:"), "plain-language match reasons must be visible");
+assert(
+  portal.includes("matchFactorDisplayLabel") &&
+    portal.includes("Why this looks like a match") &&
+    portal.includes("Why this transaction cannot be selected"),
+  "plain-language match and conflict reasons must be visible"
+);
 assert(!portal.includes("The transaction search will run when this case opens."), "opening a case must not be described as the trigger");
 assert(!portal.includes("Check Nayax transaction"), "routine initial lookup must not require manager-start copy");
 

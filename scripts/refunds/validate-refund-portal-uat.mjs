@@ -979,6 +979,33 @@ const buildWalletMismatchRefundOverview = () => {
   return overview;
 };
 
+const buildWalletMismatchWaitingRefundOverview = () => {
+  const overview = buildWalletMismatchRefundOverview();
+  overview.cases[0].status = 'waiting_on_customer';
+  overview.cases[0].messages = [
+    {
+      id: 'wallet-correction-message-1',
+      messageType: 'more_info',
+      status: 'sent',
+      recipientEmail: overview.cases[0].customerEmail,
+      subject: `A quick question about refund request ${overview.cases[0].publicReference}`,
+      body: 'Please confirm the charged amount shown in your wallet.',
+      sentAt: isoHoursAgo(1),
+      errorMessage: null,
+      createdAt: isoHoursAgo(1),
+    },
+  ];
+  return overview;
+};
+
+const buildPhysicalCardMismatchRefundOverview = () => {
+  const overview = buildPendingNayaxRefundOverview();
+  overview.cases[0].cardLast4 = '6768';
+  overview.cases[0].paymentAmountCents = 1090;
+  overview.cases[0].paymentInteraction = 'tap_card';
+  return overview;
+};
+
 const jsonResponse = (body) => ({
   status: 200,
   contentType: 'application/json',
@@ -3691,6 +3718,98 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedCandidateCount: 1,
     },
     {
+      name: 'physical card mismatch',
+      refundOverview: buildPhysicalCardMismatchRefundOverview,
+      response: {
+        configured: true,
+        lookupStatus: 'match_found',
+        recommendationState: 'manual_exception',
+        confidenceClass: 'ambiguous_manual',
+        reasonCodes: ['card_last4_mismatch'],
+        policyVersion: '2026-07-26.v2',
+        oneClickEligible: false,
+        lastCheckedAt: now.toISOString(),
+        providerRecordCount: 10,
+        providerParseableRecordCount: 10,
+        providerWindowRecordCount: 10,
+        candidateCount: 2,
+        windowHours: 6,
+        summary: 'Nearby transactions were found, but none matched the reported physical card.',
+        recommendedAction: 'Keep the case in manager review until the card information can be confirmed.',
+        candidates: [
+          {
+            candidateToken: '41000000-0000-4000-8000-000000000205',
+            authorizedAt: isoHoursAgo(2.75),
+            machineAuthorizationTime: isoHoursAgo(2.75),
+            amountCents: 1090,
+            currencyCode: 'USD',
+            cardLast4: '3760',
+            cardBrand: 'Visa',
+            recognitionMethod: 'insert',
+            paymentStatus: 'approved',
+            amountDeltaCents: 0,
+            timeDeltaMinutes: 15,
+            recommendationRank: 1,
+            isTopRanked: true,
+            isRecommended: false,
+            recommendationState: 'manual_exception',
+            confidenceClass: 'ambiguous_manual',
+            reasonCodes: ['card_last4_mismatch'],
+            oneClickEligible: false,
+            selectionAllowed: false,
+            matchStrength: 'insufficient',
+            policyVersion: '2026-07-26.v2',
+            hardExclusions: ['card_last4_mismatch'],
+            matchFactors: [
+              { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+              { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
+              { key: 'incident_time', outcome: 'match', label: 'Transaction is 15 minutes from the reported time' },
+              { key: 'card', outcome: 'mismatch', label: 'Card last four does not match' },
+            ],
+            matchReason: 'The amount and time are close, but the physical card ending does not match.',
+          },
+          {
+            candidateToken: '41000000-0000-4000-8000-000000000206',
+            authorizedAt: isoHoursAgo(2.6),
+            machineAuthorizationTime: isoHoursAgo(2.6),
+            amountCents: 1090,
+            currencyCode: 'USD',
+            cardLast4: '1111',
+            cardBrand: 'Mastercard',
+            recognitionMethod: 'insert',
+            paymentStatus: 'approved',
+            amountDeltaCents: 0,
+            timeDeltaMinutes: 24,
+            recommendationRank: 2,
+            isTopRanked: false,
+            isRecommended: false,
+            recommendationState: 'manual_exception',
+            confidenceClass: 'ambiguous_manual',
+            reasonCodes: ['card_last4_mismatch'],
+            oneClickEligible: false,
+            selectionAllowed: false,
+            matchStrength: 'insufficient',
+            policyVersion: '2026-07-26.v2',
+            hardExclusions: ['card_last4_mismatch'],
+            matchFactors: [
+              { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+              { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
+              { key: 'incident_time', outcome: 'match', label: 'Transaction is 24 minutes from the reported time' },
+              { key: 'card', outcome: 'mismatch', label: 'Card last four does not match' },
+            ],
+            matchReason: 'The amount and time are close, but the physical card ending does not match.',
+          },
+        ],
+      },
+      expectedHeading: 'No transaction is safe to select',
+      expectedStatus: 'No selectable transaction',
+      expectedManagerNotice: 'Transaction results updated.',
+      expectedBadge: 'Candidate found',
+      expectedAction: 'Review the case details before choosing the next step.',
+      expectedCandidateCount: 2,
+      expectedNoSelectableTransactions: true,
+    },
+    {
       name: 'lookup failed',
       response: {
         configured: true,
@@ -3713,8 +3832,8 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedBadge: 'Check failed',
     },
     {
-      name: 'wallet manual review',
-      refundOverview: buildWalletMismatchRefundOverview,
+      name: 'wallet waiting on customer',
+      refundOverview: buildWalletMismatchWaitingRefundOverview,
       response: {
         configured: true,
         lookupStatus: 'match_found',
@@ -3769,14 +3888,16 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
           },
         ],
       },
-      expectedHeading: 'A possible transaction needs comparison',
-      expectedStatus: 'Compare details',
+      expectedHeading: 'Transactions found; waiting for customer',
+      expectedStatus: 'Waiting on customer',
       expectedManagerNotice: 'Transaction results updated.',
       expectedBadge: 'Candidate found',
-      expectedAction: 'Review the case details before choosing the next step.',
+      expectedAction: 'Wait for the reply, or review the original thread if the customer message needs attention.',
       expectedCandidateCount: 1,
       expectedAmountMismatch: '$0.90',
       expectedWalletCardMismatch: true,
+      expectedSelectionPaused: true,
+      queueView: 'Waiting',
     },
   ];
 
@@ -3794,6 +3915,9 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     });
     const page = await context.newPage();
     await signInRefundUser(page, appUrl);
+    if (scenario.queueView) {
+      await page.getByRole('button', { name: new RegExp(scenario.queueView) }).click();
+    }
     const pendingRow = queueCase(page, 'RF-UAT-PENDING')
       .filter({ hasNotText: 'RF-UAT-PENDING-ALT' });
     await pendingRow.waitFor({ state: 'visible', timeout: 10000 });
@@ -3843,18 +3967,50 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         (await page.getByTestId('nayax-candidate-option').count()) === scenario.expectedCandidateCount
       );
       if (scenario.name === 'multiple candidates') {
-        const alternateDisclosure = page.getByText('Other possible transactions (1)', { exact: true });
+        const alternateDisclosure = page.getByTestId('nayax-alternate-transactions');
         recorder.assert(
-          'Ambiguous candidates show every safe option in likely order',
+          'Ambiguous candidates show the closest result first and keep alternatives scannable',
           await alternateDisclosure.isVisible() &&
             await page.getByTestId('nayax-candidate-option').first().isVisible() &&
-            await page.getByTestId('nayax-candidate-option').nth(1).isVisible()
+            !(await page.getByTestId('nayax-candidate-option').nth(1).isVisible())
+        );
+        await alternateDisclosure.locator('summary').click();
+        recorder.assert(
+          'Managers can reveal every safe alternate in likely order',
+          await page.getByTestId('nayax-candidate-option').nth(1).isVisible()
         );
         await page.getByTestId('nayax-candidate-option').nth(1).click();
         recorder.assert(
           'Selecting an alternate requires a structured disagreement reason',
           await page.getByLabel('Why is this the right transaction?').isVisible()
         );
+      }
+      if (scenario.expectedNoSelectableTransactions) {
+        const candidateOptions = page.getByTestId('nayax-candidate-option');
+        recorder.assert(
+          'Physical-card conflicts state that zero transactions are selectable and name the mismatch',
+          await page.getByTestId('nayax-candidate-availability').getByText('0 transactions available to select', { exact: true }).isVisible() &&
+            await page.getByText(/The card ending does not match the physical card reported by the customer\./).first().isVisible() &&
+            await candidateOptions.evaluateAll((options) => options.every((option) => option.disabled))
+        );
+      }
+      if (scenario.expectedSelectionPaused) {
+        recorder.assert(
+          'Waiting cases show current results without offering an action the server would reject',
+          await page.getByTestId('nayax-candidate-availability').getByText('1 possible transaction found', { exact: true }).isVisible() &&
+            await page.getByTestId('nayax-candidate-option').first().isDisabled() &&
+            await page.getByText(/selection stays paused until the customer replies/i).isVisible()
+        );
+      }
+      if (scenario.expectedNoSelectableTransactions || scenario.expectedSelectionPaused) {
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.getByTestId('nayax-candidate-availability').scrollIntoViewIfNeeded();
+        recorder.assert(
+          `Nayax ${scenario.name} remains clear without mobile overflow`,
+          await page.getByTestId('nayax-candidate-availability').isVisible() &&
+            await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+        );
+        await page.setViewportSize({ width: 1440, height: 1000 });
       }
       if (scenario.expectedAmountMismatch) {
         const resultCardText = await page.getByTestId('nayax-result-card').innerText();

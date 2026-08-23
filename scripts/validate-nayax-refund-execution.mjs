@@ -493,9 +493,11 @@ assert(
   'The manager UI must present transaction selection as evidence review, never as refund approval.'
 );
 assert(
-  refundOperationsUi.includes("candidateOption(leadCandidate, 'Most likely transaction')") &&
-    refundOperationsUi.includes('Other possible transactions') &&
-    refundOperationsUi.includes("candidateOption(candidate, 'Possible transaction')") &&
+  refundOperationsUi.includes('candidateOption(') &&
+    refundOperationsUi.includes('nayax-candidate-availability') &&
+    refundOperationsUi.includes('nayax-alternate-transactions') &&
+    refundOperationsUi.includes('candidateUnavailableReason') &&
+    refundOperationsUi.includes('caseAllowsCandidateSelection') &&
     refundOperationsUi.includes('refundAmount:') &&
     refundOperationsUi.includes('(candidate.amountCents / 100).toFixed(2)') &&
     !refundOperationsUi.includes('Match strength:') &&
