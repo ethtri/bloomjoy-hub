@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "e8616f7b27314472e921f3d594553d1ee102620e",
+  "sourceGitCommit": "b667e81e977e672824f2a951c035ea0797b65c20",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -144,7 +144,7 @@
       "verifyJwt": false,
       "sourceSha256": "74becb7271ad774cb666a2dcd1f86dc1dc8b0ffe126ac08f4da202412e5aa7dc",
       "production": {
-        "version": 63,
+        "version": 64,
         "ezbrSha256": "a20f6cf3df7cf37bebe46dc8e7bf2bb689a8348eaa75296181a19e2ac7097bc6",
         "sourceSha256": "74becb7271ad774cb666a2dcd1f86dc1dc8b0ffe126ac08f4da202412e5aa7dc"
       }
@@ -154,7 +154,7 @@
       "verifyJwt": false,
       "sourceSha256": "31496e6863e7de2da75bf4666973b1ee4fe7c5a673620a461e7d99286cc6eff7",
       "production": {
-        "version": 59,
+        "version": 60,
         "ezbrSha256": "11865dada10c7839c86aedcd14e539d7cda35855cd71e58507a4731c8738d931",
         "sourceSha256": "31496e6863e7de2da75bf4666973b1ee4fe7c5a673620a461e7d99286cc6eff7"
       }
@@ -164,7 +164,7 @@
       "verifyJwt": false,
       "sourceSha256": "d4aad09fdf4f4e03dc8ea227a90c50dc2a7f1a404992abf3683328e219c76878",
       "production": {
-        "version": 65,
+        "version": 66,
         "ezbrSha256": "f728a2c49d71601008c0db66ea671ff18eefc4ea4bc2c2e25bb8375013b1dc8a",
         "sourceSha256": "d4aad09fdf4f4e03dc8ea227a90c50dc2a7f1a404992abf3683328e219c76878"
       }
@@ -174,7 +174,7 @@
       "verifyJwt": false,
       "sourceSha256": "9070ecae7a8f858b9aeef164cfffa8e6cb7dbc0d4846783a1a310998dc511563",
       "production": {
-        "version": 63,
+        "version": 64,
         "ezbrSha256": "02fb719b91e6aeb9a44afadb1bde10a445467d4c3df10340b38b0fa9079a8a96",
         "sourceSha256": "9070ecae7a8f858b9aeef164cfffa8e6cb7dbc0d4846783a1a310998dc511563"
       }
@@ -184,7 +184,7 @@
       "verifyJwt": false,
       "sourceSha256": "57740db34c6a86f4ab21841cb9982ce0d4b6fc295bcf390d11c39780a2ba1466",
       "production": {
-        "version": 62,
+        "version": 63,
         "ezbrSha256": "b01973475a539052ab42d314b7bec2afab52618d18ad0ed903b3983d212aa13c",
         "sourceSha256": "57740db34c6a86f4ab21841cb9982ce0d4b6fc295bcf390d11c39780a2ba1466"
       }
@@ -194,7 +194,7 @@
       "verifyJwt": false,
       "sourceSha256": "6acb9996ffbe205a468cf46a90a3590675c9f3f26949634dfe184ef6fb763da2",
       "production": {
-        "version": 60,
+        "version": 61,
         "ezbrSha256": "4a36b65304ffc65fc291b0315019f5458eeaf98cbc3f278e0ca0317101461872",
         "sourceSha256": "6acb9996ffbe205a468cf46a90a3590675c9f3f26949634dfe184ef6fb763da2"
       }
@@ -204,7 +204,7 @@
       "verifyJwt": false,
       "sourceSha256": "75a9775568676551005f0ad7509dd4c51f450b8c9e8e9b4c18f521a95a5d8947",
       "production": {
-        "version": 55,
+        "version": 56,
         "ezbrSha256": "1ef839d0183516c9373b531b043d015197c365cb23785e6d16017ad9706714fd",
         "sourceSha256": "75a9775568676551005f0ad7509dd4c51f450b8c9e8e9b4c18f521a95a5d8947"
       }
@@ -214,7 +214,7 @@
       "verifyJwt": false,
       "sourceSha256": "d5caf13d2f8f0ddb6f2fcd99526d436e2d32dea252d64773180041150da1eb2d",
       "production": {
-        "version": 64,
+        "version": 65,
         "ezbrSha256": "fc5352dd05f2f195537a1d224b1d352390b684ed4b135e77316df638881f9ada",
         "sourceSha256": "d5caf13d2f8f0ddb6f2fcd99526d436e2d32dea252d64773180041150da1eb2d"
       }
@@ -224,7 +224,7 @@
       "verifyJwt": false,
       "sourceSha256": "425796fa933b6eab2f8bd819320989a082e383a8aef29509761c1c3a6bbaee18",
       "production": {
-        "version": 52,
+        "version": 53,
         "ezbrSha256": "9eb374fea14b65bddb2c5293b222f98bb9e1adea30906fd9903e6cf8bfd95907",
         "sourceSha256": "425796fa933b6eab2f8bd819320989a082e383a8aef29509761c1c3a6bbaee18"
       }
@@ -234,7 +234,7 @@
       "verifyJwt": false,
       "sourceSha256": "f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511",
       "production": {
-        "version": 49,
+        "version": 50,
         "ezbrSha256": "2bec4ebb48cb4449262c287928f71dac004c303e9e0214f1f9e0019958cab906",
         "sourceSha256": "f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511"
       }
