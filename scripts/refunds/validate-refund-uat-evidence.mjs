@@ -302,7 +302,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 44, 'Evidence must enumerate all 44 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 46, 'Evidence must enumerate all 46 reviewed screenshots');
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-email-pilot-source-badges-mobile.png'),
     'Evidence must include the reviewed mobile source-badge state'
@@ -327,6 +327,11 @@ try {
     EXPECTED_SCREENSHOTS.filter((name) => name.endsWith('mapped-manager-session.png')).length,
     2,
     'The evidence must show both mapped-manager session paths without a second factor'
+  );
+  assert.equal(
+    EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-portal-uat-nc-manual-')).length,
+    2,
+    'The evidence must show the temporary NC manual path on desktop and mobile'
   );
   const supportPanelAssertionIndex = portalUatSource.indexOf(
     "'Managers see exactly four structured outcomes and no arbitrary communication controls'"

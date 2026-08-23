@@ -1,0 +1,281 @@
+begin;
+
+create extension if not exists pgtap with schema extensions;
+set local search_path = public, extensions;
+
+select plan(33);
+
+create function pg_temp.set_auth_claims(p_user_id uuid)
+returns void language plpgsql as $$
+begin
+  perform set_config('request.jwt.claim.sub', p_user_id::text, true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config('request.jwt.claims', jsonb_build_object(
+    'sub', p_user_id, 'role', 'authenticated', 'is_anonymous', false
+  )::text, true);
+end;
+$$;
+
+create function pg_temp.capture_error(statement text)
+returns text language plpgsql as $$
+begin execute statement; return null;
+exception when others then return sqlstate || ':' || sqlerrm;
+end;
+$$;
+
+create function pg_temp.machine_local_minutes_ago(minutes_ago integer)
+returns text language sql stable as $$
+  select to_char(
+    (statement_timestamp() - make_interval(mins => minutes_ago)) at time zone 'America/New_York',
+    'YYYY-MM-DD"T"HH24:MI'
+  );
+$$;
+
+create temporary table manual_results (key text primary key, value jsonb not null);
+grant all on table pg_temp.manual_results to authenticated, service_role;
+
+select has_column('public', 'reporting_machines', 'nayax_manual_portal_enabled', 'Machines have an explicit manual Nayax portal switch');
+select has_column('public', 'reporting_machines', 'nayax_manual_account_scope', 'Machines have a private duplicate-protection scope');
+select has_table('public', 'refund_manual_nayax_evidence', 'Exact manual portal evidence has a private table');
+select has_function('public', 'admin_create_refund_manual_nayax_candidate', array['uuid','bigint','text','text','text','integer','text'], 'Mapped managers can enter exact portal evidence through one guarded function');
+select has_function('public', 'admin_begin_refund_manual_nayax_portal', array['uuid','bigint'], 'Mapped managers have a separate guarded approval function');
+select ok(
+  not has_table_privilege('anon', 'public.refund_manual_nayax_evidence', 'select')
+  and not has_table_privilege('authenticated', 'public.refund_manual_nayax_evidence', 'select')
+  and not has_table_privilege('service_role', 'public.refund_manual_nayax_evidence', 'select'),
+  'Raw manual portal evidence is unavailable to browser and service personas'
+);
+select ok(
+  has_function_privilege('authenticated', 'public.admin_create_refund_manual_nayax_candidate(uuid,bigint,text,text,text,integer,text)', 'execute')
+  and not has_function_privilege('anon', 'public.admin_create_refund_manual_nayax_candidate(uuid,bigint,text,text,text,integer,text)', 'execute'),
+  'Only authenticated sessions can reach the evidence-entry boundary'
+);
+select ok(
+  has_function_privilege('authenticated', 'public.admin_begin_refund_manual_nayax_portal(uuid,bigint)', 'execute')
+  and not has_function_privilege('anon', 'public.admin_begin_refund_manual_nayax_portal(uuid,bigint)', 'execute'),
+  'Only authenticated sessions can reach the separate approval boundary'
+);
+
+insert into public.customer_accounts (id, name, account_type, status)
+values ('94100000-0000-4000-8000-000000000001', 'Manual Nayax fixture', 'internal', 'active');
+insert into public.reporting_locations (id, account_id, name, city, state, timezone, status)
+values ('94110000-0000-4000-8000-000000000001', '94100000-0000-4000-8000-000000000001', 'Carolina Place fixture', 'Charlotte', 'NC', 'America/New_York', 'active');
+insert into public.reporting_machines (
+  id, account_id, location_id, machine_label, machine_type, status,
+  nayax_machine_id, nayax_account_key, nayax_refunds_enabled,
+  refund_intake_enabled, refund_public_display_label,
+  nayax_manual_portal_enabled, nayax_manual_account_scope
+) values (
+  '94120000-0000-4000-8000-000000000001',
+  '94100000-0000-4000-8000-000000000001',
+  '94110000-0000-4000-8000-000000000001',
+  'Carolina Place fixture', 'commercial', 'active', null, null, false,
+  true, 'Carolina Place fixture', true, 'bloomjoy_nc_adam'
+);
+
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+) values
+  ('00000000-0000-0000-0000-000000000000', '94130000-0000-4000-8000-000000000001', 'authenticated', 'authenticated', 'adam-manual@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
+  ('00000000-0000-0000-0000-000000000000', '94130000-0000-4000-8000-000000000002', 'authenticated', 'authenticated', 'unmapped@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now());
+insert into public.reporting_machine_refund_managers (
+  reporting_machine_id, manager_user_id, manager_email, grant_reason
+) values (
+  '94120000-0000-4000-8000-000000000001',
+  '94130000-0000-4000-8000-000000000001',
+  'adam-manual@example.test', 'Manual portal fixture'
+);
+
+insert into public.refund_cases (
+  id, reporting_machine_id, reporting_location_id, customer_email,
+  customer_name, issue_summary, incident_at, incident_local_datetime,
+  incident_timezone, incident_time_resolution, payment_method,
+  payment_amount_cents, card_last4, card_network, payment_interaction,
+  incident_time_confidence, issue_category, status, correlation_status
+) values
+  ('94140000-0000-4000-8000-000000000001', '94120000-0000-4000-8000-000000000001', '94110000-0000-4000-8000-000000000001', 'customer-one@example.test', 'Customer One', 'Manual Nayax refund fixture one', now() - interval '30 minutes', to_char(now() - interval '30 minutes', 'YYYY-MM-DD"T"HH24:MI'), 'America/New_York', 'exact', 'card', 700, '4242', 'visa', 'tap_card', 'exact', 'charged_no_product', 'needs_review', 'nayax_not_configured'),
+  ('94140000-0000-4000-8000-000000000002', '94120000-0000-4000-8000-000000000001', '94110000-0000-4000-8000-000000000001', 'customer-two@example.test', 'Customer Two', 'Manual Nayax refund fixture two', now() - interval '25 minutes', to_char(now() - interval '25 minutes', 'YYYY-MM-DD"T"HH24:MI'), 'America/New_York', 'exact', 'card', 800, '4242', 'visa', 'tap_card', 'exact', 'charged_no_product', 'needs_review', 'nayax_not_configured');
+
+insert into public.refund_gmail_threads (
+  id, refund_case_id, mailbox_hash, provider_thread_id, thread_subject,
+  first_message_at, latest_message_at, retention_expires_at
+) values (
+  '94150000-0000-4000-8000-000000000001',
+  '94140000-0000-4000-8000-000000000001', repeat('9', 64),
+  'manual-nayax-original-thread', 'Original manual Nayax refund conversation',
+  statement_timestamp() - interval '2 days',
+  statement_timestamp() - interval '1 day',
+  statement_timestamp() + interval '180 days'
+);
+
+set local role authenticated;
+select pg_temp.set_auth_claims('94130000-0000-4000-8000-000000000002');
+select ok(
+  pg_temp.capture_error(format(
+    $$select public.admin_create_refund_manual_nayax_candidate(
+      '94140000-0000-4000-8000-000000000001', %s, 'Carolina-Portal-01',
+      'MANUAL-TXN-941-0001', pg_temp.machine_local_minutes_ago(30), 700, '4242')$$,
+    (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001')
+  )) is not null,
+  'An unrelated authenticated user cannot enter portal evidence'
+);
+
+select pg_temp.set_auth_claims('94130000-0000-4000-8000-000000000001');
+select ok(
+  pg_temp.capture_error(format(
+    $$select public.admin_create_refund_manual_nayax_candidate(
+      '94140000-0000-4000-8000-000000000001', %s, 'Carolina-Portal-01',
+      'MANUAL-TXN-941-0001', pg_temp.machine_local_minutes_ago(30), 701, '4242')$$,
+    (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001')
+  )) like
+  'P0001:Transaction amount must exactly match%',
+  'A non-exact amount is rejected'
+);
+select ok(
+  pg_temp.capture_error(format(
+    $$select public.admin_create_refund_manual_nayax_candidate(
+      '94140000-0000-4000-8000-000000000001', %s, 'Carolina-Portal-01',
+      'MANUAL-TXN-941-0001', pg_temp.machine_local_minutes_ago(30), 700, '1111')$$,
+    (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001')
+  )) like
+  'P0001:Card ending must exactly match%',
+  'A non-exact card ending is rejected'
+);
+select ok(
+  pg_temp.capture_error(format(
+    $$select public.admin_create_refund_manual_nayax_candidate(
+      '94140000-0000-4000-8000-000000000001', %s, 'unsafe@example.test',
+      'MANUAL-TXN-941-0001', pg_temp.machine_local_minutes_ago(30), 700, '4242')$$,
+    (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001')
+  )) like
+  'P0001:Enter a safe Nayax portal machine reference%',
+  'Sensitive-looking machine text is rejected'
+);
+select ok(
+  pg_temp.capture_error(format(
+    $$select public.admin_create_refund_manual_nayax_candidate(
+      '94140000-0000-4000-8000-000000000001', %s, 'Carolina-Portal-01',
+      'MANUAL-TXN-941-0001', '2026-03-08T02:30', 700, '4242')$$,
+    (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001')
+  )) like 'P0001:That local transaction time does not exist%',
+  'A daylight-saving gap cannot silently shift the transaction time'
+);
+select ok(
+  pg_temp.capture_error(format(
+    $$select public.admin_create_refund_manual_nayax_candidate(
+      '94140000-0000-4000-8000-000000000001', %s, 'Carolina-Portal-01',
+      'MANUAL-TXN-941-0001', '2026-11-01T01:30', 700, '4242')$$,
+    (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001')
+  )) like 'P0001:That local transaction time is ambiguous%',
+  'A daylight-saving fold cannot pick one of two transaction times'
+);
+
+insert into pg_temp.manual_results
+select 'candidate', public.admin_create_refund_manual_nayax_candidate(
+  '94140000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001'),
+  'Carolina-Portal-01', 'MANUAL-TXN-941-0001', pg_temp.machine_local_minutes_ago(30), 700, '4242'
+);
+reset role;
+select ok((select (value ->> 'providerCallMade')::boolean = false and (value ->> 'customerMessageCreated')::boolean = false from pg_temp.manual_results where key = 'candidate'), 'Evidence entry explicitly makes no provider call or customer email');
+select is((select site_id from public.refund_nayax_lookup_candidates where token = (select (value ->> 'candidateToken')::uuid from pg_temp.manual_results where key = 'candidate')), null::integer, 'Manual evidence never invents a Nayax API site ID');
+
+set local role authenticated;
+select pg_temp.set_auth_claims('94130000-0000-4000-8000-000000000001');
+select ok(
+  pg_temp.capture_error(format(
+    $$select public.admin_create_refund_manual_nayax_candidate(
+      '94140000-0000-4000-8000-000000000002', %s, 'Carolina-Portal-01',
+      'MANUAL-TXN-941-0001', pg_temp.machine_local_minutes_ago(25), 800, '4242')$$,
+    (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000002')
+  )) like
+  '23505:This Nayax transaction is already linked%',
+  'The same account-scope transaction cannot enter a second case'
+);
+
+set local role service_role;
+select lives_ok(format(
+  $$select public.service_select_refund_nayax_candidate_as_actor(
+    '94130000-0000-4000-8000-000000000001',
+    '94140000-0000-4000-8000-000000000001', %s, %L::uuid, null)$$,
+  (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001'),
+  (select value ->> 'candidateToken' from pg_temp.manual_results where key = 'candidate')
+), 'The established confirmation boundary accepts the exact private manual evidence');
+reset role;
+
+select is((select matched_nayax_site_id from public.refund_cases where id = '94140000-0000-4000-8000-000000000001'), null::integer, 'Confirmed manual evidence remains honest about the absent API site');
+select is((select decision from public.refund_cases where id = '94140000-0000-4000-8000-000000000001'), null::text, 'Transaction confirmation does not approve the refund');
+select is((select count(*)::integer from public.refund_case_nayax_refund_attempts where refund_case_id = '94140000-0000-4000-8000-000000000001'), 0, 'Transaction confirmation does not create a refund attempt');
+select is((select count(*)::integer from public.refund_case_messages where refund_case_id = '94140000-0000-4000-8000-000000000001'), 0, 'Transaction confirmation sends no customer email');
+
+set local role authenticated;
+select pg_temp.set_auth_claims('94130000-0000-4000-8000-000000000001');
+insert into pg_temp.manual_results
+select 'approval', public.admin_begin_refund_manual_nayax_portal(
+  '94140000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001')
+);
+reset role;
+select ok((select (value ->> 'providerCallMade')::boolean = false and (value ->> 'customerMessageCreated')::boolean = false from pg_temp.manual_results where key = 'approval'), 'Manual approval explicitly makes no provider call or customer email');
+select is((select status || ':' || decision from public.refund_cases where id = '94140000-0000-4000-8000-000000000001'), 'card_refund_pending:approved', 'Separate approval places the case on a payment-result hold');
+select is((select execution_mode || ':' || status || ':' || provider_outcome from public.refund_case_nayax_refund_attempts where refund_case_id = '94140000-0000-4000-8000-000000000001'), 'manual_portal:manual_review:unknown', 'Approval creates one truthful unknown manual-portal attempt');
+select is((select count(*)::integer from public.refund_case_messages where refund_case_id = '94140000-0000-4000-8000-000000000001'), 0, 'Approval still sends no customer email');
+select is((select count(*)::integer from public.sales_adjustment_facts where refund_case_id = '94140000-0000-4000-8000-000000000001'), 0, 'Approval does not change financial reporting');
+
+set local role authenticated;
+select pg_temp.set_auth_claims('94130000-0000-4000-8000-000000000001');
+insert into pg_temp.manual_results
+select 'replay', public.admin_begin_refund_manual_nayax_portal(
+  '94140000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001')
+);
+reset role;
+select ok((select (value ->> 'created')::boolean = false from pg_temp.manual_results where key = 'replay'), 'A repeated approval returns the original attempt');
+select is((select count(*)::integer from public.refund_case_nayax_refund_attempts where refund_case_id = '94140000-0000-4000-8000-000000000001'), 1, 'A repeated approval cannot create a duplicate attempt');
+
+set local role authenticated;
+select pg_temp.set_auth_claims('94130000-0000-4000-8000-000000000001');
+insert into pg_temp.manual_results
+select 'completion', public.admin_resolve_refund_nayax_outcome_manager_session(
+  '94140000-0000-4000-8000-000000000001',
+  (select (value ->> 'attemptId')::uuid from pg_temp.manual_results where key = 'approval'),
+  'documented_manual_completion', 'documented_manual_refund',
+  'MANUAL:MANUAL-TXN-941-0001', statement_timestamp(),
+  'manual_nayax_completion',
+  (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001')
+);
+reset role;
+select ok(
+  (select (value ->> 'caseCompleted')::boolean and not (value ->> 'providerCallMade')::boolean
+   from pg_temp.manual_results where key = 'completion'),
+  'The exact documented Nayax result completes the case without a second provider call'
+);
+select ok((
+  select refund_case.status = 'completed'
+    and refund_case.reporting_adjustment_id is not null
+    and attempt.status = 'succeeded'
+    and attempt.provider_outcome = 'success'
+    and not attempt.reconciliation_required
+  from public.refund_cases refund_case
+  join public.refund_case_nayax_refund_attempts attempt on attempt.refund_case_id = refund_case.id
+  where refund_case.id = '94140000-0000-4000-8000-000000000001'
+), 'Documented completion atomically settles the case and its held attempt');
+select is(
+  (select count(*)::integer from public.sales_adjustment_facts where refund_case_id = '94140000-0000-4000-8000-000000000001'),
+  1,
+  'Documented completion creates exactly one reporting adjustment'
+);
+select ok(
+  (select count(*) = 1 from public.refund_case_messages
+    where refund_case_id = '94140000-0000-4000-8000-000000000001'
+      and template_version = 'refund_nayax_completion_v2')
+  and (select completion_gmail_thread_id = '94150000-0000-4000-8000-000000000001'
+    from public.refund_case_nayax_refund_attempts
+    where refund_case_id = '94140000-0000-4000-8000-000000000001'),
+  'Documented completion prepares one warm reply on the original customer thread'
+);
+
+reset role;
+select * from finish();
+rollback;

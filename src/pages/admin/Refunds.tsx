@@ -36,6 +36,8 @@ import {
   buildLocalRefundDemoOverview,
   canUseLocalRefundDemoData,
   createRefundAttachmentSignedUrl,
+  createRefundManualNayaxCandidate,
+  beginRefundManualNayaxPortal,
   executeNayaxCardRefund,
   fetchNayaxCardRefundAvailability,
   fetchRefundCaseReconciliation,
@@ -343,9 +345,25 @@ type PrimaryActionConfig = {
   targetStatus?: RefundCaseStatus;
   targetDecision?: RefundDecision;
   messageType?: RefundCustomerPortalMessageType;
-  mode?: 'case_update' | 'retry_message' | 'nayax_evidence_selection' | 'nayax_refund_execution' | 'resolve_delivery_not_found';
+  mode?: 'case_update' | 'retry_message' | 'nayax_evidence_selection' | 'nayax_refund_execution' | 'manual_nayax_approval' | 'resolve_delivery_not_found';
   disabled?: boolean;
 };
+
+type ManualNayaxEvidenceState = {
+  portalMachineReference: string;
+  providerTransactionId: string;
+  machineAuthorizationTime: string;
+  amount: string;
+  cardLast4: string;
+};
+
+const emptyManualNayaxEvidence = (): ManualNayaxEvidenceState => ({
+  portalMachineReference: '',
+  providerTransactionId: '',
+  machineAuthorizationTime: '',
+  amount: '',
+  cardLast4: '',
+});
 
 const officialRefundStatuses = new Set<RefundCaseStatus>([
   'approved',
@@ -1608,7 +1626,11 @@ const primaryActionConfig = (
     };
   }
 
-  if (refundCase.paymentMethod === 'card' && refundCase.nayaxLookupSummary?.lookupStatus === 'setup_needed') {
+  if (
+    refundCase.paymentMethod === 'card' &&
+    refundCase.nayaxLookupSummary?.lookupStatus === 'setup_needed' &&
+    refundCase.manualNayaxPortalEnabled !== true
+  ) {
     return {
       label: 'Transaction search unavailable',
       helper: 'Keep the case open and try again later.',
@@ -1676,6 +1698,15 @@ const primaryActionConfig = (
         };
       }
       if (!cardRefundActionAvailable) {
+        if (refundCase.manualNayaxPortalEnabled) {
+          return {
+            label: 'Approve refund for Nayax portal',
+            helper: 'Approve this exact refund, then finish it in Nayax and record the confirmation. This step sends no money or customer email.',
+            targetStatus: 'card_refund_pending',
+            targetDecision: 'approved',
+            mode: 'manual_nayax_approval',
+          };
+        }
         return {
           label: 'Card refunds aren\u2019t available right now',
           helper: 'Bloomjoy Hub could not confirm the payment connection is ready for this manager. No refund has been issued. Leave the case open and try again only after Operations confirms service is ready.',
@@ -1702,6 +1733,15 @@ const primaryActionConfig = (
     if (matched) {
       if (selectedTransactionReady) {
         if (!cardRefundActionAvailable) {
+          if (refundCase.manualNayaxPortalEnabled) {
+            return {
+              label: 'Approve refund for Nayax portal',
+              helper: 'Approve this exact refund, then finish it in Nayax and record the confirmation. This step sends no money or customer email.',
+              targetStatus: 'card_refund_pending',
+              targetDecision: 'approved',
+              mode: 'manual_nayax_approval',
+            };
+          }
           return {
             label: 'Card refunds aren’t available right now',
             helper: 'Bloomjoy could not confirm the payment connection is ready. No refund has been issued.',
@@ -2089,6 +2129,11 @@ export default function AdminRefundsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isLookingUpNayax, setIsLookingUpNayax] = useState(false);
   const [isRunningNayaxRefund, setIsRunningNayaxRefund] = useState(false);
+  const [isSavingManualNayaxEvidence, setIsSavingManualNayaxEvidence] = useState(false);
+  const [isApprovingManualNayaxRefund, setIsApprovingManualNayaxRefund] = useState(false);
+  const [manualNayaxEvidence, setManualNayaxEvidence] = useState<ManualNayaxEvidenceState>(
+    emptyManualNayaxEvidence
+  );
   const [isEvidenceConfirmationOpen, setIsEvidenceConfirmationOpen] = useState(false);
   const [isRefundConfirmationOpen, setIsRefundConfirmationOpen] = useState(false);
   const [isCashConfirmationOpen, setIsCashConfirmationOpen] = useState(false);
@@ -2376,12 +2421,13 @@ export default function AdminRefundsPage() {
   useEffect(() => {
     const nextVersion = Number(selectedCase?.officialActionVersion ?? 0);
     setOfficialActionVersion(nextVersion > 0 ? nextVersion : 0);
-    setNayaxResolutionResult('remain_on_hold');
-    setNayaxResolutionEvidenceType('nayax_support_ticket');
+    const manualPortalAttempt = nayaxResolutionReadiness?.manualPortalAttempt === true;
+    setNayaxResolutionResult(manualPortalAttempt ? 'documented_manual_completion' : 'remain_on_hold');
+    setNayaxResolutionEvidenceType(manualPortalAttempt ? 'documented_manual_refund' : 'nayax_support_ticket');
     setNayaxResolutionEvidenceReference('');
     setNayaxResolutionEvidenceOccurredAt('');
-    setNayaxResolutionReason('evidence_incomplete');
-  }, [selectedCase?.id, selectedCase?.officialActionVersion]);
+    setNayaxResolutionReason(manualPortalAttempt ? 'manual_nayax_completion' : 'evidence_incomplete');
+  }, [nayaxResolutionReadiness?.manualPortalAttempt, selectedCase?.id, selectedCase?.officialActionVersion]);
   const {
     data: gmailContext,
     isLoading: gmailContextIsLoading,
@@ -2582,6 +2628,15 @@ export default function AdminRefundsPage() {
     setNayaxCandidates(refundCase.nayaxLookupCandidates ?? []);
     setNayaxLookupNotice(null);
     setNayaxExecutionNotice(null);
+    setManualNayaxEvidence({
+      portalMachineReference: '',
+      providerTransactionId: '',
+      machineAuthorizationTime: '',
+      amount: typeof refundCase.paymentAmountCents === 'number'
+        ? (refundCase.paymentAmountCents / 100).toFixed(2)
+        : '',
+      cardLast4: refundCase.cardLast4 ?? '',
+    });
     setIsEvidenceConfirmationOpen(false);
     setIsRefundConfirmationOpen(false);
     setIsCashConfirmationOpen(false);
@@ -2988,6 +3043,97 @@ export default function AdminRefundsPage() {
     }
   };
 
+  const handleSaveManualNayaxEvidence = async () => {
+    if (!selectedCase || !editor || !selectedCase.manualNayaxPortalEnabled) return;
+    const amountCents = Math.round(Number(manualNayaxEvidence.amount) * 100);
+    if (!manualNayaxEvidence.portalMachineReference.trim()) {
+      toast.error('Enter the machine reference shown in Nayax.');
+      return;
+    }
+    if (!manualNayaxEvidence.providerTransactionId.trim()) {
+      toast.error('Enter the exact Nayax transaction reference.');
+      return;
+    }
+    if (!manualNayaxEvidence.machineAuthorizationTime) {
+      toast.error('Enter the transaction date and time shown in Nayax.');
+      return;
+    }
+    if (!Number.isInteger(amountCents) || amountCents <= 0) {
+      toast.error('Enter the exact transaction amount.');
+      return;
+    }
+    if (!/^\d{4}$/.test(manualNayaxEvidence.cardLast4.trim())) {
+      toast.error('Enter only the last 4 card digits.');
+      return;
+    }
+
+    setIsSavingManualNayaxEvidence(true);
+    try {
+      await createRefundManualNayaxCandidate({
+        caseId: selectedCase.id,
+        expectedCaseVersion: officialActionVersion,
+        portalMachineReference: manualNayaxEvidence.portalMachineReference.trim(),
+        providerTransactionId: manualNayaxEvidence.providerTransactionId.trim(),
+        machineAuthorizationLocalTime: manualNayaxEvidence.machineAuthorizationTime,
+        amountCents,
+        cardLast4: manualNayaxEvidence.cardLast4.trim(),
+      });
+      setNayaxLookupNotice({
+        tone: 'success',
+        message: 'Transaction saved for review. Confirm the exact transaction below before approving any refund.',
+      });
+      toast.success('Nayax transaction saved for confirmation. No refund or email was sent.');
+      await refresh();
+      const refreshedOverview = queryClient.getQueryData<RefundOperationsOverview>(
+        ['admin-refund-operations-overview']
+      );
+      setNayaxCandidates(
+        refreshedOverview?.cases.find((refundCase) => refundCase.id === selectedCase.id)
+          ?.nayaxLookupCandidates ?? []
+      );
+    } catch (manualEvidenceError) {
+      toast.error(
+        manualEvidenceError instanceof Error
+          ? manualEvidenceError.message
+          : 'Unable to save the Nayax portal transaction.'
+      );
+    } finally {
+      setIsSavingManualNayaxEvidence(false);
+    }
+  };
+
+  const handleApproveManualNayaxRefund = async () => {
+    if (!selectedCase || !selectedCase.manualNayaxPortalEnabled) return;
+    setIsApprovingManualNayaxRefund(true);
+    try {
+      const result = await beginRefundManualNayaxPortal(
+        selectedCase.id,
+        officialActionVersion
+      );
+      setNayaxExecutionNotice({
+        tone: 'warning',
+        message: 'Approved. Finish this exact refund in Nayax, then record the Nayax confirmation here. Do not send a second refund.',
+      });
+      setRefundActionReceipt({
+        tone: 'warning',
+        title: result.created ? 'Approved for Nayax portal' : 'Approval already recorded',
+        message: 'No provider call or customer email was sent. Complete the refund once in Nayax, then record its exact confirmation.',
+        reference: result.attemptId,
+      });
+      setIsRefundConfirmationOpen(false);
+      toast.success('Refund approved for manual Nayax completion. No money or email was sent.');
+      await refresh();
+    } catch (manualApprovalError) {
+      toast.error(
+        manualApprovalError instanceof Error
+          ? manualApprovalError.message
+          : 'Unable to approve this refund for the Nayax portal.'
+      );
+    } finally {
+      setIsApprovingManualNayaxRefund(false);
+    }
+  };
+
   const handlePrimaryAction = async () => {
     if (!editor || !primaryAction || !primaryActionEditor) return;
     if (primaryAction.mode === 'resolve_delivery_not_found') {
@@ -3000,6 +3146,10 @@ export default function AdminRefundsPage() {
     }
     if (primaryAction.mode === 'nayax_evidence_selection') {
       setIsEvidenceConfirmationOpen(true);
+      return;
+    }
+    if (primaryAction.mode === 'manual_nayax_approval') {
+      setIsRefundConfirmationOpen(true);
       return;
     }
     if (
@@ -3713,7 +3863,7 @@ export default function AdminRefundsPage() {
       effectiveCandidates.length > 0 ||
       (nayaxLookupNotice && !isLookingUpNayax)
     );
-    const showPrimaryTransactionCheck = !hasSelectedMatch && !hasLookupResult;
+    const showPrimaryTransactionCheck = !selectedCase.manualNayaxPortalEnabled && !hasSelectedMatch && !hasLookupResult;
     const automaticLookupPending = selectedNayaxSummary?.lookupStatus === 'checking';
     const needsDisagreementReason = Boolean(selectedCandidate && selectedCandidate.isRecommended !== true);
     const selectCandidate = (candidate: NayaxLookupCandidate) => {
@@ -3815,6 +3965,102 @@ export default function AdminRefundsPage() {
 
     return (
       <div className="mt-3 space-y-3">
+        {selectedCase.manualNayaxPortalEnabled &&
+          !hasSelectedMatch &&
+          effectiveCandidates.length === 0 && (
+          <div data-testid="manual-nayax-evidence-form" className="rounded-lg border border-sky-200 bg-sky-50/70 p-4">
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-sky-800" />
+              <div>
+                <p className="text-sm font-semibold text-sky-950">Find the exact transaction in Nayax</p>
+                <p className="mt-1 text-xs leading-5 text-sky-900">
+                  This machine is on Adam’s Nayax account while the API connection is pending. Enter only what the Nayax portal shows. Saving this step does not approve or send a refund.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="manual-nayax-machine-reference">Machine reference in Nayax</Label>
+                <Input
+                  id="manual-nayax-machine-reference"
+                  value={manualNayaxEvidence.portalMachineReference}
+                  onChange={(event) => setManualNayaxEvidence((current) => ({ ...current, portalMachineReference: event.target.value }))}
+                  placeholder="Machine name or Nayax reference"
+                  autoComplete="off"
+                  className="mt-1.5 bg-background"
+                />
+              </div>
+              <div>
+                <Label htmlFor="manual-nayax-transaction-reference">Transaction reference</Label>
+                <Input
+                  id="manual-nayax-transaction-reference"
+                  value={manualNayaxEvidence.providerTransactionId}
+                  onChange={(event) => setManualNayaxEvidence((current) => ({ ...current, providerTransactionId: event.target.value }))}
+                  placeholder="Exact Nayax transaction reference"
+                  autoComplete="off"
+                  className="mt-1.5 bg-background"
+                />
+              </div>
+              <div>
+                <Label htmlFor="manual-nayax-transaction-time">Transaction date and time</Label>
+                <Input
+                  id="manual-nayax-transaction-time"
+                  type="datetime-local"
+                  value={manualNayaxEvidence.machineAuthorizationTime}
+                  onChange={(event) => setManualNayaxEvidence((current) => ({ ...current, machineAuthorizationTime: event.target.value }))}
+                  autoComplete="off"
+                  className="mt-1.5 bg-background"
+                />
+                <p className="mt-1.5 text-xs leading-5 text-sky-900">
+                  Enter the machine-local time shown in Nayax
+                  {selectedCase.manualNayaxLocationTimezone
+                    ? ` (${selectedCase.manualNayaxLocationTimezone})`
+                    : ''}.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="manual-nayax-amount">Amount</Label>
+                  <Input
+                    id="manual-nayax-amount"
+                    inputMode="decimal"
+                    value={manualNayaxEvidence.amount}
+                    onChange={(event) => setManualNayaxEvidence((current) => ({ ...current, amount: event.target.value }))}
+                    placeholder="0.00"
+                    autoComplete="off"
+                    className="mt-1.5 bg-background"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="manual-nayax-card-last4">Card last 4</Label>
+                  <Input
+                    id="manual-nayax-card-last4"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={manualNayaxEvidence.cardLast4}
+                    onChange={(event) => setManualNayaxEvidence((current) => ({ ...current, cardLast4: event.target.value.replace(/\D/g, '').slice(0, 4) }))}
+                    placeholder="1234"
+                    autoComplete="off"
+                    className="mt-1.5 bg-background"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs leading-5 text-sky-900">Next, you will separately confirm the transaction and approve the refund.</p>
+              <Button
+                type="button"
+                data-testid="manual-nayax-save-evidence"
+                onClick={() => void handleSaveManualNayaxEvidence()}
+                disabled={isSavingManualNayaxEvidence || isUsingDemoData || selectedCaseIsReviewOnly}
+                className="min-h-11 shrink-0"
+              >
+                {isSavingManualNayaxEvidence && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Save transaction for confirmation
+              </Button>
+            </div>
+          </div>
+        )}
         {showPrimaryTransactionCheck && (
           <div className="rounded-md border border-sky-200 bg-sky-50 p-3">
             <p className="text-sm font-medium text-sky-950">Automatic transaction check</p>
@@ -3907,7 +4153,7 @@ export default function AdminRefundsPage() {
           </div>
         )}
 
-        <details className="rounded-md border border-border bg-background p-2">
+        {!selectedCase.manualNayaxPortalEnabled && <details className="rounded-md border border-border bg-background p-2">
           <summary className="cursor-pointer text-xs font-medium text-foreground">
             Transaction search details
           </summary>
@@ -3969,7 +4215,7 @@ export default function AdminRefundsPage() {
               </InfoHint>
             )}
           </div>
-        </details>
+        </details>}
       </div>
     );
   };
@@ -4425,7 +4671,9 @@ export default function AdminRefundsPage() {
                     <div>
                       <p className="font-semibold">Confirm the payment result</p>
                       <p className="mt-1 text-sm leading-6">
-                        Record what the provider confirmed. Bloomjoy will never send a second refund from this step.
+                        {nayaxResolutionReadiness?.manualPortalAttempt
+                          ? 'Finish the exact refund once in Nayax, then record the Nayax confirmation. Bloomjoy will not call Nayax or send a second refund.'
+                          : 'Record what the provider confirmed. Bloomjoy will never send a second refund from this step.'}
                       </p>
                     </div>
                   </div>
@@ -4456,6 +4704,7 @@ export default function AdminRefundsPage() {
                           id="refund-nayax-resolution-result"
                           data-testid="refund-nayax-resolution-result"
                           value={nayaxResolutionResult}
+                          disabled={nayaxResolutionReadiness?.manualPortalAttempt}
                           onChange={(event) => {
                             const nextResult = event.target.value as RefundNayaxResolutionResult;
                             const defaults = defaultNayaxResolutionSelection(nextResult);
@@ -4488,6 +4737,7 @@ export default function AdminRefundsPage() {
                             id="refund-nayax-resolution-evidence-type"
                             data-testid="refund-nayax-resolution-evidence-type"
                             value={nayaxResolutionEvidenceType}
+                            disabled={nayaxResolutionReadiness?.manualPortalAttempt}
                             onChange={(event) => {
                               const nextEvidenceType = event.target.value as RefundNayaxResolutionEvidenceType;
                               const nextReasons = nayaxResolutionReasonsForEvidence(
@@ -4515,11 +4765,14 @@ export default function AdminRefundsPage() {
                           value={nayaxResolutionEvidenceReference}
                           onChange={(event) => setNayaxResolutionEvidenceReference(event.target.value)}
                           placeholder="Payment support reference"
+                          aria-describedby="refund-nayax-resolution-reference-help"
                           autoComplete="off"
                           className="mt-2 bg-background"
                         />
-                        <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                          Enter the Nayax ticket number (for example, CS1500666) or the reference from the transaction record. Do not include customer or card details.
+                        <p id="refund-nayax-resolution-reference-help" className="mt-2 text-xs leading-5 text-muted-foreground">
+                          {nayaxResolutionReadiness?.manualPortalAttempt
+                            ? 'Enter the exact Nayax refund confirmation or reference. Do not include customer or card details.'
+                            : 'Enter the Nayax ticket number (for example, CS1500666) or the reference from the transaction record. Do not include customer or card details.'}
                         </p>
                         {getNayaxResolutionReferenceIssue(
                           nayaxResolutionEvidenceReference,
@@ -4688,14 +4941,20 @@ export default function AdminRefundsPage() {
         <AlertDialog
           open={isRefundConfirmationOpen}
           onOpenChange={(open) => {
-            if (!isRunningNayaxRefund) setIsRefundConfirmationOpen(open);
+            if (!isRunningNayaxRefund && !isApprovingManualNayaxRefund) setIsRefundConfirmationOpen(open);
           }}
         >
           <AlertDialogContent data-testid="refund-confirmation-dialog" className="max-w-xl">
             <AlertDialogHeader>
-              <AlertDialogTitle>Confirm {formatCurrency(cardAmountCents)} card refund</AlertDialogTitle>
+              <AlertDialogTitle>
+                {primaryAction?.mode === 'manual_nayax_approval'
+                  ? `Approve ${formatCurrency(cardAmountCents)} for the Nayax portal?`
+                  : `Confirm ${formatCurrency(cardAmountCents)} card refund`}
+              </AlertDialogTitle>
               <AlertDialogDescription>
-                Check every detail. The customer email sends only after the card refund succeeds.
+                {primaryAction?.mode === 'manual_nayax_approval'
+                  ? 'This records approval only. It does not send money or email the customer. Finish the exact refund once in Nayax, then record the Nayax confirmation.'
+                  : 'Check every detail. The customer email sends only after the card refund succeeds.'}
               </AlertDialogDescription>
             </AlertDialogHeader>
 
@@ -4714,7 +4973,7 @@ export default function AdminRefundsPage() {
               </div>
             </div>
 
-            {nextCustomerDraft && (
+            {nextCustomerDraft && primaryAction?.mode !== 'manual_nayax_approval' && (
               <details className="rounded-lg border border-border p-3 text-sm">
                 <summary className="cursor-pointer font-medium text-foreground">Review completion email</summary>
                 <div className="mt-3 max-h-52 overflow-y-auto rounded-md bg-muted/30 p-3">
@@ -4729,20 +4988,26 @@ export default function AdminRefundsPage() {
             )}
 
             <AlertDialogFooter>
-              <AlertDialogCancel disabled={isRunningNayaxRefund}>Go back</AlertDialogCancel>
+              <AlertDialogCancel disabled={isRunningNayaxRefund || isApprovingManualNayaxRefund}>Go back</AlertDialogCancel>
               <Button
                 data-testid="refund-confirm-nayax-refund"
                 type="button"
-                onClick={() => void handleRunNayaxRefund()}
-                disabled={isActionDisabled}
+                onClick={() => void (
+                  primaryAction?.mode === 'manual_nayax_approval'
+                    ? handleApproveManualNayaxRefund()
+                    : handleRunNayaxRefund()
+                )}
+                disabled={isActionDisabled || isApprovingManualNayaxRefund}
                 className="bg-foreground text-background hover:bg-foreground/90"
               >
-                {isRunningNayaxRefund ? (
+                {isRunningNayaxRefund || isApprovingManualNayaxRefund ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <CheckCircle2 className="mr-2 h-4 w-4" />
                 )}
-                Confirm refund &amp; send email
+                {primaryAction?.mode === 'manual_nayax_approval'
+                  ? 'Approve for Nayax portal'
+                  : 'Confirm refund & send email'}
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>
