@@ -2,7 +2,6 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
-import { sendTransactionalEmail } from "../_shared/internal-email.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import {
   getRefundGmailMailboxIdentities,
@@ -13,7 +12,7 @@ import {
   buildBrandedRefundHtmlFromStoredText,
   buildEditableRefundCustomerEmail,
   buildRefundCustomerEmail,
-  getRefundReplyToEmail,
+  sendRefundTransactionalEmail,
   type RefundCustomerMessageType,
   sanitizeRefundMessageType,
 } from "../_shared/refund-email.ts";
@@ -305,7 +304,7 @@ serve(async (req) => {
 
         const customerCompletion = await deliverNayaxCompletionOnce({
           deliver: async () => {
-            await sendTransactionalEmail({
+            await sendRefundTransactionalEmail({
               to: [recipientEmail],
               cc: managerCcEmails,
               subject,
@@ -314,7 +313,6 @@ serve(async (req) => {
                 headline: "Your refund is on its way",
                 text: messageBody,
               }),
-              replyTo: getRefundReplyToEmail(),
             });
             return true;
           },
@@ -730,13 +728,12 @@ serve(async (req) => {
         syntheticProofAuthorizationId: syntheticProof.authorizationId,
       });
       if (!gmailDelivery.usedGmail) {
-        await sendTransactionalEmail({
+        await sendRefundTransactionalEmail({
           to: [refundCase.customer_email],
           cc: gmailDelivery.managerCcEmails,
           subject: email.subject,
           text: email.text,
           html: email.html,
-          replyTo: getRefundReplyToEmail(),
         });
       }
 

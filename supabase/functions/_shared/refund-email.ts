@@ -1,4 +1,7 @@
-import { sendTransactionalEmail } from "./internal-email.ts";
+import {
+  sendTransactionalEmail,
+  type TransactionalEmailInput,
+} from "./internal-email.ts";
 import { resolveRefundPublicLabels } from "./refund-location.ts";
 import { getRefundGmailMailboxIdentities } from "./refund-gmail.ts";
 import {
@@ -12,6 +15,10 @@ import {
   renderBloomjoyRefundEmail,
   renderBloomjoyRefundStoredText,
 } from "./refund-email-brand.ts";
+import {
+  REFUND_CUSTOMER_SENDER_NAME,
+  REFUND_MONITORED_REPLY_TO_EMAIL,
+} from "./refund-customer-transport.ts";
 
 export {
   REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
@@ -116,9 +123,25 @@ export const requireRefundManagerCcEmailsForSend = (
   return normalized;
 };
 
-export const getRefundReplyToEmail = () =>
-  sanitizeText(Deno.env.get("REFUND_REPLY_TO_EMAIL"), 320) ||
-  "info@bloomjoysweets.com";
+export const getRefundReplyToEmail = () => {
+  const configured = sanitizeText(Deno.env.get("REFUND_REPLY_TO_EMAIL"), 320)
+    .toLowerCase();
+  if (configured && configured !== REFUND_MONITORED_REPLY_TO_EMAIL) {
+    throw new Error(
+      "Refund customer replies must use the monitored support mailbox.",
+    );
+  }
+  return REFUND_MONITORED_REPLY_TO_EMAIL;
+};
+
+export const sendRefundTransactionalEmail = async (
+  input: Omit<TransactionalEmailInput, "replyTo" | "senderName">,
+) =>
+  await sendTransactionalEmail({
+    ...input,
+    replyTo: getRefundReplyToEmail(),
+    senderName: REFUND_CUSTOMER_SENDER_NAME,
+  });
 
 export const sanitizeRefundMessageType = (
   value: unknown,
@@ -502,13 +525,12 @@ export const sendRefundCustomerEmail = async (
     input.managerCcEmails,
     input.customerEmail,
   );
-  await sendTransactionalEmail({
+  await sendRefundTransactionalEmail({
     to: [input.customerEmail],
     cc: managerCcEmails,
     subject: email.subject,
     text: email.text,
     html: email.html,
-    replyTo: getRefundReplyToEmail(),
   });
 
   return email;
@@ -599,13 +621,12 @@ export const sendRefundWalletCorrectionEmail = async (
     input.managerCcEmails,
     input.customerEmail,
   );
-  await sendTransactionalEmail({
+  await sendRefundTransactionalEmail({
     to: [input.customerEmail],
     cc: managerCcEmails,
     subject: email.subject,
     text: email.text,
     html: email.html,
-    replyTo: getRefundReplyToEmail(),
   });
 
   return email;

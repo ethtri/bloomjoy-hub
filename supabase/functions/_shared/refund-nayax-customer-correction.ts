@@ -1,8 +1,7 @@
-import { sendTransactionalEmail } from "./internal-email.ts";
 import {
   buildEditableRefundCustomerEmail,
   buildRefundCustomerEmail,
-  getRefundReplyToEmail,
+  sendRefundTransactionalEmail,
   type RefundCustomerEmailInput,
   requireRefundManagerCcEmailsForSend,
 } from "./refund-email.ts";
@@ -158,13 +157,12 @@ export const sendNayaxCustomerCorrectionEmail = async (
     input.managerCcEmails,
     input.customerEmail,
   );
-  await sendTransactionalEmail({
+  await sendRefundTransactionalEmail({
     to: [input.customerEmail],
     cc: managerCcEmails,
     subject: email.subject,
     text: email.text,
     html: email.html,
-    replyTo: getRefundReplyToEmail(),
   });
   return email;
 };

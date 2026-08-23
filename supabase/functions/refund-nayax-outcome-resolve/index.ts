@@ -2,8 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
-import { sendTransactionalEmail } from "../_shared/internal-email.ts";
-import { getRefundReplyToEmail } from "../_shared/refund-email.ts";
+import { sendRefundTransactionalEmail } from "../_shared/refund-email.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import {
   getRefundGmailMailboxIdentities,
@@ -346,13 +345,12 @@ serve(async (req) => {
         }
 
         try {
-          await sendTransactionalEmail({
+          await sendRefundTransactionalEmail({
             to: [message.recipient_email],
             cc: managerCcEmails,
             subject: email.subject,
             text: email.text,
             html: email.html,
-            replyTo: getRefundReplyToEmail(),
           });
         } catch (error) {
           if (

@@ -129,7 +129,7 @@ assert(
     edge.includes('admin_resolve_refund_nayax_outcome_manager_session') &&
     edge.includes('deliverPreparedNayaxCompletionOnce') &&
     edge.includes('dispatchRefundCaseGmailReply') &&
-    edge.includes('sendTransactionalEmail') &&
+    edge.includes('sendRefundTransactionalEmail') &&
     edge.includes('service_authorize_nayax_refund_form_completion') &&
     edge.includes('service_load_nayax_refund_completion') &&
     edge.includes('service_finish_nayax_refund_form_completion') &&

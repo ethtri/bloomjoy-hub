@@ -31,6 +31,27 @@ export type TransactionalEmailInput = {
   text: string;
   html?: string;
   replyTo?: string | string[] | null;
+  senderName?: string | null;
+};
+
+const EMAIL_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
+
+const formatTransactionalSender = (
+  configuredSender: string,
+  senderName: string | null | undefined,
+) => {
+  if (!senderName) return configuredSender;
+  const normalizedName = senderName.trim();
+  const configuredAddress = configuredSender.trim().match(/<([^<>]+)>$/)?.[1] ??
+    configuredSender.trim();
+  const normalizedAddress = configuredAddress.trim().toLowerCase();
+  if (
+    !normalizedName || /[\r\n<>]/.test(normalizedName) ||
+    /[\r\n]/.test(configuredSender) || !EMAIL_PATTERN.test(normalizedAddress)
+  ) {
+    throw new Error("Transactional email sender is invalid.");
+  }
+  return `${normalizedName} <${normalizedAddress}>`;
 };
 
 const getResendConfig = () => {
@@ -58,6 +79,7 @@ export async function sendTransactionalEmail({
   text,
   html,
   replyTo,
+  senderName,
 }: TransactionalEmailInput) {
   const { resendApiKey, fromEmail } = getResendConfig();
 
@@ -72,7 +94,7 @@ export async function sendTransactionalEmail({
   }
 
   const payload: Record<string, unknown> = {
-    from: fromEmail,
+    from: formatTransactionalSender(fromEmail, senderName),
     to: recipients,
     subject,
     text,

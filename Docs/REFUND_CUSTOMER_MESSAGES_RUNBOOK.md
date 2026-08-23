@@ -25,6 +25,31 @@ This runbook defines the customer communication boundary for Refund Operations v
 
 Every message uses the canonical Bloomjoy cream, plum, blush, and orange email system, includes the public reference, closes as the Bloomjoy Sweets Team, and supports replies. Plain-text content remains complete for customers whose email clients do not display HTML.
 
+## Sender and transport matrix
+
+The monitored customer-reply route is always `info@bloomjoysweets.com`.
+
+- A Gmail-linked case sends as **Bloomjoy Refunds <info@bloomjoysweets.com>** in the existing provider thread. A Gmail failure or uncertain result never falls back to transactional mail or a second conversation.
+- A direct Website case sends as **Bloomjoy Refunds** from the already-verified transactional address and uses `Reply-To: info@bloomjoysweets.com`. The currently verified address may remain `info@bloomjoyusa.com` for DKIM-signed transactional delivery; it is not treated as a Gmail send-as or inbound assistant route.
+- Every case-specific customer message re-resolves the current mapped-manager CC route before delivery. The first pre-form acknowledgement is the only no-CC exception because no machine is known yet.
+- Manager-only notices use the internal notice transport and recipients. They never reuse customer copy, start a customer conversation, or replace the required customer-message CC route.
+
+| Message type | Transport and visible sender | Reply, thread, and CC | Failure / fallback |
+| --- | --- | --- | --- |
+| Initial form link (`refund_first_contact_v1`) | Original Gmail thread; Bloomjoy Refunds from the monitored Info mailbox | Reply stays in that thread; no manager CC before machine mapping | No transactional fallback; uncertain Gmail delivery blocks and reconciles |
+| Request acknowledgement (`confirmation`) | Gmail thread when linked; otherwise verified transactional sender | Original thread when linked; otherwise monitored Reply-To; mapped managers CC'd | Source route is fixed before send; no second conversation |
+| Missing information (`more_info`) | Gmail thread when linked; otherwise verified transactional sender | Same case and original thread when linked; monitored Reply-To; mapped managers CC'd | Exactly-once claim; failure records manager work; uncertainty blocks retry |
+| No safe match (`no_safe_match`) | Gmail thread when linked; otherwise verified transactional sender | Same case; monitored Reply-To; mapped managers CC'd | No fallback and no payment action |
+| Wallet correction / reminder | Gmail thread when linked; otherwise verified transactional sender | Secure correction link; replies still reach the monitored mailbox; mapped managers CC'd | One correction plus one bounded reminder; no blind retry |
+| Information received | Gmail thread when linked; otherwise verified transactional sender | Same case/thread; monitored Reply-To; mapped managers CC'd | Receipt only; failure cannot create a decision or second case |
+| Reminder / status update | Gmail thread when linked; otherwise verified transactional sender | Same case/thread; monitored Reply-To; mapped managers CC'd | Deterministic action key; failed or uncertain delivery is not resent blindly |
+| Approval notice | Gmail thread when linked; otherwise verified transactional sender | Same case/thread; monitored Reply-To; mapped managers CC'd | Separate manager decision only; never claims provider completion |
+| Completion receipt | Gmail thread when linked; otherwise verified transactional sender | Same case/thread; monitored Reply-To; mapped managers CC'd | Claimed only from confirmed settlement; exactly once and no second transport |
+| Denial | Gmail thread when linked; otherwise verified transactional sender | Same case/thread; monitored Reply-To; mapped managers CC'd | One approved customer-safe reason; zero provider/reporting effect |
+| Appeal receipt | Original Gmail thread for a verified reply; transactional only for an already-direct case | Reopens the same case; monitored Reply-To; mapped managers CC'd | No new case, approval, or payment; uncertain receipt remains blocked |
+| Manual portal message | Gmail thread when linked; otherwise verified transactional sender | Same case/thread; monitored Reply-To; mapped managers CC'd | Manager-reviewed, exactly once; Gmail uncertainty never falls through |
+| Manager notice | Internal notice transport and internal recipients only | No customer Reply-To/thread; customer is never a recipient | Separate internal exception lane; cannot substitute for customer delivery |
+
 ## Reply-based denial appeal
 
 Only a verified direct reply from the case customer after a sent denial is an appeal. Forwarded, automated, spoof-suspected, manager, or unrelated messages cannot reopen a case.
