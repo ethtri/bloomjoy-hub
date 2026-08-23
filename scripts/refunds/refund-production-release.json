@@ -76,7 +76,8 @@
     "20260822193500_refund_merlin_manager_routes.sql",
     "20260822200000_refund_nayax_obvious_mapping_repair.sql",
     "20260822210000_refund_nayax_active_inventory_reconciliation.sql",
-    "20260823093000_refund_card_network_evidence.sql"
+    "20260823093000_refund_card_network_evidence.sql",
+    "20260823110000_refund_public_location_selections.sql"
   ],
   "migrationFilesSha256": "2a69c8d6b40d2a0e49c3a776152cf3c71ffa5273e049df9d54626b66246ea386",
   "migrationVersionSetSha256": "d4fd05c3b1b4fc9bbdb4364870d7e1f6534f3afc5c727014d2f8813049a8acda",
