@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "20d3eaa07da4610fd5dcdf970eda7677bc390e60",
+  "sourceGitCommit": "ff44330f11eb0651316161fd90d5d6a84d87c64c",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -79,8 +79,8 @@
     "20260823093000_refund_card_network_evidence.sql",
     "20260823110000_refund_public_location_selections.sql"
   ],
-  "migrationFilesSha256": "2a69c8d6b40d2a0e49c3a776152cf3c71ffa5273e049df9d54626b66246ea386",
-  "migrationVersionSetSha256": "d4fd05c3b1b4fc9bbdb4364870d7e1f6534f3afc5c727014d2f8813049a8acda",
+  "migrationFilesSha256": "dcacffe5018c06ee2cec4d688efcdbd819b43c9c71928d9f09cc5c9444842a77",
+  "migrationVersionSetSha256": "e96f20f6dbdcd51de882e11f515ab41548f9a6572facbc6c7cd9912e6d8cd82b",
   "preMigrationCompatibility": {
     "releaseId": "refund-ops-2026-08-14-pre-controlled-nayax-pilot",
     "sourceGitCommit": "71eb076bc3ad95ccabd0c591b8140820bed6c393",
@@ -144,7 +144,7 @@
     {
       "slug": "refund-case-intake",
       "verifyJwt": false,
-      "sourceSha256": "f9c817c9f01951a82fc8747310fb069ecc667f57b174e1b478b87e90bd30d27e",
+      "sourceSha256": "339cebaeea4632ca355670f1e724f45bfb8079c3533a91b91f3b50ce325bd1db",
       "production": {
         "version": 65,
         "ezbrSha256": "c5710d17cea854bc3869783bb56d06f2ac075c3ce4752e3da4e0c0fd31544247",
@@ -154,7 +154,7 @@
     {
       "slug": "nayax-transaction-lookup",
       "verifyJwt": false,
-      "sourceSha256": "d4621f9d23d77d5b2616ee358a96c2f00998ab25f584206d219e89e3a1365633",
+      "sourceSha256": "b3bf9254efceae8891ddbdf6bacbbceef3958f6df4f755280b9cd68f492def82",
       "production": {
         "version": 60,
         "ezbrSha256": "11865dada10c7839c86aedcd14e539d7cda35855cd71e58507a4731c8738d931",
@@ -184,7 +184,7 @@
     {
       "slug": "refund-case-automation-sweep",
       "verifyJwt": false,
-      "sourceSha256": "715b5858c65967029c393b792ff2af67dca1e0344898156c4bb91e6759c1e280",
+      "sourceSha256": "afac1790831847bd6231f07461eccfe7051552fcb9567004ac736728dbe84da5",
       "production": {
         "version": 65,
         "ezbrSha256": "4f841237da94b6d68385e7193202413f5de1b95b99b70c0908986d2f6742ccd5",
