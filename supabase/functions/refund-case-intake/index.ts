@@ -1179,7 +1179,14 @@ serve(async (req) => {
 
     const sourcePage = sanitizePublicIntakeSourcePage("/refunds/request");
     const requestedMachineId = sanitizeText(body?.machineId, 80);
+    const requestedSelectionKey = sanitizeText(body?.selectionKey, 80).toLowerCase();
     let machineId = requestedMachineId;
+    let intakeSelectionKey: string | null = null;
+    let intakeSelectionKind: "exact_machine" | "livermore_pair" | "machine_qr" | null = null;
+    let intakeSelectionMachineIds: string[] | null = null;
+    let intakeSelectionDisplayLabel = "";
+    let intakeSelectionLocationId = "";
+    let intakeSelectionLocationTimezone = "";
     const qrClaimToken = sanitizeText(body?.qrClaimToken, 80);
     const emailContextToken = sanitizeText(body?.emailContextToken, 80);
     const customerEmail = sanitizeEmail(body?.customerEmail);
@@ -1267,7 +1274,14 @@ serve(async (req) => {
       );
     }
 
-    if (!qrClaimToken && !isUuid(machineId)) {
+    if (!qrClaimToken && !requestedSelectionKey && !isUuid(machineId)) {
+      return new Response(JSON.stringify({ error: "Please choose a machine location." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (requestedSelectionKey && !/^[0-9a-f]{64}$/.test(requestedSelectionKey)) {
       return new Response(JSON.stringify({ error: "Please choose a machine location." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1438,39 +1452,49 @@ serve(async (req) => {
       }
 
       machineId = verifiedQrClaim.reportingMachineId;
+      intakeSelectionKind = "machine_qr";
+      intakeSelectionMachineIds = [machineId];
+    } else if (requestedSelectionKey) {
+      const { data: resolvedSelection, error: selectionError } = await supabase.rpc(
+        "service_resolve_refund_public_selection",
+        { p_selection_key: requestedSelectionKey },
+      );
+      const selectionKind = sanitizeText(resolvedSelection?.selectionKind, 40);
+      const selectionMachineIds = Array.isArray(resolvedSelection?.machineIds)
+        ? resolvedSelection.machineIds.map((value: unknown) => sanitizeText(value, 80))
+        : [];
+      if (
+        selectionError ||
+        !["exact_machine", "livermore_pair"].includes(selectionKind) ||
+        selectionMachineIds.some((value: string) => !isUuid(value)) ||
+        (selectionKind === "exact_machine" && selectionMachineIds.length !== 1) ||
+        (selectionKind === "livermore_pair" && selectionMachineIds.length !== 2)
+      ) {
+        return new Response(JSON.stringify({ error: "That location is temporarily unavailable. Please choose another location or email info@bloomjoysweets.com." }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      intakeSelectionKey = requestedSelectionKey;
+      intakeSelectionKind = selectionKind as "exact_machine" | "livermore_pair";
+      intakeSelectionMachineIds = selectionMachineIds;
+      intakeSelectionDisplayLabel = sanitizeText(resolvedSelection?.displayLabel, 180);
+      intakeSelectionLocationId = sanitizeText(resolvedSelection?.locationId, 80);
+      intakeSelectionLocationTimezone = sanitizeText(resolvedSelection?.locationTimezone, 80);
+      machineId = selectionKind === "exact_machine" ? selectionMachineIds[0] : "";
+    } else {
+      // Compatibility for the previously deployed form while the new contract
+      // is rolled out migration-first. It remains one exact public machine.
+      intakeSelectionKind = "exact_machine";
+      intakeSelectionMachineIds = [machineId];
     }
 
     const attachments = refundEmailPilotAttachmentsEnabled
       ? prepareAttachments(rawAttachments)
       : [];
 
-    const { data: machineIsPublic, error: machineEligibilityError } = await supabase.rpc(
-      "service_refund_machine_is_public",
-      { p_machine_id: machineId },
-    );
-    if (machineEligibilityError || machineIsPublic !== true) {
-      return new Response(JSON.stringify({ error: "That machine is not available for refund intake." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const { data: machine, error: machineError } = await supabase
-      .from("reporting_machines")
-      .select("id, machine_label, machine_type, location_id, refund_public_display_label, reporting_locations(id, name, timezone, status)")
-      .eq("id", machineId)
-      .eq("status", "active")
-      .single();
-
-    if (machineError || !machine) {
-      return new Response(JSON.stringify({ error: "That machine is not available for refund intake." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const machineRecord = machine as unknown as {
-      id: string;
+    let machineRecord: {
+      id: string | null;
       machine_label: string;
       machine_type: string;
       location_id: string;
@@ -1480,6 +1504,60 @@ serve(async (req) => {
         | { id: string; name: string; timezone: string; status: string }[]
         | null;
     };
+    if (intakeSelectionKind === "livermore_pair") {
+      if (paymentMethod !== "card") {
+        return new Response(JSON.stringify({ error: "This grouped location is available for card purchases. For other payment help, email info@bloomjoysweets.com." }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: groupedLocation, error: groupedLocationError } = await supabase
+        .from("reporting_locations")
+        .select("id, name, timezone, status")
+        .eq("id", intakeSelectionLocationId)
+        .eq("status", "active")
+        .single();
+      if (groupedLocationError || !groupedLocation || groupedLocation.timezone !== intakeSelectionLocationTimezone) {
+        return new Response(JSON.stringify({ error: "That location is temporarily unavailable. Please email info@bloomjoysweets.com." }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      machineRecord = {
+        id: null,
+        machine_label: intakeSelectionDisplayLabel,
+        machine_type: "commercial",
+        location_id: groupedLocation.id,
+        refund_public_display_label: intakeSelectionDisplayLabel,
+        reporting_locations: groupedLocation,
+      };
+    } else {
+      const { data: machineIsPublic, error: machineEligibilityError } = await supabase.rpc(
+        "service_refund_machine_is_public",
+        { p_machine_id: machineId },
+      );
+      if (machineEligibilityError || machineIsPublic !== true) {
+        return new Response(JSON.stringify({ error: "That machine is not available for refund intake." }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: machine, error: machineError } = await supabase
+        .from("reporting_machines")
+        .select("id, machine_label, machine_type, location_id, refund_public_display_label, reporting_locations(id, name, timezone, status)")
+        .eq("id", machineId)
+        .eq("status", "active")
+        .single();
+
+      if (machineError || !machine) {
+        return new Response(JSON.stringify({ error: "That machine is not available for refund intake." }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      machineRecord = machine as unknown as typeof machineRecord;
+    }
     const locationRecord = Array.isArray(machineRecord.reporting_locations)
       ? machineRecord.reporting_locations[0] ?? null
       : machineRecord.reporting_locations ?? null;
@@ -1543,7 +1621,7 @@ serve(async (req) => {
       let query = supabase
         .from("machine_sales_facts")
         .select("id, net_sales_cents, payment_time, source_trade_name")
-        .eq("reporting_machine_id", machineRecord.id)
+        .eq("reporting_machine_id", machineRecord.id as string)
         .eq("payment_method", "cash")
         .gte("payment_time", windowStart.toISOString())
         .lte("payment_time", windowEnd.toISOString())
@@ -1596,7 +1674,7 @@ serve(async (req) => {
       email: customerEmail,
       sourcePage,
       message: [
-        machineRecord.id,
+        intakeSelectionKey ?? machineRecord.id,
         incidentAt.toISOString(),
         paymentMethod,
         amountCents ?? "amount-not-provided",
@@ -1631,6 +1709,9 @@ serve(async (req) => {
     const insertValues = {
       reporting_machine_id: machineRecord.id,
       reporting_location_id: machineRecord.location_id,
+      intake_selection_key: intakeSelectionKey,
+      intake_selection_kind: intakeSelectionKind,
+      intake_selection_machine_ids: intakeSelectionMachineIds,
       customer_email: customerEmail,
       customer_name: customerName || null,
       customer_phone: customerPhone || null,
@@ -1674,6 +1755,9 @@ serve(async (req) => {
           p_case_values: {
             reportingMachineId: insertValues.reporting_machine_id,
             reportingLocationId: insertValues.reporting_location_id,
+            intakeSelectionKey: insertValues.intake_selection_key,
+            intakeSelectionKind: insertValues.intake_selection_kind,
+            intakeSelectionMachineIds: insertValues.intake_selection_machine_ids,
             customerName: insertValues.customer_name,
             customerPhone: insertValues.customer_phone,
             zellePaymentContact: insertValues.zelle_payment_contact,

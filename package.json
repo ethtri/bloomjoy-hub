@@ -91,7 +91,7 @@
     "refunds:finalize-uat-evidence": "node scripts/refunds/finalize-refund-uat-evidence.mjs",
     "refunds:validate-uat-evidence": "node scripts/refunds/validate-refund-uat-evidence.mjs",
     "refunds:validate-nayax-matching": "node scripts/refunds/validate-nayax-recommendation.mjs && node scripts/refunds/validate-nayax-machine-context.mjs && npm run refunds:validate-automatic-nayax-lookup",
-    "refunds:validate-automatic-nayax-lookup": "deno test --no-lock supabase/functions/_shared/automatic-nayax-lookup.test.ts && node scripts/refunds/validate-automatic-nayax-lookup.mjs",
+    "refunds:validate-automatic-nayax-lookup": "deno test --no-lock supabase/functions/_shared/automatic-nayax-lookup.test.ts supabase/functions/_shared/nayax-grouped-ranking.test.ts && node scripts/refunds/validate-automatic-nayax-lookup.mjs",
     "refunds:validate-manager-workbench": "deno test --no-lock src/lib/refundManagerState.test.ts",
     "refunds:smoke-nayax-mapping": "node scripts/refunds/nayax-mapping-smoke.mjs",
     "refunds:validate-nayax-mapping-smoke": "node scripts/refunds/validate-nayax-mapping-smoke.mjs",

@@ -60,6 +60,14 @@ export type RefundMachineOption = {
   locationTimezone: string;
 };
 
+export type RefundPublicSelection = {
+  selectionKey: string;
+  displayLabel: string;
+  selectionKind: 'exact_machine' | 'livermore_pair' | 'legacy_exact_machine';
+  machineId?: string;
+  locationTimezone: string;
+};
+
 export type RefundQrClaim = {
   claimToken: string;
   openedAt: string;
@@ -110,6 +118,13 @@ type SubmitRefundWalletCorrectionResponse = {
   };
 };
 
+type RefundPublicSelectionRpc = {
+  selection_key: string;
+  display_label: string;
+  selection_kind: 'exact_machine' | 'livermore_pair';
+  location_timezone: string;
+};
+
 type RefundMachineOptionRpc = {
   machine_id: string;
   machine_label: string;
@@ -126,7 +141,8 @@ export type RefundAttachmentInput = {
 };
 
 export type SubmitRefundRequestInput = {
-  machineId: string;
+  selectionKey?: string;
+  machineId?: string;
   qrClaimToken?: string;
   emailContextToken?: string;
   customerName?: string;
@@ -259,9 +275,11 @@ export type RefundCaseRecord = {
   id: string;
   publicReference: string;
   canPerformOfficialAction?: boolean;
+  canSelectNayaxCandidate?: boolean;
   officialActionBlockReason?:
     | 'manager_mapping_required'
     | 'manager_verification_required'
+    | 'exact_machine_required'
     | 'official_actions_disabled'
     | null;
   officialActionVersion?: number;
@@ -725,6 +743,7 @@ export type NayaxDisagreementReason =
 
 export type NayaxLookupCandidate = {
   candidateToken: string;
+  machineDisplayLabel?: string | null;
   authorizedAt: string;
   machineAuthorizationTime: string;
   amountCents: number | null;
@@ -917,18 +936,34 @@ export type RefundMissingField =
   | 'amount'
   | 'card_last4';
 
-export const fetchRefundMachineOptions = async (): Promise<RefundMachineOption[]> => {
-  const { data, error } = await supabaseClient.rpc('public_refund_machine_options');
+export const fetchRefundMachineOptions = async (): Promise<RefundPublicSelection[]> => {
+  const { data, error } = await supabaseClient.rpc('public_refund_selections');
 
   if (error) {
-    throw new Error(error.message || 'Unable to load refund locations.');
+    const isMissingSelectionRpc = ['PGRST202', '42883'].includes(error.code ?? '');
+    if (!isMissingSelectionRpc) {
+      throw new Error(error.message || 'Unable to load refund locations.');
+    }
+    const legacy = await supabaseClient.rpc('public_refund_machine_options');
+    if (legacy.error) {
+      throw new Error(error.message || 'Unable to load refund locations.');
+    }
+    return ((legacy.data as RefundMachineOptionRpc[] | null) ?? []).map((record) => ({
+      selectionKey: record.machine_id,
+      displayLabel:
+        record.location_name.trim().toLocaleLowerCase() === record.machine_label.trim().toLocaleLowerCase()
+          ? record.machine_label.trim()
+          : `${record.location_name.trim()} - ${record.machine_label.trim()}`,
+      selectionKind: 'legacy_exact_machine' as const,
+      machineId: record.machine_id,
+      locationTimezone: record.location_timezone,
+    }));
   }
 
-  return ((data as RefundMachineOptionRpc[] | null) ?? []).map((record) => ({
-    machineId: record.machine_id,
-    machineLabel: record.machine_label,
-    locationId: record.location_id,
-    locationName: record.location_name,
+  return ((data as RefundPublicSelectionRpc[] | null) ?? []).map((record) => ({
+    selectionKey: record.selection_key,
+    displayLabel: record.display_label,
+    selectionKind: record.selection_kind,
     locationTimezone: record.location_timezone,
   }));
 };
@@ -1046,6 +1081,33 @@ export const buildLocalRefundMachineOptions = (): RefundMachineOption[] => [
     locationId: '41000000-0000-4000-8000-000000000012',
     locationName: 'Refund UAT Arcade',
     locationTimezone: 'America/Los_Angeles',
+  },
+];
+
+export const buildLocalRefundPublicSelections = (): RefundPublicSelection[] => [
+  {
+    selectionKey: 'demo-capital-city-mall',
+    displayLabel: 'Capital City Mall',
+    selectionKind: 'exact_machine',
+    locationTimezone: 'America/New_York',
+  },
+  {
+    selectionKey: 'demo-livermore-pair',
+    displayLabel: 'San Francisco Premium Outlets — Cotton candy',
+    selectionKind: 'livermore_pair',
+    locationTimezone: 'America/Los_Angeles',
+  },
+  {
+    selectionKey: 'demo-south-hills-cotton',
+    displayLabel: 'South Hills Village — Cotton candy',
+    selectionKind: 'exact_machine',
+    locationTimezone: 'America/New_York',
+  },
+  {
+    selectionKey: 'demo-south-hills-snapcase',
+    displayLabel: 'South Hills Village — Phone cases (SnapCase)',
+    selectionKind: 'exact_machine',
+    locationTimezone: 'America/New_York',
   },
 ];
 

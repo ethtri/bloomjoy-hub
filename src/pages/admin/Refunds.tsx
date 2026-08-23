@@ -2369,6 +2369,8 @@ export default function AdminRefundsPage() {
     ? 'Your manager session needs to be refreshed before you can take this action.'
     : selectedCaseOfficialActionBlockReason === 'official_actions_disabled'
       ? 'Refund actions are temporarily unavailable.'
+      : selectedCaseOfficialActionBlockReason === 'exact_machine_required'
+        ? 'Confirm the exact transaction so Bloomjoy can bind this request to one outlet machine before any refund decision.'
       : 'You can review this case, but only the assigned Machine Manager can decide or issue the refund.';
   const mobileQueueCases = selectedCase && !isMobileQueueExpanded ? [selectedCase] : filteredCases;
   useEffect(() => {
@@ -3702,7 +3704,7 @@ export default function AdminRefundsPage() {
     const caseAllowsCandidateSelection =
       selectedCase.status === 'needs_review' &&
       editor.status === 'needs_review' &&
-      selectedCase.canPerformOfficialAction !== false;
+      (selectedCase.canSelectNayaxCandidate ?? selectedCase.canPerformOfficialAction) !== false;
     const selectedCandidate = selectedNayaxCandidate(editor, effectiveCandidates);
     const hasLookupResult = !selectedCase.legacyStateReviewRequired && Boolean(
       selectedCase.hasMatchedNayaxTransaction ||
@@ -3747,7 +3749,7 @@ export default function AdminRefundsPage() {
         ? `Not selectable: ${candidateUnavailableReason(candidate, selectedCase)}`
         : waitingOnCustomer
           ? 'Selection is paused while waiting for the customer. The assistant will run a fresh search after the reply.'
-          : selectedCase.canPerformOfficialAction === false
+          : (selectedCase.canSelectNayaxCandidate ?? selectedCase.canPerformOfficialAction) === false
             ? 'You can review this result, but only an assigned manager can select it.'
             : !caseAllowsCandidateSelection
               ? 'Selection is only available while the case is in manager review.'
@@ -3775,6 +3777,11 @@ export default function AdminRefundsPage() {
               </span>
             )}
           </span>
+          {candidate.machineDisplayLabel && (
+            <span className="mt-1 block font-medium text-sky-900">
+              {candidate.machineDisplayLabel}
+            </span>
+          )}
           <span className="mt-1 block leading-5 text-foreground">{formatCandidateSummary(candidate)}</span>
           {showFactorHighlights && visibleFactors.length > 0 && (
             <span className="mt-2 grid gap-1 leading-5 text-muted-foreground">
@@ -5467,6 +5474,8 @@ export default function AdminRefundsPage() {
                                 ? 'Manager verification required'
                                 : selectedCaseOfficialActionBlockReason === 'official_actions_disabled'
                                   ? 'Refund actions unavailable'
+                                  : selectedCaseOfficialActionBlockReason === 'exact_machine_required'
+                                    ? 'Exact machine required'
                                   : 'Review only'}
                             </p>
                             <p className="mt-1 leading-6">

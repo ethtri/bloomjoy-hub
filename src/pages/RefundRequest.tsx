@@ -12,6 +12,7 @@ import { isEdgeFunctionError } from '@/lib/edgeFunctions';
 import {
   fetchRefundMachineOptions,
   buildLocalRefundMachineOptions,
+  buildLocalRefundPublicSelections,
   isLocalUatDemoForced,
   startRefundQrClaim,
   submitRefundRequest,
@@ -24,7 +25,7 @@ import {
 } from '@/lib/refundOperations';
 
 const emptyForm = {
-  machineId: '',
+  selectionKey: '',
   customerName: '',
   customerEmail: '',
   customerPhone: '',
@@ -146,9 +147,18 @@ export default function RefundRequestPage() {
   const machines = useMemo(
     () =>
       qrClaim
-        ? [qrClaim.machine]
+        ? [{
+            selectionKey: qrClaim.machine.machineId,
+            displayLabel: formatMachineOption(
+              qrClaim.machine.locationName,
+              qrClaim.machine.machineLabel
+            ),
+            selectionKind: 'exact_machine' as const,
+            machineId: qrClaim.machine.machineId,
+            locationTimezone: qrClaim.machine.locationTimezone,
+          }]
         : isDemoMode
-          ? buildLocalRefundMachineOptions()
+          ? buildLocalRefundPublicSelections()
           : liveMachines,
     [isDemoMode, liveMachines, qrClaim]
   );
@@ -166,14 +176,14 @@ export default function RefundRequestPage() {
     if (!qrClaim) return;
 
     setForm((current) => {
-      if (current.machineId === qrClaim.machine.machineId) return current;
-      return { ...current, machineId: qrClaim.machine.machineId };
+      if (current.selectionKey === qrClaim.machine.machineId) return current;
+      return { ...current, selectionKey: qrClaim.machine.machineId };
     });
   }, [qrClaim]);
 
   const selectedMachine = useMemo(
-    () => machines.find((machine) => machine.machineId === form.machineId) ?? null,
-    [form.machineId, machines]
+    () => machines.find((machine) => machine.selectionKey === form.selectionKey) ?? null,
+    [form.selectionKey, machines]
   );
 
   const updateForm = (key: keyof typeof form, value: string | boolean) => {
@@ -205,7 +215,7 @@ export default function RefundRequestPage() {
       return;
     }
 
-    if (!form.machineId) {
+    if (!form.selectionKey) {
       toast.error('Choose the machine location so we can route your request.');
       return;
     }
@@ -267,7 +277,11 @@ export default function RefundRequestPage() {
       }
 
       const refundCase = await submitRefundRequest({
-        machineId: form.machineId,
+        selectionKey:
+          qrClaim || selectedMachine?.selectionKind === 'legacy_exact_machine'
+            ? undefined
+            : form.selectionKey,
+        machineId: qrClaim?.machine.machineId ?? selectedMachine?.machineId,
         qrClaimToken: qrClaim?.claimToken,
         emailContextToken: emailContextToken || undefined,
         customerName: form.customerName.trim(),
@@ -490,8 +504,8 @@ export default function RefundRequestPage() {
                       <Label htmlFor="machine">Machine location</Label>
                       <select
                         id="machine"
-                        value={form.machineId}
-                        onChange={(event) => updateForm('machineId', event.target.value)}
+                        value={form.selectionKey}
+                        onChange={(event) => updateForm('selectionKey', event.target.value)}
                         required
                         disabled={isLoadingMachines || hasNoLiveMachineOptions}
                         className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
@@ -504,8 +518,8 @@ export default function RefundRequestPage() {
                               : 'Choose a location'}
                         </option>
                         {machines.map((machine) => (
-                          <option key={machine.machineId} value={machine.machineId}>
-                            {formatMachineOption(machine.locationName, machine.machineLabel)}
+                          <option key={machine.selectionKey} value={machine.selectionKey}>
+                            {machine.displayLabel}
                           </option>
                         ))}
                       </select>
@@ -775,8 +789,8 @@ export default function RefundRequestPage() {
                       <span>
                         {selectedMachine
                           ? qrClaim
-                            ? `QR confirmed: ${formatMachineOption(selectedMachine.locationName, selectedMachine.machineLabel)}`
-                            : `Selected: ${formatMachineOption(selectedMachine.locationName, selectedMachine.machineLabel)}`
+                            ? `QR confirmed: ${selectedMachine.displayLabel}`
+                            : `Selected: ${selectedMachine.displayLabel}`
                           : 'Your request goes to the Bloomjoy operations team.'}
                       </span>
                     </div>

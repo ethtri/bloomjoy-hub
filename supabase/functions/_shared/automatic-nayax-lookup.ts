@@ -18,6 +18,9 @@ export type AutomaticNayaxLookupCase = {
   decision: string | null;
   reporting_machine_id: string | null;
   reporting_location_id: string | null;
+  intake_selection_key?: string | null;
+  intake_selection_kind?: string | null;
+  intake_selection_machine_ids?: string[] | null;
   incident_at: string | null;
   incident_time_resolution: string | null;
   payment_method: string | null;
@@ -56,18 +59,24 @@ const terminalStatuses = new Set(["approved", "denied", "completed", "closed"]);
 export const isRefundCaseReadyForAutomaticNayaxLookup = (
   refundCase: AutomaticNayaxLookupCase,
 ) => {
+  const hasExactLivermoreScope =
+    refundCase.intake_selection_kind === "livermore_pair" &&
+    Boolean(refundCase.intake_selection_key) &&
+    Array.isArray(refundCase.intake_selection_machine_ids) &&
+    refundCase.intake_selection_machine_ids.length === 2;
   if (
     refundCase.payment_method !== "card" ||
     refundCase.decision !== null ||
     terminalStatuses.has(refundCase.status) ||
     refundCase.status === "draft" ||
     refundCase.status === "waiting_on_customer" ||
-    !refundCase.reporting_machine_id ||
+    (!refundCase.reporting_machine_id && !hasExactLivermoreScope) ||
     !refundCase.reporting_location_id
   ) return false;
 
   return deriveRefundMissingFields({
-    reportingMachineId: refundCase.reporting_machine_id,
+    reportingMachineId: refundCase.reporting_machine_id ??
+      (hasExactLivermoreScope ? "server-owned-grouped-selection" : null),
     reportingLocationId: refundCase.reporting_location_id,
     incidentAt: refundCase.incident_at,
     incidentTimeResolution: refundCase.incident_time_resolution,
@@ -150,7 +159,8 @@ export const runAutomaticNayaxLookupIfReady = async ({
   source: AutomaticNayaxLookupSource;
 }) => {
   const { data, error } = await supabase.from("refund_cases").select(`
-    id,status,decision,reporting_machine_id,reporting_location_id,incident_at,
+    id,status,decision,reporting_machine_id,reporting_location_id,
+    intake_selection_key,intake_selection_kind,intake_selection_machine_ids,incident_at,
     incident_time_resolution,payment_method,payment_amount_cents,card_last4,card_network,
     card_wallet_used,deterministic_fact_version
   `).eq("id", caseId).maybeSingle();

@@ -18,6 +18,8 @@ const RESULT_KEYS = [
   'excluded_inventory_count',
   'unaccounted_active_count',
   'public_option_count',
+  'public_selection_count',
+  'selection_covered_machine_count',
   'published_missing_public_option_count',
   'stale_published_count',
   'unsafe_internal_label_count',
@@ -35,6 +37,17 @@ with active_inventory as (
 options as (
   select *
   from public.public_refund_machine_options()
+),
+selections as (
+  select *
+  from public.public_refund_selections()
+),
+selection_coverage as (
+  select coalesce(sum(jsonb_array_length(resolved.result -> 'machineIds')), 0)::integer as machine_count
+  from selections selection
+  cross join lateral (
+    select public.service_resolve_refund_public_selection(selection.selection_key) as result
+  ) resolved
 )
 select
   true as read_only,
@@ -47,6 +60,8 @@ select
     where reconciliation_state not in ('published', 'needs_setup', 'excluded')
   ) as unaccounted_active_count,
   count(*)::integer as public_option_count,
+  (select count(*)::integer from selections) as public_selection_count,
+  (select machine_count from selection_coverage) as selection_covered_machine_count,
   (
     select count(*)::integer
     from active_inventory inventory
@@ -68,8 +83,8 @@ select
   (select count(*)::integer from active_inventory where refund_category = 'snapcase') as snapcase_category_count,
   (count(*) - count(distinct machine_id))::integer as duplicate_machine_row_count,
   (
-    count(*)
-    - count(distinct lower(coalesce(machine_label, '')) || '|' || lower(coalesce(location_name, '')))
+    (select count(*) from selections)
+    - (select count(distinct lower(display_label)) from selections)
   )::integer as duplicate_display_row_count
 from options;
 `.trim();
@@ -152,6 +167,8 @@ export function validateAggregateRow(row) {
 export function determineReadiness(row) {
   const checks = {
     hasPublicOptions: row.public_option_count >= 1,
+    hasPublicSelections: row.public_selection_count >= 1,
+    everyPublicMachineCoveredOnce: row.selection_covered_machine_count === row.public_option_count,
     everyActiveMachineAccounted:
       row.unaccounted_active_count === 0 &&
       row.active_inventory_machine_count ===

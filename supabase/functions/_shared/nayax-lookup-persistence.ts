@@ -25,9 +25,14 @@ export const persistNayaxLookupResult = async ({
     : result.recommendationState === "no_safe_match"
     ? "no_match"
     : "manual_review";
+  const resolvedMachineId = typeof result.resolvedMachineId === "string" &&
+      result.resolvedMachineId.trim()
+    ? result.resolvedMachineId.trim()
+    : null;
 
   let update = supabase.from("refund_cases")
     .update({
+      ...(resolvedMachineId ? { reporting_machine_id: resolvedMachineId } : {}),
       status: "needs_review",
       correlation_status: correlationStatus,
       correlation_source: "nayax",
@@ -91,6 +96,7 @@ export const persistNayaxLookupResult = async ({
         provider_window_record_count: result.providerWindowRecordCount ?? null,
         qr_claim_evidence_status: result.qrClaimEvidenceStatus,
         deterministic_fact_version: expectedFactVersion ?? null,
+        exact_machine_resolved_from_selection_scope: Boolean(resolvedMachineId),
         payload_redacted: true,
       },
     });

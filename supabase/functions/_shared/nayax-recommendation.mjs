@@ -801,6 +801,7 @@ export const buildNayaxRecommendation = ({
 
 export const toPublicNayaxCandidate = (candidate, candidateToken) => ({
   candidateToken,
+  machineDisplayLabel: candidate.machineDisplayLabel ?? null,
   authorizedAt: candidate.authorizedAt,
   machineAuthorizationTime: candidate.machineAuthorizationTime,
   amountCents: candidate.amountCents,
