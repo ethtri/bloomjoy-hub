@@ -140,6 +140,26 @@ const sanitizeText = (value: unknown, maxLength = 2000) =>
 
 const sanitizeEmail = (value: unknown) => sanitizeText(value, 320).toLowerCase();
 
+const normalizeCardNetwork = (value: unknown) => {
+  const normalized = sanitizeText(value, 80)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  if (!normalized) return null;
+  if (normalized.includes("visa")) return "visa";
+  if (normalized.includes("mastercard") || normalized.includes("master card") || normalized === "mc") {
+    return "mastercard";
+  }
+  if (normalized.includes("discover")) return "discover";
+  if (normalized.includes("american express") || normalized.includes("amex")) {
+    return "american_express";
+  }
+  if (["other", "unknown", "not sure", "other unknown"].includes(normalized)) {
+    return "other_unknown";
+  }
+  return null;
+};
+
 const centsFromAmount = (value: unknown): number | null => {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.max(0, Math.round(value * 100));
@@ -927,6 +947,7 @@ const submitWalletCorrection = async (
     "action",
     "token",
     "walletType",
+    "cardNetwork",
     "cardLast4",
     "incidentDate",
     "incidentTime",
@@ -947,12 +968,14 @@ const submitWalletCorrection = async (
 
   const token = sanitizeText(body.token, 80);
   const walletType = sanitizeText(body.walletType, 40).toLowerCase();
+  const cardNetwork = normalizeCardNetwork(body.cardNetwork);
   const cardLast4 = sanitizeText(body.cardLast4, 4);
   const incidentDate = sanitizeText(body.incidentDate, 10);
   const incidentTime = sanitizeText(body.incidentTime, 8);
   if (
     !isRefundWalletCorrectionToken(token) ||
     !["apple_pay", "google_pay", "other_wallet"].includes(walletType) ||
+    !cardNetwork ||
     !/^[0-9]{4}$/.test(cardLast4) ||
     !/^\d{4}-\d{2}-\d{2}$/.test(incidentDate) ||
     !/^\d{2}:\d{2}$/.test(incidentTime) ||
@@ -961,7 +984,7 @@ const submitWalletCorrection = async (
     return new Response(
       JSON.stringify({
         error:
-          "Enter the mobile wallet used, its virtual card last four, the approximate purchase time, and confirm the amount.",
+          "Enter the mobile wallet used, card type, virtual card last four, approximate purchase time, and confirm the amount.",
       }),
       {
         status: 400,
@@ -1012,10 +1035,11 @@ const submitWalletCorrection = async (
 
   const tokenHash = await hashRefundWalletCorrectionToken(token);
   const { data: applied, error: applyError } = await supabase.rpc(
-    "service_apply_refund_wallet_correction",
+    "service_apply_refund_wallet_correction_v2",
     {
       p_token_hash: tokenHash,
       p_wallet_type: walletType,
+      p_card_network: cardNetwork,
       p_card_last4: cardLast4,
       p_incident_at: incidentResolution.instant,
       p_incident_local_datetime: `${incidentDate}T${incidentTime}`,
@@ -1166,6 +1190,8 @@ serve(async (req) => {
     const paymentMethod = sanitizeText(body?.paymentMethod, 40).toLowerCase();
     const amountCents = centsFromAmount(body?.paymentAmount);
     const cardLast4 = sanitizeText(body?.cardLast4, 4);
+    const submittedCardNetwork = sanitizeText(body?.cardNetwork, 80);
+    const cardNetwork = normalizeCardNetwork(submittedCardNetwork);
     const submittedPaymentInteraction = sanitizeText(body?.paymentInteraction, 40).toLowerCase();
     const paymentInteraction = [
       "phone_watch_wallet",
@@ -1289,6 +1315,13 @@ serve(async (req) => {
 
     if (paymentMethod === "card" && !/^[0-9]{4}$/.test(cardLast4)) {
       return new Response(JSON.stringify({ error: "Please enter the last 4 digits shown for the card payment." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (body?.cardNetwork !== undefined && !cardNetwork) {
+      return new Response(JSON.stringify({ error: "Please choose the card type shown on your card or in your wallet." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -1588,6 +1621,7 @@ serve(async (req) => {
       incident_time_confidence: incidentTimeConfidence,
       payment_interaction: paymentInteraction,
       wallet_provider_supplied: Boolean(walletProvider),
+      card_network: cardNetwork,
       issue_category: issueCategory,
       product_description_supplied: Boolean(productDescription),
       incident_possible_instant_count: incidentResolution.possibleInstantCount,
@@ -1609,6 +1643,7 @@ serve(async (req) => {
       payment_method: paymentMethod,
       payment_amount_cents: amountCents,
       card_last4: paymentMethod === "card" ? cardLast4 : null,
+      card_network: paymentMethod === "card" ? cardNetwork : null,
       card_wallet_used: cardWalletUsed,
       payment_interaction: paymentInteraction,
       wallet_provider: walletProvider,
@@ -1650,6 +1685,7 @@ serve(async (req) => {
             paymentMethod: insertValues.payment_method,
             paymentAmountCents: insertValues.payment_amount_cents,
             cardLast4: insertValues.card_last4,
+            cardNetwork: insertValues.card_network,
             cardWalletUsed: insertValues.card_wallet_used,
             paymentInteraction: insertValues.payment_interaction,
             walletProvider: insertValues.wallet_provider,

@@ -7,7 +7,7 @@ import { buildNayaxCandidateContext } from "./nayax-machine-context.mjs";
 // API expose advisory words (strong evidence, compare candidates, manual review)
 // instead of presenting these points as a percentage.
 export const NAYAX_RECOMMENDATION_POLICY = Object.freeze({
-  version: "2026-08-11.v3",
+  version: "2026-08-23.v4",
   candidateLimit: 10,
   lookupWindowHours: 6,
   highConfidenceMinimumPoints: 80,
@@ -23,6 +23,8 @@ export const NAYAX_RECOMMENDATION_POLICY = Object.freeze({
     timeWithin3Hours: 8,
     timeWithinLookupWindow: 2,
     exactCardLast4: 20,
+    exactCardNetwork: 4,
+    physicalCardNetworkMismatch: -8,
     usdCurrency: 5,
     approvedProviderStatus: 5,
   }),
@@ -33,23 +35,30 @@ const sanitizeText = (value, maxLength = 300) =>
     ? String(value).trim().slice(0, maxLength)
     : "";
 
-const normalizeCardBrand = (value) => {
+export const normalizeCardNetwork = (value) => {
   const normalized = sanitizeText(value, 80)
     .toLowerCase()
     .replace(/[^a-z0-9 ]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  if (!normalized) return "";
-  if (normalized.includes("visa")) return "Visa";
+  if (!normalized) return null;
+  if (normalized.includes("visa")) return "visa";
   if (normalized.includes("mastercard") || normalized.includes("master card") || normalized === "mc") {
-    return "Mastercard";
+    return "mastercard";
   }
-  if (normalized.includes("american express") || normalized.includes("amex")) return "American Express";
-  if (normalized.includes("discover")) return "Discover";
-  if (normalized.includes("debit")) return "Debit card";
-  if (normalized.includes("credit")) return "Credit card";
-  return "Card";
+  if (normalized.includes("american express") || normalized.includes("amex")) return "american_express";
+  if (normalized.includes("discover")) return "discover";
+  if (["other", "unknown", "not sure", "other unknown"].includes(normalized)) return "other_unknown";
+  return null;
 };
+
+const cardNetworkLabel = (network) => ({
+  visa: "Visa",
+  mastercard: "Mastercard",
+  discover: "Discover",
+  american_express: "American Express",
+  other_unknown: "Other / Not sure",
+})[network] ?? "Card";
 
 const normalizeRecognitionMethod = (value) => {
   const normalized = sanitizeText(value, 80)
@@ -400,6 +409,35 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     matchFactors.push(factor("card", "mismatch", "Card last four does not match"));
   }
 
+  if (!request.cardNetwork || request.cardNetwork === "other_unknown") {
+    addReason(reasonCodes, "customer_card_network_unknown");
+    matchFactors.push(factor("card_network", "missing", "Customer card type is unknown"));
+  } else if (!candidate.cardNetwork) {
+    addReason(reasonCodes, "provider_card_network_unknown");
+    matchFactors.push(factor("card_network", "missing", "Nayax did not return a recognized card type"));
+  } else if (request.cardNetwork === candidate.cardNetwork) {
+    rankingPoints += weights.exactCardNetwork;
+    addReason(reasonCodes, "card_network_match");
+    matchFactors.push(factor("card_network", "match", "Card type matches"));
+  } else if (request.cardWalletUsed || candidate.recognitionMethod === "wallet") {
+    addReason(reasonCodes, "wallet_card_network_mismatch");
+    matchFactors.push(factor(
+      "card_network",
+      "manual",
+      "Card type differs; wallet card details are supporting evidence only",
+    ));
+  } else {
+    rankingPoints += weights.physicalCardNetworkMismatch;
+    hardExclusions.push("card_network_mismatch");
+    addReason(manualReviewReasons, "physical_card_network_mismatch");
+    addReason(reasonCodes, "physical_card_network_mismatch");
+    matchFactors.push(factor(
+      "card_network",
+      "mismatch",
+      "Physical card type does not match the Nayax record",
+    ));
+  }
+
   if (request.cardWalletUsed || candidate.recognitionMethod === "wallet") {
     addReason(manualReviewReasons, "wallet_payment");
     addReason(reasonCodes, "wallet_payment");
@@ -518,6 +556,7 @@ export const extractNayaxRecords = (payload) => {
  *   locationTimezone: string,
  *   requestAmountCents: number | null,
  *   requestCardLast4: string,
+ *   requestCardNetwork?: string | null,
  *   cardWalletUsed: boolean,
  *   incidentTimeConfidence?: string,
  *   incidentTimeResolution?: string,
@@ -536,6 +575,7 @@ export const buildNayaxRecommendation = ({
   locationTimezone,
   requestAmountCents,
   requestCardLast4,
+  requestCardNetwork = null,
   cardWalletUsed,
   incidentTimeConfidence = "legacy_exact",
   incidentTimeResolution = "exact",
@@ -559,6 +599,7 @@ export const buildNayaxRecommendation = ({
     expectedMachineId: sanitizeText(expectedMachineId, 120),
     amountCents: asNonNegativeCents(requestAmountCents),
     cardLast4: extractLast4(requestCardLast4),
+    cardNetwork: normalizeCardNetwork(requestCardNetwork),
     cardWalletUsed: Boolean(cardWalletUsed),
     incidentTimeConfidence: sanitizeText(incidentTimeConfidence, 40) || "legacy_exact",
     incidentTimeResolution: sanitizeText(incidentTimeResolution, 40) || "legacy_absolute",
@@ -615,7 +656,14 @@ export const buildNayaxRecommendation = ({
       amountCents: moneyToCents(record.AuthorizationValue ?? record.SettlementValue),
       currencyCode: sanitizeText(record.CurrencyCode ?? record.currencyCode, 3).toUpperCase(),
       cardLast4: extractLast4(record.CardNumber ?? record.cardNumber),
-      cardBrand: normalizeCardBrand(record.CardBrand ?? record.cardBrand),
+      cardNetwork: normalizeCardNetwork(
+        record.CardBrand ?? record.cardBrand ?? record.CardType ?? record.cardType ??
+          record.CardNetwork ?? record.cardNetwork,
+      ),
+      cardBrand: cardNetworkLabel(normalizeCardNetwork(
+        record.CardBrand ?? record.cardBrand ?? record.CardType ?? record.cardType ??
+          record.CardNetwork ?? record.cardNetwork,
+      )),
       recognitionMethod: normalizeRecognitionMethod(record.RecognitionMethod ?? record.recognitionMethod),
       paymentStatus: normalizePaymentStatus(record),
       providerRefundState: normalizeProviderRefundState(record),
@@ -762,6 +810,7 @@ export const toPublicNayaxCandidate = (candidate, candidateToken) => ({
   currencyCode: candidate.currencyCode,
   cardLast4: candidate.cardLast4,
   cardBrand: candidate.cardBrand,
+  cardNetwork: candidate.cardNetwork,
   recognitionMethod: candidate.recognitionMethod,
   paymentStatus: candidate.paymentStatus,
   productLabel: candidate.productLabel,

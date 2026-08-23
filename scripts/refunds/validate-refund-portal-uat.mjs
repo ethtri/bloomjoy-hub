@@ -255,6 +255,7 @@ const buildMockRefundOverview = () => ({
       paymentMethod: 'card',
       paymentAmountCents: 700,
       cardLast4: '4242',
+      cardNetwork: 'visa',
       cardWalletUsed: false,
       hasMatchedSalesFact: false,
       hasMatchedNayaxTransaction: true,
@@ -273,6 +274,7 @@ const buildMockRefundOverview = () => ({
           currencyCode: 'USD',
           cardLast4: '4242',
           cardBrand: 'Visa',
+          cardNetwork: 'visa',
           recognitionMethod: 'tap',
           paymentStatus: 'approved',
           amountDeltaCents: 0,
@@ -289,6 +291,7 @@ const buildMockRefundOverview = () => ({
             { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
             { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
             { key: 'card', outcome: 'match', label: 'Card last four matches' },
+            { key: 'card_network', outcome: 'match', label: 'Card type matches' },
           ],
           matchReason: 'Exact mapped machine and location; exact amount; card last four matches',
         },
@@ -2108,6 +2111,7 @@ const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) =>
     await page.getByLabel('How close is that time?').selectOption('within_15_minutes');
     await page.getByLabel('Amount charged').fill('7.00');
     await page.getByLabel('How did you pay at the machine?').selectOption('tap_card');
+    await page.getByLabel('Card type').selectOption('visa');
     await page.getByLabel('Last 4 digits on the card you used').fill('4242');
     await page.getByLabel('What best describes the problem?').selectOption('charged_no_product');
     await page.getByLabel('What happened?').fill('Synthetic browser validation only.');
@@ -2141,7 +2145,8 @@ const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) =>
       `${journey.name} refund journey submits the visible native date and time`,
       submissions.length === 1 &&
         submission.incidentDate === '2026-08-11' &&
-        submission.incidentTime === '15:30',
+        submission.incidentTime === '15:30' &&
+        submission.cardNetwork === 'visa',
       JSON.stringify(submission)
     );
     recorder.assert(
@@ -2322,6 +2327,16 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       await page.getByTestId('refund-primary-action').getByText('Ready for review', { exact: true }).isVisible() &&
       await page.getByTestId('nayax-result-card').getByText('Transaction selected', { exact: true }).isVisible() &&
       await page.getByTestId('nayax-result-card').getByText('Selected', { exact: true }).isVisible()
+  );
+  recorder.assert(
+    'Customer and Nayax card types are compared in plain language',
+    /Card type\s+Visa\s+Visa\s+Same card type/.test(
+      await page
+        .getByTestId('nayax-result-card')
+        .getByText('Card type', { exact: true })
+        .locator('..')
+        .innerText()
+    )
   );
   recorder.assert(
     'Selected card match keeps candidate chooser out of the normal path',

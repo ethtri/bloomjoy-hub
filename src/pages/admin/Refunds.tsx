@@ -887,6 +887,47 @@ const formatCandidateSummary = (candidate: NayaxLookupCandidate) =>
     .filter(Boolean)
     .join(' • ');
 
+const normalizeDisplayedCardNetwork = (value: string | null | undefined) => {
+  const normalized = (value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  if (!normalized) return null;
+  if (normalized.includes('visa')) return 'visa';
+  if (normalized.includes('mastercard') || normalized.includes('master card') || normalized === 'mc') {
+    return 'mastercard';
+  }
+  if (normalized.includes('discover')) return 'discover';
+  if (normalized.includes('american express') || normalized.includes('amex')) return 'american_express';
+  if (['other', 'unknown', 'not sure', 'other unknown'].includes(normalized)) return 'other_unknown';
+  return null;
+};
+
+const cardNetworkLabel = (value: string | null | undefined) => {
+  switch (normalizeDisplayedCardNetwork(value)) {
+    case 'visa': return 'Visa';
+    case 'mastercard': return 'Mastercard';
+    case 'discover': return 'Discover';
+    case 'american_express': return 'American Express';
+    case 'other_unknown': return 'Other / Not sure';
+    default: return 'Not provided';
+  }
+};
+
+const candidateCardNetwork = (candidate: NayaxLookupCandidate) =>
+  candidate.cardNetwork ?? normalizeDisplayedCardNetwork(candidate.cardBrand);
+
+const cardNetworkComparisonLabel = (
+  refundCase: RefundCaseRecord,
+  candidate: NayaxLookupCandidate
+) => {
+  const customerNetwork = normalizeDisplayedCardNetwork(refundCase.cardNetwork);
+  const nayaxNetwork = candidateCardNetwork(candidate);
+  if (!customerNetwork || customerNetwork === 'other_unknown') return 'Customer was not sure';
+  if (!nayaxNetwork) return 'Nayax card type unavailable';
+  if (customerNetwork === nayaxNetwork) return 'Same card type';
+  return refundCase.paymentInteraction === 'phone_watch_wallet' || refundCase.cardWalletUsed
+    ? 'Different; wallet evidence is supportive only'
+    : 'Different; transaction cannot be selected';
+};
+
 const paymentInteractionLabel = (refundCase: RefundCaseRecord) => {
   switch (refundCase.paymentInteraction) {
     case 'phone_watch_wallet':
@@ -956,6 +997,8 @@ const matchFactorDisplayLabel = (
       return refundCase.paymentInteraction === 'phone_watch_wallet' || refundCase.cardWalletUsed
         ? 'Card ending differs; phone or watch wallets may use a different device number'
         : 'Card ending does not match';
+    case 'card_network':
+      return cardNetworkComparisonLabel(refundCase, candidate);
     case 'incident_time':
     case 'time':
       return typeof candidate.timeDeltaMinutes === 'number'
@@ -4148,6 +4191,9 @@ export default function AdminRefundsPage() {
                   Card ending {selectedCase.cardLast4 || 'n/a'}
                 </Badge>
                 <Badge className="border-border bg-muted text-foreground">
+                  Card type {cardNetworkLabel(selectedCase.cardNetwork)}
+                </Badge>
+                <Badge className="border-border bg-muted text-foreground">
                   {paymentInteractionLabel(selectedCase)}
                 </Badge>
               </div>
@@ -4225,6 +4271,18 @@ export default function AdminRefundsPage() {
                             ? ' (same)'
                             : ' (different)'
                           : ''}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-[74px_minmax(0,1fr)_minmax(0,1fr)] gap-x-2 border-t border-border px-3 py-3">
+                      <span className="text-muted-foreground">Card type</span>
+                      <span className="font-medium text-foreground">
+                        {cardNetworkLabel(selectedCase.cardNetwork)}
+                      </span>
+                      <span className="font-medium text-foreground">
+                        {cardNetworkLabel(candidateCardNetwork(comparisonCandidate))}
+                        <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                          {cardNetworkComparisonLabel(selectedCase, comparisonCandidate)}
+                        </span>
                       </span>
                     </div>
                   </div>

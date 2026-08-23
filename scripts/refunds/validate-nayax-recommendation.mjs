@@ -18,6 +18,7 @@ const sale = ({
   currency = "USD",
   status = "Approved",
   recognitionMethod = "Chip",
+  cardBrand = "Visa",
   siteId = 501,
   extra = {},
 }) => ({
@@ -30,6 +31,7 @@ const sale = ({
   CardNumber: last4 ? `************${last4}` : "",
   PaymentStatus: status,
   RecognitionMethod: recognitionMethod,
+  CardBrand: cardBrand,
   ...extra,
 });
 
@@ -54,6 +56,56 @@ assert.equal(exact.recommendationState, "high_confidence");
 assert.equal(exact.confidenceClass, "strong_card");
 assert.equal(exact.candidates[0].transactionId, "exact");
 assert.equal(exact.candidates[0].oneClickEligible, true);
+
+const exactNetwork = recommend([sale({ id: "exact-network", cardBrand: "MasterCard" })], {
+  requestCardNetwork: "mastercard",
+});
+assert.equal(exactNetwork.candidates[0].cardNetwork, "mastercard");
+assert.ok(exactNetwork.candidates[0].reasonCodes.includes("card_network_match"));
+assert.equal(
+  exactNetwork.candidates[0].matchFactors.some(
+    (factor) => factor.key === "card_network" && factor.outcome === "match",
+  ),
+  true,
+);
+
+const physicalNetworkMismatch = recommend(
+  [sale({ id: "physical-network-mismatch", cardBrand: "Visa" })],
+  { requestCardNetwork: "american_express" },
+);
+assert.ok(physicalNetworkMismatch.candidates[0].reasonCodes.includes("physical_card_network_mismatch"));
+assert.equal(physicalNetworkMismatch.candidates[0].selectionAllowed, false);
+assert.equal(
+  physicalNetworkMismatch.candidates[0].hardExclusions.includes("card_network_mismatch"),
+  true,
+  "a physical card-network mismatch must keep an otherwise exact candidate unselectable",
+);
+
+const walletNetworkMismatch = recommend(
+  [sale({ id: "wallet-network-mismatch", cardBrand: "Amex", recognitionMethod: "Apple Pay" })],
+  { requestCardNetwork: "visa", cardWalletUsed: true },
+);
+assert.ok(walletNetworkMismatch.candidates[0].reasonCodes.includes("wallet_card_network_mismatch"));
+assert.equal(walletNetworkMismatch.candidates[0].oneClickEligible, false);
+
+const walletDifferentAmount = recommend(
+  [sale({ id: "wallet-different-amount", amount: 9, cardBrand: "Discover", recognitionMethod: "Apple Pay" })],
+  { requestCardNetwork: "discover", cardWalletUsed: true },
+);
+assert.equal(walletDifferentAmount.recommendationState, "manual_exception");
+assert.equal(walletDifferentAmount.candidates[0].oneClickEligible, false);
+
+const networkOnlyBaseline = recommend(
+  [sale({ id: "network-only-baseline", amount: 9, last4: "" })],
+  { requestCardLast4: "", requestCardNetwork: null },
+);
+const networkOnlyMatch = recommend(
+  [sale({ id: "network-only-match", amount: 9, last4: "", cardBrand: "Visa" })],
+  { requestCardLast4: "", requestCardNetwork: "visa" },
+);
+assert.equal(networkOnlyMatch.recommendationState, networkOnlyBaseline.recommendationState);
+assert.equal(networkOnlyMatch.candidates[0].selectionAllowed, networkOnlyBaseline.candidates[0].selectionAllowed);
+assert.equal(networkOnlyMatch.candidates[0].oneClickEligible, false);
 
 const nearTime = recommend([sale({ id: "near", at: "2026-07-21T19:45:00.000Z" })]);
 assert.equal(nearTime.recommendationState, "high_confidence");

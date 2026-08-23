@@ -13,6 +13,12 @@ export type RefundPaymentInteraction =
   | 'cash'
   | 'unsure';
 export type RefundWalletProvider = 'apple_pay' | 'google_wallet' | 'other' | 'unsure';
+export type RefundCardNetwork =
+  | 'visa'
+  | 'mastercard'
+  | 'discover'
+  | 'american_express'
+  | 'other_unknown';
 export type RefundIncidentTimeConfidence =
   | 'exact'
   | 'within_15_minutes'
@@ -89,6 +95,7 @@ type InspectRefundWalletCorrectionResponse = {
 export type SubmitRefundWalletCorrectionInput = {
   token: string;
   walletType: 'apple_pay' | 'google_pay' | 'other_wallet';
+  cardNetwork: RefundCardNetwork | '';
   cardLast4: string;
   incidentDate: string;
   incidentTime: string;
@@ -134,6 +141,7 @@ export type SubmitRefundRequestInput = {
   paymentMethod: RefundPaymentMethod;
   paymentAmount?: string;
   cardLast4?: string;
+  cardNetwork?: RefundCardNetwork;
   cardWalletUsed?: boolean;
   paymentInteraction?: RefundPaymentInteraction;
   walletProvider?: RefundWalletProvider;
@@ -277,6 +285,7 @@ export type RefundCaseRecord = {
   paymentMethod: RefundPaymentMethod;
   paymentAmountCents: number | null;
   cardLast4: string | null;
+  cardNetwork?: RefundCardNetwork | null;
   cardWalletUsed: boolean;
   paymentInteraction?: RefundPaymentInteraction | null;
   walletProvider?: RefundWalletProvider | null;
@@ -722,6 +731,7 @@ export type NayaxLookupCandidate = {
   cardLast4: string;
   currencyCode: string;
   cardBrand: string;
+  cardNetwork?: RefundCardNetwork | null;
   recognitionMethod: string;
   paymentStatus: string;
   productLabel?: string;
