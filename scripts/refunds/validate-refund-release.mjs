@@ -102,7 +102,7 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 71 required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 72 required refund\/Nayax migrations/);
 assert.match(cutoverPacket, /exact canonical 51-migration predeployment bridge/);
 assert.match(
   cutoverPacket,
@@ -141,8 +141,8 @@ for (const retiredPilotGate of [
 }
 assert.match(
   productionRunbook,
-  /exactly 42 reviewed synthetic screenshots/,
-  'Production runbook must use the current 42-screenshot evidence inventory'
+  /exactly 44 reviewed synthetic screenshots/,
+  'Production runbook must use the current 44-screenshot evidence inventory'
 );
 assert.doesNotMatch(
   productionRunbook,
@@ -208,8 +208,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    71,
-    'Refund release inventory must cover exactly 71 discovered refund/Nayax migrations'
+    72,
+    'Refund release inventory must cover exactly 72 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),

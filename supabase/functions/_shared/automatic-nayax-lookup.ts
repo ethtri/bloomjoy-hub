@@ -23,6 +23,7 @@ export type AutomaticNayaxLookupCase = {
   payment_method: string | null;
   payment_amount_cents: number | null;
   card_last4: string | null;
+  card_network: string | null;
   card_wallet_used: boolean | null;
   deterministic_fact_version: number;
 };
@@ -150,7 +151,7 @@ export const runAutomaticNayaxLookupIfReady = async ({
 }) => {
   const { data, error } = await supabase.from("refund_cases").select(`
     id,status,decision,reporting_machine_id,reporting_location_id,incident_at,
-    incident_time_resolution,payment_method,payment_amount_cents,card_last4,
+    incident_time_resolution,payment_method,payment_amount_cents,card_last4,card_network,
     card_wallet_used,deterministic_fact_version
   `).eq("id", caseId).maybeSingle();
   if (error) throw error;

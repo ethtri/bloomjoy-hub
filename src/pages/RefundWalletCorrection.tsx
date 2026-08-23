@@ -126,6 +126,7 @@ export default function RefundWalletCorrectionPage() {
   const [form, setForm] = useState<SubmitRefundWalletCorrectionInput>({
     token,
     walletType: 'apple_pay',
+    cardNetwork: '',
     cardLast4: '',
     incidentDate: '',
     incidentTime: '',
@@ -175,6 +176,10 @@ export default function RefundWalletCorrectionPage() {
     if (!context) return;
     if (!/^[0-9]{4}$/.test(form.cardLast4)) {
       toast.error('Enter the four digits shown for the card inside your mobile wallet.');
+      return;
+    }
+    if (!form.cardNetwork) {
+      toast.error('Choose the card type shown inside your mobile wallet.');
       return;
     }
     if (!form.incidentDate || !form.incidentTime) {
@@ -324,6 +329,34 @@ export default function RefundWalletCorrectionPage() {
                   <p className="text-sm leading-6 text-slate-500">
                     In Apple Wallet, open the card and view Card Number. Use the last four of
                     the Apple Pay number—not the physical card.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="cardNetwork">Card type</Label>
+                  <select
+                    id="cardNetwork"
+                    aria-describedby="wallet-card-network-guidance"
+                    className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={form.cardNetwork}
+                    onChange={(event) =>
+                      updateForm(
+                        'cardNetwork',
+                        event.target.value as SubmitRefundWalletCorrectionInput['cardNetwork']
+                      )
+                    }
+                    required
+                  >
+                    <option value="">Choose one</option>
+                    <option value="visa">Visa</option>
+                    <option value="mastercard">Mastercard</option>
+                    <option value="discover">Discover</option>
+                    <option value="american_express">American Express</option>
+                    <option value="other_unknown">Other / Not sure</option>
+                  </select>
+                  <p id="wallet-card-network-guidance" className="text-sm leading-6 text-slate-500">
+                    Use the logo on the card shown inside your wallet. Never send a full card
+                    number, expiration date, security code, wallet password, or screenshot.
                   </p>
                 </div>
 

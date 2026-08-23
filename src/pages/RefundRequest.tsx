@@ -15,6 +15,7 @@ import {
   isLocalUatDemoForced,
   startRefundQrClaim,
   submitRefundRequest,
+  type RefundCardNetwork,
   type RefundIncidentTimeConfidence,
   type RefundIssueCategory,
   type RefundPaymentInteraction,
@@ -31,6 +32,7 @@ const emptyForm = {
   incidentTime: '',
   paymentAmount: '',
   cardLast4: '',
+  cardNetwork: '' as RefundCardNetwork | '',
   cardWalletUsed: false,
   paymentInteraction: '' as RefundPaymentInteraction | '',
   walletProvider: '' as RefundWalletProvider | '',
@@ -243,6 +245,14 @@ export default function RefundRequestPage() {
       return;
     }
 
+    if (
+      ['phone_watch_wallet', 'tap_card', 'insert_or_swipe'].includes(form.paymentInteraction) &&
+      !form.cardNetwork
+    ) {
+      toast.error('Choose the card type shown on your card or in your wallet.');
+      return;
+    }
+
     if (!form.issueCategory) {
       toast.error('Choose the option that best describes what happened.');
       return;
@@ -269,6 +279,7 @@ export default function RefundRequestPage() {
         paymentMethod: 'card',
         paymentAmount: form.paymentAmount.trim(),
         cardLast4: form.cardLast4.trim(),
+        cardNetwork: form.cardNetwork || undefined,
         cardWalletUsed: form.cardWalletUsed,
         paymentInteraction: form.paymentInteraction || 'unsure',
         walletProvider:
@@ -630,6 +641,8 @@ export default function RefundRequestPage() {
                               cardWalletUsed: paymentInteraction === 'phone_watch_wallet',
                               walletProvider:
                                 paymentInteraction === 'phone_watch_wallet' ? current.walletProvider : '',
+                              cardNetwork:
+                                paymentInteraction === 'unsure' ? '' : current.cardNetwork,
                             }));
                           }}
                           required
@@ -660,6 +673,35 @@ export default function RefundRequestPage() {
                             <option value="other">Another wallet</option>
                             <option value="unsure">I am not sure</option>
                           </select>
+                        </div>
+                      )}
+                      {['phone_watch_wallet', 'tap_card', 'insert_or_swipe'].includes(
+                        form.paymentInteraction
+                      ) && (
+                        <div>
+                          <Label htmlFor="card-network">Card type</Label>
+                          <select
+                            id="card-network"
+                            aria-describedby="card-network-guidance"
+                            value={form.cardNetwork}
+                            onChange={(event) =>
+                              updateForm('cardNetwork', event.target.value as RefundCardNetwork)
+                            }
+                            required
+                            className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
+                          >
+                            <option value="">Choose one</option>
+                            <option value="visa">Visa</option>
+                            <option value="mastercard">Mastercard</option>
+                            <option value="discover">Discover</option>
+                            <option value="american_express">American Express</option>
+                            <option value="other_unknown">Other / Not sure</option>
+                          </select>
+                          <p id="card-network-guidance" className="mt-2 leading-6 text-pink-900">
+                            Use the logo on the physical card or the card shown inside your mobile
+                            wallet. Never send a full card number, expiration date, security code,
+                            wallet password, or card screenshot.
+                          </p>
                         </div>
                       )}
                       <div>

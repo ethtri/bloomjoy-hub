@@ -1,6 +1,6 @@
 # Current Status
 
-Last compacted: 2026-08-22
+Last compacted: 2026-08-23
 
 GitHub Issues and the Bloomjoy Project board are the operational source of truth for active work, priority, blockers, acceptance criteria, and closeout evidence.
 
@@ -20,7 +20,7 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 ## Current Themes
 
-### Refund Operations launch snapshot (authoritative as of 2026-08-22)
+### Refund Operations launch snapshot (authoritative as of 2026-08-23)
 
 - **Integrated v1 release (`#628`):** form-only intake (`#889`), Nayax inventory (`#890`), branded messages and same-case appeals (`#891`), duplicate protection (`#703`), and the unified source-aware queue (`#706`) are merged. The Bloomjoy form is live. A production incident found that public intake readiness had been separated from read-only transaction-search readiness, so a customer could submit successfully and then see **Transaction search unavailable**.
 - **Form and email-assistant boundary (`#889`):** customer contact records no refund case and sends one warm Bloomjoy form response only when the response lane is later enabled. The one-time Email-linked context or a direct Website form submission creates exactly one case. Verified replies add only changed safe facts to the same case and rerun matching; replays cannot create a competing actionable case.
@@ -32,6 +32,7 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 - **Mapped-manager denial (`#918`):** after confirming an exact card transaction, the manager must still see a visible secondary **Deny request** path. Denial uses one server-validated customer-safe reason, sends no Nayax request, creates no payment/reporting adjustment, and keeps reply-based appeal on the same case.
 - **Customer email transport (`#917`):** customer-visible mail uses the display name **Bloomjoy Refunds**. Gmail-linked cases stay in the original `info@bloomjoysweets.com` thread; direct Website cases keep the verified transactional sender and `Reply-To: info@bloomjoysweets.com`. Delivery uncertainty never falls through to a second conversation, and manager-only notices remain separate.
 - **Transaction-result clarity:** the manager workbench states how many search results are currently selectable, shows the closest transaction first, and collapses the remaining results. A physical-card mismatch names the conflicting card evidence and reports zero selectable transactions. A case waiting for a customer reply shows its current result only as context and keeps selection disabled until the reply triggers a fresh search. Matching, duplicate-payment, and refund-execution controls are unchanged.
+- **Card-network evidence (`#923`):** card intake and the single-use customer correction collect Visa, Mastercard, Discover, American Express, or Other / Not sure without collecting full card data. The manager compares the customer value with normalized Nayax card type in plain language. A match is supporting evidence; a physical-card mismatch keeps that candidate unselectable; wallet differences remain supportive only. Network evidence never selects a transaction, approves a refund, changes the exact selected Nayax amount, or bypasses duplicate/payment controls.
 - **Customer-correction email defect (`#924`):** the immediate read-only Nayax check and scheduled email assistant previously stopped at separate boundaries, and physical-card conflicts were classified as manager-only work before the customer-information action. The repair makes the assistant act once on both fresh and already-persisted no-safe-match results, requests only the customer-correctable time/payment/amount/physical-card facts, keeps provider/setup/duplicate/already-refunded evidence manager-only, and lets a verified labeled reply correct the same case and rerun matching. It does not select a transaction, approve a case, or call a refund endpoint.
 - **Unified refund queue (`#706`):** every form-created case stays in the same three manager queues and carries a compact **Support email** or **Website form** source beside its reference on desktop and mobile. The source label is informational only; case state, next action, manager scope, duplicate review, and payment safeguards are unchanged.
 - **Held $10.90 case:** production closeout is complete. Nayax support confirmed the existing transaction was refunded, Bloomjoy committed that provider-free result exactly once, and the guarded website-form recovery sent the saved customer email once at 2026-08-21 09:18 UTC. The final state has one successful attempt, one outcome resolution, one reporting adjustment, one sent completion message, one email-only retry, and no second provider call. The same customer/manager address was correctly treated as one recipient instead of a duplicate CC.

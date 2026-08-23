@@ -112,6 +112,7 @@ export type NayaxProviderCandidate = {
   currencyCode: string;
   cardLast4: string;
   cardBrand: string;
+  cardNetwork?: string | null;
   recognitionMethod: string;
   paymentStatus: string;
   providerRefundState: string;
@@ -292,6 +293,7 @@ const persistNayaxLookupCandidates = async ({
         amount_delta_cents: candidate.amountDeltaCents,
         provider_time_resolution: candidate.providerTimeResolution,
         card_brand: candidate.cardBrand || null,
+        card_network: candidate.cardNetwork || null,
         recognition_method: candidate.recognitionMethod || null,
         payment_status: candidate.paymentStatus || null,
         product_label: candidate.productLabel || null,
@@ -351,6 +353,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
       payment_amount_cents,
       refund_amount_cents,
       card_last4,
+      card_network,
       card_wallet_used,
       customer_email,
       customer_name,
@@ -532,6 +535,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     locationTimezone: sanitizeText(location?.timezone, 80),
     requestAmountCents: sanitizeInputCents(refundCase?.payment_amount_cents),
     requestCardLast4: extractLast4(refundCase?.card_last4),
+    requestCardNetwork: sanitizeText(refundCase?.card_network, 40),
     cardWalletUsed: Boolean(refundCase?.card_wallet_used),
     incidentTimeConfidence: sanitizeText(refundCase?.incident_time_confidence, 40) || "rough",
     machineContext,

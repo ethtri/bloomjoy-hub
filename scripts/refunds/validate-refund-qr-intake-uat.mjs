@@ -265,9 +265,11 @@ const fillRequiredRefundFields = async (page, { wallet = false } = {}) => {
   if (wallet) {
     await page.getByLabel('How did you pay at the machine?').selectOption('phone_watch_wallet');
     await page.getByLabel('Which wallet did you use?').selectOption('apple_pay');
+    await page.getByLabel('Card type').selectOption('discover');
     await page.getByLabel('Virtual last 4 shown in your wallet').fill('9876');
   } else {
     await page.getByLabel('How did you pay at the machine?').selectOption('tap_card');
+    await page.getByLabel('Card type').selectOption('visa');
     await page.getByLabel('Last 4 digits on the card you used').fill('4242');
   }
 
@@ -311,6 +313,7 @@ const runDesktopQrJourney = async ({ browser, appUrl, artifactDir }) => {
   assert.equal(submission.machineId, machineId);
   assert.match(submission.qrClaimToken, /^refund_qr_claim_uat_token_/);
   assert.equal(submission.cardLast4, '4242');
+  assert.equal(submission.cardNetwork, 'visa');
   assert.equal(submission.cardWalletUsed, false);
   assert.equal(submission.paymentInteraction, 'tap_card');
   assert.equal(submission.incidentTimeConfidence, 'within_15_minutes');
@@ -386,6 +389,7 @@ const runMobileWalletJourney = async ({ browser, appUrl, artifactDir }) => {
   await page.waitForURL('**/refunds/thank-you?ref=RF-QR-UAT');
   const submission = functionBodies.find((body) => !body.action);
   assert.equal(submission.cardLast4, '9876');
+  assert.equal(submission.cardNetwork, 'discover');
   assert.equal(submission.cardWalletUsed, true);
   assert.equal(submission.paymentInteraction, 'phone_watch_wallet');
   assert.equal(submission.walletProvider, 'apple_pay');
@@ -416,6 +420,11 @@ const runDirectJourney = async ({ browser, appUrl, artifactDir }) => {
   });
 
   await fillRequiredRefundFields(page);
+  await page.getByLabel('Card type').scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-direct-intake-card-type-desktop.png'),
+    fullPage: false,
+  });
   await page.getByRole('button', { name: 'Send refund request' }).click();
   await page.waitForURL('**/refunds/thank-you?ref=RF-QR-UAT');
   const submission = functionBodies.find((body) => !body.action);
