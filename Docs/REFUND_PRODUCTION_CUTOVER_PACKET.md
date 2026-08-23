@@ -24,7 +24,7 @@ Refund Operations v1 uses the existing customer-service email and text-response 
 
 | Gate | Required evidence | Authority to close |
 |---|---|---|
-| Integrated release | Immutable `main` commit, 10-function/68-migration manifest, full verification, reviewed migration dry run, restore source, and clean postdeploy drift | Release and technical owners |
+| Integrated release | Immutable `main` commit, 10-function/70-migration manifest, full verification, reviewed migration dry run, restore source, and clean postdeploy drift | Release and technical owners |
 | `#889` form-only intake | Contact-only zero cases, one Email-linked form case, one direct Website form case, one-time context/replay proof, missing-information reply on the same case, and matching rerun | QA and operations owners |
 | `#890` complete Nayax inventory | One controlled all-account sync; every active row explicitly published, needs setup, or excluded; zero unaccounted/setup-required rows at launch; cotton-candy and Snapcase mappings | Operations, release, and QA owners |
 | `#891` messages and appeals | Warm branded first contact, missing-information, denial, appeal receipt, retry, and confirmed completion in the original thread; reply appeal reopens the same case without payment | QA and operations owners |
@@ -37,10 +37,10 @@ Refund Operations v1 uses the existing customer-service email and text-response 
 
 The owner-authenticated read-only checks on 2026-08-21 produced this sanitized baseline:
 
-- Local release alignment: ten manifest-tracked functions and 68 required refund/Nayax migrations.
+- Local release alignment: ten manifest-tracked functions and 70 required refund/Nayax migrations.
 - Production baseline: ten deployed refund functions captured to a gitignored artifact.
 - Production drift: seven changed repository functions are not yet paired with production, so the release correctly remains undeployed.
-- `supabase db push --dry-run --linked`: the integrated set includes `20260821090000_refund_form_only_case_creation.sql`, `20260821091000_refund_nayax_inventory.sql`, `20260821100000_refund_branded_appeals.sql`, and `20260822190000_refund_portfolio_intake_inventory_correction.sql`; deploy only the reviewed migrations absent from production, and make no database write during the dry run.
+- `supabase db push --dry-run --linked`: the integrated set includes `20260821090000_refund_form_only_case_creation.sql`, `20260821091000_refund_nayax_inventory.sql`, `20260821100000_refund_branded_appeals.sql`, `20260822190000_refund_portfolio_intake_inventory_correction.sql`, and `20260822200000_refund_nayax_obvious_mapping_repair.sql`; deploy only the reviewed migrations absent from production, and make no database write during the dry run.
 
 This evidence expires if `main`, any listed migration, or any manifest-tracked function changes before deployment.
 
@@ -81,7 +81,7 @@ If any merge changes an in-scope migration or Refund Operations function after t
 
 ### No provisional compatibility bridge
 
-The historical `#629/#716` five-migration bridge does not apply. The 68-migration target uses its reviewed manifest plus the exact canonical 51-migration predeployment bridge only for historical compatibility evidence. Any unexpected migration, source digest, function version, switch state, or health result stops the release.
+The historical `#629/#716` five-migration bridge does not apply. The 70-migration target uses its reviewed manifest plus the exact canonical 51-migration predeployment bridge only for historical compatibility evidence. Any unexpected migration, source digest, function version, switch state, or health result stops the release.
 
 ## Default-off production deployment
 
