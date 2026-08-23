@@ -31,6 +31,11 @@ import {
   type RefundMissingField,
 } from "../_shared/refund-deterministic-follow-up.ts";
 import {
+  buildNayaxCustomerCorrectionEmail,
+  deriveNayaxCustomerCorrectionFields,
+  sendNayaxCustomerCorrectionEmail,
+} from "../_shared/refund-nayax-customer-correction.ts";
+import {
   buildRefundManagerAgingNotice,
   REFUND_MANAGER_AGING_TEMPLATE_VERSION,
   runRefundManagerAgingWhenEnabled,
@@ -200,6 +205,9 @@ type RefundSweepCase = {
   created_at: string;
   wallet_correction_state: string;
   wallet_correction_version: number;
+  nayax_recommendation_state: string | null;
+  nayax_recommendation_policy_version: string | null;
+  nayax_recommendation_evaluated_at: string | null;
   reporting_machines?: {
     machine_label: string | null;
     refund_public_display_label: string | null;
@@ -353,6 +361,9 @@ const caseSelect = `
   created_at,
   wallet_correction_state,
   wallet_correction_version,
+  nayax_recommendation_state,
+  nayax_recommendation_policy_version,
+  nayax_recommendation_evaluated_at,
   reporting_machines(machine_label, refund_public_display_label),
   reporting_locations(name)
 `;
@@ -578,6 +589,7 @@ const buildFollowUpEmailInput = (
   refundCase: RefundSweepCase,
   cycle: RefundFollowUpCycleContext,
   messageClass: RefundFollowUpMessageClass,
+  customerCorrectionFields: RefundMissingField[] = [],
 ) => {
   const publicLabels = resolveRefundPublicLabels({
     locationName: refundCase.reporting_locations?.name,
@@ -595,7 +607,9 @@ const buildFollowUpEmailInput = (
     paymentMethod: refundCase.payment_method,
     cardWalletUsed: refundCase.card_wallet_used,
     incidentLocalDateTime: refundCase.incident_local_datetime,
-    missingFields: cycle.requestedFields,
+    missingFields: customerCorrectionFields.length > 0
+      ? customerCorrectionFields
+      : cycle.requestedFields,
     followUpReason: cycle.reasonCode,
   };
 };
@@ -604,10 +618,18 @@ const logDeterministicFollowUpMessage = async (
   refundCase: RefundSweepCase,
   cycle: RefundFollowUpCycleContext,
   messageClass: RefundFollowUpMessageClass,
+  customerCorrectionFields: RefundMissingField[] = [],
 ) => {
   if (!supabase) return null;
-  const emailInput = buildFollowUpEmailInput(refundCase, cycle, messageClass);
-  const email = buildRefundCustomerEmail(emailInput);
+  const emailInput = buildFollowUpEmailInput(
+    refundCase,
+    cycle,
+    messageClass,
+    customerCorrectionFields,
+  );
+  const email = customerCorrectionFields.length > 0
+    ? buildNayaxCustomerCorrectionEmail(emailInput)
+    : buildRefundCustomerEmail(emailInput);
   const messageType = messageTypeForFollowUp(cycle, messageClass);
 
   const { data, error } = await supabase
@@ -642,13 +664,21 @@ const sendDeterministicFollowUpMessage = async (
   refundCase: RefundSweepCase,
   cycle: RefundFollowUpCycleContext,
   messageClass: RefundFollowUpMessageClass,
+  customerCorrectionFields: RefundMissingField[] = [],
 ) => {
   if (!(await automaticCustomerContactAllowed())) {
     return { status: "suppressed" as const, messageId: null };
   }
   const messageType = messageTypeForFollowUp(cycle, messageClass);
-  const emailInput = buildFollowUpEmailInput(refundCase, cycle, messageClass);
-  const email = buildRefundCustomerEmail(emailInput);
+  const emailInput = buildFollowUpEmailInput(
+    refundCase,
+    cycle,
+    messageClass,
+    customerCorrectionFields,
+  );
+  const email = customerCorrectionFields.length > 0
+    ? buildNayaxCustomerCorrectionEmail(emailInput)
+    : buildRefundCustomerEmail(emailInput);
   const gmailThreadId = await resolveFollowUpGmailThreadId(cycle, messageClass);
   let messageId: string | null = null;
 
@@ -657,6 +687,7 @@ const sendDeterministicFollowUpMessage = async (
       refundCase,
       cycle,
       messageClass,
+      customerCorrectionFields,
     );
     if (!messageId) throw new Error("Refund customer message record is required.");
     const gmailDelivery = await dispatchRefundCaseGmailReply({
@@ -675,10 +706,15 @@ const sendDeterministicFollowUpMessage = async (
           "Automatic customer contact was disabled before provider delivery.",
         );
       }
-      await sendRefundCustomerEmail({
+      const transactionalInput = {
         ...emailInput,
         managerCcEmails: gmailDelivery.managerCcEmails,
-      });
+      };
+      if (customerCorrectionFields.length > 0) {
+        await sendNayaxCustomerCorrectionEmail(transactionalInput);
+      } else {
+        await sendRefundCustomerEmail(transactionalInput);
+      }
     }
 
     if (messageId) {
@@ -713,6 +749,7 @@ const sendDeterministicFollowUpMessage = async (
         follow_up_reason: cycle.reasonCode,
         template_version: cycle.templateVersion,
         requested_fields: cycle.requestedFields,
+        customer_correction_fields: customerCorrectionFields,
         transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
         manager_cc_count: gmailDelivery.managerCcCount,
         recipient_resolution_status: gmailDelivery.recipientResolutionStatus,
@@ -1762,6 +1799,48 @@ const runCustomerReplyFollowUpSweep = async (
   }
 };
 
+type PersistedNayaxCorrectionEvidence = {
+  isTopRanked: boolean;
+  reasonCodes: string[];
+  manualReviewReasons: string[];
+  hardExclusions: string[];
+};
+
+const stringList = (value: unknown) =>
+  Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
+
+const getPersistedNayaxCorrectionEvidence = async (
+  refundCaseId: string,
+): Promise<PersistedNayaxCorrectionEvidence[]> => {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("refund_nayax_lookup_candidates")
+    .select("evidence_summary,created_at")
+    .eq("refund_case_id", refundCaseId)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (error) throw error;
+  const hasTopRanked = (data ?? []).some((candidate) =>
+    candidate.evidence_summary &&
+    typeof candidate.evidence_summary === "object" &&
+    (candidate.evidence_summary as Record<string, unknown>).is_top_ranked === true
+  );
+  return (data ?? []).map((row, index) => {
+    const evidence = row.evidence_summary &&
+        typeof row.evidence_summary === "object"
+      ? row.evidence_summary as Record<string, unknown>
+      : {};
+    return {
+      isTopRanked: evidence.is_top_ranked === true || (index === 0 && !hasTopRanked),
+      reasonCodes: stringList(evidence.reason_codes),
+      manualReviewReasons: stringList(evidence.manual_review_reasons),
+      hardExclusions: stringList(evidence.hard_exclusions),
+    };
+  });
+};
+
 const runCardNayaxLookupSweep = async (
   runId: string,
   counters: SweepCounters,
@@ -1852,6 +1931,11 @@ const runCardNayaxLookupSweep = async (
             ].includes(reasonCode)
           )
         );
+      const customerCorrectionFields = deriveNayaxCustomerCorrectionFields({
+        recommendationState: lookupResult.recommendationState,
+        cardWalletUsed: refundCase.card_wallet_used,
+        candidates: lookupResult.candidates,
+      });
 
       if (walletCorrectionUseful && !refundCase.card_wallet_used) {
         const { error: walletDetectionError } = await supabase
@@ -1876,7 +1960,8 @@ const runCardNayaxLookupSweep = async (
 
       if (
         lookupResult.recommendationState !== "no_safe_match" &&
-        !walletCorrectionUseful
+        !walletCorrectionUseful &&
+        customerCorrectionFields.length === 0
       ) {
         counters.nayaxCandidatesFound += lookupResult.candidates.length;
         const correlationStatus = lookupResult.recommendationState === "ambiguous"
@@ -2061,9 +2146,11 @@ const runCardNayaxLookupSweep = async (
           correlation_status: "no_match",
           correlation_source: "nayax",
           correlation_confidence: 0,
-          correlation_summary: `${lookupResult.summary} No deterministic customer correction has been assumed.`,
+          correlation_summary: customerCorrectionFields.length > 0
+            ? `${lookupResult.summary} Bloomjoy requested the smallest customer correction needed for another safe check.`
+            : `${lookupResult.summary} No deterministic customer correction has been assumed.`,
           automation_state: "under_review",
-          nayax_recommendation_state: lookupResult.recommendationState,
+          nayax_recommendation_state: "no_safe_match",
           nayax_recommendation_policy_version: lookupResult.policyVersion,
           nayax_recommendation_evaluated_at: lookupResult.lastCheckedAt,
           nayax_match_execution_eligible: false,
@@ -2084,7 +2171,7 @@ const runCardNayaxLookupSweep = async (
         refundCase: noMatchCase,
         reasonCode: "no_safe_match",
         sourceCustomerMessageId,
-        requestedFields: [],
+        requestedFields: customerCorrectionFields,
       });
 
       if (!cycleClaim.claimed || !cycleClaim.cycle) {
@@ -2110,6 +2197,7 @@ const runCardNayaxLookupSweep = async (
         noMatchCase,
         cycleClaim.cycle,
         "request",
+        customerCorrectionFields,
       );
       if (noMatchResult.status === "sent") {
         counters.nayaxNoMatchMovedToWaiting += 1;
@@ -2117,7 +2205,7 @@ const runCardNayaxLookupSweep = async (
         const { error: eventError } = await supabase.from("refund_case_events").insert({
           refund_case_id: refundCase.id,
           event_type: "nayax_auto_lookup_no_safe_match_contacted",
-          message: "A confirmed provider no-safe-match result triggered one versioned correction-focused customer message.",
+          message: "A provider no-safe-match or customer-correctable conflict triggered one versioned customer message.",
           metadata: {
             follow_up_cycle_id: cycleClaim.cycle.id,
             template_version: cycleClaim.cycle.templateVersion,
@@ -2126,6 +2214,7 @@ const runCardNayaxLookupSweep = async (
             recommendation_state: lookupResult.recommendationState,
             confidence_class: lookupResult.confidenceClass,
             reason_codes: lookupResult.reasonCodes,
+            customer_correction_fields: customerCorrectionFields,
             policy_version: lookupResult.policyVersion,
             provider_record_count: lookupResult.providerRecordCount ?? null,
             provider_window_record_count: lookupResult.providerWindowRecordCount ?? null,
@@ -2179,6 +2268,177 @@ const runCardNayaxLookupSweep = async (
         });
       }
       await finishAction(action, "failed", sanitizeFailureCategory(error), null, counters);
+    }
+  }
+};
+
+const runPersistedNayaxCustomerCorrectionSweep = async (
+  runId: string,
+  counters: SweepCounters,
+  policyWindowStart: string,
+) => {
+  if (!supabase) return;
+  const { data: correctionCases, error: correctionCasesError } = await supabase
+    .from("refund_cases")
+    .select(caseSelect)
+    .eq("payment_method", "card")
+    .eq("card_wallet_used", false)
+    .eq("status", "needs_review")
+    .in("nayax_recommendation_state", ["no_safe_match", "manual_exception"])
+    .limit(25);
+  if (correctionCasesError) throw correctionCasesError;
+
+  for (
+    const rawRefundCase of (correctionCases ?? []) as unknown as RawRefundSweepCase[]
+  ) {
+    const refundCase = normalizeRefundSweepCase(rawRefundCase);
+    const evidence = await getPersistedNayaxCorrectionEvidence(refundCase.id);
+    const customerCorrectionFields = refundCase.nayax_recommendation_state ===
+        "manual_exception"
+      ? deriveNayaxCustomerCorrectionFields({
+        recommendationState: refundCase.nayax_recommendation_state,
+        cardWalletUsed: refundCase.card_wallet_used,
+        candidates: evidence,
+      })
+      : [];
+    if (
+      refundCase.nayax_recommendation_state === "manual_exception" &&
+      customerCorrectionFields.length === 0
+    ) {
+      continue;
+    }
+    if (
+      !refundCase.nayax_recommendation_policy_version ||
+      !refundCase.nayax_recommendation_evaluated_at
+    ) {
+      continue;
+    }
+
+    counters.evaluatedCaseIds.add(refundCase.id);
+    const evaluationKey = refundCase.nayax_recommendation_evaluated_at
+      .replace(/[^0-9]/g, "").slice(0, 20) || "unknown";
+    const action = await claimAction(
+      runId,
+      refundCase.id,
+      `nayax_customer_follow_up:${refundCase.id}:v${refundCase.deterministic_fact_version}:${evaluationKey}`,
+      "customer_more_info",
+      refundCase.status,
+      policyWindowStart,
+      counters,
+    );
+    if (!action.claimed) continue;
+
+    try {
+      if (customerCorrectionFields.length > 0) {
+        const { data: normalizedRows, error: normalizationError } = await supabase
+          .from("refund_cases")
+          .update({
+            correlation_status: "no_match",
+            correlation_source: "nayax",
+            correlation_confidence: 0,
+            correlation_summary:
+              "Nayax found nearby transactions, but customer information must be corrected or confirmed before one can be matched safely.",
+            automation_state: "under_review",
+            nayax_recommendation_state: "no_safe_match",
+            nayax_match_execution_eligible: false,
+          })
+          .eq("id", refundCase.id)
+          .eq(
+            "nayax_recommendation_evaluated_at",
+            refundCase.nayax_recommendation_evaluated_at,
+          )
+          .select("id");
+        if (normalizationError) throw normalizationError;
+        if ((normalizedRows?.length ?? 0) !== 1) {
+          throw new Error("Nayax correction evidence changed before customer contact.");
+        }
+      }
+
+      const noMatchCase = {
+        ...refundCase,
+        correlation_status: "no_match",
+        automation_state: "under_review",
+        nayax_recommendation_state: "no_safe_match",
+      };
+      const sourceCustomerMessageId = await getLatestVerifiedCustomerMessageId(
+        refundCase.id,
+      );
+      const cycleClaim = await claimFollowUpCycle({
+        refundCase: noMatchCase,
+        reasonCode: "no_safe_match",
+        sourceCustomerMessageId,
+        requestedFields: customerCorrectionFields,
+      });
+      if (!cycleClaim.claimed || !cycleClaim.cycle) {
+        await routeFollowUpManualReview({
+          runId,
+          refundCase: noMatchCase,
+          actionKeySuffix: `persisted-no-safe-match:${refundCase.deterministic_fact_version}:${cycleClaim.reason ?? "not-claimed"}`,
+          noticeKind: "follow_up_manual_review",
+          policyWindowStart,
+          counters,
+        });
+        await finishAction(
+          action,
+          "completed",
+          cycleClaim.reason ?? "no_safe_match_manual_review",
+          null,
+          counters,
+        );
+        continue;
+      }
+
+      const result = await sendDeterministicFollowUpMessage(
+        noMatchCase,
+        cycleClaim.cycle,
+        "request",
+        customerCorrectionFields,
+      );
+      if (result.status === "sent") {
+        counters.nayaxNoMatchMovedToWaiting += 1;
+        counters.noSafeMatchRequestsSent += 1;
+        const { error: eventError } = await supabase.from("refund_case_events")
+          .insert({
+            refund_case_id: refundCase.id,
+            event_type: "nayax_persisted_result_customer_contacted",
+            message:
+              "The email assistant acted on the latest completed Nayax result and requested one customer correction in the same case.",
+            metadata: {
+              follow_up_cycle_id: cycleClaim.cycle.id,
+              template_version: cycleClaim.cycle.templateVersion,
+              customer_correction_fields: customerCorrectionFields,
+              nayax_policy_version: refundCase.nayax_recommendation_policy_version,
+              nayax_evaluated_at: refundCase.nayax_recommendation_evaluated_at,
+              payload_redacted: true,
+            },
+          });
+        if (eventError) throw eventError;
+        await finishAction(
+          action,
+          "completed",
+          "nayax_customer_correction_contacted",
+          result.messageId,
+          counters,
+        );
+      } else {
+        await finishAction(
+          action,
+          "failed",
+          result.status === "suppressed"
+            ? "automatic_customer_contact_disabled"
+            : "customer_email_failed",
+          result.messageId,
+          counters,
+        );
+      }
+    } catch (error) {
+      await finishAction(
+        action,
+        "failed",
+        sanitizeFailureCategory(error),
+        null,
+        counters,
+      );
     }
   }
 };
@@ -2808,6 +3068,11 @@ serve(async (req) => {
     await runMissingInformationSweep(runId, counters, policyWindowStart);
     await runCashNoSafeMatchSweep(runId, counters, policyWindowStart);
     await runCardNayaxLookupSweep(runId, counters, policyWindowStart);
+    await runPersistedNayaxCustomerCorrectionSweep(
+      runId,
+      counters,
+      policyWindowStart,
+    );
     await runWalletCorrectionExpirySweep(
       runId,
       counters,
