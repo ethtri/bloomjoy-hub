@@ -3141,9 +3141,7 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
 
   await alternativesPage.getByText('Other decisions', { exact: true }).click();
   await alternativesPage.getByRole('button', { name: 'Deny request', exact: true }).click();
-  await alternativesPage.getByTestId('refund-cash-denial-reason').fill(
-    'We could not verify the requested purchase after reviewing the available machine record.'
-  );
+  await alternativesPage.getByTestId('refund-cash-denial-reason').selectOption({ index: 1 });
   await alternativesPage.getByText('Preview customer email', { exact: true }).click();
   recorder.assert(
     'Cash denial path previews the appropriate customer email',
