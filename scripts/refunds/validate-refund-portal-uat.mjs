@@ -47,6 +47,7 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'admin_get_refund_case_reconciliation',
   'admin_get_refund_gmail_draft_cases',
   'admin_get_refund_operations_overview',
+  'admin_get_refund_manual_nayax_context',
 ]);
 
 const isReadOnlyNavigationActivity = ({ functionCalls, rpcCalls }) =>
@@ -3611,6 +3612,49 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
   );
   await page.screenshot({
     path: path.join(artifactDir, 'refund-portal-uat-setup-needed.png'),
+    fullPage: false,
+  });
+
+  const callsBeforeManualPortalDemo = functionCalls.length;
+  await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=on`, { waitUntil: 'networkidle' });
+  await queueCase(page, 'RF-UAT-NC-MANUAL').click();
+  await page.getByRole('heading', { name: 'RF-UAT-NC-MANUAL' }).waitFor({ timeout: 10000 });
+  const manualPortalForm = page.getByTestId('manual-nayax-evidence-form');
+  recorder.assert(
+    'API-pending Adam-managed case renders the manual Nayax evidence path',
+    await manualPortalForm.isVisible() &&
+      await manualPortalForm.getByLabel('Machine reference in Nayax').isVisible() &&
+      await manualPortalForm.getByLabel('Transaction reference').isVisible() &&
+      await manualPortalForm.getByLabel('Transaction date and time').isVisible() &&
+      await manualPortalForm.getByLabel('Amount').isVisible() &&
+      await manualPortalForm.getByLabel('Card last 4').isVisible()
+  );
+  recorder.assert(
+    'Manual Nayax evidence copy preserves separate confirmation and approval',
+    await manualPortalForm.getByText(/Saving this step does not approve or send a refund/i).isVisible() &&
+      await manualPortalForm.getByText(/separately confirm the transaction and approve the refund/i).isVisible()
+  );
+  recorder.assert(
+    'Manual Nayax time entry names the machine location timezone',
+    await manualPortalForm.getByText(/machine-local time shown in Nayax \(America\/New_York\)/i).isVisible()
+  );
+  recorder.assert(
+    'Opening the manual Nayax path makes no provider or official-action call',
+    functionCalls.length === callsBeforeManualPortalDemo
+  );
+  await manualPortalForm.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-portal-uat-nc-manual-desktop.png'),
+    fullPage: false,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await manualPortalForm.scrollIntoViewIfNeeded();
+  recorder.assert(
+    'Manual Nayax form remains usable without mobile overflow',
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-portal-uat-nc-manual-mobile.png'),
     fullPage: false,
   });
 

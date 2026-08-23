@@ -6,7 +6,7 @@ Last updated: 2026-08-22
 
 Use this packet to move epic `#628` from the fully integrated release on `main` to a simple, monitored production pilot. A green PR is necessary but is not production deployment, customer-contact activation, live-payment approval, schedule enablement, or legacy-responder retirement.
 
-**Current operational truth:** the reviewed repository target covers all ten manifest-tracked Refund Operations functions and all 74 required refund/Nayax migrations. The first nine mapping repairs are deployed and both affected Great Mall cases now complete transaction search safely. The follow-up reconciliation accounts for the remaining 22 active provider rows as 16 customer-safe published mappings, two explicit setup rows, and four explicit test/invalid exclusions. No payment flag changes. Production deployment and live aggregate/form QA remain required for that follow-up slice.
+**Current operational truth:** the reviewed repository target covers all ten manifest-tracked Refund Operations functions and all 75 required refund/Nayax migrations. The first nine mapping repairs are deployed and both affected Great Mall cases now complete transaction search safely. The follow-up reconciliation accounts for the remaining 22 active provider rows as 16 customer-safe published mappings, two explicit setup rows, and four explicit test/invalid exclusions. The 75th migration adds a provider-free temporary workflow for the twelve exact Adam-managed NC-account machines that do not yet have Bloomjoy API identities; it does not enable automatic payment for them. Production deployment and live aggregate/form QA remain required for that slice.
 
 ## Pilot scope boundary
 

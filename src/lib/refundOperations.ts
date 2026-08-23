@@ -350,6 +350,9 @@ export type RefundCaseRecord = {
   latestCustomerMessageType?: string | null;
   latestCustomerMessageAt?: string | null;
   nayaxLookupSummary?: RefundNayaxLookupSummary | null;
+  manualNayaxPortalEnabled?: boolean;
+  manualNayaxEvidenceSelected?: boolean;
+  manualNayaxLocationTimezone?: string | null;
 };
 
 export type RefundAdminMachine = {
@@ -685,9 +688,37 @@ export type RefundNayaxResolutionReadiness = {
     | null;
   attemptId?: string | null;
   providerOutcome?: 'rejected' | 'timeout' | 'unknown' | null;
+  manualPortalAttempt?: boolean;
   expectedCaseVersion?: number | null;
   allowedResults?: RefundNayaxResolutionResult[];
   payloadRedacted: true;
+};
+
+export type CreateRefundManualNayaxCandidateInput = {
+  caseId: string;
+  expectedCaseVersion: number;
+  portalMachineReference: string;
+  providerTransactionId: string;
+  machineAuthorizationLocalTime: string;
+  amountCents: number;
+  cardLast4: string;
+};
+
+export type CreateRefundManualNayaxCandidateResponse = {
+  candidateToken: string;
+  expiresAt: string;
+  providerCallMade: false;
+  customerMessageCreated: false;
+};
+
+export type BeginRefundManualNayaxPortalResponse = {
+  attemptId: string;
+  created: boolean;
+  status: 'manual_review';
+  providerOutcome: 'unknown';
+  expectedCaseVersion: number;
+  providerCallMade: false;
+  customerMessageCreated: false;
 };
 
 export type ResolveRefundNayaxOutcomeInput = {
@@ -1158,6 +1189,12 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         locationName: 'Arcade Hall',
         nayaxLookupConfigured: false,
       },
+      {
+        id: 'demo-machine-nc-manual',
+        machineLabel: 'Carolina Place',
+        locationName: 'Carolina Place',
+        nayaxLookupConfigured: false,
+      },
     ],
     managerAssignments: [
       {
@@ -1168,8 +1205,86 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         reportingMachineId: 'demo-machine-cash',
         managerEmail,
       },
+      {
+        reportingMachineId: 'demo-machine-nc-manual',
+        managerEmail,
+      },
     ],
     cases: [
+      {
+        id: 'demo-nc-manual',
+        publicReference: 'RF-UAT-NC-MANUAL',
+        canPerformOfficialAction: true,
+        canSelectNayaxCandidate: true,
+        officialActionVersion: 1,
+        status: 'needs_review',
+        priority: 'normal',
+        correlationStatus: 'nayax_not_configured',
+        correlationSource: null,
+        correlationConfidence: 0,
+        correlationSummary: 'Use Adam’s Nayax portal to find the exact transaction.',
+        machineLabel: 'Carolina Place',
+        locationName: 'Carolina Place',
+        customerEmail: 'nc-customer@example.test',
+        customerName: 'NC Customer',
+        customerPhone: null,
+        zellePaymentContact: null,
+        issueSummary: 'Card was charged but the product did not dispense.',
+        incidentAt: demoIsoHoursAgo(2),
+        structuredIncidentAt: demoIsoHoursAgo(2),
+        incidentTimeResolution: 'exact',
+        paymentMethod: 'card',
+        paymentAmountCents: 700,
+        cardLast4: '4242',
+        cardNetwork: 'visa',
+        cardWalletUsed: false,
+        paymentInteraction: 'tap_card',
+        walletProvider: null,
+        incidentTimeConfidence: 'exact',
+        issueCategory: 'charged_no_product',
+        productDescription: 'Cotton candy',
+        hasMatchedSalesFact: false,
+        hasMatchedNayaxTransaction: false,
+        nayaxMatchExecutionEligible: false,
+        nayaxRecommendationState: 'manual_exception',
+        nayaxRecommendationPolicyVersion: null,
+        matchedNayaxMachineAuthTime: null,
+        matchedNayaxAmountCents: null,
+        matchedNayaxCardLast4: null,
+        matchedNayaxCurrencyCode: null,
+        nayaxLookupCandidates: [],
+        assignedManagerEmail: managerEmail,
+        decision: null,
+        decisionReason: null,
+        decidedAt: null,
+        refundAmountCents: 700,
+        manualRefundReference: null,
+        hasReportingAdjustment: false,
+        createdAt: demoIsoHoursAgo(3),
+        updatedAt: demoIsoHoursAgo(2),
+        attachments: [],
+        events: [],
+        messages: [],
+        intakeSource: 'gmail',
+        hasGmailThread: true,
+        intakeComplete: true,
+        providerHold: false,
+        providerOutcome: 'not_attempted',
+        reconciliationActionBlocked: false,
+        legacyStateReviewRequired: false,
+        manualNayaxPortalEnabled: true,
+        manualNayaxEvidenceSelected: false,
+        manualNayaxLocationTimezone: 'America/New_York',
+        nayaxLookupSummary: {
+          lookupStatus: 'setup_needed',
+          candidateCount: 0,
+          summary: 'Use Adam’s Nayax portal to find the exact transaction.',
+          recommendedAction: 'Enter the exact transaction below.',
+          recommendationState: 'manual_exception',
+          oneClickEligible: false,
+          incidentAt: demoIsoHoursAgo(2),
+        },
+      },
       {
         id: 'demo-card-match',
         publicReference: 'RF-UAT-CARD',
@@ -1417,10 +1532,11 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
 };
 
 export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsOverview> => {
-  const [overviewResult, gmailDraftResult, queueStateResult] = await Promise.all([
+  const [overviewResult, gmailDraftResult, queueStateResult, manualNayaxResult] = await Promise.all([
     supabaseClient.rpc('admin_get_refund_operations_overview'),
     supabaseClient.rpc('admin_get_refund_gmail_draft_cases'),
     supabaseClient.rpc('admin_get_refund_email_queue_states'),
+    supabaseClient.rpc('admin_get_refund_manual_nayax_context'),
   ]);
 
   if (overviewResult.error) {
@@ -1431,6 +1547,9 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   }
   if (queueStateResult.error) {
     throw new Error(queueStateResult.error.message || 'Unable to load refund queue state.');
+  }
+  if (manualNayaxResult.error) {
+    throw new Error(manualNayaxResult.error.message || 'Unable to load manual Nayax readiness.');
   }
 
   const overview = {
@@ -1446,22 +1565,41 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   const queueStateByCaseId = new Map(
     queueStates.map((state) => [state.caseId, state] as const)
   );
+  const manualNayaxContexts = Array.isArray(manualNayaxResult.data)
+    ? (manualNayaxResult.data as Array<{
+        caseId: string;
+        manualNayaxPortalEnabled: boolean;
+        manualNayaxEvidenceSelected: boolean;
+        manualNayaxLocationTimezone: string | null;
+      }>)
+    : [];
+  const manualNayaxByCaseId = new Map(
+    manualNayaxContexts.map((context) => [context.caseId, context] as const)
+  );
   const cases = [...gmailDrafts, ...overview.cases].map((refundCase) => {
     const state = queueStateByCaseId.get(refundCase.id);
-    if (!state) return refundCase;
+    const manualNayax = manualNayaxByCaseId.get(refundCase.id);
+    if (!state && !manualNayax) return refundCase;
     return {
       ...refundCase,
-      intakeSource: state.intakeSource,
-      exactCasePath: state.exactCasePath,
-      missingInformation: state.missingInformation,
-      possibleDuplicate: state.possibleDuplicate,
-      confirmedDuplicate: state.confirmedDuplicate,
-      duplicateOfCaseId: state.duplicateOfCaseId,
-      aging: state.aging,
-      providerHold: state.providerHold,
-      providerOutcome: state.providerOutcome,
-      legacyStateReviewRequired: state.legacyStateReviewRequired,
-      reconciliationActionBlocked: state.actionBlocked,
+      ...(state ? {
+        intakeSource: state.intakeSource,
+        exactCasePath: state.exactCasePath,
+        missingInformation: state.missingInformation,
+        possibleDuplicate: state.possibleDuplicate,
+        confirmedDuplicate: state.confirmedDuplicate,
+        duplicateOfCaseId: state.duplicateOfCaseId,
+        aging: state.aging,
+        providerHold: state.providerHold,
+        providerOutcome: state.providerOutcome,
+        legacyStateReviewRequired: state.legacyStateReviewRequired,
+        reconciliationActionBlocked: state.actionBlocked,
+      } : {}),
+      ...(manualNayax ? {
+        manualNayaxPortalEnabled: manualNayax.manualNayaxPortalEnabled,
+        manualNayaxEvidenceSelected: manualNayax.manualNayaxEvidenceSelected,
+        manualNayaxLocationTimezone: manualNayax.manualNayaxLocationTimezone,
+      } : {}),
     };
   });
 
@@ -1743,6 +1881,44 @@ export const updateRefundCaseAdmin = async (input: UpdateRefundCaseInput) => {
     authErrorMessage: 'Log in to update refund cases.',
   });
   return requireUpdatedRefundCase(data);
+};
+
+export const createRefundManualNayaxCandidate = async (
+  input: CreateRefundManualNayaxCandidateInput
+): Promise<CreateRefundManualNayaxCandidateResponse> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_create_refund_manual_nayax_candidate',
+    {
+      p_case_id: input.caseId,
+      p_expected_case_version: input.expectedCaseVersion,
+      p_portal_machine_reference: input.portalMachineReference,
+      p_provider_transaction_id: input.providerTransactionId,
+      p_machine_authorization_local_time: input.machineAuthorizationLocalTime,
+      p_amount_cents: input.amountCents,
+      p_card_last4: input.cardLast4,
+    }
+  );
+  if (error || !data || typeof data !== 'object') {
+    throw new Error(error?.message || 'Unable to save the Nayax portal transaction.');
+  }
+  return data as CreateRefundManualNayaxCandidateResponse;
+};
+
+export const beginRefundManualNayaxPortal = async (
+  caseId: string,
+  expectedCaseVersion: number
+): Promise<BeginRefundManualNayaxPortalResponse> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_begin_refund_manual_nayax_portal',
+    {
+      p_case_id: caseId,
+      p_expected_case_version: expectedCaseVersion,
+    }
+  );
+  if (error || !data || typeof data !== 'object') {
+    throw new Error(error?.message || 'Unable to approve this refund for the Nayax portal.');
+  }
+  return data as BeginRefundManualNayaxPortalResponse;
 };
 
 export const fetchRefundNayaxResolutionReadiness = async (

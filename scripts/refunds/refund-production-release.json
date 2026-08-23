@@ -78,7 +78,8 @@
     "20260822210000_refund_nayax_active_inventory_reconciliation.sql",
     "20260823093000_refund_card_network_evidence.sql",
     "20260823110000_refund_public_location_selections.sql",
-    "20260823203839_repair_refund_placeholder_location_selections.sql"
+    "20260823203839_repair_refund_placeholder_location_selections.sql",
+    "20260823221537_refund_nc_manual_nayax_portal.sql"
   ],
   "migrationFilesSha256": "bd13f5dd86490a880a920e27191b850545bb2dbee55e6bbe384209d8b893b349",
   "migrationVersionSetSha256": "bf5caeca5618dd06ea56ab131f33318a226542ca3beb4e3d0013035bdb97514c",
