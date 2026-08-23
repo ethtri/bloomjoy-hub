@@ -4176,6 +4176,46 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
       JSON.stringify({ functionCalls, functionBodies })
     );
 
+    recorder.assert(
+      `${scenario.name} can choose denial after exact transaction confirmation`,
+      await page.getByTestId('refund-deny-instead').isVisible() &&
+        await page.getByTestId('refund-deny-instead').isEnabled()
+    );
+    await page.setViewportSize({ width: 390, height: 844 });
+    recorder.assert(
+      `${scenario.name} denial remains reachable on mobile`,
+      await page.getByTestId('refund-deny-instead').isVisible()
+    );
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.getByTestId('refund-deny-instead').click();
+    await page.getByTestId('refund-card-denial-reason').selectOption({ index: 1 });
+    recorder.assert(
+      `${scenario.name} sees a separate explicit deny action`,
+      await page.getByTestId('refund-save-case').isEnabled() &&
+        (await page.getByTestId('refund-save-case').innerText()).includes('Deny request')
+    );
+    await page.getByTestId('refund-save-case').click();
+    await page.waitForFunction(
+      () => document.body.innerText.includes('Refund case updated'),
+      null,
+      { timeout: 10_000 }
+    ).catch(() => {});
+    const denialCalls = functionBodies.filter((entry) =>
+      entry.functionName === 'refund-case-admin-update' && entry.body?.decision === 'denied'
+    );
+    const providerCalls = functionBodies.filter((entry) =>
+      entry.functionName === 'nayax-card-refund' && entry.body?.operation !== 'availability'
+    );
+    recorder.assert(
+      `${scenario.name} denial is submitted exactly once with no provider call`,
+      denialCalls.length === 1 &&
+        denialCalls[0].body?.status === 'denied' &&
+        denialCalls[0].body?.customerMessageType === 'denied' &&
+        denialCalls[0].body?.matchedNayaxCandidateToken == null &&
+        providerCalls.length === 0,
+      JSON.stringify({ denialCalls, providerCalls })
+    );
+
     await page.screenshot({
       path: path.join(artifactDir, `refund-portal-uat-${scenario.slug}-mapped-manager-session.png`),
       fullPage: true,

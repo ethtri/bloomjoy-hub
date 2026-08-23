@@ -94,6 +94,15 @@ const noDecisionStatuses = new Set<RefundCaseStatus>([
   'correlated',
 ]);
 
+const customerSafeDenialReasons = [
+  'We’re sorry, but we could not verify a matching purchase for the details provided.',
+  'We’re sorry, but the purchase details do not match the transaction record for this machine.',
+  'We’re sorry, but our records show this transaction has already been refunded.',
+  'We’re sorry, but this request is not eligible under Bloomjoy’s refund policy.',
+] as const;
+
+const customerSafeDenialReasonSet = new Set<string>(customerSafeDenialReasons);
+
 const nayaxResolutionResultOptions: Array<{
   value: RefundNayaxResolutionResult;
   label: string;
@@ -1706,6 +1715,18 @@ const editorForPrimaryAction = (editor: EditorState, action: PrimaryActionConfig
   decision: typeof action.targetDecision === 'undefined' ? editor.decision : action.targetDecision,
 });
 
+const editorForDenial = (editor: EditorState): EditorState => ({
+  ...editor,
+  status: 'denied',
+  decision: 'denied',
+  decisionReason: customerSafeDenialReasonSet.has(editor.decisionReason)
+    ? editor.decisionReason
+    : '',
+  matchedNayaxCandidateToken: '',
+  nayaxDisagreementReason: '',
+  clearNayaxMatch: false,
+});
+
 const getCustomerMessageDraft = (
   refundCase: RefundCaseRecord,
   messageType: RefundCustomerPortalMessageType,
@@ -1925,7 +1946,12 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
   }
 
   if (editor.decision === 'denied' && !editor.decisionReason.trim()) {
-    issues.push('Denied refund cases require a friendly decision reason.');
+    issues.push('Choose a customer-safe denial reason.');
+  } else if (
+    editor.decision === 'denied' &&
+    !customerSafeDenialReasonSet.has(editor.decisionReason.trim())
+  ) {
+    issues.push('Choose one of the approved customer-safe denial reasons.');
   }
 
   if (editor.status === 'completed') {
@@ -4019,15 +4045,7 @@ export default function AdminRefundsPage() {
     };
 
     const chooseDenial = () => {
-      setEditor((current) =>
-        current
-          ? {
-              ...current,
-              status: 'denied',
-              decision: 'denied',
-            }
-          : current
-      );
+      setEditor((current) => current ? editorForDenial(current) : current);
       handleMessageTypeChange('denied');
     };
 
@@ -4280,7 +4298,8 @@ export default function AdminRefundsPage() {
           {(editor.decision === 'denied' || editor.status === 'denied') && (
             <div className="border-b border-border pb-4">
               <Label htmlFor="card-denial-reason">Customer-facing denial reason</Label>
-              <Textarea
+              <select
+                data-testid="refund-card-denial-reason"
                 id="card-denial-reason"
                 value={editor.decisionReason}
                 disabled={isUsingDemoData}
@@ -4289,10 +4308,14 @@ export default function AdminRefundsPage() {
                     current ? { ...current, decisionReason: event.target.value } : current
                   )
                 }
-                rows={3}
-                className="mt-2"
-              />
-              <InfoHint>Required for denials. Keep this warm, specific, and customer-safe.</InfoHint>
+                className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
+              >
+                <option value="">Choose a reason</option>
+                {customerSafeDenialReasons.map((reason) => (
+                  <option key={reason} value={reason}>{reason}</option>
+                ))}
+              </select>
+              <InfoHint>The customer receives the selected warm, approved explanation.</InfoHint>
             </div>
           )}
 
@@ -4516,8 +4539,8 @@ export default function AdminRefundsPage() {
                 <p className="mt-2 text-muted-foreground">No automatic email is queued for this state.</p>
               )}
             </details>
-            <details className="text-sm sm:text-right">
-              <summary className="cursor-pointer font-medium text-muted-foreground">Other decisions</summary>
+            <div className="text-sm sm:text-right">
+              <p className="font-medium text-muted-foreground">Other decisions</p>
               <div className="mt-3 flex flex-wrap gap-2 sm:justify-end">
                 {canAskForCustomerDetails && primaryAction?.messageType !== 'more_info' && (
                   <Button type="button" size="sm" variant="outline" disabled={isUsingDemoData} onClick={chooseCustomerFollowUp}>
@@ -4526,6 +4549,7 @@ export default function AdminRefundsPage() {
                 )}
                 {primaryAction?.label !== 'Deny request' && (
                   <Button
+                    data-testid="refund-deny-instead"
                     type="button"
                     size="sm"
                     variant="outline"
@@ -4536,7 +4560,7 @@ export default function AdminRefundsPage() {
                   </Button>
                 )}
               </div>
-            </details>
+            </div>
           </div>
           )}
         </section>
@@ -4715,12 +4739,7 @@ export default function AdminRefundsPage() {
     const chooseDenial = () => {
       setEditor((current) =>
         current
-          ? {
-              ...current,
-              status: 'denied',
-              decision: 'denied',
-              cashPaymentConfirmed: false,
-            }
+          ? { ...editorForDenial(current), cashPaymentConfirmed: false }
           : current
       );
       handleMessageTypeChange('denied');
@@ -4957,7 +4976,7 @@ export default function AdminRefundsPage() {
         {(editor.decision === 'denied' || editor.status === 'denied') && (
           <section className="rounded-xl border border-border bg-background p-4">
             <Label htmlFor="cash-denial-reason">Customer-facing denial reason</Label>
-            <Textarea
+            <select
               id="cash-denial-reason"
               data-testid="refund-cash-denial-reason"
               value={editor.decisionReason}
@@ -4967,10 +4986,13 @@ export default function AdminRefundsPage() {
                   current ? { ...current, decisionReason: event.target.value } : current
                 )
               }
-              rows={3}
-              className="mt-2"
-              placeholder="Explain the decision warmly and specifically."
-            />
+              className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
+            >
+              <option value="">Choose a reason</option>
+              {customerSafeDenialReasons.map((reason) => (
+                <option key={reason} value={reason}>{reason}</option>
+              ))}
+            </select>
           </section>
         )}
 
@@ -5931,15 +5953,7 @@ export default function AdminRefundsPage() {
                                 size="sm"
                                 disabled={isUsingDemoData || selectedCaseIsReviewOnly}
                                 onClick={() => {
-                                  setEditor((current) =>
-                                    current
-                                      ? {
-                                          ...current,
-                                          status: 'denied',
-                                          decision: 'denied',
-                                        }
-                                      : current
-                                  );
+                                  setEditor((current) => current ? editorForDenial(current) : current);
                                   handleMessageTypeChange('denied');
                                 }}
                               >
@@ -5950,7 +5964,8 @@ export default function AdminRefundsPage() {
                           {(editor.decision === 'denied' || editor.status === 'denied') && (
                             <div className="mt-3">
                               <Label>Customer-facing denial reason</Label>
-                              <Textarea
+                              <select
+                                data-testid="refund-denial-reason"
                                 value={editor.decisionReason}
                                 disabled={isUsingDemoData}
                                 onChange={(event) =>
@@ -5958,11 +5973,15 @@ export default function AdminRefundsPage() {
                                     current ? { ...current, decisionReason: event.target.value } : current
                                   )
                                 }
-                                rows={3}
-                                className="mt-2 bg-background"
-                              />
+                                className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
+                              >
+                                <option value="">Choose a reason</option>
+                                {customerSafeDenialReasons.map((reason) => (
+                                  <option key={reason} value={reason}>{reason}</option>
+                                ))}
+                              </select>
                               <InfoHint>
-                                Required for denials. Keep this warm, specific, and customer-safe.
+                                The customer receives the selected warm, approved explanation.
                               </InfoHint>
                             </div>
                           )}
@@ -6044,6 +6063,18 @@ export default function AdminRefundsPage() {
                               </div>
                             )}
                           </div>
+                          <Button
+                            data-testid="refund-deny-instead"
+                            type="button"
+                            variant="outline"
+                            disabled={isUsingDemoData || selectedCaseIsReviewOnly || isSaving}
+                            onClick={() => {
+                              setEditor((current) => current ? editorForDenial(current) : current);
+                              handleMessageTypeChange('denied');
+                            }}
+                          >
+                            Deny instead
+                          </Button>
                         </div>
                       )}
 

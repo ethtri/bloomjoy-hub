@@ -13,6 +13,8 @@ const [
   portal,
   envExample,
   runbook,
+  denialReasons,
+  adminUpdate,
 ] = await Promise.all([
   read('supabase/functions/_shared/refund-email-brand.ts'),
   read('supabase/functions/_shared/refund-email.ts'),
@@ -23,6 +25,8 @@ const [
   read('src/pages/admin/Refunds.tsx'),
   read('.env.example'),
   read('Docs/REFUND_CUSTOMER_MESSAGES_RUNBOOK.md'),
+  read('supabase/functions/_shared/refund-denial.ts'),
+  read('supabase/functions/refund-case-admin-update/index.ts'),
 ]);
 
 for (const proof of [
@@ -98,6 +102,20 @@ assert(
     portal.includes('Appeal needs review') &&
     portal.includes('No refund was authorized by the reply.'),
   'The manager workbench must surface the appeal and its non-payment boundary.',
+);
+for (const reason of [
+  'We’re sorry, but we could not verify a matching purchase for the details provided.',
+  'We’re sorry, but the purchase details do not match the transaction record for this machine.',
+  'We’re sorry, but our records show this transaction has already been refunded.',
+  'We’re sorry, but this request is not eligible under Bloomjoy’s refund policy.',
+]) {
+  assert(denialReasons.includes(reason), `Server denial allowlist is missing: ${reason}`);
+  assert(portal.includes(reason), `Portal denial choices are missing: ${reason}`);
+}
+assert(
+  adminUpdate.includes('isRefundCustomerSafeDenialReason(decisionReason)') &&
+    adminUpdate.includes('denial_reason_required'),
+  'The denial endpoint must reject manager-authored customer copy before authorization.',
 );
 for (const proof of [
   'Form submission creates the case',
