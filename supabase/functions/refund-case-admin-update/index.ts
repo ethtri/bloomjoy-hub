@@ -28,6 +28,7 @@ import {
   validateCardPreExecutionRequest,
   validateRefundEvidenceSelectionRequest,
 } from "../_shared/refund-evidence-selection.ts";
+import { isRefundCustomerSafeDenialReason } from "../_shared/refund-denial.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
@@ -852,6 +853,15 @@ serve(async (req) => {
     const assignedManagerEmail =
       sanitizeText(body?.assignedManagerEmail, 320) || null;
     const decisionReason = sanitizeText(body?.decisionReason, 900) || null;
+    if (
+      officialAction === "decline" &&
+      !isRefundCustomerSafeDenialReason(decisionReason)
+    ) {
+      return jsonResponse({
+        error: "Choose an approved customer-safe denial reason.",
+        errorCode: "denial_reason_required",
+      }, 400);
+    }
     const internalNote = sanitizeText(body?.internalNote, 1200) || null;
     const refundAmountCents = centsFromInput(body?.refundAmountCents);
     const manualRefundReference =
