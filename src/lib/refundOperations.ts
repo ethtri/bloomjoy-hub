@@ -940,6 +940,10 @@ export const fetchRefundMachineOptions = async (): Promise<RefundPublicSelection
   const { data, error } = await supabaseClient.rpc('public_refund_selections');
 
   if (error) {
+    const isMissingSelectionRpc = ['PGRST202', '42883'].includes(error.code ?? '');
+    if (!isMissingSelectionRpc) {
+      throw new Error(error.message || 'Unable to load refund locations.');
+    }
     const legacy = await supabaseClient.rpc('public_refund_machine_options');
     if (legacy.error) {
       throw new Error(error.message || 'Unable to load refund locations.');
