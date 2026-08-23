@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(25);
+select plan(30);
 
 select has_column('public', 'refund_cases', 'intake_selection_key', 'Cases store the submitted opaque selection key');
 select has_column('public', 'refund_cases', 'intake_selection_machine_ids', 'Cases store the server-resolved selection scope separately');
@@ -27,7 +27,9 @@ insert into public.reporting_locations (id, account_id, name, city, state, timez
 values
   ('92110000-0000-4000-8000-000000000001', '92100000-0000-4000-8000-000000000001', 'San Francisco Premium Outlets', 'Livermore', 'CA', 'America/Los_Angeles', 'active'),
   ('92110000-0000-4000-8000-000000000002', '92100000-0000-4000-8000-000000000001', 'Capital City Mall', 'Camp Hill', 'PA', 'America/New_York', 'active'),
-  ('92110000-0000-4000-8000-000000000003', '92100000-0000-4000-8000-000000000001', 'South Hills Village', 'Pittsburgh', 'PA', 'America/New_York', 'active');
+  ('92110000-0000-4000-8000-000000000003', '92100000-0000-4000-8000-000000000001', 'South Hills Village', 'Pittsburgh', 'PA', 'America/New_York', 'active'),
+  ('92110000-0000-4000-8000-000000000004', '92100000-0000-4000-8000-000000000001', 'Unmapped Bubble Planet Machines', null, null, 'America/New_York', 'active'),
+  ('92110000-0000-4000-8000-000000000005', '92100000-0000-4000-8000-000000000001', 'Unmapped Bloomjoy Machines', null, null, 'America/New_York', 'active');
 
 insert into public.reporting_machines (
   id, account_id, location_id, machine_label, machine_type, status,
@@ -39,7 +41,12 @@ values
   ('8eda5a29-1718-4c70-9993-7c7e2fd6c65a', '92100000-0000-4000-8000-000000000001', '92110000-0000-4000-8000-000000000001', 'TT33 Cotton Candy', 'commercial', 'active', '921900002', 'TGPACI_USA_DB', false, true, 'San Francisco Premium Outlets — TT33 Cotton Candy'),
   ('92120000-0000-4000-8000-000000000003', '92100000-0000-4000-8000-000000000001', '92110000-0000-4000-8000-000000000002', 'Preit0990 Capital City', 'commercial', 'active', '921900003', 'TGPACI_USA_DB', false, true, 'Capital City Mall — Cotton Candy'),
   ('92120000-0000-4000-8000-000000000004', '92100000-0000-4000-8000-000000000001', '92110000-0000-4000-8000-000000000003', 'South Hills Cotton', 'commercial', 'active', '921900004', 'TGPACI_USA_DB', false, true, 'South Hills Village — Cotton Candy'),
-  ('92120000-0000-4000-8000-000000000005', '92100000-0000-4000-8000-000000000001', '92110000-0000-4000-8000-000000000003', 'South Hills SnapCase', 'unknown', 'active', '921900005', 'TGPACI_USA_DB', false, true, 'South Hills Village — SnapCase');
+  ('92120000-0000-4000-8000-000000000005', '92100000-0000-4000-8000-000000000001', '92110000-0000-4000-8000-000000000003', 'South Hills SnapCase', 'unknown', 'active', '921900005', 'TGPACI_USA_DB', false, true, 'South Hills Village — SnapCase'),
+  ('92120000-0000-4000-8000-000000000006', '92100000-0000-4000-8000-000000000001', '92110000-0000-4000-8000-000000000004', 'Bubble Planet Atlanta', 'commercial', 'active', '921900006', 'TGPACI_USA_DB', false, true, 'Bubble Planet - Atlanta'),
+  ('92120000-0000-4000-8000-000000000007', '92100000-0000-4000-8000-000000000001', '92110000-0000-4000-8000-000000000005', 'Carolina Place', 'commercial', 'active', null, null, false, false, 'Carolina Place'),
+  ('92120000-0000-4000-8000-000000000008', '92100000-0000-4000-8000-000000000001', '92110000-0000-4000-8000-000000000005', 'Columbiana', 'commercial', 'active', null, null, false, false, 'Columbiana Centre'),
+  ('92120000-0000-4000-8000-000000000009', '92100000-0000-4000-8000-000000000001', '92110000-0000-4000-8000-000000000004', 'Bubble Planet DC', 'commercial', 'active', '921900009', 'TGPACI_USA_DB', false, true, 'Bubble Planet DC'),
+  ('92120000-0000-4000-8000-000000000010', '92100000-0000-4000-8000-000000000001', '92110000-0000-4000-8000-000000000004', 'Bubble Planet Seattle', 'commercial', 'active', '921900010', 'TGPACI_USA_DB', false, true, 'Bubble Planet Seattle');
 
 insert into public.refund_nayax_machine_inventory (
   id, account_key, nayax_machine_id, machine_name, machine_number,
@@ -51,7 +58,10 @@ values
   ('92130000-0000-4000-8000-000000000002', 'TGPACI_USA_DB', '921900002', 'Livermore B', 'fixture-b', true, 'cotton_candy', '8eda5a29-1718-4c70-9993-7c7e2fd6c65a', 'published', 'reviewed_exact_mapping'),
   ('92130000-0000-4000-8000-000000000003', 'TGPACI_USA_DB', '921900003', 'Capital', 'fixture-c', true, 'cotton_candy', '92120000-0000-4000-8000-000000000003', 'published', 'reviewed_exact_mapping'),
   ('92130000-0000-4000-8000-000000000004', 'TGPACI_USA_DB', '921900004', 'South Cotton', 'fixture-d', true, 'cotton_candy', '92120000-0000-4000-8000-000000000004', 'published', 'reviewed_exact_mapping'),
-  ('92130000-0000-4000-8000-000000000005', 'TGPACI_USA_DB', '921900005', 'South SnapCase', 'fixture-e', true, 'snapcase', '92120000-0000-4000-8000-000000000005', 'published', 'reviewed_exact_mapping');
+  ('92130000-0000-4000-8000-000000000005', 'TGPACI_USA_DB', '921900005', 'South SnapCase', 'fixture-e', true, 'snapcase', '92120000-0000-4000-8000-000000000005', 'published', 'reviewed_exact_mapping'),
+  ('92130000-0000-4000-8000-000000000006', 'TGPACI_USA_DB', '921900006', 'Bubble Planet Atlanta', 'fixture-f', true, 'cotton_candy', '92120000-0000-4000-8000-000000000006', 'published', 'reviewed_exact_mapping'),
+  ('92130000-0000-4000-8000-000000000009', 'TGPACI_USA_DB', '921900009', 'Bubble Planet DC', 'fixture-i', true, 'cotton_candy', '92120000-0000-4000-8000-000000000009', 'published', 'reviewed_exact_mapping'),
+  ('92130000-0000-4000-8000-000000000010', 'TGPACI_USA_DB', '921900010', 'Bubble Planet Seattle', 'fixture-j', true, 'cotton_candy', '92120000-0000-4000-8000-000000000010', 'published', 'reviewed_exact_mapping');
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -92,6 +102,41 @@ select is(
   )),
   2,
   'A mixed-type location has one exact choice per product category'
+);
+select is(
+  (select count(*)::integer from public.public_refund_selections() where display_label in (
+    'Bubble Planet - Atlanta', 'Bubble Planet DC', 'Bubble Planet Seattle', 'Carolina Place', 'Columbiana Centre'
+  )),
+  5,
+  'Customer-safe fallback labels remain separate ordinary choices across both placeholder location cohorts'
+);
+select is(
+  (select count(*)::integer from public.public_refund_selections()
+   where display_label ilike '%unmapped%' or display_label ilike '%unknown%'),
+  0,
+  'Placeholder location names never appear in the customer selector'
+);
+select is(
+  (select count(*)::integer from public.public_refund_selections()
+   where display_label in ('Bubble Planet - Atlanta', 'Bubble Planet DC', 'Bubble Planet Seattle', 'Carolina Place', 'Columbiana Centre')
+     and selection_kind = 'exact_machine'),
+  5,
+  'Every restored fallback label retains exact-machine selection semantics'
+);
+select is(
+  (select count(*)::integer
+   from public.public_refund_selections()
+   where display_label in ('Bubble Planet - Atlanta', 'Bubble Planet DC', 'Bubble Planet Seattle', 'Carolina Place', 'Columbiana Centre')
+     and jsonb_array_length(
+       public.service_resolve_refund_public_selection(selection_key) -> 'machineIds'
+     ) = 1),
+  5,
+  'Every restored fallback label resolves to exactly one server-owned machine'
+);
+select is(
+  (select count(*)::integer from public.public_refund_selections()),
+  9,
+  'The fixture exposes every ordinary choice and compresses only the reviewed Livermore pair'
 );
 select is(
   (select count(*)::integer from public.public_refund_selections()),

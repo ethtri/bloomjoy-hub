@@ -102,7 +102,7 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 73 required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 74 required refund\/Nayax migrations/);
 assert.match(cutoverPacket, /exact canonical 51-migration predeployment bridge/);
 assert.match(
   cutoverPacket,
@@ -208,8 +208,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    73,
-    'Refund release inventory must cover exactly 73 discovered refund/Nayax migrations'
+    74,
+    'Refund release inventory must cover exactly 74 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -270,6 +270,10 @@ try {
   assert(
     repositoryMigrations.includes('20260822210000_refund_nayax_active_inventory_reconciliation.sql'),
     'The complete active Nayax inventory reconciliation must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260823203839_repair_refund_placeholder_location_selections.sql'),
+    'The placeholder-location selection repair must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260820041101_refund_nayax_pending_approval_recovery.sql'),

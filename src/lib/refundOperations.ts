@@ -1086,8 +1086,38 @@ export const buildLocalRefundMachineOptions = (): RefundMachineOption[] => [
 
 export const buildLocalRefundPublicSelections = (): RefundPublicSelection[] => [
   {
+    selectionKey: 'demo-bubble-planet-atlanta',
+    displayLabel: 'Bubble Planet - Atlanta',
+    selectionKind: 'exact_machine',
+    locationTimezone: 'America/New_York',
+  },
+  {
+    selectionKey: 'demo-bubble-planet-dc',
+    displayLabel: 'Bubble Planet DC',
+    selectionKind: 'exact_machine',
+    locationTimezone: 'America/New_York',
+  },
+  {
+    selectionKey: 'demo-bubble-planet-seattle',
+    displayLabel: 'Bubble Planet Seattle',
+    selectionKind: 'exact_machine',
+    locationTimezone: 'America/Los_Angeles',
+  },
+  {
     selectionKey: 'demo-capital-city-mall',
     displayLabel: 'Capital City Mall',
+    selectionKind: 'exact_machine',
+    locationTimezone: 'America/New_York',
+  },
+  {
+    selectionKey: 'demo-carolina-place',
+    displayLabel: 'Carolina Place',
+    selectionKind: 'exact_machine',
+    locationTimezone: 'America/New_York',
+  },
+  {
+    selectionKey: 'demo-columbiana-centre',
+    displayLabel: 'Columbiana Centre',
     selectionKind: 'exact_machine',
     locationTimezone: 'America/New_York',
   },

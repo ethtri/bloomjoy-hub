@@ -2012,11 +2012,17 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder
   );
   const demoLocation = page.getByLabel('Machine location');
   recorder.assert(
-    'Customer selector renders Capital City once, one Livermore choice, and distinct South Hills product choices',
-    await demoLocation.locator('option', { hasText: 'Capital City Mall' }).count() === 1 &&
+    'Customer selector renders restored fallback labels, Capital City, one Livermore choice, and distinct South Hills product choices',
+    await demoLocation.locator('option', { hasText: 'Bubble Planet - Atlanta' }).count() === 1 &&
+      await demoLocation.locator('option', { hasText: 'Bubble Planet DC' }).count() === 1 &&
+      await demoLocation.locator('option', { hasText: 'Bubble Planet Seattle' }).count() === 1 &&
+      await demoLocation.locator('option', { hasText: 'Capital City Mall' }).count() === 1 &&
+      await demoLocation.locator('option', { hasText: 'Carolina Place' }).count() === 1 &&
+      await demoLocation.locator('option', { hasText: 'Columbiana Centre' }).count() === 1 &&
       await demoLocation.locator('option', { hasText: 'San Francisco Premium Outlets — Cotton candy' }).count() === 1 &&
       await demoLocation.locator('option', { hasText: 'South Hills Village — Cotton candy' }).count() === 1 &&
-      await demoLocation.locator('option', { hasText: 'South Hills Village — Phone cases (SnapCase)' }).count() === 1
+      await demoLocation.locator('option', { hasText: 'South Hills Village — Phone cases (SnapCase)' }).count() === 1 &&
+      await demoLocation.locator('option', { hasText: /unmapped|unknown/i }).count() === 0
   );
   await demoLocation.selectOption('demo-livermore-pair');
   await page.screenshot({
