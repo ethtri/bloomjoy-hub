@@ -257,14 +257,6 @@ const getBodyParagraphs = ({
       ];
     case "reminder":
       if (followUpReason === "no_safe_match") {
-        if (missingFieldRequests.length > 0) {
-          return [
-            "We are checking in once because we still want to help with your refund request. There is no need to resend the information you already shared.",
-            `Please reply with ${requestedDetails} so we can safely identify the purchase.`,
-            `For the fastest automatic update, copy these lines into your reply and correct or confirm each one:\n${replyLines}`,
-            "For your safety, please never send a full card number, security code, expiration date, PIN, password, wallet digits, or screenshot.",
-          ];
-        }
         return [
           "We are checking in once because we still want to help with your refund request. There is no need to resend the information you already shared.",
           "Please reply only if any detail shown below needs a correction, such as the machine or location, purchase date or approximate time, amount, or payment method. If everything is correct, no action is needed from you and a person will continue the review.",
@@ -282,14 +274,6 @@ const getBodyParagraphs = ({
         "For your safety, please never send a full card number, security code, expiration date, PIN, password, or payment-screen screenshot.",
       ];
     case "no_safe_match":
-      if (missingFieldRequests.length > 0) {
-        return [
-          "Thank you for the details you shared. We found nearby machine transactions, but the information did not identify one purchase safely. This does not mean you did anything wrong.",
-          `Please reply with ${requestedDetails}. If you used a physical card, also tell us whether it was Visa, Mastercard, Discover, American Express, or another card type.`,
-          `Copy these lines into your reply and correct or confirm each one:\n${replyLines}`,
-          "Please use the last four digits printed on the exact physical card you tapped. Do not send a full card number, security code, expiration date, PIN, password, wallet digits, or screenshot. You do not need to submit another form; we will recheck this same request after your reply.",
-        ];
-      }
       return [
         "Thank you for the details you shared. We checked the available machine transaction records carefully, but we could not identify one transaction that we can safely match to your request yet. This does not mean you did anything wrong.",
         "Please reply only if any of the details shown below need a correction, such as the machine or location, purchase date or approximate time, amount, or payment method.",

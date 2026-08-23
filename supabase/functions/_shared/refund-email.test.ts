@@ -154,48 +154,6 @@ Deno.test("no-safe-match copy is humble, correction-focused, and makes no refund
   );
 });
 
-Deno.test("physical-card conflict copy requests labeled reply-safe corrections", () => {
-  const email = buildRefundCustomerEmail({
-    messageType: "no_safe_match",
-    followUpReason: "no_safe_match",
-    publicReference: "RF-CARD-CHECK",
-    customerEmail: "customer@example.com",
-    machineLabel: "Cotton Candy",
-    locationName: "Example venue",
-    paymentMethod: "card",
-    refundAmountCents: 1090,
-    missingFields: [
-      "incident_time",
-      "payment_method",
-      "amount",
-      "card_last4",
-    ],
-  });
-
-  assertIncludes(email.text, "Card last four:", "reply parser label");
-  assertIncludes(
-    email.text,
-    "exact physical card you tapped",
-    "physical card safety",
-  );
-  assertIncludes(email.text, "Visa, Mastercard, Discover", "card type request");
-  assertIncludes(
-    email.text,
-    "do not need to submit another form",
-    "same-case guidance",
-  );
-  assertIncludes(
-    email.text,
-    "recheck this same request",
-    "automatic recheck guidance",
-  );
-  assertNotIncludes(
-    email.text.toLowerCase(),
-    "nayax",
-    "provider detail remains internal",
-  );
-});
-
 Deno.test("mobile-wallet last-four requests fail closed outside the secure correction flow", () => {
   let failed = false;
   try {

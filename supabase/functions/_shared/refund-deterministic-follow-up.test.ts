@@ -1,7 +1,6 @@
 import {
   automaticRefundCustomerContactEnabled,
   buildRefundFollowUpTriggerFingerprint,
-  deriveNayaxCustomerCorrectionFields,
   deriveRefundMissingFields,
   refundFollowUpTemplateKey,
   REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
@@ -93,73 +92,6 @@ Deno.test("complete facts have no missing-field request", () => {
   });
   assert(complete.missingFields.length === 0, "complete case must not ask for known facts");
   assert(!complete.requiresSecureWalletCorrection, "physical card does not use wallet correction");
-});
-
-Deno.test("physical-card conflicts request the smallest customer-correctable facts", () => {
-  const fields = deriveNayaxCustomerCorrectionFields({
-    recommendationState: "manual_exception",
-    cardWalletUsed: false,
-    candidates: [{
-      isTopRanked: true,
-      reasonCodes: [
-        "machine_exact",
-        "amount_exact",
-        "incident_time_within_60m",
-        "card_last4_mismatch",
-        "qr_claim_missing",
-      ],
-      manualReviewReasons: ["qr_claim_missing"],
-      hardExclusions: ["card_last4_mismatch"],
-    }, {
-      isTopRanked: false,
-      reasonCodes: [
-        "machine_exact",
-        "amount_exact",
-        "incident_time_within_60m",
-        "card_last4_mismatch",
-      ],
-      hardExclusions: ["card_last4_mismatch"],
-    }],
-  });
-  assert(
-    JSON.stringify(fields) === JSON.stringify([
-      "incident_time",
-      "payment_method",
-      "amount",
-      "card_last4",
-    ]),
-    "a physical-card mismatch should confirm only time, payment method, amount, and physical-card last four",
-  );
-});
-
-Deno.test("provider, duplicate, and wallet exceptions never become customer email work", () => {
-  for (const reason of [
-    "already_refunded",
-    "duplicate_transaction",
-    "provider_machine_mismatch",
-    "payment_not_approved",
-  ]) {
-    const fields = deriveNayaxCustomerCorrectionFields({
-      recommendationState: "manual_exception",
-      cardWalletUsed: false,
-      candidates: [{
-        isTopRanked: true,
-        reasonCodes: ["card_last4_mismatch", reason],
-        hardExclusions: ["card_last4_mismatch", reason],
-      }],
-    });
-    assert(fields.length === 0, `${reason} must remain manager-only`);
-  }
-
-  const wallet = deriveNayaxCustomerCorrectionFields({
-    recommendationState: "manual_exception",
-    cardWalletUsed: true,
-    candidates: [{
-      isTopRanked: true,
-      reasonCodes: ["tokenized_last4_noncorrelating", "wallet_payment"],
-    }],
-  });
-  assert(wallet.length === 0, "wallet corrections must keep using the secure flow");
 });
 
 Deno.test("template identities are deterministic and versioned", () => {

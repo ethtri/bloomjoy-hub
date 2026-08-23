@@ -24,6 +24,7 @@ const run = async () => {
     portalUat,
     refundEmail,
     followUpPolicy,
+    nayaxCustomerCorrection,
     automationSweep,
     intake,
     messageSend,
@@ -35,6 +36,7 @@ const run = async () => {
     readText('scripts/refunds/validate-refund-portal-uat.mjs'),
     readText('supabase/functions/_shared/refund-email.ts'),
     readText('supabase/functions/_shared/refund-deterministic-follow-up.ts'),
+    readText('supabase/functions/_shared/refund-nayax-customer-correction.ts'),
     readText('supabase/functions/refund-case-automation-sweep/index.ts'),
     readText('supabase/functions/refund-case-intake/index.ts'),
     readText('supabase/functions/refund-case-message-send/index.ts'),
@@ -179,7 +181,7 @@ const run = async () => {
       'nayax_persisted_result_customer_contacted',
       'customer_correction_fields',
     ]) &&
-      includesAll(followUpPolicy, [
+      includesAll(nayaxCustomerCorrection, [
         'card_last4_mismatch',
         'duplicate_transaction',
         'provider_machine_mismatch',

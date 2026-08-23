@@ -21,7 +21,6 @@ import {
 import {
   automaticRefundCustomerContactEnabled,
   buildRefundFollowUpTriggerFingerprint,
-  deriveNayaxCustomerCorrectionFields,
   deriveRefundMissingFields,
   refundFollowUpTemplateKey,
   REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
@@ -31,6 +30,11 @@ import {
   type RefundFollowUpReason,
   type RefundMissingField,
 } from "../_shared/refund-deterministic-follow-up.ts";
+import {
+  buildNayaxCustomerCorrectionEmail,
+  deriveNayaxCustomerCorrectionFields,
+  sendNayaxCustomerCorrectionEmail,
+} from "../_shared/refund-nayax-customer-correction.ts";
 import {
   buildRefundManagerAgingNotice,
   REFUND_MANAGER_AGING_TEMPLATE_VERSION,
@@ -623,7 +627,9 @@ const logDeterministicFollowUpMessage = async (
     messageClass,
     customerCorrectionFields,
   );
-  const email = buildRefundCustomerEmail(emailInput);
+  const email = customerCorrectionFields.length > 0
+    ? buildNayaxCustomerCorrectionEmail(emailInput)
+    : buildRefundCustomerEmail(emailInput);
   const messageType = messageTypeForFollowUp(cycle, messageClass);
 
   const { data, error } = await supabase
@@ -670,7 +676,9 @@ const sendDeterministicFollowUpMessage = async (
     messageClass,
     customerCorrectionFields,
   );
-  const email = buildRefundCustomerEmail(emailInput);
+  const email = customerCorrectionFields.length > 0
+    ? buildNayaxCustomerCorrectionEmail(emailInput)
+    : buildRefundCustomerEmail(emailInput);
   const gmailThreadId = await resolveFollowUpGmailThreadId(cycle, messageClass);
   let messageId: string | null = null;
 
@@ -698,10 +706,15 @@ const sendDeterministicFollowUpMessage = async (
           "Automatic customer contact was disabled before provider delivery.",
         );
       }
-      await sendRefundCustomerEmail({
+      const transactionalInput = {
         ...emailInput,
         managerCcEmails: gmailDelivery.managerCcEmails,
-      });
+      };
+      if (customerCorrectionFields.length > 0) {
+        await sendNayaxCustomerCorrectionEmail(transactionalInput);
+      } else {
+        await sendRefundCustomerEmail(transactionalInput);
+      }
     }
 
     if (messageId) {
