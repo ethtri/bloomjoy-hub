@@ -1,10 +1,9 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
-import { sendTransactionalEmail } from "../_shared/internal-email.ts";
 import {
   buildRefundCustomerEmail,
-  getRefundReplyToEmail,
+  sendRefundTransactionalEmail,
 } from "../_shared/refund-email.ts";
 import { automaticRefundCustomerContactEnabled } from "../_shared/refund-deterministic-follow-up.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
@@ -1890,13 +1889,12 @@ serve(async (req) => {
             "Automatic customer contact was disabled before provider delivery.",
           );
         }
-        await sendTransactionalEmail({
+        await sendRefundTransactionalEmail({
           to: [customerEmail],
           cc: gmailDelivery.managerCcEmails,
           subject: email.subject,
           text: email.text,
           html: email.html,
-          replyTo: getRefundReplyToEmail(),
         });
       }
 

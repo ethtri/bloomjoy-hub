@@ -438,7 +438,8 @@ assert(
 assert(
   refundCaseMessageSend.includes('can_manage_refund_case') &&
     refundCaseMessageSend.includes('buildEditableRefundCustomerEmail') &&
-    refundCaseMessageSend.includes('replyTo: getRefundReplyToEmail()') &&
+    refundCaseMessageSend.includes('sendRefundTransactionalEmail') &&
+    refundEmailShared.includes('replyTo: getRefundReplyToEmail()') &&
     refundCaseMessageSend.includes('created_by: user.id') &&
     refundCaseMessageSend.includes('validateRefundCustomerMessageRequest') &&
     refundCaseMessageSend.includes('decisionReason: refundCase.decision_reason') &&

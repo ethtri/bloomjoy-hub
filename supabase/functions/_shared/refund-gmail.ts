@@ -1,3 +1,5 @@
+import { formatRefundCustomerSender } from "./refund-customer-transport.ts";
+
 const GMAIL_API_ROOT = "https://gmail.googleapis.com/gmail/v1/users/me";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -814,7 +816,7 @@ export const buildRefundGmailReplyMime = ({
   const boundary = `bloomjoy_refund_${crypto.randomUUID().replaceAll("-", "")}`;
   const messageHeader = refundGmailOperationMessageHeader(operationKey);
   const headers = [
-    `From: ${sanitizeHeader(from, 320)}`,
+    `From: ${sanitizeHeader(formatRefundCustomerSender(from), 320)}`,
     `To: ${sanitizeHeader(to, 320)}`,
     `Subject: ${encodeHeader(sanitizeHeader(subject, 998))}`,
     `Date: ${new Date().toUTCString()}`,

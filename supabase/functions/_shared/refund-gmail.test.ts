@@ -760,6 +760,11 @@ Deno.test("Gmail reply MIME has one customer To and deduplicated visible manager
 
   assertIncludes(
     decoded,
+    "From: Bloomjoy Refunds <info@bloomjoysweets.com>\r\n",
+    "standardized customer sender",
+  );
+  assertIncludes(
+    decoded,
     "To: customer@example.test\r\n",
     "customer To header",
   );
@@ -876,6 +881,11 @@ Deno.test("Gmail send pins the provider thread and preserves the resolved CC set
     );
     assertEquals(result.ccCount, 1, "sent CC count");
     const decoded = decodeBase64Url(String(sentPayload?.raw ?? ""));
+    assertIncludes(
+      decoded,
+      "From: Bloomjoy Refunds <info@bloomjoysweets.com>",
+      "sent customer sender",
+    );
     assertIncludes(decoded, "Cc: manager@example.test", "sent manager CC");
     assertIncludes(
       decoded,
