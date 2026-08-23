@@ -33,6 +33,13 @@ export type RefundFollowUpFacts = {
   cardWalletUsed?: boolean | null;
 };
 
+export type NayaxCustomerCorrectionCandidateEvidence = {
+  isTopRanked?: boolean | null;
+  reasonCodes?: string[] | null;
+  manualReviewReasons?: string[] | null;
+  hardExclusions?: string[] | null;
+};
+
 const missingFieldOrder: RefundMissingField[] = [
   "location_or_machine",
   "incident_date",
@@ -97,6 +104,80 @@ export const deriveRefundMissingFields = (
     missingFields: sanitizeRefundMissingFields(fields),
     requiresSecureWalletCorrection,
   };
+};
+
+const nayaxProviderOrSafetyReasons = new Set([
+  "already_refunded",
+  "currency_not_usd",
+  "duplicate_provider_record",
+  "duplicate_transaction",
+  "missing_amount_evidence",
+  "missing_canonical_machine_mapping",
+  "missing_currency_evidence",
+  "missing_provider_card_last4",
+  "missing_provider_machine_id",
+  "missing_provider_site_id",
+  "payment_not_approved",
+  "provider_machine_mismatch",
+  "provider_status_unconfirmed",
+]);
+
+const asReasonSet = (values: Array<string[] | null | undefined>) =>
+  new Set(
+    values.flatMap((value) => Array.isArray(value) ? value : [])
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean),
+  );
+
+export const deriveNayaxCustomerCorrectionFields = ({
+  recommendationState,
+  cardWalletUsed,
+  candidates,
+}: {
+  recommendationState: string | null | undefined;
+  cardWalletUsed: boolean | null | undefined;
+  candidates: NayaxCustomerCorrectionCandidateEvidence[];
+}): RefundMissingField[] => {
+  if (recommendationState !== "manual_exception" || cardWalletUsed) return [];
+
+  const topCandidate = candidates.find((candidate) => candidate.isTopRanked) ??
+    candidates[0];
+  if (!topCandidate) return [];
+
+  const reasons = asReasonSet([
+    topCandidate.reasonCodes,
+    topCandidate.manualReviewReasons,
+    topCandidate.hardExclusions,
+  ]);
+  if ([...reasons].some((reason) => nayaxProviderOrSafetyReasons.has(reason))) {
+    return [];
+  }
+
+  const nonCustomerHardExclusions = (topCandidate.hardExclusions ?? [])
+    .map((reason) => reason.trim().toLowerCase())
+    .filter((reason) => reason && reason !== "card_last4_mismatch");
+  if (nonCustomerHardExclusions.length > 0) return [];
+
+  if (reasons.has("card_last4_mismatch")) {
+    return sanitizeRefundMissingFields([
+      "incident_time",
+      "payment_method",
+      "amount",
+      "card_last4",
+    ]);
+  }
+  if (reasons.has("amount_mismatch") || reasons.has("amount_uncertain")) {
+    return sanitizeRefundMissingFields(["incident_time", "amount", "card_last4"]);
+  }
+  if (
+    reasons.has("incident_time_too_far") ||
+    reasons.has("customer_time_within_1_hour") ||
+    reasons.has("customer_time_rough")
+  ) {
+    return sanitizeRefundMissingFields(["incident_time", "amount", "card_last4"]);
+  }
+
+  return [];
 };
 
 export const refundFollowUpTemplateKey = (

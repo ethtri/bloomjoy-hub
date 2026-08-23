@@ -944,10 +944,26 @@ const applyDeterministicCustomerReplyFacts = async ({
   if (caseError) throw caseError;
   if (!current) return { allowRoutineContact: true };
 
+  const { data: correctionCycle, error: correctionCycleError } = await supabase
+    .from("refund_follow_up_cycles")
+    .select("reason_code,status,request_sent_at")
+    .eq("refund_case_id", refundCaseId)
+    .eq("reason_code", "no_safe_match")
+    .eq("status", "waiting")
+    .not("request_sent_at", "is", null)
+    .order("cycle_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (correctionCycleError) throw correctionCycleError;
+  const allowCustomerCorrection = Boolean(correctionCycle);
+
   const updates: Record<string, unknown> = {};
   const appliedFields: string[] = [];
   let resolvedMachine: RefundMachineFactCandidate | null = null;
-  if (extracted.locationOrMachine && !current.reporting_machine_id) {
+  if (
+    extracted.locationOrMachine &&
+    (!current.reporting_machine_id || allowCustomerCorrection)
+  ) {
     const { data: machines, error: machineError } = await supabase
       .from("reporting_machines")
       .select(
@@ -978,9 +994,14 @@ const applyDeterministicCustomerReplyFacts = async ({
       candidates,
     );
     if (resolvedMachine) {
-      updates.reporting_machine_id = resolvedMachine.machineId;
-      updates.reporting_location_id = resolvedMachine.locationId;
-      appliedFields.push("location_or_machine");
+      if (
+        resolvedMachine.machineId !== current.reporting_machine_id ||
+        resolvedMachine.locationId !== current.reporting_location_id
+      ) {
+        updates.reporting_machine_id = resolvedMachine.machineId;
+        updates.reporting_location_id = resolvedMachine.locationId;
+        appliedFields.push("location_or_machine");
+      }
     }
   }
 
@@ -1005,7 +1026,9 @@ const applyDeterministicCustomerReplyFacts = async ({
   const incidentDate = extracted.incidentDate || existingLocal.slice(0, 10);
   const incidentTime = extracted.incidentTime || existingLocal.slice(11, 16);
   if (
-    current.incident_time_resolution !== "exact" && incidentDate &&
+    (current.incident_time_resolution !== "exact" ||
+      (allowCustomerCorrection &&
+        (extracted.incidentDate || extracted.incidentTime))) && incidentDate &&
     incidentTime &&
     incidentTimezone
   ) {
@@ -1015,28 +1038,45 @@ const applyDeterministicCustomerReplyFacts = async ({
       timeZone: incidentTimezone,
     });
     if (resolution.instant && resolution.resolution === "exact") {
-      updates.incident_at = resolution.instant;
-      updates.incident_local_datetime = `${incidentDate}T${incidentTime}`;
-      updates.incident_timezone = incidentTimezone;
-      updates.incident_time_resolution = "exact";
-      if (extracted.incidentDate) appliedFields.push("incident_date");
-      if (extracted.incidentTime) appliedFields.push("incident_time");
+      const nextLocalDateTime = `${incidentDate}T${incidentTime}`;
+      if (
+        nextLocalDateTime !== String(current.incident_local_datetime ?? "")
+          .slice(0, 16) ||
+        incidentTimezone !== current.incident_timezone ||
+        current.incident_time_resolution !== "exact"
+      ) {
+        updates.incident_at = resolution.instant;
+        updates.incident_local_datetime = nextLocalDateTime;
+        updates.incident_timezone = incidentTimezone;
+        updates.incident_time_resolution = "exact";
+        if (extracted.incidentDate) appliedFields.push("incident_date");
+        if (extracted.incidentTime) appliedFields.push("incident_time");
+      }
     }
   }
 
   const currentPaymentMethod = String(current.payment_method ?? "")
     .toLowerCase();
   if (
-    !["card", "cash"].includes(currentPaymentMethod) && extracted.paymentMethod
+    (!["card", "cash"].includes(currentPaymentMethod) ||
+      allowCustomerCorrection) && extracted.paymentMethod &&
+    (
+      extracted.paymentMethod !== currentPaymentMethod ||
+      extracted.cardWalletUsed !== current.card_wallet_used
+    )
   ) {
     updates.payment_method = extracted.paymentMethod;
     updates.card_wallet_used = extracted.cardWalletUsed;
     appliedFields.push("payment_method");
   }
   if (
-    (!Number.isInteger(current.payment_amount_cents) ||
-      Number(current.payment_amount_cents) <= 0) &&
-    extracted.amountCents
+    (
+      !Number.isInteger(current.payment_amount_cents) ||
+      Number(current.payment_amount_cents) <= 0 ||
+      allowCustomerCorrection
+    ) &&
+    extracted.amountCents &&
+    extracted.amountCents !== Number(current.payment_amount_cents)
   ) {
     updates.payment_amount_cents = extracted.amountCents;
     updates.refund_amount_cents = extracted.amountCents;
@@ -1049,8 +1089,10 @@ const applyDeterministicCustomerReplyFacts = async ({
   ).toLowerCase();
   if (
     paymentMethod === "card" && !walletUsed &&
-    !/^\d{4}$/.test(String(current.card_last4 ?? "")) &&
-    extracted.cardLast4
+    (!/^\d{4}$/.test(String(current.card_last4 ?? "")) ||
+      allowCustomerCorrection) &&
+    extracted.cardLast4 &&
+    extracted.cardLast4 !== String(current.card_last4 ?? "")
   ) {
     updates.card_last4 = extracted.cardLast4;
     appliedFields.push("card_last4");
@@ -1074,11 +1116,13 @@ const applyDeterministicCustomerReplyFacts = async ({
         refund_case_id: refundCaseId,
         event_type: "gmail_customer_facts_applied",
         message:
-          "Unambiguous labeled facts from a verified customer reply were added to the refund case.",
+          "Unambiguous labeled facts from a verified customer reply were added to or corrected on the refund case.",
         metadata: {
           source_message_id: sourceMessageId,
           applied_fields: appliedFields,
-          extraction_policy: "labeled_routine_facts_v1",
+          extraction_policy: allowCustomerCorrection
+            ? "labeled_customer_correction_v2"
+            : "labeled_routine_facts_v1",
           payload_redacted: true,
         },
       });

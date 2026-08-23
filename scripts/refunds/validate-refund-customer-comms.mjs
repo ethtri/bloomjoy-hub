@@ -27,6 +27,7 @@ const run = async () => {
     automationSweep,
     intake,
     messageSend,
+    gmailSync,
   ] = await Promise.all([
     readText('supabase/functions/refund-case-admin-update/index.ts'),
     readText('src/pages/admin/Refunds.tsx'),
@@ -37,6 +38,7 @@ const run = async () => {
     readText('supabase/functions/refund-case-automation-sweep/index.ts'),
     readText('supabase/functions/refund-case-intake/index.ts'),
     readText('supabase/functions/refund-case-message-send/index.ts'),
+    readText('supabase/functions/refund-gmail-sync/index.ts'),
   ]);
 
   assert(
@@ -168,6 +170,30 @@ const run = async () => {
       'provider_timeout',
       'provider_unknown',
     ])
+  );
+  assert(
+    'Completed Nayax searches still reach one customer-correction action when needed',
+    includesAll(automationSweep, [
+      'runPersistedNayaxCustomerCorrectionSweep',
+      'deriveNayaxCustomerCorrectionFields',
+      'nayax_persisted_result_customer_contacted',
+      'customer_correction_fields',
+    ]) &&
+      includesAll(followUpPolicy, [
+        'card_last4_mismatch',
+        'duplicate_transaction',
+        'provider_machine_mismatch',
+      ])
+  );
+  assert(
+    'Verified replies can correct the same no-safe-match case and rerun matching',
+    includesAll(gmailSync, [
+      '.from("refund_follow_up_cycles")',
+      '.eq("reason_code", "no_safe_match")',
+      'allowCustomerCorrection',
+      'labeled_customer_correction_v2',
+    ]) &&
+      automationSweep.includes('source: "customer_reply_recheck"')
   );
   assert(
     'Pre-decision and confirmed refund amounts use different labels',
