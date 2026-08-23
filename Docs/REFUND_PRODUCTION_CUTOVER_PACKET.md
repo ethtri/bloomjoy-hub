@@ -6,7 +6,7 @@ Last updated: 2026-08-21
 
 Use this packet to move epic `#628` from the fully integrated release on `main` to a simple, monitored production pilot. A green PR is necessary but is not production deployment, customer-contact activation, live-payment approval, schedule enablement, or legacy-responder retirement.
 
-**Current operational truth:** the reviewed repository target covers all ten manifest-tracked Refund Operations functions and all 68 required refund/Nayax migrations. The automatic Nayax payment switch is kill-switched while the portfolio-intake correction is reviewed and deployed. The correction restores customer-safe form coverage independently of automatic-payment readiness and returns mapping/cohort gaps from Excluded to Needs setup; final activation remains withheld until production QA is green.
+**Current operational truth:** the reviewed repository target covers all ten manifest-tracked Refund Operations functions and all 70 required refund/Nayax migrations. The automatic Nayax payment switch is kill-switched while the portfolio mapping correction is reviewed and deployed. The correction restores customer-safe form coverage independently of automatic-payment readiness, repairs the exact verified mappings, and leaves unresolved rows in Needs setup; final activation remains withheld until production QA is green.
 
 ## Pilot scope boundary
 
@@ -49,7 +49,7 @@ This evidence expires if `main`, any listed migration, or any manifest-tracked f
 1. Freeze unrelated Refund Operations changes for the release window.
 2. Use the current integrated `main` commit as the only deploy source. Never deploy a historical PR head, local-only commit, or unreviewed merge.
 3. If `main` changes, refresh the manifest with `npm run refunds:release:write-local`, review and commit the manifest-only update, and rerun this entire verification profile.
-4. Confirm the manifest covers all ten manifest-tracked Refund Operations functions and all 68 required refund/Nayax migrations, with the exact canonical 51-migration predeployment bridge preserved only as historical restore evidence.
+4. Confirm the manifest covers all ten manifest-tracked Refund Operations functions and all 70 required refund/Nayax migrations, with the exact canonical 51-migration predeployment bridge preserved only as historical restore evidence.
 5. Run on the immutable release commit:
 
 ```bash
