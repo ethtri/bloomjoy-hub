@@ -89,10 +89,16 @@ export const validateRefundBrowserUatNetworkCoverage = (sources) => {
     }
     if (
       filename === 'validate-refund-portal-uat.mjs' &&
-      countMatches(
-        source,
-        /labelFixtureOwnedPortalRpc\(route, ['"]public_refund_machine_options['"]\)/g
-      ) !== 3
+      (
+        countMatches(
+          source,
+          /labelFixtureOwnedPortalRpc\(route, ['"]public_refund_machine_options['"]\)/g
+        ) !== 1 ||
+        countMatches(
+          source,
+          /labelFixtureOwnedPortalRpc\(route, ['"]public_refund_selections['"]\)/g
+        ) !== 3
+      )
     ) {
       failures.push(`${filename}: direct public-options RPC fixtures are not all ownership-labelled`);
     }

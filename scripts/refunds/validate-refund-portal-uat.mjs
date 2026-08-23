@@ -40,6 +40,7 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'get_refund_automation_health',
   'get_refund_gmail_health',
   'get_refund_manager_totp_enrollment_readiness_current_user',
+  'public_refund_selections',
   'public_refund_machine_options',
   'admin_get_refund_nayax_resolution_readiness',
   'admin_get_refund_email_queue_states',
@@ -881,6 +882,38 @@ const buildPendingNayaxRefundOverview = () => {
     customerName: 'Alternate Pending Card Customer',
     createdAt: isoHoursAgo(5),
   });
+  return overview;
+};
+
+const buildGroupedLivermorePendingOverview = () => {
+  const overview = buildPendingNayaxRefundOverview();
+  overview.machines = [
+    {
+      id: 'livermore-machine-a',
+      machineLabel: 'Cotton candy machine A',
+      locationName: 'San Francisco Premium Outlets',
+      nayaxLookupConfigured: true,
+    },
+    {
+      id: 'livermore-machine-b',
+      machineLabel: 'Cotton candy machine B',
+      locationName: 'San Francisco Premium Outlets',
+      nayaxLookupConfigured: true,
+    },
+  ];
+  overview.managerAssignments = [
+    { reportingMachineId: 'livermore-machine-a', managerEmail: mockUser.email },
+    { reportingMachineId: 'livermore-machine-b', managerEmail: mockUser.email },
+  ];
+  overview.cases = overview.cases.map((refundCase) => ({
+    ...refundCase,
+    machineLabel: 'San Francisco Premium Outlets — Cotton candy',
+    locationName: 'San Francisco Premium Outlets',
+    canPerformOfficialAction: false,
+    canSelectNayaxCandidate: true,
+    officialActionBlockReason: 'exact_machine_required',
+    officialActionVersion: 1,
+  }));
   return overview;
 };
 
@@ -1838,8 +1871,8 @@ const isExpectedPortalUatResponse = (response) => {
   if (
     status === 503 &&
     marker === 'public-machine-options' &&
-    path === '/rest/v1/rpc/public_refund_machine_options' &&
-    fixtureOwnedPortalRpcLabels.get(request) === 'public_refund_machine_options'
+    path === '/rest/v1/rpc/public_refund_selections' &&
+    fixtureOwnedPortalRpcLabels.get(request) === 'public_refund_selections'
   ) {
     return true;
   }
@@ -1954,6 +1987,10 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder
     labelFixtureOwnedPortalRpc(route, 'public_refund_machine_options');
     await route.fulfill(jsonResponse([]));
   });
+  await context.route('**/rest/v1/rpc/public_refund_selections', async (route) => {
+    labelFixtureOwnedPortalRpc(route, 'public_refund_selections');
+    await route.fulfill(jsonResponse([]));
+  });
   const page = await context.newPage();
 
   await navigateRefundPortalPage(page, `${appUrl}/refunds`, { waitUntil: 'domcontentloaded' });
@@ -1973,11 +2010,21 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder
     (await page.locator('input[type="file"]').count()) === 0 &&
       (await page.getByText(/upload|photo|attachment/i).count()) === 0
   );
+  const demoLocation = page.getByLabel('Machine location');
+  recorder.assert(
+    'Customer selector renders Capital City once, one Livermore choice, and distinct South Hills product choices',
+    await demoLocation.locator('option', { hasText: 'Capital City Mall' }).count() === 1 &&
+      await demoLocation.locator('option', { hasText: 'San Francisco Premium Outlets — Cotton candy' }).count() === 1 &&
+      await demoLocation.locator('option', { hasText: 'South Hills Village — Cotton candy' }).count() === 1 &&
+      await demoLocation.locator('option', { hasText: 'South Hills Village — Phone cases (SnapCase)' }).count() === 1
+  );
+  await demoLocation.selectOption('demo-livermore-pair');
   await page.screenshot({
     path: path.join(artifactDir, 'refund-email-pilot-hosted-form-desktop.png'),
     fullPage: true,
   });
   await page.setViewportSize({ width: 390, height: 844 });
+  await demoLocation.selectOption('demo-south-hills-snapcase');
   await page.screenshot({
     path: path.join(artifactDir, 'refund-email-pilot-hosted-form-mobile.png'),
     fullPage: false,
@@ -2035,8 +2082,8 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder
   const machineErrorContext = await browser.newContext({
     viewport: { width: 390, height: 844 },
   });
-  await machineErrorContext.route('**/rest/v1/rpc/public_refund_machine_options', async (route) => {
-    labelFixtureOwnedPortalRpc(route, 'public_refund_machine_options');
+  await machineErrorContext.route('**/rest/v1/rpc/public_refund_selections', async (route) => {
+    labelFixtureOwnedPortalRpc(route, 'public_refund_selections');
     await route.fulfill({
       ...jsonResponse({ message: 'Synthetic machine-list outage.' }),
       status: 503,
@@ -2059,7 +2106,7 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder
 };
 
 const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) => {
-  const machineId = '41000000-0000-4000-8000-000000000003';
+  const selectionKey = 'b'.repeat(64);
   const emailContextToken = 'a'.repeat(43);
   const journeys = [
     {
@@ -2079,14 +2126,14 @@ const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) =>
       viewport: { width: 1280, height: 900 },
     });
     const submissions = [];
-    await context.route('**/rest/v1/rpc/public_refund_machine_options', async (route) => {
-      labelFixtureOwnedPortalRpc(route, 'public_refund_machine_options');
+    await context.route('**/rest/v1/rpc/public_refund_selections', async (route) => {
+      labelFixtureOwnedPortalRpc(route, 'public_refund_selections');
       await route.fulfill(jsonResponse([
         {
-          machine_id: machineId,
-          machine_label: 'Refund UAT Cotton Candy 01',
+          selection_key: selectionKey,
+          display_label: 'Refund UAT Mall',
+          selection_kind: 'exact_machine',
           location_id: '41000000-0000-4000-8000-000000000002',
-          location_name: 'Refund UAT Mall',
           location_timezone: 'America/Los_Angeles',
         },
       ]));
@@ -2105,7 +2152,7 @@ const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) =>
 
     const page = await context.newPage();
     await navigateRefundPortalPage(page, `${appUrl}${journey.path}`, { waitUntil: 'domcontentloaded' });
-    await page.getByLabel('Machine location').selectOption(machineId);
+    await page.getByLabel('Machine location').selectOption(selectionKey);
     await page.getByLabel('Name').fill('Synthetic Customer');
     await page.getByLabel('Email').fill('synthetic-customer@example.test');
     await page.getByLabel('How close is that time?').selectOption('within_15_minutes');
@@ -2146,7 +2193,9 @@ const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) =>
       submissions.length === 1 &&
         submission.incidentDate === '2026-08-11' &&
         submission.incidentTime === '15:30' &&
-        submission.cardNetwork === 'visa',
+        submission.cardNetwork === 'visa' &&
+        submission.selectionKey === selectionKey &&
+        submission.machineId === undefined,
       JSON.stringify(submission)
     );
     recorder.assert(
@@ -3593,6 +3642,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     },
     {
       name: 'multiple candidates',
+      refundOverview: buildGroupedLivermorePendingOverview,
       response: {
         configured: true,
         lookupStatus: 'multiple_matches',
@@ -3612,6 +3662,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         candidates: [
           {
             candidateToken: '41000000-0000-4000-8000-000000000201',
+            machineDisplayLabel: 'San Francisco Premium Outlets — Cotton candy machine A',
             authorizedAt: isoHoursAgo(3.1),
             machineAuthorizationTime: isoHoursAgo(3.1),
             amountCents: 700,
@@ -3636,6 +3687,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
           },
           {
             candidateToken: '41000000-0000-4000-8000-000000000202',
+            machineDisplayLabel: 'San Francisco Premium Outlets — Cotton candy machine B',
             authorizedAt: isoHoursAgo(2.9),
             machineAuthorizationTime: isoHoursAgo(2.9),
             amountCents: 700,
@@ -3666,6 +3718,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedBadge: 'Multiple possible matches',
       expectedAction: 'Compare the details. Select one only if it is clearly the customer\'s purchase.',
       expectedCandidateCount: 2,
+      expectedGroupedMachineLabels: true,
     },
     {
       name: 'unique QR wallet recommendation',
@@ -3992,6 +4045,15 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
           'Managers can reveal every safe alternate in likely order',
           await page.getByTestId('nayax-candidate-option').nth(1).isVisible()
         );
+        if (scenario.expectedGroupedMachineLabels) {
+          recorder.assert(
+            'Unresolved Livermore candidates identify the customer-facing owning unit without enabling official action',
+            await page.getByText(/Cotton candy machine A/).isVisible() &&
+              await page.getByText(/Cotton candy machine B/).isVisible() &&
+              await page.getByText(/Confirm the exact transaction so Bloomjoy can bind this request to one outlet machine before any refund decision/i).isVisible() &&
+              (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0
+          );
+        }
         await page.getByTestId('nayax-candidate-option').nth(1).click();
         recorder.assert(
           'Selecting an alternate requires a structured disagreement reason',

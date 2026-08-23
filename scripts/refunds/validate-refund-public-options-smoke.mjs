@@ -23,6 +23,14 @@ const intakeFunctionSource = fs.readFileSync(
   path.join(repoRoot, 'supabase', 'functions', 'refund-case-intake', 'index.ts'),
   'utf8'
 );
+const locationSelectionSource = fs.readFileSync(
+  path.join(repoRoot, 'supabase', 'migrations', '20260823110000_refund_public_location_selections.sql'),
+  'utf8'
+);
+const locationSelectionTestSource = fs.readFileSync(
+  path.join(repoRoot, 'supabase', 'tests', 'refund_public_location_selections.sql'),
+  'utf8'
+);
 const publicOptionsFunctionSource = portfolioCorrectionSource.slice(
   portfolioCorrectionSource.indexOf('create or replace function public.public_refund_machine_options()'),
   portfolioCorrectionSource.indexOf('create or replace function public.service_refund_machine_is_public(')
@@ -53,6 +61,8 @@ const readyRow = {
   excluded_inventory_count: 4,
   unaccounted_active_count: 0,
   public_option_count: 35,
+  public_selection_count: 34,
+  selection_covered_machine_count: 35,
   published_missing_public_option_count: 0,
   stale_published_count: 0,
   unsafe_internal_label_count: 0,
@@ -63,11 +73,18 @@ const readyRow = {
 
 assert.equal(validateAggregateRow(readyRow), readyRow);
 assert.equal(determineReadiness(readyRow).ready, true);
-assert.equal(determineReadiness({ ...readyRow, public_option_count: 39 }).ready, true,
+assert.equal(determineReadiness({
+  ...readyRow,
+  public_option_count: 39,
+  public_selection_count: 38,
+  selection_covered_machine_count: 39,
+}).ready, true,
   'customer intake may include setup-pending portfolio machines beyond the automatic-payment cohort');
 
 for (const patch of [
   { published_missing_public_option_count: 1, public_option_count: 34 },
+  { public_selection_count: 0 },
+  { selection_covered_machine_count: 34 },
   { stale_published_count: 1 },
   { active_inventory_machine_count: 40 },
   { needs_setup_inventory_count: 1, published_inventory_count: 34 },
@@ -96,6 +113,9 @@ assert.throws(
 
 assert.match(PUBLIC_OPTIONS_QUERY, /^with\s+active_inventory\s+as/i);
 assert.match(PUBLIC_OPTIONS_QUERY, /refund_nayax_machine_inventory/);
+assert.match(PUBLIC_OPTIONS_QUERY, /public_refund_selections/);
+assert.match(PUBLIC_OPTIONS_QUERY, /service_resolve_refund_public_selection/);
+assert.match(PUBLIC_OPTIONS_QUERY, /selection_covered_machine_count/);
 assert.match(PUBLIC_OPTIONS_QUERY, /needs_setup_inventory_count/);
 assert.match(PUBLIC_OPTIONS_QUERY, /snapcase_category_count/);
 assert.match(publicOptionsFunctionSource, /machine\.machine_type in \('commercial', 'mini'\)/);
@@ -105,6 +125,18 @@ assert.doesNotMatch(publicOptionsFunctionSource, /refund_intake_enabled/);
 assert.match(publicOptionsFunctionSource, /inventory\.refund_category = 'snapcase'/);
 assert.match(publicOptionsFunctionSource, /inventory\.reconciliation_state <> 'excluded'/);
 assert.doesNotMatch(intakeFunctionSource, /\.eq\("refund_intake_enabled", true\)/);
+assert.match(locationSelectionSource, /San Francisco Premium Outlets — Cotton candy/);
+assert.match(
+  locationSelectionSource,
+  /public_refund_selections\(\)\s*returns table \(\s*selection_key text,\s*display_label text,\s*selection_kind text,\s*location_timezone text\s*\)/s
+);
+assert.match(locationSelectionSource, /when 'cotton_candy' then 'Cotton candy'/);
+assert.match(locationSelectionSource, /when 'snapcase' then 'Phone cases \(SnapCase\)'/);
+assert.match(locationSelectionTestSource, /where display_label = 'Capital City Mall'/);
+assert.match(locationSelectionTestSource, /South Hills Village — Cotton candy/);
+assert.match(locationSelectionTestSource, /South Hills Village — Phone cases \(SnapCase\)/);
+assert.match(locationSelectionSource, /refund_livermore_selection_machine_ids\(\)/);
+assert.match(locationSelectionSource, /cardinality\(intake_selection_machine_ids\) = 2/);
 assert.equal((intakeFunctionSource.match(/service_refund_machine_is_public/g) ?? []).length, 2,
   'QR claim and direct form intake must share the explicit inventory eligibility RPC');
 assert.doesNotMatch(
@@ -121,4 +153,6 @@ console.log('- aggregate-only result allowlist');
 console.log('- every active Nayax machine is published, setup work, or explicitly excluded');
 console.log('- no setup or stale-published work remains at launch');
 console.log('- customer intake stays independent of automatic Nayax payment readiness');
+console.log('- opaque customer selections cover every public machine exactly once');
+console.log('- Livermore is one reviewed two-machine selection; mixed locations stay category-specific');
 console.log('- explicit Snapcase category and duplicate fail-closed gates');

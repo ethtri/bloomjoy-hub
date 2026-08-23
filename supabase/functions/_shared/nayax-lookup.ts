@@ -99,6 +99,8 @@ export type NayaxMatchFactor = {
 };
 
 export type NayaxProviderCandidate = {
+  reportingMachineId?: string | null;
+  machineDisplayLabel?: string | null;
   transactionId: string;
   siteId: number | null;
   providerMachineId: string;
@@ -177,6 +179,7 @@ export type NayaxLookupResult = {
   windowHours: number;
   summary: string;
   recommendedAction: string;
+  resolvedMachineId?: string | null;
   refundCase?: {
     id: string;
     publicReference: string;
@@ -266,6 +269,7 @@ const persistNayaxLookupCandidates = async ({
       token,
       refund_case_id: caseId,
       actor_user_id: actorUserId,
+      reporting_machine_id: candidate.reportingMachineId ?? null,
       provider_transaction_id: candidate.transactionId,
       site_id: candidate.siteId,
       machine_authorization_time: candidate.machineAuthorizationTime,
@@ -302,6 +306,7 @@ const persistNayaxLookupCandidates = async ({
         price_matches_machine_configuration: candidate.priceMatchesMachineConfiguration,
         machine_status: candidate.machineStatus,
         nearby_machine_alerts: candidate.nearbyMachineAlerts,
+        machine_display_label: candidate.machineDisplayLabel ?? null,
         provider_payload_redacted: true,
       },
       expires_at: expiresAt,
@@ -319,6 +324,358 @@ const recommendationToLookupStatus = (state: NayaxRecommendationState): NayaxLoo
   if (state === "ambiguous") return "multiple_matches";
   if (state === "manual_exception") return "manual_exception";
   return "no_match";
+};
+
+export const rankGroupedNayaxCandidates = (groups: Array<{
+  reportingMachineId: string;
+  machineDisplayLabel: string;
+  candidates: NayaxProviderCandidate[];
+}>) => {
+  const combinedCandidates = groups.flatMap((group) =>
+    group.candidates.map((candidate) => ({
+      ...candidate,
+      reportingMachineId: group.reportingMachineId,
+      machineDisplayLabel: group.machineDisplayLabel,
+    }))
+  ).sort((left, right) =>
+    right.rankingPoints - left.rankingPoints ||
+    left.timeDeltaMinutes - right.timeDeltaMinutes ||
+    left.transactionId.localeCompare(right.transactionId)
+  );
+  const selectableCandidates = combinedCandidates.filter((candidate) => candidate.selectionAllowed);
+  const uniqueCandidate = selectableCandidates.length === 1 ? selectableCandidates[0] : null;
+  const recommendationState: NayaxRecommendationState = uniqueCandidate
+    ? uniqueCandidate.recommendationState === "high_confidence"
+      ? "high_confidence"
+      : "ambiguous"
+    : selectableCandidates.length > 1
+    ? "ambiguous"
+    : "no_safe_match";
+  const oneClickEligible = recommendationState === "high_confidence" &&
+    uniqueCandidate?.oneClickEligible === true;
+  const candidates = combinedCandidates.map((candidate, index) => ({
+    ...candidate,
+    recommendationRank: index + 1,
+    isTopRanked: index === 0,
+    isRecommended: Boolean(uniqueCandidate && candidate.transactionId === uniqueCandidate.transactionId),
+    recommendationState,
+    confidenceClass: recommendationState === "high_confidence"
+      ? uniqueCandidate?.confidenceClass ?? "strong_card"
+      : "ambiguous_manual" as NayaxConfidenceClass,
+    oneClickEligible: Boolean(
+      oneClickEligible && uniqueCandidate && candidate.transactionId === uniqueCandidate.transactionId
+    ),
+  }));
+
+  return {
+    candidates,
+    selectableCandidates,
+    uniqueCandidate,
+    recommendationState,
+    oneClickEligible,
+  };
+};
+
+type GroupedRefundCase = {
+  id: string;
+  public_reference: string;
+  status: string;
+  reporting_location_id: string;
+  intake_selection_key: string;
+  intake_selection_kind: string;
+  intake_selection_machine_ids: string[];
+  incident_at: string;
+  incident_time_resolution: string | null;
+  incident_time_confidence: string | null;
+  payment_method: string;
+  payment_amount_cents: number | null;
+  refund_amount_cents: number | null;
+  card_last4: string | null;
+  card_network: string | null;
+  card_wallet_used: boolean | null;
+  customer_email: string;
+  customer_name: string | null;
+  deterministic_fact_version: number;
+};
+
+const lookupGroupedLivermoreCandidates = async ({
+  supabase,
+  refundCase,
+  actorUserId,
+  initialFactVersion,
+  incidentAt,
+  lastCheckedAt,
+  nayaxBaseUrl,
+  windowHours,
+}: {
+  supabase: SupabaseServiceClient;
+  refundCase: GroupedRefundCase;
+  actorUserId: string | null;
+  initialFactVersion: number;
+  incidentAt: Date;
+  lastCheckedAt: string;
+  nayaxBaseUrl: string;
+  windowHours: number;
+}): Promise<NayaxLookupResult> => {
+  const { data: resolvedScope, error: scopeError } = await supabase.rpc(
+    "service_resolve_refund_public_selection",
+    { p_selection_key: refundCase.intake_selection_key },
+  );
+  const scopeMachineIds: string[] = Array.isArray(resolvedScope?.machineIds)
+    ? resolvedScope.machineIds.map((value: unknown) => sanitizeText(value, 80))
+    : [];
+  if (
+    scopeError ||
+    resolvedScope?.selectionKind !== "livermore_pair" ||
+    scopeMachineIds.length !== 2 ||
+    JSON.stringify(scopeMachineIds) !== JSON.stringify(refundCase.intake_selection_machine_ids)
+  ) {
+    throw new NayaxLookupRequestError(
+      "The grouped location changed and requires administrator review.",
+      409,
+    );
+  }
+
+  const { data: machines, error: machinesError } = await supabase
+    .from("reporting_machines")
+    .select("id, location_id, machine_label, nayax_machine_id, nayax_account_key")
+    .in("id", scopeMachineIds);
+  if (machinesError) throw machinesError;
+  type ScopedMachine = {
+    id: string;
+    location_id: string;
+    machine_label: string;
+    nayax_machine_id: string | null;
+    nayax_account_key: string | null;
+  };
+  const machineRows = (machines ?? []) as ScopedMachine[];
+  const orderedMachines: Array<ScopedMachine | undefined> = scopeMachineIds.map((machineId: string) =>
+    machineRows.find((machine: ScopedMachine) => sanitizeText(machine.id, 80) === machineId)
+  );
+  if (
+    orderedMachines.some((machine: ScopedMachine | undefined) => !machine) ||
+    orderedMachines.some((machine: ScopedMachine | undefined) =>
+      sanitizeText(machine?.location_id, 80) !== refundCase.reporting_location_id
+    )
+  ) {
+    throw new NayaxLookupRequestError(
+      "The grouped location is incomplete and requires administrator review.",
+      409,
+    );
+  }
+
+  const { data: location, error: locationError } = await supabase
+    .from("reporting_locations")
+    .select("id, name, timezone")
+    .eq("id", refundCase.reporting_location_id)
+    .maybeSingle();
+  if (locationError) throw locationError;
+  if (!location) {
+    throw new NayaxLookupRequestError("The grouped location is unavailable.", 409);
+  }
+
+  const caseSnapshot = {
+    id: refundCase.id,
+    publicReference: refundCase.public_reference,
+    status: refundCase.status,
+    customerEmail: refundCase.customer_email,
+    customerName: refundCase.customer_name,
+    paymentMethod: refundCase.payment_method,
+    paymentAmountCents: sanitizeInputCents(refundCase.payment_amount_cents),
+    refundAmountCents: sanitizeInputCents(refundCase.refund_amount_cents),
+    machineLabel: "San Francisco Premium Outlets — Cotton candy",
+    locationName: sanitizeText(location.name, 180) || null,
+    incidentAt: incidentAt.toISOString(),
+    qrClaimOpenedAt: null,
+  };
+  const setupResult = (message: string): NayaxLookupResult => ({
+    configured: false,
+    lookupStatus: "setup_needed",
+    recommendationState: "manual_exception",
+    confidenceClass: "ambiguous_manual",
+    reasonCodes: ["lookup_setup_incomplete"],
+    policyVersion: NAYAX_RECOMMENDATION_POLICY.version,
+    oneClickEligible: false,
+    qrClaimEvidenceStatus: "missing",
+    qrClaimOpenedAt: null,
+    maximumUniqueQrLagMinutes: NAYAX_RECOMMENDATION_POLICY.maximumUniqueQrLagMinutes,
+    lastCheckedAt,
+    candidates: [],
+    candidateCount: 0,
+    windowHours,
+    refundCase: caseSnapshot,
+    message,
+    summary: "Setup needed before Nayax can check this grouped card refund.",
+    recommendedAction: "Ask an admin to restore the exact reviewed Livermore pair before deciding this case.",
+  });
+
+  const providerInputs = orderedMachines.map((machine: ScopedMachine | undefined, index: number) => {
+    const nayaxMachineId = sanitizeText(machine?.nayax_machine_id, 120);
+    const accountKey = normalizeAccountKey(machine?.nayax_account_key);
+    const token = resolveNayaxToken(accountKey);
+    return {
+      reportingMachineId: scopeMachineIds[index],
+      machineDisplayLabel: `San Francisco Premium Outlets — Cotton candy machine ${index === 0 ? "A" : "B"}`,
+      nayaxMachineId,
+      accountKey,
+      token,
+    };
+  });
+  if (providerInputs.some((input: typeof providerInputs[number]) => !input.nayaxMachineId || !input.token)) {
+    return setupResult("Both reviewed Livermore machines must have an exact Nayax mapping and server-only account token.");
+  }
+
+  const providerResults = await Promise.all(providerInputs.map(async (input: typeof providerInputs[number]) => {
+    const headers = {
+      Authorization: `Bearer ${input.token}`,
+      "Content-Type": "application/json",
+    };
+    const optionalPayload = async (endpointName: string) => {
+      try {
+        const response = await fetch(
+          `${nayaxBaseUrl}/machines/${encodeURIComponent(input.nayaxMachineId)}/${endpointName}`,
+          { method: "GET", headers },
+        );
+        return response.ok ? await response.json() : null;
+      } catch {
+        return null;
+      }
+    };
+    const [salesResponse, productsPayload, statusPayload, alertsPayload] = await Promise.all([
+      fetch(
+        `${nayaxBaseUrl}/machines/${encodeURIComponent(input.nayaxMachineId)}/lastSales`,
+        { method: "GET", headers },
+      ),
+      optionalPayload("machineProducts"),
+      optionalPayload("status"),
+      optionalPayload("lastAlerts"),
+    ]);
+    if (!salesResponse.ok) {
+      console.warn("grouped nayax lookup provider failure", {
+        status: salesResponse.status,
+        accountKey: input.accountKey,
+      });
+      throw new NayaxLookupRequestError("Unable to look up both grouped Nayax machines.", 502);
+    }
+    const payload = await salesResponse.json();
+    const recommendationInput = {
+      payload,
+      incidentAt: incidentAt.toISOString(),
+      incidentTimeResolution: sanitizeText(refundCase.incident_time_resolution, 40) || "legacy_absolute",
+      expectedMachineId: input.nayaxMachineId,
+      locationTimezone: sanitizeText(location.timezone, 80),
+      requestAmountCents: sanitizeInputCents(refundCase.payment_amount_cents),
+      requestCardLast4: extractLast4(refundCase.card_last4),
+      requestCardNetwork: sanitizeText(refundCase.card_network, 40),
+      cardWalletUsed: Boolean(refundCase.card_wallet_used),
+      incidentTimeConfidence: sanitizeText(refundCase.incident_time_confidence, 40) || "rough",
+      machineContext: buildNayaxMachineContext({
+        productsPayload,
+        statusPayload,
+        alertsPayload,
+        checkedAt: lastCheckedAt,
+      }),
+      qrClaimOpenedAt: null,
+      qrClaimEvidenceStatus: "missing" as const,
+      windowHours,
+    };
+    const preliminary = buildNayaxRecommendation(recommendationInput) as {
+      candidates: NayaxProviderCandidate[];
+    };
+    return { input, payload, recommendationInput, preliminary };
+  }));
+
+  const transactionStates = await loadNayaxTransactionStates({
+    supabase,
+    caseId: refundCase.id,
+    transactionIds: providerResults.flatMap((result) =>
+      result.preliminary.candidates.map((candidate: NayaxProviderCandidate) => candidate.transactionId)
+    ),
+  });
+  const localRecommendations = providerResults.map((result) => ({
+    ...result,
+    recommendation: buildNayaxRecommendation({
+      ...result.recommendationInput,
+      transactionStates,
+    }) as {
+      candidates: NayaxProviderCandidate[];
+      providerParseableRecordCount: number;
+      providerWindowRecordCount: number;
+    },
+  }));
+  const {
+    candidates: globallyRanked,
+    selectableCandidates,
+    uniqueCandidate,
+    recommendationState,
+    oneClickEligible,
+  } = rankGroupedNayaxCandidates(localRecommendations.map((result) => ({
+    reportingMachineId: result.input.reportingMachineId,
+    machineDisplayLabel: result.input.machineDisplayLabel,
+    candidates: result.recommendation.candidates,
+  })));
+
+  const { data: currentCase, error: currentCaseError } = await supabase
+    .from("refund_cases")
+    .select("deterministic_fact_version,intake_selection_key,intake_selection_machine_ids")
+    .eq("id", refundCase.id)
+    .maybeSingle();
+  if (currentCaseError) throw currentCaseError;
+  if (
+    Number(currentCase?.deterministic_fact_version) !== initialFactVersion ||
+    currentCase?.intake_selection_key !== refundCase.intake_selection_key ||
+    JSON.stringify(currentCase?.intake_selection_machine_ids) !== JSON.stringify(scopeMachineIds)
+  ) {
+    throw new NayaxLookupEvidenceChangedError();
+  }
+
+  const candidates = await persistNayaxLookupCandidates({
+    supabase,
+    caseId: refundCase.id,
+    actorUserId,
+    candidates: globallyRanked,
+  });
+  const summary = selectableCandidates.length === 0
+    ? "No safe transaction matched across the two reviewed outlet machines."
+    : selectableCandidates.length === 1
+    ? "One safe transaction matched across the two reviewed outlet machines. Confirm it before any refund decision."
+    : "More than one plausible transaction matched across the two reviewed outlet machines. A manager must choose the exact transaction.";
+  return {
+    configured: true,
+    lookupStatus: recommendationToLookupStatus(recommendationState),
+    recommendationState,
+    confidenceClass: recommendationState === "high_confidence"
+      ? uniqueCandidate?.confidenceClass ?? "strong_card"
+      : "ambiguous_manual",
+    reasonCodes: [...new Set(globallyRanked.flatMap((candidate) => candidate.reasonCodes))],
+    policyVersion: NAYAX_RECOMMENDATION_POLICY.version,
+    oneClickEligible,
+    qrClaimEvidenceStatus: "missing",
+    qrClaimOpenedAt: null,
+    maximumUniqueQrLagMinutes: NAYAX_RECOMMENDATION_POLICY.maximumUniqueQrLagMinutes,
+    lastCheckedAt,
+    providerRecordCount: providerResults.reduce(
+      (count, result) => count + extractNayaxRecords(result.payload).length,
+      0,
+    ),
+    providerParseableRecordCount: localRecommendations.reduce(
+      (count, result) => count + result.recommendation.providerParseableRecordCount,
+      0,
+    ),
+    providerWindowRecordCount: localRecommendations.reduce(
+      (count, result) => count + result.recommendation.providerWindowRecordCount,
+      0,
+    ),
+    candidateCount: globallyRanked.length,
+    candidates,
+    windowHours,
+    summary,
+    recommendedAction: selectableCandidates.length === 1
+      ? "Confirm the exact transaction, then review the refund separately."
+      : "Review the bounded results and never guess or attempt both machines.",
+    resolvedMachineId: uniqueCandidate?.reportingMachineId ?? null,
+    refundCase: caseSnapshot,
+  };
 };
 
 export const lookupNayaxCandidatesForRefundCase = async ({
@@ -345,6 +702,9 @@ export const lookupNayaxCandidatesForRefundCase = async ({
       status,
       reporting_machine_id,
       reporting_location_id,
+      intake_selection_key,
+      intake_selection_kind,
+      intake_selection_machine_ids,
       refund_qr_claim_context_id,
       incident_at,
       incident_time_resolution,
@@ -376,7 +736,33 @@ export const lookupNayaxCandidatesForRefundCase = async ({
   const incidentAt = parseIncidentAt(refundCase?.incident_at);
   if (!incidentAt) throw new NayaxLookupRequestError("Refund case incident time is required.", 400);
   const machineId = sanitizeText(refundCase?.reporting_machine_id, 80);
-  if (!machineId) throw new NayaxLookupRequestError("Refund case machine is not available.", 400);
+  if (!machineId) {
+    const groupedMachineIds = Array.isArray(refundCase?.intake_selection_machine_ids)
+      ? refundCase.intake_selection_machine_ids.map((value: unknown) => sanitizeText(value, 80))
+      : [];
+    if (
+      refundCase?.intake_selection_kind !== "livermore_pair" ||
+      !sanitizeText(refundCase?.intake_selection_key, 80) ||
+      groupedMachineIds.length !== 2
+    ) {
+      throw new NayaxLookupRequestError("Refund case machine is not available.", 400);
+    }
+    return await lookupGroupedLivermoreCandidates({
+      supabase,
+      refundCase: {
+        ...refundCase,
+        intake_selection_key: sanitizeText(refundCase.intake_selection_key, 80),
+        intake_selection_kind: "livermore_pair",
+        intake_selection_machine_ids: groupedMachineIds,
+      } as GroupedRefundCase,
+      actorUserId,
+      initialFactVersion,
+      incidentAt,
+      lastCheckedAt,
+      nayaxBaseUrl,
+      windowHours,
+    });
+  }
 
   const { data: machine, error: machineError } = await supabase
     .from("reporting_machines")
@@ -583,7 +969,10 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     supabase,
     caseId,
     actorUserId,
-    candidates: recommendation.candidates,
+    candidates: recommendation.candidates.map((candidate) => ({
+      ...candidate,
+      reportingMachineId: machineId,
+    })),
   });
 
   return {
