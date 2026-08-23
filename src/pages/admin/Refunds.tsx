@@ -867,21 +867,16 @@ const intakeSourceBadgeClass = (refundCase: RefundCaseRecord) =>
     : 'border-violet-200 bg-violet-50 text-violet-800';
 
 const formatCandidateSummary = (candidate: NayaxLookupCandidate) =>
-  `${formatCurrency(candidate.amountCents)} transaction, ${candidate.cardBrand || 'card'} ending ${
-    candidate.cardLast4 || 'n/a'
-  }, ${formatDate(candidate.machineAuthorizationTime)}${
-    typeof candidate.timeDeltaMinutes === 'number' ? `, ${candidate.timeDeltaMinutes} minutes from reported time` : ''
-  }${
-    typeof candidate.qrTimeDeltaMinutes === 'number' && candidate.qrTimeDeltaMinutes >= 0
-      ? `, QR opened ${candidate.qrTimeDeltaMinutes} minutes later`
-      : ''
-  }${
-    typeof candidate.amountDeltaCents === 'number'
-      ? candidate.amountDeltaCents === 0
-        ? ', exact amount'
-        : `, amount differs by ${formatCurrency(candidate.amountDeltaCents)}`
-      : ''
-  }`;
+  [
+    formatCurrency(candidate.amountCents),
+    formatDate(candidate.machineAuthorizationTime),
+    `${candidate.cardBrand || 'Card'} ending ${candidate.cardLast4 || 'n/a'}`,
+    typeof candidate.timeDeltaMinutes === 'number'
+      ? `${candidate.timeDeltaMinutes} min from reported time`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(' • ');
 
 const paymentInteractionLabel = (refundCase: RefundCaseRecord) => {
   switch (refundCase.paymentInteraction) {
@@ -966,15 +961,53 @@ const matchFactorDisplayLabel = (
   }
 };
 
+const candidateUnavailableReason = (
+  candidate: NayaxLookupCandidate,
+  refundCase: RefundCaseRecord
+) => {
+  const exclusions = new Set(candidate.hardExclusions ?? []);
+  if (exclusions.has('card_last4_mismatch')) {
+    return refundCase.paymentInteraction === 'phone_watch_wallet' || refundCase.cardWalletUsed
+      ? 'The card ending needs customer confirmation.'
+      : 'The card ending does not match the physical card reported by the customer.';
+  }
+  if (exclusions.has('duplicate_transaction')) {
+    return 'This transaction is already linked to another refund case.';
+  }
+  if (exclusions.has('already_refunded')) {
+    return 'This transaction already has refund evidence.';
+  }
+  if (exclusions.has('wrong_machine')) {
+    return 'This transaction belongs to a different machine.';
+  }
+  if (exclusions.has('currency_not_usd')) {
+    return 'This transaction is not in U.S. dollars.';
+  }
+  if (exclusions.has('payment_not_approved')) {
+    return 'Nayax does not show this as an approved sale.';
+  }
+
+  const blockingFactor = candidate.matchFactors?.find((factor) =>
+    ['blocked', 'mismatch'].includes(factor.outcome)
+  );
+  return blockingFactor
+    ? matchFactorDisplayLabel(blockingFactor, candidate, refundCase)
+    : 'This transaction conflicts with a required detail or is already in use.';
+};
+
 const nayaxDecisionHeading = (
   summary: RefundNayaxLookupSummary | null,
   candidate: NayaxLookupCandidate | null,
-  hasSelectedMatch: boolean
+  hasSelectedMatch: boolean,
+  hasSelectableCandidate: boolean,
+  waitingOnCustomer: boolean
 ) => {
   if (hasSelectedMatch) return 'Transaction selected';
   if (summary?.lookupStatus === 'checking') return 'In progress';
   if (summary?.lookupStatus === 'setup_needed') return 'Transaction search is unavailable';
   if (summary?.lookupStatus === 'lookup_failed') return 'The transaction check did not finish';
+  if (candidate && !hasSelectableCandidate) return 'No transaction is safe to select';
+  if (candidate && waitingOnCustomer) return 'Transactions found; waiting for customer';
   if (summary?.recommendationState === 'ambiguous' || summary?.lookupStatus === 'multiple_matches') {
     return 'More than one transaction could match';
   }
@@ -1012,9 +1045,13 @@ const transactionSearchDescription = (summary: RefundNayaxLookupSummary | null) 
 const nayaxDecisionStatusLabel = (
   summary: RefundNayaxLookupSummary | null,
   candidate: NayaxLookupCandidate | null,
-  hasSelectedMatch: boolean
+  hasSelectedMatch: boolean,
+  hasSelectableCandidate: boolean,
+  waitingOnCustomer: boolean
 ) => {
   if (hasSelectedMatch) return 'Selected';
+  if (candidate && !hasSelectableCandidate) return 'No selectable transaction';
+  if (candidate && waitingOnCustomer) return 'Waiting on customer';
   if (candidate?.isRecommended) return 'Likely match';
   if (candidate) return 'Compare details';
   if (summary?.lookupStatus === 'checking' || summary?.lookupStatus === 'not_started') return 'Checking';
@@ -3588,6 +3625,15 @@ export default function AdminRefundsPage() {
     const recommendedCandidate = effectiveCandidates.find((candidate) => candidate.isRecommended === true) ?? null;
     const leadCandidate = recommendedCandidate ?? effectiveCandidates[0] ?? null;
     const alternateCandidates = effectiveCandidates.filter((candidate) => candidate !== leadCandidate);
+    const selectableCandidateCount = effectiveCandidates.filter(
+      (candidate) => candidate.selectionAllowed !== false
+    ).length;
+    const waitingOnCustomer =
+      selectedCase.status === 'waiting_on_customer' || editor.status === 'waiting_on_customer';
+    const caseAllowsCandidateSelection =
+      selectedCase.status === 'needs_review' &&
+      editor.status === 'needs_review' &&
+      selectedCase.canPerformOfficialAction !== false;
     const selectedCandidate = selectedNayaxCandidate(editor, effectiveCandidates);
     const hasLookupResult = !selectedCase.legacyStateReviewRequired && Boolean(
       selectedCase.hasMatchedNayaxTransaction ||
@@ -3600,7 +3646,7 @@ export default function AdminRefundsPage() {
     const automaticLookupPending = selectedNayaxSummary?.lookupStatus === 'checking';
     const needsDisagreementReason = Boolean(selectedCandidate && selectedCandidate.isRecommended !== true);
     const selectCandidate = (candidate: NayaxLookupCandidate) => {
-      if (candidate.selectionAllowed === false) return;
+      if (!caseAllowsCandidateSelection || candidate.selectionAllowed === false) return;
       setEditor((current) =>
         current
           ? {
@@ -3618,36 +3664,78 @@ export default function AdminRefundsPage() {
           : current
       );
     };
-    const candidateOption = (candidate: NayaxLookupCandidate, label: string) => (
-      <button
-        key={candidate.candidateToken}
-        data-testid="nayax-candidate-option"
-        type="button"
-        disabled={isUsingDemoData || candidate.selectionAllowed === false}
-        onClick={() => selectCandidate(candidate)}
-        className={cn(
-          'w-full min-w-0 rounded-md border bg-background p-3 text-left text-xs text-foreground transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60',
-          editor.matchedNayaxCandidateToken === candidate.candidateToken
-            ? 'border-primary ring-2 ring-primary/20'
-            : 'border-border'
-        )}
-      >
-        <span className="flex flex-wrap items-center gap-2 font-semibold">
-          <span>{label}</span>
-        </span>
-        <span className="mt-1 block text-muted-foreground">{formatCandidateSummary(candidate)}</span>
-        {candidate.matchReason && (
-          <span className="mt-2 block leading-5 text-foreground">
-            Why it matches: {candidate.matchReason.replace(/mapped machine/gi, 'machine')}
+    const candidateOption = (
+      candidate: NayaxLookupCandidate,
+      label: string,
+      showFactorHighlights = true
+    ) => {
+      const selectionDisabled =
+        isUsingDemoData || !caseAllowsCandidateSelection || candidate.selectionAllowed === false;
+      const visibleFactors = ['amount', 'card', 'incident_time']
+        .map((key) => candidate.matchFactors?.find((factor) => factor.key === key))
+        .filter((factor): factor is NonNullable<typeof factor> => Boolean(factor));
+      const selectionMessage = candidate.selectionAllowed === false
+        ? `Not selectable: ${candidateUnavailableReason(candidate, selectedCase)}`
+        : waitingOnCustomer
+          ? 'Selection is paused while waiting for the customer. The assistant will run a fresh search after the reply.'
+          : selectedCase.canPerformOfficialAction === false
+            ? 'You can review this result, but only an assigned manager can select it.'
+            : !caseAllowsCandidateSelection
+              ? 'Selection is only available while the case is in manager review.'
+              : 'Select this transaction';
+
+      return (
+        <button
+          key={candidate.candidateToken}
+          data-testid="nayax-candidate-option"
+          type="button"
+          disabled={selectionDisabled}
+          onClick={() => selectCandidate(candidate)}
+          className={cn(
+            'w-full min-w-0 rounded-md border bg-background p-3 text-left text-xs text-foreground transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-100',
+            editor.matchedNayaxCandidateToken === candidate.candidateToken
+              ? 'border-primary ring-2 ring-primary/20'
+              : 'border-border'
+          )}
+        >
+          <span className="flex flex-wrap items-center justify-between gap-2 font-semibold">
+            <span>{label}</span>
+            {candidate.selectionAllowed === false && (
+              <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[11px] text-orange-950">
+                Not selectable
+              </span>
+            )}
           </span>
-        )}
-        {candidate.selectionAllowed === false && (
-          <span className="mt-2 block font-medium text-orange-900">
-            Unavailable because this sale conflicts with a required detail or is already in use.
+          <span className="mt-1 block leading-5 text-foreground">{formatCandidateSummary(candidate)}</span>
+          {showFactorHighlights && visibleFactors.length > 0 && (
+            <span className="mt-2 grid gap-1 leading-5 text-muted-foreground">
+              {visibleFactors.map((factor) => (
+                <span key={`${factor.key}-${factor.label}`} className="flex gap-1.5">
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      'font-semibold',
+                      factor.outcome === 'match' ? 'text-emerald-700' : 'text-orange-800'
+                    )}
+                  >
+                    {factor.outcome === 'match' ? '✓' : '!'}
+                  </span>
+                  <span>{matchFactorDisplayLabel(factor, candidate, selectedCase)}</span>
+                </span>
+              ))}
+            </span>
+          )}
+          <span
+            className={cn(
+              'mt-2 block font-medium',
+              selectionDisabled ? 'text-orange-950' : 'text-primary'
+            )}
+          >
+            {selectionMessage}
           </span>
-        )}
-      </button>
-    );
+        </button>
+      );
+    };
 
     return (
       <div className="mt-3 space-y-3">
@@ -3670,26 +3758,50 @@ export default function AdminRefundsPage() {
           </div>
         )}
         {!selectedCase.hasMatchedNayaxTransaction && !editor.clearNayaxMatch && effectiveCandidates.length > 0 && (
-          <div className="rounded-md border border-border bg-background p-3">
+          <div className="border-t border-border pt-3">
             {isUsingDemoData && (
               <InfoHint>
                 Demo cases are read-only, so a transaction cannot be saved.
               </InfoHint>
             )}
+            <div data-testid="nayax-candidate-availability" className="mb-3">
+              <p className="text-sm font-semibold text-foreground">
+                {selectableCandidateCount === 0
+                  ? '0 transactions available to select'
+                  : waitingOnCustomer
+                    ? `${selectableCandidateCount} possible transaction${selectableCandidateCount === 1 ? '' : 's'} found`
+                    : `${selectableCandidateCount} transaction${selectableCandidateCount === 1 ? '' : 's'} available to compare`}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {selectableCandidateCount === 0 && leadCandidate
+                  ? `The closest result cannot be selected. ${candidateUnavailableReason(leadCandidate, selectedCase)}`
+                  : waitingOnCustomer
+                    ? 'These are the current search results. Selection stays paused until the customer replies and the assistant runs the search again.'
+                    : 'Choose one only when the customer, amount, time, and payment details clearly agree.'}
+              </p>
+            </div>
             {leadCandidate && (
               <div>
-                {candidateOption(leadCandidate, 'Most likely transaction')}
+                {candidateOption(
+                  leadCandidate,
+                  leadCandidate.selectionAllowed === false
+                    ? 'Closest transaction'
+                    : leadCandidate.isRecommended
+                      ? 'Recommended transaction'
+                      : 'Closest transaction',
+                  false
+                )}
               </div>
             )}
             {alternateCandidates.length > 0 && (
-              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-2">
-                <p className="text-xs font-medium text-slate-800">
-                  Other possible transactions ({alternateCandidates.length})
-                </p>
+              <details data-testid="nayax-alternate-transactions" className="mt-3 border-t border-border pt-3">
+                <summary className="cursor-pointer text-xs font-semibold text-foreground">
+                  Show {alternateCandidates.length} other transaction{alternateCandidates.length === 1 ? '' : 's'}
+                </summary>
                 <div className="mt-2 space-y-2">
-                  {alternateCandidates.map((candidate) => candidateOption(candidate, 'Possible transaction'))}
+                  {alternateCandidates.map((candidate) => candidateOption(candidate, 'Other transaction'))}
                 </div>
-              </div>
+              </details>
             )}
             {needsDisagreementReason && (
               <div className="mt-3 space-y-1.5">
@@ -3824,6 +3936,11 @@ export default function AdminRefundsPage() {
     const hasSelectedMatch = selectedCase.legacyStateReviewRequired
       ? false
       : hasSelectedCardEvidence(selectedCase, editor);
+    const hasSelectableCandidate = effectiveCandidates.some(
+      (candidate) => candidate.selectionAllowed !== false
+    );
+    const waitingOnCustomer =
+      selectedCase.status === 'waiting_on_customer' || editor.status === 'waiting_on_customer';
     const cardAmountCents = selectedCase.legacyStateReviewRequired
       ? selectedCase.paymentAmountCents
       : matchedCardSaleAmountCents ?? selectedCase.paymentAmountCents;
@@ -4032,13 +4149,25 @@ export default function AdminRefundsPage() {
                   <h4 data-testid="nayax-decision-heading" className="mt-1 text-base font-semibold text-foreground">
                     {selectedCase.legacyStateReviewRequired
                       ? 'Waiting for a fresh transaction check'
-                      : nayaxDecisionHeading(selectedNayaxSummary, comparisonCandidate, hasSelectedMatch)}
+                      : nayaxDecisionHeading(
+                          selectedNayaxSummary,
+                          comparisonCandidate,
+                          hasSelectedMatch,
+                          hasSelectableCandidate,
+                          waitingOnCustomer
+                        )}
                   </h4>
                 </div>
                 <Badge className="w-fit border-border bg-background text-foreground">
                   {selectedCase.legacyStateReviewRequired
                     ? 'Fresh check needed'
-                    : nayaxDecisionStatusLabel(selectedNayaxSummary, comparisonCandidate, hasSelectedMatch)}
+                    : nayaxDecisionStatusLabel(
+                        selectedNayaxSummary,
+                        comparisonCandidate,
+                        hasSelectedMatch,
+                        hasSelectableCandidate,
+                        waitingOnCustomer
+                      )}
                 </Badge>
               </div>
 
@@ -4096,7 +4225,13 @@ export default function AdminRefundsPage() {
 
                   {comparisonCandidate.matchFactors && comparisonCandidate.matchFactors.length > 0 && (
                     <div className="mt-3">
-                      <p className="text-xs font-semibold text-foreground">Why this looks like a match</p>
+                      <p className="text-xs font-semibold text-foreground">
+                        {comparisonCandidate.selectionAllowed === false
+                          ? 'Why this transaction cannot be selected'
+                          : waitingOnCustomer
+                            ? 'What matches and what still needs confirmation'
+                            : 'Why this looks like a match'}
+                      </p>
                       <ul className="mt-2 space-y-1 text-xs leading-5 text-muted-foreground">
                         {comparisonCandidate.matchFactors.slice(0, 4).map((factor) => (
                           <li key={`${factor.key}-${factor.label}`} className="flex gap-2">
