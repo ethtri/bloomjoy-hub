@@ -5709,7 +5709,7 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
 
     recorder.assert(
       'Explicit local demo mode shows read-only visual cases',
-      (await page.getByTestId('refund-queue-count').innerText()) === '1 case'
+      (await page.getByTestId('refund-queue-count').innerText()) === '2 cases'
     );
     recorder.assert(
       'Demo visual review keeps waiting cases out of the needs-action queue',
@@ -5725,7 +5725,7 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
         (await page.getByText('RF-UAT-CARD').count()) === 0
     );
     await page.getByRole('button', { name: /Action needed/ }).click();
-    await waitForQueueCount(page, 1);
+    await waitForQueueCount(page, 2);
 
     await queueCase(page, 'RF-UAT-CARD').click();
     await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
