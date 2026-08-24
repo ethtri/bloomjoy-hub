@@ -598,10 +598,39 @@ export type RefundManagerSetupMachine = {
   nayaxMachineId: string | null;
   nayaxAccountKey: string | null;
   managerEmails: string[];
+  managerCount: number;
+  customerIntakeAccepting: boolean;
+  transactionMatchingEnabled: boolean;
+  transactionLookupReady: boolean;
+  managerRoutingReady: boolean;
+  nayaxRefundsEnabled: boolean;
+  nayaxRefundMaxAmountCents: number | null;
+  paymentDisabledReason:
+    | 'awaiting_reviewed_activation'
+    | 'owner_pause'
+    | 'provider_support'
+    | 'machine_maintenance'
+    | 'commercial_exception'
+    | null;
+  activationEligible: boolean;
+  readinessState: 'ready_to_refund' | 'ready_to_activate' | 'setup_needed';
+  readinessBlockReason:
+    | 'customer_intake_unavailable'
+    | 'transaction_matching_off'
+    | 'transaction_lookup_not_ready'
+    | 'manager_route_not_ready'
+    | 'machine_limit_missing'
+    | null;
 };
 
 export type RefundManagerSetup = {
   machines: RefundManagerSetupMachine[];
+  standardLaunchLimitCents: number;
+  globalRefunds: {
+    available: boolean;
+    paused: boolean;
+    blockReason: 'official_actions_disabled' | 'kill_switch_active' | 'configuration_missing' | null;
+  };
 };
 
 export type RefundNayaxInventoryState = 'published' | 'needs_setup' | 'excluded';
@@ -943,7 +972,12 @@ export type NayaxCardRefundExecutionResponse = {
 export type NayaxCardRefundAvailabilityResponse = {
   available: boolean;
   status: 'available' | 'unavailable';
-  blockReason: RefundReadinessBlockReason | null;
+  blockReason:
+    | RefundReadinessBlockReason
+    | 'official_actions_disabled'
+    | 'kill_switch_active'
+    | 'configuration_missing'
+    | null;
   caseId?: string;
   transactionConfirmed?: boolean;
   canIssueCardRefund?: boolean;
@@ -1092,6 +1126,8 @@ const emptyOverview: RefundOperationsOverview = {
 
 const emptyRefundManagerSetup: RefundManagerSetup = {
   machines: [],
+  standardLaunchLimitCents: 5000,
+  globalRefunds: { available: false, paused: true, blockReason: 'configuration_missing' },
 };
 
 const demoIsoHoursAgo = (hours: number) =>
@@ -1837,15 +1873,38 @@ export const rejectRefundGptTriage = async (
 };
 
 export const fetchRefundManagerSetup = async (): Promise<RefundManagerSetup> => {
-  const { data, error } = await supabaseClient.rpc('admin_get_refund_manager_setup');
+  const [{ data, error }, globalAvailability] = await Promise.all([
+    supabaseClient.rpc('admin_get_refund_manager_setup'),
+    fetchNayaxCardRefundAvailability().catch(() => null),
+  ]);
 
   if (error) {
     throw new Error(error.message || 'Unable to load machine manager setup.');
   }
 
-  return {
+  const setup = {
     ...emptyRefundManagerSetup,
     ...((data as Partial<RefundManagerSetup> | null) ?? {}),
+  };
+  const globalBlockReason = globalAvailability?.blockReason;
+  const safeGlobalBlockReason =
+    globalBlockReason === 'official_actions_disabled' ||
+    globalBlockReason === 'kill_switch_active' ||
+    globalBlockReason === 'configuration_missing'
+      ? globalBlockReason
+      : globalAvailability?.available
+        ? null
+        : 'configuration_missing';
+
+  return {
+    ...setup,
+    globalRefunds: {
+      available: globalAvailability?.available === true,
+      paused:
+        safeGlobalBlockReason === 'official_actions_disabled' ||
+        safeGlobalBlockReason === 'kill_switch_active',
+      blockReason: safeGlobalBlockReason,
+    },
   };
 };
 
@@ -2330,6 +2389,46 @@ export const setMachineRefundIntakeConfigAdmin = async ({
   }
 
   return data as Record<string, unknown>;
+};
+
+export const setRefundMachineCardActivationAdmin = async ({
+  machineId,
+  enabled,
+  disabledReason,
+  reason,
+}: {
+  machineId: string;
+  enabled: boolean;
+  disabledReason?: RefundManagerSetupMachine['paymentDisabledReason'];
+  reason: string;
+}) => {
+  const { data, error } = await supabaseClient.rpc('admin_set_refund_machine_card_activation', {
+    p_machine_id: machineId,
+    p_enabled: enabled,
+    p_disabled_reason: disabledReason ?? null,
+    p_reason: reason,
+  });
+  if (error || !data) throw new Error(error?.message || 'Unable to update card refund availability.');
+  return data as {
+    ok: boolean;
+    replayed: boolean;
+    machineId: string;
+    readinessState: RefundManagerSetupMachine['readinessState'];
+    limitCents?: number | null;
+  };
+};
+
+export const activateQualifiedRefundMachinesAdmin = async (reason: string) => {
+  const { data, error } = await supabaseClient.rpc('admin_activate_qualified_refund_machines', {
+    p_reason: reason,
+  });
+  if (error || !data) throw new Error(error?.message || 'Unable to activate qualified machines.');
+  return data as {
+    ok: boolean;
+    activatedCount: number;
+    approvedExceptionCount: number;
+    standardLaunchLimitCents: number;
+  };
 };
 
 export const setMachineNayaxConfigAdmin = async ({

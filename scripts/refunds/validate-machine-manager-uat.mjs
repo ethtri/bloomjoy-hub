@@ -128,10 +128,12 @@ const buildMockSetup = () => ({
 });
 
 const buildMockRefundManagerSetup = (state) => ({
+  standardLaunchLimitCents: 5000,
   machines: [
     {
       id: machineId,
       machineLabel: 'Cotton Candy 01',
+      machineType: 'commercial',
       locationName: 'Mall Atrium',
       refundIntakeEnabled: state.refundSetup.refundIntakeEnabled,
       refundPublicDisplayLabel: state.refundSetup.refundPublicDisplayLabel,
@@ -139,6 +141,21 @@ const buildMockRefundManagerSetup = (state) => ({
       nayaxMachineId: state.refundSetup.nayaxMachineId,
       nayaxAccountKey: state.refundSetup.nayaxAccountKey,
       managerEmails: state.managerEmails,
+      managerCount: state.managerEmails.length,
+      customerIntakeAccepting: state.refundSetup.customerIntakeAccepting,
+      transactionMatchingEnabled: state.refundSetup.refundIntakeEnabled,
+      transactionLookupReady: Boolean(state.refundSetup.nayaxMachineId),
+      managerRoutingReady: state.managerEmails.length >= 1 && state.managerEmails.length <= 3,
+      nayaxRefundsEnabled: state.refundSetup.cardRefundsEnabled,
+      nayaxRefundMaxAmountCents: state.refundSetup.cardRefundLimitCents,
+      paymentDisabledReason: state.refundSetup.paymentDisabledReason,
+      activationEligible:
+        state.refundSetup.customerIntakeAccepting &&
+        state.refundSetup.refundIntakeEnabled &&
+        Boolean(state.refundSetup.nayaxMachineId) &&
+        state.managerEmails.length >= 1 && state.managerEmails.length <= 3,
+      readinessState: state.refundSetup.readinessState,
+      readinessBlockReason: state.refundSetup.readinessBlockReason,
     },
   ],
 });
@@ -224,6 +241,14 @@ const installMockSupabaseRoutes = async (context, state) => {
     });
 
     return route.fulfill(jsonResponse({ ok: true }));
+  });
+
+  await context.route('**/functions/v1/nayax-card-refund', async (route) => {
+    return route.fulfill(jsonResponse(
+      state.globalRefundsPaused
+        ? { available: false, status: 'unavailable', blockReason: 'kill_switch_active', payloadRedacted: true }
+        : { available: true, status: 'available', blockReason: null, payloadRedacted: true }
+    ));
   });
 
   await context.route('**/rest/v1/rpc/**', async (route) => {
@@ -434,6 +459,12 @@ const installMockSupabaseRoutes = async (context, state) => {
       state.refundIntakePayload = body;
       state.refundSetup.refundIntakeEnabled = Boolean(body?.p_refund_intake_enabled);
       state.refundSetup.refundPublicDisplayLabel = body?.p_refund_public_display_label ?? null;
+      state.refundSetup.readinessState = state.refundSetup.refundIntakeEnabled && state.refundSetup.nayaxMachineId
+        ? 'ready_to_activate'
+        : 'setup_needed';
+      state.refundSetup.readinessBlockReason = state.refundSetup.refundIntakeEnabled
+        ? state.refundSetup.nayaxMachineId ? null : 'transaction_lookup_not_ready'
+        : 'transaction_matching_off';
       return route.fulfill(jsonResponse({ ok: true }));
     }
 
@@ -443,6 +474,21 @@ const installMockSupabaseRoutes = async (context, state) => {
       state.refundSetup.nayaxMachineId = body?.p_nayax_machine_id ?? null;
       state.refundSetup.nayaxAccountKey = body?.p_nayax_account_key ?? null;
       return route.fulfill(jsonResponse({ ok: true }));
+    }
+
+    if (url.includes('/admin_set_refund_machine_card_activation')) {
+      const body = route.request().postDataJSON();
+      state.activationPayload = body;
+      state.refundSetup.cardRefundsEnabled = Boolean(body?.p_enabled);
+      state.refundSetup.cardRefundLimitCents = body?.p_enabled ? 5000 : null;
+      state.refundSetup.paymentDisabledReason = body?.p_enabled ? null : body?.p_disabled_reason;
+      state.refundSetup.readinessState = body?.p_enabled ? 'ready_to_refund' : 'ready_to_activate';
+      return route.fulfill(jsonResponse({ ok: true, replayed: false, machineId, readinessState: state.refundSetup.readinessState, limitCents: state.refundSetup.cardRefundLimitCents }));
+    }
+
+    if (url.includes('/admin_activate_qualified_refund_machines')) {
+      state.bulkActivationPayload = route.request().postDataJSON();
+      return route.fulfill(jsonResponse({ ok: true, activatedCount: 0, approvedExceptionCount: 0, standardLaunchLimitCents: 5000 }));
     }
 
     return route.fulfill(jsonResponse({}));
@@ -498,6 +544,8 @@ const run = async () => {
     machineSavePayload: null,
     refundIntakePayload: null,
     nayaxPayload: null,
+    activationPayload: null,
+    bulkActivationPayload: null,
     accessInviteBodies: [],
     inviteDeliveries: [],
     refundSetup: {
@@ -505,7 +553,14 @@ const run = async () => {
       refundPublicDisplayLabel: null,
       nayaxMachineId: null,
       nayaxAccountKey: null,
+      customerIntakeAccepting: true,
+      cardRefundsEnabled: false,
+      cardRefundLimitCents: null,
+      paymentDisabledReason: 'awaiting_reviewed_activation',
+      readinessState: 'setup_needed',
+      readinessBlockReason: 'transaction_matching_off',
     },
+    globalRefundsPaused: false,
     rpcCalls: [],
   };
 
@@ -581,13 +636,16 @@ const run = async () => {
       !(await page.locator('body').innerText()).includes('0/3 assigned')
     );
     recorder.assert(
-      'Customer Refund Setup is managed from Admin > Machines',
-      await machineDialog.getByRole('heading', { name: 'Customer Refund Setup' }).isVisible()
+      'Customer refunds are managed from Admin > Machines',
+      await machineDialog.getByRole('heading', { name: 'Customer refunds' }).isVisible()
     );
     recorder.assert(
-      'Refund setup separates public intake from gated live card execution',
-      await machineDialog.getByText(/Live card execution remains separately gated/i).isVisible()
+      'Setup-needed state names the exact blocked capability',
+      await machineDialog.getByText('Setup needed', { exact: true }).first().isVisible()
+        && await machineDialog.getByText(/Transaction matching is off/i).isVisible()
+        && await machineDialog.getByText('Customer requests', { exact: true }).isVisible()
     );
+    await page.screenshot({ path: path.join(args.artifactDir, 'machine-refunds-setup-needed-desktop.png'), fullPage: true });
 
     await page.fill('#machine-manager-search', invitedManagerEmail);
     await machineDialog.getByRole('button', { name: 'Send invite' }).click();
@@ -640,7 +698,7 @@ const run = async () => {
       JSON.stringify(state.savePayload)
     );
 
-    await machineDialog.getByLabel('Enable refund automation for this machine').click();
+    await machineDialog.getByLabel('Enable transaction matching for this machine').click();
     await page.fill('#refund-display-label', 'Mall Atrium Cotton Candy');
     await page.fill('#nayax-machine-id', 'NAYAX-UAT-001');
     await page.fill('#nayax-account-key', 'TGPACI_USA_DB');
@@ -658,7 +716,7 @@ const run = async () => {
     );
 
     recorder.assert(
-      'Refund automation setup save targets the edited machine',
+      'Transaction matching save targets the edited machine',
       state.refundIntakePayload?.p_machine_id === machineId &&
         state.refundIntakePayload?.p_refund_intake_enabled === true,
       JSON.stringify(state.refundIntakePayload)
@@ -672,17 +730,15 @@ const run = async () => {
     );
     const machineRow = page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' });
     await machineRow.getByText(secondManagerEmail).waitFor({ timeout: 10000 });
-    const automationReady = machineRow.getByText(/Automation ready/i);
-    const cardLookupReady = machineRow.getByText(/Card lookup ready/i);
-    await automationReady.waitFor({ timeout: 10000 });
-    await cardLookupReady.waitFor({ timeout: 10000 });
+    const readyToActivate = machineRow.getByText(/Ready to activate/i);
+    await readyToActivate.waitFor({ timeout: 10000 });
     recorder.assert(
       'Saved Machine Managers are visible in the Machines list',
       await machineRow.getByText(secondManagerEmail).isVisible()
     );
     recorder.assert(
-      'Saved refund readiness is visible in the Machines list',
-      (await automationReady.isVisible()) && (await cardLookupReady.isVisible())
+      'Saved refund readiness is truthful in the Machines list',
+      (await readyToActivate.isVisible()) && (await machineRow.getByText(/Awaiting reviewed activation/i).isVisible())
     );
 
     await machineDialog.waitFor({ state: 'hidden', timeout: 10000 });
@@ -695,12 +751,74 @@ const run = async () => {
     );
     recorder.assert(
       'Saved refund readiness remains visible after close and reopen',
-      (await reopenedMachineDialog.getByLabel('Enable refund automation for this machine').isChecked()) &&
+      (await reopenedMachineDialog.getByLabel('Enable transaction matching for this machine').isChecked()) &&
         (await reopenedMachineDialog.locator('#refund-display-label').inputValue()) === 'Mall Atrium Cotton Candy' &&
         (await reopenedMachineDialog.locator('#nayax-machine-id').inputValue()) === 'NAYAX-UAT-001'
     );
 
+    recorder.assert(
+      'Qualified payment-disabled machine has one guided activation action',
+      await reopenedMachineDialog.getByText('Ready to activate', { exact: true }).isVisible()
+        && await reopenedMachineDialog.getByText(/Off — Awaiting reviewed activation/i).isVisible()
+        && await reopenedMachineDialog.getByRole('button', { name: /Activate card refunds · \$50 limit/i }).isVisible()
+    );
+    await page.screenshot({ path: path.join(args.artifactDir, 'machine-refunds-ready-to-activate-desktop.png'), fullPage: true });
+
+    page.once('dialog', (dialog) => dialog.accept());
+    await reopenedMachineDialog.getByRole('button', { name: /Activate card refunds · \$50 limit/i }).click();
+    await reopenedMachineDialog.getByText('Ready to refund', { exact: true }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Guided activation applies the reviewed launch cap and becomes ready',
+      state.activationPayload?.p_machine_id === machineId
+        && state.activationPayload?.p_enabled === true
+        && await reopenedMachineDialog.getByText('Enabled', { exact: true }).isVisible()
+        && await reopenedMachineDialog.getByText('$50 per refund during launch', { exact: true }).isVisible(),
+      JSON.stringify(state.activationPayload)
+    );
+    await page.getByText('Card refunds activated at the $50 launch limit.').waitFor({ state: 'hidden', timeout: 10000 });
+    await page.screenshot({ path: path.join(args.artifactDir, 'machine-refunds-ready-desktop.png'), fullPage: true });
+
     await page.getByRole('button', { name: 'Cancel' }).click();
+    state.globalRefundsPaused = true;
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    await machineRow.getByRole('button', { name: 'Edit' }).click();
+    const pausedMachineDialog = page.getByLabel('Edit Machine');
+    await pausedMachineDialog.getByText('Paused for all machines', { exact: true }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Global pause is distinct from machine setup',
+      await pausedMachineDialog.getByText('Paused', { exact: true }).isVisible()
+        && await pausedMachineDialog.getByText('Enabled', { exact: true }).isVisible()
+    );
+    await pausedMachineDialog.getByRole('heading', { name: 'Customer refunds' }).locator('..').locator('..').locator('..').screenshot({
+      path: path.join(args.artifactDir, 'machine-refunds-globally-paused-mobile.png'),
+    });
+
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    state.globalRefundsPaused = false;
+    state.refundSetup.cardRefundsEnabled = false;
+    state.refundSetup.cardRefundLimitCents = null;
+    state.refundSetup.paymentDisabledReason = 'owner_pause';
+    state.refundSetup.readinessState = 'ready_to_activate';
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    await machineRow.getByRole('button', { name: 'Edit' }).click();
+    const intentionallyPausedDialog = page.getByLabel('Edit Machine');
+    await intentionallyPausedDialog.getByText(/Off — Paused by owner/i).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Intentional machine disablement shows its approved reason',
+      await intentionallyPausedDialog.getByText(/Off — Paused by owner/i).isVisible()
+    );
+    await intentionallyPausedDialog.getByRole('heading', { name: 'Customer refunds' }).locator('..').locator('..').locator('..').screenshot({
+      path: path.join(args.artifactDir, 'machine-refunds-machine-disabled-mobile.png'),
+    });
+    recorder.assert(
+      'No network request failed while exercising refund readiness states',
+      networkFailures.length === 0,
+      networkFailures.slice(0, 3).join(' | ')
+    );
+
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.setViewportSize({ width: 1440, height: 1000 });
     const savePayloadBeforeDemo = JSON.stringify(state.savePayload);
     state.rpcCalls.length = 0;
 
