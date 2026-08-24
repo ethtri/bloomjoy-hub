@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(33);
+select plan(36);
 
 create function pg_temp.set_auth_claims(p_user_id uuid)
 returns void language plpgsql as $$
@@ -36,6 +36,7 @@ grant all on table pg_temp.manual_results to authenticated, service_role;
 
 select has_column('public', 'reporting_machines', 'nayax_manual_portal_enabled', 'Machines have an explicit manual Nayax portal switch');
 select has_column('public', 'reporting_machines', 'nayax_manual_account_scope', 'Machines have a private duplicate-protection scope');
+select has_column('public', 'reporting_machines', 'nayax_manual_portal_timezone', 'Manual machines have an exact machine-local timezone');
 select has_table('public', 'refund_manual_nayax_evidence', 'Exact manual portal evidence has a private table');
 select has_function('public', 'admin_create_refund_manual_nayax_candidate', array['uuid','bigint','text','text','text','integer','text'], 'Mapped managers can enter exact portal evidence through one guarded function');
 select has_function('public', 'admin_begin_refund_manual_nayax_portal', array['uuid','bigint'], 'Mapped managers have a separate guarded approval function');
@@ -59,18 +60,19 @@ select ok(
 insert into public.customer_accounts (id, name, account_type, status)
 values ('94100000-0000-4000-8000-000000000001', 'Manual Nayax fixture', 'internal', 'active');
 insert into public.reporting_locations (id, account_id, name, city, state, timezone, status)
-values ('94110000-0000-4000-8000-000000000001', '94100000-0000-4000-8000-000000000001', 'Carolina Place fixture', 'Charlotte', 'NC', 'America/New_York', 'active');
+values ('94110000-0000-4000-8000-000000000001', '94100000-0000-4000-8000-000000000001', 'Shared Pacific placeholder fixture', 'Los Angeles', 'CA', 'America/Los_Angeles', 'active');
 insert into public.reporting_machines (
   id, account_id, location_id, machine_label, machine_type, status,
   nayax_machine_id, nayax_account_key, nayax_refunds_enabled,
   refund_intake_enabled, refund_public_display_label,
-  nayax_manual_portal_enabled, nayax_manual_account_scope
+  nayax_manual_portal_enabled, nayax_manual_account_scope,
+  nayax_manual_portal_timezone
 ) values (
   '94120000-0000-4000-8000-000000000001',
   '94100000-0000-4000-8000-000000000001',
   '94110000-0000-4000-8000-000000000001',
   'Carolina Place fixture', 'commercial', 'active', null, null, false,
-  true, 'Carolina Place fixture', true, 'bloomjoy_nc_adam'
+  true, 'Carolina Place fixture', true, 'bloomjoy_nc_adam', 'America/New_York'
 );
 
 insert into auth.users (
@@ -122,6 +124,11 @@ select ok(
 );
 
 select pg_temp.set_auth_claims('94130000-0000-4000-8000-000000000001');
+select is(
+  public.admin_get_refund_manual_nayax_context() -> 0 ->> 'manualNayaxLocationTimezone',
+  'America/New_York',
+  'The UI receives the machine timezone instead of the shared placeholder timezone'
+);
 select ok(
   pg_temp.capture_error(format(
     $$select public.admin_create_refund_manual_nayax_candidate(
@@ -171,15 +178,27 @@ select ok(
   'A daylight-saving fold cannot pick one of two transaction times'
 );
 
+insert into pg_temp.manual_results values (
+  'candidate_local_time', to_jsonb(pg_temp.machine_local_minutes_ago(30))
+);
 insert into pg_temp.manual_results
 select 'candidate', public.admin_create_refund_manual_nayax_candidate(
   '94140000-0000-4000-8000-000000000001',
   (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001'),
-  'Carolina-Portal-01', 'MANUAL-TXN-941-0001', pg_temp.machine_local_minutes_ago(30), 700, '4242'
+  'Carolina-Portal-01', 'MANUAL-TXN-941-0001',
+  (select value #>> '{}' from pg_temp.manual_results where key = 'candidate_local_time'),
+  700, '4242'
 );
 reset role;
 select ok((select (value ->> 'providerCallMade')::boolean = false and (value ->> 'customerMessageCreated')::boolean = false from pg_temp.manual_results where key = 'candidate'), 'Evidence entry explicitly makes no provider call or customer email');
 select is((select site_id from public.refund_nayax_lookup_candidates where token = (select (value ->> 'candidateToken')::uuid from pg_temp.manual_results where key = 'candidate')), null::integer, 'Manual evidence never invents a Nayax API site ID');
+select is(
+  (select to_char(machine_authorization_time at time zone 'America/New_York', 'YYYY-MM-DD"T"HH24:MI')
+   from public.refund_manual_nayax_evidence
+   where refund_case_id = '94140000-0000-4000-8000-000000000001'),
+  (select value #>> '{}' from pg_temp.manual_results where key = 'candidate_local_time'),
+  'Exact transaction time is converted with the machine timezone, not the shared placeholder'
+);
 
 set local role authenticated;
 select pg_temp.set_auth_claims('94130000-0000-4000-8000-000000000001');
