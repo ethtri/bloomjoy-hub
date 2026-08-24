@@ -80,7 +80,8 @@
     "20260823110000_refund_public_location_selections.sql",
     "20260823203839_repair_refund_placeholder_location_selections.sql",
     "20260823221537_refund_nc_manual_nayax_portal.sql",
-    "20260824003000_refund_nc_manual_machine_timezones.sql"
+    "20260824003000_refund_nc_manual_machine_timezones.sql",
+    "20260824160609_refund_confirmation_readiness.sql"
   ],
   "migrationFilesSha256": "aa426cdb915486d7a2236f90a55635257527299df00ccde057867bb0f97bf1ef",
   "migrationVersionSetSha256": "8d51157b9cd9eaa16867424f8574ab74054a64cf3cae78e45bf0decc7062c472",
