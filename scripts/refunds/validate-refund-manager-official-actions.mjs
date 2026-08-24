@@ -16,6 +16,9 @@ const nayaxRefund = read('supabase/functions/nayax-card-refund/index.ts');
 const operations = read('src/lib/refundOperations.ts');
 const portal = read('src/pages/admin/Refunds.tsx');
 const databaseTests = read('supabase/tests/refund_manager_official_action_safety.sql');
+const confirmationMigration = read('supabase/migrations/20260824160609_refund_confirmation_readiness.sql');
+const confirmationConcurrency = read('supabase/tests/refund_confirmation_readiness_concurrency.sql');
+const refundReadiness = read('supabase/functions/_shared/refund-readiness.ts');
 
 assert(
   migration.includes('create or replace function public.refund_official_actions_enabled()') &&
@@ -93,6 +96,27 @@ assert(
   'Existing database regression coverage must retain persona, replay, revocation, race, and impersonation checks.'
 );
 
+assert(
+  confirmationMigration.includes("'selectionApplied', false") &&
+    confirmationMigration.includes("'transactionConfirmed', true") &&
+    confirmationMigration.includes('for update') &&
+    confirmationMigration.includes('refund_case_nayax_manager_readiness') &&
+    databaseTests.includes('An exact replay succeeds despite the old review version and creates no second event') &&
+    confirmationConcurrency.includes('Two simultaneous exact confirmations return one write and one successful replay'),
+  'Transaction confirmation must be row-locked, replay-safe, and return authoritative readiness.'
+);
+
+assert(
+  adminUpdate.includes('selectionApplied: updateApplied') &&
+    adminUpdate.includes('transactionConfirmed: refundReadiness?.transactionConfirmed === true') &&
+    adminUpdate.includes('refundReadiness,') &&
+    refundReadiness.includes('globally_paused') &&
+    refundReadiness.includes('provider_unavailable') &&
+    refundReadiness.includes('machine_not_enabled'),
+  'The Edge response must return one bounded confirmation and runtime-readiness contract.'
+);
+
 console.log('PASS: normal refund decisions use the exact mapped-manager session');
 console.log('PASS: payload, version, replay, row-lock, and provider safety controls remain server-side');
 console.log('PASS: the manager surface no longer exposes TOTP setup or per-action codes');
+console.log('PASS: transaction confirmation is replay-safe and returns bounded refund readiness');

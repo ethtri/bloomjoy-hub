@@ -1,6 +1,6 @@
 # Current Status
 
-Last compacted: 2026-08-23
+Last compacted: 2026-08-24
 
 GitHub Issues and the Bloomjoy Project board are the operational source of truth for active work, priority, blockers, acceptance criteria, and closeout evidence.
 
@@ -20,7 +20,9 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 ## Current Themes
 
-### Refund Operations launch snapshot (authoritative as of 2026-08-23)
+### Refund Operations launch snapshot (authoritative as of 2026-08-24)
+
+- **Refund simplicity recovery (`#946`-`#949`):** production investigation confirmed that transaction confirmation could replay as a second audit event, the response did not contain authoritative refund readiness, and the manager UI continued to prioritize the automatic recommendation label after the manager selected the correct transaction. The ordered recovery starts with a nonfinancial, row-locked, idempotent confirmation boundary that returns the updated case and one server-owned readiness result. A confirmed manual-exception candidate may be refund-ready when payment controls pass; a disabled machine remains **Transaction confirmed** with the exact machine-disabled reason. The later UI and Admin slices consume this contract and remain separately owner-UAT-gated before production activation.
 
 - **Integrated v1 release (`#628`):** form-only intake (`#889`), Nayax inventory (`#890`), branded messages and same-case appeals (`#891`), duplicate protection (`#703`), and the unified source-aware queue (`#706`) are merged. The Bloomjoy form is live. A production incident found that public intake readiness had been separated from read-only transaction-search readiness, so a customer could submit successfully and then see **Transaction search unavailable**.
 - **Form and email-assistant boundary (`#889`):** customer contact records no refund case and sends one warm Bloomjoy form response only when the response lane is later enabled. The one-time Email-linked context or a direct Website form submission creates exactly one case. Verified replies add only changed safe facts to the same case and rerun matching; replays cannot create a competing actionable case.

@@ -29,6 +29,15 @@ import {
   validateRefundEvidenceSelectionRequest,
 } from "../_shared/refund-evidence-selection.ts";
 import { isRefundCustomerSafeDenialReason } from "../_shared/refund-denial.ts";
+import {
+  NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
+  resolveNayaxRefundExecutionConfig,
+} from "../_shared/nayax-refund-gates.ts";
+import {
+  mergeRuntimeRefundReadiness,
+  parseDatabaseRefundReadiness,
+  type RefundReadiness,
+} from "../_shared/refund-readiness.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
@@ -55,6 +64,9 @@ const sanitizeText = (value: unknown, maxLength = 800) =>
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
     .test(value);
+
+const normalizeAccountKey = (value: string) =>
+  value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
 
 const centsFromInput = (value: unknown): number | null => {
   if (value === null || typeof value === "undefined") return null;
@@ -92,6 +104,7 @@ type RefundCaseRow = {
   reporting_machines?: {
     machine_label: string | null;
     refund_public_display_label: string | null;
+    nayax_account_key: string | null;
   } | null;
   reporting_locations?: { name: string | null } | null;
 };
@@ -135,7 +148,11 @@ const selectCaseQuery = `
   nayax_refund_execution_status,
   official_action_version,
   updated_at,
-  reporting_machines(machine_label, refund_public_display_label),
+  reporting_machines(
+    machine_label,
+    refund_public_display_label,
+    nayax_account_key
+  ),
   reporting_locations(name)
 `;
 
@@ -210,6 +227,81 @@ const getRefundCase = async (caseId: string): Promise<RefundCaseRow | null> => {
 
   if (error) throw error;
   return data as RefundCaseRow | null;
+};
+
+type NayaxSelectionRpcResult = {
+  selectionApplied?: boolean;
+  transactionConfirmed?: boolean;
+  refundReadiness?: unknown;
+};
+
+const resolveSelectionRefundReadiness = async ({
+  caseId,
+  actorUserId,
+  afterRow,
+  selectionResult,
+}: {
+  caseId: string;
+  actorUserId: string;
+  afterRow: RefundCaseRow;
+  selectionResult: NayaxSelectionRpcResult;
+}): Promise<RefundReadiness> => {
+  if (!supabase) throw new Error("Refund readiness is unavailable.");
+
+  let databaseValue = selectionResult.refundReadiness;
+  if (!databaseValue) {
+    const { data, error } = await supabase.rpc(
+      "refund_case_nayax_manager_readiness",
+      { p_user_id: actorUserId, p_refund_case_id: caseId },
+    );
+    if (error) throw error;
+    databaseValue = data;
+  }
+
+  const databaseReadiness = parseDatabaseRefundReadiness(databaseValue);
+  const executionConfig = resolveNayaxRefundExecutionConfig((name) =>
+    Deno.env.get(name)
+  );
+  const accountKey = normalizeAccountKey(
+    afterRow.reporting_machines?.nayax_account_key ?? "",
+  );
+  const providerCredentialAvailable = Boolean(
+    accountKey && (
+      Deno.env.get(`NAYAX_LYNX_API_TOKEN_${accountKey}`)?.trim() ||
+      Deno.env.get("NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB")?.trim() ||
+      Deno.env.get("NAYAX_LYNX_API_TOKEN")?.trim()
+    ),
+  );
+  const utcDayStart = new Date();
+  utcDayStart.setUTCHours(0, 0, 0, 0);
+  const utcDayEnd = new Date(utcDayStart);
+  utcDayEnd.setUTCDate(utcDayEnd.getUTCDate() + 1);
+  const { data: dailyAttempts, error: dailyAttemptsError } = await supabase
+    .from("refund_case_nayax_refund_attempts")
+    .select("amount_cents")
+    .eq("execution_mode", "request_and_approve")
+    .gte("created_at", utcDayStart.toISOString())
+    .lt("created_at", utcDayEnd.toISOString())
+    .limit(100);
+  const dailyCountUsed = dailyAttemptsError || !Array.isArray(dailyAttempts)
+    ? null
+    : dailyAttempts.length;
+  const dailyAmountUsedCents = dailyAttemptsError ||
+      !Array.isArray(dailyAttempts)
+    ? null
+    : dailyAttempts.reduce((total, attempt) => {
+      const amount = Number(attempt?.amount_cents);
+      return total + (Number.isSafeInteger(amount) && amount > 0 ? amount : 0);
+    }, 0);
+
+  return mergeRuntimeRefundReadiness({
+    databaseReadiness,
+    executionConfig,
+    officialActionsEnabled: NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
+    providerCredentialAvailable,
+    dailyAmountUsedCents,
+    dailyCountUsed,
+  });
 };
 
 const sameMissingFields = (
@@ -981,17 +1073,30 @@ serve(async (req) => {
     const { data: updatedCase, error: updateError } = updateRpc;
 
     if (updateError) {
-      if (updateError.code === "23505") {
-        return jsonResponse({
-          error:
-            "This Nayax transaction is already linked to another refund case.",
-        }, 409);
-      }
+      const stableSelectionErrors: Record<
+        string,
+        { errorCode: string; status: number }
+      > = {
+        "23505": { errorCode: "duplicate_transaction", status: 409 },
+        P4600: { errorCode: "invalid_request", status: 400 },
+        P4601: { errorCode: "stale_review_evidence", status: 409 },
+        P4602: { errorCode: "stale_review_evidence", status: 409 },
+        P4603: { errorCode: "unauthorized", status: 403 },
+        P4604: { errorCode: "selection_blocked", status: 409 },
+      };
+      const stableSelectionError = isNayaxEvidenceSelection
+        ? stableSelectionErrors[updateError.code ?? ""]
+        : null;
       const safeMessage =
         typeof updateError.message === "string" && updateError.message.trim()
           ? updateError.message.slice(0, 240)
           : "Unable to update refund case.";
-      return jsonResponse({ error: safeMessage }, 400);
+      return jsonResponse({
+        error: safeMessage,
+        ...(stableSelectionError
+          ? { errorCode: stableSelectionError.errorCode }
+          : {}),
+      }, stableSelectionError?.status ?? 400);
     }
 
     if (nayaxCandidate && !officialAction && !isNayaxEvidenceSelection) {
@@ -1060,8 +1165,14 @@ serve(async (req) => {
       isCashCompletion && updatedCase && typeof updatedCase === "object"
         ? updatedCase as { updateApplied?: boolean }
         : null;
+    const nayaxSelectionResult =
+      isNayaxEvidenceSelection && updatedCase && typeof updatedCase === "object"
+        ? updatedCase as NayaxSelectionRpcResult
+        : null;
     const updateApplied = isCashCompletion
       ? cashUpdateResult?.updateApplied === true
+      : isNayaxEvidenceSelection
+      ? nayaxSelectionResult?.selectionApplied === true
       : Boolean(updatedCase);
     const afterRow = await getRefundCase(caseId);
     if (!afterRow) {
@@ -1070,7 +1181,9 @@ serve(async (req) => {
       }, 500);
     }
 
-    const resolvedMessageType = updateApplied
+    const resolvedMessageType = isNayaxEvidenceSelection
+      ? null
+      : updateApplied
       ? requestedMessageType ?? resolveMessageType(beforeRow, afterRow)
       : null;
     const messageType = beforeRow.payment_method === "card" &&
@@ -1085,6 +1198,14 @@ serve(async (req) => {
         customerMissingFields,
       )
       : null;
+    const refundReadiness = isNayaxEvidenceSelection && nayaxSelectionResult
+      ? await resolveSelectionRefundReadiness({
+        caseId,
+        actorUserId: user.id,
+        afterRow,
+        selectionResult: nayaxSelectionResult,
+      })
+      : null;
 
     return jsonResponse({
       refundCase: {
@@ -1096,6 +1217,13 @@ serve(async (req) => {
       },
       customerMessage,
       updateApplied,
+      ...(isNayaxEvidenceSelection
+        ? {
+          selectionApplied: updateApplied,
+          transactionConfirmed: refundReadiness?.transactionConfirmed === true,
+          refundReadiness,
+        }
+        : {}),
     });
   } catch (error) {
     if (error instanceof RefundOfficialActionAuthorizationError) {
