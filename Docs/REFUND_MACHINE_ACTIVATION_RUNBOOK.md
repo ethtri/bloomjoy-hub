@@ -30,6 +30,8 @@ Customer intake is independent from transaction matching and payment activation.
 
 Activation is a separate owner go/no-go step after deployment and UAT.
 
+Run the aggregate-only baseline and post-activation audit in `Docs/REFUND_SIMPLE_JOURNEY_RELEASE_RUNBOOK.md`. The post-activation run must pass without `--allow-not-ready` before the rollout proceeds.
+
 - Use the single-machine action for a bounded pilot or **Activate qualified machines** for the reviewed qualified cohort.
 - Bulk activation never overrides `owner_pause`, `provider_support`, `machine_maintenance`, or `commercial_exception`.
 - A newly repaired mapping should appear as **Ready to activate** until this reviewed step occurs.

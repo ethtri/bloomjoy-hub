@@ -302,7 +302,12 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 46, 'Evidence must enumerate all 46 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 50, 'Evidence must enumerate all 50 reviewed screenshots');
+  assert.equal(
+    EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-simple-journey-')).length,
+    4,
+    'Evidence must include disabled, ready desktop/mobile, and success states for the simple journey'
+  );
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-email-pilot-source-badges-mobile.png'),
     'Evidence must include the reviewed mobile source-badge state'
