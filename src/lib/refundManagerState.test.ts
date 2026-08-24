@@ -96,3 +96,44 @@ Deno.test('uncertain provider result blocks a second action even when old status
   assertEquals(result.id, 'check_nayax_result', 'provider hold precedence');
   assertEquals(getRefundPaymentStateLabel({ ...baseCase, providerHold: true }), 'Result unclear', 'payment label');
 });
+
+Deno.test('confirmed transaction takes precedence over an older manual-review recommendation', () => {
+  const result = getRefundManagerState({
+    ...baseCase,
+    hasMatchedNayaxTransaction: true,
+    nayaxRecommendationState: 'manual_exception',
+    nayaxLookupSummary: {
+      lookupStatus: 'manual_exception',
+      recommendationState: 'manual_exception',
+    },
+    refundReadiness: {
+      transactionConfirmed: true,
+      canIssueCardRefund: true,
+      blockReason: null,
+    },
+  });
+
+  assertEquals(result.id, 'ready_to_refund', 'confirmed state');
+  assertEquals(result.label, 'Ready to refund', 'confirmed label');
+  assertEquals(result.explanation, 'Transaction confirmed. Payment: Not issued.', 'payment clarity');
+});
+
+Deno.test('confirmed transaction shows the exact safe reason when refunding is unavailable', () => {
+  const result = getRefundManagerState({
+    ...baseCase,
+    hasMatchedNayaxTransaction: true,
+    refundReadiness: {
+      transactionConfirmed: true,
+      canIssueCardRefund: false,
+      blockReason: 'machine_not_enabled',
+    },
+  });
+
+  assertEquals(result.id, 'refund_unavailable', 'blocked confirmed state');
+  assertEquals(result.label, 'Transaction confirmed', 'blocked confirmed label');
+  assertEquals(
+    result.nextStep,
+    'Card refunds are not enabled for this machine. An administrator needs to enable them.',
+    'specific safe reason'
+  );
+});

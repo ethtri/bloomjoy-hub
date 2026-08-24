@@ -32,6 +32,11 @@ import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
 import { deliverNayaxCompletionOnce } from "../_shared/nayax-resolution-completion.ts";
 import { buildBrandedRefundHtmlFromStoredText } from "../_shared/refund-email.ts";
+import {
+  mergeRuntimeRefundReadiness,
+  parseDatabaseRefundReadiness,
+  type RefundReadiness,
+} from "../_shared/refund-readiness.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
@@ -190,6 +195,68 @@ const getRefundCase = async (
   return data as RefundCaseForExecution | null;
 };
 
+const resolveCaseRefundReadiness = async ({
+  refundCase,
+  actorUserId,
+  executionConfig,
+}: {
+  refundCase: RefundCaseForExecution;
+  actorUserId: string;
+  executionConfig: ReturnType<typeof resolveNayaxRefundExecutionConfig>;
+}): Promise<RefundReadiness> => {
+  if (!supabase) throw new Error("Refund readiness is unavailable.");
+
+  const { data: databaseValue, error: readinessError } = await supabase.rpc(
+    "refund_case_nayax_manager_readiness",
+    { p_user_id: actorUserId, p_refund_case_id: refundCase.id },
+  );
+  if (readinessError) throw readinessError;
+
+  const databaseReadiness = parseDatabaseRefundReadiness(databaseValue);
+  if (!databaseReadiness.canIssueCardRefund) return databaseReadiness;
+
+  const accountKey = normalizeAccountKey(
+    refundCase.reporting_machines?.nayax_account_key ?? "",
+  );
+  const providerCredentialAvailable = Boolean(
+    accountKey && (
+      Deno.env.get(`NAYAX_LYNX_API_TOKEN_${accountKey}`)?.trim() ||
+      Deno.env.get("NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB")?.trim() ||
+      Deno.env.get("NAYAX_LYNX_API_TOKEN")?.trim()
+    ),
+  );
+  const utcDayStart = new Date();
+  utcDayStart.setUTCHours(0, 0, 0, 0);
+  const utcDayEnd = new Date(utcDayStart);
+  utcDayEnd.setUTCDate(utcDayEnd.getUTCDate() + 1);
+  const { data: dailyAttempts, error: dailyAttemptsError } = await supabase
+    .from("refund_case_nayax_refund_attempts")
+    .select("amount_cents")
+    .eq("execution_mode", "request_and_approve")
+    .gte("created_at", utcDayStart.toISOString())
+    .lt("created_at", utcDayEnd.toISOString())
+    .limit(100);
+  const dailyCountUsed = dailyAttemptsError || !Array.isArray(dailyAttempts)
+    ? null
+    : dailyAttempts.length;
+  const dailyAmountUsedCents = dailyAttemptsError ||
+      !Array.isArray(dailyAttempts)
+    ? null
+    : dailyAttempts.reduce((total, attempt) => {
+      const amount = Number(attempt?.amount_cents);
+      return total + (Number.isSafeInteger(amount) && amount > 0 ? amount : 0);
+    }, 0);
+
+  return mergeRuntimeRefundReadiness({
+    databaseReadiness,
+    executionConfig,
+    officialActionsEnabled: NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
+    providerCredentialAvailable,
+    dailyAmountUsedCents,
+    dailyCountUsed,
+  });
+};
+
 const safeNayaxReference = (value: string | null | undefined) =>
   Boolean(value && /^[A-Za-z0-9][A-Za-z0-9._:-]{5,79}$/.test(value));
 
@@ -325,14 +392,15 @@ serve(async (req) => {
     const executionConfig = resolveNayaxRefundExecutionConfig((name) =>
       Deno.env.get(name)
     );
-    if (operation === "availability") {
+    const requestedCaseId = sanitizeText(body?.caseId, 80);
+    if (operation === "availability" && !requestedCaseId) {
       return jsonResponse(resolveNayaxRefundAvailability({
         executionConfig,
         officialActionsEnabled: NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
       }));
     }
 
-    const caseId = sanitizeText(body?.caseId, 80);
+    const caseId = requestedCaseId;
     if (!isUuid(caseId)) {
       return jsonResponse({ error: "Refund case is required." }, 400);
     }
@@ -348,12 +416,41 @@ serve(async (req) => {
       );
     if (accessError) throw accessError;
     if (!actorCanPerformOfficialAction) {
+      if (operation === "availability") {
+        return jsonResponse({
+          available: false,
+          status: "unavailable",
+          blockReason: "unauthorized",
+          caseId,
+          transactionConfirmed: refundCase.matched_nayax_transaction_id !== null,
+          canIssueCardRefund: false,
+          refundAmountCents: refundCase.refund_amount_cents,
+          machineLimitCents: refundCase.reporting_machines?.nayax_refund_max_amount_cents ?? null,
+          caseVersion: refundCase.official_action_version,
+          payloadRedacted: true,
+        });
+      }
       return jsonResponse({
         executed: false,
         status: "preflight_blocked",
         errorCode: "authorization_failed",
         blocks: ["authorization_failed"],
       }, 403);
+    }
+
+    if (operation === "availability") {
+      const readiness = await resolveCaseRefundReadiness({
+        refundCase,
+        actorUserId: user.id,
+        executionConfig,
+      });
+      return jsonResponse({
+        available: readiness.canIssueCardRefund,
+        status: readiness.canIssueCardRefund ? "available" : "unavailable",
+        caseId,
+        ...readiness,
+        payloadRedacted: true,
+      });
     }
 
     if (operation === "approve_pending_request") {
