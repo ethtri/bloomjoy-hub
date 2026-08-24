@@ -2439,7 +2439,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'Machine transaction comparison is visible and explicit',
     await page.getByTestId('nayax-result-card').isVisible() &&
       await page.getByTestId('nayax-result-card').getByText('Machine transaction', { exact: true }).isVisible() &&
-      await page.getByTestId('refund-primary-action').getByText('Ready for review', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-primary-action').getByText('Ready to refund', { exact: true }).isVisible() &&
       await page.getByTestId('nayax-result-card').getByText('Transaction selected', { exact: true }).isVisible() &&
       await page.getByTestId('nayax-result-card').getByText('Selected', { exact: true }).isVisible()
   );
@@ -2464,9 +2464,9 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
   recorder.assert(
     'Case header keeps one current state and one next step',
-    await page.getByTestId('refund-manager-state').getByText('Ready for review', { exact: true }).isVisible() &&
-      (await page.getByText(/^Payment: /).count()) === 0 &&
-      (await page.getByText(/^Customer: /).count()) === 0 &&
+    await page.getByTestId('refund-manager-state').getByText('Ready to refund', { exact: true }).isVisible() &&
+      (await page.getByTestId('refund-primary-action').innerText()).includes('Transaction confirmed') &&
+      (await page.getByTestId('refund-primary-action').innerText()).includes('Payment: Not issued') &&
       await page.getByTestId('refund-manager-next-step').getByText(/^Next: /).isVisible()
   );
   recorder.assert(
