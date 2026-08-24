@@ -75,8 +75,8 @@ const normalPreflight = fn.slice(
   fn.indexOf('const getDuplicateTransactionBlocks'),
 );
 const availabilityBranch = fn.slice(
-  fn.indexOf('if (operation === "availability")'),
-  fn.indexOf('const caseId = sanitizeText'),
+  fn.indexOf('if (operation === "availability" && !requestedCaseId)'),
+  fn.indexOf('const caseId = requestedCaseId'),
 );
 const config = read(files.config);
 const envExample = read(files.envExample);
@@ -200,7 +200,9 @@ assert(
   'Each pilot and normal path must fail its own rollout/configuration boundary before idempotency, reservation, or provider orchestration.'
 );
 assert(
-  fn.includes('operation === "availability"') &&
+  fn.includes('operation === "availability" && !requestedCaseId') &&
+    fn.includes('refund_case_nayax_manager_readiness') &&
+    fn.includes('resolveCaseRefundReadiness({') &&
     fn.includes('resolveNayaxRefundAvailability({') &&
     fn.includes('executionConfig,') &&
     fn.includes('NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED') &&
@@ -208,20 +210,22 @@ assert(
       fn.indexOf('const operation = sanitizeText') &&
     fn.indexOf('const operation = sanitizeText') <
       fn.indexOf('const executionConfig = resolveNayaxRefundExecutionConfig') &&
-    fn.indexOf('operation === "availability"') <
-      fn.indexOf('const caseId = sanitizeText') &&
-    fn.indexOf('operation === "availability"') <
+    fn.indexOf('operation === "availability" && !requestedCaseId') <
+      fn.indexOf('const caseId = requestedCaseId') &&
+    fn.indexOf('operation === "availability" && !requestedCaseId') <
       fn.indexOf('const refundCase = await getRefundCase') &&
-    fn.indexOf('operation === "availability"') <
-      fn.indexOf('await supabase.rpc(') &&
-    fn.indexOf('operation === "availability"') <
+    fn.lastIndexOf('if (operation === "availability")', fn.indexOf('if (operation === "approve_pending_request")')) >
+      fn.indexOf('const refundCase = await getRefundCase') &&
+    fn.lastIndexOf('if (operation === "availability")', fn.indexOf('if (operation === "approve_pending_request")')) <
+      fn.indexOf('if (operation === "approve_pending_request")') &&
+    fn.indexOf('if (operation === "availability")') <
       fn.indexOf('const idempotencyKey = await buildNayaxRefundIdempotencyKey') &&
-    fn.indexOf('operation === "availability"') <
+    fn.indexOf('if (operation === "availability")') <
       fn.indexOf('await orchestrateNayaxRefund') &&
     providerGates.includes('payloadRedacted: true') &&
     providerGates.includes('NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = true') &&
     providerGatesTest.includes('performs zero execution side effects'),
-  'Authenticated availability must use the already-resolved shared gates and return before case parsing, RPCs, HMAC, reservation, provider execution, orchestration, or mutation.'
+  'Authenticated availability must keep the legacy global check read-only and make case-specific readiness return before HMAC, reservation, provider execution, orchestration, or mutation.'
 );
 assert(
   providerGates.includes('official_actions_disabled') &&

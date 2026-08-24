@@ -265,6 +265,28 @@ export type NayaxConfidenceClass =
   | 'unique_qr_time'
   | 'ambiguous_manual';
 
+export type RefundReadinessBlockReason =
+  | 'case_not_found'
+  | 'unauthorized'
+  | 'transaction_not_confirmed'
+  | 'already_refunded'
+  | 'reconciliation_hold'
+  | 'duplicate_transaction'
+  | 'case_not_refundable'
+  | 'machine_not_enabled'
+  | 'cap_exceeded'
+  | 'globally_paused'
+  | 'provider_unavailable';
+
+export type RefundReadiness = {
+  transactionConfirmed: boolean;
+  canIssueCardRefund: boolean;
+  blockReason: RefundReadinessBlockReason | null;
+  refundAmountCents: number | null;
+  machineLimitCents: number | null;
+  caseVersion: number | null;
+};
+
 export type NayaxMatchFactor = {
   key: string;
   outcome: string;
@@ -313,6 +335,7 @@ export type RefundCaseRecord = {
   hasMatchedSalesFact: boolean;
   hasMatchedNayaxTransaction: boolean;
   nayaxMatchExecutionEligible?: boolean;
+  refundReadiness?: RefundReadiness | null;
   nayaxRecommendationState?: NayaxRecommendationState | null;
   nayaxRecommendationPolicyVersion?: string | null;
   matchedNayaxMachineAuthTime: string | null;
@@ -920,12 +943,13 @@ export type NayaxCardRefundExecutionResponse = {
 export type NayaxCardRefundAvailabilityResponse = {
   available: boolean;
   status: 'available' | 'unavailable';
-  blockReason:
-    | null
-    | 'official_actions_disabled'
-    | 'kill_switch_active'
-    | 'configuration_missing'
-    | 'contract_unconfirmed';
+  blockReason: RefundReadinessBlockReason | null;
+  caseId?: string;
+  transactionConfirmed?: boolean;
+  canIssueCardRefund?: boolean;
+  refundAmountCents?: number | null;
+  machineLimitCents?: number | null;
+  caseVersion?: number | null;
   payloadRedacted: true;
 };
 
@@ -1317,6 +1341,14 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         hasMatchedSalesFact: false,
         hasMatchedNayaxTransaction: true,
         nayaxMatchExecutionEligible: true,
+        refundReadiness: {
+          transactionConfirmed: true,
+          canIssueCardRefund: true,
+          blockReason: null,
+          refundAmountCents: 700,
+          machineLimitCents: 1200,
+          caseVersion: 1,
+        },
         nayaxRecommendationState: 'high_confidence',
         matchedNayaxMachineAuthTime: demoIsoHoursAgo(5),
         matchedNayaxAmountCents: 700,
@@ -1857,6 +1889,7 @@ export const reconcileRefundNayaxMachineAdmin = async ({
 
 export type UpdateRefundCaseResponse = {
     error?: string;
+    errorCode?: string;
     refundCase?: {
       id: string;
       publicReference: string;
@@ -1866,7 +1899,15 @@ export type UpdateRefundCaseResponse = {
     };
     customerMessage?: { type: string; status: string } | null;
     updateApplied?: boolean;
+    selectionApplied?: boolean;
+    transactionConfirmed?: boolean;
+    refundReadiness?: RefundReadiness | null;
 };
+
+export const isRefundCaseUpdateError = (
+  error: unknown
+): error is EdgeFunctionError<UpdateRefundCaseResponse> =>
+  isEdgeFunctionError<UpdateRefundCaseResponse>(error);
 
 const requireUpdatedRefundCase = (data: UpdateRefundCaseResponse) => {
   if (!data.refundCase) {
@@ -2344,10 +2385,10 @@ export const executeNayaxCardRefund = async ({
     }
   );
 
-export const fetchNayaxCardRefundAvailability = () =>
+export const fetchNayaxCardRefundAvailability = (caseId?: string | null) =>
   invokeEdgeFunction<NayaxCardRefundAvailabilityResponse>(
     'nayax-card-refund',
-    { operation: 'availability' },
+    { operation: 'availability', ...(caseId ? { caseId } : {}) },
     {
       requireUserAuth: true,
       authErrorMessage: 'Log in to check card refund availability.',
