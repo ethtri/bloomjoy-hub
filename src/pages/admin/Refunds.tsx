@@ -2089,6 +2089,8 @@ export default function AdminRefundsPage() {
   const queryClient = useQueryClient();
   const detailPanelRef = useRef<HTMLDivElement>(null);
   const cashCompletionInFlightRef = useRef(false);
+  const evidenceSelectionInFlightRef = useRef(false);
+  const nayaxRefundInFlightRef = useRef(false);
   const handledCaseQueryRef = useRef<string | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<QueueFilter>('needs_action');
@@ -2969,6 +2971,7 @@ export default function AdminRefundsPage() {
   };
 
   const handleRunNayaxRefund = async () => {
+    if (nayaxRefundInFlightRef.current) return;
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return;
     if (selectedCaseIsReviewOnly) {
       toast.error(selectedCaseOfficialActionBlockMessage);
@@ -3011,6 +3014,7 @@ export default function AdminRefundsPage() {
       return;
     }
 
+    nayaxRefundInFlightRef.current = true;
     setIsRunningNayaxRefund(true);
     setNayaxExecutionNotice(null);
     setRefundActionReceipt(null);
@@ -3040,6 +3044,7 @@ export default function AdminRefundsPage() {
         toast.error('Bloomjoy could not confirm whether the refund was sent. Do not try again.');
       }
     } finally {
+      nayaxRefundInFlightRef.current = false;
       setIsRunningNayaxRefund(false);
     }
   };
@@ -3279,11 +3284,19 @@ export default function AdminRefundsPage() {
   };
 
   const handleConfirmEvidenceSelection = async () => {
-    if (!primaryActionEditor || primaryAction?.mode !== 'nayax_evidence_selection') return;
+    if (
+      evidenceSelectionInFlightRef.current ||
+      !primaryActionEditor
+    ) return;
 
-    setEditor(primaryActionEditor);
-    const saveResult = await handleSaveCase(primaryActionEditor, null);
-    if (saveResult) setIsEvidenceConfirmationOpen(false);
+    evidenceSelectionInFlightRef.current = true;
+    try {
+      setEditor(primaryActionEditor);
+      const saveResult = await handleSaveCase(primaryActionEditor, null);
+      if (saveResult) setIsEvidenceConfirmationOpen(false);
+    } finally {
+      evidenceSelectionInFlightRef.current = false;
+    }
   };
 
   const handleConfirmCashCompletion = async () => {

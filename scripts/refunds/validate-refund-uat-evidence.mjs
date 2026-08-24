@@ -297,12 +297,32 @@ try {
   assert.match(workflowSource, /crypto\.randomBytes\(32\)/);
   assert.match(workflowSource, /::add-mask::/);
   assert.match(workflowSource, /REFUND_UAT_EVIDENCE_RUN_TOKEN/);
+  assert.match(
+    workflowSource,
+    /manifest\.screenshotCount/,
+    'The job summary must read its screenshot count from the signed evidence manifest'
+  );
+  assert.match(
+    workflowSource,
+    /manifest\.machineReadableArtifactCount/,
+    'The job summary must read its machine-readable count from the signed evidence manifest'
+  );
+  assert.doesNotMatch(
+    workflowSource,
+    /Screenshots: \d+ synthetic states/,
+    'The job summary must not drift from the manifest through a hard-coded screenshot count'
+  );
+  assert.doesNotMatch(
+    workflowSource,
+    /Machine-readable evidence: \d+ strict/,
+    'The job summary must not drift from the manifest through a hard-coded artifact count'
+  );
   assert.doesNotMatch(
     workflowSource,
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 57, 'Evidence must enumerate all 57 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 62, 'Evidence must enumerate all 62 reviewed screenshots');
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-manager-')).length,
     6,
@@ -312,6 +332,15 @@ try {
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('machine-refunds-')).length,
     5,
     'Evidence must include ready, ready-to-activate, setup-needed, machine-disabled, and global-pause Admin states'
+  );
+  assert.equal(
+    EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-simple-journey-')).length,
+    4,
+    'Evidence must include disabled, ready desktop/mobile, and success states for the simple journey'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-portal-uat-sanitized-simple-card-refund-journey.png'),
+    'Evidence must include the reviewed selectable-candidate state for the sanitized simple journey'
   );
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-email-pilot-source-badges-mobile.png'),

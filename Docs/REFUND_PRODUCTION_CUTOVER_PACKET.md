@@ -24,7 +24,7 @@ Refund Operations v1 uses the existing customer-service email and text-response 
 
 | Gate | Required evidence | Authority to close |
 |---|---|---|
-| Integrated release | Immutable `main` commit, 10-function/77-migration manifest, full verification, reviewed migration dry run, restore source, and clean postdeploy drift | Release and technical owners |
+| Integrated release | Immutable `main` commit, 10-function/78-migration manifest, full verification, reviewed migration dry run, restore source, and clean postdeploy drift | Release and technical owners |
 | `#889` form-only intake | Contact-only zero cases, one Email-linked form case, one direct Website form case, one-time context/replay proof, missing-information reply on the same case, and matching rerun | QA and operations owners |
 | `#890` complete Nayax inventory | One controlled all-account sync; every active row explicitly published, needs setup, or excluded; zero unaccounted rows; setup rows have a specific customer-safe reason and cannot appear as mapped; cotton-candy and Snapcase mappings | Operations, release, and QA owners |
 | `#891` messages and appeals | Warm branded first contact, missing-information, denial, appeal receipt, retry, and confirmed completion in the original thread; reply appeal reopens the same case without payment | QA and operations owners |
@@ -40,7 +40,7 @@ The owner-authenticated read-only checks on 2026-08-21, combined with the curren
 - Target local release alignment: ten manifest-tracked functions and 78 required refund/Nayax migrations.
 - Production baseline: ten deployed refund functions captured to a gitignored artifact.
 - Production drift: seven changed repository functions are not yet paired with production, so the release correctly remains undeployed.
-- The integrated set includes `20260821090000_refund_form_only_case_creation.sql`, `20260821091000_refund_nayax_inventory.sql`, `20260821100000_refund_branded_appeals.sql`, `20260822190000_refund_portfolio_intake_inventory_correction.sql`, the later portfolio mapping/selection repairs, and `20260823221537_refund_nc_manual_nayax_portal.sql`. Before this change is deployed, `supabase db push --dry-run --linked` must show the exact reviewed pending set, including `20260824160609_refund_confirmation_readiness.sql`, and no unrelated migration. A dry run must make no database write.
+- The integrated set includes `20260821090000_refund_form_only_case_creation.sql`, `20260821091000_refund_nayax_inventory.sql`, `20260821100000_refund_branded_appeals.sql`, `20260822190000_refund_portfolio_intake_inventory_correction.sql`, the later portfolio mapping/selection repairs, and `20260823221537_refund_nc_manual_nayax_portal.sql`. Before this change is deployed, `supabase db push --dry-run --linked` must show the exact reviewed pending set, including `20260824160609_refund_confirmation_readiness.sql` and `20260824190000_refund_machine_truthful_readiness.sql`, and no unrelated migration. A dry run must make no database write.
 
 This evidence expires if `main`, any listed migration, or any manifest-tracked function changes before deployment.
 
@@ -61,6 +61,7 @@ npm run refunds:release:check
 npm run refunds:validate-email-pilot
 npm run refunds:validate-nayax-inventory
 npm run refunds:validate-public-options-smoke
+npm run refunds:validate-machine-readiness-audit
 npm run refunds:validate-branded-appeals
 npm run refunds:validate-nayax-matching
 npm run refunds:validate-nayax-execution
@@ -113,9 +114,10 @@ Check switch values without printing secrets. A deploy must not silently enable 
 4. Reconcile every active Nayax row. Each must be **Published**, **Needs setup**, or **Explicitly excluded**. Do not launch with an unaccounted row, a stale published row, or a setup row exposed as mapped. Confirm every published cotton-candy/Snapcase machine has an exact identity, customer-safe label, active location, and one to three current managers.
 5. Run `npm run refunds:smoke-public-options -- --project-ref <project-ref> --confirm-project-ref <project-ref>`; require zero internal labels, duplicate public options, or unaccounted active machines. For this reviewed inventory, require exactly 33 Published, 2 Needs setup, 4 Excluded, 46 public choices, and 33 lookup-ready mappings.
 6. Run the aggregate mapped-manager readiness audit. Admin access alone never grants refund authority; authority comes from the exact current machine mapping.
-7. Run `npm run refunds:smoke-intake-email` in read-only preflight mode for the privately approved test machine and inbox. Do not create a case or send mail yet.
-8. With every external-action switch still off, prove the complete synthetic state set and the desktop/mobile manager journey from the final release evidence manifest.
-9. Under the separately approved staffed UAT window, prove these controlled journeys in order:
+7. Run the aggregate machine/Tulsa/confirmed-case audit from `Docs/REFUND_SIMPLE_JOURNEY_RELEASE_RUNBOOK.md`. Before activation, record every ready-to-activate/setup/exception count. After reviewed activation, require zero unactivated eligible, unexplained-disabled, over-cap, Tulsa-unexplained, or confirmed-case-unknown rows.
+8. Run `npm run refunds:smoke-intake-email` in read-only preflight mode for the privately approved test machine and inbox. Do not create a case or send mail yet.
+9. With every external-action switch still off, prove the complete synthetic state set and the desktop/mobile manager journey from the final release evidence manifest.
+10. Under the separately approved staffed UAT window, prove these controlled journeys in order:
    - one customer contact produces zero cases and one warm Bloomjoy form response;
    - the Email-linked form creates exactly one Email case and direct submission creates exactly one Website case;
    - missing information and no-safe-match replies update the same case and rerun matching only on changed facts;
@@ -123,8 +125,8 @@ Check switch values without printing secrets. A deploy must not silently enable 
    - a mapped manager confirms the exact transaction, then separately approves or denies;
    - one cotton-candy and one Snapcase case preserve the exact amount, transaction, reporting, and provider-result boundaries;
    - confirmed success records one reporting adjustment and sends one branded completion; denial sends one customer-safe reason; a reply appeal reopens the same case and cannot pay.
-10. Cut over responders without overlap: disable and verify the legacy Google Form response first, reconcile transition-interval mail, then enable the Bloomjoy response population. Rollback disables and verifies Bloomjoy before restoring the legacy response.
-11. Enable only the explicitly approved schedules during a staffed window. Monitor for 72 hours and stop on any missing active machine, wrong transaction or amount, duplicate case/message/provider attempt/reporting adjustment, unexplained provider result, delivery uncertainty, or responder overlap.
+11. Cut over responders without overlap: disable and verify the legacy Google Form response first, reconcile transition-interval mail, then enable the Bloomjoy response population. Rollback disables and verifies Bloomjoy before restoring the legacy response.
+12. Enable only the explicitly approved schedules during a staffed window. Monitor for 72 hours and stop on any missing active machine, wrong transaction or amount, duplicate case/message/provider attempt/reporting adjustment, unexplained provider result, delivery uncertainty, or responder overlap.
 
 ## Rollback and stop order
 
