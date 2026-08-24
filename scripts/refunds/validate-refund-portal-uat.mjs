@@ -2083,6 +2083,20 @@ const waitForQueueCount = async (page, expectedCount) => {
   }
 };
 
+const waitForLocatorCount = async (page, locator, expectedMinimum, description, timeout = 10000) => {
+  const deadline = Date.now() + timeout;
+  let actualCount = await locator.count();
+  while (actualCount < expectedMinimum && Date.now() < deadline) {
+    await page.waitForTimeout(50);
+    actualCount = await locator.count();
+  }
+  if (actualCount < expectedMinimum) {
+    throw new Error(
+      `Expected at least ${expectedMinimum} ${description}, but found ${actualCount}.`
+    );
+  }
+};
+
 const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder, evidence }) => {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
@@ -2795,11 +2809,20 @@ const runEmailPilotDuplicateChecks = async ({ browser, appUrl, artifactDir, reco
   await queueCase(page, 'RF-UAT-CARD').click();
   await page.getByText('Possible duplicate review', { exact: true }).waitFor({ timeout: 10000 });
 
+  const linkedWebsiteSource = page.getByText('Website form', { exact: true }).last();
+  const supportEmailSources = page.getByText('Support email', { exact: true });
+  const selectedCaseSource = page
+    .getByTestId('refund-selected-case-source')
+    .getByText('Support email', { exact: true });
+  await linkedWebsiteSource.waitFor({ state: 'visible', timeout: 10000 });
+  await selectedCaseSource.waitFor({ state: 'visible', timeout: 10000 });
+  await waitForLocatorCount(page, supportEmailSources, 2, 'Support email source labels');
+
   recorder.assert(
     'The unified queue identifies the selected Email case and its linked Website case',
-    await page.getByText('Website form', { exact: true }).last().isVisible() &&
-      (await page.getByText('Support email', { exact: true }).count()) >= 2 &&
-      await page.getByTestId('refund-selected-case-source').getByText('Support email', { exact: true }).isVisible()
+    await linkedWebsiteSource.isVisible() &&
+      (await supportEmailSources.count()) >= 2 &&
+      await selectedCaseSource.isVisible()
   );
   recorder.assert(
     'Email pilot queue keeps advanced operational filters out of the manager workflow',
