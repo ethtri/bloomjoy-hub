@@ -17,6 +17,7 @@ const files = {
   providerOrchestrationMigration: 'supabase/migrations/202608040004_refund_nayax_provider_orchestration.sql',
   providerCapsMigration: 'supabase/migrations/202608110020_refund_nayax_provider_caps.sql',
   pendingApprovalRecoveryMigration: 'supabase/migrations/20260820041101_refund_nayax_pending_approval_recovery.sql',
+  dailyReadinessUsageMigration: 'supabase/migrations/20260824224813_refund_nayax_daily_readiness_usage.sql',
   providerOrchestration: 'supabase/functions/_shared/nayax-refund-orchestration.ts',
   providerGates: 'supabase/functions/_shared/nayax-refund-gates.ts',
   providerGatesTest: 'supabase/functions/_shared/nayax-refund-gates.test.ts',
@@ -26,6 +27,7 @@ const files = {
   providerEvidenceProducer: 'supabase/functions/_shared/nayax-refund-orchestration-evidence.ts',
   providerOrchestrationDatabaseTest: 'supabase/tests/refund_nayax_provider_orchestration.sql',
   officialActionHelper: 'supabase/functions/_shared/refund-official-action.ts',
+  refundReadiness: 'supabase/functions/_shared/refund-readiness.ts',
   function: 'supabase/functions/nayax-card-refund/index.ts',
   config: 'supabase/config.toml',
   envExample: '.env.example',
@@ -60,6 +62,7 @@ const officialActionMigration = read(files.officialActionMigration);
 const providerOrchestrationMigration = read(files.providerOrchestrationMigration);
 const providerCapsMigration = read(files.providerCapsMigration);
 const pendingApprovalRecoveryMigration = read(files.pendingApprovalRecoveryMigration);
+const dailyReadinessUsageMigration = read(files.dailyReadinessUsageMigration);
 const providerOrchestration = read(files.providerOrchestration);
 const providerGates = read(files.providerGates);
 const providerGatesTest = read(files.providerGatesTest);
@@ -69,6 +72,7 @@ const providerOrchestrationTest = read(files.providerOrchestrationTest);
 const providerEvidenceProducer = read(files.providerEvidenceProducer);
 const providerOrchestrationDatabaseTest = read(files.providerOrchestrationDatabaseTest);
 const officialActionHelper = read(files.officialActionHelper);
+const refundReadiness = read(files.refundReadiness);
 const fn = read(files.function);
 const normalPreflight = fn.slice(
   fn.indexOf('const getPreflightBlocks'),
@@ -315,6 +319,22 @@ assert(
       'An exact idempotent replay is returned before cap accounting'
     ),
   'Provider attempts must pass an advisory-locked daily count/amount cap without double-counting an exact replay.'
+);
+assert(
+  dailyReadinessUsageMigration.includes('create or replace function public.service_refund_nayax_daily_usage()') &&
+    dailyReadinessUsageMigration.includes('security definer') &&
+    dailyReadinessUsageMigration.includes("attempt.execution_mode = 'request_and_approve'") &&
+    dailyReadinessUsageMigration.includes("date_trunc('day', statement_timestamp() at time zone 'UTC')") &&
+    dailyReadinessUsageMigration.includes('from public, anon, authenticated') &&
+    dailyReadinessUsageMigration.includes('to service_role') &&
+    !dailyReadinessUsageMigration.includes('refund_case_id') &&
+    !dailyReadinessUsageMigration.includes('nayax_transaction_id') &&
+    refundReadiness.includes('parseNayaxRefundDailyUsage') &&
+    fn.includes('.rpc(\n    "service_refund_nayax_daily_usage"') &&
+    refundAdminUpdate.includes('.rpc(\n    "service_refund_nayax_daily_usage"') &&
+    !fn.includes('.from("refund_case_nayax_refund_attempts")') &&
+    !refundAdminUpdate.includes('.from("refund_case_nayax_refund_attempts")'),
+  'Readiness cap usage must come from a service-only, non-identifying aggregate RPC rather than direct access to the private provider-attempt ledger.'
 );
 assert(
   providerOrchestrationMigration.includes('service_reserve_and_consume_nayax_refund_attempt') &&
