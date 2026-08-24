@@ -102,7 +102,7 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 75 required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 76 required refund\/Nayax migrations/);
 assert.match(cutoverPacket, /exact canonical 51-migration predeployment bridge/);
 assert.match(
   cutoverPacket,
@@ -208,8 +208,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    75,
-    'Refund release inventory must cover exactly 75 discovered refund/Nayax migrations'
+    76,
+    'Refund release inventory must cover exactly 76 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -278,6 +278,10 @@ try {
   assert(
     repositoryMigrations.includes('20260823221537_refund_nc_manual_nayax_portal.sql'),
     'The Adam-managed API-pending manual Nayax boundary must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260824003000_refund_nc_manual_machine_timezones.sql'),
+    'The API-pending manual path must use exact per-machine timezones instead of the shared placeholder'
   );
   assert(
     repositoryMigrations.includes('20260820041101_refund_nayax_pending_approval_recovery.sql'),
