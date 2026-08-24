@@ -302,7 +302,17 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 50, 'Evidence must enumerate all 50 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 61, 'Evidence must enumerate all 61 reviewed screenshots');
+  assert.equal(
+    EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-manager-')).length,
+    6,
+    'Evidence must include confirmed ready/blocked and stale-evidence manager states on desktop and mobile'
+  );
+  assert.equal(
+    EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('machine-refunds-')).length,
+    5,
+    'Evidence must include ready, ready-to-activate, setup-needed, machine-disabled, and global-pause Admin states'
+  );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-simple-journey-')).length,
     4,
