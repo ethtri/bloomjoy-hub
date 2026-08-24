@@ -297,6 +297,26 @@ try {
   assert.match(workflowSource, /crypto\.randomBytes\(32\)/);
   assert.match(workflowSource, /::add-mask::/);
   assert.match(workflowSource, /REFUND_UAT_EVIDENCE_RUN_TOKEN/);
+  assert.match(
+    workflowSource,
+    /manifest\.screenshotCount/,
+    'The job summary must read its screenshot count from the signed evidence manifest'
+  );
+  assert.match(
+    workflowSource,
+    /manifest\.machineReadableArtifactCount/,
+    'The job summary must read its machine-readable count from the signed evidence manifest'
+  );
+  assert.doesNotMatch(
+    workflowSource,
+    /Screenshots: \d+ synthetic states/,
+    'The job summary must not drift from the manifest through a hard-coded screenshot count'
+  );
+  assert.doesNotMatch(
+    workflowSource,
+    /Machine-readable evidence: \d+ strict/,
+    'The job summary must not drift from the manifest through a hard-coded artifact count'
+  );
   assert.doesNotMatch(
     workflowSource,
     /--run-token/,

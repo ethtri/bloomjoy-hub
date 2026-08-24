@@ -93,11 +93,13 @@ jobs:
           compression-level: 0
       - name: Link evidence in job summary
         run: |
+          SCREENSHOT_COUNT="$(node -e "const manifest = require('./output/refund-uat-evidence/refund-uat-evidence.json'); process.stdout.write(String(manifest.screenshotCount));")"
+          MACHINE_READABLE_COUNT="$(node -e "const manifest = require('./output/refund-uat-evidence/refund-uat-evidence.json'); process.stdout.write(String(manifest.machineReadableArtifactCount));")"
           echo "### Refund Operations synthetic UAT evidence" >> "$GITHUB_STEP_SUMMARY"
           echo "- Artifact: ${{ steps.upload.outputs.artifact-url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Digest: ${{ steps.upload.outputs.artifact-digest }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Screenshots: 43 synthetic states; no production data" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Machine-readable evidence: 5 strict, sanitized, hashed JSON artifacts" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Screenshots: ${SCREENSHOT_COUNT} synthetic states; no production data" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Machine-readable evidence: ${MACHINE_READABLE_COUNT} strict, sanitized, hashed JSON artifacts" >> "$GITHUB_STEP_SUMMARY"
       - name: Stop synthetic UAT app
         if: always()
         run: |
