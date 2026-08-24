@@ -1,5 +1,14 @@
 # Decisions
 
+## 2026-08-24 - Machine refund setup exposes one truthful readiness state
+
+- Admin Machines presents **Customer refunds** as **Ready to refund**, **Ready to activate**, **Setup needed**, or **Paused**. It never uses transaction-matching readiness to imply that live card refunds are enabled.
+- The server contract separately reports customer intake, transaction matching, exact Nayax inventory lookup, current Machine Manager routing, the per-machine payment gate, and the machine limit. The authenticated Nayax availability boundary adds the runtime global pause without exposing secrets.
+- A qualified machine uses the standard $50 launch limit. A Super Admin may activate one qualified machine or review and activate all qualified machines in one action; both paths revalidate prerequisites, lock each machine row, replay safely, and write a redacted audit record.
+- A qualified payment-disabled machine must show an approved reason. Bulk activation includes machines awaiting reviewed activation and preserves owner, provider-support, maintenance, and commercial exceptions.
+- Turning transaction matching off does not remove an otherwise customer-safe machine from public intake. Exact transaction binding, duplicate protection, provider reconciliation, idempotency, daily caps, and the emergency global pause remain server responsibilities.
+
+
 ## 2026-08-22 - Customer refund intake is not an automatic-payment readiness gate
 
 - `/refunds/request` lists every active customer-safe Commercial/Mini reporting location, plus Snapcase machines that are explicitly classified and represented in the reporting portfolio. A missing immutable Nayax mapping or manager route is setup work; it does not prevent the customer from asking Bloomjoy for help.
