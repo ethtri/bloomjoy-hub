@@ -40,7 +40,7 @@ The owner-authenticated read-only checks on 2026-08-21 produced this sanitized b
 - Local release alignment: ten manifest-tracked functions and 76 required refund/Nayax migrations.
 - Production baseline: ten deployed refund functions captured to a gitignored artifact.
 - Production drift: seven changed repository functions are not yet paired with production, so the release correctly remains undeployed.
-- The integrated set includes the portfolio mapping/selection repairs and `20260823221537_refund_nc_manual_nayax_portal.sql`; that set is live. For this hotfix, `supabase db push --dry-run --linked` must show only `20260824003000_refund_nc_manual_machine_timezones.sql` as pending. Any other result stops deployment. Deploy only that reviewed migration and make no database write during the dry run.
+- The integrated set includes `20260821090000_refund_form_only_case_creation.sql`, `20260821091000_refund_nayax_inventory.sql`, `20260821100000_refund_branded_appeals.sql`, `20260822190000_refund_portfolio_intake_inventory_correction.sql`, the later portfolio mapping/selection repairs, and `20260823221537_refund_nc_manual_nayax_portal.sql`; that set is live. For this hotfix, `supabase db push --dry-run --linked` must show only `20260824003000_refund_nc_manual_machine_timezones.sql` as pending. Any other result stops deployment. Deploy only that reviewed migration and make no database write during the dry run.
 
 This evidence expires if `main`, any listed migration, or any manifest-tracked function changes before deployment.
 
