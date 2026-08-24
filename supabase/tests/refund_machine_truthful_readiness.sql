@@ -168,6 +168,7 @@ select ok(
   'Rollback clears the payment cap and preserves the approved reason'
 );
 
+reset role;
 update public.refund_nayax_machine_inventory
 set reconciliation_state = 'needs_setup'
 where id = 'b0500000-0000-4000-8000-000000000002';
@@ -177,6 +178,7 @@ where id = 'b0300000-0000-4000-8000-000000000002';
 update public.refund_nayax_machine_inventory
 set reconciliation_state = 'published'
 where id = 'b0500000-0000-4000-8000-000000000002';
+set local role authenticated;
 
 select is(
   (select nayax_refunds_disabled_reason from public.reporting_machines
