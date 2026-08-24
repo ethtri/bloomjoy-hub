@@ -79,7 +79,8 @@
     "20260823093000_refund_card_network_evidence.sql",
     "20260823110000_refund_public_location_selections.sql",
     "20260823203839_repair_refund_placeholder_location_selections.sql",
-    "20260823221537_refund_nc_manual_nayax_portal.sql"
+    "20260823221537_refund_nc_manual_nayax_portal.sql",
+    "20260824003000_refund_nc_manual_machine_timezones.sql"
   ],
   "migrationFilesSha256": "76048b27f9c54840f13549c27716b974963615361169db7ecf2cb36bbc5daff9",
   "migrationVersionSetSha256": "cf1ff1f1c5dbb955c59835f2dc88a0a359d7dd7906c90f19b0215692fcf582fb",
