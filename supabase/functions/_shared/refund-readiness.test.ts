@@ -3,6 +3,7 @@ import { resolveNayaxRefundExecutionConfig } from "./nayax-refund-gates.ts";
 import {
   mergeRuntimeRefundReadiness,
   parseDatabaseRefundReadiness,
+  parseNayaxRefundDailyUsage,
 } from "./refund-readiness.ts";
 
 const readyConfig = resolveNayaxRefundExecutionConfig((name) => ({
@@ -23,6 +24,26 @@ const databaseReady = parseDatabaseRefundReadiness({
   refundAmountCents: 700,
   machineLimitCents: 2000,
   caseVersion: 3,
+});
+
+Deno.test("daily usage accepts only aggregate nonnegative integers", () => {
+  assertEquals(
+    parseNayaxRefundDailyUsage({
+      dailyAmountUsedCents: 700,
+      dailyCountUsed: 1,
+    }),
+    {
+      dailyAmountUsedCents: 700,
+      dailyCountUsed: 1,
+    },
+  );
+  assertEquals(
+    parseNayaxRefundDailyUsage({
+      dailyAmountUsedCents: 700,
+      dailyCountUsed: "1",
+    }),
+    null,
+  );
 });
 
 Deno.test("confirmed database readiness stays ready when runtime and provider pass", () => {

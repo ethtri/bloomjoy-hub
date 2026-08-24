@@ -35,6 +35,7 @@ import { buildBrandedRefundHtmlFromStoredText } from "../_shared/refund-email.ts
 import {
   mergeRuntimeRefundReadiness,
   parseDatabaseRefundReadiness,
+  parseNayaxRefundDailyUsage,
   type RefundReadiness,
 } from "../_shared/refund-readiness.ts";
 
@@ -225,35 +226,20 @@ const resolveCaseRefundReadiness = async ({
       Deno.env.get("NAYAX_LYNX_API_TOKEN")?.trim()
     ),
   );
-  const utcDayStart = new Date();
-  utcDayStart.setUTCHours(0, 0, 0, 0);
-  const utcDayEnd = new Date(utcDayStart);
-  utcDayEnd.setUTCDate(utcDayEnd.getUTCDate() + 1);
-  const { data: dailyAttempts, error: dailyAttemptsError } = await supabase
-    .from("refund_case_nayax_refund_attempts")
-    .select("amount_cents")
-    .eq("execution_mode", "request_and_approve")
-    .gte("created_at", utcDayStart.toISOString())
-    .lt("created_at", utcDayEnd.toISOString())
-    .limit(100);
-  const dailyCountUsed = dailyAttemptsError || !Array.isArray(dailyAttempts)
+  const { data: dailyUsageValue, error: dailyUsageError } = await supabase.rpc(
+    "service_refund_nayax_daily_usage",
+  );
+  const dailyUsage = dailyUsageError
     ? null
-    : dailyAttempts.length;
-  const dailyAmountUsedCents = dailyAttemptsError ||
-      !Array.isArray(dailyAttempts)
-    ? null
-    : dailyAttempts.reduce((total, attempt) => {
-      const amount = Number(attempt?.amount_cents);
-      return total + (Number.isSafeInteger(amount) && amount > 0 ? amount : 0);
-    }, 0);
+    : parseNayaxRefundDailyUsage(dailyUsageValue);
 
   return mergeRuntimeRefundReadiness({
     databaseReadiness,
     executionConfig,
     officialActionsEnabled: NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
     providerCredentialAvailable,
-    dailyAmountUsedCents,
-    dailyCountUsed,
+    dailyAmountUsedCents: dailyUsage?.dailyAmountUsedCents ?? null,
+    dailyCountUsed: dailyUsage?.dailyCountUsed ?? null,
   });
 };
 

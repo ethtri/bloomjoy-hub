@@ -103,7 +103,10 @@ machine_states as (
 confirmed_cases as (
   select
     refund_case.id,
-    public.refund_case_card_refund_readiness(refund_case.id) as readiness
+    public.refund_case_nayax_manager_readiness(
+      refund_case.assigned_manager_id,
+      refund_case.id
+    ) as readiness
   from public.refund_cases refund_case
   where refund_case.status not in ('completed', 'denied')
     and refund_case.correlation_status = 'matched'

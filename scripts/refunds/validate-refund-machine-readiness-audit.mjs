@@ -55,7 +55,9 @@ assert.throws(
 );
 
 assert.match(MACHINE_READINESS_QUERY, /true as read_only/i);
-assert.match(MACHINE_READINESS_QUERY, /refund_case_card_refund_readiness/i);
+assert.match(MACHINE_READINESS_QUERY, /refund_case_nayax_manager_readiness/i);
+assert.match(MACHINE_READINESS_QUERY, /refund_case\.assigned_manager_id/i);
+assert.doesNotMatch(MACHINE_READINESS_QUERY, /refund_case_card_refund_readiness/i);
 assert.match(MACHINE_READINESS_QUERY, /awaiting_reviewed_activation/i);
 assert.match(MACHINE_READINESS_QUERY, /owner_pause.*provider_support.*machine_maintenance.*commercial_exception/is);
 assert.match(MACHINE_READINESS_QUERY, /between 1 and 5000/i);
