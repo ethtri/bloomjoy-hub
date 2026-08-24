@@ -82,7 +82,8 @@
     "20260823221537_refund_nc_manual_nayax_portal.sql",
     "20260824003000_refund_nc_manual_machine_timezones.sql",
     "20260824160609_refund_confirmation_readiness.sql",
-    "20260824190000_refund_machine_truthful_readiness.sql"
+    "20260824190000_refund_machine_truthful_readiness.sql",
+    "20260824224813_refund_nayax_daily_readiness_usage.sql"
   ],
   "migrationFilesSha256": "9c5b559b6236283c7e6d0f245cd48c5e65e95186972a9be8c5c3499b6276fe89",
   "migrationVersionSetSha256": "50246e34504000e2c16fd3c3bc307ab82f1c3f6047eb4b8b64d300f482031e73",
