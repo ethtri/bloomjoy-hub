@@ -75,7 +75,9 @@ If docs and the GitHub board disagree on active task state, the board wins. If d
 - Keep small single-lane fixes local to the primary agent to reduce overhead and context confusion.
 - Subagents are advisory. The primary agent remains responsible for final code, verification, and PR quality.
 - Prefer repo skills and plugin guidance when the task clearly matches them.
-- For Supabase database, schema, logs, configuration, and Edge Function work, use Supabase plugin/MCP tools first. Use browser control only when the required dashboard operation is unavailable through MCP or after an MCP failure, and state the fallback reason.
+- For Supabase work, use the local Docker/CLI stack first for development, migrations, and tests; use the authenticated Supabase plugin/MCP tools for hosted database, schema, logs, configuration, and Edge Function operations.
+- Do not create temporary Supabase personal access tokens during interactive agent work. A PAT is allowed only for a documented non-interactive CI requirement that cannot use MCP OAuth or an existing approved secret.
+- Use browser control only when the required dashboard operation is unavailable through local tooling and MCP, or after a documented MCP failure. State the fallback reason before opening the browser.
 
 ## Definition of Done
 
