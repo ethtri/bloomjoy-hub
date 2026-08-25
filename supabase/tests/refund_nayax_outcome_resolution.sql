@@ -9,7 +9,7 @@ create or replace function public.refund_nayax_outcome_resolution_enabled()
 returns boolean language sql immutable set search_path = public
 as $$ select false; $$;
 
-select plan(95);
+select plan(97);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -694,6 +694,12 @@ select ok(public.refund_nayax_resolution_reference_is_safe(
 select ok(public.refund_nayax_resolution_reference_is_safe(
   'DTM:NAYAX-123456789', 'nayax_dtm_transaction'
 ), 'The documented nine-digit Nayax DTM transaction shape remains usable');
+select ok(public.refund_nayax_resolution_reference_is_safe(
+  'DTM:NAYAX-1234567890', 'nayax_dtm_transaction'
+), 'The provider-emitted ten-digit Nayax DTM transaction shape is usable');
+select ok(not public.refund_nayax_resolution_reference_is_safe(
+  'DTM:NAYAX-12345678901', 'nayax_dtm_transaction'
+), 'An undocumented eleven-digit DTM shape remains blocked');
 set local role authenticated;
 select pg_temp.set_auth_claims(
   'b1000000-0000-4000-8000-000000000001', 'aal1',

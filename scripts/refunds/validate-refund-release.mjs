@@ -102,7 +102,7 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 82 required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 83 required refund\/Nayax migrations/);
 assert.match(cutoverPacket, /exact canonical 51-migration predeployment bridge/);
 assert.match(
   cutoverPacket,
@@ -208,8 +208,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    82,
-    'Refund release inventory must cover exactly 82 discovered refund/Nayax migrations'
+    83,
+    'Refund release inventory must cover exactly 83 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -250,6 +250,10 @@ try {
   assert(
     repositoryMigrations.includes('20260825041548_refund_nayax_authoritative_journal_v2.sql'),
     'The authoritative Nayax provider journal migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260825170000_refund_nayax_dtm_reference_width.sql'),
+    'The current Nayax DTM reference-width migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('202608170003_refund_nayax_manager_overview_authority.sql'),
