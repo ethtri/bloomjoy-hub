@@ -2377,10 +2377,7 @@ export default function AdminRefundsPage() {
     nayaxCardRefundAvailabilityIsLoading,
     selectedCase,
   ]);
-  const {
-    data: nayaxResolutionReadiness,
-    isFetching: nayaxResolutionReadinessIsFetching,
-  } = useQuery<RefundNayaxResolutionReadiness>({
+  const { data: nayaxResolutionReadiness } = useQuery<RefundNayaxResolutionReadiness>({
     queryKey: ['refund-nayax-resolution-readiness', selectedCase?.id],
     queryFn: () => fetchRefundNayaxResolutionReadiness(selectedCase?.id ?? ''),
     enabled:
@@ -4939,11 +4936,11 @@ export default function AdminRefundsPage() {
                             type="button"
                             data-testid="refund-nayax-evidence-only-start"
                             variant="outline"
-                            disabled={isStartingNayaxEvidenceOnly || nayaxResolutionReadinessIsFetching}
+                            disabled={isStartingNayaxEvidenceOnly}
                             onClick={() => void handleStartNayaxEvidenceOnlyReconciliation()}
                             className="min-h-11 shrink-0"
                           >
-                            {(isStartingNayaxEvidenceOnly || nayaxResolutionReadinessIsFetching) && (
+                            {isStartingNayaxEvidenceOnly && (
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                             )}
                             Review existing refund
@@ -5093,7 +5090,6 @@ export default function AdminRefundsPage() {
                           data-testid="refund-nayax-resolution-prepare"
                           onClick={() => void handlePrepareNayaxResolution()}
                           disabled={
-                            nayaxResolutionReadinessIsFetching ||
                             isPreparingNayaxResolution ||
                             Boolean(getNayaxResolutionReferenceIssue(
                               nayaxResolutionEvidenceReference,
@@ -5105,7 +5101,7 @@ export default function AdminRefundsPage() {
                           }
                           className="min-h-11 shrink-0 bg-foreground text-background hover:bg-foreground/90"
                         >
-                          {(nayaxResolutionReadinessIsFetching || isPreparingNayaxResolution) && (
+                          {isPreparingNayaxResolution && (
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           )}
                           {nayaxResolutionResult === 'provider_confirmed_success' ||

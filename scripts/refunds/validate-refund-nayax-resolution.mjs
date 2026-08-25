@@ -186,6 +186,23 @@ assert(
   'The manager form must contain only result, source, reference, conditional time, and one clear action.'
 );
 
+const evidenceOnlyStartButton = portal.match(
+  /data-testid="refund-nayax-evidence-only-start"[\s\S]*?<\/Button>/
+)?.[0] ?? '';
+const resolutionPrepareButton = portal.match(
+  /data-testid="refund-nayax-resolution-prepare"[\s\S]*?<\/Button>/
+)?.[0] ?? '';
+
+assert(
+  evidenceOnlyStartButton.length > 0 &&
+    resolutionPrepareButton.length > 0 &&
+    !evidenceOnlyStartButton.includes('nayaxResolutionReadinessIsFetching') &&
+    !resolutionPrepareButton.includes('nayaxResolutionReadinessIsFetching') &&
+    evidenceOnlyStartButton.includes('isStartingNayaxEvidenceOnly') &&
+    resolutionPrepareButton.includes('isPreparingNayaxResolution'),
+  'A background readiness refresh must not freeze a loaded manager action; each action is disabled only while its own write is running or its evidence is invalid.'
+);
+
 assert(
   managerSession.includes('revoke execute on function public.admin_resolve_refund_nayax_outcome_manager_session') &&
     managerSession.includes('to authenticated;') &&
