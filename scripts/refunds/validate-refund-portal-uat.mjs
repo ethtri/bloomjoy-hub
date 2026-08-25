@@ -817,6 +817,53 @@ const buildCashRefundReviewOverview = () => ({
   ],
 });
 
+const buildCashRefundVariantsOverview = () => {
+  const overview = buildCashRefundReviewOverview();
+  const matchedCase = overview.cases[0];
+  overview.cases = [
+    {
+      ...matchedCase,
+      id: 'case-cash-no-match',
+      publicReference: 'RF-UAT-CASH-NO-MATCH',
+      correlationStatus: 'no_match',
+      correlationSource: null,
+      correlationConfidence: 0,
+      correlationSummary: 'No imported cash sale matched the reported purchase.',
+      hasMatchedSalesFact: false,
+      customerEmail: 'cash-no-match@example.test',
+      zellePaymentContact: null,
+    },
+    matchedCase,
+    {
+      ...matchedCase,
+      id: 'case-cash-missing-amount',
+      publicReference: 'RF-UAT-CASH-MISSING-AMOUNT',
+      paymentAmountCents: null,
+      refundAmountCents: null,
+      correlationStatus: 'no_match',
+      correlationSource: null,
+      correlationConfidence: 0,
+      hasMatchedSalesFact: false,
+      customerEmail: 'cash-missing-amount@example.test',
+      zellePaymentContact: null,
+    },
+    {
+      ...matchedCase,
+      id: 'case-cash-legacy-pending',
+      publicReference: 'RF-UAT-CASH-LEGACY-PENDING',
+      status: 'cash_zelle_pending',
+      decision: 'approved',
+      decisionReason: 'Legacy cash approval.',
+      paymentAmountCents: 650,
+      refundAmountCents: 650,
+      customerEmail: 'cash-legacy-pending@example.test',
+      zellePaymentContact: 'legacy-contact@example.test',
+      manualRefundReference: 'Legacy historical reference',
+    },
+  ];
+  return overview;
+};
+
 const buildPendingNayaxRefundOverview = () => {
   const overview = {
   machines: [
@@ -3567,6 +3614,214 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
   );
   recorder.assert(
     'No browser console or page errors during cash workflow UAT',
+    getUatPageFailures(page, consoleErrors).length === 0,
+    getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-portal-uat-cash-success.png'),
+    fullPage: true,
+  });
+
+  await closeRefundPortalContext(context);
+};
+
+const runManualExternalCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+  const variantsContext = await browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  await installMockSupabaseRoutes(variantsContext, {
+    refundOverview: buildCashRefundVariantsOverview,
+  });
+  const variantsPage = await variantsContext.newPage();
+  await signInRefundUser(variantsPage, appUrl);
+  await waitForQueueCount(variantsPage, 4);
+
+  await queueCase(variantsPage, 'RF-UAT-CASH-REVIEW').click();
+  await variantsPage.getByTestId('refund-cash-workbench').waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Matched cash case exposes one direct external-refund completion action',
+    (await variantsPage.locator('[data-dominant-action="true"]:visible').count()) === 1 &&
+      await variantsPage.getByTestId('refund-cash-primary-action').getByText('Mark $8.00 as refunded').isVisible()
+  );
+
+  await variantsPage.getByText('Other decisions', { exact: true }).click();
+  recorder.assert(
+    'Cash completion keeps denial secondary and removes the separate approval step',
+    await variantsPage.getByRole('button', { name: 'Deny request', exact: true }).isVisible() &&
+      (await variantsPage.getByRole('button', { name: 'Approve refund', exact: true }).count()) === 0
+  );
+
+  await queueCase(variantsPage, 'RF-UAT-CASH-NO-MATCH').click();
+  await variantsPage.getByText('No imported cash-sale match is required to record a refund that you already sent.').waitFor();
+  recorder.assert(
+    'Unmatched cash case has the same direct completion action with no Nayax controls',
+    await variantsPage.getByTestId('refund-cash-primary-action').getByText('Mark $8.00 as refunded').isVisible() &&
+      (await variantsPage.getByTestId('nayax-result-card').count()) === 0 &&
+      (await variantsPage.getByTestId('refund-run-nayax-refund').count()) === 0
+  );
+
+  await queueCase(variantsPage, 'RF-UAT-CASH-MISSING-AMOUNT').click();
+  recorder.assert(
+    'Missing-amount cash case offers one actionable customer-detail path',
+    await variantsPage.getByTestId('refund-cash-primary-action').getByText('Ask for missing details').isVisible() &&
+      (await variantsPage.getByText(/Mark \$.* as refunded/).count()) === 0
+  );
+
+  await queueCase(variantsPage, 'RF-UAT-CASH-LEGACY-PENDING').click();
+  recorder.assert(
+    'Legacy cash pending case resolves through the same direct completion action',
+    await variantsPage.getByTestId('refund-cash-primary-action').getByText('Mark $6.50 as refunded').isVisible() &&
+      (await variantsPage.getByTestId('refund-cash-reference-input').count()) === 0 &&
+      (await variantsPage.getByTestId('refund-cash-payout-time-input').count()) === 0 &&
+      (await variantsPage.getByTestId('refund-cash-payment-confirmed').count()) === 0
+  );
+  await closeRefundPortalContext(variantsContext);
+
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  const functionCalls = [];
+  const functionBodies = [];
+  await installMockSupabaseRoutes(context, {
+    refundOverview: buildCashRefundVariantsOverview,
+    functionCalls,
+    functionBodies,
+    adminUpdateDelayMs: 700,
+  });
+
+  const page = await context.newPage();
+  const consoleErrors = [];
+  page.on('console', (message) => {
+    if (shouldRecordConsoleError(message)) consoleErrors.push(message.text());
+  });
+  page.on('pageerror', (error) => consoleErrors.push(error.message));
+  await signInRefundUser(page, appUrl);
+  await waitForQueueCount(page, 4);
+  await queueCase(page, 'RF-UAT-CASH-NO-MATCH').click();
+  await page.getByTestId('refund-cash-workbench').waitFor({ timeout: 10000 });
+
+  await page.getByText('Preview customer email', { exact: true }).click();
+  recorder.assert(
+    'Cash completion preview is channel-neutral and explicit',
+    await page.getByText('Your Bloomjoy refund of $8.00 is complete', { exact: true }).isVisible() &&
+      await page.getByText(/using the payment method arranged with you/).isVisible() &&
+      (await page.getByText(/Zelle payment has been sent/).count()) === 0
+  );
+  recorder.assert(
+    'Normal cash path has no editable payout amount, timestamp, reference, or checkbox',
+    await page.getByTestId('refund-cash-primary-action').isEnabled() &&
+      (await page.getByTestId('refund-cash-completion-panel').count()) === 0 &&
+      (await page.getByTestId('refund-cash-amount-input').count()) === 0 &&
+      (await page.getByTestId('refund-cash-reference-input').count()) === 0 &&
+      (await page.getByTestId('refund-cash-payout-time-input').count()) === 0 &&
+      (await page.getByTestId('refund-cash-payment-confirmed').count()) === 0
+  );
+
+  await page.waitForTimeout(4500);
+
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-portal-uat-cash-desktop.png'),
+    fullPage: true,
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByTestId('refund-cash-workbench').scrollIntoViewIfNeeded();
+  const cashOverflow = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    bodyScrollWidth: document.body.scrollWidth,
+    innerWidth: window.innerWidth,
+  }));
+  recorder.assert(
+    'Cash workbench has no 390x844 horizontal overflow',
+    cashOverflow.scrollWidth <= cashOverflow.innerWidth + 1 &&
+      cashOverflow.bodyScrollWidth <= cashOverflow.innerWidth + 1,
+    JSON.stringify(cashOverflow)
+  );
+  const cashPrimaryActionLayout = await page.getByTestId('refund-cash-primary-action').evaluate((element) => {
+    const style = window.getComputedStyle(element);
+    return {
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      whiteSpace: style.whiteSpace,
+    };
+  });
+  recorder.assert(
+    'Cash primary action wraps without clipping on 390x844',
+    cashPrimaryActionLayout.whiteSpace === 'normal' &&
+      cashPrimaryActionLayout.scrollWidth <= cashPrimaryActionLayout.clientWidth + 1 &&
+      cashPrimaryActionLayout.scrollHeight <= cashPrimaryActionLayout.clientHeight + 1,
+    JSON.stringify(cashPrimaryActionLayout)
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-portal-uat-cash-mobile.png'),
+    fullPage: true,
+  });
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByTestId('refund-cash-primary-action').click();
+  const confirmationDialog = page.getByTestId('refund-cash-confirmation-dialog');
+  await confirmationDialog.waitFor({ state: 'visible' });
+  await page.waitForTimeout(300);
+  recorder.assert(
+    'Cash action opens one explicit attestation dialog without submitting',
+    await confirmationDialog.isVisible() &&
+      !functionBodies.some((entry) => entry.functionName === 'refund-case-admin-update') &&
+      await confirmationDialog.getByText('$8.00', { exact: true }).isVisible() &&
+      await confirmationDialog.getByText(/already refunded this customer outside Bloomjoy Hub/).isVisible() &&
+      (await confirmationDialog.getByText(/Reference:/).count()) === 0 &&
+      (await confirmationDialog.getByText(/Destination/).count()) === 0
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-portal-uat-cash-confirmation.png'),
+    fullPage: false,
+  });
+
+  await page.getByTestId('refund-confirm-cash-refund').evaluate((button) => {
+    button.click();
+    button.click();
+  });
+  await page.getByTestId('refund-confirm-cash-refund').waitFor({ state: 'visible' });
+  recorder.assert(
+    'Cash processing state disables final confirmation during submission',
+    await page.getByTestId('refund-confirm-cash-refund').isDisabled()
+  );
+  await page.getByTestId('refund-action-receipt').waitFor({ timeout: 10000 });
+
+  const completionBodies = functionBodies
+    .filter(
+      (entry) => entry.functionName === 'refund-case-admin-update' && entry.body?.status === 'completed'
+    )
+    .map((entry) => entry.body ?? {});
+  const completionBody = completionBodies[0] ?? {};
+  recorder.assert(
+    'Cash completion submits one confirmation without client-controlled payout fields',
+    completionBodies.length === 1 &&
+      !Object.prototype.hasOwnProperty.call(completionBody, 'refundAmountCents') &&
+      !Object.prototype.hasOwnProperty.call(completionBody, 'cashPayoutSentAt') &&
+      !Object.prototype.hasOwnProperty.call(completionBody, 'manualRefundReference') &&
+      completionBody.cashPaymentConfirmed === true &&
+      completionBody.customerMessageType === 'completed' &&
+      completionBody.expectedOfficialActionVersion === 1,
+    JSON.stringify(completionBodies)
+  );
+  recorder.assert(
+    'Cash completion makes no Nayax call and sends no standalone duplicate message request',
+    !functionCalls.includes('nayax-card-refund') &&
+      !functionCalls.includes('nayax-transaction-lookup') &&
+      !functionCalls.includes('refund-case-message-send') &&
+      completionBodies.length === 1,
+    functionCalls.join(', ')
+  );
+  recorder.assert(
+    'Cash completion shows a durable channel-neutral success receipt',
+    await page.getByText('Refund marked complete', { exact: true }).isVisible() &&
+      await page.getByText(/external refund was recorded/).isVisible() &&
+      (await page.getByText(/Confirmation:/).count()) === 0
+  );
+  recorder.assert(
+    'No browser console or page errors during one-action cash UAT',
     getUatPageFailures(page, consoleErrors).length === 0,
     getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
   );
@@ -6408,7 +6663,7 @@ const run = async () => {
       artifactDir: args.artifactDir,
       recorder,
     });
-    await runCashWorkflowChecks({
+    await runManualExternalCashWorkflowChecks({
       browser,
       appUrl: args.appUrl,
       artifactDir: args.artifactDir,

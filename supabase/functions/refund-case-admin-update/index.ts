@@ -39,6 +39,7 @@ import {
   parseNayaxRefundDailyUsage,
   type RefundReadiness,
 } from "../_shared/refund-readiness.ts";
+import { deriveManualExternalCashCompletionContext } from "../_shared/manual-external-cash-completion.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
@@ -73,13 +74,6 @@ const centsFromInput = (value: unknown): number | null => {
   if (value === null || typeof value === "undefined") return null;
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric >= 0 ? Math.round(numeric) : null;
-};
-
-const timestampFromInput = (value: unknown): string | null => {
-  const normalized = sanitizeText(value, 80);
-  if (!normalized) return null;
-  const timestamp = new Date(normalized);
-  return Number.isFinite(timestamp.getTime()) ? timestamp.toISOString() : null;
 };
 
 type RefundCaseRow = {
@@ -916,17 +910,21 @@ serve(async (req) => {
     }
 
     const isCashCompletion = officialAction === "cash_complete";
-    const cashPayoutSentAt = timestampFromInput(body?.cashPayoutSentAt);
-    if (isCashCompletion && body?.cashPaymentConfirmed !== true) {
+    const cashCompletionContext = isCashCompletion
+      ? deriveManualExternalCashCompletionContext({
+        paymentAmountCents: beforeRow.payment_amount_cents,
+        managerConfirmed: body?.cashPaymentConfirmed,
+      })
+      : null;
+    if (cashCompletionContext && !cashCompletionContext.ok) {
       return jsonResponse({
-        error: "Confirm that the cash refund payment was sent.",
-      }, 400);
+        error: cashCompletionContext.error,
+        errorCode: cashCompletionContext.errorCode,
+      }, cashCompletionContext.status);
     }
-    if (isCashCompletion && !cashPayoutSentAt) {
-      return jsonResponse({
-        error: "Enter a valid date and time for the cash refund payment.",
-      }, 400);
-    }
+    const serverCashRefundAmountCents = cashCompletionContext?.ok
+      ? cashCompletionContext.context.refundAmountCents
+      : null;
 
     const assignedManagerEmail =
       sanitizeText(body?.assignedManagerEmail, 320) || null;
@@ -941,18 +939,23 @@ serve(async (req) => {
       }, 400);
     }
     const internalNote = sanitizeText(body?.internalNote, 1200) || null;
-    const refundAmountCents = centsFromInput(body?.refundAmountCents);
+    const requestedRefundAmountCents = centsFromInput(body?.refundAmountCents);
     const manualRefundReference =
       sanitizeText(body?.manualRefundReference, 160) || null;
     const officialRefundAmountCents = officialAction === "decline"
       ? null
-      : refundAmountCents;
-    const officialManualRefundReference = isCashCompletion
-      ? manualRefundReference
+      : isCashCompletion
+      ? serverCashRefundAmountCents
+      : requestedRefundAmountCents;
+    const officialManualRefundReference = cashCompletionContext?.ok
+      ? cashCompletionContext.context.manualRefundReference
       : null;
-    const officialCashPayoutSentAt = isCashCompletion ? cashPayoutSentAt : null;
-    const officialCashPaymentConfirmed = isCashCompletion &&
-      body?.cashPaymentConfirmed === true;
+    const officialCashPayoutSentAt = cashCompletionContext?.ok
+      ? cashCompletionContext.context.cashPayoutSentAt
+      : null;
+    const officialCashPaymentConfirmed = cashCompletionContext?.ok
+      ? cashCompletionContext.context.cashPaymentConfirmed
+      : false;
     const officialNayaxCandidateToken = officialAction === "approve"
       ? nayaxCandidateToken || null
       : null;
@@ -1005,9 +1008,9 @@ serve(async (req) => {
       ? await supabase.rpc("service_complete_cash_refund_official", {
         p_authorization_id: officialAuthorization.authorizationId,
         p_case_id: caseId,
-        p_refund_amount_cents: refundAmountCents,
-        p_manual_refund_reference: manualRefundReference,
-        p_cash_payout_sent_at: cashPayoutSentAt,
+        p_refund_amount_cents: serverCashRefundAmountCents,
+        p_manual_refund_reference: null,
+        p_cash_payout_sent_at: null,
         p_decision_reason: decisionReason,
         p_internal_note: internalNote,
         p_assigned_manager_email: assignedManagerEmail,
@@ -1043,7 +1046,7 @@ serve(async (req) => {
         p_decision: requestedDecision,
         p_decision_reason: decisionReason,
         p_internal_note: internalNote,
-        p_refund_amount_cents: refundAmountCents,
+        p_refund_amount_cents: requestedRefundAmountCents,
         p_manual_refund_reference: manualRefundReference,
         p_clear_nayax_match: clearNayaxMatch,
         p_matched_nayax_transaction_id:

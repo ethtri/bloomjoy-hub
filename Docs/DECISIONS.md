@@ -1,5 +1,16 @@
 # Decisions
 
+## 2026-08-24 - Refunds follow the payment method and keep the manager task simple (`#958`, `#959`)
+
+- Card is the preferred refund path. A card case still requires an exact manager-confirmed Nayax transaction and the existing provider, duplicate-payment, amount, idempotency, cap, and reconciliation controls before Bloomjoy issues the refund through the Nayax API.
+- Cash is an interim external-payment path. The manager sends the customer money outside Bloomjoy Hub using the mutually arranged method, currently Zelle or Venmo, and then uses one **Mark $X as refunded** action in Hub. Hub records completion; it does not initiate, verify, or choose the external payment channel.
+- Any active, nonterminal cash case with a positive stored request amount may use that action. An imported cash-sale match may remain visible as context, but it is not an approval or completion prerequisite. A missing amount remains a simple missing-information case.
+- Confirmation is the manager's attestation that the external refund was sent. The server derives the amount, acting manager, and completion time; completes and approves the case atomically; records one `manual_external` reporting adjustment and one redacted official event; and prepares one channel-neutral completion email after commit. Replay or concurrency cannot create a second completion, adjustment, event, email, or Nayax call.
+- The manager does not enter a payout handle, Zelle/Venmo destination, reference, amount, or timestamp, and does not complete a separate approval or checkbox step. Existing legacy cash cases, including `cash_zelle_pending`, remain completable through the same action without rewriting their historical data.
+- Public intake asks first whether the customer paid by card or cash and shows only the fields needed for that choice. Cash does not request card details or a payout handle. Gift-card fulfillment remains future work in `#666`; this interim decision does not build a gift-card system.
+
+This decision supersedes older cash-correlation gates, Zelle-specific manager fields, separate cash approval/completion steps, and statements that cash fallback is outside the refund pilot. It does not weaken the Nayax card-refund safeguards or authorize an alternative payment when a card provider outcome is uncertain.
+
 ## 2026-08-24 - Machine refund setup exposes one truthful readiness state
 
 - Admin Machines presents **Customer refunds** as **Ready to refund**, **Ready to activate**, **Setup needed**, or **Paused**. It never uses transaction-matching readiness to imply that live card refunds are enabled.

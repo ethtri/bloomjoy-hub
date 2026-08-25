@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(67);
+select plan(68);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -1501,10 +1501,6 @@ select ok(
 );
 reset role;
 
-create temporary table official_action_cash_context as
-select statement_timestamp() - interval '5 minutes' as payout_at;
-grant select on table pg_temp.official_action_cash_context to authenticated, service_role;
-
 set local role authenticated;
 select pg_temp.set_auth_claims(
   '79000000-0000-4000-8000-000000000001', 'aal2', 'totp',
@@ -1517,24 +1513,42 @@ select
     '79600000-0000-4000-8000-000000000006', 'cash_complete',
     (select official_action_version from public.refund_cases where id = '79600000-0000-4000-8000-000000000006'),
     'completed', 'approved', 'official-manager@example.test', 'Matched cash sale.',
-    'Synthetic completion note.', 725, 'ZP-0001',
-    (select payout_at from pg_temp.official_action_cash_context), true, null, null
+    'Synthetic completion note.', 725, null, null, true, null, null
   ) ->> 'authorizationId')::uuid;
 reset role;
 
 set local role service_role;
 select public.service_complete_cash_refund_official(
   (select authorization_id from pg_temp.official_action_test_receipts where receipt_key = 'cash_complete'),
-  '79600000-0000-4000-8000-000000000006', 725, 'ZP-0001',
-  (select payout_at from pg_temp.official_action_cash_context),
+  '79600000-0000-4000-8000-000000000006', 725, null, null,
   'Matched cash sale.', 'Synthetic completion note.', 'official-manager@example.test'
 );
 reset role;
 
 select is(
-  (select status || ':' || refund_completed_by::text from public.refund_cases where id = '79600000-0000-4000-8000-000000000006'),
-  'completed:79000000-0000-4000-8000-000000000001',
-  'Cash completion requires and attributes a mapped-manager receipt'
+  (
+    select status || ':' || refund_completed_by::text || ':' || refund_amount_cents::text
+    from public.refund_cases
+    where id = '79600000-0000-4000-8000-000000000006'
+  ),
+  'completed:79000000-0000-4000-8000-000000000001:725',
+  'Cash completion derives the case amount and attributes a mapped-manager receipt'
+);
+
+select ok(
+  (
+    select count(*) = 1
+      and bool_and(metadata ->> 'completion_method' = 'manual_external')
+      and bool_and(metadata ->> 'refund_amount_cents' = '725')
+      and bool_and(metadata ->> 'payload_redacted' = 'true')
+      and bool_and(not (metadata ? 'manual_refund_reference'))
+      and bool_and(not (metadata ? 'zelle_payment_contact'))
+    from public.refund_case_events
+    where refund_case_id = '79600000-0000-4000-8000-000000000006'
+      and event_type = 'official_action_committed'
+      and metadata ->> 'action' = 'cash_complete'
+  ),
+  'Cash completion records exactly one channel-neutral official audit event'
 );
 
 select ok(
