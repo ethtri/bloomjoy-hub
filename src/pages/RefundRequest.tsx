@@ -657,10 +657,16 @@ export default function RefundRequestPage() {
                   </p>
                 </div>
 
-                <div className="border-t border-border pt-5">
-                  <h2 className="text-lg font-semibold text-foreground">Payment</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">Share only the limited payment details below.</p>
-                </div>
+                <section
+                  data-testid="refund-payment-section"
+                  className="space-y-4 border-t border-border pt-5"
+                >
+                  <div>
+                    <h2 className="text-lg font-semibold text-foreground">Payment</h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Share only the limited payment details below.
+                    </p>
+                  </div>
 
                 <fieldset>
                   <legend className="text-sm font-medium leading-none">How did you pay?</legend>
@@ -841,6 +847,7 @@ export default function RefundRequestPage() {
                   </div>
                   </div>
                 )}
+                </section>
 
                 <div className="border-t border-border pt-5">
                   <h2 className="text-lg font-semibold text-foreground">What happened</h2>

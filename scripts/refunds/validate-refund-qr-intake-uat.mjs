@@ -619,9 +619,24 @@ const runMobileCashQrJourney = async ({ browser, appUrl, artifactDir }) => {
     `Mobile cash QR form overflows: ${JSON.stringify(layout)}`
   );
 
-  await page.screenshot({
+  const paymentSection = page.getByTestId('refund-payment-section');
+  const intakeForm = paymentSection.locator('xpath=ancestor::form');
+  const formBounds = await intakeForm.boundingBox();
+  assert.ok(
+    formBounds && formBounds.width >= 320 && formBounds.height >= 240,
+    `Mobile intake evidence is unexpectedly small: ${JSON.stringify(formBounds)}`
+  );
+  const siteHeaders = page.locator('header');
+  assert.ok((await siteHeaders.count()) > 0, 'Expected the public site header');
+  // Locator screenshots taller than the viewport are stitched. Hide sticky site chrome so the
+  // evidence crop contains the complete form without duplicating the header between segments.
+  await siteHeaders.evaluateAll((headers) => {
+    for (const header of headers) {
+      header.style.setProperty('visibility', 'hidden', 'important');
+    }
+  });
+  await intakeForm.screenshot({
     path: path.join(artifactDir, 'refund-qr-intake-cash-mobile.png'),
-    fullPage: true,
   });
 
   await page.getByRole('button', { name: 'Send refund request' }).click();
