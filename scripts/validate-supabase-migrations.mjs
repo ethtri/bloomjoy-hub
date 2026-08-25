@@ -150,6 +150,16 @@ function getSqlFiles(directory) {
     .sort();
 }
 
+function normalizeSqlLineEndings(directory) {
+  for (const sqlFile of getSqlFiles(directory)) {
+    const source = fs.readFileSync(sqlFile, 'utf8');
+    const normalized = source.replaceAll('\r\n', '\n');
+    if (normalized !== source) {
+      fs.writeFileSync(sqlFile, normalized, 'utf8');
+    }
+  }
+}
+
 export function getDatabaseEvidenceExpectations() {
   return {
     migrationCount: getMigrationFiles().length,
@@ -262,6 +272,7 @@ function writeTempSupabaseProject(tempRoot, projectId, dbPort, shadowPort) {
       recursive: true,
     });
   }
+  normalizeSqlLineEndings(tempSupabaseDir);
 
   const config = `project_id = "${projectId}"
 

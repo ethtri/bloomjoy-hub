@@ -709,6 +709,8 @@ const sendDeterministicFollowUpMessage = async (
       const transactionalInput = {
         ...emailInput,
         managerCcEmails: gmailDelivery.managerCcEmails,
+        managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
+        managerRecipientCount: gmailDelivery.managerRecipientCount,
       };
       if (customerCorrectionFields.length > 0) {
         await sendNayaxCustomerCorrectionEmail(transactionalInput);
@@ -1240,6 +1242,8 @@ const sendWalletCorrectionMessage = async (
       await sendRefundWalletCorrectionEmail({
         ...emailInput,
         managerCcEmails: gmailDelivery.managerCcEmails,
+        managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
+        managerRecipientCount: gmailDelivery.managerRecipientCount,
       });
     }
 

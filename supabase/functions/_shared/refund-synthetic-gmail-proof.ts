@@ -128,7 +128,7 @@ export const verifyRefundSyntheticGmailProofTransport = async ({
     gmailThreadId: requireUuid(result.gmailThreadId, "invalid_thread"),
     expectedManagerCount: typeof result.expectedManagerCount === "number" &&
         Number.isInteger(result.expectedManagerCount) &&
-        result.expectedManagerCount >= 1 && result.expectedManagerCount <= 3
+        result.expectedManagerCount >= 1 && result.expectedManagerCount <= 4
       ? result.expectedManagerCount
       : (() => {
         throw proofError("invalid_manager_route");

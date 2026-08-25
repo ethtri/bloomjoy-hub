@@ -157,7 +157,7 @@ select is(
    ) route on true
    where inventory.id::text like '89130000-0000-4000-8000-%'
      and inventory.reconciliation_state = 'published'
-     and route.manager_count between 1 and 3),
+     and route.manager_count between 1 and 4),
   16,
   'Every published mapping receives a bounded active manager route'
 );

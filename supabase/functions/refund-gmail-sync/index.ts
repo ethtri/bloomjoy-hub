@@ -381,6 +381,8 @@ const processDenialAppealConfirmation = async ({
         ...emailInput,
         customerEmail: claimedCustomerEmail,
         managerCcEmails: delivery.managerCcEmails,
+        managerRecipientOverlap: delivery.managerRecipientOverlap,
+        managerRecipientCount: delivery.managerRecipientCount,
       });
     }
   } catch (error) {

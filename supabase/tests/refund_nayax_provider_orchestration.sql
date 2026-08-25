@@ -656,6 +656,7 @@ insert into public.refund_gmail_messages (
   id, gmail_thread_id, refund_case_id, refund_case_message_id,
   provider_message_id, operation_key, direction, message_kind, status,
   sender_email, recipient_email, recipient_cc_emails, recipient_cc_count,
+  recipient_manager_overlap, recipient_manager_count,
   recipient_resolution_status, delivery_kind, participant_role,
   participant_trust, subject, plain_body, received_at, sent_at,
   retention_expires_at
@@ -667,6 +668,7 @@ insert into public.refund_gmail_messages (
   'outbound', 'message', 'sent', 'info@example.test',
   'provider-customer-1@example.test',
   array['provider-manager@example.test'], 1,
+  false, 1,
   'resolved', 'manual', 'mailbox', 'verified', message.subject, message.body,
   statement_timestamp(), statement_timestamp(), statement_timestamp() + interval '180 days'
 from public.refund_case_messages message
@@ -690,6 +692,7 @@ set
     'provider-manager@example.test'
   ],
   recipient_cc_count = 2,
+  recipient_manager_count = 2,
   recipient_resolution_status = 'resolved_with_exclusions'
 where id = '9ab00000-0000-4000-8000-000000000001';
 

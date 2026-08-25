@@ -83,6 +83,8 @@ const mockSession = {
 const machineId = 'machine-1';
 const firstManagerEmail = 'manager-one@example.test';
 const secondManagerEmail = 'manager-two@example.test';
+const thirdManagerEmail = 'manager-three@example.test';
+const fourthManagerEmail = 'manager-four@example.test';
 const invitedManagerEmail = 'new-manager@example.test';
 
 const accountSummary = (userId, customerEmail) => ({
@@ -145,7 +147,7 @@ const buildMockRefundManagerSetup = (state) => ({
       customerIntakeAccepting: state.refundSetup.customerIntakeAccepting,
       transactionMatchingEnabled: state.refundSetup.refundIntakeEnabled,
       transactionLookupReady: Boolean(state.refundSetup.nayaxMachineId),
-      managerRoutingReady: state.managerEmails.length >= 1 && state.managerEmails.length <= 3,
+      managerRoutingReady: state.managerEmails.length >= 1 && state.managerEmails.length <= 4,
       nayaxRefundsEnabled: state.refundSetup.cardRefundsEnabled,
       nayaxRefundMaxAmountCents: state.refundSetup.cardRefundLimitCents,
       paymentDisabledReason: state.refundSetup.paymentDisabledReason,
@@ -153,7 +155,7 @@ const buildMockRefundManagerSetup = (state) => ({
         state.refundSetup.customerIntakeAccepting &&
         state.refundSetup.refundIntakeEnabled &&
         Boolean(state.refundSetup.nayaxMachineId) &&
-        state.managerEmails.length >= 1 && state.managerEmails.length <= 3,
+        state.managerEmails.length >= 1 && state.managerEmails.length <= 4,
       readinessState: state.refundSetup.readinessState,
       readinessBlockReason: state.refundSetup.readinessBlockReason,
     },
@@ -422,7 +424,8 @@ const installMockSupabaseRoutes = async (context, state) => {
       const search = String(body?.p_search ?? '').toLowerCase();
       const matches = [
         accountSummary('22222222-2222-4222-8222-222222222222', secondManagerEmail),
-        accountSummary('33333333-3333-4333-8333-333333333333', 'manager-three@example.test'),
+        accountSummary('33333333-3333-4333-8333-333333333333', thirdManagerEmail),
+        accountSummary('44444444-4444-4444-8444-444444444444', fourthManagerEmail),
       ].filter((account) => account.customer_email.includes(search));
 
       return route.fulfill(jsonResponse(matches));
@@ -632,8 +635,8 @@ const run = async () => {
       !(await page.locator('body').innerText()).includes('Nayax setup needed')
     );
     recorder.assert(
-      'Quota copy does not imply three managers are required',
-      !(await page.locator('body').innerText()).includes('0/3 assigned')
+      'Machine Manager setup explains the one-to-four assignment range',
+      await machineDialog.getByText(/Add up to 4 authenticated Machine Managers per machine/i).isVisible()
     );
     recorder.assert(
       'Customer refunds are managed from Admin > Machines',
@@ -696,6 +699,30 @@ const run = async () => {
         state.savePayload.p_manager_emails.includes(firstManagerEmail) &&
         state.savePayload.p_manager_emails.includes(secondManagerEmail),
       JSON.stringify(state.savePayload)
+    );
+
+    for (const [search, email] of [
+      ['manager-three', thirdManagerEmail],
+      ['manager-four', fourthManagerEmail],
+    ]) {
+      await page.fill('#machine-manager-search', search);
+      await machineDialog.locator('button', { hasText: email }).click();
+      await page.getByText('Saved').waitFor({ timeout: 10000 });
+    }
+
+    recorder.assert(
+      'Machine Manager lookup and autosave accept a complete four-manager route',
+      await machineDialog.getByText('4 managers assigned').isVisible() &&
+        Array.isArray(state.savePayload?.p_manager_emails) &&
+        state.savePayload.p_manager_emails.length === 4 &&
+        [firstManagerEmail, secondManagerEmail, thirdManagerEmail, fourthManagerEmail]
+          .every((email) => state.savePayload.p_manager_emails.includes(email)),
+      JSON.stringify(state.savePayload)
+    );
+    recorder.assert(
+      'A fifth Machine Manager cannot be entered after the four-manager cap',
+      await machineDialog.locator('#machine-manager-search').isDisabled() &&
+        await machineDialog.getByRole('button', { name: 'Add', exact: true }).isDisabled()
     );
 
     await machineDialog.getByLabel('Enable transaction matching for this machine').click();

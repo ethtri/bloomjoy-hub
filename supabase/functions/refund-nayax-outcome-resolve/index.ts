@@ -334,7 +334,7 @@ serve(async (req) => {
           !EMAIL_PATTERN.test(normalizedRecipient) ||
           !Number.isSafeInteger(formManagerCcCount) ||
           formManagerCcCount !== managerCcEmails.length ||
-          formManagerCcCount < 0 || formManagerCcCount > 3 ||
+          formManagerCcCount < 0 || formManagerCcCount > 4 ||
           new Set(managerCcEmails).size !== managerCcEmails.length ||
           managerCcEmails.some((value) =>
             !EMAIL_PATTERN.test(value) || value === normalizedRecipient
