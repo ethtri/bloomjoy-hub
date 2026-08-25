@@ -75,6 +75,7 @@ If docs and the GitHub board disagree on active task state, the board wins. If d
 - Keep small single-lane fixes local to the primary agent to reduce overhead and context confusion.
 - Subagents are advisory. The primary agent remains responsible for final code, verification, and PR quality.
 - Prefer repo skills and plugin guidance when the task clearly matches them.
+- For Supabase database, schema, logs, configuration, and Edge Function work, use Supabase plugin/MCP tools first. Use browser control only when the required dashboard operation is unavailable through MCP or after an MCP failure, and state the fallback reason.
 
 ## Definition of Done
 
