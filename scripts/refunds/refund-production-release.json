@@ -88,7 +88,8 @@
     "20260825013128_refund_simple_cash_intake.sql",
     "20260825041548_refund_nayax_authoritative_journal_v2.sql",
     "20260825170000_refund_nayax_dtm_reference_width.sql",
-    "20260825193000_refund_nayax_evidence_only_reconciliation.sql"
+    "20260825193000_refund_nayax_evidence_only_reconciliation.sql",
+    "20260825202000_refund_nayax_preexisting_attempt_evidence.sql"
   ],
   "migrationFilesSha256": "abf171d3b5d690d1a679a98d90d738640c242bddd26fa8a7379cc2c543d70696",
   "migrationVersionSetSha256": "738a6c94363e5b438a285690324aa3b6cbd178e66996674d5733c602e0c33d9a",
