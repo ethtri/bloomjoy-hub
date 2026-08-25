@@ -36,6 +36,7 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-manager-stale-evidence-recovery-mobile.png',
   'refund-nayax-support-resolution-desktop.png',
   'refund-nayax-support-resolution-mobile.png',
+  'refund-nayax-evidence-only-reconciliation.png',
   'refund-portal-demo-fallback.png',
   'refund-portal-gmail-draft-desktop.png',
   'refund-portal-gmail-draft-mobile.png',

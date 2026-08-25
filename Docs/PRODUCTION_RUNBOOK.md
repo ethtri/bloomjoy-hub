@@ -141,7 +141,7 @@ Security rule:
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds` passes
 - [ ] `npm run refunds:validate-release-tooling` passes.
 - [ ] `npm run refunds:release:check` confirms that the ten candidate Refund Operations functions, required migrations, source commit, and `verify_jwt` settings match the approved release manifest. Do not substitute the separate eight-route `OPTIONS` smoke count for the manifest count.
-- [ ] The same fresh `Refund UAT Evidence` run contains exactly 44 reviewed synthetic screenshots and the five sanitized JSON artifacts named below; the final manifest hashes every artifact and binds to the reviewed PR head. The evidence covers form-only intake, card-network evidence, Nayax inventory/Snapcase, branded messages and same-case appeals, duplicate decisions, and the source-aware manager queue without production data. Final migration/test-file counts and SHA are generated from that tree, not copied from an earlier branch or written by hand.
+- [ ] The same fresh `Refund UAT Evidence` run contains exactly 65 reviewed synthetic screenshots and the five sanitized JSON artifacts named below; the final manifest hashes every artifact and binds to the reviewed PR head. The evidence covers form-only intake, card-network evidence, Nayax inventory/Snapcase, branded messages and same-case appeals, duplicate decisions, the source-aware manager queue, and provider-free existing-refund reconciliation without production data. Final migration/test-file counts and SHA are generated from that tree, not copied from an earlier branch or written by hand.
 - [ ] In the owner's private shell, `npm run refunds:production-auth-closed -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --phase predeploy` passes with the short-lived `SUPABASE_AUTH_CONFIG_READ_TOKEN`. This is the final read-only barrier before the first refund production database/function write.
 - [ ] Before deployment, `supabase db push --dry-run` reports exactly the reviewed pending migration set and no unexpected migration. Save the sanitized command result; the Edge Function drift check does not prove remote migration parity.
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
@@ -334,6 +334,15 @@ If it does not pass, stop. Keep all operational switches off and use the same ow
 9. Run `npm run refunds:release:check-production -- --project-ref <project-ref>` and require all ten manifest-tracked functions to pass.
 10. Run the remaining refund production smoke rows in `Docs/QA_SMOKE_TEST_CHECKLIST.md` using sanitized evidence only.
 
+### Reconcile a refund completed in Nayax before Bloomjoy recorded an attempt (`#971`)
+
+1. Confirm the case is card-paid, still in manager review, bound to one exact Nayax transaction, has matching sale/refund amounts and USD currency, and has no provider attempt, completion, reporting adjustment, or unresolved reconciliation. If any fact differs, stop.
+2. In Dynamic Transactions Monitor or a Nayax support response, verify one separate authoritative refund record for the exact matched card and amount. Do not infer success from a requested/pending row and do not retry the refund.
+3. The exact mapped manager clicks **Review existing refund**. Confirm the receipt states that no payment was attempted and the customer was not contacted. The action only opens a synthetic evidence hold.
+4. Enter the safe DTM/support reference and exact refund time. The time must not predate the matched sale. Choose **Keep waiting for confirmation** if evidence is incomplete or conflicts.
+5. Immediately before **Complete case & notify customer**, recheck the exact amount, last four, refund time, and separate negative/refund record. This final action records reporting and queues one source-appropriate completion; it still makes no Nayax call.
+6. Postcheck exactly one evidence-only attempt, one outcome resolution, one reporting adjustment, one completion message, no additional provider attempt, and no retry-ready generation. If delivery is uncertain, use only the existing email-reconciliation lane; never rerun the refund or outcome completion.
+
 Before mapped-manager UAT, run the read-only role audit with exact project confirmation. It queries only aggregate counts and refuses unexpected result columns:
 
 ```bash
@@ -445,7 +454,7 @@ Historical completed held-case outcome resolution (`#767`, `#427`; not a Refund 
 - Stop on expired/changed intent, actor/mapping/operator/enrollment drift, ambiguous evidence, missing exact attempt, stale case version, or inability to prove zero provider side effects and the exact bounded message shape. Never repeat an uncertain resolution or uncertain Gmail delivery; inspect the immutable record and original thread first.
 
 Integrated Refund UAT evidence:
-- In one fresh workflow run, generate exactly 44 reviewed synthetic screenshots and exactly five sanitized JSON artifacts: `refund-portal-assertions.json`, `refund-database-counts.json`, `refund-gmail-mime-roles.json`, `refund-kill-switches.json`, and `refund-provider-outcomes.json`. The set covers the current form-only, card-network evidence, inventory/Snapcase, branded-message/appeal, duplicate, and source-aware queue states and contains no production data, provider identifier, QR, or TOTP.
+- In one fresh workflow run, generate exactly 65 reviewed synthetic screenshots and exactly five sanitized JSON artifacts: `refund-portal-assertions.json`, `refund-database-counts.json`, `refund-gmail-mime-roles.json`, `refund-kill-switches.json`, and `refund-provider-outcomes.json`. The set covers the current form-only, card-network evidence, inventory/Snapcase, branded-message/appeal, duplicate, source-aware queue, and provider-free existing-refund states and contains no production data, provider identifier, QR, or TOTP.
 - The finalizer rejects stale, missing, extra, malformed, duplicate-image, PII-bearing, UUID/provider-ID-bearing, URL-bearing, or free-text-bearing artifacts. The database producer derives exact migration and test-file counts from the final tree; do not write those counts or the final release SHA by hand.
 - The portal evidence must prove zero side effects from exact links, filter/queue navigation, and initial render; exactly one lookup after **Check Nayax transaction**; and no admin-update or message shortcut on provider success. The provider JSON must prove one success, rejection, timeout, and unknown attempt with zero provider attempts on replay.
 
