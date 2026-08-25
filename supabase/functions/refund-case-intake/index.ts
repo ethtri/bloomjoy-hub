@@ -47,6 +47,7 @@ import {
   isRefundWalletCorrectionToken,
 } from "../_shared/refund-wallet-correction.ts";
 import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
+import { validateRefundIntakePayment } from "../_shared/refund-intake-payment.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -1192,7 +1193,6 @@ serve(async (req) => {
     const customerEmail = sanitizeEmail(body?.customerEmail);
     const customerName = sanitizeText(body?.customerName, 160);
     const customerPhone = sanitizeText(body?.customerPhone, 80);
-    const zellePaymentContact = sanitizeText(body?.zellePaymentContact, 160);
     const issueSummary = sanitizeText(body?.issueSummary, 2500);
     const paymentMethod = sanitizeText(body?.paymentMethod, 40).toLowerCase();
     const amountCents = centsFromAmount(body?.paymentAmount);
@@ -1313,62 +1313,21 @@ serve(async (req) => {
       });
     }
 
-    if (!["card", "cash"].includes(paymentMethod)) {
-      return new Response(JSON.stringify({ error: "Please choose a payment method." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (amountCents === null || amountCents <= 0) {
-      return new Response(JSON.stringify({ error: "Please enter the amount you paid." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (paymentMethod === "card" && !/^[0-9]{4}$/.test(cardLast4)) {
-      return new Response(JSON.stringify({ error: "Please enter the last 4 digits shown for the card payment." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (body?.cardNetwork !== undefined && !cardNetwork) {
-      return new Response(JSON.stringify({ error: "Please choose the card type shown on your card or in your wallet." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (
-      body?.paymentInteraction !== undefined &&
-      !["phone_watch_wallet", "tap_card", "insert_or_swipe", "cash", "unsure"].includes(
-        submittedPaymentInteraction,
-      )
-    ) {
-      return new Response(JSON.stringify({ error: "Please choose how you paid at the machine." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (
-      (paymentMethod === "cash" && paymentInteraction !== "cash") ||
-      (paymentMethod !== "cash" && paymentInteraction === "cash")
-    ) {
-      return new Response(JSON.stringify({ error: "The payment method and the way you paid do not agree." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (
-      paymentInteraction === "phone_watch_wallet" &&
-      body?.walletProvider !== undefined &&
-      !walletProvider
-    ) {
-      return new Response(JSON.stringify({ error: "Please choose the phone or watch wallet you used." }), {
+    const paymentValidation = validateRefundIntakePayment({
+      paymentMethod,
+      amountCents,
+      cardLast4,
+      cardNetwork,
+      cardNetworkProvided: body?.cardNetwork !== undefined,
+      paymentInteraction,
+      submittedPaymentInteraction,
+      paymentInteractionProvided: body?.paymentInteraction !== undefined,
+      cardWalletUsed,
+      walletProvider,
+      walletProviderProvided: body?.walletProvider !== undefined,
+    });
+    if (!paymentValidation.ok) {
+      return new Response(JSON.stringify({ error: paymentValidation.error }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -1393,13 +1352,6 @@ serve(async (req) => {
       )
     ) {
       return new Response(JSON.stringify({ error: "Please choose what best describes the problem." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (paymentMethod === "cash" && !zellePaymentContact) {
-      return new Response(JSON.stringify({ error: "Please enter your Zelle phone number or email." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -1697,9 +1649,9 @@ serve(async (req) => {
       qr_claim_expires_at: verifiedQrClaim?.expiresAt ?? null,
       incident_time_resolution: incidentResolution.resolution,
       incident_time_confidence: incidentTimeConfidence,
-      payment_interaction: paymentInteraction,
-      wallet_provider_supplied: Boolean(walletProvider),
-      card_network: cardNetwork,
+      payment_interaction: paymentValidation.paymentInteraction,
+      wallet_provider_supplied: Boolean(paymentValidation.walletProvider),
+      card_network: paymentValidation.cardNetwork,
       issue_category: issueCategory,
       product_description_supplied: Boolean(productDescription),
       incident_possible_instant_count: incidentResolution.possibleInstantCount,
@@ -1715,19 +1667,19 @@ serve(async (req) => {
       customer_email: customerEmail,
       customer_name: customerName || null,
       customer_phone: customerPhone || null,
-      zelle_payment_contact: paymentMethod === "cash" ? zellePaymentContact : null,
+      zelle_payment_contact: null,
       issue_summary: issueSummary,
       incident_at: incidentAt.toISOString(),
       incident_local_datetime: hasLocalIncidentInput ? `${incidentDate}T${incidentTime}` : null,
       incident_timezone: locationRecord?.timezone ?? null,
       incident_time_resolution: incidentResolution.resolution,
-      payment_method: paymentMethod,
-      payment_amount_cents: amountCents,
-      card_last4: paymentMethod === "card" ? cardLast4 : null,
-      card_network: paymentMethod === "card" ? cardNetwork : null,
-      card_wallet_used: cardWalletUsed,
-      payment_interaction: paymentInteraction,
-      wallet_provider: walletProvider,
+      payment_method: paymentValidation.paymentMethod,
+      payment_amount_cents: paymentValidation.amountCents,
+      card_last4: paymentValidation.cardLast4,
+      card_network: paymentValidation.cardNetwork,
+      card_wallet_used: paymentValidation.cardWalletUsed,
+      payment_interaction: paymentValidation.paymentInteraction,
+      wallet_provider: paymentValidation.walletProvider,
       incident_time_confidence: incidentTimeConfidence,
       issue_category: issueCategory,
       product_description: productDescription || null,
@@ -1737,8 +1689,8 @@ serve(async (req) => {
       correlation_confidence: correlationConfidence,
       correlation_summary: correlationSummary,
       matched_sales_fact_id: matchedSalesFactId,
-      cash_match_evaluated_fact_version: paymentMethod === "cash" ? 1 : null,
-      refund_amount_cents: amountCents,
+      cash_match_evaluated_fact_version: paymentValidation.paymentMethod === "cash" ? 1 : null,
+      refund_amount_cents: paymentValidation.amountCents,
       refund_qr_claim_context_id: verifiedQrClaim?.id ?? null,
       intake_meta: intakeMeta,
       server_dedupe_key: serverDedupeKey,
@@ -1836,15 +1788,17 @@ serve(async (req) => {
           throw new Error("Unable to create refund case.");
         }
 
-        await runAutomaticNayaxLookupIfReady({
-          supabase,
-          caseId: dedupedRefundCase.id,
-          source: "hosted_intake",
-        }).catch((lookupError) => {
-          console.error("refund intake automatic Nayax trigger failed", {
-            errorType: lookupError instanceof Error ? lookupError.name : typeof lookupError,
+        if (paymentValidation.shouldRunNayaxLookup) {
+          await runAutomaticNayaxLookupIfReady({
+            supabase,
+            caseId: dedupedRefundCase.id,
+            source: "hosted_intake",
+          }).catch((lookupError) => {
+            console.error("refund intake automatic Nayax trigger failed", {
+              errorType: lookupError instanceof Error ? lookupError.name : typeof lookupError,
+            });
           });
-        });
+        }
         return new Response(
           JSON.stringify({
             refundCase: {
@@ -1879,22 +1833,24 @@ serve(async (req) => {
         intake_path: verifiedQrClaim ? "machine_qr" : "direct_form",
         qr_claim_present: Boolean(verifiedQrClaim),
         incident_time_confidence: incidentTimeConfidence,
-        payment_interaction: paymentInteraction,
+        payment_interaction: paymentValidation.paymentInteraction,
         issue_category: issueCategory,
         candidate_sales_fact_ids: candidateIds,
         attachment_count: uploadedAttachments.length,
       },
     });
 
-    await runAutomaticNayaxLookupIfReady({
-      supabase,
-      caseId: refundCase.id,
-      source: emailContextToken ? "linked_customer_update" : "hosted_intake",
-    }).catch((lookupError) => {
-      console.error("refund intake automatic Nayax trigger failed", {
-        errorType: lookupError instanceof Error ? lookupError.name : typeof lookupError,
+    if (paymentValidation.shouldRunNayaxLookup) {
+      await runAutomaticNayaxLookupIfReady({
+        supabase,
+        caseId: refundCase.id,
+        source: emailContextToken ? "linked_customer_update" : "hosted_intake",
+      }).catch((lookupError) => {
+        console.error("refund intake automatic Nayax trigger failed", {
+          errorType: lookupError instanceof Error ? lookupError.name : typeof lookupError,
+        });
       });
-    });
+    }
 
     await sendManagerIntakeNotification({
       refundCaseId: refundCase.id,
@@ -1912,9 +1868,9 @@ serve(async (req) => {
       customerEmail,
       machineLabel: publicLabels.machineLabel,
       locationName: publicLabels.locationName,
-      refundAmountCents: amountCents,
-      paymentMethod,
-      cardWalletUsed,
+      refundAmountCents: paymentValidation.amountCents,
+      paymentMethod: paymentValidation.paymentMethod,
+      cardWalletUsed: paymentValidation.cardWalletUsed,
       incidentLocalDateTime: hasLocalIncidentInput ? `${incidentDate} ${incidentTime}` : null,
     });
 

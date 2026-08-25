@@ -102,7 +102,7 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 80 required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 81 required refund\/Nayax migrations/);
 assert.match(cutoverPacket, /exact canonical 51-migration predeployment bridge/);
 assert.match(
   cutoverPacket,
@@ -208,8 +208,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    80,
-    'Refund release inventory must cover exactly 80 discovered refund/Nayax migrations'
+    81,
+    'Refund release inventory must cover exactly 81 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -242,6 +242,10 @@ try {
   assert(
     repositoryMigrations.includes('20260825000909_refund_manual_external_cash_completion.sql'),
     'The server-derived manual external cash completion migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260825013128_refund_simple_cash_intake.sql'),
+    'The simple Card/Cash public intake migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('202608170003_refund_nayax_manager_overview_authority.sql'),

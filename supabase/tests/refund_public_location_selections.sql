@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(30);
+select plan(39);
 
 select has_column('public', 'refund_cases', 'intake_selection_key', 'Cases store the submitted opaque selection key');
 select has_column('public', 'refund_cases', 'intake_selection_machine_ids', 'Cases store the server-resolved selection scope separately');
@@ -81,6 +81,33 @@ values
   ('8eda5a29-1718-4c70-9993-7c7e2fd6c65a', '92140000-0000-4000-8000-000000000001', 'pair-manager@example.test', 'Pair fixture');
 
 select ok(public.refund_livermore_selection_is_valid(), 'The exact reviewed pair satisfies every invariant');
+select has_function('public', 'public_refund_selections_v2', array[]::text[], 'The cash-aware public selection contract exists');
+select ok(
+  has_function_privilege('anon', 'public.public_refund_selections_v2()', 'execute'),
+  'Anonymous intake may read the cash-aware customer-safe selections'
+);
+select ok(
+  not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.refund_cases'::regclass
+      and conname = 'refund_cases_cash_zelle_contact_present'
+  ),
+  'Cash cases no longer require a payout-channel contact'
+);
+select is(
+  (select jsonb_array_length(cash_machine_options)
+   from public.public_refund_selections_v2()
+   where selection_kind = 'livermore_pair'),
+  2,
+  'The one ambiguous cash location exposes exactly two plain machine choices'
+);
+select ok(
+  (select cash_machine_options @> '[{"displayLabel":"TT20 cotton candy machine"},{"displayLabel":"TT33 cotton candy machine"}]'::jsonb
+   from public.public_refund_selections_v2()
+   where selection_kind = 'livermore_pair'),
+  'The ambiguous cash choices use customer-readable machine labels'
+);
 select is(
   (select count(*)::integer from public.public_refund_selections() where selection_kind = 'livermore_pair'),
   1,
@@ -176,6 +203,50 @@ values (
 select ok(
   public.can_manage_refund_case('92140000-0000-4000-8000-000000000001', '92150000-0000-4000-8000-000000000001'),
   'A manager authorized for the complete pair can view and compare the unresolved case'
+);
+select lives_ok(
+  $$insert into public.refund_cases (
+      id, reporting_machine_id, reporting_location_id, customer_email,
+      customer_name, issue_summary, incident_at, payment_method,
+      payment_amount_cents, payment_interaction, incident_time_confidence,
+      issue_category, status, correlation_status, refund_amount_cents
+    ) values (
+      '92150000-0000-4000-8000-000000000002',
+      '91bae5ac-4ba6-4378-91f0-ef266bdd4d7a',
+      '92110000-0000-4000-8000-000000000001',
+      'cash-customer@example.test', 'Cash Customer', 'Synthetic cash intake',
+      now() - interval '20 minutes', 'cash', 700, 'cash', 'exact',
+      'charged_no_product', 'needs_review', 'no_match', 700
+    )$$,
+  'A normal cash website case is valid without Zelle or Venmo data'
+);
+select is(
+  (select zelle_payment_contact from public.refund_cases where id = '92150000-0000-4000-8000-000000000002'),
+  null,
+  'The normal cash path stores no payout-channel contact'
+);
+select lives_ok(
+  $$insert into public.refund_cases (
+      id, reporting_machine_id, reporting_location_id, customer_email,
+      customer_name, zelle_payment_contact, issue_summary, incident_at,
+      payment_method, payment_amount_cents, payment_interaction,
+      incident_time_confidence, issue_category, status, correlation_status,
+      refund_amount_cents
+    ) values (
+      '92150000-0000-4000-8000-000000000003',
+      '8eda5a29-1718-4c70-9993-7c7e2fd6c65a',
+      '92110000-0000-4000-8000-000000000001',
+      'legacy-cash@example.test', 'Legacy Cash', 'legacy-contact@example.test',
+      'Synthetic legacy cash record', now() - interval '10 minutes',
+      'cash', 650, 'cash', 'exact', 'charged_no_product', 'needs_review',
+      'no_match', 650
+    )$$,
+  'Existing legacy cash records may still retain historical payout contact data'
+);
+select is(
+  (select zelle_payment_contact from public.refund_cases where id = '92150000-0000-4000-8000-000000000003'),
+  'legacy-contact@example.test',
+  'The migration does not destructively rewrite legacy payout contact history'
 );
 select ok(
   not public.can_perform_refund_official_action('92140000-0000-4000-8000-000000000001', '92150000-0000-4000-8000-000000000001'),
