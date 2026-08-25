@@ -421,6 +421,16 @@ const normalizeNayaxResolutionReference = (
   evidenceType: RefundNayaxResolutionEvidenceType
 ) => {
   const trimmed = value.trim();
+  if (evidenceType === 'nayax_dtm_transaction') {
+    const upper = trimmed.toUpperCase();
+    if (/^[0-9]{9,10}$/.test(upper)) {
+      return `DTM:NAYAX-${upper}`;
+    }
+    if (/^NAYAX-[0-9]{9,10}$/.test(upper)) {
+      return `DTM:${upper}`;
+    }
+    return trimmed;
+  }
   if (evidenceType !== 'nayax_support_ticket') return trimmed;
 
   const upper = trimmed.toUpperCase();
@@ -453,7 +463,7 @@ const getNayaxResolutionReferenceIssue = (
   const approvedNumericVendorReference =
     (evidenceType === 'nayax_support_ticket' && /^SUPPORT:NAYAX-[0-9]{8}$/.test(normalized)) ||
     (evidenceType === 'nayax_support_ticket' && /^SUPPORT:NAYAX-CS[0-9]{7}$/.test(normalized)) ||
-    (evidenceType === 'nayax_dtm_transaction' && /^DTM:NAYAX-[0-9]{9}$/.test(normalized));
+    (evidenceType === 'nayax_dtm_transaction' && /^DTM:NAYAX-[0-9]{9,10}$/.test(normalized));
   if (
     normalized.includes('@') ||
     (digitCount >= 8 && !approvedNumericVendorReference) ||

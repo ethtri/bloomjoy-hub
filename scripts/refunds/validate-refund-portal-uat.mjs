@@ -5400,7 +5400,8 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
       result: 'provider_confirmed_success',
       evidenceType: 'nayax_dtm_transaction',
       reasonCode: 'nayax_dtm_settled',
-      evidenceReference: 'DTM:NAYAX-123456789',
+      evidenceReference: '1234567890',
+      expectedEvidenceReference: 'DTM:NAYAX-1234567890',
       evidenceOccurredAt: paymentEvidenceLocalValue,
       receiptTitle: 'Refund completed and customer notified',
       caseCompleted: true,
@@ -5599,7 +5600,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
         verifiedBody.attemptId === '8a810000-0000-4000-8000-000000000001' &&
         verifiedBody.resolutionResult === scenario.result &&
         verifiedBody.evidenceType === scenario.evidenceType &&
-        verifiedBody.evidenceReference === scenario.evidenceReference &&
+        verifiedBody.evidenceReference === (scenario.expectedEvidenceReference ?? scenario.evidenceReference) &&
         (scenario.evidenceOccurredAt
           ? typeof verifiedBody.evidenceOccurredAt === 'string' &&
             !Number.isNaN(Date.parse(verifiedBody.evidenceOccurredAt))
