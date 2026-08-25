@@ -318,7 +318,7 @@ const getBodyParagraphs = ({
       return [
         `Good news: our team approved your refund request${amountPhrase}.`,
         isCash
-          ? "The next step is a Zelle refund from our team. We will use the Zelle contact shared with the request."
+          ? "The next step is for our team to complete the refund using the payment method arranged with you."
           : "The next step is refund completion through our payment provider. We will send another update once that action is complete.",
         "Thanks for giving us the chance to make this right.",
       ];
@@ -344,16 +344,21 @@ const getBodyParagraphs = ({
       ];
     case "completed": {
       const maskedCard = sanitizeText(cardLast4, 4);
+      if (isCash) {
+        return [
+          "Good news—your refund request was approved and completed.",
+          `We issued your refund${amountPhrase} using the payment method arranged with you.`,
+          "Thank you for letting us help make this right.",
+        ];
+      }
       return [
         "Good news—your refund request was approved, and your refund is on its way.",
         `We issued your refund${amountPhrase}${
-          !isCash && /^\d{4}$/.test(maskedCard)
+          /^\d{4}$/.test(maskedCard)
             ? ` to the card ending in ${maskedCard}`
             : ""
         }.`,
-        isCash
-          ? "The Zelle payment has been sent. Please allow normal bank processing time for it to appear."
-          : "Your bank or card issuer may take up to 4 business days to show the credit. If it is not visible after that, reply to this email and include your reference below.",
+        "Your bank or card issuer may take up to 4 business days to show the credit. If it is not visible after that, reply to this email and include your reference below.",
         "Thank you for letting us help make this right.",
       ];
     }

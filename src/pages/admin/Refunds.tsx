@@ -243,7 +243,7 @@ const customerMessageOptions: Array<{
   {
     value: 'approved',
     label: 'Approval note',
-    helper: 'Use after the manager approves the refund and before Bloomjoy completes the card or Zelle refund.',
+    helper: 'Use after the manager approves the refund and before the payment is completed.',
   },
   {
     value: 'denied',
@@ -253,7 +253,7 @@ const customerMessageOptions: Array<{
   {
     value: 'completed',
     label: 'Completion note',
-    helper: 'Use after Bloomjoy completes the card refund or Zelle refund.',
+    helper: 'Use after the refund is recorded as complete.',
   },
 ];
 
@@ -414,26 +414,6 @@ const toEditorState = (refundCase: RefundCaseRecord): EditorState => ({
   clearNayaxMatch: false,
   internalNote: '',
 });
-
-const toDateTimeLocalValue = (value: Date) => {
-  const offsetValue = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
-  return offsetValue.toISOString().slice(0, 16);
-};
-
-const getManualPaymentReferenceIssue = (value: string): string | null => {
-  const normalized = value.trim();
-  if (normalized.length < 3) return 'Enter a short payment confirmation or reference.';
-  if (normalized.length > 80) return 'Payment confirmation or reference must be 80 characters or fewer.';
-  const digitCount = normalized.replace(/[^0-9]/g, '').length;
-  if (
-    /(?:routing|account|card|bank|password|passcode|pin|cvv|security\s*code)/i.test(normalized) ||
-    normalized.includes('@') ||
-    digitCount >= 8
-  ) {
-    return 'Do not enter bank, card, contact, or other sensitive payment details.';
-  }
-  return null;
-};
 
 const normalizeNayaxResolutionReference = (
   value: string,
@@ -633,7 +613,7 @@ const nayaxLookupNoticeClass = (tone: NayaxLookupNotice['tone']) =>
     tone === 'info' && 'border-sky-200 bg-white/80 text-sky-800'
   );
 
-const getRefundReferenceLabel = (_refundCase: RefundCaseRecord) => 'Zelle refund confirmation/reference';
+const getRefundReferenceLabel = (_refundCase: RefundCaseRecord) => 'External refund confirmation/reference';
 
 const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxLookupCandidate[]) => {
   if (refundCase.status === 'draft') {
@@ -674,7 +654,7 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
   if (refundCase.decision === 'approved' && refundCase.status !== 'completed') {
     return refundCase.paymentMethod === 'card'
       ? 'Confirm the refund amount, then refund the matched card payment.'
-      : 'Send the Zelle refund, enter the Zelle confirmation/reference, then mark complete.';
+      : 'Send the external refund, then mark the case refunded.';
   }
 
   if (refundCase.status === 'completed') {
@@ -776,14 +756,24 @@ const hasCardRefundAuthority = (refundCase: RefundCaseRecord) =>
 const isReadyToPayCase = (
   refundCase: RefundCaseRecord,
   cardRefundAvailabilityConfirmed = false
-) =>
-  ['approved', 'card_refund_pending', 'cash_zelle_pending'].includes(refundCase.status) &&
-  refundCase.providerHold !== true &&
-  (refundCase.paymentMethod !== 'card' || (
+) => {
+  if (
+    refundCase.paymentMethod === 'cash' &&
+    !['completed', 'denied', 'closed'].includes(refundCase.status)
+  ) {
+    return refundCase.providerHold !== true &&
+      typeof refundCase.paymentAmountCents === 'number' &&
+      refundCase.paymentAmountCents > 0;
+  }
+
+  return ['approved', 'card_refund_pending'].includes(refundCase.status) &&
+    refundCase.providerHold !== true &&
+    (
     refundCase.hasMatchedNayaxTransaction === true &&
     hasCardRefundAuthority(refundCase) &&
     (refundCase.refundReadiness?.canIssueCardRefund === true || cardRefundAvailabilityConfirmed)
-  ));
+    );
+};
 
 const isBlockedCase = (refundCase: RefundCaseRecord) => {
   const lookupStatus = refundCase.nayaxLookupSummary?.lookupStatus;
@@ -1173,7 +1163,7 @@ const getFallbackNayaxLookupSummary = (
       providerWindowRecordCount: null,
       candidateCount: 0,
       summary: 'Transaction search is only used for card refunds.',
-      recommendedAction: 'Review the cash payment and complete the Zelle refund from this case.',
+      recommendedAction: 'Send the cash reimbursement outside Bloomjoy Hub, then mark the case refunded.',
     };
   }
 
@@ -1622,6 +1612,36 @@ const primaryActionConfig = (
     ['more_info', 'no_safe_match'].includes(latestMessage.messageType) &&
     ['sent', 'pending'].includes(latestMessage.status);
 
+  if (refundCase.paymentMethod === 'cash') {
+    if (typeof refundCase.paymentAmountCents !== 'number' || refundCase.paymentAmountCents <= 0) {
+      if (missingFields.length > 0) {
+        return {
+          label: 'Ask for missing details',
+          helper: 'Ask only for the purchase details that are missing.',
+          targetStatus: 'waiting_on_customer',
+          targetDecision: null,
+          messageType: 'more_info',
+          mode: 'case_update',
+        };
+      }
+
+      return {
+        label: 'Payment amount required',
+        helper: 'Confirm the customer payment amount before marking this case refunded.',
+        disabled: true,
+      };
+    }
+
+    return {
+      label: `Mark ${formatCurrency(refundCase.paymentAmountCents)} as refunded`,
+      helper: 'Send the refund through Zelle or Venmo outside Bloomjoy Hub. After sending it, mark the case refunded here.',
+      targetStatus: 'completed',
+      targetDecision: 'approved',
+      messageType: 'completed',
+      mode: 'case_update',
+    };
+  }
+
   if (refundCase.paymentMethod === 'card' && refundCase.nayaxLookupSummary?.lookupStatus === 'lookup_failed') {
     return {
       label: 'Transaction check failed',
@@ -1742,24 +1762,10 @@ const primaryActionConfig = (
     };
   }
 
-  if (editor.decision === 'approved' || editor.status === 'cash_zelle_pending' || refundCase.status === 'cash_zelle_pending') {
-    return {
-      label: 'Save Zelle completion and email customer',
-      helper: 'After sending the Zelle refund, enter the confirmation/reference here. Saving completes the case and sends the customer completion email.',
-      targetStatus: 'completed',
-      targetDecision: 'approved',
-      messageType: 'completed',
-      mode: 'case_update',
-    };
-  }
-
   return {
-    label: 'Approve cash refund',
-    helper: 'Approve the request and send the approval email. The next step is manual Zelle refund.',
-    targetStatus: 'cash_zelle_pending',
-    targetDecision: 'approved',
-    messageType: 'approved',
-    mode: 'case_update',
+    label: 'Review refund',
+    helper: 'Review the case details before choosing the next step.',
+    disabled: true,
   };
 };
 
@@ -1808,7 +1814,7 @@ const getCustomerMessageDraft = (
         body: [
           `Good news: our team approved your refund request${amount !== 'n/a' ? ` for ${amount}` : ''}.`,
           refundCase.paymentMethod === 'cash'
-            ? 'The next step is a Zelle refund from our team using the Zelle contact shared with the request.'
+            ? 'The next step is for our team to complete the refund using the payment method arranged with you.'
             : 'The next step is completing the refund to your card. We will send another update once that is complete.',
           'Thanks for giving us the chance to make this right.',
         ].join('\n\n'),
@@ -1824,14 +1830,20 @@ const getCustomerMessageDraft = (
       };
     case 'completed':
       return {
-        subject: `Your Bloomjoy refund${amount !== 'n/a' ? ` of ${amount}` : ''} is on its way`,
-        body: [
-          `We issued your refund${amount !== 'n/a' ? ` of ${amount}` : ''}${refundCase.paymentMethod === 'card' && refundCase.matchedNayaxCardLast4 ? ` to the card ending in ${refundCase.matchedNayaxCardLast4}` : ''}.`,
-          refundCase.paymentMethod === 'cash'
-            ? 'The Zelle payment has been sent. Please allow normal bank processing time for it to appear.'
-            : 'Your bank or card issuer may take up to 4 business days to show the credit. If it is not visible after that, reply to this email with the case reference.',
-          'Thank you for letting us help make this right.',
-        ].join('\n\n'),
+        subject: refundCase.paymentMethod === 'cash'
+          ? `Your Bloomjoy refund${amount !== 'n/a' ? ` of ${amount}` : ''} is complete`
+          : `Your Bloomjoy refund${amount !== 'n/a' ? ` of ${amount}` : ''} is on its way`,
+        body: refundCase.paymentMethod === 'cash'
+          ? [
+              `We issued your refund${amount !== 'n/a' ? ` of ${amount}` : ''} using the payment method arranged with you.`,
+              'Your refund request is now complete.',
+              'Thank you for letting us help make this right.',
+            ].join('\n\n')
+          : [
+              `We issued your refund${amount !== 'n/a' ? ` of ${amount}` : ''}${refundCase.matchedNayaxCardLast4 ? ` to the card ending in ${refundCase.matchedNayaxCardLast4}` : ''}.`,
+              'Your bank or card issuer may take up to 4 business days to show the credit. If it is not visible after that, reply to this email with the case reference.',
+              'Thank you for letting us help make this right.',
+            ].join('\n\n'),
       };
     case 'status_update':
     default:
@@ -2009,27 +2021,22 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
   }
 
   if (editor.status === 'completed') {
-    if (!hasCorrelation) {
+    if (selectedCase.paymentMethod === 'card' && !hasCorrelation) {
       issues.push('Select the matching transaction before completing this refund.');
     }
 
-    if (!editor.refundAmount || refundAmountCents === null || refundAmountCents <= 0) {
+    if (
+      selectedCase.paymentMethod === 'card' &&
+      (!editor.refundAmount || refundAmountCents === null || refundAmountCents <= 0)
+    ) {
       issues.push('Completion requires a positive refund amount.');
     }
 
     if (
       selectedCase.paymentMethod !== 'card' &&
-      typeof refundAmountCents === 'number' &&
       (typeof selectedCase.paymentAmountCents !== 'number' || selectedCase.paymentAmountCents <= 0)
     ) {
       issues.push('Confirm the customer payment amount before completing the cash refund.');
-    } else if (
-      selectedCase.paymentMethod !== 'card' &&
-      typeof refundAmountCents === 'number' &&
-      typeof selectedCase.paymentAmountCents === 'number' &&
-      refundAmountCents > selectedCase.paymentAmountCents
-    ) {
-      issues.push('Cash refund amount cannot exceed the recorded customer payment.');
     }
 
     if (
@@ -2047,30 +2054,6 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
       selectedCase.refundAmountCents !== refundAmountCents
     ) {
       issues.push('Card refund amount must be saved on the case before refunding the card payment. Refresh the case or reconfirm the card sale first.');
-    }
-
-    if (selectedCase.paymentMethod !== 'card' && !editor.manualRefundReference.trim()) {
-      issues.push('Enter a short payment confirmation or reference before completing the refund.');
-    }
-
-    if (selectedCase.paymentMethod !== 'card' && editor.manualRefundReference.trim()) {
-      const referenceIssue = getManualPaymentReferenceIssue(editor.manualRefundReference);
-      if (referenceIssue) issues.push(referenceIssue);
-    }
-
-    if (selectedCase.paymentMethod !== 'card') {
-      const payoutTimestamp = editor.cashPayoutSentAt ? new Date(editor.cashPayoutSentAt) : null;
-      if (!payoutTimestamp || !Number.isFinite(payoutTimestamp.getTime())) {
-        issues.push('Enter when the cash refund payment was sent.');
-      } else if (payoutTimestamp.getTime() > Date.now() + 5 * 60 * 1000) {
-        issues.push('Cash refund payment time cannot be in the future.');
-      } else if (payoutTimestamp.getTime() < new Date(selectedCase.incidentAt).getTime()) {
-        issues.push('Cash refund payment time cannot be before the reported incident.');
-      }
-
-      if (!editor.cashPaymentConfirmed) {
-        issues.push('Confirm that the cash refund payment was sent.');
-      }
     }
 
     if (selectedCase.paymentMethod === 'card' && !hasNayaxEvidence) {
@@ -2784,6 +2767,8 @@ export default function AdminRefundsPage() {
     try {
       const clearNayaxMatch = nextEditor.clearNayaxMatch;
       const nayaxAmountCents = centsFromCurrency(nextEditor.matchedNayaxAmount);
+      const isManualExternalCashCompletion =
+        selectedCase.paymentMethod !== 'card' && nextEditor.status === 'completed';
       const updateInput = {
         caseId: selectedCase.id,
         expectedOfficialActionVersion: officialActionVersion,
@@ -2792,11 +2777,13 @@ export default function AdminRefundsPage() {
         decision: clearNayaxMatch ? null : nextEditor.decision,
         decisionReason: nextEditor.decisionReason.trim() || null,
         internalNote: nextEditor.internalNote.trim() || null,
-        refundAmountCents,
-        manualRefundReference: nextEditor.manualRefundReference.trim() || null,
-        cashPayoutSentAt: nextEditor.cashPayoutSentAt
+        refundAmountCents: isManualExternalCashCompletion ? undefined : refundAmountCents,
+        manualRefundReference: isManualExternalCashCompletion
+          ? undefined
+          : nextEditor.manualRefundReference.trim() || null,
+        cashPayoutSentAt: !isManualExternalCashCompletion && nextEditor.cashPayoutSentAt
           ? new Date(nextEditor.cashPayoutSentAt).toISOString()
-          : null,
+          : undefined,
         cashPaymentConfirmed: nextEditor.cashPaymentConfirmed,
         clearNayaxMatch,
         matchedNayaxCandidateToken: nextEditor.matchedNayaxCandidateToken.trim() || undefined,
@@ -3310,7 +3297,14 @@ export default function AdminRefundsPage() {
       return;
     }
 
-    const issues = getCaseSaveIssues(selectedCase, primaryActionEditor);
+    const confirmedEditor: EditorState = {
+      ...primaryActionEditor,
+      refundAmount: (selectedCase.paymentAmountCents / 100).toFixed(2),
+      manualRefundReference: '',
+      cashPayoutSentAt: '',
+      cashPaymentConfirmed: true,
+    };
+    const issues = getCaseSaveIssues(selectedCase, confirmedEditor);
     if (issues.length > 0) {
       toast.error(issues[0]);
       return;
@@ -3320,8 +3314,8 @@ export default function AdminRefundsPage() {
     setIsCashCompletionSubmitting(true);
     setRefundActionReceipt(null);
     try {
-      setEditor(primaryActionEditor);
-      const saveResult = await handleSaveCase(primaryActionEditor, 'completed');
+      setEditor(confirmedEditor);
+      const saveResult = await handleSaveCase(confirmedEditor, 'completed');
       if (saveResult === 'step_up_pending') {
         return;
       }
@@ -3331,22 +3325,20 @@ export default function AdminRefundsPage() {
           title: 'Payment sent; case update needs attention',
           message:
             'Bloomjoy Hub could not confirm the completion record. Do not send another payment. Reconcile the case, then retry only the case update or customer follow-up.',
-          reference: primaryActionEditor.manualRefundReference,
         });
         return;
       }
 
       setRefundActionReceipt({
         tone: saveResult.customerMessage?.status === 'failed' ? 'warning' : 'success',
-        title: saveResult.updateApplied ? 'Cash refund completed' : 'Cash refund was already complete',
+        title: saveResult.updateApplied ? 'Refund marked complete' : 'Refund was already complete',
         message: !saveResult.updateApplied
             ? 'The existing completion was kept. No duplicate email or case update was created.'
           : saveResult.customerMessage?.status === 'failed'
             ? 'The payment and completion were recorded, but the customer email needs a retry.'
             : saveResult.customerMessage?.status === 'sent'
-              ? 'The payment was recorded, the case was completed, and the customer was notified.'
-              : 'The payment was recorded and the case was completed. Customer delivery is queued.',
-        reference: primaryActionEditor.manualRefundReference,
+              ? 'The external refund was recorded, the case was completed, and the customer was notified.'
+              : 'The external refund was recorded and the case was completed. Customer delivery is queued.',
       });
       setIsCashConfirmationOpen(false);
     } finally {
@@ -4374,12 +4366,12 @@ export default function AdminRefundsPage() {
   });
   const primaryActionIsCompletion = primaryAction?.targetStatus === 'completed';
   const isCardCompletion = primaryActionIsCompletion && selectedCase?.paymentMethod === 'card';
-  const completionProvider = 'Zelle';
-  const completionActionName = selectedCase?.paymentMethod === 'card' ? 'card refund' : 'Zelle refund';
+  const completionProvider = 'external';
+  const completionActionName = selectedCase?.paymentMethod === 'card' ? 'card refund' : 'external refund';
   const completionOutsideAction =
     selectedCase?.paymentMethod === 'card'
       ? 'refund the card payment in Bloomjoy Hub'
-      : 'send the Zelle refund';
+      : 'send the external refund';
   const customerUpdateStep = isCardCompletion ? 5 : 4;
   const historyStep = isCardCompletion ? 6 : 5;
   const matchedCardSaleAmountCents =
@@ -5168,11 +5160,9 @@ export default function AdminRefundsPage() {
   const renderCashDecisionWorkbench = () => {
     if (!selectedCase || !editor || selectedCase.paymentMethod === 'card') return null;
 
-    const cashAmountCents = centsFromCurrency(editor.refundAmount) ?? selectedCase.paymentAmountCents;
+    const cashAmountCents = selectedCase.paymentAmountCents;
     const isCashCompletion = primaryAction?.targetStatus === 'completed';
-    const actionLabel = isCashCompletion
-      ? `Complete ${formatCurrency(cashAmountCents)} refund and notify customer`
-      : primaryAction?.label ?? 'Review cash refund';
+    const actionLabel = primaryAction?.label ?? 'Review cash refund';
     const isActionDisabled =
       isSaving ||
       isSendingCustomerMessage ||
@@ -5201,20 +5191,6 @@ export default function AdminRefundsPage() {
       handleMessageTypeChange('more_info');
     };
 
-    const chooseApproval = () => {
-      setEditor((current) =>
-        current
-          ? {
-              ...current,
-              status: 'cash_zelle_pending',
-              decision: 'approved',
-              decisionReason: current.decisionReason || 'Confirmed the customer request and matched cash sale.',
-            }
-          : current
-      );
-      handleMessageTypeChange('approved');
-    };
-
     const chooseDenial = () => {
       setEditor((current) =>
         current
@@ -5241,9 +5217,16 @@ export default function AdminRefundsPage() {
                 {managerState.label}
               </h3>
               <p className="mt-2 max-w-xl text-sm leading-5 text-muted-foreground">{managerState.explanation}</p>
-              <p data-testid="refund-manager-next-step" className="mt-1 max-w-xl text-sm font-medium leading-5 text-foreground">
-                Next: {managerState.nextStep}
-              </p>
+              {!isCashCompletion && (
+                <p data-testid="refund-manager-next-step" className="mt-1 max-w-xl text-sm font-medium leading-5 text-foreground">
+                  Next: {managerState.nextStep}
+                </p>
+              )}
+              {isCashCompletion && (
+                <p data-testid="refund-manager-next-step" className="mt-2 max-w-xl text-sm font-medium leading-5 text-foreground">
+                  Send the refund through Zelle or Venmo outside Bloomjoy Hub. After sending it, mark the case refunded here.
+                </p>
+              )}
             </div>
             <div className="flex flex-col gap-2 sm:items-end">
               <Button
@@ -5296,12 +5279,10 @@ export default function AdminRefundsPage() {
             </article>
 
             <article data-testid="refund-cash-match-summary" className="border-t border-border bg-muted/20 p-4 lg:border-t-0">
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cash review</p>
-                  <p className="mt-2 text-lg font-semibold text-foreground">
-                    {cashMatchReady ? 'Payment found' : 'More information is needed'}
-                  </p>
+                  <p className="mt-2 text-lg font-semibold text-foreground">Customer reported a cash payment</p>
                 </div>
                 <Badge
                   className={cn(
@@ -5314,143 +5295,20 @@ export default function AdminRefundsPage() {
               </div>
               <p className="mt-3 text-sm leading-6 text-muted-foreground">
                 {cashMatchReady
-                  ? transactionMatchSummary(selectedCase, editor, [])
-                  : canAskForCustomerDetails
-                    ? 'Ask only for the purchase details that are still missing.'
-                    : 'There is nothing else to ask the customer right now. Keep the case open and review the payment details.'}
+                  ? `${transactionMatchSummary(selectedCase, editor, [])} This match is supporting context only.`
+                  : canAskForCustomerDetails && (typeof selectedCase.paymentAmountCents !== 'number' || selectedCase.paymentAmountCents <= 0)
+                    ? 'Ask only for the purchase details that are still missing before recording a refund.'
+                    : 'No imported cash-sale match is required to record a refund that you already sent.'}
               </p>
               <div className="mt-3 border-t border-border pt-3 text-sm">
-                <p className="text-xs text-muted-foreground">Manual payment destination</p>
-                <p className="mt-1 break-words font-medium text-foreground">
-                  {selectedCase.zellePaymentContact || 'Not provided'}
-                </p>
-                <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                  Cash and Zelle payments stay outside Bloomjoy Hub. This screen records the manager confirmation only.
+                <p className="text-xs font-medium text-foreground">External refund only</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  Bloomjoy Hub does not send or verify Zelle or Venmo payments. Mark refunded only after you have sent the reimbursement.
                 </p>
               </div>
             </article>
           </div>
         </section>
-
-        {isCashCompletion && (
-          <section data-testid="refund-cash-completion-panel" className="space-y-4 rounded-xl border border-border bg-background p-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Record payment</p>
-              <h3 className="mt-1 text-lg font-semibold text-foreground">Confirm what was sent</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                The customer completion email sends only after this record is saved successfully.
-              </p>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="cash-refund-amount">Refund amount</Label>
-                <Input
-                  id="cash-refund-amount"
-                  data-testid="refund-cash-amount-input"
-                  inputMode="decimal"
-                  value={editor.refundAmount}
-                  disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
-                  onChange={(event) =>
-                    setEditor((current) =>
-                      current ? { ...current, refundAmount: event.target.value, cashPaymentConfirmed: false } : current
-                    )
-                  }
-                  className="mt-2"
-                  placeholder="12.00"
-                />
-              </div>
-              <div>
-                <div className="flex items-center justify-between gap-3">
-                  <Label htmlFor="cash-payout-sent-at">Payment sent at</Label>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-auto min-h-11 shrink-0 px-3 py-2 text-xs"
-                    disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
-                    onClick={() =>
-                      setEditor((current) =>
-                        current
-                          ? {
-                              ...current,
-                              cashPayoutSentAt: toDateTimeLocalValue(new Date()),
-                              cashPaymentConfirmed: false,
-                            }
-                          : current
-                      )
-                    }
-                  >
-                    Use current time
-                  </Button>
-                </div>
-                <Input
-                  id="cash-payout-sent-at"
-                  data-testid="refund-cash-payout-time-input"
-                  type="datetime-local"
-                  value={editor.cashPayoutSentAt}
-                  max={toDateTimeLocalValue(new Date(Date.now() + 5 * 60 * 1000))}
-                  disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
-                  onChange={(event) =>
-                    setEditor((current) =>
-                      current
-                        ? { ...current, cashPayoutSentAt: event.target.value, cashPaymentConfirmed: false }
-                        : current
-                    )
-                  }
-                  className="mt-2"
-                />
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="cash-refund-reference">Payment confirmation or reference</Label>
-              <Input
-                id="cash-refund-reference"
-                data-testid="refund-cash-reference-input"
-                value={editor.manualRefundReference}
-                maxLength={80}
-                disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
-                onChange={(event) =>
-                  setEditor((current) =>
-                    current
-                      ? { ...current, manualRefundReference: event.target.value, cashPaymentConfirmed: false }
-                      : current
-                  )
-                }
-                className="mt-2"
-                placeholder="Example: Zelle confirmation ZP-4821"
-              />
-              <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                Record only a short confirmation or reference. Never enter a bank or card number, routing number, PIN,
-                password, email address, phone number, or other payment credentials.
-              </p>
-            </div>
-
-            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-muted/20 p-3">
-              <Checkbox
-                data-testid="refund-cash-payment-confirmed"
-                checked={editor.cashPaymentConfirmed}
-                disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
-                onCheckedChange={(checked) =>
-                  setEditor((current) =>
-                    current ? { ...current, cashPaymentConfirmed: checked === true } : current
-                  )
-                }
-                className="mt-0.5"
-              />
-              <span className="text-sm leading-6 text-foreground">
-                I confirm the payment was sent for the amount and time shown above.
-              </span>
-            </label>
-
-            {primaryActionIssues.length > 0 && (
-              <div data-testid="refund-cash-action-blocker" className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950">
-                {primaryActionIssues[0]}
-              </div>
-            )}
-          </section>
-        )}
 
         {(editor.decision === 'denied' || editor.status === 'denied') && (
           <section className="rounded-xl border border-border bg-background p-4">
@@ -5511,11 +5369,6 @@ export default function AdminRefundsPage() {
             <details className="mt-4 border-t border-border pt-3">
               <summary className="cursor-pointer text-sm font-medium text-muted-foreground">Other decisions</summary>
               <div className="mt-3 flex flex-wrap gap-2">
-                {cashMatchReady && primaryAction?.targetDecision !== 'approved' && (
-                  <Button type="button" variant="outline" size="sm" onClick={chooseApproval} disabled={isUsingDemoData || selectedCaseIsReviewOnly}>
-                    Approve refund
-                  </Button>
-                )}
                 {canAskForCustomerDetails && primaryAction?.messageType !== 'more_info' && (
                   <Button type="button" variant="outline" size="sm" onClick={chooseCustomerFollowUp} disabled={isUsingDemoData}>
                     Ask customer for details
@@ -5539,24 +5392,17 @@ export default function AdminRefundsPage() {
         >
           <AlertDialogContent data-testid="refund-cash-confirmation-dialog" className="max-w-xl">
             <AlertDialogHeader>
-              <AlertDialogTitle>Confirm {formatCurrency(cashAmountCents)} cash refund</AlertDialogTitle>
+              <AlertDialogTitle>Mark {formatCurrency(cashAmountCents)} as refunded?</AlertDialogTitle>
               <AlertDialogDescription>
-                Confirm the payment was already sent. Bloomjoy will complete the case, update reporting, and notify the customer.
+                Confirm that you already refunded this customer outside Bloomjoy Hub. This closes the case, updates reporting, and notifies the customer.
               </AlertDialogDescription>
             </AlertDialogHeader>
 
-            <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-3 text-sm sm:grid-cols-2">
+            <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Payment</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Refund amount</p>
                 <p className="mt-1 font-medium text-foreground">{formatCurrency(cashAmountCents)}</p>
-                <p className="mt-1 text-muted-foreground">{formatDate(editor.cashPayoutSentAt)}</p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Destination</p>
-                <p className="mt-1 break-words font-medium text-foreground">
-                  {selectedCase.zellePaymentContact || 'Not provided'}
-                </p>
-                <p className="mt-1 break-words text-muted-foreground">Reference: {editor.manualRefundReference}</p>
+                <p className="mt-1 text-muted-foreground">Bloomjoy Hub records this confirmation but does not send the external payment.</p>
               </div>
             </div>
 
@@ -5581,7 +5427,7 @@ export default function AdminRefundsPage() {
                 ) : (
                   <CheckCircle2 className="mr-2 h-4 w-4" />
                 )}
-                Confirm payment &amp; send email
+                Mark refunded
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>

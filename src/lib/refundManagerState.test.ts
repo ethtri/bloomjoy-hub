@@ -137,3 +137,34 @@ Deno.test('confirmed transaction shows the exact safe reason when refunding is u
     'specific safe reason'
   );
 });
+
+Deno.test('cash cases with an amount are ready to mark refunded without a transaction match', () => {
+  const result = getRefundManagerState({
+    ...baseCase,
+    paymentMethod: 'cash',
+    paymentAmountCents: 800,
+    correlationStatus: 'no_match',
+    nayaxRecommendationState: null,
+  });
+
+  assertEquals(result.id, 'ready_to_refund', 'cash completion state');
+  assertEquals(result.label, 'Ready to mark refunded', 'cash completion label');
+  assertEquals(
+    result.nextStep,
+    'After sending it through Zelle or Venmo, select Mark refunded.',
+    'cash completion next step'
+  );
+});
+
+Deno.test('cash cases without an amount route to customer follow-up', () => {
+  const result = getRefundManagerState({
+    ...baseCase,
+    paymentMethod: 'cash',
+    paymentAmountCents: null,
+    correlationStatus: 'no_match',
+    nayaxRecommendationState: null,
+  });
+
+  assertEquals(result.id, 'needs_information', 'missing cash amount state');
+  assertEquals(result.label, 'Needs payment amount', 'missing cash amount label');
+});

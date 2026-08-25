@@ -271,7 +271,7 @@ Steps:
 4) Review the synthetic queue cases:
    - `RF-UAT-CARD`: matched card review path with transaction evidence; it is not live-refund completion evidence.
    - `RF-UAT-WAIT`: waiting-on-customer path with confirmation and more-info message history.
-   - `RF-UAT-CASH`: correlated cash/Zelle path marked completed with reporting write-through evidence.
+   - `RF-UAT-CASH`: channel-neutral externally paid cash refund marked complete with reporting write-through evidence.
 5) Open `/refunds/request?demo=on` separately to review the public customer intake form against synthetic location/machine options without creating a real case.
    - Open `/refunds/request?demo=on&qr=synthetic_refund_qr_code_000000001` to review the locked-machine QR treatment and server-opened-time copy without creating a claim or case.
    - Run `npm run refunds:validate-qr-claim` and `npm run db:validate-migrations` for token, RLS, expiry, tamper, rotation, single-use, duplicate, and direct-intake safety checks.
@@ -297,13 +297,13 @@ Steps:
    - `npm run refunds:validate-portal-uat -- --app-url http://127.0.0.1:8081 --artifact-dir output/refund-uat-evidence --fragment-dir output/refund-uat-fragments`
    - The integrated candidate command uses synthetic mocked Auth/RPC responses, writes screenshots separately from authenticated JSON fragments, and does not touch Supabase data. It writes the portal fragment and invokes the dependency-injected local provider-outcome producer once into the same fragment directory; do not run that producer a second time against the same directory. Neither path can call the production HTTP handler or Nayax.
    - Run `npm run refunds:validate-nayax-provider-orchestration` and `npm run refunds:validate-nayax-execution` alongside the evidence workflow. The former proves the local state machine; the latter proves the production HTTP boundary remains statically hard-off.
-   - The `RF-UAT-CASH-REVIEW` journey proves approval, missing-information and denial previews, required amount/time/reference/payment confirmation, sensitive-reference rejection, one idempotent completion payload, post-save email behavior, and desktop/mobile layout.
+   - The cash journeys prove matched and unmatched one-action completion, missing-amount recovery, legacy-pending compatibility, one confirmation, double-click suppression, omission of client-authored payout fields, zero Nayax calls, channel-neutral receipt/email copy, and desktop/mobile layout.
    - After every producer and finalizer for that evidence run finishes, remove the token from the current shell:
 
      ```powershell
      Remove-Item Env:REFUND_UAT_EVIDENCE_RUN_TOKEN -ErrorAction SilentlyContinue
      ```
-7) When cash-completion SQL changes, run `npm run db:validate-migrations`. The `refund_cash_completion_safety.sql` pgTAP suite proves service-role-only access, required evidence, idempotency, one redacted audit event, and no duplicate completion on a repeated request.
+7) When cash-completion SQL changes, run `npm run db:validate-migrations`. The `refund_cash_completion_safety.sql` and `refund_cash_completion_concurrency.sql` pgTAP suites prove narrow service-only execution, server-derived amount/actor/time, unmatched and legacy-state compatibility, terminal/card rejection, one redacted event and adjustment, idempotent replay, concurrent single application, and zero Nayax side effects.
 8) When scheduler/health code changes, run `npm run refunds:validate-automation`, `npm run agent:validate-workflow`, and `npm run db:validate-migrations`. The database suite proves same-window and same-action replay suppression; the portal UAT harness proves the concise manager health signal. Do not point a local scheduler test at production customer data.
 9) When GPT runner code changes, run `npm run refunds:validate-gpt-triage`, `deno check supabase/functions/refund-gpt-triage/index.ts`, `npm run db:validate-migrations`, and the Refund portal UAT harness. These checks use mocks/synthetic data and must pass without a live OpenAI API call.
 

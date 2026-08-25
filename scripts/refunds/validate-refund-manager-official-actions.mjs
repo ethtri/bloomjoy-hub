@@ -19,6 +19,9 @@ const databaseTests = read('supabase/tests/refund_manager_official_action_safety
 const confirmationMigration = read('supabase/migrations/20260824160609_refund_confirmation_readiness.sql');
 const confirmationConcurrency = read('supabase/tests/refund_confirmation_readiness_concurrency.sql');
 const refundReadiness = read('supabase/functions/_shared/refund-readiness.ts');
+const cashCompletionMigration = read('supabase/migrations/20260825000909_refund_manual_external_cash_completion.sql');
+const refundEmail = read('supabase/functions/_shared/refund-email.ts');
+const cashCompletionHelper = read('supabase/functions/_shared/manual-external-cash-completion.ts');
 
 assert(
   migration.includes('create or replace function public.refund_official_actions_enabled()') &&
@@ -78,6 +81,40 @@ assert(
 );
 
 assert(
+  cashCompletionMigration.includes("'completion_method', 'manual_external'") &&
+    cashCompletionMigration.includes('server_refund_amount_cents := before_row.payment_amount_cents') &&
+    cashCompletionMigration.includes('confirmation_time timestamptz := statement_timestamp()') &&
+    cashCompletionMigration.includes("before_row.status in ('denied', 'closed')") &&
+    cashCompletionMigration.includes("before_row.status not in (") &&
+    cashCompletionMigration.includes("'submitted'") &&
+    cashCompletionMigration.includes("'needs_review'") &&
+    cashCompletionMigration.includes("'cash_zelle_pending'") &&
+    cashCompletionMigration.includes("refund_case_row.payment_method = 'cash'") &&
+    cashCompletionMigration.includes('not is_manual_external_cash'),
+  'Manual external cash completion must derive trusted fields, accept active legacy states, and preserve the card correlation guard.'
+);
+
+assert(
+  adminUpdate.includes('serverCashRefundAmountCents') &&
+    adminUpdate.includes('deriveManualExternalCashCompletionContext') &&
+    adminUpdate.includes('paymentAmountCents: beforeRow.payment_amount_cents') &&
+    adminUpdate.includes('p_manual_refund_reference: null') &&
+    adminUpdate.includes('p_cash_payout_sent_at: null') &&
+    !adminUpdate.includes('timestampFromInput') &&
+    cashCompletionHelper.includes('refundAmountCents: amount') &&
+    cashCompletionHelper.includes('manualRefundReference: null') &&
+    cashCompletionHelper.includes('cashPayoutSentAt: null') &&
+    portal.includes('Mark ${formatCurrency(refundCase.paymentAmountCents)} as refunded') &&
+    portal.includes('Confirm that you already refunded this customer outside Bloomjoy Hub.') &&
+    portal.includes('Mark refunded') &&
+    !portal.includes('data-testid="refund-cash-reference-input"') &&
+    !portal.includes('data-testid="refund-cash-payout-time-input"') &&
+    !portal.includes('data-testid="refund-cash-payment-confirmed"') &&
+    refundEmail.includes('using the payment method arranged with you'),
+  'The Edge and manager surfaces must expose one channel-neutral action with server-derived completion details.'
+);
+
+assert(
   operations.includes('expectedOfficialActionVersion: number') &&
     portal.includes('selectedCase?.canPerformOfficialAction !== true') &&
     portal.includes('officialActionVersion <= 0') &&
@@ -120,3 +157,4 @@ console.log('PASS: normal refund decisions use the exact mapped-manager session'
 console.log('PASS: payload, version, replay, row-lock, and provider safety controls remain server-side');
 console.log('PASS: the manager surface no longer exposes TOTP setup or per-action codes');
 console.log('PASS: transaction confirmation is replay-safe and returns bounded refund readiness');
+console.log('PASS: cash completion is one action, channel-neutral, and server-derived');

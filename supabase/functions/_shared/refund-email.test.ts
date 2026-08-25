@@ -248,6 +248,37 @@ Deno.test("completed card copy is a truthful receipt with masked destination and
   );
 });
 
+Deno.test("cash completion copy is channel-neutral and contains no payout details", () => {
+  const completed = buildRefundCustomerEmail({
+    messageType: "completed",
+    publicReference: "RF-CASH-COMPLETE",
+    customerEmail: "customer@example.com",
+    refundAmountCents: 800,
+    paymentMethod: "cash",
+  });
+
+  assertIncludes(
+    completed.text,
+    "We issued your refund for $8.00 using the payment method arranged with you.",
+    "channel-neutral completion receipt",
+  );
+  assertIncludes(
+    completed.text,
+    "refund request was approved and completed",
+    "durable completion state",
+  );
+  for (const prohibited of [
+    "Zelle",
+    "Venmo",
+    "payout handle",
+    "manual_external",
+    "transaction reference",
+    "gift card",
+  ]) {
+    assertNotIncludes(completed.text, prohibited, `cash receipt excludes ${prohibited}`);
+  }
+});
+
 Deno.test("denial copy gives a customer-safe reason and supports a reply appeal", () => {
   const denied = buildRefundCustomerEmail({
     messageType: "denied",

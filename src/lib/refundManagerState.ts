@@ -37,6 +37,7 @@ type RefundManagerCaseFacts = {
     | 'completed'
     | 'closed';
   paymentMethod: 'card' | 'cash' | 'unknown';
+  paymentAmountCents?: number | null;
   correlationStatus:
     | 'not_started'
     | 'matched'
@@ -178,6 +179,26 @@ export const getRefundManagerState = (
       'The payment service rejected the refund, so no refund was confirmed.',
       'Keep the case open and ask payment support to review the rejection.',
       'danger'
+    );
+  }
+
+  if (refundCase.paymentMethod === 'cash') {
+    if (typeof refundCase.paymentAmountCents !== 'number' || refundCase.paymentAmountCents <= 0) {
+      return state(
+        'needs_information',
+        'Needs payment amount',
+        'The customer payment amount is missing.',
+        'Ask the customer for the amount paid before recording an external refund.',
+        'warning'
+      );
+    }
+
+    return state(
+      'ready_to_refund',
+      'Ready to mark refunded',
+      'The manager sends this cash reimbursement outside Bloomjoy Hub.',
+      'After sending it through Zelle or Venmo, select Mark refunded.',
+      'success'
     );
   }
 

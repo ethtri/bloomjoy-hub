@@ -66,7 +66,7 @@
     "refunds:validate-nayax-execution": "deno test --no-lock supabase/functions/_shared/refund-evidence-selection.test.ts supabase/functions/_shared/nayax-refund-gates.test.ts && node scripts/validate-nayax-refund-execution.mjs",
     "refunds:validate-nayax-provider-orchestration": "deno test --no-lock supabase/functions/_shared/nayax-refund-orchestration.test.ts",
     "refunds:validate-nayax-resolution": "deno test --no-lock supabase/functions/_shared/nayax-resolution-completion.test.ts && node scripts/refunds/validate-refund-nayax-resolution.mjs",
-    "refunds:validate-official-actions": "node scripts/refunds/validate-refund-manager-official-actions.mjs",
+    "refunds:validate-official-actions": "deno test --no-lock supabase/functions/_shared/manual-external-cash-completion.test.ts && node scripts/refunds/validate-refund-manager-official-actions.mjs",
     "refunds:validate-legacy-state-normalization": "node scripts/refunds/validate-refund-legacy-state-normalization.mjs",
     "refunds:validate-manager-totp": "deno test --no-lock supabase/functions/_shared/refund-manager-totp.test.ts",
     "refunds:owner-totp-auth-readiness": "node scripts/refunds/refund-owner-totp-auth-readiness.mjs",
