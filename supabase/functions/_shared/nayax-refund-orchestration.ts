@@ -34,6 +34,8 @@ export type NayaxAttemptSnapshot = {
   attemptId: string;
   status: string;
   providerOutcome: NayaxProviderOutcomeKind | null;
+  providerStatus?: string | null;
+  errorCode?: string | null;
   shouldExecute: boolean;
   reconciliationRequired: boolean;
   reportingAdjustmentPresent: boolean;
@@ -152,6 +154,14 @@ const errorCodeForOutcome = (outcome: NayaxProviderOutcomeKind) => {
   return null;
 };
 
+const safeProviderExecutionErrorCode = (error: unknown) => {
+  const candidate = error instanceof Error ? error.message.trim() : "";
+  return /^(stage_journal_(request|approve)_(started|result)_rejected|provider_journal_version_mismatch|provider_contract_version_mismatch)$/u
+      .test(candidate)
+    ? candidate
+    : "provider_transport_exception";
+};
+
 const statusForOutcome = (outcome: NayaxProviderOutcomeKind) => {
   if (outcome === "rejected") return "declined";
   if (outcome === "timeout" || outcome === "unknown") return "ambiguous";
@@ -174,7 +184,7 @@ const incompleteResult = ({
   return {
     executed: false,
     status: statusForOutcome(outcome),
-    errorCode: errorCodeForOutcome(outcome),
+    errorCode: attempt.errorCode ?? errorCodeForOutcome(outcome),
     providerAttempted,
     replayed,
     reconciliationRequired,
@@ -235,6 +245,9 @@ const deliverCommittedCompletion = async (
   }
 };
 
+const completionNeedsReconciliation = (delivery: NayaxCompletionDelivery) =>
+  delivery.status !== "sent" && delivery.status !== "already_sent";
+
 export const disabledNayaxProviderAdapter: NayaxProviderAdapter = {
   mode: "disabled",
   execute: () =>
@@ -274,10 +287,12 @@ export const orchestrateNayaxRefund = async ({
       return {
         executed: true,
         status: "succeeded",
-        errorCode: null,
+        errorCode: completionNeedsReconciliation(customerCompletion)
+          ? "customer_completion_delivery_failure"
+          : null,
         providerAttempted: false,
         replayed: true,
-        reconciliationRequired: false,
+        reconciliationRequired: completionNeedsReconciliation(customerCompletion),
         fallbackIssued: false,
         reportingAdjustmentPresent: attempt.reportingAdjustmentPresent,
         customerCompletion,
@@ -303,20 +318,39 @@ export const orchestrateNayaxRefund = async ({
   let providerOutcome: NayaxProviderOutcome;
   try {
     providerOutcome = await dependencies.provider.execute(request);
-  } catch {
+  } catch (error) {
     providerOutcome = {
       kind: "unknown",
-      errorCode: "provider_transport_exception",
+      errorCode: safeProviderExecutionErrorCode(error),
     };
   }
 
-  const settlement = await dependencies.settleProviderOutcome({
-    attemptId: attempt.attemptId,
-    authorizationId: reservation.managerAction.authorizationId,
-    providerClaimToken: reservation.providerClaimToken!,
-    request,
-    outcome: providerOutcome,
-  });
+  let settlement: NayaxAttemptSettlement;
+  try {
+    settlement = await dependencies.settleProviderOutcome({
+      attemptId: attempt.attemptId,
+      authorizationId: reservation.managerAction.authorizationId,
+      providerClaimToken: reservation.providerClaimToken!,
+      request,
+      outcome: providerOutcome,
+    });
+  } catch {
+    return {
+      executed: false,
+      status: "ambiguous",
+      errorCode: providerOutcome.kind === "success"
+        ? "settlement_failure_after_provider_success"
+        : "settlement_failure_after_provider_result",
+      providerAttempted: true,
+      replayed: false,
+      reconciliationRequired: true,
+      fallbackIssued: false,
+      reportingAdjustmentPresent: false,
+      customerCompletion: null,
+      message:
+        "The provider result could not be finalized safely. The case is held for reconciliation and must not be retried.",
+    };
+  }
   const settledAttempt = settlement.attempt;
 
   if (settledAttempt.providerOutcome !== "success") {
@@ -345,10 +379,12 @@ export const orchestrateNayaxRefund = async ({
   return {
     executed: true,
     status: "succeeded",
-    errorCode: null,
+    errorCode: completionNeedsReconciliation(customerCompletion)
+      ? "customer_completion_delivery_failure"
+      : null,
     providerAttempted: true,
     replayed: false,
-    reconciliationRequired: false,
+    reconciliationRequired: completionNeedsReconciliation(customerCompletion),
     fallbackIssued: false,
     reportingAdjustmentPresent: settlement.reportingAdjustmentPresent,
     customerCompletion,

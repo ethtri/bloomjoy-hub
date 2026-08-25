@@ -43,6 +43,7 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'get_my_reporting_access_context',
   'get_refund_automation_health',
   'get_refund_gmail_health',
+  'get_refund_nayax_reliability_health',
   'get_refund_manager_totp_enrollment_readiness_current_user',
   'public_refund_selections_v2',
   'public_refund_selections',
@@ -1180,6 +1181,7 @@ const installMockSupabaseRoutes = async (
     adminUpdateStatus = 200,
     gmailDraftCases = [],
     gmailHealth = null,
+    nayaxReliabilityHealth = null,
     gmailContext = null,
     gptTriageSuggestion = undefined,
     adminAccessContext = null,
@@ -1677,6 +1679,25 @@ const installMockSupabaseRoutes = async (
           attachmentsQuarantined: 0,
           messagesFailed: 0,
           errorCode: null,
+          payloadRedacted: true,
+        })
+      );
+    }
+
+    if (url.includes('/get_refund_nayax_reliability_health')) {
+      return route.fulfill(
+        jsonResponse(nayaxReliabilityHealth ?? {
+          status: 'healthy',
+          directSuccessCount: 1,
+          supportResolvedSuccessCount: 0,
+          unresolvedCount: 0,
+          oldestUnresolvedAt: null,
+          journalOrSettlementFailureCount: 0,
+          completionMismatchCount: 0,
+          averageApprovalStartLatencyMs: 120,
+          ownerLabel: 'Refund Operations',
+          escalationSlaMinutes: 60,
+          escalationDueAt: null,
           payloadRedacted: true,
         })
       );
@@ -3095,6 +3116,20 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       errorCode: null,
       payloadRedacted: true,
     },
+    nayaxReliabilityHealth: {
+      status: 'attention',
+      directSuccessCount: 1,
+      supportResolvedSuccessCount: 1,
+      unresolvedCount: 1,
+      oldestUnresolvedAt: isoHoursAgo(1),
+      journalOrSettlementFailureCount: 1,
+      completionMismatchCount: 0,
+      averageApprovalStartLatencyMs: 180,
+      ownerLabel: 'Refund Operations',
+      escalationSlaMinutes: 60,
+      escalationDueAt: new Date().toISOString(),
+      payloadRedacted: true,
+    },
     gmailContext: buildMockGmailContext(),
   });
 
@@ -3119,6 +3154,14 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   recorder.assert(
     'Routine Gmail health stays out of the manager reply workflow',
     (await page.getByTestId('refund-gmail-health').count()) === 0
+  );
+  const paymentHealth = page.getByTestId('refund-payment-health');
+  recorder.assert(
+    'Card refund reliability attention is visible with owner and SLA but no case detail',
+    await paymentHealth.isVisible() &&
+      (await paymentHealth.innerText()) === 'Card refunds need attention' &&
+      (await paymentHealth.getAttribute('title')) ===
+        'Card refunds are paused for affected Nayax accounts. Refund Operations owns reconciliation within 60 minutes.'
   );
   recorder.assert(
     'Incomplete Gmail draft presents one dominant reply action',

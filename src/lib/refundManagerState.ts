@@ -88,6 +88,8 @@ export const refundReadinessBlockMessage = (blockReason: string | null | undefin
       return 'This transaction has already been refunded. Do not refund it again.';
     case 'reconciliation_hold':
       return 'A previous refund result still needs to be confirmed. Do not refund again.';
+    case 'account_reconciliation_hold':
+      return 'Card refunds for this payment account are paused because an earlier result still needs review.';
     case 'duplicate_transaction':
       return 'This transaction is linked to another refund case. Review the original case first.';
     case 'case_not_refundable':
@@ -157,9 +159,9 @@ export const getRefundManagerState = (
     if (options.canResolveHeldResult) {
       return state(
         'check_nayax_result',
-        'Provider confirmation ready',
-        'The payment provider has an authoritative result for this refund.',
-        'Record the result below. This step cannot send another refund.',
+        'Evidence can be recorded',
+        'Bloomjoy still does not know whether this refund completed.',
+        'Record authoritative Nayax evidence below. This step cannot send another refund.',
         'info'
       );
     }

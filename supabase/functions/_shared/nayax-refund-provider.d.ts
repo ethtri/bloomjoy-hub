@@ -17,6 +17,13 @@ export type NayaxControlledPilotStageEvent =
     result: NayaxControlledPilotStageResult;
   };
 
+export type NayaxProviderStageDecision = Readonly<{
+  approvalAuthorized: boolean;
+  journalContractVersion?: string;
+  providerContractVersion?: string;
+  payloadRedacted?: true;
+}>;
+
 export function parseNayaxRefundProviderContract(rawValue: unknown): Readonly<{
   contractVersion: string;
   baseUrl: string;
@@ -85,7 +92,9 @@ export function createNayaxRefundProviderAdapter(input: {
   };
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
-  onStageEvent?: (event: NayaxControlledPilotStageEvent) => Promise<void>;
+  onStageEvent?: (
+    event: NayaxControlledPilotStageEvent,
+  ) => Promise<NayaxProviderStageDecision | void>;
 }): Readonly<{
   mode: "live";
   contractVersion: string;

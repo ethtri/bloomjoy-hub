@@ -49,39 +49,7 @@ const supabase = supabaseUrl && supabaseServiceRoleKey
   })
   : null;
 
-// The normal manager lane uses the production shape proven by the owner pilot.
-// Nayax documents any 2xx request as successfully processed and the request as
-// pending until the separate approval call. The pilot confirmed that behavior
-// even though its Result/Status wording did not match our initial guess, so the
-// request stage advances on 2xx while final success still requires the exact
-// approval response. An unfamiliar or failed approval remains a no-retry hold.
-const DEFAULT_NAYAX_MANAGER_CONTRACT = Object.freeze({
-  schemaVersion: 1,
-  contractVersion: "nayax-production-observed-2026-08-22",
-  baseUrl: "https://lynx.nayax.com/operational/v1",
-  authorizationMode: "bearer",
-  amountUnit: "major",
-  amountRoundingMode: "exact_cent",
-  refundEmailListMode: "omit",
-  providerEmailBehavior: "recipient_omitted",
-  writeCredentialMode: "same_token_explicit",
-  sameWriteTokenContractConfirmed: true,
-  reconciliationMode: "dtm_then_structured_resolution",
-  requestAdvanceMode: "http_2xx",
-  requestResponses: [
-    { result: "True", status: "Pending Approval", outcome: "accepted" },
-    { result: "False", status: "Rejected", outcome: "rejected" },
-    { result: "False", status: "Duplicate", outcome: "duplicate" },
-    { result: "False", status: "Already Refunded", outcome: "already_refunded" },
-  ],
-  approveResponses: [
-    { result: "True", status: "Approved", outcome: "succeeded" },
-    { result: "False", status: "Rejected", outcome: "rejected" },
-    { result: "False", status: "Duplicate", outcome: "duplicate" },
-    { result: "False", status: "Already Refunded", outcome: "already_refunded" },
-    { result: "True", status: "Pending", outcome: "pending" },
-  ],
-});
+const NAYAX_REFUND_JOURNAL_CONTRACT_VERSION = "nayax-provider-journal-v2";
 
 const jsonResponse = (body: Record<string, unknown>, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -111,6 +79,55 @@ const sha256Hex = async (value: string) => {
 
 const normalizeAccountKey = (value: string) =>
   value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+
+const exactEnvFlag = (name: string) =>
+  Deno.env.get(name)?.trim().toLowerCase() === "true";
+
+const resolveNormalWriteCredentials = (accountKey: string) => ({
+  requestToken: accountKey
+    ? Deno.env.get(`NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}`)?.trim() ?? ""
+    : "",
+  approveToken: accountKey
+    ? Deno.env.get(`NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}`)?.trim() ?? ""
+    : "",
+});
+
+const normalReleaseAuthorizedForCase = (caseId: string) =>
+  exactEnvFlag("NAYAX_REFUND_BROAD_REOPEN_APPROVED") ||
+  (
+    exactEnvFlag("NAYAX_REFUND_CANARY_ENABLED") &&
+    Deno.env.get("NAYAX_REFUND_CANARY_CASE_ID")?.trim().toLowerCase() ===
+      caseId.toLowerCase()
+  );
+
+const parseConfiguredManagerContract = () => {
+  const raw = Deno.env.get("NAYAX_REFUND_MANAGER_CONTRACT_JSON")?.trim() ?? "";
+  if (!raw) return null;
+  try {
+    return parseNayaxRefundProviderContract(raw);
+  } catch {
+    return null;
+  }
+};
+
+const providerJournalCompatible = async (
+  executorAssertion: string | null,
+  providerContractVersion: string | null,
+) => {
+  if (!supabase || !executorAssertion || !providerContractVersion) return false;
+  const { data, error } = await supabase.rpc(
+    "service_get_nayax_refund_provider_journal_capability",
+    { p_executor_assertion: executorAssertion },
+  );
+  if (error || !data || typeof data !== "object") return false;
+  const capability = data as Record<string, unknown>;
+  const supported = Array.isArray(capability.supportedProviderContractVersions)
+    ? capability.supportedProviderContractVersions
+    : [];
+  return capability.journalContractVersion === NAYAX_REFUND_JOURNAL_CONTRACT_VERSION &&
+    supported.includes(providerContractVersion) &&
+    capability.payloadRedacted === true;
+};
 
 const securePilotAssertion = (value: string | undefined) => {
   const normalized = value?.trim() ?? "";
@@ -219,12 +236,16 @@ const resolveCaseRefundReadiness = async ({
   const accountKey = normalizeAccountKey(
     refundCase.reporting_machines?.nayax_account_key ?? "",
   );
+  const credentials = resolveNormalWriteCredentials(accountKey);
+  const managerContract = parseConfiguredManagerContract();
+  const journalCompatible = await providerJournalCompatible(
+    executionConfig.executorAssertion,
+    managerContract?.contractVersion ?? null,
+  );
   const providerCredentialAvailable = Boolean(
-    accountKey && (
-      Deno.env.get(`NAYAX_LYNX_API_TOKEN_${accountKey}`)?.trim() ||
-      Deno.env.get("NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB")?.trim() ||
-      Deno.env.get("NAYAX_LYNX_API_TOKEN")?.trim()
-    ),
+    accountKey && credentials.requestToken && credentials.approveToken &&
+      managerContract && journalCompatible &&
+      normalReleaseAuthorizedForCase(refundCase.id),
   );
   const { data: dailyUsageValue, error: dailyUsageError } = await supabase.rpc(
     "service_refund_nayax_daily_usage",
@@ -1039,24 +1060,15 @@ serve(async (req) => {
     const normalAccountKey = normalizeAccountKey(
       refundCase.reporting_machines?.nayax_account_key ?? "",
     );
-    const normalWriteToken = normalAccountKey
-      ? Deno.env.get(`NAYAX_LYNX_API_TOKEN_${normalAccountKey}`)?.trim() ||
-        Deno.env.get("NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB")?.trim() ||
-        Deno.env.get("NAYAX_LYNX_API_TOKEN")?.trim() || ""
-      : "";
-    const configuredManagerContract = Deno.env.get(
-      "NAYAX_REFUND_MANAGER_CONTRACT_JSON",
-    )?.trim() ?? "";
-    const rawManagerContract = configuredManagerContract ||
-      DEFAULT_NAYAX_MANAGER_CONTRACT;
-    let managerContract:
-      | ReturnType<typeof parseNayaxRefundProviderContract>
-      | null = null;
-    try {
-      managerContract = parseNayaxRefundProviderContract(rawManagerContract);
-    } catch {
-      managerContract = null;
-    }
+    const normalWriteCredentials = resolveNormalWriteCredentials(
+      normalAccountKey,
+    );
+    const managerContract = parseConfiguredManagerContract();
+    const journalCompatible = await providerJournalCompatible(
+      executionConfig.executorAssertion,
+      managerContract?.contractVersion ?? null,
+    );
+    const releaseAuthorized = normalReleaseAuthorizedForCase(refundCase.id);
 
     const preExecutionBlocks = Array.from(
       new Set([
@@ -1067,10 +1079,17 @@ serve(async (req) => {
         ...duplicateTransactionBlocks,
         ...executionConfig.blocks,
         ...(!normalAccountKey ? ["machine_account_key_missing"] : []),
-        ...(!normalWriteToken ? ["provider_credential_missing"] : []),
+        ...(!normalWriteCredentials.requestToken
+          ? ["provider_request_credential_missing"]
+          : []),
+        ...(!normalWriteCredentials.approveToken
+          ? ["provider_approval_credential_missing"]
+          : []),
         ...(!managerContract
           ? ["provider_contract_invalid"]
           : []),
+        ...(!journalCompatible ? ["provider_journal_version_mismatch"] : []),
+        ...(!releaseAuthorized ? ["production_canary_required"] : []),
       ]),
     );
     if (preExecutionBlocks.length > 0) {
@@ -1096,7 +1115,10 @@ serve(async (req) => {
         ? "feature_disabled"
         : executionConfig.blocks.length > 0 ||
             preExecutionBlocks.includes("machine_account_key_missing") ||
-            preExecutionBlocks.includes("provider_credential_missing")
+            preExecutionBlocks.includes("provider_request_credential_missing") ||
+            preExecutionBlocks.includes("provider_approval_credential_missing") ||
+            preExecutionBlocks.includes("provider_journal_version_mismatch") ||
+            preExecutionBlocks.includes("production_canary_required")
         ? "configuration_missing"
         : "validation_rejected";
 
@@ -1129,8 +1151,8 @@ serve(async (req) => {
     let normalProviderClaimToken = "";
     const provider = createNayaxRefundProviderAdapter({
       contract: managerContract!,
-      requestToken: normalWriteToken,
-      approveToken: normalWriteToken,
+      requestToken: normalWriteCredentials.requestToken,
+      approveToken: normalWriteCredentials.approveToken,
       evidence: {
         caseId: refundCase.id,
         amountCents: resolveRefundAmountCents(refundCase),
@@ -1153,11 +1175,10 @@ serve(async (req) => {
           stageEvent,
         });
         const { data, error } = await supabase.rpc(
-          "service_record_nayax_refund_provider_stage",
+          "service_record_nayax_refund_provider_stage_v2",
           {
             p_executor_assertion: executionConfig.executorAssertion,
             p_attempt_id: normalAttemptId,
-            p_pending_approval_recovery_id: null,
             p_provider_claim_token: normalProviderClaimToken,
             p_stage: stageEvent.stage,
             p_event: stageEvent.event,
@@ -1170,11 +1191,32 @@ serve(async (req) => {
               : null,
             p_failure_type: sanitizeText(result.failureType, 20) || null,
             p_classification_digest: classificationDigest,
+            p_provider_contract_version: managerContract!.contractVersion,
+            p_journal_contract_version: NAYAX_REFUND_JOURNAL_CONTRACT_VERSION,
           },
         );
         if (error || !data || typeof data !== "object") {
-          throw new Error("normal_refund_stage_journal_failed");
+          throw new Error(
+            error?.code === "P4611"
+              ? "provider_journal_version_mismatch"
+              : `stage_journal_${stageEvent.stage}_${stageEvent.event}_rejected`,
+          );
         }
+        const decision = data as Record<string, unknown>;
+        if (
+          decision.journalContractVersion !==
+            NAYAX_REFUND_JOURNAL_CONTRACT_VERSION ||
+          decision.providerContractVersion !== managerContract!.contractVersion ||
+          decision.payloadRedacted !== true
+        ) {
+          throw new Error("provider_journal_version_mismatch");
+        }
+        return {
+          approvalAuthorized: decision.approvalAuthorized === true,
+          journalContractVersion: NAYAX_REFUND_JOURNAL_CONTRACT_VERSION,
+          providerContractVersion: managerContract!.contractVersion,
+          payloadRedacted: true as const,
+        };
       },
     });
 
@@ -1192,7 +1234,7 @@ serve(async (req) => {
         provider,
         reserveAndConsumeAttempt: async (request) => {
           const { data, error } = await supabase.rpc(
-            "service_reserve_nayax_refund_manager_action",
+            "service_reserve_nayax_refund_manager_action_v2",
             {
               p_executor_assertion: executionConfig.executorAssertion,
               p_actor_user_id: user.id,
@@ -1203,6 +1245,8 @@ serve(async (req) => {
               p_daily_amount_cap_cents: executionConfig.dailyAmountCapCents,
               p_daily_count_cap: executionConfig.dailyCountCap,
               p_currency_code: request.currencyCode,
+              p_provider_contract_version: managerContract!.contractVersion,
+              p_journal_contract_version: NAYAX_REFUND_JOURNAL_CONTRACT_VERSION,
             },
           );
           if (error || !data || typeof data !== "object") {

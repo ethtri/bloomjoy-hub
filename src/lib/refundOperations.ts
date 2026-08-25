@@ -487,6 +487,21 @@ export type RefundAutomationHealth = {
   payloadRedacted: boolean;
 };
 
+export type RefundNayaxReliabilityHealth = {
+  status: 'healthy' | 'attention';
+  directSuccessCount: number;
+  supportResolvedSuccessCount: number;
+  unresolvedCount: number;
+  oldestUnresolvedAt: string | null;
+  journalOrSettlementFailureCount: number;
+  completionMismatchCount: number;
+  averageApprovalStartLatencyMs: number | null;
+  ownerLabel: string;
+  escalationSlaMinutes: number;
+  escalationDueAt: string | null;
+  payloadRedacted: boolean;
+};
+
 export type RefundGmailHealthStatus =
   | 'healthy'
   | 'stale'
@@ -1805,6 +1820,33 @@ export const fetchRefundAutomationHealth = async (): Promise<RefundAutomationHea
       health.alertStatus === 'suppressed'
         ? health.alertStatus
         : 'not_needed',
+    payloadRedacted: health.payloadRedacted === true,
+  };
+};
+
+export const fetchRefundNayaxReliabilityHealth = async (): Promise<RefundNayaxReliabilityHealth> => {
+  const { data, error } = await supabaseClient.rpc('get_refund_nayax_reliability_health');
+  if (error) {
+    throw new Error(error.message || 'Unable to load card refund reliability health.');
+  }
+
+  const health = (data ?? {}) as Partial<RefundNayaxReliabilityHealth>;
+  return {
+    status: health.status === 'attention' ? 'attention' : 'healthy',
+    directSuccessCount: Number(health.directSuccessCount ?? 0),
+    supportResolvedSuccessCount: Number(health.supportResolvedSuccessCount ?? 0),
+    unresolvedCount: Number(health.unresolvedCount ?? 0),
+    oldestUnresolvedAt: typeof health.oldestUnresolvedAt === 'string' ? health.oldestUnresolvedAt : null,
+    journalOrSettlementFailureCount: Number(health.journalOrSettlementFailureCount ?? 0),
+    completionMismatchCount: Number(health.completionMismatchCount ?? 0),
+    averageApprovalStartLatencyMs:
+      health.averageApprovalStartLatencyMs != null &&
+      Number.isFinite(Number(health.averageApprovalStartLatencyMs))
+        ? Number(health.averageApprovalStartLatencyMs)
+        : null,
+    ownerLabel: typeof health.ownerLabel === 'string' ? health.ownerLabel : 'Refund Operations',
+    escalationSlaMinutes: Number(health.escalationSlaMinutes ?? 60),
+    escalationDueAt: typeof health.escalationDueAt === 'string' ? health.escalationDueAt : null,
     payloadRedacted: health.payloadRedacted === true,
   };
 };
