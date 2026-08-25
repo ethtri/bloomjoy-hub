@@ -102,7 +102,7 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 84 required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 85 required refund\/Nayax migrations/);
 assert.match(cutoverPacket, /exact canonical 51-migration predeployment bridge/);
 assert.match(
   cutoverPacket,
@@ -208,8 +208,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    84,
-    'Refund release inventory must cover exactly 84 discovered refund/Nayax migrations'
+    85,
+    'Refund release inventory must cover exactly 85 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -258,6 +258,10 @@ try {
   assert(
     repositoryMigrations.includes('20260825193000_refund_nayax_evidence_only_reconciliation.sql'),
     'The provider-free existing-refund reconciliation migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260825202000_refund_nayax_preexisting_attempt_evidence.sql'),
+    'The pre-existing Nayax DTM refund timing and exactly-once evidence migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('202608170003_refund_nayax_manager_overview_authority.sql'),
