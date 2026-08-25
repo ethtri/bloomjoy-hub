@@ -77,13 +77,13 @@ select
   coalesce((select sum(duplicate_count) from duplicate_rows), 0)::integer as duplicate_nayax_mapping_count,
   count(distinct nayax_account_key) filter (where nayax_account_key <> '')::integer
     as distinct_nayax_account_count,
-  count(*) filter (where manager_count between 1 and 3)::integer
+  count(*) filter (where manager_count between 1 and 4)::integer
     as machine_with_active_manager_count,
   count(*) filter (where location_timezone <> '')::integer as machine_with_timezone_count,
   count(*) filter (
     where nayax_machine_id <> ''
       and nayax_account_key <> ''
-      and manager_count between 1 and 3
+      and manager_count between 1 and 4
       and location_timezone <> ''
   )::integer as shadow_ready_mapping_count,
   count(*) filter (where nayax_refunds_enabled is true)::integer

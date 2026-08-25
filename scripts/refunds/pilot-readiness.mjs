@@ -421,8 +421,8 @@ function makeMachineReadinessRows({ machines, locationsById, accountsById, manag
 
       if (managerEmails.length === 0) {
         actions.push('assign at least 1 Machine Manager');
-      } else if (managerEmails.length > 3) {
-        actions.push('reduce Machine Managers to max 3');
+      } else if (managerEmails.length > 4) {
+        actions.push('reduce Machine Managers to max 4');
       }
 
       if (!nayaxLookupConfigured) {
@@ -448,7 +448,7 @@ function makeMachineReadinessRows({ machines, locationsById, accountsById, manag
         live_nayax_refunds_enabled: machine.nayax_refunds_enabled ? 'yes' : 'no',
         max_nayax_refund_cents: machine.nayax_refund_max_amount_cents ?? '',
         pilot_ready:
-          refundIntakeEnabled && managerEmails.length >= 1 && managerEmails.length <= 3 && nayaxLookupConfigured
+          refundIntakeEnabled && managerEmails.length >= 1 && managerEmails.length <= 4 && nayaxLookupConfigured
             ? 'yes'
             : 'no',
         suggested_actions: actions.join('; '),

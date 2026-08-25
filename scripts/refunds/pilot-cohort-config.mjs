@@ -409,6 +409,7 @@ function createTemplate(args) {
       manager_email_1: '',
       manager_email_2: '',
       manager_email_3: '',
+      manager_email_4: '',
       nayax_machine_id_to_apply: highConfidence ? candidate.candidate_nayax_machine_id : '',
       nayax_account_key_to_apply: DEFAULT_ACCOUNT_KEY,
       suggested_nayax_machine_id: candidate.candidate_nayax_machine_id || '',
@@ -431,6 +432,7 @@ function createTemplate(args) {
     { key: 'manager_email_1', header: 'manager_email_1' },
     { key: 'manager_email_2', header: 'manager_email_2' },
     { key: 'manager_email_3', header: 'manager_email_3' },
+    { key: 'manager_email_4', header: 'manager_email_4' },
     { key: 'nayax_machine_id_to_apply', header: 'nayax_machine_id_to_apply' },
     { key: 'nayax_account_key_to_apply', header: 'nayax_account_key_to_apply' },
     { key: 'suggested_nayax_machine_id', header: 'suggested_nayax_machine_id' },
@@ -455,6 +457,7 @@ function parseSelectedPlans(rows, args) {
       normalizeEmail(row.manager_email_1),
       normalizeEmail(row.manager_email_2),
       normalizeEmail(row.manager_email_3),
+      normalizeEmail(row.manager_email_4),
     ].filter(Boolean));
     const enableRefundIntake = no(row.enable_refund_intake) ? false : true;
     const nayaxMachineId = text(row.nayax_machine_id_to_apply || row.nayax_machine_id);
@@ -470,8 +473,8 @@ function parseSelectedPlans(rows, args) {
       errors.push(`Row ${rowNumber}: at least one Machine Manager email is required.`);
     }
 
-    if (managerEmails.length > 3) {
-      errors.push(`Row ${rowNumber}: no more than three Machine Managers are allowed.`);
+    if (managerEmails.length > 4) {
+      errors.push(`Row ${rowNumber}: no more than four Machine Managers are allowed.`);
     }
 
     for (const email of managerEmails) {

@@ -187,9 +187,10 @@ Preferred language is short, plain, humble, and specific. For example, use "We w
 
 ## Manager CC and participant safety
 
-Every case-specific customer-facing refund message requires a resolved machine and one to three currently active, non-revoked Machine Managers returned by the authoritative portal mapping at send time. This applies to manual and automatic Gmail delivery and to the transactional fallback path. The generic first-contact hosted-form link is the sole exception: it is sent before mapping, contains no case-specific facts, and has no manager CC.
+Every case-specific customer-facing refund message requires a resolved machine and one to four currently active, non-revoked Machine Managers returned by the authoritative portal mapping at send time. This applies to manual and automatic Gmail delivery and to the transactional fallback path. The generic first-contact hosted-form link is the sole exception: it is sent before mapping and contains no case-specific facts.
 
 - The customer remains the To recipient.
+- If the customer is also a current mapped manager, that identity is represented once by To; every other mapped manager remains in visible CC.
 - Visible CC may expose manager work addresses to the customer and other mapped managers; production requires an approved recipient/privacy review and synthetic pilot identities.
 - Before the machine is resolved, no case-specific message is delivered. The only allowed message is the once-per-thread generic form link. After mapping, a zero-manager, invalid/over-cap, or empty safe recipient set blocks all customer delivery and creates a redacted internal routing exception. Never guess a manager.
 - The capped operations fallback is internal-only for routing repair. It excludes the customer and mailbox identities and can never substitute for the required customer-message CC.
@@ -197,7 +198,7 @@ Every case-specific customer-facing refund message requires a resolved machine a
 - Current mapped managers receive a separate deterministic, versioned notice containing only the public reference, public machine/location, business-day age, safe status, one recommended portal step, and canonical authenticated `/refunds?case=<case-id>` link for action-needed, aging, or exception work. It contains no card digits, complaint text, provider IDs, or provider payloads. A routing exception may instead use the capped internal operations fallback. Completion uses the single customer-facing message with manager CC and does not duplicate that confirmation.
 - A manager Reply All is manager correspondence, not customer evidence. The Gmail ingestion model must classify customer, mapped manager, Bloomjoy mailbox, automated system, and unknown sender before CC is enabled.
 - Any sender who is not the verified customer - including an unknown or forwarded participant, mailbox alias, revoked/former manager, or spoof-suspected sender - cannot update customer facts, clear a waiting-on-customer state, start customer GPT triage, or trigger automatic customer follow-up.
-- Customer, mailbox, duplicate, revoked, malformed, and unrelated fallback addresses must not appear in the manager CC set.
+- Customer, mailbox, duplicate, revoked, malformed, and unrelated fallback addresses must not appear in the manager CC set; a customer-manager is instead counted once through To.
 - Recipient addresses and CC lists must not appear in logs, health output, GitHub evidence, or unauthorized browser data.
 
 ## First-contact acknowledgement and legacy responder cutover
@@ -205,7 +206,7 @@ Every case-specific customer-facing refund message requires a resolved machine a
 "First contact" means the first eligible inbound customer message in one provider Gmail thread.
 
 - Claim one durable operation key for the thread before sending.
-- Register and revalidate the private hosted-form context immediately before generic first-contact delivery. That one non-case-specific message has no manager CC. Re-resolve the machine and one-to-three-manager route immediately before every later case-specific delivery.
+- Register and revalidate the private hosted-form context immediately before generic first-contact delivery. That one non-case-specific message has no manager route. Re-resolve the machine and one-to-four-manager route immediately before every later case-specific delivery.
 - Do not trigger on bounces, mailing lists, bulk/automated messages, outbound messages, or later replies.
 - Use standard automatic-response suppression headers.
 - A known send failure becomes visible retry work. Uncertain delivery is reconciled and never retried blindly.
@@ -278,7 +279,7 @@ The evidence finalizer rejects stale, missing, extra, malformed, duplicate-image
 3. Open the linked Hub case and read the case status before drafting.
 4. Summarize the request using only permitted fields; do not copy sensitive free text into notes or GitHub.
 5. Check whether the case is waiting on the customer, ready for a manager, blocked by setup/provider state, or complete.
-6. Confirm the case has a resolved machine and a current one-to-three-manager route. If it does not, create or follow the routing exception and do not draft around or bypass it.
+6. Confirm the case has a resolved machine and a current one-to-four-manager route. If it does not, create or follow the routing exception and do not draft around or bypass it.
 7. If an approved deterministic message is already due or already claimed/sent for the cycle, do not create a second draft or send.
 8. For human-review states, prepare one concise customer-centric draft asking only for the next necessary information; sending still requires the current mapped-manager CC set.
 9. For manager action, provide the separate canonical case link; never place an action-performing link in customer email. The manager reviews the automatic match, confirms one transaction, and then separately approves or denies the refund in the portal.
@@ -299,7 +300,7 @@ GPT, TOTP, operator ceremonies, QR-code flows, Kexiazhan reporting, cash fallbac
 ## Success measures
 
 - zero duplicate first-contact acknowledgements;
-- zero case-specific customer messages delivered without one to three current active mapped managers in visible CC, with the generic pre-mapping form link as the sole zero-CC exception;
+- zero case-specific customer messages delivered without a complete one-to-four current active mapped-manager recipient route, counting a customer-manager once through To;
 - zero email-originated refund decisions or Nayax calls;
 - zero unauthorized manager recipients;
 - zero manager Reply All messages misclassified as customer replies;

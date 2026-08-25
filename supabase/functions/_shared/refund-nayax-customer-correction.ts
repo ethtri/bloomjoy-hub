@@ -156,6 +156,8 @@ export const sendNayaxCustomerCorrectionEmail = async (
   const managerCcEmails = requireRefundManagerCcEmailsForSend(
     input.managerCcEmails,
     input.customerEmail,
+    input.managerRecipientOverlap,
+    input.managerRecipientCount,
   );
   await sendRefundTransactionalEmail({
     to: [input.customerEmail],

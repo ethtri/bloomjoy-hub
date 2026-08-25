@@ -311,6 +311,51 @@ Deno.test("manager aging transport binds only the canonical route returned by re
   );
 });
 
+Deno.test("manager aging transport accepts four managers and rejects a fifth", () => {
+  const fourManagers = [
+    "manager-a@example.test",
+    "manager-b@example.test",
+    "manager-c@example.test",
+    "manager-d@example.test",
+  ];
+  const route = bindRefundManagerNoticeReservationRouting({
+    refundCaseId: "case-four-managers",
+    customerEmail: "customer@example.test",
+    mailboxIdentities: ["info@bloomjoysweets.com"],
+    reservation: {
+      recipientRoute: {
+        recipients: fourManagers,
+        routeType: "manager",
+        managerRecipientCount: 4,
+        recipientCount: 4,
+        resolutionStatus: "resolved",
+        mappingFingerprint: "d".repeat(64),
+      },
+    },
+  });
+  assertEquals(route.recipients, fourManagers, "complete four-manager route");
+
+  assertThrows(
+    () =>
+      bindRefundManagerNoticeReservationRouting({
+        refundCaseId: "case-five-managers",
+        customerEmail: "customer@example.test",
+        mailboxIdentities: ["info@bloomjoysweets.com"],
+        reservation: {
+          recipientRoute: {
+            recipients: [...fourManagers, "manager-e@example.test"],
+            routeType: "manager",
+            managerRecipientCount: 5,
+            recipientCount: 5,
+            resolutionStatus: "resolved",
+            mappingFingerprint: "e".repeat(64),
+          },
+        },
+      }),
+    "fifth manager is rejected",
+  );
+});
+
 Deno.test("manager aging reservation accepts a bounded operations exception route", () => {
   const route = bindRefundManagerNoticeReservationRouting({
     refundCaseId: "case-ops",
@@ -376,6 +421,8 @@ Deno.test("customer manager CC resolution accepts only owned nonempty routes", (
       resolution: {
         status: "resolved",
         managerCcEmails: ["MANAGER@example.test"],
+        managerRecipientOverlap: false,
+        managerRecipientCount: 1,
       },
       customerEmail: "customer@example.test",
       mailboxIdentities: ["info@bloomjoysweets.com"],
@@ -383,6 +430,8 @@ Deno.test("customer manager CC resolution accepts only owned nonempty routes", (
     {
       managerCcEmails: ["manager@example.test"],
       managerCcCount: 1,
+      managerRecipientOverlap: false,
+      managerRecipientCount: 1,
       recipientResolutionStatus: "resolved",
     },
     "nonempty current manager route",
@@ -397,7 +446,12 @@ Deno.test("customer manager CC resolution accepts only owned nonempty routes", (
         status: "resolved_with_exclusions",
         managerCcEmails: ["manager@example.test"],
       },
-      { status: "resolved", managerCcEmails: [] },
+      {
+        status: "resolved",
+        managerCcEmails: [],
+        managerRecipientOverlap: false,
+        managerRecipientCount: 0,
+      },
     ]
   ) {
     let errorCode = "no_error";
@@ -418,6 +472,27 @@ Deno.test("customer manager CC resolution accepts only owned nonempty routes", (
       `${scenario.status} customer send gate`,
     );
   }
+
+  assertEquals(
+    requireRefundCustomerManagerCcResolution({
+      resolution: {
+        status: "resolved",
+        managerCcEmails: [],
+        managerRecipientOverlap: true,
+        managerRecipientCount: 1,
+      },
+      customerEmail: "manager-customer@example.test",
+      mailboxIdentities: ["info@bloomjoysweets.com"],
+    }),
+    {
+      managerCcEmails: [],
+      managerCcCount: 0,
+      managerRecipientOverlap: true,
+      managerRecipientCount: 1,
+      recipientResolutionStatus: "resolved",
+    },
+    "a mapped manager who is the customer is represented once by To",
+  );
 });
 
 Deno.test("transactional fallback cannot proceed without a current mapped manager", () => {
@@ -867,6 +942,7 @@ Deno.test("Gmail send pins the provider thread and preserves the resolved CC set
       operationKey: "refund-case-message:synthetic-send",
       recipientEmail: "customer@example.test",
       ccEmails: ["manager@example.test"],
+      managerRecipientCount: 1,
       deliveryKind: "automatic",
       subject: "A quick refund update",
       text:

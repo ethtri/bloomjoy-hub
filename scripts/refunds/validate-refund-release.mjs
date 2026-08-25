@@ -102,7 +102,7 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 85 required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 86 required refund\/Nayax migrations/);
 assert.match(cutoverPacket, /exact canonical 51-migration predeployment bridge/);
 assert.match(
   cutoverPacket,
@@ -180,7 +180,7 @@ const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-relea
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
 const reviewedManagerSourceSha256 = {
   'refund-manager-action-step-up':
-    'e29cb8ed0c6adce7b4b35ccf64207af6a935badd31d0840006c91131eda8917f',
+    '63029bc54a4bae3027ce05d01ee28eab4f76e051a3afb5691c142f4fe9805fa3',
   'refund-manager-totp-enrollment':
     'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
 };
@@ -208,8 +208,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    85,
-    'Refund release inventory must cover exactly 85 discovered refund/Nayax migrations'
+    86,
+    'Refund release inventory must cover exactly 86 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),

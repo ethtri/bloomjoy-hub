@@ -1070,6 +1070,7 @@ insert into public.refund_gmail_messages (
   gmail_thread_id, refund_case_id, refund_case_message_id, operation_key,
   provider_message_id, direction, message_kind, status, sender_email,
   recipient_email, recipient_cc_emails, recipient_cc_count,
+  recipient_manager_overlap, recipient_manager_count,
   recipient_resolution_status, delivery_kind, participant_role,
   participant_trust, subject, plain_body, sent_at, received_at,
   retention_expires_at
@@ -1081,7 +1082,8 @@ select
   'refund-case-message:' || attempt.completion_message_id::text,
   'nayax-completion-sent-evidence',
   'outbound', 'message', 'sent', 'info@bloomjoysweets.com',
-  message.recipient_email, array['resolution-manager@example.test'], 1, 'resolved',
+  message.recipient_email, array['resolution-manager@example.test'], 1,
+  false, 1, 'resolved',
   'manual', 'mailbox', 'verified', message.subject, message.body,
   statement_timestamp() - interval '6 minutes',
   statement_timestamp() - interval '6 minutes',
@@ -1115,6 +1117,7 @@ insert into public.refund_gmail_messages (
   gmail_thread_id, refund_case_id, refund_case_message_id, operation_key,
   provider_message_id, direction, message_kind, status, sender_email,
   recipient_email, recipient_cc_emails, recipient_cc_count,
+  recipient_manager_overlap, recipient_manager_count,
   recipient_resolution_status, delivery_kind, participant_role,
   participant_trust, subject, plain_body, sent_at, received_at,
   retention_expires_at
@@ -1127,6 +1130,7 @@ select
   'nayax-completion-mapping-drift-evidence',
   'outbound', 'message', 'sent', 'info@bloomjoysweets.com',
   message.recipient_email, array['resolution-manager@example.test'], 1,
+  false, 1,
   'resolved', 'manual', 'mailbox', 'verified', message.subject, message.body,
   statement_timestamp() - interval '6 minutes',
   statement_timestamp() - interval '6 minutes',

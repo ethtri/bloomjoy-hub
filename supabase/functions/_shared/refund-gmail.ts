@@ -875,6 +875,8 @@ export const sendRefundGmailReply = async ({
   operationKey,
   recipientEmail,
   ccEmails = [],
+  managerRecipientOverlap = false,
+  managerRecipientCount,
   deliveryKind = "manual",
   subject,
   text,
@@ -889,6 +891,8 @@ export const sendRefundGmailReply = async ({
   operationKey: string;
   recipientEmail: string;
   ccEmails?: string[];
+  managerRecipientOverlap?: boolean;
+  managerRecipientCount?: number;
   deliveryKind?: "manual" | "automatic";
   subject: string;
   text: string;
@@ -928,8 +932,13 @@ export const sendRefundGmailReply = async ({
     normalizedCc.length === 0 &&
     ccEmails.length === 0;
   if (
-    (!premappingNoCcAllowed && normalizedCc.length === 0) ||
-    normalizedCc.length > 3 ||
+    (!premappingNoCcAllowed && (
+      !Number.isSafeInteger(managerRecipientCount) ||
+      managerRecipientCount! < 1 ||
+      managerRecipientCount! > 4 ||
+      normalizedCc.length + (managerRecipientOverlap ? 1 : 0) !==
+        managerRecipientCount
+    )) ||
     ccEmails.some((value) =>
       !isEmail(value.trim().toLowerCase()) ||
       value.trim().toLowerCase() === recipientEmail.toLowerCase() ||

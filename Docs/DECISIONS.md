@@ -162,7 +162,7 @@ The enrollment window is default-closed and is not opened by deploying this chan
 Direct website intake and a private email-linked form use the same database ownership rule when a machine is bound to a refund case. The database serializes that decision with Admin > Machines and re-reads the current active, unrevoked manager mappings while holding the shared per-machine lock.
 
 - Exactly one current mapping is assigned automatically.
-- With two or three current mappings, the system never guesses a primary owner. The case stays unassigned for explicit admin review unless a still-current manager was deliberately selected.
+- With two to four current mappings, the system never guesses a primary owner. The case stays unassigned for explicit admin review unless a still-current manager was deliberately selected.
 - With no current mapping, or when a prior selection is stale or revoked, the case stays unassigned for explicit admin review.
 - Clearing an assignment without changing the machine is preserved; the intake trigger does not silently reassign it.
 - The release performs one idempotent repair of existing open, unassigned cases with a resolved machine and exactly one current manager. Each changed case receives a redacted, non-official audit event; zero- and multiple-manager cases are untouched.
@@ -568,7 +568,7 @@ Refund inquiries will move from the Google Form/AppSheet process into Bloomjoy H
 - Track execution through issues `#402`-`#409` and call out overlap with existing refund/reporting PR `#399` on implementation PRs.
 - Shadow-mode acceptance requires hosted-intake cases to complete end to end while the Google Form/AppSheet process remains available.
 - The first pilot can include all current authenticated Machine Managers, but it remains a shadow pilot until `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md` merge and cutover gates pass.
-- Refund case processing belongs in the authenticated core Refunds workflow (`/refunds`), not inside Admin Console or as a duplicated Portal/Admin destination. Machine Manager assignment belongs with machine setup in Admin > Machines, with up to 3 authenticated managers per machine.
+- Refund case processing belongs in the authenticated core Refunds workflow (`/refunds`), not inside Admin Console or as a duplicated Portal/Admin destination. Machine Manager assignment belongs with machine setup in Admin > Machines, with up to 4 authenticated managers per machine.
 
 ## 2026-05-06 - Supply procurement notifications join the internal alert pipeline
 Supply procurement requests should use the same internal alert pattern as quote and paid order events.

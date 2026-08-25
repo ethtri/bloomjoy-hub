@@ -13,6 +13,7 @@ const [
   migration,
   firstContactMigration,
   participantMigration,
+  managerRouteMigration,
   firstContactCcMigration,
   pilotLinkageMigration,
   formOnlyMigration,
@@ -51,6 +52,7 @@ const [
     read('supabase/migrations/202607210006_refund_gmail_thread_linkage.sql'),
     read('supabase/migrations/202608030001_refund_gmail_first_contact.sql'),
     read('supabase/migrations/202608030003_refund_gmail_participant_cc.sql'),
+    read('supabase/migrations/20260825224500_refund_manager_recipient_route_v2.sql'),
     read('supabase/migrations/202608040003_refund_first_contact_manager_cc.sql'),
     read('supabase/migrations/202608050001_refund_email_pilot_linkage.sql'),
     read('supabase/migrations/20260821090000_refund_form_only_case_creation.sql'),
@@ -1168,28 +1170,29 @@ assert(
   'Manager CC and participant classification must use current active non-revoked mappings',
 );
 assert(
-  participantMigration.includes('service_resolve_refund_customer_manager_cc') &&
-    participantMigration.includes("lower(btrim(manager.manager_email)) <> normalized_customer") &&
-    participantMigration.includes('not (lower(btrim(manager.manager_email)) = any(mailbox_identities))') &&
-    participantMigration.includes('distinct_active_mapping_count > 3 or eligible_mapping_count > 3') &&
-    participantMigration.includes('distinct_active_mapping_count - eligible_mapping_count') &&
-    participantMigration.includes("when invalid_mapping_count > 0 then 'invalid_manager_mapping'") &&
-    participantMigration.includes("if resolution_status = 'invalid_manager_mapping' then") &&
-    participantMigration.includes("manager_cc_emails := '{}'::text[]"),
-  'Distinct invalid, customer, mailbox, revoked, malformed, and over-cap mappings must fail closed while exact duplicate identities may deduplicate',
+  managerRouteMigration.includes('service_resolve_refund_customer_manager_cc') &&
+    managerRouteMigration.includes('distinct_active_mapping_count not between 1 and 4') &&
+    managerRouteMigration.includes('manager_recipient_overlap') &&
+    managerRouteMigration.includes('valid_active_mapping_count <> distinct_active_mapping_count') &&
+    managerRouteMigration.includes("when mailbox_collision_count > 0 then 'invalid_manager_mapping'") &&
+    managerRouteMigration.includes("manager_cc_emails := '{}'::text[]"),
+  'The complete manager route must support four identities, count a customer-manager once, and fail closed for malformed, mailbox-colliding, or over-cap mappings',
 );
 assert(
   gmailTransport.includes('CUSTOMER_MANAGER_CC_ALLOWED_STATUS = "resolved"') &&
     gmailTransport.includes('recipientResolutionStatus !== CUSTOMER_MANAGER_CC_ALLOWED_STATUS') &&
-    gmailTransport.includes('managerCcEmails.length === 0') &&
+    gmailTransport.includes('managerRecipientOverlap') &&
+    gmailTransport.includes('managerRecipientCount') &&
     gmailTransport.includes('"manager_cc_required"') &&
     gmailTransport.includes('requireRefundCustomerManagerCcResolution'),
-  'Customer delivery must require a resolved nonempty current-manager CC set in both Gmail and transactional paths',
+  'Customer delivery must require a complete one-to-four manager recipient route in both Gmail and transactional paths',
 );
 assert(
   refundEmail.includes('requireRefundManagerCcEmailsForSend') &&
-    (refundEmail.match(/const managerCcEmails = requireRefundManagerCcEmailsForSend/g) ?? []).length === 2,
-  'Both ordinary and wallet transactional refund helpers must reject empty or invalid manager CC sets',
+    (refundEmail.match(/const managerCcEmails = requireRefundManagerCcEmailsForSend/g) ?? []).length === 2 &&
+    refundEmail.includes('managerRecipientOverlap ? 1 : 0') &&
+    refundEmail.includes('> 4'),
+  'Transactional refund helpers must reject incomplete manager recipient routes while allowing a represented customer-manager',
 );
 assert(
   !adminUpdate.includes('managerCcEmails: [] as string[]') &&
@@ -1436,7 +1439,8 @@ assert(
     qaChecklist.includes('amount, incident time, payment method, and raw confidence remain in the authenticated portal') &&
     qaChecklist.includes('whenever the complete current manager route cannot be safely resolved') &&
     qaChecklist.includes('Duplicate normalized valid rows appear once only when every distinct active identity remains covered') &&
-    qaChecklist.includes('mixed malformed, customer, or mailbox-colliding mappings make the complete route fail closed') &&
+    qaChecklist.includes('counts that address once when the customer is also a mapped manager') &&
+    qaChecklist.includes('a fifth manager, zero managers, malformed mappings, or a mailbox collision makes the complete route fail closed') &&
     !qaChecklist.includes('with reference, machine, amount, incident time, payment method, case link, and status only'),
   'QA guidance must preserve private manager-notice fields and exact complete-route fallback semantics',
 );
@@ -1446,7 +1450,7 @@ assert(
     sendFunction.includes('cc: gmailDelivery.managerCcEmails') &&
     adminUpdate.includes('managerCcEmails: gmailDelivery.managerCcEmails') &&
     automationSweep.includes('managerCcEmails: gmailDelivery.managerCcEmails'),
-  'Every transactional refund fallback must receive its nonempty manager CC set from the fail-closed send-time resolver',
+  'Every transactional refund fallback must receive its complete manager recipient route from the fail-closed send-time resolver',
 );
 assert(
   !adminUpdate.includes('sendRefundManagerActionNotice') &&

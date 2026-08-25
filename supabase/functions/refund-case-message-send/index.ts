@@ -289,7 +289,7 @@ serve(async (req) => {
           formRetry.refundCaseMessageId !== nayaxCompletionRecoveryMessageId ||
           !isUuid(attemptId) || !recipientEmail || !subject || !messageBody ||
           !Number.isSafeInteger(managerCcCount) || managerCcCount < 0 ||
-          managerCcCount > 3 || managerCcCount !== managerCcEmails.length ||
+          managerCcCount > 4 || managerCcCount !== managerCcEmails.length ||
           new Set(managerCcEmails).size !== managerCcEmails.length ||
           (managerCcCount === 0 && !managerRecipientOverlap) ||
           formRetry.transport !== "transactional_email" ||

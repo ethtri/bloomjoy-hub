@@ -606,6 +606,7 @@ const runFirstContactMimeAssertions = async () => {
             operationKey: "refund-case-message:synthetic-missing-info",
             recipientEmail: FIRST_CONTACT_FIXTURE.customerEmail,
             ccEmails: FIRST_CONTACT_FIXTURE.managers,
+            managerRecipientCount: FIRST_CONTACT_FIXTURE.managers.length,
             deliveryKind: "manual",
             subject: "A quick detail check for your Bloomjoy refund request",
             text: "Thank you for reaching out. Please reply with the missing purchase time so our team can continue carefully.",

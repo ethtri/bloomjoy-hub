@@ -2001,8 +2001,8 @@ function MachineDialog({
   ) => {
     if (!form.machineId) return false;
 
-    if (nextEmails.length > 3) {
-      toast.error('Each machine can have up to 3 Machine Managers.');
+    if (nextEmails.length > 4) {
+      toast.error('Each machine can have up to 4 Machine Managers.');
       return false;
     }
 
@@ -2058,8 +2058,8 @@ function MachineDialog({
       return;
     }
 
-    if (selectedMachineManagerEmails.length >= 3) {
-      toast.error('Each machine can have up to 3 Machine Managers.');
+    if (selectedMachineManagerEmails.length >= 4) {
+      toast.error('Each machine can have up to 4 Machine Managers.');
       return;
     }
 
@@ -2363,7 +2363,7 @@ function MachineDialog({
                         onKeyDown={(event) => {
                           if (event.key === 'Enter') {
                             event.preventDefault();
-                            if (isAddingMachineManager || isSavingMachineManagers || machineManagerCount >= 3) {
+                            if (isAddingMachineManager || isSavingMachineManagers || machineManagerCount >= 4) {
                               return;
                             }
                             void addMachineManagerEmail(managerSearch);
@@ -2375,7 +2375,7 @@ function MachineDialog({
                           isAddingMachineManager ||
                           isSendingMachineManagerInvite ||
                           isSavingMachineManagers ||
-                          machineManagerCount >= 3
+                          machineManagerCount >= 4
                         }
                       />
                     </div>
@@ -2387,7 +2387,7 @@ function MachineDialog({
                         isAddingMachineManager ||
                         isSendingMachineManagerInvite ||
                         isSavingMachineManagers ||
-                        machineManagerCount >= 3 ||
+                        machineManagerCount >= 4 ||
                         !managerSearch.trim()
                       }
                     >
@@ -2420,7 +2420,7 @@ function MachineDialog({
                   </div>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  One Machine Manager is enough. Add up to 3 authenticated Machine Managers per
+                  One Machine Manager is enough. Add up to 4 authenticated Machine Managers per
                   machine. Invite new Machine Managers first, then add them after they sign in.
                 </p>
                 {managerSearchError && (

@@ -523,6 +523,8 @@ const sendAndLogCustomerMessage = async (
       await sendRefundCustomerEmail({
         ...emailInput,
         managerCcEmails: gmailDelivery.managerCcEmails,
+        managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
+        managerRecipientCount: gmailDelivery.managerRecipientCount,
       });
     }
 
@@ -558,6 +560,8 @@ const sendAndLogCustomerMessage = async (
             ? "gmail_thread"
             : "transactional_email",
           manager_cc_count: gmailDelivery.managerCcCount,
+          manager_recipient_overlap: gmailDelivery.managerRecipientOverlap,
+          manager_recipient_count: gmailDelivery.managerRecipientCount,
           recipient_resolution_status: gmailDelivery.recipientResolutionStatus,
           payload_redacted: true,
         },

@@ -243,6 +243,8 @@ Deno.test("disabled Gmail leaves the non-Gmail customer-delivery route available
                 "first-contact-manager-a@example.test",
                 "first-contact-manager-b@example.test",
               ],
+              managerRecipientOverlap: false,
+              managerRecipientCount: 2,
             },
             error: null,
           };
@@ -437,6 +439,8 @@ Deno.test("approved one-shot synthetic proof pins one original-thread send", asy
                 references: "<synthetic-proof-source@example.test>",
                 recipientResolutionStatus: "resolved",
                 managerCcEmails: ["proof-manager@example.test"],
+                managerRecipientOverlap: false,
+                managerRecipientCount: 1,
               },
               error: null,
             };
@@ -543,6 +547,8 @@ Deno.test("synthetic proof rejects a changed manager route after claim and befor
                 references: "<synthetic-proof-source@example.test>",
                 recipientResolutionStatus: "resolved",
                 managerCcEmails: ["changed-manager@example.test"],
+                managerRecipientOverlap: false,
+                managerRecipientCount: 1,
               },
               error: null,
             };
@@ -621,6 +627,8 @@ Deno.test("enabled linked delivery preserves exact thread, customer To, two mana
                   "<synthetic-prior@example.test> <synthetic-source@example.test>",
                 recipientResolutionStatus: "resolved",
                 managerCcEmails: managers,
+                managerRecipientOverlap: false,
+                managerRecipientCount: 2,
               },
               error: null,
             };

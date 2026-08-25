@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (...parts) => fs.readFileSync(path.join(repoRoot, ...parts), 'utf8');
 const migration = read('supabase', 'migrations', '20260821091000_refund_nayax_inventory.sql');
+const recipientRouteV2 = read('supabase', 'migrations', '20260825224500_refund_manager_recipient_route_v2.sql');
 const portfolioCorrection = read('supabase', 'migrations', '20260822190000_refund_portfolio_intake_inventory_correction.sql');
 const edge = read('supabase', 'functions', 'refund-nayax-inventory-sync', 'index.ts');
 const intake = read('supabase', 'functions', 'refund-case-intake', 'index.ts');
@@ -36,7 +37,10 @@ const checks = [
   ['mapping gaps are corrected to needs setup instead of exclusions',
     /reconciliation_state = 'needs_setup'/i.test(portfolioCorrection)
       && /setup gaps are not exclusions/i.test(portfolioCorrection)],
-  ['publication requires current manager routing', /One to three current Machine Managers are required before publishing/i.test(migration)],
+  ['publication requires one-to-four current manager routing',
+    /public\.admin_reconcile_refund_nayax_machine\(uuid,text,text,uuid,text,text\)/i.test(recipientRouteV2)
+      && /replace\(revised, '> 3', '> 4'\)/i.test(recipientRouteV2)
+      && /Supports one to four distinct active managers/i.test(recipientRouteV2)],
   ['direct and QR intake share server eligibility', (intake.match(/service_refund_machine_is_public/g) ?? []).length === 2],
   ['Edge inventory has an independent default-off switch', /REFUND_NAYAX_INVENTORY_SYNC_ENABLED.*=== "true"/i.test(edge)],
   ['disabled Edge path reports zero writes', /status: "disabled"[\s\S]*writesApplied: 0/i.test(edge)],

@@ -56,6 +56,8 @@ export type RefundCustomerEmailInput = {
   cardWalletUsed?: boolean;
   cardLast4?: string | null;
   managerCcEmails?: string[];
+  managerRecipientOverlap?: boolean;
+  managerRecipientCount?: number;
 };
 
 const refundMissingFieldRequest: Record<RefundMissingField, string> = {
@@ -93,6 +95,8 @@ const REFUND_MANAGER_CC_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
 export const requireRefundManagerCcEmailsForSend = (
   managerCcEmails: string[] | undefined,
   customerEmail: string,
+  managerRecipientOverlap = false,
+  managerRecipientCount?: number,
 ) => {
   if (!Array.isArray(managerCcEmails)) {
     throw new Error(
@@ -106,8 +110,11 @@ export const requireRefundManagerCcEmailsForSend = (
     ...getRefundGmailMailboxIdentities(),
   ]);
   if (
-    normalized.length < 1 ||
-    normalized.length > 3 ||
+    !Number.isSafeInteger(managerRecipientCount) ||
+    managerRecipientCount! < 1 ||
+    managerRecipientCount! > 4 ||
+    normalized.length + (managerRecipientOverlap ? 1 : 0) !==
+      managerRecipientCount ||
     new Set(normalized).size !== normalized.length ||
     normalized.some((email) =>
       email.length > 320 ||
@@ -529,6 +536,8 @@ export const sendRefundCustomerEmail = async (
   const managerCcEmails = requireRefundManagerCcEmailsForSend(
     input.managerCcEmails,
     input.customerEmail,
+    input.managerRecipientOverlap,
+    input.managerRecipientCount,
   );
   await sendRefundTransactionalEmail({
     to: [input.customerEmail],
@@ -553,6 +562,8 @@ export type RefundWalletCorrectionEmailInput = {
   correctionUrl: string;
   reminder?: boolean;
   managerCcEmails?: string[];
+  managerRecipientOverlap?: boolean;
+  managerRecipientCount?: number;
 };
 
 export const buildRefundWalletCorrectionEmail = (
@@ -625,6 +636,8 @@ export const sendRefundWalletCorrectionEmail = async (
   const managerCcEmails = requireRefundManagerCcEmailsForSend(
     input.managerCcEmails,
     input.customerEmail,
+    input.managerRecipientOverlap,
+    input.managerRecipientCount,
   );
   await sendRefundTransactionalEmail({
     to: [input.customerEmail],

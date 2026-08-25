@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(94);
+select plan(99);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -33,6 +33,15 @@ insert into auth.users (
 values (
   '00000000-0000-0000-0000-000000000000', '78600000-0000-4000-8000-000000000005',
   'authenticated', 'authenticated', 'manager-four@example.test', '', now(),
+  '{}'::jsonb, '{}'::jsonb, now(), now()
+);
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+)
+values (
+  '00000000-0000-0000-0000-000000000000', '78600000-0000-4000-8000-000000000006',
+  'authenticated', 'authenticated', 'manager-five@example.test', '', now(),
   '{}'::jsonb, '{}'::jsonb, now(), now()
 );
 
@@ -378,8 +387,52 @@ select is(
     'customer@example.test',
     array['info@bloomjoysweets.com', 'support@bloomjoysweets.com']
   ) ->> 'status',
+  'resolved',
+  'Four distinct active manager mappings remain a complete valid route'
+);
+select is(
+  jsonb_array_length(public.service_resolve_refund_customer_manager_cc(
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    'customer@example.test',
+    array['info@bloomjoysweets.com', 'support@bloomjoysweets.com']
+  ) -> 'managerCcEmails'),
+  4,
+  'All four current managers are represented in the resolved CC route'
+);
+
+select ok(
+  pg_temp.capture_error($sql$
+    insert into public.reporting_machine_refund_managers (
+      reporting_machine_id, manager_user_id, manager_email, status, grant_reason
+    ) values (
+      '78630000-0000-4000-8000-000000000001',
+      '78600000-0000-4000-8000-000000000006',
+      'manager-five@example.test', 'active', 'Synthetic trigger cap check'
+    )
+  $sql$) like '23514:%at most 4 active Machine Managers%',
+  'A fifth active manager is rejected by the database assignment boundary'
+);
+
+alter table public.reporting_machine_refund_managers
+  disable trigger reporting_machine_refund_manager_limit;
+insert into public.reporting_machine_refund_managers (
+  id, reporting_machine_id, manager_user_id, manager_email, status, grant_reason
+)
+values (
+  '78640000-0000-4000-8000-000000000008', '78630000-0000-4000-8000-000000000001',
+  '78600000-0000-4000-8000-000000000006', 'manager-five@example.test', 'active',
+  'Synthetic direct-write over-cap mapping drift'
+);
+alter table public.reporting_machine_refund_managers
+  enable trigger reporting_machine_refund_manager_limit;
+select is(
+  public.service_resolve_refund_customer_manager_cc(
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    'customer@example.test',
+    array['info@bloomjoysweets.com', 'support@bloomjoysweets.com']
+  ) ->> 'status',
   'invalid_manager_mapping',
-  'More than three distinct active manager mappings fail closed as invalid'
+  'More than four distinct active manager mappings fail closed as invalid'
 );
 select is(
   public.service_resolve_refund_customer_manager_cc(
@@ -432,7 +485,8 @@ select is(
 delete from public.reporting_machine_refund_managers
 where id in (
   '78640000-0000-4000-8000-000000000005',
-  '78640000-0000-4000-8000-000000000006'
+  '78640000-0000-4000-8000-000000000006',
+  '78640000-0000-4000-8000-000000000008'
 );
 
 insert into public.refund_case_messages (
@@ -584,8 +638,8 @@ select is(
     'customer@example.test',
     array['info@bloomjoysweets.com', 'support@bloomjoysweets.com']
   ) ->> 'status',
-  'invalid_manager_mapping',
-  'A customer-address collision in the active manager mapping fails closed'
+  'resolved',
+  'A mapped manager who is also the customer remains a complete route'
 );
 select is(
   public.service_resolve_refund_customer_manager_cc(
@@ -593,8 +647,26 @@ select is(
     'customer@example.test',
     array['info@bloomjoysweets.com', 'support@bloomjoysweets.com']
   ) -> 'managerCcEmails',
-  '[]'::jsonb,
-  'The case customer never appears in visible manager CC'
+  '["manager-one@example.test"]'::jsonb,
+  'The customer-manager is counted by To and never duplicated in visible CC'
+);
+select is(
+  (public.service_resolve_refund_customer_manager_cc(
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    'customer@example.test',
+    array['info@bloomjoysweets.com', 'support@bloomjoysweets.com']
+  ) ->> 'managerRecipientOverlap')::boolean,
+  true,
+  'The resolved route explicitly records customer-manager recipient overlap'
+);
+select is(
+  (public.service_resolve_refund_customer_manager_cc(
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    'customer@example.test',
+    array['info@bloomjoysweets.com', 'support@bloomjoysweets.com']
+  ) ->> 'managerRecipientCount')::integer,
+  2,
+  'The complete route counts the customer-manager and the separate manager once each'
 );
 
 update public.reporting_machine_refund_managers
