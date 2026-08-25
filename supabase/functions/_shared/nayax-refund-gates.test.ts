@@ -21,6 +21,8 @@ const enabledConfig = {
   NAYAX_REFUND_DAILY_COUNT_CAP: "10",
   NAYAX_REFUND_IDEMPOTENCY_SECRET: "i".repeat(64),
   NAYAX_REFUND_EXECUTOR_ASSERTION: "e".repeat(64),
+  NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED: "true",
+  NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED: "true",
 };
 
 Deno.test("default or missing rollout configuration reports every fail-closed gate", () => {
@@ -35,6 +37,8 @@ Deno.test("default or missing rollout configuration reports every fail-closed ga
       "daily_count_cap_missing",
       "idempotency_secret_missing",
       "executor_assertion_missing",
+      "manager_contract_unconfirmed",
+      "approval_scope_unconfirmed",
     ]
   ) {
     assert(config.blocks.includes(block as never), `${block} must block`);

@@ -555,20 +555,15 @@ export async function executeNayaxRefundProvider({
     fetchImpl,
     timeoutMs,
   });
-  await onStageEvent(Object.freeze({
+  const requestDecision = await onStageEvent(Object.freeze({
     stage: "request",
     event: "result",
     result: request,
   }));
-  const requestMayAdvance = request.outcome === "accepted" ||
-    (
-      contract.requestAdvanceMode === "http_2xx" &&
-      Number.isInteger(request.httpStatus) &&
-      request.httpStatus >= 200 &&
-      request.httpStatus < 300 &&
-      !request.failureType
-    );
-  if (!requestMayAdvance) {
+  // The database journal owns this transition. Provider response parsing in
+  // JavaScript supplies evidence only; it can never independently authorize
+  // the financially distinct approval call.
+  if (requestDecision?.approvalAuthorized !== true) {
     return Object.freeze({ request, approve: null, executed: false });
   }
 
@@ -831,6 +826,8 @@ export const mapNayaxRefundExecutionOutcome = async (
     ? "provider_approval_pending"
     : finalStage.failureType === "network"
     ? `provider_${finalStage.stage}_network_unknown`
+    : finalStage.contractMatched === false
+    ? `provider_${finalStage.stage}_contract_mismatch`
     : `provider_${finalStage.stage}_outcome_unknown`;
   return {
     kind: "unknown",

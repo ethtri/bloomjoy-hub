@@ -106,6 +106,8 @@ const makeHarness = (provider: NayaxProviderAdapter) => {
           ? "declined"
           : "ambiguous",
         providerOutcome: input.outcome.kind,
+        providerStatus: input.outcome.providerStatus ?? null,
+        errorCode: input.outcome.errorCode ?? null,
         shouldExecute: false,
         reconciliationRequired: ambiguous,
         reportingAdjustmentPresent,
@@ -312,6 +314,11 @@ Deno.test("committed success stays successful when customer delivery throws", as
     "email-only uncertainty required",
   );
   assert(
+    result.errorCode === "customer_completion_delivery_failure" &&
+      result.reconciliationRequired,
+    "delivery-only failure must be classified without changing payment success",
+  );
+  assert(
     replay.executed && replay.replayed && !replay.providerAttempted,
     "replay must not call provider",
   );
@@ -324,6 +331,56 @@ Deno.test("committed success stays successful when customer delivery throws", as
     "case/reporting finalization remains exactly once",
   );
 });
+
+Deno.test("journal failure classification survives settlement and never reaches success", async () => {
+  const harness = makeHarness({
+    mode: "live",
+    execute: () => {
+      throw new Error("stage_journal_request_result_rejected");
+    },
+  });
+  const result = await orchestrateNayaxRefund({
+    request,
+    dependencies: harness.dependencies,
+  });
+  assert(!result.executed && result.status === "ambiguous", "journal failure must hold");
+  assert(
+    result.errorCode === "stage_journal_request_result_rejected",
+    "the actionable journal failure code must be retained",
+  );
+  assert(
+    harness.state().providerAttempts === 1 && result.reconciliationRequired,
+    "journal ambiguity must never invite a retry",
+  );
+});
+
+for (const kind of ["success", "rejected"] as const) {
+  Deno.test(`settlement failure after provider ${kind} is held without downstream effects`, async () => {
+    const harness = makeHarness({
+      mode: "synthetic",
+      execute: () => Promise.resolve({ kind }),
+    });
+    harness.dependencies.settleProviderOutcome = () => {
+      throw new Error("synthetic database outage");
+    };
+    const result = await orchestrateNayaxRefund({
+      request,
+      dependencies: harness.dependencies,
+    });
+    assert(!result.executed && result.status === "ambiguous", "settlement failure must hold");
+    assert(
+      result.errorCode === (kind === "success"
+        ? "settlement_failure_after_provider_success"
+        : "settlement_failure_after_provider_result"),
+      "settlement failure must retain its exact phase classification",
+    );
+    assert(
+      result.providerAttempted && result.reconciliationRequired &&
+        result.customerCompletion === null && !result.reportingAdjustmentPresent,
+      "settlement failure must stop all downstream effects",
+    );
+  });
+}
 
 for (
   const scenario of [

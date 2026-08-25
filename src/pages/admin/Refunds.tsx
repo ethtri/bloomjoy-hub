@@ -43,6 +43,7 @@ import {
   fetchRefundCaseReconciliation,
   fetchRefundGmailCaseContext,
   fetchRefundGmailHealth,
+  fetchRefundNayaxReliabilityHealth,
   fetchRefundNayaxResolutionReadiness,
   fetchRefundOperationsOverview,
   isLocalUatDemoForced,
@@ -2160,6 +2161,13 @@ export default function AdminRefundsPage() {
     staleTime: 1000 * 60,
     retry: false,
   });
+  const { data: nayaxReliabilityHealth } = useQuery({
+    queryKey: ['refund-nayax-reliability-health'],
+    queryFn: fetchRefundNayaxReliabilityHealth,
+    enabled: !forceDemoData,
+    staleTime: 1000 * 30,
+    retry: false,
+  });
   const gmailNeedsAttention =
     gmailHealth?.status === 'stale' ||
     gmailHealth?.status === 'failing' ||
@@ -2180,6 +2188,7 @@ export default function AdminRefundsPage() {
       queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-gmail-case-context'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-gmail-health'] }),
+      queryClient.invalidateQueries({ queryKey: ['refund-nayax-reliability-health'] }),
       queryClient.invalidateQueries({ queryKey: ['nayax-card-refund-availability'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-nayax-resolution-readiness'] }),
     ]);
@@ -5453,6 +5462,15 @@ export default function AdminRefundsPage() {
                   title="Incoming refund email may be delayed. Existing cases and payment actions are still available."
                 >
                   Email intake needs attention
+                </span>
+              )}
+              {nayaxReliabilityHealth?.status === 'attention' && (
+                <span
+                  data-testid="refund-payment-health"
+                  className="text-sm font-medium text-amber-800"
+                  title={`Card refunds are paused for affected Nayax accounts. ${nayaxReliabilityHealth.ownerLabel} owns reconciliation within ${nayaxReliabilityHealth.escalationSlaMinutes} minutes.`}
+                >
+                  Card refunds need attention
                 </span>
               )}
               <Button variant="outline" onClick={() => void refresh()} disabled={pageIsFetching || isUsingDemoData}>

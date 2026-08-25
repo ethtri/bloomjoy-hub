@@ -70,7 +70,7 @@ Deno.test('manager state distinguishes in-flight, uncertain, rejected, completed
       { ...baseCase, providerHold: true, providerOutcome: 'unconfirmed' },
       { canResolveHeldResult: true }
     ).label,
-    'Provider confirmation ready',
+    'Evidence can be recorded',
     'actionable held-result label'
   );
   assertEquals(
@@ -84,6 +84,25 @@ Deno.test('manager state distinguishes in-flight, uncertain, rejected, completed
     'completed label'
   );
   assertEquals(getRefundManagerState({ ...baseCase, status: 'denied' }).label, 'Denied', 'denied label');
+});
+
+Deno.test('account reconciliation hold explains the account-level circuit breaker', () => {
+  const result = getRefundManagerState({
+    ...baseCase,
+    hasMatchedNayaxTransaction: true,
+    refundReadiness: {
+      transactionConfirmed: true,
+      canIssueCardRefund: false,
+      blockReason: 'account_reconciliation_hold',
+    },
+  });
+
+  assertEquals(result.id, 'refund_unavailable', 'account hold state');
+  assertEquals(
+    result.nextStep,
+    'Card refunds for this payment account are paused because an earlier result still needs review.',
+    'account hold guidance'
+  );
 });
 
 Deno.test('uncertain provider result blocks a second action even when old status looks ready', () => {

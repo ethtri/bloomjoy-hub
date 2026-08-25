@@ -9,9 +9,9 @@ import {
   buildRedactedNayaxStageDigest,
   buildNayaxRefundRequestBody,
   classifyNayaxRefundResponse,
-  createNayaxRefundProviderAdapter,
+  createNayaxRefundProviderAdapter as createNayaxRefundProviderAdapterRaw,
   executeNayaxRefundApprovalOnly,
-  executeNayaxRefundProvider,
+  executeNayaxRefundProvider as executeNayaxRefundProviderRaw,
   freezeNayaxRefundEvidence,
   parseNayaxRefundApprovalContract,
   parseNayaxRefundProviderContract,
@@ -35,6 +35,50 @@ const equal = (actual, expected, message) => {
 const deepEqual = (actual, expected, message) => {
   assertionCount += 1;
   assert.deepEqual(actual, expected, message);
+};
+
+// Unit tests supply a deterministic stand-in for the database-owned decision.
+// The pgTAP suite independently exercises the real migrated state machine.
+const simulatedDatabaseStageDecision = async (stageEvent) => ({
+  approvalAuthorized:
+    stageEvent.stage === 'request' &&
+    stageEvent.event === 'result' &&
+    !stageEvent.result.failureType &&
+    Number.isInteger(stageEvent.result.httpStatus) &&
+    stageEvent.result.httpStatus >= 200 &&
+    stageEvent.result.httpStatus < 300 &&
+    (
+      (stageEvent.result.outcome === 'accepted' && stageEvent.result.contractMatched === true) ||
+      (stageEvent.result.outcome === 'unknown' && stageEvent.result.contractMatched === false)
+    ),
+  journalContractVersion: 'nayax-provider-journal-v2',
+  payloadRedacted: true,
+});
+
+const executeNayaxRefundProvider = (input) => {
+  const suppliedStageCallback = input.onStageEvent;
+  return executeNayaxRefundProviderRaw({
+    ...input,
+    onStageEvent: async (stageEvent) => {
+      const suppliedDecision = await suppliedStageCallback?.(stageEvent);
+      return suppliedDecision && typeof suppliedDecision === 'object'
+        ? suppliedDecision
+        : simulatedDatabaseStageDecision(stageEvent);
+    },
+  });
+};
+
+const createNayaxRefundProviderAdapter = (input) => {
+  const suppliedStageCallback = input.onStageEvent;
+  return createNayaxRefundProviderAdapterRaw({
+    ...input,
+    onStageEvent: async (stageEvent) => {
+      const suppliedDecision = await suppliedStageCallback?.(stageEvent);
+      return suppliedDecision && typeof suppliedDecision === 'object'
+        ? suppliedDecision
+        : simulatedDatabaseStageDecision(stageEvent);
+    },
+  });
 };
 
 const throws = (fn, expected, message) => {
@@ -323,6 +367,41 @@ deepEqual(
   'Durable stage callbacks bracket each provider POST in exact order.',
 );
 
+let noDatabaseDecisionCalls = 0;
+const noDatabaseDecisionResult = await executeNayaxRefundProviderRaw({
+  contract,
+  requestToken: 'synthetic-request-token',
+  approveToken: 'synthetic-approve-token',
+  amountCents: 725,
+  transactionId: '123456789',
+  siteId: 42,
+  machineAuthorizationTime: '2026-07-22T17:30:00Z',
+  fetchImpl: async () => {
+    noDatabaseDecisionCalls += 1;
+    return response({ Result: 'True', Status: 'Pending Approval' });
+  },
+});
+check(!noDatabaseDecisionResult.executed, 'Missing database authorization fails closed.');
+equal(noDatabaseDecisionCalls, 1, 'Missing database authorization cannot call approval.');
+
+let databaseDenialCalls = 0;
+const databaseDenialResult = await executeNayaxRefundProviderRaw({
+  contract,
+  requestToken: 'synthetic-request-token',
+  approveToken: 'synthetic-approve-token',
+  amountCents: 725,
+  transactionId: '123456789',
+  siteId: 42,
+  machineAuthorizationTime: '2026-07-22T17:30:00Z',
+  fetchImpl: async () => {
+    databaseDenialCalls += 1;
+    return response({ Result: 'True', Status: 'Pending Approval' });
+  },
+  onStageEvent: async () => ({ approvalAuthorized: false, payloadRedacted: true }),
+});
+check(!databaseDenialResult.executed, 'The database can deny approval even after exact request acceptance.');
+equal(databaseDenialCalls, 1, 'Database denial stops before the approval endpoint.');
+
 const observedRequestContract = parseNayaxRefundProviderContract({
   ...baseContract,
   contractVersion: 'nayax-qa-observed-request-v1',
@@ -483,7 +562,6 @@ for (const requestFixture of [
   { Result: 'False', Status: 'Rejected' },
   { Result: 'False', Status: 'Duplicate' },
   { Result: 'False', Status: 'Already Refunded' },
-  { Result: 'True', Status: 'Unexpected' },
 ]) {
   let callCount = 0;
   const result = await executeNayaxRefundProvider({
@@ -502,6 +580,32 @@ for (const requestFixture of [
   check(!result.executed, 'A non-accepted request cannot execute a refund.');
   equal(callCount, 1, 'A non-accepted request is not retried and is never followed by approval.');
 }
+
+let unfamiliarRequestCallCount = 0;
+const unfamiliarRequestResult = await executeNayaxRefundProvider({
+  contract,
+  requestToken: 'synthetic-request-token',
+  approveToken: 'synthetic-approve-token',
+  amountCents: 725,
+  transactionId: '123456789',
+  siteId: 42,
+  machineAuthorizationTime: '2026-07-22T17:30:00Z',
+  fetchImpl: async () => {
+    unfamiliarRequestCallCount += 1;
+    return unfamiliarRequestCallCount === 1
+      ? response({ Result: 'True', Status: 'Unexpected' })
+      : response({ Result: 'True', Status: 'Approved' });
+  },
+});
+check(
+  unfamiliarRequestResult.executed,
+  'The database-authorized unfamiliar HTTP 2xx request may advance to exact approval.',
+);
+equal(
+  unfamiliarRequestCallCount,
+  2,
+  'The unfamiliar HTTP 2xx request advances once and is never retried.',
+);
 
 for (const approveFixture of [
   { Result: 'False', Status: 'Rejected' },
@@ -722,6 +826,14 @@ const gates = fs.readFileSync(
   'utf8',
 );
 const envExample = fs.readFileSync(path.join(repoRoot, '.env.example'), 'utf8');
+const refundOperations = fs.readFileSync(
+  path.join(repoRoot, 'src/lib/refundOperations.ts'),
+  'utf8',
+);
+const refundsUi = fs.readFileSync(
+  path.join(repoRoot, 'src/pages/admin/Refunds.tsx'),
+  'utf8',
+);
 const capMigration = fs.readFileSync(
   path.join(
     repoRoot,
@@ -750,6 +862,13 @@ const pendingApprovalRecoveryMigration = fs.readFileSync(
   ),
   'utf8',
 ).replace(/\r\n/g, '\n');
+const authoritativeJournalMigration = fs.readFileSync(
+  path.join(
+    repoRoot,
+    'supabase/migrations/20260825041548_refund_nayax_authoritative_journal_v2.sql',
+  ),
+  'utf8',
+).replace(/\r\n/g, '\n');
 check(capMigration.includes('pg_catalog.pg_advisory_xact_lock'), 'Daily cap checks and reservation share a transaction-scoped advisory lock.');
 check(capMigration.includes("attempt.execution_mode = 'request_and_approve'"), 'Only real provider-attempt reservations consume daily caps.');
 check(capMigration.includes('current_daily_count + 1 > p_daily_count_cap'), 'The daily count cap is checked before reservation.');
@@ -766,15 +885,37 @@ check(
 );
 check(
   handler.includes('NAYAX_REFUND_MANAGER_CONTRACT_JSON') &&
-    handler.includes('DEFAULT_NAYAX_MANAGER_CONTRACT') &&
-    handler.includes('requestAdvanceMode: "http_2xx"') &&
-    handler.includes('NAYAX_LYNX_API_TOKEN_${normalAccountKey}') &&
+    !handler.includes('DEFAULT_NAYAX_MANAGER_CONTRACT') &&
+    handler.includes('NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}') &&
+    handler.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
+    !handler.includes('NAYAX_LYNX_API_TOKEN_${normalAccountKey}') &&
     handler.includes('provider,') &&
-    handler.includes('service_reserve_nayax_refund_manager_action') &&
-    handler.includes('service_record_nayax_refund_provider_stage') &&
-    !handler.includes('...(!rawManagerContract ? ["provider_contract_missing"] : [])') &&
+    handler.includes('service_reserve_nayax_refund_manager_action_v2') &&
+    handler.includes('service_record_nayax_refund_provider_stage_v2') &&
+    handler.includes('service_get_nayax_refund_provider_journal_capability') &&
+    handler.includes('approvalAuthorized: decision.approvalAuthorized === true') &&
+    handler.includes('NAYAX_REFUND_BROAD_REOPEN_APPROVED') &&
+    handler.includes('NAYAX_REFUND_CANARY_CASE_ID') &&
     !handler.includes('provider: disabledNayaxProviderAdapter'),
-  'The normal manager action has a reviewed pilot-derived default, permits a reviewed override, and journals every stage after server-side gates.',
+  'The normal manager action requires explicit write credentials, a versioned contract, a database-owned transition, and canary/broad-release authorization.',
+);
+check(
+  authoritativeJournalMigration.includes('service_record_nayax_refund_provider_stage_v2') &&
+    authoritativeJournalMigration.includes("'approvalAuthorized', approval_authorized") &&
+    authoritativeJournalMigration.includes("normalized_outcome = 'unknown'") &&
+    authoritativeJournalMigration.includes("normalized_outcome = 'accepted'") &&
+    authoritativeJournalMigration.includes("provider_outcome in ('timeout', 'unknown')") &&
+    authoritativeJournalMigration.includes('refund_nayax_account_circuit_breaker') &&
+    authoritativeJournalMigration.includes('service_get_nayax_refund_provider_journal_capability') &&
+    authoritativeJournalMigration.includes('enable row level security'),
+  'The migration owns the transition matrix, version handshake, account circuit breaker, and private-table RLS.',
+);
+check(
+  refundOperations.includes("supabaseClient.rpc('get_refund_nayax_reliability_health')") &&
+    refundsUi.includes('refund-payment-health') &&
+    refundsUi.includes('Card refunds need attention') &&
+    refundsUi.includes('escalationSlaMinutes'),
+  'Managers receive a privacy-safe card-refund reliability alert with an explicit owner SLA.',
 );
 check(
   handler.includes('executeNayaxRefundApprovalOnly') &&
@@ -842,6 +983,11 @@ check(/^NAYAX_REFUND_EXECUTION_DRY_RUN=true$/m.test(envExample), 'Dry-run defaul
 check(/^NAYAX_REFUND_EXECUTION_KILL_SWITCH=true$/m.test(envExample), 'The kill switch defaults to active.');
 check(/^NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false$/m.test(envExample), 'Provider-contract confirmation defaults to false.');
 check(/^NAYAX_REFUND_MANAGER_CONTRACT_JSON=$/m.test(envExample), 'The manager response contract defaults to unset.');
+check(/^NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED=false$/m.test(envExample), 'Normal manager contract confirmation defaults to false.');
+check(/^NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED=false$/m.test(envExample), 'Approval permission confirmation defaults to false.');
+check(/^NAYAX_REFUND_CANARY_ENABLED=false$/m.test(envExample), 'The normal-path production canary defaults to disabled.');
+check(/^NAYAX_REFUND_CANARY_CASE_ID=$/m.test(envExample), 'The canary case defaults to unset.');
+check(/^NAYAX_REFUND_BROAD_REOPEN_APPROVED=false$/m.test(envExample), 'Broad card-refund reopening defaults to false.');
 check(/^NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_ENABLED=false$/m.test(envExample), 'Pending-request recovery defaults to disabled.');
 check(/^NAYAX_REFUND_PENDING_APPROVAL_CONTRACT_JSON=$/m.test(envExample), 'The approval-only contract defaults to unset.');
 check(/^NAYAX_REFUND_CONTROLLED_PILOT_CONTRACT_JSON=$/m.test(envExample), 'The exact provider contract defaults to unset.');

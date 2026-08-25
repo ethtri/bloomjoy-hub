@@ -6,7 +6,9 @@ export type NayaxRefundConfigBlock =
   | "daily_amount_cap_missing"
   | "daily_count_cap_missing"
   | "idempotency_secret_missing"
-  | "executor_assertion_missing";
+  | "executor_assertion_missing"
+  | "manager_contract_unconfirmed"
+  | "approval_scope_unconfirmed";
 
 export type NayaxRefundExecutionConfig = {
   blocks: NayaxRefundConfigBlock[];
@@ -18,6 +20,8 @@ export type NayaxRefundExecutionConfig = {
   dailyCountCap: number | null;
   idempotencySecret: string | null;
   executorAssertion: string | null;
+  managerContractConfirmed: boolean;
+  approvalScopeConfirmed: boolean;
 };
 
 export type NayaxRefundAvailabilityBlockReason =
@@ -98,6 +102,14 @@ export const resolveNayaxRefundExecutionConfig = (
   const executorAssertion = secureSecret(
     readEnv("NAYAX_REFUND_EXECUTOR_ASSERTION"),
   );
+  const managerContractConfirmed = exactFlag(
+    readEnv("NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED"),
+    "true",
+  );
+  const approvalScopeConfirmed = exactFlag(
+    readEnv("NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED"),
+    "true",
+  );
 
   const blocks = [
     killSwitchActive ? "kill_switch_active" : null,
@@ -108,6 +120,8 @@ export const resolveNayaxRefundExecutionConfig = (
     dailyCountCap === null ? "daily_count_cap_missing" : null,
     idempotencySecret === null ? "idempotency_secret_missing" : null,
     executorAssertion === null ? "executor_assertion_missing" : null,
+    managerContractConfirmed ? null : "manager_contract_unconfirmed",
+    approvalScopeConfirmed ? null : "approval_scope_unconfirmed",
   ].filter((block): block is NayaxRefundConfigBlock => block !== null);
 
   return {
@@ -120,6 +134,8 @@ export const resolveNayaxRefundExecutionConfig = (
     dailyCountCap,
     idempotencySecret,
     executorAssertion,
+    managerContractConfirmed,
+    approvalScopeConfirmed,
   };
 };
 

@@ -1,5 +1,16 @@
 # Decisions
 
+## 2026-08-25 - Normal Nayax refunds use a database-authoritative, canary-gated execution contract (`#961`)
+
+- The append-only database journal, not Edge Function branching, is the sole authority for moving from `refund-request` to `refund-approve`. An exact accepted `2xx` or an unfamiliar successful `2xx` may authorize one approval; rejection, duplicate, already-refunded, pending, non-2xx, timeout, network failure, missing journal evidence, and version mismatch stop before approval.
+- Edge and database must complete an exact provider/journal version handshake before reservation or transport. Migration-first and function rollback remain compatible because the new circuit breaker activates only through the versioned reservation RPC.
+- Normal execution uses separate account-scoped request and approval write credentials. The reporting token and generic Nayax token are lookup-only and have no write fallback. A reviewed manager contract and an explicit approval-scope confirmation are independent required gates.
+- Any unresolved normal attempt pauses new normal refunds for the same Nayax account. Only structured DTM/support reconciliation may clear that hold; retry, fallback payment, reporting completion, and customer success mail remain prohibited while the outcome is uncertain.
+- Provider success, Bloomjoy settlement, and customer delivery are separate phases. A settlement failure after provider success is a P0 reconciliation hold; a customer-message failure does not reclassify the payment or permit another provider call.
+- Deployment does not reopen card refunds. One privately approved non-customer canary case must pass with exactly one request, at most one approval, atomic case/reporting settlement, and one completion message before a separate broad-reopen approval. Aggregate reliability health names Refund Operations as owner with a 60-minute escalation SLA.
+
+This supersedes the 2026-08-22 decision that the existing generic token and pilot-derived in-source contract were sufficient for routine launch. It preserves the two-step `2xx` behavior while making its transition, permissions, compatibility, and release proof explicit and fail-closed.
+
 ## 2026-08-24 - Refunds follow the payment method and keep the manager task simple (`#958`, `#959`)
 
 - Card is the preferred refund path. A card case still requires an exact manager-confirmed Nayax transaction and the existing provider, duplicate-payment, amount, idempotency, cap, and reconciliation controls before Bloomjoy issues the refund through the Nayax API.

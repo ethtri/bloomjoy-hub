@@ -1,6 +1,6 @@
 # Nayax Lynx API Notes
 
-Last updated: 2026-08-22
+Last updated: 2026-08-25
 
 ## Purpose
 Bloomjoy is evaluating Nayax Lynx as the server-side source for machine inventory and machine-level sales activity.
@@ -12,12 +12,14 @@ Do not call Nayax directly from the browser. Any implementation should run throu
 - The first normal production request created one DTM **Refund Requested** row but returned a response pair outside Bloomjoy's guessed contract. Nayax later confirmed the transaction appears refunded, and Bloomjoy reconciled that historical attempt exactly once with no duplicate provider call.
 - Nayax's API log records two identical approval POSTs for that historical attempt. Both returned outer HTTP 500 because the inner service returned HTTP 400 with `refund_approve_refund_bad_request`. Support described missing user-level roles only as a possibility, not a confirmed requirement. The successful refund is authoritative; no additional permission confirmation is required for routine launch and the historical transaction must never be called again.
 - The audited provider-outcome resolution migration and its three reviewed functions are deployed **default-off**. They seed no operator and do not enable an official action, a provider call, a refund, or a customer message.
-- The normal manager function contains the reviewed pilot-derived production request contract. A journaled request `2xx` advances once to the separate approval step even if the request payload wording is unfamiliar; final success still requires the exact configured approval result. Every HTTP failure, timeout, unfamiliar approval, duplicate, or already-refunded response remains a durable no-retry hold.
+- The repaired normal manager function requires an explicit reviewed production contract and an exact Edge/database version handshake. The database journal alone decides whether a request may advance: exact acceptance or an unfamiliar successful `2xx` may authorize one approval; every rejection, duplicate, already-refunded, pending, non-2xx, timeout, network, ordering, or version failure stops before approval.
+- Normal execution also requires separate account-scoped request and approval write credentials, explicit approval-scope confirmation, and an exact non-customer canary or separate broad-reopen approval. An unresolved v2 attempt pauses new normal refunds for that Nayax account. Deployment by itself leaves all execution gates closed.
 - Issue `#877` added keyed redacted stage journaling and a default-off single-use approval-only recovery for the historical incident. Routine execution no longer depends on a temporary pilot contract secret, and an invalid environment override still fails closed.
 
 ## Current Production Credential Status
 - Production Supabase project: `ygbzkgxktzqsiygjlqyg`
-- Server-only Supabase secret name: `NAYAX_LYNX_API_TOKEN`
+- Server-only reporting/lookup secret name: `NAYAX_LYNX_API_TOKEN`
+- Normal write secret names: `NAYAX_REFUND_REQUEST_WRITE_TOKEN_<ACCOUNT_KEY>` and `NAYAX_REFUND_APPROVE_WRITE_TOKEN_<ACCOUNT_KEY>`
 - Local development may use `.env` only on the agent machine. Never commit token values.
 - Never prefix this token with `VITE_`; Vite exposes `VITE_` values to the browser.
 
@@ -27,13 +29,13 @@ The secret was added to Supabase on 2026-05-11 and verified by name/digest with:
 supabase secrets list --project-ref ygbzkgxktzqsiygjlqyg
 ```
 
-Edge Functions should read the token with:
+Read-only lookup functions may read the reporting token with:
 
 ```ts
 const nayaxToken = Deno.env.get("NAYAX_LYNX_API_TOKEN");
 ```
 
-The reporting token is read-only lookup authority only. Refund writes require the two dedicated account-scoped request/approval secret slots bound by the controlled-pilot contract; there is no reporting-token or generic-token fallback. Never use the reporting token as a write-permission probe.
+The reporting token is read-only lookup authority only. Normal refund writes require both dedicated account-scoped request/approval slots; there is no reporting-token or generic-token fallback. Never use the reporting token as a write-permission probe.
 
 ## Verified Endpoint Status
 Base path that works in production:
@@ -142,7 +144,7 @@ Do not build browser-side Nayax calls, and do not expose Nayax raw responses in 
 The versioned matching weights, states, timezone rules, privacy-safe evidence, fixtures, and rollback procedure are documented in [REFUND_NAYAX_MATCHING_RUNBOOK.md](./REFUND_NAYAX_MATCHING_RUNBOOK.md).
 Refund execution is separate from read-only Last Sales lookup.
 
-The deployed foundation includes `nayax-card-refund` as a backend-only, fail-closed execution surface. One exact mapped-manager acceptance temporarily opened only the authorized machine/caps and reserved one provider attempt. The provider request created a DTM pending row, but Bloomjoy's guessed response contract classified the response as unknown and correctly stopped before approval/finalization. All runtime gates were closed afterward. P0 `#877` removes the guessed contract from source and requires an explicit reviewed environment contract before any future normal reservation or provider call.
+The deployed foundation includes `nayax-card-refund` as a backend-only, fail-closed execution surface. The P0 `#961` repair makes its journaled database transition authoritative, adds an exact provider/journal compatibility handshake, separates request and approval credentials, and activates an account circuit breaker only through the new versioned reservation path. Provider success, Bloomjoy settlement, and customer delivery retain separate durable classifications so a later failure cannot invite a duplicate refund.
 
 The historical rollout values remain defense-in-depth controls and must stay in their fail-closed state while the handler is disabled:
 - sponsor go/no-go unset;
