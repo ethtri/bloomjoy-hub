@@ -84,7 +84,8 @@
     "20260824160609_refund_confirmation_readiness.sql",
     "20260824190000_refund_machine_truthful_readiness.sql",
     "20260824224813_refund_nayax_daily_readiness_usage.sql",
-    "20260825000909_refund_manual_external_cash_completion.sql"
+    "20260825000909_refund_manual_external_cash_completion.sql",
+    "20260825013128_refund_simple_cash_intake.sql"
   ],
   "migrationFilesSha256": "01cbe52c5eaea1104572e4e6d3f70a1049a27550f153c156c1104896e5f32ee7",
   "migrationVersionSetSha256": "f5c756ec4054bc2dadb3bc410431ab0aaf599940b9841c63fc46ad3cb2b74dc3",
