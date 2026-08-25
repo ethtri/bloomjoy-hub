@@ -745,6 +745,7 @@ export type RefundNayaxResolutionEvidenceType =
 
 export type RefundNayaxResolutionReason =
   | 'nayax_dtm_settled'
+  | 'nayax_dtm_preexisting_settled'
   | 'nayax_support_confirmed_success'
   | 'nayax_dtm_not_refunded'
   | 'nayax_support_retry_safe'

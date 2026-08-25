@@ -16,6 +16,9 @@ const managerSession = read('supabase/migrations/20260821035000_refund_manager_s
 const formCompletion = read('supabase/migrations/20260821080000_refund_form_completion_transport.sql');
 const completionDelivery = read('supabase/migrations/20260821083000_refund_completion_delivery_decoupling.sql');
 const evidenceOnly = read('supabase/migrations/20260825193000_refund_nayax_evidence_only_reconciliation.sql');
+const preexistingAttemptEvidence = read(
+  'supabase/migrations/20260825202000_refund_nayax_preexisting_attempt_evidence.sql'
+);
 const edge = read('supabase/functions/refund-nayax-outcome-resolve/index.ts');
 const completion = read('supabase/functions/_shared/nayax-resolution-completion.ts');
 const messageSend = read('supabase/functions/refund-case-message-send/index.ts');
@@ -137,6 +140,32 @@ assert(
     evidenceOnly.includes('refund_gmail_threads original_thread') &&
     !/\b(http_post|net\.http|fetch\s*\()/i.test(evidenceOnly),
   'Already-completed Nayax refunds must use a provider-free, no-retry, exact-evidence reconciliation boundary.'
+);
+
+assert(
+  preexistingAttemptEvidence.includes("'nayax_dtm_preexisting_settled'") &&
+    preexistingAttemptEvidence.includes(
+      "p_evidence_occurred_at >= case_row.matched_nayax_machine_auth_time"
+    ) &&
+    preexistingAttemptEvidence.includes(
+      "p_evidence_occurred_at < attempt_row.created_at"
+    ) &&
+    preexistingAttemptEvidence.includes(
+      "normalized_type = 'nayax_dtm_transaction'"
+    ) &&
+    preexistingAttemptEvidence.includes(
+      'refund_nayax_resolution_one_success_evidence_idx'
+    ) &&
+    preexistingAttemptEvidence.includes(
+      'This provider evidence reference already completed another refund case'
+    ) &&
+    preexistingAttemptEvidence.includes("'provider_call_made', false") &&
+    managerSession.includes("'initial_provider_outcome'") &&
+    preexistingAttemptEvidence.includes("'evidence_predated_bloomjoy_attempt'") &&
+    preexistingAttemptEvidence.includes("'nayax_preexisting_refund_reconciled'") &&
+    preexistingAttemptEvidence.includes("then 'Your '") &&
+    !/\b(http_post|net\.http|fetch\s*\()/i.test(preexistingAttemptEvidence),
+  'A DTM refund between the matched sale and later held attempt must close provider-free, remain exactly once, and preserve truthful causality.'
 );
 
 assert(

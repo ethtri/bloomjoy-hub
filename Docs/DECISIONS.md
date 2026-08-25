@@ -1165,6 +1165,8 @@ Nayax's supported public contract does not provide a read-only API that authorit
 - Opening review makes no Nayax call, creates no provider claim, posts no reporting adjustment, and creates no customer message.
 - Evidence-only review may record only authoritative success or preserve the hold. It cannot mark retry-safe, create a fresh payment path, or use the manual-refund result shape.
 - A completed result requires a validated DTM or support reference and a timestamp no earlier than the matched sale authorization and no later than the current review window. Only a one-way reference digest is retained.
+- If an ordinary held attempt exists but exact DTM success occurred after the matched sale and before that attempt was created, the server derives `nayax_dtm_preexisting_settled`. Operators cannot submit that classification directly. Historical support/manual evidence, evidence before the sale, and future evidence remain blocked.
+- One successful provider-evidence digest can complete only one case, including under concurrent requests. The original unknown/rejected provider result remains in the audit record, the completion event says Nayax had already completed the refund, and customer copy does not claim Bloomjoy's later attempt issued it.
 - Confirmed success reuses the existing exactly-once outcome resolver for the reporting adjustment and source-appropriate customer completion. Replay cannot duplicate either effect.
 - Do not build an automatic matcher from undocumented DTM behavior. Automatic reconciliation can replace this fallback only after Nayax supplies and Bloomjoy validates a supported authoritative readback contract.
 

@@ -260,6 +260,10 @@ try {
     'The provider-free existing-refund reconciliation migration must be in the discovered release inventory'
   );
   assert(
+    repositoryMigrations.includes('20260825202000_refund_nayax_preexisting_attempt_evidence.sql'),
+    'The pre-existing Nayax DTM refund timing and exactly-once evidence migration must be in the discovered release inventory'
+  );
+  assert(
     repositoryMigrations.includes('202608170003_refund_nayax_manager_overview_authority.sql'),
     'The mapped-manager Nayax overview authority boundary must be in the discovered release inventory'
   );
