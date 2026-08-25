@@ -60,11 +60,17 @@ export type RefundMachineOption = {
   locationTimezone: string;
 };
 
+export type RefundCashMachineOption = {
+  machineId: string;
+  displayLabel: string;
+};
+
 export type RefundPublicSelection = {
   selectionKey: string;
   displayLabel: string;
   selectionKind: 'exact_machine' | 'livermore_pair' | 'legacy_exact_machine';
   machineId?: string;
+  cashMachineOptions?: RefundCashMachineOption[];
   locationTimezone: string;
 };
 
@@ -125,6 +131,11 @@ type RefundPublicSelectionRpc = {
   location_timezone: string;
 };
 
+type RefundPublicSelectionV2Rpc = RefundPublicSelectionRpc & {
+  machine_id: string | null;
+  cash_machine_options: unknown;
+};
+
 type RefundMachineOptionRpc = {
   machine_id: string;
   machine_label: string;
@@ -148,7 +159,6 @@ export type SubmitRefundRequestInput = {
   customerName?: string;
   customerEmail: string;
   customerPhone?: string;
-  zellePaymentContact?: string;
   issueSummary: string;
   incidentDate: string;
   incidentTime: string;
@@ -1026,6 +1036,39 @@ export type RefundMissingField =
   | 'card_last4';
 
 export const fetchRefundMachineOptions = async (): Promise<RefundPublicSelection[]> => {
+  const current = await supabaseClient.rpc('public_refund_selections_v2');
+
+  if (!current.error) {
+    return ((current.data as RefundPublicSelectionV2Rpc[] | null) ?? []).map((record) => ({
+      selectionKey: record.selection_key,
+      displayLabel: record.display_label,
+      selectionKind: record.selection_kind,
+      machineId: record.machine_id ?? undefined,
+      cashMachineOptions: Array.isArray(record.cash_machine_options)
+        ? record.cash_machine_options.flatMap((option) => {
+            const candidate = option as Record<string, unknown> | null;
+            if (
+              !candidate ||
+              typeof candidate.machineId !== 'string' ||
+              typeof candidate.displayLabel !== 'string'
+            ) {
+              return [];
+            }
+            return [{
+              machineId: candidate.machineId,
+              displayLabel: candidate.displayLabel,
+            }];
+          })
+        : [],
+      locationTimezone: record.location_timezone,
+    }));
+  }
+
+  const isMissingCurrentRpc = ['PGRST202', '42883'].includes(current.error.code ?? '');
+  if (!isMissingCurrentRpc) {
+    throw new Error(current.error.message || 'Unable to load refund locations.');
+  }
+
   const { data, error } = await supabaseClient.rpc('public_refund_selections');
 
   if (error) {
@@ -1216,6 +1259,16 @@ export const buildLocalRefundPublicSelections = (): RefundPublicSelection[] => [
     selectionKey: 'demo-livermore-pair',
     displayLabel: 'San Francisco Premium Outlets — Cotton candy',
     selectionKind: 'livermore_pair',
+    cashMachineOptions: [
+      {
+        machineId: '41000000-0000-4000-8000-000000000003',
+        displayLabel: 'TT20 cotton candy machine',
+      },
+      {
+        machineId: '41000000-0000-4000-8000-000000000013',
+        displayLabel: 'TT33 cotton candy machine',
+      },
+    ],
     locationTimezone: 'America/Los_Angeles',
   },
   {

@@ -7,6 +7,7 @@ import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
 import { isEdgeFunctionError } from '@/lib/edgeFunctions';
 import {
@@ -20,18 +21,21 @@ import {
   type RefundIncidentTimeConfidence,
   type RefundIssueCategory,
   type RefundPaymentInteraction,
+  type RefundPaymentMethod,
   type RefundQrClaim,
   type RefundWalletProvider,
 } from '@/lib/refundOperations';
 
 const emptyForm = {
   selectionKey: '',
+  cashMachineId: '',
   customerName: '',
   customerEmail: '',
   customerPhone: '',
   incidentDate: '',
   incidentTime: '',
   paymentAmount: '',
+  paymentMethod: 'card' as RefundPaymentMethod,
   cardLast4: '',
   cardNetwork: '' as RefundCardNetwork | '',
   cardWalletUsed: false,
@@ -190,6 +194,19 @@ export default function RefundRequestPage() {
     setForm((current) => ({ ...current, [key]: value }));
   };
 
+  const updatePaymentMethod = (paymentMethod: RefundPaymentMethod) => {
+    setForm((current) => ({
+      ...current,
+      paymentMethod,
+      cashMachineId: '',
+      cardLast4: '',
+      cardNetwork: '',
+      cardWalletUsed: false,
+      paymentInteraction: paymentMethod === 'cash' ? 'cash' : '',
+      walletProvider: '',
+    }));
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -240,22 +257,36 @@ export default function RefundRequestPage() {
       return;
     }
 
-    if (!/^[0-9]{4}$/.test(form.cardLast4.trim())) {
+    if (
+      form.paymentMethod === 'cash' &&
+      selectedMachine?.selectionKind === 'livermore_pair' &&
+      !form.cashMachineId
+    ) {
+      toast.error('Choose the cash machine you used.');
+      return;
+    }
+
+    if (form.paymentMethod === 'card' && !/^[0-9]{4}$/.test(form.cardLast4.trim())) {
       toast.error('Enter the last 4 digits shown for the card payment.');
       return;
     }
 
-    if (!form.paymentInteraction) {
+    if (form.paymentMethod === 'card' && !form.paymentInteraction) {
       toast.error('Tell us how you paid at the machine.');
       return;
     }
 
-    if (form.paymentInteraction === 'phone_watch_wallet' && !form.walletProvider) {
+    if (
+      form.paymentMethod === 'card' &&
+      form.paymentInteraction === 'phone_watch_wallet' &&
+      !form.walletProvider
+    ) {
       toast.error('Choose the phone or watch wallet you used.');
       return;
     }
 
     if (
+      form.paymentMethod === 'card' &&
       ['phone_watch_wallet', 'tap_card', 'insert_or_swipe'].includes(form.paymentInteraction) &&
       !form.cardNetwork
     ) {
@@ -278,10 +309,18 @@ export default function RefundRequestPage() {
 
       const refundCase = await submitRefundRequest({
         selectionKey:
-          qrClaim || selectedMachine?.selectionKind === 'legacy_exact_machine'
+          qrClaim ||
+          selectedMachine?.selectionKind === 'legacy_exact_machine' ||
+          (form.paymentMethod === 'cash' && selectedMachine?.selectionKind === 'livermore_pair')
             ? undefined
             : form.selectionKey,
-        machineId: qrClaim?.machine.machineId ?? selectedMachine?.machineId,
+        machineId:
+          qrClaim?.machine.machineId ??
+          (form.paymentMethod === 'cash' && selectedMachine?.selectionKind === 'livermore_pair'
+            ? form.cashMachineId
+            : selectedMachine?.selectionKind === 'legacy_exact_machine'
+              ? selectedMachine.machineId
+              : undefined),
         qrClaimToken: qrClaim?.claimToken,
         emailContextToken: emailContextToken || undefined,
         customerName: form.customerName.trim(),
@@ -290,14 +329,18 @@ export default function RefundRequestPage() {
         issueSummary: form.issueSummary.trim(),
         incidentDate,
         incidentTime,
-        paymentMethod: 'card',
+        paymentMethod: form.paymentMethod,
         paymentAmount: form.paymentAmount.trim(),
-        cardLast4: form.cardLast4.trim(),
-        cardNetwork: form.cardNetwork || undefined,
-        cardWalletUsed: form.cardWalletUsed,
-        paymentInteraction: form.paymentInteraction || 'unsure',
+        cardLast4: form.paymentMethod === 'card' ? form.cardLast4.trim() : undefined,
+        cardNetwork:
+          form.paymentMethod === 'card' && form.cardNetwork ? form.cardNetwork : undefined,
+        cardWalletUsed: form.paymentMethod === 'card' ? form.cardWalletUsed : undefined,
+        paymentInteraction:
+          form.paymentMethod === 'cash' ? 'cash' : form.paymentInteraction || 'unsure',
         walletProvider:
-          form.paymentInteraction === 'phone_watch_wallet' && form.walletProvider
+          form.paymentMethod === 'card' &&
+          form.paymentInteraction === 'phone_watch_wallet' &&
+          form.walletProvider
             ? form.walletProvider
             : undefined,
         incidentTimeConfidence: form.incidentTimeConfidence || 'rough',
@@ -619,28 +662,81 @@ export default function RefundRequestPage() {
                   <p className="mt-1 text-sm text-muted-foreground">Share only the limited payment details below.</p>
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-[190px_1fr]">
-                  <div>
-                    <Label>Payment method</Label>
-                    <div className="mt-2 flex h-11 items-center rounded-md border border-input bg-muted/30 px-3 text-sm">
-                      Card
-                    </div>
-                  </div>
-                  <div>
-                    <Label htmlFor="payment-amount">Amount charged</Label>
-                    <Input
-                      id="payment-amount"
-                      inputMode="decimal"
-                      placeholder="Example: 12.00"
-                      value={form.paymentAmount}
-                      onChange={(event) => updateForm('paymentAmount', event.target.value)}
-                      required
-                      className="mt-2"
-                    />
-                  </div>
+                <fieldset>
+                  <legend className="text-sm font-medium leading-none">How did you pay?</legend>
+                  <RadioGroup
+                    name="paymentMethod"
+                    value={form.paymentMethod}
+                    onValueChange={(value) => updatePaymentMethod(value as RefundPaymentMethod)}
+                    required
+                    className="mt-3 grid gap-3 sm:grid-cols-2"
+                  >
+                    <Label
+                      htmlFor="payment-method-card"
+                      className="flex min-h-16 cursor-pointer items-center gap-3 rounded-lg border border-input bg-white px-4 py-3 font-normal transition-colors has-[[data-state=checked]]:border-pink-500 has-[[data-state=checked]]:bg-pink-50"
+                    >
+                      <RadioGroupItem id="payment-method-card" value="card" />
+                      <span>
+                        <span className="block font-semibold text-foreground">Card</span>
+                        <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
+                          We will use limited card details to find the purchase.
+                        </span>
+                      </span>
+                    </Label>
+                    <Label
+                      htmlFor="payment-method-cash"
+                      className="flex min-h-16 cursor-pointer items-center gap-3 rounded-lg border border-input bg-white px-4 py-3 font-normal transition-colors has-[[data-state=checked]]:border-pink-500 has-[[data-state=checked]]:bg-pink-50"
+                    >
+                      <RadioGroupItem id="payment-method-cash" value="cash" />
+                      <span>
+                        <span className="block font-semibold text-foreground">Cash</span>
+                        <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
+                          No card details are needed.
+                        </span>
+                      </span>
+                    </Label>
+                  </RadioGroup>
+                </fieldset>
+
+                <div>
+                  <Label htmlFor="payment-amount">Amount paid</Label>
+                  <Input
+                    id="payment-amount"
+                    inputMode="decimal"
+                    placeholder="Example: 12.00"
+                    value={form.paymentAmount}
+                    onChange={(event) => updateForm('paymentAmount', event.target.value)}
+                    required
+                    className="mt-2"
+                  />
                 </div>
 
-                <div className="rounded-lg border border-pink-200 bg-pink-50 p-4 text-sm text-pink-950">
+                {form.paymentMethod === 'cash' &&
+                  selectedMachine?.selectionKind === 'livermore_pair' && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+                      <Label htmlFor="cash-machine">Which machine did you use?</Label>
+                      <select
+                        id="cash-machine"
+                        value={form.cashMachineId}
+                        onChange={(event) => updateForm('cashMachineId', event.target.value)}
+                        required
+                        className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
+                      >
+                        <option value="">Choose the machine label</option>
+                        {(selectedMachine.cashMachineOptions ?? []).map((machine) => (
+                          <option key={machine.machineId} value={machine.machineId}>
+                            {machine.displayLabel}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-2 text-xs leading-5 text-amber-900">
+                        Look for the small TT label on the machine.
+                      </p>
+                    </div>
+                  )}
+
+                {form.paymentMethod === 'card' && (
+                  <div className="rounded-lg border border-pink-200 bg-pink-50 p-4 text-sm text-pink-950">
                   <div className="grid gap-4">
                       <div>
                         <Label htmlFor="payment-interaction">How did you pay at the machine?</Label>
@@ -743,7 +839,8 @@ export default function RefundRequestPage() {
                         </p>
                       </div>
                   </div>
-                </div>
+                  </div>
+                )}
 
                 <div className="border-t border-border pt-5">
                   <h2 className="text-lg font-semibold text-foreground">What happened</h2>
@@ -762,10 +859,18 @@ export default function RefundRequestPage() {
                     className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                   >
                     <option value="">Choose one</option>
-                    <option value="charged_no_product">Charged, but no product came out</option>
+                    <option value="charged_no_product">
+                      {form.paymentMethod === 'cash'
+                        ? 'Paid, but no product came out'
+                        : 'Charged, but no product came out'}
+                    </option>
                     <option value="product_problem">The product came out incorrectly</option>
-                    <option value="charged_more_than_once">Charged more than once</option>
-                    <option value="wrong_amount">Charged the wrong amount</option>
+                    <option value="charged_more_than_once">
+                      {form.paymentMethod === 'cash' ? 'Paid more than once' : 'Charged more than once'}
+                    </option>
+                    <option value="wrong_amount">
+                      {form.paymentMethod === 'cash' ? 'Machine took the wrong amount' : 'Charged the wrong amount'}
+                    </option>
                     <option value="other">Something else</option>
                   </select>
                 </div>
