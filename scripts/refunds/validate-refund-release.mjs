@@ -102,7 +102,7 @@ for (const requiredFailClosedControl of [
   );
 }
 
-assert.match(cutoverPacket, /all 83 required refund\/Nayax migrations/);
+assert.match(cutoverPacket, /all 84 required refund\/Nayax migrations/);
 assert.match(cutoverPacket, /exact canonical 51-migration predeployment bridge/);
 assert.match(
   cutoverPacket,
@@ -141,13 +141,13 @@ for (const retiredPilotGate of [
 }
 assert.match(
   productionRunbook,
-  /exactly 44 reviewed synthetic screenshots/,
-  'Production runbook must use the current 44-screenshot evidence inventory'
+  /exactly 65 reviewed synthetic screenshots/,
+  'Production runbook must use the current 65-screenshot evidence inventory'
 );
 assert.doesNotMatch(
   productionRunbook,
-  /exactly 47 reviewed synthetic screenshots/,
-  'Production runbook must not retain the retired 47-screenshot evidence count'
+  /exactly 44 reviewed synthetic screenshots/,
+  'Production runbook must not retain the retired 44-screenshot evidence count'
 );
 const smokeOrder = cutoverPacket.indexOf('## Exact postdeployment readiness order');
 const routeSmoke = cutoverPacket.indexOf('refunds:smoke-routes', smokeOrder);
@@ -208,8 +208,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    83,
-    'Refund release inventory must cover exactly 83 discovered refund/Nayax migrations'
+    84,
+    'Refund release inventory must cover exactly 84 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -254,6 +254,10 @@ try {
   assert(
     repositoryMigrations.includes('20260825170000_refund_nayax_dtm_reference_width.sql'),
     'The current Nayax DTM reference-width migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260825193000_refund_nayax_evidence_only_reconciliation.sql'),
+    'The provider-free existing-refund reconciliation migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('202608170003_refund_nayax_manager_overview_authority.sql'),

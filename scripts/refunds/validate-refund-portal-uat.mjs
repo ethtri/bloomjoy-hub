@@ -1020,6 +1020,25 @@ const buildNayaxResolutionRefundOverview = () => {
   return overview;
 };
 
+const buildNayaxEvidenceOnlyRefundOverview = () => {
+  const overview = buildMockRefundOverview();
+  overview.cases = [
+    {
+      ...overview.cases[0],
+      status: 'needs_review',
+      decision: null,
+      decisionReason: null,
+      decidedAt: null,
+      nayaxMatchExecutionEligible: true,
+      nayaxRefundExecutionStatus: 'not_requested',
+      providerHold: false,
+      providerOutcome: 'not_attempted',
+      officialActionVersion: 9,
+    },
+  ];
+  return overview;
+};
+
 const buildInterruptedNayaxCompletionOverview = () => {
   const overview = buildMockRefundOverview();
   const refundCase = overview.cases[0];
@@ -1143,6 +1162,7 @@ const installMockSupabaseRoutes = async (
     managerStepUpExpiresAt = new Date(Date.now() + 2 * 60 * 1000).toISOString(),
     managerStepUpResponse = null,
     nayaxResolutionResponse = null,
+    nayaxEvidenceOnlyStartResponse = null,
     nayaxResolutionReadiness = {
       visible: false,
       available: false,
@@ -1194,6 +1214,7 @@ const installMockSupabaseRoutes = async (
   const confirmedSelections = new Map();
   let nayaxSettlementResult = null;
   let nayaxSettlementCaseId = null;
+  let currentNayaxResolutionReadiness = { ...nayaxResolutionReadiness };
   let ownerTotpEnrolled = totpEnrollmentReadiness.enrolled === true;
   let currentNayaxCardRefundAvailability = nayaxCardRefundAvailabilityResponse ?? {
     available: true,
@@ -1713,7 +1734,39 @@ const installMockSupabaseRoutes = async (
     }
 
     if (url.includes('/admin_get_refund_nayax_resolution_readiness')) {
-      return route.fulfill(jsonResponse(nayaxResolutionReadiness));
+      return route.fulfill(jsonResponse(currentNayaxResolutionReadiness));
+    }
+
+    if (url.includes('/admin_begin_refund_nayax_evidence_only_reconciliation')) {
+      const requestBody = request.postDataJSON();
+      const caseId = requestBody?.p_case_id ?? 'case-card-1';
+      const currentVersion = officialActionVersions.get(caseId) ?? 1;
+      const nextVersion = currentVersion + 1;
+      officialActionVersions.set(caseId, nextVersion);
+      const response = nayaxEvidenceOnlyStartResponse ?? {
+        attemptId: '8a830000-0000-4000-8000-000000000001',
+        created: true,
+        status: 'manual_review',
+        providerOutcome: 'unknown',
+        expectedCaseVersion: nextVersion,
+        providerCallMade: false,
+        customerMessageCreated: false,
+        payloadRedacted: true,
+      };
+      currentNayaxResolutionReadiness = {
+        visible: true,
+        available: true,
+        blockReason: null,
+        canStartEvidenceOnlyReconciliation: false,
+        attemptId: response.attemptId,
+        providerOutcome: 'unknown',
+        manualPortalAttempt: false,
+        evidenceOnlyAttempt: true,
+        expectedCaseVersion: nextVersion,
+        allowedResults: ['provider_confirmed_success', 'remain_on_hold'],
+        payloadRedacted: true,
+      };
+      return route.fulfill(jsonResponse(response));
     }
 
     if (url.includes('/admin_prepare_refund_nayax_resolution_intent')) {
@@ -5621,6 +5674,134 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
 
     await closeRefundPortalContext(context);
   }
+
+  const evidenceOnlyContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const evidenceOnlyFunctionCalls = [];
+  const evidenceOnlyFunctionBodies = [];
+  const evidenceOnlyRpcCalls = [];
+  await installMockSupabaseRoutes(evidenceOnlyContext, {
+    refundOverview: buildNayaxEvidenceOnlyRefundOverview,
+    functionCalls: evidenceOnlyFunctionCalls,
+    functionBodies: evidenceOnlyFunctionBodies,
+    rpcCalls: evidenceOnlyRpcCalls,
+    emailQueueStates: [{
+      caseId: 'case-card-1',
+      intakeSource: 'form',
+      exactCasePath: '/refunds?case=case-card-1',
+      missingInformation: false,
+      possibleDuplicate: false,
+      confirmedDuplicate: false,
+      duplicateOfCaseId: null,
+      aging: false,
+      providerHold: false,
+      providerOutcome: 'not_attempted',
+      actionBlocked: false,
+      payloadRedacted: true,
+    }],
+    nayaxResolutionReadiness: {
+      visible: true,
+      available: false,
+      blockReason: 'evidence_only_start_required',
+      canStartEvidenceOnlyReconciliation: true,
+      attemptId: null,
+      providerOutcome: null,
+      manualPortalAttempt: false,
+      evidenceOnlyAttempt: false,
+      expectedCaseVersion: 9,
+      allowedResults: [],
+      payloadRedacted: true,
+    },
+    nayaxResolutionResponse: {
+      resolved: true,
+      result: 'provider_confirmed_success',
+      caseCompleted: true,
+      retryReadyForFreshReview: false,
+      customerCompletionAvailable: true,
+      providerCallMade: false,
+      customerMessageCreated: true,
+      customerCompletion: {
+        status: 'sent',
+        transport: 'gmail_thread',
+        managerCcCount: 1,
+        originalThread: true,
+        operationApplied: true,
+        managerCompletionNoticeSent: false,
+      },
+      payloadRedacted: true,
+    },
+  });
+  const evidenceOnlyPage = await evidenceOnlyContext.newPage();
+  const evidenceOnlyConsoleErrors = [];
+  evidenceOnlyPage.on('console', (message) => {
+    if (message.type() === 'error') evidenceOnlyConsoleErrors.push(message.text());
+  });
+  evidenceOnlyPage.on('pageerror', (error) => evidenceOnlyConsoleErrors.push(error.message));
+  await signInRefundUser(evidenceOnlyPage, appUrl);
+  await evidenceOnlyPage.getByRole('button', { name: 'Action needed 1', exact: true }).click();
+  await evidenceOnlyPage.getByRole('button', { name: /RF-UAT-CARD/ }).first().click();
+  const evidenceOnlyPanel = evidenceOnlyPage.getByTestId('refund-nayax-resolution-panel');
+  await evidenceOnlyPanel.getByTestId('refund-nayax-evidence-only-start').waitFor({ timeout: 10000 });
+  recorder.assert(
+    'An already-refunded matched case starts with a provider-free evidence action only',
+    await evidenceOnlyPanel.getByText('Already refunded in Nayax?', { exact: true }).isVisible() &&
+      !evidenceOnlyFunctionCalls.includes('nayax-card-refund') &&
+      !evidenceOnlyFunctionCalls.includes('refund-case-admin-update') &&
+      !evidenceOnlyFunctionCalls.includes('refund-case-message-send') &&
+      !evidenceOnlyRpcCalls.includes('admin_begin_refund_nayax_evidence_only_reconciliation')
+  );
+  await evidenceOnlyPanel.getByTestId('refund-nayax-evidence-only-start').click();
+  await evidenceOnlyPanel.getByTestId('refund-nayax-resolution-result').waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Opening existing-refund review creates one synthetic hold without a provider or customer call',
+    evidenceOnlyRpcCalls.filter((name) =>
+      name === 'admin_begin_refund_nayax_evidence_only_reconciliation'
+    ).length === 1 &&
+      !evidenceOnlyFunctionCalls.includes('nayax-card-refund') &&
+      !evidenceOnlyFunctionCalls.includes('refund-case-admin-update') &&
+      !evidenceOnlyFunctionCalls.includes('refund-case-message-send') &&
+      await evidenceOnlyPage.getByText('Existing refund review opened', { exact: true }).isVisible()
+  );
+  recorder.assert(
+    'Evidence-only review defaults to DTM success and cannot expose a retry-safe outcome',
+    await evidenceOnlyPanel.getByTestId('refund-nayax-resolution-result').inputValue() ===
+      'provider_confirmed_success' &&
+      await evidenceOnlyPanel.getByTestId('refund-nayax-resolution-evidence-type').inputValue() ===
+      'nayax_dtm_transaction' &&
+      await evidenceOnlyPanel.getByTestId('refund-nayax-resolution-result').locator('option').count() === 2 &&
+      await evidenceOnlyPanel.getByTestId('refund-nayax-resolution-result')
+        .locator('option[value="provider_confirmed_retry_safe"]').count() === 0
+  );
+  await evidenceOnlyPanel.getByTestId('refund-nayax-resolution-reference').fill('6001143932');
+  await evidenceOnlyPanel.getByTestId('refund-nayax-resolution-occurred-at')
+    .fill(paymentEvidenceLocalValue);
+  await evidenceOnlyPage.screenshot({
+    path: path.join(artifactDir, 'refund-nayax-evidence-only-reconciliation.png'),
+    fullPage: true,
+  });
+  await evidenceOnlyPanel.getByTestId('refund-nayax-resolution-prepare').click();
+  await evidenceOnlyPage.getByText('Refund completed and customer notified', { exact: true })
+    .waitFor({ timeout: 10000 });
+  const evidenceOnlyResolutionBody = evidenceOnlyFunctionBodies
+    .filter((entry) => entry.functionName === 'refund-nayax-outcome-resolve')
+    .at(-1)?.body ?? {};
+  recorder.assert(
+    'Existing-refund completion uses the same exactly-once resolver and never calls the provider',
+    evidenceOnlyFunctionCalls.filter((name) => name === 'refund-nayax-outcome-resolve').length === 1 &&
+      !evidenceOnlyFunctionCalls.includes('nayax-card-refund') &&
+      !evidenceOnlyFunctionCalls.includes('refund-case-admin-update') &&
+      !evidenceOnlyFunctionCalls.includes('refund-case-message-send') &&
+      evidenceOnlyResolutionBody.attemptId === '8a830000-0000-4000-8000-000000000001' &&
+      evidenceOnlyResolutionBody.resolutionResult === 'provider_confirmed_success' &&
+      evidenceOnlyResolutionBody.evidenceType === 'nayax_dtm_transaction' &&
+      evidenceOnlyResolutionBody.evidenceReference === 'DTM:NAYAX-6001143932' &&
+      evidenceOnlyResolutionBody.expectedCaseVersion === 10
+  );
+  recorder.assert(
+    'Existing-refund reconciliation completes without console or page errors',
+    getUatPageFailures(evidenceOnlyPage, evidenceOnlyConsoleErrors).length === 0,
+    getUatPageFailures(evidenceOnlyPage, evidenceOnlyConsoleErrors).slice(0, 3).join(' | ')
+  );
+  await closeRefundPortalContext(evidenceOnlyContext);
 
   const interruptionContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const interruptionFunctionCalls = [];

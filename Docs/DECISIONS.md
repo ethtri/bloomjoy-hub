@@ -1155,3 +1155,19 @@ Official refund authority comes from a current, active, unrevoked Machine Manage
 - Bloomjoy's small operating team legitimately combines administrative and machine-management responsibilities.
 - Denying a real mapping because of unrelated access creates a dead end without improving payment safety.
 - Tying authority to the exact machine assignment preserves least privilege: admin access alone can never authorize money movement.
+
+## 2026-08-25 - Already-completed Nayax refunds use evidence-only reconciliation (`#971`)
+
+Nayax's supported public contract does not provide a read-only API that authoritatively reports the final refund outcome. Dynamic Transactions Monitor or a Nayax support confirmation remains the authoritative operational evidence when a refund completed outside Bloomjoy or before Bloomjoy recorded an attempt.
+
+**Canonical choices**
+- A matched, never-attempted card case may open exactly one `evidence_only` reconciliation attempt from the signed-in exact Machine Manager session and current case version.
+- Opening review makes no Nayax call, creates no provider claim, posts no reporting adjustment, and creates no customer message.
+- Evidence-only review may record only authoritative success or preserve the hold. It cannot mark retry-safe, create a fresh payment path, or use the manual-refund result shape.
+- A completed result requires a validated DTM or support reference and a timestamp no earlier than the matched sale authorization and no later than the current review window. Only a one-way reference digest is retained.
+- Confirmed success reuses the existing exactly-once outcome resolver for the reporting adjustment and source-appropriate customer completion. Replay cannot duplicate either effect.
+- Do not build an automatic matcher from undocumented DTM behavior. Automatic reconciliation can replace this fallback only after Nayax supplies and Bloomjoy validates a supported authoritative readback contract.
+
+**Why this choice**
+- It closes the operational dead end for real refunds already completed in Nayax without weakening the no-blind-retry rule.
+- It separates recording historical provider truth from issuing money, so recovery cannot become a duplicate-refund path.

@@ -15,6 +15,7 @@ const legacyClose = read('supabase/migrations/20260820150000_refund_nayax_suppor
 const managerSession = read('supabase/migrations/20260821035000_refund_manager_session_simplification.sql');
 const formCompletion = read('supabase/migrations/20260821080000_refund_form_completion_transport.sql');
 const completionDelivery = read('supabase/migrations/20260821083000_refund_completion_delivery_decoupling.sql');
+const evidenceOnly = read('supabase/migrations/20260825193000_refund_nayax_evidence_only_reconciliation.sql');
 const edge = read('supabase/functions/refund-nayax-outcome-resolve/index.ts');
 const completion = read('supabase/functions/_shared/nayax-resolution-completion.ts');
 const messageSend = read('supabase/functions/refund-case-message-send/index.ts');
@@ -124,6 +125,21 @@ assert(
 );
 
 assert(
+  evidenceOnly.includes('admin_begin_refund_nayax_evidence_only_reconciliation') &&
+    evidenceOnly.includes("execution_mode = 'evidence_only'") &&
+    evidenceOnly.includes("'provider_call_made', false") &&
+    evidenceOnly.includes("'customer_message_created', false") &&
+    evidenceOnly.includes("jsonb_build_array('provider_confirmed_success', 'remain_on_hold')") &&
+    evidenceOnly.includes("can only record success or preserve the hold") &&
+    evidenceOnly.includes('p_evidence_occurred_at < case_row.matched_nayax_machine_auth_time') &&
+    evidenceOnly.includes('refund_nayax_evidence_only_start_is_safe') &&
+    evidenceOnly.includes('other_case.matched_nayax_transaction_id') &&
+    evidenceOnly.includes('refund_gmail_threads original_thread') &&
+    !/\b(http_post|net\.http|fetch\s*\()/i.test(evidenceOnly),
+  'Already-completed Nayax refunds must use a provider-free, no-retry, exact-evidence reconciliation boundary.'
+);
+
+assert(
   edge.includes('resolveSupabaseAccessToken') &&
     edge.includes('.getUser(accessToken)') &&
     edge.includes('admin_resolve_refund_nayax_outcome_manager_session') &&
@@ -154,12 +170,15 @@ assert(
 
 assert(
   operations.includes("'refund-nayax-outcome-resolve'") &&
+    operations.includes('beginRefundNayaxEvidenceOnlyReconciliation') &&
     operations.includes('export const resolveRefundNayaxOutcome') &&
     portal.includes('data-testid="refund-nayax-resolution-panel"') &&
     portal.includes('data-testid="refund-nayax-resolution-result"') &&
     portal.includes('data-testid="refund-nayax-resolution-evidence-type"') &&
     portal.includes('data-testid="refund-nayax-resolution-reference"') &&
     portal.includes('data-testid="refund-nayax-resolution-occurred-at"') &&
+    portal.includes('data-testid="refund-nayax-evidence-only-start"') &&
+    portal.includes('Already refunded in Nayax?') &&
     !portal.includes('data-testid="refund-nayax-resolution-reason"') &&
     !portal.includes('authenticator code') &&
     portal.includes('Complete case & notify customer') &&

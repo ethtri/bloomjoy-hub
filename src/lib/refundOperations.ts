@@ -758,14 +758,17 @@ export type RefundNayaxResolutionReadiness = {
   available: boolean;
   blockReason?:
     | 'resolution_disabled'
+    | 'evidence_only_start_required'
     | 'exact_attempt_required'
     | 'already_resolved'
     | 'provider_hold_required'
     | 'manager_access_required'
     | null;
+  canStartEvidenceOnlyReconciliation?: boolean;
   attemptId?: string | null;
   providerOutcome?: 'rejected' | 'timeout' | 'unknown' | null;
   manualPortalAttempt?: boolean;
+  evidenceOnlyAttempt?: boolean;
   expectedCaseVersion?: number | null;
   allowedResults?: RefundNayaxResolutionResult[];
   payloadRedacted: true;
@@ -796,6 +799,17 @@ export type BeginRefundManualNayaxPortalResponse = {
   expectedCaseVersion: number;
   providerCallMade: false;
   customerMessageCreated: false;
+};
+
+export type BeginRefundNayaxEvidenceOnlyResponse = {
+  attemptId: string;
+  created: boolean;
+  status: 'manual_review';
+  providerOutcome: 'unknown';
+  expectedCaseVersion: number;
+  providerCallMade: false;
+  customerMessageCreated: false;
+  payloadRedacted: true;
 };
 
 export type ResolveRefundNayaxOutcomeInput = {
@@ -2114,6 +2128,25 @@ export const beginRefundManualNayaxPortal = async (
     throw new Error(error?.message || 'Unable to approve this refund for the Nayax portal.');
   }
   return data as BeginRefundManualNayaxPortalResponse;
+};
+
+export const beginRefundNayaxEvidenceOnlyReconciliation = async (
+  caseId: string,
+  expectedCaseVersion: number
+): Promise<BeginRefundNayaxEvidenceOnlyResponse> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_begin_refund_nayax_evidence_only_reconciliation',
+    {
+      p_case_id: caseId,
+      p_expected_case_version: expectedCaseVersion,
+    }
+  );
+  if (error || !data || typeof data !== 'object') {
+    throw new Error(
+      error?.message || 'Unable to open the existing-refund evidence review.'
+    );
+  }
+  return data as BeginRefundNayaxEvidenceOnlyResponse;
 };
 
 export const fetchRefundNayaxResolutionReadiness = async (
