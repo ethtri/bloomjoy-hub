@@ -97,6 +97,10 @@ export const validateRefundBrowserUatNetworkCoverage = (sources) => {
         countMatches(
           source,
           /labelFixtureOwnedPortalRpc\(route, ['"]public_refund_selections['"]\)/g
+        ) !== 1 ||
+        countMatches(
+          source,
+          /labelFixtureOwnedPortalRpc\(route, ['"]public_refund_selections_v2['"]\)/g
         ) !== 3
       )
     ) {

@@ -44,6 +44,7 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'get_refund_automation_health',
   'get_refund_gmail_health',
   'get_refund_manager_totp_enrollment_readiness_current_user',
+  'public_refund_selections_v2',
   'public_refund_selections',
   'public_refund_machine_options',
   'admin_get_refund_nayax_resolution_readiness',
@@ -2011,8 +2012,8 @@ const isExpectedPortalUatResponse = (response) => {
   if (
     status === 503 &&
     marker === 'public-machine-options' &&
-    path === '/rest/v1/rpc/public_refund_selections' &&
-    fixtureOwnedPortalRpcLabels.get(request) === 'public_refund_selections'
+    path === '/rest/v1/rpc/public_refund_selections_v2' &&
+    fixtureOwnedPortalRpcLabels.get(request) === 'public_refund_selections_v2'
   ) {
     return true;
   }
@@ -2152,6 +2153,10 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder
     labelFixtureOwnedPortalRpc(route, 'public_refund_machine_options');
     await route.fulfill(jsonResponse([]));
   });
+  await context.route('**/rest/v1/rpc/public_refund_selections_v2', async (route) => {
+    labelFixtureOwnedPortalRpc(route, 'public_refund_selections_v2');
+    await route.fulfill(jsonResponse([]));
+  });
   await context.route('**/rest/v1/rpc/public_refund_selections', async (route) => {
     labelFixtureOwnedPortalRpc(route, 'public_refund_selections');
     await route.fulfill(jsonResponse([]));
@@ -2253,8 +2258,8 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, artifactDir, recorder
   const machineErrorContext = await browser.newContext({
     viewport: { width: 390, height: 844 },
   });
-  await machineErrorContext.route('**/rest/v1/rpc/public_refund_selections', async (route) => {
-    labelFixtureOwnedPortalRpc(route, 'public_refund_selections');
+  await machineErrorContext.route('**/rest/v1/rpc/public_refund_selections_v2', async (route) => {
+    labelFixtureOwnedPortalRpc(route, 'public_refund_selections_v2');
     await route.fulfill({
       ...jsonResponse({ message: 'Synthetic machine-list outage.' }),
       status: 503,
@@ -2297,15 +2302,17 @@ const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) =>
       viewport: { width: 1280, height: 900 },
     });
     const submissions = [];
-    await context.route('**/rest/v1/rpc/public_refund_selections', async (route) => {
-      labelFixtureOwnedPortalRpc(route, 'public_refund_selections');
+    await context.route('**/rest/v1/rpc/public_refund_selections_v2', async (route) => {
+      labelFixtureOwnedPortalRpc(route, 'public_refund_selections_v2');
       await route.fulfill(jsonResponse([
         {
           selection_key: selectionKey,
           display_label: 'Refund UAT Mall',
           selection_kind: 'exact_machine',
+          machine_id: '41000000-0000-4000-8000-000000000003',
           location_id: '41000000-0000-4000-8000-000000000002',
           location_timezone: 'America/Los_Angeles',
+          cash_machine_options: [],
         },
       ]));
     });
@@ -2327,7 +2334,7 @@ const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) =>
     await page.getByLabel('Name').fill('Synthetic Customer');
     await page.getByLabel('Email').fill('synthetic-customer@example.test');
     await page.getByLabel('How close is that time?').selectOption('within_15_minutes');
-    await page.getByLabel('Amount charged').fill('7.00');
+    await page.getByLabel('Amount paid').fill('7.00');
     await page.getByLabel('How did you pay at the machine?').selectOption('tap_card');
     await page.getByLabel('Card type').selectOption('visa');
     await page.getByLabel('Last 4 digits on the card you used').fill('4242');
