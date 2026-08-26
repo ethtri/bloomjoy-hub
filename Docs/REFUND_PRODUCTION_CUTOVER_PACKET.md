@@ -37,7 +37,7 @@ Refund Operations v1 uses the existing customer-service email and text-response 
 
 The owner-authenticated read-only checks on 2026-08-21, combined with the current reviewed local target, produce this sanitized release view:
 
-- Target local release alignment: ten manifest-tracked functions and 87 required refund/Nayax migrations.
+- Target local release alignment: ten manifest-tracked functions and 88 required refund/Nayax migrations.
 - Production baseline: ten deployed refund functions captured to a gitignored artifact.
 - Production drift: seven changed repository functions are not yet paired with production, so the release correctly remains undeployed.
 - The integrated set includes `20260821090000_refund_form_only_case_creation.sql`, `20260821091000_refund_nayax_inventory.sql`, `20260821100000_refund_branded_appeals.sql`, `20260822190000_refund_portfolio_intake_inventory_correction.sql`, the later portfolio mapping/selection repairs, and `20260823221537_refund_nc_manual_nayax_portal.sql`. Before this change is deployed, `supabase db push --dry-run --linked` must show the exact reviewed pending set, including `20260824160609_refund_confirmation_readiness.sql` and `20260824190000_refund_machine_truthful_readiness.sql`, and no unrelated migration. A dry run must make no database write.
@@ -49,7 +49,7 @@ This evidence expires if `main`, any listed migration, or any manifest-tracked f
 1. Freeze unrelated Refund Operations changes for the release window.
 2. Use the current integrated `main` commit as the only deploy source. Never deploy a historical PR head, local-only commit, or unreviewed merge.
 3. If `main` changes, refresh the manifest with `npm run refunds:release:write-local`, review and commit the manifest-only update, and rerun this entire verification profile.
-4. Confirm the manifest covers all ten manifest-tracked Refund Operations functions and all 87 required refund/Nayax migrations, with the exact canonical 51-migration predeployment bridge preserved only as historical restore evidence.
+4. Confirm the manifest covers all ten manifest-tracked Refund Operations functions and all 88 required refund/Nayax migrations, with the exact canonical 51-migration predeployment bridge preserved only as historical restore evidence.
 5. Run on the immutable release commit:
 
 ```bash

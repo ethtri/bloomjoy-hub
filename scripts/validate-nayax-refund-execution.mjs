@@ -523,7 +523,9 @@ assert(
 assert(
   refundOperationsUi.includes('candidateOption(') &&
     refundOperationsUi.includes('nayax-candidate-availability') &&
-    refundOperationsUi.includes('nayax-alternate-transactions') &&
+    refundOperationsUi.includes('nayax-transaction-comparison') &&
+    refundOperationsUi.includes('role="radiogroup"') &&
+    refundOperationsUi.includes('type="radio"') &&
     refundOperationsUi.includes('candidateUnavailableReason') &&
     refundOperationsUi.includes('caseAllowsCandidateSelection') &&
     refundOperationsUi.includes('refundAmount:') &&
@@ -531,6 +533,16 @@ assert(
     !refundOperationsUi.includes('Match strength:') &&
     !refundOperationsUi.includes('Card details agree'),
   'The manager UI must show all safe candidates in likely order without a confidence rating and prepare the exact selected transaction amount.'
+);
+assert(
+  refundOperationsUi.includes('RefundLifecycleProgress') &&
+    refundOperationsUi.includes('refreshAfterSeconds') &&
+    refundOperationsUi.includes('lookupRequestSequenceRef') &&
+    refundOperationsUi.includes('Refresh transactions') &&
+    refundOperationsUi.includes('refundOperationsAccess') &&
+    refundOperationsUi.includes('Needs Refund Operations') &&
+    refundOperationsUi.includes('60-minute SLA'),
+  'The manager UI must consume the canonical lifecycle, discard stale lookups, expose safe refresh, and keep technical reconciliation in Refund Operations.'
 );
 assert(
   nayaxRecommendationMigration.includes('nayaxLookupCandidates') &&

@@ -91,7 +91,8 @@
     "20260825185840_refund_nayax_evidence_only_reconciliation.sql",
     "20260825211442_refund_nayax_preexisting_attempt_evidence.sql",
     "20260825231621_refund_manager_recipient_route_v2.sql",
-    "20260826165423_refund_durable_lifecycle_v1.sql"
+    "20260826165423_refund_durable_lifecycle_v1.sql",
+    "20260826204500_refund_manager_lifecycle_v1.sql"
   ],
   "migrationFilesSha256": "3dfb12f179fc607aec79f812d381e7bb6a6ed872c6cb3a1a5532135db4b8e38f",
   "migrationVersionSetSha256": "25909855a8eaca5d422aa198e43c6cf6a4dddfd667e42c6bc6d9b9c99142c8b6",

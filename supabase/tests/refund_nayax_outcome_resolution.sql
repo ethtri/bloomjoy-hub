@@ -155,6 +155,9 @@ insert into auth.users (
   ('00000000-0000-0000-0000-000000000000', 'b1000000-0000-4000-8000-000000000002',
    'authenticated', 'authenticated', 'resolution-unrelated@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now());
 
+insert into public.admin_roles (user_id, role, active)
+values ('b1000000-0000-4000-8000-000000000001', 'super_admin', true);
+
 insert into public.customer_accounts (id, name, account_type)
 values ('b1100000-0000-4000-8000-000000000001', 'Nayax resolution safety', 'customer');
 
@@ -1654,8 +1657,8 @@ select ok(pg_temp.capture_error($sql$
     (select official_action_version from public.refund_cases
       where id = 'b1600000-0000-4000-8000-000000000008')
   )
-$sql$) like '%Active Machine Manager mapping required%',
-  'An unrelated authenticated user cannot open evidence-only review');
+$sql$) like '%Refund Operations administrator required%',
+  'A routine authenticated user cannot open evidence-only review');
 reset role;
 
 set local role authenticated;
@@ -2058,8 +2061,8 @@ select ok(pg_temp.capture_error($sql$
     'DTM:NAYAX-6001143999', statement_timestamp() - interval '2 hours',
     'nayax_dtm_settled', 1
   )
-$sql$) like '%Active Machine Manager mapping required%',
-  'An unrelated authenticated user cannot reconcile historical provider evidence');
+$sql$) like '%Refund Operations administrator required%',
+  'A routine authenticated user cannot reconcile historical provider evidence');
 reset role;
 
 select ok(

@@ -1,3 +1,5 @@
+import type { RefundLifecycleContract } from './refundLifecycle.ts';
+
 export type RefundManagerStateId =
   | 'needs_information'
   | 'checking_nayax'
@@ -7,6 +9,8 @@ export type RefundManagerStateId =
   | 'ready_to_refund'
   | 'refund_unavailable'
   | 'refunding'
+  | 'refund_confirmed'
+  | 'needs_refund_operations'
   | 'completed'
   | 'refund_rejected'
   | 'check_nayax_result'
@@ -67,9 +71,12 @@ type RefundManagerCaseFacts = {
       | 'no_match'
       | 'manual_exception'
       | 'setup_needed'
-      | 'lookup_failed';
+      | 'lookup_failed'
+      | 'lookup_timed_out'
+      | 'response_limited';
     recommendationState?: 'high_confidence' | 'ambiguous' | 'no_safe_match' | 'manual_exception';
   } | null;
+  lifecycle?: RefundLifecycleContract | null;
 };
 
 const state = (
@@ -115,6 +122,115 @@ export const getRefundManagerState = (
   refundCase: RefundManagerCaseFacts,
   options: { isRefunding?: boolean; canResolveHeldResult?: boolean } = {}
 ): RefundManagerState => {
+  if (options.isRefunding) {
+    return state(
+      'refunding',
+      'Refund initiated',
+      'Bloomjoy accepted the refund action and is processing it.',
+      'Wait for confirmation. Do not try the refund again.',
+      'info'
+    );
+  }
+
+  if (refundCase.paymentMethod === 'card' && refundCase.lifecycle) {
+    const lifecycle = refundCase.lifecycle;
+    switch (lifecycle.stage) {
+      case 'matching':
+        return lifecycle.lookup.safeRetryEligible
+          ? state(
+              'match_attention',
+              'Transaction check needs attention',
+              'Bloomjoy could not finish the read-only transaction check.',
+              'Select Refresh transactions. No refund has been issued.',
+              'warning'
+            )
+          : state(
+              'checking_nayax',
+              'Checking transactions',
+              'Bloomjoy is comparing the customer details with recent machine transactions.',
+              'Wait for the results. No refund has been issued.',
+              'info'
+            );
+      case 'needs_transaction_selection':
+        return state(
+          'ready_for_review',
+          'Review transactions',
+          'The available transactions are ready to compare with the customer request.',
+          'Select the exact transaction, then confirm it.',
+          'info'
+        );
+      case 'transaction_confirmed':
+        if (refundCase.refundReadiness?.canIssueCardRefund === true) {
+          return state(
+            'ready_to_refund',
+            'Ready to refund',
+            'Transaction confirmed. Payment: Not issued.',
+            'Select Refund once to issue the exact amount.',
+            'success'
+          );
+        }
+        return state(
+          refundCase.refundReadiness?.blockReason ? 'refund_unavailable' : 'transaction_confirmed',
+          'Transaction confirmed',
+          'Payment: Not issued.',
+          refundCase.refundReadiness?.blockReason
+            ? refundReadinessBlockMessage(refundCase.refundReadiness.blockReason)
+            : 'Bloomjoy is checking current refund availability.',
+          refundCase.refundReadiness?.blockReason ? 'warning' : 'info'
+        );
+      case 'refund_initiated':
+        return state(
+          'refunding',
+          'Refund initiated',
+          'Bloomjoy recorded the one approved refund action.',
+          'Wait for confirmation. Do not try the refund again.',
+          'info'
+        );
+      case 'confirming_with_nayax':
+        return state(
+          'refunding',
+          'Confirming refund',
+          'Bloomjoy is confirming the final result with the payment provider.',
+          'No action is needed. The refund will not be tried again while confirmation is pending.',
+          'info'
+        );
+      case 'refund_confirmed':
+        return state(
+          'refund_confirmed',
+          'Refund confirmed',
+          'The payment provider confirmed the refund.',
+          'Bloomjoy is recording the receipt and customer update. The bank may take time to post it.',
+          'success'
+        );
+      case 'customer_notified':
+        return state(
+          'completed',
+          'Completed',
+          'The refund is confirmed and the customer update is recorded.',
+          'No payment action is needed.',
+          'success'
+        );
+      case 'needs_refund_operations':
+        return state(
+          'needs_refund_operations',
+          'Needs Refund Operations',
+          'The final payment result needs a specialist review.',
+          options.canResolveHeldResult
+            ? 'Use the Refund Operations panel below to record authoritative evidence. Never retry the payment.'
+            : 'Refund Operations owns the next step. No action is needed, and the payment will not be tried again.',
+          'warning'
+        );
+      case 'denied':
+        return state(
+          'denied',
+          'Denied',
+          'The manager declined this refund request.',
+          'Review the case history only if the customer follows up.',
+          'neutral'
+        );
+    }
+  }
+
   if (refundCase.status === 'completed') {
     return state(
       'completed',
@@ -142,16 +258,6 @@ export const getRefundManagerState = (
       'This case is closed and no refund was recorded.',
       'Review the case history only if the customer follows up.',
       'neutral'
-    );
-  }
-
-  if (options.isRefunding) {
-    return state(
-      'refunding',
-      'Refunding',
-      'Bloomjoy is sending the approved card refund.',
-      'Wait for the result. Do not try again while this is processing.',
-      'info'
     );
   }
 
@@ -355,6 +461,18 @@ export const getRefundPaymentStateLabel = (
   refundCase: RefundManagerCaseFacts,
   options: { isRefunding?: boolean } = {}
 ) => {
+  if (refundCase.paymentMethod === 'card' && refundCase.lifecycle) {
+    if (['refund_confirmed', 'customer_notified'].includes(refundCase.lifecycle.stage)) {
+      return 'Refunded';
+    }
+    if (['refund_initiated', 'confirming_with_nayax'].includes(refundCase.lifecycle.stage)) {
+      return 'In progress';
+    }
+    if (refundCase.lifecycle.stage === 'needs_refund_operations') {
+      return 'Being confirmed';
+    }
+    return 'Not issued';
+  }
   if (refundCase.status === 'completed' || refundCase.providerOutcome === 'succeeded') return 'Refunded';
   if (options.isRefunding) return 'Refunding';
   if (refundCase.providerHold || refundCase.providerOutcome === 'unconfirmed') return 'Result unclear';

@@ -16,6 +16,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecycleProgress';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -310,11 +311,13 @@ type EditorState = {
 
 type NayaxLookupNotice = {
   tone: 'info' | 'success' | 'warning' | 'error';
+  title?: string;
   message: string;
 };
 
 type QueueFilter =
   | 'needs_action'
+  | 'in_progress'
   | 'missing_information'
   | 'possible_duplicate'
   | 'aging'
@@ -767,25 +770,55 @@ const hasCardRefundAuthority = (refundCase: RefundCaseRecord) =>
 
 const isReadyToPayCase = (
   refundCase: RefundCaseRecord,
-  cardRefundAvailabilityConfirmed = false
+  cardRefundAvailabilityConfirmed: boolean | null = null
 ) => {
   if (
     refundCase.paymentMethod === 'cash' &&
-    !['completed', 'denied', 'closed'].includes(refundCase.status)
+    !['waiting_on_customer', 'completed', 'denied', 'closed'].includes(refundCase.status)
   ) {
     return refundCase.providerHold !== true &&
       typeof refundCase.paymentAmountCents === 'number' &&
       refundCase.paymentAmountCents > 0;
   }
 
-  return ['approved', 'card_refund_pending'].includes(refundCase.status) &&
+  return refundCase.lifecycle?.stage === 'transaction_confirmed' &&
     refundCase.providerHold !== true &&
     (
     refundCase.hasMatchedNayaxTransaction === true &&
     hasCardRefundAuthority(refundCase) &&
-    (refundCase.refundReadiness?.canIssueCardRefund === true || cardRefundAvailabilityConfirmed)
+    (
+      cardRefundAvailabilityConfirmed === null
+        ? refundCase.refundReadiness?.canIssueCardRefund === true
+        : cardRefundAvailabilityConfirmed
+    )
     );
 };
+
+const isRefundInProgressCase = (refundCase: RefundCaseRecord) =>
+  refundCase.paymentMethod === 'card' &&
+  ['refund_initiated', 'confirming_with_nayax', 'refund_confirmed'].includes(
+    refundCase.lifecycle?.stage ?? ''
+  );
+
+const isRefundOperationsCase = (refundCase: RefundCaseRecord) =>
+  refundCase.paymentMethod === 'card' &&
+  refundCase.lifecycle?.stage === 'needs_refund_operations';
+
+const isWaitingCase = (
+  refundCase: RefundCaseRecord,
+  _refundOperationsAccess: boolean
+) =>
+  refundCase.status === 'waiting_on_customer' ||
+  (
+    refundCase.paymentMethod === 'card' &&
+    refundCase.lifecycle?.stage === 'matching' &&
+    refundCase.lifecycle.managerNextAction === 'wait'
+  );
+
+const isDoneCase = (refundCase: RefundCaseRecord) =>
+  doneStatuses.has(refundCase.status) ||
+  refundCase.lifecycle?.stage === 'customer_notified' ||
+  refundCase.lifecycle?.stage === 'denied';
 
 const isBlockedCase = (refundCase: RefundCaseRecord) => {
   const lookupStatus = refundCase.nayaxLookupSummary?.lookupStatus;
@@ -803,7 +836,7 @@ const isBlockedCase = (refundCase: RefundCaseRecord) => {
 
 const caseUrgencyRank = (
   refundCase: RefundCaseRecord,
-  cardRefundAvailabilityConfirmed = false
+  cardRefundAvailabilityConfirmed: boolean | null = null
 ) => {
   if (refundCase.possibleDuplicate || refundCase.confirmedDuplicate) return 0;
   if (getLatestCustomerMessage(refundCase)?.status === 'failed') return 0;
@@ -2086,6 +2119,8 @@ export default function AdminRefundsPage() {
   const cashCompletionInFlightRef = useRef(false);
   const evidenceSelectionInFlightRef = useRef(false);
   const nayaxRefundInFlightRef = useRef(false);
+  const lookupRequestSequenceRef = useRef(0);
+  const autoLookupAttemptedRef = useRef(new Set<string>());
   const handledCaseQueryRef = useRef<string | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<QueueFilter>('needs_action');
@@ -2109,6 +2144,9 @@ export default function AdminRefundsPage() {
   const [isResolvingGmailDelivery, setIsResolvingGmailDelivery] = useState(false);
   const [isCashCompletionSubmitting, setIsCashCompletionSubmitting] = useState(false);
   const [refundActionReceipt, setRefundActionReceipt] = useState<RefundActionReceipt | null>(null);
+  const [refundOperationsBlockedCaseIds, setRefundOperationsBlockedCaseIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
   const [nayaxCandidates, setNayaxCandidates] = useState<NayaxLookupCandidate[]>([]);
   const [nayaxLookupNotice, setNayaxLookupNotice] = useState<NayaxLookupNotice | null>(null);
@@ -2152,6 +2190,17 @@ export default function AdminRefundsPage() {
     queryFn: fetchRefundOperationsOverview,
     enabled: !forceDemoData,
     staleTime: 1000 * 30,
+    refetchInterval: (query) => {
+      const data = query.state.data as RefundOperationsOverview | undefined;
+      const activeCase = data?.cases.find((refundCase) => refundCase.id === selectedId);
+      const refreshAfterSeconds = activeCase?.lifecycle?.refreshAfterSeconds;
+      if (!activeCase?.lifecycle || activeCase.lifecycle.terminal || !refreshAfterSeconds) {
+        return false;
+      }
+      return Math.min(15_000, Math.max(1_000, refreshAfterSeconds * 1_000));
+    },
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
 
   const {
@@ -2165,6 +2214,9 @@ export default function AdminRefundsPage() {
     enabled: !forceDemoData && Boolean(selectedId),
     staleTime: 1000 * 30,
     retry: false,
+    refetchInterval: selectedId ? 5_000 : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
   const { data: gmailHealth } = useQuery({
     queryKey: ['refund-gmail-health'],
@@ -2208,31 +2260,45 @@ export default function AdminRefundsPage() {
   const isUsingDemoData = canUseLocalRefundDemoData();
   const pageIsLoading = isUsingDemoData ? false : liveIsLoading;
   const pageIsFetching = isUsingDemoData ? false : liveIsFetching;
-  const overview = useMemo(
-    () => (isUsingDemoData ? buildLocalRefundDemoOverview() : liveOverview),
-    [isUsingDemoData, liveOverview]
-  );
+  const demoOverview = useMemo(() => buildLocalRefundDemoOverview(), []);
+  const overview = isUsingDemoData ? demoOverview : liveOverview;
+  const refundOperationsAccess = overview.refundOperationsAccess === true;
 
   const filteredCases = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
 
     return overview.cases.filter((refundCase) => {
+      const availabilityOverride = refundCase.id === selectedId
+        ? cardRefundAvailabilityConfirmed
+        : null;
+      const readyToRefund = isReadyToPayCase(refundCase, availabilityOverride);
+      const inProgress = isRefundInProgressCase(refundCase);
+      const needsRefundOperations = isRefundOperationsCase(refundCase);
+      const waiting = isWaitingCase(refundCase, refundOperationsAccess);
+      const done = isDoneCase(refundCase);
       if (
         statusFilter === 'needs_action' &&
-        (!openStatuses.has(refundCase.status) ||
-          refundCase.status === 'waiting_on_customer')
+        (
+          !openStatuses.has(refundCase.status) ||
+          readyToRefund ||
+          inProgress ||
+          needsRefundOperations ||
+          waiting ||
+          done
+        )
       ) return false;
       if (statusFilter === 'missing_information' && !refundCase.missingInformation) return false;
       if (statusFilter === 'possible_duplicate' && !refundCase.possibleDuplicate && !refundCase.confirmedDuplicate) return false;
       if (statusFilter === 'aging' && !refundCase.aging) return false;
-      if (statusFilter === 'provider_hold' && !refundCase.providerHold) return false;
-      if (statusFilter === 'waiting_on_customer' && refundCase.status !== 'waiting_on_customer') return false;
+      if (statusFilter === 'provider_hold' && (!refundOperationsAccess || !needsRefundOperations)) return false;
+      if (statusFilter === 'waiting_on_customer' && !waiting) return false;
       if (
         statusFilter === 'ready_to_pay' &&
-        !isReadyToPayCase(refundCase, cardRefundAvailabilityConfirmed)
+        !readyToRefund
       ) return false;
+      if (statusFilter === 'in_progress' && !inProgress) return false;
       if (statusFilter === 'blocked' && !isBlockedCase(refundCase)) return false;
-      if (statusFilter === 'completed' && !doneStatuses.has(refundCase.status)) return false;
+      if (statusFilter === 'completed' && !done) return false;
 
       if (!normalizedSearch) return true;
       return [
@@ -2247,24 +2313,49 @@ export default function AdminRefundsPage() {
         .toLowerCase()
         .includes(normalizedSearch);
     }).sort((left, right) => {
-      const rankDelta = caseUrgencyRank(left, cardRefundAvailabilityConfirmed) -
-        caseUrgencyRank(right, cardRefundAvailabilityConfirmed);
+      const leftAvailability = left.id === selectedId ? cardRefundAvailabilityConfirmed : null;
+      const rightAvailability = right.id === selectedId ? cardRefundAvailabilityConfirmed : null;
+      const rankDelta = caseUrgencyRank(left, leftAvailability) -
+        caseUrgencyRank(right, rightAvailability);
       if (rankDelta !== 0) return rankDelta;
       return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
     });
-  }, [cardRefundAvailabilityConfirmed, overview.cases, search, statusFilter]);
+  }, [
+    cardRefundAvailabilityConfirmed,
+    overview.cases,
+    refundOperationsAccess,
+    search,
+    selectedId,
+    statusFilter,
+  ]);
 
   const primaryQueueCounts = useMemo(() => ({
     needs_action: overview.cases.filter((refundCase) =>
       openStatuses.has(refundCase.status) &&
-      refundCase.status !== 'waiting_on_customer'
+      !isReadyToPayCase(
+        refundCase,
+        refundCase.id === selectedId ? cardRefundAvailabilityConfirmed : null
+      ) &&
+      !isRefundInProgressCase(refundCase) &&
+      !isRefundOperationsCase(refundCase) &&
+      !isWaitingCase(refundCase, refundOperationsAccess) &&
+      !isDoneCase(refundCase)
     ).length,
-    waiting_on_customer: overview.cases.filter(
-      (refundCase) => refundCase.status === 'waiting_on_customer'
+    ready_to_pay: overview.cases.filter((refundCase) =>
+      isReadyToPayCase(
+        refundCase,
+        refundCase.id === selectedId ? cardRefundAvailabilityConfirmed : null
+      )
     ).length,
-    provider_hold: overview.cases.filter((refundCase) => refundCase.providerHold === true).length,
-    completed: overview.cases.filter((refundCase) => doneStatuses.has(refundCase.status)).length,
-  }), [overview.cases]);
+    in_progress: overview.cases.filter(isRefundInProgressCase).length,
+    waiting_on_customer: overview.cases.filter((refundCase) =>
+      isWaitingCase(refundCase, refundOperationsAccess)
+    ).length,
+    provider_hold: refundOperationsAccess
+      ? overview.cases.filter(isRefundOperationsCase).length
+      : 0,
+    completed: overview.cases.filter(isDoneCase).length,
+  }), [cardRefundAvailabilityConfirmed, overview.cases, refundOperationsAccess, selectedId]);
 
   const hasAnyCases = overview.cases.length > 0;
   const emptyQueueTitle = hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
@@ -2275,8 +2366,8 @@ export default function AdminRefundsPage() {
   useEffect(() => {
     if (!selectedId) return;
 
-    const selectedCaseIsVisible = filteredCases.some((refundCase) => refundCase.id === selectedId);
-    if (selectedCaseIsVisible) return;
+    const selectedCaseStillExists = overview.cases.some((refundCase) => refundCase.id === selectedId);
+    if (selectedCaseStillExists) return;
 
     setSelectedId(null);
     setEditor(null);
@@ -2289,7 +2380,7 @@ export default function AdminRefundsPage() {
     setIsCashConfirmationOpen(false);
     setMessageSubject('');
     setMessageBody('');
-  }, [filteredCases, selectedId]);
+  }, [overview.cases, selectedId]);
 
   useLayoutEffect(() => {
     if (!selectedId || typeof window === 'undefined' || !window.matchMedia('(max-width: 1023px)').matches) {
@@ -2329,7 +2420,46 @@ export default function AdminRefundsPage() {
     };
   }, [selectedId, selectionRevision]);
 
-  const selectedCase = filteredCases.find((refundCase) => refundCase.id === selectedId) ?? null;
+  const selectedCase = overview.cases.find((refundCase) => refundCase.id === selectedId) ?? null;
+  const selectedCaseIdForSync = selectedCase?.id ?? null;
+  const selectedCaseCandidatesForSync = selectedCase?.nayaxLookupCandidates;
+  const selectedCaseLookupSummaryForSync = selectedCase?.nayaxLookupSummary;
+  const selectedCaseOfficialActionVersionForSync = selectedCase?.officialActionVersion;
+  const selectedCaseLifecycleUpdatedAtForSync = selectedCase?.lifecycle?.lastUpdatedAt;
+  useEffect(() => {
+    if (!selectedCaseIdForSync) return;
+
+    const currentCandidates = selectedCaseCandidatesForSync ?? [];
+    setNayaxCandidates(currentCandidates);
+    setNayaxLookupSummary(selectedCaseLookupSummaryForSync ?? null);
+    const nextVersion = Number(selectedCaseOfficialActionVersionForSync ?? 0);
+    setOfficialActionVersion(nextVersion > 0 ? nextVersion : 0);
+    setEditor((current) => {
+      if (!current?.matchedNayaxCandidateToken) return current;
+      if (
+        currentCandidates.some(
+          (candidate) => candidate.candidateToken === current.matchedNayaxCandidateToken
+        )
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        matchedNayaxCandidateToken: '',
+        matchedNayaxMachineAuthTime: '',
+        matchedNayaxAmount: '',
+        matchedNayaxCardLast4: '',
+        matchedNayaxCurrencyCode: '',
+        nayaxDisagreementReason: '',
+      };
+    });
+  }, [
+    selectedCaseCandidatesForSync,
+    selectedCaseIdForSync,
+    selectedCaseLifecycleUpdatedAtForSync,
+    selectedCaseLookupSummaryForSync,
+    selectedCaseOfficialActionVersionForSync,
+  ]);
   const selectedRefundReadiness: RefundReadiness | null = useMemo(() => {
     if (forceDemoData) return selectedCase?.refundReadiness ?? null;
     if (!selectedCase) return null;
@@ -2730,6 +2860,7 @@ export default function AdminRefundsPage() {
   };
 
   const handleSelectCase = (refundCase: RefundCaseRecord) => {
+    lookupRequestSequenceRef.current += 1;
     setSelectedId(refundCase.id);
     setSelectionRevision((current) => current + 1);
     setIsMobileQueueExpanded(false);
@@ -2737,6 +2868,7 @@ export default function AdminRefundsPage() {
     const nextOfficialActionVersion = Number(refundCase.officialActionVersion ?? 0);
     setOfficialActionVersion(nextOfficialActionVersion > 0 ? nextOfficialActionVersion : 0);
     setNayaxCandidates(refundCase.nayaxLookupCandidates ?? []);
+    setIsLookingUpNayax(false);
     setNayaxLookupNotice(null);
     setNayaxExecutionNotice(null);
     setManualNayaxEvidence({
@@ -3062,7 +3194,21 @@ export default function AdminRefundsPage() {
       const response = isNayaxCardRefundExecutionError(executionError)
         ? executionError.data
         : null;
-      if (response) {
+      if (response?.errorCode === 'manager_step_up_required') {
+        setRefundOperationsBlockedCaseIds((current) => {
+          const next = new Set(current);
+          next.add(selectedCase.id);
+          return next;
+        });
+        const message = 'Refund Operations owns the next step. No refund was sent, and no customer completion email was sent.';
+        setNayaxExecutionNotice({ tone: 'warning', message });
+        setRefundActionReceipt({
+          tone: 'warning',
+          title: 'Needs Refund Operations',
+          message,
+        });
+        toast.error('No refund was sent. Refund Operations owns the next step.');
+      } else if (response) {
         await applyNayaxExecutionResult(response);
       } else {
         const message = executionError instanceof Error
@@ -3442,6 +3588,8 @@ export default function AdminRefundsPage() {
 
   const handleNayaxLookup = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!selectedCase) return;
+    const lookupCaseId = selectedCase.id;
+    const requestSequence = ++lookupRequestSequenceRef.current;
     if (isUsingDemoData) {
       setNayaxLookupNotice({
         tone: 'info',
@@ -3460,8 +3608,9 @@ export default function AdminRefundsPage() {
     setIsLookingUpNayax(true);
     try {
       const result = await lookupNayaxTransactions({
-        caseId: selectedCase.id,
+        caseId: lookupCaseId,
       });
+      if (lookupRequestSequenceRef.current !== requestSequence) return;
 
       setNayaxCandidates(result.candidates ?? []);
       const nextOfficialActionVersion = Number(result.officialActionVersion ?? 0);
@@ -3495,6 +3644,12 @@ export default function AdminRefundsPage() {
         qrClaimOpenedAt: result.qrClaimOpenedAt,
         qrClaimEvidenceStatus: result.qrClaimEvidenceStatus,
         maximumUniqueQrLagMinutes: result.maximumUniqueQrLagMinutes,
+        safeRetryEligible: result.safeRetryEligible,
+        failureClass: result.failureClass,
+        automatic: true,
+        evidenceVersion: result.evidenceVersion,
+        lookupGeneration: result.lookupGeneration,
+        lastUpdatedAt: result.lastUpdatedAt ?? result.lastCheckedAt ?? null,
       };
       setNayaxLookupSummary(nextSummary);
       if (!result.configured) {
@@ -3533,7 +3688,9 @@ export default function AdminRefundsPage() {
           toast.success(foundMessage);
         }
       }
+      await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
     } catch {
+      if (lookupRequestSequenceRef.current !== requestSequence) return;
       const message = 'The transaction search could not be completed.';
       setNayaxLookupSummary({
         lookupStatus: 'lookup_failed',
@@ -3543,6 +3700,10 @@ export default function AdminRefundsPage() {
         candidateCount: 0,
         summary: `${message} Keep the case open and try the transaction check again later.`,
         recommendedAction: 'Do not tell the customer a refund succeeded until the transaction check is working.',
+        safeRetryEligible: true,
+        failureClass: 'network_or_server_error',
+        automatic: true,
+        lastUpdatedAt: new Date().toISOString(),
       });
       setNayaxLookupNotice({
         tone: 'error',
@@ -3552,9 +3713,47 @@ export default function AdminRefundsPage() {
         toast.error(message);
       }
     } finally {
-      setIsLookingUpNayax(false);
+      if (lookupRequestSequenceRef.current === requestSequence) {
+        setIsLookingUpNayax(false);
+      }
     }
   };
+
+  useEffect(() => {
+    if (
+      !selectedCase ||
+      selectedCase.paymentMethod !== 'card' ||
+      selectedCase.manualNayaxPortalEnabled ||
+      selectedCase.hasMatchedNayaxTransaction ||
+      selectedCase.lifecycle?.stage !== 'matching' ||
+      selectedCase.lifecycle.lookup.status !== 'not_started' ||
+      derivePortalRefundMissingFields(selectedCase).length > 0 ||
+      isUsingDemoData
+    ) {
+      return;
+    }
+
+    const evidenceVersion = selectedCase.nayaxLookupSummary?.evidenceVersion ?? 0;
+    const lookupKey = `${selectedCase.id}:${evidenceVersion}`;
+    if (autoLookupAttemptedRef.current.has(lookupKey)) return;
+    autoLookupAttemptedRef.current.add(lookupKey);
+
+    const timer = window.setTimeout(() => {
+      void handleNayaxLookup({ silent: true });
+    }, 0);
+    return () => window.clearTimeout(timer);
+    // handleNayaxLookup intentionally uses the selected case from this render.
+    // The request sequence guard discards any response after a case switch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isUsingDemoData,
+    selectedCase?.hasMatchedNayaxTransaction,
+    selectedCase?.id,
+    selectedCase?.lifecycle?.lookup.status,
+    selectedCase?.lifecycle?.stage,
+    selectedCase?.manualNayaxPortalEnabled,
+    selectedCase?.nayaxLookupSummary?.evidenceVersion,
+  ]);
 
   useEffect(() => {
     if (overview.cases.length === 0) return;
@@ -4055,7 +4254,6 @@ export default function AdminRefundsPage() {
       : hasSelectedCardEvidence(selectedCase, editor);
     const recommendedCandidate = effectiveCandidates.find((candidate) => candidate.isRecommended === true) ?? null;
     const leadCandidate = recommendedCandidate ?? effectiveCandidates[0] ?? null;
-    const alternateCandidates = effectiveCandidates.filter((candidate) => candidate !== leadCandidate);
     const selectableCandidateCount = effectiveCandidates.filter(
       (candidate) => candidate.selectionAllowed !== false
     ).length;
@@ -4075,6 +4273,16 @@ export default function AdminRefundsPage() {
     );
     const showPrimaryTransactionCheck = !selectedCase.manualNayaxPortalEnabled && !hasSelectedMatch && !hasLookupResult;
     const automaticLookupPending = selectedNayaxSummary?.lookupStatus === 'checking';
+    const showVisibleLookupRetry =
+      !automaticLookupPending &&
+      !hasSelectedMatch &&
+      (
+        selectedCase.lifecycle?.lookup.safeRetryEligible === true ||
+        ['lookup_failed', 'lookup_timed_out', 'response_limited'].includes(
+          selectedNayaxSummary?.lookupStatus ?? ''
+        ) ||
+        nayaxLookupNotice?.title === 'Transaction results expired'
+      );
     const needsDisagreementReason = Boolean(selectedCandidate && selectedCandidate.isRecommended !== true);
     const selectCandidate = (candidate: NayaxLookupCandidate) => {
       if (!caseAllowsCandidateSelection || candidate.selectionAllowed === false) return;
@@ -4116,66 +4324,87 @@ export default function AdminRefundsPage() {
               : 'Select this transaction';
 
       return (
-        <button
+        <label
           key={candidate.candidateToken}
           data-testid="nayax-candidate-option"
-          type="button"
-          disabled={selectionDisabled}
-          onClick={() => selectCandidate(candidate)}
+          aria-disabled={selectionDisabled}
           className={cn(
-            'w-full min-w-0 rounded-md border bg-background p-3 text-left text-xs text-foreground transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-100',
+            'grid min-h-11 w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-md border bg-background p-3 text-left text-xs text-foreground transition-colors sm:grid-cols-[auto_minmax(0,1.25fr)_minmax(0,1fr)]',
+            selectionDisabled
+              ? 'cursor-not-allowed'
+              : 'cursor-pointer hover:bg-muted/40 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2',
             editor.matchedNayaxCandidateToken === candidate.candidateToken
               ? 'border-primary ring-2 ring-primary/20'
               : 'border-border'
           )}
         >
-          <span className="flex flex-wrap items-center justify-between gap-2 font-semibold">
-            <span>{label}</span>
-            {candidate.selectionAllowed === false && (
-              <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[11px] text-orange-950">
-                Not selectable
+          <input
+            type="radio"
+            name="nayax-transaction-candidate"
+            value={candidate.candidateToken}
+            checked={editor.matchedNayaxCandidateToken === candidate.candidateToken}
+            disabled={selectionDisabled}
+            onChange={() => selectCandidate(candidate)}
+            aria-label={`Select ${label.toLowerCase()}`}
+            className="mt-1 h-5 w-5 accent-primary"
+          />
+          <span className="min-w-0">
+            <span className="flex flex-wrap items-center gap-2 font-semibold">
+              <span>{label}</span>
+              {candidate.isRecommended && (
+                <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] text-sky-950">
+                  Recommended
+                </span>
+              )}
+              {candidate.selectionAllowed === false && (
+                <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[11px] text-orange-950">
+                  Not selectable
+                </span>
+              )}
+            </span>
+            {candidate.machineDisplayLabel && (
+              <span className="mt-1 block font-medium text-sky-900">
+                {candidate.machineDisplayLabel}
               </span>
             )}
+            <span className="mt-1 block leading-5 text-foreground">{formatCandidateSummary(candidate)}</span>
           </span>
-          {candidate.machineDisplayLabel && (
-            <span className="mt-1 block font-medium text-sky-900">
-              {candidate.machineDisplayLabel}
-            </span>
-          )}
-          <span className="mt-1 block leading-5 text-foreground">{formatCandidateSummary(candidate)}</span>
-          {showFactorHighlights && visibleFactors.length > 0 && (
-            <span className="mt-2 grid gap-1 leading-5 text-muted-foreground">
-              {visibleFactors.map((factor) => (
-                <span key={`${factor.key}-${factor.label}`} className="flex gap-1.5">
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      'font-semibold',
-                      factor.outcome === 'match' ? 'text-emerald-700' : 'text-orange-800'
-                    )}
-                  >
-                    {factor.outcome === 'match' ? '✓' : '!'}
+          <span className="col-start-2 min-w-0 sm:col-start-auto">
+            {showFactorHighlights && visibleFactors.length > 0 && (
+              <span className="grid gap-1 leading-5 text-muted-foreground">
+                {visibleFactors.map((factor) => (
+                  <span key={`${factor.key}-${factor.label}`} className="flex gap-1.5">
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        'font-semibold',
+                        factor.outcome === 'match' ? 'text-emerald-700' : 'text-orange-800'
+                      )}
+                    >
+                      {factor.outcome === 'match' ? '✓' : '!'}
+                    </span>
+                    <span>{matchFactorDisplayLabel(factor, candidate, selectedCase)}</span>
                   </span>
-                  <span>{matchFactorDisplayLabel(factor, candidate, selectedCase)}</span>
-                </span>
-              ))}
-            </span>
-          )}
-          <span
-            className={cn(
-              'mt-2 block font-medium',
-              selectionDisabled ? 'text-orange-950' : 'text-primary'
+                ))}
+              </span>
             )}
-          >
-            {selectionMessage}
+            <span
+              className={cn(
+                'mt-2 block font-medium',
+                selectionDisabled ? 'text-orange-950' : 'text-primary'
+              )}
+            >
+              {selectionMessage}
+            </span>
           </span>
-        </button>
+        </label>
       );
     };
 
     return (
       <div className="mt-3 space-y-3">
-        {selectedCase.manualNayaxPortalEnabled &&
+        {refundOperationsAccess &&
+          selectedCase.manualNayaxPortalEnabled &&
           !hasSelectedMatch &&
           effectiveCandidates.length === 0 && (
           <div data-testid="manual-nayax-evidence-form" className="rounded-lg border border-sky-200 bg-sky-50/70 p-4">
@@ -4275,7 +4504,7 @@ export default function AdminRefundsPage() {
           <div className="rounded-md border border-sky-200 bg-sky-50 p-3">
             <p className="text-sm font-medium text-sky-950">Automatic transaction check</p>
             <p className="mt-1 text-xs leading-5 text-sky-800">
-              Bloomjoy checks when the customer details are complete. Opening the case does not run it again, and checking never issues a refund.
+              Bloomjoy starts this read-only check automatically when the customer details are complete. Checking never issues a refund.
             </p>
           </div>
         )}
@@ -4287,7 +4516,7 @@ export default function AdminRefundsPage() {
         {nayaxLookupNotice && !selectedCase.hasMatchedNayaxTransaction && (
           <div data-testid="nayax-lookup-notice" className={nayaxLookupNoticeClass(nayaxLookupNotice.tone)}>
             {managerNayaxLookupNotice(nayaxLookupNotice, selectedNayaxSummary)}
-            {nayaxLookupNotice.title === 'Transaction results expired' && (
+            {showVisibleLookupRetry && (
               <Button
                 data-testid="nayax-refresh-expired-results"
                 type="button"
@@ -4302,9 +4531,31 @@ export default function AdminRefundsPage() {
                 ) : (
                   <RefreshCw className="mr-2 h-4 w-4" />
                 )}
-                Refresh transaction results
+                Refresh transactions
               </Button>
             )}
+          </div>
+        )}
+        {showVisibleLookupRetry && !nayaxLookupNotice && (
+          <div data-testid="nayax-lookup-retry" className={nayaxLookupNoticeClass('warning')}>
+            <p>
+              Bloomjoy could not finish the read-only transaction check. No refund was issued.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="mt-2 min-h-11 bg-background"
+              onClick={() => void handleNayaxLookup()}
+              disabled={isLookingUpNayax}
+            >
+              {isLookingUpNayax ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              Refresh transactions
+            </Button>
           </div>
         )}
         {!selectedCase.hasMatchedNayaxTransaction && !editor.clearNayaxMatch && effectiveCandidates.length > 0 && (
@@ -4330,29 +4581,16 @@ export default function AdminRefundsPage() {
                     : 'Choose one only when the customer, amount, time, and payment details clearly agree.'}
               </p>
             </div>
-            {leadCandidate && (
-              <div>
-                {candidateOption(
-                  leadCandidate,
-                  leadCandidate.selectionAllowed === false
-                    ? 'Closest transaction'
-                    : leadCandidate.isRecommended
-                      ? 'Recommended transaction'
-                      : 'Closest transaction',
-                  false
-                )}
-              </div>
-            )}
-            {alternateCandidates.length > 0 && (
-              <details data-testid="nayax-alternate-transactions" className="mt-3 border-t border-border pt-3">
-                <summary className="cursor-pointer text-xs font-semibold text-foreground">
-                  Show {alternateCandidates.length} other transaction{alternateCandidates.length === 1 ? '' : 's'}
-                </summary>
-                <div className="mt-2 space-y-2">
-                  {alternateCandidates.map((candidate) => candidateOption(candidate, 'Other transaction'))}
-                </div>
-              </details>
-            )}
+            <div
+              data-testid="nayax-transaction-comparison"
+              role="radiogroup"
+              aria-label="Customer and transaction comparison"
+              className="space-y-2"
+            >
+              {effectiveCandidates.map((candidate, index) =>
+                candidateOption(candidate, `Transaction ${index + 1}`)
+              )}
+            </div>
             {needsDisagreementReason && (
               <div className="mt-3 space-y-1.5">
                 <Label htmlFor="nayax-disagreement-reason">Why is this the right transaction?</Label>
@@ -4381,7 +4619,7 @@ export default function AdminRefundsPage() {
           </div>
         )}
 
-        {!selectedCase.manualNayaxPortalEnabled && <details className="rounded-md border border-border bg-background p-2">
+        {(!selectedCase.manualNayaxPortalEnabled || !refundOperationsAccess) && <details className="rounded-md border border-border bg-background p-2">
           <summary className="cursor-pointer text-xs font-medium text-foreground">
             Transaction search details
           </summary>
@@ -4390,7 +4628,7 @@ export default function AdminRefundsPage() {
               Use these options only if the selected transaction looks wrong or out of date.
             </p>
             <div className="flex flex-wrap gap-2">
-              {!automaticLookupPending && (
+              {!automaticLookupPending && !showVisibleLookupRetry && (
                 <Button
                   data-testid="nayax-check-transaction"
                   type="button"
@@ -4506,10 +4744,21 @@ export default function AdminRefundsPage() {
       (selectedCase.legacyStateReviewRequired ? null : editor.matchedNayaxMachineAuthTime) ||
       selectedCase.incidentAt;
     const actionLabel = `Refund ${formatCurrency(cardAmountCents)}`;
+    const paymentActionNeedsOperations = refundOperationsBlockedCaseIds.has(selectedCase.id);
     const hasReadyRefund =
       primaryAction?.mode === 'nayax_refund_execution' &&
-      primaryAction.disabled !== true;
-    const topActionLabel = hasReadyRefund ? actionLabel : primaryAction?.label ?? 'Review this request';
+      primaryAction.disabled !== true &&
+      !paymentActionNeedsOperations;
+    const technicalRefundOperationsAction =
+      !refundOperationsAccess &&
+      primaryAction?.mode === 'manual_nayax_approval';
+    const topActionLabel = paymentActionNeedsOperations
+      ? 'Refund Operations review required'
+      : technicalRefundOperationsAction
+      ? 'Refund Operations review required'
+      : hasReadyRefund
+        ? actionLabel
+        : primaryAction?.label ?? 'Review this request';
     const baseManagerState = getRefundManagerState(
       {
         ...selectedCase,
@@ -4524,7 +4773,15 @@ export default function AdminRefundsPage() {
     const hasUnsavedTransactionChoice =
       !selectedCase.hasMatchedNayaxTransaction &&
       Boolean(editor.matchedNayaxCandidateToken.trim());
-    const managerState: RefundManagerState = hasUnsavedTransactionChoice
+    const managerState: RefundManagerState = paymentActionNeedsOperations
+      ? {
+          id: 'needs_refund_operations',
+          label: 'Needs Refund Operations',
+          explanation: 'Bloomjoy did not send a refund. A permissioned specialist owns this case now.',
+          nextStep: 'Refund Operations will review the authorization state. Do not try the refund again.',
+          tone: 'warning',
+        }
+      : hasUnsavedTransactionChoice
       ? {
           id: 'match_attention',
           label: 'Confirm transaction',
@@ -4544,7 +4801,7 @@ export default function AdminRefundsPage() {
           }
       : baseManagerState;
     const showDisabledActionStatus =
-      primaryAction?.disabled === true &&
+      (primaryAction?.disabled === true || technicalRefundOperationsAction || paymentActionNeedsOperations) &&
       !selectedCaseIsTerminal &&
       managerState.id !== 'match_attention' &&
       managerState.id !== 'check_nayax_result';
@@ -4554,6 +4811,8 @@ export default function AdminRefundsPage() {
       isRunningNayaxRefund ||
       isUsingDemoData ||
       !primaryAction ||
+      technicalRefundOperationsAction ||
+      paymentActionNeedsOperations ||
       primaryAction.disabled === true ||
       (primaryActionNeedsOfficialAccess && (selectedCaseIsReviewOnly || officialActionVersion <= 0)) ||
       primaryActionIssues.length > 0;
@@ -4642,6 +4901,12 @@ export default function AdminRefundsPage() {
               ) : null}
             </div>
           </div>
+
+          {selectedCase.lifecycle && (
+            <div className="border-b border-border px-4 py-4">
+              <RefundLifecycleProgress lifecycle={selectedCase.lifecycle} />
+            </div>
+          )}
 
           <div className="grid gap-px bg-border lg:grid-cols-2">
             <article data-testid="refund-request-summary" className="bg-card p-4">
@@ -4899,7 +5164,9 @@ export default function AdminRefundsPage() {
                 </p>
               </div>
 
-              {!selectedCase.legacyStateReviewRequired && nayaxResolutionReadiness?.visible && (
+              {!selectedCase.legacyStateReviewRequired &&
+              refundOperationsAccess &&
+              nayaxResolutionReadiness?.visible && (
                 <div
                   data-testid="refund-nayax-resolution-panel"
                   className="mt-4 space-y-4 border-t border-border pt-4 text-foreground"
@@ -4907,7 +5174,7 @@ export default function AdminRefundsPage() {
                   <div className="flex items-start gap-3">
                     <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
                     <div>
-                      <p className="font-semibold">Confirm the payment result</p>
+                      <p className="font-semibold">Refund Operations</p>
                       <p className="mt-1 text-sm leading-6">
                         {nayaxResolutionReadiness?.manualPortalAttempt
                           ? 'Finish the exact refund once in Nayax, then record the Nayax confirmation. Bloomjoy will not call Nayax or send a second refund.'
@@ -4917,6 +5184,34 @@ export default function AdminRefundsPage() {
                       </p>
                     </div>
                   </div>
+                  {selectedCase.lifecycle?.operations.required && (
+                    <div
+                      data-testid="refund-operations-sla"
+                      className="grid gap-2 rounded-lg border border-border bg-muted/30 p-3 text-sm sm:grid-cols-3"
+                    >
+                      <div>
+                        <p className="text-xs text-muted-foreground">Owner</p>
+                        <p className="mt-1 font-medium">{selectedCase.lifecycle.operations.owner}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">60-minute SLA</p>
+                        <p className="mt-1 font-medium">
+                          {selectedCase.lifecycle.operations.slaMinutes} minutes
+                          {selectedCase.lifecycle.operations.slaBreached ? ', overdue' : ''}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Safe stage</p>
+                        <p className="mt-1 font-medium">
+                          {statusLabel(selectedCase.lifecycle.operations.safeStage)}
+                        </p>
+                      </div>
+                      <p className="sm:col-span-3">
+                        {selectedCase.lifecycle.operations.nextStep ??
+                          'Confirm the authoritative payment result. Never retry the payment.'}
+                      </p>
+                    </div>
+                  )}
 
                   {!nayaxResolutionReadiness.available ? (
                     <div
@@ -5084,7 +5379,7 @@ export default function AdminRefundsPage() {
 
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-xs leading-5 text-muted-foreground">
-                          Any active Machine Manager for this machine can save this result.
+                          Only Refund Operations can save authoritative payment evidence.
                         </p>
                         <Button
                           type="button"
@@ -5649,9 +5944,14 @@ export default function AdminRefundsPage() {
           <div className="mt-5 flex flex-wrap gap-2" aria-label="Refund case views">
             {([
               ['needs_action', 'Action needed'],
+              ['ready_to_pay', 'Ready to refund'],
+              ['in_progress', 'In progress'],
+              ['provider_hold', 'Needs Refund Operations'],
               ['waiting_on_customer', 'Waiting'],
               ['completed', 'Done'],
-            ] as const).map(([value, label]) => (
+            ] as const)
+              .filter(([value]) => value !== 'provider_hold' || refundOperationsAccess)
+              .map(([value, label]) => (
               <Button
                 key={value}
                 type="button"
