@@ -4,6 +4,11 @@ import {
   type EdgeFunctionError,
 } from '@/lib/edgeFunctions';
 import { supabaseClient } from '@/lib/supabaseClient';
+import {
+  REFUND_LIFECYCLE_SCHEMA_VERSION,
+  requireRefundLifecycleContract,
+  type RefundLifecycleContract,
+} from '@/lib/refundLifecycle';
 
 export type RefundPaymentMethod = 'card' | 'cash' | 'unknown';
 export type RefundPaymentInteraction =
@@ -243,7 +248,9 @@ export type RefundNayaxLookupStatus =
   | 'no_match'
   | 'manual_exception'
   | 'setup_needed'
-  | 'lookup_failed';
+  | 'lookup_failed'
+  | 'lookup_timed_out'
+  | 'response_limited';
 
 export type RefundNayaxLookupSummary = {
   lookupStatus: RefundNayaxLookupStatus;
@@ -262,6 +269,12 @@ export type RefundNayaxLookupSummary = {
   qrClaimOpenedAt?: string | null;
   qrClaimEvidenceStatus?: 'verified' | 'missing' | 'invalid' | 'replayed';
   maximumUniqueQrLagMinutes?: number;
+  safeRetryEligible?: boolean;
+  failureClass?: string | null;
+  automatic?: boolean;
+  evidenceVersion?: number;
+  lookupGeneration?: number;
+  lastUpdatedAt?: string | null;
 };
 
 export type NayaxRecommendationState =
@@ -386,6 +399,7 @@ export type RefundCaseRecord = {
   manualNayaxPortalEnabled?: boolean;
   manualNayaxEvidenceSelected?: boolean;
   manualNayaxLocationTimezone?: string | null;
+  lifecycle?: RefundLifecycleContract | null;
 };
 
 export type RefundAdminMachine = {
@@ -404,6 +418,8 @@ export type RefundOperationsOverview = {
   cases: RefundCaseRecord[];
   machines: RefundAdminMachine[];
   managerAssignments: RefundManagerAssignment[];
+  lifecycleContractVersion?: typeof REFUND_LIFECYCLE_SCHEMA_VERSION;
+  refundOperationsAccess?: boolean;
 };
 
 export type RefundEmailQueueState = {
@@ -764,6 +780,7 @@ export type RefundNayaxResolutionReadiness = {
     | 'already_resolved'
     | 'provider_hold_required'
     | 'manager_access_required'
+    | 'refund_operations_access_required'
     | null;
   canStartEvidenceOnlyReconciliation?: boolean;
   attemptId?: string | null;
@@ -936,6 +953,11 @@ export type NayaxLookupResponse = {
   windowHours?: number;
   summary?: string;
   recommendedAction?: string;
+  safeRetryEligible?: boolean;
+  failureClass?: string | null;
+  evidenceVersion?: number;
+  lookupGeneration?: number;
+  lastUpdatedAt?: string | null;
 };
 
 export type NayaxCardRefundExecutionBlock =
@@ -1206,6 +1228,44 @@ const emptyRefundManagerSetup: RefundManagerSetup = {
 const demoIsoHoursAgo = (hours: number) =>
   new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 
+const demoLifecycle = (
+  stage: RefundLifecycleContract['stage'],
+  stageRank: number,
+  managerNextAction: string,
+  operationsRequired = false
+): RefundLifecycleContract => ({
+  schemaVersion: REFUND_LIFECYCLE_SCHEMA_VERSION,
+  stage,
+  stageRank,
+  evidenceState: 'synthetic_demo',
+  lastUpdatedAt: demoIsoHoursAgo(0.05),
+  publicCopyKey: `refund_${stage}`,
+  managerNextAction,
+  terminal: stage === 'customer_notified' || stage === 'denied',
+  refreshAfterSeconds: stage === 'customer_notified' || stage === 'denied' ? null : 5,
+  lookup: {
+    status: stage === 'matching' ? 'checking' : 'match_found',
+    safeRetryEligible: false,
+    failureClass: null,
+    lastUpdatedAt: demoIsoHoursAgo(0.05),
+  },
+  operations: {
+    required: operationsRequired,
+    queue: 'Refund Operations',
+    owner: 'Refund Operations',
+    slaMinutes: 60,
+    ageMinutes: operationsRequired ? 12 : null,
+    dueAt: operationsRequired ? demoIsoHoursAgo(-0.8) : null,
+    slaBreached: false,
+    safeStage: operationsRequired ? 'provider_result_uncertain' : 'not_needed',
+    failureClass: operationsRequired ? 'authoritative_confirmation_required' : null,
+    nextStep: operationsRequired
+      ? 'Confirm the authoritative Nayax result. Never retry the payment.'
+      : null,
+  },
+  payloadRedacted: true,
+});
+
 export const canUseLocalUatDemoMode = () => {
   if (typeof window === 'undefined') return false;
   if (!import.meta.env.DEV) return false;
@@ -1319,6 +1379,8 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
   const managerEmail = 'machine-manager@example.test';
 
   return {
+    lifecycleContractVersion: REFUND_LIFECYCLE_SCHEMA_VERSION,
+    refundOperationsAccess: false,
     machines: [
       {
         id: 'demo-machine-card',
@@ -1427,6 +1489,12 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
           oneClickEligible: false,
           incidentAt: demoIsoHoursAgo(2),
         },
+        lifecycle: demoLifecycle(
+          'needs_refund_operations',
+          60,
+          'refund_operations',
+          true
+        ),
       },
       {
         id: 'demo-card-match',
@@ -1514,6 +1582,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
             createdAt: demoIsoHoursAgo(4.5),
           },
         ],
+        lifecycle: demoLifecycle('transaction_confirmed', 30, 'issue_refund'),
         assignedManagerEmail: managerEmail,
         decision: 'approved',
         decisionReason: 'Confirmed matching card transaction and customer report.',
@@ -1707,6 +1776,12 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
     ...emptyOverview,
     ...((overviewResult.data as Partial<RefundOperationsOverview> | null) ?? {}),
   };
+  if (
+    overview.lifecycleContractVersion !== undefined &&
+    overview.lifecycleContractVersion !== REFUND_LIFECYCLE_SCHEMA_VERSION
+  ) {
+    throw new Error('Unsupported refund lifecycle response.');
+  }
   const gmailDrafts = Array.isArray(gmailDraftResult.data)
     ? (gmailDraftResult.data as RefundCaseRecord[])
     : [];
@@ -1730,9 +1805,15 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   const cases = [...gmailDrafts, ...overview.cases].map((refundCase) => {
     const state = queueStateByCaseId.get(refundCase.id);
     const manualNayax = manualNayaxByCaseId.get(refundCase.id);
-    if (!state && !manualNayax) return refundCase;
+    const lifecycle = refundCase.lifecycle
+      ? requireRefundLifecycleContract(refundCase.lifecycle)
+      : null;
+    if (!state && !manualNayax) {
+      return { ...refundCase, lifecycle };
+    }
     return {
       ...refundCase,
+      lifecycle,
       ...(state ? {
         intakeSource: state.intakeSource,
         exactCasePath: state.exactCasePath,

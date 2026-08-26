@@ -38,6 +38,8 @@ jobs:
         run: npm run refunds:validate-location-safety
       - name: Build
         run: npm run build
+      - name: TypeScript no-emit check
+        run: npm run typecheck
       - name: SEO Regression Checks
         run: npm run seo:check
       - name: Provider Parser Regression Checks
