@@ -5840,6 +5840,18 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
           .isVisible() &&
           await panel.getByTestId('refund-nayax-resolution-prepare').isDisabled()
       );
+      await panel.scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: path.join(artifactDir, 'refund-portal-uat-nc-manual-desktop.png'),
+        fullPage: false,
+      });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await panel.scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: path.join(artifactDir, 'refund-portal-uat-nc-manual-mobile.png'),
+        fullPage: false,
+      });
+      await page.setViewportSize({ width: 1440, height: 1000 });
     }
     await panel.getByTestId('refund-nayax-resolution-reference')
       .fill(scenario.evidenceReference);
