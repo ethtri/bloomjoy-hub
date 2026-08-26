@@ -334,6 +334,25 @@ const unverifiedMissingStatus = recommend([documentedLastSale], { providerContra
 assert.equal(unverifiedMissingStatus.recommendationState, "manual_exception");
 assert.equal(unverifiedMissingStatus.oneClickEligible, false);
 
+const declinedCamelStatus = { ...documentedLastSale, paymentStatus: "Declined" };
+const declinedCamelResult = recommend([declinedCamelStatus]);
+assert.equal(declinedCamelResult.recommendationState, "manual_exception");
+assert.equal(declinedCamelResult.candidates[0].selectionAllowed, false);
+
+const unknownSnakeStatus = { ...documentedLastSale, payment_status: "Processing" };
+const unknownSnakeResult = recommend([unknownSnakeStatus]);
+assert.equal(unknownSnakeResult.recommendationState, "manual_exception");
+assert.equal(unknownSnakeResult.oneClickEligible, false);
+
+const contradictoryStatuses = sale({
+  id: "contradictory-statuses",
+  status: "Approved",
+  extra: { TransactionStatus: "Declined" },
+});
+const contradictoryStatusResult = recommend([contradictoryStatuses]);
+assert.equal(contradictoryStatusResult.recommendationState, "manual_exception");
+assert.equal(contradictoryStatusResult.candidates[0].selectionAllowed, false);
+
 const missingProviderSite = recommend([sale({ id: "missing-site", siteId: null })]);
 assert.equal(missingProviderSite.recommendationState, "manual_exception");
 assert.equal(missingProviderSite.oneClickEligible, false);
@@ -438,4 +457,4 @@ assert.equal(publicCandidate.matchStrength, "strong");
 assert.equal(publicCandidate.confidenceClass, "strong_card");
 assert.equal(publicCandidate.candidateToken, "opaque-token");
 
-console.log("Nayax deterministic recommendation fixtures passed (35 safety scenarios).");
+console.log("Nayax deterministic recommendation fixtures passed (38 safety scenarios).");

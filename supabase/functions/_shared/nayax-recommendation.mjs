@@ -75,30 +75,24 @@ const normalizeRecognitionMethod = (value) => {
 };
 
 const LAST_SALES_PROVIDER_CONTRACT = "nayax_machine_last_sales_v1";
-const PAYMENT_STATUS_FIELDS = ["PaymentStatus", "TransactionStatus", "Status", "status"];
+const PAYMENT_STATUS_FIELDS = [
+  "PaymentStatus",
+  "paymentStatus",
+  "payment_status",
+  "TransactionStatus",
+  "transactionStatus",
+  "transaction_status",
+  "Status",
+  "status",
+];
 
-const normalizePaymentStatus = (record, providerContract) => {
-  const explicitStatusField = PAYMENT_STATUS_FIELDS.find((field) =>
-    Object.prototype.hasOwnProperty.call(record, field)
-  );
-  const normalized = sanitizeText(
-    explicitStatusField ? record[explicitStatusField] : null,
-    80,
-  )
+const normalizePaymentStatusValue = (value) => {
+  const normalized = sanitizeText(value, 80)
     .toLowerCase()
     .replace(/[^a-z0-9 ]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  if (!normalized) {
-    // Nayax's documented machine Last Sales response intentionally has no
-    // separate status field. The refund API tells integrators to obtain the
-    // refundable TransactionId/SiteId from this endpoint. Treat omission as
-    // approved only when the caller explicitly binds this trusted contract.
-    // A present-but-empty field and every unverified payload remain closed.
-    return explicitStatusField === undefined && providerContract === LAST_SALES_PROVIDER_CONTRACT
-      ? { status: "approved", evidence: "last_sales_contract" }
-      : { status: "recorded", evidence: "unconfirmed" };
-  }
+  if (!normalized) return "recorded";
   const statusTokens = new Set(normalized.split(" "));
   // Denial/reversal evidence must win over positive substrings. For example,
   // "not approved" contains "approved" and "successful reversal" contains
@@ -116,12 +110,37 @@ const normalizePaymentStatus = (record, providerContract) => {
       .some((token) => statusTokens.has(token))
     || [...statusTokens].some((token) => token.startsWith("cancel") || token.startsWith("void"))
   ) {
-    return { status: "not approved", evidence: "explicit" };
+    return "not approved";
   }
   if (["approved", "paid", "success", "successful", "completed", "settled", "sale"].some((token) => statusTokens.has(token))) {
-    return { status: "approved", evidence: "explicit" };
+    return "approved";
   }
-  return { status: "recorded", evidence: "unconfirmed" };
+  return "recorded";
+};
+
+const normalizePaymentStatus = (record, providerContract) => {
+  const explicitStatuses = PAYMENT_STATUS_FIELDS
+    .filter((field) => Object.prototype.hasOwnProperty.call(record, field))
+    .map((field) => normalizePaymentStatusValue(record[field]));
+  if (explicitStatuses.length === 0) {
+    // Nayax's documented machine Last Sales response intentionally has no
+    // separate status field. The refund API tells integrators to obtain the
+    // refundable TransactionId/SiteId from this endpoint. Treat omission as
+    // sale evidence only when the caller explicitly binds this trusted
+    // contract. Every unverified payload remains closed.
+    return providerContract === LAST_SALES_PROVIDER_CONTRACT
+      ? { status: "approved", evidence: "last_sales_contract" }
+      : { status: "recorded", evidence: "unconfirmed" };
+  }
+  // Evaluate every supported alias. A negative value wins over positive
+  // evidence, while any blank/unknown value or contradiction stays closed.
+  if (explicitStatuses.includes("not approved")) {
+    return { status: "not approved", evidence: "explicit" };
+  }
+  if (explicitStatuses.some((status) => status !== "approved")) {
+    return { status: "recorded", evidence: "unconfirmed" };
+  }
+  return { status: "approved", evidence: "explicit" };
 };
 
 const normalizeProviderRefundState = (record) => {
