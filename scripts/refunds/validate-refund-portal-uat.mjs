@@ -5441,13 +5441,15 @@ const runManagerStepUpChecks = async ({ browser, appUrl, artifactDir, recorder }
 
 const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
   const paymentEvidenceOccurredAt = new Date(Date.now() - 10 * 60 * 1000);
+  paymentEvidenceOccurredAt.setSeconds(10, 0);
   const paymentEvidenceLocalValue = [
     paymentEvidenceOccurredAt.getFullYear(),
     String(paymentEvidenceOccurredAt.getMonth() + 1).padStart(2, '0'),
     String(paymentEvidenceOccurredAt.getDate()).padStart(2, '0'),
   ].join('-') + `T${String(paymentEvidenceOccurredAt.getHours()).padStart(2, '0')}:${String(
     paymentEvidenceOccurredAt.getMinutes()
-  ).padStart(2, '0')}`;
+  ).padStart(2, '0')}:${String(paymentEvidenceOccurredAt.getSeconds()).padStart(2, '0')}`;
+  const expectedPaymentEvidenceIso = new Date(paymentEvidenceLocalValue).toISOString();
   const scenarios = [
     {
       result: 'provider_confirmed_success',
@@ -5583,6 +5585,8 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
           await panel.getByTestId('refund-nayax-resolution-evidence-type').isVisible() &&
           await panel.getByTestId('refund-nayax-resolution-reference').isVisible() &&
           await panel.getByLabel('Refund date and time').isVisible() &&
+          await panel.getByLabel('Refund date and time').getAttribute('step') === '1' &&
+          await panel.getByText('including seconds', { exact: false }).isVisible() &&
           (await panel.locator('textarea').count()) === 0 &&
           (await panel.getByLabel(/recipient|email subject|message body|retry provider/i).count()) === 0 &&
           await panel.getByText('never send a second refund', { exact: false }).isVisible() &&
@@ -5655,8 +5659,9 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
         verifiedBody.evidenceType === scenario.evidenceType &&
         verifiedBody.evidenceReference === (scenario.expectedEvidenceReference ?? scenario.evidenceReference) &&
         (scenario.evidenceOccurredAt
-          ? typeof verifiedBody.evidenceOccurredAt === 'string' &&
-            !Number.isNaN(Date.parse(verifiedBody.evidenceOccurredAt))
+          ? verifiedBody.evidenceOccurredAt === expectedPaymentEvidenceIso &&
+            new Date(verifiedBody.evidenceOccurredAt).getSeconds() === 10 &&
+            new Date(verifiedBody.evidenceOccurredAt).getMilliseconds() === 0
           : verifiedBody.evidenceOccurredAt === null) &&
         verifiedBody.reasonCode === scenario.reasonCode &&
         verifiedBody.expectedCaseVersion === 9,

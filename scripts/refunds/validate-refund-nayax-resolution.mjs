@@ -206,12 +206,16 @@ assert(
     portal.includes('data-testid="refund-nayax-resolution-evidence-type"') &&
     portal.includes('data-testid="refund-nayax-resolution-reference"') &&
     portal.includes('data-testid="refund-nayax-resolution-occurred-at"') &&
+    portal.includes('step={1}') &&
+    portal.includes('including seconds') &&
     portal.includes('data-testid="refund-nayax-evidence-only-start"') &&
     portal.includes('Already refunded in Nayax?') &&
     !portal.includes('data-testid="refund-nayax-resolution-reason"') &&
     !portal.includes('authenticator code') &&
     portal.includes('Complete case & notify customer') &&
-    portal.includes('No second payment was attempted'),
+    portal.includes('No second payment was attempted') &&
+    portal.includes('Any active Machine Manager for this machine can save this result.') &&
+    !portal.includes('Only the assigned Machine Manager can save this result.'),
   'The manager form must contain only result, source, reference, conditional time, and one clear action.'
 );
 
