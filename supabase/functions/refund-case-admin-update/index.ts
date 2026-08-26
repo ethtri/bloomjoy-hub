@@ -30,8 +30,11 @@ import {
 } from "../_shared/refund-evidence-selection.ts";
 import { isRefundCustomerSafeDenialReason } from "../_shared/refund-denial.ts";
 import {
+  isNayaxRefundCaseReleaseAuthorized,
   NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
+  resolveNayaxRefundCaseExecutionConfig,
   resolveNayaxRefundExecutionConfig,
+  resolveNayaxRefundRolloutConfig,
 } from "../_shared/nayax-refund-gates.ts";
 import {
   mergeRuntimeRefundReadiness,
@@ -257,15 +260,23 @@ const resolveSelectionRefundReadiness = async ({
   const executionConfig = resolveNayaxRefundExecutionConfig((name) =>
     Deno.env.get(name)
   );
+  const rolloutConfig = resolveNayaxRefundRolloutConfig((name) =>
+    Deno.env.get(name)
+  );
+  const caseExecutionConfig = resolveNayaxRefundCaseExecutionConfig({
+    executionConfig,
+    rolloutConfig,
+    caseId,
+  });
   const accountKey = normalizeAccountKey(
     afterRow.reporting_machines?.nayax_account_key ?? "",
   );
   const providerCredentialAvailable = Boolean(
-    accountKey && (
-      Deno.env.get(`NAYAX_LYNX_API_TOKEN_${accountKey}`)?.trim() ||
-      Deno.env.get("NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB")?.trim() ||
-      Deno.env.get("NAYAX_LYNX_API_TOKEN")?.trim()
-    ),
+    accountKey &&
+      Deno.env.get(`NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}`)?.trim() &&
+      Deno.env.get(`NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}`)?.trim() &&
+      Deno.env.get("NAYAX_REFUND_MANAGER_CONTRACT_JSON")?.trim() &&
+      isNayaxRefundCaseReleaseAuthorized({ rolloutConfig, caseId }),
   );
   const { data: dailyUsageValue, error: dailyUsageError } = await supabase.rpc(
     "service_refund_nayax_daily_usage",
@@ -276,7 +287,7 @@ const resolveSelectionRefundReadiness = async ({
 
   return mergeRuntimeRefundReadiness({
     databaseReadiness,
-    executionConfig,
+    executionConfig: caseExecutionConfig,
     officialActionsEnabled: NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
     providerCredentialAvailable,
     dailyAmountUsedCents: dailyUsage?.dailyAmountUsedCents ?? null,

@@ -24,6 +24,13 @@ export type NayaxRefundExecutionConfig = {
   approvalScopeConfirmed: boolean;
 };
 
+export type NayaxRefundRolloutConfig = {
+  broadReopenApproved: boolean;
+  canaryEnabled: boolean;
+  canaryCaseId: string | null;
+  canaryUnprovenProviderApproved: boolean;
+};
+
 export type NayaxRefundAvailabilityBlockReason =
   | "official_actions_disabled"
   | "kill_switch_active"
@@ -68,6 +75,76 @@ const boundedInteger = (
 
 const exactFlag = (value: string | undefined, expected: string) =>
   value?.trim().toLowerCase() === expected;
+
+const normalizedUuid = (value: string | undefined) => {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+      .test(normalized)
+    ? normalized
+    : null;
+};
+
+export const resolveNayaxRefundRolloutConfig = (
+  readEnv: (name: string) => string | undefined,
+): NayaxRefundRolloutConfig => ({
+  broadReopenApproved: exactFlag(
+    readEnv("NAYAX_REFUND_BROAD_REOPEN_APPROVED"),
+    "true",
+  ),
+  canaryEnabled: exactFlag(readEnv("NAYAX_REFUND_CANARY_ENABLED"), "true"),
+  canaryCaseId: normalizedUuid(readEnv("NAYAX_REFUND_CANARY_CASE_ID")),
+  canaryUnprovenProviderApproved: exactFlag(
+    readEnv("NAYAX_REFUND_CANARY_UNPROVEN_PROVIDER_APPROVED"),
+    "true",
+  ),
+});
+
+const isExactCanaryCase = (
+  rolloutConfig: NayaxRefundRolloutConfig,
+  caseId: string,
+) =>
+  rolloutConfig.canaryEnabled &&
+  rolloutConfig.canaryCaseId !== null &&
+  rolloutConfig.canaryCaseId === caseId.trim().toLowerCase();
+
+export const isNayaxRefundCaseReleaseAuthorized = ({
+  rolloutConfig,
+  caseId,
+}: {
+  rolloutConfig: NayaxRefundRolloutConfig;
+  caseId: string;
+}) =>
+  rolloutConfig.broadReopenApproved || isExactCanaryCase(
+    rolloutConfig,
+    caseId,
+  );
+
+export const resolveNayaxRefundCaseExecutionConfig = ({
+  executionConfig,
+  rolloutConfig,
+  caseId,
+}: {
+  executionConfig: NayaxRefundExecutionConfig;
+  rolloutConfig: NayaxRefundRolloutConfig;
+  caseId: string;
+}): NayaxRefundExecutionConfig => {
+  // This owner-approved calibration exception is intentionally narrower than
+  // release authorization. It may remove only the two facts that the canary is
+  // designed to prove, and it is disabled as soon as broad reopening is active.
+  const calibrationAuthorized =
+    !rolloutConfig.broadReopenApproved &&
+    rolloutConfig.canaryUnprovenProviderApproved &&
+    isExactCanaryCase(rolloutConfig, caseId);
+  if (!calibrationAuthorized) return executionConfig;
+
+  return {
+    ...executionConfig,
+    blocks: executionConfig.blocks.filter((block) =>
+      block !== "manager_contract_unconfirmed" &&
+      block !== "approval_scope_unconfirmed"
+    ),
+  };
+};
 
 export const resolveNayaxRefundExecutionConfig = (
   readEnv: (name: string) => string | undefined,

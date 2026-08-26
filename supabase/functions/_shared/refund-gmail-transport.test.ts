@@ -685,6 +685,8 @@ Deno.test("enabled linked delivery preserves exact thread, customer To, two mana
           });
           assertEquals(result.usedGmail, true);
           assertEquals(result.managerCcCount, 2);
+          assertEquals(result.managerRecipientOverlap, false);
+          assertEquals(result.managerRecipientCount, 2);
         },
       );
 

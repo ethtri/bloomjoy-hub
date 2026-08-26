@@ -1,8 +1,11 @@
 import {
   buildNayaxRefundIdempotencyKey,
+  isNayaxRefundCaseReleaseAuthorized,
   readNayaxRefundAvailability,
+  resolveNayaxRefundCaseExecutionConfig,
   resolveNayaxRefundAvailability,
   resolveNayaxRefundExecutionConfig,
+  resolveNayaxRefundRolloutConfig,
 } from "./nayax-refund-gates.ts";
 
 const assert = (condition: unknown, message: string) => {
@@ -23,6 +26,15 @@ const enabledConfig = {
   NAYAX_REFUND_EXECUTOR_ASSERTION: "e".repeat(64),
   NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED: "true",
   NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED: "true",
+};
+
+const canaryCaseId = "76000000-0000-4000-8000-000000000001";
+
+const calibrationRollout = {
+  NAYAX_REFUND_BROAD_REOPEN_APPROVED: "false",
+  NAYAX_REFUND_CANARY_ENABLED: "true",
+  NAYAX_REFUND_CANARY_CASE_ID: canaryCaseId,
+  NAYAX_REFUND_CANARY_UNPROVEN_PROVIDER_APPROVED: "true",
 };
 
 Deno.test("default or missing rollout configuration reports every fail-closed gate", () => {
@@ -53,6 +65,122 @@ Deno.test("a complete bounded configuration has no rollout block", () => {
     config.dailyAmountCapCents === 5000,
     "daily amount must be preserved",
   );
+});
+
+Deno.test("owner-approved calibration removes only the two unproven facts for the exact canary", () => {
+  const baseConfig = resolveNayaxRefundExecutionConfig(envReader({
+    ...enabledConfig,
+    NAYAX_REFUND_EXECUTION_KILL_SWITCH: "true",
+    NAYAX_REFUND_IDEMPOTENCY_SECRET: "invalid",
+    NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED: "false",
+    NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED: "false",
+  }));
+  const rolloutConfig = resolveNayaxRefundRolloutConfig(
+    envReader(calibrationRollout),
+  );
+  const caseConfig = resolveNayaxRefundCaseExecutionConfig({
+    executionConfig: baseConfig,
+    rolloutConfig,
+    caseId: canaryCaseId.toUpperCase(),
+  });
+
+  assert(
+    !caseConfig.blocks.includes("manager_contract_unconfirmed"),
+    "the exact canary may calibrate the manager response contract",
+  );
+  assert(
+    !caseConfig.blocks.includes("approval_scope_unconfirmed"),
+    "the exact canary may calibrate approval scope",
+  );
+  assert(
+    caseConfig.blocks.includes("kill_switch_active"),
+    "the calibration must not bypass the kill switch",
+  );
+  assert(
+    caseConfig.blocks.includes("idempotency_secret_missing"),
+    "the calibration must not bypass idempotency",
+  );
+  assert(
+    baseConfig.blocks.includes("manager_contract_unconfirmed") &&
+      baseConfig.blocks.includes("approval_scope_unconfirmed"),
+    "case calibration must not mutate the global configuration",
+  );
+});
+
+Deno.test("calibration cannot authorize another case or broad reopening", () => {
+  const baseConfig = resolveNayaxRefundExecutionConfig(envReader({
+    ...enabledConfig,
+    NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED: "false",
+    NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED: "false",
+  }));
+  const anotherCase = "76000000-0000-4000-8000-000000000002";
+  const calibration = resolveNayaxRefundRolloutConfig(
+    envReader(calibrationRollout),
+  );
+  const otherCaseConfig = resolveNayaxRefundCaseExecutionConfig({
+    executionConfig: baseConfig,
+    rolloutConfig: calibration,
+    caseId: anotherCase,
+  });
+  assert(
+    otherCaseConfig.blocks.includes("manager_contract_unconfirmed") &&
+      otherCaseConfig.blocks.includes("approval_scope_unconfirmed"),
+    "a non-canary case must remain blocked",
+  );
+  assert(
+    !isNayaxRefundCaseReleaseAuthorized({
+      rolloutConfig: calibration,
+      caseId: anotherCase,
+    }),
+    "a non-canary case must not be release-authorized",
+  );
+
+  const broadRollout = resolveNayaxRefundRolloutConfig(envReader({
+    ...calibrationRollout,
+    NAYAX_REFUND_BROAD_REOPEN_APPROVED: "true",
+  }));
+  const broadConfig = resolveNayaxRefundCaseExecutionConfig({
+    executionConfig: baseConfig,
+    rolloutConfig: broadRollout,
+    caseId: canaryCaseId,
+  });
+  assert(
+    broadConfig.blocks.includes("manager_contract_unconfirmed") &&
+      broadConfig.blocks.includes("approval_scope_unconfirmed"),
+    "broad reopening must require independent contract and scope confirmation",
+  );
+});
+
+Deno.test("calibration defaults closed and rejects a malformed canary identifier", () => {
+  const baseConfig = resolveNayaxRefundExecutionConfig(envReader({
+    ...enabledConfig,
+    NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED: "false",
+    NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED: "false",
+  }));
+  for (const rolloutValues of [
+    {
+      ...calibrationRollout,
+      NAYAX_REFUND_CANARY_UNPROVEN_PROVIDER_APPROVED: "false",
+    },
+    {
+      ...calibrationRollout,
+      NAYAX_REFUND_CANARY_CASE_ID: "not-a-case-id",
+    },
+  ]) {
+    const rolloutConfig = resolveNayaxRefundRolloutConfig(
+      envReader(rolloutValues),
+    );
+    const caseConfig = resolveNayaxRefundCaseExecutionConfig({
+      executionConfig: baseConfig,
+      rolloutConfig,
+      caseId: canaryCaseId,
+    });
+    assert(
+      caseConfig.blocks.includes("manager_contract_unconfirmed") &&
+        caseConfig.blocks.includes("approval_scope_unconfirmed"),
+      "disabled or malformed calibration must fail closed",
+    );
+  }
 });
 
 Deno.test("weak or unbounded execution inputs fail closed", () => {
