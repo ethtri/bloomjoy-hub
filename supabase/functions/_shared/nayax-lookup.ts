@@ -117,6 +117,7 @@ export type NayaxProviderCandidate = {
   cardNetwork?: string | null;
   recognitionMethod: string;
   paymentStatus: string;
+  paymentStatusEvidence?: string;
   providerRefundState: string;
   productLabel: string;
   productCode: string;
@@ -300,6 +301,7 @@ const persistNayaxLookupCandidates = async ({
         card_network: candidate.cardNetwork || null,
         recognition_method: candidate.recognitionMethod || null,
         payment_status: candidate.paymentStatus || null,
+        payment_status_evidence: candidate.paymentStatusEvidence || null,
         product_label: candidate.productLabel || null,
         product_code: candidate.productCode || null,
         standard_price_cents: candidate.standardPriceCents,
@@ -577,6 +579,7 @@ const lookupGroupedLivermoreCandidates = async ({
       }),
       qrClaimOpenedAt: null,
       qrClaimEvidenceStatus: "missing" as const,
+      providerContract: "nayax_machine_last_sales_v1" as const,
       windowHours,
     };
     const preliminary = buildNayaxRecommendation(recommendationInput) as {
@@ -927,6 +930,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     machineContext,
     qrClaimOpenedAt,
     qrClaimEvidenceStatus,
+    providerContract: "nayax_machine_last_sales_v1" as const,
     windowHours,
   };
   const preliminary = buildNayaxRecommendation(commonRecommendationInput) as {

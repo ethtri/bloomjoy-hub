@@ -7,7 +7,7 @@ import { buildNayaxCandidateContext } from "./nayax-machine-context.mjs";
 // API expose advisory words (strong evidence, compare candidates, manual review)
 // instead of presenting these points as a percentage.
 export const NAYAX_RECOMMENDATION_POLICY = Object.freeze({
-  version: "2026-08-23.v4",
+  version: "2026-08-26.v5",
   candidateLimit: 10,
   lookupWindowHours: 6,
   highConfidenceMinimumPoints: 80,
@@ -74,16 +74,31 @@ const normalizeRecognitionMethod = (value) => {
   return "present";
 };
 
-const normalizePaymentStatus = (record) => {
+const LAST_SALES_PROVIDER_CONTRACT = "nayax_machine_last_sales_v1";
+const PAYMENT_STATUS_FIELDS = ["PaymentStatus", "TransactionStatus", "Status", "status"];
+
+const normalizePaymentStatus = (record, providerContract) => {
+  const explicitStatusField = PAYMENT_STATUS_FIELDS.find((field) =>
+    Object.prototype.hasOwnProperty.call(record, field)
+  );
   const normalized = sanitizeText(
-    record.PaymentStatus ?? record.TransactionStatus ?? record.Status ?? record.status,
+    explicitStatusField ? record[explicitStatusField] : null,
     80,
   )
     .toLowerCase()
     .replace(/[^a-z0-9 ]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  if (!normalized) return "recorded";
+  if (!normalized) {
+    // Nayax's documented machine Last Sales response intentionally has no
+    // separate status field. The refund API tells integrators to obtain the
+    // refundable TransactionId/SiteId from this endpoint. Treat omission as
+    // approved only when the caller explicitly binds this trusted contract.
+    // A present-but-empty field and every unverified payload remain closed.
+    return explicitStatusField === undefined && providerContract === LAST_SALES_PROVIDER_CONTRACT
+      ? { status: "approved", evidence: "last_sales_contract" }
+      : { status: "recorded", evidence: "unconfirmed" };
+  }
   const statusTokens = new Set(normalized.split(" "));
   // Denial/reversal evidence must win over positive substrings. For example,
   // "not approved" contains "approved" and "successful reversal" contains
@@ -101,12 +116,12 @@ const normalizePaymentStatus = (record) => {
       .some((token) => statusTokens.has(token))
     || [...statusTokens].some((token) => token.startsWith("cancel") || token.startsWith("void"))
   ) {
-    return "not approved";
+    return { status: "not approved", evidence: "explicit" };
   }
   if (["approved", "paid", "success", "successful", "completed", "settled", "sale"].some((token) => statusTokens.has(token))) {
-    return "approved";
+    return { status: "approved", evidence: "explicit" };
   }
-  return "recorded";
+  return { status: "recorded", evidence: "unconfirmed" };
 };
 
 const normalizeProviderRefundState = (record) => {
@@ -460,8 +475,17 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
 
   if (candidate.paymentStatus === "approved") {
     rankingPoints += weights.approvedProviderStatus;
-    addReason(reasonCodes, "provider_sale_approved");
-    matchFactors.push(factor("provider_status", "match", "Nayax marks the sale approved"));
+    if (candidate.paymentStatusEvidence === "last_sales_contract") {
+      addReason(reasonCodes, "provider_last_sales_record");
+      matchFactors.push(factor(
+        "provider_status",
+        "match",
+        "Nayax returned this transaction from the machine's Last Sales feed",
+      ));
+    } else {
+      addReason(reasonCodes, "provider_sale_approved");
+      matchFactors.push(factor("provider_status", "match", "Nayax marks the sale approved"));
+    }
   } else if (candidate.paymentStatus === "not approved") {
     hardExclusions.push("payment_not_approved");
     addReason(reasonCodes, "payment_not_approved");
@@ -564,6 +588,7 @@ export const extractNayaxRecords = (payload) => {
  *   qrClaimOpenedAt?: string | null,
  *   qrClaimEvidenceStatus?: "verified" | "missing" | "invalid" | "replayed",
  *   transactionStates?: Map<string, string> | Record<string, string>,
+ *   providerContract?: "nayax_machine_last_sales_v1" | "unverified",
  *   windowHours?: number,
  *   policy?: typeof NAYAX_RECOMMENDATION_POLICY,
  * }} input
@@ -583,6 +608,7 @@ export const buildNayaxRecommendation = ({
   qrClaimOpenedAt = null,
   qrClaimEvidenceStatus,
   transactionStates = {},
+  providerContract = "unverified",
   windowHours = NAYAX_RECOMMENDATION_POLICY.lookupWindowHours,
   policy = NAYAX_RECOMMENDATION_POLICY,
 }) => {
@@ -635,6 +661,7 @@ export const buildNayaxRecommendation = ({
       continue;
     }
     const machineAuthorizationDate = authorizationDate;
+    const paymentStatus = normalizePaymentStatus(record, providerContract);
     normalizedByTransaction.set(transactionId, {
       transactionId,
       siteId: integerValue(record.SiteID ?? record.SiteId ?? record.siteId),
@@ -665,7 +692,8 @@ export const buildNayaxRecommendation = ({
           record.CardNetwork ?? record.cardNetwork,
       )),
       recognitionMethod: normalizeRecognitionMethod(record.RecognitionMethod ?? record.recognitionMethod),
-      paymentStatus: normalizePaymentStatus(record),
+      paymentStatus: paymentStatus.status,
+      paymentStatusEvidence: paymentStatus.evidence,
       providerRefundState: normalizeProviderRefundState(record),
       duplicateProviderRecord: false,
       ...buildNayaxCandidateContext({
