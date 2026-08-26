@@ -2,10 +2,13 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.48.1
 import { deriveRefundMissingFields } from "./refund-deterministic-follow-up.ts";
 import {
   lookupNayaxCandidatesForRefundCase,
-  NAYAX_RECOMMENDATION_POLICY,
   type NayaxLookupResult,
 } from "./nayax-lookup.ts";
-import { persistNayaxLookupResult } from "./nayax-lookup-persistence.ts";
+import {
+  beginNayaxLookup,
+  failNayaxLookup,
+  persistNayaxLookupResult,
+} from "./nayax-lookup-persistence.ts";
 
 export type AutomaticNayaxLookupSource =
   | "hosted_intake"
@@ -39,13 +42,21 @@ type AutomaticLookupDependencies = {
   }) => Promise<
     { claimed: boolean; runId: string | null; actionId: string | null }
   >;
-  markPending: (refundCase: AutomaticNayaxLookupCase) => Promise<void>;
-  lookup: (refundCase: AutomaticNayaxLookupCase) => Promise<NayaxLookupResult>;
+  markPending: (refundCase: AutomaticNayaxLookupCase) => Promise<number>;
+  lookup: (
+    refundCase: AutomaticNayaxLookupCase,
+    lookupGeneration: number,
+  ) => Promise<NayaxLookupResult>;
   persist: (
     refundCase: AutomaticNayaxLookupCase,
     result: NayaxLookupResult,
+    lookupGeneration: number,
   ) => Promise<void>;
-  fail: (refundCase: AutomaticNayaxLookupCase, error: unknown) => Promise<void>;
+  fail: (
+    refundCase: AutomaticNayaxLookupCase,
+    error: unknown,
+    lookupGeneration: number,
+  ) => Promise<void>;
   finish: (input: {
     runId: string;
     actionId: string;
@@ -109,10 +120,11 @@ export const coordinateAutomaticNayaxLookup = async ({
     return { status: "deduplicated" as const };
   }
 
+  let lookupGeneration: number | null = null;
   try {
-    await dependencies.markPending(refundCase);
-    const result = await dependencies.lookup(refundCase);
-    await dependencies.persist(refundCase, result);
+    lookupGeneration = await dependencies.markPending(refundCase);
+    const result = await dependencies.lookup(refundCase, lookupGeneration);
+    await dependencies.persist(refundCase, result, lookupGeneration);
     await dependencies.finish({
       runId: claim.runId,
       actionId: claim.actionId,
@@ -122,7 +134,9 @@ export const coordinateAutomaticNayaxLookup = async ({
     return { status: "completed" as const, result };
   } catch (error) {
     try {
-      await dependencies.fail(refundCase, error);
+      if (lookupGeneration !== null) {
+        await dependencies.fail(refundCase, error, lookupGeneration);
+      }
     } catch (failureRecordingError) {
       console.error(
         "automatic Nayax lookup failure state could not be recorded",
@@ -206,52 +220,23 @@ export const runAutomaticNayaxLookupIfReady = async ({
             null,
         };
       },
-      markPending: async (currentCase) => {
-        const { error: candidateError } = await supabase
-          .from("refund_nayax_lookup_candidates")
-          .delete()
-          .eq("refund_case_id", currentCase.id);
-        if (candidateError) throw candidateError;
-        const { error: pendingError } = await supabase.from("refund_cases")
-          .update({
-            correlation_status: "needs_nayax",
-            correlation_source: "nayax",
-            correlation_confidence: 0,
-            correlation_summary:
-              "Bloomjoy is automatically checking recent Nayax sales for this case.",
-            nayax_recommendation_state: null,
-            nayax_recommendation_policy_version: null,
-            nayax_recommendation_evaluated_at: null,
-            nayax_match_execution_eligible: false,
-          }).eq("id", currentCase.id)
-          .eq(
-            "deterministic_fact_version",
-            currentCase.deterministic_fact_version,
-          );
-        if (pendingError) throw pendingError;
-        const { error: eventError } = await supabase.from("refund_case_events")
-          .insert({
-            refund_case_id: currentCase.id,
-            event_type: "nayax_auto_lookup_started",
-            message:
-              "Bloomjoy automatically started the read-only Nayax transaction lookup.",
-            metadata: {
-              deterministic_fact_version:
-                currentCase.deterministic_fact_version,
-              trigger_source: source,
-              payload_redacted: true,
-            },
-          });
-        if (eventError) throw eventError;
-      },
-      lookup: async (currentCase) =>
-        await lookupNayaxCandidatesForRefundCase({
+      markPending: async (currentCase) =>
+        await beginNayaxLookup({
           supabase,
           caseId: currentCase.id,
           actorUserId: null,
           expectedFactVersion: currentCase.deterministic_fact_version,
+          trigger: "automatic",
         }),
-      persist: async (currentCase, result) =>
+      lookup: async (currentCase, lookupGeneration) =>
+        await lookupNayaxCandidatesForRefundCase({
+          supabase,
+          caseId: currentCase.id,
+          actorUserId: null,
+          lookupGeneration,
+          expectedFactVersion: currentCase.deterministic_fact_version,
+        }),
+      persist: async (currentCase, result, lookupGeneration) =>
         await persistNayaxLookupResult({
           supabase,
           caseId: currentCase.id,
@@ -259,49 +244,17 @@ export const runAutomaticNayaxLookupIfReady = async ({
           result,
           trigger: "automatic",
           expectedFactVersion: currentCase.deterministic_fact_version,
+          lookupGeneration,
         }),
-      fail: async (currentCase, lookupError) => {
-        const evidenceChanged = lookupError instanceof Error &&
-          lookupError.message.includes("evidence changed");
-        if (!evidenceChanged) {
-          const { error: failureUpdateError } = await supabase.from(
-            "refund_cases",
-          ).update({
-            correlation_status: "needs_nayax",
-            correlation_source: "nayax",
-            correlation_confidence: 0,
-            correlation_summary:
-              "The automatic Nayax check failed. A manager can retry with Refresh transaction results.",
-            nayax_recommendation_state: null,
-            nayax_recommendation_policy_version: null,
-            nayax_recommendation_evaluated_at: null,
-            nayax_match_execution_eligible: false,
-          }).eq("id", currentCase.id)
-            .eq(
-              "deterministic_fact_version",
-              currentCase.deterministic_fact_version,
-            );
-          if (failureUpdateError) throw failureUpdateError;
-        }
-        await supabase.from("refund_case_events").insert({
-          refund_case_id: currentCase.id,
-          event_type: evidenceChanged
-            ? "nayax_auto_lookup_evidence_changed"
-            : "nayax_auto_lookup_failed",
-          message: evidenceChanged
-            ? "Matching evidence changed during the automatic lookup; the new evidence version may run once."
-            : "Automatic Nayax lookup failed and the case remains open with a manager retry action.",
-          metadata: {
-            error_type: lookupError instanceof Error
-              ? lookupError.name
-              : typeof lookupError,
-            policy_version: NAYAX_RECOMMENDATION_POLICY.version,
-            reason_codes: [
-              evidenceChanged ? "evidence_changed" : "lookup_failed",
-            ],
-            deterministic_fact_version: currentCase.deterministic_fact_version,
-            payload_redacted: true,
-          },
+      fail: async (currentCase, lookupError, lookupGeneration) => {
+        await failNayaxLookup({
+          supabase,
+          caseId: currentCase.id,
+          actorUserId: null,
+          expectedFactVersion: currentCase.deterministic_fact_version,
+          lookupGeneration,
+          trigger: "automatic",
+          error: lookupError,
         });
       },
       finish: async ({ runId, actionId, succeeded, reason }) => {

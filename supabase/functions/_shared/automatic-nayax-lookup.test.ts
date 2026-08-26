@@ -131,6 +131,7 @@ const harness = ({
     },
     markPending: async () => {
       calls.pending += 1;
+      return calls.pending;
     },
     lookup: async () => {
       calls.lookup += 1;

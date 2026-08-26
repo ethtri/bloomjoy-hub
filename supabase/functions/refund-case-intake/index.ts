@@ -48,6 +48,11 @@ import {
 } from "../_shared/refund-wallet-correction.ts";
 import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
 import { validateRefundIntakePayment } from "../_shared/refund-intake-payment.ts";
+import {
+  beginNayaxLookup,
+  failNayaxLookup,
+  persistNayaxLookupResult,
+} from "../_shared/nayax-lookup-persistence.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -826,79 +831,55 @@ const sendWalletMatchReadyNotification = async ({
 const persistWalletCorrectionLookup = async (
   refundCaseId: string,
   result: NayaxLookupResult,
+  expectedFactVersion: number,
+  lookupGeneration: number,
 ) => {
   if (!supabase) throw new Error("Refund intake is not configured.");
 
+  await persistNayaxLookupResult({
+    supabase,
+    caseId: refundCaseId,
+    actorUserId: null,
+    result,
+    trigger: "wallet_correction",
+    expectedFactVersion,
+    lookupGeneration,
+  });
+
   if (!result.configured) {
-    const { error } = await supabase.from("refund_cases").update({
-      status: "needs_review",
-      correlation_status: "nayax_not_configured",
-      correlation_source: "nayax",
-      correlation_confidence: 0,
-      correlation_summary:
-        result.message ||
-        "Nayax setup needs attention before corrected wallet details can be checked.",
-      automation_state: "under_review",
-      nayax_recommendation_state: "manual_exception",
-      nayax_recommendation_policy_version: result.policyVersion,
-      nayax_recommendation_evaluated_at: result.lastCheckedAt,
-      nayax_match_execution_eligible: false,
-    }).eq("id", refundCaseId);
+    const { error } = await supabase.from("refund_cases")
+      .update({ automation_state: "under_review" })
+      .eq("id", refundCaseId)
+      .eq("nayax_lookup_generation", lookupGeneration);
     if (error) throw error;
     return "still_reviewing" as const;
   }
 
   if (result.recommendationState === "high_confidence") {
-    const { data: candidate, error: candidateError } = await supabase
-      .from("refund_nayax_lookup_candidates")
-      .select(
-        "provider_transaction_id, site_id, machine_authorization_time, amount_cents, card_last4, currency_code",
-      )
-      .eq("refund_case_id", refundCaseId)
-      .contains("evidence_summary", { is_recommended: true })
-      .gt("expires_at", new Date().toISOString())
-      .maybeSingle();
-    if (candidateError) throw candidateError;
+    const { error } = await supabase.from("refund_cases").update({
+      automation_state: "under_review",
+      wallet_correction_state: "received",
+    }).eq("id", refundCaseId)
+      .eq("nayax_lookup_generation", lookupGeneration);
+    if (error) throw error;
 
-    if (candidate) {
-      const { error } = await supabase.from("refund_cases").update({
-        status: "needs_review",
-        correlation_status: "matched",
-        correlation_source: "nayax",
-        correlation_confidence: 0,
-        correlation_summary: result.summary,
-        matched_nayax_transaction_id: candidate.provider_transaction_id,
-        matched_nayax_site_id: candidate.site_id,
-        matched_nayax_machine_auth_time: candidate.machine_authorization_time,
-        matched_nayax_amount_cents: candidate.amount_cents,
-        matched_nayax_card_last4: candidate.card_last4,
-        matched_nayax_currency_code: candidate.currency_code,
-        automation_state: "under_review",
-        wallet_correction_state: "received",
-        nayax_recommendation_state: result.recommendationState,
-        nayax_recommendation_policy_version: result.policyVersion,
-        nayax_recommendation_evaluated_at: result.lastCheckedAt,
-        nayax_match_execution_eligible: false,
-      }).eq("id", refundCaseId);
-      if (error) throw error;
-
-      await supabase.from("refund_case_events").insert({
-        refund_case_id: refundCaseId,
-        event_type: "wallet_correction_auto_match_ready",
-        message:
-          "Corrected wallet details produced one high-confidence Nayax recommendation for manager approval.",
-        metadata: {
-          recommendation_state: result.recommendationState,
-          confidence_class: result.confidenceClass,
-          reason_codes: result.reasonCodes,
-          policy_version: result.policyVersion,
-          candidate_count: result.candidates.length,
-          provider_payload_redacted: true,
-          payload_redacted: true,
-        },
-      });
-      return "match_ready" as const;
-    }
+    await supabase.from("refund_case_events").insert({
+      refund_case_id: refundCaseId,
+      event_type: "wallet_correction_auto_match_ready",
+      message:
+        "Corrected wallet details produced one high-confidence Nayax recommendation for manager selection and confirmation.",
+      metadata: {
+        lookup_generation: lookupGeneration,
+        recommendation_state: result.recommendationState,
+        confidence_class: result.confidenceClass,
+        reason_codes: result.reasonCodes,
+        policy_version: result.policyVersion,
+        candidate_count: result.candidates.length,
+        provider_payload_redacted: true,
+        payload_redacted: true,
+      },
+    });
+    return "match_ready" as const;
   }
 
   const { error } = await supabase.from("refund_cases").update({
@@ -918,7 +899,8 @@ const persistWalletCorrectionLookup = async (
     nayax_recommendation_policy_version: result.policyVersion,
     nayax_recommendation_evaluated_at: result.lastCheckedAt,
     nayax_match_execution_eligible: false,
-  }).eq("id", refundCaseId);
+  }).eq("id", refundCaseId)
+    .eq("nayax_lookup_generation", lookupGeneration);
   if (error) throw error;
 
   await supabase.from("refund_case_events").insert({
@@ -1058,39 +1040,63 @@ const submitWalletCorrection = async (
     | "fallback_eligible"
     | "still_reviewing" = "still_reviewing";
   let lookupResult: NayaxLookupResult | null = null;
+  let expectedFactVersion: number | null = null;
+  let lookupGeneration: number | null = null;
   try {
+    const { data: lookupCase, error: lookupCaseError } = await supabase
+      .from("refund_cases")
+      .select("deterministic_fact_version")
+      .eq("id", refundCaseId)
+      .single();
+    if (lookupCaseError) throw lookupCaseError;
+    expectedFactVersion = Number(lookupCase.deterministic_fact_version);
+    if (!Number.isInteger(expectedFactVersion)) {
+      throw new Error("Refund case matching evidence version is unavailable.");
+    }
+    lookupGeneration = await beginNayaxLookup({
+      supabase,
+      caseId: refundCaseId,
+      actorUserId: null,
+      expectedFactVersion,
+      trigger: "wallet_correction",
+    });
     lookupResult = await lookupNayaxCandidatesForRefundCase({
       supabase,
       caseId: refundCaseId,
       actorUserId: null,
+      lookupGeneration,
+      expectedFactVersion,
     });
     resolution = await persistWalletCorrectionLookup(
       refundCaseId,
       lookupResult,
+      expectedFactVersion,
+      lookupGeneration,
     );
   } catch (lookupError) {
     console.error("refund wallet correction automatic lookup failed", {
       errorType:
         lookupError instanceof Error ? lookupError.name : typeof lookupError,
     });
-    await supabase.from("refund_cases").update({
-      status: "needs_review",
-      automation_state: "under_review",
-      correlation_status: "needs_nayax",
-      correlation_summary:
-        "Corrected wallet details were saved, but the automatic Nayax re-match needs a retry.",
-    }).eq("id", refundCaseId);
-    await supabase.from("refund_case_events").insert({
-      refund_case_id: refundCaseId,
-      event_type: "wallet_correction_auto_match_failed",
-      message:
-        "Corrected wallet details were saved, but automatic Nayax re-match failed and needs a system retry.",
-      metadata: {
-        error_type:
-          lookupError instanceof Error ? lookupError.name : typeof lookupError,
-        payload_redacted: true,
-      },
-    });
+    if (expectedFactVersion !== null && lookupGeneration !== null) {
+      try {
+        await failNayaxLookup({
+          supabase,
+          caseId: refundCaseId,
+          actorUserId: null,
+          expectedFactVersion,
+          lookupGeneration,
+          trigger: "wallet_correction",
+          error: lookupError,
+        });
+      } catch (failureRecordingError) {
+        console.error("wallet correction lookup failure state could not be recorded", {
+          errorType: failureRecordingError instanceof Error
+            ? failureRecordingError.name
+            : typeof failureRecordingError,
+        });
+      }
+    }
   }
 
   if (

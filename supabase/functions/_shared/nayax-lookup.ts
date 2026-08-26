@@ -13,6 +13,9 @@ const defaultNayaxBaseUrl = "https://lynx.nayax.com/operational/v1";
 const defaultNayaxAccountKey = "TGPACI_USA_DB";
 const defaultLookupWindowHours = 6;
 const defaultCandidateTtlHours = 24;
+const defaultLookupTimeoutMs = 8_000;
+const defaultLookupResponseBytes = 512 * 1024;
+const defaultLookupRecordLimit = 200;
 
 type SupabaseServiceClient = SupabaseClient;
 
@@ -36,6 +39,20 @@ export const getNayaxLookupWindowHours = () =>
 const getNayaxCandidateTtlHours = () =>
   parseNumberEnv(Deno.env.get("REFUND_NAYAX_CANDIDATE_TTL_HOURS"), defaultCandidateTtlHours, 1, 72);
 
+export const getNayaxLookupTimeoutMs = () =>
+  parseNumberEnv(Deno.env.get("NAYAX_LOOKUP_TIMEOUT_MS"), defaultLookupTimeoutMs, 1_000, 15_000);
+
+export const getNayaxLookupResponseByteLimit = () =>
+  parseNumberEnv(
+    Deno.env.get("NAYAX_LOOKUP_RESPONSE_BYTE_LIMIT"),
+    defaultLookupResponseBytes,
+    64 * 1024,
+    2 * 1024 * 1024,
+  );
+
+export const getNayaxLookupRecordLimit = () =>
+  parseNumberEnv(Deno.env.get("NAYAX_LOOKUP_RECORD_LIMIT"), defaultLookupRecordLimit, 10, 200);
+
 export class NayaxLookupRequestError extends Error {
   status: number;
 
@@ -52,6 +69,110 @@ export class NayaxLookupEvidenceChangedError extends Error {
     this.name = "NayaxLookupEvidenceChangedError";
   }
 }
+
+export class NayaxLookupTimeoutError extends Error {
+  constructor() {
+    super("The bounded Nayax lookup timed out.");
+    this.name = "NayaxLookupTimeoutError";
+  }
+}
+
+export class NayaxLookupResponseLimitError extends Error {
+  constructor(message = "The Nayax lookup exceeded its safe response limit.") {
+    super(message);
+    this.name = "NayaxLookupResponseLimitError";
+  }
+}
+
+export class NayaxLookupMalformedResponseError extends Error {
+  constructor() {
+    super("Nayax returned an unreadable lookup response.");
+    this.name = "NayaxLookupMalformedResponseError";
+  }
+}
+
+export const readBoundedNayaxJsonResponse = async (
+  response: Response,
+  byteLimit: number,
+) => {
+  const advertisedBytes = Number(response.headers.get("content-length"));
+  if (Number.isFinite(advertisedBytes) && advertisedBytes > byteLimit) {
+    await response.body?.cancel();
+    throw new NayaxLookupResponseLimitError();
+  }
+  if (!response.body) return null;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let receivedBytes = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      receivedBytes += value.byteLength;
+      if (receivedBytes > byteLimit) {
+        await reader.cancel();
+        throw new NayaxLookupResponseLimitError();
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+  } finally {
+    reader.releaseLock();
+  }
+
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    throw new NayaxLookupMalformedResponseError();
+  }
+};
+
+const fetchBoundedNayaxJson = async ({
+  url,
+  headers,
+  byteLimit = getNayaxLookupResponseByteLimit(),
+}: {
+  url: string;
+  headers: Record<string, string>;
+  byteLimit?: number;
+}) => {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers,
+      signal: AbortSignal.timeout(getNayaxLookupTimeoutMs()),
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      throw new NayaxLookupTimeoutError();
+    }
+    throw error;
+  }
+  if (!response.ok) {
+    await response.body?.cancel();
+    return { response, payload: null };
+  }
+  return {
+    response,
+    payload: await readBoundedNayaxJsonResponse(response, byteLimit),
+  };
+};
+
+const assertProviderRecordLimit = (payloads: unknown[]) => {
+  const count = payloads.reduce<number>(
+    (total, payload) => total + extractNayaxRecords(payload).length,
+    0,
+  );
+  if (count > getNayaxLookupRecordLimit()) {
+    throw new NayaxLookupResponseLimitError(
+      "Nayax returned more transaction records than the safe lookup limit.",
+    );
+  }
+  return count;
+};
 
 const parseIncidentAt = (value: unknown) => {
   const raw = sanitizeText(value, 80);
@@ -238,11 +359,13 @@ const persistNayaxLookupCandidates = async ({
   supabase,
   caseId,
   actorUserId,
+  lookupGeneration,
   candidates,
 }: {
   supabase: SupabaseServiceClient;
   caseId: string;
   actorUserId: string | null;
+  lookupGeneration: number;
   candidates: NayaxProviderCandidate[];
 }): Promise<NayaxResponseCandidate[]> => {
   const nowIso = new Date().toISOString();
@@ -254,11 +377,12 @@ const persistNayaxLookupCandidates = async ({
     .lt("expires_at", nowIso);
   if (cleanupError) throw cleanupError;
 
-  const { error: caseClearError } = await supabase
+  const { error: generationClearError } = await supabase
     .from("refund_nayax_lookup_candidates")
     .delete()
-    .eq("refund_case_id", caseId);
-  if (caseClearError) throw caseClearError;
+    .eq("refund_case_id", caseId)
+    .eq("lookup_generation", lookupGeneration);
+  if (generationClearError) throw generationClearError;
   if (candidates.length === 0) return [];
 
   const tokenizedCandidates = candidates.map((candidate) => ({
@@ -269,6 +393,7 @@ const persistNayaxLookupCandidates = async ({
     tokenizedCandidates.map(({ token, candidate }) => ({
       token,
       refund_case_id: caseId,
+      lookup_generation: lookupGeneration,
       actor_user_id: actorUserId,
       reporting_machine_id: candidate.reportingMachineId ?? null,
       provider_transaction_id: candidate.transactionId,
@@ -404,6 +529,7 @@ const lookupGroupedLivermoreCandidates = async ({
   supabase,
   refundCase,
   actorUserId,
+  lookupGeneration,
   initialFactVersion,
   incidentAt,
   lastCheckedAt,
@@ -413,6 +539,7 @@ const lookupGroupedLivermoreCandidates = async ({
   supabase: SupabaseServiceClient;
   refundCase: GroupedRefundCase;
   actorUserId: string | null;
+  lookupGeneration: number;
   initialFactVersion: number;
   incidentAt: Date;
   lastCheckedAt: string;
@@ -534,32 +661,33 @@ const lookupGroupedLivermoreCandidates = async ({
     };
     const optionalPayload = async (endpointName: string) => {
       try {
-        const response = await fetch(
-          `${nayaxBaseUrl}/machines/${encodeURIComponent(input.nayaxMachineId)}/${endpointName}`,
-          { method: "GET", headers },
-        );
-        return response.ok ? await response.json() : null;
+        const { response, payload } = await fetchBoundedNayaxJson({
+          url: `${nayaxBaseUrl}/machines/${encodeURIComponent(input.nayaxMachineId)}/${endpointName}`,
+          headers,
+          byteLimit: Math.min(getNayaxLookupResponseByteLimit(), 256 * 1024),
+        });
+        return response.ok ? payload : null;
       } catch {
         return null;
       }
     };
-    const [salesResponse, productsPayload, statusPayload, alertsPayload] = await Promise.all([
-      fetch(
-        `${nayaxBaseUrl}/machines/${encodeURIComponent(input.nayaxMachineId)}/lastSales`,
-        { method: "GET", headers },
-      ),
+    const [salesResult, productsPayload, statusPayload, alertsPayload] = await Promise.all([
+      fetchBoundedNayaxJson({
+        url: `${nayaxBaseUrl}/machines/${encodeURIComponent(input.nayaxMachineId)}/lastSales`,
+        headers,
+      }),
       optionalPayload("machineProducts"),
       optionalPayload("status"),
       optionalPayload("lastAlerts"),
     ]);
-    if (!salesResponse.ok) {
+    if (!salesResult.response.ok) {
       console.warn("grouped nayax lookup provider failure", {
-        status: salesResponse.status,
+        status: salesResult.response.status,
         accountKey: input.accountKey,
       });
       throw new NayaxLookupRequestError("Unable to look up both grouped Nayax machines.", 502);
     }
-    const payload = await salesResponse.json();
+    const payload = salesResult.payload;
     const recommendationInput = {
       payload,
       incidentAt: incidentAt.toISOString(),
@@ -587,6 +715,9 @@ const lookupGroupedLivermoreCandidates = async ({
     };
     return { input, payload, recommendationInput, preliminary };
   }));
+  const providerRecordCount = assertProviderRecordLimit(
+    providerResults.map((result) => result.payload),
+  );
 
   const transactionStates = await loadNayaxTransactionStates({
     supabase,
@@ -636,6 +767,7 @@ const lookupGroupedLivermoreCandidates = async ({
     supabase,
     caseId: refundCase.id,
     actorUserId,
+    lookupGeneration,
     candidates: globallyRanked,
   });
   const summary = selectableCandidates.length === 0
@@ -657,10 +789,7 @@ const lookupGroupedLivermoreCandidates = async ({
     qrClaimOpenedAt: null,
     maximumUniqueQrLagMinutes: NAYAX_RECOMMENDATION_POLICY.maximumUniqueQrLagMinutes,
     lastCheckedAt,
-    providerRecordCount: providerResults.reduce(
-      (count, result) => count + extractNayaxRecords(result.payload).length,
-      0,
-    ),
+    providerRecordCount,
     providerParseableRecordCount: localRecommendations.reduce(
       (count, result) => count + result.recommendation.providerParseableRecordCount,
       0,
@@ -685,6 +814,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
   supabase,
   caseId,
   actorUserId,
+  lookupGeneration,
   expectedFactVersion,
   nayaxBaseUrl = getNayaxBaseUrl(),
   windowHours = getNayaxLookupWindowHours(),
@@ -692,6 +822,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
   supabase: SupabaseServiceClient;
   caseId: string;
   actorUserId: string | null;
+  lookupGeneration: number;
   expectedFactVersion?: number;
   nayaxBaseUrl?: string;
   windowHours?: number;
@@ -759,6 +890,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
         intake_selection_machine_ids: groupedMachineIds,
       } as GroupedRefundCase,
       actorUserId,
+      lookupGeneration,
       initialFactVersion,
       incidentAt,
       lastCheckedAt,
@@ -871,10 +1003,11 @@ export const lookupNayaxCandidatesForRefundCase = async ({
   };
   const optionalProviderPayload = async (endpointName: string) => {
     try {
-      const optionalResponse = await fetch(
-        `${nayaxBaseUrl}/machines/${encodeURIComponent(nayaxMachineId)}/${endpointName}`,
-        { method: "GET", headers: providerHeaders },
-      );
+      const { response: optionalResponse, payload } = await fetchBoundedNayaxJson({
+        url: `${nayaxBaseUrl}/machines/${encodeURIComponent(nayaxMachineId)}/${endpointName}`,
+        headers: providerHeaders,
+        byteLimit: Math.min(getNayaxLookupResponseByteLimit(), 256 * 1024),
+      });
       if (!optionalResponse.ok) {
         console.warn("optional nayax context unavailable", {
           endpoint: endpointName,
@@ -882,7 +1015,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
         });
         return null;
       }
-      return await optionalResponse.json();
+      return payload;
     } catch (error) {
       console.warn("optional nayax context failed", {
         endpoint: endpointName,
@@ -891,15 +1024,16 @@ export const lookupNayaxCandidatesForRefundCase = async ({
       return null;
     }
   };
-  const [response, productsPayload, statusPayload, alertsPayload] = await Promise.all([
-    fetch(
-      `${nayaxBaseUrl}/machines/${encodeURIComponent(nayaxMachineId)}/lastSales`,
-      { method: "GET", headers: providerHeaders },
-    ),
+  const [salesResult, productsPayload, statusPayload, alertsPayload] = await Promise.all([
+    fetchBoundedNayaxJson({
+      url: `${nayaxBaseUrl}/machines/${encodeURIComponent(nayaxMachineId)}/lastSales`,
+      headers: providerHeaders,
+    }),
     optionalProviderPayload("machineProducts"),
     optionalProviderPayload("status"),
     optionalProviderPayload("lastAlerts"),
   ]);
+  const response = salesResult.response;
   if (!response.ok) {
     console.warn("nayax lookup provider failure", {
       status: response.status,
@@ -909,7 +1043,8 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     throw new NayaxLookupRequestError("Unable to look up Nayax transactions.", 502);
   }
 
-  const nayaxPayload = await response.json();
+  const nayaxPayload = salesResult.payload;
+  const providerRecordCount = assertProviderRecordLimit([nayaxPayload]);
   const machineContext = buildNayaxMachineContext({
     productsPayload,
     statusPayload,
@@ -973,6 +1108,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     supabase,
     caseId,
     actorUserId,
+    lookupGeneration,
     candidates: recommendation.candidates.map((candidate) => ({
       ...candidate,
       reportingMachineId: machineId,
@@ -991,7 +1127,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     qrClaimOpenedAt: recommendation.qrClaimOpenedAt,
     maximumUniqueQrLagMinutes: recommendation.maximumUniqueQrLagMinutes,
     lastCheckedAt,
-    providerRecordCount: extractNayaxRecords(nayaxPayload).length,
+    providerRecordCount,
     providerParseableRecordCount: recommendation.providerParseableRecordCount,
     providerWindowRecordCount: recommendation.providerWindowRecordCount,
     candidateCount: recommendation.candidateCount,
