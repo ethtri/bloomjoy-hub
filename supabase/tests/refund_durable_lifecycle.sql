@@ -3,7 +3,24 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(34);
+select plan(38);
+
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+) values
+  (
+    '00000000-0000-0000-0000-000000000000',
+    'b0000000-0000-4000-8000-000000000001',
+    'authenticated', 'authenticated', 'durable-manager@example.invalid', '',
+    now(), '{}'::jsonb, '{}'::jsonb, now(), now()
+  ),
+  (
+    '00000000-0000-0000-0000-000000000000',
+    'b0000000-0000-4000-8000-000000000002',
+    'authenticated', 'authenticated', 'durable-unrelated@example.invalid', '',
+    now(), '{}'::jsonb, '{}'::jsonb, now(), now()
+  );
 
 insert into public.customer_accounts (id, name, account_type)
 values (
@@ -27,6 +44,16 @@ insert into public.reporting_machines (
   'b1000000-0000-4000-8000-000000000001',
   'b2000000-0000-4000-8000-000000000001',
   'Durable lifecycle machine'
+);
+
+insert into public.reporting_machine_refund_managers (
+  id, reporting_machine_id, manager_user_id, manager_email, grant_reason
+) values (
+  'b3500000-0000-4000-8000-000000000001',
+  'b3000000-0000-4000-8000-000000000001',
+  'b0000000-0000-4000-8000-000000000001',
+  'durable-manager@example.invalid',
+  'Durable lifecycle authorization fixture'
 );
 
 insert into public.refund_cases (
@@ -220,6 +247,66 @@ select ok(
   ) like '%can_manage_refund_case%',
   'Manager lifecycle reads revalidate the current authenticated session and case scope'
 );
+
+set local role anon;
+select ok(
+  not has_function_privilege(
+    current_user,
+    'public.get_refund_lifecycle_for_manager(uuid)',
+    'execute'
+  ),
+  'The anonymous database role has no manager lifecycle execution grant'
+);
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"b0000000-0000-4000-8000-000000000001","role":"authenticated"}',
+  true
+);
+select is(
+  public.get_refund_lifecycle_for_manager(
+    'b4000000-0000-4000-8000-000000000001'
+  ) ->> 'schemaVersion',
+  'refund_lifecycle_v1',
+  'The current exact-machine manager can read the redacted lifecycle'
+);
+
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"b0000000-0000-4000-8000-000000000002","role":"authenticated"}',
+  true
+);
+select throws_ok(
+  $$select public.get_refund_lifecycle_for_manager(
+    'b4000000-0000-4000-8000-000000000001'
+  )$$,
+  '42501',
+  'Current refund case access required',
+  'An unrelated authenticated user cannot read another case lifecycle'
+);
+
+reset role;
+update public.reporting_machine_refund_managers
+set status = 'revoked', revoked_at = statement_timestamp(),
+    revoke_reason = 'Durable lifecycle revoked-session fixture'
+where id = 'b3500000-0000-4000-8000-000000000001';
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"b0000000-0000-4000-8000-000000000001","role":"authenticated"}',
+  true
+);
+select throws_ok(
+  $$select public.get_refund_lifecycle_for_manager(
+    'b4000000-0000-4000-8000-000000000001'
+  )$$,
+  '42501',
+  'Current refund case access required',
+  'A revoked manager loses lifecycle access without relying on stale UI state'
+);
+reset role;
+
 select ok(
   not has_function_privilege(
     'anon', 'public.service_begin_refund_nayax_lookup(uuid,bigint,text,uuid)', 'execute'
