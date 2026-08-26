@@ -247,7 +247,7 @@ function printAggregate(row, projectRef, expectedLiveCount) {
   console.log(`Mappings missing account: ${row.missing_nayax_account_count}`);
   console.log(`Duplicate Nayax mappings: ${row.duplicate_nayax_mapping_count}`);
   console.log(`Distinct Nayax accounts: ${row.distinct_nayax_account_count}`);
-  console.log(`Machines with 1-3 active managers: ${row.machine_with_active_manager_count}`);
+  console.log(`Machines with 1-4 active managers: ${row.machine_with_active_manager_count}`);
   console.log(`Machines with a location timezone: ${row.machine_with_timezone_count}`);
   console.log(`Shadow-ready mappings: ${row.shadow_ready_mapping_count}`);
   console.log(`Machines with live refund execution enabled: ${row.live_refund_enabled_machine_count}`);
