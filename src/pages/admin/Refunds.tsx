@@ -2441,7 +2441,7 @@ export default function AdminRefundsPage() {
       ? 'Refund actions are temporarily unavailable.'
       : selectedCaseOfficialActionBlockReason === 'exact_machine_required'
         ? 'Confirm the exact transaction so Bloomjoy can bind this request to one outlet machine before any refund decision.'
-      : 'You can review this case, but only the assigned Machine Manager can decide or issue the refund.';
+      : 'You can review this case, but only an active Machine Manager for this machine can decide or issue the refund.';
   const mobileQueueCases = selectedCase && !isMobileQueueExpanded ? [selectedCase] : filteredCases;
   useEffect(() => {
     const nextVersion = Number(selectedCase?.officialActionVersion ?? 0);
@@ -4955,7 +4955,7 @@ export default function AdminRefundsPage() {
                               : nayaxResolutionReadiness.blockReason === 'exact_attempt_required'
                                 ? 'Bloomjoy could not identify the exact refund attempt.'
                                 : nayaxResolutionReadiness.blockReason === 'manager_access_required'
-                                  ? 'Only the assigned Machine Manager can record this result.'
+                                  ? 'Only an active Machine Manager for this machine can record this result.'
                                 : nayaxResolutionReadiness.blockReason === 'provider_hold_required'
                                   ? 'This case no longer has an unclear refund result.'
                                   : 'Payment result confirmation is temporarily unavailable.'}
@@ -5069,21 +5069,22 @@ export default function AdminRefundsPage() {
                             id="refund-nayax-resolution-occurred-at"
                             data-testid="refund-nayax-resolution-occurred-at"
                             type="datetime-local"
+                            step={1}
                             value={nayaxResolutionEvidenceOccurredAt}
                             onChange={(event) => setNayaxResolutionEvidenceOccurredAt(event.target.value)}
                             autoComplete="off"
                             className="mt-2 bg-background"
                           />
                           <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                            Use the date and time shown in the transaction record or support confirmation. This is used in reporting and
-                            the customer receipt.
+                            Use the exact date and time shown in the transaction record or support confirmation, including seconds. This
+                            is used in reporting and the customer receipt.
                           </p>
                         </div>
                       )}
 
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-xs leading-5 text-muted-foreground">
-                          Only the assigned Machine Manager can save this result.
+                          Any active Machine Manager for this machine can save this result.
                         </p>
                         <Button
                           type="button"
