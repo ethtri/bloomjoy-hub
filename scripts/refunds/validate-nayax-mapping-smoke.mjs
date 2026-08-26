@@ -95,6 +95,16 @@ for (const forbidden of [' insert ', ' update ', ' delete ', ' merge ', ' trunca
 }
 assert.match(normalizedQuery, /^with /);
 assert.match(normalizedQuery, /select true as read_only/);
+assert.match(normalizedQuery, /manager_count between 1 and 4/);
+assert.ok(
+  smokeSource.includes('Machines with 1-4 active managers'),
+  'aggregate output must describe the supported one-to-four manager route'
+);
+assert.equal(
+  smokeSource.includes('Machines with 1-3 active managers'),
+  false,
+  'aggregate output must not report the retired three-manager ceiling'
+);
 
 for (const required of [
   '--project-ref and --confirm-project-ref are both required',
