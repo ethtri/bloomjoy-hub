@@ -50,6 +50,11 @@ import {
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
 import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
+import {
+  beginNayaxLookup,
+  failNayaxLookup,
+  persistNayaxLookupResult,
+} from "../_shared/nayax-lookup-persistence.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -1875,11 +1880,30 @@ const runCardNayaxLookupSweep = async (
     );
     if (!action.claimed) continue;
 
+    let lookupGeneration: number | null = null;
     try {
+      lookupGeneration = await beginNayaxLookup({
+        supabase,
+        caseId: refundCase.id,
+        actorUserId: null,
+        expectedFactVersion: refundCase.deterministic_fact_version,
+        trigger: "scheduled",
+      });
       const lookupResult = await lookupNayaxCandidatesForRefundCase({
         supabase,
         caseId: refundCase.id,
         actorUserId: null,
+        lookupGeneration,
+        expectedFactVersion: refundCase.deterministic_fact_version,
+      });
+      await persistNayaxLookupResult({
+        supabase,
+        caseId: refundCase.id,
+        actorUserId: null,
+        result: lookupResult,
+        trigger: "scheduled",
+        expectedFactVersion: refundCase.deterministic_fact_version,
+        lookupGeneration,
       });
       counters.nayaxLookupsRun += 1;
 
@@ -2250,15 +2274,25 @@ const runCardNayaxLookupSweep = async (
       console.error("refund-case-automation-sweep Nayax lookup failed", {
         errorType: error instanceof Error ? error.name : typeof error,
       });
-      await supabase.from("refund_case_events").insert({
-        refund_case_id: refundCase.id,
-        event_type: "nayax_auto_lookup_failed",
-        message: "Automated Nayax lookup failed and the case remains in manager review.",
-        metadata: {
-          error_type: sanitizeFailureCategory(error),
-          payload_redacted: true,
-        },
-      });
+      if (lookupGeneration !== null) {
+        try {
+          await failNayaxLookup({
+            supabase,
+            caseId: refundCase.id,
+            actorUserId: null,
+            expectedFactVersion: refundCase.deterministic_fact_version,
+            lookupGeneration,
+            trigger: "scheduled",
+            error,
+          });
+        } catch (failureRecordingError) {
+          console.error("scheduled Nayax lookup failure state could not be recorded", {
+            errorType: failureRecordingError instanceof Error
+              ? failureRecordingError.name
+              : typeof failureRecordingError,
+          });
+        }
+      }
       try {
         await routeProviderException({
           runId,
