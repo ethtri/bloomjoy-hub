@@ -55,6 +55,8 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-portal-uat-nc-manual-mobile.png',
   'refund-portal-uat-no-match.png',
   'refund-portal-uat-processing.png',
+  'refund-portal-uat-routine-manager-desktop.png',
+  'refund-portal-uat-routine-manager-mobile.png',
   'refund-portal-uat-sanitized-simple-card-refund-journey.png',
   'refund-portal-uat-physical-card-mismatch.png',
   'refund-portal-uat-setup-needed.png',
