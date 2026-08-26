@@ -52,7 +52,7 @@ const [
     read('supabase/migrations/202607210006_refund_gmail_thread_linkage.sql'),
     read('supabase/migrations/202608030001_refund_gmail_first_contact.sql'),
     read('supabase/migrations/202608030003_refund_gmail_participant_cc.sql'),
-    read('supabase/migrations/20260825224500_refund_manager_recipient_route_v2.sql'),
+    read('supabase/migrations/20260825231621_refund_manager_recipient_route_v2.sql'),
     read('supabase/migrations/202608040003_refund_first_contact_manager_cc.sql'),
     read('supabase/migrations/202608050001_refund_email_pilot_linkage.sql'),
     read('supabase/migrations/20260821090000_refund_form_only_case_creation.sql'),

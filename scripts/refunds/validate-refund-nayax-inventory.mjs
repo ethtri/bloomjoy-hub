@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (...parts) => fs.readFileSync(path.join(repoRoot, ...parts), 'utf8');
 const migration = read('supabase', 'migrations', '20260821091000_refund_nayax_inventory.sql');
-const recipientRouteV2 = read('supabase', 'migrations', '20260825224500_refund_manager_recipient_route_v2.sql');
+const recipientRouteV2 = read('supabase', 'migrations', '20260825231621_refund_manager_recipient_route_v2.sql');
 const portfolioCorrection = read('supabase', 'migrations', '20260822190000_refund_portfolio_intake_inventory_correction.sql');
 const edge = read('supabase', 'functions', 'refund-nayax-inventory-sync', 'index.ts');
 const intake = read('supabase', 'functions', 'refund-case-intake', 'index.ts');

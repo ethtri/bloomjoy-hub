@@ -15,9 +15,9 @@ const legacyClose = read('supabase/migrations/20260820150000_refund_nayax_suppor
 const managerSession = read('supabase/migrations/20260821035000_refund_manager_session_simplification.sql');
 const formCompletion = read('supabase/migrations/20260821080000_refund_form_completion_transport.sql');
 const completionDelivery = read('supabase/migrations/20260821083000_refund_completion_delivery_decoupling.sql');
-const evidenceOnly = read('supabase/migrations/20260825193000_refund_nayax_evidence_only_reconciliation.sql');
+const evidenceOnly = read('supabase/migrations/20260825185840_refund_nayax_evidence_only_reconciliation.sql');
 const preexistingAttemptEvidence = read(
-  'supabase/migrations/20260825202000_refund_nayax_preexisting_attempt_evidence.sql'
+  'supabase/migrations/20260825211442_refund_nayax_preexisting_attempt_evidence.sql'
 );
 const edge = read('supabase/functions/refund-nayax-outcome-resolve/index.ts');
 const completion = read('supabase/functions/_shared/nayax-resolution-completion.ts');
