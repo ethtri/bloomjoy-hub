@@ -252,15 +252,15 @@ try {
     'The authoritative Nayax provider journal migration must be in the discovered release inventory'
   );
   assert(
-    repositoryMigrations.includes('20260825170000_refund_nayax_dtm_reference_width.sql'),
+    repositoryMigrations.includes('20260825174905_refund_nayax_dtm_reference_width.sql'),
     'The current Nayax DTM reference-width migration must be in the discovered release inventory'
   );
   assert(
-    repositoryMigrations.includes('20260825193000_refund_nayax_evidence_only_reconciliation.sql'),
+    repositoryMigrations.includes('20260825185840_refund_nayax_evidence_only_reconciliation.sql'),
     'The provider-free existing-refund reconciliation migration must be in the discovered release inventory'
   );
   assert(
-    repositoryMigrations.includes('20260825202000_refund_nayax_preexisting_attempt_evidence.sql'),
+    repositoryMigrations.includes('20260825211442_refund_nayax_preexisting_attempt_evidence.sql'),
     'The pre-existing Nayax DTM refund timing and exactly-once evidence migration must be in the discovered release inventory'
   );
   assert(
