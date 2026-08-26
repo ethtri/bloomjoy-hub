@@ -8,9 +8,12 @@ import {
 } from "../_shared/refund-official-action.ts";
 import {
   buildNayaxRefundIdempotencyKey,
+  isNayaxRefundCaseReleaseAuthorized,
   NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
+  resolveNayaxRefundCaseExecutionConfig,
   resolveNayaxRefundAvailability,
   resolveNayaxRefundExecutionConfig,
+  resolveNayaxRefundRolloutConfig,
 } from "../_shared/nayax-refund-gates.ts";
 import {
   type NayaxAttemptReservation,
@@ -91,14 +94,6 @@ const resolveNormalWriteCredentials = (accountKey: string) => ({
     ? Deno.env.get(`NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}`)?.trim() ?? ""
     : "",
 });
-
-const normalReleaseAuthorizedForCase = (caseId: string) =>
-  exactEnvFlag("NAYAX_REFUND_BROAD_REOPEN_APPROVED") ||
-  (
-    exactEnvFlag("NAYAX_REFUND_CANARY_ENABLED") &&
-    Deno.env.get("NAYAX_REFUND_CANARY_CASE_ID")?.trim().toLowerCase() ===
-      caseId.toLowerCase()
-  );
 
 const parseConfiguredManagerContract = () => {
   const raw = Deno.env.get("NAYAX_REFUND_MANAGER_CONTRACT_JSON")?.trim() ?? "";
@@ -245,7 +240,12 @@ const resolveCaseRefundReadiness = async ({
   const providerCredentialAvailable = Boolean(
     accountKey && credentials.requestToken && credentials.approveToken &&
       managerContract && journalCompatible &&
-      normalReleaseAuthorizedForCase(refundCase.id),
+      isNayaxRefundCaseReleaseAuthorized({
+        rolloutConfig: resolveNayaxRefundRolloutConfig((name) =>
+          Deno.env.get(name)
+        ),
+        caseId: refundCase.id,
+      }),
   );
   const { data: dailyUsageValue, error: dailyUsageError } = await supabase.rpc(
     "service_refund_nayax_daily_usage",
@@ -399,6 +399,9 @@ serve(async (req) => {
     const executionConfig = resolveNayaxRefundExecutionConfig((name) =>
       Deno.env.get(name)
     );
+    const rolloutConfig = resolveNayaxRefundRolloutConfig((name) =>
+      Deno.env.get(name)
+    );
     const requestedCaseId = sanitizeText(body?.caseId, 80);
     if (operation === "availability" && !requestedCaseId) {
       return jsonResponse(resolveNayaxRefundAvailability({
@@ -416,6 +419,11 @@ serve(async (req) => {
     if (!refundCase) {
       return jsonResponse({ error: "Refund case not found." }, 404);
     }
+    const caseExecutionConfig = resolveNayaxRefundCaseExecutionConfig({
+      executionConfig,
+      rolloutConfig,
+      caseId: refundCase.id,
+    });
     const { data: actorCanPerformOfficialAction, error: accessError } =
       await supabase.rpc(
         "can_perform_refund_official_action",
@@ -449,7 +457,7 @@ serve(async (req) => {
       const readiness = await resolveCaseRefundReadiness({
         refundCase,
         actorUserId: user.id,
-        executionConfig,
+        executionConfig: caseExecutionConfig,
       });
       return jsonResponse({
         available: readiness.canIssueCardRefund,
@@ -1065,10 +1073,13 @@ serve(async (req) => {
     );
     const managerContract = parseConfiguredManagerContract();
     const journalCompatible = await providerJournalCompatible(
-      executionConfig.executorAssertion,
+      caseExecutionConfig.executorAssertion,
       managerContract?.contractVersion ?? null,
     );
-    const releaseAuthorized = normalReleaseAuthorizedForCase(refundCase.id);
+    const releaseAuthorized = isNayaxRefundCaseReleaseAuthorized({
+      rolloutConfig,
+      caseId: refundCase.id,
+    });
 
     const preExecutionBlocks = Array.from(
       new Set([
@@ -1077,7 +1088,7 @@ serve(async (req) => {
           : ["official_actions_disabled"]),
         ...preflightBlocks,
         ...duplicateTransactionBlocks,
-        ...executionConfig.blocks,
+        ...caseExecutionConfig.blocks,
         ...(!normalAccountKey ? ["machine_account_key_missing"] : []),
         ...(!normalWriteCredentials.requestToken
           ? ["provider_request_credential_missing"]
@@ -1113,7 +1124,7 @@ serve(async (req) => {
             ].includes(block)
           )
         ? "feature_disabled"
-        : executionConfig.blocks.length > 0 ||
+        : caseExecutionConfig.blocks.length > 0 ||
             preExecutionBlocks.includes("machine_account_key_missing") ||
             preExecutionBlocks.includes("provider_request_credential_missing") ||
             preExecutionBlocks.includes("provider_approval_credential_missing") ||
@@ -1129,13 +1140,13 @@ serve(async (req) => {
           : "preflight_blocked",
         errorCode: preferredError,
         blocks: preExecutionBlocks,
-        dryRun: executionConfig.dryRun,
-        killSwitchActive: executionConfig.killSwitchActive,
+        dryRun: caseExecutionConfig.dryRun,
+        killSwitchActive: caseExecutionConfig.killSwitchActive,
       }, 409);
     }
 
     const idempotencyKey = await buildNayaxRefundIdempotencyKey(
-      executionConfig.idempotencySecret,
+      caseExecutionConfig.idempotencySecret,
       {
         caseId: refundCase.id,
         attemptGeneration: refundCase.nayax_refund_attempt_generation,

@@ -199,6 +199,9 @@ assert(
     providerGates.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET') &&
     providerGates.includes('NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS') &&
     providerGates.includes('NAYAX_REFUND_DAILY_COUNT_CAP') &&
+    providerGates.includes('NAYAX_REFUND_CANARY_UNPROVEN_PROVIDER_APPROVED') &&
+    providerGates.includes('!rolloutConfig.broadReopenApproved') &&
+    providerGatesTest.includes('calibration cannot authorize another case or broad reopening') &&
     managerSessionMigration.includes('pg_catalog.pg_advisory_xact_lock') &&
     providerGatesTest.includes('reports every fail-closed gate'),
   'Each pilot and normal path must fail its own rollout/configuration boundary before idempotency, reservation, or provider orchestration.'

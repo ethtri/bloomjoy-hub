@@ -1,5 +1,13 @@
 # Decisions
 
+## 2026-08-25 - One owner-approved canary may calibrate the unproven Nayax response contract (`#961`)
+
+- Nayax does not publish the exact production `Result`/`Status` values or token permission needed to prove the two remaining launch facts without a provider write. The controlled canary may therefore use a reviewed provisional response contract and the two dedicated account-scoped credentials while `NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED=false` and `NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED=false`.
+- This exception requires `NAYAX_REFUND_CANARY_UNPROVEN_PROVIDER_APPROVED=true`, the existing canary switch, and an exact UUID match. It removes only the manager-contract-confirmation and approval-scope-confirmation blocks for that one case. Kill switch, execution, dry-run, amount/daily caps, idempotency, executor identity, manager authority, exact transaction evidence, journal compatibility, account circuit breaker, and separate request/approval credentials remain mandatory.
+- The exception is disabled whenever broad reopening is approved. Broad execution still requires independent confirmation of both provider facts. An unknown, denied, timed-out, malformed, or unfamiliar result remains a no-retry reconciliation hold and cannot be promoted to success.
+
+This narrows the canary mechanics without weakening the 2026-08-25 database-authoritative execution decision or authorizing a second case.
+
 ## 2026-08-25 - Normal Nayax refunds use a database-authoritative, canary-gated execution contract (`#961`)
 
 - The append-only database journal, not Edge Function branching, is the sole authority for moving from `refund-request` to `refund-approve`. An exact accepted `2xx` or an unfamiliar successful `2xx` may authorize one approval; rejection, duplicate, already-refunded, pending, non-2xx, timeout, network failure, missing journal evidence, and version mismatch stop before approval.

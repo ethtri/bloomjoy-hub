@@ -894,10 +894,15 @@ check(
     handler.includes('service_record_nayax_refund_provider_stage_v2') &&
     handler.includes('service_get_nayax_refund_provider_journal_capability') &&
     handler.includes('approvalAuthorized: decision.approvalAuthorized === true') &&
-    handler.includes('NAYAX_REFUND_BROAD_REOPEN_APPROVED') &&
-    handler.includes('NAYAX_REFUND_CANARY_CASE_ID') &&
+    gates.includes('NAYAX_REFUND_BROAD_REOPEN_APPROVED') &&
+    gates.includes('NAYAX_REFUND_CANARY_CASE_ID') &&
+    handler.includes('resolveNayaxRefundCaseExecutionConfig') &&
+    gates.includes('NAYAX_REFUND_CANARY_UNPROVEN_PROVIDER_APPROVED') &&
+    gates.includes('!rolloutConfig.broadReopenApproved') &&
+    gates.includes('block !== "manager_contract_unconfirmed"') &&
+    gates.includes('block !== "approval_scope_unconfirmed"') &&
     !handler.includes('provider: disabledNayaxProviderAdapter'),
-  'The normal manager action requires explicit write credentials, a versioned contract, a database-owned transition, and canary/broad-release authorization.',
+  'The normal manager action requires explicit write credentials, a versioned contract, a database-owned transition, and case-scoped canary/broad-release authorization.',
 );
 check(
   authoritativeJournalMigration.includes('service_record_nayax_refund_provider_stage_v2') &&
@@ -987,6 +992,7 @@ check(/^NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED=false$/m.test(envExample), 'Norm
 check(/^NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED=false$/m.test(envExample), 'Approval permission confirmation defaults to false.');
 check(/^NAYAX_REFUND_CANARY_ENABLED=false$/m.test(envExample), 'The normal-path production canary defaults to disabled.');
 check(/^NAYAX_REFUND_CANARY_CASE_ID=$/m.test(envExample), 'The canary case defaults to unset.');
+check(/^NAYAX_REFUND_CANARY_UNPROVEN_PROVIDER_APPROVED=false$/m.test(envExample), 'The canary-only contract/scope calibration defaults to disabled.');
 check(/^NAYAX_REFUND_BROAD_REOPEN_APPROVED=false$/m.test(envExample), 'Broad card-refund reopening defaults to false.');
 check(/^NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_ENABLED=false$/m.test(envExample), 'Pending-request recovery defaults to disabled.');
 check(/^NAYAX_REFUND_PENDING_APPROVAL_CONTRACT_JSON=$/m.test(envExample), 'The approval-only contract defaults to unset.');

@@ -472,6 +472,8 @@ export const dispatchRefundCaseGmailReply = async ({
       subject,
       managerCcEmails,
       managerCcCount: managerCcEmails.length,
+      managerRecipientOverlap: managerResolution.managerRecipientOverlap,
+      managerRecipientCount: managerResolution.managerRecipientCount,
       recipientResolutionStatus: claimedResolutionStatus,
     };
   } catch (error) {
