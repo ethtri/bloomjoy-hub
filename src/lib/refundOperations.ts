@@ -500,6 +500,7 @@ export type ResolveRefundCaseReconciliationInput = {
 
 export type RefundAutomationHealthStatus =
   | 'healthy'
+  | 'recovering'
   | 'stale'
   | 'failing'
   | 'paused'
@@ -558,6 +559,10 @@ export type RefundGmailHealth = {
   attachmentsQuarantined: number;
   messagesFailed: number;
   errorCode: string | null;
+  schedulerEnabled: boolean;
+  schedulerStatus: string | null;
+  schedulerLastCheckAt: string | null;
+  schedulerLastDispatchAt: string | null;
   payloadRedacted: boolean;
 };
 
@@ -1999,6 +2004,7 @@ export const fetchRefundGmailHealth = async (): Promise<RefundGmailHealth> => {
   const health = (data ?? {}) as Partial<RefundGmailHealth>;
   const validStatuses: RefundGmailHealthStatus[] = [
     'healthy',
+    'recovering',
     'stale',
     'failing',
     'paused',
@@ -2026,6 +2032,12 @@ export const fetchRefundGmailHealth = async (): Promise<RefundGmailHealth> => {
     attachmentsQuarantined: Number(health.attachmentsQuarantined ?? 0),
     messagesFailed: Number(health.messagesFailed ?? 0),
     errorCode: typeof health.errorCode === 'string' ? health.errorCode : null,
+    schedulerEnabled: health.schedulerEnabled === true,
+    schedulerStatus: typeof health.schedulerStatus === 'string' ? health.schedulerStatus : null,
+    schedulerLastCheckAt:
+      typeof health.schedulerLastCheckAt === 'string' ? health.schedulerLastCheckAt : null,
+    schedulerLastDispatchAt:
+      typeof health.schedulerLastDispatchAt === 'string' ? health.schedulerLastDispatchAt : null,
     payloadRedacted: health.payloadRedacted === true,
   };
 };

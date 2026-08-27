@@ -2224,6 +2224,8 @@ export default function AdminRefundsPage() {
     enabled: !forceDemoData,
     staleTime: 1000 * 60,
     retry: false,
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
   });
   const { data: nayaxReliabilityHealth } = useQuery({
     queryKey: ['refund-nayax-reliability-health'],
@@ -2237,6 +2239,7 @@ export default function AdminRefundsPage() {
     gmailHealth?.status === 'failing' ||
     gmailHealth?.status === 'paused' ||
     gmailHealth?.status === 'revoked';
+  const gmailRecoveryActive = gmailHealth?.status === 'recovering';
   const cardRefundAvailabilityConfirmed =
     !forceDemoData &&
     nayaxCardRefundAvailability?.available === true &&
@@ -5879,6 +5882,15 @@ export default function AdminRefundsPage() {
                   title="Incoming refund email may be delayed. Existing cases and payment actions are still available."
                 >
                   Email intake needs attention
+                </span>
+              )}
+              {gmailRecoveryActive && (
+                <span
+                  data-testid="refund-gmail-recovery"
+                  className="text-sm font-medium text-sky-800"
+                  title="The backup intake scheduler is safely catching up. Existing cases and payment actions are unchanged."
+                >
+                  Email intake catching up
                 </span>
               )}
               {nayaxReliabilityHealth?.status === 'attention' && (

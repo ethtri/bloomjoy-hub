@@ -20,6 +20,7 @@ const [
   followUpMigration,
   firstContactHelper,
   retentionMigration,
+  schedulerMigration,
   attachmentOffCopyGateMigration,
   syntheticProofMigration,
   gmailHelper,
@@ -59,6 +60,7 @@ const [
     read('supabase/migrations/202608030005_refund_deterministic_follow_up_cycles.sql'),
     read('supabase/functions/_shared/refund-first-contact.ts'),
     read('supabase/migrations/202608040002_refund_gmail_retention_safety.sql'),
+    read('supabase/migrations/20260827041000_refund_gmail_scheduler_watchdog.sql'),
     read('supabase/migrations/20260812053417_refund_gmail_attachment_off_copy_gate.sql'),
     read('supabase/migrations/20260812230000_refund_synthetic_gmail_proof_authorization.sql'),
     read('supabase/functions/_shared/refund-gmail.ts'),
@@ -590,6 +592,51 @@ assert(
   'Server-side Gmail enable flag must use the shared default-closed parser',
 );
 assert(syncFunction.includes('REFUND_GMAIL_SYNC_SECRET'), 'Scheduled Gmail sync must authenticate independently');
+assert(
+  syncFunction.includes('REFUND_GMAIL_SCHEDULER_SECRET') &&
+    syncFunction.includes('trigger === "scheduler_recovery"'),
+  'Independent recovery must use a dedicated Edge secret bound to its exact trigger',
+);
+assert(
+  retentionHelper.includes('scheduler_recovery: /^supabase-recovery:') &&
+    schedulerMigration.includes("when 'scheduler_recovery'") &&
+    schedulerMigration.includes("'scheduler_recovery'"),
+  'Recovery dispatches must use one trigger-bound, timestamp-only idempotency key',
+);
+assert(
+  schedulerMigration.includes('enabled boolean not null default false') &&
+    schedulerMigration.includes("'*/5 * * * *'") &&
+    schedulerMigration.includes("interval '20 minutes'") &&
+    schedulerMigration.includes("interval '30 minutes'"),
+  'The independent five-minute watchdog must default off and recover before the 30-minute health limit',
+);
+assert(
+  schedulerMigration.includes('vault.decrypted_secrets') &&
+    schedulerMigration.includes("name = 'refund_gmail_scheduler_url'") &&
+    schedulerMigration.includes("name = 'refund_gmail_scheduler_secret'") &&
+    schedulerMigration.includes("'payloadRedacted', true"),
+  'The watchdog must use exact named Vault secrets and return only redacted health',
+);
+assert(
+  schedulerMigration.includes('pg_try_advisory_xact_lock(628, 1009)') &&
+    schedulerMigration.includes('on conflict (bucket_at) do nothing') &&
+    schedulerMigration.includes("state_row.last_attempt_at >= clock_timestamp() - interval '10 minutes'"),
+  'Concurrent, replayed, or recently attempted recovery dispatches must suppress safely',
+);
+assert(
+  schedulerMigration.includes('revoke all on table public.refund_gmail_scheduler_settings') &&
+    schedulerMigration.includes('revoke all on table public.refund_gmail_scheduler_dispatches') &&
+    schedulerMigration.includes('revoke execute on function public.service_dispatch_refund_gmail_scheduler_watchdog()') &&
+    !schedulerMigration.includes('nayax-card-refund'),
+  'Browser roles and the recovery scheduler must have no provider/refund execution path',
+);
+assert(
+  ui.includes('Email intake catching up') &&
+    ui.includes('refetchInterval: 15_000') &&
+    client.includes("| 'recovering'") &&
+    client.includes('schedulerLastDispatchAt'),
+  'Managers must see a clear recovery state without raw scheduler evidence',
+);
 assert(syncFunction.includes('failure_test'), 'A PII-free Gmail failure test must exist');
 assert(
   syncFunction.includes('triggerSource === "failure_test" ||'),

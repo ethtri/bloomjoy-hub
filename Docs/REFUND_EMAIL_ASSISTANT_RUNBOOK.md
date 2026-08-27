@@ -246,6 +246,10 @@ For `#685`, a business day is Monday through Friday in `America/Los_Angeles`, pr
 
 ## Failure and recovery rules
 
+- GitHub is the primary ten-minute Gmail intake scheduler. A separate Supabase five-minute watchdog may be enabled only after its reviewed production ceremony. It remains dormant while intake is healthy and dispatches the same idempotent read-only intake path only when the last success is at least 20 minutes old and no recent attempt is in flight.
+- The watchdog uses a dedicated Vault-backed token accepted only for `scheduler_recovery`; it cannot approve, decline, notify a customer, select a transaction, call Nayax, or execute a refund. Managers see only `Email intake catching up` or the existing actionable intake warning, never tokens, run keys, mailbox identifiers, or retry decisions.
+- A repeated cron tick, HTTP replay, or concurrent invocation cannot create a second claim for the same five-minute bucket. A missing, duplicate, or malformed Vault secret fails closed and appears in redacted health. Disable the watchdog before rotating either secret.
+
 - Hard bounce pauses automatic customer mail and creates a manager-visible exception with the exact case link.
 - Automatic contact resumes after a hard bounce only when an authorized operator corrects/approves the recipient and the system records a new bounded contact operation; it never resumes from an ordinary case replay.
 - Gmail authorization revocation disables only the Gmail lane. Hosted-form intake and portal work continue.

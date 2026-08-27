@@ -63,6 +63,13 @@ Deno.test("workflow run keys bind one numeric GitHub run and attempt to the exac
     "scheduled workflow key should be accepted",
   );
   assert(
+    isRefundGmailWorkflowRunKey(
+      "supabase-recovery:20260827T0410Z",
+      "scheduler_recovery",
+    ),
+    "Supabase recovery key should be accepted",
+  );
+  assert(
     isRefundGmailWorkflowRunKey("github-manual:123456789:2", "manual"),
     "manual workflow key should be accepted",
   );
@@ -100,6 +107,9 @@ Deno.test("workflow run keys reject identifiers and wrong trigger prefixes", () 
       ["18c7aProviderMessageToken", "scheduled"],
       ["18005551212", "scheduled"],
       ["github-manual:123456789:1", "scheduled"],
+      ["supabase-recovery:20260827T0410Z", "scheduled"],
+      ["supabase-recovery:20260827T0411Z", "scheduler_recovery"],
+      ["supabase-recovery:20260827T0410Z", "manual"],
       ["github-retention:123456789:1", "manual"],
       ["github-failure_test:123456789:1", "failure_test"],
       ["github-manual:0123:1", "manual"],
