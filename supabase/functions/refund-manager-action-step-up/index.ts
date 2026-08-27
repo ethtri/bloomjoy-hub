@@ -9,19 +9,14 @@ import {
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
 import { deliverPreparedNayaxCompletionOnce } from "../_shared/nayax-resolution-completion.ts";
+import { buildRefundStoredTextWithStatus } from "../_shared/refund-email.ts";
+import { tryIssueRefundStatusCapabilityForMessage } from "../_shared/refund-status-capability.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const nayaxExecutorAssertion = Deno.env.get("NAYAX_REFUND_EXECUTOR_ASSERTION")
   ?.trim() ?? "";
-
-const escapeHtml = (value: string) => value
-  .replaceAll("&", "&amp;")
-  .replaceAll("<", "&lt;")
-  .replaceAll(">", "&gt;")
-  .replaceAll('"', "&quot;")
-  .replaceAll("'", "&#039;");
 
 const serviceClient = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -315,20 +310,33 @@ serve(async (req) => {
           },
           deliverLoaded: async ({ message, attempt }) => {
             const messageBody = message.body as string;
+            const refundCaseId = message.refund_case_id as string;
+            const refundCaseMessageId = message.id as string;
+            const recipientEmail = message.recipient_email as string;
+            const subject = message.subject as string;
+            const gmailThreadId = attempt.completion_gmail_thread_id as string;
+            const statusCapability = await tryIssueRefundStatusCapabilityForMessage({
+              supabase: serviceClient,
+              refundCaseId,
+              refundCaseMessageId,
+            });
+            const completionEmail = buildRefundStoredTextWithStatus({
+              headline: "Your refund is on its way",
+              text: messageBody,
+              statusUrl: statusCapability?.url ?? null,
+            });
             const gmailDelivery = await dispatchRefundCaseGmailReply({
               supabase: serviceClient,
-              refundCaseId: message.refund_case_id,
-              refundCaseMessageId: message.id,
-              recipientEmail: message.recipient_email,
+              refundCaseId,
+              refundCaseMessageId,
+              recipientEmail,
               email: {
-                subject: message.subject,
-                text: messageBody,
-                html: messageBody.split("\n").map((line: string) =>
-                  line ? `<p>${escapeHtml(line)}</p>` : "<br>"
-                ).join(""),
+                subject,
+                text: completionEmail.text,
+                html: completionEmail.html,
               },
               deliveryKind: "manual",
-              gmailThreadId: attempt.completion_gmail_thread_id,
+              gmailThreadId,
             });
             return gmailDelivery.usedGmail;
           },

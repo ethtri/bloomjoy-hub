@@ -14,6 +14,7 @@ import {
 import {
   buildRefundCustomerEmail,
   buildRefundWalletCorrectionEmail,
+  redactRefundStatusLinksForStorage,
   sendRefundCustomerEmail,
   sendRefundWalletCorrectionEmail,
   type RefundCustomerMessageType,
@@ -35,6 +36,10 @@ import {
   deriveNayaxCustomerCorrectionFields,
   sendNayaxCustomerCorrectionEmail,
 } from "../_shared/refund-nayax-customer-correction.ts";
+import {
+  tryIssueRefundStatusCapability,
+  type RefundStatusCapability,
+} from "../_shared/refund-status-capability.ts";
 import {
   buildRefundManagerAgingNotice,
   REFUND_MANAGER_AGING_TEMPLATE_VERSION,
@@ -624,14 +629,18 @@ const logDeterministicFollowUpMessage = async (
   cycle: RefundFollowUpCycleContext,
   messageClass: RefundFollowUpMessageClass,
   customerCorrectionFields: RefundMissingField[] = [],
+  statusCapability: RefundStatusCapability | null = null,
 ) => {
   if (!supabase) return null;
-  const emailInput = buildFollowUpEmailInput(
-    refundCase,
-    cycle,
-    messageClass,
-    customerCorrectionFields,
-  );
+  const emailInput = {
+    ...buildFollowUpEmailInput(
+      refundCase,
+      cycle,
+      messageClass,
+      customerCorrectionFields,
+    ),
+    statusUrl: statusCapability?.url ?? null,
+  };
   const email = customerCorrectionFields.length > 0
     ? buildNayaxCustomerCorrectionEmail(emailInput)
     : buildRefundCustomerEmail(emailInput);
@@ -645,7 +654,7 @@ const logDeterministicFollowUpMessage = async (
       status: "pending",
       recipient_email: refundCase.customer_email,
       subject: email.subject,
-      body: email.text,
+      body: redactRefundStatusLinksForStorage(email.text),
       template_key: refundFollowUpTemplateKey(
         cycle.reasonCode,
         messageClass,
@@ -657,6 +666,8 @@ const logDeterministicFollowUpMessage = async (
       template_version: cycle.templateVersion,
       follow_up_cycle_id: cycle.id,
       requested_fields: cycle.requestedFields,
+      status_capability_id: statusCapability?.capabilityId ?? null,
+      status_link_included: Boolean(statusCapability),
     })
     .select("id")
     .single();
@@ -675,12 +686,19 @@ const sendDeterministicFollowUpMessage = async (
     return { status: "suppressed" as const, messageId: null };
   }
   const messageType = messageTypeForFollowUp(cycle, messageClass);
-  const emailInput = buildFollowUpEmailInput(
-    refundCase,
-    cycle,
-    messageClass,
-    customerCorrectionFields,
-  );
+  const statusCapability = await tryIssueRefundStatusCapability({
+    supabase: supabase!,
+    refundCaseId: refundCase.id,
+  });
+  const emailInput = {
+    ...buildFollowUpEmailInput(
+      refundCase,
+      cycle,
+      messageClass,
+      customerCorrectionFields,
+    ),
+    statusUrl: statusCapability?.url ?? null,
+  };
   const email = customerCorrectionFields.length > 0
     ? buildNayaxCustomerCorrectionEmail(emailInput)
     : buildRefundCustomerEmail(emailInput);
@@ -693,6 +711,7 @@ const sendDeterministicFollowUpMessage = async (
       cycle,
       messageClass,
       customerCorrectionFields,
+      statusCapability,
     );
     if (!messageId) throw new Error("Refund customer message record is required.");
     const gmailDelivery = await dispatchRefundCaseGmailReply({
@@ -3017,6 +3036,15 @@ serve(async (req) => {
     }
     if (!isAuthorized(req)) {
       return jsonResponse({ error: "Unauthorized." }, 401);
+    }
+
+    const { error: statusRetentionError } = await supabase.rpc(
+      "service_prune_refund_status_access_evidence",
+    );
+    if (statusRetentionError) {
+      console.warn("refund status access-evidence retention cleanup unavailable", {
+        errorType: "database_error",
+      });
     }
 
     const body = await req.json().catch(() => ({} as Record<string, unknown>));

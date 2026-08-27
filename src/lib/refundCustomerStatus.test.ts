@@ -1,0 +1,71 @@
+/// <reference lib="deno.ns" />
+
+import { assertEquals, assertThrows } from 'jsr:@std/assert@1';
+import {
+  getRefundCustomerRefreshMs,
+  getRefundCustomerStatusCopy,
+  requireRefundCustomerLifecycle,
+} from './refundCustomerStatus.ts';
+
+const lifecycle = (stage: string, stageRank: number, terminal = false) => ({
+  schemaVersion: 'refund_lifecycle_v1',
+  stage,
+  stageRank,
+  lastUpdatedAt: '2026-08-26T17:00:00.000Z',
+  publicCopyKey: `refund_${stage}`,
+  terminal,
+  refreshAfterSeconds: terminal ? null : 5,
+  payloadRedacted: true,
+});
+
+Deno.test('customer lifecycle rejects technical or unknown contracts', () => {
+  assertThrows(() => requireRefundCustomerLifecycle({
+    ...lifecycle('matching', 10),
+    schemaVersion: 'refund_lifecycle_v2',
+  }));
+  assertThrows(() => requireRefundCustomerLifecycle({
+    ...lifecycle('matching', 10),
+    payloadRedacted: false,
+  }));
+  assertThrows(() => requireRefundCustomerLifecycle(lifecycle('provider_timeout', 50)));
+});
+
+Deno.test('customer copy maps every canonical stage without provider troubleshooting', () => {
+  const expected = new Map([
+    ['matching', 'Request received'],
+    ['needs_transaction_selection', 'Reviewing your purchase'],
+    ['transaction_confirmed', 'Reviewing your purchase'],
+    ['refund_initiated', 'Refund initiated'],
+    ['confirming_with_nayax', 'Confirming the refund'],
+    ['needs_refund_operations', 'Confirming the refund'],
+    ['refund_confirmed', 'Refund confirmed'],
+    ['customer_notified', 'Refund confirmed'],
+    ['denied', 'Review complete'],
+  ]);
+  for (const [stage, title] of expected) {
+    const contract = requireRefundCustomerLifecycle(
+      lifecycle(stage, stage === 'denied' ? 90 : 10, stage === 'denied'),
+    );
+    const copy = getRefundCustomerStatusCopy(contract);
+    assertEquals(copy.title, title);
+    assertEquals(/code|credential|DTM|response|transaction id/i.test(
+      `${copy.title} ${copy.detail} ${copy.nextExpectation}`,
+    ), false);
+  }
+});
+
+Deno.test('active customer status refreshes within 15 seconds and terminal status stops', () => {
+  assertEquals(getRefundCustomerRefreshMs(
+    requireRefundCustomerLifecycle(lifecycle('matching', 10)),
+  ), 5_000);
+  assertEquals(getRefundCustomerRefreshMs(
+    requireRefundCustomerLifecycle(lifecycle('customer_notified', 80, true)),
+  ), false);
+});
+
+Deno.test('confirmed copy distinguishes Nayax approval from bank posting', () => {
+  const copy = getRefundCustomerStatusCopy(
+    requireRefundCustomerLifecycle(lifecycle('refund_confirmed', 70)),
+  );
+  assertEquals(copy.detail, 'Nayax has approved your refund. Your bank may take up to 4 business days to show it on your account.');
+});

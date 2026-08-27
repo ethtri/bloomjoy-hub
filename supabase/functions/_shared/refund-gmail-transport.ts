@@ -10,6 +10,7 @@ import {
 import { automaticRefundCustomerContactEnabled } from "./refund-deterministic-follow-up.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { verifyRefundSyntheticGmailProofTransport } from "./refund-synthetic-gmail-proof.ts";
+import { redactRefundStatusLinksForStorage } from "./refund-email.ts";
 
 type RefundEmailPayload = {
   subject: string;
@@ -273,7 +274,7 @@ export const dispatchRefundCaseGmailReply = async ({
       p_operation_key: operationKey,
       p_sender_email: config.mailbox,
       p_recipient_email: recipientEmail,
-      p_plain_body: email.text,
+      p_plain_body: redactRefundStatusLinksForStorage(email.text),
       p_mailbox_identities: config.mailboxIdentities,
       p_delivery_kind: deliveryKind,
       p_target_gmail_thread_id: targetGmailThreadId,

@@ -2565,15 +2565,11 @@ const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) =>
     const page = await context.newPage();
     await navigateRefundPortalPage(page, `${appUrl}${journey.path}`, { waitUntil: 'domcontentloaded' });
     await page.getByLabel('Machine location').selectOption(selectionKey);
-    await page.getByLabel('Name').fill('Synthetic Customer');
     await page.getByLabel('Email').fill('synthetic-customer@example.test');
-    await page.getByLabel('How close is that time?').selectOption('within_15_minutes');
+    await page.getByRole('radio', { name: /^Card/ }).click();
     await page.getByLabel('Amount paid').fill('7.00');
-    await page.getByLabel('How did you pay at the machine?').selectOption('tap_card');
-    await page.getByLabel('Card type').selectOption('visa');
-    await page.getByLabel('Last 4 digits on the card you used').fill('4242');
+    await page.getByLabel('Last 4 digits shown for this payment').fill('4242');
     await page.getByLabel('What best describes the problem?').selectOption('charged_no_product');
-    await page.getByLabel('What happened?').fill('Synthetic browser validation only.');
 
     // Reproduce Chrome autofill/native-picker behavior: the controls visibly
     // contain valid values, but no input/change event reaches React state.
@@ -2597,7 +2593,8 @@ const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) =>
     }
 
     await page.getByRole('button', { name: 'Send refund request' }).click();
-    await page.waitForURL(/\/refunds\/thank-you\?ref=RF-UAT-/, { timeout: 10000 });
+    await page.waitForURL(/\/refunds\/thank-you$/, { timeout: 10000 });
+    await page.getByText(`RF-UAT-${journey.name.toUpperCase()}`, { exact: true }).waitFor();
 
     const submission = submissions[0] ?? {};
     recorder.assert(
@@ -2605,7 +2602,11 @@ const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) =>
       submissions.length === 1 &&
         submission.incidentDate === '2026-08-11' &&
         submission.incidentTime === '15:30' &&
-        submission.cardNetwork === 'visa' &&
+        submission.paymentMethod === 'card' &&
+        submission.cardLast4 === '4242' &&
+        submission.cardNetwork === undefined &&
+        submission.paymentInteraction === 'unsure' &&
+        submission.incidentTimeConfidence === 'rough' &&
         submission.selectionKey === selectionKey &&
         submission.machineId === undefined,
       JSON.stringify(submission)

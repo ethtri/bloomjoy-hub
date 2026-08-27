@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
   buildRefundCustomerEmail,
+  redactRefundStatusLinksForStorage,
   sendRefundTransactionalEmail,
 } from "../_shared/refund-email.ts";
 import { automaticRefundCustomerContactEnabled } from "../_shared/refund-deterministic-follow-up.ts";
@@ -49,6 +50,12 @@ import {
 import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
 import { validateRefundIntakePayment } from "../_shared/refund-intake-payment.ts";
 import {
+  hashRefundStatusValue,
+  issueRefundStatusCapability,
+  readRefundStatusCapability,
+  type RefundStatusCapability,
+} from "../_shared/refund-status-capability.ts";
+import {
   beginNayaxLookup,
   failNayaxLookup,
   persistNayaxLookupResult,
@@ -63,6 +70,13 @@ const maxRequestBytes = 18 * 1024 * 1024;
 const allowedContentTypes = new Set(["image/png", "image/jpeg", "image/webp"]);
 const automaticCustomerContactEnabled = automaticRefundCustomerContactEnabled();
 const refundEmailPilotAttachmentsEnabled = false;
+const refundStatusResponseHeaders = {
+  ...corsHeaders,
+  "Content-Type": "application/json",
+  "Cache-Control": "private, no-store, max-age=0",
+  "Referrer-Policy": "no-referrer",
+  "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
+};
 
 const supabase = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -192,6 +206,72 @@ const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 const isEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+const issueStatusCapability = async (
+  refundCaseId: string,
+): Promise<RefundStatusCapability | null> => {
+  if (!supabase) return null;
+  try {
+    return await issueRefundStatusCapability({ supabase, refundCaseId });
+  } catch (error) {
+    console.error("refund status capability issuance failed", {
+      errorType: error instanceof Error ? error.name : typeof error,
+    });
+    return null;
+  }
+};
+
+const waitForStatusTimingEnvelope = async (startedAt: number) => {
+  const remaining = 150 - (Date.now() - startedAt);
+  if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+};
+
+const readCustomerRefundStatus = async (
+  req: Request,
+  body: Record<string, unknown>,
+) => {
+  const startedAt = Date.now();
+  const token = sanitizeText(body?.token, 80);
+  const clientIp = getPublicIntakeClientIp(req) || "unknown";
+  const accessKeyDigest = await hashRefundStatusValue(
+    `${getAbuseControlSalt()}|refund-status|${clientIp}`,
+  );
+  let result: Awaited<ReturnType<typeof readRefundStatusCapability>>;
+  try {
+    result = await readRefundStatusCapability({
+      supabase: supabase!,
+      token,
+      accessKeyDigest,
+    });
+  } catch {
+    result = { available: false, rateLimited: false };
+  }
+  await waitForStatusTimingEnvelope(startedAt);
+
+  if (!result.available) {
+    return new Response(
+      JSON.stringify({
+        error: result.rateLimited
+          ? "Please wait before checking this secure link again."
+          : "This secure refund status link is not available.",
+        errorCode: result.rateLimited
+          ? "refund_status_rate_limited"
+          : "refund_status_unavailable",
+        payloadRedacted: true,
+      }),
+      { status: result.rateLimited ? 429 : 404, headers: refundStatusResponseHeaders },
+    );
+  }
+
+  return new Response(
+    JSON.stringify({
+      lifecycle: result.lifecycle,
+      expiresAt: result.expiresAt,
+      payloadRedacted: true,
+    }),
+    { headers: refundStatusResponseHeaders },
+  );
+};
 
 const getAbuseControlSalt = () =>
   Deno.env.get("PUBLIC_INTAKE_ABUSE_HASH_SALT") ||
@@ -1183,6 +1263,9 @@ serve(async (req) => {
     if (action === "submitWalletCorrection") {
       return await submitWalletCorrection(req, body);
     }
+    if (action === "readStatus") {
+      return await readCustomerRefundStatus(req, body);
+    }
 
     const sourcePage = sanitizePublicIntakeSourcePage("/refunds/request");
     const requestedMachineId = sanitizeText(body?.machineId, 80);
@@ -1305,13 +1388,6 @@ serve(async (req) => {
       });
     }
 
-    if (!customerName) {
-      return new Response(JSON.stringify({ error: "Please enter your name." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     if (!hasLocalIncidentInput && !legacyIncidentAt) {
       return new Response(JSON.stringify({ error: "Please enter the incident date and time." }), {
         status: 400,
@@ -1358,13 +1434,6 @@ serve(async (req) => {
       )
     ) {
       return new Response(JSON.stringify({ error: "Please choose what best describes the problem." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (!issueSummary) {
-      return new Response(JSON.stringify({ error: "Please describe what happened." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -1805,6 +1874,7 @@ serve(async (req) => {
             });
           });
         }
+        const statusCapability = await issueStatusCapability(dedupedRefundCase.id);
         return new Response(
           JSON.stringify({
             refundCase: {
@@ -1813,6 +1883,8 @@ serve(async (req) => {
               status: dedupedRefundCase.status,
               correlationStatus: dedupedRefundCase.correlation_status,
             },
+            statusToken: statusCapability?.token ?? null,
+            statusExpiresAt: statusCapability?.expiresAt ?? null,
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
@@ -1867,6 +1939,8 @@ serve(async (req) => {
       status,
     });
 
+    const statusCapability = await issueStatusCapability(refundCase.id);
+
     const email = buildRefundCustomerEmail({
       messageType: "confirmation",
       publicReference: refundCase.public_reference,
@@ -1878,6 +1952,7 @@ serve(async (req) => {
       paymentMethod: paymentValidation.paymentMethod,
       cardWalletUsed: paymentValidation.cardWalletUsed,
       incidentLocalDateTime: hasLocalIncidentInput ? `${incidentDate} ${incidentTime}` : null,
+      statusUrl: statusCapability?.url ?? null,
     });
 
     const { data: messageRow } = await supabase
@@ -1888,8 +1963,10 @@ serve(async (req) => {
         status: "pending",
         recipient_email: customerEmail,
         subject: email.subject,
-        body: email.text,
+        body: redactRefundStatusLinksForStorage(email.text),
         template_key: "refund_confirmation_v1",
+        status_capability_id: statusCapability?.capabilityId ?? null,
+        status_link_included: Boolean(statusCapability),
       })
       .select("id")
       .single();
@@ -1912,6 +1989,8 @@ serve(async (req) => {
             status: refundCase.status,
             correlationStatus: refundCase.correlation_status,
           },
+          statusToken: statusCapability?.token ?? null,
+          statusExpiresAt: statusCapability?.expiresAt ?? null,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
@@ -1947,6 +2026,8 @@ serve(async (req) => {
             status: refundCase.status,
             correlationStatus: refundCase.correlation_status,
           },
+          statusToken: statusCapability?.token ?? null,
+          statusExpiresAt: statusCapability?.expiresAt ?? null,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
@@ -2013,6 +2094,8 @@ serve(async (req) => {
           status: refundCase.status,
           correlationStatus: refundCase.correlation_status,
         },
+        statusToken: statusCapability?.token ?? null,
+        statusExpiresAt: statusCapability?.expiresAt ?? null,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

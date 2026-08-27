@@ -320,31 +320,23 @@ const fillOrdinaryRefundFields = async (page) => {
     0,
     'Refund intake should derive the product category from the selected machine'
   );
-  await page.getByLabel('Name', { exact: true }).fill('QR UAT Customer');
   await page.getByLabel('Email', { exact: true }).fill('qr-customer@example.test');
   await page.getByLabel('Purchase date').fill('2026-07-26');
   await page.getByLabel('Approximate purchase time').fill('12:10');
-  await page.getByLabel('How close is that time?').selectOption('within_15_minutes');
   await page.getByLabel('Amount paid').fill('7.00');
 
   await page.getByLabel('What best describes the problem?').selectOption('charged_no_product');
-  await page
-    .getByLabel('What happened?')
-    .fill('Synthetic QR UAT report. No product or customer data is included.');
 };
 
 const fillRequiredRefundFields = async (page, { wallet = false } = {}) => {
   await fillOrdinaryRefundFields(page);
 
   if (wallet) {
-    await page.getByLabel('How did you pay at the machine?').selectOption('phone_watch_wallet');
-    await page.getByLabel('Which wallet did you use?').selectOption('apple_pay');
-    await page.getByLabel('Card type').selectOption('discover');
+    await page.getByLabel('I used Apple Pay or another phone/watch wallet').check();
+    await page.getByLabel('Wallet (optional)').selectOption('apple_pay');
     await page.getByLabel('Virtual last 4 shown in your wallet').fill('9876');
   } else {
-    await page.getByLabel('How did you pay at the machine?').selectOption('tap_card');
-    await page.getByLabel('Card type').selectOption('visa');
-    await page.getByLabel('Last 4 digits on the card you used').fill('4242');
+    await page.getByLabel('Last 4 digits shown for this payment').fill('4242');
   }
 
 };
@@ -364,7 +356,7 @@ const runDesktopQrJourney = async ({ browser, appUrl, artifactDir }) => {
   assert.equal(await page.getByText('Mall Atrium - Cotton Candy 01').first().isVisible(), true);
   assert.equal(await page.getByText(/We saved the server time as/).isVisible(), true);
   assert.equal(
-    await page.getByLabel('How did you pay at the machine?').isVisible(),
+    await page.getByRole('radio', { name: /^Card/ }).isVisible(),
     true
   );
   assert.equal(await page.locator('input[type="file"]').count(), 0, 'Public refund intake must not offer attachment uploads.');
@@ -376,7 +368,8 @@ const runDesktopQrJourney = async ({ browser, appUrl, artifactDir }) => {
 
   await fillRequiredRefundFields(page);
   await page.getByRole('button', { name: 'Send refund request' }).click();
-  await page.waitForURL('**/refunds/thank-you?ref=RF-QR-UAT');
+  await page.waitForURL('**/refunds/thank-you');
+  await page.getByText('RF-QR-UAT', { exact: true }).waitFor();
 
   const submission = functionBodies.find((body) => !body.action);
   assert.ok(submission, 'QR form should submit one refund request');
@@ -384,10 +377,10 @@ const runDesktopQrJourney = async ({ browser, appUrl, artifactDir }) => {
   assert.match(submission.qrClaimToken, /^refund_qr_claim_uat_token_/);
   assert.equal(submission.paymentMethod, 'card');
   assert.equal(submission.cardLast4, '4242');
-  assert.equal(submission.cardNetwork, 'visa');
+  assert.equal(submission.cardNetwork, undefined);
   assert.equal(submission.cardWalletUsed, false);
-  assert.equal(submission.paymentInteraction, 'tap_card');
-  assert.equal(submission.incidentTimeConfidence, 'within_15_minutes');
+  assert.equal(submission.paymentInteraction, 'unsure');
+  assert.equal(submission.incidentTimeConfidence, 'rough');
   assert.equal(submission.issueCategory, 'charged_no_product');
   assert.equal('productDescription' in submission, false);
   assert.equal('attachments' in submission, false, 'Public refund intake must not submit attachment bytes.');
@@ -436,7 +429,7 @@ const runMobileWalletJourney = async ({ browser, appUrl, artifactDir }) => {
   assert.equal(
     await page
       .getByText(
-        'Open your wallet, select the card, and use the virtual or device card number shown there. Do not use the last 4 printed on the physical card.'
+        'Use the virtual last 4 shown for this wallet payment. Do not use the last 4 printed on the physical card.'
       )
       .isVisible(),
     true
@@ -457,11 +450,12 @@ const runMobileWalletJourney = async ({ browser, appUrl, artifactDir }) => {
   });
 
   await page.getByRole('button', { name: 'Send refund request' }).click();
-  await page.waitForURL('**/refunds/thank-you?ref=RF-QR-UAT');
+  await page.waitForURL('**/refunds/thank-you');
+  await page.getByText('RF-QR-UAT', { exact: true }).waitFor();
   const submission = functionBodies.find((body) => !body.action);
   assert.equal(submission.cardLast4, '9876');
   assert.equal(submission.paymentMethod, 'card');
-  assert.equal(submission.cardNetwork, 'discover');
+  assert.equal(submission.cardNetwork, undefined);
   assert.equal(submission.cardWalletUsed, true);
   assert.equal(submission.paymentInteraction, 'phone_watch_wallet');
   assert.equal(submission.walletProvider, 'apple_pay');
@@ -492,13 +486,14 @@ const runDirectJourney = async ({ browser, appUrl, artifactDir }) => {
   });
 
   await fillRequiredRefundFields(page);
-  await page.getByLabel('Card type').scrollIntoViewIfNeeded();
+  await page.getByLabel('Last 4 digits shown for this payment').scrollIntoViewIfNeeded();
   await page.screenshot({
     path: path.join(artifactDir, 'refund-direct-intake-card-type-desktop.png'),
     fullPage: false,
   });
   await page.getByRole('button', { name: 'Send refund request' }).click();
-  await page.waitForURL('**/refunds/thank-you?ref=RF-QR-UAT');
+  await page.waitForURL('**/refunds/thank-you');
+  await page.getByText('RF-QR-UAT', { exact: true }).waitFor();
   const submission = functionBodies.find((body) => !body.action);
   assert.equal(submission.selectionKey, eastridgeSelectionKey);
   assert.equal(submission.paymentMethod, 'card');
@@ -543,9 +538,9 @@ const runDirectCashTransitionJourney = async ({ browser, appUrl, artifactDir }) 
   assert.equal(await page.getByLabel('Virtual last 4 shown in your wallet').inputValue(), '9876');
 
   await page.getByRole('radio', { name: /^Cash/ }).click();
-  assert.equal(await page.getByLabel('How did you pay at the machine?').count(), 0);
-  assert.equal(await page.getByLabel('Which wallet did you use?').count(), 0);
-  assert.equal(await page.getByLabel('Card type').count(), 0);
+  assert.equal(await page.getByLabel('How did you use the card? (optional)').count(), 0);
+  assert.equal(await page.getByLabel('Wallet (optional)').count(), 0);
+  assert.equal(await page.getByLabel('Card type (optional)').count(), 0);
   assert.equal(await page.getByLabel(/last 4/i).count(), 0);
   assert.equal(await page.getByText(/Zelle|Venmo/i).count(), 0);
   await page.getByLabel('Which machine did you use?').selectOption(livermoreTt33MachineId);
@@ -560,15 +555,16 @@ const runDirectCashTransitionJourney = async ({ browser, appUrl, artifactDir }) 
   });
 
   await page.getByRole('radio', { name: /^Card/ }).click();
-  assert.equal(await page.getByLabel('How did you pay at the machine?').inputValue(), '');
-  assert.equal(await page.getByLabel('Last 4 digits on the card you used').inputValue(), '');
+  assert.equal(await page.getByLabel('How did you use the card? (optional)').inputValue(), '');
+  assert.equal(await page.getByLabel('Last 4 digits shown for this payment').inputValue(), '');
   assert.equal(await page.getByLabel('Which machine did you use?').count(), 0);
 
   await page.getByRole('radio', { name: /^Cash/ }).click();
   assert.equal(await page.getByLabel('Which machine did you use?').inputValue(), '');
   await page.getByLabel('Which machine did you use?').selectOption(livermoreTt33MachineId);
   await page.getByRole('button', { name: 'Send refund request' }).click();
-  await page.waitForURL('**/refunds/thank-you?ref=RF-QR-UAT');
+  await page.waitForURL('**/refunds/thank-you');
+  await page.getByText('RF-QR-UAT', { exact: true }).waitFor();
 
   const submissions = functionBodies.filter((body) => !body.action);
   assert.equal(submissions.length, 1, 'Cash direct intake must create one request');
@@ -608,7 +604,7 @@ const runMobileCashQrJourney = async ({ browser, appUrl, artifactDir }) => {
   await page.getByRole('radio', { name: /^Cash/ }).click();
 
   assert.equal(await page.getByLabel('Machine location').count(), 0);
-  assert.equal(await page.getByLabel('How did you pay at the machine?').count(), 0);
+  assert.equal(await page.getByLabel('How did you use the card? (optional)').count(), 0);
   assert.equal(await page.getByText(/Zelle|Venmo/i).count(), 0);
   const layout = await page.evaluate(() => ({
     viewportWidth: document.documentElement.clientWidth,
@@ -640,7 +636,8 @@ const runMobileCashQrJourney = async ({ browser, appUrl, artifactDir }) => {
   });
 
   await page.getByRole('button', { name: 'Send refund request' }).click();
-  await page.waitForURL('**/refunds/thank-you?ref=RF-QR-UAT');
+  await page.waitForURL('**/refunds/thank-you');
+  await page.getByText('RF-QR-UAT', { exact: true }).waitFor();
   const submissions = functionBodies.filter((body) => !body.action);
   assert.equal(submissions.length, 1, 'Cash QR intake must create one request');
   const submission = submissions[0];
@@ -688,7 +685,10 @@ const runUnavailableJourneys = async ({ browser, appUrl, artifactDir }) => {
   await expiredPage.getByRole('button', { name: 'Send refund request' }).click();
   await expiredPage.getByText('This QR session needs to be restarted.', { exact: true }).waitFor();
 
-  assert.equal(await expiredPage.getByLabel('Name', { exact: true }).inputValue(), 'QR UAT Customer');
+  assert.equal(
+    await expiredPage.getByLabel('Email', { exact: true }).inputValue(),
+    'qr-customer@example.test'
+  );
   assert.equal(
     await expiredPage.getByRole('button', { name: 'Start new QR session' }).isVisible(),
     true

@@ -4,6 +4,7 @@ import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
   buildRefundCustomerEmail,
+  redactRefundStatusLinksForStorage,
   type RefundCustomerMessageType,
   sanitizeRefundMessageType,
   sendRefundCustomerEmail,
@@ -43,6 +44,10 @@ import {
   type RefundReadiness,
 } from "../_shared/refund-readiness.ts";
 import { deriveManualExternalCashCompletionContext } from "../_shared/manual-external-cash-completion.ts";
+import {
+  tryIssueRefundStatusCapability,
+  type RefundStatusCapability,
+} from "../_shared/refund-status-capability.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
@@ -404,12 +409,14 @@ const logCustomerMessage = async ({
   status,
   errorMessage,
   missingFields,
+  statusCapability,
 }: {
   refundCase: RefundCaseRow;
   messageType: RefundCustomerMessageType;
   status: "pending" | "sent" | "failed" | "skipped";
   errorMessage?: string | null;
   missingFields: RefundMissingField[];
+  statusCapability?: RefundStatusCapability | null;
 }) => {
   if (!supabase) return null;
 
@@ -433,6 +440,7 @@ const logCustomerMessage = async ({
     decisionReason: refundCase.decision_reason,
     missingFields,
     cardWalletUsed: refundCase.card_wallet_used,
+    statusUrl: statusCapability?.url ?? null,
   });
 
   const { data, error } = await supabase
@@ -443,7 +451,7 @@ const logCustomerMessage = async ({
       status,
       recipient_email: refundCase.customer_email,
       subject: email.subject,
-      body: email.text,
+      body: redactRefundStatusLinksForStorage(email.text),
       template_key: `refund_${messageType}_v1`,
       sent_at: status === "sent" ? new Date().toISOString() : null,
       error_message: errorMessage ?? null,
@@ -452,6 +460,8 @@ const logCustomerMessage = async ({
       reason_code: messageType === "more_info" ? "missing_information" : null,
       template_version: null,
       requested_fields: messageType === "more_info" ? missingFields : [],
+      status_capability_id: statusCapability?.capabilityId ?? null,
+      status_link_included: Boolean(statusCapability),
     })
     .select("id")
     .single();
@@ -493,11 +503,17 @@ const sendAndLogCustomerMessage = async (
     return { type: messageType, status: "skipped" };
   }
 
+  const statusCapability = await tryIssueRefundStatusCapability({
+    supabase,
+    refundCaseId: refundCase.id,
+  });
+
   const messageId = await logCustomerMessage({
     refundCase,
     messageType,
     status: "pending",
     missingFields,
+    statusCapability,
   });
 
   try {
@@ -514,6 +530,7 @@ const sendAndLogCustomerMessage = async (
       decisionReason: refundCase.decision_reason,
       missingFields,
       cardWalletUsed: refundCase.card_wallet_used,
+      statusUrl: statusCapability?.url ?? null,
     };
     const email = buildRefundCustomerEmail(emailInput);
     if (!messageId) {

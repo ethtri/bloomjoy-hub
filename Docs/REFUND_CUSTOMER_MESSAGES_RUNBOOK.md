@@ -21,7 +21,7 @@ This runbook defines the customer communication boundary for Refund Operations v
 | No safe match | Correction-focused update | Keep manager review open; do not blame the customer |
 | Denied | Warm denial with a customer-safe reason | Invite a reply in the same conversation |
 | Reply-based denial appeal | Appeal received | Reopen the same case for manager review; no second form and no payment authority |
-| Refund confirmed | Completion receipt | Begin: “Good news—your refund request was approved, and your refund is on its way.” |
+| Refund confirmed | Completion receipt | Begin: “Nayax has approved your refund. Your bank may take up to 4 business days to show it on your account.” Include the secure read-only status capability when issuance is enabled. |
 
 Every message uses the canonical Bloomjoy cream, plum, blush, and orange email system, includes the public reference, closes as the Bloomjoy Sweets Team, and supports replies. Plain-text content remains complete for customers whose email clients do not display HTML.
 

@@ -58,6 +58,7 @@ export type RefundCustomerEmailInput = {
   managerCcEmails?: string[];
   managerRecipientOverlap?: boolean;
   managerRecipientCount?: number;
+  statusUrl?: string | null;
 };
 
 const refundMissingFieldRequest: Record<RefundMissingField, string> = {
@@ -180,6 +181,63 @@ const formatCurrency = (cents?: number | null) => {
     style: "currency",
     currency: "USD",
   }).format(cents / 100);
+};
+
+const sanitizeRefundStatusUrl = (value: unknown) => {
+  const candidate = sanitizeText(value, 700);
+  if (!candidate) return "";
+  try {
+    const parsed = new URL(candidate);
+    const approvedProductionHost = parsed.protocol === "https:" && [
+      "app.bloomjoyusa.com",
+      "www.bloomjoyusa.com",
+    ].includes(parsed.hostname);
+    const approvedLocalHost = parsed.protocol === "http:" &&
+      ["localhost", "127.0.0.1"].includes(parsed.hostname);
+    const token = parsed.hash.startsWith("#token=")
+      ? parsed.hash.slice("#token=".length)
+      : "";
+    if (
+      (!approvedProductionHost && !approvedLocalHost) ||
+      parsed.pathname !== "/refunds/status" ||
+      parsed.search ||
+      !/^[A-Za-z0-9_-]{43}$/.test(token) ||
+      parsed.username || parsed.password
+    ) return "";
+    return parsed.toString();
+  } catch {
+    return "";
+  }
+};
+
+const storedStatusUrlPattern = /https?:\/\/(?:(?:app|www)\.bloomjoyusa\.com|localhost(?::\d+)?|127\.0\.0\.1(?::\d+)?)\/refunds\/status#token=[A-Za-z0-9_-]{43}/gu;
+
+export const redactRefundStatusLinksForStorage = (value: string) =>
+  value.replace(storedStatusUrlPattern, "[Secure refund status link included at delivery]");
+
+export const buildRefundStoredTextWithStatus = ({
+  headline,
+  text,
+  statusUrl,
+}: {
+  headline: string;
+  text: string;
+  statusUrl?: string | null;
+}) => {
+  const approvedStatusUrl = sanitizeRefundStatusUrl(statusUrl);
+  const deliveryText = approvedStatusUrl
+    ? `${text.trim()}\n\nCheck refund status:\n${approvedStatusUrl}`
+    : text;
+  return {
+    text: deliveryText,
+    html: renderBloomjoyRefundStoredText({
+      headline,
+      text,
+      primaryLink: approvedStatusUrl
+        ? { label: "Check refund status", url: approvedStatusUrl }
+        : null,
+    }),
+  };
 };
 
 const getSubject = (
@@ -359,13 +417,12 @@ const getBodyParagraphs = ({
         ];
       }
       return [
-        "Good news—your refund request was approved, and your refund is on its way.",
-        `We issued your refund${amountPhrase}${
+        "Nayax has approved your refund. Your bank may take up to 4 business days to show it on your account.",
+        `The approved refund${amountPhrase}${
           /^\d{4}$/.test(maskedCard)
             ? ` to the card ending in ${maskedCard}`
             : ""
-        }.`,
-        "Your bank or card issuer may take up to 4 business days to show the credit. If it is not visible after that, reply to this email and include your reference below.",
+        } is now being returned through your card network. If it is not visible after 4 business days, reply to this email and include your reference below.`,
         "Thank you for letting us help make this right.",
       ];
     }
@@ -411,6 +468,7 @@ export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
   const subject = getSubject(input.messageType, publicReference);
   const greeting = customerName ? `Hi ${customerName},` : "Hi there,";
   const paragraphs = getBodyParagraphs(input);
+  const statusUrl = sanitizeRefundStatusUrl(input.statusUrl);
   const details = [`Reference: ${publicReference}`];
   if (machineLabel) details.push(`Machine: ${machineLabel}`);
   if (locationName) details.push(`Location: ${locationName}`);
@@ -437,6 +495,7 @@ export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
     ...paragraphs.flatMap((paragraph) => [paragraph, ""]),
     ...details,
     "",
+    ...(statusUrl ? ["Check refund status:", statusUrl, ""] : []),
     "You can reply directly to this email if anything looks off.",
     "",
     "Warmly,",
@@ -453,6 +512,7 @@ export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
     greeting,
     paragraphs,
     details: brandDetails,
+    primaryLink: statusUrl ? { label: "Check refund status", url: statusUrl } : null,
     replyLine: input.messageType === "denied"
       ? "Reply in this same conversation if we missed or misunderstood something."
       : "You can reply directly to this email if anything looks off.",
@@ -484,6 +544,7 @@ export const buildEditableRefundCustomerEmail = ({
       ? safeSubjectBase
       : `${safeSubjectBase} - ${publicReference}`;
   const sanitizedBody = sanitizeText(body, 4000);
+  const statusUrl = sanitizeRefundStatusUrl(input.statusUrl);
   const paragraphs = sanitizedBody
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
@@ -505,6 +566,7 @@ export const buildEditableRefundCustomerEmail = ({
     ...paragraphs.flatMap((paragraph) => [paragraph, ""]),
     ...details,
     "",
+    ...(statusUrl ? ["Check refund status:", statusUrl, ""] : []),
     "Please reply to this email if anything looks off. Replies go to our Bloomjoy support inbox.",
     "",
     "Warmly,",
@@ -522,6 +584,7 @@ export const buildEditableRefundCustomerEmail = ({
     greeting,
     paragraphs,
     details: brandDetails,
+    primaryLink: statusUrl ? { label: "Check refund status", url: statusUrl } : null,
     replyLine:
       "Please reply to this email if anything looks off. Replies go to our Bloomjoy support inbox.",
   });

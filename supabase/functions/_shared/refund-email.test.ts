@@ -1,7 +1,9 @@
 import {
   buildEditableRefundCustomerEmail,
   buildRefundCustomerEmail,
+  buildRefundStoredTextWithStatus,
   describeRefundMissingFields,
+  redactRefundStatusLinksForStorage,
   REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
   sanitizeRefundMissingFields,
 } from "./refund-email.ts";
@@ -228,12 +230,12 @@ Deno.test("completed card copy is a truthful receipt with masked destination and
 
   assertIncludes(
     completed.text,
-    "We issued your refund for $7.25 to the card ending in 1234",
+    "The approved refund for $7.25 to the card ending in 1234",
     "confirmed refund receipt",
   );
   assertIncludes(
     completed.text,
-    "Good news—your refund request was approved, and your refund is on its way.",
+    "Nayax has approved your refund. Your bank may take up to 4 business days to show it on your account.",
     "required completion opening",
   );
   assertIncludes(
@@ -421,5 +423,80 @@ Deno.test("information-received copy confirms receipt without a decision or comp
     email.text,
     "not a promise that a payment has been completed",
     "payment boundary",
+  );
+});
+
+Deno.test("eligible customer email carries one opaque fragment status link", () => {
+  const token = "A".repeat(43);
+  const email = buildRefundCustomerEmail({
+    messageType: "confirmation",
+    publicReference: "RF-STATUS-1",
+    customerEmail: "customer@example.com",
+    statusUrl: `https://app.bloomjoyusa.com/refunds/status#token=${token}`,
+  });
+  assertIncludes(email.text, "Check refund status:", "status text label");
+  assertIncludes(
+    email.text,
+    `/refunds/status#token=${token}`,
+    "opaque fragment link",
+  );
+  assertIncludes(email.html, "Check refund status", "status email action");
+  assert(
+    email.text.match(/refunds\/status/gu)?.length === 1,
+    "status link appears once",
+  );
+});
+
+Deno.test("status tokens are delivered but redacted from stored message evidence", () => {
+  const token = "A".repeat(43);
+  const statusUrl = `https://app.bloomjoyusa.com/refunds/status#token=${token}`;
+  const delivery = buildRefundStoredTextWithStatus({
+    headline: "Refund confirmed",
+    text: "Nayax approved the refund.",
+    statusUrl,
+  });
+  assertIncludes(delivery.text, statusUrl, "delivery has the status link");
+  assertIncludes(delivery.html, "Check refund status", "delivery has one action");
+  const stored = redactRefundStatusLinksForStorage(delivery.text);
+  assertNotIncludes(stored, token, "stored body has no raw token");
+  assertIncludes(
+    stored,
+    "[Secure refund status link included at delivery]",
+    "stored body retains privacy-safe audit evidence",
+  );
+});
+
+Deno.test("status links reject query tokens and unapproved hosts", () => {
+  for (const statusUrl of [
+    `https://app.bloomjoyusa.com/refunds/status?token=${"A".repeat(43)}`,
+    `https://example.com/refunds/status#token=${"A".repeat(43)}`,
+  ]) {
+    const email = buildRefundCustomerEmail({
+      messageType: "confirmation",
+      publicReference: "RF-STATUS-2",
+      customerEmail: "customer@example.com",
+      statusUrl,
+    });
+    assertNotIncludes(email.text, "Check refund status", "unsafe status URL");
+  }
+});
+
+Deno.test("confirmed card copy names approval without claiming bank posting", () => {
+  const email = buildRefundCustomerEmail({
+    messageType: "completed",
+    publicReference: "RF-CONFIRMED-1",
+    customerEmail: "customer@example.com",
+    paymentMethod: "card",
+    refundAmountCents: 700,
+  });
+  assertIncludes(
+    email.text,
+    "Nayax has approved your refund. Your bank may take up to 4 business days to show it on your account.",
+    "truthful card confirmation",
+  );
+  assertNotIncludes(
+    email.text.toLowerCase(),
+    "already in your account",
+    "no false bank-posting claim",
   );
 });
