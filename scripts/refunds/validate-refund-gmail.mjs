@@ -22,6 +22,7 @@ const [
   retentionMigration,
   schedulerMigration,
   schedulerRetentionMigration,
+  schedulerPrimaryMigration,
   attachmentOffCopyGateMigration,
   syntheticProofMigration,
   gmailHelper,
@@ -43,6 +44,7 @@ const [
   syntheticProofTest,
   syntheticProofDbTest,
   syntheticProofConcurrencyTest,
+  schedulerPrimaryDbTest,
   firstContactCcTest,
   formOnlyTest,
   evidenceHarness,
@@ -63,6 +65,7 @@ const [
     read('supabase/migrations/202608040002_refund_gmail_retention_safety.sql'),
     read('supabase/migrations/20260827041000_refund_gmail_scheduler_watchdog.sql'),
     read('supabase/migrations/20260827053500_refund_gmail_scheduler_retention_run_key.sql'),
+    read('supabase/migrations/20260827082000_refund_gmail_scheduler_primary.sql'),
     read('supabase/migrations/20260812053417_refund_gmail_attachment_off_copy_gate.sql'),
     read('supabase/migrations/20260812230000_refund_synthetic_gmail_proof_authorization.sql'),
     read('supabase/functions/_shared/refund-gmail.ts'),
@@ -84,6 +87,7 @@ const [
     read('supabase/functions/_shared/refund-synthetic-gmail-proof.test.ts'),
     read('supabase/tests/refund_synthetic_gmail_proof_authorization.sql'),
     read('supabase/tests/refund_synthetic_gmail_proof_concurrency.sql'),
+    read('supabase/tests/refund_gmail_scheduler_primary.sql'),
     read('supabase/tests/refund_gmail_first_contact_manager_cc.sql'),
     read('supabase/tests/refund_form_only_case_creation.sql'),
     read('scripts/refunds/generate-refund-gmail-evidence.ts'),
@@ -596,14 +600,16 @@ assert(
 assert(syncFunction.includes('REFUND_GMAIL_SYNC_SECRET'), 'Scheduled Gmail sync must authenticate independently');
 assert(
   syncFunction.includes('REFUND_GMAIL_SCHEDULER_SECRET') &&
-    syncFunction.includes('trigger === "scheduler_recovery"'),
-  'Independent recovery must use a dedicated Edge secret bound to its exact trigger',
+    syncFunction.includes('trigger === "scheduler_primary" || trigger === "scheduler_recovery"'),
+  'Independent primary and recovery schedules must use the dedicated read-only Edge secret',
 );
 assert(
+  retentionHelper.includes('scheduler_primary: /^supabase-primary:') &&
   retentionHelper.includes('scheduler_recovery: /^supabase-recovery:') &&
+    schedulerPrimaryMigration.includes("when 'scheduler_primary'") &&
     schedulerMigration.includes("when 'scheduler_recovery'") &&
     schedulerMigration.includes("'scheduler_recovery'"),
-  'Recovery dispatches must use one trigger-bound, timestamp-only idempotency key',
+  'Primary and recovery dispatches must use distinct trigger-bound timestamp keys',
 );
 assert(
   schedulerMigration.includes('enabled boolean not null default false') &&
@@ -631,6 +637,51 @@ assert(
     schedulerMigration.includes('revoke execute on function public.service_dispatch_refund_gmail_scheduler_watchdog()') &&
     !schedulerMigration.includes('nayax-card-refund'),
   'Browser roles and the recovery scheduler must have no provider/refund execution path',
+);
+assert(
+  schedulerPrimaryMigration.includes('enabled boolean not null default false') &&
+    schedulerPrimaryMigration.includes("'2-59/10 * * * *'") &&
+    schedulerPrimaryMigration.includes("interval '10 minutes'") &&
+    schedulerPrimaryMigration.includes("'trigger', 'scheduler_primary'"),
+  'The independent ten-minute primary scheduler must install default off with its exact trigger',
+);
+assert(
+  schedulerPrimaryMigration.includes('vault.decrypted_secrets') &&
+    schedulerPrimaryMigration.includes("name = 'refund_gmail_scheduler_url'") &&
+    schedulerPrimaryMigration.includes("name = 'refund_gmail_scheduler_secret'") &&
+    schedulerPrimaryMigration.includes('pg_try_advisory_xact_lock(628, 1018)') &&
+    schedulerPrimaryMigration.includes('on conflict (bucket_at) do nothing'),
+  'The primary scheduler must use exact Vault inputs and replay-safe dispatch ownership',
+);
+assert(
+  schedulerPrimaryMigration.includes(
+    'revoke all on table public.refund_gmail_primary_scheduler_settings',
+  ) &&
+    schedulerPrimaryMigration.includes(
+      'revoke all on table public.refund_gmail_primary_scheduler_dispatches',
+    ) &&
+    schedulerPrimaryMigration.includes(
+      'revoke execute on function public.service_dispatch_refund_gmail_primary_scheduler()',
+    ) &&
+    !schedulerPrimaryMigration.includes('nayax-card-refund'),
+  'Browser and service callers must have no direct primary-dispatch or provider/refund path',
+);
+assert(
+  schedulerPrimaryMigration.includes("'lastExpectedRunAt'") &&
+    schedulerPrimaryMigration.includes("'lastActualSuccessAt'") &&
+    schedulerPrimaryMigration.includes("'schedulerSource'") &&
+    schedulerPrimaryMigration.includes("'schedulerDelaySeconds'") &&
+    schedulerPrimaryMigration.includes("'schedulerRecoveryAction'") &&
+    schedulerPrimaryMigration.includes("'schedulerOwner'") &&
+    schedulerPrimaryMigration.includes("'Refund Operations'"),
+  'Redacted health must name expected/actual timing, source, delay, recovery, and owner',
+);
+assert(
+  schedulerPrimaryDbTest.includes('defaults off') &&
+    schedulerPrimaryDbTest.includes('configuration_missing') &&
+    schedulerPrimaryDbTest.includes('cannot bypass cron') &&
+    schedulerPrimaryDbTest.includes('refund-gmail-sync-primary-v1'),
+  'Database tests must prove the primary gate, privileges, configuration failure, and cron install',
 );
 assert(
   ui.includes('Email intake catching up') &&
@@ -1120,8 +1171,10 @@ assert(
     schedulerRetentionMigration.includes('pre-sync:supabase-recovery:') &&
     schedulerRetentionMigration.includes('[0-5][05]Z') &&
     schedulerRetentionMigration.includes('pre-sync:github-(scheduled|manual):') &&
+    schedulerPrimaryMigration.includes('pre-sync:supabase-primary:') &&
+    schedulerPrimaryMigration.includes('[0-5]0Z') &&
     !schedulerRetentionMigration.includes('failure_test'),
-  'The independent recovery trigger must pass only its aligned mandatory pre-sync retention key',
+  'Independent primary and recovery triggers must pass only their aligned mandatory pre-sync retention keys',
 );
 const syncRunKeyConstraintBlock = retentionMigration.slice(
   retentionMigration.indexOf('drop constraint if exists refund_gmail_sync_runs_trigger_key_check'),
