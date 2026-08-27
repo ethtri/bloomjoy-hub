@@ -1,5 +1,19 @@
 # Decisions
 
+## 2026-08-27 - Real customer refunds are the production proof; software controls bound the risk (`#628`, `#990`, `#427`)
+
+- A legitimate unresolved customer refund may be used to prove the production refund path when the payment has not already been refunded and has no prior provider attempt. Do not manufacture an employee purchase merely to create test evidence.
+- For the first direct operating proof, use an existing eligible case of $10 or less with one exact manager-confirmed Nayax transaction. The amount, currency, machine/account, transaction reference, provider timestamp, and available card evidence must agree before the refund action is offered.
+- Bloomjoy accepts the bounded business risk that a provider failure may waste time or that an incorrectly selected transaction may return a small amount to the wrong cardholder. The first risk moves no money; the second is constrained by the $10 operating limit, exact matching, manager confirmation, and the fact that Nayax returns funds only to the selected transaction's payment method.
+- This acceptance removes the non-customer-only canary, manufactured purchase, staffed window, separate observer/rollback roles, recruited UAT, first-ten sample, staged cohort, and repeated go/no-go decisions as launch requirements. One manager's actual **Refund $X** confirmation remains the intentional human payment decision.
+- One manager action creates one immutable server-owned attempt generation. That generation permits at most one Nayax refund request and at most one Nayax approval. Double-clicks, reloads, concurrent workers, client/network retries, and schedule replays must reuse or reconcile that generation and cannot create another provider send.
+- There is no bulk-refund action. Per-refund and daily count/value caps, exact manager/machine/transaction authorization, idempotency uniqueness, one-live-attempt constraints, one-provider-stage constraints, the account circuit breaker, and the kill switch remain mandatory server controls.
+- A confirmed success completes the case, reporting adjustment, audit trail, and customer message once. Authoritative proof that no refund occurred may create one new generation. A timeout, unknown result, or conflicting record remains locked in Refund Operations and must be checked in Nayax before any manual refund or later attempt.
+- Automatic Nayax report-feed reconciliation in `#973`/`#971` is a nonblocking improvement. The current manual Nayax/DTM exception path with a 60-minute target is an accepted operational limitation.
+- `#427` starts a 72-hour post-launch observation with the first legitimate direct refund and reviews whatever genuine refunds occur. No minimum transaction count or manufactured activity is required.
+
+This decision supersedes every earlier instruction that requires a fresh non-customer canary, a separate broad-reopen approval, recruited UAT, or Nayax automatic readback before ordinary production refunds can operate. It does not supersede the exactly-once, authorization, matching, cap, journal, circuit-breaker, or uncertainty-hold controls.
+
 ## 2026-08-27 - Only authoritative no-refund evidence may release a fresh manager action (`#990`)
 
 - A timeout, network error, pending response, unknown response, journal failure, or settlement failure never creates retry authority. The existing attempt remains locked while Bloomjoy confirms the authoritative result, and Refund Operations owns the exception with a 60-minute SLA.
@@ -16,22 +30,22 @@ This clarifies earlier “never retry an uncertain result” decisions: uncertai
 - The tracker consumes only `refund_lifecycle_v1`, then strips manager, lookup, operations, provider, evidence, and internal reason fields before responding. Active state refreshes within 15 seconds and terminal state stops.
 - Card confirmation means Nayax approval, not bank posting. Customer copy says the bank may take up to four business days. Status-link rollback disables new issuance and revokes capabilities without touching cases or payments.
 
-## 2026-08-25 - One owner-approved canary may calibrate the unproven Nayax response contract (`#961`)
+## 2026-08-25 - Historical exact-case calibration mechanism (`#961`; superseded for current rollout)
 
 - Nayax does not publish the exact production `Result`/`Status` values or token permission needed to prove the two remaining launch facts without a provider write. The controlled canary may therefore use a reviewed provisional response contract and the two dedicated account-scoped credentials while `NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED=false` and `NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED=false`.
 - This exception requires `NAYAX_REFUND_CANARY_UNPROVEN_PROVIDER_APPROVED=true`, the existing canary switch, and an exact UUID match. It removes only the manager-contract-confirmation and approval-scope-confirmation blocks for that one case. Kill switch, execution, dry-run, amount/daily caps, idempotency, executor identity, manager authority, exact transaction evidence, journal compatibility, account circuit breaker, and separate request/approval credentials remain mandatory.
 - The exception is disabled whenever broad reopening is approved. Broad execution still requires independent confirmation of both provider facts. An unknown, denied, timed-out, malformed, or unfamiliar result remains a no-retry reconciliation hold and cannot be promoted to success.
 
-This narrows the canary mechanics without weakening the 2026-08-25 database-authoritative execution decision or authorizing a second case.
+This records why the exact-case mechanism exists in deployed code. The 2026-08-27 operating decision supersedes its non-customer-only and repeated-approval ceremony. The exact-case switch remains useful as a technical blast-radius control when broad execution is not appropriate.
 
-## 2026-08-25 - Normal Nayax refunds use a database-authoritative, canary-gated execution contract (`#961`)
+## 2026-08-25 - Historical implementation of the database-authoritative execution contract (`#961`; current activation follows 2026-08-27)
 
 - The append-only database journal, not Edge Function branching, is the sole authority for moving from `refund-request` to `refund-approve`. An exact accepted `2xx` or an unfamiliar successful `2xx` may authorize one approval; rejection, duplicate, already-refunded, pending, non-2xx, timeout, network failure, missing journal evidence, and version mismatch stop before approval.
 - Edge and database must complete an exact provider/journal version handshake before reservation or transport. Migration-first and function rollback remain compatible because the new circuit breaker activates only through the versioned reservation RPC.
 - Normal execution uses separate account-scoped request and approval write credentials. The reporting token and generic Nayax token are lookup-only and have no write fallback. A reviewed manager contract and an explicit approval-scope confirmation are independent required gates.
 - Any unresolved normal attempt pauses new normal refunds for the same Nayax account. Only structured DTM/support reconciliation may clear that hold; retry, fallback payment, reporting completion, and customer success mail remain prohibited while the outcome is uncertain.
 - Provider success, Bloomjoy settlement, and customer delivery are separate phases. A settlement failure after provider success is a P0 reconciliation hold; a customer-message failure does not reclassify the payment or permit another provider call.
-- Deployment does not reopen card refunds. One privately approved non-customer canary case must pass with exactly one request, at most one approval, atomic case/reporting settlement, and one completion message before a separate broad-reopen approval. Aggregate reliability health names Refund Operations as owner with a 60-minute escalation SLA.
+- Deployment alone does not reopen card refunds. Under the later 2026-08-27 decision, the next eligible legitimate customer case may supply the first direct proof without a separate non-customer canary or broad-reopen approval. Exactly one request, at most one approval, atomic case/reporting settlement, one completion message, and the 60-minute Refund Operations exception target remain mandatory.
 
 This supersedes the 2026-08-22 decision that the existing generic token and pilot-derived in-source contract were sufficient for routine launch. It preserves the two-step `2xx` behavior while making its transition, permissions, compatibility, and release proof explicit and fail-closed.
 
