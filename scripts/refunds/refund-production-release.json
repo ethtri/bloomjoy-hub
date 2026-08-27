@@ -92,7 +92,8 @@
     "20260825211442_refund_nayax_preexisting_attempt_evidence.sql",
     "20260825231621_refund_manager_recipient_route_v2.sql",
     "20260826165423_refund_durable_lifecycle_v1.sql",
-    "20260826204500_refund_manager_lifecycle_v1.sql"
+    "20260826204500_refund_manager_lifecycle_v1.sql",
+    "20260827011500_refund_customer_status_capability.sql"
   ],
   "migrationFilesSha256": "089ff138aaeca987259b1348fcc7d1846036e3df7db41970260a043702c59412",
   "migrationVersionSetSha256": "330218331d9025d755503351d9055df5a1b090080fe20bba505685b03b944ae6",
