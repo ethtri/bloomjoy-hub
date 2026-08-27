@@ -604,8 +604,8 @@ assert(
   'Independent primary and recovery schedules must use the dedicated read-only Edge secret',
 );
 assert(
-  retentionHelper.includes('scheduler_primary: /^supabase-primary:') &&
-  retentionHelper.includes('scheduler_recovery: /^supabase-recovery:') &&
+  /scheduler_primary:\s*\/\^supabase-primary:/.test(retentionHelper) &&
+  /scheduler_recovery:\s*\/\^supabase-recovery:/.test(retentionHelper) &&
     schedulerPrimaryMigration.includes("when 'scheduler_primary'") &&
     schedulerMigration.includes("when 'scheduler_recovery'") &&
     schedulerMigration.includes("'scheduler_recovery'"),
