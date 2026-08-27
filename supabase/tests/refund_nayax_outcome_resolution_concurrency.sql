@@ -37,6 +37,9 @@ insert into auth.users (
   now(), '{}'::jsonb, '{}'::jsonb, now(), now()
 );
 
+insert into public.admin_roles (user_id, role, active)
+values ('b2000000-0000-4000-8000-000000000001', 'super_admin', true);
+
 insert into public.customer_accounts (id, name, account_type)
 values ('b2100000-0000-4000-8000-000000000001', 'Nayax resolution race', 'customer');
 

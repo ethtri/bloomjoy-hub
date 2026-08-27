@@ -1,6 +1,7 @@
 /// <reference lib="deno.ns" />
 
 import { getRefundManagerState, getRefundPaymentStateLabel } from './refundManagerState.ts';
+import type { RefundLifecycleContract, RefundLifecycleStage } from './refundLifecycle.ts';
 
 const assertEquals = (actual: unknown, expected: unknown, message: string) => {
   if (actual !== expected) throw new Error(`${message}: expected ${expected}, received ${actual}`);
@@ -13,6 +14,44 @@ const baseCase = {
   providerOutcome: 'not_attempted' as const,
   nayaxRecommendationState: 'high_confidence' as const,
 };
+
+const lifecycle = (
+  stage: RefundLifecycleStage,
+  stageRank: number,
+  managerNextAction = 'wait'
+): RefundLifecycleContract => ({
+  schemaVersion: 'refund_lifecycle_v1',
+  stage,
+  stageRank,
+  evidenceState: 'synthetic',
+  lastUpdatedAt: '2026-08-26T20:00:00.000Z',
+  publicCopyKey: `refund_${stage}`,
+  managerNextAction,
+  terminal: stage === 'customer_notified' || stage === 'denied',
+  refreshAfterSeconds:
+    stage === 'customer_notified' || stage === 'denied' ? null : 5,
+  lookup: {
+    status: stage === 'matching' ? 'checking' : 'match_found',
+    safeRetryEligible: false,
+    failureClass: null,
+    lastUpdatedAt: '2026-08-26T19:59:55.000Z',
+  },
+  operations: {
+    required: stage === 'needs_refund_operations',
+    queue: 'Refund Operations',
+    owner: 'Refund Operations',
+    slaMinutes: 60,
+    ageMinutes: stage === 'needs_refund_operations' ? 12 : null,
+    dueAt: null,
+    slaBreached: false,
+    safeStage: 'synthetic',
+    failureClass: null,
+    nextStep: stage === 'needs_refund_operations'
+      ? 'Confirm the authoritative Nayax result. Do not retry.'
+      : null,
+  },
+  payloadRedacted: true,
+});
 
 Deno.test('manager state presents the normal card case as ready for review', () => {
   assertEquals(getRefundManagerState(baseCase).label, 'Ready for review', 'ready label');
@@ -59,7 +98,7 @@ Deno.test('manager state keeps ambiguous, unmatched, and failed lookup results o
 });
 
 Deno.test('manager state distinguishes in-flight, uncertain, rejected, completed, and denied payments', () => {
-  assertEquals(getRefundManagerState(baseCase, { isRefunding: true }).label, 'Refunding', 'in-flight label');
+  assertEquals(getRefundManagerState(baseCase, { isRefunding: true }).label, 'Refund initiated', 'in-flight label');
   assertEquals(
     getRefundManagerState({ ...baseCase, providerHold: true, providerOutcome: 'unconfirmed' }).label,
     'Refund result is being checked',
@@ -84,6 +123,63 @@ Deno.test('manager state distinguishes in-flight, uncertain, rejected, completed
     'completed label'
   );
   assertEquals(getRefundManagerState({ ...baseCase, status: 'denied' }).label, 'Denied', 'denied label');
+});
+
+Deno.test('manager state consumes the canonical lifecycle for automatic progress', () => {
+  const expected = [
+    ['matching', 10, 'Checking transactions'],
+    ['needs_transaction_selection', 20, 'Review transactions'],
+    ['refund_initiated', 40, 'Refund initiated'],
+    ['confirming_with_nayax', 50, 'Confirming refund'],
+    ['refund_confirmed', 70, 'Refund confirmed'],
+    ['customer_notified', 80, 'Completed'],
+  ] as const;
+
+  for (const [stage, stageRank, label] of expected) {
+    const result = getRefundManagerState({
+      ...baseCase,
+      lifecycle: lifecycle(stage, stageRank),
+    });
+    assertEquals(result.label, label, `${stage} label`);
+  }
+});
+
+Deno.test('canonical operations hold gives routine managers no technical action', () => {
+  const heldCase = {
+    ...baseCase,
+    lifecycle: lifecycle('needs_refund_operations', 60, 'refund_operations'),
+  };
+  const routine = getRefundManagerState(heldCase);
+  const operations = getRefundManagerState(heldCase, { canResolveHeldResult: true });
+
+  assertEquals(routine.id, 'needs_refund_operations', 'routine hold state');
+  assertEquals(
+    routine.nextStep,
+    'Refund Operations owns the next step. No action is needed, and the payment will not be tried again.',
+    'routine guidance'
+  );
+  assertEquals(
+    operations.nextStep,
+    'Use the Refund Operations panel below to record authoritative evidence. Never retry the payment.',
+    'operations guidance'
+  );
+});
+
+Deno.test('canonical lookup failure exposes only the read-only refresh action', () => {
+  const failedLifecycle = lifecycle('matching', 10);
+  failedLifecycle.lookup.status = 'lookup_timed_out';
+  failedLifecycle.lookup.safeRetryEligible = true;
+  const result = getRefundManagerState({
+    ...baseCase,
+    lifecycle: failedLifecycle,
+  });
+
+  assertEquals(result.id, 'match_attention', 'failed lookup state');
+  assertEquals(
+    result.nextStep,
+    'Select Refresh transactions. No refund has been issued.',
+    'safe retry copy'
+  );
 });
 
 Deno.test('account reconciliation hold explains the account-level circuit breaker', () => {

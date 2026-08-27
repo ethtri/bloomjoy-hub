@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(36);
+select plan(38);
 
 create function pg_temp.set_auth_claims(p_user_id uuid)
 returns void language plpgsql as $$
@@ -38,8 +38,8 @@ select has_column('public', 'reporting_machines', 'nayax_manual_portal_enabled',
 select has_column('public', 'reporting_machines', 'nayax_manual_account_scope', 'Machines have a private duplicate-protection scope');
 select has_column('public', 'reporting_machines', 'nayax_manual_portal_timezone', 'Manual machines have an exact machine-local timezone');
 select has_table('public', 'refund_manual_nayax_evidence', 'Exact manual portal evidence has a private table');
-select has_function('public', 'admin_create_refund_manual_nayax_candidate', array['uuid','bigint','text','text','text','integer','text'], 'Mapped managers can enter exact portal evidence through one guarded function');
-select has_function('public', 'admin_begin_refund_manual_nayax_portal', array['uuid','bigint'], 'Mapped managers have a separate guarded approval function');
+select has_function('public', 'admin_create_refund_manual_nayax_candidate', array['uuid','bigint','text','text','text','integer','text'], 'Refund Operations can enter exact portal evidence through one guarded function');
+select has_function('public', 'admin_begin_refund_manual_nayax_portal', array['uuid','bigint'], 'Refund Operations has a separate guarded approval function');
 select ok(
   not has_table_privilege('anon', 'public.refund_manual_nayax_evidence', 'select')
   and not has_table_privilege('authenticated', 'public.refund_manual_nayax_evidence', 'select')
@@ -80,14 +80,25 @@ insert into auth.users (
   raw_app_meta_data, raw_user_meta_data, created_at, updated_at
 ) values
   ('00000000-0000-0000-0000-000000000000', '94130000-0000-4000-8000-000000000001', 'authenticated', 'authenticated', 'adam-manual@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
-  ('00000000-0000-0000-0000-000000000000', '94130000-0000-4000-8000-000000000002', 'authenticated', 'authenticated', 'unmapped@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now());
+  ('00000000-0000-0000-0000-000000000000', '94130000-0000-4000-8000-000000000002', 'authenticated', 'authenticated', 'unmapped@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
+  ('00000000-0000-0000-0000-000000000000', '94130000-0000-4000-8000-000000000003', 'authenticated', 'authenticated', 'routine-manager@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now());
+
+insert into public.admin_roles (user_id, role, active)
+values ('94130000-0000-4000-8000-000000000001', 'super_admin', true);
+
 insert into public.reporting_machine_refund_managers (
   reporting_machine_id, manager_user_id, manager_email, grant_reason
-) values (
-  '94120000-0000-4000-8000-000000000001',
-  '94130000-0000-4000-8000-000000000001',
-  'adam-manual@example.test', 'Manual portal fixture'
-);
+) values
+  (
+    '94120000-0000-4000-8000-000000000001',
+    '94130000-0000-4000-8000-000000000001',
+    'adam-manual@example.test', 'Refund Operations fixture'
+  ),
+  (
+    '94120000-0000-4000-8000-000000000001',
+    '94130000-0000-4000-8000-000000000003',
+    'routine-manager@example.test', 'Routine manager fixture'
+  );
 
 insert into public.refund_cases (
   id, reporting_machine_id, reporting_location_id, customer_email,
@@ -121,6 +132,22 @@ select ok(
     (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001')
   )) is not null,
   'An unrelated authenticated user cannot enter portal evidence'
+);
+
+select pg_temp.set_auth_claims('94130000-0000-4000-8000-000000000003');
+select is(
+  public.admin_get_refund_manual_nayax_context(),
+  '[]'::jsonb,
+  'A routine mapped manager receives no manual Nayax provider context'
+);
+select ok(
+  pg_temp.capture_error(format(
+    $$select public.admin_create_refund_manual_nayax_candidate(
+      '94140000-0000-4000-8000-000000000001', %s, 'Carolina-Portal-01',
+      'MANUAL-TXN-941-ROUTINE', pg_temp.machine_local_minutes_ago(30), 700, '4242')$$,
+    (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001')
+  )) like '42501:Refund Operations administrator required%',
+  'A routine mapped manager cannot submit manual Nayax evidence'
 );
 
 select pg_temp.set_auth_claims('94130000-0000-4000-8000-000000000001');
