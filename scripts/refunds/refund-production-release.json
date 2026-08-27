@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "ee150cdacd0c7358bebac145710240f54257732a",
+  "sourceGitCommit": "8e61487368012c61fb49e105fa67403cb16407aa",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -94,10 +94,11 @@
     "20260826165423_refund_durable_lifecycle_v1.sql",
     "20260826204500_refund_manager_lifecycle_v1.sql",
     "20260827011500_refund_customer_status_capability.sql",
-    "20260827041000_refund_gmail_scheduler_watchdog.sql"
+    "20260827041000_refund_gmail_scheduler_watchdog.sql",
+    "20260827053500_refund_gmail_scheduler_retention_run_key.sql"
   ],
-  "migrationFilesSha256": "365c7323a672af8277b1a827ef53ce8d398213e2abccb88ff48b5424c38b743a",
-  "migrationVersionSetSha256": "96080576d1b39e1061c94f0fd9daf8c2c7c8c48577f165be0378c07da3c5f6df",
+  "migrationFilesSha256": "ca5f871c03ad510dd92a11639fd2d7905e9d4e2ecdcd9204cbc8813387bcfe9e",
+  "migrationVersionSetSha256": "e45d7281898cb4123a2b588a64159164e2452fce8d9409dc6e9f0383d2bd3f25",
   "preMigrationCompatibility": {
     "releaseId": "refund-ops-2026-08-14-pre-controlled-nayax-pilot",
     "sourceGitCommit": "71eb076bc3ad95ccabd0c591b8140820bed6c393",

@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(15);
+select plan(17);
 
 select ok(
   not (select enabled from public.refund_gmail_scheduler_settings where singleton),
@@ -50,6 +50,22 @@ select ok(
     'scheduled'
   ),
   'A recovery key cannot cross into the primary scheduler trigger'
+);
+
+select ok(
+  public.refund_gmail_retention_run_key_is_valid(
+    'pre-sync:supabase-recovery:20260827T0410Z',
+    'pre_sync'
+  ),
+  'A recovery run passes the mandatory pre-sync retention ledger'
+);
+
+select ok(
+  not public.refund_gmail_retention_run_key_is_valid(
+    'pre-sync:supabase-recovery:20260827T0411Z',
+    'pre_sync'
+  ),
+  'An off-bucket recovery run cannot enter the retention ledger'
 );
 
 select ok(
