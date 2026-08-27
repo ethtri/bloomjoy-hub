@@ -12,6 +12,7 @@ import {
   buildBrandedRefundHtmlFromStoredText,
   buildEditableRefundCustomerEmail,
   buildRefundCustomerEmail,
+  redactRefundStatusLinksForStorage,
   sendRefundTransactionalEmail,
   type RefundCustomerMessageType,
   sanitizeRefundMessageType,
@@ -30,6 +31,7 @@ import {
   assertOpenNayaxCompletionMessageLane,
   RefundNayaxCompletionMessageLaneBlockedError,
 } from "../_shared/nayax-resolution-message-lane.ts";
+import { tryIssueRefundStatusCapability } from "../_shared/refund-status-capability.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -640,7 +642,7 @@ serve(async (req) => {
       publicMachineLabel: machine?.refund_public_display_label,
       machineLabel: machine?.machine_label,
     });
-    const templateInput = {
+    const templateInputWithoutStatus = {
       messageType,
       publicReference: refundCase.public_reference,
       customerName: refundCase.customer_name,
@@ -653,22 +655,23 @@ serve(async (req) => {
       decisionReason: refundCase.decision_reason,
       missingFields,
       cardWalletUsed: refundCase.card_wallet_used,
+      statusUrl: null,
     };
-    const defaultEmail = buildRefundCustomerEmail(templateInput);
+    const defaultEmailWithoutStatus = buildRefundCustomerEmail(templateInputWithoutStatus);
     const requestedSubject = sanitizeText(body?.subject, 180);
     const requestedBody = sanitizeText(body?.body, 4000);
-    const email = requestedBody || requestedSubject
+    const emailWithoutStatus = requestedBody || requestedSubject
       ? buildEditableRefundCustomerEmail({
-        input: templateInput,
-        subject: requestedSubject || defaultEmail.subject,
-        body: requestedBody || defaultEmail.text,
+        input: templateInputWithoutStatus,
+        subject: requestedSubject || defaultEmailWithoutStatus.subject,
+        body: requestedBody || defaultEmailWithoutStatus.text,
       })
-      : defaultEmail;
+      : defaultEmailWithoutStatus;
 
     if (triageSuggestion) {
       const reviewedDraft = validateRefundGptReviewedDraft({
-        subject: email.subject,
-        body: email.text,
+        subject: emailWithoutStatus.subject,
+        body: emailWithoutStatus.text,
         missingFields: triageSuggestion.missing_fields,
       });
       if (!reviewedDraft.ok) {
@@ -691,6 +694,23 @@ serve(async (req) => {
         !requestedBody,
     });
 
+    const statusCapability = await tryIssueRefundStatusCapability({
+      supabase,
+      refundCaseId: refundCase.id,
+    });
+    const templateInput = {
+      ...templateInputWithoutStatus,
+      statusUrl: statusCapability?.url ?? null,
+    };
+    const defaultEmail = buildRefundCustomerEmail(templateInput);
+    const email = requestedBody || requestedSubject
+      ? buildEditableRefundCustomerEmail({
+        input: templateInput,
+        subject: requestedSubject || defaultEmail.subject,
+        body: requestedBody || defaultEmail.text,
+      })
+      : defaultEmail;
+
     const { data: messageRow, error: messageError } = await supabase
       .from("refund_case_messages")
       .insert({
@@ -699,7 +719,7 @@ serve(async (req) => {
         status: "pending",
         recipient_email: refundCase.customer_email,
         subject: email.subject,
-        body: email.text,
+        body: redactRefundStatusLinksForStorage(email.text),
         template_key: `refund_${messageType}_editable_v1`,
         created_by: user.id,
         content_source: triageSuggestion
@@ -710,6 +730,8 @@ serve(async (req) => {
         template_version: null,
         requested_fields: messageType === "more_info" ? missingFields : [],
         synthetic_gmail_proof_authorization_id: syntheticProof.authorizationId,
+        status_capability_id: statusCapability?.capabilityId ?? null,
+        status_link_included: Boolean(statusCapability),
       })
       .select("id")
       .single();
@@ -761,7 +783,7 @@ serve(async (req) => {
             p_reviewer_user_id: user.id,
             p_sent_message_id: messageRow.id,
             p_subject: email.subject,
-            p_body: email.text,
+            p_body: redactRefundStatusLinksForStorage(email.text),
           },
         );
         if (triageReviewError) {

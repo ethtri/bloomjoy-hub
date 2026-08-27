@@ -607,6 +607,18 @@ export const privateRoutes: PrivateRouteSeo[] = [
     lastmod: LASTMOD,
   },
   {
+    path: "/refunds/status",
+    canonicalOrigin: APP_ORIGIN,
+    title: "Secure Refund Status | Bloomjoy",
+    description: "Read-only status for an existing Bloomjoy refund request.",
+    robots: PRIVATE_ROBOTS,
+    surface: "app",
+    ogType: "website",
+    ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
+    ogImageAlt: DEFAULT_IMAGE_ALT,
+    lastmod: LASTMOD,
+  },
+  {
     path: "/refunds/correct-wallet",
     canonicalOrigin: MARKETING_ORIGIN,
     title: "Secure Wallet Detail Check | Bloomjoy",

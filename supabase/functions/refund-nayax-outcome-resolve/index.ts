@@ -2,13 +2,17 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
-import { sendRefundTransactionalEmail } from "../_shared/refund-email.ts";
+import {
+  buildRefundStoredTextWithStatus,
+  sendRefundTransactionalEmail,
+} from "../_shared/refund-email.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import {
   getRefundGmailMailboxIdentities,
   RefundGmailError,
 } from "../_shared/refund-gmail.ts";
 import { deliverPreparedNayaxCompletionOnce } from "../_shared/nayax-resolution-completion.ts";
+import { tryIssueRefundStatusCapabilityForMessage } from "../_shared/refund-status-capability.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
@@ -31,13 +35,6 @@ const jsonResponse = (body: Record<string, unknown>, status = 200) =>
       "Cache-Control": "no-store",
     },
   });
-
-const escapeHtml = (value: string) => value
-  .replaceAll("&", "&amp;")
-  .replaceAll("<", "&lt;")
-  .replaceAll(">", "&gt;")
-  .replaceAll('"', "&quot;")
-  .replaceAll("'", "&#039;");
 
 const isUuid = (value: unknown): value is string =>
   typeof value === "string" &&
@@ -288,22 +285,35 @@ serve(async (req) => {
       },
       deliverLoaded: async ({ message, attempt }) => {
         const messageBody = message.body as string;
-        const email = {
-          subject: message.subject,
+        const refundCaseId = message.refund_case_id as string;
+        const refundCaseMessageId = message.id as string;
+        const recipientEmail = message.recipient_email as string;
+        const subject = message.subject as string;
+        const gmailThreadId = attempt.completion_gmail_thread_id as string | null;
+        const statusCapability = await tryIssueRefundStatusCapabilityForMessage({
+          supabase: serviceClient,
+          refundCaseId,
+          refundCaseMessageId,
+        });
+        const completionEmail = buildRefundStoredTextWithStatus({
+          headline: "Your refund is on its way",
           text: messageBody,
-          html: messageBody.split("\n").map((line: string) =>
-            line ? `<p>${escapeHtml(line)}</p>` : "<br>"
-          ).join(""),
+          statusUrl: statusCapability?.url ?? null,
+        });
+        const email = {
+          subject,
+          text: completionEmail.text,
+          html: completionEmail.html,
         };
-        if (attempt.completion_gmail_thread_id) {
+        if (gmailThreadId) {
           const gmailDelivery = await dispatchRefundCaseGmailReply({
             supabase: serviceClient,
-            refundCaseId: message.refund_case_id,
-            refundCaseMessageId: message.id,
-            recipientEmail: message.recipient_email,
+            refundCaseId,
+            refundCaseMessageId,
+            recipientEmail,
             email,
             deliveryKind: "manual",
-            gmailThreadId: attempt.completion_gmail_thread_id,
+            gmailThreadId,
           });
           return gmailDelivery.usedGmail;
         }
@@ -324,7 +334,7 @@ serve(async (req) => {
             typeof value === "string"
           ).map((value) => value.trim().toLowerCase())
           : [];
-        const normalizedRecipient = message.recipient_email.trim().toLowerCase();
+        const normalizedRecipient = recipientEmail.trim().toLowerCase();
         formManagerRecipientOverlap =
           routeBody?.managerRecipientOverlap === true;
         formManagerCcCount = Number(routeBody?.managerCcCount);
@@ -346,7 +356,7 @@ serve(async (req) => {
 
         try {
           await sendRefundTransactionalEmail({
-            to: [message.recipient_email],
+            to: [recipientEmail],
             cc: managerCcEmails,
             subject: email.subject,
             text: email.text,

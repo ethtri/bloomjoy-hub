@@ -15,6 +15,7 @@ const [
   runbook,
   denialReasons,
   adminUpdate,
+  customerStatusMigration,
 ] = await Promise.all([
   read('supabase/functions/_shared/refund-email-brand.ts'),
   read('supabase/functions/_shared/refund-email.ts'),
@@ -27,6 +28,7 @@ const [
   read('Docs/REFUND_CUSTOMER_MESSAGES_RUNBOOK.md'),
   read('supabase/functions/_shared/refund-denial.ts'),
   read('supabase/functions/refund-case-admin-update/index.ts'),
+  read('supabase/migrations/20260827011500_refund_customer_status_capability.sql'),
 ]);
 
 for (const proof of [
@@ -46,8 +48,9 @@ assert(
   'First contact, case messages, and retries must share the canonical branded renderer.',
 );
 assert(
-  email.includes('Good news—your refund request was approved, and your refund is on its way.') &&
-    migration.includes('Good news—your refund request was approved, and your refund is on its way.'),
+  email.includes('Nayax has approved your refund. Your bank may take up to 4 business days to show it on your account.') &&
+    customerStatusMigration.includes('Nayax has approved your refund. Your bank may take up to 4 business days to show it on your account.') &&
+    migration.includes('canonicalize_refund_outcome_customer_copy'),
   'Every confirmed success path must use the required customer opening.',
 );
 assert(

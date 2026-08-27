@@ -1,5 +1,12 @@
 # Decisions
 
+## 2026-08-26 - Customer refund tracking uses a fragment capability and the canonical lifecycle (`#993`)
+
+- Normal card intake requires machine, email, purchase date/approximate time, amount, payment last four or wallet flag, and issue category. Name, phone, time-confidence diagnostics, card interaction/network, and narrative are optional; omitting them cannot weaken exact matching, duplicate protection, manager authority, or provider gates.
+- Customer status uses a 256-bit opaque token whose database representation is only a SHA-256 digest. The token is carried in the URL fragment so it does not enter CDN/server request logs or referrer headers. Capabilities are one-case/read-only, revocable, 30 days by default, rate-limited, and independently default-off.
+- The tracker consumes only `refund_lifecycle_v1`, then strips manager, lookup, operations, provider, evidence, and internal reason fields before responding. Active state refreshes within 15 seconds and terminal state stops.
+- Card confirmation means Nayax approval, not bank posting. Customer copy says the bank may take up to four business days. Status-link rollback disables new issuance and revokes capabilities without touching cases or payments.
+
 ## 2026-08-25 - One owner-approved canary may calibrate the unproven Nayax response contract (`#961`)
 
 - Nayax does not publish the exact production `Result`/`Status` values or token permission needed to prove the two remaining launch facts without a provider write. The controlled canary may therefore use a reviewed provisional response contract and the two dedicated account-scoped credentials while `NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED=false` and `NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED=false`.

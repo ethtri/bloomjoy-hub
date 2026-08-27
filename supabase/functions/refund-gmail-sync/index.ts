@@ -53,6 +53,7 @@ import {
 } from "../_shared/refund-email.ts";
 import { automaticRefundCustomerContactEnabled } from "../_shared/refund-deterministic-follow-up.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
+import { tryIssueRefundStatusCapabilityForMessage } from "../_shared/refund-status-capability.ts";
 import { resolveLocalDateTimeInZone } from "../_shared/timezone-resolution.mjs";
 import {
   completeRefundGmailIntakeShadowFirstContact,
@@ -329,13 +330,13 @@ const processDenialAppealConfirmation = async ({
     customerName,
     customerEmail,
   };
-  const email = buildRefundCustomerEmail(emailInput);
+  const claimEmail = buildRefundCustomerEmail(emailInput);
   const claim = await rpc<Record<string, unknown>>(
     "service_claim_refund_denial_appeal_confirmation",
     {
       p_appeal_id: appealId,
-      p_subject: email.subject,
-      p_body: email.text,
+      p_subject: claimEmail.subject,
+      p_body: claimEmail.text,
     },
   );
   if (claim?.claimed !== true) {
@@ -367,18 +368,28 @@ const processDenialAppealConfirmation = async ({
   let deliveryStatus: "sent" | "failed" | "delivery_unknown" = "sent";
   let errorCode: string | null = null;
   try {
+    const statusCapability = await tryIssueRefundStatusCapabilityForMessage({
+      supabase,
+      refundCaseId,
+      refundCaseMessageId,
+    });
+    const deliveryEmailInput = {
+      ...emailInput,
+      statusUrl: statusCapability?.url ?? null,
+    };
+    const deliveryEmail = buildRefundCustomerEmail(deliveryEmailInput);
     const delivery = await dispatchRefundCaseGmailReply({
       supabase,
       refundCaseId,
       refundCaseMessageId,
       recipientEmail: claimedCustomerEmail,
-      email,
+      email: deliveryEmail,
       deliveryKind: "automatic",
       gmailThreadId: gmailThreadId || null,
     });
     if (!delivery.usedGmail) {
       await sendRefundCustomerEmail({
-        ...emailInput,
+        ...deliveryEmailInput,
         customerEmail: claimedCustomerEmail,
         managerCcEmails: delivery.managerCcEmails,
         managerRecipientOverlap: delivery.managerRecipientOverlap,

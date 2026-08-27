@@ -159,9 +159,11 @@ export const renderBloomjoyRefundEmail = ({
 export const renderBloomjoyRefundStoredText = ({
   headline,
   text,
+  primaryLink = null,
 }: {
   headline: string;
   text: string;
+  primaryLink?: { label: string; url: string } | null;
 }) => {
   const blocks = text.replaceAll("\r\n", "\n").split(/\n{2,}/u)
     .map((block) => block.trim())
@@ -180,6 +182,7 @@ export const renderBloomjoyRefundStoredText = ({
     greeting,
     paragraphs: blocks,
     details: [],
+    primaryLink,
     replyLine: null,
   });
 };

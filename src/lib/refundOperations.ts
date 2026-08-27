@@ -9,6 +9,10 @@ import {
   requireRefundLifecycleContract,
   type RefundLifecycleContract,
 } from '@/lib/refundLifecycle';
+import {
+  requireRefundCustomerLifecycle,
+  type RefundCustomerLifecycle,
+} from '@/lib/refundCustomerStatus';
 
 export type RefundPaymentMethod = 'card' | 'cash' | 'unknown';
 export type RefundPaymentInteraction =
@@ -183,12 +187,27 @@ export type SubmitRefundRequestInput = {
 
 export type SubmitRefundRequestResponse = {
   error?: string;
+  statusToken?: string | null;
+  statusExpiresAt?: string | null;
   refundCase?: {
     id: string;
     publicReference: string;
     status: RefundCaseStatus;
     correlationStatus: RefundCorrelationStatus;
   };
+};
+
+export type RefundSubmissionReceipt = NonNullable<SubmitRefundRequestResponse['refundCase']> & {
+  statusToken: string | null;
+  statusExpiresAt: string | null;
+};
+
+type RefundCustomerStatusResponse = {
+  error?: string;
+  errorCode?: string;
+  lifecycle?: unknown;
+  expiresAt?: string | null;
+  payloadRedacted?: boolean;
 };
 
 type StartRefundQrClaimResponse = {
@@ -1203,14 +1222,38 @@ export const submitRefundWalletCorrection = async (
 
 export const submitRefundRequest = async (
   input: SubmitRefundRequestInput
-): Promise<SubmitRefundRequestResponse['refundCase']> => {
+): Promise<RefundSubmissionReceipt> => {
   const data = await invokeEdgeFunction<SubmitRefundRequestResponse>('refund-case-intake', input);
 
   if (!data.refundCase) {
     throw new Error(data.error || 'Unable to submit refund request.');
   }
 
-  return data.refundCase;
+  return {
+    ...data.refundCase,
+    statusToken:
+      typeof data.statusToken === 'string' && /^[A-Za-z0-9_-]{43}$/.test(data.statusToken)
+        ? data.statusToken
+        : null,
+    statusExpiresAt:
+      typeof data.statusExpiresAt === 'string' ? data.statusExpiresAt : null,
+  };
+};
+
+export const fetchRefundCustomerStatus = async (
+  token: string,
+): Promise<{ lifecycle: RefundCustomerLifecycle; expiresAt: string | null }> => {
+  const data = await invokeEdgeFunction<RefundCustomerStatusResponse>('refund-case-intake', {
+    action: 'readStatus',
+    token,
+  });
+  if (data.payloadRedacted !== true || !data.lifecycle) {
+    throw new Error(data.error || 'This secure refund status link is not available.');
+  }
+  return {
+    lifecycle: requireRefundCustomerLifecycle(data.lifecycle),
+    expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : null,
+  };
 };
 
 const emptyOverview: RefundOperationsOverview = {

@@ -179,7 +179,9 @@ assert(
     edge.includes('service_load_nayax_refund_completion') &&
     edge.includes('service_finish_nayax_refund_form_completion') &&
     edge.includes('formManagerRecipientOverlap') &&
-    edge.includes('gmailThreadId: attempt.completion_gmail_thread_id') &&
+    (edge.includes('gmailThreadId: attempt.completion_gmail_thread_id') ||
+      edge.includes('gmailThreadId,')) &&
+    edge.includes('tryIssueRefundStatusCapabilityForMessage') &&
     edge.includes('service_finish_nayax_refund_completion') &&
     !edge.includes('verifyRefundManagerTotp') &&
     !edge.includes('stepUpFactorProof'),

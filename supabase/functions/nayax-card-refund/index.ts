@@ -34,7 +34,8 @@ import {
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
 import { deliverNayaxCompletionOnce } from "../_shared/nayax-resolution-completion.ts";
-import { buildBrandedRefundHtmlFromStoredText } from "../_shared/refund-email.ts";
+import { buildRefundStoredTextWithStatus } from "../_shared/refund-email.ts";
+import { tryIssueRefundStatusCapabilityForMessage } from "../_shared/refund-status-capability.ts";
 import {
   mergeRuntimeRefundReadiness,
   parseDatabaseRefundReadiness,
@@ -1322,6 +1323,16 @@ serve(async (req) => {
           const messageBody = claim.body;
           return await deliverNayaxCompletionOnce({
             deliver: async () => {
+              const statusCapability = await tryIssueRefundStatusCapabilityForMessage({
+                supabase,
+                refundCaseId: claim.refundCaseId as string,
+                refundCaseMessageId: claim.refundCaseMessageId as string,
+              });
+              const completionEmail = buildRefundStoredTextWithStatus({
+                headline: "Your refund is on its way",
+                text: messageBody,
+                statusUrl: statusCapability?.url ?? null,
+              });
               const gmailDelivery = await dispatchRefundCaseGmailReply({
                 supabase,
                 refundCaseId: claim.refundCaseId as string,
@@ -1329,11 +1340,8 @@ serve(async (req) => {
                 recipientEmail: claim.recipientEmail as string,
                 email: {
                   subject: claim.subject as string,
-                  text: messageBody,
-                  html: buildBrandedRefundHtmlFromStoredText({
-                    headline: "Your refund is on its way",
-                    text: messageBody,
-                  }),
+                  text: completionEmail.text,
+                  html: completionEmail.html,
                 },
                 deliveryKind: "automatic",
                 gmailThreadId: claim.gmailThreadId as string,
