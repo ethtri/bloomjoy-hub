@@ -115,6 +115,9 @@ function parseArgs(argv) {
 function printHelp() {
   console.log(`Refund pilot cohort config helper
 
+Historical compatibility tool only. The 2026-08-27 refund decision does not require
+a pilot cohort, staffed window, recruited UAT, or separate cohort approval.
+
 Create a local setup template from the readiness audit:
   npm run refunds:pilot-cohort-config -- --create-template --readiness-dir output/refund-pilot-readiness
 

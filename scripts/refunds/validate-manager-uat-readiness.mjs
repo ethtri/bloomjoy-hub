@@ -74,7 +74,7 @@ const aggregateRow = {
 assert.equal(validateAggregateRow(aggregateRow), aggregateRow);
 assert.deepEqual(determineReadiness(aggregateRow), {
   ready: true,
-  label: 'MAPPED CANDIDATE EXISTS; PILOT COHORT SELECTION STILL REQUIRED',
+  label: 'READY: CURRENT MAPPED MANAGER EXISTS',
 });
 
 assert.deepEqual(
@@ -85,7 +85,7 @@ assert.deepEqual(
   }),
   {
     ready: true,
-    label: 'READY FOR OWNER-SELECTION AND LIVE BOUNDARY UAT',
+    label: 'READY: CURRENT MAPPED MANAGER EXISTS FOR SELECTED MACHINE SCOPE',
   }
 );
 assert.equal(
@@ -139,8 +139,8 @@ assert.doesNotMatch(
 );
 assert.doesNotMatch(template, /select\s+[^;]*(manager_email|manager_user_id|reporting_machine_id)\s+from\s+assessed_identities/i);
 
-console.log('Mapped-manager UAT readiness validator passed.');
-console.log('- exact project confirmation and UUID-only pilot scope');
+console.log('Mapped-manager refund readiness validator passed.');
+console.log('- exact project confirmation and optional UUID-only machine scope');
 console.log('- aggregate result allowlist and no local output');
-console.log('- exact mapped-manager, published inventory, and exact-pilot readiness gates');
+console.log('- exact mapped-manager and published inventory readiness checks without cohort ceremony');
 console.log('- reviewed SELECT-only SQL template');

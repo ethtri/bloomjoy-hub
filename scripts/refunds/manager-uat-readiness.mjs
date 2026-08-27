@@ -88,16 +88,17 @@ export function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`Mapped Machine Manager UAT account readiness (aggregate-only)
+  console.log(`Mapped Machine Manager refund readiness (aggregate-only)
 
-Discover whether any current mapped manager can be prepared for shadow UAT:
+Confirm that current mapped managers exist for normal refund operation:
   npm run refunds:manager-uat-readiness -- --project-ref <ref> --confirm-project-ref <ref>
 
-Gate an owner-selected pilot cohort (repeat --pilot-machine-id for each selected machine):
+Optionally inspect one or more exact machines (the legacy flag name is retained for compatibility):
   npm run refunds:manager-uat-readiness -- --project-ref <ref> --confirm-project-ref <ref> --pilot-machine-id <uuid>
 
 The query is read-only and prints counts only. It never prints or writes names, emails,
-user IDs, machine IDs, or case data. --allow-not-ready keeps discovery runs at exit 0.`);
+user IDs, machine IDs, or case data. It does not require a pilot cohort or recruited UAT.
+--allow-not-ready keeps diagnostic runs at exit 0.`);
 }
 
 export function buildQuery(template, pilotMachineIds) {
@@ -144,8 +145,8 @@ export function determineReadiness(row) {
       ready: row.exact_pilot_eligible_identity_count > 0,
       label:
         row.exact_pilot_eligible_identity_count > 0
-          ? 'READY FOR OWNER-SELECTION AND LIVE BOUNDARY UAT'
-          : 'OWNER ACCOUNT/ASSIGNMENT SETUP REQUIRED',
+          ? 'READY: CURRENT MAPPED MANAGER EXISTS FOR SELECTED MACHINE SCOPE'
+          : 'MAPPED MANAGER SETUP REQUIRED FOR SELECTED MACHINE SCOPE',
     };
   }
 
@@ -153,28 +154,28 @@ export function determineReadiness(row) {
     ready: row.mapped_with_shadow_ready_assignment_count > 0,
     label:
       row.mapped_with_shadow_ready_assignment_count > 0
-        ? 'MAPPED CANDIDATE EXISTS; PILOT COHORT SELECTION STILL REQUIRED'
-        : 'OWNER ACCOUNT/ASSIGNMENT SETUP REQUIRED',
+        ? 'READY: CURRENT MAPPED MANAGER EXISTS'
+        : 'MAPPED MANAGER SETUP REQUIRED',
   };
 }
 
 function printAggregate(row, projectRef) {
   const readiness = determineReadiness(row);
-  console.log('Mapped Machine Manager UAT readiness audit');
+  console.log('Mapped Machine Manager refund readiness audit');
   console.log(`Project ref: ${projectRef}`);
   console.log('Read-only query: yes');
-  console.log(`Selected pilot machines: ${row.selected_pilot_machine_count}`);
+  console.log(`Selected exact-machine scope: ${row.selected_pilot_machine_count}`);
   console.log(`Active Machine Manager assignments: ${row.active_manager_assignment_count}`);
   console.log(`Active Machine Manager identities: ${row.active_manager_identity_count}`);
   console.log(`Manager-only identities: ${row.manager_only_identity_count}`);
   console.log(
-    `Manager-only identities with a shadow-ready assignment: ${row.manager_only_with_shadow_ready_assignment_count}`
+    `Manager-only identities with a refund-ready assignment: ${row.manager_only_with_shadow_ready_assignment_count}`
   );
   console.log(
-    `All mapped identities with a shadow-ready assignment: ${row.mapped_with_shadow_ready_assignment_count}`
+    `All mapped identities with a refund-ready assignment: ${row.mapped_with_shadow_ready_assignment_count}`
   );
   if (row.exact_pilot_eligible_identity_count !== null) {
-    console.log(`Exact-pilot eligible identities: ${row.exact_pilot_eligible_identity_count}`);
+    console.log(`Selected-scope eligible identities: ${row.exact_pilot_eligible_identity_count}`);
   }
   console.log('Overlapping access counts (categories may overlap):');
   console.log(`- Super Admin: ${row.super_admin_overlap_count}`);

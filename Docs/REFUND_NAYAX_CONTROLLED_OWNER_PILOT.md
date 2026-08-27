@@ -1,5 +1,7 @@
 # Controlled owner Nayax provider pilot
 
+> **Historical record only.** The 2026-08-27 operating decision in `Docs/DECISIONS.md` supersedes this owner-self/non-customer pilot as a launch requirement. Do not use the private ceremony, manufactured transaction, separate approvals, or retirement sequence below to block the current `#628` / `#990` / `#427` path. Current operation may use an eligible unresolved customer refund of $10 or less and is governed by `Docs/PRODUCTION_RUNBOOK.md`; the exact binding, immutable generation, at-most-one request/approval, caps, circuit breaker, kill switch, audit, and uncertainty hold remain mandatory.
+
 Status: default-off implementation for issue `#430`; not authority to initialize, arm, call Nayax, or change production. Production remains on the reviewed 10-function/51-migration release until migration 52, the affected functions, post-deployment metadata reconciliation, and the canonical anchor are independently approved and complete.
 
 This is a **provider-only owner smoke**, not “refund and notify.” The normal portal action remains unavailable. The checked-in runner is the only execution surface, and it never sends Gmail, creates a customer delivery, enables the global official-action gate, enables broad Nayax execution, or activates a schedule.

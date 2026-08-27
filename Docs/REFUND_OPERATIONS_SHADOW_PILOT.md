@@ -1,5 +1,7 @@
 # Refund Operations Shadow Pilot Runbook
 
+> **Historical record only.** The 2026-08-27 operating decision in `Docs/DECISIONS.md` removes this shadow pilot, special personas, staffing, cohort, and sponsor ceremony from the current refund activation path. Do not use unchecked items below to block `#628`, `#990`, or `#427`. Current operation uses `Docs/PRODUCTION_RUNBOOK.md` and may prove the path with an eligible unresolved customer refund of $10 or less under exact-match and exactly-once controls.
+
 Last updated: 2026-08-03
 
 ## Purpose

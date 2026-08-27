@@ -305,19 +305,22 @@ check(
   'Nayax API documentation distinguishes the runner-only pilot from product execution.',
 );
 check(
-  productionRunbook.includes('canonical ten-function/51-migration object remains immutable') &&
+  productionRunbook.includes('Nayax card-refund operation (current authority)') &&
+    productionRunbook.includes('eligible customer case of $10 or less') &&
+    productionRunbook.includes('One immutable generation permits at most one Nayax request and one approval') &&
     productionRunbook.includes('Docs/REFUND_NAYAX_CONTROLLED_OWNER_PILOT.md') &&
-    productionRunbook.includes('hard stop with no retry') &&
-    productionRunbook.includes('retention duration and verified purge/discharge procedure'),
-  'The production runbook points to the held ceremony and its stop contract.',
+    productionRunbook.includes('historical documentation for the retired owner-only runner') &&
+    productionRunbook.includes('There is no bulk-refund action'),
+  'The production runbook makes the real-customer path authoritative while preserving exactly-once controls.',
 );
 check(
   qaChecklist.includes('ten-function/51-migration default-off foundation') &&
     qaChecklist.includes('npm run refunds:validate-nayax-controlled-owner-pilot') &&
-    qaChecklist.includes('no reporting-token fallback') &&
-    qaChecklist.includes('no Hub customer/Gmail completion') &&
-    qaChecklist.includes('terminal worker acknowledgement'),
-  'The smoke checklist verifies the default-off controller without authorizing a live phase.',
+    qaChecklist.includes('historical regression check for the retired `#430` runner') &&
+    qaChecklist.includes('legitimate unresolved customer refund of $10 or less') &&
+    qaChecklist.includes('at most one Nayax request and one approval') &&
+    qaChecklist.includes('There is no bulk-refund action'),
+  'The smoke checklist retains historical regression coverage without reintroducing pilot ceremony.',
 );
 check(
   !read('.github/workflows/refund-automation-sweep.yml').includes('controlled_owner_pilot') &&
