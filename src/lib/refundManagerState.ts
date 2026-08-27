@@ -79,6 +79,21 @@ type RefundManagerCaseFacts = {
   lifecycle?: RefundLifecycleContract | null;
 };
 
+export const isDefinitiveNoRefundRetryReady = (
+  refundCase: Pick<
+    RefundManagerCaseFacts,
+    'paymentMethod' | 'providerOutcome' | 'providerHold' | 'lifecycle'
+  >
+) =>
+  refundCase.paymentMethod === 'card' &&
+  refundCase.providerOutcome === 'rejected' &&
+  refundCase.providerHold !== true &&
+  refundCase.lifecycle?.stage === 'transaction_confirmed' &&
+  refundCase.lifecycle.definitiveNoRefund === true &&
+  refundCase.lifecycle.safeRetryEligible === true &&
+  refundCase.lifecycle.operations.required === false &&
+  refundCase.lifecycle.operations.safeStage === 'released_no_refund';
+
 const state = (
   id: RefundManagerStateId,
   label: string,

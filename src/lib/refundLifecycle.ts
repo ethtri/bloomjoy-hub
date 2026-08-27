@@ -24,6 +24,8 @@ export type RefundLifecycleContract = {
   managerNextAction: string;
   terminal: boolean;
   refreshAfterSeconds: number | null;
+  definitiveNoRefund?: boolean;
+  safeRetryEligible?: boolean;
   lookup: {
     status: string;
     safeRetryEligible: boolean;
@@ -61,6 +63,10 @@ export const isRefundLifecycleContract = (
     typeof contract.publicCopyKey === "string" &&
     typeof contract.managerNextAction === "string" &&
     typeof contract.terminal === "boolean" &&
+    (contract.definitiveNoRefund === undefined ||
+      typeof contract.definitiveNoRefund === "boolean") &&
+    (contract.safeRetryEligible === undefined ||
+      typeof contract.safeRetryEligible === "boolean") &&
     contract.payloadRedacted === true &&
     Boolean(lookup) && typeof lookup?.status === "string" &&
     typeof lookup?.safeRetryEligible === "boolean" &&

@@ -1,5 +1,14 @@
 # Decisions
 
+## 2026-08-27 - Only authoritative no-refund evidence may release a fresh manager action (`#990`)
+
+- A timeout, network error, pending response, unknown response, journal failure, or settlement failure never creates retry authority. The existing attempt remains locked while Bloomjoy confirms the authoritative result, and Refund Operations owns the exception with a 60-minute SLA.
+- An exact contract-matched Nayax rejection over HTTP `2xx` is different: immutable request/approval journal evidence proves that the provider did not issue a refund. Bloomjoy atomically marks that attempt `released_no_refund`, keeps reporting and customer completion untouched, advances the case generation, and restores the ordinary **Refund $X** action.
+- Release never calls Nayax and never retries automatically. A mapped manager must review and confirm the fresh action again. The old attempt cannot be reused, replayed, or approved; an unproven or malformed rejection remains locked.
+- The manager sees only **No refund was sent** and the normal action. Provider codes, journal evidence, credentials, retry classification, and technical reconciliation stay out of the routine manager and customer experience.
+
+This clarifies earlier “never retry an uncertain result” decisions: uncertainty still cannot be retried, while authoritative proof that no refund occurred permits a new human-confirmed attempt.
+
 ## 2026-08-26 - Customer refund tracking uses a fragment capability and the canonical lifecycle (`#993`)
 
 - Normal card intake requires machine, email, purchase date/approximate time, amount, payment last four or wallet flag, and issue category. Name, phone, time-confidence diagnostics, card interaction/network, and narrative are optional; omitting them cannot weaken exact matching, duplicate protection, manager authority, or provider gates.

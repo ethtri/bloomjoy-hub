@@ -1053,6 +1053,8 @@ export type NayaxCardRefundExecutionResponse = {
   fallbackIssued?: boolean;
   reportingAdjustmentPresent?: boolean;
   customerCompletion?: NayaxCustomerCompletionResult | null;
+  safeRetryEligible?: boolean;
+  definitiveNoRefund?: boolean;
 };
 
 export type NayaxCardRefundAvailabilityResponse = {

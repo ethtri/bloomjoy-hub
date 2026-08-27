@@ -125,6 +125,31 @@ Deno.test('manager state distinguishes in-flight, uncertain, rejected, completed
   assertEquals(getRefundManagerState({ ...baseCase, status: 'denied' }).label, 'Denied', 'denied label');
 });
 
+Deno.test('authoritative no-refund rejection restores the normal manager action', () => {
+  const releasedLifecycle = lifecycle('transaction_confirmed', 30, 'issue_refund');
+  releasedLifecycle.definitiveNoRefund = true;
+  releasedLifecycle.safeRetryEligible = true;
+  releasedLifecycle.operations.required = false;
+  releasedLifecycle.operations.safeStage = 'released_no_refund';
+  releasedLifecycle.operations.failureClass = 'provider_rejected';
+
+  const releasedCase = {
+    ...baseCase,
+    providerOutcome: 'rejected' as const,
+    providerHold: false,
+    hasMatchedNayaxTransaction: true,
+    refundReadiness: {
+      transactionConfirmed: true,
+      canIssueCardRefund: true,
+      blockReason: null,
+    },
+    lifecycle: releasedLifecycle,
+  };
+
+  assertEquals(getRefundManagerState(releasedCase).label, 'Ready to refund', 'released rejection label');
+  assertEquals(getRefundPaymentStateLabel(releasedCase), 'Not issued', 'released rejection payment label');
+});
+
 Deno.test('manager state consumes the canonical lifecycle for automatic progress', () => {
   const expected = [
     ['matching', 10, 'Checking transactions'],
