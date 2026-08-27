@@ -95,7 +95,8 @@
     "20260826204500_refund_manager_lifecycle_v1.sql",
     "20260827011500_refund_customer_status_capability.sql",
     "20260827041000_refund_gmail_scheduler_watchdog.sql",
-    "20260827053500_refund_gmail_scheduler_retention_run_key.sql"
+    "20260827053500_refund_gmail_scheduler_retention_run_key.sql",
+    "20260827082000_refund_gmail_scheduler_primary.sql"
   ],
   "migrationFilesSha256": "ca5f871c03ad510dd92a11639fd2d7905e9d4e2ecdcd9204cbc8813387bcfe9e",
   "migrationVersionSetSha256": "e45d7281898cb4123a2b588a64159164e2452fce8d9409dc6e9f0383d2bd3f25",
