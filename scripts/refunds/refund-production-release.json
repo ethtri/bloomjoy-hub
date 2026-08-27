@@ -215,9 +215,9 @@
       "verifyJwt": false,
       "sourceSha256": "6fe8f6da1d54a239a033dccf72eacd9110059eb2f3ab7a8865af933eee55ec40",
       "production": {
-        "version": 87,
-        "ezbrSha256": "e2ed3197f87e057b36d1e0c597513caa369439d8cb1cf9606c6ecd6fd78f8de2",
-        "sourceSha256": "8dccf4c60a2888909c2c5595aac2cc3f64739c819b91f686d513aa4f7879dc85"
+        "version": 88,
+        "ezbrSha256": "6a107f17666761f6f6a1145fa807e6ecf1b6942fa382071637f2cd1a549ffa30",
+        "sourceSha256": "6fe8f6da1d54a239a033dccf72eacd9110059eb2f3ab7a8865af933eee55ec40"
       }
     },
     {
