@@ -80,6 +80,7 @@ import {
 } from '@/lib/refundOperations';
 import {
   getRefundManagerState,
+  isDefinitiveNoRefundRetryReady,
   refundReadinessBlockMessage,
   type RefundManagerState,
   type RefundManagerStateTone,
@@ -857,6 +858,7 @@ const getOperationalSignals = (
   cardRefundAvailabilityConfirmed = false
 ) => {
   const signals: Array<{ label: string; className: string }> = [];
+  const definitiveNoRefundRetryReady = isDefinitiveNoRefundRetryReady(refundCase);
   if (refundCase.possibleDuplicate) {
     signals.push({ label: 'Possible duplicate', className: 'border-rose-200 bg-rose-50 text-rose-900' });
   }
@@ -870,14 +872,14 @@ const getOperationalSignals = (
     signals.push({ label: 'Fresh payment check required', className: 'border-orange-200 bg-orange-50 text-orange-900' });
   }
   if (!refundCase.providerHold &&
-    refundCase.providerOutcome !== 'rejected' &&
+    (refundCase.providerOutcome !== 'rejected' || definitiveNoRefundRetryReady) &&
     refundCase.paymentMethod === 'card' &&
     ['approved', 'card_refund_pending'].includes(refundCase.status) &&
     refundCase.hasMatchedNayaxTransaction !== true
   ) {
     signals.push({ label: 'Card review needed', className: 'border-orange-200 bg-orange-50 text-orange-900' });
   }
-  if (refundCase.providerOutcome === 'rejected') {
+  if (refundCase.providerOutcome === 'rejected' && !definitiveNoRefundRetryReady) {
     signals.push({ label: 'Refund rejected', className: 'border-orange-200 bg-orange-50 text-orange-900' });
   }
   if (getLatestCustomerMessage(refundCase)?.status === 'failed') {
@@ -1536,6 +1538,7 @@ const primaryActionConfig = (
   refundReadiness: RefundReadiness | null
 ): PrimaryActionConfig => {
   const latestMessage = getLatestCustomerMessage(refundCase);
+  const definitiveNoRefundRetryReady = isDefinitiveNoRefundRetryReady(refundCase);
   if (refundCase.legacyStateReviewRequired) {
     return {
       label: 'Refresh transaction results',
@@ -1550,7 +1553,11 @@ const primaryActionConfig = (
       disabled: true,
     };
   }
-  if (refundCase.paymentMethod === 'card' && refundCase.providerOutcome === 'rejected') {
+  if (
+    refundCase.paymentMethod === 'card' &&
+    refundCase.providerOutcome === 'rejected' &&
+    !definitiveNoRefundRetryReady
+  ) {
     return {
       label: 'Refund was rejected',
       helper: 'No refund was sent. Keep the case open for payment support.',
@@ -2521,7 +2528,8 @@ export default function AdminRefundsPage() {
           selectedCase.hasMatchedNayaxTransaction &&
           (selectedCase.status === 'needs_review' ||
             selectedCase.providerHold ||
-            selectedCase.providerOutcome === 'rejected')
+            (selectedCase.providerOutcome === 'rejected' &&
+              !isDefinitiveNoRefundRetryReady(selectedCase)))
       ),
     staleTime: 1000 * 10,
     retry: false,
@@ -3075,12 +3083,16 @@ export default function AdminRefundsPage() {
 
     const ambiguous = nayaxProviderCheckRequired(result);
     const rejected = result.errorCode === 'provider_rejected' || result.status === 'declined';
+    const safeRetryEligible = rejected &&
+      (result.safeRetryEligible === true || result.definitiveNoRefund === true);
     const timedOut = result.errorCode === 'provider_timeout';
     const outcomeUnknown = result.errorCode === 'provider_outcome_unknown';
     const providerPending = nayaxProviderPendingStatuses.has(result.status ?? '');
     const message = providerPending
       ? 'The final refund result has not been confirmed.'
-      : formatNayaxExecutionBlockedMessage(result);
+      : safeRetryEligible
+        ? 'No refund was sent. Review the transaction, then use Refund again if you still want to issue it.'
+        : formatNayaxExecutionBlockedMessage(result);
     const receiptTitle = ambiguous
       ? timedOut
         ? 'The refund result timed out'
@@ -3090,7 +3102,9 @@ export default function AdminRefundsPage() {
             ? 'Refund confirmation is pending'
             : 'Refund status needs checking'
       : rejected
-        ? 'Refund was rejected'
+        ? safeRetryEligible
+          ? 'Refund wasn’t sent'
+          : 'Refund was rejected'
         : 'Refund not sent';
 
     if ((result.providerAttempted === true || result.replayed === true) && selectedCase) {
@@ -3104,7 +3118,7 @@ export default function AdminRefundsPage() {
                   ? {
                       ...refundCase,
                       providerHold: ambiguous,
-                      nayaxMatchExecutionEligible: false,
+                      nayaxMatchExecutionEligible: safeRetryEligible,
                     }
                   : refundCase
               ),
@@ -3120,7 +3134,9 @@ export default function AdminRefundsPage() {
       message: ambiguous
         ? `${message} Do not try the refund again until payment support confirms what happened. The customer was not emailed.`
         : rejected
-          ? `${message} The case remains open for a Machine Manager. The customer was not emailed.`
+          ? safeRetryEligible
+            ? 'Bloomjoy confirmed that no refund was sent. The case is still open, and the normal Refund action is available again. The customer was not emailed.'
+            : `${message} The case remains open for a Machine Manager. The customer was not emailed.`
           : `${message} The case remains open and no customer completion email was sent.`,
       reference,
     });
@@ -3128,7 +3144,9 @@ export default function AdminRefundsPage() {
       ambiguous
         ? 'Bloomjoy could not confirm whether the refund was sent. Do not try again.'
         : rejected
-          ? 'The refund was rejected. The case remains open.'
+          ? safeRetryEligible
+            ? 'No refund was sent. The normal Refund action is available again.'
+            : 'The refund was rejected. The case remains open.'
           : 'The refund could not be started. The case remains open.'
     );
 
@@ -5147,7 +5165,8 @@ export default function AdminRefundsPage() {
 
           {selectedCase.legacyStateReviewRequired ||
           selectedCase.providerHold ||
-          selectedCase.providerOutcome === 'rejected' ||
+          (selectedCase.providerOutcome === 'rejected' &&
+            !isDefinitiveNoRefundRetryReady(selectedCase)) ||
           nayaxResolutionReadiness?.canStartEvidenceOnlyReconciliation === true ||
           nayaxResolutionReadiness?.evidenceOnlyAttempt === true ? (
             <>

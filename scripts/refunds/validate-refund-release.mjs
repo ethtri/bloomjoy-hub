@@ -208,8 +208,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    92,
-    'Refund release inventory must cover exactly 92 discovered refund/Nayax migrations'
+    93,
+    'Refund release inventory must cover exactly 93 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -266,6 +266,10 @@ try {
   assert(
     repositoryMigrations.includes('20260826165423_refund_durable_lifecycle_v1.sql'),
     'The durable bounded refund lifecycle migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260827125641_refund_nayax_definitive_failure_retry.sql'),
+    'The authoritative no-refund release migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('202608170003_refund_nayax_manager_overview_authority.sql'),

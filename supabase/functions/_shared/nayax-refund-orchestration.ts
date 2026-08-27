@@ -52,6 +52,8 @@ export type NayaxAttemptSettlement = {
   attempt: NayaxAttemptSnapshot;
   updateApplied: boolean;
   reportingAdjustmentPresent: boolean;
+  safeRetryEligible?: boolean;
+  definitiveNoRefund?: boolean;
 };
 
 export type NayaxCompletionDelivery = {
@@ -96,6 +98,8 @@ export type NayaxRefundOrchestrationResult = {
   reportingAdjustmentPresent: boolean;
   customerCompletion: NayaxCompletionDelivery | null;
   message: string;
+  safeRetryEligible?: boolean;
+  definitiveNoRefund?: boolean;
 };
 
 const disabledResult = (): NayaxRefundOrchestrationResult => ({
@@ -172,10 +176,12 @@ const incompleteResult = ({
   attempt,
   providerAttempted,
   replayed,
+  safeRetryEligible = false,
 }: {
   attempt: NayaxAttemptSnapshot;
   providerAttempted: boolean;
   replayed: boolean;
+  safeRetryEligible?: boolean;
 }): NayaxRefundOrchestrationResult => {
   const outcome = attempt.providerOutcome ?? "unknown";
   const reconciliationRequired = outcome === "timeout" ||
@@ -191,8 +197,12 @@ const incompleteResult = ({
     fallbackIssued: false,
     reportingAdjustmentPresent: false,
     customerCompletion: null,
+    safeRetryEligible: outcome === "rejected" && safeRetryEligible,
+    definitiveNoRefund: outcome === "rejected" && safeRetryEligible,
     message: outcome === "rejected"
-      ? "Nayax did not accept the refund. The case remains open for manager review."
+      ? safeRetryEligible
+        ? "No refund was sent. The case is ready for a fresh manager-confirmed refund action."
+        : "Nayax did not accept the refund. The case remains open for manager review."
       : "The Nayax outcome is not confirmed. The case is held for reconciliation and must not be retried.",
   };
 };
@@ -358,6 +368,7 @@ export const orchestrateNayaxRefund = async ({
       attempt: settledAttempt,
       providerAttempted: true,
       replayed: false,
+      safeRetryEligible: settlement.safeRetryEligible === true,
     });
   }
 

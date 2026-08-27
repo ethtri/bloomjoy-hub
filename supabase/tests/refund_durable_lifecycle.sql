@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(38);
+select plan(50);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -522,6 +522,188 @@ select ok(
   (public.refund_nayax_reliability_health_snapshot(null)
     -> 'safeStageCounts') ? 'confirmation_hold',
   'Aggregate reliability health exposes redacted stage counts'
+);
+
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, payment_method,
+  payment_amount_cents, refund_amount_cents, card_last4, status, decision,
+  correlation_status, correlation_source, automation_state,
+  nayax_refund_execution_status, nayax_match_execution_eligible,
+  matched_nayax_transaction_id, matched_nayax_site_id,
+  matched_nayax_machine_auth_time, matched_nayax_amount_cents,
+  matched_nayax_card_last4, matched_nayax_currency_code,
+  nayax_recommendation_state, nayax_recommendation_policy_version
+) values
+  (
+    'b4000000-0000-4000-8000-000000000004', 'RF-DURABLE-REJECTED-SAFE',
+    'b3000000-0000-4000-8000-000000000001',
+    'b2000000-0000-4000-8000-000000000001',
+    'durable-rejected-safe@example.invalid',
+    'Authoritative no-refund fixture', statement_timestamp() - interval '45 minutes',
+    'card', 700, 700, '4242', 'card_refund_pending', 'approved',
+    'matched', 'nayax', 'approved', 'declined', false,
+    'DURABLE-REJECTED-SAFE-001', 104,
+    statement_timestamp() - interval '45 minutes', 700, '4242', 'USD',
+    'high_confidence', 'durable-test-v1'
+  ),
+  (
+    'b4000000-0000-4000-8000-000000000005', 'RF-DURABLE-REJECTED-UNSAFE',
+    'b3000000-0000-4000-8000-000000000001',
+    'b2000000-0000-4000-8000-000000000001',
+    'durable-rejected-unsafe@example.invalid',
+    'Unproven rejection fixture', statement_timestamp() - interval '50 minutes',
+    'card', 700, 700, '4242', 'card_refund_pending', 'approved',
+    'matched', 'nayax', 'approved', 'declined', false,
+    'DURABLE-REJECTED-UNSAFE-001', 105,
+    statement_timestamp() - interval '50 minutes', 700, '4242', 'USD',
+    'high_confidence', 'durable-test-v1'
+  );
+
+insert into public.refund_case_nayax_refund_attempts (
+  id, refund_case_id, execution_mode, status, idempotency_key,
+  amount_cents, request_fingerprint, provider_claim_digest,
+  provider_claim_expires_at, provider_claim_consumed_at,
+  provider_outcome, provider_outcome_recorded_at,
+  reconciliation_required, completed_at, safe_transport_stage,
+  safe_failure_class, created_at
+) values
+  (
+    'b6000000-0000-4000-8000-000000000004',
+    'b4000000-0000-4000-8000-000000000004',
+    'request_and_approve', 'declined', 'durable-rejected-safe-attempt', 700,
+    repeat('4', 64), repeat('5', 64), statement_timestamp() + interval '5 minutes',
+    statement_timestamp(), 'rejected', statement_timestamp(), false,
+    statement_timestamp(), 'request_result', 'provider_rejected',
+    statement_timestamp() - interval '1 minute'
+  ),
+  (
+    'b6000000-0000-4000-8000-000000000005',
+    'b4000000-0000-4000-8000-000000000005',
+    'request_and_approve', 'declined', 'durable-rejected-unsafe-attempt', 700,
+    repeat('6', 64), repeat('7', 64), statement_timestamp() + interval '5 minutes',
+    statement_timestamp(), 'rejected', statement_timestamp(), false,
+    statement_timestamp(), 'confirmation_hold', 'provider_rejected',
+    statement_timestamp() - interval '1 minute'
+  );
+
+insert into public.refund_nayax_provider_stage_journal (
+  nayax_refund_attempt_id, pending_approval_recovery_id, stage, event,
+  http_status, outcome, contract_matched, failure_type,
+  classification_digest, approval_authorized,
+  provider_contract_version, journal_contract_version
+) values
+  (
+    'b6000000-0000-4000-8000-000000000004', null, 'request', 'started',
+    null, null, null, null, repeat('8', 64), null,
+    'nayax-production-observed-2026-08-22', 'nayax-provider-journal-v2'
+  ),
+  (
+    'b6000000-0000-4000-8000-000000000004', null, 'request', 'result',
+    200, 'rejected', true, null, repeat('9', 64), false,
+    'nayax-production-observed-2026-08-22', 'nayax-provider-journal-v2'
+  );
+
+select ok(
+  public.refund_nayax_definitive_rejection_is_retry_safe(
+    'b6000000-0000-4000-8000-000000000004'
+  ),
+  'Contract-matched HTTP 2xx rejection evidence proves no refund was sent'
+);
+select ok(
+  not public.refund_nayax_definitive_rejection_is_retry_safe(
+    'b6000000-0000-4000-8000-000000000005'
+  ),
+  'A rejection label without authoritative journal evidence is not retry-safe'
+);
+select is(
+  public.refund_lifecycle_contract(
+    'b4000000-0000-4000-8000-000000000005'
+  ) ->> 'stage',
+  'needs_refund_operations',
+  'An unproven rejection stays in Refund Operations'
+);
+select is(
+  public.refund_lifecycle_contract(
+    'b4000000-0000-4000-8000-000000000005'
+  ) #>> '{operations,owner}',
+  'Refund Operations',
+  'The unproven rejection keeps the named exception owner'
+);
+
+select set_config(
+  'bloomjoy.nayax_definitive_rejection_attempt_id',
+  'b6000000-0000-4000-8000-000000000004',
+  true
+);
+update public.refund_case_nayax_refund_attempts
+set safe_transport_stage = 'released_no_refund',
+    refund_operations_due_at = null
+where id = 'b6000000-0000-4000-8000-000000000004';
+update public.refund_cases
+set status = 'needs_review', decision = null, decision_reason = null,
+    decided_by = null, decided_at = null,
+    nayax_refund_execution_status = 'not_requested',
+    nayax_match_execution_eligible = true,
+    nayax_refund_attempt_generation = nayax_refund_attempt_generation + 1
+where id = 'b4000000-0000-4000-8000-000000000004';
+
+select is(
+  (select safe_transport_stage
+   from public.refund_case_nayax_refund_attempts
+   where id = 'b6000000-0000-4000-8000-000000000004'),
+  'released_no_refund',
+  'The terminal attempt retains an auditable no-refund release stage'
+);
+select is(
+  (select nayax_refund_execution_status
+   from public.refund_cases
+   where id = 'b4000000-0000-4000-8000-000000000004'),
+  'not_requested',
+  'The case returns to the normal unrequested execution state'
+);
+select is(
+  (select nayax_refund_attempt_generation
+   from public.refund_cases
+   where id = 'b4000000-0000-4000-8000-000000000004'),
+  1::integer,
+  'The released case advances to a new exactly-once attempt generation'
+);
+select is(
+  (select nayax_match_execution_eligible
+   from public.refund_cases
+   where id = 'b4000000-0000-4000-8000-000000000004'),
+  true,
+  'The already-confirmed transaction becomes actionable again'
+);
+select is(
+  public.refund_lifecycle_contract(
+    'b4000000-0000-4000-8000-000000000004'
+  ) ->> 'stage',
+  'transaction_confirmed',
+  'The manager lifecycle returns to the one clear Refund action'
+);
+select is(
+  (public.refund_lifecycle_contract(
+    'b4000000-0000-4000-8000-000000000004'
+  ) #>> '{operations,required}')::boolean,
+  false,
+  'A definitive no-refund result does not enter Refund Operations'
+);
+select is(
+  (public.refund_lifecycle_contract(
+    'b4000000-0000-4000-8000-000000000004'
+  ) ->> 'safeRetryEligible')::boolean,
+  true,
+  'The lifecycle explicitly identifies the fresh manager action as safe'
+);
+select ok(
+  not has_function_privilege(
+    'service_role',
+    'public.refund_nayax_definitive_rejection_is_retry_safe(uuid)',
+    'execute'
+  ),
+  'The internal no-refund evidence predicate is not exposed to service clients'
 );
 
 select * from finish();

@@ -2038,11 +2038,33 @@ const installMockSupabaseRoutes = async (
                         : nayaxSettlementResult.status === 'declined' || nayaxSettlementResult.errorCode === 'provider_rejected'
                           ? 'rejected'
                           : 'not_attempted',
-                      nayaxMatchExecutionEligible: false,
+                      nayaxMatchExecutionEligible:
+                        nayaxSettlementResult.safeRetryEligible === true,
                       ...(
-                        providerCheckRequired(nayaxSettlementResult) ||
-                        nayaxSettlementResult.status === 'declined' ||
-                        nayaxSettlementResult.errorCode === 'provider_rejected'
+                        nayaxSettlementResult.safeRetryEligible === true
+                          ? {
+                              status: 'needs_review',
+                              decision: null,
+                              lifecycle: {
+                                ...buildLifecycleFixture(
+                                  'transaction_confirmed',
+                                  30,
+                                  'refund'
+                                ),
+                                operations: {
+                                  ...buildLifecycleFixture().operations,
+                                  required: false,
+                                  ageMinutes: null,
+                                  dueAt: null,
+                                  safeStage: 'released_no_refund',
+                                  failureClass: 'provider_rejected',
+                                  nextStep: null,
+                                },
+                                definitiveNoRefund: true,
+                                safeRetryEligible: true,
+                              },
+                            }
+                          : providerCheckRequired(nayaxSettlementResult)
                           ? {
                               lifecycle: {
                                 ...buildLifecycleFixture(
@@ -2055,15 +2077,9 @@ const installMockSupabaseRoutes = async (
                                   required: true,
                                   ageMinutes: 0,
                                   dueAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-                                  safeStage: providerCheckRequired(nayaxSettlementResult)
-                                    ? 'confirmation_hold'
-                                    : 'provider_rejected',
-                                  failureClass: providerCheckRequired(nayaxSettlementResult)
-                                    ? 'provider_outcome_unconfirmed'
-                                    : 'provider_rejected',
-                                  nextStep: providerCheckRequired(nayaxSettlementResult)
-                                    ? 'Confirm the authoritative payment result. Never retry.'
-                                    : 'Review the provider rejection. No retry is available to the manager.',
+                                  safeStage: 'confirmation_hold',
+                                  failureClass: 'provider_outcome_unconfirmed',
+                                  nextStep: 'Confirm the authoritative payment result. Never retry.',
                                 },
                               },
                             }
@@ -6548,7 +6564,7 @@ const runNayaxExecutionOutcomeChecks = async ({
     {
       name: 'rejected',
       screenshot: 'refund-provider-rejected.png',
-      expectedTitle: 'Refund was rejected',
+      expectedTitle: 'Refund wasn’t sent',
       response: {
         executed: false,
         status: 'declined',
@@ -6559,7 +6575,9 @@ const runNayaxExecutionOutcomeChecks = async ({
         fallbackIssued: false,
         reportingAdjustmentPresent: false,
         customerCompletion: null,
-        message: 'Nayax did not accept the refund. The case remains open for manager review.',
+        safeRetryEligible: true,
+        definitiveNoRefund: true,
+        message: 'No refund was sent. The case is ready for a fresh manager-confirmed refund action.',
       },
     },
     {
@@ -6734,6 +6752,16 @@ const runNayaxExecutionOutcomeChecks = async ({
         (scenario.name !== 'success' ||
           await page.getByText('Confirmation: NAYAX-PROVIDER-REF-1').isVisible())
     );
+    if (scenario.name === 'rejected') {
+      recorder.assert(
+        'Synthetic browser definitive no-refund result uses only safe fresh-action guidance',
+        (await page.getByText(
+          'No refund was sent. Review the transaction, then use Refund again if you still want to issue it.',
+          { exact: true }
+        ).count()) > 0 &&
+          (await page.getByText('Card refund is not available for this case.', { exact: true }).count()) === 0
+      );
+    }
     // Capture the scenario-specific provider receipt before later reload checks
     // intentionally normalize ambiguous outcomes into the same persisted queue state.
     await page.screenshot({ path: path.join(artifactDir, scenario.screenshot), fullPage: true });
@@ -6746,12 +6774,55 @@ const runNayaxExecutionOutcomeChecks = async ({
           (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0
       );
     } else {
+      if (scenario.name === 'rejected') {
+        await page.getByRole('button', { name: 'Ready to refund 1', exact: true })
+          .waitFor({ timeout: 10000 });
+        await page.getByRole('button', { name: 'Ready to refund 1', exact: true }).click();
+        const retryReadyCaseRow = queueCase(page, 'RF-UAT-CARD');
+        await retryReadyCaseRow.waitFor({ state: 'visible', timeout: 10000 });
+        await retryReadyCaseRow.click();
+        const retryReadySignals = {
+          operationsZero:
+            (await page.getByRole('button', { name: 'Needs Refund Operations 0', exact: true }).count()) > 0,
+          readyLabel: await retryReadyCaseRow.getByText('Ready to refund', { exact: true }).isVisible(),
+          refundAction: await page.getByTestId('refund-run-nayax-refund').isVisible(),
+          providerCallCount: functionCalls.filter((name) => name === 'nayax-card-refund').length,
+          secondaryMutationCount: functionCalls.filter(
+            (name) => name === 'refund-case-admin-update' || name === 'refund-case-message-send'
+          ).length,
+        };
+        recorder.assert(
+          'Synthetic browser definitive no-refund result restores one normal manager action',
+          retryReadySignals.operationsZero &&
+            retryReadySignals.readyLabel &&
+            retryReadySignals.refundAction &&
+            retryReadySignals.providerCallCount === 1 &&
+            retryReadySignals.secondaryMutationCount === 0,
+          JSON.stringify(retryReadySignals)
+        );
+        await reloadRefundPortalPage(page);
+        await page.getByRole('button', { name: 'Ready to refund 1', exact: true })
+          .waitFor({ timeout: 10000 });
+        await page.getByRole('button', { name: 'Ready to refund 1', exact: true }).click();
+        const reloadedRetryReadyCaseRow = queueCase(page, 'RF-UAT-CARD');
+        await reloadedRetryReadyCaseRow.click();
+        await page.getByTestId('refund-run-nayax-refund')
+          .waitFor({ state: 'visible', timeout: 10000 });
+        recorder.assert(
+          'Synthetic browser definitive no-refund release survives a full reload without another provider call',
+          await page.getByTestId('refund-run-nayax-refund').isVisible() &&
+            functionCalls.filter((name) => name === 'nayax-card-refund').length === 1
+        );
+        evidence.providerNonSuccessStateCount += 1;
+        await closeRefundPortalContext(context);
+        continue;
+      }
       const providerCheckRequired = Boolean(
         scenario.response.reconciliationRequired === true ||
           ['ambiguous', 'in_progress', 'requested', 'pending', 'failed', 'manual_review'].includes(scenario.response.status) ||
           ['provider_timeout', 'provider_outcome_unknown', 'success_finalization_incomplete'].includes(scenario.response.errorCode)
       );
-      const refundOperationsRequired = providerCheckRequired || scenario.name === 'rejected';
+      const refundOperationsRequired = providerCheckRequired;
       if (refundOperationsRequired) {
         await page.getByRole('button', { name: 'Needs Refund Operations 1', exact: true })
           .waitFor({ timeout: 10000 });
@@ -6778,9 +6849,7 @@ const runNayaxExecutionOutcomeChecks = async ({
         ? 'Refund temporarily unavailable'
         : providerCheckRequired
           ? 'Refund status not confirmed'
-          : scenario.name === 'rejected'
-            ? 'Refund was rejected'
-            : 'Manual card review required';
+          : 'Manual card review required';
       recorder.assert(
         `Synthetic browser ${scenario.name} suppresses contradictory ready badges and refund actions`,
           (await caseRow.getByText('Ready to refund', { exact: true }).count()) === 0 &&
@@ -6796,9 +6865,7 @@ const runNayaxExecutionOutcomeChecks = async ({
         `Synthetic browser ${scenario.name} shows a plain-language non-ready state`,
           refundOperationsRequired
             ? await page.getByTestId('refund-manager-next-step').isVisible()
-          : scenario.name === 'rejected'
-            ? (await caseRow.getByText('Refund rejected', { exact: true }).count()) > 0
-            : await page.getByTestId('refund-manager-next-step').isVisible()
+          : await page.getByTestId('refund-manager-next-step').isVisible()
       );
       if (providerCheckRequired) {
         recorder.assert(
@@ -6821,25 +6888,6 @@ const runNayaxExecutionOutcomeChecks = async ({
             await page.getByTestId('refund-customer-decision-freeze').isVisible() &&
             (await page.getByRole('button', { name: 'Deny request', exact: true }).count()) === 0 &&
             (await page.getByTestId('refund-run-nayax-refund').count()) === 0
-        );
-      } else if (scenario.name === 'rejected') {
-        await reloadRefundPortalPage(page);
-        await page.getByRole('button', { name: 'Needs Refund Operations 1', exact: true })
-          .waitFor({ timeout: 10000 });
-        await page.getByRole('button', { name: 'Needs Refund Operations 1', exact: true }).click();
-        const reloadedRejectedCaseRow = queueCase(page, 'RF-UAT-CARD');
-        await reloadedRejectedCaseRow.click();
-        recorder.assert(
-          'Synthetic browser rejected remains frozen after a full reload',
-          await page.getByTestId('refund-manager-state')
-              .getByText('Needs Refund Operations', { exact: true }).isVisible() &&
-            await page.getByTestId('refund-customer-decision-freeze').isVisible() &&
-            (await page.getByRole('button', { name: 'Deny request', exact: true }).count()) === 0 &&
-            (await page.getByText('Preview customer email', { exact: true }).count()) === 0 &&
-            (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-            functionCalls.filter((name) => name === 'nayax-card-refund').length === 1 &&
-            !functionCalls.includes('refund-case-admin-update') &&
-            !functionCalls.includes('refund-case-message-send')
         );
       }
       if (scenario.name === 'config_blocked') {

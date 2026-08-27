@@ -49,6 +49,30 @@ Deno.test("the versioned lifecycle parser accepts the redacted operations contra
   );
 });
 
+Deno.test("the lifecycle parser accepts only boolean definitive no-refund markers", () => {
+  assert(
+    isRefundLifecycleContract({
+      ...fixture,
+      definitiveNoRefund: true,
+      safeRetryEligible: true,
+      operations: {
+        ...fixture.operations,
+        required: false,
+        safeStage: "released_no_refund",
+      },
+    }),
+    "an exact released no-refund contract should parse",
+  );
+  assert(
+    !isRefundLifecycleContract({ ...fixture, definitiveNoRefund: "yes" }),
+    "non-boolean definitive markers must fail closed",
+  );
+  assert(
+    !isRefundLifecycleContract({ ...fixture, safeRetryEligible: 1 }),
+    "non-boolean safe retry markers must fail closed",
+  );
+});
+
 Deno.test("unknown lifecycle versions and provider-shaped payloads fail closed", () => {
   assert(
     !isRefundLifecycleContract({ ...fixture, schemaVersion: "refund_lifecycle_v2" }),

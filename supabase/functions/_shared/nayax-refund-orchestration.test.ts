@@ -117,6 +117,8 @@ const makeHarness = (provider: NayaxProviderAdapter) => {
         attempt: { ...persisted },
         updateApplied: input.outcome.kind === "success",
         reportingAdjustmentPresent,
+        safeRetryEligible: input.outcome.kind === "rejected",
+        definitiveNoRefund: input.outcome.kind === "rejected",
       });
     },
     deliverCustomerCompletion: () => {
@@ -420,6 +422,14 @@ for (
     assert(
       first.reconciliationRequired === scenario.reconciliation,
       "hold classification must match outcome",
+    );
+    assert(
+      scenario.kind !== "rejected" || first.safeRetryEligible === true,
+      "a definitive rejection must publish a fresh manager-action release",
+    );
+    assert(
+      scenario.kind !== "rejected" || first.definitiveNoRefund === true,
+      "a retry-safe rejection must explicitly identify that no refund was sent",
     );
     assert(
       replay.replayed && !replay.providerAttempted,
