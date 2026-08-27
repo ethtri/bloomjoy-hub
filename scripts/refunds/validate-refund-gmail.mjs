@@ -21,6 +21,7 @@ const [
   firstContactHelper,
   retentionMigration,
   schedulerMigration,
+  schedulerRetentionMigration,
   attachmentOffCopyGateMigration,
   syntheticProofMigration,
   gmailHelper,
@@ -61,6 +62,7 @@ const [
     read('supabase/functions/_shared/refund-first-contact.ts'),
     read('supabase/migrations/202608040002_refund_gmail_retention_safety.sql'),
     read('supabase/migrations/20260827041000_refund_gmail_scheduler_watchdog.sql'),
+    read('supabase/migrations/20260827053500_refund_gmail_scheduler_retention_run_key.sql'),
     read('supabase/migrations/20260812053417_refund_gmail_attachment_off_copy_gate.sql'),
     read('supabase/migrations/20260812230000_refund_synthetic_gmail_proof_authorization.sql'),
     read('supabase/functions/_shared/refund-gmail.ts'),
@@ -1112,6 +1114,14 @@ assert(
     syncFunction.includes('isRefundGmailWorkflowRunKey') &&
     !retentionMigration.includes("left(btrim(coalesce(p_run_key"),
   'Edge and SQL run keys must bind numeric GitHub run/attempt values to the exact trigger',
+);
+assert(
+  schedulerRetentionMigration.includes('refund_gmail_retention_run_key_is_valid') &&
+    schedulerRetentionMigration.includes('pre-sync:supabase-recovery:') &&
+    schedulerRetentionMigration.includes('[0-5][05]Z') &&
+    schedulerRetentionMigration.includes('pre-sync:github-(scheduled|manual):') &&
+    !schedulerRetentionMigration.includes('failure_test'),
+  'The independent recovery trigger must pass only its aligned mandatory pre-sync retention key',
 );
 const syncRunKeyConstraintBlock = retentionMigration.slice(
   retentionMigration.indexOf('drop constraint if exists refund_gmail_sync_runs_trigger_key_check'),
