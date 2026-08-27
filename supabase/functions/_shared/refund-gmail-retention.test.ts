@@ -64,6 +64,13 @@ Deno.test("workflow run keys bind one numeric GitHub run and attempt to the exac
   );
   assert(
     isRefundGmailWorkflowRunKey(
+      "supabase-primary:20260827T0410Z",
+      "scheduler_primary",
+    ),
+    "Supabase primary key should be accepted",
+  );
+  assert(
+    isRefundGmailWorkflowRunKey(
       "supabase-recovery:20260827T0410Z",
       "scheduler_recovery",
     ),
@@ -107,6 +114,9 @@ Deno.test("workflow run keys reject identifiers and wrong trigger prefixes", () 
       ["18c7aProviderMessageToken", "scheduled"],
       ["18005551212", "scheduled"],
       ["github-manual:123456789:1", "scheduled"],
+      ["supabase-primary:20260827T0410Z", "scheduled"],
+      ["supabase-primary:20260827T0411Z", "scheduler_primary"],
+      ["supabase-primary:20260827T0410Z", "scheduler_recovery"],
       ["supabase-recovery:20260827T0410Z", "scheduled"],
       ["supabase-recovery:20260827T0411Z", "scheduler_recovery"],
       ["supabase-recovery:20260827T0410Z", "manual"],

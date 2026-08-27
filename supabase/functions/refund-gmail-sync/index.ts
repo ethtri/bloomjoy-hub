@@ -118,9 +118,10 @@ const authorize = (request: Request, trigger: string) => {
   const token = authorization.toLowerCase().startsWith("bearer ")
     ? authorization.slice(7).trim()
     : "";
-  const expectedSecret = trigger === "scheduler_recovery"
-    ? schedulerSecret
-    : syncSecret;
+  const expectedSecret =
+    trigger === "scheduler_primary" || trigger === "scheduler_recovery"
+      ? schedulerSecret
+      : syncSecret;
   return Boolean(expectedSecret) && safeEqual(token, expectedSecret);
 };
 
@@ -1674,7 +1675,11 @@ serve(async (request) => {
       const summary = await runRetentionSweep({
         runKey: refundGmailRetentionLedgerRunKey(
           runKey,
-          triggerSource as "manual" | "scheduled" | "scheduler_recovery",
+          triggerSource as
+            | "manual"
+            | "scheduled"
+            | "scheduler_primary"
+            | "scheduler_recovery",
         ),
         triggerSource: "pre_sync",
       });
