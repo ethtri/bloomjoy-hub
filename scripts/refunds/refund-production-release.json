@@ -93,7 +93,8 @@
     "20260825231621_refund_manager_recipient_route_v2.sql",
     "20260826165423_refund_durable_lifecycle_v1.sql",
     "20260826204500_refund_manager_lifecycle_v1.sql",
-    "20260827011500_refund_customer_status_capability.sql"
+    "20260827011500_refund_customer_status_capability.sql",
+    "20260827041000_refund_gmail_scheduler_watchdog.sql"
   ],
   "migrationFilesSha256": "e6b5bae879bff4a82110caecfaf0e5280641516f6e11ed5931d253bfea393fab",
   "migrationVersionSetSha256": "5dede24b2fcad16441904c619243cf89d032af0677713ebe1f78b4b103ce5375",
