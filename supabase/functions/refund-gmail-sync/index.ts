@@ -71,6 +71,9 @@ import {
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const syncSecret = (Deno.env.get("REFUND_GMAIL_SYNC_SECRET") ?? "").trim();
+const schedulerSecret = (
+  Deno.env.get("REFUND_GMAIL_SCHEDULER_SECRET") ?? ""
+).trim();
 const retentionRuntime = getRefundGmailRetentionRuntimeConfig((name) =>
   Deno.env.get(name)
 );
@@ -110,12 +113,15 @@ const safeEqual = (left: string, right: string) => {
   return difference === 0;
 };
 
-const authorize = (request: Request) => {
+const authorize = (request: Request, trigger: string) => {
   const authorization = request.headers.get("authorization") ?? "";
   const token = authorization.toLowerCase().startsWith("bearer ")
     ? authorization.slice(7).trim()
     : "";
-  return Boolean(syncSecret) && safeEqual(token, syncSecret);
+  const expectedSecret = trigger === "scheduler_recovery"
+    ? schedulerSecret
+    : syncSecret;
+  return Boolean(expectedSecret) && safeEqual(token, expectedSecret);
 };
 
 type AttachmentDescriptor = {
@@ -1578,17 +1584,18 @@ serve(async (request) => {
   if (request.method !== "POST") {
     return jsonResponse({ error: "Method not allowed." }, 405);
   }
-  if (!authorize(request)) return jsonResponse({ error: "Unauthorized." }, 401);
-  if (!supabase) {
-    return jsonResponse({ error: "Refund Gmail sync is not configured." }, 500);
-  }
-
   const body = await request.json().catch(() => ({})) as Record<
     string,
     unknown
   >;
   const requestedTrigger = sanitizeText(body.trigger, 40).toLowerCase() ||
     "scheduled";
+  if (!authorize(request, requestedTrigger)) {
+    return jsonResponse({ error: "Unauthorized." }, 401);
+  }
+  if (!supabase) {
+    return jsonResponse({ error: "Refund Gmail sync is not configured." }, 500);
+  }
   const runKey = sanitizeText(body.runKey, 255);
   const validRunKey = requestedTrigger === REFUND_GMAIL_INTAKE_SHADOW_TRIGGER
     ? isRefundGmailIntakeShadowRunKey(runKey, requestedTrigger)
@@ -1667,7 +1674,7 @@ serve(async (request) => {
       const summary = await runRetentionSweep({
         runKey: refundGmailRetentionLedgerRunKey(
           runKey,
-          triggerSource as "manual" | "scheduled",
+          triggerSource as "manual" | "scheduled" | "scheduler_recovery",
         ),
         triggerSource: "pre_sync",
       });
