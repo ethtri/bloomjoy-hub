@@ -88,10 +88,15 @@ function buildDocList(issue) {
   const haystack = taskHaystack(issue);
   const docs = new Set([
     "AGENTS.md",
-    "Docs/LOCAL_DEV.md",
+    "Docs/CURRENT_STATUS.md",
     "Docs/DECISIONS.md",
+    "Docs/LOCAL_DEV.md",
     "Docs/TASK_TEMPLATE.md",
   ]);
+
+  if (isMatch(haystack, /refund|nayax/)) {
+    docs.add("Docs/NAYAX_LYNX_API.md");
+  }
 
   if (isMatch(haystack, /ui|ux|frontend|design|visual|mobile|responsive|page|screen|component|portal|admin|operator|public/)) {
     docs.add("PRODUCT.md");
