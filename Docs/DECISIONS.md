@@ -1,5 +1,34 @@
 # Decisions
 
+## 2026-08-28 - Canonical Nayax production refund identity (`#990`)
+
+The production refund executor is identified by its Nayax user ID and login, not by email alone.
+
+**Canonical production identity**
+- Operator: `TGpaci LLC`
+- Nayax user ID: `103260239`
+- Nayax login: `dually-app\TGpaci266`
+- Email: `ethtri@gmail.com`
+- Status: `Active`
+- Production Lynx tokens: the separately named Bloomjoy Refund Request and Bloomjoy Refund Approval tokens created on 2026-08-25 under this user. Token values remain server-only Supabase secrets and must never be copied into documentation or client configuration.
+
+**Provider-confirmed capabilities**
+- Read Last Sales for transaction matching.
+- Submit a refund request.
+- Approve a refund request.
+
+Nayax Support confirmed on 2026-08-17 that the requested Lynx API roles were added to this active account. The request and approval tokens are deliberately separate even though both belong to the same active user.
+
+**Do not use as production executors**
+- Nayax user `570755401`, login `dually-app\Ethan50862`, email `etrifari@bloomjoysweets.com`: invited/unregistered side account with no production tokens. It resulted from correspondence that targeted the wrong email and must not be activated, promoted, or used for refund credential rotation unless the owner makes a new explicit decision.
+- Nayax user `931941189`, login `dually-app\911004`, email `ethtri@gmail.com`: older expired duplicate. It is not the active production executor.
+
+**Operational rules**
+- Always verify the production executor using both user ID `103260239` and login `dually-app\TGpaci266`; email by itself is ambiguous.
+- Do not ask Nayax to create or re-invite a refund service user as a routine remediation step.
+- A refund failure does not prove missing roles. First classify the exact Nayax response and check DTM/support evidence before changing users, roles, or tokens.
+- The open provider question is the exact accepted/rejected meaning of the current account's `Result`/`Status` response pair. It is a response-contract clarification, not evidence that the canonical account lacks the requested roles.
+
 ## 2026-08-27 - Approval requires an exact, account-confirmed JSON response contract (`#628`, `#971`, `#973`)
 
 - The database may authorize `refund-approve` only after `refund-request` returns exact HTTP `200`, an `application/json` media type, a valid JSON object, string `Result` and `Status` fields, and an exact accepted pair from the account-confirmed contract. An unfamiliar `2xx`, alternate JSON media type, non-object body, missing/wrong-typed field, malformed/oversized body, response-read failure, or semantic mismatch never advances to approval.
@@ -145,12 +174,12 @@ This decision supersedes the TOTP/operator requirements in the 2026-08-20 suppor
 
 ## 2026-08-20 - Support-confirmed refund is reconciled without another provider call
 
-- Nayax support confirmed that transaction `6841061866` appears refunded and identified missing user-level approval roles as the likely explanation for the earlier approval error. This is authoritative support evidence for the existing held attempt; Bloomjoy must not send another refund request or approval.
+- Nayax support confirmed that transaction `6841061866` appears refunded and described missing user-level approval roles only as a possible explanation for the earlier approval error. Support did not establish that as the cause or direct Bloomjoy to create a different refund executor. This is authoritative support evidence for the existing held attempt; Bloomjoy must not send another refund request or approval.
 - Closeout uses the already deployed structured outcome resolver with `provider_confirmed_success`, `nayax_support_ticket`, `nayax_support_confirmed_success`, the exact public support-ticket reference, and the authoritative provider action time. The resolver preserves the original unknown provider result, creates no new provider attempt, finalizes reporting once, and binds one customer completion to the original Gmail thread.
 - Activation is a reviewed, bounded database window rather than a permanent runtime switch. The opening migration seeds no operator and does not contact Nayax or Gmail. Production provisioning is limited to the exact current mapped owner-manager, a fresh refund-specific TOTP enrollment, and one two-minute resolution intent. The paired closing migration fails while an intent is pending or a completed resolution reply is not sent, then revokes the temporary enrollment/operator and restores the immutable false gate.
 - The support ticket uses Nayax's public `CS` reference shape. The privacy validator accepts only the exact `SUPPORT:NAYAX-CS` plus seven digits form in addition to the previously reviewed eight-digit support and nine-digit DTM forms; durable evidence still stores only a SHA-256 digest.
 
-## 2026-08-19 - Nayax response contracts are evidence-driven; pending requests recover through one approval-only action (`#877`)
+## 2026-08-19 - Historical approval-only recovery design (`#877`; retired and superseded)
 
 The first normal production attempt proved that an HTTP-successful Nayax request can create a **Refund Requested** transaction while returning a `Result`/`Status` pair outside Bloomjoy's guessed request contract. Bloomjoy must not hardcode an unverified production response pair or infer success from HTTP status alone.
 
@@ -160,7 +189,7 @@ The first normal production attempt proved that an HTTP-successful Nayax request
 - The recovery implementation has no request-stage function or endpoint. It may issue one `refund-approve` call, never `refund-request`; any timeout, HTTP error, malformed response, journal failure, or unfamiliar response consumes the recovery and remains held without retry, finalization, reporting, fallback, or customer mail.
 - Even an exact approval response is not customer completion. Dynamic Transactions Monitor or Nayax support must confirm the final provider outcome, after which the existing structured resolution boundary performs any case/reporting/email finalization.
 
-This decision narrows and supersedes the response-contract assumption in the 2026-08-16 normal-manager decision. It does not revoke the manager's business approval or authorize broad execution.
+This records the historical recovery design. The 2026-08-27 decision retires this provider-write route fail-closed; current and historical contract mismatches use provider-free DTM/support reconciliation and cannot call approval-only recovery.
 
 ## 2026-08-17 - Manager selection resolves ordinary wallet/card ambiguity
 
@@ -1222,32 +1251,3 @@ Nayax's supported public contract does not provide a read-only API that authorit
 **Why this choice**
 - It closes the operational dead end for real refunds already completed in Nayax without weakening the no-blind-retry rule.
 - It separates recording historical provider truth from issuing money, so recovery cannot become a duplicate-refund path.
-
-## 2026-08-28 - Canonical Nayax production refund identity (`#990`)
-
-The production refund executor is identified by its Nayax user ID and login, not by email alone.
-
-**Canonical production identity**
-- Operator: `TGpaci LLC`
-- Nayax user ID: `103260239`
-- Nayax login: `dually-app\TGpaci266`
-- Email: `ethtri@gmail.com`
-- Status: `Active`
-- Production Lynx tokens: the separately named Bloomjoy Refund Request and Bloomjoy Refund Approval tokens created on 2026-08-25 under this user. Token values remain server-only Supabase secrets and must never be copied into documentation or client configuration.
-
-**Provider-confirmed capabilities**
-- Read Last Sales for transaction matching.
-- Submit a refund request.
-- Approve a refund request.
-
-Nayax Support confirmed on 2026-08-17 that the requested Lynx API roles were added to this active account. The request and approval tokens are deliberately separate even though both belong to the same active user.
-
-**Do not use as production executors**
-- Nayax user `570755401`, login `dually-app\Ethan50862`, email `etrifari@bloomjoysweets.com`: invited/unregistered side account with no production tokens. It resulted from correspondence that targeted the wrong email and must not be activated, promoted, or used for refund credential rotation unless the owner makes a new explicit decision.
-- Nayax user `931941189`, login `dually-app\911004`, email `ethtri@gmail.com`: older expired duplicate. It is not the active production executor.
-
-**Operational rules**
-- Always verify the production executor using both user ID `103260239` and login `dually-app\TGpaci266`; email by itself is ambiguous.
-- Do not ask Nayax to create or re-invite a refund service user as a routine remediation step.
-- A refund failure does not prove missing roles. First classify the exact Nayax response and check DTM/support evidence before changing users, roles, or tokens.
-- The open provider question is the exact accepted/rejected meaning of the current account's `Result`/`Status` response pair. It is a response-contract clarification, not evidence that the canonical account lacks the requested roles.

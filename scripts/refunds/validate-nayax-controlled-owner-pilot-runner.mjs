@@ -295,13 +295,22 @@ check(
   'The ceremony documents self-ownership, lease-aware recovery, provider-email truth, unresolved retention, and private credential teardown.',
 );
 check(
-  nayaxDocs.includes('controlled owner pilot') &&
-    nayaxDocs.includes('normal portal action remains unavailable') &&
-    nayaxDocs.includes('it has not been write-tested or confirmed broken') &&
-    nayaxDocs.includes('must never be used as a permission probe') &&
+  nayaxDocs.includes('old controlled-owner pilot') &&
+    nayaxDocs.includes('historical controlled-owner incident') &&
+    nayaxDocs.includes("does not diagnose today's token or response pair") &&
+    nayaxDocs.includes('Canonical executor') &&
+    nayaxDocs.includes('not production refund identities') &&
+    nayaxDocs.includes('must never be used as a write-permission probe') &&
     nayaxDocs.includes('existing reporting token must never be used as a write-permission probe or fallback') &&
+    !nayaxDocs.includes('normal portal action remains unavailable') &&
     !nayaxDocs.includes('whether the existing reporting token has refund request and approval permissions'),
-  'Nayax API documentation distinguishes the runner-only pilot from product execution.',
+  'Nayax API documentation distinguishes historical pilot evidence, canonical production identity, and current response-contract work.',
+);
+check(
+  runbook.includes('retired historical implementation') &&
+    runbook.includes('do not infer its current availability, identity, roles, or token scope') &&
+    !runbook.includes('The normal portal action remains unavailable'),
+  'Retired controlled-owner runbook cannot override current account or execution facts.',
 );
 check(
   productionRunbook.includes('Nayax card-refund operation (current authority)') &&

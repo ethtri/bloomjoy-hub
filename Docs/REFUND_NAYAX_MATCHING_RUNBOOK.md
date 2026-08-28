@@ -4,7 +4,7 @@
 
 This runbook defines the deterministic, manager-confirmed card-transaction recommendation used by Refund Operations. It is advisory matching, not a probability score and not permission to issue a refund.
 
-Live Nayax refund execution is not available in the current candidate: the production adapter is statically disabled, and no environment-flag combination can activate it. The historical flags, kill switch, allowlist, and caps remain defense in depth. Issue `#430` must add and review the real provider adapter and contract before any separate owner-approved gate-on change.
+This document governs transaction matching only. Its former statement that the production adapter was statically disabled described a pre-`#430` release and is superseded. Current refund execution authority, account identity, response-contract blocker, and safety gates are recorded in `Docs/DECISIONS.md`, `Docs/CURRENT_STATUS.md`, and `Docs/PRODUCTION_RUNBOOK.md`.
 
 ## Policy version
 
