@@ -37,6 +37,8 @@ import {
   resolveNayaxRefundExecutionConfig,
   resolveNayaxRefundRolloutConfig,
 } from "../_shared/nayax-refund-gates.ts";
+// @deno-types="../_shared/nayax-refund-provider.d.ts"
+import { parseNayaxRefundProviderContract } from "../_shared/nayax-refund-provider.mjs";
 import {
   mergeRuntimeRefundReadiness,
   parseDatabaseRefundReadiness,
@@ -52,6 +54,14 @@ import {
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+const NAYAX_REFUND_PROVIDER_CONTRACT_VERSION =
+  "nayax-production-account-contract-v2";
+const NAYAX_REFUND_JOURNAL_CONTRACT_VERSION = "nayax-provider-journal-v3";
+const NAYAX_REFUND_APPROVAL_POLICY_VERSION =
+  "db-authoritative-exact-200-json-v1";
+const NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION =
+  "nayax-response-envelope-v1";
 
 const supabase = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -276,11 +286,52 @@ const resolveSelectionRefundReadiness = async ({
   const accountKey = normalizeAccountKey(
     afterRow.reporting_machines?.nayax_account_key ?? "",
   );
+  const rawManagerContract = Deno.env.get("NAYAX_REFUND_MANAGER_CONTRACT_JSON")
+    ?.trim() ?? "";
+  let managerContract:
+    | ReturnType<typeof parseNayaxRefundProviderContract>
+    | null = null;
+  if (rawManagerContract) {
+    try {
+      managerContract = parseNayaxRefundProviderContract(rawManagerContract);
+    } catch {
+      managerContract = null;
+    }
+  }
+  let providerJournalAvailable = false;
+  if (
+    caseExecutionConfig.executorAssertion &&
+    managerContract?.contractVersion === NAYAX_REFUND_PROVIDER_CONTRACT_VERSION
+  ) {
+    const { data, error } = await supabase.rpc(
+      "service_get_nayax_refund_provider_journal_capability_v3",
+      { p_executor_assertion: caseExecutionConfig.executorAssertion },
+    );
+    const capability = !error && data && typeof data === "object"
+      ? data as Record<string, unknown>
+      : null;
+    const supported = Array.isArray(
+        capability?.supportedProviderContractVersions,
+      )
+      ? capability.supportedProviderContractVersions
+      : [];
+    providerJournalAvailable =
+      capability?.journalContractVersion ===
+        NAYAX_REFUND_JOURNAL_CONTRACT_VERSION &&
+      capability?.approvalPolicyVersion ===
+        NAYAX_REFUND_APPROVAL_POLICY_VERSION &&
+      capability?.responseEnvelopeVersion ===
+        NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION &&
+      capability?.providerContractConfirmationRequired === true &&
+      capability?.payloadRedacted === true &&
+      supported.includes(managerContract.contractVersion);
+  }
   const providerCredentialAvailable = Boolean(
     accountKey &&
       Deno.env.get(`NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}`)?.trim() &&
       Deno.env.get(`NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}`)?.trim() &&
-      Deno.env.get("NAYAX_REFUND_MANAGER_CONTRACT_JSON")?.trim() &&
+      managerContract &&
+      providerJournalAvailable &&
       isNayaxRefundCaseReleaseAuthorized({ rolloutConfig, caseId }),
   );
   const { data: dailyUsageValue, error: dailyUsageError } = await supabase.rpc(

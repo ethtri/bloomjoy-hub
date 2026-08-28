@@ -53,7 +53,17 @@ const supabase = supabaseUrl && supabaseServiceRoleKey
   })
   : null;
 
-const NAYAX_REFUND_JOURNAL_CONTRACT_VERSION = "nayax-provider-journal-v2";
+const NAYAX_REFUND_JOURNAL_CONTRACT_VERSION = "nayax-provider-journal-v3";
+const NAYAX_REFUND_PROVIDER_CONTRACT_VERSION =
+  "nayax-production-account-contract-v2";
+const NAYAX_REFUND_APPROVAL_POLICY_VERSION =
+  "db-authoritative-exact-200-json-v1";
+const NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION =
+  "nayax-response-envelope-v1";
+// Journal v3 cannot authorize a standalone approval from legacy incomplete
+// response evidence. Keep the historical operation fail-closed until a new
+// recovery contract can prove the original request outcome authoritatively.
+const NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_SUPPORTED = false;
 
 const jsonResponse = (body: Record<string, unknown>, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -112,7 +122,7 @@ const providerJournalCompatible = async (
 ) => {
   if (!supabase || !executorAssertion || !providerContractVersion) return false;
   const { data, error } = await supabase.rpc(
-    "service_get_nayax_refund_provider_journal_capability",
+    "service_get_nayax_refund_provider_journal_capability_v3",
     { p_executor_assertion: executorAssertion },
   );
   if (error || !data || typeof data !== "object") return false;
@@ -121,7 +131,11 @@ const providerJournalCompatible = async (
     ? capability.supportedProviderContractVersions
     : [];
   return capability.journalContractVersion === NAYAX_REFUND_JOURNAL_CONTRACT_VERSION &&
+    capability.approvalPolicyVersion === NAYAX_REFUND_APPROVAL_POLICY_VERSION &&
+    capability.responseEnvelopeVersion ===
+      NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION &&
     supported.includes(providerContractVersion) &&
+    capability.providerContractConfirmationRequired === true &&
     capability.payloadRedacted === true;
 };
 
@@ -479,8 +493,14 @@ serve(async (req) => {
         refundCase.reporting_machines?.nayax_account_key ?? "",
       );
       const approveToken = accountKey
-        ? Deno.env.get(`NAYAX_LYNX_API_TOKEN_${accountKey}`)?.trim() || ""
+        ? Deno.env.get(`NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}`)
+          ?.trim() || ""
         : "";
+      const managerContract = parseConfiguredManagerContract();
+      const releaseAuthorized = isNayaxRefundCaseReleaseAuthorized({
+        rolloutConfig,
+        caseId: refundCase.id,
+      });
       const rawApprovalContract = Deno.env.get(
         "NAYAX_REFUND_PENDING_APPROVAL_CONTRACT_JSON",
       )?.trim() ?? "";
@@ -497,6 +517,14 @@ serve(async (req) => {
         }
       }
       const recoveryBlocks = [
+        !NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_SUPPORTED
+          ? "pending_approval_recovery_retired"
+          : null,
+        !NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED
+          ? "official_actions_disabled"
+          : null,
+        ...caseExecutionConfig.blocks,
+        !releaseAuthorized ? "production_canary_required" : null,
         Deno.env.get("NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_ENABLED")?.trim()
             .toLowerCase() !== "true"
           ? "pending_approval_recovery_disabled"
@@ -517,9 +545,20 @@ serve(async (req) => {
           : null,
         !accountKey ? "machine_account_key_missing" : null,
         !approveToken ? "provider_credential_missing" : null,
+        !managerContract ? "provider_contract_invalid" : null,
+        managerContract &&
+            managerContract.contractVersion !==
+              NAYAX_REFUND_PROVIDER_CONTRACT_VERSION
+          ? "provider_contract_version_invalid"
+          : null,
         !rawApprovalContract ? "approval_contract_missing" : null,
         rawApprovalContract && !approvalContract
           ? "approval_contract_invalid"
+          : null,
+        approvalContract &&
+            approvalContract.contractVersion !==
+              NAYAX_REFUND_PROVIDER_CONTRACT_VERSION
+          ? "approval_contract_version_invalid"
           : null,
         approvalContract &&
           approvalContract.baseUrl !== "https://lynx.nayax.com/operational/v1"
@@ -1187,7 +1226,7 @@ serve(async (req) => {
           stageEvent,
         });
         const { data, error } = await supabase.rpc(
-          "service_record_nayax_refund_provider_stage_v2",
+          "service_record_nayax_refund_provider_stage_v3",
           {
             p_executor_assertion: executionConfig.executorAssertion,
             p_attempt_id: normalAttemptId,
@@ -1198,13 +1237,45 @@ serve(async (req) => {
               ? result.httpStatus
               : null,
             p_outcome: sanitizeText(result.outcome, 40) || null,
-            p_contract_matched: stageEvent.event === "result"
-              ? result.contractMatched === true
+            p_contract_matched: typeof result.contractMatched === "boolean"
+              ? result.contractMatched
               : null,
             p_failure_type: sanitizeText(result.failureType, 20) || null,
             p_classification_digest: classificationDigest,
             p_provider_contract_version: managerContract!.contractVersion,
             p_journal_contract_version: NAYAX_REFUND_JOURNAL_CONTRACT_VERSION,
+            p_http_accepted: typeof result.httpAccepted === "boolean"
+              ? result.httpAccepted
+              : null,
+            p_media_type_class: sanitizeText(result.mediaTypeClass, 40) || null,
+            p_body_kind: sanitizeText(result.bodyKind, 40) || null,
+            p_body_length_bucket:
+              sanitizeText(result.bodyLengthBucket, 40) || null,
+            p_json_parsed: typeof result.jsonParsed === "boolean"
+              ? result.jsonParsed
+              : null,
+            p_json_object: typeof result.jsonObject === "boolean"
+              ? result.jsonObject
+              : null,
+            p_schema_matched: typeof result.schemaMatched === "boolean"
+              ? result.schemaMatched
+              : null,
+            p_result_key_present:
+              typeof result.resultKeyPresent === "boolean"
+                ? result.resultKeyPresent
+                : null,
+            p_status_key_present:
+              typeof result.statusKeyPresent === "boolean"
+                ? result.statusKeyPresent
+                : null,
+            p_result_value_type:
+              sanitizeText(result.resultValueType, 40) || null,
+            p_status_value_type:
+              sanitizeText(result.statusValueType, 40) || null,
+            p_semantic_pair_matched:
+              typeof result.semanticPairMatched === "boolean"
+                ? result.semanticPairMatched
+                : null,
           },
         );
         if (error || !data || typeof data !== "object") {
@@ -1216,15 +1287,22 @@ serve(async (req) => {
         }
         const decision = data as Record<string, unknown>;
         if (
+          decision.recorded !== true ||
           decision.journalContractVersion !==
             NAYAX_REFUND_JOURNAL_CONTRACT_VERSION ||
           decision.providerContractVersion !== managerContract!.contractVersion ||
+          decision.approvalPolicyVersion !==
+            NAYAX_REFUND_APPROVAL_POLICY_VERSION ||
+          decision.responseEnvelopeVersion !==
+            NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION ||
           decision.payloadRedacted !== true
         ) {
           throw new Error("provider_journal_version_mismatch");
         }
         return {
           approvalAuthorized: decision.approvalAuthorized === true,
+          approvalPolicyVersion: NAYAX_REFUND_APPROVAL_POLICY_VERSION,
+          responseEnvelopeVersion: NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION,
           journalContractVersion: NAYAX_REFUND_JOURNAL_CONTRACT_VERSION,
           providerContractVersion: managerContract!.contractVersion,
           payloadRedacted: true as const,
@@ -1246,7 +1324,7 @@ serve(async (req) => {
         provider,
         reserveAndConsumeAttempt: async (request) => {
           const { data, error } = await supabase.rpc(
-            "service_reserve_nayax_refund_manager_action_v2",
+            "service_reserve_nayax_refund_manager_action_v3",
             {
               p_executor_assertion: executionConfig.executorAssertion,
               p_actor_user_id: user.id,

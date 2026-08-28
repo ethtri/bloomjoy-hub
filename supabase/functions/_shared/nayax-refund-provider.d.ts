@@ -67,6 +67,8 @@ export type NayaxControlledPilotStageEvent =
 
 export type NayaxProviderStageDecision = Readonly<{
   approvalAuthorized: boolean;
+  approvalPolicyVersion?: string;
+  responseEnvelopeVersion?: string;
   journalContractVersion?: string;
   providerContractVersion?: string;
   payloadRedacted?: true;

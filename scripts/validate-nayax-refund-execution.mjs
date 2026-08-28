@@ -156,7 +156,9 @@ assert(
 assert(
   fn.includes('can_perform_refund_official_action') &&
     fn.includes('createNayaxRefundProviderAdapter') &&
-    fn.includes('service_reserve_nayax_refund_manager_action') &&
+    fn.includes('service_reserve_nayax_refund_manager_action_v3') &&
+    fn.includes('service_record_nayax_refund_provider_stage_v3') &&
+    fn.includes('service_get_nayax_refund_provider_journal_capability_v3') &&
     fn.includes('orchestrateNayaxRefund') &&
     fn.includes('authorizeRefundOfficialAction') &&
     fn.includes('service_settle_nayax_refund_attempt') &&
@@ -283,6 +285,11 @@ assert(
 );
 assert(
   fn.includes('operation === "approve_pending_request"') &&
+    fn.includes('NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_SUPPORTED = false') &&
+    fn.includes('pending_approval_recovery_retired') &&
+    fn.includes('...caseExecutionConfig.blocks') &&
+    fn.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
+    fn.includes('approval_contract_version_invalid') &&
     fn.includes('executeNayaxRefundApprovalOnly') &&
     fn.includes('service_reserve_nayax_pending_approval_recovery') &&
     fn.includes('service_settle_nayax_pending_approval_recovery') &&
@@ -290,7 +297,7 @@ assert(
     pendingApprovalRecoveryMigration.includes("provider_status is distinct from 'request_unknown_contract_mismatch'") &&
     pendingApprovalRecoveryMigration.includes("journal.stage = 'approve'") &&
     !pendingApprovalRecoveryMigration.includes('/payment/refund-request'),
-  'The pending-request recovery must be single-use, DTM-gated, approval-only, and blocked after any approval-start marker.'
+  'The legacy pending-request recovery must remain retired while preserving its single-use forensic boundary and full current gates.'
 );
 assert(
   providerAdapter.includes('ALLOWED_NAYAX_REFUND_HOSTS') &&
@@ -335,6 +342,9 @@ assert(
     refundReadiness.includes('parseNayaxRefundDailyUsage') &&
     fn.includes('.rpc(\n    "service_refund_nayax_daily_usage"') &&
     refundAdminUpdate.includes('.rpc(\n    "service_refund_nayax_daily_usage"') &&
+    refundAdminUpdate.includes('service_get_nayax_refund_provider_journal_capability_v3') &&
+    refundAdminUpdate.includes('parseNayaxRefundProviderContract') &&
+    refundAdminUpdate.includes('providerJournalAvailable') &&
     !fn.includes('.from("refund_case_nayax_refund_attempts")') &&
     !refundAdminUpdate.includes('.from("refund_case_nayax_refund_attempts")'),
   'Readiness cap usage must come from a service-only, non-identifying aggregate RPC rather than direct access to the private provider-attempt ledger.'

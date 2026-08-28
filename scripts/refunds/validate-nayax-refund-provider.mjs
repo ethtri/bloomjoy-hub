@@ -1078,6 +1078,13 @@ const authoritativeJournalMigration = fs.readFileSync(
   ),
   'utf8',
 ).replace(/\r\n/g, '\n');
+const authoritativeJournalV3Migration = fs.readFileSync(
+  path.join(
+    repoRoot,
+    'supabase/migrations/20260828003503_refund_nayax_authoritative_journal_v3.sql',
+  ),
+  'utf8',
+).replace(/\r\n/g, '\n');
 check(capMigration.includes('pg_catalog.pg_advisory_xact_lock'), 'Daily cap checks and reservation share a transaction-scoped advisory lock.');
 check(capMigration.includes("attempt.execution_mode = 'request_and_approve'"), 'Only real provider-attempt reservations consume daily caps.');
 check(capMigration.includes('current_daily_count + 1 > p_daily_count_cap'), 'The daily count cap is checked before reservation.');
@@ -1099,30 +1106,36 @@ check(
     handler.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
     !handler.includes('NAYAX_LYNX_API_TOKEN_${normalAccountKey}') &&
     handler.includes('provider,') &&
-    handler.includes('service_reserve_nayax_refund_manager_action_v2') &&
-    handler.includes('service_record_nayax_refund_provider_stage_v2') &&
-    handler.includes('service_get_nayax_refund_provider_journal_capability') &&
+    handler.includes('service_reserve_nayax_refund_manager_action_v3') &&
+    handler.includes('service_record_nayax_refund_provider_stage_v3') &&
+    handler.includes('service_get_nayax_refund_provider_journal_capability_v3') &&
+    handler.includes('p_media_type_class:') &&
+    handler.includes('p_body_kind:') &&
+    handler.includes('p_semantic_pair_matched:') &&
+    handler.includes('db-authoritative-exact-200-json-v1') &&
+    handler.includes('nayax-response-envelope-v1') &&
     handler.includes('approvalAuthorized: decision.approvalAuthorized === true') &&
     gates.includes('NAYAX_REFUND_BROAD_REOPEN_APPROVED') &&
     gates.includes('NAYAX_REFUND_CANARY_CASE_ID') &&
     handler.includes('resolveNayaxRefundCaseExecutionConfig') &&
-    gates.includes('NAYAX_REFUND_CANARY_UNPROVEN_PROVIDER_APPROVED') &&
-    gates.includes('!rolloutConfig.broadReopenApproved') &&
-    gates.includes('block !== "manager_contract_unconfirmed"') &&
-    gates.includes('block !== "approval_scope_unconfirmed"') &&
+    !gates.includes('NAYAX_REFUND_CANARY_UNPROVEN_PROVIDER_APPROVED') &&
+    gates.includes('can never substitute for an') &&
     !handler.includes('provider: disabledNayaxProviderAdapter'),
-  'The normal manager action requires explicit write credentials, a versioned contract, a database-owned transition, and case-scoped canary/broad-release authorization.',
+  'The normal manager action requires explicit write credentials, the v3 response envelope, a database-owned transition, and case-scoped canary/broad-release authorization.',
 );
 check(
   authoritativeJournalMigration.includes('service_record_nayax_refund_provider_stage_v2') &&
-    authoritativeJournalMigration.includes("'approvalAuthorized', approval_authorized") &&
-    authoritativeJournalMigration.includes("normalized_outcome = 'unknown'") &&
-    authoritativeJournalMigration.includes("normalized_outcome = 'accepted'") &&
-    authoritativeJournalMigration.includes("provider_outcome in ('timeout', 'unknown')") &&
-    authoritativeJournalMigration.includes('refund_nayax_account_circuit_breaker') &&
-    authoritativeJournalMigration.includes('service_get_nayax_refund_provider_journal_capability') &&
-    authoritativeJournalMigration.includes('enable row level security'),
-  'The migration owns the transition matrix, version handshake, account circuit breaker, and private-table RLS.',
+    authoritativeJournalV3Migration.includes('service_record_nayax_refund_provider_stage_v3') &&
+    authoritativeJournalV3Migration.includes('service_reserve_nayax_refund_manager_action_v3') &&
+    authoritativeJournalV3Migration.includes('service_get_nayax_refund_provider_journal_capability_v3') &&
+    authoritativeJournalV3Migration.includes("p_http_status = 200") &&
+    authoritativeJournalV3Migration.includes("normalized_media_type = 'application_json'") &&
+    authoritativeJournalV3Migration.includes('p_semantic_pair_matched is true') &&
+    authoritativeJournalV3Migration.includes("'approvalPolicyVersion', 'db-authoritative-exact-200-json-v1'") &&
+    authoritativeJournalV3Migration.includes("'responseEnvelopeVersion', 'nayax-response-envelope-v1'") &&
+    authoritativeJournalV3Migration.includes("'response_read'") &&
+    authoritativeJournalV3Migration.includes('enable row level security'),
+  'Journal v3 owns the exact-200 JSON response transition while journal v2 remains available for rollback.',
 );
 check(
   refundOperations.includes("supabaseClient.rpc('get_refund_nayax_reliability_health')") &&
@@ -1132,21 +1145,29 @@ check(
   'Managers receive a privacy-safe card-refund reliability alert with an explicit owner SLA.',
 );
 check(
-  handler.includes('executeNayaxRefundApprovalOnly') &&
+  handler.includes('NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_SUPPORTED = false') &&
+    handler.includes('pending_approval_recovery_retired') &&
+    handler.includes('...caseExecutionConfig.blocks') &&
+    handler.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
+    handler.includes('approval_contract_version_invalid') &&
+    handler.includes('production_canary_required') &&
+    handler.includes('executeNayaxRefundApprovalOnly') &&
     handler.includes('service_reserve_nayax_pending_approval_recovery') &&
     handler.includes('service_settle_nayax_pending_approval_recovery') &&
     pendingApprovalRecoveryMigration.includes("provider_status is distinct from 'request_unknown_contract_mismatch'") &&
     pendingApprovalRecoveryMigration.includes("journal.stage = 'approve'") &&
     pendingApprovalRecoveryMigration.includes('nayax_refund_attempt_id uuid not null unique') &&
     !pendingApprovalRecoveryMigration.includes('/payment/refund-request'),
-  'The single-use pending-request recovery is approval-only and rejects any attempt with an approval-start marker.',
+  'The legacy pending-request recovery is retired and also retains dedicated credentials, full gates, and its single-use forensic boundary.',
 );
 check(
   pendingApprovalRecoveryMigration.includes('classification_digest') &&
-    pendingApprovalRecoveryMigration.includes('payload_redacted boolean not null default true') &&
+    pendingApprovalRecoveryMigration.includes('payload_redacted') &&
     pendingApprovalRecoveryMigration.includes('guard_refund_nayax_provider_stage_immutable') &&
+    authoritativeJournalV3Migration.includes('body_length_bucket') &&
+    authoritativeJournalV3Migration.includes('result_value_type') &&
     handler.includes('buildRedactedNayaxStageDigest'),
-  'Normal and recovery provider stages retain only immutable keyed redacted evidence.',
+  'Normal provider stages retain only immutable keyed redacted envelope evidence.',
 );
 check(
   managerSessionMigration.includes('authorization_method') &&
@@ -1201,7 +1222,6 @@ check(/^NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED=false$/m.test(envExample), 'Norm
 check(/^NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED=false$/m.test(envExample), 'Approval permission confirmation defaults to false.');
 check(/^NAYAX_REFUND_CANARY_ENABLED=false$/m.test(envExample), 'The normal-path production canary defaults to disabled.');
 check(/^NAYAX_REFUND_CANARY_CASE_ID=$/m.test(envExample), 'The canary case defaults to unset.');
-check(/^NAYAX_REFUND_CANARY_UNPROVEN_PROVIDER_APPROVED=false$/m.test(envExample), 'The canary-only contract/scope calibration defaults to disabled.');
 check(/^NAYAX_REFUND_BROAD_REOPEN_APPROVED=false$/m.test(envExample), 'Broad card-refund reopening defaults to false.');
 check(/^NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_ENABLED=false$/m.test(envExample), 'Pending-request recovery defaults to disabled.');
 check(/^NAYAX_REFUND_PENDING_APPROVAL_CONTRACT_JSON=$/m.test(envExample), 'The approval-only contract defaults to unset.');

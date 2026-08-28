@@ -71,8 +71,13 @@ Set the following values before launch.
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only | `stripe-webhook`, `stripe-sugar-checkout`, `lead-submission-intake`, `support-request-intake`, `access-invite`, `refund-adjustment-sync`, `refund-case-intake`, `refund-case-admin-update`, `refund-case-message-send`, `refund-case-automation-sweep`, `nayax-transaction-lookup` | Supabase service role key | Technical owner |
 | `PUBLIC_INTAKE_ABUSE_HASH_SALT` | Server-only | `refund-case-intake` | Generated server-only salt | Technical owner |
 | `NAYAX_LYNX_BASE_URL` | Server-only | `nayax-transaction-lookup` | `https://lynx.nayax.com/operational/v1` | Technical owner |
-| `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB` | Server-only | `nayax-transaction-lookup`, `nayax-card-refund` | Nayax Lynx token for TGPACI USA DB; the refund function uses it only after all normal execution gates pass | Technical owner |
+| `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB` | Server-only | `nayax-transaction-lookup` | Nayax Lynx reporting/lookup token for TGPACI USA DB; never a refund-write fallback | Technical owner |
 | `NAYAX_LYNX_API_TOKEN` | Server-only fallback | `nayax-transaction-lookup` | Fallback Nayax Lynx token only when account-specific token names are not used | Technical owner |
+| `NAYAX_REFUND_REQUEST_WRITE_TOKEN_<ACCOUNT_KEY>` | Server-only | `nayax-card-refund` | Dedicated account-scoped refund-request credential; never falls back to a reporting token | Technical owner |
+| `NAYAX_REFUND_APPROVE_WRITE_TOKEN_<ACCOUNT_KEY>` | Server-only | `nayax-card-refund` | Dedicated account-scoped refund-approval credential; never falls back to a reporting token | Technical owner |
+| `NAYAX_REFUND_MANAGER_CONTRACT_JSON` | Server-only | `nayax-card-refund`, `refund-case-admin-update` | Exact schema-v2 Bearer contract with the account-confirmed request/approval response pairs | Technical owner |
+| `NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED` | Server-only | `nayax-card-refund` | `true` only after the intended Core/API identity and account contract are independently confirmed | Technical owner |
+| `NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED` | Server-only | `nayax-card-refund` | `true` only after readback proves the dedicated approval credential has the intended account scope | Technical owner |
 | `NAYAX_LOOKUP_WINDOW_HOURS` | Server-only | `nayax-transaction-lookup`, `refund-case-automation-sweep` | Default `6`; conservative card lookup window around reported incident time | Release owner |
 | `REFUND_NAYAX_CANDIDATE_TTL_HOURS` | Server-only | `nayax-transaction-lookup`, `refund-case-automation-sweep` | Default `24`; tokenized evidence review window | Release owner |
 | `REFUND_REPLY_TO_EMAIL` | Server-only | Refund customer email functions | Default `info@bloomjoysweets.com`; customer replies during pilot | Release owner |
@@ -240,7 +245,7 @@ npm run commerce:preflight -- --project-ref <project-ref> --include-refunds
 npm run refunds:preflight-gmail -- --project-ref <project-ref>
 ```
 
-Remote preflight validates secret presence by name. Before deploying, separately verify the fail-closed values are set as intended: `NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`, and `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false`. These safety values do not enable the deployed default-off handler: its production provider adapter remains statically disabled, and the local synthetic adapter is available only through dependency injection in tests.
+Remote preflight validates secret presence by name. Before deploying, separately verify the fail-closed values are set as intended: `NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`, `NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED=false`, and `NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED=false`. The production adapter exists but cannot reserve or call Nayax while any independent gate is closed; the synthetic adapter is available only through dependency injection in tests.
 
 For the deployed `#644` baseline, use `Docs/REFUND_PRODUCTION_CUTOVER_PACKET.md` as the historical merge, deployment, smoke, rollback, pilot, and sponsor-decision record. The current strict release is governed by the exact reviewed canonical-main manifest and evidence. Issue `#409` tracks the remaining staffed shadow and production-label/legacy-responder no-overlap cutover; it is not an unmerged integration release candidate and does not require a separate release manifest. `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` remains historical and must not be used as current deployment authority.
 
@@ -468,6 +473,7 @@ Optional historical GPT lane (not a Refund Operations v1 pilot requirement):
 Normal Nayax refund operation (`#628`, `#990`):
 - Deploy database changes before dependent functions while execution is disabled, dry-run is enabled, and the kill switch is active. After exact release alignment passes, follow the current operating procedure at the top of this runbook.
 - Provision only the dedicated account-scoped request and approval credentials. Never use a reporting or generic Nayax token as a write fallback.
+- The legacy `approve_pending_request` operation is retired fail-closed. Preserve its historical database rows for audit/rollback tests, but do not enable or invoke it; authoritative-unknown attempts use provider-free DTM/support reconciliation.
 - The next unresolved, genuinely owed customer refund of $10 or less may be the first direct proof when it has one exact transaction and no prior provider attempt or refund. The exact-case switch may bound that first action; it is a software control, not a separate canary ceremony.
 - Require one manager action, one immutable generation, at most one request and one approval, one terminal settlement decision, and exactly-once reporting/customer completion. Repeat clicks, reloads, workers, and retries cannot create another provider send.
 - A definitive no-refund result may release a new generation. Any uncertain provider result remains held for Nayax verification before a later or manual action. A single safely held ambiguity does not disable unrelated healthy machines unless the circuit breaker indicates a systemic account condition.
