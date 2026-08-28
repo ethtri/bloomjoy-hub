@@ -241,7 +241,7 @@ insert into public.refund_cases (
 select
   ('b1600000-0000-4000-8000-' || lpad(series::text, 12, '0'))::uuid,
   'RF-RESOLUTION-' || series,
-  case when series = 8
+  case when series = 11
     then 'b1300000-0000-4000-8000-000000000002'::uuid
     else 'b1300000-0000-4000-8000-000000000001'::uuid
   end,
@@ -265,10 +265,10 @@ select
     when 3 then 'failed'
     when 6 then 'ambiguous'
     when 7 then 'ambiguous'
-    when 8 then 'ambiguous'
+    when 11 then 'ambiguous'
     else 'declined'
   end
-from generate_series(1, 8) series;
+from unnest(array[1, 2, 3, 4, 5, 6, 7, 11]) series;
 
 insert into public.refund_gmail_threads (
   id, refund_case_id, mailbox_hash, provider_thread_id, thread_subject,
@@ -330,7 +330,7 @@ select
     when 3 then 'failed'
     when 6 then 'ambiguous'
     when 7 then 'ambiguous'
-    when 8 then 'ambiguous'
+    when 11 then 'ambiguous'
     else 'declined'
   end,
   'resolution-idempotency-' || series,
@@ -341,7 +341,7 @@ select
     when 3 then 'timeout'
     when 6 then 'unknown'
     when 7 then 'unknown'
-    when 8 then 'unknown'
+    when 11 then 'unknown'
     else 'rejected'
   end,
   statement_timestamp() - interval '10 minutes',
@@ -349,7 +349,7 @@ select
   jsonb_build_object('payload_redacted', true),
   jsonb_build_object('payload_redacted', true),
   statement_timestamp() - interval '20 minutes'
-from generate_series(1, 8) series;
+from unnest(array[1, 2, 3, 4, 5, 6, 7, 11]) series;
 
 select ok(not public.refund_nayax_outcome_resolution_enabled(),
   'Payment-support resolution is hard disabled by default');
@@ -973,12 +973,12 @@ select pg_temp.set_auth_claims(
 insert into pg_temp.nayax_resolution_test_results (result_key, result)
 select 'manager-session-retry-safe',
   public.admin_resolve_refund_nayax_outcome_manager_session(
-    'b1600000-0000-4000-8000-000000000008',
-    'b1700000-0000-4000-8000-000000000008',
+    'b1600000-0000-4000-8000-000000000011',
+    'b1700000-0000-4000-8000-000000000011',
     'provider_confirmed_retry_safe', 'nayax_dtm_transaction',
-    'DTM:MANAGER-RETRY-SAFE-0008', null, 'nayax_dtm_not_refunded',
+    'DTM:MANAGER-RETRY-SAFE-0011', null, 'nayax_dtm_not_refunded',
     (select official_action_version from public.refund_cases
-      where id = 'b1600000-0000-4000-8000-000000000008')
+      where id = 'b1600000-0000-4000-8000-000000000011')
   );
 reset role;
 
@@ -995,11 +995,11 @@ select ok((
     and attempt.reconciliation_required is false
     and attempt.support_resolution_result = 'provider_confirmed_retry_safe'
   from public.refund_case_nayax_refund_attempts attempt
-  where attempt.id = 'b1700000-0000-4000-8000-000000000008'
+  where attempt.id = 'b1700000-0000-4000-8000-000000000011'
 ), 'The release preserves the immutable ambiguous provider facts and records the authoritative resolution separately');
 select ok(
   public.refund_nayax_retry_safe_resolution_is_current(
-    'b1700000-0000-4000-8000-000000000008'
+    'b1700000-0000-4000-8000-000000000011'
   )
   and not public.refund_nayax_retry_safe_resolution_is_current(
     '00000000-0000-4000-8000-000000000000'
@@ -1018,7 +1018,7 @@ select ok((
     and (lifecycle ->> 'safeRetryEligible')::boolean
     and not (lifecycle #>> '{operations,required}')::boolean
   from (select public.refund_lifecycle_contract(
-    'b1600000-0000-4000-8000-000000000008'
+    'b1600000-0000-4000-8000-000000000011'
   ) lifecycle) checked
 ), 'The manager lifecycle returns the resolved case to one Refund action');
 select ok((
@@ -1026,7 +1026,7 @@ select ok((
     and not (readiness ->> 'accountCircuitBreakerActive')::boolean
   from (select public.refund_case_nayax_manager_readiness(
     'b1000000-0000-4000-8000-000000000001',
-    'b1600000-0000-4000-8000-000000000008'
+    'b1600000-0000-4000-8000-000000000011'
   ) readiness) checked
 ), 'Database readiness reopens only the exact resolved manager case');
 
