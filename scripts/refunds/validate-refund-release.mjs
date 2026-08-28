@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   assertSupportedFunctionDeploymentInputs,
+  buildProductionCaptureReceipt,
   buildUpdatedLocalManifest,
   buildPreDeploymentProductionBaseline,
   buildLocalReleaseState,
@@ -152,7 +153,7 @@ assert.doesNotMatch(
 const smokeOrder = cutoverPacket.indexOf('## Exact postdeployment readiness order');
 const routeSmoke = cutoverPacket.indexOf('refunds:smoke-routes', smokeOrder);
 const captureManifest = cutoverPacket.indexOf(
-  'Capture production function metadata, update and independently review the manifest-only change',
+  'Capture and independently review the timestamped production function receipt',
   routeSmoke
 );
 const cleanDrift = cutoverPacket.indexOf(
@@ -821,6 +822,25 @@ try {
   assert.equal(sanitized.length, requiredFunctionSlugs.length, 'Unrelated production functions must be ignored');
   assert.equal('entrypoint_path' in sanitized[0], false, 'Entrypoint paths must be removed');
   assert.deepEqual(compareProductionState(manifest, sanitized), [], 'Matching production metadata must pass');
+  const laterSameBundleProduction = sanitized.map((entry) => ({
+    ...entry,
+    version: entry.version + 1,
+  }));
+  assert.deepEqual(
+    compareProductionState(manifest, laterSameBundleProduction),
+    [],
+    'Later live counters must pass when the approved bundle and security metadata are unchanged'
+  );
+  assert.match(
+    compareProductionState(
+      manifest,
+      laterSameBundleProduction.map((entry, index) =>
+        index === 0 ? { ...entry, ezbrSha256: 'c'.repeat(64) } : entry
+      )
+    ).join('\n'),
+    /bundle digest differs/,
+    'A later counter must still fail when its production bundle differs from the approved bundle'
+  );
 
   const productionSources = manifest.functions.map((entry) => ({
     slug: entry.slug,
@@ -884,6 +904,43 @@ try {
     [],
     'Capture must pass only when downloaded production source matches the approved source'
   );
+  const capturedAt = '2026-08-27T20:00:00.000Z';
+  const laterSameBundleReceipt = buildProductionCaptureReceipt(
+    {
+      ...manifest,
+      projectRef: 'a'.repeat(20),
+      releaseId: 'test-release',
+      sourceGitCommit: 'a'.repeat(40),
+      migrationFilesSha256: 'a'.repeat(64),
+      migrationVersionSetSha256: 'b'.repeat(64),
+      preDeploymentProduction: [],
+      approvedRestoreSource: { releaseId: 'test-restore' },
+    },
+    laterSameBundleProduction,
+    productionSources,
+    capturedAt
+  );
+  assert.equal(laterSameBundleReceipt.capturedAt, capturedAt, 'Capture receipts must record their exact observation time');
+  assert.equal(
+    laterSameBundleReceipt.functions[0].version,
+    sanitized[0].version + 1,
+    'Capture receipts must record the live production version rather than the sealed manifest version'
+  );
+  assert.equal(
+    laterSameBundleReceipt.functions[0].approvedBundleVersion,
+    sanitized[0].version,
+    'Capture receipts must retain the approved bundle version as separate audit context'
+  );
+  assert.equal(
+    laterSameBundleReceipt.functions[0].versionRelation,
+    'same_bundle_later_revision',
+    'Capture receipts must identify a later counter for the exact approved bundle'
+  );
+  assert.throws(
+    () => buildProductionCaptureReceipt(manifest, sanitized, productionSources, 'not-a-timestamp'),
+    /timestamp is invalid/,
+    'Capture receipts must reject an invalid observation timestamp'
+  );
   assert.match(
     compareCaptureState(
       manifest,
@@ -925,9 +982,9 @@ try {
     'Inactive production functions must fail'
   );
   assert.match(
-    compareProductionState(manifest, sanitized.map((entry, index) => index === 0 ? { ...entry, version: 999 } : entry)).join('\n'),
-    /version differs/,
-    'Unexpected production versions must fail'
+    compareProductionState(manifest, sanitized.map((entry, index) => index === 0 ? { ...entry, version: 1 } : entry)).join('\n'),
+    /version regressed below the approved bundle version/,
+    'A production version regression must fail even when the bundle digest is unchanged'
   );
   assert.match(
     compareProductionState(manifest, sanitized.map((entry, index) => index === 0 ? { ...entry, verifyJwt: true } : entry)).join('\n'),

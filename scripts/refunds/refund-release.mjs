@@ -608,8 +608,8 @@ export const compareProductionState = (manifest, productionFunctions) => {
     if (expected.production.sourceSha256 !== expected.sourceSha256) {
       failures.push(`${expected.slug}: approved repository source has not been paired with production`);
     }
-    if (actual.version !== expected.production.version) {
-      failures.push(`${expected.slug}: production version differs from the manifest`);
+    if (actual.version < expected.production.version) {
+      failures.push(`${expected.slug}: production version regressed below the approved bundle version`);
     }
     if (actual.ezbrSha256 !== expected.production.ezbrSha256) {
       failures.push(`${expected.slug}: production bundle digest differs from the manifest`);
@@ -643,6 +643,9 @@ export const compareCaptureState = (manifest, productionFunctions, productionSou
     if (!digestPattern.test(actual.ezbrSha256)) {
       failures.push(`${expected.slug}: production bundle digest is invalid`);
     }
+    if (expected.production && actual.version < expected.production.version) {
+      failures.push(`${expected.slug}: production version regressed below the approved bundle version`);
+    }
     if (actual.verifyJwt !== expected.verifyJwt) {
       failures.push(`${expected.slug}: production verify_jwt differs from the manifest`);
     }
@@ -653,6 +656,73 @@ export const compareCaptureState = (manifest, productionFunctions, productionSou
   }
 
   return failures;
+};
+
+export const buildProductionCaptureReceipt = (
+  manifest,
+  productionFunctions,
+  productionSources,
+  capturedAt
+) => {
+  assert(
+    typeof capturedAt === 'string' && Number.isFinite(Date.parse(capturedAt)),
+    'Production capture timestamp is invalid'
+  );
+  const captureFailures = compareCaptureState(
+    manifest,
+    productionFunctions,
+    productionSources
+  );
+  assert(
+    captureFailures.length === 0,
+    `Production capture receipt is not aligned: ${captureFailures.join('; ')}`
+  );
+
+  const manifestBySlug = new Map(manifest.functions.map((entry) => [entry.slug, entry]));
+  const sourceBySlug = new Map(
+    productionSources.map((entry) => [entry.slug, entry.sourceSha256])
+  );
+
+  return {
+    schemaVersion: 1,
+    capturedAt,
+    projectRef: manifest.projectRef,
+    releaseId: manifest.releaseId,
+    sourceGitCommit: manifest.sourceGitCommit,
+    migrationFilesSha256: manifest.migrationFilesSha256,
+    migrationVersionSetSha256: manifest.migrationVersionSetSha256,
+    preDeploymentProduction: manifest.preDeploymentProduction,
+    approvedRestoreSource: manifest.approvedRestoreSource,
+    functions: productionFunctions.map((entry) => {
+      const expected = manifestBySlug.get(entry.slug);
+      const approved = expected.production;
+      const sourceSha256 = sourceBySlug.get(entry.slug);
+      const sameApprovedBundle = Boolean(
+        approved &&
+          entry.ezbrSha256 === approved.ezbrSha256 &&
+          sourceSha256 === approved.sourceSha256
+      );
+
+      let versionRelation = 'new_bundle_candidate';
+      if (sameApprovedBundle && entry.version === approved.version) {
+        versionRelation = 'approved_bundle_version';
+      } else if (sameApprovedBundle && entry.version > approved.version) {
+        versionRelation = 'same_bundle_later_revision';
+      }
+
+      return {
+        slug: entry.slug,
+        status: entry.status,
+        version: entry.version,
+        approvedBundleVersion: approved?.version ?? null,
+        versionRelation,
+        verifyJwt: entry.verifyJwt,
+        importMap: entry.importMap,
+        ezbrSha256: entry.ezbrSha256,
+        sourceSha256,
+      };
+    }),
+  };
 };
 
 export const comparePreMigrationCompatibilityState = (
@@ -1109,33 +1179,13 @@ const main = () => {
     const allowedOutputRoot = path.resolve(repoRoot, 'output');
     assert(outputPath.startsWith(`${allowedOutputRoot}${path.sep}`), 'Capture output must be under output/');
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-    fs.writeFileSync(
-      outputPath,
-      `${JSON.stringify(
-        {
-          projectRef,
-          releaseId: manifest.releaseId,
-          sourceGitCommit: manifest.sourceGitCommit,
-          migrationFilesSha256: manifest.migrationFilesSha256,
-          migrationVersionSetSha256: manifest.migrationVersionSetSha256,
-          preDeploymentProduction: manifest.preDeploymentProduction,
-          approvedRestoreSource: manifest.approvedRestoreSource,
-          functions: production.map((entry) => ({
-            slug: entry.slug,
-            status: entry.status,
-            version: entry.version,
-            verifyJwt: entry.verifyJwt,
-            importMap: entry.importMap,
-            ezbrSha256: entry.ezbrSha256,
-            sourceSha256:
-              manifest.functions.find((item) => item.slug === entry.slug)?.sourceSha256 ?? null,
-          })),
-        },
-        null,
-        2
-      )}\n`,
-      'utf8'
+    const receipt = buildProductionCaptureReceipt(
+      manifest,
+      production,
+      productionSources,
+      new Date().toISOString()
     );
+    fs.writeFileSync(outputPath, `${JSON.stringify(receipt, null, 2)}\n`, 'utf8');
     console.log(`Captured verified production metadata for ${production.length} refund functions.`);
     return;
   }
@@ -1144,8 +1194,17 @@ const main = () => {
   printFailures('Refund release production drift check failed:', productionFailures);
   if (productionFailures.length > 0) process.exit(1);
 
+  const approvedBySlug = new Map(
+    manifest.functions.map((entry) => [entry.slug, entry.production?.version ?? null])
+  );
   for (const entry of production) {
-    console.log(`${entry.slug}: PASS v${entry.version} ${entry.ezbrSha256.slice(0, 12)}`);
+    const approvedVersion = approvedBySlug.get(entry.slug);
+    const versionNote = entry.version === approvedVersion
+      ? 'approved bundle version'
+      : `same approved bundle; captured at v${approvedVersion}`;
+    console.log(
+      `${entry.slug}: PASS live v${entry.version} ${entry.ezbrSha256.slice(0, 12)} (${versionNote})`
+    );
   }
 };
 

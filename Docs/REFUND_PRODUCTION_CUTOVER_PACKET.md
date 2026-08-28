@@ -84,7 +84,7 @@ If any merge changes an in-scope migration or Refund Operations function after t
 
 ### No provisional compatibility bridge
 
-The historical `#629/#716` five-migration bridge does not apply. The 75-migration target uses its reviewed manifest plus the exact canonical 51-migration predeployment bridge only for historical compatibility evidence. Any unexpected migration, source digest, function version, switch state, or health result stops the release.
+The historical `#629/#716` five-migration bridge does not apply. The 75-migration target uses its reviewed manifest plus the exact canonical 51-migration predeployment bridge only for historical compatibility evidence. Any unexpected migration, source digest, function-version regression, switch state, or health result stops the release. A higher live function counter is acceptable only when the approved bundle/source/security pairing remains exact; the receipt identifies that condition as a same-bundle later revision.
 
 ## Default-off production deployment
 
@@ -111,7 +111,7 @@ Check switch values without printing secrets. A deploy must not silently enable 
 ## Exact postdeployment readiness order
 
 1. Run `npm run refunds:smoke-routes -- --project-ref <project-ref> --confirm-project-ref <project-ref>`; every no-auth, no-body `OPTIONS` probe must return its exact safe status.
-2. Capture production function metadata, update and independently review the manifest-only change, then require the standard production drift check to pass for all ten functions.
+2. Capture and independently review the timestamped production function receipt. Update the manifest through a reviewed manifest-only change only for a `new_bundle_candidate`; retain the sealed manifest for a `same_bundle_later_revision`. Then require the standard production drift check to pass for all ten functions.
 3. Run one controlled inventory sync with the schedule still disabled. Confirm the run is complete and nonempty before accepting any inventory result.
 4. Reconcile every active Nayax row. Each must be **Published**, **Needs setup**, or **Explicitly excluded**. Do not launch with an unaccounted row, a stale published row, or a setup row exposed as mapped. Confirm every published cotton-candy/Snapcase machine has an exact identity, customer-safe label, active location, and one to four current managers.
 5. Run `npm run refunds:smoke-public-options -- --project-ref <project-ref> --confirm-project-ref <project-ref>`; require zero internal labels, duplicate public options, or unaccounted active machines. For this reviewed inventory, require exactly 33 Published, 2 Needs setup, 4 Excluded, 46 public choices, and 33 lookup-ready mappings.
