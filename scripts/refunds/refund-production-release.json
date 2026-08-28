@@ -168,7 +168,8 @@
       "production": {
         "version": 90,
         "ezbrSha256": "2aa65603cafef8143e88bc377b5cf16deefb83c5f40ebe0a3ed0e0440e1b232d",
-        "sourceSha256": "8a8369b29b2cfce6208c4cc821ae3d81c61d457246229b9f37534a72d6c2f888"
+        "sourceSha256": "8a8369b29b2cfce6208c4cc821ae3d81c61d457246229b9f37534a72d6c2f888",
+        "entrypointIdentity": "supabase/functions/refund-case-intake/index.ts"
       }
     },
     {
@@ -178,7 +179,8 @@
       "production": {
         "version": 82,
         "ezbrSha256": "676639f34fbaa3ed521544a082c3dacc1fb6729f16011309f3e7eeec3cf52dd5",
-        "sourceSha256": "8b212c162087677170aef91b7f2f093223635dc26d3ca663e03d81fcf25130d3"
+        "sourceSha256": "8b212c162087677170aef91b7f2f093223635dc26d3ca663e03d81fcf25130d3",
+        "entrypointIdentity": "supabase/functions/nayax-transaction-lookup/index.ts"
       }
     },
     {
@@ -188,7 +190,8 @@
       "production": {
         "version": 93,
         "ezbrSha256": "6e4d1c7810a69dcc58b02531dfce65dca4e0fbf0aae6da77a473808d474fe195",
-        "sourceSha256": "44b77c12a744aa7a12b7048be55a741dbdced429f82827029db2c8f7d028536a"
+        "sourceSha256": "44b77c12a744aa7a12b7048be55a741dbdced429f82827029db2c8f7d028536a",
+        "entrypointIdentity": "supabase/functions/refund-case-admin-update/index.ts"
       }
     },
     {
@@ -198,7 +201,8 @@
       "production": {
         "version": 88,
         "ezbrSha256": "f55dec3786687f9af2f6919d626168a28714683a2d0d0516976cec5e896dd580",
-        "sourceSha256": "949741f499958f2bdb19d1d6143778c12e3b15ca2462b0ea58f570efad5ec2b2"
+        "sourceSha256": "949741f499958f2bdb19d1d6143778c12e3b15ca2462b0ea58f570efad5ec2b2",
+        "entrypointIdentity": "supabase/functions/refund-case-message-send/index.ts"
       }
     },
     {
@@ -208,7 +212,8 @@
       "production": {
         "version": 90,
         "ezbrSha256": "780fb408e933eef6a87187cd3b75a9dd73d2470e3ad04475738e823ee176bfae",
-        "sourceSha256": "daaca90c16b46e117ecbfb09ed8d9679f82d5c53a3c9efde90578ca9dea1e216"
+        "sourceSha256": "daaca90c16b46e117ecbfb09ed8d9679f82d5c53a3c9efde90578ca9dea1e216",
+        "entrypointIdentity": "supabase/functions/refund-case-automation-sweep/index.ts"
       }
     },
     {
@@ -218,7 +223,8 @@
       "production": {
         "version": 88,
         "ezbrSha256": "6a107f17666761f6f6a1145fa807e6ecf1b6942fa382071637f2cd1a549ffa30",
-        "sourceSha256": "6fe8f6da1d54a239a033dccf72eacd9110059eb2f3ab7a8865af933eee55ec40"
+        "sourceSha256": "6fe8f6da1d54a239a033dccf72eacd9110059eb2f3ab7a8865af933eee55ec40",
+        "entrypointIdentity": "supabase/functions/refund-gmail-sync/index.ts"
       }
     },
     {
@@ -228,7 +234,8 @@
       "production": {
         "version": 77,
         "ezbrSha256": "1ef839d0183516c9373b531b043d015197c365cb23785e6d16017ad9706714fd",
-        "sourceSha256": "75a9775568676551005f0ad7509dd4c51f450b8c9e8e9b4c18f521a95a5d8947"
+        "sourceSha256": "75a9775568676551005f0ad7509dd4c51f450b8c9e8e9b4c18f521a95a5d8947",
+        "entrypointIdentity": "supabase/functions/refund-gpt-triage/index.ts"
       }
     },
     {
@@ -238,7 +245,8 @@
       "production": {
         "version": 92,
         "ezbrSha256": "572c5b6f8574222b5c630d2eb6d2b6bfa97fffa2e3b7768596700f82737eaee8",
-        "sourceSha256": "6906cfe841c512669406dbd671711bf6eb7b5a7720a43a8084d4964a4da83375"
+        "sourceSha256": "6906cfe841c512669406dbd671711bf6eb7b5a7720a43a8084d4964a4da83375",
+        "entrypointIdentity": "supabase/functions/nayax-card-refund/index.ts"
       }
     },
     {
@@ -248,7 +256,8 @@
       "production": {
         "version": 77,
         "ezbrSha256": "4b9eea09abda96d934361e019a008c179664cabe7f0d133f27c3784eac827259",
-        "sourceSha256": "c9605b7987896ab6d99cebdbaa52e9e3653e9e896b4cb0d82c1e3ce45ffb7c80"
+        "sourceSha256": "c9605b7987896ab6d99cebdbaa52e9e3653e9e896b4cb0d82c1e3ce45ffb7c80",
+        "entrypointIdentity": "supabase/functions/refund-manager-action-step-up/index.ts"
       }
     },
     {
@@ -258,7 +267,8 @@
       "production": {
         "version": 71,
         "ezbrSha256": "9c907ab99f06d87790e8915c3d793fd0a55fa08d6c2ac545f914aac7c5cee424",
-        "sourceSha256": "f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511"
+        "sourceSha256": "f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511",
+        "entrypointIdentity": "supabase/functions/refund-manager-totp-enrollment/index.ts"
       }
     }
   ],

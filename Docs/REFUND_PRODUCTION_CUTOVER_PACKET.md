@@ -84,7 +84,7 @@ If any merge changes an in-scope migration or Refund Operations function after t
 
 ### No provisional compatibility bridge
 
-The historical `#629/#716` five-migration bridge does not apply. The 75-migration target uses its reviewed manifest plus the exact canonical 51-migration predeployment bridge only for historical compatibility evidence. Any unexpected migration, source digest, function-version regression, switch state, or health result stops the release. A higher live function counter is acceptable only when the approved bundle/source/security pairing remains exact; the receipt identifies that condition as a same-bundle later revision.
+The historical `#629/#716` five-migration bridge does not apply. The 75-migration target uses its reviewed manifest plus the exact canonical 51-migration predeployment bridge only for historical compatibility evidence. Any unexpected migration, source digest, function-version regression, switch state, or health result stops the release. A higher live function counter is acceptable only when the approved bundle/source/security pairing and canonical `supabase/functions/<slug>/index.ts` entrypoint identity remain exact; the receipt identifies that condition as a same-bundle later revision and never retains the host-specific absolute entrypoint path.
 
 ## Default-off production deployment
 

@@ -11,6 +11,7 @@ import {
   buildUpdatedLocalManifest,
   buildPreDeploymentProductionBaseline,
   buildLocalReleaseState,
+  canonicalFunctionEntrypointIdentity,
   calculateFunctionSource,
   calculateMigrationDigest,
   calculateMigrationVersionSetDigest,
@@ -20,6 +21,7 @@ import {
   compareProductionState,
   discoverRefundMigrationFiles,
   manifestPath,
+  normalizeProductionEntrypointIdentity,
   parseFunctionDeploymentConfig,
   prepareManifestForLocalRefresh,
   repoRoot,
@@ -44,6 +46,12 @@ assert.match(
   productionRunbook,
   new RegExp(productionDriftCommand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
   'The release runbook must call the production drift checker explicitly'
+);
+assert(
+  productionRunbook.includes('canonical `supabase/functions/<slug>/index.ts` identity') &&
+    productionRunbook.includes('raw absolute paths are never retained') &&
+    cutoverPacket.includes('canonical `supabase/functions/<slug>/index.ts` entrypoint identity'),
+  'Release guidance must require the sanitized canonical production entrypoint identity'
 );
 assert(
   productionRunbook.includes(
@@ -201,6 +209,13 @@ try {
   );
   const repositoryManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   validateManifestShape(repositoryManifest);
+  const missingEntrypointManifest = structuredClone(repositoryManifest);
+  delete missingEntrypointManifest.functions[0].production.entrypointIdentity;
+  assert.throws(
+    () => validateManifestShape(missingEntrypointManifest),
+    /Production entrypoint identity is invalid/,
+    'An approved production bundle without an entrypoint identity must fail closed'
+  );
   assert.match(
     repositoryManifest.sourceGitCommit,
     /^[a-f0-9]{40}$/,
@@ -803,24 +818,50 @@ try {
         sourceSha256: String(index).padStart(64, 'a'),
         version: index + 2,
         ezbrSha256: String(index).padStart(64, 'b'),
+        entrypointIdentity: canonicalFunctionEntrypointIdentity(slug),
       },
     })),
   };
-  const rawProduction = manifest.functions.map((entry) => ({
+  const rawProduction = manifest.functions.map((entry, index) => ({
     slug: entry.slug,
     status: 'ACTIVE',
     version: entry.production.version,
     verify_jwt: false,
     import_map: false,
     ezbr_sha256: entry.production.ezbrSha256,
-    entrypoint_path: 'must-not-survive-sanitization',
+    entrypoint_path: index % 2 === 0
+      ? `file:///Repos/deployment-worktree/${canonicalFunctionEntrypointIdentity(entry.slug)}`
+      : `/tmp/deploy/source/${canonicalFunctionEntrypointIdentity(entry.slug)}`,
     id: 'must-not-survive-sanitization',
   }));
   rawProduction.push({ slug: 'unrelated-function', status: 'ACTIVE', version: 99 });
 
   const sanitized = sanitizeProductionMetadata(rawProduction);
   assert.equal(sanitized.length, requiredFunctionSlugs.length, 'Unrelated production functions must be ignored');
-  assert.equal('entrypoint_path' in sanitized[0], false, 'Entrypoint paths must be removed');
+  assert.equal('entrypoint_path' in sanitized[0], false, 'Raw host-specific entrypoint paths must be removed');
+  assert.equal(
+    sanitized[0].entrypointIdentity,
+    canonicalFunctionEntrypointIdentity(sanitized[0].slug),
+    'Production metadata must retain only the canonical function entrypoint identity'
+  );
+  for (const [label, rawEntrypointPath] of [
+    ['missing path', undefined],
+    ['query', `file:///tmp/${canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[0])}?candidate=1`],
+    ['fragment', `file:///tmp/${canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[0])}#candidate`],
+    ['backslash', `C:\\tmp\\${canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[0])}`],
+    ['traversal', `/tmp/../${canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[0])}`],
+    ['encoded traversal', `/tmp/%2e%2e/${canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[0])}`],
+    ['double-encoded traversal', `/tmp/%252e%252e/${canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[0])}`],
+    ['wrong slug', `/tmp/${canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[1])}`],
+    ['wrong basename', `/tmp/supabase/functions/${requiredFunctionSlugs[0]}/main.ts`],
+    ['non-file URI', `https://example.invalid/${canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[0])}`],
+  ]) {
+    assert.equal(
+      normalizeProductionEntrypointIdentity(rawEntrypointPath, requiredFunctionSlugs[0]),
+      null,
+      `${label} must not produce an approved entrypoint identity`
+    );
+  }
   assert.deepEqual(compareProductionState(manifest, sanitized), [], 'Matching production metadata must pass');
   const laterSameBundleProduction = sanitized.map((entry) => ({
     ...entry,
@@ -840,6 +881,18 @@ try {
     ).join('\n'),
     /bundle digest differs/,
     'A later counter must still fail when its production bundle differs from the approved bundle'
+  );
+  assert.match(
+    compareProductionState(
+      manifest,
+      laterSameBundleProduction.map((entry, index) =>
+        index === 0
+          ? { ...entry, entrypointIdentity: canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[1]) }
+          : entry
+      )
+    ).join('\n'),
+    /entrypoint identity differs/,
+    'A later counter must fail when its production entrypoint differs from the approved bundle'
   );
 
   const productionSources = manifest.functions.map((entry) => ({
@@ -886,6 +939,27 @@ try {
     /production bundle differs from the approved pre-migration baseline/,
     'Pre-migration compatibility must reject unapproved production bundles'
   );
+  assert.match(
+    comparePreMigrationCompatibilityState(
+      compatibilityManifest,
+      sanitized.map((entry, index) =>
+        index === 0
+          ? { ...entry, entrypointIdentity: canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[1]) }
+          : entry
+      ),
+      manifest.functions.map((entry) => ({
+        slug: entry.slug,
+        sourceSha256: entry.production.sourceSha256,
+      }))
+    ).join('\n'),
+    /entrypoint identity differs from the approved pre-migration baseline/,
+    'Pre-migration compatibility must reject an unapproved production entrypoint'
+  );
+  assert.equal(
+    buildPreDeploymentProductionBaseline(sanitized, productionSources)[0].entrypointIdentity,
+    canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[0]),
+    'A new pre-deployment baseline must retain the canonical entrypoint identity'
+  );
   assert.equal(
     buildPreDeploymentProductionBaseline(sanitized.slice(1), productionSources.slice(1))[0].status,
     'MISSING',
@@ -921,6 +995,7 @@ try {
     capturedAt
   );
   assert.equal(laterSameBundleReceipt.capturedAt, capturedAt, 'Capture receipts must record their exact observation time');
+  assert.equal(laterSameBundleReceipt.schemaVersion, 2, 'Entrypoint-aware capture receipts must use schemaVersion 2');
   assert.equal(
     laterSameBundleReceipt.functions[0].version,
     sanitized[0].version + 1,
@@ -935,6 +1010,11 @@ try {
     laterSameBundleReceipt.functions[0].versionRelation,
     'same_bundle_later_revision',
     'Capture receipts must identify a later counter for the exact approved bundle'
+  );
+  assert.equal(
+    laterSameBundleReceipt.functions[0].entrypointIdentity,
+    canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[0]),
+    'Capture receipts must retain the canonical entrypoint identity without the deployment-host prefix'
   );
   assert.throws(
     () => buildProductionCaptureReceipt(manifest, sanitized, productionSources, 'not-a-timestamp'),
@@ -969,6 +1049,15 @@ try {
     ).join('\n'),
     /production bundle digest is invalid/,
     'Capture must reject invalid production bundle digests'
+  );
+  assert.match(
+    compareCaptureState(
+      manifest,
+      sanitized.map((entry, index) => index === 0 ? { ...entry, entrypointIdentity: null } : entry),
+      productionSources
+    ).join('\n'),
+    /entrypoint identity differs/,
+    'Capture must reject missing or malformed production entrypoint metadata'
   );
 
   assert.match(
