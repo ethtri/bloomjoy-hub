@@ -1,5 +1,7 @@
 # Machine Manager Shadow UAT Script
 
+> **Historical record only.** This pre-launch shadow script does not define current Nayax account identity, permissions, execution availability, or manager ceremony. Use the newest entries in `Docs/DECISIONS.md` and `Docs/PRODUCTION_RUNBOOK.md` for current operation.
+
 Last updated: 2026-08-03
 
 ## Purpose
@@ -21,8 +23,8 @@ This is a manager-experience test, not an Admin setup test. Use synthetic or spo
 - Confirm the selected machines and manager are approved in `#427`.
 - Confirm the tested release commit and Refund Operations release manifest match the deployed environment.
 - Confirm live Nayax execution state:
-  - **Current candidate/shadow mode:** the production adapter is statically disabled before attempt reservation or provider access. Keep execution disabled, dry run on, kill switch on, provider-contract confirmation false, and sponsor flag unset; these historical controls are defense in depth and cannot activate a live call.
-  - **Future controlled execution:** only after `#430` adds and reviews the real adapter and account contract, the controlled low-value smoke/caps/allowlist are approved, and a separate owner-approved gate-on change passes.
+  - **Historical candidate/shadow mode:** the production adapter was statically disabled before attempt reservation or provider access. The disabled/dry-run/kill-switch/contract/sponsor values below are evidence for that old checkpoint only.
+  - **Current operation:** do not use this script to determine availability. Follow the current production runbook and canonical account decision.
 - Confirm the official-action database gate is still statically false for current shadow UAT. Any later official-action UAT requires the current active mapped Machine Manager to use the owner-approved personal account and personally complete the fresh action-bound TOTP step-up. Admin access alone, an unrelated manager, agent, shared session, email, scheduler, or GPT identity is invalid evidence; separate Super Admin or Scoped Admin access neither grants nor revokes an exact current machine mapping.
 - Confirm customer-email and automation tests use synthetic addresses unless the sponsor approved a real pilot case.
 - Do not capture customer names, contact details, card digits, payout contacts, complaint text, raw provider identifiers/payloads, Gmail content, or secrets in screenshots or notes.

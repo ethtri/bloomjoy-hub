@@ -136,7 +136,7 @@ Notes:
 - Never prefix Sunze, Google, service-role, or scheduler secrets with `VITE_`.
 
 ## Nayax Lynx API notes
-Use `Docs/NAYAX_LYNX_API.md` as the current agent-facing source for Nayax status, endpoint coverage, and permission gaps.
+For Nayax work, read the Refund Operations snapshot in `Docs/CURRENT_STATUS.md` and the newest entries in `Docs/DECISIONS.md` first. Use `Docs/NAYAX_LYNX_API.md` for endpoint and historical technical evidence; its **Current Release Status** section governs over older incident narratives in that file.
 
 Current server-only secret:
 - Supabase production project `ygbzkgxktzqsiygjlqyg`: `NAYAX_LYNX_API_TOKEN`

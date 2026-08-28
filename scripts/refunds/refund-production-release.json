@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "601fb65113a4007d4c6c80892e59bc32c127b383",
+  "sourceGitCommit": "b5331b61ec1d2dfc72ac80aab344242a1d24545c",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -98,10 +98,11 @@
     "20260827053500_refund_gmail_scheduler_retention_run_key.sql",
     "20260827082000_refund_gmail_scheduler_primary.sql",
     "20260827125641_refund_nayax_definitive_failure_retry.sql",
-    "20260828003503_refund_nayax_authoritative_journal_v3.sql"
+    "20260828003503_refund_nayax_authoritative_journal_v3.sql",
+    "20260828035155_refund_nayax_retry_safe_resolution_release.sql"
   ],
-  "migrationFilesSha256": "1645538a413926273f61b7f0d2e44e90c9937f9e4ef1d3146046366447f5cd04",
-  "migrationVersionSetSha256": "82c50b3f28939c1af6d884732fc02362567b810ae46f51f7afb6aa6f5651da09",
+  "migrationFilesSha256": "4aaf0bfcd01ac819e465a6783c5a70d27a6e343496bcef00e10e7ddd9f6baee0",
+  "migrationVersionSetSha256": "91ff8fa0bb916d4bb37666e8b8c13d7eea4dd26e6892d3de8fbac58e30a522da",
   "preMigrationCompatibility": {
     "releaseId": "refund-ops-2026-08-14-pre-controlled-nayax-pilot",
     "sourceGitCommit": "71eb076bc3ad95ccabd0c591b8140820bed6c393",
@@ -242,11 +243,11 @@
     {
       "slug": "nayax-card-refund",
       "verifyJwt": false,
-      "sourceSha256": "78db885fc89edd1c39485cc52fd738ba42da0cb263cbecdeeedff52a19a3578f",
+      "sourceSha256": "053fd4fb41215510ae77046e71c8cf2d1e06afa2057f236feab0e88ce225e6c1",
       "production": {
-        "version": 94,
-        "ezbrSha256": "6989d586a56e0131ac953e3234676a3eeddee79aef3f7699730681f1a60baba5",
-        "sourceSha256": "78db885fc89edd1c39485cc52fd738ba42da0cb263cbecdeeedff52a19a3578f",
+        "version": 97,
+        "ezbrSha256": "57e4f0641917e8bf48f160ee58eb639a56d44752330e759ebfcb2f71b57cae8d",
+        "sourceSha256": "053fd4fb41215510ae77046e71c8cf2d1e06afa2057f236feab0e88ce225e6c1",
         "entrypointIdentity": "supabase/functions/nayax-card-refund/index.ts"
       }
     },
