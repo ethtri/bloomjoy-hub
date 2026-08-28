@@ -28,7 +28,6 @@ export type NayaxRefundRolloutConfig = {
   broadReopenApproved: boolean;
   canaryEnabled: boolean;
   canaryCaseId: string | null;
-  canaryUnprovenProviderApproved: boolean;
 };
 
 export type NayaxRefundAvailabilityBlockReason =
@@ -93,10 +92,6 @@ export const resolveNayaxRefundRolloutConfig = (
   ),
   canaryEnabled: exactFlag(readEnv("NAYAX_REFUND_CANARY_ENABLED"), "true"),
   canaryCaseId: normalizedUuid(readEnv("NAYAX_REFUND_CANARY_CASE_ID")),
-  canaryUnprovenProviderApproved: exactFlag(
-    readEnv("NAYAX_REFUND_CANARY_UNPROVEN_PROVIDER_APPROVED"),
-    "true",
-  ),
 });
 
 const isExactCanaryCase = (
@@ -121,30 +116,16 @@ export const isNayaxRefundCaseReleaseAuthorized = ({
 
 export const resolveNayaxRefundCaseExecutionConfig = ({
   executionConfig,
-  rolloutConfig,
-  caseId,
+  rolloutConfig: _rolloutConfig,
+  caseId: _caseId,
 }: {
   executionConfig: NayaxRefundExecutionConfig;
   rolloutConfig: NayaxRefundRolloutConfig;
   caseId: string;
-}): NayaxRefundExecutionConfig => {
-  // This owner-approved calibration exception is intentionally narrower than
-  // release authorization. It may remove only the two facts that the canary is
-  // designed to prove, and it is disabled as soon as broad reopening is active.
-  const calibrationAuthorized =
-    !rolloutConfig.broadReopenApproved &&
-    rolloutConfig.canaryUnprovenProviderApproved &&
-    isExactCanaryCase(rolloutConfig, caseId);
-  if (!calibrationAuthorized) return executionConfig;
-
-  return {
-    ...executionConfig,
-    blocks: executionConfig.blocks.filter((block) =>
-      block !== "manager_contract_unconfirmed" &&
-      block !== "approval_scope_unconfirmed"
-    ),
-  };
-};
+}): NayaxRefundExecutionConfig =>
+  // A case allowlist can bound rollout, but it can never substitute for an
+  // account-specific provider contract or approval-scope confirmation.
+  executionConfig;
 
 export const resolveNayaxRefundExecutionConfig = (
   readEnv: (name: string) => string | undefined,
