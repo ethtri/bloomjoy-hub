@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "601fb65113a4007d4c6c80892e59bc32c127b383",
+  "sourceGitCommit": "83be44203d59eb826fcaa39b58c1743815c3d137",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -243,11 +243,11 @@
     {
       "slug": "nayax-card-refund",
       "verifyJwt": false,
-      "sourceSha256": "78db885fc89edd1c39485cc52fd738ba42da0cb263cbecdeeedff52a19a3578f",
+      "sourceSha256": "053fd4fb41215510ae77046e71c8cf2d1e06afa2057f236feab0e88ce225e6c1",
       "production": {
-        "version": 94,
-        "ezbrSha256": "6989d586a56e0131ac953e3234676a3eeddee79aef3f7699730681f1a60baba5",
-        "sourceSha256": "78db885fc89edd1c39485cc52fd738ba42da0cb263cbecdeeedff52a19a3578f",
+        "version": 97,
+        "ezbrSha256": "57e4f0641917e8bf48f160ee58eb639a56d44752330e759ebfcb2f71b57cae8d",
+        "sourceSha256": "053fd4fb41215510ae77046e71c8cf2d1e06afa2057f236feab0e88ce225e6c1",
         "entrypointIdentity": "supabase/functions/nayax-card-refund/index.ts"
       }
     },
