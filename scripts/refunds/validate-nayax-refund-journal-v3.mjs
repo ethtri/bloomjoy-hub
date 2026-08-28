@@ -49,6 +49,26 @@ assert.doesNotMatch(
   'v3 must not replace or rename the v2 journal writer',
 );
 
+for (const legacyRecoveryRpc of [
+  'service_record_nayax_refund_provider_stage',
+  'service_reserve_nayax_pending_approval_recovery',
+  'service_settle_nayax_pending_approval_recovery',
+]) {
+  assert.match(
+    migration,
+    new RegExp(
+      `revoke execute on function public\\.${legacyRecoveryRpc}\\([\\s\\S]*?\\) from public, anon, authenticated, service_role;`,
+      'u',
+    ),
+    `${legacyRecoveryRpc} must be revoked from service_role`,
+  );
+  assert.match(
+    test,
+    new RegExp(`not has_function_privilege\\([\\s\\S]*?${legacyRecoveryRpc}`, 'u'),
+    `pgTAP must prove service_role cannot execute ${legacyRecoveryRpc}`,
+  );
+}
+
 for (const metadataField of [
   'http_accepted',
   'media_type_class',
@@ -122,7 +142,7 @@ for (const scenario of [
 ]) {
   assert.match(test, new RegExp(`'${scenario}'`), `pgTAP must cover ${scenario}`);
 }
-assert.match(test, /select plan\(29\)/u);
+assert.match(test, /select plan\(30\)/u);
 assert.match(test, /select \* from finish\(\)/u);
 assert.match(test, /rollback;/u);
 

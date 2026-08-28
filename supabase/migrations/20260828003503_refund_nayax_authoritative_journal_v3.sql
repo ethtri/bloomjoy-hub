@@ -177,6 +177,29 @@ alter table public.refund_nayax_provider_stage_journal enable row level security
 revoke all on table public.refund_nayax_provider_stage_journal
   from public, anon, authenticated, service_role;
 
+-- Retire the legacy approval-only recovery execution surface. Its tables and
+-- existing rows remain available to owner-controlled audit functions, while
+-- normal journal-v2 reservation/recording remains available for Edge rollback.
+revoke execute on function public.service_record_nayax_refund_provider_stage(
+  text, uuid, uuid, text, text, text, integer, text, boolean, text, text
+) from public, anon, authenticated, service_role;
+revoke execute on function public.service_reserve_nayax_pending_approval_recovery(
+  text, uuid, uuid, uuid, bigint, text
+) from public, anon, authenticated, service_role;
+revoke execute on function public.service_settle_nayax_pending_approval_recovery(
+  text, uuid, uuid, uuid, text, text, text, text, text
+) from public, anon, authenticated, service_role;
+
+comment on function public.service_record_nayax_refund_provider_stage(
+  text, uuid, uuid, text, text, text, integer, text, boolean, text, text
+) is 'Retired legacy stage writer. EXECUTE is revoked from service_role because its recovery-id branch could enable approval-only recovery; retained only for historical schema and audit continuity.';
+comment on function public.service_reserve_nayax_pending_approval_recovery(
+  text, uuid, uuid, uuid, bigint, text
+) is 'Retired approval-only recovery reservation. EXECUTE is revoked from service_role; historical recovery rows remain retained as audit evidence.';
+comment on function public.service_settle_nayax_pending_approval_recovery(
+  text, uuid, uuid, uuid, text, text, text, text, text
+) is 'Retired approval-only recovery settlement. EXECUTE is revoked from service_role; historical recovery rows remain retained as audit evidence.';
+
 create function public.service_get_nayax_refund_provider_journal_capability_v3(
   p_executor_assertion text
 )

@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(29);
+select plan(30);
 
 create function pg_temp.capture_error(statement text)
 returns text language plpgsql as $$
@@ -287,6 +287,25 @@ select ok(
     'execute'
   ),
   'Journal v2 remains executable by service_role for Edge rollback'
+);
+
+select ok(
+  not has_function_privilege(
+    'service_role',
+    'public.service_record_nayax_refund_provider_stage(text,uuid,uuid,text,text,text,integer,text,boolean,text,text)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'public.service_reserve_nayax_pending_approval_recovery(text,uuid,uuid,uuid,bigint,text)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'public.service_settle_nayax_pending_approval_recovery(text,uuid,uuid,uuid,text,text,text,text,text)',
+    'execute'
+  ),
+  'service_role cannot reserve, journal, or settle legacy approval-only recovery'
 );
 
 insert into pg_temp.journal_v3_results values (
