@@ -334,7 +334,9 @@ select
     else 'declined'
   end,
   'resolution-idempotency-' || series,
-  700 + series, true, true, true, repeat(series::text, 64), 'USD',
+  700 + series, true, true, true,
+  case when series = 11 then repeat('b', 64) else repeat(series::text, 64) end,
+  'USD',
   case series
     when 1 then 'unknown'
     when 2 then 'rejected'
