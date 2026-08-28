@@ -104,6 +104,8 @@ export type NayaxRefundApprovalContract = Readonly<{
   approveResponses: ReadonlyArray<NayaxRefundResponsePattern>;
 }>;
 
+export const NAYAX_REFUND_PRODUCTION_BASE_URL: "https://lynx.nayax.com/operational/v1";
+
 export function parseNayaxRefundProviderContract(
   rawValue: unknown,
 ): NayaxRefundProviderContract;
@@ -111,6 +113,12 @@ export function parseNayaxRefundProviderContract(
 export function parseNayaxRefundApprovalContract(
   rawValue: unknown,
 ): NayaxRefundApprovalContract;
+
+export function areNayaxRefundWriteCredentialsReady(input: {
+  contract: unknown;
+  requestToken: string;
+  approveToken: string;
+}): boolean;
 
 export function executeNayaxRefundApprovalOnly(input: {
   contract: NayaxRefundApprovalContract;

@@ -1,3 +1,6 @@
+export const NAYAX_REFUND_PRODUCTION_BASE_URL =
+  "https://lynx.nayax.com/operational/v1";
+
 const ALLOWED_NAYAX_REFUND_HOSTS = new Set([
   "lynx.nayax.com",
   "qa-lynx.nayax.com",
@@ -357,6 +360,45 @@ const parseToken = (value) => {
   }
   return token;
 };
+
+const parseWriteCredentials = ({ contract, requestToken, approveToken }) => {
+  const parsedRequestToken = parseToken(requestToken);
+  const parsedApproveToken = parseToken(approveToken);
+  if (
+    contract.writeCredentialMode === "separate" &&
+    parsedRequestToken === parsedApproveToken
+  ) {
+    throw new Error(
+      "Nayax refund contract requires separate request and approval write credentials.",
+    );
+  }
+  if (
+    contract.writeCredentialMode === "same_token_explicit" &&
+    parsedRequestToken !== parsedApproveToken
+  ) {
+    throw new Error(
+      "Nayax refund same-token contract does not match the supplied credentials.",
+    );
+  }
+  return Object.freeze({
+    requestToken: parsedRequestToken,
+    approveToken: parsedApproveToken,
+  });
+};
+
+export function areNayaxRefundWriteCredentialsReady({
+  contract: rawContract,
+  requestToken,
+  approveToken,
+}) {
+  try {
+    const contract = parseNayaxRefundProviderContract(rawContract);
+    parseWriteCredentials({ contract, requestToken, approveToken });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function freezeNayaxRefundEvidence(value) {
   const record = assertPlainObject(value, "Nayax refund execution evidence");
@@ -1103,21 +1145,11 @@ export function createNayaxRefundProviderAdapter({
   onStageEvent = async (_stageEvent) => {},
 }) {
   const contract = parseNayaxRefundProviderContract(rawContract);
-  const requestToken = parseToken(rawRequestToken);
-  const approveToken = parseToken(rawApproveToken);
-  if (contract.writeCredentialMode === "separate" && requestToken === approveToken) {
-    throw new Error(
-      "Nayax refund contract requires separate request and approval write credentials.",
-    );
-  }
-  if (
-    contract.writeCredentialMode === "same_token_explicit" &&
-    requestToken !== approveToken
-  ) {
-    throw new Error(
-      "Nayax refund same-token contract does not match the supplied credentials.",
-    );
-  }
+  const { requestToken, approveToken } = parseWriteCredentials({
+    contract,
+    requestToken: rawRequestToken,
+    approveToken: rawApproveToken,
+  });
   const evidence = freezeNayaxRefundEvidence(rawEvidence);
   const boundedTimeoutMs = safeTimeoutMs(timeoutMs);
 

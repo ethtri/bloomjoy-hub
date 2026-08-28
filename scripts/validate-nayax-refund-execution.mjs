@@ -448,8 +448,22 @@ assert(
 );
 assert(
   preflight.includes('NAYAX_REFUND_EXECUTION_KILL_SWITCH') &&
-    preflight.includes('REFUND_AUTOMATION_SWEEP_SECRET'),
-  'Commerce preflight must validate refund automation configuration.'
+    preflight.includes('REFUND_AUTOMATION_SWEEP_SECRET') &&
+    preflight.includes("'NAYAX_REFUND_MANAGER_CONTRACT_JSON'") &&
+    preflight.includes("'NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED'") &&
+    preflight.includes("'NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED'") &&
+    preflight.includes('NAYAX_REFUND_REQUEST_WRITE_TOKEN_') &&
+    preflight.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_') &&
+    !preflight.includes("'NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED'"),
+  'Commerce preflight must validate active v3 refund configuration rather than the retired pilot assertion.'
+);
+assert(
+  fn.includes('NAYAX_REFUND_PRODUCTION_BASE_URL') &&
+    fn.includes('provider_contract_host_invalid') &&
+    fn.includes('areNayaxRefundWriteCredentialsReady') &&
+    refundAdminUpdate.includes('NAYAX_REFUND_PRODUCTION_BASE_URL') &&
+    refundAdminUpdate.includes('areNayaxRefundWriteCredentialsReady'),
+  'Normal execution and both readiness paths must require the exact production host and adapter-valid write credentials.'
 );
 assert(
   nayaxLookup.includes('lookupNayaxCandidatesForRefundCase') &&

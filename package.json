@@ -65,7 +65,7 @@
     "refunds:validate-nayax-provider": "node scripts/refunds/validate-nayax-refund-provider.mjs && node scripts/refunds/validate-nayax-refund-journal-v3.mjs",
     "refunds:nayax-controlled-owner-pilot": "node scripts/refunds/nayax-controlled-owner-pilot-runner.mjs",
     "refunds:validate-nayax-controlled-owner-pilot": "node --test scripts/refunds/nayax-controlled-owner-pilot-runner.test.mjs scripts/refunds/nayax-controlled-owner-pilot-runner-clients.test.mjs && node scripts/refunds/validate-nayax-controlled-owner-pilot-runner.mjs",
-    "refunds:validate-nayax-execution": "deno test --no-lock supabase/functions/_shared/refund-evidence-selection.test.ts supabase/functions/_shared/nayax-refund-gates.test.ts && node scripts/validate-nayax-refund-execution.mjs",
+    "refunds:validate-nayax-execution": "node --test scripts/refunds/commerce-refund-preflight.test.mjs && deno test --no-lock supabase/functions/_shared/refund-evidence-selection.test.ts supabase/functions/_shared/nayax-refund-gates.test.ts && node scripts/validate-nayax-refund-execution.mjs",
     "refunds:validate-nayax-provider-orchestration": "deno test --no-lock supabase/functions/_shared/nayax-refund-orchestration.test.ts",
     "refunds:validate-nayax-resolution": "deno test --no-lock supabase/functions/_shared/nayax-resolution-completion.test.ts && node scripts/refunds/validate-refund-nayax-resolution.mjs",
     "refunds:validate-official-actions": "deno test --no-lock supabase/functions/_shared/manual-external-cash-completion.test.ts && node scripts/refunds/validate-refund-manager-official-actions.mjs",

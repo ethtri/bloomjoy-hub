@@ -23,10 +23,12 @@ import {
 } from "../_shared/nayax-refund-orchestration.ts";
 // @deno-types="../_shared/nayax-refund-provider.d.ts"
 import {
+  areNayaxRefundWriteCredentialsReady,
   buildRedactedNayaxStageDigest,
   createNayaxRefundProviderAdapter,
   executeNayaxRefundApprovalOnly,
   mapNayaxRefundExecutionOutcome,
+  NAYAX_REFUND_PRODUCTION_BASE_URL,
   type NayaxControlledPilotStageEvent,
   parseNayaxRefundApprovalContract,
   parseNayaxRefundProviderContract,
@@ -248,13 +250,21 @@ const resolveCaseRefundReadiness = async ({
   );
   const credentials = resolveNormalWriteCredentials(accountKey);
   const managerContract = parseConfiguredManagerContract();
+  const writeCredentialsReady = Boolean(
+    managerContract &&
+      managerContract.baseUrl === NAYAX_REFUND_PRODUCTION_BASE_URL &&
+      areNayaxRefundWriteCredentialsReady({
+        contract: managerContract,
+        requestToken: credentials.requestToken,
+        approveToken: credentials.approveToken,
+      }),
+  );
   const journalCompatible = await providerJournalCompatible(
     executionConfig.executorAssertion,
     managerContract?.contractVersion ?? null,
   );
   const providerCredentialAvailable = Boolean(
-    accountKey && credentials.requestToken && credentials.approveToken &&
-      managerContract && journalCompatible &&
+    accountKey && writeCredentialsReady && managerContract && journalCompatible &&
       isNayaxRefundCaseReleaseAuthorized({
         rolloutConfig: resolveNayaxRefundRolloutConfig((name) =>
           Deno.env.get(name)
@@ -1112,6 +1122,17 @@ serve(async (req) => {
       normalAccountKey,
     );
     const managerContract = parseConfiguredManagerContract();
+    const normalCredentialsPresent = Boolean(
+      normalWriteCredentials.requestToken && normalWriteCredentials.approveToken,
+    );
+    const normalCredentialsValid = Boolean(
+      managerContract && normalCredentialsPresent &&
+        areNayaxRefundWriteCredentialsReady({
+          contract: managerContract,
+          requestToken: normalWriteCredentials.requestToken,
+          approveToken: normalWriteCredentials.approveToken,
+        }),
+    );
     const journalCompatible = await providerJournalCompatible(
       caseExecutionConfig.executorAssertion,
       managerContract?.contractVersion ?? null,
@@ -1138,6 +1159,13 @@ serve(async (req) => {
           : []),
         ...(!managerContract
           ? ["provider_contract_invalid"]
+          : []),
+        ...(managerContract &&
+            managerContract.baseUrl !== NAYAX_REFUND_PRODUCTION_BASE_URL
+          ? ["provider_contract_host_invalid"]
+          : []),
+        ...(managerContract && normalCredentialsPresent && !normalCredentialsValid
+          ? ["provider_credentials_invalid"]
           : []),
         ...(!journalCompatible ? ["provider_journal_version_mismatch"] : []),
         ...(!releaseAuthorized ? ["production_canary_required"] : []),

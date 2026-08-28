@@ -38,7 +38,11 @@ import {
   resolveNayaxRefundRolloutConfig,
 } from "../_shared/nayax-refund-gates.ts";
 // @deno-types="../_shared/nayax-refund-provider.d.ts"
-import { parseNayaxRefundProviderContract } from "../_shared/nayax-refund-provider.mjs";
+import {
+  areNayaxRefundWriteCredentialsReady,
+  NAYAX_REFUND_PRODUCTION_BASE_URL,
+  parseNayaxRefundProviderContract,
+} from "../_shared/nayax-refund-provider.mjs";
 import {
   mergeRuntimeRefundReadiness,
   parseDatabaseRefundReadiness,
@@ -301,7 +305,8 @@ const resolveSelectionRefundReadiness = async ({
   let providerJournalAvailable = false;
   if (
     caseExecutionConfig.executorAssertion &&
-    managerContract?.contractVersion === NAYAX_REFUND_PROVIDER_CONTRACT_VERSION
+    managerContract?.contractVersion === NAYAX_REFUND_PROVIDER_CONTRACT_VERSION &&
+    managerContract.baseUrl === NAYAX_REFUND_PRODUCTION_BASE_URL
   ) {
     const { data, error } = await supabase.rpc(
       "service_get_nayax_refund_provider_journal_capability_v3",
@@ -326,10 +331,24 @@ const resolveSelectionRefundReadiness = async ({
       capability?.payloadRedacted === true &&
       supported.includes(managerContract.contractVersion);
   }
+  const requestWriteToken = accountKey
+    ? Deno.env.get(`NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}`)?.trim() ?? ""
+    : "";
+  const approveWriteToken = accountKey
+    ? Deno.env.get(`NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}`)?.trim() ?? ""
+    : "";
+  const writeCredentialsReady = Boolean(
+    managerContract &&
+      managerContract.baseUrl === NAYAX_REFUND_PRODUCTION_BASE_URL &&
+      areNayaxRefundWriteCredentialsReady({
+        contract: managerContract,
+        requestToken: requestWriteToken,
+        approveToken: approveWriteToken,
+      }),
+  );
   const providerCredentialAvailable = Boolean(
     accountKey &&
-      Deno.env.get(`NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}`)?.trim() &&
-      Deno.env.get(`NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}`)?.trim() &&
+      writeCredentialsReady &&
       managerContract &&
       providerJournalAvailable &&
       isNayaxRefundCaseReleaseAuthorized({ rolloutConfig, caseId }),

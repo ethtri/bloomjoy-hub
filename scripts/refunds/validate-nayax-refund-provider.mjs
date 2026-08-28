@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  areNayaxRefundWriteCredentialsReady,
   buildNayaxRefundApprovalBody,
   buildRedactedNayaxStageDigest,
   buildNayaxRefundRequestBody,
@@ -14,6 +15,7 @@ import {
   executeNayaxRefundProvider as executeNayaxRefundProviderRaw,
   freezeNayaxRefundEvidence,
   mapNayaxRefundExecutionOutcome,
+  NAYAX_REFUND_PRODUCTION_BASE_URL,
   parseNayaxRefundApprovalContract,
   parseNayaxRefundProviderContract,
   postNayaxRefundStep,
@@ -157,6 +159,47 @@ check(Object.isFrozen(contract), 'The confirmed provider contract must be immuta
 check(Object.isFrozen(contract.requestResponses), 'Request patterns must be immutable.');
 check(Object.isFrozen(contract.requestResponses[0]), 'Individual response patterns must be immutable.');
 equal(contract.baseUrl, baseContract.baseUrl, 'The exact approved QA path is preserved.');
+equal(
+  NAYAX_REFUND_PRODUCTION_BASE_URL,
+  'https://lynx.nayax.com/operational/v1',
+  'The production runtime host is a single exact constant.',
+);
+check(
+  areNayaxRefundWriteCredentialsReady({
+    contract,
+    requestToken: 'request-write-token',
+    approveToken: 'approve-write-token',
+  }),
+  'A valid separate credential pair is ready.',
+);
+check(
+  !areNayaxRefundWriteCredentialsReady({
+    contract,
+    requestToken: 'same-write-token',
+    approveToken: 'same-write-token',
+  }),
+  'A separate-mode contract rejects identical credentials during readiness.',
+);
+check(
+  !areNayaxRefundWriteCredentialsReady({
+    contract,
+    requestToken: 'short',
+    approveToken: 'approve-write-token',
+  }),
+  'Malformed credentials fail readiness before adapter construction.',
+);
+check(
+  areNayaxRefundWriteCredentialsReady({
+    contract: {
+      ...baseContract,
+      writeCredentialMode: 'same_token_explicit',
+      sameWriteTokenContractConfirmed: true,
+    },
+    requestToken: 'shared-write-token',
+    approveToken: 'shared-write-token',
+  }),
+  'An explicitly confirmed same-token contract accepts one shared credential.',
+);
 
 for (const [mutate, pattern, message] of [
   [(value) => ({ ...value, extra: true }), /unsupported field/, 'Unknown contract fields fail closed.'],
@@ -1149,6 +1192,9 @@ check(
     handler.includes('pending_approval_recovery_retired') &&
     handler.includes('...caseExecutionConfig.blocks') &&
     handler.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
+    handler.includes('NAYAX_REFUND_PRODUCTION_BASE_URL') &&
+    handler.includes('provider_contract_host_invalid') &&
+    handler.includes('areNayaxRefundWriteCredentialsReady') &&
     handler.includes('approval_contract_version_invalid') &&
     handler.includes('production_canary_required') &&
     handler.includes('executeNayaxRefundApprovalOnly') &&
