@@ -189,9 +189,9 @@
       "verifyJwt": false,
       "sourceSha256": "eedca5a16d32d113b4a4921b3054cd4679c74c4c1fbd2264a51c0251e6d5aa9e",
       "production": {
-        "version": 93,
-        "ezbrSha256": "6e4d1c7810a69dcc58b02531dfce65dca4e0fbf0aae6da77a473808d474fe195",
-        "sourceSha256": "44b77c12a744aa7a12b7048be55a741dbdced429f82827029db2c8f7d028536a",
+        "version": 95,
+        "ezbrSha256": "0ce527fe4e11f9d70ee8df49e395e099f517ea256d7e4c64d20aaf13a28be113",
+        "sourceSha256": "eedca5a16d32d113b4a4921b3054cd4679c74c4c1fbd2264a51c0251e6d5aa9e",
         "entrypointIdentity": "supabase/functions/refund-case-admin-update/index.ts"
       }
     },
@@ -244,9 +244,9 @@
       "verifyJwt": false,
       "sourceSha256": "78db885fc89edd1c39485cc52fd738ba42da0cb263cbecdeeedff52a19a3578f",
       "production": {
-        "version": 92,
-        "ezbrSha256": "572c5b6f8574222b5c630d2eb6d2b6bfa97fffa2e3b7768596700f82737eaee8",
-        "sourceSha256": "6906cfe841c512669406dbd671711bf6eb7b5a7720a43a8084d4964a4da83375",
+        "version": 94,
+        "ezbrSha256": "6989d586a56e0131ac953e3234676a3eeddee79aef3f7699730681f1a60baba5",
+        "sourceSha256": "78db885fc89edd1c39485cc52fd738ba42da0cb263cbecdeeedff52a19a3578f",
         "entrypointIdentity": "supabase/functions/nayax-card-refund/index.ts"
       }
     },
