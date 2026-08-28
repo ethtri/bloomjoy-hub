@@ -131,15 +131,15 @@ select ok(
 );
 
 select ok(
-  has_function_privilege('service_role',
+  not has_function_privilege('service_role',
     'public.service_reserve_nayax_pending_approval_recovery(text,uuid,uuid,uuid,bigint,text)', 'execute')
-  and has_function_privilege('service_role',
+  and not has_function_privilege('service_role',
     'public.service_record_nayax_refund_provider_stage(text,uuid,uuid,text,text,text,integer,text,boolean,text,text)', 'execute')
-  and has_function_privilege('service_role',
+  and not has_function_privilege('service_role',
     'public.service_settle_nayax_pending_approval_recovery(text,uuid,uuid,uuid,text,text,text,text,text)', 'execute')
   and not has_function_privilege('authenticated',
     'public.service_reserve_nayax_pending_approval_recovery(text,uuid,uuid,uuid,bigint,text)', 'execute'),
-  'Only the assertion-protected service boundary can operate recovery'
+  'The legacy approval-only recovery boundary is retired from service and browser roles'
 );
 
 set local role service_role;
@@ -148,16 +148,17 @@ select ok(pg_temp.capture_error($sql$
     null, '8e000000-0000-4000-8000-000000000001',
     '8e500000-0000-4000-8000-000000000001',
     '8e600000-0000-4000-8000-000000000001', 0, 'dtm:refund-requested:test')
-$sql$) like '%executor identity required%',
-  'Missing executor assertion cannot reserve a recovery');
+$sql$) like '%permission denied%',
+  'The retired service role cannot reserve a recovery even with missing identity');
 
 select ok(pg_temp.capture_error($sql$
   select public.service_reserve_nayax_pending_approval_recovery(
     'recovery-test-executor', '8e000000-0000-4000-8000-000000000002',
     '8e500000-0000-4000-8000-000000000001',
     '8e600000-0000-4000-8000-000000000001', 0, 'dtm:refund-requested:test')
-$sql$) like '%exact latest DTM-confirmed%',
-  'An unmapped user cannot recover the request');
+$sql$) like '%permission denied%',
+  'The retired service role cannot reserve a recovery for an unmapped user');
+reset role;
 
 insert into pg_temp.recovery_results (result_key, result)
 select 'reserve', public.service_reserve_nayax_pending_approval_recovery(
@@ -168,7 +169,6 @@ select 'reserve', public.service_reserve_nayax_pending_approval_recovery(
     where id = '8e500000-0000-4000-8000-000000000001'),
   'dtm:refund-requested:test'
 );
-reset role;
 
 select ok(
   (select (result #>> '{recovery,shouldExecute}')::boolean
@@ -186,7 +186,6 @@ select ok((
   from public.refund_nayax_pending_approval_recoveries
 ), 'Only the recovery claim digest is persisted');
 
-set local role service_role;
 insert into pg_temp.recovery_results (result_key, result)
 select 'replay', public.service_reserve_nayax_pending_approval_recovery(
   'recovery-test-executor', '8e000000-0000-4000-8000-000000000001',
@@ -196,7 +195,6 @@ select 'replay', public.service_reserve_nayax_pending_approval_recovery(
     where id = '8e500000-0000-4000-8000-000000000001'),
   'dtm:refund-requested:test'
 );
-reset role;
 select ok(
   (select not (result #>> '{recovery,shouldExecute}')::boolean
     and result ->> 'providerClaimToken' is null
@@ -207,7 +205,6 @@ select ok(
 select is((select count(*)::integer from public.refund_nayax_pending_approval_recoveries), 1,
   'Reservation replay cannot create a second recovery');
 
-set local role service_role;
 select ok(pg_temp.capture_error($sql$
   select public.service_record_nayax_refund_provider_stage(
     'recovery-test-executor', '8e600000-0000-4000-8000-000000000001',
@@ -248,7 +245,6 @@ select 'settle', public.service_settle_nayax_pending_approval_recovery(
   'unknown', null, 'approve_unknown_contract_mismatch',
   'provider_approve_outcome_unknown'
 );
-reset role;
 
 select is((select result ->> 'status' from pg_temp.recovery_results where result_key = 'settle'),
   'ambiguous', 'A provider HTTP error settles only the recovery as ambiguous');
@@ -283,7 +279,6 @@ select ok(pg_temp.capture_error($sql$
   delete from public.refund_nayax_provider_stage_journal
 $sql$) like '%immutable%', 'Provider stage evidence cannot be deleted');
 
-set local role service_role;
 select ok(pg_temp.capture_error($sql$
   select public.service_settle_nayax_pending_approval_recovery(
     'recovery-test-executor',
@@ -295,7 +290,6 @@ select ok(pg_temp.capture_error($sql$
     'approve_succeeded_contract_match', null)
 $sql$) like '%invalid, expired, changed, or already used%',
   'A consumed recovery cannot be replayed as success');
-reset role;
 
 select * from finish();
 rollback;

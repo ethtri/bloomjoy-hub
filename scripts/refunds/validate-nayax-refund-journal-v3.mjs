@@ -9,10 +9,15 @@ const testUrl = new URL(
   '../../supabase/tests/refund_nayax_authoritative_journal_v3.sql',
   import.meta.url,
 );
+const legacyRecoveryTestUrl = new URL(
+  '../../supabase/tests/refund_nayax_pending_approval_recovery.sql',
+  import.meta.url,
+);
 
-const [migration, test] = await Promise.all([
+const [migration, test, legacyRecoveryTest] = await Promise.all([
   readFile(migrationUrl, 'utf8'),
   readFile(testUrl, 'utf8'),
+  readFile(legacyRecoveryTestUrl, 'utf8'),
 ]);
 
 const exactMarkers = [
@@ -67,7 +72,21 @@ for (const legacyRecoveryRpc of [
     new RegExp(`not has_function_privilege\\([\\s\\S]*?${legacyRecoveryRpc}`, 'u'),
     `pgTAP must prove service_role cannot execute ${legacyRecoveryRpc}`,
   );
+  assert.match(
+    legacyRecoveryTest,
+    new RegExp(
+      String.raw`not has_function_privilege\('service_role',[\s\S]*?${legacyRecoveryRpc}`,
+      'u',
+    ),
+    `historical recovery pgTAP must expect ${legacyRecoveryRpc} retirement`,
+  );
 }
+
+assert.match(
+  legacyRecoveryTest,
+  /The retired service role cannot reserve a recovery/u,
+  'historical recovery pgTAP must exercise the post-v3 permission denial',
+);
 
 for (const metadataField of [
   'http_accepted',
