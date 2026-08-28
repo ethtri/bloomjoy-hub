@@ -147,9 +147,19 @@ While the response-contract hold is active:
 - do not rotate roles or tokens unless Nayax identifies an exact scope defect;
 - use only provider-free DTM/Support reconciliation for a held attempt.
 
+## Current provider-response wait state
+
+Provider-free reconciliation of both later `$8` attempts is complete. Neither attempt is pending or replayable, and no refund request or approval is currently in flight. The production hold now exists only because Bloomjoy lacks the provider-owned response contract and rejection explanation required for one fresh direct proof.
+
+The confirmed escalation routes are Nayax Support case `#03594386` and routing tickets `#03624855`, `#03624856`, and `#03624867`. A copy sent to `integration-support@nayax.com` bounced with a recipient-address rejection, so that address is not a delivered or working route. No substantive human response had arrived by this 2026-08-28 refresh.
+
+A read-only mailbox monitor checks the relevant owner mailbox at 8:00, 11:00, 14:00, and 17:00 Pacific on weekdays beginning 2026-08-31. It remains quiet when nothing material changes and must not send email, change mailbox state intentionally, edit the repository, alter Supabase or Nayax, or issue or approve a refund. When a substantive response arrives, it reports what Nayax confirmed, the exact remaining fact, and the safest next step; it does not automatically take the next external or financial action.
+
+While waiting, Bloomjoy can keep the RCA, regression coverage, issue state, and response-ready implementation path current. It cannot safely register guessed response literals, change payload values, rotate users/roles/tokens, select a live transaction in advance, or run another provider write to discover the answer.
+
 ## Resolution plan and exit evidence
 
-1. Obtain from Nayax the literal, case-sensitive accepted and rejected `Result` + `Status` pairs for both request and approval.
+1. Use only the confirmed Support case and routing tickets to obtain the literal, case-sensitive accepted and rejected `Result` + `Status` pairs for both request and approval. Do not reuse the bounced integration-support address.
 2. Obtain Nayax's exact classification of provider log `17117058946`, including any token-scope or payload-field defect. Do not request another provider write to learn this.
 3. If the evidence requires a change, make the smallest server-only contract/configuration correction. Keep all token values out of code, logs, docs, issues, and the browser.
 4. Run the complete local/database/provider regression suite. Preserve exact manager authority, immutable attempt generations, one request/at-most-one approval, caps, idempotency, duplicate protection, circuit breaker, kill switch, and uncertainty hold.

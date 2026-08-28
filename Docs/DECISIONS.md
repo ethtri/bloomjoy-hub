@@ -2,6 +2,19 @@
 
 Entries are newest-first. For production refund work, the 2026-08-28 capability-versus-automation and canonical Nayax identity decisions plus the 2026-08-27 exact response-contract decision govern. Older conflicting pilot, unfamiliar-`2xx`, permission, and TOTP mechanics are retained only as historical audit records.
 
+## 2026-08-28 - Reconciled refund work waits on confirmed Nayax routes, not speculative writes (`#990`)
+
+- Provider-free reconciliation of both later `$8` attempts is complete. Neither attempt is pending, neither may be replayed or approved, and no provider request or approval is currently in flight.
+- The remaining external dependency is narrow: Nayax must supply the literal, case-sensitive accepted/rejected `Result`/`Status` pairs for request and approval, classify provider log `17117058946`, and identify any exact token-scope or payload-validation defect.
+- Support case `#03594386` and routing tickets `#03624855`, `#03624856`, and `#03624867` are the confirmed escalation routes. The copy sent to `integration-support@nayax.com` bounced with a recipient-address rejection; agents must not describe that address as a delivered or working channel.
+- Until authoritative evidence arrives, agents may maintain documentation, regression coverage, read-only monitoring, and issue hygiene. They must not register guessed response literals, alter request values, rotate roles or tokens, preselect a transaction, or send another refund request or approval.
+- `#990` remains active until the provider answer is safely incorporated, one new eligible customer refund supplies the direct end-to-end proof, and `#427` begins its fresh 72-hour observation.
+
+**Why this choice**
+- It removes stale language that incorrectly treated the reconciled request-only attempt as still awaiting provider-free resolution.
+- It separates work Bloomjoy can safely complete now from the provider facts only Nayax can supply.
+- It prevents a bounced email address or a closed tracking item from being mistaken for successful escalation or completed production enablement.
+
 ## 2026-08-28 - Separate Nayax refund capability from Bloomjoy automatic proof (`#877`, `#961`, `#990`)
 
 The historical Tulsa production evidence proves that Nayax's Lynx API path can produce a real refund. Agents must not describe the current blocker as “the API cannot refund” or use the absence of a direct end-to-end Bloomjoy success to erase that provider success.
@@ -55,7 +68,7 @@ Nayax Support confirmed on 2026-08-17 that the requested Lynx API roles were add
 - The database may authorize `refund-approve` only after `refund-request` returns exact HTTP `200`, an `application/json` media type, a valid JSON object, string `Result` and `Status` fields, and an exact accepted pair from the account-confirmed contract. An unfamiliar `2xx`, alternate JSON media type, non-object body, missing/wrong-typed field, malformed/oversized body, response-read failure, or semantic mismatch never advances to approval.
 - The provider adapter keeps only privacy-safe envelope evidence: HTTP acceptance, normalized media/body classes, a length bucket, JSON/object/schema markers, key presence and value types, semantic/full-contract match flags, transport/read failure class, and a keyed classification digest. Raw bodies and provider response values are not retained, logged, or exposed.
 - The hardened contract is schema version `2`, requires Bearer authorization and the exact `https://lynx.nayax.com/operational/v1` production endpoint, and negotiates the neutral code identifier `nayax-production-account-contract-v2` with journal v3. QA remains parser/test-only. Readiness uses the adapter's credential shape and separate/shared-token rules so it cannot advertise a configuration that execution rejects. The older normal-path schema/journal remains readable and callable only for rollback compatibility; it is not accepted by the new runtime. A case allowlist can bound rollout but cannot waive written contract or approval-scope confirmation.
-- The current unresolved $8 attempt remains on its no-retry Refund Operations hold with the affected account circuit open. Only provider-free DTM/support reconciliation may resolve it. Code changes, release checks, or a new customer case do not authorize another provider call.
+- Historical state at this decision's adoption: the then-unresolved `$8` attempt was on a no-retry Refund Operations hold with the affected account circuit open, and only provider-free DTM/support reconciliation could resolve it. That reconciliation completed on 2026-08-28 with authoritative no-refund evidence. The attempt remains immutable and non-replayable; the current hold is now the exact response contract and fresh-proof requirement recorded in the newer 2026-08-28 decision above.
 - The legacy `approve_pending_request` runtime is retired fail-closed. Journal v3 cannot authorize a standalone approval from incomplete legacy request evidence, and the v3 migration revokes service-role execution of its reservation and stage/settlement entrypoints so an Edge rollback cannot reopen it through mutable secrets. Neither the current $8 attempt nor another historical mismatch can use that provider-write route. Its database records remain for audit/schema continuity; privileged manual reconciliation remains provider-free.
 - Automatic SQS/SFTP readback remains a follow-up after the account identity and report-delivery contract are proved. Manual authoritative DTM/support evidence remains the accepted reconciliation path meanwhile.
 
