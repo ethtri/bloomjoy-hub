@@ -314,8 +314,8 @@ assert.match(checklist, /Any partial\/unknown\/unverified closure is HOLD; never
 assert.match(checklist, /no project-secret\/version mutation/u);
 assert.match(currentStatus, /P0 `#854` delivered the deployed, default-off owner-only Gmail intake-shadow foundation/u);
 assert.match(currentStatus, /Live execution never changes project secrets/u);
-assert.match(currentStatus, /strict `10\/51` canonical release/u);
-assert.match(currentStatus, /inert until a separate owner-private initialization\/dry-run\/live ceremony is explicitly approved/u);
+assert.match(currentStatus, /then-current `10\/51` release was inert pending the owner-private ceremony/u);
+assert.match(currentStatus, /that count and activation statement are historical and do not define the current Nayax refund lane/u);
 assert.doesNotMatch(currentStatus, /P0 `#854` is the in-review/iu);
 assert.doesNotMatch(currentStatus, /#854[^\n]{0,200}(?:10\/50|not deployed)/iu);
 
