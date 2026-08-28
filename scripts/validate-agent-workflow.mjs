@@ -100,6 +100,26 @@ if (exists("scripts/agent-context.mjs")) {
     /if \(isMatch\(haystack, \/refund\|nayax\/\)\) \{[\s\S]*?Docs\/NAYAX_LYNX_API\.md/.test(agentContext),
     "Refund or Nayax context must route agents through Docs/NAYAX_LYNX_API.md.",
   );
+  assert(
+    /if \(isMatch\(haystack, \/refund\|nayax\/\)\) \{[\s\S]*?Docs\/NAYAX_REFUND_PRODUCTION_RCA\.md/.test(agentContext),
+    "Refund or Nayax context must route agents through Docs/NAYAX_REFUND_PRODUCTION_RCA.md.",
+  );
+}
+
+if (exists("Docs/NAYAX_REFUND_PRODUCTION_RCA.md")) {
+  const nayaxRefundRca = read("Docs/NAYAX_REFUND_PRODUCTION_RCA.md");
+  assert(
+    /Nayax's Lynx refund API can issue real refunds/i.test(nayaxRefundRca),
+    "Nayax refund RCA must preserve the proved provider refund capability.",
+  );
+  assert(
+    /direct, fully automatic request -> approval -> finalization/i.test(nayaxRefundRca),
+    "Nayax refund RCA must distinguish provider capability from direct end-to-end automation proof.",
+  );
+  assert(
+    /business rejection[^\n]*HTTP `200`/i.test(nayaxRefundRca),
+    "Nayax refund RCA must preserve that HTTP 200 is not business-success proof.",
+  );
 }
 
 if (exists("package.json")) {

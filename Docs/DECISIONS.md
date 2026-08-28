@@ -1,6 +1,25 @@
 # Decisions
 
-Entries are newest-first. For production refund work, the 2026-08-28 canonical Nayax identity decision and the 2026-08-27 exact response-contract decision govern. Older conflicting pilot, unfamiliar-`2xx`, permission, and TOTP mechanics are retained only as historical audit records.
+Entries are newest-first. For production refund work, the 2026-08-28 capability-versus-automation and canonical Nayax identity decisions plus the 2026-08-27 exact response-contract decision govern. Older conflicting pilot, unfamiliar-`2xx`, permission, and TOTP mechanics are retained only as historical audit records.
+
+## 2026-08-28 - Separate Nayax refund capability from Bloomjoy automatic proof (`#877`, `#961`, `#990`)
+
+The historical Tulsa production evidence proves that Nayax's Lynx API path can produce a real refund. Agents must not describe the current blocker as “the API cannot refund” or use the absence of a direct end-to-end Bloomjoy success to erase that provider success.
+
+**Canonical interpretation**
+- At least one legitimate Tulsa `$7` refund began through Bloomjoy's Nayax API path and was later authoritatively confirmed by Nayax/DTM as a real provider refund. Bloomjoy reconciled the case, reporting adjustment, and customer completion exactly once without a second refund request.
+- That success proves provider write capability. It does not prove that Bloomjoy correctly classified both immediate write responses, automatically established final provider state, and finalized the entire ordinary path without DTM or Support.
+- Production still has zero direct request -> approval -> automatic-finalization proofs under an account-confirmed response contract. The next fresh eligible refund remains that proof.
+- HTTP transport status and business outcome are separate. The later provider-owned `$8` log proves that Nayax can carry a business rejection over HTTP `200`; no unfamiliar `2xx` may authorize approval.
+- The current request/approval body structurally matches Nayax's published fields. Do not call a payload, role, token scope, or amount-unit defect the root cause unless Nayax ties it to the exact provider log.
+- Historical Tulsa and `$8` attempts are evidence only. They must not be replayed, approved, or used as the fresh direct proof.
+
+The durable root cause analysis, evidence timeline, code audit, open hypotheses, and exit evidence are in `Docs/NAYAX_REFUND_PRODUCTION_RCA.md`.
+
+**Why this choice**
+- It preserves the positive production fact the owner identified: the API has refunded a real customer.
+- It also preserves the safety fact: Bloomjoy cannot yet interpret every immediate provider response or automatically confirm every final result.
+- Keeping those claims separate prevents both overreaction (“the API is broken”) and unsafe overconfidence (“one provider refund proved the full automatic integration”).
 
 ## 2026-08-28 - Canonical Nayax production refund identity (`#990`)
 
