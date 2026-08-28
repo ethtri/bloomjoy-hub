@@ -96,6 +96,7 @@ function buildDocList(issue) {
 
   if (isMatch(haystack, /refund|nayax/)) {
     docs.add("Docs/NAYAX_LYNX_API.md");
+    docs.add("Docs/NAYAX_REFUND_PRODUCTION_RCA.md");
   }
 
   if (isMatch(haystack, /ui|ux|frontend|design|visual|mobile|responsive|page|screen|component|portal|admin|operator|public/)) {

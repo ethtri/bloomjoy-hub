@@ -1,6 +1,6 @@
 # Current Status
 
-Last compacted: 2026-08-27
+Last compacted: 2026-08-28
 
 GitHub Issues and the Bloomjoy Project board are the operational source of truth for active work, priority, blockers, acceptance criteria, and closeout evidence.
 
@@ -14,13 +14,16 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 ## Durable References
 
 - Product and decisions: `Docs/DECISIONS.md`; use `PRODUCT.md` or `DESIGN.md` only when they exist in the repo
+- Nayax refund incident analysis: `Docs/NAYAX_REFUND_PRODUCTION_RCA.md`
 - Local setup and verification: `Docs/LOCAL_DEV.md`, `Docs/QA_SMOKE_TEST_CHECKLIST.md`
 - Production operations: `Docs/PRODUCTION_RUNBOOK.md`
 - Architecture and scope: `Docs/ARCHITECTURE.md`, `Docs/MVP_SCOPE.md`
 
 ## Current Themes
 
-### Refund Operations launch snapshot (authoritative as of 2026-08-27)
+### Refund Operations launch snapshot (authoritative as of 2026-08-28)
+
+- **Corrected core finding — API capability is proved; direct automation is not (`#877`, `#961`, `#990`):** at least one historical Tulsa `$7` refund that began through Bloomjoy's Nayax API path was later authoritatively confirmed as a real provider refund. The Nayax API can move the money and must not be described as unavailable. What remains unproved is one direct request -> approval -> Bloomjoy-finalization run whose immediate responses are classified automatically without DTM or Support reconciliation. Later incidents exposed a historical Edge/database contract mismatch, an approval HTTP failure with no refund, and a separate request business rejection carried over HTTP `200`. The current server payload has the public Nayax field shape; no evidence yet proves the later rejection was caused by a wrong payload or missing account role. See `Docs/NAYAX_REFUND_PRODUCTION_RCA.md` for the evidence, confirmed root causes, open hypotheses, and safe exit criteria.
 
 - **Current operating decision (`#628`, `#990`, `#427`):** use the next genuinely owed, unresolved customer refund of $10 or less as the first direct production proof when one exact Nayax transaction matches amount, currency, machine/account, time, and available card evidence and there is no prior provider attempt or refund. Do not create an employee purchase. Special staffing, observer, recruited UAT, staged cohort, first-ten sampling, and repeated go/no-go ceremony are removed. One actual manager **Refund $X** confirmation remains required. One immutable generation may produce at most one Nayax request and one approval; no bulk action exists; exact authorization, idempotency/unique-stage constraints, caps, circuit breaker, kill switch, audit, and uncertainty hold remain mandatory. #973/#971 automatic readback is nonblocking, with manual Refund Operations verification accepted for ambiguity.
 
