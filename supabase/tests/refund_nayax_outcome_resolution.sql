@@ -270,6 +270,15 @@ select
   end
 from unnest(array[1, 2, 3, 4, 5, 6, 7, 11]) series;
 
+insert into public.refund_case_events (
+  refund_case_id, actor_user_id, event_type, message, metadata
+) values (
+  'b1600000-0000-4000-8000-000000000011',
+  'b1000000-0000-4000-8000-000000000001',
+  'nayax_match_selected', 'Manager selected the transaction.',
+  '{"selected_recommended":true,"payload_redacted":true}'::jsonb
+);
+
 insert into public.refund_gmail_threads (
   id, refund_case_id, mailbox_hash, provider_thread_id, thread_subject,
   first_message_at, latest_message_at, retention_expires_at
