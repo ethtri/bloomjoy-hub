@@ -1222,3 +1222,32 @@ Nayax's supported public contract does not provide a read-only API that authorit
 **Why this choice**
 - It closes the operational dead end for real refunds already completed in Nayax without weakening the no-blind-retry rule.
 - It separates recording historical provider truth from issuing money, so recovery cannot become a duplicate-refund path.
+
+## 2026-08-28 - Canonical Nayax production refund identity (`#990`)
+
+The production refund executor is identified by its Nayax user ID and login, not by email alone.
+
+**Canonical production identity**
+- Operator: `TGpaci LLC`
+- Nayax user ID: `103260239`
+- Nayax login: `dually-app\TGpaci266`
+- Email: `ethtri@gmail.com`
+- Status: `Active`
+- Production Lynx tokens: the separately named Bloomjoy Refund Request and Bloomjoy Refund Approval tokens created on 2026-08-25 under this user. Token values remain server-only Supabase secrets and must never be copied into documentation or client configuration.
+
+**Provider-confirmed capabilities**
+- Read Last Sales for transaction matching.
+- Submit a refund request.
+- Approve a refund request.
+
+Nayax Support confirmed on 2026-08-17 that the requested Lynx API roles were added to this active account. The request and approval tokens are deliberately separate even though both belong to the same active user.
+
+**Do not use as production executors**
+- Nayax user `570755401`, login `dually-app\Ethan50862`, email `etrifari@bloomjoysweets.com`: invited/unregistered side account with no production tokens. It resulted from correspondence that targeted the wrong email and must not be activated, promoted, or used for refund credential rotation unless the owner makes a new explicit decision.
+- Nayax user `931941189`, login `dually-app\911004`, email `ethtri@gmail.com`: older expired duplicate. It is not the active production executor.
+
+**Operational rules**
+- Always verify the production executor using both user ID `103260239` and login `dually-app\TGpaci266`; email by itself is ambiguous.
+- Do not ask Nayax to create or re-invite a refund service user as a routine remediation step.
+- A refund failure does not prove missing roles. First classify the exact Nayax response and check DTM/support evidence before changing users, roles, or tokens.
+- The open provider question is the exact accepted/rejected meaning of the current account's `Result`/`Status` response pair. It is a response-contract clarification, not evidence that the canonical account lacks the requested roles.
