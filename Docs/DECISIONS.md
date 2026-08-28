@@ -1,5 +1,7 @@
 # Decisions
 
+Entries are newest-first. For production refund work, the 2026-08-28 canonical Nayax identity decision and the 2026-08-27 exact response-contract decision govern. Older conflicting pilot, unfamiliar-`2xx`, permission, and TOTP mechanics are retained only as historical audit records.
+
 ## 2026-08-28 - Canonical Nayax production refund identity (`#990`)
 
 The production refund executor is identified by its Nayax user ID and login, not by email alone.
@@ -122,7 +124,7 @@ This decision supersedes older cash-correlation gates, Zelle-specific manager fi
 - These limits are temporary monitoring guardrails, not permanent product requirements. They provide a simple pause point if early production volume or behavior is unexpected without changing manager approval, matching, or customer communication.
 - The limits may be raised or removed after monitored production evidence is reviewed. Duplicate-payment protection, exact transaction binding, per-machine eligibility, idempotency, and no-retry handling of uncertain provider outcomes remain mandatory even if the temporary volume limits are removed.
 
-## 2026-08-22 - The successful Nayax pilot removes permission confirmation as a launch prerequisite
+## 2026-08-22 - Historical Nayax pilot decision (unfamiliar-`2xx` advancement superseded on 2026-08-27)
 
 - The owner pilot proved that Bloomjoy's existing server-only Nayax token, production endpoint, amount units, identifiers, and request body can create a real refund that Nayax later confirmed as refunded. No additional Nayax role grant or written permission confirmation is a Refund Operations production prerequisite.
 - Nayax's public contract treats a `2xx` request as successfully processed and the refund as pending until the separate approval step. The normal manager lane therefore advances from a journaled `2xx` request even when the returned `Result`/`Status` wording is unfamiliar; it does not relabel that unfamiliar wording as final success.

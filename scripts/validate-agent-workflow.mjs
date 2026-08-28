@@ -90,6 +90,18 @@ if (exists(".agents/skills/bloomjoy-agent-workflow/SKILL.md")) {
   assert(/npm run agent:context/.test(skill), "Bloomjoy workflow skill should point agents to the context command.");
 }
 
+if (exists("scripts/agent-context.mjs")) {
+  const agentContext = read("scripts/agent-context.mjs");
+  assert(
+    agentContext.includes('"Docs/CURRENT_STATUS.md"'),
+    "Agent context must always route agents through Docs/CURRENT_STATUS.md.",
+  );
+  assert(
+    /if \(isMatch\(haystack, \/refund\|nayax\/\)\) \{[\s\S]*?Docs\/NAYAX_LYNX_API\.md/.test(agentContext),
+    "Refund or Nayax context must route agents through Docs/NAYAX_LYNX_API.md.",
+  );
+}
+
 if (exists("package.json")) {
   const pkg = JSON.parse(read("package.json"));
   assert(pkg.scripts?.["agent:preflight"], "package.json must include agent:preflight.");
