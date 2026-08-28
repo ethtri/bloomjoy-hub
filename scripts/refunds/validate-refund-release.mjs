@@ -7,9 +7,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   assertSupportedFunctionDeploymentInputs,
+  buildProductionCaptureReceipt,
   buildUpdatedLocalManifest,
   buildPreDeploymentProductionBaseline,
   buildLocalReleaseState,
+  canonicalFunctionEntrypointIdentity,
   calculateFunctionSource,
   calculateMigrationDigest,
   calculateMigrationVersionSetDigest,
@@ -19,6 +21,7 @@ import {
   compareProductionState,
   discoverRefundMigrationFiles,
   manifestPath,
+  normalizeProductionEntrypointIdentity,
   parseFunctionDeploymentConfig,
   prepareManifestForLocalRefresh,
   repoRoot,
@@ -45,6 +48,12 @@ assert.match(
   'The release runbook must call the production drift checker explicitly'
 );
 assert(
+  productionRunbook.includes('canonical `supabase/functions/<slug>/index.ts` identity') &&
+    productionRunbook.includes('raw absolute paths are never retained') &&
+    cutoverPacket.includes('canonical `supabase/functions/<slug>/index.ts` entrypoint identity'),
+  'Release guidance must require the sanitized canonical production entrypoint identity'
+);
+assert(
   productionRunbook.includes(
     'canonical ten-function/51-migration object remains immutable pre-`#427` evidence'
   ) &&
@@ -55,7 +64,7 @@ assert(
       'Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit'
     ) &&
     productionRunbook.includes('production Gmail OAuth/mailbox connection is now configured and proved under `#634`') &&
-    productionRunbook.includes('deployed default-off handler') &&
+    productionRunbook.includes('production adapter exists but cannot reserve or call Nayax') &&
     productionRunbook.includes('Issue `#409` tracks the remaining staffed shadow and production-label/legacy-responder no-overlap cutover') &&
     !productionRunbook.includes('For the unmerged candidate') &&
     !productionRunbook.includes('The later `#767` outcome-resolution migration and function deployment') &&
@@ -152,7 +161,7 @@ assert.doesNotMatch(
 const smokeOrder = cutoverPacket.indexOf('## Exact postdeployment readiness order');
 const routeSmoke = cutoverPacket.indexOf('refunds:smoke-routes', smokeOrder);
 const captureManifest = cutoverPacket.indexOf(
-  'Capture production function metadata, update and independently review the manifest-only change',
+  'Capture and independently review the timestamped production function receipt',
   routeSmoke
 );
 const cleanDrift = cutoverPacket.indexOf(
@@ -200,6 +209,13 @@ try {
   );
   const repositoryManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   validateManifestShape(repositoryManifest);
+  const missingEntrypointManifest = structuredClone(repositoryManifest);
+  delete missingEntrypointManifest.functions[0].production.entrypointIdentity;
+  assert.throws(
+    () => validateManifestShape(missingEntrypointManifest),
+    /Production entrypoint identity is invalid/,
+    'An approved production bundle without an entrypoint identity must fail closed'
+  );
   assert.match(
     repositoryManifest.sourceGitCommit,
     /^[a-f0-9]{40}$/,
@@ -208,8 +224,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    93,
-    'Refund release inventory must cover exactly 93 discovered refund/Nayax migrations'
+    94,
+    'Refund release inventory must cover exactly 94 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -218,6 +234,10 @@ try {
   assert(
     repositoryMigrations.includes('20260812053417_refund_gmail_attachment_off_copy_gate.sql'),
     'The attachment-off Gmail copy gate migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260828003503_refund_nayax_authoritative_journal_v3.sql'),
+    'The hardened Nayax journal v3 migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260812200000_refund_owner_totp_enrollment_window.sql'),
@@ -555,7 +575,7 @@ try {
   }));
   const previousFunctions = localFunctions.map(({ slug, sourceSha256 }) => ({ slug, sourceSha256 }));
   const shapeManifest = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     environment: 'production',
     projectRef: 'a'.repeat(20),
     releaseId: 'fixture-release',
@@ -781,7 +801,7 @@ try {
 
   assert.throws(
     () => validateManifestShape({ ...shapeManifest, schemaVersion: 1 }),
-    /schemaVersion must be 2/,
+    /schemaVersion must be 3/,
     'Stale manifest schema versions must fail'
   );
   assert.throws(
@@ -802,25 +822,82 @@ try {
         sourceSha256: String(index).padStart(64, 'a'),
         version: index + 2,
         ezbrSha256: String(index).padStart(64, 'b'),
+        entrypointIdentity: canonicalFunctionEntrypointIdentity(slug),
       },
     })),
   };
-  const rawProduction = manifest.functions.map((entry) => ({
+  const rawProduction = manifest.functions.map((entry, index) => ({
     slug: entry.slug,
     status: 'ACTIVE',
     version: entry.production.version,
     verify_jwt: false,
     import_map: false,
     ezbr_sha256: entry.production.ezbrSha256,
-    entrypoint_path: 'must-not-survive-sanitization',
+    entrypoint_path: index % 2 === 0
+      ? `file:///Repos/deployment-worktree/${canonicalFunctionEntrypointIdentity(entry.slug)}`
+      : `/tmp/deploy/source/${canonicalFunctionEntrypointIdentity(entry.slug)}`,
     id: 'must-not-survive-sanitization',
   }));
   rawProduction.push({ slug: 'unrelated-function', status: 'ACTIVE', version: 99 });
 
   const sanitized = sanitizeProductionMetadata(rawProduction);
   assert.equal(sanitized.length, requiredFunctionSlugs.length, 'Unrelated production functions must be ignored');
-  assert.equal('entrypoint_path' in sanitized[0], false, 'Entrypoint paths must be removed');
+  assert.equal('entrypoint_path' in sanitized[0], false, 'Raw host-specific entrypoint paths must be removed');
+  assert.equal(
+    sanitized[0].entrypointIdentity,
+    canonicalFunctionEntrypointIdentity(sanitized[0].slug),
+    'Production metadata must retain only the canonical function entrypoint identity'
+  );
+  for (const [label, rawEntrypointPath] of [
+    ['missing path', undefined],
+    ['query', `file:///tmp/${canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[0])}?candidate=1`],
+    ['fragment', `file:///tmp/${canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[0])}#candidate`],
+    ['backslash', `C:\\tmp\\${canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[0])}`],
+    ['traversal', `/tmp/../${canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[0])}`],
+    ['encoded traversal', `/tmp/%2e%2e/${canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[0])}`],
+    ['double-encoded traversal', `/tmp/%252e%252e/${canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[0])}`],
+    ['wrong slug', `/tmp/${canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[1])}`],
+    ['wrong basename', `/tmp/supabase/functions/${requiredFunctionSlugs[0]}/main.ts`],
+    ['non-file URI', `https://example.invalid/${canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[0])}`],
+  ]) {
+    assert.equal(
+      normalizeProductionEntrypointIdentity(rawEntrypointPath, requiredFunctionSlugs[0]),
+      null,
+      `${label} must not produce an approved entrypoint identity`
+    );
+  }
   assert.deepEqual(compareProductionState(manifest, sanitized), [], 'Matching production metadata must pass');
+  const laterSameBundleProduction = sanitized.map((entry) => ({
+    ...entry,
+    version: entry.version + 1,
+  }));
+  assert.deepEqual(
+    compareProductionState(manifest, laterSameBundleProduction),
+    [],
+    'Later live counters must pass when the approved bundle and security metadata are unchanged'
+  );
+  assert.match(
+    compareProductionState(
+      manifest,
+      laterSameBundleProduction.map((entry, index) =>
+        index === 0 ? { ...entry, ezbrSha256: 'c'.repeat(64) } : entry
+      )
+    ).join('\n'),
+    /bundle digest differs/,
+    'A later counter must still fail when its production bundle differs from the approved bundle'
+  );
+  assert.match(
+    compareProductionState(
+      manifest,
+      laterSameBundleProduction.map((entry, index) =>
+        index === 0
+          ? { ...entry, entrypointIdentity: canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[1]) }
+          : entry
+      )
+    ).join('\n'),
+    /entrypoint identity differs/,
+    'A later counter must fail when its production entrypoint differs from the approved bundle'
+  );
 
   const productionSources = manifest.functions.map((entry) => ({
     slug: entry.slug,
@@ -866,6 +943,27 @@ try {
     /production bundle differs from the approved pre-migration baseline/,
     'Pre-migration compatibility must reject unapproved production bundles'
   );
+  assert.match(
+    comparePreMigrationCompatibilityState(
+      compatibilityManifest,
+      sanitized.map((entry, index) =>
+        index === 0
+          ? { ...entry, entrypointIdentity: canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[1]) }
+          : entry
+      ),
+      manifest.functions.map((entry) => ({
+        slug: entry.slug,
+        sourceSha256: entry.production.sourceSha256,
+      }))
+    ).join('\n'),
+    /entrypoint identity differs from the approved pre-migration baseline/,
+    'Pre-migration compatibility must reject an unapproved production entrypoint'
+  );
+  assert.equal(
+    buildPreDeploymentProductionBaseline(sanitized, productionSources)[0].entrypointIdentity,
+    canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[0]),
+    'A new pre-deployment baseline must retain the canonical entrypoint identity'
+  );
   assert.equal(
     buildPreDeploymentProductionBaseline(sanitized.slice(1), productionSources.slice(1))[0].status,
     'MISSING',
@@ -883,6 +981,49 @@ try {
     compareCaptureState(manifest, sanitized, productionSources),
     [],
     'Capture must pass only when downloaded production source matches the approved source'
+  );
+  const capturedAt = '2026-08-27T20:00:00.000Z';
+  const laterSameBundleReceipt = buildProductionCaptureReceipt(
+    {
+      ...manifest,
+      projectRef: 'a'.repeat(20),
+      releaseId: 'test-release',
+      sourceGitCommit: 'a'.repeat(40),
+      migrationFilesSha256: 'a'.repeat(64),
+      migrationVersionSetSha256: 'b'.repeat(64),
+      preDeploymentProduction: [],
+      approvedRestoreSource: { releaseId: 'test-restore' },
+    },
+    laterSameBundleProduction,
+    productionSources,
+    capturedAt
+  );
+  assert.equal(laterSameBundleReceipt.capturedAt, capturedAt, 'Capture receipts must record their exact observation time');
+  assert.equal(laterSameBundleReceipt.schemaVersion, 2, 'Entrypoint-aware capture receipts must use schemaVersion 2');
+  assert.equal(
+    laterSameBundleReceipt.functions[0].version,
+    sanitized[0].version + 1,
+    'Capture receipts must record the live production version rather than the sealed manifest version'
+  );
+  assert.equal(
+    laterSameBundleReceipt.functions[0].approvedBundleVersion,
+    sanitized[0].version,
+    'Capture receipts must retain the approved bundle version as separate audit context'
+  );
+  assert.equal(
+    laterSameBundleReceipt.functions[0].versionRelation,
+    'same_bundle_later_revision',
+    'Capture receipts must identify a later counter for the exact approved bundle'
+  );
+  assert.equal(
+    laterSameBundleReceipt.functions[0].entrypointIdentity,
+    canonicalFunctionEntrypointIdentity(requiredFunctionSlugs[0]),
+    'Capture receipts must retain the canonical entrypoint identity without the deployment-host prefix'
+  );
+  assert.throws(
+    () => buildProductionCaptureReceipt(manifest, sanitized, productionSources, 'not-a-timestamp'),
+    /timestamp is invalid/,
+    'Capture receipts must reject an invalid observation timestamp'
   );
   assert.match(
     compareCaptureState(
@@ -913,6 +1054,15 @@ try {
     /production bundle digest is invalid/,
     'Capture must reject invalid production bundle digests'
   );
+  assert.match(
+    compareCaptureState(
+      manifest,
+      sanitized.map((entry, index) => index === 0 ? { ...entry, entrypointIdentity: null } : entry),
+      productionSources
+    ).join('\n'),
+    /entrypoint identity differs/,
+    'Capture must reject missing or malformed production entrypoint metadata'
+  );
 
   assert.match(
     compareProductionState(manifest, sanitized.slice(1)).join('\n'),
@@ -925,9 +1075,9 @@ try {
     'Inactive production functions must fail'
   );
   assert.match(
-    compareProductionState(manifest, sanitized.map((entry, index) => index === 0 ? { ...entry, version: 999 } : entry)).join('\n'),
-    /version differs/,
-    'Unexpected production versions must fail'
+    compareProductionState(manifest, sanitized.map((entry, index) => index === 0 ? { ...entry, version: 1 } : entry)).join('\n'),
+    /version regressed below the approved bundle version/,
+    'A production version regression must fail even when the bundle digest is unchanged'
   );
   assert.match(
     compareProductionState(manifest, sanitized.map((entry, index) => index === 0 ? { ...entry, verifyJwt: true } : entry)).join('\n'),

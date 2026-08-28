@@ -141,15 +141,14 @@ check(
   'The owner-live ceremony and Edge pilot accept only the exact production Nayax host.',
 );
 check(
-  runnerConfig.includes('REFUND_NAYAX_PILOT_PROVIDER_EMAIL_CONFIRMATION') &&
-    runnerLib.includes('I_EXPECT_AND_CONSENT_TO_NAYAX_PROVIDER_EMAIL_FOR_MY_SELF_OWNED_TRANSACTION') &&
-    runnerLib.includes("fail('provider_email_consent_missing')") &&
-    runner.includes('providerEmailBehavior: result.providerEmailBehavior') &&
+  !runnerConfig.includes('REFUND_NAYAX_PILOT_PROVIDER_EMAIL_CONFIRMATION') &&
+    !runnerLib.includes('providerEmailBehavior') &&
+    !runner.includes('providerEmailBehavior') &&
     runner.includes('selectNayaxControlledPilotFailureDetails(error.details)') &&
-    runnerTests.includes('failure output retains only the fixed provider-email behavior enum') &&
-    runnerTests.includes('requires an exact observable consent confirmation') &&
-    runbook.includes('generic transaction confirmation is insufficient'),
-  'Expected Nayax-originated email requires explicit self-owner consent and a visible safe result enum.',
+    runnerTests.includes('schemaVersion: 2') &&
+    runnerTests.includes('failure output retains only fixed approved aggregate fields') &&
+    runbook.includes('schema-v2 contract'),
+  'The retired runner uses the hardened schema-v2 contract and exposes no unwired provider-email assertion.',
 );
 check(
   migration.includes("when authorization_row.status = 'consumed' then 1") &&

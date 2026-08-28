@@ -116,9 +116,6 @@ try {
     ...(typeof result.gatesConclusivelyClosed === 'boolean'
       ? { gatesConclusivelyClosed: result.gatesConclusivelyClosed }
       : {}),
-    ...(typeof result.providerEmailBehavior === 'string'
-      ? { providerEmailBehavior: result.providerEmailBehavior }
-      : {}),
     ...(result.metadataReconciliationRequired === true
       ? { metadataReconciliationRequired: true }
       : {}),
@@ -128,7 +125,6 @@ try {
     ...(result.mode === 'recover'
       ? Object.fromEntries([
         'consumedAttemptCount', 'providerCallCount', 'providerCallCountStatus',
-        'providerEmailBehavior',
         'providerHold', 'manualReconciliationRequired',
       ].filter((key) => typeof result[key] === 'number' ||
         typeof result[key] === 'boolean' || typeof result[key] === 'string')

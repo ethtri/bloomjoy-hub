@@ -1,5 +1,16 @@
 # Decisions
 
+## 2026-08-27 - Approval requires an exact, account-confirmed JSON response contract (`#628`, `#971`, `#973`)
+
+- The database may authorize `refund-approve` only after `refund-request` returns exact HTTP `200`, an `application/json` media type, a valid JSON object, string `Result` and `Status` fields, and an exact accepted pair from the account-confirmed contract. An unfamiliar `2xx`, alternate JSON media type, non-object body, missing/wrong-typed field, malformed/oversized body, response-read failure, or semantic mismatch never advances to approval.
+- The provider adapter keeps only privacy-safe envelope evidence: HTTP acceptance, normalized media/body classes, a length bucket, JSON/object/schema markers, key presence and value types, semantic/full-contract match flags, transport/read failure class, and a keyed classification digest. Raw bodies and provider response values are not retained, logged, or exposed.
+- The hardened contract is schema version `2`, requires Bearer authorization and the exact `https://lynx.nayax.com/operational/v1` production endpoint, and negotiates the neutral code identifier `nayax-production-account-contract-v2` with journal v3. QA remains parser/test-only. Readiness uses the adapter's credential shape and separate/shared-token rules so it cannot advertise a configuration that execution rejects. The older normal-path schema/journal remains readable and callable only for rollback compatibility; it is not accepted by the new runtime. A case allowlist can bound rollout but cannot waive written contract or approval-scope confirmation.
+- The current unresolved $8 attempt remains on its no-retry Refund Operations hold with the affected account circuit open. Only provider-free DTM/support reconciliation may resolve it. Code changes, release checks, or a new customer case do not authorize another provider call.
+- The legacy `approve_pending_request` runtime is retired fail-closed. Journal v3 cannot authorize a standalone approval from incomplete legacy request evidence, and the v3 migration revokes service-role execution of its reservation and stage/settlement entrypoints so an Edge rollback cannot reopen it through mutable secrets. Neither the current $8 attempt nor another historical mismatch can use that provider-write route. Its database records remain for audit/schema continuity; privileged manual reconciliation remains provider-free.
+- Automatic SQS/SFTP readback remains a follow-up after the account identity and report-delivery contract are proved. Manual authoritative DTM/support evidence remains the accepted reconciliation path meanwhile.
+
+This supersedes the 2026-08-22 unfamiliar-request-`2xx` advancement rule and the 2026-08-25 contract/scope calibration waiver. It does not weaken the one-generation/one-request/at-most-one-approval invariant, exact manager confirmation, caps, idempotency, circuit breaker, uncertainty hold, or the rule against synthetic purchases.
+
 ## 2026-08-27 - Real customer refunds are the production proof; software controls bound the risk (`#628`, `#990`, `#427`)
 
 - A legitimate unresolved customer refund may be used to prove the production refund path when the payment has not already been refunded and has no prior provider attempt. Do not manufacture an employee purchase merely to create test evidence.

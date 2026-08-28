@@ -36,6 +36,63 @@ const refundMigrationPattern = /^\d+_[a-z0-9_]*(?:refund|nayax)[a-z0-9_]*\.sql$/
 const unsupportedFunctionConfigKeys = new Set(['entrypoint', 'import_map', 'static_files']);
 const unsupportedFunctionConfigFiles = new Set(['deno.json', 'deno.jsonc', 'import_map.json']);
 
+export const canonicalFunctionEntrypointIdentity = (slug) =>
+  `supabase/functions/${slug}/index.ts`;
+
+export const normalizeProductionEntrypointIdentity = (rawEntrypointPath, slug) => {
+  if (!requiredFunctionSlugs.includes(slug) || typeof rawEntrypointPath !== 'string') return null;
+  if (
+    rawEntrypointPath.length === 0 ||
+    rawEntrypointPath !== rawEntrypointPath.trim() ||
+    rawEntrypointPath.includes('\\') ||
+    rawEntrypointPath.includes('?') ||
+    rawEntrypointPath.includes('#') ||
+    /[\u0000-\u001f\u007f]/.test(rawEntrypointPath)
+  ) {
+    return null;
+  }
+
+  let pathValue = rawEntrypointPath;
+  if (pathValue.startsWith('file://')) {
+    if (!pathValue.startsWith('file:///')) return null;
+    pathValue = pathValue.slice('file://'.length);
+  } else if (/^[a-z][a-z0-9+.-]*:/i.test(pathValue)) {
+    return null;
+  }
+
+  const canonicalIdentity = canonicalFunctionEntrypointIdentity(slug);
+  if (pathValue !== canonicalIdentity && !pathValue.startsWith('/')) return null;
+
+  for (const segment of pathValue.split('/')) {
+    let decodedSegment = segment;
+    try {
+      for (let decodePass = 0; decodePass < 16; decodePass += 1) {
+        const nextDecodedSegment = decodeURIComponent(decodedSegment);
+        if (nextDecodedSegment === decodedSegment) break;
+        decodedSegment = nextDecodedSegment;
+        if (decodePass === 15) return null;
+      }
+    } catch {
+      return null;
+    }
+    if (
+      decodedSegment === '.' ||
+      decodedSegment === '..' ||
+      decodedSegment.includes('/') ||
+      decodedSegment.includes('\\') ||
+      decodedSegment.includes('?') ||
+      decodedSegment.includes('#') ||
+      /[\u0000-\u001f\u007f]/.test(decodedSegment)
+    ) {
+      return null;
+    }
+  }
+
+  return pathValue === canonicalIdentity || pathValue.endsWith(`/${canonicalIdentity}`)
+    ? canonicalIdentity
+    : null;
+};
+
 const assert = (condition, message) => {
   if (!condition) {
     throw new Error(message);
@@ -260,7 +317,7 @@ export const parseFunctionDeploymentConfig = (rootDirectory) => {
 };
 
 export const validateManifestShape = (manifest, { allowPending = false } = {}) => {
-  assert(manifest?.schemaVersion === 2, 'Refund production manifest schemaVersion must be 2');
+  assert(manifest?.schemaVersion === 3, 'Refund production manifest schemaVersion must be 3');
   assert(manifest?.environment === 'production', 'Refund production manifest environment must be production');
   assert(projectRefPattern.test(manifest?.projectRef ?? ''), 'Refund production manifest projectRef is invalid');
   assert(
@@ -301,6 +358,10 @@ export const validateManifestShape = (manifest, { allowPending = false } = {}) =
       );
       assert(digestPattern.test(entry.production.ezbrSha256), `Production bundle digest is invalid for ${entry.slug}`);
       assert(digestPattern.test(entry.production.sourceSha256), `Production source digest is invalid for ${entry.slug}`);
+      assert(
+        entry.production.entrypointIdentity === canonicalFunctionEntrypointIdentity(entry.slug),
+        `Production entrypoint identity is invalid for ${entry.slug}`
+      );
     }
   }
 
@@ -399,6 +460,12 @@ export const validateManifestShape = (manifest, { allowPending = false } = {}) =
         assert(typeof entry.importMap === 'boolean', `preDeploymentProduction importMap is invalid for ${entry.slug}`);
         assert(digestPattern.test(entry.ezbrSha256 ?? ''), `preDeploymentProduction bundle digest is invalid for ${entry.slug}`);
         assert(digestPattern.test(entry.sourceSha256 ?? ''), `preDeploymentProduction source digest is invalid for ${entry.slug}`);
+        if (entry.entrypointIdentity !== undefined) {
+          assert(
+            entry.entrypointIdentity === canonicalFunctionEntrypointIdentity(entry.slug),
+            `preDeploymentProduction entrypoint identity is invalid for ${entry.slug}`
+          );
+        }
       }
     }
   }
@@ -565,14 +632,18 @@ export const compareLocalState = (manifest, localState) => {
 
 export const sanitizeProductionMetadata = (rawFunctions) => rawFunctions
   .filter((entry) => requiredFunctionSlugs.includes(entry.slug ?? entry.name))
-  .map((entry) => ({
-    slug: entry.slug ?? entry.name,
-    status: String(entry.status ?? ''),
-    version: Number(entry.version),
-    verifyJwt: Boolean(entry.verify_jwt),
-    importMap: Boolean(entry.import_map),
-    ezbrSha256: String(entry.ezbr_sha256 ?? ''),
-  }))
+  .map((entry) => {
+    const slug = entry.slug ?? entry.name;
+    return {
+      slug,
+      status: String(entry.status ?? ''),
+      version: Number(entry.version),
+      verifyJwt: Boolean(entry.verify_jwt),
+      importMap: Boolean(entry.import_map),
+      ezbrSha256: String(entry.ezbr_sha256 ?? ''),
+      entrypointIdentity: normalizeProductionEntrypointIdentity(entry.entrypoint_path, slug),
+    };
+  })
   .sort(
     (left, right) => requiredFunctionSlugs.indexOf(left.slug) - requiredFunctionSlugs.indexOf(right.slug)
   );
@@ -608,11 +679,14 @@ export const compareProductionState = (manifest, productionFunctions) => {
     if (expected.production.sourceSha256 !== expected.sourceSha256) {
       failures.push(`${expected.slug}: approved repository source has not been paired with production`);
     }
-    if (actual.version !== expected.production.version) {
-      failures.push(`${expected.slug}: production version differs from the manifest`);
+    if (actual.version < expected.production.version) {
+      failures.push(`${expected.slug}: production version regressed below the approved bundle version`);
     }
     if (actual.ezbrSha256 !== expected.production.ezbrSha256) {
       failures.push(`${expected.slug}: production bundle digest differs from the manifest`);
+    }
+    if (actual.entrypointIdentity !== expected.production.entrypointIdentity) {
+      failures.push(`${expected.slug}: production entrypoint identity differs from the manifest`);
     }
   }
 
@@ -643,16 +717,93 @@ export const compareCaptureState = (manifest, productionFunctions, productionSou
     if (!digestPattern.test(actual.ezbrSha256)) {
       failures.push(`${expected.slug}: production bundle digest is invalid`);
     }
+    if (expected.production && actual.version < expected.production.version) {
+      failures.push(`${expected.slug}: production version regressed below the approved bundle version`);
+    }
     if (actual.verifyJwt !== expected.verifyJwt) {
       failures.push(`${expected.slug}: production verify_jwt differs from the manifest`);
     }
     if (actual.importMap) failures.push(`${expected.slug}: unexpected production import map`);
+    if (!expected.production?.entrypointIdentity) {
+      failures.push(`${expected.slug}: approved production entrypoint identity has not been recorded`);
+    } else if (actual.entrypointIdentity !== expected.production.entrypointIdentity) {
+      failures.push(`${expected.slug}: production entrypoint identity differs from the manifest`);
+    }
     if (sourceBySlug.get(expected.slug) !== expected.sourceSha256) {
       failures.push(`${expected.slug}: downloaded production source does not match the approved repository source`);
     }
   }
 
   return failures;
+};
+
+export const buildProductionCaptureReceipt = (
+  manifest,
+  productionFunctions,
+  productionSources,
+  capturedAt
+) => {
+  assert(
+    typeof capturedAt === 'string' && Number.isFinite(Date.parse(capturedAt)),
+    'Production capture timestamp is invalid'
+  );
+  const captureFailures = compareCaptureState(
+    manifest,
+    productionFunctions,
+    productionSources
+  );
+  assert(
+    captureFailures.length === 0,
+    `Production capture receipt is not aligned: ${captureFailures.join('; ')}`
+  );
+
+  const manifestBySlug = new Map(manifest.functions.map((entry) => [entry.slug, entry]));
+  const sourceBySlug = new Map(
+    productionSources.map((entry) => [entry.slug, entry.sourceSha256])
+  );
+
+  return {
+    schemaVersion: 2,
+    capturedAt,
+    projectRef: manifest.projectRef,
+    releaseId: manifest.releaseId,
+    sourceGitCommit: manifest.sourceGitCommit,
+    migrationFilesSha256: manifest.migrationFilesSha256,
+    migrationVersionSetSha256: manifest.migrationVersionSetSha256,
+    preDeploymentProduction: manifest.preDeploymentProduction,
+    approvedRestoreSource: manifest.approvedRestoreSource,
+    functions: productionFunctions.map((entry) => {
+      const expected = manifestBySlug.get(entry.slug);
+      const approved = expected.production;
+      const sourceSha256 = sourceBySlug.get(entry.slug);
+      const sameApprovedBundle = Boolean(
+        approved &&
+          entry.ezbrSha256 === approved.ezbrSha256 &&
+          sourceSha256 === approved.sourceSha256 &&
+          entry.entrypointIdentity === approved.entrypointIdentity
+      );
+
+      let versionRelation = 'new_bundle_candidate';
+      if (sameApprovedBundle && entry.version === approved.version) {
+        versionRelation = 'approved_bundle_version';
+      } else if (sameApprovedBundle && entry.version > approved.version) {
+        versionRelation = 'same_bundle_later_revision';
+      }
+
+      return {
+        slug: entry.slug,
+        status: entry.status,
+        version: entry.version,
+        approvedBundleVersion: approved?.version ?? null,
+        versionRelation,
+        verifyJwt: entry.verifyJwt,
+        importMap: entry.importMap,
+        entrypointIdentity: entry.entrypointIdentity,
+        ezbrSha256: entry.ezbrSha256,
+        sourceSha256,
+      };
+    }),
+  };
 };
 
 export const comparePreMigrationCompatibilityState = (
@@ -688,6 +839,9 @@ export const comparePreMigrationCompatibilityState = (
       failures.push(`${expected.slug}: production verify_jwt differs from the manifest`);
     }
     if (actual.importMap) failures.push(`${expected.slug}: unexpected production import map`);
+    if (actual.entrypointIdentity !== expected.production.entrypointIdentity) {
+      failures.push(`${expected.slug}: production entrypoint identity differs from the approved pre-migration baseline`);
+    }
     if (actual.ezbrSha256 !== expected.production.ezbrSha256) {
       failures.push(`${expected.slug}: production bundle differs from the approved pre-migration baseline`);
     }
@@ -712,12 +866,17 @@ export const buildPreDeploymentProductionBaseline = (productionFunctions, produc
     assert(Number.isInteger(actual.version) && actual.version > 0, `${slug}: baseline production version is invalid`);
     assert(digestPattern.test(actual.ezbrSha256), `${slug}: baseline production bundle digest is invalid`);
     assert(digestPattern.test(sourceBySlug.get(slug) ?? ''), `${slug}: baseline production source digest is invalid`);
+    assert(
+      actual.entrypointIdentity === canonicalFunctionEntrypointIdentity(slug),
+      `${slug}: baseline production entrypoint identity is invalid`
+    );
     return {
       slug,
       status: actual.status,
       version: actual.version,
       verifyJwt: actual.verifyJwt,
       importMap: actual.importMap,
+      entrypointIdentity: actual.entrypointIdentity,
       ezbrSha256: actual.ezbrSha256,
       sourceSha256: sourceBySlug.get(slug),
     };
@@ -1109,33 +1268,13 @@ const main = () => {
     const allowedOutputRoot = path.resolve(repoRoot, 'output');
     assert(outputPath.startsWith(`${allowedOutputRoot}${path.sep}`), 'Capture output must be under output/');
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-    fs.writeFileSync(
-      outputPath,
-      `${JSON.stringify(
-        {
-          projectRef,
-          releaseId: manifest.releaseId,
-          sourceGitCommit: manifest.sourceGitCommit,
-          migrationFilesSha256: manifest.migrationFilesSha256,
-          migrationVersionSetSha256: manifest.migrationVersionSetSha256,
-          preDeploymentProduction: manifest.preDeploymentProduction,
-          approvedRestoreSource: manifest.approvedRestoreSource,
-          functions: production.map((entry) => ({
-            slug: entry.slug,
-            status: entry.status,
-            version: entry.version,
-            verifyJwt: entry.verifyJwt,
-            importMap: entry.importMap,
-            ezbrSha256: entry.ezbrSha256,
-            sourceSha256:
-              manifest.functions.find((item) => item.slug === entry.slug)?.sourceSha256 ?? null,
-          })),
-        },
-        null,
-        2
-      )}\n`,
-      'utf8'
+    const receipt = buildProductionCaptureReceipt(
+      manifest,
+      production,
+      productionSources,
+      new Date().toISOString()
     );
+    fs.writeFileSync(outputPath, `${JSON.stringify(receipt, null, 2)}\n`, 'utf8');
     console.log(`Captured verified production metadata for ${production.length} refund functions.`);
     return;
   }
@@ -1144,8 +1283,17 @@ const main = () => {
   printFailures('Refund release production drift check failed:', productionFailures);
   if (productionFailures.length > 0) process.exit(1);
 
+  const approvedBySlug = new Map(
+    manifest.functions.map((entry) => [entry.slug, entry.production?.version ?? null])
+  );
   for (const entry of production) {
-    console.log(`${entry.slug}: PASS v${entry.version} ${entry.ezbrSha256.slice(0, 12)}`);
+    const approvedVersion = approvedBySlug.get(entry.slug);
+    const versionNote = entry.version === approvedVersion
+      ? 'approved bundle version'
+      : `same approved bundle; captured at v${approvedVersion}`;
+    console.log(
+      `${entry.slug}: PASS live v${entry.version} ${entry.ezbrSha256.slice(0, 12)} (${versionNote})`
+    );
   }
 };
 
