@@ -21,6 +21,44 @@ const APPROVE_OUTCOMES = new Set([
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_LENGTH = 16_384;
 const INT32_MAX = 2_147_483_647;
+const RESPONSE_MEDIA_TYPE_CLASSES = new Set([
+  "application_json",
+  "json_suffix",
+  "html",
+  "text",
+  "other",
+  "missing",
+  "unavailable",
+]);
+const RESPONSE_BODY_KINDS = new Set([
+  "empty",
+  "json_object",
+  "json_non_object",
+  "html",
+  "text",
+  "malformed_json",
+  "oversize",
+  "read_error",
+  "unavailable",
+]);
+const RESPONSE_LENGTH_BUCKETS = new Set([
+  "empty",
+  "1_256",
+  "257_2048",
+  "2049_16384",
+  "over_16384",
+  "unavailable",
+]);
+const RESPONSE_VALUE_TYPES = new Set([
+  "string",
+  "null",
+  "number",
+  "boolean",
+  "object",
+  "array",
+  "missing",
+  "unavailable",
+]);
 const SAFE_IDEMPOTENCY_KEY = /^nayax-refund-[a-f0-9]{64}$/;
 const SAFE_CONTRACT_VERSION = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,79}$/;
 const SAFE_CASE_ID =
@@ -30,12 +68,6 @@ const text = (value, maxLength = 200) =>
   value === null || value === undefined
     ? ""
     : String(value).trim().slice(0, maxLength);
-
-const normalizeResponseValue = (value) => {
-  if (value === null || value === undefined) return null;
-  const normalized = text(value, 80).toLowerCase();
-  return normalized || null;
-};
 
 const assertPlainObject = (value, label) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -93,9 +125,18 @@ const parsePattern = (pattern, stage, index) => {
     throw new Error(`${label} has an unsupported outcome.`);
   }
 
-  const result = normalizeResponseValue(record.result);
-  const status = normalizeResponseValue(record.status);
-  if (result === null || status === null) {
+  const result = typeof record.result === "string" ? record.result : "";
+  const status = typeof record.status === "string" ? record.status : "";
+  if (
+    !result ||
+    !status ||
+    result !== result.trim() ||
+    status !== status.trim() ||
+    result.length > 80 ||
+    status.length > 80 ||
+    /[\u0000-\u001f\u007f]/.test(result) ||
+    /[\u0000-\u001f\u007f]/.test(status)
+  ) {
     throw new Error(`${label} must match an exact Result and Status pair.`);
   }
 
@@ -144,19 +185,17 @@ export function parseNayaxRefundProviderContract(rawValue) {
       "amountUnit",
       "amountRoundingMode",
       "refundEmailListMode",
-      "providerEmailBehavior",
       "writeCredentialMode",
       "sameWriteTokenContractConfirmed",
       "reconciliationMode",
-      "requestAdvanceMode",
       "requestResponses",
       "approveResponses",
     ]),
     "Nayax refund provider contract",
   );
 
-  if (contract.schemaVersion !== 1) {
-    throw new Error("Nayax refund provider contract schemaVersion must be 1.");
+  if (contract.schemaVersion !== 2) {
+    throw new Error("Nayax refund provider contract schemaVersion must be 2.");
   }
 
   const contractVersion = text(contract.contractVersion, 80);
@@ -180,9 +219,9 @@ export function parseNayaxRefundProviderContract(rawValue) {
   }
 
   const authorizationMode = text(contract.authorizationMode, 40).toLowerCase();
-  if (!new Set(["bearer", "raw"]).has(authorizationMode)) {
+  if (authorizationMode !== "bearer") {
     throw new Error(
-      "Nayax refund provider authorizationMode must be bearer or raw.",
+      "Nayax refund provider authorizationMode must be bearer.",
     );
   }
 
@@ -195,21 +234,6 @@ export function parseNayaxRefundProviderContract(rawValue) {
       "Nayax refund provider refundEmailListMode must be omit or empty_string.",
     );
   }
-
-  const providerEmailBehavior = text(
-    contract.providerEmailBehavior,
-    60,
-  ).toLowerCase();
-  if (!new Set([
-    "suppressed_by_written_contract",
-    "owner_consented_expected",
-    "recipient_omitted",
-  ]).has(providerEmailBehavior)) {
-    throw new Error(
-      "Nayax refund provider providerEmailBehavior must suppress or omit the provider recipient.",
-    );
-  }
-
 
   const writeCredentialMode = text(
     contract.writeCredentialMode,
@@ -238,16 +262,6 @@ export function parseNayaxRefundProviderContract(rawValue) {
   if (reconciliationMode !== "dtm_then_structured_resolution") {
     throw new Error(
       "Nayax refund reconciliationMode must be dtm_then_structured_resolution.",
-    );
-  }
-
-  const requestAdvanceMode = text(
-    contract.requestAdvanceMode ?? "exact_response",
-    40,
-  ).toLowerCase();
-  if (!new Set(["exact_response", "http_2xx"]).has(requestAdvanceMode)) {
-    throw new Error(
-      "Nayax refund provider requestAdvanceMode must be exact_response or http_2xx.",
     );
   }
 
@@ -280,18 +294,16 @@ export function parseNayaxRefundProviderContract(rawValue) {
   }
 
   return Object.freeze({
-    schemaVersion: 1,
+    schemaVersion: 2,
     contractVersion,
     baseUrl: parseBaseUrl(contract.baseUrl),
     authorizationMode,
     amountUnit,
     amountRoundingMode,
     refundEmailListMode,
-    providerEmailBehavior,
     writeCredentialMode,
     sameWriteTokenContractConfirmed,
     reconciliationMode,
-    requestAdvanceMode,
     requestResponses,
     approveResponses,
   });
@@ -423,42 +435,224 @@ export function classifyNayaxRefundResponse({
   httpStatus,
   payload,
   patterns,
+  mediaTypeClass = "application_json",
+  bodyKind = "json_object",
+  bodyLengthBucket = "1_256",
+  jsonParsed = true,
+  payloadUnavailable = false,
+  failureType,
 }) {
   if (!new Set(["request", "approve"]).has(stage)) {
     throw new Error("Nayax refund stage must be request or approve.");
   }
-  const record = payload && typeof payload === "object" && !Array.isArray(payload)
-    ? payload
-    : {};
-  const result = normalizeResponseValue(record.Result);
-  const status = normalizeResponseValue(record.Status);
-  const pattern = patterns.find((candidate) =>
-    candidate.result === result && candidate.status === status
+
+  const safeHttpStatus = Number.isInteger(httpStatus) &&
+      httpStatus >= 100 && httpStatus <= 599
+    ? httpStatus
+    : null;
+  const httpAccepted = safeHttpStatus === 200;
+  const safeMediaTypeClass = RESPONSE_MEDIA_TYPE_CLASSES.has(mediaTypeClass)
+    ? mediaTypeClass
+    : "unavailable";
+  const safeBodyKind = RESPONSE_BODY_KINDS.has(bodyKind)
+    ? bodyKind
+    : "unavailable";
+  const safeBodyLengthBucket = RESPONSE_LENGTH_BUCKETS.has(bodyLengthBucket)
+    ? bodyLengthBucket
+    : "unavailable";
+  const safeFailureType = new Set(["timeout", "network", "response_read"])
+      .has(failureType)
+    ? failureType
+    : null;
+  const wasJsonParsed = jsonParsed === true;
+  const jsonObject = wasJsonParsed && payload !== null &&
+    typeof payload === "object" && !Array.isArray(payload);
+  const record = jsonObject ? payload : {};
+  const resultKeyPresent = jsonObject &&
+    Object.prototype.hasOwnProperty.call(record, "Result");
+  const statusKeyPresent = jsonObject &&
+    Object.prototype.hasOwnProperty.call(record, "Status");
+  const valueType = (value, keyPresent) => {
+    if (payloadUnavailable === true || !wasJsonParsed) return "unavailable";
+    if (!keyPresent) return "missing";
+    if (value === null) return "null";
+    if (Array.isArray(value)) return "array";
+    return typeof value === "object" ? "object" : typeof value;
+  };
+  const candidateResultValueType = valueType(
+    record.Result,
+    resultKeyPresent,
   );
-  let outcome = pattern?.outcome ?? "unknown";
-  if (!Number.isInteger(httpStatus) || httpStatus < 200 || httpStatus >= 300) {
-    outcome = "unknown";
-  }
+  const candidateStatusValueType = valueType(
+    record.Status,
+    statusKeyPresent,
+  );
+  const resultValueType = RESPONSE_VALUE_TYPES.has(candidateResultValueType)
+    ? candidateResultValueType
+    : "unavailable";
+  const statusValueType = RESPONSE_VALUE_TYPES.has(candidateStatusValueType)
+    ? candidateStatusValueType
+    : "unavailable";
+  const schemaMatched = jsonObject && resultKeyPresent && statusKeyPresent &&
+    resultValueType === "string" && statusValueType === "string";
+  const pattern = schemaMatched && Array.isArray(patterns)
+    ? patterns.find((candidate) =>
+      candidate.result === record.Result && candidate.status === record.Status
+    )
+    : undefined;
+  const semanticPairMatched = Boolean(pattern);
+  const contractMatched = safeFailureType === null &&
+    httpAccepted &&
+    safeMediaTypeClass === "application_json" &&
+    safeBodyKind === "json_object" &&
+    wasJsonParsed &&
+    jsonObject &&
+    schemaMatched &&
+    semanticPairMatched;
 
   return Object.freeze({
     stage,
-    outcome,
-    httpStatus: Number.isInteger(httpStatus) ? httpStatus : null,
-    result,
-    status,
-    contractMatched: Boolean(pattern) && outcome !== "unknown",
+    outcome: contractMatched ? pattern.outcome : "unknown",
+    httpStatus: safeHttpStatus,
+    httpAccepted,
+    mediaTypeClass: safeMediaTypeClass,
+    bodyKind: safeBodyKind,
+    bodyLengthBucket: safeBodyLengthBucket,
+    jsonParsed: wasJsonParsed,
+    jsonObject,
+    resultKeyPresent,
+    statusKeyPresent,
+    resultValueType,
+    statusValueType,
+    schemaMatched,
+    semanticPairMatched,
+    contractMatched,
+    ...(safeFailureType ? { failureType: safeFailureType } : {}),
     payloadRedacted: true,
   });
 }
 
-const parseResponsePayload = async (response) => {
-  const responseText = await response.text();
-  if (responseText.length > MAX_RESPONSE_LENGTH) return null;
+const classifyResponseMediaType = (response) => {
+  let rawContentType = "";
   try {
-    return JSON.parse(responseText);
+    rawContentType = typeof response?.headers?.get === "function"
+      ? text(response.headers.get("content-type"), 200).toLowerCase()
+      : "";
   } catch {
-    return null;
+    rawContentType = "";
   }
+  const mediaType = rawContentType.split(";", 1)[0].trim();
+  if (!mediaType) return "missing";
+  if (mediaType === "application/json") return "application_json";
+  if (/^application\/[a-z0-9!#$&^_.+-]+\+json$/u.test(mediaType)) {
+    return "json_suffix";
+  }
+  if (mediaType === "text/html" || mediaType === "application/xhtml+xml") {
+    return "html";
+  }
+  if (mediaType.startsWith("text/")) return "text";
+  return "other";
+};
+
+const responseLengthBucket = (byteLength) => {
+  if (byteLength === 0) return "empty";
+  if (byteLength <= 256) return "1_256";
+  if (byteLength <= 2_048) return "257_2048";
+  if (byteLength <= MAX_RESPONSE_LENGTH) return "2049_16384";
+  return "over_16384";
+};
+
+const classifyNayaxHttpResponse = async ({
+  stage,
+  response,
+  patterns,
+}) => {
+  const httpStatus = Number.isInteger(response?.status) ? response.status : null;
+  const mediaTypeClass = classifyResponseMediaType(response);
+  let responseText;
+  try {
+    responseText = await response.text();
+  } catch {
+    return classifyNayaxRefundResponse({
+      stage,
+      httpStatus,
+      payload: undefined,
+      patterns,
+      mediaTypeClass,
+      bodyKind: "read_error",
+      bodyLengthBucket: "unavailable",
+      jsonParsed: false,
+      payloadUnavailable: true,
+      failureType: "response_read",
+    });
+  }
+
+  const byteLength = new TextEncoder().encode(responseText).byteLength;
+  const bodyLengthBucket = responseLengthBucket(byteLength);
+  if (byteLength === 0) {
+    return classifyNayaxRefundResponse({
+      stage,
+      httpStatus,
+      payload: undefined,
+      patterns,
+      mediaTypeClass,
+      bodyKind: "empty",
+      bodyLengthBucket,
+      jsonParsed: false,
+      payloadUnavailable: true,
+    });
+  }
+  if (byteLength > MAX_RESPONSE_LENGTH) {
+    return classifyNayaxRefundResponse({
+      stage,
+      httpStatus,
+      payload: undefined,
+      patterns,
+      mediaTypeClass,
+      bodyKind: "oversize",
+      bodyLengthBucket,
+      jsonParsed: false,
+      payloadUnavailable: true,
+    });
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(responseText);
+  } catch {
+    const htmlLike = mediaTypeClass === "html" ||
+      /^\s*(?:<!doctype\s+html|<html)(?:\s|>)/iu.test(responseText);
+    return classifyNayaxRefundResponse({
+      stage,
+      httpStatus,
+      payload: undefined,
+      patterns,
+      mediaTypeClass,
+      bodyKind: htmlLike
+        ? "html"
+        : mediaTypeClass === "application_json" ||
+            mediaTypeClass === "json_suffix"
+        ? "malformed_json"
+        : "text",
+      bodyLengthBucket,
+      jsonParsed: false,
+      payloadUnavailable: true,
+    });
+  }
+
+  return classifyNayaxRefundResponse({
+    stage,
+    httpStatus,
+    payload,
+    patterns,
+    mediaTypeClass,
+    bodyKind: payload !== null && typeof payload === "object" &&
+        !Array.isArray(payload)
+      ? "json_object"
+      : "json_non_object",
+    bodyLengthBucket,
+    jsonParsed: true,
+  });
 };
 
 const safeTimeoutMs = (value) => {
@@ -482,6 +676,11 @@ export async function postNayaxRefundStep({
   if (typeof fetchImpl !== "function") {
     throw new Error("Nayax refund transport is unavailable.");
   }
+  if (contract?.schemaVersion !== 2 || contract?.authorizationMode !== "bearer") {
+    throw new Error(
+      "Nayax refund transport requires a schemaVersion 2 Bearer contract.",
+    );
+  }
   const safeToken = parseToken(token);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), safeTimeoutMs(timeoutMs));
@@ -494,9 +693,7 @@ export async function postNayaxRefundStep({
     const response = await fetchImpl(`${contract.baseUrl}/payment/${path}`, {
       method: "POST",
       headers: {
-        Authorization: contract.authorizationMode === "bearer"
-          ? `Bearer ${safeToken}`
-          : safeToken,
+        Authorization: `Bearer ${safeToken}`,
         Accept: "application/json",
         "Content-Type": "application/json",
       },
@@ -504,23 +701,23 @@ export async function postNayaxRefundStep({
       signal: controller.signal,
       redirect: "error",
     });
-    const payload = await parseResponsePayload(response);
-    return classifyNayaxRefundResponse({
+    return await classifyNayaxHttpResponse({
       stage,
-      httpStatus: response.status,
-      payload,
+      response,
       patterns,
     });
   } catch (error) {
-    return Object.freeze({
+    return classifyNayaxRefundResponse({
       stage,
-      outcome: "unknown",
       httpStatus: null,
-      result: null,
-      status: null,
-      contractMatched: false,
+      payload: undefined,
+      patterns,
+      mediaTypeClass: "unavailable",
+      bodyKind: "unavailable",
+      bodyLengthBucket: "unavailable",
+      jsonParsed: false,
+      payloadUnavailable: true,
       failureType: error?.name === "AbortError" ? "timeout" : "network",
-      payloadRedacted: true,
     });
   } finally {
     clearTimeout(timeout);
@@ -615,16 +812,18 @@ export function parseNayaxRefundApprovalContract(rawValue) {
     ]),
     "Nayax refund approval contract",
   );
-  if (contract.schemaVersion !== 1) {
-    throw new Error("Nayax refund approval contract schemaVersion must be 1.");
+  if (contract.schemaVersion !== 2) {
+    throw new Error("Nayax refund approval contract schemaVersion must be 2.");
   }
   const contractVersion = text(contract.contractVersion, 80);
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{5,79}$/.test(contractVersion)) {
     throw new Error("Nayax refund approval contractVersion is invalid.");
   }
   const authorizationMode = text(contract.authorizationMode, 40).toLowerCase();
-  if (!new Set(["bearer", "raw"]).has(authorizationMode)) {
-    throw new Error("Nayax refund approval authorizationMode is invalid.");
+  if (authorizationMode !== "bearer") {
+    throw new Error(
+      "Nayax refund approval authorizationMode must be bearer.",
+    );
   }
   if (
     text(contract.reconciliationMode, 80).toLowerCase() !==
@@ -643,7 +842,7 @@ export function parseNayaxRefundApprovalContract(rawValue) {
     }
   }
   return Object.freeze({
-    schemaVersion: 1,
+    schemaVersion: 2,
     contractVersion,
     baseUrl: parseBaseUrl(contract.baseUrl),
     authorizationMode,
@@ -758,19 +957,65 @@ export const buildRedactedNayaxStageDigest = async ({
   const result = event === "result" && stageEvent.result
     ? stageEvent.result
     : {};
+  const safeEnum = (value, allowed) => allowed.has(value) ? value : null;
   const classification = JSON.stringify({
     stage,
     event,
     outcome: text(result.outcome, 40) || null,
-    httpStatus: Number.isInteger(result.httpStatus) ? result.httpStatus : null,
-    result: normalizeResponseValue(result.result),
-    status: normalizeResponseValue(result.status),
-    contractMatched: result.contractMatched === true,
-    failureType: text(result.failureType, 40) || null,
+    httpStatus: Number.isInteger(result.httpStatus) &&
+        result.httpStatus >= 100 && result.httpStatus <= 599
+      ? result.httpStatus
+      : null,
+    httpAccepted: typeof result.httpAccepted === "boolean"
+      ? result.httpAccepted
+      : null,
+    mediaTypeClass: safeEnum(
+      result.mediaTypeClass,
+      RESPONSE_MEDIA_TYPE_CLASSES,
+    ),
+    bodyKind: safeEnum(result.bodyKind, RESPONSE_BODY_KINDS),
+    bodyLengthBucket: safeEnum(
+      result.bodyLengthBucket,
+      RESPONSE_LENGTH_BUCKETS,
+    ),
+    jsonParsed: typeof result.jsonParsed === "boolean"
+      ? result.jsonParsed
+      : null,
+    jsonObject: typeof result.jsonObject === "boolean"
+      ? result.jsonObject
+      : null,
+    resultKeyPresent: typeof result.resultKeyPresent === "boolean"
+      ? result.resultKeyPresent
+      : null,
+    statusKeyPresent: typeof result.statusKeyPresent === "boolean"
+      ? result.statusKeyPresent
+      : null,
+    resultValueType: safeEnum(
+      result.resultValueType,
+      RESPONSE_VALUE_TYPES,
+    ),
+    statusValueType: safeEnum(
+      result.statusValueType,
+      RESPONSE_VALUE_TYPES,
+    ),
+    schemaMatched: typeof result.schemaMatched === "boolean"
+      ? result.schemaMatched
+      : null,
+    semanticPairMatched: typeof result.semanticPairMatched === "boolean"
+      ? result.semanticPairMatched
+      : null,
+    contractMatched: typeof result.contractMatched === "boolean"
+      ? result.contractMatched
+      : null,
+    failureType: safeEnum(
+      result.failureType,
+      new Set(["timeout", "network", "response_read"]),
+    ),
+    payloadRedacted: result.payloadRedacted === true,
   });
   return hmacSha256Hex(
     safeSecret,
-    `bloomjoy-nayax-stage-v1|${safeAttemptId}|${safeContractVersion}|${classification}`,
+    `bloomjoy-nayax-stage-v2|${safeAttemptId}|${safeContractVersion}|${classification}`,
   );
 };
 
@@ -826,6 +1071,18 @@ export const mapNayaxRefundExecutionOutcome = async (
     ? "provider_approval_pending"
     : finalStage.failureType === "network"
     ? `provider_${finalStage.stage}_network_unknown`
+    : finalStage.failureType === "response_read"
+    ? `provider_${finalStage.stage}_response_read_unknown`
+    : finalStage.httpStatus !== null && finalStage.httpAccepted === false
+    ? `provider_${finalStage.stage}_http_error_unknown`
+    : finalStage.mediaTypeClass !== "application_json"
+    ? `provider_${finalStage.stage}_media_type_invalid`
+    : finalStage.jsonParsed !== true || finalStage.jsonObject !== true
+    ? `provider_${finalStage.stage}_response_invalid`
+    : finalStage.schemaMatched !== true
+    ? `provider_${finalStage.stage}_schema_mismatch`
+    : finalStage.semanticPairMatched !== true
+    ? `provider_${finalStage.stage}_semantic_mismatch`
     : finalStage.contractMatched === false
     ? `provider_${finalStage.stage}_contract_mismatch`
     : `provider_${finalStage.stage}_outcome_unknown`;
