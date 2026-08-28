@@ -317,7 +317,7 @@ export const parseFunctionDeploymentConfig = (rootDirectory) => {
 };
 
 export const validateManifestShape = (manifest, { allowPending = false } = {}) => {
-  assert(manifest?.schemaVersion === 2, 'Refund production manifest schemaVersion must be 2');
+  assert(manifest?.schemaVersion === 3, 'Refund production manifest schemaVersion must be 3');
   assert(manifest?.environment === 'production', 'Refund production manifest environment must be production');
   assert(projectRefPattern.test(manifest?.projectRef ?? ''), 'Refund production manifest projectRef is invalid');
   assert(

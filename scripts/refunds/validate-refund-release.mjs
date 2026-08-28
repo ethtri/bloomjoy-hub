@@ -64,7 +64,7 @@ assert(
       'Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit'
     ) &&
     productionRunbook.includes('production Gmail OAuth/mailbox connection is now configured and proved under `#634`') &&
-    productionRunbook.includes('deployed default-off handler') &&
+    productionRunbook.includes('production adapter exists but cannot reserve or call Nayax') &&
     productionRunbook.includes('Issue `#409` tracks the remaining staffed shadow and production-label/legacy-responder no-overlap cutover') &&
     !productionRunbook.includes('For the unmerged candidate') &&
     !productionRunbook.includes('The later `#767` outcome-resolution migration and function deployment') &&
@@ -224,8 +224,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    93,
-    'Refund release inventory must cover exactly 93 discovered refund/Nayax migrations'
+    94,
+    'Refund release inventory must cover exactly 94 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -234,6 +234,10 @@ try {
   assert(
     repositoryMigrations.includes('20260812053417_refund_gmail_attachment_off_copy_gate.sql'),
     'The attachment-off Gmail copy gate migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260828003503_refund_nayax_authoritative_journal_v3.sql'),
+    'The hardened Nayax journal v3 migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260812200000_refund_owner_totp_enrollment_window.sql'),
@@ -571,7 +575,7 @@ try {
   }));
   const previousFunctions = localFunctions.map(({ slug, sourceSha256 }) => ({ slug, sourceSha256 }));
   const shapeManifest = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     environment: 'production',
     projectRef: 'a'.repeat(20),
     releaseId: 'fixture-release',
@@ -797,7 +801,7 @@ try {
 
   assert.throws(
     () => validateManifestShape({ ...shapeManifest, schemaVersion: 1 }),
-    /schemaVersion must be 2/,
+    /schemaVersion must be 3/,
     'Stale manifest schema versions must fail'
   );
   assert.throws(
