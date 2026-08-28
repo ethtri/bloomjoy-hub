@@ -278,8 +278,7 @@ const resolveCaseRefundReadiness = async ({
   const dailyUsage = dailyUsageError
     ? null
     : parseNayaxRefundDailyUsage(dailyUsageValue);
-
-  return mergeRuntimeRefundReadiness({
+  const readiness = mergeRuntimeRefundReadiness({
     databaseReadiness,
     executionConfig,
     officialActionsEnabled: NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
@@ -287,6 +286,27 @@ const resolveCaseRefundReadiness = async ({
     dailyAmountUsedCents: dailyUsage?.dailyAmountUsedCents ?? null,
     dailyCountUsed: dailyUsage?.dailyCountUsed ?? null,
   });
+  console.info(JSON.stringify({
+    event: "nayax_refund_availability_runtime",
+    caseIdDigest: await sha256Hex(refundCase.id),
+    blockReason: readiness.blockReason,
+    configReady: executionConfig.blocks.length === 0,
+    accountKeyPresent: Boolean(accountKey),
+    managerContractPresent: Boolean(managerContract),
+    providerHostValid: managerContract?.baseUrl ===
+      NAYAX_REFUND_PRODUCTION_BASE_URL,
+    writeCredentialsReady,
+    journalCompatible,
+    releaseAuthorized: isNayaxRefundCaseReleaseAuthorized({
+      rolloutConfig: resolveNayaxRefundRolloutConfig((name) =>
+        Deno.env.get(name)
+      ),
+      caseId: refundCase.id,
+    }),
+    dailyUsageAvailable: dailyUsage !== null,
+    payloadRedacted: true,
+  }));
+  return readiness;
 };
 
 const safeNayaxReference = (value: string | null | undefined) =>
