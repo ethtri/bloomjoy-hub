@@ -120,6 +120,26 @@ if (exists("Docs/NAYAX_REFUND_PRODUCTION_RCA.md")) {
     /business rejection[^\n]*HTTP `200`/i.test(nayaxRefundRca),
     "Nayax refund RCA must preserve that HTTP 200 is not business-success proof.",
   );
+  assert(
+    /Provider-free reconciliation of both later `\$8` attempts is complete/i.test(nayaxRefundRca),
+    "Nayax refund RCA must not leave reconciled provider attempts described as pending.",
+  );
+  assert(
+    /no refund request or approval is currently in flight/i.test(nayaxRefundRca),
+    "Nayax refund RCA must preserve that no provider write is currently in flight.",
+  );
+  assert(
+    /integration-support@nayax\.com` bounced with a recipient-address rejection/i.test(nayaxRefundRca),
+    "Nayax refund RCA must preserve that the direct integration-support route bounced.",
+  );
+  assert(
+    /#03594386[\s\S]*#03624855[\s\S]*#03624856[\s\S]*#03624867/.test(nayaxRefundRca),
+    "Nayax refund RCA must retain the confirmed support and routing ticket chain.",
+  );
+  assert(
+    !/current attempt requires provider-free DTM\/support reconciliation/i.test(nayaxRefundRca),
+    "Nayax refund RCA must not restore the stale unresolved-attempt framing.",
+  );
 }
 
 if (exists("package.json")) {
