@@ -314,11 +314,12 @@ Three validation modes:
 
 Admin > Machines Machine Manager UAT:
 - For visual review without remote data, open `/admin/machines?demo=on`; use the listed `example.test` demo users only. Demo assignments save in the browser and do not write to Supabase.
-- For functional UAT, open `/admin/machines`, edit a machine, and use the Machine Managers people lookup to search/add an authenticated user email.
+- For functional UAT, open `/admin/machines`, choose `Manage` on a machine, open the `Managers` tab, and use the people lookup to search/add an authenticated user email.
 - The target person must have signed in to Bloomjoy at least once before assignment can save. If the person is not an authenticated user yet, the UI should explain that they need to sign in once first.
-- Machine Manager changes autosave immediately. There is no separate `Save Machine Managers` button.
-- After adding or removing a manager, confirm the status changes to `Saved`, close the sheet, and confirm the manager email is visible in the machine row.
-- The bottom `Save machine changes` button saves machine identity plus customer-refund setup fields. Machine Manager assignment autosaves separately when a person is added or removed.
+- Machine Manager changes remain pending until `Save Machine Managers` is selected. This explicit save prevents an accidental Add or Remove from changing access immediately.
+- After saving, confirm the status changes to `Saved`, return to the list, and confirm the machine no longer reports missing manager coverage.
+- Machine identity, refund setup, Machine Managers, reporting, and activity are separated into focused tabs. Each editable tab has its own save action.
+- Super Admin Nayax reconciliation is at `/admin/machines/inventory`; its default `Needs review` view hides already-published and excluded records.
 - Active Commercial/Mini machines with active customer-safe locations appear on the public refund form automatically. The refund automation switch controls manager/Nayax readiness only; turning it off must not remove the machine from public intake.
 
 Partner Technician Access UAT:

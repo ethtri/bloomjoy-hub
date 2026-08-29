@@ -100,7 +100,7 @@ export const translations = {
     'admin.partnerRecordsShort': 'Partner Records',
     'admin.partnerRecordsDescription': 'Reusable external organizations and reporting contacts.',
     'admin.machines': 'Machines',
-    'admin.machinesDescription': 'Machine aliases, external machine IDs, machine managers, and tax rates.',
+    'admin.machinesDescription': 'Machine readiness and operational setup.',
     'admin.partnerships': 'Partnerships',
     'admin.partnershipsDescription':
       'Guided agreement setup, participants, assigned machines, split terms, and preview.',

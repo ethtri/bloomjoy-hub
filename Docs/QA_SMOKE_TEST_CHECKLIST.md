@@ -745,6 +745,11 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] Plus Customer access grant, extension, and revoke actions create `admin_audit_log` entries with `entity_type=plus_access_grant`
 - [ ] Grant-only customers see waived Plus access on `/portal/account` and are not offered the Stripe billing portal unless they also have a paid subscription
 - [ ] Admin Accounts links machine context to `/admin/machines`; machine records are managed as first-class `reporting_machines`, not account-level editable counts
+- [ ] `/admin/machines` presents one compact machine list (not a second Nayax table), defaults to the operational portfolio view, and preserves search/view filters when returning from a machine detail
+- [ ] Machine rows show identity, the highest-priority attention item, refund readiness, reporting status, latest activity, and one `Manage` action without exposing manager emails or provider IDs in the list
+- [ ] `/admin/machines/:machineId` separates Overview, Refunds, Managers, Reporting, and Activity; browser Back returns to the preserved list state
+- [ ] Machine Manager additions/removals remain pending until `Save Machine Managers`; leaving before save does not change access
+- [ ] `/admin/machines/inventory` is Super Admin-only, defaults to `Needs review`, and keeps Published, Excluded, All, search, and per-row Review controls available
 - [ ] Machine grant/revoke, machine setup edits, and machine tax/refund setup changes create `admin_audit_log` entries
 - [ ] Manual reporting access source card uses a contextual machine-scope editor, not a raw permission matrix
 - [ ] Manual reporting access source card can select multiple machines, save with a reason, and update that person's machine grants in one transactional save
@@ -789,6 +794,7 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] Super-admin user can access `/admin/partner-records` and `/admin/machines`
 - [ ] Scoped Admin user can access `/admin/machines`, sees no machines before grants, and sees only explicitly granted machines after grants
 - [ ] Super-admin user sees all machine records in `/admin/machines` and can create/edit machine identity records
+- [ ] Scoped Admin can open granted machine detail tabs but cannot open or mutate `/admin/machines/inventory`
 - [ ] Admin Partner Records can search, create, edit, and archive reusable partner records with separate display name and legal name fields, without exposing "party" terminology
 - [ ] Issue `#326`: super-admin can archive an unused test partner record from `/admin/partner-records` with required reason copy naming the record, and `admin_audit_log` stores actor, target ID/status, timestamp, and reason without customer/payment/source payloads or signed URLs
 - [ ] Issue `#326`: archiving a partner record is blocked when active memberships, active partnership parties, active assignments, active schedules, report snapshots, schedule runs, sales facts, or applied adjustment history are tied to it

@@ -260,6 +260,8 @@ export const AppShell = () => (
               <Route path="/admin/access" element={<AdminAccess />} />
               <Route path="/admin/partner-records" element={<AdminPartnerRecords />} />
               <Route path="/admin/machines" element={<AdminMachines />} />
+              <Route path="/admin/machines/inventory" element={<AdminMachines />} />
+              <Route path="/admin/machines/:machineId" element={<AdminMachines />} />
               <Route path="/admin/accounts" element={<AdminAccounts />} />
               <Route path="/admin/partnerships" element={<AdminPartnerships />} />
               <Route path="/admin/reporting" element={<AdminReporting />} />

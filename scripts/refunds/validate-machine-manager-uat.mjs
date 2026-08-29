@@ -602,29 +602,55 @@ const run = async () => {
       page.getByRole('button', { name: /sign in/i }).click(),
     ]);
 
-    await page.getByRole('heading', { name: 'Machines' }).waitFor({ timeout: 10000 });
-    await page.getByRole('table', { name: 'Machine setup' }).getByText('Cotton Candy 01').waitFor({ timeout: 10000 });
-    await page.getByRole('heading', { name: 'Refund Nayax inventory' }).waitFor({ timeout: 10000 });
+    await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10000 });
+    await page.getByRole('table', { name: 'Machines' }).getByText('Cotton Candy 01').waitFor({ timeout: 10000 });
+    await page.getByText('Signed in. Redirecting...').waitFor({ state: 'hidden', timeout: 10000 }).catch(() => undefined);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'admin-machines-workspace-desktop.png'),
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'admin-machines-workspace-mobile.png'),
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 1440, height: 1000 });
 
     recorder.assert('Super admin lands on Admin > Machines', pathname(page) === '/admin/machines', page.url());
     recorder.assert(
-      'Machines description uses machine manager language',
-      await page.getByText(/machine managers/i).first().isVisible()
+      'Machines description is concise and task focused',
+      await page.getByText('Find a machine, check readiness, and manage setup.').isVisible()
     );
     recorder.assert(
-      'Nayax inventory exposes published, setup, and excluded states',
-      await page.getByText('Snapcase UAT').isVisible()
-        && await page.getByText('Synthetic provider test').isVisible()
-        && await page.getByText('Needs setup', { exact: true }).first().isVisible()
+      'Nayax inventory is separated from the primary machine list',
+      await page.getByRole('link', { name: 'Nayax setup' }).isVisible()
+        && (await page.getByRole('heading', { name: 'Inventory review' }).count()) === 0
     );
 
-    await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Edit' }).click();
+    await page.getByRole('link', { name: 'Nayax setup' }).click();
+    await page.getByRole('heading', { name: 'Inventory review' }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Nayax setup defaults to the exceptions-first review view',
+      await page.getByRole('tab', { name: /Needs review/ }).getAttribute('aria-selected') === 'true'
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'admin-machines-nayax-setup-desktop.png'),
+      fullPage: true,
+    });
+    await page.getByRole('main').getByRole('link', { name: 'Machines', exact: true }).click();
+    await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10000 });
+
+    await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Manage' }).click();
+    await page.getByRole('heading', { name: 'Cotton Candy 01' }).waitFor({ timeout: 10000 });
+    await page.getByRole('tab', { name: /Managers/ }).click();
     await page.getByRole('heading', { name: 'Machine Managers' }).waitFor({ timeout: 10000 });
-    const machineDialog = page.getByLabel('Edit Machine');
+    const machineDialog = page.locator('main');
 
     recorder.assert(
-      'Machine Manager setup opens from Edit Machine',
-      await machineDialog.getByText('Select the people responsible for this machine.').isVisible()
+      'Machine Manager setup opens as a focused task tab',
+      await machineDialog.getByText(/Assign the people who review refund requests/i).isVisible()
     );
     recorder.assert(
       'Existing Machine Manager appears as removable chip',
@@ -636,27 +662,16 @@ const run = async () => {
     );
     recorder.assert(
       'Machine Manager setup explains the one-to-four assignment range',
-      await machineDialog.getByText(/Add up to 4 authenticated Machine Managers per machine/i).isVisible()
+      await machineDialog.getByText('1 of 4 assigned').isVisible()
     );
-    recorder.assert(
-      'Customer refunds are managed from Admin > Machines',
-      await machineDialog.getByRole('heading', { name: 'Customer refunds' }).isVisible()
-    );
-    recorder.assert(
-      'Setup-needed state names the exact blocked capability',
-      await machineDialog.getByText('Setup needed', { exact: true }).first().isVisible()
-        && await machineDialog.getByText(/Transaction matching is off/i).isVisible()
-        && await machineDialog.getByText('Customer requests', { exact: true }).isVisible()
-    );
-    await page.screenshot({ path: path.join(args.artifactDir, 'machine-refunds-setup-needed-desktop.png'), fullPage: true });
 
-    await page.fill('#machine-manager-search', invitedManagerEmail);
+    await page.getByLabel('Search Machine Managers').fill(invitedManagerEmail);
     await machineDialog.getByRole('button', { name: 'Send invite' }).click();
     await waitForCondition(
       () => state.accessInviteBodies.length > 0,
       'Machine Manager invite request capture'
     );
-    await machineDialog.getByText(/Last invite sent/i).waitFor({ timeout: 10000 });
+    await page.getByText('Machine Manager invite sent. Assign this person after they sign in.').waitFor({ timeout: 10000 });
 
     recorder.assert(
       'Machine Manager signup invite uses reporting machine source',
@@ -670,31 +685,29 @@ const run = async () => {
       state.savePayload === null && !state.managerEmails.includes(invitedManagerEmail),
       JSON.stringify({ savePayload: state.savePayload, managerEmails: state.managerEmails })
     );
-    recorder.assert(
-      'Machine Manager invite delivery evidence appears in setup sheet',
-      await machineDialog.getByText(new RegExp(invitedManagerEmail, 'i')).isVisible()
-    );
-
-    await page.fill('#machine-manager-search', 'manager-two');
+    await page.getByLabel('Search Machine Managers').fill('manager-two');
     await page.getByRole('button', { name: new RegExp(secondManagerEmail, 'i') }).click();
-    await page.getByText('Saved').waitFor({ timeout: 10000 });
 
     recorder.assert(
       'Searchable user lookup adds a second Machine Manager',
-      await machineDialog.getByText('2 managers assigned').isVisible()
+      await machineDialog.getByText('2 of 4 assigned').isVisible()
     );
     recorder.assert(
-      'Machine Manager changes autosave without a separate save button',
-      (await page.getByRole('button', { name: 'Save Machine Managers' }).count()) === 0
+      'Machine Manager changes remain pending until explicit save',
+      state.savePayload === null
+        && await page.getByRole('button', { name: 'Save Machine Managers' }).isEnabled()
     );
 
+    await page.getByRole('button', { name: 'Save Machine Managers' }).click();
+    await page.getByText('Machine Managers saved.').waitFor({ timeout: 10000 });
+
     recorder.assert(
-      'Autosave payload targets the edited machine',
+      'Explicit save payload targets the edited machine',
       state.savePayload?.p_machine_id === machineId,
       JSON.stringify(state.savePayload)
     );
     recorder.assert(
-      'Autosave payload contains selected Machine Managers',
+      'Explicit save payload contains selected Machine Managers',
       Array.isArray(state.savePayload?.p_manager_emails) &&
         state.savePayload.p_manager_emails.includes(firstManagerEmail) &&
         state.savePayload.p_manager_emails.includes(secondManagerEmail),
@@ -705,14 +718,18 @@ const run = async () => {
       ['manager-three', thirdManagerEmail],
       ['manager-four', fourthManagerEmail],
     ]) {
-      await page.fill('#machine-manager-search', search);
+      await page.getByLabel('Search Machine Managers').fill(search);
       await machineDialog.locator('button', { hasText: email }).click();
-      await page.getByText('Saved').waitFor({ timeout: 10000 });
+      await page.getByRole('button', { name: 'Save Machine Managers' }).click();
+      await waitForCondition(
+        () => state.managerEmails.includes(email),
+        `explicit Machine Manager save for ${email}`
+      );
     }
 
     recorder.assert(
-      'Machine Manager lookup and autosave accept a complete four-manager route',
-      await machineDialog.getByText('4 managers assigned').isVisible() &&
+      'Machine Manager lookup and explicit save accept a complete four-manager route',
+      await machineDialog.getByText('4 of 4 assigned').isVisible() &&
         Array.isArray(state.savePayload?.p_manager_emails) &&
         state.savePayload.p_manager_emails.length === 4 &&
         [firstManagerEmail, secondManagerEmail, thirdManagerEmail, fourthManagerEmail]
@@ -721,19 +738,25 @@ const run = async () => {
     );
     recorder.assert(
       'A fifth Machine Manager cannot be entered after the four-manager cap',
-      await machineDialog.locator('#machine-manager-search').isDisabled() &&
+      await machineDialog.getByLabel('Search Machine Managers').isDisabled() &&
         await machineDialog.getByRole('button', { name: 'Add', exact: true }).isDisabled()
     );
 
-    await machineDialog.getByLabel('Enable transaction matching for this machine').click();
-    await page.fill('#refund-display-label', 'Mall Atrium Cotton Candy');
-    await page.fill('#nayax-machine-id', 'NAYAX-UAT-001');
-    await page.fill('#nayax-account-key', 'TGPACI_USA_DB');
+    await page.getByRole('tab', { name: 'Refunds' }).click();
+    await page.getByRole('heading', { name: 'Customer refunds' }).waitFor({ timeout: 10000 });
     recorder.assert(
-      'Refund setup no longer has a redundant section-level save button',
-      (await machineDialog.getByRole('button', { name: 'Save refund setup' }).count()) === 0
+      'Customer refunds are managed in a focused task tab',
+      await machineDialog.getByText('Setup needed', { exact: true }).first().isVisible()
+        && await machineDialog.getByText('Customer requests', { exact: true }).isVisible()
     );
-    await machineDialog.getByRole('button', { name: 'Save machine changes' }).click();
+    await machineDialog.getByLabel('Transaction matching').click();
+    await page.fill('#page-refund-label', 'Mall Atrium Cotton Candy');
+    await page.fill('#page-nayax-id', 'NAYAX-UAT-001');
+    recorder.assert(
+      'Refund setup has one explicit section save action',
+      (await machineDialog.getByRole('button', { name: 'Save refund setup' }).count()) === 1
+    );
+    await machineDialog.getByRole('button', { name: 'Save refund setup' }).click();
     await page.getByText('Machine and refund setup saved.').waitFor({ timeout: 10000 });
 
     recorder.assert(
@@ -755,87 +778,94 @@ const run = async () => {
         state.nayaxPayload?.p_nayax_account_key === 'TGPACI_USA_DB',
       JSON.stringify(state.nayaxPayload)
     );
+    await page.getByRole('link', { name: 'Back to machines' }).click();
+    await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10000 });
     const machineRow = page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' });
-    await machineRow.getByText(secondManagerEmail).waitFor({ timeout: 10000 });
-    const readyToActivate = machineRow.getByText(/Ready to activate/i);
+    const readyToActivate = machineRow.getByText('Ready to activate', { exact: true });
     await readyToActivate.waitFor({ timeout: 10000 });
     recorder.assert(
-      'Saved Machine Managers are visible in the Machines list',
-      await machineRow.getByText(secondManagerEmail).isVisible()
+      'Manager emails stay out of the compact Machines list',
+      (await machineRow.getByText(secondManagerEmail).count()) === 0
     );
     recorder.assert(
       'Saved refund readiness is truthful in the Machines list',
       (await readyToActivate.isVisible()) && (await machineRow.getByText(/Awaiting reviewed activation/i).isVisible())
     );
 
-    await machineDialog.waitFor({ state: 'hidden', timeout: 10000 });
-    await machineRow.getByRole('button', { name: 'Edit' }).evaluate((button) => button.click());
+    await machineRow.getByRole('button', { name: 'Manage' }).click();
+    await page.getByRole('tab', { name: /Managers/ }).click();
     await page.getByRole('heading', { name: 'Machine Managers' }).waitFor({ timeout: 10000 });
-    const reopenedMachineDialog = page.getByLabel('Edit Machine');
+    const reopenedMachineDialog = page.locator('main');
     recorder.assert(
       'Saved Machine Managers remain visible after close and reopen',
       await reopenedMachineDialog.getByText(secondManagerEmail).isVisible()
     );
+    await page.getByRole('tab', { name: 'Refunds' }).click();
+    await waitForCondition(
+      async () => (await reopenedMachineDialog.locator('#page-nayax-id').inputValue()) === 'NAYAX-UAT-001',
+      'saved refund setup hydration'
+    );
     recorder.assert(
-      'Saved refund readiness remains visible after close and reopen',
-      (await reopenedMachineDialog.getByLabel('Enable transaction matching for this machine').isChecked()) &&
-        (await reopenedMachineDialog.locator('#refund-display-label').inputValue()) === 'Mall Atrium Cotton Candy' &&
-        (await reopenedMachineDialog.locator('#nayax-machine-id').inputValue()) === 'NAYAX-UAT-001'
+      'Saved refund readiness remains visible after returning to the task tab',
+      (await reopenedMachineDialog.getByLabel('Transaction matching').isChecked()) &&
+        (await reopenedMachineDialog.locator('#page-refund-label').inputValue()) === 'Mall Atrium Cotton Candy' &&
+        (await reopenedMachineDialog.locator('#page-nayax-id').inputValue()) === 'NAYAX-UAT-001'
     );
 
     recorder.assert(
       'Qualified payment-disabled machine has one guided activation action',
       await reopenedMachineDialog.getByText('Ready to activate', { exact: true }).isVisible()
         && await reopenedMachineDialog.getByText(/Off — Awaiting reviewed activation/i).isVisible()
-        && await reopenedMachineDialog.getByRole('button', { name: /Activate card refunds · \$50 limit/i }).isVisible()
+        && await reopenedMachineDialog.getByRole('button', { name: 'Activate card refunds' }).isVisible()
     );
     await page.screenshot({ path: path.join(args.artifactDir, 'machine-refunds-ready-to-activate-desktop.png'), fullPage: true });
 
     page.once('dialog', (dialog) => dialog.accept());
-    await reopenedMachineDialog.getByRole('button', { name: /Activate card refunds · \$50 limit/i }).click();
+    await reopenedMachineDialog.getByRole('button', { name: 'Activate card refunds' }).click();
     await reopenedMachineDialog.getByText('Ready to refund', { exact: true }).waitFor({ timeout: 10000 });
     recorder.assert(
       'Guided activation applies the reviewed launch cap and becomes ready',
       state.activationPayload?.p_machine_id === machineId
         && state.activationPayload?.p_enabled === true
-        && await reopenedMachineDialog.getByText('Enabled', { exact: true }).isVisible()
-        && await reopenedMachineDialog.getByText('$50 per refund during launch', { exact: true }).isVisible(),
+        && await reopenedMachineDialog.getByText('Enabled', { exact: true }).isVisible(),
       JSON.stringify(state.activationPayload)
     );
     await page.getByText('Card refunds activated at the $50 launch limit.').waitFor({ state: 'hidden', timeout: 10000 });
     await page.screenshot({ path: path.join(args.artifactDir, 'machine-refunds-ready-desktop.png'), fullPage: true });
 
-    await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.getByRole('link', { name: 'Back to machines' }).click();
     state.globalRefundsPaused = true;
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('button', { name: 'Refresh' }).click();
-    await machineRow.getByRole('button', { name: 'Edit' }).click();
-    const pausedMachineDialog = page.getByLabel('Edit Machine');
+    await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Manage' }).click();
+    await page.getByRole('tab', { name: 'Refunds' }).click();
+    const pausedMachineDialog = page.locator('main');
     await pausedMachineDialog.getByText('Paused for all machines', { exact: true }).waitFor({ timeout: 10000 });
     recorder.assert(
       'Global pause is distinct from machine setup',
       await pausedMachineDialog.getByText('Paused', { exact: true }).isVisible()
         && await pausedMachineDialog.getByText('Enabled', { exact: true }).isVisible()
     );
-    await pausedMachineDialog.getByRole('heading', { name: 'Customer refunds' }).locator('..').locator('..').locator('..').screenshot({
+    await pausedMachineDialog.getByRole('heading', { name: 'Customer refunds' }).locator('..').screenshot({
       path: path.join(args.artifactDir, 'machine-refunds-globally-paused-mobile.png'),
     });
 
-    await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.getByRole('link', { name: 'Back to machines' }).click();
     state.globalRefundsPaused = false;
     state.refundSetup.cardRefundsEnabled = false;
     state.refundSetup.cardRefundLimitCents = null;
     state.refundSetup.paymentDisabledReason = 'owner_pause';
     state.refundSetup.readinessState = 'ready_to_activate';
     await page.getByRole('button', { name: 'Refresh' }).click();
-    await machineRow.getByRole('button', { name: 'Edit' }).click();
-    const intentionallyPausedDialog = page.getByLabel('Edit Machine');
+    await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Manage' }).click();
+    await page.getByRole('tab', { name: 'Refunds' }).click();
+    const intentionallyPausedDialog = page.locator('main');
     await intentionallyPausedDialog.getByText(/Off — Paused by owner/i).waitFor({ timeout: 10000 });
     recorder.assert(
       'Intentional machine disablement shows its approved reason',
       await intentionallyPausedDialog.getByText(/Off — Paused by owner/i).isVisible()
     );
-    await intentionallyPausedDialog.getByRole('heading', { name: 'Customer refunds' }).locator('..').locator('..').locator('..').screenshot({
+    await intentionallyPausedDialog.getByRole('heading', { name: 'Customer refunds' }).locator('..').screenshot({
       path: path.join(args.artifactDir, 'machine-refunds-machine-disabled-mobile.png'),
     });
     recorder.assert(
@@ -844,7 +874,7 @@ const run = async () => {
       networkFailures.slice(0, 3).join(' | ')
     );
 
-    await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.getByRole('link', { name: 'Back to machines' }).click();
     await page.setViewportSize({ width: 1440, height: 1000 });
     const savePayloadBeforeDemo = JSON.stringify(state.savePayload);
     state.rpcCalls.length = 0;
@@ -855,22 +885,25 @@ const run = async () => {
       { waitUntil: 'networkidle' }
     );
     await page.getByText('DEMO DATA - visual review only').waitFor({ timeout: 10000 });
-    await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Edit' }).click();
+    const demoBannerVisible = await page.getByText(/Machine Manager changes save in this browser only/i).isVisible();
+    await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Manage' }).click();
+    await page.getByRole('tab', { name: /Managers/ }).click();
     await page.getByRole('heading', { name: 'Machine Managers' }).waitFor({ timeout: 10000 });
-    const demoMachineDialog = page.getByLabel('Edit Machine');
+    const demoMachineDialog = page.locator('main');
 
     recorder.assert(
       'Machine Manager demo mode is clearly labeled as visual-only',
-      await page.getByText(/Machine Manager changes save in this browser only/i).isVisible()
+      demoBannerVisible
     );
 
-    await page.fill('#machine-manager-search', 'operator-three');
+    await page.getByLabel('Search Machine Managers').fill('operator-three');
     await page.getByRole('button', { name: /operator-three@example\.test/i }).click();
-    await demoMachineDialog.getByText('Saved', { exact: true }).waitFor({ timeout: 10000 });
+    await demoMachineDialog.getByRole('button', { name: 'Save Machine Managers' }).click();
+    await page.getByText(/Demo mode saved this assignment in the browser only/i).waitFor({ timeout: 10000 });
 
     recorder.assert(
       'Demo mode allows only listed demo Machine Manager accounts',
-      await demoMachineDialog.getByText('1 manager assigned').isVisible()
+      await demoMachineDialog.getByText('1 of 4 assigned').isVisible()
     );
     recorder.assert(
       'Demo mode Machine Manager save does not call the Supabase write RPC',
@@ -884,9 +917,10 @@ const run = async () => {
         !state.rpcCalls.includes('admin_get_account_summaries'),
       state.rpcCalls.join(', ')
     );
+    await page.getByRole('tab', { name: 'Overview' }).click();
     recorder.assert(
       'Demo mode disables machine detail persistence',
-      await demoMachineDialog.getByRole('button', { name: 'Save machine changes' }).isDisabled()
+      await demoMachineDialog.getByRole('button', { name: 'Save machine details' }).isDisabled()
     );
 
     await page.screenshot({
