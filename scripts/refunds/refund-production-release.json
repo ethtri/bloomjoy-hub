@@ -101,7 +101,8 @@
     "20260828003503_refund_nayax_authoritative_journal_v3.sql",
     "20260828035155_refund_nayax_retry_safe_resolution_release.sql",
     "20260830175740_refund_automation_scheduler_reliability.sql",
-    "20260830182744_refund_nayax_superseded_generation_hold.sql"
+    "20260830182744_refund_nayax_superseded_generation_hold.sql",
+    "20260830183702_refund_customer_status_recovery.sql"
   ],
   "migrationFilesSha256": "0b0a429ef134034484d5696c1e283c38c0eaec30afda3662bd1ad6a64102f064",
   "migrationVersionSetSha256": "ab0c86c72ada72f88c4f8c91d9cc5a955ad33a4ceec4deceb05591fc46cc27bd",
