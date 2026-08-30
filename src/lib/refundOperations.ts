@@ -367,10 +367,22 @@ export type RefundCaseRecord = {
   paymentMethod: RefundPaymentMethod;
   paymentAmountCents: number | null;
   cardLast4: string | null;
+  cardLast4Provenance?: 'physical_card' | 'wallet_device_token' | null;
   cardNetwork?: RefundCardNetwork | null;
   cardWalletUsed: boolean;
   paymentInteraction?: RefundPaymentInteraction | null;
   walletProvider?: RefundWalletProvider | null;
+  customerFactEvidence?: {
+    source:
+      | 'initial_customer_submission'
+      | 'verified_customer_email'
+      | 'secure_wallet_correction'
+      | 'current_case_record';
+    appliedAt: string;
+    changedFields: string[];
+    factVersion: number;
+    payloadRedacted: true;
+  } | null;
   incidentTimeConfidence?: RefundIncidentTimeConfidence | null;
   issueCategory?: RefundIssueCategory | null;
   productDescription?: string | null;
@@ -1589,6 +1601,15 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         paymentMethod: 'card',
         paymentAmountCents: 700,
         cardLast4: '4242',
+        cardLast4Provenance: 'physical_card',
+        cardNetwork: 'visa',
+        customerFactEvidence: {
+          source: 'verified_customer_email',
+          appliedAt: demoIsoHoursAgo(4.75),
+          changedFields: ['card_network', 'payment_interaction', 'card_last4_provenance'],
+          factVersion: 2,
+          payloadRedacted: true,
+        },
         cardWalletUsed: false,
         paymentInteraction: 'tap_card',
         walletProvider: null,

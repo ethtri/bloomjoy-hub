@@ -72,9 +72,12 @@ const refundMissingFieldRequest: Record<RefundMissingField, string> = {
   incident_date: "the purchase date",
   incident_time: "the approximate purchase time, including AM or PM",
   payment_method: "whether you paid by card, Apple Pay, Google Pay, or cash",
+  payment_interaction: "how you used the card or wallet",
+  wallet_provider: "the wallet provider, if you used a phone or watch wallet",
   amount: "the exact amount charged",
   card_last4:
     "only the last four digits shown on the card charge (do not email wallet or device-card digits)",
+  card_network: "the card type shown on the card or inside the wallet",
 };
 
 const refundMissingFieldReplyLine: Record<RefundMissingField, string> = {
@@ -82,8 +85,11 @@ const refundMissingFieldReplyLine: Record<RefundMissingField, string> = {
   incident_date: "Purchase date (YYYY-MM-DD):",
   incident_time: "Approximate purchase time (include AM or PM):",
   payment_method: "Payment method (card, Apple Pay, Google Pay, or cash):",
+  payment_interaction: "Payment interaction (tap card, insert or swipe, phone or watch wallet, or not sure):",
+  wallet_provider: "Wallet provider (Apple Pay, Google Wallet, other, or not sure):",
   amount: "Amount (for example, $7.25):",
   card_last4: "Card last four:",
+  card_network: "Card type (Visa, Mastercard, Discover, American Express, or not sure):",
 };
 
 export const describeRefundMissingFields = (value: unknown) =>

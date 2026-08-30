@@ -189,7 +189,7 @@ const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-relea
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
 const reviewedManagerSourceSha256 = {
   'refund-manager-action-step-up':
-    '08d2f386671b4c95c6043666537aadced77a9a5856769f4f18db80d93cdcf558',
+    '270bd5bfd913be3493c04c65fa25a49f997b183fe8708ba9b2c3cc3a92b31c3c',
   'refund-manager-totp-enrollment':
     'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
 };
@@ -224,8 +224,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    100,
-    'Refund release inventory must cover exactly 100 discovered refund/Nayax migrations'
+    101,
+    'Refund release inventory must cover exactly 101 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -262,6 +262,10 @@ try {
   assert(
     repositoryMigrations.includes('20260830183702_refund_customer_status_recovery.sql'),
     'The customer status recovery migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260830182941_refund_customer_correction_persistence.sql'),
+    'The customer-correction persistence migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260830205449_refund_automation_scheduler_30_minute_cadence.sql'),

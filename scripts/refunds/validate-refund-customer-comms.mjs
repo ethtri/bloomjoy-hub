@@ -249,7 +249,7 @@ const run = async () => {
       '.from("refund_follow_up_cycles")',
       '.eq("reason_code", "no_safe_match")',
       'allowCustomerCorrection',
-      'labeled_customer_correction_v2',
+      'labeled_customer_correction_v3',
     ]) &&
       automationSweep.includes('source: "customer_reply_recheck"')
   );

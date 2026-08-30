@@ -13,8 +13,11 @@ Deno.test("extracts only explicit labeled routine refund facts", () => {
     "Purchase date (YYYY-MM-DD): 2026-08-14",
     "Approximate purchase time (include AM or PM): 3:42 PM",
     "Payment method (card, Apple Pay, Google Pay, or cash): card",
+    "Payment interaction (tap card, insert or swipe, phone or watch wallet, or not sure): tap card",
     "Amount (for example, $7.25): $7.25",
     "Card last four: 4242",
+    "Card last four source (physical card only): physical card",
+    "Card type (Visa, Mastercard, Discover, American Express, or not sure): MasterCard",
   ].join("\n"));
   assert(
     result.locationOrMachine === "Main Street Lobby",
@@ -32,6 +35,10 @@ Deno.test("extracts only explicit labeled routine refund facts", () => {
   );
   assert(result.amountCents === 725, "amount should use integer cents");
   assert(result.cardLast4 === "4242", "only four digits should be accepted");
+  assert(result.cardLast4Provenance === "physical_card", "last-four source should persist");
+  assert(result.cardNetwork === "mastercard", "card-network aliases should normalize");
+  assert(result.paymentInteraction === "tap_card", "payment interaction should normalize");
+  assert(result.ambiguousFields.length === 0, "consistent labeled facts should be safe");
 });
 
 Deno.test("ignores prose, invalid values, and quoted earlier messages", () => {
@@ -63,6 +70,47 @@ Deno.test("wallet answers never treat emailed digits as safe physical-card evide
     result.cardLast4 === null,
     "wallet digits must not become matching evidence",
   );
+  assert(result.walletProvider === "apple_pay", "wallet provider should normalize");
+  assert(
+    result.cardLast4Provenance === "wallet_device_token",
+    "wallet digit provenance should remain explicit even when email digits are rejected",
+  );
+});
+
+Deno.test("conflicting or unknown labeled card facts route to manager review", () => {
+  const conflicting = extractLabeledRefundEmailFacts([
+    "Payment method: card",
+    "Payment interaction: tap card",
+    "Wallet provider: Apple Pay",
+    "Card type: Diners Club",
+    "Card type: Visa",
+    "Card last four: 4242",
+    "Card last four source: physical card",
+  ].join("\n"));
+  assert(
+    conflicting.manualReviewReason === "ambiguous_customer_facts",
+    "conflicts must not overwrite trusted structured facts",
+  );
+  assert(conflicting.ambiguousFields.includes("walletProvider"), "wallet conflict should be named");
+  assert(conflicting.ambiguousFields.includes("cardNetwork"), "network conflict should be named");
+});
+
+Deno.test("an unsure provider does not invent wallet use", () => {
+  const physical = extractLabeledRefundEmailFacts([
+    "Payment method: card",
+    "Payment interaction: tap card",
+    "Wallet provider: not sure",
+  ].join("\n"));
+  assert(physical.manualReviewReason === null, "an unsure provider is not a contradiction");
+  assert(physical.cardWalletUsed === false, "physical-card interaction remains authoritative");
+  assert(physical.walletProvider === null, "an inapplicable unsure provider is discarded");
+
+  const wallet = extractLabeledRefundEmailFacts([
+    "Payment interaction: phone or watch wallet",
+    "Wallet provider: not sure",
+  ].join("\n"));
+  assert(wallet.cardWalletUsed === true, "explicit wallet interaction remains authoritative");
+  assert(wallet.walletProvider === "unsure", "wallet-provider uncertainty is preserved");
 });
 
 Deno.test("escalated or sensitive content routes to manual review", () => {

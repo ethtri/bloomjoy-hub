@@ -99,16 +99,19 @@ select is(
 select ok(
   (
     pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
     || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
   )
     like '%current_lookup.status = ''claimed''%'
   and (
     pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
     || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
   )
     like '%lookup_failed%'
   and (
     pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
     || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
   )
     like '%Refresh transaction results%',

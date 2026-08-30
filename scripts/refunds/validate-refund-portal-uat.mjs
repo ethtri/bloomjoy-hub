@@ -7364,11 +7364,20 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
       'Confirmed demo transaction keeps Deny request visible as a secondary action',
       await page.getByTestId('refund-deny-instead').isVisible()
     );
+    const customerFactEvidence = page.getByTestId('refund-customer-fact-evidence');
+    recorder.assert(
+      'Customer correction evidence shows source, time, provenance, and one fact version',
+      await customerFactEvidence.isVisible() &&
+        (await customerFactEvidence.innerText()).includes('verified customer email reply') &&
+        (await customerFactEvidence.innerText()).includes('physical-card digits') &&
+        (await customerFactEvidence.innerText()).includes('fact version 2')
+    );
     await page.screenshot({
       path: path.join(artifactDir, 'refund-manager-confirmed-ready-desktop.png'),
       fullPage: true,
     });
     await page.setViewportSize({ width: 390, height: 844 });
+    await customerFactEvidence.scrollIntoViewIfNeeded();
     await page.screenshot({
       path: path.join(artifactDir, 'refund-manager-confirmed-ready-mobile.png'),
       fullPage: false,
