@@ -147,17 +147,16 @@ revoke execute on function public.refund_lifecycle_contract(uuid)
 comment on function public.refund_lifecycle_contract(uuid) is
   'Canonical redacted refund lifecycle with explicit waiting-on-customer and a stable manager queue projection. Stale lookup recovery authorizes only a read-only lookup retry.';
 
--- Renaming the prior function preserves its OID, so existing stored functions
--- would otherwise keep calling the pre-repair projection. Recompile every
--- lifecycle reader against the new canonical function without changing its
--- public signature or grants.
+-- The stored reader definitions retain the original canonical spelling after
+-- the referenced function is renamed. Re-executing those exact definitions
+-- after the replacement exists makes every reader resolve the new canonical
+-- function without changing its public signature, body, or grants.
 do $$
 declare
   reader regprocedure;
   reader_definition text;
-  old_qualified_reference constant text :=
-    'public.refund_lifecycle_contract_pre_manager_queue_truth_v1';
-  old_unqualified_reference constant text :=
+  canonical_reference constant text := 'public.refund_lifecycle_contract(';
+  retired_reference constant text :=
     'refund_lifecycle_contract_pre_manager_queue_truth_v1';
 begin
   foreach reader in array array[
@@ -166,18 +165,11 @@ begin
     'public.service_read_refund_status_capability(text,text)'::regprocedure
   ] loop
     reader_definition := pg_catalog.pg_get_functiondef(reader);
-    if pg_catalog.strpos(reader_definition, old_unqualified_reference) = 0 then
-      raise exception 'Lifecycle reader % is not anchored to the prior contract', reader;
+    if pg_catalog.strpos(reader_definition, canonical_reference) = 0
+      or pg_catalog.strpos(reader_definition, retired_reference) > 0 then
+      raise exception 'Lifecycle reader % is not anchored to the canonical contract', reader;
     end if;
-    execute pg_catalog.replace(
-      pg_catalog.replace(
-        reader_definition,
-        old_qualified_reference,
-        'public.refund_lifecycle_contract'
-      ),
-      old_unqualified_reference,
-      'refund_lifecycle_contract'
-    );
+    execute reader_definition;
   end loop;
 end;
 $$;
