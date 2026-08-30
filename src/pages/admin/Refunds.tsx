@@ -722,6 +722,11 @@ const taskBadgeClass = (refundCase: RefundCaseRecord) =>
 const getLatestCustomerMessage = (refundCase: RefundCaseRecord) =>
   refundCase.messages?.[0] ?? null;
 
+const customerMessageNeedsAttention = (refundCase: RefundCaseRecord) => {
+  const latest = getLatestCustomerMessage(refundCase);
+  return latest?.status === 'failed' || latest?.status === 'skipped';
+};
+
 const hasPendingDenialAppeal = (refundCase: RefundCaseRecord) =>
   refundCase.status === 'needs_review' &&
   getLatestCustomerMessage(refundCase)?.messageType === 'appeal_received';
@@ -730,6 +735,7 @@ const getCustomerCommunicationLabel = (refundCase: RefundCaseRecord) => {
   const latest = getLatestCustomerMessage(refundCase);
   if (!latest) return 'Not contacted';
   if (latest.status === 'failed') return 'Email needs attention';
+  if (latest.status === 'skipped') return 'Customer was not notified';
   if (latest.status === 'pending') return 'Email sending';
   if (latest.status !== 'sent') return 'Email needs review';
 
@@ -824,7 +830,7 @@ const isDoneCase = (refundCase: RefundCaseRecord) =>
 const isBlockedCase = (refundCase: RefundCaseRecord) => {
   const lookupStatus = refundCase.nayaxLookupSummary?.lookupStatus;
   return (
-    getLatestCustomerMessage(refundCase)?.status === 'failed' ||
+    customerMessageNeedsAttention(refundCase) ||
     refundCase.reconciliationActionBlocked === true ||
     refundCase.providerHold === true ||
     refundCase.correlationStatus === 'nayax_not_configured' ||
@@ -840,7 +846,7 @@ const caseUrgencyRank = (
   cardRefundAvailabilityConfirmed: boolean | null = null
 ) => {
   if (refundCase.possibleDuplicate || refundCase.confirmedDuplicate) return 0;
-  if (getLatestCustomerMessage(refundCase)?.status === 'failed') return 0;
+  if (customerMessageNeedsAttention(refundCase)) return 0;
   if (isReadyToPayCase(refundCase, cardRefundAvailabilityConfirmed)) return 1;
   if (refundCase.status === 'draft') return 2;
   if (isBlockedCase(refundCase)) return 3;
@@ -1564,6 +1570,14 @@ const primaryActionConfig = (
       disabled: true,
     };
   }
+  if (latestMessage?.status === 'skipped') {
+    return {
+      label: 'Send a safe customer acknowledgement',
+      helper: 'The automated message was skipped, so the customer has not been notified. Review and send one status update before treating this case as contacted.',
+      messageType: 'status_update',
+      mode: 'retry_message',
+    };
+  }
   if (latestMessage?.status === 'failed') {
     if (refundCase.paymentMethod === 'card' && latestMessage.messageType === 'approved') {
       return {
@@ -1912,7 +1926,7 @@ const getCustomerMessageDraft = (
 const messageStatusBadgeClass = (status: string) => {
   if (status === 'sent') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
   if (status === 'failed') return 'border-destructive/30 bg-destructive/10 text-destructive';
-  if (status === 'skipped') return 'border-slate-200 bg-slate-50 text-slate-700';
+  if (status === 'skipped') return 'border-destructive/30 bg-destructive/10 text-destructive';
   return 'border-orange-200 bg-orange-50 text-orange-800';
 };
 

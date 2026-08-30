@@ -54,6 +54,7 @@ import {
 import { automaticRefundCustomerContactEnabled } from "../_shared/refund-deterministic-follow-up.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { tryIssueRefundStatusCapabilityForMessage } from "../_shared/refund-status-capability.ts";
+import { refundCustomerLocaleFromIntakeMeta } from "../_shared/refund-language.ts";
 import { resolveLocalDateTimeInZone } from "../_shared/timezone-resolution.mjs";
 import {
   completeRefundGmailIntakeShadowFirstContact,
@@ -331,11 +332,38 @@ const processDenialAppealConfirmation = async ({
     return { failed: false };
   }
 
+  const { data: appealCase, error: appealCaseError } = await supabase
+    .from("refund_case_appeals")
+    .select("refund_case_id")
+    .eq("id", appealId)
+    .maybeSingle();
+  if (appealCaseError) {
+    counters.appealConfirmationsFailed += 1;
+    return { failed: true };
+  }
+  const appealRefundCaseId = sanitizeText(appealCase?.refund_case_id, 80);
+  if (!appealRefundCaseId) {
+    counters.appealConfirmationsFailed += 1;
+    return { failed: true };
+  }
+  const { data: refundCaseLocale, error: localeError } = await supabase
+    .from("refund_cases")
+    .select("intake_meta")
+    .eq("id", appealRefundCaseId)
+    .maybeSingle();
+  if (localeError) {
+    counters.appealConfirmationsFailed += 1;
+    return { failed: true };
+  }
+
   const emailInput = {
     messageType: "appeal_received" as const,
     publicReference,
     customerName,
     customerEmail,
+    customerLocale: refundCustomerLocaleFromIntakeMeta(
+      refundCaseLocale?.intake_meta,
+    ),
   };
   const claimEmail = buildRefundCustomerEmail(emailInput);
   const claim = await rpc<Record<string, unknown>>(

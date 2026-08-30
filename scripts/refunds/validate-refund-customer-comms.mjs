@@ -29,6 +29,7 @@ const run = async () => {
     intake,
     messageSend,
     gmailSync,
+    statusRecoveryMigration,
   ] = await Promise.all([
     readText('supabase/functions/refund-case-admin-update/index.ts'),
     readText('src/pages/admin/Refunds.tsx'),
@@ -41,6 +42,7 @@ const run = async () => {
     readText('supabase/functions/refund-case-intake/index.ts'),
     readText('supabase/functions/refund-case-message-send/index.ts'),
     readText('supabase/functions/refund-gmail-sync/index.ts'),
+    readText('supabase/migrations/20260830183702_refund_customer_status_recovery.sql'),
   ]);
 
   assert(
@@ -52,9 +54,12 @@ const run = async () => {
     includesAll(adminUpdate, ['customer_message_failed', 'customer_email_delivery_failed', 'status: "failed"'])
   );
   assert(
-    'Portal shows failed customer email as separate visible manager work',
+    'Portal shows failed or skipped customer email as separate visible manager work',
     includesAll(portalPage, [
       "latestMessage?.status === 'failed'",
+      "latestMessage?.status === 'skipped'",
+      'Customer was not notified',
+      'Send a safe customer acknowledgement',
       'Retry customer email',
       'Resolve uncertain Gmail delivery',
       'getLatestCustomerMessage',
@@ -126,6 +131,57 @@ const run = async () => {
       'confirms receipt only',
       'not a promise that a payment has been completed',
     ])
+  );
+  assert(
+    'Cash customer copy never claims a card transaction review',
+    includesAll(refundEmail, [
+      'matching cash purchase',
+      'updated purchase details',
+      'paymentMethod === "cash"',
+    ])
+  );
+  assert(
+    'Provider-delay and SLA-at-risk updates are provider-neutral and human-owned',
+    includesAll(refundEmail, [
+      'statusUpdateReason === "provider_delay"',
+      'waiting for confirmation from the payment provider',
+      'statusUpdateReason === "sla_at_risk"',
+      'a person is now following it directly',
+    ]) && !refundEmail.includes('A tiny bit more information')
+  );
+  assert(
+    'Provider-delay and business-day-four status updates are scheduled exactly once',
+    includesAll(automationSweep, [
+      'runProviderDelayCustomerStatusSweep',
+      'runSlaAtRiskCustomerStatusSweep',
+      'service_refund_business_days_elapsed',
+      'customer_status:provider_delay:',
+      'customer_status:sla_at_risk:',
+      'superseded_provider_delay_suppressed',
+      'customer_status_update',
+    ]) &&
+      includesAll(statusRecoveryMigration, [
+        "'customer_status_update'",
+        "'provider_delay', 'sla_at_risk'",
+        "template_version = 'refund_customer_status_v1'",
+      ])
+  );
+  assert(
+    'Contact limits end in visible manager review instead of indefinite waiting',
+    includesAll(automationSweep, [
+      'terminalCustomerDisposition: cycleClaim.reason === "contact_limit_reached"',
+      'event_type: "automatic_customer_contact_limit_reached"',
+      'status: "needs_review"',
+      'automatic_customer_contact_stopped: true',
+    ])
+  );
+  assert(
+    'Customer language preference persists across intake, manager, automation, and appeal routes',
+    includesAll(intake, ['inferRefundCustomerLocale', 'customer_locale: customerLocale']) &&
+      includesAll(messageSend, ['refundCustomerLocaleFromIntakeMeta', 'customerLocale:']) &&
+      includesAll(adminUpdate, ['refundCustomerLocaleFromIntakeMeta', 'customerLocale:']) &&
+      includesAll(automationSweep, ['refundCustomerLocaleFromIntakeMeta', 'customerLocale:']) &&
+      includesAll(gmailSync, ['refundCustomerLocaleFromIntakeMeta', 'refundCaseLocale?.intake_meta'])
   );
   assert(
     'Wallet last-four corrections are forced through the secure flow',

@@ -156,6 +156,95 @@ Deno.test("no-safe-match copy is humble, correction-focused, and makes no refund
   );
 });
 
+Deno.test("cash no-safe-match and receipt copy never claim a card transaction review", () => {
+  const noMatch = buildRefundCustomerEmail({
+    messageType: "no_safe_match",
+    publicReference: "RF-CASH-NOMATCH",
+    customerEmail: "customer@example.com",
+    paymentMethod: "cash",
+    refundAmountCents: 800,
+  });
+  const reminder = buildRefundCustomerEmail({
+    messageType: "reminder",
+    publicReference: "RF-CASH-REMINDER",
+    customerEmail: "customer@example.com",
+    paymentMethod: "cash",
+    followUpReason: "no_safe_match",
+  });
+  const received = buildRefundCustomerEmail({
+    messageType: "information_received",
+    publicReference: "RF-CASH-RECEIVED",
+    customerEmail: "customer@example.com",
+    paymentMethod: "cash",
+  });
+
+  for (const email of [noMatch, reminder, received]) {
+    assertNotIncludes(email.text.toLowerCase(), "transaction records", "cash copy avoids card-transaction claims");
+    assertNotIncludes(email.text.toLowerCase(), "card details", "cash copy avoids requesting card details");
+  }
+  assertIncludes(noMatch.text, "matching cash purchase", "cash-specific verification wording");
+  assertIncludes(received.text, "updated purchase details", "cash receipt wording");
+});
+
+Deno.test("provider delay and SLA-at-risk updates are customer-safe and require no action", () => {
+  const providerDelay = buildRefundCustomerEmail({
+    messageType: "status_update",
+    publicReference: "RF-PROVIDER-DELAY",
+    customerEmail: "customer@example.com",
+    paymentMethod: "card",
+    statusUpdateReason: "provider_delay",
+  });
+  const slaAtRisk = buildRefundCustomerEmail({
+    messageType: "status_update",
+    publicReference: "RF-SLA-RISK",
+    customerEmail: "customer@example.com",
+    statusUpdateReason: "sla_at_risk",
+  });
+
+  assertIncludes(providerDelay.text, "waiting for confirmation from the payment provider", "provider-neutral delay reason");
+  assertIncludes(providerDelay.text, "do not need to submit another request", "no duplicate request guidance");
+  assertNotIncludes(providerDelay.text.toLowerCase(), "nayax", "provider name remains private");
+  assertNotIncludes(providerDelay.text.toLowerCase(), "retry", "customer is not asked to retry");
+  assertIncludes(slaAtRisk.text, "taking longer than our usual target", "truthful SLA wording");
+  assertIncludes(slaAtRisk.text, "a person is now following it directly", "human ownership");
+});
+
+Deno.test("more-information headline does not minimize the customer effort", () => {
+  const email = buildRefundCustomerEmail({
+    messageType: "more_info",
+    publicReference: "RF-TONE",
+    customerEmail: "customer@example.com",
+    missingFields: ["amount"],
+  });
+  assertIncludes(email.html, "One more detail to continue your refund review", "neutral headline");
+  assertNotIncludes(email.html, "tiny bit", "minimizing phrase removed");
+});
+
+Deno.test("Spanish-locale cases receive useful bilingual lifecycle copy", () => {
+  const confirmation = buildRefundCustomerEmail({
+    messageType: "confirmation",
+    publicReference: "RF-ES-CONFIRM",
+    customerEmail: "customer@example.com",
+    paymentMethod: "cash",
+    customerLocale: "es",
+  });
+  const delay = buildRefundCustomerEmail({
+    messageType: "status_update",
+    publicReference: "RF-ES-DELAY",
+    customerEmail: "customer@example.com",
+    paymentMethod: "card",
+    customerLocale: "es",
+    statusUpdateReason: "provider_delay",
+  });
+
+  assertIncludes(confirmation.subject, "[Español / English]", "bilingual subject label");
+  assertIncludes(confirmation.text, "Información en español", "Spanish section heading");
+  assertIncludes(confirmation.text, "Recibimos su solicitud de reembolso", "Spanish confirmation");
+  assertIncludes(confirmation.text, "datos de la compra", "cash-specific Spanish copy");
+  assertIncludes(delay.text, "esperando una confirmación del proveedor de pago", "Spanish provider-delay copy");
+  assertIncludes(delay.text, "No necesita enviar otra solicitud", "Spanish no-duplicate guidance");
+});
+
 Deno.test("mobile-wallet last-four requests fail closed outside the secure correction flow", () => {
   let failed = false;
   try {
