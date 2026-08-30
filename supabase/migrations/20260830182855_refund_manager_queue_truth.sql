@@ -349,8 +349,15 @@ security definer
 set search_path = ''
 as $$
 declare
+  actor_user_id uuid := auth.uid();
   projected_lifecycle jsonb;
 begin
+  if actor_user_id is null
+    or coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false)
+    or not public.can_manage_refund_case(actor_user_id, p_refund_case_id) then
+    raise exception 'Current refund case access required' using errcode = '42501';
+  end if;
+
   select item -> 'lifecycle'
   into projected_lifecycle
   from jsonb_array_elements(
