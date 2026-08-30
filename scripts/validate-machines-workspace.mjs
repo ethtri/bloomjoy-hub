@@ -1,8 +1,9 @@
 import { readFile } from 'node:fs/promises';
 
-const [appSource, machinesSource] = await Promise.all([
+const [appSource, machinesSource, machineUatSource] = await Promise.all([
   readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/pages/admin/Machines.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('./refunds/validate-machine-manager-uat.mjs', import.meta.url), 'utf8'),
 ]);
 
 const checks = [
@@ -21,6 +22,8 @@ const checks = [
   ['Scoped Admin tax actions are hidden', machinesSource.includes('canEditMachineIdentity && (') && machinesSource.includes("'Change tax rate' : 'Set tax rate'")],
   ['no manager autosave copy', !machinesSource.includes('assignments autosave')],
   ['exceptions-first Nayax review', machinesSource.includes("inventoryView === 'attention'") && machinesSource.includes('No Nayax setup needs attention')],
+  ['UAT waits for asynchronous field hydration', machineUatSource.includes('if (await predicate()) return;')],
+  ['production PPV skips local-only demo assertions', machineUatSource.includes("if (arg === '--skip-demo')") && machineUatSource.includes('Production PPV skips local-only demo assertions')],
 ];
 
 const failures = checks.filter(([, passed]) => !passed);
