@@ -180,6 +180,33 @@ reset role;
 -- Exercise the actor-scoped overview projection with contradictory legacy
 -- readiness fields. These fixtures deliberately look refundable until the
 -- official-action authority/version gates are applied by the canonical queue.
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, payment_method,
+  payment_amount_cents, refund_amount_cents, card_last4, status,
+  correlation_status, correlation_source, automation_state,
+  nayax_lookup_status, nayax_lookup_started_at,
+  nayax_lookup_safe_retry_eligible
+) values
+  (
+    'd4000000-0000-4000-8000-000000000010', 'RF-QUEUE-AUTHORITY',
+    'd3000000-0000-4000-8000-000000000001',
+    'd2000000-0000-4000-8000-000000000001',
+    'queue-authority@example.invalid', 'Authority-blocked detail fixture',
+    statement_timestamp() - interval '30 minutes', 'card', 700, 700,
+    '4242', 'needs_review', 'matched', 'nayax', 'under_review',
+    'match_found', statement_timestamp() - interval '5 minutes', false
+  ),
+  (
+    'd4000000-0000-4000-8000-000000000011', 'RF-QUEUE-VERSION',
+    'd3000000-0000-4000-8000-000000000001',
+    'd2000000-0000-4000-8000-000000000001',
+    'queue-version@example.invalid', 'Version-blocked detail fixture',
+    statement_timestamp() - interval '30 minutes', 'card', 700, 700,
+    '4242', 'needs_review', 'matched', 'nayax', 'under_review',
+    'match_found', statement_timestamp() - interval '5 minutes', false
+  );
+
 create or replace function public.refund_lifecycle_contract(
   p_refund_case_id uuid
 )
