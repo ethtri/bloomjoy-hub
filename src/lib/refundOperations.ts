@@ -376,7 +376,8 @@ export type RefundCaseRecord = {
     source:
       | 'initial_customer_submission'
       | 'verified_customer_email'
-      | 'secure_wallet_correction';
+      | 'secure_wallet_correction'
+      | 'current_case_record';
     appliedAt: string;
     changedFields: string[];
     factVersion: number;

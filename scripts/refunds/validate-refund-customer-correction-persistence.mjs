@@ -135,6 +135,7 @@ assert(
 assert(
   managerUi.includes('refund-customer-fact-evidence') &&
     managerUi.includes('verified customer email reply') &&
+    managerUi.includes('no version-matched customer reply') &&
     managerUi.includes('wallet/device-token digits'),
   'Managers must see structured customer-fact source, time, version, and digit provenance',
 );

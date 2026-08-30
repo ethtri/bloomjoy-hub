@@ -1018,6 +1018,8 @@ const customerFactSourceLabel = (refundCase: RefundCaseRecord) => {
       return 'verified customer email reply';
     case 'secure_wallet_correction':
       return 'secure wallet correction';
+    case 'current_case_record':
+      return 'current case record (no version-matched customer reply)';
     default:
       return 'original customer submission';
   }
