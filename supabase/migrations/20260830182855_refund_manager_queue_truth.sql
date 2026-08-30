@@ -161,7 +161,6 @@ declare
 begin
   foreach reader in array array[
     'public.service_get_refund_lifecycle(uuid)'::regprocedure,
-    'public.get_refund_lifecycle_for_manager(uuid)'::regprocedure,
     'public.service_read_refund_status_capability(text,text)'::regprocedure
   ] loop
     reader_definition := pg_catalog.pg_get_functiondef(reader);
@@ -334,5 +333,49 @@ grant execute on function public.admin_get_refund_operations_overview()
 
 comment on function public.admin_get_refund_operations_overview() is
   'Actor-scoped refund overview whose queue bucket, label, and next action are one redacted server projection nested in refund_lifecycle_v1.';
+
+-- Detail refreshes must not rebuild queue truth from the actor-neutral lifecycle.
+-- Read the exact lifecycle already projected by the actor-scoped overview so a
+-- case cannot be Ready in detail while authority, version, or reconciliation
+-- gates place the same row in Action needed. The overview never calls this
+-- reader, which keeps the composition acyclic.
+create or replace function public.get_refund_lifecycle_for_manager(
+  p_refund_case_id uuid
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  projected_lifecycle jsonb;
+begin
+  select item -> 'lifecycle'
+  into projected_lifecycle
+  from jsonb_array_elements(
+    coalesce(
+      public.admin_get_refund_operations_overview() -> 'cases',
+      '[]'::jsonb
+    )
+  ) item
+  where item ->> 'id' = p_refund_case_id::text
+  limit 1;
+
+  if projected_lifecycle is null then
+    raise exception 'Current refund case access required' using errcode = '42501';
+  end if;
+
+  return projected_lifecycle;
+end;
+$$;
+
+revoke execute on function public.get_refund_lifecycle_for_manager(uuid)
+  from public, anon, service_role;
+grant execute on function public.get_refund_lifecycle_for_manager(uuid)
+  to authenticated;
+
+comment on function public.get_refund_lifecycle_for_manager(uuid) is
+  'Returns the exact actor-scoped lifecycle and manager queue projection emitted by the manager overview for one accessible case.';
 
 select pg_notify('pgrst', 'reload schema');

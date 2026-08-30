@@ -188,19 +188,23 @@ Deno.test('manager state consumes the canonical lifecycle for automatic progress
 });
 
 Deno.test('canonical waiting-on-customer stage wins over matching facts', () => {
-  const result = getRefundManagerState({
-    ...baseCase,
-    status: 'waiting_on_customer',
-    missingInformation: true,
-    lifecycle: lifecycle('waiting_on_customer', 15, 'wait_for_customer_reply'),
-  });
-  assertEquals(result.id, 'waiting_on_customer', 'waiting state id');
-  assertEquals(result.label, 'Waiting on customer', 'waiting label');
-  assertEquals(
-    result.nextStep,
-    'Wait for the customer to reply to the existing email. Do not start another transaction check yet.',
-    'waiting next action'
-  );
+  for (const paymentMethod of ['card', 'cash'] as const) {
+    const result = getRefundManagerState({
+      ...baseCase,
+      paymentMethod,
+      paymentAmountCents: 500,
+      status: 'waiting_on_customer',
+      missingInformation: true,
+      lifecycle: lifecycle('waiting_on_customer', 15, 'wait_for_customer_reply'),
+    });
+    assertEquals(result.id, 'waiting_on_customer', `${paymentMethod} waiting state id`);
+    assertEquals(result.label, 'Waiting on customer', `${paymentMethod} waiting label`);
+    assertEquals(
+      result.nextStep,
+      'Wait for the customer to reply to the existing email. Do not start another transaction check yet.',
+      `${paymentMethod} waiting next action`
+    );
+  }
 });
 
 Deno.test('transaction-confirmed detail cannot overrule blocked canonical queue authority', () => {
@@ -211,6 +215,8 @@ Deno.test('transaction-confirmed detail cannot overrule blocked canonical queue 
       officialActionVersion: 1,
       officialActionBlockReason: 'manager_mapping_required',
       nextAction: 'resolve_manager_access',
+      expectedNextStep:
+        'Ask an administrator to restore your Machine Manager access before taking action.',
     },
     {
       block: 'missing official-action version',
@@ -218,6 +224,8 @@ Deno.test('transaction-confirmed detail cannot overrule blocked canonical queue 
       officialActionVersion: 0,
       officialActionBlockReason: null,
       nextAction: 'refresh_case',
+      expectedNextStep:
+        'Refresh the case to load the current refund authorization. Do not issue a refund from stale details.',
     },
   ] as const;
 
@@ -251,6 +259,7 @@ Deno.test('transaction-confirmed detail cannot overrule blocked canonical queue 
       fixture.nextAction,
       `${fixture.block} canonical action`
     );
+    assertEquals(result.nextStep, fixture.expectedNextStep, `${fixture.block} exact guidance`);
   }
 });
 

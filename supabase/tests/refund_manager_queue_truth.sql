@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(17);
+select plan(19);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -307,6 +307,23 @@ select is(
     #>> '{cases,1,lifecycle,managerQueue,nextAction}',
   'refresh_case',
   'Missing official-action version exposes a refresh action, never refund'
+);
+
+select is(
+  public.get_refund_lifecycle_for_manager(
+    'd4000000-0000-4000-8000-000000000010'
+  ),
+  public.admin_get_refund_operations_overview()
+    #> '{cases,0,lifecycle}',
+  'Authority-blocked detail reader exactly agrees with the actor-scoped overview projection'
+);
+select is(
+  public.get_refund_lifecycle_for_manager(
+    'd4000000-0000-4000-8000-000000000011'
+  ),
+  public.admin_get_refund_operations_overview()
+    #> '{cases,1,lifecycle}',
+  'Version-blocked detail reader exactly agrees with the actor-scoped overview projection'
 );
 
 select * from finish();

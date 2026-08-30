@@ -148,6 +148,16 @@ export const getRefundManagerState = (
     );
   }
 
+  if (refundCase.lifecycle?.stage === 'waiting_on_customer') {
+    return state(
+      'waiting_on_customer',
+      'Waiting on customer',
+      'Bloomjoy needs one specific purchase detail before matching can continue.',
+      'Wait for the customer to reply to the existing email. Do not start another transaction check yet.',
+      'warning'
+    );
+  }
+
   if (refundCase.paymentMethod === 'card' && refundCase.lifecycle) {
     const lifecycle = refundCase.lifecycle;
     switch (lifecycle.stage) {
@@ -252,6 +262,24 @@ export const getRefundManagerState = (
             'Transaction confirmed. Payment: Not issued.',
             'Select Refund once to issue the exact amount.',
             'success'
+          );
+        }
+        if (lifecycle.managerQueue.nextAction === 'resolve_manager_access') {
+          return state(
+            'transaction_confirmed',
+            'Transaction confirmed',
+            'Payment: Not issued.',
+            'Ask an administrator to restore your Machine Manager access before taking action.',
+            'warning'
+          );
+        }
+        if (lifecycle.managerQueue.nextAction === 'refresh_case') {
+          return state(
+            'transaction_confirmed',
+            'Transaction confirmed',
+            'Payment: Not issued.',
+            'Refresh the case to load the current refund authorization. Do not issue a refund from stale details.',
+            'warning'
           );
         }
         return state(

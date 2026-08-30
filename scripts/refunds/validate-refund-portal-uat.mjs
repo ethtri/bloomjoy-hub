@@ -86,6 +86,7 @@ const parseArgs = (argv) => {
     gmailDraftOnly: false,
     duplicateOnly: false,
     demoOnly: false,
+    managerQueueOnly: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -146,6 +147,11 @@ const parseArgs = (argv) => {
       continue;
     }
 
+    if (arg === '--manager-queue-only') {
+      args.managerQueueOnly = true;
+      continue;
+    }
+
     if (arg === '--app-url') {
       args.appUrl = argv[index + 1] || args.appUrl;
       index += 1;
@@ -195,7 +201,7 @@ const parseArgs = (argv) => {
   args.appUrl = args.appUrl.replace(/\/+$/, '');
   args.artifactDir = path.resolve(process.cwd(), args.artifactDir);
   args.fragmentDir = path.resolve(process.cwd(), args.fragmentDir);
-  if (!args.managerStepUpOnly && !args.demoOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
+  if (!args.managerStepUpOnly && !args.demoOnly && !args.managerQueueOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
     !args.ownerTotpOnly && !args.legacyStateOnly && !args.nayaxResolutionOnly &&
     !args.nayaxLookupOnly && !args.duplicateOnly) {
     requireEvidenceRunToken(args.runToken);
@@ -1265,7 +1271,16 @@ const buildOfficialActionVersionResetOverview = () => {
     officialActionVersion: 0,
     canPerformOfficialAction: true,
   };
-  overview.cases = [validCase, missingVersionCase];
+  const missingAuthorityCase = {
+    ...overview.cases[0],
+    id: 'case-authority-missing',
+    publicReference: 'RF-UAT-AUTHORITY-MISSING',
+    customerEmail: 'customer-authority-missing@example.test',
+    officialActionVersion: 7,
+    canPerformOfficialAction: false,
+    officialActionBlockReason: 'manager_mapping_required',
+  };
+  overview.cases = [validCase, missingVersionCase, missingAuthorityCase];
   return overview;
 };
 
@@ -2969,6 +2984,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     waitUntil: 'networkidle',
   });
   await page.getByRole('heading', { name: 'RF-UAT-WAIT' }).waitFor({ timeout: 10000 });
+  await waitForQueueCount(page, 1);
   const linkedCaseUrl = new URL(page.url());
   const officialActionCallsAfterLinkNavigation = functionCalls.filter((name) =>
     name === 'nayax-card-refund' || name === 'refund-case-admin-update'
@@ -2982,6 +2998,34 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       url: page.url(),
       officialActionCallsBeforeLinkNavigation,
       officialActionCallsAfterLinkNavigation,
+    })
+  );
+  const waitingFilter = page.getByRole('button', { name: /^Waiting 1$/ });
+  const waitingRow = queueCase(page, 'RF-UAT-WAIT');
+  const waitingRowText = await waitingRow.innerText();
+  const waitingDetailState = await page
+    .locator('[data-testid="refund-manager-state"]:visible')
+    .innerText();
+  const waitingDetailNextStep = await page
+    .locator('[data-testid="refund-manager-next-step"]:visible')
+    .innerText();
+  recorder.assert(
+    'Waiting deep link selects one canonical waiting queue without a manual filter click',
+    await waitingFilter.getAttribute('aria-pressed') === 'true' &&
+      (await page.getByTestId('refund-queue-count').innerText()) === '1 case' &&
+      (await waitingRow.count()) === 1 &&
+      waitingRowText.includes('Waiting on customer') &&
+      waitingDetailState === 'Waiting on customer' &&
+      waitingDetailNextStep.includes(
+        'Wait for the customer to reply to the existing email.'
+      ),
+    JSON.stringify({
+      waitingPressed: await waitingFilter.getAttribute('aria-pressed'),
+      queueCount: await page.getByTestId('refund-queue-count').innerText(),
+      waitingRows: await waitingRow.count(),
+      waitingRowText,
+      waitingDetailState,
+      waitingDetailNextStep,
     })
   );
   await page.getByRole('button', { name: /Ready to refund/ }).click();
@@ -5646,6 +5690,21 @@ const runOfficialActionVersionResetChecks = async ({ browser, appUrl, recorder }
     'A case with a missing review version cannot inherit the previous case version',
     (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
       await page.getByTestId('refund-action-status').isVisible() &&
+      (await page.getByTestId('refund-manager-next-step').innerText()).includes(
+        'Refresh the case to load the current refund authorization. Do not issue a refund from stale details.'
+      ) &&
+      !functionCalls.includes('nayax-card-refund'),
+    functionCalls.join(', ')
+  );
+
+  await queueCase(page, 'RF-UAT-AUTHORITY-MISSING').click();
+  recorder.assert(
+    'A case without manager authority shows the exact access recovery guidance',
+    (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+      await page.getByTestId('refund-action-status').isVisible() &&
+      (await page.getByTestId('refund-manager-next-step').innerText()).includes(
+        'Ask an administrator to restore your Machine Manager access before taking action.'
+      ) &&
       !functionCalls.includes('nayax-card-refund'),
     functionCalls.join(', ')
   );
@@ -7381,7 +7440,7 @@ const run = async () => {
   await mkdir(args.artifactDir, { recursive: true });
   if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.ownerTotpOnly &&
     !args.legacyStateOnly && !args.nayaxResolutionOnly && !args.nayaxLookupOnly &&
-    !args.gmailDraftOnly && !args.duplicateOnly) {
+    !args.gmailDraftOnly && !args.duplicateOnly && !args.managerQueueOnly) {
     await mkdir(args.fragmentDir, { recursive: true });
   }
   await waitForServer(args.appUrl);
@@ -7398,7 +7457,19 @@ const run = async () => {
     }
   );
   try {
-    if (args.demoOnly) {
+    if (args.managerQueueOnly) {
+      await runRefundOnlyChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
+      await runOfficialActionVersionResetChecks({
+        browser,
+        appUrl: args.appUrl,
+        recorder,
+      });
+    } else if (args.demoOnly) {
       await runDemoFallbackChecks({
         browser,
         appUrl: args.appUrl,
@@ -7572,6 +7643,18 @@ const run = async () => {
     networkFailures.length === 0,
     [...networkFailures, ...fixtureOwnedPortalFailureDiagnostics].slice(0, 5).join(' | ')
   );
+
+  if (args.managerQueueOnly) {
+    const focusedFailures = recorder.failed();
+    if (focusedFailures.length > 0) {
+      console.error(`\nRefund manager-queue UAT failed: ${focusedFailures.length} check(s).`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log('\nRefund manager-queue UAT passed.');
+    console.log(`Screenshots written to ${args.artifactDir}`);
+    return;
+  }
 
   if (args.demoOnly) {
     const focusedFailures = recorder.failed();

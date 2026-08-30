@@ -1678,6 +1678,14 @@ const primaryActionConfig = (
     ['more_info', 'no_safe_match'].includes(latestMessage.messageType) &&
     ['sent', 'pending'].includes(latestMessage.status);
 
+  if (refundCase.lifecycle?.managerQueue.bucket === 'waiting_on_customer') {
+    return {
+      label: 'Waiting for customer reply',
+      helper: 'Wait for the customer to reply to the existing email before taking another case action.',
+      disabled: true,
+    };
+  }
+
   if (refundCase.paymentMethod === 'cash') {
     if (typeof refundCase.paymentAmountCents !== 'number' || refundCase.paymentAmountCents <= 0) {
       if (missingFields.length > 0) {
