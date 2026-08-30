@@ -884,8 +884,9 @@ const run = async () => {
       await pausedMachineDialog.getByText('Paused', { exact: true }).isVisible()
         && await pausedMachineDialog.getByText('Enabled', { exact: true }).isVisible()
     );
-    await pausedMachineDialog.getByRole('heading', { name: 'Customer refunds' }).locator('..').screenshot({
+    await page.screenshot({
       path: path.join(args.artifactDir, 'machine-refunds-globally-paused-mobile.png'),
+      fullPage: true,
     });
 
     await page.getByRole('link', { name: 'Back to machines' }).click();
@@ -903,8 +904,9 @@ const run = async () => {
       'Intentional machine disablement shows its approved reason',
       await intentionallyPausedDialog.getByText(/Off — Paused by owner/i).isVisible()
     );
-    await intentionallyPausedDialog.getByRole('heading', { name: 'Customer refunds' }).locator('..').screenshot({
+    await page.screenshot({
       path: path.join(args.artifactDir, 'machine-refunds-machine-disabled-mobile.png'),
+      fullPage: true,
     });
     recorder.assert(
       'No network request failed while exercising refund readiness states',
