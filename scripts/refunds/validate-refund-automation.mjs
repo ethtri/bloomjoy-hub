@@ -15,6 +15,9 @@ const migration = read('supabase/migrations/202607210005_refund_automation_sched
 const schedulerReliabilityMigration = read(
   'supabase/migrations/20260830175740_refund_automation_scheduler_reliability.sql'
 );
+const schedulerCadenceMigration = read(
+  'supabase/migrations/20260830205449_refund_automation_scheduler_30_minute_cadence.sql'
+);
 const followUpMigration = read('supabase/migrations/202608030005_refund_deterministic_follow_up_cycles.sql');
 const managerAgingMigration = read('supabase/migrations/202608040001_refund_manager_aging_reminders.sql');
 const sweep = read('supabase/functions/refund-case-automation-sweep/index.ts');
@@ -144,7 +147,12 @@ check(
     schedulerReliabilityMigration.includes("'refund_automation_scheduler_url'") &&
     schedulerReliabilityMigration.includes("'refund_automation_scheduler_secret'") &&
     schedulerReliabilityMigration.includes("'scheduled:'") &&
-    schedulerReliabilityMigration.includes("'health_check:'")
+    schedulerReliabilityMigration.includes("'health_check:'") &&
+    schedulerCadenceMigration.includes("default interval '30 minutes'") &&
+    schedulerCadenceMigration.includes('/ 1800) * 1800') &&
+    schedulerCadenceMigration.includes("stale_after_minutes integer := 90") &&
+    schedulerCadenceMigration.includes("'7,37 * * * *'") &&
+    schedulerCadenceMigration.includes("'13,43 * * * *'")
 );
 check(
   'Scheduler incidents limit noise to one opening alert, daily reminders, and stable recovery',
@@ -172,7 +180,9 @@ check(
 );
 check(
   'The scheduled sweep is versioned, serialized, and disabled by default',
-  schedulerWorkflow.includes("cron: '7,22,37,52 * * * *'") &&
+  schedulerWorkflow.includes("cron: '7,37 * * * *'") &&
+    schedulerWorkflow.includes('30 * 60 * 1000') &&
+    sweep.includes('const intervalMs = 30 * 60 * 1000') &&
     schedulerWorkflow.includes('cancel-in-progress: false') &&
     schedulerWorkflow.includes("REFUND_AUTOMATION_SWEEP_ENABLED: ${{ vars.REFUND_AUTOMATION_SWEEP_ENABLED || 'false' }}") &&
     schedulerWorkflow.includes('REFUND_AUTOMATION_SWEEP_URL') &&
@@ -193,8 +203,9 @@ check(
     !schedulerWorkflow.includes("`${mode === 'failure_test' ? 'failure_test' : triggerSource}:${process.env.GITHUB_RUN_ID}`")
 );
 check(
-  'An independent hourly health workflow checks freshness and alerts stale runs',
-  healthWorkflow.includes("cron: '43 * * * *'") &&
+  'An independent 30-minute health workflow checks freshness and alerts stale runs',
+  healthWorkflow.includes("cron: '13,43 * * * *'") &&
+    healthWorkflow.includes('30 * 60 * 1000') &&
     healthWorkflow.includes("mode: 'health_check'") &&
     healthWorkflow.includes('.slice(0, 16)') &&
     healthWorkflow.includes('health_check:${scheduledBucketKey}') &&

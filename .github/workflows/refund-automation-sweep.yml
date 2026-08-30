@@ -3,8 +3,8 @@ name: Refund Automation Sweep
 on:
   schedule:
     # External fallback for the primary Supabase schedule. Both lanes use the
-    # same 15-minute key, so delayed GitHub events are idempotent replays.
-    - cron: '7,22,37,52 * * * *'
+    # same 30-minute key, so delayed GitHub events are idempotent replays.
+    - cron: '7,37 * * * *'
   workflow_dispatch:
     inputs:
       mode:
@@ -63,7 +63,7 @@ jobs:
           }
           const now = new Date();
           const scheduledAt = triggerSource === 'scheduled'
-            ? new Date(Math.floor(now.getTime() / (15 * 60 * 1000)) * 15 * 60 * 1000)
+            ? new Date(Math.floor(now.getTime() / (30 * 60 * 1000)) * 30 * 60 * 1000)
             : now;
           const scheduledBucketKey = `${scheduledAt.toISOString()
             .slice(0, 16)

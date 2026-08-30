@@ -224,8 +224,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    98,
-    'Refund release inventory must cover exactly 98 discovered refund/Nayax migrations'
+    99,
+    'Refund release inventory must cover exactly 99 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -254,6 +254,10 @@ try {
   assert(
     repositoryMigrations.includes('20260830183702_refund_customer_status_recovery.sql'),
     'The customer status recovery migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260830205449_refund_automation_scheduler_30_minute_cadence.sql'),
+    'The refund automation 30-minute cadence migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260812200000_refund_owner_totp_enrollment_window.sql'),
