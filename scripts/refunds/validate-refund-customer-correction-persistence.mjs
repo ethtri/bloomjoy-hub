@@ -7,6 +7,8 @@ const [
   migration,
   extraction,
   extractionTests,
+  factApplication,
+  factApplicationTests,
   correctionEmail,
   gmailSync,
   intake,
@@ -19,6 +21,8 @@ const [
   read('supabase/migrations/20260830182941_refund_customer_correction_persistence.sql'),
   read('supabase/functions/_shared/refund-email-fact-extraction.ts'),
   read('supabase/functions/_shared/refund-email-fact-extraction.test.ts'),
+  read('supabase/functions/_shared/refund-customer-fact-application.ts'),
+  read('supabase/functions/_shared/refund-customer-fact-application.test.ts'),
   read('supabase/functions/_shared/refund-nayax-customer-correction.ts'),
   read('supabase/functions/refund-gmail-sync/index.ts'),
   read('supabase/functions/refund-case-intake/index.ts'),
@@ -70,21 +74,32 @@ for (const persistedField of [
   );
 }
 assert(
-  gmailSync.includes('.eq("deterministic_fact_version", current.deterministic_fact_version)') &&
-    gmailSync.includes('ingestion?.created'),
-  'Gmail persistence must remain optimistic-concurrency-safe and provider-message-idempotent',
+  gmailSync.includes('service_apply_refund_gmail_customer_facts_v1') &&
+    gmailSync.includes('classifyRefundCustomerFactApplication(application)') &&
+    gmailSync.includes('(ingestion?.created || ingestion?.duplicate)'),
+  'Gmail persistence must use the atomic RPC and safely replay duplicate ingestion',
 );
 assert(
-  gmailSync.includes('resulting_fact_version') &&
-    gmailSync.includes('payload_redacted: true'),
+  factApplication.includes('"retryable_conflict"') &&
+    factApplication.includes('"invalid_response"') &&
+    factApplicationTests.includes('idempotently replayed') &&
+    factApplicationTests.includes('conflicts remain retryable'),
+  'Edge classification must accept idempotent replay and fail closed on conflicts',
+);
+assert(
+  migration.includes("'resulting_fact_version', case_row.deterministic_fact_version") &&
+    migration.includes("'payload_redacted', true"),
   'Applied reply facts must create one redacted, version-bound audit event',
 );
-const appliedAuditEvent = gmailSync.slice(
-  gmailSync.indexOf('event_type: "gmail_customer_facts_applied"'),
-  gmailSync.indexOf('return { allowRoutineContact: true };', gmailSync.indexOf('event_type: "gmail_customer_facts_applied"')),
+const atomicApplication = migration.slice(
+  migration.indexOf('create function public.service_apply_refund_gmail_customer_facts_v1'),
+  migration.indexOf('revoke all on function public.service_apply_refund_gmail_customer_facts_v1'),
 );
 assert(
-  !appliedAuditEvent.includes('source_message_id'),
+  atomicApplication.includes("'outcome', 'applied'") &&
+    atomicApplication.includes("'outcome', 'conflict'") &&
+    atomicApplication.includes("'outcome', 'already_applied'") &&
+    !atomicApplication.includes('source_message_id'),
   'Applied reply audit metadata must not retain a raw Gmail message identifier',
 );
 
@@ -126,8 +141,12 @@ assert(
 assert(
   !migration.slice(
     migration.indexOf('create function public.admin_get_refund_operations_overview()'),
-  ).includes('source_message_id') && migration.includes("'payloadRedacted', true"),
-  'The overview provenance summary must stay redacted',
+  ).includes('source_message_id') &&
+    migration.includes("set search_path = ''") &&
+    migration.includes("event.metadata ->> 'resulting_fact_version'") &&
+    migration.includes('= refund_case.deterministic_fact_version') &&
+    migration.includes("'payloadRedacted', true"),
+  'The overview must stay redacted, use an empty search path, and bind exact fact versions',
 );
 assert(
   databaseTest.includes('advances the deterministic fact version exactly once') &&

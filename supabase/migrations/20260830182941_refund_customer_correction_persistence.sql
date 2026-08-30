@@ -289,6 +289,264 @@ grant execute on function public.service_apply_refund_wallet_correction_v2(
   text, text, text, text, timestamptz, text, boolean
 ) to service_role;
 
+-- A verified Gmail reply is the idempotency key for one atomic fact
+-- application. The private FK is deliberately kept out of case-event metadata.
+create table public.refund_customer_fact_applications (
+  gmail_message_id uuid primary key
+    references public.refund_gmail_messages (id) on delete cascade,
+  refund_case_id uuid not null
+    references public.refund_cases (id) on delete cascade,
+  event_id uuid not null unique
+    references public.refund_case_events (id) on delete restrict,
+  expected_fact_version bigint not null check (expected_fact_version >= 1),
+  resulting_fact_version bigint not null check (
+    resulting_fact_version > expected_fact_version
+  ),
+  applied_fields text[] not null check (
+    cardinality(applied_fields) between 1 and 16
+  ),
+  extraction_policy text not null check (
+    extraction_policy in (
+      'labeled_customer_correction_v3',
+      'labeled_routine_facts_v1'
+    )
+  ),
+  created_at timestamptz not null default clock_timestamp()
+);
+
+create index refund_customer_fact_applications_case_version_idx
+  on public.refund_customer_fact_applications (
+    refund_case_id,
+    resulting_fact_version
+  );
+
+alter table public.refund_customer_fact_applications enable row level security;
+revoke all on table public.refund_customer_fact_applications
+  from public, anon, authenticated, service_role;
+
+create function public.service_apply_refund_gmail_customer_facts_v1(
+  p_refund_case_id uuid,
+  p_gmail_message_id uuid,
+  p_expected_fact_version bigint,
+  p_updates jsonb,
+  p_applied_fields text[],
+  p_extraction_policy text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  source_row public.refund_gmail_messages;
+  case_row public.refund_cases;
+  prior_application public.refund_customer_fact_applications;
+  event_row public.refund_case_events;
+  normalized_fields text[];
+begin
+  if p_refund_case_id is null
+    or p_gmail_message_id is null
+    or coalesce(p_expected_fact_version, 0) < 1
+    or pg_catalog.jsonb_typeof(p_updates) <> 'object'
+    or p_extraction_policy not in (
+      'labeled_customer_correction_v3',
+      'labeled_routine_facts_v1'
+    ) then
+    raise exception 'Valid Gmail customer-fact application required';
+  end if;
+
+  if exists (
+    select 1
+    from pg_catalog.jsonb_object_keys(p_updates) as supplied(key)
+    where supplied.key not in (
+      'reporting_machine_id',
+      'reporting_location_id',
+      'incident_at',
+      'incident_local_datetime',
+      'incident_timezone',
+      'incident_time_resolution',
+      'payment_method',
+      'payment_amount_cents',
+      'refund_amount_cents',
+      'card_last4',
+      'card_last4_provenance',
+      'card_network',
+      'card_wallet_used',
+      'payment_interaction',
+      'wallet_provider'
+    )
+  ) then
+    raise exception 'Unsupported Gmail customer-fact update';
+  end if;
+
+  select coalesce(pg_catalog.array_agg(field order by field), '{}'::text[])
+  into normalized_fields
+  from (
+    select distinct pg_catalog.btrim(value) as field
+    from pg_catalog.unnest(coalesce(p_applied_fields, '{}'::text[])) value
+    where pg_catalog.btrim(value) in (
+      'location_or_machine',
+      'incident_date',
+      'incident_time',
+      'payment_method',
+      'amount',
+      'card_last4',
+      'card_last4_provenance',
+      'card_network',
+      'payment_interaction',
+      'wallet_provider'
+    )
+  ) fields;
+  if cardinality(normalized_fields) = 0 then
+    raise exception 'At least one approved applied field is required';
+  end if;
+
+  select message.* into source_row
+  from public.refund_gmail_messages message
+  where message.id = p_gmail_message_id
+  for update;
+  if source_row.id is null
+    or source_row.refund_case_id <> p_refund_case_id
+    or source_row.direction <> 'inbound'
+    or source_row.message_kind <> 'message'
+    or source_row.status <> 'received'
+    or source_row.participant_role <> 'customer'
+    or source_row.participant_trust <> 'verified' then
+    return pg_catalog.jsonb_build_object(
+      'outcome', 'conflict',
+      'reason', 'source_not_eligible'
+    );
+  end if;
+
+  select application.* into prior_application
+  from public.refund_customer_fact_applications application
+  where application.gmail_message_id = p_gmail_message_id;
+  if prior_application.gmail_message_id is not null then
+    return pg_catalog.jsonb_build_object(
+      'outcome', 'already_applied',
+      'factVersion', prior_application.resulting_fact_version
+    );
+  end if;
+
+  select refund_case.* into case_row
+  from public.refund_cases refund_case
+  where refund_case.id = p_refund_case_id
+  for update;
+  if case_row.id is null
+    or case_row.deterministic_fact_version <> p_expected_fact_version then
+    return pg_catalog.jsonb_build_object(
+      'outcome', 'conflict',
+      'reason', 'fact_version_changed',
+      'factVersion', case_row.deterministic_fact_version
+    );
+  end if;
+
+  update public.refund_cases refund_case
+  set
+    reporting_machine_id = case when p_updates ? 'reporting_machine_id'
+      then nullif(p_updates ->> 'reporting_machine_id', '')::uuid
+      else refund_case.reporting_machine_id end,
+    reporting_location_id = case when p_updates ? 'reporting_location_id'
+      then nullif(p_updates ->> 'reporting_location_id', '')::uuid
+      else refund_case.reporting_location_id end,
+    incident_at = case when p_updates ? 'incident_at'
+      then nullif(p_updates ->> 'incident_at', '')::timestamptz
+      else refund_case.incident_at end,
+    incident_local_datetime = case when p_updates ? 'incident_local_datetime'
+      then nullif(p_updates ->> 'incident_local_datetime', '')
+      else refund_case.incident_local_datetime end,
+    incident_timezone = case when p_updates ? 'incident_timezone'
+      then nullif(p_updates ->> 'incident_timezone', '')
+      else refund_case.incident_timezone end,
+    incident_time_resolution = case when p_updates ? 'incident_time_resolution'
+      then nullif(p_updates ->> 'incident_time_resolution', '')
+      else refund_case.incident_time_resolution end,
+    payment_method = case when p_updates ? 'payment_method'
+      then nullif(p_updates ->> 'payment_method', '')
+      else refund_case.payment_method end,
+    payment_amount_cents = case when p_updates ? 'payment_amount_cents'
+      then (p_updates ->> 'payment_amount_cents')::integer
+      else refund_case.payment_amount_cents end,
+    refund_amount_cents = case when p_updates ? 'refund_amount_cents'
+      then (p_updates ->> 'refund_amount_cents')::integer
+      else refund_case.refund_amount_cents end,
+    card_last4 = case when p_updates ? 'card_last4'
+      then nullif(p_updates ->> 'card_last4', '')
+      else refund_case.card_last4 end,
+    card_last4_provenance = case when p_updates ? 'card_last4_provenance'
+      then nullif(p_updates ->> 'card_last4_provenance', '')
+      else refund_case.card_last4_provenance end,
+    card_network = case when p_updates ? 'card_network'
+      then nullif(p_updates ->> 'card_network', '')
+      else refund_case.card_network end,
+    card_wallet_used = case when p_updates ? 'card_wallet_used'
+      then (p_updates ->> 'card_wallet_used')::boolean
+      else refund_case.card_wallet_used end,
+    payment_interaction = case when p_updates ? 'payment_interaction'
+      then nullif(p_updates ->> 'payment_interaction', '')
+      else refund_case.payment_interaction end,
+    wallet_provider = case when p_updates ? 'wallet_provider'
+      then nullif(p_updates ->> 'wallet_provider', '')
+      else refund_case.wallet_provider end,
+    automation_state = 'customer_replied',
+    automation_follow_up_due_at = null
+  where refund_case.id = p_refund_case_id
+  returning refund_case.* into case_row;
+
+  if case_row.deterministic_fact_version <= p_expected_fact_version then
+    raise exception 'Gmail customer-fact application made no deterministic change';
+  end if;
+
+  insert into public.refund_case_events (
+    refund_case_id,
+    event_type,
+    message,
+    metadata
+  ) values (
+    p_refund_case_id,
+    'gmail_customer_facts_applied',
+    'Unambiguous labeled facts from a verified customer reply were added to or corrected on the refund case.',
+    pg_catalog.jsonb_build_object(
+      'applied_fields', normalized_fields,
+      'extraction_policy', p_extraction_policy,
+      'resulting_fact_version', case_row.deterministic_fact_version,
+      'card_last4_provenance', case_row.card_last4_provenance,
+      'payload_redacted', true
+    )
+  ) returning * into event_row;
+
+  insert into public.refund_customer_fact_applications (
+    gmail_message_id,
+    refund_case_id,
+    event_id,
+    expected_fact_version,
+    resulting_fact_version,
+    applied_fields,
+    extraction_policy
+  ) values (
+    p_gmail_message_id,
+    p_refund_case_id,
+    event_row.id,
+    p_expected_fact_version,
+    case_row.deterministic_fact_version,
+    normalized_fields,
+    p_extraction_policy
+  );
+
+  return pg_catalog.jsonb_build_object(
+    'outcome', 'applied',
+    'factVersion', case_row.deterministic_fact_version
+  );
+end;
+$$;
+
+revoke all on function public.service_apply_refund_gmail_customer_facts_v1(
+  uuid, uuid, bigint, jsonb, text[], text
+) from public, anon, authenticated;
+grant execute on function public.service_apply_refund_gmail_customer_facts_v1(
+  uuid, uuid, bigint, jsonb, text[], text
+) to service_role;
+
 -- Add a small redacted provenance summary to every case already authorized by
 -- the scoped manager overview. Raw message IDs and raw reply text stay private.
 alter function public.admin_get_refund_operations_overview()
@@ -302,7 +560,7 @@ returns jsonb
 language plpgsql
 stable
 security definer
-set search_path = public, auth
+set search_path = ''
 as $$
 declare
   base_result jsonb;
@@ -320,7 +578,9 @@ begin
               then 'verified_customer_email'
             when correction.event_type = 'wallet_correction_received'
               then 'secure_wallet_correction'
-            else 'initial_customer_submission'
+            when refund_case.deterministic_fact_version <= 1
+              then 'initial_customer_submission'
+            else 'current_case_record'
           end,
           'appliedAt', coalesce(correction.created_at, refund_case.created_at),
           'changedFields', coalesce(
@@ -348,6 +608,9 @@ begin
         'gmail_customer_facts_applied',
         'wallet_correction_received'
       )
+      and event.metadata ->> 'resulting_fact_version' ~ '^[0-9]+$'
+      and (event.metadata ->> 'resulting_fact_version')::bigint
+        = refund_case.deterministic_fact_version
     order by event.created_at desc, event.id desc
     limit 1
   ) correction on true;

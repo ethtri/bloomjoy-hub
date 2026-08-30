@@ -30,6 +30,10 @@ import {
   resolveExactRefundMachineFact,
 } from "../_shared/refund-email-fact-extraction.ts";
 import {
+  classifyRefundCustomerFactApplication,
+  type RefundCustomerFactApplicationResult,
+} from "../_shared/refund-customer-fact-application.ts";
+import {
   buildRefundFirstContactEmail,
   isRefundFirstContactSenderAllowed,
   REFUND_FIRST_CONTACT_TEMPLATE_KEY,
@@ -945,6 +949,7 @@ const processFirstContact = async ({
 
 const applyDeterministicCustomerReplyFacts = async ({
   refundCaseId,
+  sourceMessageId,
   body,
   sensitiveDataRedacted,
 }: {
@@ -1260,35 +1265,21 @@ const applyDeterministicCustomerReplyFacts = async ({
   }
 
   if (appliedFields.length === 0) return { allowRoutineContact: true };
-  updates.automation_state = "customer_replied";
-  updates.automation_follow_up_due_at = null;
-  const { data: updated, error: updateError } = await supabase.from(
-    "refund_cases",
-  )
-    .update(updates)
-    .eq("id", refundCaseId)
-    .eq("deterministic_fact_version", current.deterministic_fact_version)
-    .select("id,deterministic_fact_version")
-    .maybeSingle();
-  if (updateError) throw updateError;
-  if (updated) {
-    const { error: eventError } = await supabase.from("refund_case_events")
-      .insert({
-        refund_case_id: refundCaseId,
-        event_type: "gmail_customer_facts_applied",
-        message:
-          "Unambiguous labeled facts from a verified customer reply were added to or corrected on the refund case.",
-        metadata: {
-          applied_fields: [...new Set(appliedFields)],
-          extraction_policy: allowCustomerCorrection
-            ? "labeled_customer_correction_v3"
-            : "labeled_routine_facts_v1",
-          resulting_fact_version: updated.deterministic_fact_version,
-          card_last4_provenance: extracted.cardLast4Provenance,
-          payload_redacted: true,
-        },
-      });
-    if (eventError) throw eventError;
+  const application = await rpc<RefundCustomerFactApplicationResult>(
+    "service_apply_refund_gmail_customer_facts_v1",
+    {
+      p_refund_case_id: refundCaseId,
+      p_gmail_message_id: sourceMessageId,
+      p_expected_fact_version: current.deterministic_fact_version,
+      p_updates: updates,
+      p_applied_fields: [...new Set(appliedFields)],
+      p_extraction_policy: allowCustomerCorrection
+        ? "labeled_customer_correction_v3"
+        : "labeled_routine_facts_v1",
+    },
+  );
+  if (classifyRefundCustomerFactApplication(application) !== "accepted") {
+    throw new Error("refund_customer_fact_application_conflict");
   }
   return { allowRoutineContact: true };
 };
@@ -2208,7 +2199,8 @@ serve(async (request) => {
                 if (appealResult.failed) counters.messagesFailed += 1;
               }
               if (
-                !intakeShadow && !appealReceived && ingestion?.created &&
+                !intakeShadow && !appealReceived &&
+                (ingestion?.created || ingestion?.duplicate) &&
                 caseId &&
                 internalMessageId && participantRole === "customer"
               ) {

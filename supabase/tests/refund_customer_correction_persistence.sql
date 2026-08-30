@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(16);
+select plan(28);
 
 select has_column(
   'public',
@@ -251,6 +251,167 @@ select throws_ok(
   'P0001',
   'This wallet correction link is invalid or has expired',
   'A duplicate Gmail or form replay cannot apply the same correction twice'
+);
+
+select has_table(
+  'public',
+  'refund_customer_fact_applications',
+  'Verified Gmail fact applications have a private idempotency ledger'
+);
+
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)',
+    'execute'
+  ),
+  'Browser clients cannot invoke the atomic Gmail fact application RPC'
+);
+
+insert into public.refund_gmail_threads (
+  id, refund_case_id, mailbox_hash, provider_thread_id, thread_subject,
+  first_message_at, latest_message_at, retention_expires_at
+) values (
+  'a5000000-0000-4000-8000-000000000001',
+  'a4000000-0000-4000-8000-000000000001',
+  repeat('b', 64),
+  'correction-persistence-thread',
+  'Correction persistence reply',
+  statement_timestamp(),
+  statement_timestamp(),
+  statement_timestamp() + interval '30 days'
+);
+
+insert into public.refund_gmail_messages (
+  id, gmail_thread_id, refund_case_id, provider_message_id, direction,
+  message_kind, status, sender_email, recipient_email, participant_role,
+  participant_trust, subject, plain_body, received_at, retention_expires_at
+) values
+  (
+    'a6000000-0000-4000-8000-000000000001',
+    'a5000000-0000-4000-8000-000000000001',
+    'a4000000-0000-4000-8000-000000000001',
+    'correction-persistence-message-1',
+    'inbound', 'message', 'received',
+    'correction-customer@example.test', 'refunds@example.test',
+    'customer', 'verified', 'Correction details',
+    'Wallet provider: Google Wallet',
+    statement_timestamp(), statement_timestamp() + interval '30 days'
+  ),
+  (
+    'a6000000-0000-4000-8000-000000000002',
+    'a5000000-0000-4000-8000-000000000001',
+    'a4000000-0000-4000-8000-000000000001',
+    'correction-persistence-message-2',
+    'inbound', 'message', 'received',
+    'correction-customer@example.test', 'refunds@example.test',
+    'customer', 'verified', 'Correction details retry',
+    'Card type: Mastercard',
+    statement_timestamp(), statement_timestamp() + interval '30 days'
+  );
+
+select is(
+  public.service_apply_refund_gmail_customer_facts_v1(
+    'a4000000-0000-4000-8000-000000000001',
+    'a6000000-0000-4000-8000-000000000001',
+    2,
+    '{"wallet_provider":"google_wallet"}'::jsonb,
+    array['wallet_provider'],
+    'labeled_customer_correction_v3'
+  ) ->> 'outcome',
+  'applied',
+  'The RPC atomically applies a verified reply against the expected fact version'
+);
+
+select is(
+  (select deterministic_fact_version from public.refund_cases where id = 'a4000000-0000-4000-8000-000000000001'),
+  3::bigint,
+  'The atomic Gmail application advances the fact version exactly once'
+);
+
+select is(
+  (
+    select count(*)::integer
+    from public.refund_customer_fact_applications application
+    join public.refund_case_events event on event.id = application.event_id
+    where application.gmail_message_id = 'a6000000-0000-4000-8000-000000000001'
+      and application.resulting_fact_version = 3
+      and event.metadata ->> 'resulting_fact_version' = '3'
+      and event.metadata ->> 'payload_redacted' = 'true'
+      and event.metadata::text not like '%a6000000-0000-4000-8000-000000000001%'
+  ),
+  1,
+  'Case update, private ledger, and redacted version-bound event commit together'
+);
+
+select is(
+  public.service_apply_refund_gmail_customer_facts_v1(
+    'a4000000-0000-4000-8000-000000000001',
+    'a6000000-0000-4000-8000-000000000001',
+    2,
+    '{"wallet_provider":"google_wallet"}'::jsonb,
+    array['wallet_provider'],
+    'labeled_customer_correction_v3'
+  ) ->> 'outcome',
+  'already_applied',
+  'Replaying an ingested Gmail message returns the durable idempotent outcome'
+);
+
+select is(
+  (select deterministic_fact_version from public.refund_cases where id = 'a4000000-0000-4000-8000-000000000001'),
+  3::bigint,
+  'Idempotent replay cannot advance the fact version or duplicate the event'
+);
+
+select is(
+  public.service_apply_refund_gmail_customer_facts_v1(
+    'a4000000-0000-4000-8000-000000000001',
+    'a6000000-0000-4000-8000-000000000002',
+    2,
+    '{"card_network":"mastercard"}'::jsonb,
+    array['card_network'],
+    'labeled_customer_correction_v3'
+  ) ->> 'outcome',
+  'conflict',
+  'A stale expected fact version returns an explicit retryable conflict'
+);
+
+select is(
+  (
+    select count(*)::integer
+    from public.refund_customer_fact_applications
+    where gmail_message_id = 'a6000000-0000-4000-8000-000000000002'
+  ),
+  0,
+  'A conflict records no final ledger row so duplicate ingestion may retry later'
+);
+
+select ok(
+  pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    like '%SET search_path TO ''''%'
+  and pg_get_functiondef('public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)'::regprocedure)
+    like '%SET search_path TO ''''%',
+  'Both SECURITY DEFINER functions use an empty search path'
+);
+
+select ok(
+  pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    like '%resulting_fact_version%'
+  and pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    like '%refund_case.deterministic_fact_version%'
+  and pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    like '%current_case_record%',
+  'Manager provenance binds correction evidence to the exact current fact version'
+);
+
+select ok(
+  pg_get_functiondef('public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)'::regprocedure)
+    like '%for update%'
+  and pg_get_functiondef('public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)'::regprocedure)
+    like '%refund_customer_fact_applications%'
+  and pg_get_functiondef('public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)'::regprocedure)
+    like '%gmail_customer_facts_applied%',
+  'The RPC serializes source and case state and owns update, ledger, and event atomicity'
 );
 
 select ok(
