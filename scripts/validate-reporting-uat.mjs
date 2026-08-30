@@ -499,7 +499,7 @@ const rpcResponse = (rpcName, persona, body, freshness) => {
             partnership_id: 'partnership-legacy-dates-uat',
             partnership_name: 'Open Partnership With Legacy Dates',
             assignment_role: 'primary_reporting',
-            effective_start_date: '2025-07-06',
+            effective_start_date: '2026-06-01',
             effective_end_date: '2026-07-05',
             status: 'active',
             notes: null,
@@ -1493,8 +1493,12 @@ const assertSuperAdminPartnerDrilldown = async (browser) => {
         'Legacy assignment end date must be visible before synchronization.',
       );
       assert(
-        bodyText.includes('1 legacy date to sync'),
+        bodyText.includes('1 legacy end date to sync'),
         'Legacy assignment must remain selected and count toward the safe date sync.',
+      );
+      assert(
+        bodyText.includes('Existing assignment start dates stay unchanged.'),
+        'Machine alignment must explain that existing assignment start dates are preserved.',
       );
       assert(await page.getByRole('checkbox').first().isChecked(), 'Legacy assignment must remain selected.');
       await page.screenshot({ path: path.join(outputDir, 'admin-machine-date-sync-desktop.png'), fullPage: true });
@@ -1504,8 +1508,9 @@ const assertSuperAdminPartnerDrilldown = async (browser) => {
       assert(
         assignmentCall.rpcName === 'admin_upsert_reporting_machine_assignment' &&
           assignmentCall.body.p_assignment_id === 'assignment-legacy-dates-uat' &&
+          assignmentCall.body.p_effective_start_date === '2026-06-01' &&
           assignmentCall.body.p_effective_end_date === null,
-        'Machine sync must update the existing assignment and clear its legacy end date.',
+        'Machine sync must update the existing assignment, preserve its actual start date, and clear only its legacy end date.',
       );
     });
     await check('Admin Partnerships explains the legacy payout-rule date sync', async () => {

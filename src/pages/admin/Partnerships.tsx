@@ -2395,7 +2395,7 @@ function MachineAssignmentsSection({
   const assignmentsToSync = selectedPartnershipAssignments.filter(
     (assignment) =>
       !removedMachineIds.includes(assignment.machine_id) &&
-      (assignment.effective_start_date !== machineAlignmentStartDate || assignment.effective_end_date)
+      Boolean(assignment.effective_end_date)
   );
   const hasChanges =
     addedMachineIds.length > 0 || removedMachineIds.length > 0 || assignmentsToSync.length > 0;
@@ -2474,7 +2474,7 @@ function MachineAssignmentsSection({
           machineId: assignment.machine_id,
           partnershipId: selectedPartnership.id,
           assignmentRole: assignment.assignment_role,
-          effectiveStartDate: machineAlignmentStartDate,
+          effectiveStartDate: assignment.effective_start_date,
           effectiveEndDate: '',
           status: 'active',
           notes: assignment.notes ?? null,
@@ -2523,9 +2523,9 @@ function MachineAssignmentsSection({
           <AlertTitle>Machine reporting dates need synchronization</AlertTitle>
           <AlertDescription>
             {assignmentsToSync.length} saved machine assignment
-            {assignmentsToSync.length === 1 ? ' still uses' : 's still use'} legacy dates. The
-            current setup uses the partnership reporting window instead. Save Machine Alignment to
-            keep the same machines and remove the outdated assignment dates.
+            {assignmentsToSync.length === 1 ? ' still has a legacy end date' : 's still have legacy end dates'}.
+            Save Machine Alignment to keep the same machines and start dates while removing only
+            the outdated end {assignmentsToSync.length === 1 ? 'date' : 'dates'}.
           </AlertDescription>
         </Alert>
       )}
@@ -2551,8 +2551,8 @@ function MachineAssignmentsSection({
             <h2 className="font-semibold text-foreground">Assign Machines</h2>
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
               Select every machine that belongs to this partnership, then save once. Dates, status,
-              and assignment role use the normal V1 defaults in the background. Saved legacy dates
-              remain visible here until they are synchronized.
+              and assignment role use the normal V1 defaults in the background. Saved legacy end
+              dates remain visible here until they are synchronized.
             </p>
           </div>
           <Button asChild variant="outline" size="sm" className="min-h-11">
@@ -2603,7 +2603,7 @@ function MachineAssignmentsSection({
                 {(addedMachineIds.length > 0 || removedMachineIds.length > 0) &&
                   `+${addedMachineIds.length} / -${removedMachineIds.length}`}
                 {assignmentsToSync.length > 0
-                  ? `${addedMachineIds.length > 0 || removedMachineIds.length > 0 ? ' / ' : ''}${assignmentsToSync.length} legacy ${assignmentsToSync.length === 1 ? 'date' : 'dates'} to sync`
+                  ? `${addedMachineIds.length > 0 || removedMachineIds.length > 0 ? ' / ' : ''}${assignmentsToSync.length} legacy end ${assignmentsToSync.length === 1 ? 'date' : 'dates'} to sync`
                   : ''}
               </Badge>
             )}
@@ -2675,7 +2675,8 @@ function MachineAssignmentsSection({
             Save Machine Alignment
           </Button>
           <div className="text-sm text-muted-foreground">
-            Assignments use the partnership start date: {formatDate(machineAlignmentStartDate)}.
+            New assignments use the partnership start date: {formatDate(machineAlignmentStartDate)}.
+            Existing assignment start dates stay unchanged.
           </div>
         </div>
       </div>
