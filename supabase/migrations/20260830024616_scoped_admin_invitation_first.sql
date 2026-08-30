@@ -241,18 +241,23 @@ begin
     raise exception 'This email already has a Bloomjoy account. Open the person workspace to grant Scoped Admin access.';
   end if;
 
-  select invite_row,
-    coalesce((
-      select array_agg(scope_row.machine_id order by scope_row.machine_id)
-      from public.admin_scoped_access_invite_scopes scope_row
-      where scope_row.invite_id = invite_row.id
-    ), '{}'::uuid[])
-  into invite_before, previous_machine_ids
+  select invite_row.*
+  into invite_before
   from public.admin_scoped_access_invites invite_row
   where invite_row.target_email = normalized_email
     and invite_row.status = 'pending'
   limit 1
   for update of invite_row;
+
+  if invite_before.id is not null then
+    select coalesce(
+      array_agg(scope_row.machine_id order by scope_row.machine_id),
+      '{}'::uuid[]
+    )
+    into previous_machine_ids
+    from public.admin_scoped_access_invite_scopes scope_row
+    where scope_row.invite_id = invite_before.id;
+  end if;
 
   insert into public.admin_scoped_access_invites (
     target_email,
