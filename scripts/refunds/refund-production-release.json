@@ -105,6 +105,7 @@
     "20260830182855_refund_manager_queue_truth.sql",
     "20260830182941_refund_customer_correction_persistence.sql",
     "20260830183702_refund_customer_status_recovery.sql",
+    "20260830202234_refund_production_simplification.sql",
     "20260830205449_refund_automation_scheduler_30_minute_cadence.sql"
   ],
   "migrationFilesSha256": "4f4b0fd320ba348ba78314b3bfe4e19d9b46c7c373de16ce5ac8011797a19079",

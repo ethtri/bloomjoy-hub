@@ -316,7 +316,6 @@ export type RefundReadinessBlockReason =
   | 'duplicate_transaction'
   | 'case_not_refundable'
   | 'machine_not_enabled'
-  | 'cap_exceeded'
   | 'globally_paused'
   | 'provider_unavailable';
 
@@ -697,13 +696,12 @@ export type RefundManagerSetupMachine = {
     | 'transaction_matching_off'
     | 'transaction_lookup_not_ready'
     | 'manager_route_not_ready'
-    | 'machine_limit_missing'
     | null;
 };
 
 export type RefundManagerSetup = {
   machines: RefundManagerSetupMachine[];
-  standardLaunchLimitCents: number;
+  standardLaunchLimitCents: number | null;
   globalRefunds: {
     available: boolean;
     paused: boolean;
@@ -1005,9 +1003,6 @@ export type NayaxCardRefundExecutionBlock =
   | 'feature_disabled'
   | 'kill_switch_active'
   | 'already_refunded'
-  | 'amount_cap_exceeded'
-  | 'daily_amount_cap_exceeded'
-  | 'daily_count_cap_exceeded'
   | (string & {});
 
 export type NayaxCardRefundExecutionErrorCode =
@@ -1018,7 +1013,6 @@ export type NayaxCardRefundExecutionErrorCode =
   | 'feature_disabled'
   | 'kill_switch_active'
   | 'already_refunded'
-  | 'amount_cap_exceeded'
   | 'provider_contract_unconfirmed'
   | 'provider_execution_not_yet_enabled'
   | (string & {});
@@ -1284,7 +1278,7 @@ const emptyOverview: RefundOperationsOverview = {
 
 const emptyRefundManagerSetup: RefundManagerSetup = {
   machines: [],
-  standardLaunchLimitCents: 5000,
+  standardLaunchLimitCents: null,
   globalRefunds: { available: false, paused: true, blockReason: 'configuration_missing' },
 };
 
@@ -2741,7 +2735,7 @@ export const activateQualifiedRefundMachinesAdmin = async (reason: string) => {
     ok: boolean;
     activatedCount: number;
     approvedExceptionCount: number;
-    standardLaunchLimitCents: number;
+    standardLaunchLimitCents: number | null;
   };
 };
 

@@ -36,7 +36,6 @@ const readyRow = validateAggregateRow({
   setup_needed_count: 0,
   approved_exception_count: 1,
   unexplained_disabled_count: 0,
-  over_standard_cap_count: 0,
   tulsa_machine_count: 1,
   tulsa_ready_to_refund_count: 1,
   tulsa_reviewed_blocker_count: 0,
@@ -60,11 +59,11 @@ assert.match(MACHINE_READINESS_QUERY, /refund_case\.assigned_manager_id/i);
 assert.doesNotMatch(MACHINE_READINESS_QUERY, /refund_case_card_refund_readiness/i);
 assert.match(MACHINE_READINESS_QUERY, /awaiting_reviewed_activation/i);
 assert.match(MACHINE_READINESS_QUERY, /owner_pause.*provider_support.*machine_maintenance.*commercial_exception/is);
-assert.match(MACHINE_READINESS_QUERY, /between 1 and 5000/i);
+assert.doesNotMatch(MACHINE_READINESS_QUERY, /nayax_refund_max_amount_cents|between 1 and 5000/i);
 assert.match(MACHINE_READINESS_QUERY, /not activation_prerequisites_ready\s+and not approved_exception/i);
 assert.doesNotMatch(MACHINE_READINESS_QUERY, /\b(insert|update|delete|truncate|alter|drop)\b/i);
 
-assert.equal(fixture.schemaVersion, 1);
+assert.equal(fixture.schemaVersion, 2);
 assert.equal(fixture.evidenceClass, 'sanitized_synthetic');
 assert.equal(fixture.machine.customerLabel, 'Tulsa Premium Outlets — Cotton Candy');
 assert.equal(fixture.case.amountCents, fixture.candidate.amountCents);
@@ -74,11 +73,11 @@ assert.equal(fixture.candidate.timeDeltaMinutes, 2);
 assert.equal(fixture.candidate.paymentStatus, null);
 assert.equal(fixture.candidate.selectionAllowed, true);
 assert.equal(fixture.activation.disabledBlockReason, 'machine_not_enabled');
-assert.equal(fixture.activation.standardLimitCents, 5000);
+assert.equal(fixture.activation.refundAmountSource, 'exact_selected_transaction');
 assert.doesNotMatch(JSON.stringify(fixture), /@[a-z0-9.-]+|providerTransactionId|nayaxMachineId/i);
 
 console.log('Refund machine readiness audit tooling validated.');
 console.log('- exact-project, linked, read-only execution boundary');
-console.log('- aggregate-only machine, Tulsa, cap, and confirmed-case results');
-console.log('- HOLD on unexplained disablement, unactivated eligible machines, unknown case action, or over-cap state');
+console.log('- aggregate-only machine, Tulsa, and confirmed-case results');
+console.log('- HOLD on unexplained disablement, unactivated eligible machines, or unknown case action');
 console.log('- sanitized simple-journey fixture with unavailable provider approval field');

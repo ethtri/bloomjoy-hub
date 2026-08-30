@@ -1,11 +1,8 @@
 import {
   buildNayaxRefundIdempotencyKey,
-  isNayaxRefundCaseReleaseAuthorized,
   readNayaxRefundAvailability,
-  resolveNayaxRefundCaseExecutionConfig,
   resolveNayaxRefundAvailability,
   resolveNayaxRefundExecutionConfig,
-  resolveNayaxRefundRolloutConfig,
 } from "./nayax-refund-gates.ts";
 
 const assert = (condition: unknown, message: string) => {
@@ -19,33 +16,19 @@ const enabledConfig = {
   NAYAX_REFUND_EXECUTION_KILL_SWITCH: "false",
   NAYAX_REFUND_EXECUTION_ENABLED: "true",
   NAYAX_REFUND_EXECUTION_DRY_RUN: "false",
-  NAYAX_REFUND_MAX_AMOUNT_CENTS: "1000",
-  NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS: "5000",
-  NAYAX_REFUND_DAILY_COUNT_CAP: "10",
   NAYAX_REFUND_IDEMPOTENCY_SECRET: "i".repeat(64),
   NAYAX_REFUND_EXECUTOR_ASSERTION: "e".repeat(64),
   NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED: "true",
   NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED: "true",
 };
 
-const canaryCaseId = "76000000-0000-4000-8000-000000000001";
-
-const caseScopedRollout = {
-  NAYAX_REFUND_BROAD_REOPEN_APPROVED: "false",
-  NAYAX_REFUND_CANARY_ENABLED: "true",
-  NAYAX_REFUND_CANARY_CASE_ID: canaryCaseId,
-};
-
-Deno.test("default or missing rollout configuration reports every fail-closed gate", () => {
+Deno.test("missing production configuration reports every genuine safety gate", () => {
   const config = resolveNayaxRefundExecutionConfig(envReader({}));
   for (
     const block of [
       "kill_switch_active",
       "feature_disabled",
       "dry_run_active",
-      "per_refund_cap_missing",
-      "daily_amount_cap_missing",
-      "daily_count_cap_missing",
       "idempotency_secret_missing",
       "executor_assertion_missing",
       "manager_contract_unconfirmed",
@@ -56,131 +39,60 @@ Deno.test("default or missing rollout configuration reports every fail-closed ga
   }
 });
 
-Deno.test("a complete bounded configuration has no rollout block", () => {
+Deno.test("a complete production configuration has no pilot or cap block", () => {
   const config = resolveNayaxRefundExecutionConfig(envReader(enabledConfig));
   assert(config.blocks.length === 0, "complete config should pass gates");
-  assert(config.dailyCountCap === 10, "daily count must be preserved");
   assert(
-    config.dailyAmountCapCents === 5000,
-    "daily amount must be preserved",
+    !("maxAmountCents" in config) && !("dailyCountCap" in config),
+    "retired launch caps must not remain in the production contract",
   );
 });
 
-Deno.test("case-scoped rollout cannot waive provider contract or approval-scope proof", () => {
-  const baseConfig = resolveNayaxRefundExecutionConfig(envReader({
+Deno.test("legacy canary and cap variables do not gate qualified transactions", () => {
+  const config = resolveNayaxRefundExecutionConfig(envReader({
+    ...enabledConfig,
+    NAYAX_REFUND_BROAD_REOPEN_APPROVED: "false",
+    NAYAX_REFUND_CANARY_ENABLED: "false",
+    NAYAX_REFUND_CANARY_CASE_ID: "not-a-case-id",
+    NAYAX_REFUND_MAX_AMOUNT_CENTS: "1",
+    NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS: "1",
+    NAYAX_REFUND_DAILY_COUNT_CAP: "1",
+  }));
+  assert(config.blocks.length === 0, "pilot variables must be ignored");
+});
+
+Deno.test("production scope never waives provider contract or approval-scope proof", () => {
+  const config = resolveNayaxRefundExecutionConfig(envReader({
     ...enabledConfig,
     NAYAX_REFUND_EXECUTION_KILL_SWITCH: "true",
     NAYAX_REFUND_IDEMPOTENCY_SECRET: "invalid",
     NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED: "false",
     NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED: "false",
   }));
-  const rolloutConfig = resolveNayaxRefundRolloutConfig(
-    envReader(caseScopedRollout),
-  );
-  const caseConfig = resolveNayaxRefundCaseExecutionConfig({
-    executionConfig: baseConfig,
-    rolloutConfig,
-    caseId: canaryCaseId.toUpperCase(),
-  });
-
   assert(
-    caseConfig.blocks.includes("manager_contract_unconfirmed"),
-    "the exact case must still require the provider response contract",
+    config.blocks.includes("manager_contract_unconfirmed"),
+    "production still requires the provider response contract",
   );
   assert(
-    caseConfig.blocks.includes("approval_scope_unconfirmed"),
-    "the exact case must still require approval scope",
+    config.blocks.includes("approval_scope_unconfirmed"),
+    "production still requires approval scope",
   );
   assert(
-    caseConfig.blocks.includes("kill_switch_active"),
-    "case scope must not bypass the kill switch",
+    config.blocks.includes("kill_switch_active"),
+    "production must not bypass the incident kill switch",
   );
   assert(
-    caseConfig.blocks.includes("idempotency_secret_missing"),
-    "case scope must not bypass idempotency",
-  );
-  assert(
-    baseConfig.blocks.includes("manager_contract_unconfirmed") &&
-      baseConfig.blocks.includes("approval_scope_unconfirmed"),
-    "case scoping must not mutate the global configuration",
-  );
-  assert(
-    isNayaxRefundCaseReleaseAuthorized({
-      rolloutConfig,
-      caseId: canaryCaseId,
-    }),
-    "the exact case may still be rollout-authorized",
-  );
-
-  const broadRollout = resolveNayaxRefundRolloutConfig(envReader({
-    ...caseScopedRollout,
-    NAYAX_REFUND_BROAD_REOPEN_APPROVED: "true",
-  }));
-  const broadConfig = resolveNayaxRefundCaseExecutionConfig({
-    executionConfig: baseConfig,
-    rolloutConfig: broadRollout,
-    caseId: canaryCaseId,
-  });
-  assert(
-    broadConfig.blocks.includes("manager_contract_unconfirmed") &&
-      broadConfig.blocks.includes("approval_scope_unconfirmed"),
-    "broad reopening must require independent contract and scope confirmation",
+    config.blocks.includes("idempotency_secret_missing"),
+    "production must not bypass idempotency",
   );
 });
 
-Deno.test("case rollout scope remains exact and fail-closed", () => {
-  const exactRollout = resolveNayaxRefundRolloutConfig(
-    envReader(caseScopedRollout),
-  );
-  assert(
-    isNayaxRefundCaseReleaseAuthorized({
-      rolloutConfig: exactRollout,
-      caseId: canaryCaseId.toUpperCase(),
-    }),
-    "the exact normalized case should be authorized",
-  );
-  assert(
-    !isNayaxRefundCaseReleaseAuthorized({
-      rolloutConfig: exactRollout,
-      caseId: "76000000-0000-4000-8000-000000000002",
-    }),
-    "another case must remain closed",
-  );
-
-  const malformedRollout = resolveNayaxRefundRolloutConfig(envReader({
-    ...caseScopedRollout,
-    NAYAX_REFUND_CANARY_CASE_ID: "not-a-case-id",
-  }));
-  assert(
-    !isNayaxRefundCaseReleaseAuthorized({
-      rolloutConfig: malformedRollout,
-      caseId: canaryCaseId,
-    }),
-    "a malformed configured case must fail closed",
-  );
-});
-
-Deno.test("weak or unbounded execution inputs fail closed", () => {
+Deno.test("weak execution secrets fail closed", () => {
   const config = resolveNayaxRefundExecutionConfig(envReader({
     ...enabledConfig,
-    NAYAX_REFUND_MAX_AMOUNT_CENTS: "1000001",
-    NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS: "0",
-    NAYAX_REFUND_DAILY_COUNT_CAP: "101",
     NAYAX_REFUND_IDEMPOTENCY_SECRET: "local-dev",
     NAYAX_REFUND_EXECUTOR_ASSERTION: "service-role-fallback",
   }));
-  assert(
-    config.blocks.includes("per_refund_cap_missing"),
-    "per-refund cap must be bounded",
-  );
-  assert(
-    config.blocks.includes("daily_amount_cap_missing"),
-    "daily amount cap must be bounded",
-  );
-  assert(
-    config.blocks.includes("daily_count_cap_missing"),
-    "daily count cap must be bounded",
-  );
   assert(
     config.blocks.includes("idempotency_secret_missing"),
     "weak idempotency secret must fail",

@@ -160,15 +160,12 @@ const refundReasonLabel = (reason: string | null) => ({
   transaction_matching_off: 'Transaction matching is off',
   transaction_lookup_not_ready: 'Transaction lookup needs setup',
   manager_route_not_ready: 'Machine Manager route needs setup',
-  machine_limit_missing: 'Refund limit is missing',
   awaiting_reviewed_activation: 'Awaiting reviewed activation',
   owner_pause: 'Paused by owner',
   provider_support: 'Paused for provider support',
   machine_maintenance: 'Paused for machine maintenance',
   commercial_exception: 'Approved commercial exception',
 }[reason ?? ''] ?? 'Review setup');
-
-const formatCents = (cents: number) => `$${(cents / 100).toFixed(0)}`;
 
 const emptySetup: PartnershipReportingSetup = {
   partners: [],
@@ -183,7 +180,7 @@ const emptySetup: PartnershipReportingSetup = {
 
 const emptyRefundManagerSetup: RefundManagerSetup = {
   machines: [],
-  standardLaunchLimitCents: 5000,
+  standardLaunchLimitCents: null,
   globalRefunds: { available: false, paused: true, blockReason: 'configuration_missing' },
 };
 
@@ -514,7 +511,7 @@ export default function AdminMachinesPage() {
     if (!isLocalDemoMode) return liveRefundManagerSetup;
 
     return {
-      standardLaunchLimitCents: 5000,
+      standardLaunchLimitCents: null,
       globalRefunds: { available: true, paused: false, blockReason: null },
       machines: setup.machines.map((machine) => {
         const demoReadiness = demoRefundReadinessByMachineId[machine.id] ?? {
@@ -3150,7 +3147,7 @@ function MachineDialog({
               <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Transaction lookup</dt><dd className="font-medium">{refundManagerSetup?.transactionLookupReady ? 'Ready' : 'Setup needed'}</dd></div>
               <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine Managers</dt><dd className="font-medium">{savedMachineManagerEmails.length} saved</dd></div>
               <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Card refunds</dt><dd className="font-medium">{cardRefundStatus}</dd></div>
-              <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Per-refund limit</dt><dd className="font-medium">{refundManagerSetup?.nayaxRefundMaxAmountCents ? formatCents(refundManagerSetup.nayaxRefundMaxAmountCents) : 'Not set'}</dd></div>
+              <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Refund amount</dt><dd className="font-medium">Exact Nayax sale</dd></div>
             </dl>
             {machineManagerHasChanges && (
               <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
@@ -3557,12 +3554,8 @@ function MachineDialog({
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-4 px-3 py-2.5">
-                <dt className="text-muted-foreground">Limit</dt>
-                <dd className="font-medium">
-                  {refundManagerSetup?.nayaxRefundMaxAmountCents
-                    ? `${formatCents(refundManagerSetup.nayaxRefundMaxAmountCents)} per refund during launch`
-                    : 'Not active'}
-                </dd>
+                <dt className="text-muted-foreground">Refund amount</dt>
+                <dd className="font-medium">Exact selected transaction</dd>
               </div>
             </dl>
             {canActivateCardRefunds && refundManagerSetup?.activationEligible && !refundManagerSetup.nayaxRefundsEnabled && (

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "evidenceClass": "sanitized_synthetic",
   "machine": {
     "reportingMachineId": "94900000-0000-4000-8000-000000000001",
@@ -27,6 +27,6 @@
   },
   "activation": {
     "disabledBlockReason": "machine_not_enabled",
-    "standardLimitCents": 5000
+    "refundAmountSource": "exact_selected_transaction"
   }
 }

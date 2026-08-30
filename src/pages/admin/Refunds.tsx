@@ -1976,10 +1976,6 @@ const nayaxExecutionBlockLabel = (block: string) => {
       return 'Your account cannot complete this card refund.';
     case 'already_refunded':
       return 'This case already has a refund attempt. Check its history before trying again.';
-    case 'amount_cap_exceeded':
-    case 'daily_amount_cap_exceeded':
-    case 'daily_count_cap_exceeded':
-      return 'This refund exceeds a review limit and needs owner approval.';
     case 'manual_review':
       return 'Review the transaction details before completing this refund.';
     default:

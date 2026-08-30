@@ -18,6 +18,7 @@ const files = {
   providerCapsMigration: 'supabase/migrations/202608110020_refund_nayax_provider_caps.sql',
   pendingApprovalRecoveryMigration: 'supabase/migrations/20260820041101_refund_nayax_pending_approval_recovery.sql',
   dailyReadinessUsageMigration: 'supabase/migrations/20260824224813_refund_nayax_daily_readiness_usage.sql',
+  productionSimplificationMigration: 'supabase/migrations/20260830202234_refund_production_simplification.sql',
   providerOrchestration: 'supabase/functions/_shared/nayax-refund-orchestration.ts',
   providerGates: 'supabase/functions/_shared/nayax-refund-gates.ts',
   providerGatesTest: 'supabase/functions/_shared/nayax-refund-gates.test.ts',
@@ -63,6 +64,7 @@ const providerOrchestrationMigration = read(files.providerOrchestrationMigration
 const providerCapsMigration = read(files.providerCapsMigration);
 const pendingApprovalRecoveryMigration = read(files.pendingApprovalRecoveryMigration);
 const dailyReadinessUsageMigration = read(files.dailyReadinessUsageMigration);
+const productionSimplificationMigration = read(files.productionSimplificationMigration);
 const providerOrchestration = read(files.providerOrchestration);
 const providerGates = read(files.providerGates);
 const providerGatesTest = read(files.providerGatesTest);
@@ -107,8 +109,9 @@ assert(
 );
 assert(
   migration.includes('nayax_refunds_enabled boolean not null default false') &&
-    migration.includes('nayax_refund_max_amount_cents'),
-  'Machine-level Nayax refund allowlist and cap fields are required.'
+    migration.includes('nayax_refund_max_amount_cents') &&
+    productionSimplificationMigration.includes('set nayax_refund_max_amount_cents = null'),
+  'Machine-level Nayax enablement remains required while the historical launch-cap field is retired.'
 );
 assert(
   migration.includes('can_prepare_nayax_refund_execution') &&
@@ -165,48 +168,35 @@ assert(
     !fn.includes('service_consume_nayax_refund_official_action') &&
     !fn.includes('can_manage_refund_case') &&
     !fn.includes('actorIsSuperAdmin'),
-  'The HTTP function must use mapped-manager authorization for the normal path while retaining capped reservation/settlement and the controlled pilot path.'
+  'The HTTP function must use mapped-manager authorization for the normal path while retaining atomic reservation and settlement.'
 );
-const controlledPilotStart = fn.indexOf('if (operation === "controlled_owner_pilot")');
-const controlledPilotGate = fn.indexOf('if (pilotBlocks.length > 0)', controlledPilotStart);
-const controlledPilotAdapter = fn.indexOf('createNayaxRefundProviderAdapter({', controlledPilotStart);
-const controlledPilotIdempotency = fn.indexOf(
+const operationAllowlist = fn.slice(
+  fn.indexOf('!new Set(['),
+  fn.indexOf('const executionConfig = resolveNayaxRefundExecutionConfig'),
+);
+const normalExecutionGate = fn.indexOf('if (preExecutionBlocks.length > 0)');
+const normalIdempotency = fn.lastIndexOf(
   'const idempotencyKey = await buildNayaxRefundIdempotencyKey',
-  controlledPilotStart,
-);
-const controlledPilotReservation = fn.indexOf(
-  'const authorization = await authorizeRefundOfficialAction({',
-  controlledPilotStart,
-);
-const controlledPilotProviderCall = fn.indexOf('providerOutcome = await provider.execute({', controlledPilotStart);
-const normalExecutionGate = fn.indexOf('if (preExecutionBlocks.length > 0)', controlledPilotProviderCall);
-const normalIdempotency = fn.indexOf(
-  'const idempotencyKey = await buildNayaxRefundIdempotencyKey',
-  controlledPilotIdempotency + 1,
 );
 const normalOrchestration = fn.indexOf('await orchestrateNayaxRefund', normalIdempotency);
 assert(
   fn.includes('resolveNayaxRefundExecutionConfig') &&
     fn.indexOf('if (authError || !user)') <
       fn.indexOf('const executionConfig = resolveNayaxRefundExecutionConfig') &&
-    controlledPilotStart >= 0 && controlledPilotGate > controlledPilotStart &&
-    controlledPilotAdapter > controlledPilotGate &&
-    controlledPilotIdempotency > controlledPilotAdapter &&
-    controlledPilotReservation > controlledPilotIdempotency &&
-    controlledPilotProviderCall > controlledPilotReservation &&
-    normalExecutionGate > controlledPilotProviderCall &&
+    operationAllowlist.includes('"execute"') &&
+    operationAllowlist.includes('"availability"') &&
+    !operationAllowlist.includes('controlled_owner_pilot') &&
+    !operationAllowlist.includes('approve_pending_request') &&
     normalIdempotency > normalExecutionGate &&
     normalOrchestration > normalIdempotency &&
     providerGates.includes('NAYAX_REFUND_EXECUTOR_ASSERTION') &&
     providerGates.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET') &&
-    providerGates.includes('NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS') &&
-    providerGates.includes('NAYAX_REFUND_DAILY_COUNT_CAP') &&
-    !providerGates.includes('NAYAX_REFUND_CANARY_UNPROVEN_PROVIDER_APPROVED') &&
-    providerGates.includes('can never substitute for an') &&
-    providerGatesTest.includes('case-scoped rollout cannot waive provider contract or approval-scope proof') &&
+    !providerGates.includes('NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS') &&
+    !providerGates.includes('NAYAX_REFUND_DAILY_COUNT_CAP') &&
+    providerGatesTest.includes('legacy canary and cap variables do not gate qualified transactions') &&
     managerSessionMigration.includes('pg_catalog.pg_advisory_xact_lock') &&
-    providerGatesTest.includes('reports every fail-closed gate'),
-  'Each pilot and normal path must fail its own rollout/configuration boundary before idempotency, reservation, or provider orchestration.'
+    providerGatesTest.includes('reports every genuine safety gate'),
+  'Only production execute/availability operations are reachable, with genuine gates enforced before idempotency and provider orchestration.'
 );
 assert(
   fn.includes('operation === "availability" && !requestedCaseId') &&
@@ -317,37 +307,21 @@ assert(
 );
 assert(
   providerCapsMigration.includes('pg_catalog.pg_advisory_xact_lock') &&
-    providerCapsMigration.includes('current_daily_count + 1 > p_daily_count_cap') &&
-    providerCapsMigration.includes(
-      'current_daily_amount_cents + p_amount_cents > p_daily_amount_cap_cents'
-    ) &&
-    providerCapsMigration.includes(
-      'service_reserve_and_consume_nayax_refund_attempt_v2'
-    ) &&
-    providerCapsMigration.includes('from service_role;') &&
-    providerAdapterTest.includes(
-      'An exact idempotent replay is returned before cap accounting'
-    ),
-  'Provider attempts must pass an advisory-locked daily count/amount cap without double-counting an exact replay.'
+    productionSimplificationMigration.includes('service_reserve_and_consume_nayax_refund_attempt(') &&
+    productionSimplificationMigration.includes("function_definition := replace(\n    function_definition,\n    daily_cap_call_anchor,\n    cap_free_call"),
+  'Production preserves the atomic reservation and exact replay controls while bypassing retired rollout caps.'
 );
 assert(
   dailyReadinessUsageMigration.includes('create or replace function public.service_refund_nayax_daily_usage()') &&
-    dailyReadinessUsageMigration.includes('security definer') &&
-    dailyReadinessUsageMigration.includes("attempt.execution_mode = 'request_and_approve'") &&
-    dailyReadinessUsageMigration.includes("date_trunc('day', statement_timestamp() at time zone 'UTC')") &&
-    dailyReadinessUsageMigration.includes('from public, anon, authenticated') &&
-    dailyReadinessUsageMigration.includes('to service_role') &&
-    !dailyReadinessUsageMigration.includes('refund_case_id') &&
-    !dailyReadinessUsageMigration.includes('nayax_transaction_id') &&
-    refundReadiness.includes('parseNayaxRefundDailyUsage') &&
-    fn.includes('.rpc(\n    "service_refund_nayax_daily_usage"') &&
-    refundAdminUpdate.includes('.rpc(\n    "service_refund_nayax_daily_usage"') &&
+    !refundReadiness.includes('parseNayaxRefundDailyUsage') &&
+    !fn.includes('service_refund_nayax_daily_usage') &&
+    !refundAdminUpdate.includes('service_refund_nayax_daily_usage') &&
     refundAdminUpdate.includes('service_get_nayax_refund_provider_journal_capability_v3') &&
     refundAdminUpdate.includes('parseNayaxRefundProviderContract') &&
     refundAdminUpdate.includes('providerJournalAvailable') &&
     !fn.includes('.from("refund_case_nayax_refund_attempts")') &&
     !refundAdminUpdate.includes('.from("refund_case_nayax_refund_attempts")'),
-  'Readiness cap usage must come from a service-only, non-identifying aggregate RPC rather than direct access to the private provider-attempt ledger.'
+  'Production readiness ignores the historical daily-usage aggregate and never directly reads the private provider-attempt ledger.'
 );
 assert(
   providerOrchestrationMigration.includes('service_reserve_and_consume_nayax_refund_attempt') &&

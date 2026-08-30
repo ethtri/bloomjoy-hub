@@ -111,16 +111,12 @@ export const refundReadinessBlockMessage = (blockReason: string | null | undefin
       return 'This transaction has already been refunded. Do not refund it again.';
     case 'reconciliation_hold':
       return 'A previous refund result still needs to be confirmed. Do not refund again.';
-    case 'account_reconciliation_hold':
-      return 'Card refunds for this payment account are paused because an earlier result still needs review.';
     case 'duplicate_transaction':
       return 'This transaction is linked to another refund case. Review the original case first.';
     case 'case_not_refundable':
       return 'This case is not currently eligible for a refund. Review the case status.';
     case 'machine_not_enabled':
       return 'Card refunds are not enabled for this machine. An administrator needs to enable them.';
-    case 'cap_exceeded':
-      return 'This refund is over the current limit, or today\'s refund limit has been reached. Operations needs to review it.';
     case 'globally_paused':
       return 'Card refunds are temporarily paused. Operations needs to resume the service.';
     case 'provider_unavailable':

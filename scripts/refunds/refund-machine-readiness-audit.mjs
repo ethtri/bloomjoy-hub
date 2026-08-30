@@ -18,7 +18,6 @@ export const RESULT_KEYS = [
   'setup_needed_count',
   'approved_exception_count',
   'unexplained_disabled_count',
-  'over_standard_cap_count',
   'tulsa_machine_count',
   'tulsa_ready_to_refund_count',
   'tulsa_reviewed_blocker_count',
@@ -37,7 +36,6 @@ with active_customer_machines as (
     coalesce(nullif(trim(machine.refund_public_display_label), ''), machine.machine_label) as display_label,
     machine.refund_intake_enabled,
     machine.nayax_refunds_enabled,
-    machine.nayax_refund_max_amount_cents,
     machine.nayax_refunds_disabled_reason,
     (
       nullif(trim(machine.nayax_machine_id), '') is not null
@@ -72,7 +70,6 @@ machine_states as (
     (
       machine.activation_prerequisites_ready
       and machine.nayax_refunds_enabled
-      and machine.nayax_refund_max_amount_cents between 1 and 5000
     ) as ready_to_refund,
     (
       machine.activation_prerequisites_ready
@@ -90,10 +87,6 @@ machine_states as (
       and not machine.nayax_refunds_enabled
       and machine.nayax_refunds_disabled_reason is null
     ) as unexplained_disabled,
-    (
-      machine.nayax_refunds_enabled
-      and coalesce(machine.nayax_refund_max_amount_cents, 0) > 5000
-    ) as over_standard_cap,
     (
       lower(trim(machine.location_name)) = lower('Tulsa Premium Outlets')
       and lower(machine.display_label) like '%cotton candy%'
@@ -131,7 +124,6 @@ select
   ) as setup_needed_count,
   (select count(*)::integer from machine_states where approved_exception) as approved_exception_count,
   (select count(*)::integer from machine_states where unexplained_disabled) as unexplained_disabled_count,
-  (select count(*)::integer from machine_states where over_standard_cap) as over_standard_cap_count,
   (select count(*)::integer from machine_states where is_tulsa_cotton_candy) as tulsa_machine_count,
   (
     select count(*)::integer from machine_states
@@ -207,7 +199,6 @@ export function determineReadiness(row) {
   const ready = accountedMachineCount === row.active_customer_machine_count
     && row.ready_to_activate_count === 0
     && row.unexplained_disabled_count === 0
-    && row.over_standard_cap_count === 0
     && tulsaReviewed
     && casesAccounted
     && row.confirmed_case_unknown_count === 0;
@@ -258,7 +249,6 @@ function printAggregate(row, projectRef) {
   console.log(`- Setup needed: ${row.setup_needed_count}`);
   console.log(`- Approved exceptions: ${row.approved_exception_count}`);
   console.log(`- Unexplained disabled: ${row.unexplained_disabled_count}`);
-  console.log(`- Above standard $50 cap: ${row.over_standard_cap_count}`);
   console.log(`Tulsa machine count: ${row.tulsa_machine_count}`);
   console.log(`Tulsa ready: ${row.tulsa_ready_to_refund_count}`);
   console.log(`Tulsa reviewed blocker: ${row.tulsa_reviewed_blocker_count}`);

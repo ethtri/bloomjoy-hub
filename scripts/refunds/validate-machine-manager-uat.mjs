@@ -149,7 +149,7 @@ const buildMockSetup = () => ({
 });
 
 const buildMockRefundManagerSetup = (state) => ({
-  standardLaunchLimitCents: 5000,
+  standardLaunchLimitCents: null,
   machines: [
     {
       id: machineId,
@@ -513,7 +513,7 @@ const installMockSupabaseRoutes = async (context, state) => {
       const body = route.request().postDataJSON();
       state.activationPayload = body;
       state.refundSetup.cardRefundsEnabled = Boolean(body?.p_enabled);
-      state.refundSetup.cardRefundLimitCents = body?.p_enabled ? 5000 : null;
+      state.refundSetup.cardRefundLimitCents = null;
       state.refundSetup.paymentDisabledReason = body?.p_enabled ? null : body?.p_disabled_reason;
       state.refundSetup.readinessState = body?.p_enabled ? 'ready_to_refund' : 'ready_to_activate';
       return route.fulfill(jsonResponse({ ok: true, replayed: false, machineId, readinessState: state.refundSetup.readinessState, limitCents: state.refundSetup.cardRefundLimitCents }));
@@ -521,7 +521,7 @@ const installMockSupabaseRoutes = async (context, state) => {
 
     if (url.includes('/admin_activate_qualified_refund_machines')) {
       state.bulkActivationPayload = route.request().postDataJSON();
-      return route.fulfill(jsonResponse({ ok: true, activatedCount: 0, approvedExceptionCount: 0, standardLaunchLimitCents: 5000 }));
+      return route.fulfill(jsonResponse({ ok: true, activatedCount: 0, approvedExceptionCount: 0, standardLaunchLimitCents: null }));
     }
 
     return route.fulfill(jsonResponse({}));
@@ -879,7 +879,7 @@ const run = async () => {
     await reopenedMachineDialog.getByRole('button', { name: 'Activate card refunds' }).click();
     await reopenedMachineDialog.getByText('Ready to refund', { exact: true }).waitFor({ timeout: 10000 });
     recorder.assert(
-      'Guided activation applies the reviewed launch cap and becomes ready',
+      'Guided activation enables exact-transaction refunds and becomes ready',
       state.activationPayload?.p_machine_id === machineId
         && state.activationPayload?.p_enabled === true
         && await reopenedMachineDialog.getByText('Enabled', { exact: true }).isVisible(),

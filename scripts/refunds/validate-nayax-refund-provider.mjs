@@ -1128,19 +1128,24 @@ const authoritativeJournalV3Migration = fs.readFileSync(
   ),
   'utf8',
 ).replace(/\r\n/g, '\n');
-check(capMigration.includes('pg_catalog.pg_advisory_xact_lock'), 'Daily cap checks and reservation share a transaction-scoped advisory lock.');
-check(capMigration.includes("attempt.execution_mode = 'request_and_approve'"), 'Only real provider-attempt reservations consume daily caps.');
-check(capMigration.includes('current_daily_count + 1 > p_daily_count_cap'), 'The daily count cap is checked before reservation.');
-check(capMigration.includes('current_daily_amount_cents + p_amount_cents > p_daily_amount_cap_cents'), 'The daily amount cap is checked before reservation.');
+const productionSimplificationMigration = fs.readFileSync(
+  path.join(
+    repoRoot,
+    'supabase/migrations/20260830202234_refund_production_simplification.sql',
+  ),
+  'utf8',
+).replace(/\r\n/g, '\n');
+check(capMigration.includes('pg_catalog.pg_advisory_xact_lock'), 'The retired cap implementation remains preserved as migration history.');
 check(
   capMigration.indexOf('if existing_attempt_id is not null then') <
     capMigration.indexOf('current_daily_count + 1 > p_daily_count_cap'),
-  'An exact idempotent replay is returned before cap accounting so it cannot consume cap twice.',
+  'Historical cap handling returned an exact replay before its old accounting path.',
 );
 check(
-  capMigration.includes('from service_role;') &&
-    capMigration.includes('service_reserve_and_consume_nayax_refund_attempt_v2'),
-  'The uncapped reservation entry point is revoked from service callers.',
+  productionSimplificationMigration.includes('service_reserve_and_consume_nayax_refund_attempt(') &&
+    productionSimplificationMigration.includes("update public.reporting_machines\nset nayax_refund_max_amount_cents = null") &&
+    productionSimplificationMigration.includes("function_definition := replace(\n    function_definition,\n    daily_cap_call_anchor,\n    cap_free_call"),
+  'Production uses the original atomic reservation without rollout amount or daily-volume caps.',
 );
 check(
   handler.includes('NAYAX_REFUND_MANAGER_CONTRACT_JSON') &&
@@ -1158,13 +1163,12 @@ check(
     handler.includes('db-authoritative-exact-200-json-v1') &&
     handler.includes('nayax-response-envelope-v1') &&
     handler.includes('approvalAuthorized: decision.approvalAuthorized === true') &&
-    gates.includes('NAYAX_REFUND_BROAD_REOPEN_APPROVED') &&
-    gates.includes('NAYAX_REFUND_CANARY_CASE_ID') &&
-    handler.includes('resolveNayaxRefundCaseExecutionConfig') &&
-    !gates.includes('NAYAX_REFUND_CANARY_UNPROVEN_PROVIDER_APPROVED') &&
-    gates.includes('can never substitute for an') &&
+    handler.includes('productionScope: "all_qualified_transactions"') &&
+    !gates.includes('NAYAX_REFUND_BROAD_REOPEN_APPROVED') &&
+    !gates.includes('NAYAX_REFUND_CANARY_CASE_ID') &&
+    !handler.includes('resolveNayaxRefundCaseExecutionConfig') &&
     !handler.includes('provider: disabledNayaxProviderAdapter'),
-  'The normal manager action requires explicit write credentials, the v3 response envelope, a database-owned transition, and case-scoped canary/broad-release authorization.',
+  'The normal manager action requires explicit write credentials, the v3 response envelope, and a database-owned transition without pilot release authorization.',
 );
 check(
   authoritativeJournalMigration.includes('service_record_nayax_refund_provider_stage_v2') &&
@@ -1196,7 +1200,7 @@ check(
     handler.includes('provider_contract_host_invalid') &&
     handler.includes('areNayaxRefundWriteCredentialsReady') &&
     handler.includes('approval_contract_version_invalid') &&
-    handler.includes('production_canary_required') &&
+    handler.includes('Unsupported operation.') &&
     handler.includes('executeNayaxRefundApprovalOnly') &&
     handler.includes('service_reserve_nayax_pending_approval_recovery') &&
     handler.includes('service_settle_nayax_pending_approval_recovery') &&
@@ -1262,19 +1266,14 @@ check(
 check(/^NAYAX_REFUND_EXECUTION_ENABLED=false$/m.test(envExample), 'Execution defaults to disabled.');
 check(/^NAYAX_REFUND_EXECUTION_DRY_RUN=true$/m.test(envExample), 'Dry-run defaults to enabled.');
 check(/^NAYAX_REFUND_EXECUTION_KILL_SWITCH=true$/m.test(envExample), 'The kill switch defaults to active.');
-check(/^NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false$/m.test(envExample), 'Provider-contract confirmation defaults to false.');
 check(/^NAYAX_REFUND_MANAGER_CONTRACT_JSON=$/m.test(envExample), 'The manager response contract defaults to unset.');
 check(/^NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED=false$/m.test(envExample), 'Normal manager contract confirmation defaults to false.');
 check(/^NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED=false$/m.test(envExample), 'Approval permission confirmation defaults to false.');
-check(/^NAYAX_REFUND_CANARY_ENABLED=false$/m.test(envExample), 'The normal-path production canary defaults to disabled.');
-check(/^NAYAX_REFUND_CANARY_CASE_ID=$/m.test(envExample), 'The canary case defaults to unset.');
-check(/^NAYAX_REFUND_BROAD_REOPEN_APPROVED=false$/m.test(envExample), 'Broad card-refund reopening defaults to false.');
+check(!/NAYAX_REFUND_(?:CANARY|BROAD_REOPEN|MAX_AMOUNT|DAILY_)/m.test(envExample), 'Retired canary and cap settings are absent from the production environment template.');
 check(/^NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_ENABLED=false$/m.test(envExample), 'Pending-request recovery defaults to disabled.');
 check(/^NAYAX_REFUND_PENDING_APPROVAL_CONTRACT_JSON=$/m.test(envExample), 'The approval-only contract defaults to unset.');
-check(/^NAYAX_REFUND_CONTROLLED_PILOT_CONTRACT_JSON=$/m.test(envExample), 'The exact provider contract defaults to unset.');
 check(/^NAYAX_REFUND_REQUEST_WRITE_TOKEN_ACCOUNT_KEY=$/m.test(envExample), 'The dedicated request write credential defaults to unset.');
 check(/^NAYAX_REFUND_APPROVE_WRITE_TOKEN_ACCOUNT_KEY=$/m.test(envExample), 'The dedicated approval write credential defaults to unset.');
-check(/^NAYAX_REFUND_CONTROLLED_PILOT_RUNNER_ASSERTION=$/m.test(envExample), 'The runner-only assertion defaults to unset.');
 check(/^NAYAX_REFUND_EXECUTOR_ASSERTION=$/m.test(envExample), 'The function-scoped executor assertion defaults to unset.');
 
 console.log(`Nayax refund provider adapter validated (${assertionCount} assertions).`);

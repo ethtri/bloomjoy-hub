@@ -13,11 +13,16 @@ const legacyRecoveryTestUrl = new URL(
   '../../supabase/tests/refund_nayax_pending_approval_recovery.sql',
   import.meta.url,
 );
+const productionSimplificationUrl = new URL(
+  '../../supabase/migrations/20260830202234_refund_production_simplification.sql',
+  import.meta.url,
+);
 
-const [migration, test, legacyRecoveryTest] = await Promise.all([
+const [migration, test, legacyRecoveryTest, productionSimplification] = await Promise.all([
   readFile(migrationUrl, 'utf8'),
   readFile(testUrl, 'utf8'),
   readFile(legacyRecoveryTestUrl, 'utf8'),
+  readFile(productionSimplificationUrl, 'utf8'),
 ]);
 
 const exactMarkers = [
@@ -142,7 +147,17 @@ for (const rpc of [
 assert.match(
   migration,
   /journal_version not in \(\s*'nayax-provider-journal-v2',\s*'nayax-provider-journal-v3'/su,
-  'the account hold must protect both v2 and v3 reservations',
+  'historical account-hold coverage must remain readable for both journal versions',
+);
+assert.match(
+  productionSimplification,
+  /drop trigger if exists refund_nayax_account_circuit_breaker/su,
+  'production must retire the account-wide circuit-breaker trigger',
+);
+assert.match(
+  productionSimplification,
+  /'blocked', false/su,
+  'legacy account observability must never block an unrelated transaction',
 );
 assert.match(
   migration,

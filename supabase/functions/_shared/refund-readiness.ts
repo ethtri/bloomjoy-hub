@@ -9,7 +9,6 @@ export type RefundReadinessBlockReason =
   | "duplicate_transaction"
   | "case_not_refundable"
   | "machine_not_enabled"
-  | "cap_exceeded"
   | "globally_paused"
   | "provider_unavailable";
 
@@ -22,11 +21,6 @@ export type RefundReadiness = {
   caseVersion: number | null;
 };
 
-export type NayaxRefundDailyUsage = {
-  dailyAmountUsedCents: number;
-  dailyCountUsed: number;
-};
-
 const knownBlockReasons = new Set<RefundReadinessBlockReason>([
   "case_not_found",
   "unauthorized",
@@ -36,26 +30,12 @@ const knownBlockReasons = new Set<RefundReadinessBlockReason>([
   "duplicate_transaction",
   "case_not_refundable",
   "machine_not_enabled",
-  "cap_exceeded",
   "globally_paused",
   "provider_unavailable",
 ]);
 
 const optionalInteger = (value: unknown) =>
   Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : null;
-
-export const parseNayaxRefundDailyUsage = (
-  value: unknown,
-): NayaxRefundDailyUsage | null => {
-  const row = value && typeof value === "object"
-    ? value as Record<string, unknown>
-    : {};
-  const dailyAmountUsedCents = optionalInteger(row.dailyAmountUsedCents);
-  const dailyCountUsed = optionalInteger(row.dailyCountUsed);
-  return dailyAmountUsedCents === null || dailyCountUsed === null
-    ? null
-    : { dailyAmountUsedCents, dailyCountUsed };
-};
 
 export const parseDatabaseRefundReadiness = (
   value: unknown,
@@ -88,15 +68,11 @@ export const mergeRuntimeRefundReadiness = ({
   executionConfig,
   officialActionsEnabled,
   providerCredentialAvailable,
-  dailyAmountUsedCents,
-  dailyCountUsed,
 }: {
   databaseReadiness: RefundReadiness;
   executionConfig: NayaxRefundExecutionConfig;
   officialActionsEnabled: boolean;
   providerCredentialAvailable: boolean;
-  dailyAmountUsedCents: number | null;
-  dailyCountUsed: number | null;
 }): RefundReadiness => {
   if (!databaseReadiness.canIssueCardRefund) return databaseReadiness;
 
@@ -108,29 +84,8 @@ export const mergeRuntimeRefundReadiness = ({
     executionConfig.blocks.includes("dry_run_active")
   ) {
     blockReason = "globally_paused";
-  } else if (
-    databaseReadiness.refundAmountCents !== null &&
-    executionConfig.maxAmountCents !== null &&
-    databaseReadiness.refundAmountCents > executionConfig.maxAmountCents
-  ) {
-    blockReason = "cap_exceeded";
-  } else if (
-    executionConfig.blocks.length > 0 || !providerCredentialAvailable
-  ) {
+  } else if (executionConfig.blocks.length > 0 || !providerCredentialAvailable) {
     blockReason = "provider_unavailable";
-  } else if (
-    dailyAmountUsedCents === null || dailyCountUsed === null ||
-    executionConfig.dailyAmountCapCents === null ||
-    executionConfig.dailyCountCap === null
-  ) {
-    blockReason = "provider_unavailable";
-  } else if (
-    dailyCountUsed + 1 > executionConfig.dailyCountCap ||
-    databaseReadiness.refundAmountCents === null ||
-    dailyAmountUsedCents + databaseReadiness.refundAmountCents >
-      executionConfig.dailyAmountCapCents
-  ) {
-    blockReason = "cap_exceeded";
   }
 
   return {

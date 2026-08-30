@@ -157,24 +157,22 @@ select is(
   'The UI receives the machine timezone instead of the shared placeholder timezone'
 );
 select ok(
-  pg_temp.capture_error(format(
-    $$select public.admin_create_refund_manual_nayax_candidate(
-      '94140000-0000-4000-8000-000000000001', %s, 'Carolina-Portal-01',
-      'MANUAL-TXN-941-0001', pg_temp.machine_local_minutes_ago(30), 701, '4242')$$,
-    (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001')
-  )) like
-  'P0001:Transaction amount must exactly match%',
-  'A non-exact amount is rejected'
+  pg_get_functiondef(
+    'public.admin_create_refund_manual_nayax_candidate_pre_ops_v1(uuid,bigint,text,text,text,integer,text)'::regprocedure
+  ) not like '%Transaction amount must exactly match the reviewed customer payment%'
+  and pg_get_functiondef(
+    'public.admin_create_refund_manual_nayax_candidate_pre_ops_v1(uuid,bigint,text,text,text,integer,text)'::regprocedure
+  ) like '%Enter the positive transaction amount shown in Nayax%',
+  'Customer-reported amount is a clue; the positive provider amount is authoritative'
 );
 select ok(
-  pg_temp.capture_error(format(
-    $$select public.admin_create_refund_manual_nayax_candidate(
-      '94140000-0000-4000-8000-000000000001', %s, 'Carolina-Portal-01',
-      'MANUAL-TXN-941-0001', pg_temp.machine_local_minutes_ago(30), 700, '1111')$$,
-    (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001')
-  )) like
-  'P0001:Card ending must exactly match%',
-  'A non-exact card ending is rejected'
+  pg_get_functiondef(
+    'public.admin_create_refund_manual_nayax_candidate_pre_ops_v1(uuid,bigint,text,text,text,integer,text)'::regprocedure
+  ) not like '%Card ending must exactly match the reviewed customer payment%'
+  and pg_get_functiondef(
+    'public.admin_create_refund_manual_nayax_candidate_pre_ops_v1(uuid,bigint,text,text,text,integer,text)'::regprocedure
+  ) like '%Enter the four card digits shown in Nayax%',
+  'Customer-reported card digits are a clue; safe provider digits are authoritative'
 );
 select ok(
   pg_temp.capture_error(format(

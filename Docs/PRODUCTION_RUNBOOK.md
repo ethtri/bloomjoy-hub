@@ -2,26 +2,24 @@
 
 Purpose: provide a single launch-day procedure for Bloomjoy Hub production release and rollback.
 
-Last updated: 2026-08-27
+Last updated: 2026-08-30
 
 ## Nayax card-refund operation (current authority)
 
-The owner accepts real unresolved customer refunds as production proof. Use an existing payment only when Bloomjoy genuinely owes the refund, the transaction has no prior provider attempt or refund, and the case has one exact match. Do not create a new employee purchase merely for testing.
+Bloomjoy is in production. Follow `Docs/REFUND_PRODUCTION_POLICY.md`; do not reintroduce pilot caps, canaries, account-wide holds, or first-proof ceremony.
 
-### First direct refund
+### Normal refund
 
-1. Choose the next eligible customer case of $10 or less. Confirm the amount, currency, machine/account, transaction reference, provider time, and available card evidence agree.
-2. Run the privacy-safe production preflight: exact release alignment; active mapped machine and manager; no prior or unresolved attempt; no account hold; amount within the case, machine, and global caps; idempotency, unique-attempt, unique-provider-stage, journal, circuit-breaker, and kill-switch controls present.
-3. If broad execution is not yet appropriate, use the exact-case release scope as a technical blast-radius control. It does not require a non-customer identity, staffed test window, observer, recruited UAT, or separate go/no-go comment.
-4. Open the runtime execution gates only after the preflight: execution enabled, dry-run false, kill switch false, valid server-side per-refund/daily caps, idempotency secret, executor assertion, and separate account-scoped request/approval credentials. Recheck the redacted availability response before the manager action.
-5. The mapped manager confirms the transaction, then selects **Refund $X** once. One immutable generation permits at most one Nayax request and one approval. The system must reject a second provider send from double-click, reload, stale tab, concurrent worker, client/network retry, or schedule replay.
-6. On confirmed success, require one case completion, reporting adjustment, audit result, and customer completion. On authoritative proof that no refund occurred, the server may advance one generation and offer a fresh manager action. On timeout, unknown, or conflict, keep the case locked in Refund Operations and check Nayax before any manual refund or later attempt.
-7. After the direct proof, keep the qualified lane enabled under the reviewed $50 per-refund, $500 daily amount, and 20 daily refund limits unless a real high-impact/systemic defect requires rollback. There is no bulk-refund action.
-8. Start `#427`'s 72-hour post-launch observation. Review every genuine refund that occurs; no minimum count or manufactured activity is required.
+1. Search Bloomjoy and Nayax records before asking the customer for more information.
+2. Confirm the exact settled transaction, machine/account, provider time, currency, and full transaction amount. Customer amount, card type, and last four are clues; the selected provider transaction is authoritative.
+3. Run the privacy-safe preflight: active mapped machine and manager; no successful or unresolved attempt on this transaction; exact transaction uniqueness; current case version; idempotency, unique-attempt, unique-provider-stage, journal, and kill-switch controls present.
+4. Healthy operation uses execution enabled, dry-run false, kill switch false, the idempotency secret, executor assertion, exact provider contract, and separate account-scoped request/approval credentials. No case allowlist or amount/count cap is required.
+5. The mapped manager selects **Refund $X** and confirms once immediately before money moves. One immutable generation permits at most one Nayax request and one approval. Double-click, reload, stale tab, concurrency, and replay cannot create a second send.
+6. On confirmed success, require one case completion, reporting adjustment, audit result, and customer completion. On confirmed rejection or authoritative proof that no refund occurred, offer a fresh manager-confirmed generation. On timeout, pending, unknown, or conflict, pause only that transaction and check Nayax before another attempt. Unrelated refunds continue.
 
 ### Immediate rollback
 
-Set the kill switch first. Then disable execution and preserve the attempt/journal evidence. Do not reverse a committed refund, reporting adjustment, or customer completion. Disable only the affected safety scope unless the account circuit breaker or aggregate evidence shows a systemic fault.
+For a genuine systemic defect, set the kill switch first, then disable execution and preserve the attempt/journal evidence. Do not reverse a committed refund, reporting adjustment, or customer completion. A single uncertain transaction is transaction-scoped work, not a reason to disable an account or unrelated customers.
 
 ## Historical refund manager-session cutover
 
@@ -84,11 +82,6 @@ Set the following values before launch.
 | `NAYAX_REFUND_EXECUTION_ENABLED` | Server-only | `nayax-card-refund` | `true` for the qualified operating lane after the automated preflight; `false` during deploy or rollback | Release owner |
 | `NAYAX_REFUND_EXECUTION_DRY_RUN` | Server-only | `nayax-card-refund` | `false` for the qualified operating lane; `true` during deployment validation | Release owner |
 | `NAYAX_REFUND_EXECUTION_KILL_SWITCH` | Server-only | `nayax-card-refund` | `false` during healthy operation; set `true` first for rollback or a systemic stop condition | Release owner |
-| `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` | Server-only | controlled owner pilot only | Legacy pilot input; not used by the normal authenticated-manager action | Release owner |
-| `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED` | Server-only | controlled owner pilot only | Legacy pilot input; not used by the normal authenticated-manager action | Technical owner |
-| `NAYAX_REFUND_MAX_AMOUNT_CENTS` | Server-only | `nayax-card-refund` | $10 for the first direct proof; reviewed normal ceiling is $50 | Release owner |
-| `NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS` | Server-only | `nayax-card-refund` | Reviewed normal daily amount ceiling is $500 | Release owner |
-| `NAYAX_REFUND_DAILY_COUNT_CAP` | Server-only | `nayax-card-refund` | Reviewed normal daily count ceiling is 20 | Release owner |
 | `NAYAX_REFUND_IDEMPOTENCY_SECRET` | Server-only | `nayax-card-refund` | Generated HMAC secret for execution idempotency | Technical owner |
 | `NAYAX_REFUND_EXECUTOR_ASSERTION` | Server-only | `nayax-card-refund` | Separate generated function identity; only its SHA-256 digest is registered in the database during an approved gate-on change | Technical owner |
 | `REFUND_AUTOMATION_SWEEP_SECRET` | Server-only | `refund-case-automation-sweep` | Dedicated scheduler secret matching GitHub and Vault copies; never a service-role key | Technical owner |
@@ -164,7 +157,7 @@ Security rule:
 - [ ] If Gmail enablement is approved for this release, `npm run refunds:preflight-gmail -- --project-ref <project-ref>` passes secret-name presence checks without printing values. If Gmail is deferred, record that the OAuth/mailbox secrets are intentionally absent and keep both Gmail switches off; missing optional Gmail credentials do not block the all-switches-off core deployment.
 - [ ] Before any automatic refund-email class or mapped-manager CC is enabled, the gates in `Docs/REFUND_EMAIL_ASSISTANT_RUNBOOK.md` pass: deterministic template/version review, original-thread Gmail transport, participant classification, visible-recipient privacy review, canonical manager case links, exactly-once first contact, legacy-responder cutover/rollback, hard-bounce hold, and proof that email identities cannot perform a Nayax action.
 - [ ] Keep the separate manager-aging lane off until `#685` proves one deterministic manager-only notice at two business days and one escalation at five business days per attention version, current mapped-manager resolution at send time, routing-exception fallback, pause/terminal suppression, exact authenticated case links, and delivery-uncertainty handling.
-- [ ] Official refund actions remain hard-off during deployment. Before reopening normal operation, prove current mapped-manager-only authority, exact selected transaction and amount, separate transaction confirmation and refund/deny action, single-use server authorization, replay/concurrency rejection, caps, duplicate blocking, and the current executive risk decision. No manufactured purchase, staffing, observer, recruited UAT, or refund-specific TOTP/operator ceremony is required.
+- [ ] Official refund actions remain hard-off during deployment. Before reopening normal operation, prove current mapped-manager-only authority, exact selected transaction and provider amount, one explicit financial confirmation, single-use server authorization, replay/concurrency rejection, exact-transaction uniqueness, and settlement handling. No manufactured purchase, amount cap, canary, staffing, observer, recruited UAT, or refund-specific TOTP/operator ceremony is required.
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds` passes
 - [ ] `npm run refunds:validate-release-tooling` passes.
 - [ ] `npm run refunds:release:check` confirms that the ten candidate Refund Operations functions, required migrations, source commit, and `verify_jwt` settings match the approved release manifest. Do not substitute the separate eight-route `OPTIONS` smoke count for the manifest count.
@@ -219,10 +212,8 @@ supabase secrets set NAYAX_LYNX_API_TOKEN=...
 supabase secrets set NAYAX_REFUND_EXECUTION_ENABLED=false
 supabase secrets set NAYAX_REFUND_EXECUTION_DRY_RUN=true
 supabase secrets set NAYAX_REFUND_EXECUTION_KILL_SWITCH=true
-supabase secrets set NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false
-supabase secrets set NAYAX_REFUND_MAX_AMOUNT_CENTS=1000
-supabase secrets set NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS=5000
-supabase secrets set NAYAX_REFUND_DAILY_COUNT_CAP=10
+supabase secrets set NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED=false
+supabase secrets set NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED=false
 supabase secrets set NAYAX_REFUND_IDEMPOTENCY_SECRET=...
 supabase secrets set NAYAX_REFUND_EXECUTOR_ASSERTION=...
 supabase secrets set REFUND_AUTOMATION_SWEEP_SECRET=...
@@ -234,7 +225,7 @@ supabase secrets set REFUND_GMAIL_ATTACHMENT_SCANNER_ENABLED=false
 supabase secrets set REFUND_GPT_TRIAGE_ENABLED=false
 ```
 
-Do not set `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` during shadow-mode setup. It stays unset until a separate live card-refund execution pilot is explicitly approved. Generate the idempotency secret and executor assertion independently; neither may reuse the Supabase service-role key. Do not register an executor assertion in `refund_nayax_provider_callers` until the vendor contract, QA proof, independent review, and owner-controlled gate-on are complete. The raw assertion belongs only in the Edge Function secret; the database stores its SHA-256 digest.
+Generate the idempotency secret and executor assertion independently; neither may reuse the Supabase service-role key. Register the executor assertion only after the vendor request/approval contract and dedicated credentials are verified. The raw assertion belongs only in the Edge Function secret; the database stores its SHA-256 digest. The retired sponsor, canary, broad-reopen, and amount-cap secrets do not govern production and should not be configured.
 
 Gmail and GPT credentials were enablement-time secrets rather than prerequisites for the historical all-switches-off core deployment. The production Gmail OAuth/mailbox connection is now configured and proved under `#634`, while Gmail schedules, broad customer contact, and the legacy-responder cutover remain off. Do not configure the production OpenAI key before the privacy/data-control approval in `#635`. Both functions remain fail-closed unless their dedicated scheduler secret and enablement gates are configured.
 
@@ -301,9 +292,9 @@ Before deploying reporting functions, confirm Step B has completed and `supabase
 
 After applying the reviewed migrations, rerun `supabase db push --dry-run` and require zero pending migrations before deploying dependent Refund Operations functions.
 
-Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit. Revalidate the manifest and transitive source binding immediately before deployment. Keep the runtime Nayax execution gates off during deployment (`NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, and `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`). The normal manager action uses the existing server-side Nayax account token only after the reviewed migration and function are deployed, the exact machine is enabled with conservative caps, the dedicated executor assertion is registered, and all runtime gates are deliberately opened for the identified transaction. The legacy sponsor and contract flags apply only to the separate controlled-owner pilot and do not authorize or block the normal manager action.
+Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit. Revalidate the manifest and transitive source binding immediately before deployment. Keep the runtime Nayax execution gates off during deployment (`NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, and `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`). The normal manager action uses dedicated server-side Nayax account credentials only after the reviewed migration and function are deployed, the machine is qualified and enabled, the executor assertion is registered, and the genuine runtime safety gates are deliberately opened. Retired pilot, sponsor, canary, broad-reopen, and cap flags do not authorize or block a normal manager action.
 
-`Docs/REFUND_NAYAX_CONTROLLED_OWNER_PILOT.md` is historical documentation for the retired owner-only runner. It is not current launch authority and must not impose TOTP, staffing, non-customer-only, observer, retention-review, or repeated go/no-go ceremony on the normal authenticated-manager path. Retain the exact-case scope only as an optional technical blast-radius control. Current operation is governed by the first section of this runbook and the latest `Docs/DECISIONS.md` entry.
+`Docs/REFUND_NAYAX_CONTROLLED_OWNER_PILOT.md` is historical documentation for the retired owner-only runner. It is not current launch authority and must not impose case allowlists, amount caps, TOTP, staffing, non-customer-only, observer, retention-review, or repeated go/no-go ceremony on the normal authenticated-manager path. Current operation is governed by `Docs/REFUND_PRODUCTION_POLICY.md` and the first section of this runbook.
 
 ```bash
 supabase functions deploy stripe-sugar-checkout --no-verify-jwt
@@ -477,12 +468,11 @@ Normal Nayax refund operation (`#628`, `#990`):
 - Deploy database changes before dependent functions while execution is disabled, dry-run is enabled, and the kill switch is active. After exact release alignment passes, follow the current operating procedure at the top of this runbook.
 - Provision only the dedicated account-scoped request and approval credentials. Never use a reporting or generic Nayax token as a write fallback.
 - The legacy `approve_pending_request` operation is retired fail-closed. Preserve its historical database rows for audit/rollback tests, but do not enable or invoke it; authoritative-unknown attempts use provider-free DTM/support reconciliation.
-- The next unresolved, genuinely owed customer refund of $10 or less may be the first direct proof when it has one exact transaction and no prior provider attempt or refund. The exact-case switch may bound that first action; it is a software control, not a separate canary ceremony.
-- Require one manager action, one immutable generation, at most one request and one approval, one terminal settlement decision, and exactly-once reporting/customer completion. Repeat clicks, reloads, workers, and retries cannot create another provider send.
-- A definitive no-refund result may release a new generation. Any uncertain provider result remains held for Nayax verification before a later or manual action. A single safely held ambiguity does not disable unrelated healthy machines unless the circuit breaker indicates a systemic account condition.
-- Treat active lifecycle and account history as separate generation views. The lifecycle accepts a retry-safe resolution only when its next generation exactly equals the case's current generation. The account breaker accepts that same structurally linked, redacted resolution at that generation or any later generation, so superseded history cannot revive after a later attempt. A genuinely unresolved current attempt still blocks. Postdeploy, verify these rules with aggregate counts only; do not alter the private case, call Nayax, send a customer message, or create a reporting adjustment.
-- Keep the $50/$500/20 operating caps after the first direct proof and begin `#427`'s 72-hour observation. No separate broad-reopen approval, staged cohort, first-ten sample, or manufactured transaction is required.
-- Deploy the superseded-generation projection migration while the kill switch is active and execution is off. Run the focused pgTAP/static checks before reopening execution, then confirm each affected account reports only genuinely unresolved attempts. Rollback order is kill switch first, execution off second, then restore the prior account-hold function if needed. Preserve all attempt, resolution, journal, reporting, and message evidence; never decrement a generation or delete financial history.
+- Any qualified, exact, settled transaction may be refunded for its full provider amount. There is no $10 proof, $50 per-refund limit, daily count/value cap, case allowlist, canary, first-ten sample, or account-wide hold.
+- Require one explicit manager confirmation immediately before money moves, one immutable generation, at most one request and one approval per generation, one terminal settlement decision, and exactly-once reporting/customer completion. Repeat clicks, reloads, workers, and replays cannot create another provider send.
+- A definitive rejection or other authoritative proof that no refund occurred permits a fresh, separately confirmed generation. An uncertain outcome holds only that exact transaction while Nayax is checked. Unrelated transactions and customers continue normally.
+- A customer may receive refunds for multiple distinct purchases. The database must continue to prevent two Bloomjoy cases from using the same exact Nayax transaction; two cases with exact different transaction IDs are automatically distinct.
+- The kill switch is for a genuine systemic incident, not routine volume management. Rollback order is kill switch first and execution off second. Preserve every attempt, resolution, journal, reporting, and message record; never delete or rewrite financial history.
 
 Historical completed held-case outcome resolution (`#767`, `#427`; not a Refund Operations v1 pilot requirement):
 - The steps below are retained only as audit history for the already closed held case. Do not reuse its TOTP/operator window for the current pilot; the normal signed-in mapped-manager session and current `Docs/DECISIONS.md` workflow govern new cases.

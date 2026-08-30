@@ -25,9 +25,15 @@ const retrySafeRelease = read(
 const supersededGenerationHold = read(
   'supabase/migrations/20260830182744_refund_nayax_superseded_generation_hold.sql'
 );
+const productionSimplification = read(
+  'supabase/migrations/20260830202234_refund_production_simplification.sql'
+);
 const outcomeResolutionTest = read('supabase/tests/refund_nayax_outcome_resolution.sql');
 const outcomeResolutionConcurrencyTest = read(
   'supabase/tests/refund_nayax_outcome_resolution_concurrency.sql'
+);
+const duplicateReconciliationTest = read(
+  'supabase/tests/refund_email_duplicate_reconciliation.sql'
 );
 const edge = read('supabase/functions/refund-nayax-outcome-resolve/index.ts');
 const completion = read('supabase/functions/_shared/nayax-resolution-completion.ts');
@@ -171,10 +177,36 @@ assert(
   'The superseded-generation repair must be private, projection-only, and provider-free.'
 );
 
+assert(
+  productionSimplification.includes('drop trigger if exists refund_nayax_account_circuit_breaker') &&
+    productionSimplification.includes("'blocked', false") &&
+    productionSimplification.includes("'legacyHoldRetired', true"),
+  'Production must retain unresolved-account observability without blocking unrelated transactions.'
+);
+
+assert(
+  productionSimplification.includes('refund_case_user_has_active_manager_mapping') &&
+    productionSimplification.includes('service_begin_refund_nayax_lookup') &&
+    productionSimplification.includes('resolve_distinct_refund_nayax_transactions') &&
+    productionSimplification.includes("'refund_reconciliation_auto_resolved'") &&
+    productionSimplification.includes("'provider_transaction_ids_redacted', true") &&
+    duplicateReconciliationTest.includes(
+      'A pending possible-duplicate review does not block read-only Nayax lookup'
+    ) &&
+    duplicateReconciliationTest.includes(
+      'Different exact Nayax transactions automatically confirm different purchases'
+    ) &&
+    duplicateReconciliationTest.includes(
+      'Both legitimate purchases are released from the review hold'
+    ),
+  'Possible duplicates must permit provider evidence gathering and auto-release only after different exact transactions are proven with redacted audit evidence.'
+);
+
 for (const marker of [
   'A generation 0 to 1 resolution stays historical after generation 2',
   'A superseded resolved generation cannot re-enter the account breaker',
-  'A genuinely unresolved current generation still fails closed',
+  'An unresolved current transaction remains visible without blocking its account',
+  'An unresolved transaction never pauses unrelated refunds on its account',
   'Three-generation and newer-terminal replay cannot revive the oldest resolved attempt',
   'creates no attempt, message, or reporting side effect',
 ]) {

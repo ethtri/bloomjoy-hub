@@ -3,18 +3,16 @@ import { resolveNayaxRefundExecutionConfig } from "./nayax-refund-gates.ts";
 import {
   mergeRuntimeRefundReadiness,
   parseDatabaseRefundReadiness,
-  parseNayaxRefundDailyUsage,
 } from "./refund-readiness.ts";
 
 const readyConfig = resolveNayaxRefundExecutionConfig((name) => ({
   NAYAX_REFUND_EXECUTION_KILL_SWITCH: "false",
   NAYAX_REFUND_EXECUTION_ENABLED: "true",
   NAYAX_REFUND_EXECUTION_DRY_RUN: "false",
-  NAYAX_REFUND_MAX_AMOUNT_CENTS: "5000",
-  NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS: "10000",
-  NAYAX_REFUND_DAILY_COUNT_CAP: "10",
   NAYAX_REFUND_IDEMPOTENCY_SECRET: "a".repeat(43),
   NAYAX_REFUND_EXECUTOR_ASSERTION: "b".repeat(43),
+  NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED: "true",
+  NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED: "true",
 }[name]));
 
 const databaseReady = parseDatabaseRefundReadiness({
@@ -26,26 +24,6 @@ const databaseReady = parseDatabaseRefundReadiness({
   caseVersion: 3,
 });
 
-Deno.test("daily usage accepts only aggregate nonnegative integers", () => {
-  assertEquals(
-    parseNayaxRefundDailyUsage({
-      dailyAmountUsedCents: 700,
-      dailyCountUsed: 1,
-    }),
-    {
-      dailyAmountUsedCents: 700,
-      dailyCountUsed: 1,
-    },
-  );
-  assertEquals(
-    parseNayaxRefundDailyUsage({
-      dailyAmountUsedCents: 700,
-      dailyCountUsed: "1",
-    }),
-    null,
-  );
-});
-
 Deno.test("confirmed database readiness stays ready when runtime and provider pass", () => {
   assertEquals(
     mergeRuntimeRefundReadiness({
@@ -53,8 +31,6 @@ Deno.test("confirmed database readiness stays ready when runtime and provider pa
       executionConfig: readyConfig,
       officialActionsEnabled: true,
       providerCredentialAvailable: true,
-      dailyAmountUsedCents: 0,
-      dailyCountUsed: 0,
     }),
     databaseReady,
   );
@@ -65,11 +41,10 @@ Deno.test("a runtime pause has one stable manager-safe reason", () => {
     name === "NAYAX_REFUND_EXECUTION_KILL_SWITCH" ? "true" : ({
       NAYAX_REFUND_EXECUTION_ENABLED: "true",
       NAYAX_REFUND_EXECUTION_DRY_RUN: "false",
-      NAYAX_REFUND_MAX_AMOUNT_CENTS: "5000",
-      NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS: "10000",
-      NAYAX_REFUND_DAILY_COUNT_CAP: "10",
       NAYAX_REFUND_IDEMPOTENCY_SECRET: "a".repeat(43),
       NAYAX_REFUND_EXECUTOR_ASSERTION: "b".repeat(43),
+      NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED: "true",
+      NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED: "true",
     } as Record<string, string>)[name]
   );
   const result = mergeRuntimeRefundReadiness({
@@ -77,8 +52,6 @@ Deno.test("a runtime pause has one stable manager-safe reason", () => {
     executionConfig: paused,
     officialActionsEnabled: true,
     providerCredentialAvailable: true,
-    dailyAmountUsedCents: 0,
-    dailyCountUsed: 0,
   });
   assertEquals(result.canIssueCardRefund, false);
   assertEquals(result.blockReason, "globally_paused");
@@ -96,24 +69,24 @@ Deno.test("provider configuration never hides a database safety block", () => {
     executionConfig: readyConfig,
     officialActionsEnabled: true,
     providerCredentialAvailable: false,
-    dailyAmountUsedCents: 0,
-    dailyCountUsed: 0,
   });
   assertEquals(result.blockReason, "machine_not_enabled");
   assertEquals(result.transactionConfirmed, true);
 });
 
-Deno.test("current daily usage is included in the server-owned cap answer", () => {
+Deno.test("a normal transaction amount is not blocked by a Bloomjoy launch cap", () => {
   const result = mergeRuntimeRefundReadiness({
-    databaseReadiness: databaseReady,
+    databaseReadiness: {
+      ...databaseReady,
+      refundAmountCents: 32_100,
+      machineLimitCents: null,
+    },
     executionConfig: readyConfig,
     officialActionsEnabled: true,
     providerCredentialAvailable: true,
-    dailyAmountUsedCents: 9_500,
-    dailyCountUsed: 2,
   });
-  assertEquals(result.canIssueCardRefund, false);
-  assertEquals(result.blockReason, "cap_exceeded");
+  assertEquals(result.canIssueCardRefund, true);
+  assertEquals(result.blockReason, null);
 });
 
 Deno.test("unknown database values fail closed without leaking internals", () => {

@@ -275,18 +275,17 @@ select is((select count(*)::integer from public.refund_nayax_provider_stage_jour
   where nayax_refund_attempt_id = '8f600000-0000-4000-8000-000000000010'), 0,
   'Version mismatch leaves no partial journal row');
 
-select pg_catalog.set_config(
-  'bloomjoy.nayax_journal_contract_version', 'nayax-provider-journal-v2', true
+select ok(
+  not (
+    public.refund_nayax_account_execution_hold('JOURNAL-V2-ACCOUNT')
+      ->> 'blocked'
+  )::boolean
+  and (
+    public.refund_nayax_account_execution_hold('JOURNAL-V2-ACCOUNT')
+      ->> 'unresolvedCount'
+  )::integer >= 10,
+  'Journal v2 unresolved evidence remains visible without blocking another transaction'
 );
-select ok(pg_temp.capture_error($sql$insert into public.refund_case_nayax_refund_attempts (
-  refund_case_id, actor_user_id, execution_mode, status, idempotency_key,
-  amount_cents, currency_code, reconciliation_required
-) values (
-  '8f500000-0000-4000-8000-000000000011',
-  '8f000000-0000-4000-8000-000000000001', 'request_and_approve', 'in_progress',
-  'journal-v2-circuit-block', 700, 'USD', true
-)$sql$) like '%account is paused for unresolved refund reconciliation%',
-  'Journal v2 blocks a new attempt while the account has unresolved evidence');
 
 select pg_catalog.set_config('bloomjoy.nayax_journal_contract_version', '', true);
 select lives_ok($sql$insert into public.refund_case_nayax_refund_attempts (
