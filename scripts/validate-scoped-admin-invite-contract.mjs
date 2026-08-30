@@ -33,6 +33,11 @@ requireText(
 );
 requireText(
   migration,
+  "raise exception 'Invite expiry cannot exceed seven days'",
+  'create RPC must enforce the documented maximum activation window'
+);
+requireText(
+  migration,
   "and invite_row.status = 'pending'",
   'activation must lock and consume only a pending invite'
 );
@@ -48,6 +53,16 @@ requireText(
 );
 requireText(
   migration,
+  "normalized_reason constant text := 'Scoped Admin invite accepted'",
+  'activation audit evidence must use a server-owned reason'
+);
+assert.equal(
+  (migration.match(/set search_path = ''/g) ?? []).length,
+  5,
+  'all new security-definer functions must use an empty search path'
+);
+requireText(
+  migration,
   "where invite_row.target_email = normalized_email",
   'activation must match the exact normalized Auth email'
 );
@@ -55,6 +70,16 @@ requireText(
   migration,
   "'admin_scoped_access_invite.activated'",
   'activation must write durable audit evidence'
+);
+requireText(
+  migration,
+  'Superseded by a newer existing-person Scoped Admin decision',
+  'activation must preserve any newer existing-person grant or revocation decision'
+);
+requireText(
+  migration,
+  "'admin_scoped_access_invite.superseded'",
+  'superseded pending invites must leave durable audit evidence'
 );
 requireText(
   migration,
@@ -77,6 +102,15 @@ requireText(
   edgeFunction,
   'No access is granted until you verify this exact email and finish sign-up.',
   'email must explain deferred exact-email activation'
+);
+requireText(
+  edgeFunction,
+  'background:#9b3157;color:#ffffff',
+  'email CTA must use the WCAG AA contrast-reviewed brand treatment'
+);
+assert.ok(
+  !edgeFunction.includes('color:#be5b7b') && !edgeFunction.includes('background:#ec8aaa'),
+  'email normal text and CTA must not use the prior low-contrast pink treatments'
 );
 requireText(loginPage, "value === 'scoped_admin'", 'login must recognize Scoped Admin intent');
 requireText(

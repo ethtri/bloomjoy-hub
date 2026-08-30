@@ -1309,6 +1309,10 @@ function AccessLauncher({
     enabled: open && searchValue.length >= 3,
     staleTime: 1000 * 30,
   });
+  const existingAuthPeople = useMemo(
+    () => existingPeople.filter((account) => Boolean(account.user_id)),
+    [existingPeople]
+  );
 
   const {
     data: corporateOptions = emptyCorporatePartnerOptions,
@@ -1372,15 +1376,15 @@ function AccessLauncher({
 
   const selectedExistingAccount = useMemo(() => {
     if (selectedExistingUserId) {
-      return existingPeople.find((account) => account.user_id === selectedExistingUserId) ?? null;
+      return existingAuthPeople.find((account) => account.user_id === selectedExistingUserId) ?? null;
     }
 
-    const exactByUserId = existingPeople.find((account) => account.user_id === searchValue);
+    const exactByUserId = existingAuthPeople.find((account) => account.user_id === searchValue);
     if (exactByUserId) return exactByUserId;
 
     if (normalizedEmail) {
       return (
-        existingPeople.find(
+        existingAuthPeople.find(
           (account) =>
             account.customer_email &&
             normalizeSearch(account.customer_email) === normalizedEmail
@@ -1388,18 +1392,18 @@ function AccessLauncher({
       );
     }
 
-    return existingPeople.length === 1 ? existingPeople[0] : null;
-  }, [existingPeople, normalizedEmail, searchValue, selectedExistingUserId]);
+    return existingAuthPeople.length === 1 ? existingAuthPeople[0] : null;
+  }, [existingAuthPeople, normalizedEmail, searchValue, selectedExistingUserId]);
 
   useEffect(() => {
-    if (selectedExistingUserId && existingPeople.some((account) => account.user_id === selectedExistingUserId)) {
+    if (selectedExistingUserId && existingAuthPeople.some((account) => account.user_id === selectedExistingUserId)) {
       return;
     }
 
     const exactAccount =
-      existingPeople.find((account) => account.user_id === searchValue) ??
+      existingAuthPeople.find((account) => account.user_id === searchValue) ??
       (normalizedEmail
-        ? existingPeople.find(
+        ? existingAuthPeople.find(
             (account) =>
               account.customer_email &&
               normalizeSearch(account.customer_email) === normalizedEmail
@@ -1407,7 +1411,7 @@ function AccessLauncher({
         : null);
 
     setSelectedExistingUserId(exactAccount?.user_id ?? '');
-  }, [existingPeople, normalizedEmail, searchValue, selectedExistingUserId]);
+  }, [existingAuthPeople, normalizedEmail, searchValue, selectedExistingUserId]);
 
   useEffect(() => {
     if (preset !== 'corporate_partner') return;
@@ -1620,7 +1624,7 @@ function AccessLauncher({
     return latest;
   }, [scopedAdminInviteDeliveries]);
   const shouldOpenScopedAdminExistingUser =
-    preset === 'scoped_admin' && Boolean(selectedExistingAccount);
+    preset === 'scoped_admin' && Boolean(selectedExistingAccount?.user_id);
   const isExistingUserPreset = !presetMeta.inviteable;
   const canSaveInvite =
     presetMeta.inviteable &&
@@ -2089,7 +2093,9 @@ function AccessLauncher({
                   {normalizedEmail ? normalizedEmail : 'Existing-user lookup'}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {presetMeta.inviteable
+                  {shouldOpenScopedAdminExistingUser
+                    ? 'Existing Auth user found; manage Scoped Admin access in the person workspace.'
+                    : presetMeta.inviteable
                     ? 'This preset can be granted before first sign-in.'
                     : 'This preset requires an existing Supabase Auth user.'}
                 </p>
@@ -2106,14 +2112,14 @@ function AccessLauncher({
                   <p className="mt-2 text-sm text-destructive">
                     {getErrorMessage(personSearchError, 'Unable to search people.')}
                   </p>
-                ) : existingPeople.length === 0 && !isSearchingPeople ? (
+                ) : existingAuthPeople.length === 0 && !isSearchingPeople ? (
                   <p className="mt-2 text-sm text-muted-foreground">
                     No auth user found. Corporate Partner, Technician, and Scoped Admin invites can
                     still be sent to a valid email.
                   </p>
                 ) : (
                   <div className="mt-2 grid gap-2 md:grid-cols-2">
-                    {existingPeople.slice(0, 4).map((account) => (
+                    {existingAuthPeople.slice(0, 4).map((account) => (
                       <button
                         key={account.user_id}
                         type="button"
@@ -2157,7 +2163,11 @@ function AccessLauncher({
                     <div className="flex items-start justify-between gap-2">
                       <p className="font-medium text-foreground">{item.label}</p>
                       <Badge variant={item.inviteable ? 'default' : 'outline'}>
-                        {item.inviteable ? 'Invite' : 'Existing'}
+                        {item.key === 'scoped_admin'
+                          ? 'New / Existing'
+                          : item.inviteable
+                            ? 'Invite'
+                            : 'Existing'}
                       </Badge>
                     </div>
                     <p className="mt-2 text-xs leading-5 text-muted-foreground">{item.description}</p>
@@ -2759,7 +2769,14 @@ function AccessLauncher({
 
                           {invite.status === 'pending' && (
                             <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+                              <Label
+                                htmlFor={`scoped-admin-invite-revoke-reason-${invite.id}`}
+                                className="sr-only"
+                              >
+                                Revoke reason for {invite.targetEmail}
+                              </Label>
                               <Input
+                                id={`scoped-admin-invite-revoke-reason-${invite.id}`}
                                 value={scopedAdminInviteRevokeReasons[invite.id] ?? ''}
                                 onChange={(event) =>
                                   setScopedAdminInviteRevokeReasons((current) => ({

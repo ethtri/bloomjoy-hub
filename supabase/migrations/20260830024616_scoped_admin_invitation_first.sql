@@ -122,7 +122,7 @@ create or replace function public.admin_expire_scoped_admin_invites()
 returns integer
 language plpgsql
 security definer
-set search_path = public, auth
+set search_path = ''
 as $$
 declare
   expired_invite public.admin_scoped_access_invites;
@@ -176,7 +176,7 @@ create or replace function public.admin_create_scoped_admin_invite(
 returns jsonb
 language plpgsql
 security definer
-set search_path = public, auth
+set search_path = ''
 as $$
 declare
   actor_user_id uuid := auth.uid();
@@ -208,6 +208,10 @@ begin
 
   if desired_expires_at <= now() then
     raise exception 'Invite expiry must be in the future';
+  end if;
+
+  if desired_expires_at > now() + interval '7 days' then
+    raise exception 'Invite expiry cannot exceed seven days';
   end if;
 
   select coalesce(array_agg(distinct requested.machine_id order by requested.machine_id), '{}'::uuid[])
@@ -341,7 +345,7 @@ create or replace function public.admin_list_scoped_admin_invites()
 returns jsonb
 language plpgsql
 security definer
-set search_path = public, auth
+set search_path = ''
 as $$
 declare
   actor_user_id uuid := auth.uid();
@@ -407,7 +411,7 @@ create or replace function public.admin_revoke_scoped_admin_invite(
 returns jsonb
 language plpgsql
 security definer
-set search_path = public, auth
+set search_path = ''
 as $$
 declare
   actor_user_id uuid := auth.uid();
@@ -490,14 +494,14 @@ create or replace function public.resolve_my_scoped_admin_invites(
 returns jsonb
 language plpgsql
 security definer
-set search_path = public, auth
+set search_path = ''
 as $$
 declare
   current_user_id uuid := auth.uid();
   current_user_email text;
   email_confirmed_at timestamptz;
   normalized_email text;
-  normalized_reason text := trim(coalesce(p_reason, ''));
+  normalized_reason constant text := 'Scoped Admin invite accepted';
   invite_before public.admin_scoped_access_invites;
   invite_after public.admin_scoped_access_invites;
   grant_before public.admin_scoped_access_grants;
@@ -512,10 +516,6 @@ declare
 begin
   if current_user_id is null then
     raise exception 'Authentication required';
-  end if;
-
-  if normalized_reason = '' then
-    raise exception 'Activation reason is required';
   end if;
 
   select auth_user.email, auth_user.email_confirmed_at
@@ -597,6 +597,77 @@ begin
     );
   end if;
 
+  -- Invite creation rejects an email that already belongs to an Auth user, so
+  -- any Scoped Admin grant found for this user was created after the pending
+  -- invite. Preserve that newer existing-person decision (including a revoke)
+  -- instead of letting an older invite silently replace or re-enable it.
+  select *
+  into grant_before
+  from public.admin_scoped_access_grants grant_row
+  where grant_row.user_id = current_user_id
+    and grant_row.role = 'scoped_admin'
+  order by grant_row.revoked_at is null desc, grant_row.updated_at desc
+  limit 1
+  for update;
+
+  if grant_before.id is not null then
+    update public.admin_scoped_access_invites
+    set
+      status = 'revoked',
+      revoked_by = coalesce(
+        grant_before.revoked_by,
+        grant_before.granted_by,
+        invite_before.created_by
+      ),
+      revoked_at = now(),
+      revoke_reason = 'Superseded by a newer existing-person Scoped Admin decision'
+    where id = invite_before.id
+      and status = 'pending'
+    returning * into invite_after;
+
+    if invite_after.id is null then
+      raise exception 'Scoped Admin invite was already resolved';
+    end if;
+
+    insert into public.admin_audit_log (
+      actor_user_id,
+      action,
+      entity_type,
+      entity_id,
+      target_user_id,
+      before,
+      after,
+      meta
+    )
+    values (
+      current_user_id,
+      'admin_scoped_access_invite.superseded',
+      'admin_scoped_access_invite',
+      invite_after.id::text,
+      current_user_id,
+      to_jsonb(invite_before),
+      to_jsonb(invite_after),
+      jsonb_build_object(
+        'reason', invite_after.revoke_reason,
+        'target_email', normalized_email,
+        'superseding_grant_id', grant_before.id,
+        'superseding_grant_active', (
+          grant_before.revoked_at is null
+          and grant_before.starts_at <= now()
+          and (grant_before.expires_at is null or grant_before.expires_at > now())
+        )
+      )
+    );
+
+    return jsonb_build_object(
+      'targetEmail', normalized_email,
+      'resolvedInviteCount', 1,
+      'grantId', null,
+      'machineCount', 0,
+      'supersededByExistingGrant', true
+    );
+  end if;
+
   select count(*)
   into staged_machine_count
   from public.admin_scoped_access_invite_scopes scope_row
@@ -618,44 +689,19 @@ begin
     raise exception 'One or more Scoped Admin invite machines are no longer active';
   end if;
 
-  select *
-  into grant_before
-  from public.admin_scoped_access_grants grant_row
-  where grant_row.user_id = current_user_id
-    and grant_row.role = 'scoped_admin'
-  order by grant_row.revoked_at is null desc, grant_row.updated_at desc
-  limit 1
-  for update;
-
-  if grant_before.id is null then
-    insert into public.admin_scoped_access_grants (
-      user_id,
-      source,
-      grant_reason,
-      granted_by
-    )
-    values (
-      current_user_id,
-      'access_invite',
-      invite_before.grant_reason,
-      invite_before.created_by
-    )
-    returning * into grant_after;
-  else
-    update public.admin_scoped_access_grants
-    set
-      source = 'access_invite',
-      starts_at = now(),
-      expires_at = null,
-      grant_reason = invite_before.grant_reason,
-      granted_by = invite_before.created_by,
-      granted_at = now(),
-      revoked_by = null,
-      revoked_at = null,
-      revoke_reason = null
-    where id = grant_before.id
-    returning * into grant_after;
-  end if;
+  insert into public.admin_scoped_access_grants (
+    user_id,
+    source,
+    grant_reason,
+    granted_by
+  )
+  values (
+    current_user_id,
+    'access_invite',
+    invite_before.grant_reason,
+    invite_before.created_by
+  )
+  returning * into grant_after;
 
   for existing_scope in
     select *

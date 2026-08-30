@@ -390,6 +390,33 @@ const installMockRoutes = async (context, state) => {
     }
 
     if (rpcName === 'admin_get_account_summaries') {
+      const search = String(body?.p_search ?? '').trim().toLowerCase();
+      if (search === scopedAdminEmail) {
+        return route.fulfill(
+          jsonResponse([
+            {
+              user_id: null,
+              customer_email: scopedAdminEmail,
+              membership_status: null,
+              current_period_end: null,
+              total_orders: 0,
+              last_order_at: null,
+              open_support_requests: 1,
+              total_machine_count: 0,
+              last_machine_update_at: null,
+              membership_cancel_at_period_end: false,
+              paid_subscription_active: false,
+              plus_access_source: 'none',
+              has_plus_access: false,
+              plus_grant_id: null,
+              plus_grant_starts_at: null,
+              plus_grant_expires_at: null,
+              plus_grant_active: false,
+            },
+          ])
+        );
+      }
+
       return route.fulfill(jsonResponse([]));
     }
 
@@ -924,6 +951,10 @@ const run = async () => {
     await launcherDialog.getByRole('radio', { name: /Scoped Admin/i }).click();
     await launcherDialog.locator('#access-launcher-target').fill(scopedAdminEmail);
     await launcherDialog.getByText(/No auth user found/i).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Scoped Admin invitation remains available for an email with history but no Auth user',
+      await launcherDialog.getByLabel('Machine scope', { exact: true }).isVisible()
+    );
     await launcherDialog.getByText('Bubble Planet Kiosk 01', { exact: true }).click();
     await launcherDialog.locator('#access-launcher-reason').fill('Agent UAT invitation-first Scoped Admin');
 
@@ -969,7 +1000,9 @@ const run = async () => {
     await waitForCondition(() => state.accessInviteBodies.length === 4, 'Scoped Admin resend');
     recorder.pass('Pending Scoped Admin invite can be resent without a duplicate grant');
 
-    await launcherDialog.getByPlaceholder('Required reason to revoke').fill('UAT revoke coverage');
+    await launcherDialog
+      .getByLabel(`Revoke reason for ${scopedAdminEmail}`)
+      .fill('UAT revoke coverage');
     await launcherDialog.getByRole('button', { name: 'Revoke' }).click();
     await launcherDialog.getByText('revoked', { exact: true }).waitFor({ timeout: 10000 });
     recorder.assert(

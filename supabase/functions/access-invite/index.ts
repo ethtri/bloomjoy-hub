@@ -246,7 +246,7 @@ const buildInviteEmail = (source: InviteSource, loginUrl: string, actorEmail: st
             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border:1px solid #f5c8d6;border-radius:8px;overflow:hidden;">
               <tr>
                 <td style="padding:28px 28px 22px 28px;">
-                  <div style="font-size:12px;line-height:18px;letter-spacing:1px;text-transform:uppercase;color:#be5b7b;font-weight:700;">
+                  <div style="font-size:12px;line-height:18px;letter-spacing:1px;text-transform:uppercase;color:#9b3157;font-weight:700;">
                     Bloomjoy Hub
                   </div>
                   <h1 style="margin:10px 0 12px 0;font-size:24px;line-height:32px;color:#111827;">
@@ -262,13 +262,13 @@ const buildInviteEmail = (source: InviteSource, loginUrl: string, actorEmail: st
                     ${escapeHtml(source.accessSummary)}
                   </div>
                   ${expiryCopy ? `<p style="margin:0 0 20px 0;font-size:13px;line-height:20px;color:#6b7280;">${escapeHtml(expiryCopy)}</p>` : ""}
-                  <a href="${escapeHtml(loginUrl)}" style="display:inline-block;background:#ec8aaa;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;line-height:20px;padding:12px 18px;border-radius:8px;">
+                  <a href="${escapeHtml(loginUrl)}" style="display:inline-block;background:#9b3157;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;line-height:20px;padding:12px 18px;border-radius:8px;">
                     Open Bloomjoy Hub
                   </a>
                   <p style="margin:24px 0 0 0;font-size:12px;line-height:18px;color:#6b7280;">
                     Use this same email address, choose Email Code, and enter the newest code Bloomjoy sends you. If this is your first sign-in, create a password to finish activation.<br /><br />
                     If the button does not work, open this link:<br />
-                    <a href="${escapeHtml(loginUrl)}" style="color:#be5b7b;">${escapeHtml(loginUrl)}</a>
+                    <a href="${escapeHtml(loginUrl)}" style="color:#9b3157;">${escapeHtml(loginUrl)}</a>
                   </p>
                 </td>
               </tr>
