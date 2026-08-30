@@ -56,6 +56,15 @@ time, amount, currency, and card evidence.
 - Positive full provider-transaction amount and supported currency.
 - A provider-confirmed partial remainder is exception-only; the normal manager
   action fails closed instead of silently substituting a custom amount.
+- Current limitation: the normal execution path derives the original selected
+  transaction amount but does not yet ingest Nayax's cumulative-refunded or
+  remaining-refundable value. Bloomjoy's transaction reservation prevents a
+  second Bloomjoy case from using the same sale, but an earlier partial refund
+  performed outside Bloomjoy may be known only when Nayax rejects or reports
+  the transaction state. Broad live execution therefore requires #990/#751 to
+  prove and ingest authoritative remaining value before the provider request;
+  the normal action must fail closed when that value is missing or below the
+  original settled amount.
 - Current mapped-manager authority and one money-moving confirmation.
 - Case-version checks, row locking, idempotency, and one live attempt.
 - Server-only provider credentials and an immutable provider journal.
