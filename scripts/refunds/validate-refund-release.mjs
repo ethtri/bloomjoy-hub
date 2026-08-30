@@ -189,7 +189,7 @@ const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-relea
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
 const reviewedManagerSourceSha256 = {
   'refund-manager-action-step-up':
-    '318c7413b5f2f1ca45cb395b133fd33ada856b9e007b21ce8d0779691b2d90fb',
+    '08d2f386671b4c95c6043666537aadced77a9a5856769f4f18db80d93cdcf558',
   'refund-manager-totp-enrollment':
     'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
 };
@@ -250,6 +250,10 @@ try {
   assert(
     repositoryMigrations.includes('20260830182744_refund_nayax_superseded_generation_hold.sql'),
     'The superseded-generation account-hold migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260830182855_refund_manager_queue_truth.sql'),
+    'The canonical manager queue lifecycle migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260830183702_refund_customer_status_recovery.sql'),
