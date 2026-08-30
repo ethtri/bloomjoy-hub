@@ -224,8 +224,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    96,
-    'Refund release inventory must cover exactly 96 discovered refund/Nayax migrations'
+    97,
+    'Refund release inventory must cover exactly 97 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -246,6 +246,10 @@ try {
   assert(
     repositoryMigrations.includes('20260830175740_refund_automation_scheduler_reliability.sql'),
     'The refund automation scheduler reliability migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260830182744_refund_nayax_superseded_generation_hold.sql'),
+    'The superseded-generation account-hold migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260812200000_refund_owner_totp_enrollment_window.sql'),
