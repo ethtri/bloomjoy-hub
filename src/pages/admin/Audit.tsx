@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,7 +26,8 @@ const uniqueValues = (items: string[]) => [...new Set(items)].sort((a, b) => a.l
 export default function AdminAuditPage() {
   const queryClient = useQueryClient();
   const { isScopedAdmin, isSuperAdmin } = useAuth();
-  const [auditSearch, setAuditSearch] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [auditSearch, setAuditSearch] = useState(() => searchParams.get('search') ?? '');
   const [auditActionFilter, setAuditActionFilter] = useState('all');
   const [auditEntityFilter, setAuditEntityFilter] = useState('all');
   const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
@@ -59,6 +61,14 @@ export default function AdminAuditPage() {
 
   const refreshAudit = async () => {
     await queryClient.invalidateQueries({ queryKey: ['admin-governance-audit'] });
+  };
+
+  const updateAuditSearch = (value: string) => {
+    setAuditSearch(value);
+    const nextParams = new URLSearchParams(searchParams);
+    if (value.trim()) nextParams.set('search', value);
+    else nextParams.delete('search');
+    setSearchParams(nextParams, { replace: true });
   };
 
   return (
@@ -95,7 +105,7 @@ export default function AdminAuditPage() {
             <div className="grid gap-3 sm:grid-cols-3">
               <Input
                 value={auditSearch}
-                onChange={(event) => setAuditSearch(event.target.value)}
+                onChange={(event) => updateAuditSearch(event.target.value)}
                 placeholder="Search by email, ID, action"
                 className="sm:col-span-3"
               />

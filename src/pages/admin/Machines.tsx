@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -100,6 +100,9 @@ import {
 
 type MachineTaxFilter = 'all' | TaxStatus;
 type MachineAssignmentFilter = 'all' | 'unassigned' | 'overlap';
+type MachineTypeFilter = 'all' | ReportingMachineType;
+type MachineRefundFilter = 'all' | 'ready' | 'setup' | 'paused';
+type MachineActivityFilter = 'all' | 'recent' | 'no_sales';
 type MachineSort = 'status' | 'machine' | 'latest_sale';
 type MachineView = 'all' | 'attention' | 'ready';
 type MachineDetailTab = 'overview' | 'refunds' | 'managers' | 'reporting' | 'activity';
@@ -294,6 +297,7 @@ const emptyTaxChangeForm = {
   machineId: '',
   taxRatePercent: '',
   effectiveStartDate: today(),
+  reason: '',
 };
 
 const parseTaxFilter = (value: string | null): MachineTaxFilter => {
@@ -309,6 +313,37 @@ const parseAssignmentFilter = (value: string | null): MachineAssignmentFilter =>
 const parseMachineView = (value: string | null): MachineView => {
   if (value === 'attention' || value === 'ready') return value;
   return 'all';
+};
+
+const parseMachineTypeFilter = (value: string | null): MachineTypeFilter =>
+  value && machineTypes.includes(value as ReportingMachineType)
+    ? (value as ReportingMachineType)
+    : 'all';
+
+const parseRefundFilter = (value: string | null): MachineRefundFilter => {
+  if (value === 'ready' || value === 'setup' || value === 'paused') return value;
+  return 'all';
+};
+
+const parseActivityFilter = (value: string | null): MachineActivityFilter => {
+  if (value === 'recent' || value === 'no_sales') return value;
+  return 'all';
+};
+
+const parseMachineSort = (value: string | null): MachineSort => {
+  if (value === 'machine' || value === 'latest_sale') return value;
+  return 'status';
+};
+
+const formatUpdatedAt = (value: string | number | Date) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Update time unavailable';
+  return `Updated ${date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })}`;
 };
 
 const parseMachineDetailTab = (value: string | null): MachineDetailTab => {
@@ -381,7 +416,20 @@ export default function AdminMachinesPage() {
   const [assignmentFilter, setAssignmentFilter] = useState<MachineAssignmentFilter>(() =>
     parseAssignmentFilter(searchParams.get('assignment'))
   );
-  const [sort, setSort] = useState<MachineSort>('status');
+  const [machineTypeFilter, setMachineTypeFilter] = useState<MachineTypeFilter>(() =>
+    parseMachineTypeFilter(searchParams.get('type'))
+  );
+  const [refundFilter, setRefundFilter] = useState<MachineRefundFilter>(() =>
+    parseRefundFilter(searchParams.get('refund'))
+  );
+  const [activityFilter, setActivityFilter] = useState<MachineActivityFilter>(() =>
+    parseActivityFilter(searchParams.get('activity'))
+  );
+  const [sort, setSort] = useState<MachineSort>(() => parseMachineSort(searchParams.get('sort')));
+  const [visibleMachineLimit, setVisibleMachineLimit] = useState(() => {
+    const parsed = Number(searchParams.get('limit'));
+    return Number.isInteger(parsed) && parsed >= 20 ? parsed : 20;
+  });
   const [taxDrafts, setTaxDrafts] = useState<Record<string, string>>({});
   const [savingTaxMachineId, setSavingTaxMachineId] = useState<string | null>(null);
   const [taxChangeForm, setTaxChangeForm] = useState(emptyTaxChangeForm);
@@ -398,6 +446,7 @@ export default function AdminMachinesPage() {
   const [isBulkActivatingRefunds, setIsBulkActivatingRefunds] = useState(false);
 
   const highlightedMachineId = searchParams.get('machineId');
+  const selectedRowId = searchParams.get('selected');
   const isMachineEditorRequested = searchParams.get('edit') === 'machine';
   const isInventoryRoute = location.pathname.endsWith('/inventory');
   const isDetailRoute = Boolean(routeMachineId) && !isInventoryRoute;
@@ -407,10 +456,19 @@ export default function AdminMachinesPage() {
   const pendingSourceMachineId =
     searchParams.get('externalMachineId') ?? searchParams.get('sunzeMachineId');
 
+  useEffect(() => {
+    if (isInventoryRoute || isDetailRoute) return;
+    const scrollPosition = Number(searchParams.get('scroll'));
+    if (!Number.isFinite(scrollPosition) || scrollPosition <= 0) return;
+    const frame = window.requestAnimationFrame(() => window.scrollTo({ top: scrollPosition }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [isDetailRoute, isInventoryRoute, searchParams]);
+
   const {
     data: liveSetup = emptySetup,
     isLoading: liveIsLoading,
     isFetching: liveIsFetching,
+    dataUpdatedAt: liveSetupUpdatedAt,
     error,
   } = useQuery({
     queryKey: setupQueryKey,
@@ -422,6 +480,7 @@ export default function AdminMachinesPage() {
   const {
     data: liveRefundManagerSetup = emptyRefundManagerSetup,
     isLoading: liveIsRefundManagerSetupLoading,
+    dataUpdatedAt: liveRefundSetupUpdatedAt,
   } = useQuery({
     queryKey: refundManagerSetupQueryKey,
     queryFn: fetchRefundManagerSetup,
@@ -443,6 +502,9 @@ export default function AdminMachinesPage() {
   const isLoading = isLocalDemoMode ? false : liveIsLoading;
   const isFetching = isLocalDemoMode ? false : liveIsFetching;
   const isRefundManagerSetupLoading = isLocalDemoMode ? false : liveIsRefundManagerSetupLoading;
+  const setupUpdatedAt = isLocalDemoMode
+    ? Date.now()
+    : Math.max(liveSetupUpdatedAt, liveRefundSetupUpdatedAt);
   const setup = useMemo(
     () => (isLocalDemoMode ? buildLocalMachineManagerDemoSetup() : liveSetup),
     [isLocalDemoMode, liveSetup]
@@ -546,9 +608,16 @@ export default function AdminMachinesPage() {
   const isMachineEditorOpen = isMachineDialogOpen;
 
   useEffect(() => {
+    setSearch(searchParams.get('q') ?? '');
     setTaxFilter(parseTaxFilter(searchParams.get('tax')));
     setAssignmentFilter(parseAssignmentFilter(searchParams.get('assignment')));
+    setMachineTypeFilter(parseMachineTypeFilter(searchParams.get('type')));
+    setRefundFilter(parseRefundFilter(searchParams.get('refund')));
+    setActivityFilter(parseActivityFilter(searchParams.get('activity')));
+    setSort(parseMachineSort(searchParams.get('sort')));
     setView(parseMachineView(searchParams.get('view')));
+    const parsedLimit = Number(searchParams.get('limit'));
+    setVisibleMachineLimit(Number.isInteger(parsedLimit) && parsedLimit >= 20 ? parsedLimit : 20);
   }, [searchParams]);
 
   useEffect(() => {
@@ -567,6 +636,7 @@ export default function AdminMachinesPage() {
       const returnValue = returnParams.toString();
       const detailParams = new URLSearchParams();
       if (returnValue) detailParams.set('return', returnValue);
+      if (searchParams.get('demo') === 'on') detailParams.set('demo', 'on');
       navigate(
         `/admin/machines/${encodeURIComponent(highlightedMachineId)}${detailParams.size ? `?${detailParams.toString()}` : ''}`,
         { replace: true }
@@ -581,9 +651,8 @@ export default function AdminMachinesPage() {
     searchParams,
   ]);
 
-  const machineRows = useMemo(() => {
+  const allMachineRows = useMemo(() => {
     const currentDate = today();
-    const normalizedSearch = search.trim().toLowerCase();
 
     return setup.machines
       .map((machine) => {
@@ -671,7 +740,16 @@ export default function AdminMachinesPage() {
           draftValue: taxDrafts[machine.id] ?? (taxRate ? String(Number(taxRate.tax_rate_percent)) : ''),
           attentionReasons,
         };
-      })
+      });
+  }, [refundManagerSetupByMachineId, setup, taxDrafts]);
+
+  const machineRows = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+    const recentActivityCutoff = new Date();
+    recentActivityCutoff.setDate(recentActivityCutoff.getDate() - 30);
+    const recentActivityDate = recentActivityCutoff.toISOString().slice(0, 10);
+
+    return allMachineRows
       .filter((row) => {
         if (taxFilter === 'all') return true;
         if (taxFilter === 'missing') {
@@ -688,6 +766,20 @@ export default function AdminMachinesPage() {
             (warning) => warning.warningType === 'overlapping_partnership_assignments'
           )
         );
+      })
+      .filter((row) => machineTypeFilter === 'all' || row.machine.machine_type === machineTypeFilter)
+      .filter((row) => {
+        if (refundFilter === 'all') return true;
+        if (refundFilter === 'paused') return refundManagerSetup.globalRefunds.paused;
+        if (refundFilter === 'ready') {
+          return row.refundReadinessState === 'ready_to_refund' && !refundManagerSetup.globalRefunds.paused;
+        }
+        return row.refundReadinessState !== 'ready_to_refund';
+      })
+      .filter((row) => {
+        if (activityFilter === 'all') return true;
+        if (activityFilter === 'no_sales') return !row.machine.latest_sale_date;
+        return Boolean(row.machine.latest_sale_date && row.machine.latest_sale_date >= recentActivityDate);
       })
       .filter((row) => {
         if (!normalizedSearch) return true;
@@ -712,7 +804,7 @@ export default function AdminMachinesPage() {
         if (attentionDifference !== 0) return attentionDifference;
         return left.machine.machine_label.localeCompare(right.machine.machine_label);
       });
-  }, [assignmentFilter, refundManagerSetupByMachineId, search, setup, taxDrafts, taxFilter, sort]);
+  }, [activityFilter, allMachineRows, assignmentFilter, machineTypeFilter, refundFilter, refundManagerSetup.globalRefunds.paused, search, sort, taxFilter]);
 
   const visibleMachineRows = useMemo(
     () =>
@@ -723,6 +815,8 @@ export default function AdminMachinesPage() {
       }),
     [machineRows, view]
   );
+
+  const renderedMachineRows = visibleMachineRows.slice(0, visibleMachineLimit);
 
   const portfolioCounts = useMemo(
     () => ({
@@ -752,11 +846,35 @@ export default function AdminMachinesPage() {
   const clearFilters = () => {
     setTaxFilter('all');
     setAssignmentFilter('all');
+    setMachineTypeFilter('all');
+    setRefundFilter('all');
+    setActivityFilter('all');
     setSort('status');
+    setVisibleMachineLimit(20);
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete('tax');
     nextParams.delete('assignment');
+    nextParams.delete('type');
+    nextParams.delete('refund');
+    nextParams.delete('activity');
     nextParams.delete('sort');
+    nextParams.delete('limit');
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const clearSearchAndFilters = () => {
+    setSearch('');
+    setTaxFilter('all');
+    setAssignmentFilter('all');
+    setMachineTypeFilter('all');
+    setRefundFilter('all');
+    setActivityFilter('all');
+    setSort('status');
+    setVisibleMachineLimit(20);
+    const nextParams = new URLSearchParams(searchParams);
+    ['q', 'tax', 'assignment', 'type', 'refund', 'activity', 'sort', 'limit'].forEach((key) =>
+      nextParams.delete(key)
+    );
     setSearchParams(nextParams, { replace: true });
   };
 
@@ -800,10 +918,13 @@ export default function AdminMachinesPage() {
     setIsMachineDialogOpen(true);
   };
 
-  const openEditMachine = (machine: PartnershipSetupMachine) => {
-    const returnParams = searchParams.toString();
+  const openEditMachine = (machine: PartnershipSetupMachine, tab: MachineDetailTab = 'overview') => {
+    const returnParams = new URLSearchParams(searchParams);
+    returnParams.set('selected', machine.id);
+    returnParams.set('scroll', String(Math.round(window.scrollY)));
     const detailParams = new URLSearchParams();
-    if (returnParams) detailParams.set('return', returnParams);
+    if (returnParams.size) detailParams.set('return', returnParams.toString());
+    if (tab !== 'overview') detailParams.set('tab', tab);
     if (searchParams.get('demo') === 'on') detailParams.set('demo', 'on');
     navigate(
       `/admin/machines/${encodeURIComponent(machine.id)}${detailParams.toString() ? `?${detailParams.toString()}` : ''}`
@@ -836,6 +957,47 @@ export default function AdminMachinesPage() {
     setSearchParams(nextParams, { replace: true });
   };
 
+  const updateMachineTypeFilter = (nextFilter: MachineTypeFilter) => {
+    setMachineTypeFilter(nextFilter);
+    const nextParams = new URLSearchParams(searchParams);
+    if (nextFilter === 'all') nextParams.delete('type');
+    else nextParams.set('type', nextFilter);
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const updateRefundFilter = (nextFilter: MachineRefundFilter) => {
+    setRefundFilter(nextFilter);
+    const nextParams = new URLSearchParams(searchParams);
+    if (nextFilter === 'all') nextParams.delete('refund');
+    else nextParams.set('refund', nextFilter);
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const updateActivityFilter = (nextFilter: MachineActivityFilter) => {
+    setActivityFilter(nextFilter);
+    const nextParams = new URLSearchParams(searchParams);
+    if (nextFilter === 'all') nextParams.delete('activity');
+    else nextParams.set('activity', nextFilter);
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const updateSort = (nextSort: MachineSort) => {
+    setSort(nextSort);
+    const nextParams = new URLSearchParams(searchParams);
+    if (nextSort === 'status') nextParams.delete('sort');
+    else nextParams.set('sort', nextSort);
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const loadMoreMachines = () => {
+    const nextLimit = Math.min(visibleMachineLimit + 20, visibleMachineRows.length);
+    setVisibleMachineLimit(nextLimit);
+    const nextParams = new URLSearchParams(searchParams);
+    if (nextLimit <= 20) nextParams.delete('limit');
+    else nextParams.set('limit', String(nextLimit));
+    setSearchParams(nextParams, { replace: true });
+  };
+
   const openTaxChangeDialog = (machine: PartnershipSetupMachine, taxRate?: ReportingMachineTaxRate) => {
     if (isLocalDemoMode) {
       toast.info('Demo mode is visual only. Use seeded functional UAT to save reporting tax changes.');
@@ -845,7 +1007,8 @@ export default function AdminMachinesPage() {
     setTaxChangeForm({
       machineId: machine.id,
       taxRatePercent: taxRate ? String(Number(taxRate.tax_rate_percent)) : '',
-      effectiveStartDate: today(),
+      effectiveStartDate: taxRate ? today() : initialReportingTaxStartDate,
+      reason: '',
     });
     setIsTaxChangeDialogOpen(true);
   };
@@ -937,13 +1100,18 @@ export default function AdminMachinesPage() {
       return;
     }
 
+    if (taxChangeForm.reason.trim().length < 8) {
+      toast.error('Add a short reason for the reporting tax change.');
+      return;
+    }
+
     setSavingTaxMachineId(machine.id);
     try {
       await setReportingMachineTaxRateAdmin({
         machineId: machine.id,
         taxRatePercent: parsedRate,
         effectiveStartDate: taxChangeForm.effectiveStartDate,
-        reason: 'Reporting tax rate change recorded from Machines admin',
+        reason: taxChangeForm.reason.trim(),
       });
       toast.success(`${machine.machine_label} tax change recorded.`);
       closeTaxChangeDialog(false);
@@ -979,12 +1147,16 @@ export default function AdminMachinesPage() {
   };
 
   if (isInventoryRoute) {
+    const machinesHref = isLocalDemoMode ? '/admin/machines?demo=on' : '/admin/machines';
+    const eligibleActivationCount = refundManagerSetup.machines.filter(
+      (machine) => machine.activationEligible && !machine.nayaxRefundsEnabled
+    ).length;
     return (
       <AppLayout>
         <section className="section-padding">
           <div className="container-page max-w-6xl">
             <Link
-              to="/admin/machines"
+              to={machinesHref}
               className="inline-flex min-h-11 items-center gap-2 rounded-md text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <ArrowLeft className="h-4 w-4" />
@@ -1019,7 +1191,7 @@ export default function AdminMachinesPage() {
                   Your granted machines still show the provider readiness that matters to your work.
                 </p>
                 <Button asChild variant="outline" className="mt-5">
-                  <Link to="/admin/machines">Return to Machines</Link>
+                  <Link to={machinesHref}>Return to Machines</Link>
                 </Button>
               </div>
             ) : (
@@ -1031,6 +1203,7 @@ export default function AdminMachinesPage() {
                 canReconcile={!isLocalDemoMode && isSuperAdmin}
                 canBulkActivate={!isLocalDemoMode && isSuperAdmin}
                 isBulkActivating={isBulkActivatingRefunds}
+                eligibleActivationCount={eligibleActivationCount}
                 onBulkActivate={activateQualifiedRefundMachines}
                 onSaved={refresh}
                 focusedInventoryId={pendingSourceMachineId}
@@ -1043,7 +1216,7 @@ export default function AdminMachinesPage() {
   }
 
   if (isDetailRoute) {
-    const detailRow = machineRows.find((row) => row.machine.id === routeMachineId) ?? null;
+    const detailRow = allMachineRows.find((row) => row.machine.id === routeMachineId) ?? null;
 
     return (
       <AppLayout>
@@ -1054,6 +1227,15 @@ export default function AdminMachinesPage() {
                 <div className="h-11 w-40 animate-pulse rounded-md bg-muted" />
                 <div className="h-28 animate-pulse rounded-xl bg-muted" />
                 <div className="h-80 animate-pulse rounded-xl bg-muted" />
+              </div>
+            ) : error && !isLocalDemoMode ? (
+              <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-5 py-10 text-center">
+                <CircleAlert className="mx-auto h-7 w-7 text-destructive" />
+                <h1 className="mt-3 text-xl font-semibold text-foreground">Machine details could not load</h1>
+                <p className="mt-2 text-sm text-muted-foreground">Your machine is still here. Try loading its details again.</p>
+                <Button variant="outline" className="mt-5" onClick={() => void refresh()}>
+                  <RefreshCw className="mr-2 h-4 w-4" /> Retry
+                </Button>
               </div>
             ) : !selectedMachineForEditor || !detailRow ? (
               <div className="rounded-xl border border-border bg-card px-5 py-10 text-center">
@@ -1100,6 +1282,7 @@ export default function AdminMachinesPage() {
           form={taxChangeForm}
           setForm={setTaxChangeForm}
           machine={setup.machines.find((machine) => machine.id === taxChangeForm.machineId) ?? null}
+          isInitialSetup={!setup.taxRates.some((rate) => rate.machine_id === taxChangeForm.machineId)}
           isSaving={Boolean(taxChangeForm.machineId && savingTaxMachineId === taxChangeForm.machineId)}
           onSave={saveTaxChange}
         />
@@ -1118,9 +1301,12 @@ export default function AdminMachinesPage() {
         <div className="container-page">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h1 className="font-display text-3xl font-bold text-foreground">Machines</h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+              <h1 className="sr-only">Machines</h1>
+              <p className="max-w-2xl text-base font-medium leading-6 text-foreground">
                 Find a machine, check readiness, and manage setup.
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground" title={setupUpdatedAt ? new Date(setupUpdatedAt).toISOString() : undefined}>
+                {setupUpdatedAt ? formatUpdatedAt(setupUpdatedAt) : 'Waiting for the latest update'}
               </p>
               {hasScopedMachineLimit && (
                 <Badge className="mt-3" variant="outline">
@@ -1129,13 +1315,13 @@ export default function AdminMachinesPage() {
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={refresh} disabled={isFetching}>
+              <Button variant="ghost" className="min-h-11" onClick={refresh} disabled={isFetching}>
                 {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 Refresh
               </Button>
               {isSuperAdmin && (
                 <Button asChild variant="outline">
-                  <Link to="/admin/machines/inventory">
+                  <Link to={`/admin/machines/inventory${isLocalDemoMode ? '?demo=on' : ''}`}>
                     <ServerCog className="mr-2 h-4 w-4" />
                     Nayax setup
                   </Link>
@@ -1151,8 +1337,11 @@ export default function AdminMachinesPage() {
           </div>
 
           {error && !isLocalDemoMode && (
-            <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-              Unable to load machine setup.
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              <span>Unable to load the machine portfolio. Your records have not been removed.</span>
+              <Button variant="outline" size="sm" onClick={() => void refresh()}>
+                <RefreshCw className="mr-2 h-4 w-4" /> Retry
+              </Button>
             </div>
           )}
 
@@ -1209,14 +1398,40 @@ export default function AdminMachinesPage() {
                 <summary className="flex min-h-11 cursor-pointer list-none items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
                   <Filter className="h-4 w-4" />
                   Filters
-                  {(taxFilter !== 'all' || assignmentFilter !== 'all') && (
+                  {(taxFilter !== 'all' || assignmentFilter !== 'all' || machineTypeFilter !== 'all' || refundFilter !== 'all' || activityFilter !== 'all') && (
                     <span className="rounded-full bg-primary px-1.5 py-0.5 text-[11px] font-semibold text-primary-foreground">
-                      {Number(taxFilter !== 'all') + Number(assignmentFilter !== 'all')}
+                      {Number(taxFilter !== 'all') + Number(assignmentFilter !== 'all') + Number(machineTypeFilter !== 'all') + Number(refundFilter !== 'all') + Number(activityFilter !== 'all')}
                     </span>
                   )}
                   <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
                 </summary>
-                <div className="mt-2 grid gap-4 rounded-xl border border-border bg-popover p-4 shadow-lg lg:absolute lg:right-0 lg:z-30 lg:w-[32rem] lg:grid-cols-2">
+                <div className="mt-2 grid gap-4 rounded-xl border border-border bg-popover p-4 shadow-lg lg:absolute lg:right-0 lg:z-30 lg:w-[38rem] lg:grid-cols-2">
+                  <div>
+                    <Label htmlFor="machine-type-filter">Machine type</Label>
+                    <select
+                      id="machine-type-filter"
+                      value={machineTypeFilter}
+                      onChange={(event) => updateMachineTypeFilter(event.target.value as MachineTypeFilter)}
+                      className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="all">All machine types</option>
+                      {machineTypes.map((type) => <option key={type} value={type}>{formatLabel(type)}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <Label htmlFor="refund-filter">Refund readiness</Label>
+                    <select
+                      id="refund-filter"
+                      value={refundFilter}
+                      onChange={(event) => updateRefundFilter(event.target.value as MachineRefundFilter)}
+                      className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="all">All refund states</option>
+                      <option value="ready">Ready</option>
+                      <option value="setup">Setup needed</option>
+                      <option value="paused">Paused</option>
+                    </select>
+                  </div>
                   <div>
                     <Label htmlFor="tax-filter">Reporting tax</Label>
                     <select
@@ -1245,11 +1460,24 @@ export default function AdminMachinesPage() {
                     </select>
                   </div>
                   <div>
+                    <Label htmlFor="activity-filter">Activity</Label>
+                    <select
+                      id="activity-filter"
+                      value={activityFilter}
+                      onChange={(event) => updateActivityFilter(event.target.value as MachineActivityFilter)}
+                      className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="all">All activity</option>
+                      <option value="recent">Sale in the last 30 days</option>
+                      <option value="no_sales">No sales recorded</option>
+                    </select>
+                  </div>
+                  <div>
                     <Label htmlFor="machine-sort">Sort</Label>
                     <select
                       id="machine-sort"
                       value={sort}
-                      onChange={(event) => setSort(event.target.value as MachineSort)}
+                      onChange={(event) => updateSort(event.target.value as MachineSort)}
                       className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                     >
                       <option value="status">Needs attention first</option>
@@ -1266,6 +1494,17 @@ export default function AdminMachinesPage() {
               </details>
             </div>
           </div>
+
+          {(taxFilter !== 'all' || assignmentFilter !== 'all' || machineTypeFilter !== 'all' || refundFilter !== 'all' || activityFilter !== 'all') && (
+            <div className="mt-3 flex flex-wrap items-center gap-2" aria-label="Active filters">
+              {machineTypeFilter !== 'all' && <ActiveFilterChip label={`Type: ${formatLabel(machineTypeFilter)}`} onRemove={() => updateMachineTypeFilter('all')} />}
+              {refundFilter !== 'all' && <ActiveFilterChip label={`Refunds: ${formatLabel(refundFilter)}`} onRemove={() => updateRefundFilter('all')} />}
+              {activityFilter !== 'all' && <ActiveFilterChip label={`Activity: ${activityFilter === 'recent' ? 'Recent sale' : 'No sales'}`} onRemove={() => updateActivityFilter('all')} />}
+              {taxFilter !== 'all' && <ActiveFilterChip label={`Tax: ${formatLabel(taxFilter)}`} onRemove={() => updateTaxFilter('all')} />}
+              {assignmentFilter !== 'all' && <ActiveFilterChip label={`Reporting: ${formatLabel(assignmentFilter)}`} onRemove={() => updateAssignmentFilter('all')} />}
+              <Button type="button" variant="ghost" className="min-h-11" onClick={clearFilters}>Clear all</Button>
+            </div>
+          )}
 
           <div className="mt-5 overflow-hidden rounded-xl border border-border bg-card">
             <div className="flex items-center justify-between gap-3 border-b border-border p-4">
@@ -1309,14 +1548,11 @@ export default function AdminMachinesPage() {
                       ? 'The machines in this view are ready for their current workflows.'
                       : 'Try a different search or clear the active filters.'}
                 </p>
-                {(search || taxFilter !== 'all' || assignmentFilter !== 'all') && (
+                {(search || taxFilter !== 'all' || assignmentFilter !== 'all' || machineTypeFilter !== 'all' || refundFilter !== 'all' || activityFilter !== 'all') && (
                   <Button
                     variant="outline"
                     className="mt-5"
-                    onClick={() => {
-                      updateSearch('');
-                      clearFilters();
-                    }}
+                    onClick={clearSearchAndFilters}
                   >
                     Clear search and filters
                   </Button>
@@ -1326,7 +1562,7 @@ export default function AdminMachinesPage() {
               <div role="table" aria-label="Machines">
                 <div
                   role="row"
-                  className="hidden border-b border-border bg-muted/30 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground xl:grid xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1.15fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,0.7fr)_auto] xl:gap-4"
+                  className="hidden border-b border-border bg-muted/30 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground xl:grid xl:grid-cols-[minmax(14rem,1.25fr)_minmax(13rem,1.2fr)_minmax(9rem,0.75fr)_minmax(12rem,1fr)_minmax(8rem,0.7fr)_auto] xl:gap-4"
                 >
                   <div role="columnheader">Machine</div>
                   <div role="columnheader">Attention</div>
@@ -1336,16 +1572,26 @@ export default function AdminMachinesPage() {
                   <div role="columnheader" className="text-right">Manage</div>
                 </div>
                 <div role="rowgroup" className="divide-y divide-border bg-background">
-                  {visibleMachineRows.map((row) => (
+                  {renderedMachineRows.map((row) => (
                     <MachinePortfolioRow
                       key={row.machine.id}
                       row={row}
-                      isHighlighted={highlightedMachineId === row.machine.id}
+                      isHighlighted={[highlightedMachineId, selectedRowId].includes(row.machine.id)}
                       onEdit={openEditMachine}
                       globalRefundsPaused={refundManagerSetup.globalRefunds.paused}
                     />
                   ))}
                 </div>
+                {renderedMachineRows.length < visibleMachineRows.length && (
+                  <div className="border-t border-border p-4 text-center">
+                    <Button variant="outline" className="min-h-11" onClick={loadMoreMachines}>
+                      Load 20 more
+                    </Button>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Showing {renderedMachineRows.length} of {visibleMachineRows.length} machines
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1378,6 +1624,7 @@ export default function AdminMachinesPage() {
         form={taxChangeForm}
         setForm={setTaxChangeForm}
         machine={setup.machines.find((machine) => machine.id === taxChangeForm.machineId) ?? null}
+        isInitialSetup={!setup.taxRates.some((rate) => rate.machine_id === taxChangeForm.machineId)}
         isSaving={Boolean(taxChangeForm.machineId && savingTaxMachineId === taxChangeForm.machineId)}
         onSave={saveTaxChange}
       />
@@ -1399,7 +1646,7 @@ function MachinePortfolioRow({
   row: MachineSetupRowViewModel;
   isHighlighted: boolean;
   globalRefundsPaused: boolean;
-  onEdit: (machine: PartnershipSetupMachine) => void;
+  onEdit: (machine: PartnershipSetupMachine, tab?: MachineDetailTab) => void;
 }) {
   const { machine, taxRate, taxStatus, activeAssignments, attentionReasons } = row;
   const primaryReason = attentionReasons[0];
@@ -1428,11 +1675,11 @@ function MachinePortfolioRow({
     <div
       role="row"
       className={cn(
-        'grid grid-cols-2 gap-4 px-4 py-4 text-sm transition-colors hover:bg-muted/20 xl:grid-cols-[minmax(14rem,1.25fr)_minmax(13rem,1.2fr)_minmax(9rem,0.75fr)_minmax(12rem,1fr)_minmax(8rem,0.7fr)_auto] xl:items-center',
+        'grid grid-cols-[minmax(0,1fr)_auto] gap-4 px-4 py-4 text-sm transition-colors hover:bg-muted/20 xl:grid-cols-[minmax(14rem,1.25fr)_minmax(13rem,1.2fr)_minmax(9rem,0.75fr)_minmax(12rem,1fr)_minmax(8rem,0.7fr)_auto] xl:items-center',
         isHighlighted && 'bg-primary/5'
       )}
     >
-      <div role="cell" className="col-span-2 min-w-0 xl:col-span-1">
+      <div role="cell" className="min-w-0 xl:col-span-1">
         <CellLabel>Machine</CellLabel>
         <div className="truncate font-semibold text-foreground">{machine.machine_label}</div>
         <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
@@ -1464,7 +1711,7 @@ function MachinePortfolioRow({
         )}
       </div>
 
-      <div role="cell" className="min-w-0">
+      <div role="cell" className="min-w-0 xl:col-span-1">
         <CellLabel>Refunds</CellLabel>
         <div className={cn('font-medium', refundIsReady && 'text-emerald-700')}>{refundLabel}</div>
         {!refundIsReady && row.refundBlockReason && (
@@ -1472,7 +1719,7 @@ function MachinePortfolioRow({
         )}
       </div>
 
-      <div role="cell" className="min-w-0">
+      <div role="cell" className="hidden min-w-0 xl:block">
         <CellLabel>Reporting</CellLabel>
         <div className="truncate font-medium text-foreground">{reportingLabel}</div>
         {taxLabel && (
@@ -1482,7 +1729,7 @@ function MachinePortfolioRow({
         )}
       </div>
 
-      <div role="cell" className="min-w-0">
+      <div role="cell" className="hidden min-w-0 xl:block">
         <CellLabel>Activity</CellLabel>
         <div className="font-medium text-foreground">
           {machine.latest_sale_date ? formatDate(machine.latest_sale_date) : 'No sales yet'}
@@ -1491,7 +1738,7 @@ function MachinePortfolioRow({
       </div>
 
       <div role="cell" className="flex items-end justify-end xl:justify-end">
-        <Button variant="outline" size="sm" onClick={() => onEdit(machine)}>
+        <Button variant="outline" className="min-h-11" onClick={() => onEdit(machine, primaryReason?.tab)}>
           Manage
           <ChevronRight className="ml-1.5 h-4 w-4" />
         </Button>
@@ -1527,6 +1774,7 @@ function RefundNayaxInventoryPanel({
   canReconcile,
   canBulkActivate,
   isBulkActivating,
+  eligibleActivationCount,
   onBulkActivate,
   onSaved,
   focusedInventoryId,
@@ -1538,6 +1786,7 @@ function RefundNayaxInventoryPanel({
   canReconcile: boolean;
   canBulkActivate: boolean;
   isBulkActivating: boolean;
+  eligibleActivationCount: number;
   onBulkActivate: () => Promise<void>;
   onSaved: () => Promise<void>;
   focusedInventoryId?: string | null;
@@ -1546,6 +1795,8 @@ function RefundNayaxInventoryPanel({
     focusedInventoryId ? 'all' : 'attention'
   );
   const [inventorySearch, setInventorySearch] = useState('');
+  const [inventoryCategory, setInventoryCategory] = useState<'all' | 'cotton_candy' | 'snapcase' | 'unclassified'>('all');
+  const [inventoryMapping, setInventoryMapping] = useState<'all' | 'linked' | 'unlinked'>('all');
   const activeMachines = inventory?.machines.filter((machine) => machine.providerActive) ?? [];
   const normalizedSearch = inventorySearch.trim().toLowerCase();
   const visibleMachines = activeMachines
@@ -1561,7 +1812,13 @@ function RefundNayaxInventoryPanel({
         [machine.machineName, machine.machineNumber, machine.nayaxMachineId, machine.accountKey]
           .filter(Boolean)
           .some((value) => String(value).toLowerCase().includes(normalizedSearch));
-      return matchesView && matchesSearch;
+      const matchesCategory =
+        inventoryCategory === 'all' ||
+        (inventoryCategory === 'unclassified' ? !machine.category : machine.category === inventoryCategory);
+      const matchesMapping =
+        inventoryMapping === 'all' ||
+        (inventoryMapping === 'linked' ? Boolean(machine.reportingMachineId) : !machine.reportingMachineId);
+      return matchesView && matchesSearch && matchesCategory && matchesMapping;
     })
     .sort((left, right) => {
       const leftFocused = [left.id, left.nayaxMachineId].includes(focusedInventoryId ?? '');
@@ -1592,20 +1849,25 @@ function RefundNayaxInventoryPanel({
               <div className={cn('font-semibold', lastRunNeedsAttention && 'text-destructive')}>
                 Last sync: {inventory.lastRun.largeDrop ? 'Large drop — review' : formatLabel(inventory.lastRun.status)}
               </div>
-              <div>{formatDate(inventory.lastRun.completedAt)}</div>
+              <div title={new Date(inventory.lastRun.completedAt).toISOString()}>{formatUpdatedAt(inventory.lastRun.completedAt)}</div>
             </div>
           )}
           {canBulkActivate && (
-            <Button size="sm" onClick={() => void onBulkActivate()} disabled={isBulkActivating}>
+            <Button variant="outline" className="min-h-11" onClick={() => void onBulkActivate()} disabled={isBulkActivating || eligibleActivationCount === 0}>
               {isBulkActivating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-              Activate qualified machines
+              Activate {eligibleActivationCount} qualified {eligibleActivationCount === 1 ? 'machine' : 'machines'}
             </Button>
           )}
         </div>
       </div>
 
       {error ? (
-        <div className="p-4 text-sm text-destructive">Unable to load the refund inventory.</div>
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm text-destructive">
+          <span>Unable to load Nayax setup. No inventory decisions were changed.</span>
+          <Button variant="outline" size="sm" onClick={() => void onSaved()}>
+            <RefreshCw className="mr-2 h-4 w-4" /> Retry
+          </Button>
+        </div>
       ) : isLoading ? (
         <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading Nayax inventory...
@@ -1614,14 +1876,14 @@ function RefundNayaxInventoryPanel({
         <div className="p-4 text-sm text-muted-foreground">No successful inventory snapshot is available yet.</div>
       ) : (
         <>
-          <div className="grid gap-px bg-border sm:grid-cols-4">
-            <InventoryMetric label="Published" value={inventory.summary.published} tone="ready" />
-            <InventoryMetric label="Needs setup" value={inventory.summary.needsSetup} tone="warning" />
-            <InventoryMetric label="Excluded" value={inventory.summary.excluded} tone="neutral" />
-            <InventoryMetric label="Stale published" value={inventory.summary.stalePublished} tone="danger" />
+          <div className="flex flex-wrap gap-x-5 gap-y-2 border-b border-border px-4 py-3 text-sm text-muted-foreground" aria-label="Nayax inventory summary">
+            <span><strong className="font-semibold text-foreground">{inventory.summary.needsSetup + inventory.summary.stalePublished}</strong> need review</span>
+            <span><strong className="font-semibold text-foreground">{inventory.summary.published}</strong> published</span>
+            <span><strong className="font-semibold text-foreground">{inventory.summary.excluded}</strong> excluded</span>
+            {inventory.lastRun && <span title={new Date(inventory.lastRun.completedAt).toISOString()}>{formatUpdatedAt(inventory.lastRun.completedAt)}</span>}
           </div>
           <div className="flex flex-col gap-3 border-b border-border p-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-wrap gap-1" role="tablist" aria-label="Nayax inventory views">
+            <nav className="flex flex-wrap gap-1" aria-label="Nayax inventory views">
               {([
                 ['attention', 'Needs review', inventory.summary.needsSetup + inventory.summary.stalePublished],
                 ['published', 'Published', inventory.summary.published],
@@ -1633,33 +1895,54 @@ function RefundNayaxInventoryPanel({
                   type="button"
                   size="sm"
                   variant={inventoryView === value ? 'secondary' : 'ghost'}
-                  role="tab"
-                  aria-selected={inventoryView === value}
+                  aria-current={inventoryView === value ? 'page' : undefined}
                   onClick={() => setInventoryView(value)}
                 >
                   {label} <span className="ml-1 tabular-nums text-muted-foreground">{count}</span>
                 </Button>
               ))}
-            </div>
-            <div className="relative sm:w-72">
-              <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                value={inventorySearch}
-                onChange={(event) => setInventorySearch(event.target.value)}
-                placeholder="Search Nayax inventory"
-                aria-label="Search Nayax inventory"
-                className="h-9 pl-9"
-              />
+            </nav>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <div className="relative sm:w-64">
+                <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
+                <Input value={inventorySearch} onChange={(event) => setInventorySearch(event.target.value)} placeholder="Search inventory" aria-label="Search Nayax inventory" className="h-11 pl-9" />
+              </div>
+              <select aria-label="Filter Nayax category" value={inventoryCategory} onChange={(event) => setInventoryCategory(event.target.value as typeof inventoryCategory)} className="h-11 rounded-md border border-input bg-background px-3 text-sm">
+                <option value="all">All categories</option>
+                <option value="cotton_candy">Cotton candy</option>
+                <option value="snapcase">Snapcase</option>
+                <option value="unclassified">Unclassified</option>
+              </select>
+              <select aria-label="Filter exact mapping" value={inventoryMapping} onChange={(event) => setInventoryMapping(event.target.value as typeof inventoryMapping)} className="h-11 rounded-md border border-input bg-background px-3 text-sm">
+                <option value="all">All mappings</option>
+                <option value="linked">Linked</option>
+                <option value="unlinked">Not linked</option>
+              </select>
             </div>
           </div>
+          {inventoryView === 'attention' && lastRunNeedsAttention && (
+            <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              <div className="flex gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <div className="font-medium">The latest Nayax sync needs review</div>
+                  <div className="mt-0.5 text-xs text-amber-900/80">
+                    {inventory.lastRun?.largeDrop ? 'The active inventory dropped sharply.' : 'The latest sync failed.'} Review sync health before treating this inventory as current.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           {visibleMachines.length === 0 ? (
             <div className="p-8 text-center">
               <CheckCircle2 className="mx-auto h-6 w-6 text-emerald-600" />
               <div className="mt-2 font-medium text-foreground">
-                {inventoryView === 'attention' ? 'No Nayax setup needs attention' : 'No machines match this view'}
+                {inventoryView === 'attention' && !lastRunNeedsAttention ? 'No Nayax setup needs attention' : inventoryView === 'attention' ? 'No machine-level exceptions found' : 'No machines match this view'}
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
-                {inventoryView === 'attention'
+                {inventoryView === 'attention' && lastRunNeedsAttention
+                  ? 'The sync-level exception above still requires review.'
+                  : inventoryView === 'attention'
                   ? 'Published and excluded machines remain available in their views.'
                   : 'Try another view or clear the search.'}
               </p>
@@ -1681,28 +1964,6 @@ function RefundNayaxInventoryPanel({
         </>
       )}
     </section>
-  );
-}
-
-function InventoryMetric({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone: 'ready' | 'warning' | 'neutral' | 'danger';
-}) {
-  return (
-    <div className="bg-card px-4 py-3">
-      <div className={cn(
-        'text-2xl font-bold tabular-nums text-foreground',
-        tone === 'warning' && value > 0 && 'text-amber-700',
-        tone === 'danger' && value > 0 && 'text-destructive',
-        tone === 'ready' && value > 0 && 'text-emerald-700'
-      )}>{value}</div>
-      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
-    </div>
   );
 }
 
@@ -1879,6 +2140,7 @@ function TaxChangeDialog({
   form,
   setForm,
   machine,
+  isInitialSetup,
   isSaving,
   onSave,
 }: {
@@ -1887,6 +2149,7 @@ function TaxChangeDialog({
   form: typeof emptyTaxChangeForm;
   setForm: (form: typeof emptyTaxChangeForm) => void;
   machine: PartnershipSetupMachine | null;
+  isInitialSetup: boolean;
   isSaving: boolean;
   onSave: () => void;
 }) {
@@ -1894,10 +2157,11 @@ function TaxChangeDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Record Rate Change</DialogTitle>
+          <DialogTitle>{isInitialSetup ? 'Set reporting tax rate' : 'Change reporting tax rate'}</DialogTitle>
           <DialogDescription>
-            Use this when a machine moves or a jurisdiction changes. The previous reporting tax
-            rate will close automatically the day before this rate applies.
+            {isInitialSetup
+              ? 'Add the rate used for this machine’s reporting history. Confirm the effective date before saving.'
+              : 'Use this when a machine moves or a jurisdiction changes. The previous rate closes the day before this one applies.'}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">
@@ -1926,8 +2190,19 @@ function TaxChangeDialog({
               onChange={(event) => setForm({ ...form, effectiveStartDate: event.target.value })}
             />
             <p className="mt-1 text-xs text-muted-foreground">
-              For initial setup, use the inline table save. It applies documented rates from 01/01/2026.
+              {isInitialSetup
+                ? 'Initial setup defaults to Jan 1, 2026 so earlier reports remain covered.'
+                : 'Choose the first day the new rate should be used.'}
             </p>
+          </div>
+          <div>
+            <Label htmlFor="tax-change-reason">Reason</Label>
+            <Input
+              id="tax-change-reason"
+              value={form.reason}
+              onChange={(event) => setForm({ ...form, reason: event.target.value })}
+              placeholder={isInitialSetup ? 'Initial reporting tax setup' : 'Machine moved to a new jurisdiction'}
+            />
           </div>
         </div>
         <DialogFooter>
@@ -1936,11 +2211,27 @@ function TaxChangeDialog({
           </Button>
           <Button onClick={onSave} disabled={isSaving}>
             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-            Record Change
+            {isInitialSetup ? 'Set tax rate' : 'Save rate change'}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ActiveFilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex min-h-11 items-center gap-1 rounded-full border border-border bg-muted/30 pl-3 text-sm font-medium text-foreground">
+      {label}
+      <button
+        type="button"
+        className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={onRemove}
+        aria-label={`Remove ${label} filter`}
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </span>
   );
 }
 
@@ -2042,6 +2333,8 @@ function MachineDialog({
   const [isSaving, setIsSaving] = useState(false);
   const [selectedMachineManagerEmails, setSelectedMachineManagerEmails] = useState<string[]>([]);
   const [managerSearch, setManagerSearch] = useState('');
+  const [managerFlow, setManagerFlow] = useState<'closed' | 'assign' | 'invite'>('closed');
+  const [inviteEmail, setInviteEmail] = useState('');
   const [isAddingMachineManager, setIsAddingMachineManager] = useState(false);
   const [isSendingMachineManagerInvite, setIsSendingMachineManagerInvite] = useState(false);
   const [isSavingMachineManagers, setIsSavingMachineManagers] = useState(false);
@@ -2075,6 +2368,7 @@ function MachineDialog({
       !isLocalDemoMode &&
       open &&
       Boolean(form.machineId) &&
+      managerFlow === 'assign' &&
       normalizedManagerSearch.length >= 3,
     staleTime: 1000 * 30,
   });
@@ -2123,8 +2417,13 @@ function MachineDialog({
       return null;
     }
 
-    if (refundIntakeEnabled && selectedMachineManagerEmails.length < 1) {
-      toast.error('Assign at least one Machine Manager before enabling transaction matching.');
+    if (!emailListsEqual(selectedMachineManagerEmails, savedMachineManagerEmails)) {
+      toast.error('Save or cancel the pending Machine Manager changes before saving refund setup.');
+      return null;
+    }
+
+    if (refundIntakeEnabled && savedMachineManagerEmails.length < 1) {
+      toast.error('Save at least one Machine Manager before enabling transaction matching.');
       return null;
     }
 
@@ -2221,6 +2520,8 @@ function MachineDialog({
       setMachineManagerSaveState('idle');
     }
     setManagerSearch('');
+    setInviteEmail('');
+    setManagerFlow('closed');
   }, [form.machineId, open, savedMachineManagerEmails, selectedMachineManagerEmails]);
 
   useEffect(() => {
@@ -2240,8 +2541,11 @@ function MachineDialog({
     refundManagerSetup?.nayaxAccountKey,
   ]);
 
-  const saveMachine = async () => {
-    if (canEditMachineIdentity && !form.machineLabel.trim()) {
+  const saveMachine = async (scope: 'all' | 'identity' | 'refund' = 'all') => {
+    const shouldSaveIdentity = scope !== 'refund' && canEditMachineIdentity;
+    const shouldSaveRefunds = scope !== 'identity' && Boolean(form.machineId);
+
+    if (shouldSaveIdentity && !form.machineLabel.trim()) {
       toast.error('Machine label is required.');
       return;
     }
@@ -2259,24 +2563,24 @@ function MachineDialog({
             normalizeComparableText(candidate.sunze_machine_id ?? '') === normalizeComparableText(sunzeMachineId)
         )
       : null;
-    if (canEditMachineIdentity && duplicateSunze) {
+    if (shouldSaveIdentity && duplicateSunze) {
       toast.error('This external machine ID is already assigned to another machine.');
       return;
     }
 
-    const refundReadinessDraft = form.machineId ? buildRefundReadinessDraft() : null;
-    if (form.machineId && !refundReadinessDraft) {
+    const refundReadinessDraft = shouldSaveRefunds ? buildRefundReadinessDraft() : null;
+    if (shouldSaveRefunds && !refundReadinessDraft) {
       return;
     }
 
     setIsSaving(true);
     try {
       if (isLocalDemoMode) {
-        if (refundReadinessDraft && refundReadinessHasChanges) {
+        if (shouldSaveRefunds && refundReadinessDraft && refundReadinessHasChanges) {
           await persistRefundReadinessDraft(refundReadinessDraft);
         }
         toast.success(
-          refundReadinessHasChanges
+          shouldSaveRefunds && refundReadinessHasChanges
             ? 'Demo mode saved this refund setup in the browser only.'
             : 'Demo mode is visual only for machine identity changes.'
         );
@@ -2284,35 +2588,39 @@ function MachineDialog({
         return;
       }
 
-      if (!canEditMachineIdentity) {
-        if (refundReadinessDraft && refundReadinessHasChanges) {
+      if (!shouldSaveIdentity) {
+        if (shouldSaveRefunds && refundReadinessDraft && refundReadinessHasChanges) {
           await persistRefundReadinessDraft(refundReadinessDraft);
           toast.success('Refund setup saved.');
           await onSaved();
         } else {
-          toast.info('No machine setup changes to save.');
+          toast.info('No refund setup changes to save.');
         }
         if (mode === 'sheet') onOpenChange(false);
         return;
       }
 
-      await upsertReportingMachineAdmin({
-        ...form,
-        accountName,
-        locationName,
-        machineLabel,
-        sunzeMachineId: sunzeMachineId || null,
-        reason: form.machineId ? 'Reporting machine identity updated' : 'Reporting machine created',
-      });
-      if (refundReadinessDraft && refundReadinessHasChanges) {
+      if (shouldSaveIdentity) {
+        await upsertReportingMachineAdmin({
+          ...form,
+          accountName,
+          locationName,
+          machineLabel,
+          sunzeMachineId: sunzeMachineId || null,
+          reason: form.machineId ? 'Reporting machine identity updated' : 'Reporting machine created',
+        });
+      }
+      if (shouldSaveRefunds && refundReadinessDraft && refundReadinessHasChanges) {
         await persistRefundReadinessDraft(refundReadinessDraft);
       }
       toast.success(
-        form.machineId
-          ? refundReadinessHasChanges
-            ? 'Machine and refund setup saved.'
-            : 'Machine updated.'
-          : 'Machine created.'
+        scope === 'refund'
+          ? 'Refund setup saved.'
+          : form.machineId
+            ? scope === 'all' && refundReadinessHasChanges
+              ? 'Machine and refund setup saved.'
+              : 'Machine updated.'
+            : 'Machine created.'
       );
       if (mode === 'sheet') onOpenChange(false);
       await onSaved();
@@ -2487,6 +2795,8 @@ function MachineDialog({
       );
       toast.success('Machine Manager invite sent. Assign this person after they sign in.');
       setManagerSearch('');
+      setInviteEmail('');
+      setManagerFlow('closed');
       await queryClient.invalidateQueries({ queryKey: ['access-invite-deliveries'] });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to send Machine Manager invite.');
@@ -2504,6 +2814,69 @@ function MachineDialog({
   const machineManagerHasChanges =
     selectedMachineManagerEmails.join('|') !== savedMachineManagerEmails.join('|');
 
+  const machineIdentityHasChanges = Boolean(machine) && (
+    form.machineLabel.trim() !== machine.machine_label ||
+    form.accountName.trim() !== (machine.account_name || hiddenManualMachineAccountName) ||
+    form.machineType !== machine.machine_type ||
+    form.sunzeMachineId.trim() !== (machine.sunze_machine_id ?? '')
+  );
+
+  const hasUnsavedChanges = machineManagerHasChanges || refundReadinessHasChanges || machineIdentityHasChanges;
+
+  const cancelMachineIdentityChanges = useCallback(() => {
+    if (!machine) return;
+    setForm({
+      machineId: machine.id,
+      accountName: machine.account_name || hiddenManualMachineAccountName,
+      locationName: machine.location_name,
+      machineLabel: machine.machine_label,
+      machineType: machine.machine_type,
+      sunzeMachineId: machine.sunze_machine_id ?? '',
+    });
+  }, [machine]);
+
+  const cancelMachineManagerChanges = useCallback(() => {
+    setSelectedMachineManagerEmails(savedMachineManagerEmails);
+    setManagerSearch('');
+    setInviteEmail('');
+    setManagerFlow('closed');
+    setMachineManagerSaveState('idle');
+  }, [savedMachineManagerEmails]);
+
+  const cancelRefundReadinessChanges = useCallback(() => {
+    setRefundIntakeEnabled(refundManagerSetup?.refundIntakeEnabled ?? false);
+    setRefundPublicDisplayLabel(refundManagerSetup?.refundPublicDisplayLabel ?? '');
+    setNayaxMachineId(refundManagerSetup?.nayaxMachineId ?? '');
+    setNayaxAccountKey(refundManagerSetup?.nayaxAccountKey ?? 'TGPACI_USA_DB');
+    setRefundReadinessSaveState('idle');
+  }, [refundManagerSetup]);
+
+  const discardAllPendingChanges = useCallback(() => {
+    cancelMachineIdentityChanges();
+    cancelMachineManagerChanges();
+    cancelRefundReadinessChanges();
+  }, [cancelMachineIdentityChanges, cancelMachineManagerChanges, cancelRefundReadinessChanges]);
+
+  const confirmDiscardPendingChanges = () =>
+    !hasUnsavedChanges || window.confirm('Discard the unsaved changes on this machine?');
+
+  const requestTabChange = (nextTab: MachineDetailTab) => {
+    if (nextTab === activeTab) return;
+    if (!confirmDiscardPendingChanges()) return;
+    discardAllPendingChanges();
+    onTabChange?.(nextTab);
+  };
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [hasUnsavedChanges]);
+
   const saveMachineManagers = async () => {
     await persistMachineManagerEmails(selectedMachineManagerEmails, 'Machine Managers saved.');
   };
@@ -2511,7 +2884,7 @@ function MachineDialog({
   const machineManagerCount = selectedMachineManagerEmails.length;
   const isSavingMachineChanges = isSaving || isSavingRefundReadiness || isActivatingCardRefunds;
   const refundReadinessBlocks = [
-    machineManagerCount > 0 ? null : 'Assign at least one Machine Manager.',
+    savedMachineManagerEmails.length > 0 ? null : 'Assign and save at least one Machine Manager.',
     nayaxMachineId.trim() ? null : 'Add the Nayax machine ID for card lookup.',
   ].filter(Boolean) as string[];
   const activateCardRefunds = async () => {
@@ -2558,6 +2931,9 @@ function MachineDialog({
       <div className="mx-auto max-w-6xl pb-12">
         <Link
           to={backHref}
+          onClick={(event) => {
+            if (!confirmDiscardPendingChanges()) event.preventDefault();
+          }}
           className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" /> Back to machines
@@ -2582,6 +2958,13 @@ function MachineDialog({
                 <div>
                   <div className="font-medium">{primaryAttention.label}</div>
                   <div className="mt-0.5 text-xs text-amber-900/80">{primaryAttention.nextStep}</div>
+                  {(machineRow?.attentionReasons.length ?? 0) > 1 && (
+                    <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-amber-900/80">
+                      {machineRow?.attentionReasons.slice(1).map((reason) => (
+                        <li key={reason.code}>{reason.label} — {reason.nextStep}</li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </div>
             </div>
@@ -2592,15 +2975,14 @@ function MachineDialog({
           )}
         </div>
 
-        <div className="mt-6 overflow-x-auto border-b border-border" role="tablist" aria-label="Machine setup sections">
+        <nav className="mt-6 overflow-x-auto border-b border-border" aria-label="Machine setup sections">
           <div className="flex min-w-max gap-5">
             {detailTabs.map((tab) => (
               <button
                 key={tab.value}
                 type="button"
-                role="tab"
-                aria-selected={activeTab === tab.value}
-                onClick={() => onTabChange?.(tab.value)}
+                aria-current={activeTab === tab.value ? 'page' : undefined}
+                onClick={() => requestTabChange(tab.value)}
                 className={cn(
                   'border-b-2 px-1 pb-3 text-sm font-medium transition-colors',
                   activeTab === tab.value
@@ -2613,7 +2995,7 @@ function MachineDialog({
               </button>
             ))}
           </div>
-        </div>
+        </nav>
 
         {activeTab === 'overview' && (
           <section className="mt-6" aria-labelledby="machine-overview-title">
@@ -2621,50 +3003,44 @@ function MachineDialog({
               <h2 id="machine-overview-title" className="text-lg font-semibold text-foreground">Machine details</h2>
               <p className="mt-1 text-sm text-muted-foreground">The identity people use across reporting and support.</p>
             </div>
-            <div className="grid max-w-3xl gap-4 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="page-machine-label">Machine label</Label>
-                <Input
-                  id="page-machine-label"
-                  value={form.machineLabel}
-                  onChange={(event) => setForm({ ...form, machineLabel: event.target.value })}
-                  disabled={!canEditMachineIdentity}
-                />
-              </div>
-              <div>
-                <Label htmlFor="page-machine-account">Reporting account</Label>
-                <Input
-                  id="page-machine-account"
-                  value={form.accountName}
-                  onChange={(event) => setForm({ ...form, accountName: event.target.value })}
-                  disabled={!canEditMachineIdentity}
-                />
-              </div>
-              <div>
-                <Label htmlFor="page-machine-type">Machine type</Label>
-                <select
-                  id="page-machine-type"
-                  value={form.machineType}
-                  onChange={(event) => setForm({ ...form, machineType: event.target.value as ReportingMachineType })}
-                  disabled={!canEditMachineIdentity}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  {machineTypes.map((machineType) => (
-                    <option key={machineType} value={machineType}>{formatLabel(machineType)}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <Label htmlFor="page-machine-location">Location</Label>
-                <Input id="page-machine-location" value={machine.location_name || 'Not set'} readOnly />
-              </div>
-            </div>
-            <div className="mt-6 flex justify-end border-t border-border pt-4">
-              <Button onClick={saveMachine} disabled={isSavingMachineChanges || !canEditMachineIdentity || isLocalDemoMode}>
-                {isSavingMachineChanges && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Save machine details
-              </Button>
-            </div>
+            {canEditMachineIdentity ? (
+              <>
+                <div className="grid max-w-3xl gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="page-machine-label">Machine label</Label>
+                    <Input id="page-machine-label" value={form.machineLabel} onChange={(event) => setForm({ ...form, machineLabel: event.target.value })} />
+                  </div>
+                  <div>
+                    <Label htmlFor="page-machine-account">Reporting account</Label>
+                    <Input id="page-machine-account" value={form.accountName} onChange={(event) => setForm({ ...form, accountName: event.target.value })} />
+                  </div>
+                  <div>
+                    <Label htmlFor="page-machine-type">Machine type</Label>
+                    <select id="page-machine-type" value={form.machineType} onChange={(event) => setForm({ ...form, machineType: event.target.value as ReportingMachineType })} className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm">
+                      {machineTypes.map((machineType) => <option key={machineType} value={machineType}>{formatLabel(machineType)}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <Label htmlFor="page-machine-location">Location</Label>
+                    <Input id="page-machine-location" value={machine.location_name || 'Not set'} readOnly />
+                  </div>
+                </div>
+                <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-border pt-4">
+                  <Button variant="outline" onClick={cancelMachineIdentityChanges} disabled={!machineIdentityHasChanges || isSavingMachineChanges}>Cancel</Button>
+                  <Button onClick={() => void saveMachine('identity')} disabled={isSavingMachineChanges || !machineIdentityHasChanges || isLocalDemoMode}>
+                    {isSavingMachineChanges && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Save changes
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <dl className="max-w-3xl divide-y divide-border rounded-md border border-border text-sm">
+                <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine label</dt><dd className="text-right font-medium">{machine.machine_label}</dd></div>
+                <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Reporting account</dt><dd className="text-right font-medium">{machine.account_name || 'Not set'}</dd></div>
+                <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine type</dt><dd className="font-medium">{formatLabel(machine.machine_type)}</dd></div>
+                <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Location</dt><dd className="text-right font-medium">{machine.location_name || 'Not set'}</dd></div>
+              </dl>
+            )}
           </section>
         )}
 
@@ -2680,76 +3056,77 @@ function MachineDialog({
               <Badge variant="outline">{machineManagerCount} of 4 assigned</Badge>
             </div>
 
-            <div className="mt-5 rounded-md border border-border p-3">
+            <div className="mt-5 rounded-md border border-border p-4">
               {selectedMachineManagerEmails.length > 0 ? (
-                <div className="mb-3 flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2">
                   {selectedMachineManagerEmails.map((email) => (
-                    <span key={email} className="inline-flex min-h-8 max-w-full items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
+                    <span key={email} className="inline-flex min-h-11 max-w-full items-center gap-1 rounded-full bg-primary/10 pl-3 text-sm font-medium text-primary">
                       <span className="truncate">{email}</span>
-                      <button type="button" onClick={() => removeMachineManagerEmail(email)} aria-label={`Remove ${email}`}>
-                        <X className="h-3.5 w-3.5" />
+                      <button type="button" className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => removeMachineManagerEmail(email)} aria-label={`Remove ${email}`}>
+                        <X className="h-4 w-4" />
                       </button>
                     </span>
                   ))}
                 </div>
               ) : (
-                <p className="mb-3 text-sm text-muted-foreground">No Machine Managers assigned.</p>
+                <p className="text-sm text-muted-foreground">No Machine Managers assigned.</p>
               )}
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <div className="relative flex-1">
-                  <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    value={managerSearch}
-                    onChange={(event) => setManagerSearch(event.target.value)}
-                    placeholder="Search or enter an email"
-                    className="pl-9"
-                    aria-label="Search Machine Managers"
-                    disabled={machineManagerCount >= 4 || isAddingMachineManager || isSavingMachineManagers}
-                  />
+              {managerFlow === 'closed' && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={() => setManagerFlow('assign')} disabled={machineManagerCount >= 4}>
+                    <Plus className="mr-2 h-4 w-4" /> Add manager
+                  </Button>
+                  <Button variant="ghost" onClick={() => setManagerFlow('invite')}>
+                    <Send className="mr-2 h-4 w-4" /> Invite person
+                  </Button>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void addMachineManagerEmail(managerSearch)}
-                  disabled={!managerSearch.trim() || machineManagerCount >= 4 || isAddingMachineManager}
-                >
-                  {isAddingMachineManager ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-                  Add
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void sendMachineManagerSignupInvite(managerSearch)}
-                  disabled={!emailPattern.test(normalizedManagerSearch) || isSendingMachineManagerInvite}
-                >
-                  {isSendingMachineManagerInvite ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-                  Send invite
-                </Button>
-              </div>
-              {managerSearch.trim().length >= 3 && visibleManagerSuggestions.length > 0 && (
-                <div className="mt-2 divide-y divide-border rounded-md border border-border">
-                  {visibleManagerSuggestions.map((account) => {
-                    const email = normalizeEmail(account.customer_email ?? '');
-                    return (
-                      <button
-                        key={account.user_id}
-                        type="button"
-                        className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted/30"
-                        onClick={() => void addMachineManagerEmail(email, { verifyAuthUser: false })}
-                      >
-                        {email}<Plus className="h-4 w-4 text-muted-foreground" />
-                      </button>
-                    );
-                  })}
+              )}
+              {managerFlow === 'assign' && (
+                <div className="mt-4 rounded-md bg-muted/20 p-3">
+                  <Label htmlFor="manager-account-search">Find an existing Bloomjoy account</Label>
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                    <div className="relative flex-1">
+                      <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
+                      <Input id="manager-account-search" value={managerSearch} onChange={(event) => setManagerSearch(event.target.value)} placeholder="Search by email" className="h-11 pl-9" disabled={machineManagerCount >= 4 || isAddingMachineManager || isSavingMachineManagers} />
+                    </div>
+                    <Button type="button" variant="outline" onClick={() => void addMachineManagerEmail(managerSearch)} disabled={!managerSearch.trim() || machineManagerCount >= 4 || isAddingMachineManager}>
+                      {isAddingMachineManager ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />} Add
+                    </Button>
+                    <Button type="button" variant="ghost" onClick={() => { setManagerSearch(''); setManagerFlow('closed'); }}>Close</Button>
+                  </div>
+                  <div className="sr-only" aria-live="polite">{isSearchingMachineManagers ? 'Searching accounts' : managerSearch.trim().length >= 3 ? `${visibleManagerSuggestions.length} matching accounts` : ''}</div>
+                  {managerSearch.trim().length >= 3 && visibleManagerSuggestions.length > 0 && (
+                    <ul className="mt-2 divide-y divide-border rounded-md border border-border bg-background" aria-label="Matching Bloomjoy accounts">
+                      {visibleManagerSuggestions.map((account) => {
+                        const email = normalizeEmail(account.customer_email ?? '');
+                        return <li key={account.user_id}><button type="button" className="flex min-h-11 w-full items-center justify-between px-3 text-left text-sm hover:bg-muted/30" onClick={() => void addMachineManagerEmail(email, { verifyAuthUser: false })}>{email}<Plus className="h-4 w-4 text-muted-foreground" /></button></li>;
+                      })}
+                    </ul>
+                  )}
+                </div>
+              )}
+              {managerFlow === 'invite' && (
+                <div className="mt-4 rounded-md bg-muted/20 p-3">
+                  <Label htmlFor="manager-invite-email">Invite a new person</Label>
+                  <p className="mt-1 text-xs text-muted-foreground">An invitation does not grant machine access. Assign the person after they sign in.</p>
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                    <Input id="manager-invite-email" type="email" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="person@example.com" className="h-11 flex-1" />
+                    <Button type="button" variant="outline" onClick={() => void sendMachineManagerSignupInvite(inviteEmail)} disabled={!emailPattern.test(normalizeEmail(inviteEmail)) || isSendingMachineManagerInvite}>
+                      {isSendingMachineManagerInvite ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} Send invite
+                    </Button>
+                    <Button type="button" variant="ghost" onClick={() => { setInviteEmail(''); setManagerFlow('closed'); }}>Close</Button>
+                  </div>
                 </div>
               )}
             </div>
-            <div className="mt-5 flex items-center justify-between gap-3 border-t border-border pt-4">
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
               <p className="text-xs text-muted-foreground">Changes take effect only after you save.</p>
-              <Button onClick={() => void saveMachineManagers()} disabled={!machineManagerHasChanges || isSavingMachineManagers}>
-                {isSavingMachineManagers && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Save Machine Managers
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={cancelMachineManagerChanges} disabled={!machineManagerHasChanges || isSavingMachineManagers}>Cancel</Button>
+                <Button onClick={() => void saveMachineManagers()} disabled={!machineManagerHasChanges || isSavingMachineManagers}>
+                  {isSavingMachineManagers && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save managers
+                </Button>
+              </div>
             </div>
           </section>
         )}
@@ -2771,9 +3148,15 @@ function MachineDialog({
             <dl className="mt-5 divide-y divide-border rounded-md border border-border text-sm">
               <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Customer requests</dt><dd className="font-medium">{refundManagerSetup?.customerIntakeAccepting ? 'Accepting' : 'Unavailable'}</dd></div>
               <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Transaction lookup</dt><dd className="font-medium">{refundManagerSetup?.transactionLookupReady ? 'Ready' : 'Setup needed'}</dd></div>
-              <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine Managers</dt><dd className="font-medium">{machineManagerCount} assigned</dd></div>
+              <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine Managers</dt><dd className="font-medium">{savedMachineManagerEmails.length} saved</dd></div>
               <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Card refunds</dt><dd className="font-medium">{cardRefundStatus}</dd></div>
+              <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Per-refund limit</dt><dd className="font-medium">{refundManagerSetup?.nayaxRefundMaxAmountCents ? formatCents(refundManagerSetup.nayaxRefundMaxAmountCents) : 'Not set'}</dd></div>
             </dl>
+            {machineManagerHasChanges && (
+              <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                Save or cancel the pending Machine Manager changes before saving refund setup.
+              </div>
+            )}
             {refundReadinessBlocks.length > 0 && (
               <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                 <div className="font-medium">Setup needed</div>
@@ -2789,6 +3172,11 @@ function MachineDialog({
                 <Label htmlFor="page-nayax-id">Nayax machine ID</Label>
                 <Input id="page-nayax-id" value={nayaxMachineId} onChange={(event) => setNayaxMachineId(event.target.value)} placeholder="Required for transaction lookup" />
               </div>
+              <div className="sm:col-span-2">
+                <Label htmlFor="page-nayax-account">Nayax account key</Label>
+                <Input id="page-nayax-account" value={nayaxAccountKey} onChange={(event) => setNayaxAccountKey(event.target.value)} placeholder="Account used for transaction lookup" />
+                <p className="mt-1 text-xs text-muted-foreground">Internal provider routing detail. Confirm it against the reviewed Nayax mapping.</p>
+              </div>
               <div className="flex items-start justify-between gap-4 rounded-md border border-border px-4 py-3 sm:col-span-2">
                 <div><Label htmlFor="page-refund-intake">Transaction matching</Label><p className="mt-1 text-xs text-muted-foreground">Allow managers to match requests to Nayax transactions.</p></div>
                 <Switch id="page-refund-intake" checked={refundIntakeEnabled} onCheckedChange={setRefundIntakeEnabled} />
@@ -2798,7 +3186,8 @@ function MachineDialog({
               {canActivateCardRefunds && refundManagerSetup?.activationEligible && !refundManagerSetup.nayaxRefundsEnabled && (
                 <Button variant="outline" onClick={() => void activateCardRefunds()} disabled={isSavingMachineChanges}>Activate card refunds</Button>
               )}
-              <Button onClick={saveMachine} disabled={isSavingMachineChanges}>
+              <Button variant="outline" onClick={cancelRefundReadinessChanges} disabled={isSavingMachineChanges || !refundReadinessHasChanges}>Cancel</Button>
+              <Button onClick={() => void saveMachine('refund')} disabled={isSavingMachineChanges || !refundReadinessHasChanges || machineManagerHasChanges}>
                 {isSavingMachineChanges && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save refund setup
               </Button>
             </div>
@@ -2814,23 +3203,41 @@ function MachineDialog({
               <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Tax treatment</dt><dd className="font-medium">{machineRow ? getTaxStatusLabel(machineRow.taxStatus) : 'Not set'}</dd></div>
               <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Current rate</dt><dd className="font-medium">{machineRow?.taxRate ? `${Number(machineRow.taxRate.tax_rate_percent).toFixed(2)}%` : 'None'}</dd></div>
             </dl>
+            {machineRow?.attentionReasons.some((reason) => reason.tab === 'reporting') && (
+              <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                <div className="font-medium">Reporting needs attention</div>
+                <ul className="mt-1 list-disc pl-5">
+                  {machineRow.attentionReasons.filter((reason) => reason.tab === 'reporting').map((reason) => <li key={reason.code}>{reason.label} — {reason.nextStep}</li>)}
+                </ul>
+              </div>
+            )}
             <div className="mt-5 flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => onOpenTaxChange?.(machine, machineRow?.taxRate)}><CalendarClock className="mr-2 h-4 w-4" /> Record rate change</Button>
-              <Button variant="outline" onClick={() => onShowTaxHistory?.(machine)} disabled={taxHistoryCount === 0}><History className="mr-2 h-4 w-4" /> Rate history ({taxHistoryCount})</Button>
-              <Button variant="ghost" asChild><Link to="/admin/partnerships">Manage partnerships <ChevronRight className="ml-1.5 h-4 w-4" /></Link></Button>
+              {canEditMachineIdentity && (
+                <>
+                  <Button variant="outline" onClick={() => onOpenTaxChange?.(machine, machineRow?.taxRate)}><CalendarClock className="mr-2 h-4 w-4" /> {machineRow?.taxRate ? 'Change tax rate' : 'Set tax rate'}</Button>
+                  <Button variant="outline" onClick={() => onShowTaxHistory?.(machine)} disabled={taxHistoryCount === 0}><History className="mr-2 h-4 w-4" /> Rate history ({taxHistoryCount})</Button>
+                </>
+              )}
+              {canEditMachineIdentity ? (
+                <Button variant="ghost" asChild><Link to="/admin/partnerships">Manage partnerships <ChevronRight className="ml-1.5 h-4 w-4" /></Link></Button>
+              ) : (
+                <p className="self-center text-xs text-muted-foreground">Partnership and tax changes are managed by a Super Admin.</p>
+              )}
             </div>
           </section>
         )}
 
         {activeTab === 'activity' && (
           <section className="mt-6 max-w-3xl" aria-labelledby="machine-activity-title">
-            <h2 id="machine-activity-title" className="text-lg font-semibold text-foreground">Activity</h2>
-            <p className="mt-1 text-sm text-muted-foreground">A concise operational record for this machine.</p>
+            <h2 id="machine-activity-title" className="text-lg font-semibold text-foreground">Activity and audit</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Recent operating context and the machine’s broader configuration history.</p>
             <div className="mt-5 divide-y divide-border rounded-md border border-border">
               <div className="flex gap-3 px-4 py-4"><Activity className="mt-0.5 h-4 w-4 text-muted-foreground" /><div><div className="text-sm font-medium">Latest sale</div><div className="mt-0.5 text-sm text-muted-foreground">{machine.latest_sale_date ? formatDate(machine.latest_sale_date) : 'No sales recorded yet'}</div></div></div>
               <div className="flex gap-3 px-4 py-4"><ServerCog className="mt-0.5 h-4 w-4 text-muted-foreground" /><div><div className="text-sm font-medium">Machine status</div><div className="mt-0.5 text-sm text-muted-foreground">{formatLabel(machine.status || 'unknown')}</div></div></div>
               <div className="flex gap-3 px-4 py-4"><Users className="mt-0.5 h-4 w-4 text-muted-foreground" /><div><div className="text-sm font-medium">Manager coverage</div><div className="mt-0.5 text-sm text-muted-foreground">{machineManagerCount} assigned</div></div></div>
+              <div className="flex gap-3 px-4 py-4"><CalendarClock className="mt-0.5 h-4 w-4 text-muted-foreground" /><div><div className="text-sm font-medium">Reporting tax</div><div className="mt-0.5 text-sm text-muted-foreground">{machineRow?.taxRate ? `${Number(machineRow.taxRate.tax_rate_percent).toFixed(2)}% effective ${formatDate(machineRow.taxRate.effective_start_date)}` : 'No rate recorded'}</div></div></div>
             </div>
+            <Button variant="outline" asChild className="mt-4"><Link to={`/admin/audit?search=${encodeURIComponent(machine.id)}`}><History className="mr-2 h-4 w-4" /> View full audit history</Link></Button>
           </section>
         )}
       </div>
@@ -3272,7 +3679,7 @@ function MachineDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={saveMachine} disabled={isSavingMachineChanges || isLocalDemoMode}>
+          <Button onClick={() => void saveMachine('all')} disabled={isSavingMachineChanges || isLocalDemoMode}>
             {isSavingMachineChanges ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (

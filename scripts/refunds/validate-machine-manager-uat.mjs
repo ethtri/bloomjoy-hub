@@ -18,6 +18,7 @@ const parseArgs = (argv) => {
   const args = {
     appUrl: process.env.MACHINE_MANAGER_UAT_APP_URL || DEFAULT_APP_URL,
     artifactDir: process.env.MACHINE_MANAGER_UAT_ARTIFACT_DIR || DEFAULT_ARTIFACT_DIR,
+    responsiveDir: process.env.MACHINE_MANAGER_UAT_RESPONSIVE_DIR || null,
     headed: false,
   };
 
@@ -48,11 +49,23 @@ const parseArgs = (argv) => {
 
     if (arg.startsWith('--artifact-dir=')) {
       args.artifactDir = arg.slice('--artifact-dir='.length) || args.artifactDir;
+      continue;
+    }
+
+    if (arg === '--responsive-dir') {
+      args.responsiveDir = argv[index + 1] || args.responsiveDir;
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith('--responsive-dir=')) {
+      args.responsiveDir = arg.slice('--responsive-dir='.length) || args.responsiveDir;
     }
   }
 
   args.appUrl = args.appUrl.replace(/\/+$/, '');
   args.artifactDir = path.resolve(process.cwd(), args.artifactDir);
+  args.responsiveDir = args.responsiveDir ? path.resolve(process.cwd(), args.responsiveDir) : null;
   return args;
 };
 
@@ -608,15 +621,26 @@ const run = async () => {
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({
-      path: path.join(args.artifactDir, 'admin-machines-workspace-desktop.png'),
+      path: path.join(args.artifactDir, 'machine-refunds-setup-needed-desktop.png'),
       fullPage: true,
     });
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({
-      path: path.join(args.artifactDir, 'admin-machines-workspace-mobile.png'),
-      fullPage: true,
-    });
-    await page.setViewportSize({ width: 1440, height: 1000 });
+    if (args.responsiveDir) {
+      await mkdir(args.responsiveDir, { recursive: true });
+      for (const viewport of [
+        { width: 360, height: 800 },
+        { width: 390, height: 844 },
+        { width: 414, height: 896 },
+        { width: 1024, height: 768 },
+        { width: 1440, height: 900 },
+      ]) {
+        await page.setViewportSize(viewport);
+        await page.screenshot({
+          path: path.join(args.responsiveDir, `admin-machines-${viewport.width}x${viewport.height}.png`),
+          fullPage: true,
+        });
+      }
+      await page.setViewportSize({ width: 1440, height: 1000 });
+    }
 
     recorder.assert('Super admin lands on Admin > Machines', pathname(page) === '/admin/machines', page.url());
     recorder.assert(
@@ -633,20 +657,21 @@ const run = async () => {
     await page.getByRole('heading', { name: 'Inventory review' }).waitFor({ timeout: 10000 });
     recorder.assert(
       'Nayax setup defaults to the exceptions-first review view',
-      await page.getByRole('tab', { name: /Needs review/ }).getAttribute('aria-selected') === 'true'
+      await page.getByRole('button', { name: /Needs review/ }).getAttribute('aria-current') === 'page'
     );
-    await page.screenshot({
-      path: path.join(args.artifactDir, 'admin-machines-nayax-setup-desktop.png'),
-      fullPage: true,
-    });
     await page.getByRole('main').getByRole('link', { name: 'Machines', exact: true }).click();
     await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10000 });
 
     await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Manage' }).click();
     await page.getByRole('heading', { name: 'Cotton Candy 01' }).waitFor({ timeout: 10000 });
-    await page.getByRole('tab', { name: /Managers/ }).click();
+    recorder.assert(
+      'Manage opens the task named by the primary attention reason',
+      await page.getByRole('heading', { name: 'Customer refunds' }).isVisible()
+    );
+    await page.getByRole('button', { name: /Managers/ }).click();
     await page.getByRole('heading', { name: 'Machine Managers' }).waitFor({ timeout: 10000 });
     const machineDialog = page.locator('main');
+    await machineDialog.getByText(firstManagerEmail).waitFor({ timeout: 10000 });
 
     recorder.assert(
       'Machine Manager setup opens as a focused task tab',
@@ -665,7 +690,8 @@ const run = async () => {
       await machineDialog.getByText('1 of 4 assigned').isVisible()
     );
 
-    await page.getByLabel('Search Machine Managers').fill(invitedManagerEmail);
+    await machineDialog.getByRole('button', { name: 'Invite person' }).click();
+    await page.getByLabel('Invite a new person').fill(invitedManagerEmail);
     await machineDialog.getByRole('button', { name: 'Send invite' }).click();
     await waitForCondition(
       () => state.accessInviteBodies.length > 0,
@@ -685,7 +711,8 @@ const run = async () => {
       state.savePayload === null && !state.managerEmails.includes(invitedManagerEmail),
       JSON.stringify({ savePayload: state.savePayload, managerEmails: state.managerEmails })
     );
-    await page.getByLabel('Search Machine Managers').fill('manager-two');
+    await machineDialog.getByRole('button', { name: 'Add manager' }).click();
+    await page.getByLabel('Find an existing Bloomjoy account').fill('manager-two');
     await page.getByRole('button', { name: new RegExp(secondManagerEmail, 'i') }).click();
 
     recorder.assert(
@@ -695,10 +722,17 @@ const run = async () => {
     recorder.assert(
       'Machine Manager changes remain pending until explicit save',
       state.savePayload === null
-        && await page.getByRole('button', { name: 'Save Machine Managers' }).isEnabled()
+        && await page.getByRole('button', { name: 'Save managers' }).isEnabled()
     );
 
-    await page.getByRole('button', { name: 'Save Machine Managers' }).click();
+    page.once('dialog', (dialog) => dialog.dismiss());
+    await page.getByRole('button', { name: 'Refunds', exact: true }).click();
+    recorder.assert(
+      'Unsaved Machine Manager changes cannot be lost by changing tasks',
+      await page.getByRole('heading', { name: 'Machine Managers' }).isVisible()
+    );
+
+    await page.getByRole('button', { name: 'Save managers' }).click();
     await page.getByText('Machine Managers saved.').waitFor({ timeout: 10000 });
 
     recorder.assert(
@@ -718,9 +752,10 @@ const run = async () => {
       ['manager-three', thirdManagerEmail],
       ['manager-four', fourthManagerEmail],
     ]) {
-      await page.getByLabel('Search Machine Managers').fill(search);
+      await machineDialog.getByRole('button', { name: 'Add manager' }).click();
+      await page.getByLabel('Find an existing Bloomjoy account').fill(search);
       await machineDialog.locator('button', { hasText: email }).click();
-      await page.getByRole('button', { name: 'Save Machine Managers' }).click();
+      await page.getByRole('button', { name: 'Save managers' }).click();
       await waitForCondition(
         () => state.managerEmails.includes(email),
         `explicit Machine Manager save for ${email}`
@@ -738,11 +773,10 @@ const run = async () => {
     );
     recorder.assert(
       'A fifth Machine Manager cannot be entered after the four-manager cap',
-      await machineDialog.getByLabel('Search Machine Managers').isDisabled() &&
-        await machineDialog.getByRole('button', { name: 'Add', exact: true }).isDisabled()
+      await machineDialog.getByRole('button', { name: 'Add manager' }).isDisabled()
     );
 
-    await page.getByRole('tab', { name: 'Refunds' }).click();
+    await page.getByRole('button', { name: 'Refunds', exact: true }).click();
     await page.getByRole('heading', { name: 'Customer refunds' }).waitFor({ timeout: 10000 });
     recorder.assert(
       'Customer refunds are managed in a focused task tab',
@@ -757,11 +791,11 @@ const run = async () => {
       (await machineDialog.getByRole('button', { name: 'Save refund setup' }).count()) === 1
     );
     await machineDialog.getByRole('button', { name: 'Save refund setup' }).click();
-    await page.getByText('Machine and refund setup saved.').waitFor({ timeout: 10000 });
+    await page.getByText('Refund setup saved.').waitFor({ timeout: 10000 });
 
     recorder.assert(
-      'Machine save payload targets the edited machine',
-      state.machineSavePayload?.p_machine_id === machineId,
+      'Refund task does not mutate machine identity',
+      state.machineSavePayload === null,
       JSON.stringify(state.machineSavePayload)
     );
 
@@ -793,16 +827,20 @@ const run = async () => {
     );
 
     await machineRow.getByRole('button', { name: 'Manage' }).click();
-    await page.getByRole('tab', { name: /Managers/ }).click();
+    await page.getByRole('button', { name: /Managers/ }).click();
     await page.getByRole('heading', { name: 'Machine Managers' }).waitFor({ timeout: 10000 });
     const reopenedMachineDialog = page.locator('main');
+    await reopenedMachineDialog.getByText(secondManagerEmail).waitFor({ timeout: 10000 });
     recorder.assert(
       'Saved Machine Managers remain visible after close and reopen',
       await reopenedMachineDialog.getByText(secondManagerEmail).isVisible()
     );
-    await page.getByRole('tab', { name: 'Refunds' }).click();
+    await page.getByRole('button', { name: 'Refunds', exact: true }).click();
     await waitForCondition(
-      async () => (await reopenedMachineDialog.locator('#page-nayax-id').inputValue()) === 'NAYAX-UAT-001',
+      async () =>
+        (await reopenedMachineDialog.getByLabel('Transaction matching').isChecked()) &&
+        (await reopenedMachineDialog.locator('#page-refund-label').inputValue()) === 'Mall Atrium Cotton Candy' &&
+        (await reopenedMachineDialog.locator('#page-nayax-id').inputValue()) === 'NAYAX-UAT-001',
       'saved refund setup hydration'
     );
     recorder.assert(
@@ -838,7 +876,7 @@ const run = async () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('button', { name: 'Refresh' }).click();
     await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Manage' }).click();
-    await page.getByRole('tab', { name: 'Refunds' }).click();
+    await page.getByRole('button', { name: 'Refunds', exact: true }).click();
     const pausedMachineDialog = page.locator('main');
     await pausedMachineDialog.getByText('Paused for all machines', { exact: true }).waitFor({ timeout: 10000 });
     recorder.assert(
@@ -858,7 +896,7 @@ const run = async () => {
     state.refundSetup.readinessState = 'ready_to_activate';
     await page.getByRole('button', { name: 'Refresh' }).click();
     await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Manage' }).click();
-    await page.getByRole('tab', { name: 'Refunds' }).click();
+    await page.getByRole('button', { name: 'Refunds', exact: true }).click();
     const intentionallyPausedDialog = page.locator('main');
     await intentionallyPausedDialog.getByText(/Off — Paused by owner/i).waitFor({ timeout: 10000 });
     recorder.assert(
@@ -887,7 +925,7 @@ const run = async () => {
     await page.getByText('DEMO DATA - visual review only').waitFor({ timeout: 10000 });
     const demoBannerVisible = await page.getByText(/Machine Manager changes save in this browser only/i).isVisible();
     await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Manage' }).click();
-    await page.getByRole('tab', { name: /Managers/ }).click();
+    await page.getByRole('button', { name: /Managers/ }).click();
     await page.getByRole('heading', { name: 'Machine Managers' }).waitFor({ timeout: 10000 });
     const demoMachineDialog = page.locator('main');
 
@@ -896,9 +934,10 @@ const run = async () => {
       demoBannerVisible
     );
 
-    await page.getByLabel('Search Machine Managers').fill('operator-three');
+    await demoMachineDialog.getByRole('button', { name: 'Add manager' }).click();
+    await page.getByLabel('Find an existing Bloomjoy account').fill('operator-three');
     await page.getByRole('button', { name: /operator-three@example\.test/i }).click();
-    await demoMachineDialog.getByRole('button', { name: 'Save Machine Managers' }).click();
+    await demoMachineDialog.getByRole('button', { name: 'Save managers' }).click();
     await page.getByText(/Demo mode saved this assignment in the browser only/i).waitFor({ timeout: 10000 });
 
     recorder.assert(
@@ -917,10 +956,10 @@ const run = async () => {
         !state.rpcCalls.includes('admin_get_account_summaries'),
       state.rpcCalls.join(', ')
     );
-    await page.getByRole('tab', { name: 'Overview' }).click();
+    await page.getByRole('button', { name: 'Overview' }).click();
     recorder.assert(
       'Demo mode disables machine detail persistence',
-      await demoMachineDialog.getByRole('button', { name: 'Save machine details' }).isDisabled()
+      await demoMachineDialog.getByRole('button', { name: 'Save changes' }).isDisabled()
     );
 
     await page.screenshot({
