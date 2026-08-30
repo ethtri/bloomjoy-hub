@@ -1012,6 +1012,28 @@ const paymentInteractionLabel = (refundCase: RefundCaseRecord) => {
   }
 };
 
+const customerFactSourceLabel = (refundCase: RefundCaseRecord) => {
+  switch (refundCase.customerFactEvidence?.source) {
+    case 'verified_customer_email':
+      return 'verified customer email reply';
+    case 'secure_wallet_correction':
+      return 'secure wallet correction';
+    default:
+      return 'original customer submission';
+  }
+};
+
+const cardLast4ProvenanceLabel = (refundCase: RefundCaseRecord) => {
+  switch (refundCase.cardLast4Provenance) {
+    case 'physical_card':
+      return 'physical-card digits';
+    case 'wallet_device_token':
+      return 'wallet/device-token digits';
+    default:
+      return 'digit source not yet confirmed';
+  }
+};
+
 const incidentTimeConfidenceLabel = (refundCase: RefundCaseRecord) => {
   switch (refundCase.incidentTimeConfidence) {
     case 'exact':
@@ -4991,6 +5013,17 @@ export default function AdminRefundsPage() {
                   {paymentInteractionLabel(selectedCase)}
                 </Badge>
               </div>
+              {selectedCase.customerFactEvidence && (
+                <p
+                  data-testid="refund-customer-fact-evidence"
+                  className="mt-3 text-xs leading-5 text-muted-foreground"
+                >
+                  Customer facts from {customerFactSourceLabel(selectedCase)} ·{' '}
+                  {formatDate(selectedCase.customerFactEvidence.appliedAt)} ·{' '}
+                  {cardLast4ProvenanceLabel(selectedCase)} · fact version{' '}
+                  {selectedCase.customerFactEvidence.factVersion}
+                </p>
+              )}
               <p className="mt-3 text-sm font-medium text-foreground">{issueCategoryLabel(selectedCase)}</p>
               {selectedCase.productDescription && (
                 <p className="mt-1 text-sm text-muted-foreground">Product: {selectedCase.productDescription}</p>

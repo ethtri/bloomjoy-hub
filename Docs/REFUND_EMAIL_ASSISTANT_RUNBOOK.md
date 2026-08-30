@@ -91,7 +91,7 @@ Each lane is separately disabled. Enabling or disabling one does not silently en
 4. The first eligible customer message in a Gmail thread may claim one generic acknowledgement. It contains exactly one Bloomjoy hosted-form CTA, no Google Form CTA, a private one-time context, and no manager CC because the machine is not known yet. Replays and later replies do not create another acknowledgement.
 5. The hosted form uses that private context to create exactly one case and link the original Gmail thread. A replay creates no second case. If the context cannot be validated, the customer is asked to reply for help; attachments are disabled.
 6. The case is checked for required transaction facts and for a possible website/email duplicate.
-7. If facts are missing, an approved deterministic template asks only for those facts. Each follow-up cycle permits at most one request, one reminder, and one information-received confirmation, with at most two cycles per case. If safe content or routing cannot be determined, the case routes to a person; a human-reviewed draft still cannot send until the mapped-manager CC route passes.
+7. If facts are missing, an approved deterministic template asks only for those facts. A transaction-conflict correction uses labeled Card type, Payment interaction, Wallet provider, and physical-card last-four provenance lines so a verified reply can update the same structured case. Each follow-up cycle permits at most one request, one reminder, and one information-received confirmation, with at most two cycles per case. If safe content or routing cannot be determined, the case routes to a person; a human-reviewed draft still cannot send until the mapped-manager CC route passes.
 8. If wallet/device digits may be the problem, the existing short-lived secure wallet-correction flow is used. The customer is never asked to email a full card number or wallet screenshot.
 9. When a case is ready for transaction review, or is aging, duplicate-held, blocked by setup/mapping, delivery-held, no-match, or otherwise needs a person, the currently mapped Machine Managers receive one sanitized notice with the canonical `/refunds?case=<case-id>` link and the correct next action.
 10. Once required facts are ready, the service automatically runs the read-only deterministic Nayax lookup. A possible duplicate must be resolved as the same incident or different purchases before any official action. A material fact change triggers one rerun; unchanged replays do not.
@@ -110,10 +110,15 @@ The assistant and matcher may work only with the permitted fields:
 - payment method;
 - amount paid;
 - last four digits only when applicable;
+- last-four provenance (`physical_card` or `wallet_device_token`) when the origin is explicitly known;
+- normalized Card type (Visa, Mastercard, Discover, American Express, or Other / Not sure);
+- payment interaction and wallet provider when explicitly supplied;
 - whether a mobile wallet was used;
 - the wallet/device last four through the secure correction flow when needed.
 
 Never request or use a full card number, CVV, expiration date, PIN, bank login, wallet password, authentication code, or wallet screenshot. Email cannot prevent a customer from voluntarily sending prohibited payment data; if received, redact it before persistence and route it under the existing Gmail safety policy. Do not ask for a generic payment-screen photo when a smaller structured correction can resolve the case.
+
+A verified customer email reply applies only explicit, unambiguous labeled values and records one redacted audit event bound to the resulting deterministic fact version. A reply containing one corrected field cannot erase other known facts. Conflicting duplicate labels, an unknown value, or contradictory wallet/physical-card facts apply nothing and route to manager review. Emailed wallet/device-token digits are never accepted as physical-card evidence; that update remains limited to the single-use secure correction form. The manager portal shows the latest structured fact source, applied time, fact version, and digit provenance without exposing the raw source message identifier.
 
 ## Matching and next-action rules
 

@@ -19,8 +19,11 @@ export type RefundMissingField =
   | "incident_date"
   | "incident_time"
   | "payment_method"
+  | "payment_interaction"
+  | "wallet_provider"
   | "amount"
-  | "card_last4";
+  | "card_last4"
+  | "card_network";
 
 export type RefundFollowUpFacts = {
   reportingMachineId?: string | null;
@@ -38,8 +41,11 @@ const missingFieldOrder: RefundMissingField[] = [
   "incident_date",
   "incident_time",
   "payment_method",
+  "payment_interaction",
+  "wallet_provider",
   "amount",
   "card_last4",
+  "card_network",
 ];
 
 const nonBlank = (value: unknown) => typeof value === "string" && value.trim().length > 0;

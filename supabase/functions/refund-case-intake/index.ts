@@ -1758,6 +1758,12 @@ serve(async (req) => {
       payment_method: paymentValidation.paymentMethod,
       payment_amount_cents: paymentValidation.amountCents,
       card_last4: paymentValidation.cardLast4,
+      card_last4_provenance: paymentValidation.paymentMethod === "card" &&
+          paymentValidation.cardLast4
+        ? paymentValidation.cardWalletUsed
+          ? "wallet_device_token"
+          : "physical_card"
+        : null,
       card_network: paymentValidation.cardNetwork,
       card_wallet_used: paymentValidation.cardWalletUsed,
       payment_interaction: paymentValidation.paymentInteraction,

@@ -40,8 +40,11 @@ Deno.test("physical-card conflicts request the smallest customer-correctable fac
     JSON.stringify(fields) === JSON.stringify([
       "incident_time",
       "payment_method",
+      "payment_interaction",
+      "wallet_provider",
       "amount",
       "card_last4",
+      "card_network",
     ]),
     "a physical-card mismatch should confirm only time, payment method, amount, and physical-card last four",
   );
@@ -95,12 +98,19 @@ Deno.test("physical-card conflict email is branded, targeted, and reply-safe", (
     missingFields: [
       "incident_time",
       "payment_method",
+      "payment_interaction",
+      "wallet_provider",
       "amount",
       "card_last4",
+      "card_network",
     ],
   });
 
   assertIncludes(email.text, "Card last four:", "reply parser label");
+  assertIncludes(email.text, "Card last four source", "last-four provenance label");
+  assertIncludes(email.text, "Card type", "card-network label");
+  assertIncludes(email.text, "Payment interaction", "interaction label");
+  assertIncludes(email.text, "Wallet provider", "wallet-provider label");
   assertIncludes(
     email.text,
     "exact physical card you tapped",

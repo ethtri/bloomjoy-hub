@@ -945,7 +945,6 @@ const processFirstContact = async ({
 
 const applyDeterministicCustomerReplyFacts = async ({
   refundCaseId,
-  sourceMessageId,
   body,
   sensitiveDataRedacted,
 }: {
@@ -973,8 +972,8 @@ const applyDeterministicCustomerReplyFacts = async ({
         message:
           "A verified customer email required manager handling instead of a routine automatic reply.",
         metadata: {
-          source_message_id: sourceMessageId,
           reason: manualReviewReason,
+          ambiguous_fields: extracted.ambiguousFields,
           payload_redacted: true,
         },
       });
@@ -985,7 +984,7 @@ const applyDeterministicCustomerReplyFacts = async ({
   const { data: current, error: caseError } = await supabase
     .from("refund_cases")
     .select(
-      "id,deterministic_fact_version,reporting_machine_id,reporting_location_id,incident_at,incident_local_datetime,incident_timezone,incident_time_resolution,payment_method,payment_amount_cents,card_last4,card_wallet_used",
+      "id,deterministic_fact_version,reporting_machine_id,reporting_location_id,incident_at,incident_local_datetime,incident_timezone,incident_time_resolution,payment_method,payment_amount_cents,card_last4,card_last4_provenance,card_network,card_wallet_used,payment_interaction,wallet_provider",
     )
     .eq("id", refundCaseId)
     .maybeSingle();
@@ -1004,6 +1003,51 @@ const applyDeterministicCustomerReplyFacts = async ({
     .maybeSingle();
   if (correctionCycleError) throw correctionCycleError;
   const allowCustomerCorrection = Boolean(correctionCycle);
+
+  const currentPaymentMethod = String(current.payment_method ?? "")
+    .toLowerCase();
+  const resolvedReplyPaymentMethod = extracted.paymentMethod ??
+    currentPaymentMethod;
+  const hasCardOnlyReplyEvidence = Boolean(
+    extracted.cardNetwork || extracted.cardLast4 || extracted.walletProvider ||
+      ["phone_watch_wallet", "tap_card", "insert_or_swipe"].includes(
+        extracted.paymentInteraction ?? "",
+      ),
+  );
+  const storedWalletDigitsWouldBecomePhysical =
+    current.card_last4_provenance === "wallet_device_token" &&
+    ["tap_card", "insert_or_swipe"].includes(
+      extracted.paymentInteraction ?? "",
+    ) && !extracted.cardLast4;
+  const storedNonWalletDigitsWouldBecomeWallet =
+    /^\d{4}$/.test(String(current.card_last4 ?? "")) &&
+    current.card_last4_provenance !== "wallet_device_token" &&
+    extracted.paymentInteraction === "phone_watch_wallet";
+  if (
+    (hasCardOnlyReplyEvidence && resolvedReplyPaymentMethod !== "card") ||
+    storedWalletDigitsWouldBecomePhysical ||
+    storedNonWalletDigitsWouldBecomeWallet
+  ) {
+    const { error: updateError } = await supabase.from("refund_cases").update({
+      status: "needs_review",
+      automation_state: "under_review",
+      automation_follow_up_due_at: null,
+    }).eq("id", refundCaseId);
+    if (updateError) throw updateError;
+    const { error: eventError } = await supabase.from("refund_case_events")
+      .insert({
+        refund_case_id: refundCaseId,
+        event_type: "gmail_customer_message_routed_to_manager",
+        message:
+          "A verified customer email contained payment facts that conflicted with the stored card-digit provenance.",
+        metadata: {
+          reason: "conflicting_stored_payment_provenance",
+          payload_redacted: true,
+        },
+      });
+    if (eventError) throw eventError;
+    return { allowRoutineContact: false };
+  }
 
   const updates: Record<string, unknown> = {};
   const appliedFields: string[] = [];
@@ -1103,19 +1147,80 @@ const applyDeterministicCustomerReplyFacts = async ({
     }
   }
 
-  const currentPaymentMethod = String(current.payment_method ?? "")
-    .toLowerCase();
+  const paymentMethodChanged = Boolean(
+    extracted.paymentMethod &&
+      extracted.paymentMethod !== currentPaymentMethod,
+  );
+  const walletStateChanged = extracted.cardWalletUsed !== null &&
+    extracted.cardWalletUsed !== current.card_wallet_used;
   if (
     (!["card", "cash"].includes(currentPaymentMethod) ||
-      allowCustomerCorrection) && extracted.paymentMethod &&
-    (
-      extracted.paymentMethod !== currentPaymentMethod ||
-      extracted.cardWalletUsed !== current.card_wallet_used
-    )
+      allowCustomerCorrection) &&
+    (paymentMethodChanged || walletStateChanged)
   ) {
-    updates.payment_method = extracted.paymentMethod;
-    updates.card_wallet_used = extracted.cardWalletUsed;
+    if (extracted.paymentMethod) updates.payment_method = extracted.paymentMethod;
+    if (extracted.cardWalletUsed !== null) {
+      updates.card_wallet_used = extracted.cardWalletUsed;
+    }
     appliedFields.push("payment_method");
+  }
+  if (
+    updates.payment_method === "card" &&
+    !extracted.paymentInteraction &&
+    current.payment_interaction === "cash"
+  ) {
+    updates.payment_interaction = "unsure";
+    appliedFields.push("payment_interaction");
+  }
+  if (
+    extracted.paymentInteraction &&
+    extracted.paymentInteraction !== current.payment_interaction
+  ) {
+    updates.payment_interaction = extracted.paymentInteraction;
+    if (extracted.paymentInteraction === "phone_watch_wallet") {
+      updates.payment_method = "card";
+      updates.card_wallet_used = true;
+    } else if (
+      ["tap_card", "insert_or_swipe"].includes(extracted.paymentInteraction)
+    ) {
+      updates.payment_method = "card";
+      updates.card_wallet_used = false;
+      if (current.wallet_provider) {
+        updates.wallet_provider = null;
+        appliedFields.push("wallet_provider");
+      }
+    } else if (extracted.paymentInteraction === "cash") {
+      updates.payment_method = "cash";
+      updates.card_wallet_used = false;
+      updates.card_last4 = null;
+      updates.card_last4_provenance = null;
+      if (current.wallet_provider) {
+        updates.wallet_provider = null;
+        appliedFields.push("wallet_provider");
+      }
+      if (current.card_last4) appliedFields.push("card_last4");
+      if (current.card_last4_provenance) {
+        appliedFields.push("card_last4_provenance");
+      }
+    }
+    appliedFields.push("payment_interaction");
+  }
+  if (
+    extracted.walletProvider &&
+    extracted.walletProvider !== current.wallet_provider
+  ) {
+    updates.wallet_provider = extracted.walletProvider;
+    updates.payment_method = "card";
+    updates.card_wallet_used = true;
+    updates.payment_interaction = "phone_watch_wallet";
+    appliedFields.push("wallet_provider");
+  }
+  if (
+    extracted.cardNetwork &&
+    extracted.cardNetwork !== current.card_network
+  ) {
+    updates.card_network = extracted.cardNetwork;
+    appliedFields.push("card_network");
   }
   if (
     (
@@ -1131,7 +1236,7 @@ const applyDeterministicCustomerReplyFacts = async ({
     appliedFields.push("amount");
   }
   const walletUsed = updates.card_wallet_used === true ||
-    current.card_wallet_used === true;
+    (updates.card_wallet_used === undefined && current.card_wallet_used === true);
   const paymentMethod = String(
     updates.payment_method ?? current.payment_method ?? "",
   ).toLowerCase();
@@ -1145,6 +1250,14 @@ const applyDeterministicCustomerReplyFacts = async ({
     updates.card_last4 = extracted.cardLast4;
     appliedFields.push("card_last4");
   }
+  if (
+    extracted.cardLast4Provenance &&
+    /^\d{4}$/.test(String(extracted.cardLast4 ?? current.card_last4 ?? "")) &&
+    extracted.cardLast4Provenance !== current.card_last4_provenance
+  ) {
+    updates.card_last4_provenance = extracted.cardLast4Provenance;
+    appliedFields.push("card_last4_provenance");
+  }
 
   if (appliedFields.length === 0) return { allowRoutineContact: true };
   updates.automation_state = "customer_replied";
@@ -1155,7 +1268,7 @@ const applyDeterministicCustomerReplyFacts = async ({
     .update(updates)
     .eq("id", refundCaseId)
     .eq("deterministic_fact_version", current.deterministic_fact_version)
-    .select("id")
+    .select("id,deterministic_fact_version")
     .maybeSingle();
   if (updateError) throw updateError;
   if (updated) {
@@ -1166,11 +1279,12 @@ const applyDeterministicCustomerReplyFacts = async ({
         message:
           "Unambiguous labeled facts from a verified customer reply were added to or corrected on the refund case.",
         metadata: {
-          source_message_id: sourceMessageId,
-          applied_fields: appliedFields,
+          applied_fields: [...new Set(appliedFields)],
           extraction_policy: allowCustomerCorrection
-            ? "labeled_customer_correction_v2"
+            ? "labeled_customer_correction_v3"
             : "labeled_routine_facts_v1",
+          resulting_fact_version: updated.deterministic_fact_version,
+          card_last4_provenance: extracted.cardLast4Provenance,
           payload_redacted: true,
         },
       });

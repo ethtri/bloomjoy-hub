@@ -73,15 +73,21 @@ export const deriveNayaxCustomerCorrectionFields = ({
     return sanitizeRefundMissingFields([
       "incident_time",
       "payment_method",
+      "payment_interaction",
+      "wallet_provider",
       "amount",
       "card_last4",
+      "card_network",
     ]);
   }
   if (reasons.has("amount_mismatch") || reasons.has("amount_uncertain")) {
     return sanitizeRefundMissingFields([
       "incident_time",
+      "payment_interaction",
+      "wallet_provider",
       "amount",
       "card_last4",
+      "card_network",
     ]);
   }
   if (
@@ -91,8 +97,11 @@ export const deriveNayaxCustomerCorrectionFields = ({
   ) {
     return sanitizeRefundMissingFields([
       "incident_time",
+      "payment_interaction",
+      "wallet_provider",
       "amount",
       "card_last4",
+      "card_network",
     ]);
   }
 
@@ -104,9 +113,12 @@ const fieldRequest: Record<RefundMissingField, string> = {
   incident_date: "the purchase date",
   incident_time: "the approximate purchase time, including AM or PM",
   payment_method: "whether you paid by card, Apple Pay, Google Pay, or cash",
+  payment_interaction: "how you used the card or wallet",
+  wallet_provider: "the wallet provider, if you used a phone or watch wallet",
   amount: "the exact amount charged",
   card_last4:
     "only the last four digits printed on the physical card you tapped",
+  card_network: "the card type shown on the card or inside the wallet",
 };
 
 const fieldReplyLine: Record<RefundMissingField, string> = {
@@ -114,8 +126,11 @@ const fieldReplyLine: Record<RefundMissingField, string> = {
   incident_date: "Purchase date (YYYY-MM-DD):",
   incident_time: "Approximate purchase time (include AM or PM):",
   payment_method: "Payment method (card, Apple Pay, Google Pay, or cash):",
+  payment_interaction: "Payment interaction (tap card, insert or swipe, phone or watch wallet, or not sure):",
+  wallet_provider: "Wallet provider (Apple Pay, Google Wallet, other, or not sure):",
   amount: "Amount (for example, $7.25):",
   card_last4: "Card last four:",
+  card_network: "Card type (Visa, Mastercard, Discover, American Express, or not sure):",
 };
 
 export const buildNayaxCustomerCorrectionEmail = (
@@ -132,7 +147,12 @@ export const buildNayaxCustomerCorrectionEmail = (
   const requestedDetails = fields.map((field) => fieldRequest[field]).join(
     "; ",
   );
-  const replyLines = fields.map((field) => fieldReplyLine[field]).join("\n");
+  const replyLines = [
+    ...fields.map((field) => fieldReplyLine[field]),
+    ...(fields.includes("card_last4")
+      ? ["Card last four source (physical card only): physical card"]
+      : []),
+  ].join("\n");
   const reminder = input.messageType === "reminder";
   const subject = reminder
     ? `Still here to help with your Bloomjoy refund request ${input.publicReference}`
@@ -141,9 +161,9 @@ export const buildNayaxCustomerCorrectionEmail = (
     reminder
       ? "We are checking in once because we still want to help with your refund request. There is no need to resend the information you already shared."
       : "Thank you for the details you shared. We found nearby machine transactions, but the information did not identify one purchase safely. This does not mean you did anything wrong.",
-    `Please reply with ${requestedDetails}. If you used a physical card, also tell us whether it was Visa, Mastercard, Discover, American Express, or another card type.`,
+    `Please reply with ${requestedDetails}. Use "not sure" when you do not know one of the details.`,
     `For the fastest automatic update, copy these lines into your reply and correct or confirm each one:\n${replyLines}`,
-    "Please use the last four digits printed on the exact physical card you tapped. Do not send a full card number, security code, expiration date, PIN, password, wallet digits, or screenshot. You do not need to submit another form; we will recheck this same request after your reply.",
+    "If you used a physical card, use only the last four digits printed on the exact physical card you tapped. If you used a phone or watch wallet, do not send wallet or device-token digits by email; we will provide a secure correction step if those digits are needed. Do not send a full card number, security code, expiration date, PIN, password, or screenshot. You do not need to submit another form; we will recheck this same request after your reply.",
   ].join("\n\n");
 
   return buildEditableRefundCustomerEmail({ input, subject, body });
