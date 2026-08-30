@@ -126,6 +126,23 @@ const getSafeArchiveEndDate = (effectiveStartDate: string) => {
   return effectiveStartDate > currentDate ? effectiveStartDate : currentDate;
 };
 
+type ReportingPartnershipWithEndDate = ReportingPartnership & { effective_end_date: string };
+
+const partnershipReportingDatesNeedReview = (
+  partnership: ReportingPartnership,
+  currentDate = today()
+): partnership is ReportingPartnershipWithEndDate =>
+  partnership.status === 'active' &&
+  partnership.effective_end_date !== null &&
+  partnership.effective_end_date < currentDate;
+
+const formatPartnershipReviewDate = (value: string) =>
+  new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
 const emptyPartnerForm = {
   partnerId: null as string | null,
   name: '',
@@ -630,6 +647,13 @@ export default function AdminPartnershipsPage() {
             </div>
           )}
 
+          {!isLoading && (
+            <PartnershipDateReviewBanner
+              partnerships={visiblePartnerships}
+              onReview={(partnershipId) => requestRouteState(partnershipId, 'details')}
+            />
+          )}
+
           {isLoading ? (
             <div className="mt-6 rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
               Loading partnership setup...
@@ -1010,6 +1034,13 @@ function ScopedPartnershipsWorkspace({
             </div>
           )}
 
+          {!isLoading && (
+            <PartnershipDateReviewBanner
+              partnerships={visiblePartnerships}
+              onReview={setSelectedPartnershipId}
+            />
+          )}
+
           {isLoading ? (
             <div className="mt-6 rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
               Loading scoped partnership setup...
@@ -1060,7 +1091,14 @@ function ScopedPartnershipsWorkspace({
                                 : 'border-border bg-background text-foreground hover:bg-muted/40'
                             }`}
                           >
-                            <div className="font-medium">{partnership.name}</div>
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="font-medium">{partnership.name}</div>
+                              {partnershipReportingDatesNeedReview(partnership) && (
+                                <Badge variant="outline" className="border-amber-400 bg-amber-50 text-amber-900">
+                                  Ended
+                                </Badge>
+                              )}
+                            </div>
                             <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
                               <span>{formatLabel(partnership.status)}</span>
                               <span>{formatDate(partnership.effective_start_date)}</span>
@@ -1363,7 +1401,14 @@ function PartnershipPicker({
                     : 'border-border bg-background text-foreground hover:bg-muted/40'
                 }`}
               >
-                <div className="font-medium">{partnership.name}</div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-medium">{partnership.name}</div>
+                  {partnershipReportingDatesNeedReview(partnership) && (
+                    <Badge variant="outline" className="border-amber-400 bg-amber-50 text-amber-900">
+                      Ended
+                    </Badge>
+                  )}
+                </div>
                 <div className="mt-1 text-xs text-muted-foreground">
                   {formatLabel(partnership.partnership_type)}
                 </div>
@@ -1373,6 +1418,66 @@ function PartnershipPicker({
         )}
       </div>
     </div>
+  );
+}
+
+function PartnershipDateReviewBanner({
+  partnerships,
+  onReview,
+}: {
+  partnerships: ReportingPartnership[];
+  onReview: (partnershipId: string) => void;
+}) {
+  const partnershipsNeedingReview = partnerships.filter((partnership) =>
+    partnershipReportingDatesNeedReview(partnership)
+  );
+
+  if (partnershipsNeedingReview.length === 0) return null;
+
+  return (
+    <section
+      className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950"
+      aria-label="Partnership dates needing review"
+    >
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <h2 className="font-semibold">Partnership dates need review</h2>
+          <p className="mt-1 text-sm">
+            These partnerships are still marked active even though their reporting end date has
+            passed. Reports after that date are intentionally unavailable.
+          </p>
+          <p className="mt-1 text-sm">
+            If an agreement was renewed, update its dates, then confirm Machines and Payout Rules
+            cover the new period. Otherwise archive the partnership.
+          </p>
+          <div className="mt-3 grid gap-2">
+            {partnershipsNeedingReview.map((partnership) => (
+              <div
+                key={partnership.id}
+                className="flex flex-col gap-2 rounded-md border border-amber-300/80 bg-background/70 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div>
+                  <div className="font-medium">{partnership.name}</div>
+                  <div className="text-xs text-amber-900/80">
+                    Reporting ended {formatPartnershipReviewDate(partnership.effective_end_date)}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="min-h-11 border-amber-400 bg-background sm:min-h-9"
+                  onClick={() => onReview(partnership.id)}
+                >
+                  Review dates
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 

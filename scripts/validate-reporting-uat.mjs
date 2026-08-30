@@ -231,6 +231,25 @@ const makePartnerPreview = (body) => {
   const dateFrom = String(body?.p_date_from ?? '2026-07-13');
   const dateTo = String(body?.p_date_to ?? '2026-07-19');
   const periodGrain = body?.p_period_grain === 'calendar_month' ? 'calendar_month' : 'reporting_week';
+  if (periodGrain === 'reporting_week' && dateFrom === '2026-07-06' && dateTo === '2026-07-12') {
+    return {
+      partnership_id: 'partnership-sanitized-uat',
+      partnership_name: 'Demo Growth Partnership',
+      period_grain: periodGrain,
+      date_from: dateFrom,
+      date_to: dateTo,
+      summary: sumPartnerTotals([]),
+      periods: [],
+      machine_periods: [],
+      warnings: [
+        {
+          warning_type: 'partnership_effective_window_excluded',
+          severity: 'blocking',
+          message: 'The selected period is outside this partnership\'s active date window, so no settlement amounts were generated.',
+        },
+      ],
+    };
+  }
   let periodStarts;
   if (periodGrain === 'calendar_month') {
     periodStarts = [dateFrom];
@@ -419,6 +438,36 @@ const rpcResponse = (rpcName, persona, body, freshness) => {
             ],
           }
         : { partnerships: [] };
+    case 'admin_get_partnership_reporting_setup':
+      return {
+        partners: [],
+        partnerships: [
+          {
+            id: 'partnership-sanitized-uat',
+            name: 'Demo Growth Partnership',
+            partnership_type: 'revenue_share',
+            reporting_week_end_day: 0,
+            timezone: 'America/Los_Angeles',
+            reporting_frequency: 'weekly_and_monthly',
+            monthly_report_due_days: 10,
+            invoice_payment_due_days: null,
+            payment_method: null,
+            machine_ownership_model: 'unknown',
+            consumer_pricing_authority: 'unknown',
+            contract_reference: null,
+            effective_start_date: '2025-07-06',
+            effective_end_date: '2026-07-05',
+            status: 'active',
+            notes: null,
+          },
+        ],
+        machines: [],
+        assignments: [],
+        parties: [],
+        taxRates: [],
+        financialRules: [],
+        warnings: [],
+      };
     case 'admin_preview_partner_period_report':
       return makePartnerPreview(body);
     case 'get_my_technician_management_context':
@@ -978,6 +1027,7 @@ const assertOperatorDesktop = async (browser) => {
       await breakdown.getByRole('radio', { name: 'Weekly', exact: true }).click();
       await page.getByRole('heading', { name: 'Sales by week', exact: true }).waitFor();
       const summaryRows = page.locator(`${selectors.operatorPeriodSummary} [data-reporting-period-row]:visible`);
+      await summaryRows.first().waitFor();
       assert((await summaryRows.count()) === 2, `Weekly summary must show two weekly periods. Found ${await summaryRows.count()}.`);
       const weeklySummaryText = await textOf(page.locator(selectors.operatorPeriodSummary));
       assert(
@@ -1317,6 +1367,45 @@ const assertSuperAdminPartnerDrilldown = async (browser) => {
         'partner-machine-harbor',
         'Super Admin returned all-machines action',
       );
+    });
+    await check('Super Admin report hides internal notes and explains an out-of-window period once', async () => {
+      const bodyText = await textOf(page.locator('body'));
+      for (const forbidden of ['Report notes', 'INTERNAL-ONLY', 'Open admin setup']) {
+        assert(!bodyText.includes(forbidden), `Reporting page must not expose admin setup copy: ${forbidden}`);
+      }
+
+      await selectRadixOption(page.locator('#partner-dashboard-period'), 'Jul 6 - Jul 12');
+      await page.getByRole('heading', { name: 'No report for this period' }).waitFor();
+      const outsideWindowText = await textOf(page.locator('body'));
+      assert(
+        outsideWindowText.includes('falls outside this partnership\'s reporting dates'),
+        'Out-of-window period must explain why no report was generated.',
+      );
+      for (const duplicate of [
+        'No partner machines visible',
+        'Report setup needs attention',
+        'Partner performance summary',
+      ]) {
+        assert(!outsideWindowText.includes(duplicate), `Out-of-window state must not also show: ${duplicate}`);
+      }
+      assert(
+        await page.locator('[data-portal-report-export="partner"]').isDisabled(),
+        'Out-of-window partner export must remain disabled.',
+      );
+      await page.screenshot({ path: path.join(outputDir, 'partner-outside-window-desktop.png'), fullPage: true });
+    });
+    await check('Admin Partnerships surfaces the expired active agreement for review', async () => {
+      await page.goto(`${appUrl}/admin/partnerships`, { waitUntil: 'networkidle' });
+      await page.getByRole('heading', { name: 'Partnerships', level: 1 }).waitFor();
+      await page.getByRole('heading', { name: 'Partnership dates need review' }).waitFor();
+      const banner = page.getByLabel('Partnership dates needing review');
+      const bannerText = await textOf(banner);
+      assert(
+        bannerText.includes('Demo Growth Partnership') && bannerText.includes('Reporting ended Jul 5, 2026'),
+        `Admin date-review banner must identify the partnership and end date. Found: ${bannerText}`,
+      );
+      await banner.getByRole('button', { name: 'Review dates' }).waitFor();
+      await page.screenshot({ path: path.join(outputDir, 'admin-partnership-date-review-desktop.png'), fullPage: true });
     });
   } finally {
     await context.close();

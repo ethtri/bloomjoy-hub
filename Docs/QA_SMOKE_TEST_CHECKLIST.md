@@ -607,9 +607,9 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] Corporate Partner can access `/portal/reports` partner dashboard for active portal-enabled partnerships only
 - [ ] Corporate Partner sees machine reporting only for machines derived from current partnership assignments
 - [ ] Corporate Partner cannot access `/admin`, tax/rule editing, machine metadata editing, imports, schedules, global reporting, or internal warning ledgers
-- [ ] Corporate Partner reports hide non-blocking internal notes without showing a fictional review-in-progress state; genuinely blocking data issues use plain report-incomplete copy and keep export disabled
+- [ ] Partner reports hide admin-only review notes for every role; genuinely blocking data issues use plain report-incomplete copy and keep export disabled
 - [ ] Inactive partnership status stops Corporate Partner live reporting access
-- [ ] Partner Dashboard preview/export respects the partnership effective window: `effective_end_date = null` is open-ended, fully outside weeks/months generate no settlement amounts, and partial weeks/months show a trimming warning while including only active-window dates
+- [ ] Partner Dashboard preview/export respects the partnership effective window: `effective_end_date = null` is open-ended, fully outside weeks/months show one `No report for this period` state without duplicate machine/setup errors, and partial weeks/months show a trimming warning while including only active-window dates
 - [ ] Revoked Corporate Partner membership removes portal reporting access after refresh/re-login
 - [ ] `/portal/reports` export creates a private signed PDF link that matches the selected filters
 - [ ] `npm run reporting:validate-provider-parser` passes with the sanitized provider `.xlsx` fixture
@@ -818,6 +818,7 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] Admin Machines exposes read-only reporting tax history for a machine without making normal admins manage tax status, end date, or notes
 - [ ] Machine tax warnings appear on Admin Machines, not Admin Partnerships
 - [ ] Admin Partnerships > Details exposes one agreement-level effective date window plus weekly/monthly cadence, report due days, invoice payment due days, payment method, ownership model, pricing authority, contract reference, and archive cleanup action
+- [ ] Admin Partnerships flags records that remain Active after their reporting end date and directs admins to review agreement dates, Machines, and Payout Rules or archive the partnership
 - [ ] Issue `#326`: super-admin can archive an unused test partnership from `/admin/partnerships` with required reason copy naming the partnership; related active assignments, payout rules, and schedules without run history are archived, and audit metadata stays limited to IDs/status/counts/reason
 - [ ] Issue `#326`: archiving or hard-deleting a partnership is blocked when report snapshots, schedule runs, sales facts, applied adjustments, active memberships, active parties, active assignments, or active schedules make the record unsafe to remove
 - [ ] Issue `#326`: archived partner records and archived partnerships are hidden from `/admin/partnerships` selectors, `/admin/reporting` report/partnership selectors, Portal Reports partner dashboard lists, and partner-report schedule creation options
