@@ -19,6 +19,7 @@ const parseArgs = (argv) => {
     appUrl: process.env.MACHINE_MANAGER_UAT_APP_URL || DEFAULT_APP_URL,
     artifactDir: process.env.MACHINE_MANAGER_UAT_ARTIFACT_DIR || DEFAULT_ARTIFACT_DIR,
     responsiveDir: process.env.MACHINE_MANAGER_UAT_RESPONSIVE_DIR || null,
+    skipDemo: process.env.MACHINE_MANAGER_UAT_SKIP_DEMO === 'true',
     headed: false,
   };
 
@@ -27,6 +28,11 @@ const parseArgs = (argv) => {
 
     if (arg === '--headed') {
       args.headed = true;
+      continue;
+    }
+
+    if (arg === '--skip-demo') {
+      args.skipDemo = true;
       continue;
     }
 
@@ -192,7 +198,7 @@ const waitForCondition = async (predicate, label, timeoutMs = 10000) => {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
-    if (predicate()) return;
+    if (await predicate()) return;
     await delay(100);
   }
 
@@ -916,8 +922,21 @@ const run = async () => {
 
     await page.getByRole('link', { name: 'Back to machines' }).click();
     await page.setViewportSize({ width: 1440, height: 1000 });
-    const savePayloadBeforeDemo = JSON.stringify(state.savePayload);
-    state.rpcCalls.length = 0;
+    if (args.skipDemo) {
+      await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Manage' }).click();
+      await page.getByRole('button', { name: /Managers/ }).click();
+      await page.getByRole('heading', { name: 'Machine Managers' }).waitFor({ timeout: 10000 });
+      recorder.assert(
+        'Production PPV skips local-only demo assertions',
+        await page.getByRole('heading', { name: 'Machine Managers' }).isVisible()
+      );
+      await page.screenshot({
+        path: path.join(args.artifactDir, 'admin-machines-machine-managers.png'),
+        fullPage: true,
+      });
+    } else {
+      const savePayloadBeforeDemo = JSON.stringify(state.savePayload);
+      state.rpcCalls.length = 0;
 
     await navigateUatPageAfterDrain(
       page,
@@ -964,10 +983,11 @@ const run = async () => {
       await demoMachineDialog.getByRole('button', { name: 'Save changes' }).isDisabled()
     );
 
-    await page.screenshot({
-      path: path.join(args.artifactDir, 'admin-machines-machine-managers.png'),
-      fullPage: true,
-    });
+      await page.screenshot({
+        path: path.join(args.artifactDir, 'admin-machines-machine-managers.png'),
+        fullPage: true,
+      });
+    }
 
   } finally {
     teardownFailures = await closeUatSuiteResourcesAfterPageDrain({
