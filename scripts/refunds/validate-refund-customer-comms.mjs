@@ -52,9 +52,12 @@ const run = async () => {
     includesAll(adminUpdate, ['customer_message_failed', 'customer_email_delivery_failed', 'status: "failed"'])
   );
   assert(
-    'Portal shows failed customer email as separate visible manager work',
+    'Portal shows failed or skipped customer email as separate visible manager work',
     includesAll(portalPage, [
       "latestMessage?.status === 'failed'",
+      "latestMessage?.status === 'skipped'",
+      'Customer was not notified',
+      'Send a safe customer acknowledgement',
       'Retry customer email',
       'Resolve uncertain Gmail delivery',
       'getLatestCustomerMessage',
@@ -126,6 +129,23 @@ const run = async () => {
       'confirms receipt only',
       'not a promise that a payment has been completed',
     ])
+  );
+  assert(
+    'Cash customer copy never claims a card transaction review',
+    includesAll(refundEmail, [
+      'matching cash purchase',
+      'updated purchase details',
+      'paymentMethod === "cash"',
+    ])
+  );
+  assert(
+    'Provider-delay and SLA-at-risk updates are provider-neutral and human-owned',
+    includesAll(refundEmail, [
+      'statusUpdateReason === "provider_delay"',
+      'waiting for confirmation from the payment provider',
+      'statusUpdateReason === "sla_at_risk"',
+      'a person is now following it directly',
+    ]) && !refundEmail.includes('A tiny bit more information')
   );
   assert(
     'Wallet last-four corrections are forced through the secure flow',

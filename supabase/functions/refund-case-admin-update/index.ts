@@ -15,6 +15,7 @@ import {
   sanitizeRefundMissingFields,
 } from "../_shared/refund-deterministic-follow-up.ts";
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
+import { refundCustomerLocaleFromIntakeMeta } from "../_shared/refund-language.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import {
   REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE,
@@ -115,6 +116,7 @@ type RefundCaseRow = {
   reporting_location_id: string;
   incident_at: string | null;
   incident_time_resolution: string | null;
+  intake_meta: Record<string, unknown> | null;
   nayax_refund_execution_status: string;
   official_action_version: number;
   updated_at: string;
@@ -162,6 +164,7 @@ const selectCaseQuery = `
   reporting_location_id,
   incident_at,
   incident_time_resolution,
+  intake_meta,
   nayax_refund_execution_status,
   official_action_version,
   updated_at,
@@ -511,6 +514,7 @@ const logCustomerMessage = async ({
     missingFields,
     cardWalletUsed: refundCase.card_wallet_used,
     statusUrl: statusCapability?.url ?? null,
+    customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
   });
 
   const { data, error } = await supabase
@@ -601,6 +605,7 @@ const sendAndLogCustomerMessage = async (
       missingFields,
       cardWalletUsed: refundCase.card_wallet_used,
       statusUrl: statusCapability?.url ?? null,
+      customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
     };
     const email = buildRefundCustomerEmail(emailInput);
     if (!messageId) {

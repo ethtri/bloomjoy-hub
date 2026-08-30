@@ -23,6 +23,7 @@ import {
   sanitizeRefundMissingFields,
 } from "../_shared/refund-deterministic-follow-up.ts";
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
+import { refundCustomerLocaleFromIntakeMeta } from "../_shared/refund-language.ts";
 import { validateRefundGptReviewedDraft } from "../_shared/refund-gpt-triage-policy.mjs";
 import { validateRefundCustomerMessageRequest } from "../_shared/refund-evidence-selection.ts";
 import { authorizeRefundSyntheticGmailProof } from "../_shared/refund-synthetic-gmail-proof.ts";
@@ -78,6 +79,7 @@ type RefundCaseRow = {
   reporting_location_id: string | null;
   incident_at: string | null;
   incident_time_resolution: string | null;
+  intake_meta: Record<string, unknown> | null;
   reporting_machines?: OneOrMany<{
     machine_label: string | null;
     refund_public_display_label: string | null;
@@ -121,6 +123,7 @@ const selectCaseQuery = `
   reporting_location_id,
   incident_at,
   incident_time_resolution,
+  intake_meta,
   reporting_machines(machine_label, refund_public_display_label),
   reporting_locations(name)
 `;
@@ -656,6 +659,7 @@ serve(async (req) => {
       missingFields,
       cardWalletUsed: refundCase.card_wallet_used,
       statusUrl: null,
+      customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
     };
     const defaultEmailWithoutStatus = buildRefundCustomerEmail(templateInputWithoutStatus);
     const requestedSubject = sanitizeText(body?.subject, 180);
