@@ -460,12 +460,80 @@ const rpcResponse = (rpcName, persona, body, freshness) => {
             status: 'active',
             notes: null,
           },
+          {
+            id: 'partnership-legacy-dates-uat',
+            name: 'Open Partnership With Legacy Dates',
+            partnership_type: 'revenue_share',
+            reporting_week_end_day: 0,
+            timezone: 'America/Los_Angeles',
+            reporting_frequency: 'weekly_and_monthly',
+            monthly_report_due_days: 10,
+            invoice_payment_due_days: null,
+            payment_method: null,
+            machine_ownership_model: 'unknown',
+            consumer_pricing_authority: 'unknown',
+            contract_reference: null,
+            effective_start_date: '2025-07-06',
+            effective_end_date: null,
+            status: 'active',
+            notes: null,
+          },
         ],
-        machines: [],
-        assignments: [],
+        machines: [
+          {
+            id: 'machine-legacy-dates-uat',
+            machine_label: 'Legacy Date Kiosk',
+            machine_type: 'commercial',
+            sunze_machine_id: 'legacy-date-001',
+            status: 'active',
+            account_name: 'Sanitized UAT Account',
+            location_name: 'North Hall',
+            latest_sale_date: '2026-07-21',
+          },
+        ],
+        assignments: [
+          {
+            id: 'assignment-legacy-dates-uat',
+            machine_id: 'machine-legacy-dates-uat',
+            machine_label: 'Legacy Date Kiosk',
+            partnership_id: 'partnership-legacy-dates-uat',
+            partnership_name: 'Open Partnership With Legacy Dates',
+            assignment_role: 'primary_reporting',
+            effective_start_date: '2025-07-06',
+            effective_end_date: '2026-07-05',
+            status: 'active',
+            notes: null,
+          },
+        ],
         parties: [],
         taxRates: [],
-        financialRules: [],
+        financialRules: [
+          {
+            id: 'rule-legacy-dates-uat',
+            partnership_id: 'partnership-legacy-dates-uat',
+            partnership_name: 'Open Partnership With Legacy Dates',
+            calculation_model: 'internal_only',
+            split_base: 'net_sales',
+            fee_amount_cents: 0,
+            fee_basis: 'none',
+            fee_label: 'Deductions',
+            cost_amount_cents: 0,
+            cost_basis: 'none',
+            cost_label: 'Costs',
+            additional_deductions_notes: null,
+            deduction_timing: 'reporting_only',
+            gross_to_net_method: 'machine_tax_plus_configured_fees',
+            fever_share_basis_points: 0,
+            partner_share_basis_points: 0,
+            bloomjoy_share_basis_points: 10000,
+            effective_start_date: '2025-07-06',
+            effective_end_date: '2026-07-05',
+            status: 'active',
+            notes: null,
+            created_at: '2025-07-06T00:00:00.000Z',
+            updated_at: '2025-07-06T00:00:00.000Z',
+          },
+        ],
         warnings: [],
       };
     case 'admin_preview_partner_period_report':
@@ -497,7 +565,7 @@ const createPageForPersona = async (
 ) => {
   const context = await browser.newContext({ viewport });
   const session = makeSession(persona);
-  const state = { operatorExports: [], partnerExports: [] };
+  const state = { operatorExports: [], partnerExports: [], adminRpcCalls: [] };
 
   await context.addInitScript(
     ({ sessionValue, fixedNow, email }) => {
@@ -546,6 +614,9 @@ const createPageForPersona = async (
       const rpcName = decodeURIComponent(url.pathname.split('/').pop());
       const body = parsePostBody(route.request());
       if (debug) console.log(`[${persona.email}] rpc ${rpcName}`, body);
+      if (rpcName.startsWith('admin_upsert_reporting_')) {
+        state.adminRpcCalls.push({ rpcName, body });
+      }
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1336,7 +1407,7 @@ const assertPartnerMobile = async (browser) => {
 };
 
 const assertSuperAdminPartnerDrilldown = async (browser) => {
-  const { page, context } = await createPageForPersona(
+  const { page, context, state } = await createPageForPersona(
     browser,
     personas.superAdmin,
     { width: 1366, height: 900 },
@@ -1406,6 +1477,54 @@ const assertSuperAdminPartnerDrilldown = async (browser) => {
       );
       await banner.getByRole('button', { name: 'Review dates' }).waitFor();
       await page.screenshot({ path: path.join(outputDir, 'admin-partnership-date-review-desktop.png'), fullPage: true });
+    });
+    await check('Admin Partnerships safely surfaces legacy machine assignment dates', async () => {
+      await page.goto(
+        `${appUrl}/admin/partnerships?partnershipId=partnership-legacy-dates-uat&step=machines`,
+        { waitUntil: 'networkidle' },
+      );
+      await page.getByRole('heading', { name: 'Assign Machines' }).waitFor();
+      await page
+        .getByRole('heading', { name: 'Machine reporting dates need synchronization' })
+        .waitFor();
+      const bodyText = await textOf(page.locator('body'));
+      assert(
+        bodyText.includes('Saved assignment ended Jul 5, 2026'),
+        'Legacy assignment end date must be visible before synchronization.',
+      );
+      assert(
+        bodyText.includes('1 legacy date to sync'),
+        'Legacy assignment must remain selected and count toward the safe date sync.',
+      );
+      assert(await page.getByRole('checkbox').first().isChecked(), 'Legacy assignment must remain selected.');
+      await page.screenshot({ path: path.join(outputDir, 'admin-machine-date-sync-desktop.png'), fullPage: true });
+      await page.getByRole('button', { name: 'Save Machine Alignment' }).click();
+      await waitForRecordedRequest(page, state.adminRpcCalls, 'Machine assignment date sync');
+      const assignmentCall = state.adminRpcCalls[0];
+      assert(
+        assignmentCall.rpcName === 'admin_upsert_reporting_machine_assignment' &&
+          assignmentCall.body.p_assignment_id === 'assignment-legacy-dates-uat' &&
+          assignmentCall.body.p_effective_end_date === null,
+        'Machine sync must update the existing assignment and clear its legacy end date.',
+      );
+    });
+    await check('Admin Partnerships explains the legacy payout-rule date sync', async () => {
+      await page.goto(
+        `${appUrl}/admin/partnerships?partnershipId=partnership-legacy-dates-uat&step=terms`,
+        { waitUntil: 'networkidle' },
+      );
+      await page
+        .getByRole('heading', { name: 'Payout rule dates need synchronization' })
+        .waitFor();
+      const bodyText = await textOf(page.locator('body'));
+      assert(
+        bodyText.includes('legacy reporting dates and ended on Jul 5, 2026'),
+        'Payout Rules must identify the legacy end date that needs synchronization.',
+      );
+      const syncButton = page.getByRole('button', { name: 'Save & Sync Payout Rules' });
+      await syncButton.waitFor();
+      assert(await syncButton.isEnabled(), 'Payout-rule date sync must be actionable.');
+      await page.screenshot({ path: path.join(outputDir, 'admin-payout-rule-date-sync-desktop.png'), fullPage: true });
     });
   } finally {
     await context.close();
