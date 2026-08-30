@@ -77,6 +77,12 @@ select ok(
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', 'd9000000-0000-4000-8000-000000000003', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config(
+  'request.jwt.claims',
+  jsonb_build_object('sub', 'd9000000-0000-4000-8000-000000000003', 'role', 'authenticated')::text,
+  true
+);
 select throws_ok(
   $$ select public.admin_create_scoped_admin_invite(
     'unauthorized@example.test',
@@ -89,6 +95,12 @@ select throws_ok(
 );
 
 select set_config('request.jwt.claim.sub', 'd9000000-0000-4000-8000-000000000001', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config(
+  'request.jwt.claims',
+  jsonb_build_object('sub', 'd9000000-0000-4000-8000-000000000001', 'role', 'authenticated')::text,
+  true
+);
 select throws_ok(
   $$ select public.admin_create_scoped_admin_invite(
     'scoped-invite-target@example.test', '{}'::uuid[], 'Missing scope', null
@@ -141,6 +153,12 @@ select is(
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', 'd9000000-0000-4000-8000-000000000001', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config(
+  'request.jwt.claims',
+  jsonb_build_object('sub', 'd9000000-0000-4000-8000-000000000001', 'role', 'authenticated')::text,
+  true
+);
 select is(
   public.admin_create_scoped_admin_invite(
     'scoped-invite-target@example.test',
@@ -170,6 +188,12 @@ select is(
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', 'd9000000-0000-4000-8000-000000000003', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config(
+  'request.jwt.claims',
+  jsonb_build_object('sub', 'd9000000-0000-4000-8000-000000000003', 'role', 'authenticated')::text,
+  true
+);
 select is(
   (public.resolve_my_scoped_admin_invites() ->> 'resolvedInviteCount')::integer,
   0,
@@ -188,6 +212,12 @@ insert into auth.users (
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', 'd9000000-0000-4000-8000-000000000002', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config(
+  'request.jwt.claims',
+  jsonb_build_object('sub', 'd9000000-0000-4000-8000-000000000002', 'role', 'authenticated')::text,
+  true
+);
 select is(
   (public.resolve_my_scoped_admin_invites() ->> 'resolvedInviteCount')::integer,
   0,
@@ -198,6 +228,12 @@ reset role;
 update auth.users set email_confirmed_at = now() where id = 'd9000000-0000-4000-8000-000000000002';
 set local role authenticated;
 select set_config('request.jwt.claim.sub', 'd9000000-0000-4000-8000-000000000002', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config(
+  'request.jwt.claims',
+  jsonb_build_object('sub', 'd9000000-0000-4000-8000-000000000002', 'role', 'authenticated')::text,
+  true
+);
 select is(
   (public.resolve_my_scoped_admin_invites() ->> 'resolvedInviteCount')::integer,
   1,
@@ -240,6 +276,12 @@ select is(
 );
 set local role authenticated;
 select set_config('request.jwt.claim.sub', 'd9000000-0000-4000-8000-000000000002', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config(
+  'request.jwt.claims',
+  jsonb_build_object('sub', 'd9000000-0000-4000-8000-000000000002', 'role', 'authenticated')::text,
+  true
+);
 select is(
   (public.resolve_my_scoped_admin_invites() ->> 'resolvedInviteCount')::integer,
   0,
@@ -267,6 +309,12 @@ insert into auth.users (
 );
 set local role authenticated;
 select set_config('request.jwt.claim.sub', 'd9000000-0000-4000-8000-000000000004', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config(
+  'request.jwt.claims',
+  jsonb_build_object('sub', 'd9000000-0000-4000-8000-000000000004', 'role', 'authenticated')::text,
+  true
+);
 select is(
   (public.resolve_my_scoped_admin_invites() ->> 'resolvedInviteCount')::integer,
   0,
@@ -297,6 +345,12 @@ insert into auth.users (
 );
 set local role authenticated;
 select set_config('request.jwt.claim.sub', 'd9000000-0000-4000-8000-000000000005', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config(
+  'request.jwt.claims',
+  jsonb_build_object('sub', 'd9000000-0000-4000-8000-000000000005', 'role', 'authenticated')::text,
+  true
+);
 select is(
   (public.resolve_my_scoped_admin_invites() ->> 'resolvedInviteCount')::integer,
   0,
@@ -337,6 +391,12 @@ insert into public.admin_scoped_access_scopes (
 );
 set local role authenticated;
 select set_config('request.jwt.claim.sub', 'd9000000-0000-4000-8000-000000000006', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config(
+  'request.jwt.claims',
+  jsonb_build_object('sub', 'd9000000-0000-4000-8000-000000000006', 'role', 'authenticated')::text,
+  true
+);
 select is(
   public.resolve_my_scoped_admin_invites() ->> 'supersededByExistingGrant',
   'true',
@@ -400,6 +460,12 @@ insert into public.admin_scoped_access_grants (
 );
 set local role authenticated;
 select set_config('request.jwt.claim.sub', 'd9000000-0000-4000-8000-000000000007', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config(
+  'request.jwt.claims',
+  jsonb_build_object('sub', 'd9000000-0000-4000-8000-000000000007', 'role', 'authenticated')::text,
+  true
+);
 select is(
   public.resolve_my_scoped_admin_invites() ->> 'supersededByExistingGrant',
   'true',
