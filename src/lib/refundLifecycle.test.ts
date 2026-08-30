@@ -20,6 +20,14 @@ const fixture = {
   managerNextAction: "refund_operations",
   terminal: false,
   refreshAfterSeconds: 5,
+  managerQueue: {
+    schemaVersion: "refund_manager_queue_v1",
+    bucket: "provider_hold",
+    label: "Needs Refund Operations",
+    nextAction: "refund_operations",
+    safeRetryEligible: false,
+    payloadRedacted: true,
+  },
   lookup: {
     status: "match_found",
     safeRetryEligible: false,
@@ -85,5 +93,17 @@ Deno.test("unknown lifecycle versions and provider-shaped payloads fail closed",
       payloadRedacted: false,
     }),
     "non-redacted payloads must fail closed",
+  );
+});
+
+Deno.test("manager queue projection is required and fails closed", () => {
+  const { managerQueue: _managerQueue, ...missingQueue } = fixture;
+  assert(!isRefundLifecycleContract(missingQueue), "missing queue must fail closed");
+  assert(
+    !isRefundLifecycleContract({
+      ...fixture,
+      managerQueue: { ...fixture.managerQueue, bucket: "mystery" },
+    }),
+    "unknown manager queue buckets must fail closed",
   );
 });

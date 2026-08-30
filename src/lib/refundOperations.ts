@@ -438,6 +438,7 @@ export type RefundOperationsOverview = {
   machines: RefundAdminMachine[];
   managerAssignments: RefundManagerAssignment[];
   lifecycleContractVersion?: typeof REFUND_LIFECYCLE_SCHEMA_VERSION;
+  managerQueueContractVersion?: 'refund_manager_queue_v1';
   refundOperationsAccess?: boolean;
 };
 
@@ -1293,6 +1294,24 @@ const demoLifecycle = (
   managerNextAction,
   terminal: stage === 'customer_notified' || stage === 'denied',
   refreshAfterSeconds: stage === 'customer_notified' || stage === 'denied' ? null : 5,
+  managerQueue: {
+    schemaVersion: 'refund_manager_queue_v1',
+    bucket: stage === 'waiting_on_customer'
+      ? 'waiting_on_customer'
+      : stage === 'needs_refund_operations'
+        ? 'provider_hold'
+        : stage === 'customer_notified' || stage === 'denied'
+          ? 'completed'
+          : stage === 'transaction_confirmed'
+            ? 'ready_to_pay'
+            : ['refund_initiated', 'confirming_with_nayax', 'refund_confirmed'].includes(stage)
+              ? 'in_progress'
+              : 'needs_action',
+    label: 'Synthetic queue',
+    nextAction: managerNextAction,
+    safeRetryEligible: false,
+    payloadRedacted: true,
+  },
   lookup: {
     status: stage === 'matching' ? 'checking' : 'match_found',
     safeRetryEligible: false,
@@ -1430,6 +1449,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
 
   return {
     lifecycleContractVersion: REFUND_LIFECYCLE_SCHEMA_VERSION,
+    managerQueueContractVersion: 'refund_manager_queue_v1',
     refundOperationsAccess: false,
     machines: [
       {
@@ -1831,6 +1851,12 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
     overview.lifecycleContractVersion !== REFUND_LIFECYCLE_SCHEMA_VERSION
   ) {
     throw new Error('Unsupported refund lifecycle response.');
+  }
+  if (
+    overview.managerQueueContractVersion !== undefined &&
+    overview.managerQueueContractVersion !== 'refund_manager_queue_v1'
+  ) {
+    throw new Error('Unsupported refund manager queue response.');
   }
   const gmailDrafts = Array.isArray(gmailDraftResult.data)
     ? (gmailDraftResult.data as RefundCaseRecord[])

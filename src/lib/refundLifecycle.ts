@@ -2,6 +2,7 @@ export const REFUND_LIFECYCLE_SCHEMA_VERSION = "refund_lifecycle_v1" as const;
 
 export const refundLifecycleStages = [
   "matching",
+  "waiting_on_customer",
   "needs_transaction_selection",
   "transaction_confirmed",
   "refund_initiated",
@@ -14,6 +15,26 @@ export const refundLifecycleStages = [
 
 export type RefundLifecycleStage = typeof refundLifecycleStages[number];
 
+export const refundManagerQueueBuckets = [
+  "needs_action",
+  "ready_to_pay",
+  "in_progress",
+  "provider_hold",
+  "waiting_on_customer",
+  "completed",
+] as const;
+
+export type RefundManagerQueueBucket = typeof refundManagerQueueBuckets[number];
+
+export type RefundManagerQueueContract = {
+  schemaVersion: "refund_manager_queue_v1";
+  bucket: RefundManagerQueueBucket;
+  label: string;
+  nextAction: string;
+  safeRetryEligible: boolean;
+  payloadRedacted: true;
+};
+
 export type RefundLifecycleContract = {
   schemaVersion: typeof REFUND_LIFECYCLE_SCHEMA_VERSION;
   stage: RefundLifecycleStage;
@@ -24,6 +45,7 @@ export type RefundLifecycleContract = {
   managerNextAction: string;
   terminal: boolean;
   refreshAfterSeconds: number | null;
+  managerQueue: RefundManagerQueueContract;
   definitiveNoRefund?: boolean;
   safeRetryEligible?: boolean;
   lookup: {
@@ -48,6 +70,7 @@ export type RefundLifecycleContract = {
 };
 
 const stageSet = new Set<string>(refundLifecycleStages);
+const managerQueueBucketSet = new Set<string>(refundManagerQueueBuckets);
 
 export const isRefundLifecycleContract = (
   value: unknown,
@@ -56,6 +79,7 @@ export const isRefundLifecycleContract = (
   const contract = value as Record<string, unknown>;
   const lookup = contract.lookup as Record<string, unknown> | null;
   const operations = contract.operations as Record<string, unknown> | null;
+  const managerQueue = contract.managerQueue as Record<string, unknown> | null;
   return contract.schemaVersion === REFUND_LIFECYCLE_SCHEMA_VERSION &&
     typeof contract.stage === "string" && stageSet.has(contract.stage) &&
     typeof contract.stageRank === "number" &&
@@ -63,6 +87,14 @@ export const isRefundLifecycleContract = (
     typeof contract.publicCopyKey === "string" &&
     typeof contract.managerNextAction === "string" &&
     typeof contract.terminal === "boolean" &&
+    Boolean(managerQueue) &&
+    managerQueue?.schemaVersion === "refund_manager_queue_v1" &&
+    typeof managerQueue?.bucket === "string" &&
+    managerQueueBucketSet.has(managerQueue.bucket) &&
+    typeof managerQueue?.label === "string" &&
+    typeof managerQueue?.nextAction === "string" &&
+    typeof managerQueue?.safeRetryEligible === "boolean" &&
+    managerQueue?.payloadRedacted === true &&
     (contract.definitiveNoRefund === undefined ||
       typeof contract.definitiveNoRefund === "boolean") &&
     (contract.safeRetryEligible === undefined ||
