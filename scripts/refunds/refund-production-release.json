@@ -99,7 +99,8 @@
     "20260827082000_refund_gmail_scheduler_primary.sql",
     "20260827125641_refund_nayax_definitive_failure_retry.sql",
     "20260828003503_refund_nayax_authoritative_journal_v3.sql",
-    "20260828035155_refund_nayax_retry_safe_resolution_release.sql"
+    "20260828035155_refund_nayax_retry_safe_resolution_release.sql",
+    "20260830175740_refund_automation_scheduler_reliability.sql"
   ],
   "migrationFilesSha256": "4aaf0bfcd01ac819e465a6783c5a70d27a6e343496bcef00e10e7ddd9f6baee0",
   "migrationVersionSetSha256": "91ff8fa0bb916d4bb37666e8b8c13d7eea4dd26e6892d3de8fbac58e30a522da",
