@@ -229,7 +229,31 @@ begin
                   then 'mark_external_refund'
                 else 'refund'
               end
-              else lifecycle_with_queue.lifecycle_json ->> 'managerNextAction'
+              else case
+                when lifecycle_with_queue.lifecycle_json ->> 'stage' =
+                  'transaction_confirmed'
+                  and coalesce((
+                    item.case_json ->> 'reconciliationActionBlocked'
+                  )::boolean, false)
+                  then 'resolve_duplicate_review'
+                when lifecycle_with_queue.lifecycle_json ->> 'stage' =
+                  'transaction_confirmed'
+                  and coalesce((
+                    item.case_json ->> 'officialActionVersion'
+                  )::bigint, 0) <= 0
+                  then 'refresh_case'
+                when lifecycle_with_queue.lifecycle_json ->> 'stage' =
+                  'transaction_confirmed'
+                  and not (
+                    coalesce((
+                      item.case_json ->> 'canPerformOfficialAction'
+                    )::boolean, false)
+                    or item.case_json ->> 'officialActionBlockReason' =
+                      'manager_verification_required'
+                  )
+                  then 'resolve_manager_access'
+                else lifecycle_with_queue.lifecycle_json ->> 'managerNextAction'
+              end
             end,
             'safeRetryEligible', lifecycle_with_queue.bucket = 'needs_action'
               and lifecycle_with_queue.lifecycle_json ->> 'managerNextAction' =
@@ -269,6 +293,9 @@ begin
             ) then 'ready_to_pay'
           when canonical_lifecycle.lifecycle_json ->> 'stage' =
             'transaction_confirmed'
+            and not coalesce((
+              item.case_json ->> 'reconciliationActionBlocked'
+            )::boolean, false)
             and coalesce((
               item.case_json -> 'refundReadiness' ->> 'canIssueCardRefund'
             )::boolean, false)

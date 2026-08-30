@@ -203,6 +203,57 @@ Deno.test('canonical waiting-on-customer stage wins over matching facts', () => 
   );
 });
 
+Deno.test('transaction-confirmed detail cannot overrule blocked canonical queue authority', () => {
+  const fixtures = [
+    {
+      block: 'manager authority',
+      canPerformOfficialAction: false,
+      officialActionVersion: 1,
+      officialActionBlockReason: 'manager_mapping_required',
+      nextAction: 'resolve_manager_access',
+    },
+    {
+      block: 'missing official-action version',
+      canPerformOfficialAction: true,
+      officialActionVersion: 0,
+      officialActionBlockReason: null,
+      nextAction: 'refresh_case',
+    },
+  ] as const;
+
+  for (const fixture of fixtures) {
+    const blockedLifecycle = lifecycle('transaction_confirmed', 30, fixture.nextAction);
+    blockedLifecycle.managerQueue = {
+      ...blockedLifecycle.managerQueue,
+      bucket: 'needs_action',
+      label: 'Action needed',
+      nextAction: fixture.nextAction,
+    };
+    const blockedCase = {
+      ...baseCase,
+      hasMatchedNayaxTransaction: true,
+      canPerformOfficialAction: fixture.canPerformOfficialAction,
+      officialActionVersion: fixture.officialActionVersion,
+      officialActionBlockReason: fixture.officialActionBlockReason,
+      refundReadiness: {
+        transactionConfirmed: true,
+        canIssueCardRefund: true,
+        blockReason: null,
+      },
+      lifecycle: blockedLifecycle,
+    };
+    const result = getRefundManagerState(blockedCase);
+
+    assertEquals(result.id, 'transaction_confirmed', `${fixture.block} detail state`);
+    assertEquals(result.label, 'Transaction confirmed', `${fixture.block} detail label`);
+    assertEquals(
+      blockedLifecycle.managerQueue.nextAction,
+      fixture.nextAction,
+      `${fixture.block} canonical action`
+    );
+  }
+});
+
 Deno.test('canonical operations hold gives routine managers no technical action', () => {
   const heldCase = {
     ...baseCase,
@@ -238,6 +289,66 @@ Deno.test('canonical lookup failure exposes only the read-only refresh action', 
     result.nextStep,
     'Select Refresh transactions. No refund has been issued.',
     'safe retry copy'
+  );
+});
+
+Deno.test('canonical matching lifecycle preserves a completed no-match result', () => {
+  const noMatchLifecycle = lifecycle('matching', 10);
+  noMatchLifecycle.lookup.status = 'no_match';
+  const result = getRefundManagerState({
+    ...baseCase,
+    correlationStatus: 'no_match',
+    lifecycle: noMatchLifecycle,
+  });
+
+  assertEquals(result.id, 'match_attention', 'no-match state');
+  assertEquals(result.label, 'No matching transaction', 'no-match label');
+  assertEquals(
+    result.nextStep,
+    'Keep the case open. Do not select a transaction unless you can clearly identify it.',
+    'no-match next step'
+  );
+});
+
+Deno.test('canonical selection lifecycle preserves ambiguous comparison guidance', () => {
+  const result = getRefundManagerState({
+    ...baseCase,
+    correlationStatus: 'multiple_candidates',
+    lifecycle: lifecycle('needs_transaction_selection', 20, 'select_transaction'),
+    nayaxLookupSummary: {
+      lookupStatus: 'multiple_matches',
+      recommendationState: 'ambiguous',
+    },
+  });
+
+  assertEquals(result.id, 'match_attention', 'ambiguous state');
+  assertEquals(result.label, 'More than one possible match', 'ambiguous label');
+  assertEquals(
+    result.nextStep,
+    'Compare the details. Select one only if it is clearly the customer\'s purchase.',
+    'ambiguous next step'
+  );
+});
+
+Deno.test('canonical matching lifecycle keeps non-selectable results in review', () => {
+  const reviewLifecycle = lifecycle('matching', 10, 'review_case');
+  reviewLifecycle.lookup.status = 'manual_exception';
+  const result = getRefundManagerState({
+    ...baseCase,
+    correlationStatus: 'manual_review',
+    lifecycle: reviewLifecycle,
+    nayaxLookupSummary: {
+      lookupStatus: 'manual_exception',
+      recommendationState: 'manual_exception',
+    },
+  });
+
+  assertEquals(result.id, 'match_attention', 'manual-review state');
+  assertEquals(result.label, 'Manager review needed', 'manual-review label');
+  assertEquals(
+    result.nextStep,
+    'Review the case details before choosing the next step.',
+    'manual-review next step'
   );
 });
 

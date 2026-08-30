@@ -160,6 +160,55 @@ export const getRefundManagerState = (
           'warning'
         );
       case 'matching':
+        if (
+          refundCase.nayaxLookupSummary?.lookupStatus === 'no_match' ||
+          lifecycle.lookup.status === 'no_match'
+        ) {
+          return state(
+            'match_attention',
+            'No matching transaction',
+            'No transaction matched the customer details closely enough.',
+            'Keep the case open. Do not select a transaction unless you can clearly identify it.',
+            'warning'
+          );
+        }
+        if (
+          refundCase.nayaxLookupSummary?.lookupStatus === 'setup_needed' ||
+          lifecycle.lookup.status === 'setup_needed'
+        ) {
+          return state(
+            'match_attention',
+            'Transaction search unavailable',
+            'Bloomjoy cannot check this machine\'s transactions right now.',
+            'Keep the case open and try again later.',
+            'warning'
+          );
+        }
+        if (
+          refundCase.nayaxLookupSummary?.lookupStatus === 'lookup_failed' ||
+          lifecycle.lookup.status === 'lookup_failed'
+        ) {
+          return state(
+            'match_attention',
+            'Transaction check failed',
+            'Bloomjoy could not finish checking transactions.',
+            'Select Refresh transaction results. No refund has been issued.',
+            'warning'
+          );
+        }
+        if (
+          refundCase.nayaxLookupSummary?.lookupStatus === 'manual_exception' ||
+          refundCase.nayaxLookupSummary?.recommendationState === 'manual_exception' ||
+          lifecycle.lookup.status === 'manual_exception'
+        ) {
+          return state(
+            'match_attention',
+            'Manager review needed',
+            'Bloomjoy could not recommend one transaction.',
+            'Review the case details before choosing the next step.',
+            'warning'
+          );
+        }
         return lifecycle.lookup.safeRetryEligible
           ? state(
               'match_attention',
@@ -176,6 +225,18 @@ export const getRefundManagerState = (
               'info'
             );
       case 'needs_transaction_selection':
+        if (
+          refundCase.nayaxLookupSummary?.lookupStatus === 'multiple_matches' ||
+          refundCase.nayaxLookupSummary?.recommendationState === 'ambiguous'
+        ) {
+          return state(
+            'match_attention',
+            'More than one possible match',
+            'Two or more transactions could be this purchase.',
+            'Compare the details. Select one only if it is clearly the customer\'s purchase.',
+            'warning'
+          );
+        }
         return state(
           'ready_for_review',
           'Review transactions',
@@ -184,7 +245,7 @@ export const getRefundManagerState = (
           'info'
         );
       case 'transaction_confirmed':
-        if (refundCase.refundReadiness?.canIssueCardRefund === true) {
+        if (lifecycle.managerQueue.bucket === 'ready_to_pay') {
           return state(
             'ready_to_refund',
             'Ready to refund',

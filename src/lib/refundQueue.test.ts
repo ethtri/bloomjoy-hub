@@ -124,6 +124,69 @@ Deno.test(
   },
 );
 
+Deno.test(
+  "blocked authority and missing-version projections keep queue and detail out of ready",
+  () => {
+    const fixtures = [
+      {
+        reason: "manager authority",
+        canPerformOfficialAction: false,
+        officialActionVersion: 1,
+        officialActionBlockReason: "manager_mapping_required",
+        nextAction: "resolve_manager_access",
+      },
+      {
+        reason: "missing official-action version",
+        canPerformOfficialAction: true,
+        officialActionVersion: 0,
+        officialActionBlockReason: null,
+        nextAction: "refresh_case",
+      },
+    ] as const;
+
+    for (const fixture of fixtures) {
+      const contract = lifecycle(
+        "transaction_confirmed",
+        "needs_action",
+        fixture.nextAction,
+      );
+      const refundCase = {
+        ...cardCase(contract),
+        hasMatchedNayaxTransaction: true,
+        canPerformOfficialAction: fixture.canPerformOfficialAction,
+        officialActionVersion: fixture.officialActionVersion,
+        officialActionBlockReason: fixture.officialActionBlockReason,
+        refundReadiness: {
+          transactionConfirmed: true,
+          canIssueCardRefund: true,
+          blockReason: null,
+        },
+      };
+
+      assertEquals(
+        getRefundManagerQueueBucket(refundCase),
+        "needs_action",
+        `${fixture.reason} queue`,
+      );
+      assertEquals(
+        contract.managerQueue.label,
+        "needs_action",
+        `${fixture.reason} badge source`,
+      );
+      assertEquals(
+        contract.managerQueue.nextAction,
+        fixture.nextAction,
+        `${fixture.reason} action`,
+      );
+      assertEquals(
+        getRefundManagerState(refundCase).id,
+        "transaction_confirmed",
+        `${fixture.reason} detail`,
+      );
+    }
+  },
+);
+
 Deno.test("cash and pre-case Gmail fallbacks are deterministic", () => {
   assertEquals(
     getRefundManagerQueueBucket({

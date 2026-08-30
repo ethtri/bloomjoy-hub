@@ -2848,7 +2848,23 @@ export default function AdminRefundsPage() {
           payloadRedacted: true,
         }
       );
-      setEditor(toEditorState(confirmedCase));
+      // Keep the detail mounted while the authoritative overview decides its
+      // post-confirmation queue. Otherwise the old filter can clear selection
+      // in the same render that receives the new server projection.
+      setStatusFilter('all');
+      await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
+      const authoritativeCase = queryClient
+        .getQueryData<RefundOperationsOverview>(['admin-refund-operations-overview'])
+        ?.cases.find((refundCase) => refundCase.id === confirmedCase.id);
+      if (authoritativeCase) {
+        // A confirmed transaction can change queues. Keep the selected detail
+        // attached to the server-owned queue instead of deriving readiness
+        // from this mutation response or clearing it under the old filter.
+        setStatusFilter(canonicalQueueBucket(authoritativeCase));
+        setEditor(toEditorState(authoritativeCase));
+      } else {
+        setEditor(toEditorState(confirmedCase));
+      }
       setNayaxCandidates([]);
       setIsEvidenceConfirmationOpen(false);
       setNayaxLookupNotice({

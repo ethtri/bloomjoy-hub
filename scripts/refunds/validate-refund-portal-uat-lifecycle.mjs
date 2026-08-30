@@ -25,6 +25,83 @@ const demoSource = portalSource.slice(
   portalSource.indexOf('const runDemoFallbackChecks = async'),
   portalSource.indexOf('const run = async () =>')
 );
+const overviewFixtureBuilders = [
+  ...portalSource.matchAll(/const (build[A-Za-z0-9]*Overview)\s*=\s*/g),
+].map((match) => match[1]);
+
+assert.deepEqual(overviewFixtureBuilders, [
+  'buildMockRefundOverview',
+  'buildEmptyRefundOverview',
+  'buildLegacyStateReviewOverview',
+  'buildFailedCommsRefundOverview',
+  'buildCashRefundReviewOverview',
+  'buildCashRefundVariantsOverview',
+  'buildPendingNayaxRefundOverview',
+  'buildNavigationOnlyPendingOverview',
+  'buildSimpleCardRefundJourneyOverview',
+  'buildGroupedLivermorePendingOverview',
+  'buildManagerStepUpRefundOverview',
+  'buildNayaxResolutionRefundOverview',
+  'buildNayaxEvidenceOnlyRefundOverview',
+  'buildInterruptedNayaxCompletionOverview',
+  'buildUncertainNayaxCompletionOverview',
+  'buildOfficialActionVersionResetOverview',
+  'buildWalletMismatchRefundOverview',
+  'buildWalletMismatchWaitingRefundOverview',
+  'buildPhysicalCardMismatchRefundOverview',
+]);
+assert.match(
+  portalSource,
+  /const buildLifecycleFixture = [\s\S]*?managerQueue: \{[\s\S]*?schemaVersion: 'refund_manager_queue_v1'/
+);
+assert.match(
+  portalSource,
+  /const withOfficialActionState = [\s\S]*?return withManagerQueueProjection\(projectedCase\);/
+);
+assert.match(
+  portalSource,
+  /const withManagerQueueProjection = \(refundCase\) => \{[\s\S]*?if \(!refundCase\.lifecycle\) \{[\s\S]*?refund_uat_manager_queue_fixture_missing/
+);
+assert.match(
+  portalSource,
+  /const buildPendingNayaxRefundOverview = [\s\S]*?managerQueueContractVersion: 'refund_manager_queue_v1'[\s\S]*?lifecycle: buildLifecycleFixture\('matching', 10, 'wait'\)/
+);
+assert.match(
+  portalSource,
+  /const buildCashRefundLifecycleFixture = [\s\S]*?bucket: readyToMarkRefunded \? 'ready_to_pay' : 'needs_action'[\s\S]*?nextAction: readyToMarkRefunded \? 'mark_external_refund' : 'request_missing_details'/
+);
+assert.match(
+  portalSource,
+  /const buildCashRefundReviewOverview = [\s\S]*?managerQueueContractVersion: 'refund_manager_queue_v1'[\s\S]*?lifecycle: buildCashRefundLifecycleFixture\(\)/
+);
+assert.match(
+  portalSource,
+  /publicReference: 'RF-UAT-CASH-MISSING-AMOUNT'[\s\S]*?lifecycle: buildCashRefundLifecycleFixture\(false\)/
+);
+assert.match(
+  portalSource,
+  /const buildInterruptedNayaxCompletionOverview = [\s\S]*?status: 'completed'[\s\S]*?lifecycle: buildLifecycleFixture\([\s\S]*?'refund_confirmed'[\s\S]*?70[\s\S]*?'wait_for_customer_notification'/
+);
+assert.match(
+  portalSource,
+  /interruptionPage\.getByRole\('button', \{ name: 'In progress 1'[\s\S]*?uncertainPage\.getByRole\('button', \{ name: 'In progress 1'/
+);
+assert.match(
+  portalSource,
+  /availabilityResponse = page\.waitForResponse[\s\S]*?\(error\) => \(\{ response: null, error \}\)[\s\S]*?initialQueueLabel = scenario\.response\?\.available === true[\s\S]*?refund_uat_availability_response_missing:\$\{scenario\.name\}/
+);
+assert.match(
+  portalSource,
+  /scenario\.queueView === 'Waiting'[\s\S]*?does not repeat a lookup without the canonical lifecycle trigger[\s\S]*?else \{[\s\S]*?starts one automatic read-only lookup from the matching lifecycle/
+);
+assert.equal(
+  [...portalSource.matchAll(/url\.includes\('\/admin_get_refund_operations_overview'\)/g)].length,
+  1
+);
+assert.equal(
+  [...portalSource.matchAll(/jsonResponse\(withOfficialActionState\(settledOverview\)\)/g)].length,
+  1
+);
 
 assert.match(portalSource, /navigateRefundPortalPage/);
 assert.match(portalSource, /reloadRefundPortalPage/);
@@ -126,5 +203,11 @@ assert.match(
   refundsSource,
   /const selectedCaseStillExists = filteredCases\.some\([\s\S]*?setSelectedId\(null\)/
 );
+assert.match(
+  refundsSource,
+  /setStatusFilter\('all'\);[\s\S]*?invalidateQueries\(\{ queryKey: \['admin-refund-operations-overview'\] \}\)[\s\S]*?setStatusFilter\(canonicalQueueBucket\(authoritativeCase\)\)/
+);
 
-console.log('Refund portal lifecycle and mobile-width static checks passed.');
+console.log(
+  `Refund portal lifecycle, ${overviewFixtureBuilders.length} canonical queue fixtures, and mobile-width static checks passed.`
+);
