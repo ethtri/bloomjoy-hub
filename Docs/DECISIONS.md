@@ -2,6 +2,17 @@
 
 Entries are newest-first. For production refund work, the 2026-08-28 capability-versus-automation and canonical Nayax identity decisions plus the 2026-08-27 exact response-contract decision govern. Older conflicting pilot, unfamiliar-`2xx`, permission, and TOTP mechanics are retained only as historical audit records.
 
+## 2026-08-30 - Refund status messages are deterministic, recoverable, and payment-neutral (`#891`)
+
+- Bloomjoy stores a conservative customer-language preference with intake evidence and reuses it for acknowledgement, appeal, lifecycle, and automatic messages. Spanish-preferring customers receive bilingual Spanish/English copy; uncertain preference remains English.
+- Cash messages describe the manager-arranged external refund path and never imply a card, bank, or Nayax refund. Card completion copy remains reserved for proven provider settlement.
+- Only the latest unresolved provider hold may claim one provider-neutral delay update. A still-unresolved case may receive one human-owned status update at four Pacific business days. Stable action identities make each update exactly once; superseded attempts and early sends are rejected.
+- Failed or uncertain external delivery is manager work and is never retried blindly. An intentionally skipped message stays visible with a safe acknowledgement action. Exhausted automatic contact cycles return the case to named manager review instead of silently ending communication.
+- These messages do not approve, deny, execute, or infer a refund. Automatic customer contact remains behind the existing default-off environment and database gates.
+
+**Why this choice**
+- A truthful delay message can reduce customer uncertainty without overstating a provider or bank outcome. Binding it to immutable case facts and visible delivery evidence keeps communication recoverable without creating payment authority or duplicate-send risk.
+
 ## 2026-08-30 - Supabase Cron is the primary refund-automation clock (`#1045`)
 
 - Supabase Cron dispatches the existing refund sweep four times per hour and its health check four times per hour through a dedicated Vault-backed scheduler credential. Both database jobs install default-off and have no authority beyond the existing Edge Function gates.

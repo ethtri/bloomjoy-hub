@@ -19,6 +19,10 @@ import {
   REFUND_CUSTOMER_SENDER_NAME,
   REFUND_MONITORED_REPLY_TO_EMAIL,
 } from "./refund-customer-transport.ts";
+import {
+  sanitizeRefundCustomerLocale,
+  type RefundCustomerLocale,
+} from "./refund-language.ts";
 
 export {
   REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
@@ -52,6 +56,8 @@ export type RefundCustomerEmailInput = {
   decisionReason?: string | null;
   missingFields?: RefundMissingField[];
   followUpReason?: RefundFollowUpReason;
+  statusUpdateReason?: "provider_delay" | "sla_at_risk";
+  customerLocale?: RefundCustomerLocale | string | null;
   incidentLocalDateTime?: string | null;
   cardWalletUsed?: boolean;
   cardLast4?: string | null;
@@ -276,7 +282,7 @@ const getSubject = (
 const getHeadline = (messageType: RefundCustomerMessageType) => {
   switch (messageType) {
     case "more_info":
-      return "A tiny bit more information";
+      return "One more detail to continue your refund review";
     case "reminder":
       return "We are still here to help";
     case "no_safe_match":
@@ -308,6 +314,7 @@ const getBodyParagraphs = ({
   paymentMethod,
   missingFields,
   followUpReason,
+  statusUpdateReason,
   cardWalletUsed,
   cardLast4,
   decisionReason,
@@ -345,6 +352,13 @@ const getBodyParagraphs = ({
       ];
     case "reminder":
       if (followUpReason === "no_safe_match") {
+        if (isCash) {
+          return [
+            "We are checking in once because we still want to help with your refund request. There is no need to resend the information you already shared.",
+            "We could not verify one matching cash purchase from the available records. If the machine, location, purchase date, approximate time, or amount needs a correction, please reply in this same conversation. If everything is correct, no action is needed from you and a person will continue the review.",
+            "For your safety, please never send payment-account details, a PIN, password, or screenshot.",
+          ];
+        }
         return [
           "We are checking in once because we still want to help with your refund request. There is no need to resend the information you already shared.",
           "Please reply only if any detail shown below needs a correction, such as the machine or location, purchase date or approximate time, amount, or payment method. If everything is correct, no action is needed from you and a person will continue the review.",
@@ -362,6 +376,13 @@ const getBodyParagraphs = ({
         "For your safety, please never send a full card number, security code, expiration date, PIN, password, or payment-screen screenshot.",
       ];
     case "no_safe_match":
+      if (isCash) {
+        return [
+          "Thank you for the details you shared. We could not verify one matching cash purchase from the available records yet. This does not mean you did anything wrong.",
+          "Please reply only if the machine or location, purchase date, approximate time, or amount needs a correction. A person will continue the review if there still is not one clear record.",
+          "Please do not send payment-account details, a PIN, password, or screenshot.",
+        ];
+      }
       return [
         "Thank you for the details you shared. We checked the available machine transaction records carefully, but we could not identify one transaction that we can safely match to your request yet. This does not mean you did anything wrong.",
         "Please reply only if any of the details shown below need a correction, such as the machine or location, purchase date or approximate time, amount, or payment method.",
@@ -370,7 +391,9 @@ const getBodyParagraphs = ({
     case "information_received":
       return [
         "Thank you for sending the additional information. We added it to your refund request, so you do not need to resend it.",
-        "Our team will check the updated details against the available transaction records. This message confirms receipt only. It is not yet a refund decision and is not a promise that a payment has been completed.",
+        isCash
+          ? "Our team will continue the review using the updated purchase details. This message confirms receipt only. It is not yet a refund decision and is not a promise that a payment has been completed."
+          : "Our team will check the updated details against the available transaction records. This message confirms receipt only. It is not yet a refund decision and is not a promise that a payment has been completed.",
       ];
     case "wallet_correction":
     case "wallet_correction_reminder":
@@ -427,6 +450,20 @@ const getBodyParagraphs = ({
       ];
     }
     case "status_update":
+      if (statusUpdateReason === "provider_delay") {
+        return [
+          "We are still reviewing your request and have not forgotten about you.",
+          "We are waiting for confirmation from the payment provider before taking another refund action. You do not need to submit another request or send your card details.",
+          "A person is monitoring the case. We will contact you again when the result is confirmed or if we need one specific detail from you.",
+        ];
+      }
+      if (statusUpdateReason === "sla_at_risk") {
+        return [
+          "We are still reviewing your request and have not forgotten about you.",
+          "The review is taking longer than our usual target, so a person is now following it directly. You do not need to submit another request.",
+          "We will contact you again when we have a confirmed next step or if we need one specific detail from you.",
+        ];
+      }
       return [
         "We are still reviewing your request and have not forgotten about you.",
         "Our team is checking the transaction and machine details with care. Our target is to complete refund reviews within 5 business days.",
@@ -435,8 +472,76 @@ const getBodyParagraphs = ({
     default:
       return [
         "Thank you for reaching out. We are sorry the Bloomjoy experience did not go the way it should have, and we have opened a refund request for you.",
-        "Our team will review the transaction details and follow up as soon as we have the next step.",
+        isCash
+          ? "Our team will review the purchase details and follow up as soon as we have the next step."
+          : "Our team will review the transaction details and follow up as soon as we have the next step.",
         "Our target is to complete refund reviews within 5 business days.",
+      ];
+  }
+};
+
+const getSpanishBodyParagraphs = ({
+  messageType,
+  paymentMethod,
+  statusUpdateReason,
+}: RefundCustomerEmailInput) => {
+  const isCash = paymentMethod === "cash";
+  switch (messageType) {
+    case "more_info":
+    case "reminder":
+      return [
+        "Necesitamos un dato más para continuar la revisión. Responda en esta misma conversación solamente con la información solicitada arriba.",
+        "Por su seguridad, no envíe el número completo de su tarjeta, código de seguridad, fecha de vencimiento, PIN, contraseña ni capturas de pantalla.",
+      ];
+    case "no_safe_match":
+      return [
+        isCash
+          ? "Todavía no pudimos verificar un registro claro de la compra en efectivo. Esto no significa que usted haya hecho algo incorrecto."
+          : "Todavía no pudimos identificar con seguridad una sola transacción para su solicitud. Esto no significa que usted haya hecho algo incorrecto.",
+        "Responda solamente si necesita corregir la máquina o ubicación, la fecha, la hora aproximada, el monto o el método de pago. Si todo está correcto, una persona continuará la revisión.",
+      ];
+    case "information_received":
+      return [
+        "Recibimos la información adicional y la agregamos a la misma solicitud. No necesita enviarla otra vez.",
+        "Este mensaje confirma la recepción solamente; todavía no es una decisión ni confirma que se haya enviado un pago.",
+      ];
+    case "approved":
+      return [
+        "Nuestro equipo aprobó su solicitud de reembolso.",
+        "Le enviaremos otra actualización cuando el paso de pago esté confirmado.",
+      ];
+    case "denied":
+      return [
+        "No pudimos aprobar la solicitud con la información disponible.",
+        "Si faltó o entendimos mal algún dato, responda en esta misma conversación. Revisaremos nuevamente la misma solicitud; su respuesta no enviará un pago automáticamente.",
+      ];
+    case "completed":
+      return [
+        isCash
+          ? "Su solicitud fue aprobada y el paso de reembolso fue completado mediante el método acordado con usted."
+          : "El proveedor de pago aprobó el reembolso. Su banco puede tardar hasta 4 días hábiles en mostrarlo.",
+        "Si necesita ayuda, responda a este correo e incluya la referencia que aparece abajo.",
+      ];
+    case "status_update":
+      if (statusUpdateReason === "provider_delay") {
+        return [
+          "Seguimos revisando su solicitud y no la hemos olvidado.",
+          "Estamos esperando una confirmación del proveedor de pago antes de realizar otra acción. No necesita enviar otra solicitud ni compartir datos de su tarjeta.",
+          "Una persona está supervisando el caso y le escribiremos cuando tengamos un resultado confirmado.",
+        ];
+      }
+      return [
+        "Seguimos revisando su solicitud y no la hemos olvidado.",
+        "No necesita enviar otra solicitud. Una persona le escribirá cuando tengamos el siguiente paso confirmado o si necesitamos un dato específico.",
+      ];
+    case "confirmation":
+    default:
+      return [
+        "Recibimos su solicitud de reembolso y lamentamos que la experiencia no haya salido como esperaba.",
+        isCash
+          ? "Nuestro equipo revisará los datos de la compra y le escribirá con el siguiente paso."
+          : "Nuestro equipo revisará los datos de la transacción y le escribirá con el siguiente paso.",
+        "Nuestro objetivo es completar la revisión dentro de 5 días hábiles.",
       ];
   }
 };
@@ -465,9 +570,18 @@ export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
     machineLabel: input.machineLabel,
     locationName: input.locationName,
   });
-  const subject = getSubject(input.messageType, publicReference);
+  const customerLocale = sanitizeRefundCustomerLocale(input.customerLocale);
+  const baseSubject = getSubject(input.messageType, publicReference);
+  const subject = customerLocale === "es" ? `[Español / English] ${baseSubject}` : baseSubject;
   const greeting = customerName ? `Hi ${customerName},` : "Hi there,";
-  const paragraphs = getBodyParagraphs(input);
+  const englishParagraphs = getBodyParagraphs(input);
+  const paragraphs = customerLocale === "es"
+    ? [
+      ...englishParagraphs,
+      "Información en español",
+      ...getSpanishBodyParagraphs(input),
+    ]
+    : englishParagraphs;
   const statusUrl = sanitizeRefundStatusUrl(input.statusUrl);
   const details = [`Reference: ${publicReference}`];
   if (machineLabel) details.push(`Machine: ${machineLabel}`);

@@ -6,6 +6,7 @@ import {
   redactRefundStatusLinksForStorage,
   sendRefundTransactionalEmail,
 } from "../_shared/refund-email.ts";
+import { inferRefundCustomerLocale } from "../_shared/refund-language.ts";
 import { automaticRefundCustomerContactEnabled } from "../_shared/refund-deterministic-follow-up.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
@@ -1283,6 +1284,11 @@ serve(async (req) => {
     const customerName = sanitizeText(body?.customerName, 160);
     const customerPhone = sanitizeText(body?.customerPhone, 80);
     const issueSummary = sanitizeText(body?.issueSummary, 2500);
+    const customerLocale = inferRefundCustomerLocale({
+      explicitLocale: body?.customerLocale,
+      acceptLanguage: req.headers.get("accept-language"),
+      customerText: issueSummary,
+    });
     const paymentMethod = sanitizeText(body?.paymentMethod, 40).toLowerCase();
     const amountCents = centsFromAmount(body?.paymentAmount);
     const cardLast4 = sanitizeText(body?.cardLast4, 4);
@@ -1731,6 +1737,7 @@ serve(async (req) => {
       product_description_supplied: Boolean(productDescription),
       incident_possible_instant_count: incidentResolution.possibleInstantCount,
       candidate_sales_fact_ids: candidateIds,
+      customer_locale: customerLocale,
       user_agent: req.headers.get("user-agent")?.slice(0, 300) ?? null,
     };
     const insertValues = {
@@ -1953,6 +1960,7 @@ serve(async (req) => {
       cardWalletUsed: paymentValidation.cardWalletUsed,
       incidentLocalDateTime: hasLocalIncidentInput ? `${incidentDate} ${incidentTime}` : null,
       statusUrl: statusCapability?.url ?? null,
+      customerLocale,
     });
 
     const { data: messageRow } = await supabase
