@@ -103,6 +103,7 @@
     "20260830175740_refund_automation_scheduler_reliability.sql",
     "20260830182744_refund_nayax_superseded_generation_hold.sql",
     "20260830182855_refund_manager_queue_truth.sql",
+    "20260830182941_refund_customer_correction_persistence.sql",
     "20260830183702_refund_customer_status_recovery.sql",
     "20260830205449_refund_automation_scheduler_30_minute_cadence.sql"
   ],
