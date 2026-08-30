@@ -91,7 +91,7 @@ Set the following values before launch.
 | `NAYAX_REFUND_DAILY_COUNT_CAP` | Server-only | `nayax-card-refund` | Reviewed normal daily count ceiling is 20 | Release owner |
 | `NAYAX_REFUND_IDEMPOTENCY_SECRET` | Server-only | `nayax-card-refund` | Generated HMAC secret for execution idempotency | Technical owner |
 | `NAYAX_REFUND_EXECUTOR_ASSERTION` | Server-only | `nayax-card-refund` | Separate generated function identity; only its SHA-256 digest is registered in the database during an approved gate-on change | Technical owner |
-| `REFUND_AUTOMATION_SWEEP_SECRET` | Server-only | `refund-case-automation-sweep` | Scheduler secret; may match `REPORT_SCHEDULER_SECRET` | Technical owner |
+| `REFUND_AUTOMATION_SWEEP_SECRET` | Server-only | `refund-case-automation-sweep` | Dedicated scheduler secret matching GitHub and Vault copies; never a service-role key | Technical owner |
 | `REFUND_AUTOMATION_ENABLED` | Server-only | `refund-case-automation-sweep` | Default `false`; set `true` only after synthetic manual-run and alert proof | Release owner |
 | `REFUND_AUTOMATION_TIMEZONE` | Server-only | `refund-case-automation-sweep` | Customer-contact policy timezone; default `America/Los_Angeles` | Release owner |
 | `REFUND_AUTOMATION_START_HOUR` | Server-only | `refund-case-automation-sweep` | Local inclusive start hour; default `8` | Release owner |
@@ -130,6 +130,7 @@ Set the following values before launch.
 | `REFUND_AUTOMATION_SWEEP_URL` | GitHub Actions secret | Refund Automation Sweep/Health workflows | Supabase `refund-case-automation-sweep` function URL | Technical owner |
 | `REFUND_AUTOMATION_SWEEP_TOKEN` | GitHub Actions secret | Refund Automation Sweep/Health workflows | Same value as `REFUND_AUTOMATION_SWEEP_SECRET`; never a service-role key | Technical owner |
 | `REFUND_AUTOMATION_SWEEP_ENABLED` | GitHub Actions variable | Refund Automation Sweep/Health workflows | Default `false`; controls scheduled workflow dispatch only | Release owner |
+| `refund_automation_scheduler_url` / `refund_automation_scheduler_secret` | Supabase Vault | Database refund automation scheduler | Exact sweep function URL and the same dedicated token accepted by `REFUND_AUTOMATION_SWEEP_SECRET`; one secret of each name | Technical owner |
 | `REFUND_GMAIL_SYNC_URL` | GitHub Actions secret | Refund Gmail Sync workflow | Supabase `refund-gmail-sync` function URL | Technical owner |
 | `REFUND_GMAIL_SYNC_TOKEN` | GitHub Actions secret | Refund Gmail Sync workflow | Same value as `REFUND_GMAIL_SYNC_SECRET`; never a service-role key | Technical owner |
 | `REFUND_GMAIL_SYNC_ENABLED` | GitHub Actions variable | Refund Gmail Sync workflow | Default `false`; controls scheduled workflow dispatch only | Release owner |
@@ -416,11 +417,15 @@ Refund sync validation:
 - If the source sheet has hundreds of rows, keep the default paged sync or set `REFUND_ADJUSTMENT_SYNC_ROW_LIMIT` no higher than `100` so each Edge Function request stays below timeout limits.
 
 Refund automation scheduler validation:
-- Apply the automation ledger migration, deploy `refund-case-automation-sweep`, and deploy the frontend before configuring either workflow.
-- Set `REFUND_AUTOMATION_SWEEP_URL` and `REFUND_AUTOMATION_SWEEP_TOKEN`. Keep GitHub variable `REFUND_AUTOMATION_SWEEP_ENABLED=false`, Edge secret `REFUND_AUTOMATION_ENABLED=false`, and the independent `REFUND_MANAGER_AGING_NOTICES_ENABLED=false` during setup.
+- Apply the automation ledger and scheduler-reliability migrations, then deploy `refund-case-automation-sweep` and the frontend. The database primary jobs install disabled; do not enable them before the function and migration agree.
+- Generate a dedicated 32+ character token privately. Set it as the Edge secret `REFUND_AUTOMATION_SWEEP_SECRET` and GitHub secret `REFUND_AUTOMATION_SWEEP_TOKEN`; store the same value in Supabase Vault as `refund_automation_scheduler_secret`, and store the exact production function URL as `refund_automation_scheduler_url`. Require exactly one Vault secret with each name. Never print, commit, or paste the token into an issue, PR, browser console, or evidence artifact.
+- Keep `public.refund_automation_scheduler_settings.enabled=false`, GitHub variable `REFUND_AUTOMATION_SWEEP_ENABLED=false`, Edge secret `REFUND_AUTOMATION_ENABLED=false`, and `REFUND_MANAGER_AGING_NOTICES_ENABLED=false` during setup. Through the owner SQL lane, call `public.service_dispatch_refund_automation_scheduler('run')` and `('health_check')`; both must return `status=disabled`, `dispatched=false`, and `payloadRedacted=true`.
 - Manually run **Refund Automation Sweep** with `failure_test` and a new synthetic UUID in `run_key`. Confirm the designated operations recipients receive the PII-free test alert and the workflow prints aggregate fields only. Dispatch `failure_test` again with the exact same UUID; require `duplicate_suppressed` and no second alert.
 - With approved synthetic/shadow cases only, set Edge secret `REFUND_AUTOMATION_ENABLED=true`, manually run **Refund Automation Sweep** with `run` plus a new synthetic UUID in `run_key` during the configured policy window, and confirm each due action fires once. Dispatch `run` again with the exact same UUID; require `duplicate_suppressed` without another message, state change, or event. GitHub creates a new workflow run for the replay, so the reusable UUID - not `GITHUB_RUN_ID` - is the idempotency proof.
 - Manually run **Refund Automation Health** and confirm `/refunds` shows the same healthy/last-success state for an authorized Machine Manager.
+- Enable the Supabase primary only with `public.service_set_refund_automation_scheduler_enabled(true)`. Its minute 7/22/37/52 sweep and minute 13/28/43/58 health jobs use advisory locks, a dispatch ledger, and the same UTC 15-minute keys as GitHub. Enable `REFUND_AUTOMATION_SWEEP_ENABLED=true` only after the primary produces a successful sweep and health check; GitHub is then the independent fallback, not the clock.
+- Soak both lanes for at least two hours. Require at least eight primary sweep successes, no successful-run gap reaching 30 minutes, no duplicate run key, no concurrent case action, and no duplicate customer/manager/provider effect. The health ledger must show one opening alert per incident, no repeat inside 24 hours, and one recovery claim only after 60 continuous healthy minutes.
+- Primary-only rollback is `public.service_set_refund_automation_scheduler_enabled(false)` while the GitHub fallback remains available. Whole-lane disable then sets `REFUND_AUTOMATION_SWEEP_ENABLED=false` and `REFUND_AUTOMATION_ENABLED=false`; manually dispatch one new UUID to prove `disabled` and confirm intake plus manager actions remain available.
 
 Refund Gmail independent primary and recovery schedulers (`#1009`):
 
@@ -432,8 +437,6 @@ Refund Gmail independent primary and recovery schedulers (`#1009`):
 - Prove recovery without customer or payment effects: pause only the GitHub schedule, leave Gmail read-only intake active, and confirm one recovery dispatch begins before 30 minutes, produces one successful aggregate sync, creates no duplicate thread/message/case, and returns the manager health indicator to healthy. Restore the GitHub schedule immediately.
 - Soak the Supabase primary, GitHub fallback, and watchdog for at least two hours. Require at least 12 Supabase primary successes, no gap reaching 30 minutes, no duplicate run key, no concurrent claim, zero failed messages, and no new customer/provider/refund action attributable to either database scheduler before starting or resuming the integrated 72-hour certificate.
 - Quick disable is `public.service_set_refund_gmail_primary_scheduler_enabled(false)` followed by `public.service_set_refund_gmail_scheduler_enabled(false)`. If the shared read-only Edge credential may be exposed, disable both first, rotate/remove both matching secret copies, and redeploy the Edge secret. Do not retry an uncertain customer message or refund; neither scheduler has either authority.
-- Set GitHub variable `REFUND_AUTOMATION_SWEEP_ENABLED=true` only after those checks pass. The sweep runs at minutes 7/22/37/52; the independent health check runs hourly at minute 43.
-- Quick disable without taking down the refund workflow: first set `REFUND_AUTOMATION_SWEEP_ENABLED=false`, then set Edge secret `REFUND_AUTOMATION_ENABLED=false`. Manually dispatch one `run` with a new synthetic UUID in `run_key` to record/confirm `disabled`; verify `/refunds` intake and manager actions still work. Re-enable only after the linked incident is resolved and synthetic proof passes again.
 - Manager aging may be enabled only after its separate UAT proves one current-manager reminder at two and one escalation at five Los Angeles business days per attention version, exact navigation-only case links, pause/terminal suppression, send-time route resolution, and no blind retry. With `REFUND_MANAGER_AGING_NOTICES_ENABLED=false`, executable evidence must show zero fetch, claim, reservation, and send calls for that lane.
 
 Refund Gmail intake validation:
@@ -610,7 +613,7 @@ Gmail-only rollback: set `REFUND_GMAIL_SYNC_ENABLED=false`, then `REFUND_GMAIL_E
 
 Automatic-contact-only rollback: set `REFUND_AUTOMATIC_CUSTOMER_CONTACT_ENABLED=false`, then set `refund_customer_contact_settings.automatic_customer_contact_enabled=false`. This leaves manual review and the independently controlled Gmail/retention lanes available.
 
-Manager-aging-only rollback: set `REFUND_MANAGER_AGING_NOTICES_ENABLED=false`. If the whole scheduler must stop, also disable `REFUND_AUTOMATION_SWEEP_ENABLED` and `REFUND_AUTOMATION_ENABLED`. A disabled-lane proof must show zero fetch, claim, reservation, and send calls.
+Manager-aging-only rollback: set `REFUND_MANAGER_AGING_NOTICES_ENABLED=false`. If the whole scheduler must stop, first call `public.service_set_refund_automation_scheduler_enabled(false)`, then disable `REFUND_AUTOMATION_SWEEP_ENABLED` and `REFUND_AUTOMATION_ENABLED`. A disabled-lane proof must show zero fetch, claim, reservation, and send calls.
 
 Gmail-retention-only rollback: set the GitHub and Edge `REFUND_GMAIL_RETENTION_ENABLED=false`, then set `refund_gmail_retention_settings.cleanup_enabled=false`. Do not disable approved retention merely because Gmail OAuth is revoked; revocation is an expected condition under which local cleanup must remain available.
 

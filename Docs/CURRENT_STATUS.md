@@ -1,6 +1,6 @@
 # Current Status
 
-Last compacted: 2026-08-28
+Last compacted: 2026-08-30
 
 GitHub Issues and the Bloomjoy Project board are the operational source of truth for active work, priority, blockers, acceptance criteria, and closeout evidence.
 
@@ -21,7 +21,9 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 ## Current Themes
 
-### Refund Operations launch snapshot (authoritative as of 2026-08-28)
+### Refund Operations launch snapshot (authoritative as of 2026-08-30)
+
+- **Refund scheduler reliability (`#1045`):** production GitHub schedule events have arrived hours late or been dropped while the refund sweep itself continues to succeed, causing repeated stale-scheduler emails with zero consecutive failures. The reviewed direction is a default-off Supabase Cron primary plus GitHub fallback sharing the same 15-minute idempotency keys. Alerting becomes one durable incident with at most daily reminders and one recovery notice after a stable hour. Until that migration, Edge Function revision, Vault configuration, and soak are deployed, automatic reminders/lookups may be delayed; core intake and manager processing remain available.
 
 - **Corrected core finding — API capability is proved; direct automation is not (`#877`, `#961`, `#990`):** at least one historical Tulsa `$7` refund that began through Bloomjoy's Nayax API path was later authoritatively confirmed as a real provider refund. The Nayax API can move the money and must not be described as unavailable. What remains unproved is one direct request -> approval -> Bloomjoy-finalization run whose immediate responses are classified automatically without DTM or Support reconciliation. Later incidents exposed a historical Edge/database contract mismatch, an approval HTTP failure with no refund, and a separate request business rejection carried over HTTP `200`. The current server payload has the public Nayax field shape; no evidence yet proves the later rejection was caused by a wrong payload or missing account role. See `Docs/NAYAX_REFUND_PRODUCTION_RCA.md` for the evidence, confirmed root causes, open hypotheses, and safe exit criteria.
 

@@ -150,12 +150,6 @@ const buildDefaultRunKey = (triggerSource: "scheduled" | "manual", now: Date) =>
   return `${triggerSource}:${bucket}`;
 };
 
-const keyTimestamp = (value: string | null | undefined, fallback: string) => {
-  if (!value) return fallback;
-  const parsed = new Date(value);
-  return Number.isFinite(parsed.getTime()) ? parsed.toISOString().replace(/[.]/g, "-") : fallback;
-};
-
 const getLocalHour = (date: Date, timeZone: string) => {
   try {
     const hour = new Intl.DateTimeFormat("en-US", {
@@ -271,6 +265,13 @@ type RefundAutomationHealth = {
   lastRunAt?: string | null;
   lastSuccessAt?: string | null;
   consecutiveFailures?: number;
+};
+
+type RefundAutomationHealthNotification = {
+  notificationType: "initial" | "reminder" | "recovery" | "none";
+  alertKind: "stale" | "repeated_failure" | null;
+  incidentId: string | null;
+  actionKey: string | null;
 };
 
 type RefundManagerAttentionState = {
@@ -489,6 +490,32 @@ const getAutomationHealth = async (): Promise<RefundAutomationHealth> => {
   const { data, error } = await supabase.rpc("service_get_refund_automation_health");
   if (error) throw error;
   return (data ?? {}) as RefundAutomationHealth;
+};
+
+const claimAutomationHealthNotification = async (
+  healthStatus: string,
+): Promise<RefundAutomationHealthNotification> => {
+  if (!supabase) throw new Error("Refund automation is not configured.");
+  const { data, error } = await supabase.rpc(
+    "service_claim_refund_automation_health_notification",
+    { p_health_status: healthStatus },
+  );
+  if (error) throw error;
+  const claim = (data ?? {}) as Record<string, unknown>;
+  const notificationType = claim.notificationType === "initial" ||
+      claim.notificationType === "reminder" ||
+      claim.notificationType === "recovery"
+    ? claim.notificationType
+    : "none";
+  const alertKind = claim.alertKind === "stale" || claim.alertKind === "repeated_failure"
+    ? claim.alertKind
+    : null;
+  return {
+    notificationType,
+    alertKind,
+    incidentId: typeof claim.incidentId === "string" ? claim.incidentId : null,
+    actionKey: typeof claim.actionKey === "string" ? claim.actionKey : null,
+  };
 };
 
 type RefundFollowUpCycleContext = {
@@ -1319,16 +1346,32 @@ const sendWalletCorrectionMessage = async (
 const sendAutomationHealthAlert = async (
   alertKind: "stale" | "repeated_failure" | "failure_test",
   health: RefundAutomationHealth,
+  notificationType: "initial" | "reminder" | "recovery" = "initial",
 ) => {
   const label = alertKind === "failure_test"
     ? "failure-test alert"
     : alertKind === "stale"
       ? "stale scheduler"
       : "repeated scheduler failures";
+  const subject = alertKind === "failure_test"
+    ? `[Action needed] Refund automation ${label}`
+    : notificationType === "recovery"
+      ? "[Recovered] Refund automation scheduler healthy"
+      : notificationType === "reminder"
+        ? `[Reminder] Refund automation ${label}`
+        : `[Action needed] Refund automation ${label}`;
+  const opening = notificationType === "recovery"
+    ? "Bloomjoy Refund Operations automation has remained healthy for one hour."
+    : notificationType === "reminder"
+      ? "Bloomjoy Refund Operations automation still needs attention."
+      : "Bloomjoy Refund Operations automation needs attention.";
+  const closing = notificationType === "recovery"
+    ? "No action is needed. A future distinct scheduler incident can alert again."
+    : "The core refund case workflow remains available. Check the Refunds health banner and the primary Supabase schedule.";
   await sendInternalEmail({
-    subject: `[Action needed] Refund automation ${label}`,
+    subject,
     text: [
-      "Bloomjoy Refund Operations automation needs attention.",
+      opening,
       "",
       `Alert category: ${label}`,
       `Health state: ${health.status ?? "unknown"}`,
@@ -1337,7 +1380,7 @@ const sendAutomationHealthAlert = async (
       `Consecutive failures: ${health.consecutiveFailures ?? 0}`,
       "",
       "No customer names, email addresses, payment details, complaint text, or provider payloads are included.",
-      "The core refund case workflow remains available. Check the Refunds health banner and the scheduled GitHub workflow before re-enabling automation.",
+      closing,
     ].join("\n"),
   });
 };
@@ -2939,22 +2982,28 @@ const runHealthCheck = async (
   policyWindowStart: string,
 ) => {
   const health = await getAutomationHealth();
-  const alertKind = health.status === "stale"
-    ? "stale"
-    : health.status === "failing" && (health.consecutiveFailures ?? 0) >= 2
-      ? "repeated_failure"
-      : null;
+  const notificationHealthStatus = health.status === "failing" &&
+      (health.consecutiveFailures ?? 0) < 2
+    ? "waiting"
+    : health.status ?? "waiting";
+  const notification = await claimAutomationHealthNotification(notificationHealthStatus);
 
-  if (!alertKind) {
-    await finishRun(runId, "succeeded", counters);
-    return { health, alertStatus: "not_needed" };
+  if (
+    notification.notificationType === "none" ||
+    !notification.alertKind ||
+    !notification.actionKey
+  ) {
+    const alertStatus = health.status === "stale" || health.status === "failing"
+      ? "suppressed"
+      : "not_needed";
+    await finishRun(runId, "succeeded", counters, null, alertStatus);
+    return { health, alertStatus, notificationType: "none" };
   }
 
-  const healthFingerprint = keyTimestamp(health.lastSuccessAt ?? health.lastRunAt, "never").slice(0, 19);
   const action = await claimAction(
     runId,
     null,
-    `ops_alert:${alertKind}:${healthFingerprint}`,
+    notification.actionKey,
     "ops_alert",
     null,
     policyWindowStart,
@@ -2963,14 +3012,32 @@ const runHealthCheck = async (
 
   if (!action.claimed) {
     await finishRun(runId, "succeeded", counters, null, "suppressed");
-    return { health, alertStatus: "suppressed" };
+    return { health, alertStatus: "suppressed", notificationType: "none" };
   }
 
   try {
-    await sendAutomationHealthAlert(alertKind, health);
-    await finishAction(action, "completed", `${alertKind}_alert_sent`, null, counters);
+    await sendAutomationHealthAlert(
+      notification.alertKind,
+      health,
+      notification.notificationType,
+    );
+    await finishAction(
+      action,
+      "completed",
+      notification.notificationType === "recovery"
+        ? "scheduler_recovery_alert_sent"
+        : notification.notificationType === "reminder"
+          ? `${notification.alertKind}_reminder_sent`
+          : `${notification.alertKind}_alert_sent`,
+      null,
+      counters,
+    );
     await finishRun(runId, "succeeded", counters, null, "sent");
-    return { health, alertStatus: "sent" };
+    return {
+      health,
+      alertStatus: "sent",
+      notificationType: notification.notificationType,
+    };
   } catch (error) {
     console.error("refund-case-automation-sweep health alert failed", {
       errorType: error instanceof Error ? error.name : typeof error,
@@ -2978,7 +3045,11 @@ const runHealthCheck = async (
     });
     await finishAction(action, "failed", "ops_alert_delivery_failed", null, counters);
     await finishRun(runId, "failed", counters, "ops_alert_delivery_failed", "failed");
-    return { health, alertStatus: "failed" };
+    return {
+      health,
+      alertStatus: "failed",
+      notificationType: notification.notificationType,
+    };
   }
 };
 
@@ -3089,6 +3160,7 @@ serve(async (req) => {
         healthStatus: result.health.status ?? "unknown",
         lastSuccessAt: result.health.lastSuccessAt ?? null,
         alertStatus: result.alertStatus,
+        notificationType: result.notificationType,
         ...redactedSummary(counters),
       }, result.alertStatus === "failed" ? 502 : 200);
     }
@@ -3169,28 +3241,46 @@ serve(async (req) => {
         const priorHealth = await getAutomationHealth();
         const shouldAlert = (priorHealth.consecutiveFailures ?? 0) >= 1;
         let alertAction: ClaimedAction | null = null;
+        let notification: RefundAutomationHealthNotification | null = null;
         if (shouldAlert) {
-          alertAction = await claimAction(
-            runId,
-            null,
-            `ops_alert:repeated_failure:${keyTimestamp(priorHealth.lastSuccessAt, "never").slice(0, 19)}`,
-            "ops_alert",
-            null,
-            schedulerWindowStart(new Date()).toISOString(),
-            counters,
-          );
-          alertStatus = alertAction.claimed ? "pending" : "not_needed";
+          notification = await claimAutomationHealthNotification("failing");
+          if (notification.actionKey && notification.alertKind) {
+            alertAction = await claimAction(
+              runId,
+              null,
+              notification.actionKey,
+              "ops_alert",
+              null,
+              schedulerWindowStart(new Date()).toISOString(),
+              counters,
+            );
+            alertStatus = alertAction.claimed ? "pending" : "not_needed";
+          }
         }
 
-        if (alertAction?.claimed) {
+        if (alertAction?.claimed && notification?.alertKind) {
           try {
-            await sendAutomationHealthAlert("repeated_failure", {
-              ...priorHealth,
-              status: "failing",
-              consecutiveFailures: (priorHealth.consecutiveFailures ?? 0) + 1,
-              lastRunAt: new Date().toISOString(),
-            });
-            await finishAction(alertAction, "completed", "repeated_failure_alert_sent", null, counters);
+            await sendAutomationHealthAlert(
+              notification.alertKind,
+              {
+                ...priorHealth,
+                status: "failing",
+                consecutiveFailures: (priorHealth.consecutiveFailures ?? 0) + 1,
+                lastRunAt: new Date().toISOString(),
+              },
+              notification.notificationType === "none"
+                ? "initial"
+                : notification.notificationType,
+            );
+            await finishAction(
+              alertAction,
+              "completed",
+              notification.notificationType === "reminder"
+                ? "repeated_failure_reminder_sent"
+                : "repeated_failure_alert_sent",
+              null,
+              counters,
+            );
             alertStatus = "sent";
           } catch (alertError) {
             console.error("refund-case-automation-sweep repeated-failure alert failed", {
