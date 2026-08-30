@@ -74,9 +74,15 @@ select ok(
 );
 
 select ok(
-  pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+  (
+    pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
+  )
     like '%refundOperationsAccess%'
-  and pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+  and (
+    pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
+  )
     like '%is_super_admin%',
   'The overview publishes the explicit Refund Operations capability from server-side authorization'
 );

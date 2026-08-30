@@ -79,7 +79,10 @@ select ok(
 );
 
 select ok(
-  pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+  (
+    pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
+  )
     like '%''cardNetwork'', refund_case.card_network%',
   'Manager overview exposes customer card type without changing underlying authority'
 );
