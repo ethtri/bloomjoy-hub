@@ -191,6 +191,11 @@ const PARTNER_REPORT_UNAVAILABLE_REASONS = [
 const PARTNER_REPORT_DATA_INCOMPLETE_TITLE = 'Report data incomplete';
 const PARTNER_REPORT_EXPORT_BLOCKED_MESSAGE =
   'Export is unavailable because required report data is incomplete. Try again later.';
+const PARTNER_EFFECTIVE_WINDOW_EXCLUDED_WARNING = 'partnership_effective_window_excluded';
+const PARTNER_EFFECTIVE_WINDOW_TRIMMED_WARNING = 'partnership_effective_window_trimmed';
+const PARTNER_REPORT_OUTSIDE_WINDOW_TITLE = 'No report for this period';
+const PARTNER_REPORT_OUTSIDE_WINDOW_DESCRIPTION =
+  'The selected period falls outside this partnership\'s reporting dates, so no partner amounts were generated.';
 
 const isReportingTabWarning = (warning: PartnerDashboardWarning) =>
   warning.severity === 'blocking';
@@ -2025,9 +2030,16 @@ function PartnerDashboardView() {
     [preview?.warnings, selectedMachineId]
   );
   const hasBlockingWarnings = blockingWarnings.length > 0;
-  const showPartnerWarnings = canSeeInternalPartnerWarnings
-    ? blockingWarnings.length > 0 || nonBlockingWarnings.length > 0
-    : hasBlockingWarnings;
+  const isOutsidePartnershipWindow = blockingWarnings.some(
+    (warning) => warning.warningType === PARTNER_EFFECTIVE_WINDOW_EXCLUDED_WARNING
+  );
+  const reportSetupWarnings = blockingWarnings.filter(
+    (warning) => warning.warningType !== PARTNER_EFFECTIVE_WINDOW_EXCLUDED_WARNING
+  );
+  const reportingPeriodNotes = nonBlockingWarnings.filter(
+    (warning) => warning.warningType === PARTNER_EFFECTIVE_WINDOW_TRIMMED_WARNING
+  );
+  const showPartnerWarnings = reportSetupWarnings.length > 0 || reportingPeriodNotes.length > 0;
   const previewFetching = selectedPreviewFetching || trendPreviewFetching;
   const trendLabel = getPartnerModeLabel(periodMode);
   const inProgressPeriodLabel = selectedPeriod?.isInProgress
@@ -2061,11 +2073,7 @@ function PartnerDashboardView() {
       return;
     }
     if (hasBlockingWarnings) {
-      toast.error(
-        canSeeInternalPartnerWarnings
-          ? 'Resolve blocking admin review items before exporting the partner report.'
-          : PARTNER_REPORT_EXPORT_BLOCKED_MESSAGE
-      );
+      toast.error(PARTNER_REPORT_EXPORT_BLOCKED_MESSAGE);
       return;
     }
 
@@ -2383,31 +2391,20 @@ function PartnerDashboardView() {
         <PartnerDashboardSkeleton />
       ) : preview ? (
         <>
-          {showNoPartnerMachines && (
+          {isOutsidePartnershipWindow ? (
             <PartnerDashboardUnavailableState
-              title={
-                canSeeInternalPartnerWarnings
-                  ? 'No partner machines visible'
-                  : PARTNER_REPORT_UNAVAILABLE_TITLE
-              }
-              description={
-                canSeeInternalPartnerWarnings
-                  ? 'The Partner Dashboard opened, but this partnership has no machines visible for the selected reporting period.'
-                  : PARTNER_REPORT_UNAVAILABLE_DESCRIPTION
-              }
-              reasons={
-                canSeeInternalPartnerWarnings
-                  ? [
-                      'Machines: confirm at least one reporting machine is assigned to this partnership.',
-                      'Period: if the partnership has machines but this period has no sales, try another reporting period before escalating.',
-                      'Portal-enabled partnership: confirm the partnership is active and enabled for portal reporting.',
-                      'Session: if machine access was just changed, sign out and sign back in before retrying.',
-                    ]
-                  : PARTNER_REPORT_UNAVAILABLE_REASONS
-              }
+              title={PARTNER_REPORT_OUTSIDE_WINDOW_TITLE}
+              description={PARTNER_REPORT_OUTSIDE_WINDOW_DESCRIPTION}
+              reasons={['Choose another completed period to view available partner reporting.']}
             />
-          )}
-
+          ) : showNoPartnerMachines ? (
+            <PartnerDashboardUnavailableState
+              title="No machines in this period"
+              description="This partnership has no reporting machines assigned for the selected period."
+              reasons={['Choose another completed period to view available machine reporting.']}
+            />
+          ) : (
+            <>
           <PartnerAnswerBand
             preview={preview}
             currentPeriod={currentPeriod}
@@ -2422,49 +2419,20 @@ function PartnerDashboardView() {
             <Alert className="border-amber/20 bg-amber/10 text-foreground">
               <AlertTriangle className="h-4 w-4" />
               <AlertTitle>
-                {canSeeInternalPartnerWarnings
-                  ? blockingWarnings.length > 0
-                    ? 'Report setup needs attention'
-                    : 'Report notes'
-                  : PARTNER_REPORT_DATA_INCOMPLETE_TITLE}
+                {reportSetupWarnings.length > 0
+                  ? PARTNER_REPORT_DATA_INCOMPLETE_TITLE
+                  : 'Reporting period'}
               </AlertTitle>
               <AlertDescription>
                 <div className="mt-2 flex flex-col gap-2">
-                  {canSeeInternalPartnerWarnings ? (
-                    <>
-                      {blockingWarnings.length > 0 && (
-                        <div className="font-medium">
-                          Partner export is locked until blocking setup items are resolved in admin.
-                        </div>
-                      )}
-                      {blockingWarnings.slice(0, 4).map((warning, index) => (
-                        <div key={`${warning.warningType}-${warning.machineId ?? 'scope'}-${index}`}>
-                          <Badge variant="destructive">Blocking</Badge>{' '}
-                          {warning.message}
-                        </div>
-                      ))}
-                      {blockingWarnings.length > 4 && (
-                        <div>{blockingWarnings.length - 4} more blocking warnings hidden.</div>
-                      )}
-                      {nonBlockingWarnings.slice(0, blockingWarnings.length > 0 ? 2 : 4).map((warning, index) => (
-                        <div key={`${warning.warningType}-${warning.machineId ?? 'scope'}-note-${index}`}>
-                          <Badge variant="secondary">Note</Badge>{' '}
-                          {warning.message}
-                        </div>
-                      ))}
-                      {nonBlockingWarnings.length > (blockingWarnings.length > 0 ? 2 : 4) && (
-                        <div>
-                          {nonBlockingWarnings.length - (blockingWarnings.length > 0 ? 2 : 4)} more notes hidden.
-                        </div>
-                      )}
-                      {blockingWarnings.length > 0 && isSuperAdmin && (
-                        <Button asChild variant="outline" size="sm" className="w-fit">
-                          <Link to="/admin/partnerships">Open admin setup</Link>
-                        </Button>
-                      )}
-                    </>
-                  ) : (
+                  {reportSetupWarnings.length > 0 ? (
                     <div className="font-medium">{PARTNER_REPORT_EXPORT_BLOCKED_MESSAGE}</div>
+                  ) : (
+                    reportingPeriodNotes.map((warning, index) => (
+                      <div key={`${warning.warningType}-${warning.machineId ?? 'scope'}-${index}`}>
+                        {warning.message}
+                      </div>
+                    ))
                   )}
                 </div>
               </AlertDescription>
@@ -2663,6 +2631,8 @@ function PartnerDashboardView() {
               selectedMachineLabel={selectedMachineLabel}
             />
           </div>
+            </>
+          )}
         </>
       ) : (
         <EmptyPanel title="Select a partnership" description="Choose an active partnership to load the partner dashboard preview." />
