@@ -121,10 +121,10 @@ select ok(
 );
 select ok(
   pg_get_functiondef(
-    'public.service_select_refund_nayax_candidate_as_actor(uuid,uuid,bigint,uuid,text)'::regprocedure
+    'public.service_select_refund_nayax_candidate_as_actor_pre_lookup_generation_v1(uuid,uuid,bigint,uuid,text)'::regprocedure
   ) like '%refund_case_user_has_active_manager_mapping%'
   and pg_get_functiondef(
-    'public.service_select_refund_nayax_candidate_as_actor(uuid,uuid,bigint,uuid,text)'::regprocedure
+    'public.service_select_refund_nayax_candidate_as_actor_pre_lookup_generation_v1(uuid,uuid,bigint,uuid,text)'::regprocedure
   ) not like '%refund_case_has_unresolved_reconciliation(refund_case.id)%',
   'A mapped manager can record exact provider evidence while payment remains blocked'
 );
