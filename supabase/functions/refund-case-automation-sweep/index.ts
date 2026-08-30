@@ -142,7 +142,7 @@ const normalizeRunKey = (value: unknown) => {
 };
 
 const schedulerWindowStart = (value: Date) => {
-  const intervalMs = 15 * 60 * 1000;
+  const intervalMs = 30 * 60 * 1000;
   return new Date(Math.floor(value.getTime() / intervalMs) * intervalMs);
 };
 

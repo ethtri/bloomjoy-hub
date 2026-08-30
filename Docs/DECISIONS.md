@@ -2,6 +2,17 @@
 
 Entries are newest-first. For production refund work, the 2026-08-28 capability-versus-automation and canonical Nayax identity decisions plus the 2026-08-27 exact response-contract decision govern. Older conflicting pilot, unfamiliar-`2xx`, permission, and TOTP mechanics are retained only as historical audit records.
 
+## 2026-08-30 - Refund automation runs every 30 minutes (`#1054`)
+
+- The Supabase primary and GitHub fallback each dispatch the refund sweep twice per hour. Their health checks also run twice per hour, and both lanes derive the same UTC 30-minute `scheduled` or `health_check` run key so overlap remains an idempotent replay.
+- Scheduler health becomes stale after 90 minutes without a successful run. The existing one-opening-alert, daily-reminder, and 60-minute stable-recovery incident rules are unchanged.
+- The maximum automated reminder or lookup delay increases from roughly 15 to roughly 30 minutes. Refund intake, the manager queue, manual actions, approval/payment gates, provider idempotency, and all default-off activation controls are unchanged.
+
+**Why this choice**
+- A 30-minute cadence is sufficient for non-urgent reminder and lookup work, halves routine scheduler traffic, and leaves three missed intervals before the stale-health threshold opens an incident.
+
+This supersedes only the 15-minute cadence and its prior stale threshold in the `#1045` decision. The Supabase-primary architecture, GitHub fallback, security controls, and incident behavior remain in force.
+
 ## 2026-08-30 - Refund status messages are deterministic, recoverable, and payment-neutral (`#891`)
 
 - Bloomjoy stores a conservative customer-language preference with intake evidence and reuses it for acknowledgement, appeal, lifecycle, and automatic messages. Spanish-preferring customers receive bilingual Spanish/English copy; uncertain preference remains English.

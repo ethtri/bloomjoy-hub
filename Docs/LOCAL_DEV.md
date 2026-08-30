@@ -61,6 +61,7 @@
    - Audited, idempotent cash refund completion: `supabase/migrations/202607210004_refund_cash_completion_audit.sql`
    - Refund automation run/action ledger and manager health: `supabase/migrations/202607210005_refund_automation_scheduler_health.sql`
    - Refund automation Supabase primary schedule and incident-level alert cooldown: `supabase/migrations/20260830175740_refund_automation_scheduler_reliability.sql`
+   - Refund automation 30-minute sweep/health cadence and 90-minute stale threshold: `supabase/migrations/20260830205449_refund_automation_scheduler_30_minute_cadence.sql`
    - Gmail refund draft/thread linkage, quarantine metadata, health, and retention: `supabase/migrations/202607210006_refund_gmail_thread_linkage.sql`
    - Machine QR identifiers and short-lived server-timestamped refund claim contexts: `supabase/migrations/202607260001_refund_qr_claim_context.sql`
    - Scoped Admin entitlements: `supabase/migrations/202604270004_scoped_admin_entitlements.sql`

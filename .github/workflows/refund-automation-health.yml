@@ -3,7 +3,7 @@ name: Refund Automation Health
 on:
   schedule:
     # External fallback for the primary Supabase health schedule.
-    - cron: '43 * * * *'
+    - cron: '13,43 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -39,7 +39,7 @@ jobs:
           const url = process.env.REFUND_AUTOMATION_SWEEP_URL;
           const token = process.env.REFUND_AUTOMATION_SWEEP_TOKEN;
           const scheduledAt = new Date(
-            Math.floor(Date.now() / (15 * 60 * 1000)) * 15 * 60 * 1000,
+            Math.floor(Date.now() / (30 * 60 * 1000)) * 30 * 60 * 1000,
           );
           const scheduledBucketKey = `${scheduledAt.toISOString()
             .slice(0, 16)
