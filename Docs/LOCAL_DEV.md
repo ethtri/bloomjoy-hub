@@ -63,6 +63,7 @@
    - Gmail refund draft/thread linkage, quarantine metadata, health, and retention: `supabase/migrations/202607210006_refund_gmail_thread_linkage.sql`
    - Machine QR identifiers and short-lived server-timestamped refund claim contexts: `supabase/migrations/202607260001_refund_qr_claim_context.sql`
    - Scoped Admin entitlements: `supabase/migrations/202604270004_scoped_admin_entitlements.sql`
+   - Scoped Admin invitation-first activation: `supabase/migrations/20260830024616_scoped_admin_invitation_first.sql`
    - Technician entitlement resolver production repair: `supabase/migrations/202604270006_restore_technician_entitlement_resolution_rpc.sql`
    - Scoped Admin reporting visibility repair: `supabase/migrations/202604280008_scoped_admin_reporting_visibility.sql`
    - Scoped Admin training/partner-dashboard repair: `supabase/migrations/202604280009_scoped_admin_training_partner_dashboard.sql`
@@ -322,12 +323,13 @@ Admin > Machines Machine Manager UAT:
 - Super Admin Nayax reconciliation is at `/admin/machines/inventory`; its default `Needs review` view hides already-published and excluded records.
 - Active Commercial/Mini machines with active customer-safe locations appear on the public refund form automatically. The refund automation switch controls manager/Nayax readiness only; turning it off must not remove the machine from public intake.
 
-Partner Technician Access UAT:
+Admin Access invitation UAT:
 - Start the app with `npm run dev:uat`.
+- Run `npm run scoped-admin-invites:validate` for the pending-access, exact-email activation, RPC security, and stable-login-link contract.
 - Run `npm run admin-access:validate-invite-uat -- --app-url http://127.0.0.1:8081`.
 - Run `npm run partner-technicians:validate-uat -- --app-url http://127.0.0.1:8081`.
 - Run `npm run scoped-admin-technicians:validate-uat -- --app-url http://127.0.0.1:8081`.
-- The scripts mock Supabase Auth, RPC, REST, and `access-invite`, verify Admin Access Corporate Partner grants, Super Admin Technician fallback sponsorship, Scoped Admin machine-scoped Technician grants, and new Technician saves call the invite function immediately, write screenshots to `output/playwright`, and do not send email or write data.
+- The scripts mock Supabase Auth, RPC, REST, and `access-invite`, verify Admin Access Corporate Partner grants, Super Admin Technician fallback sponsorship, Scoped Admin machine-scoped Technician grants, and new-email Scoped Admin pending invite/resend/revoke behavior. They write screenshots to `output/playwright` and do not send email or write data.
 - Use `Docs/PARTNER_TECHNICIAN_ACCESS_UAT.md` for live staging invite email checks before partner handoff.
 
 Privacy guardrails:

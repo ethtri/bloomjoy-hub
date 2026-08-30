@@ -10,6 +10,7 @@ import {
   Loader2,
   Mail,
   Package,
+  ShieldCheck,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
@@ -27,7 +28,11 @@ import { REGEXP_ONLY_DIGITS } from 'input-otp';
 const RESEND_COOLDOWN_SECONDS = 60;
 const EMAIL_REQUEST_COOLDOWN_STORAGE_PREFIX = 'bloomjoy-login-email-request-cooldown:';
 type AuthMethod = 'password' | 'email_code';
-type LoginInviteIntent = 'corporate_partner' | 'technician' | 'machine_manager';
+type LoginInviteIntent =
+  | 'corporate_partner'
+  | 'technician'
+  | 'machine_manager'
+  | 'scoped_admin';
 const GOOGLE_GSI_SCRIPT_ID = 'google-gsi-script';
 const GOOGLE_GSI_SCRIPT_SRC = 'https://accounts.google.com/gsi/client';
 
@@ -129,7 +134,12 @@ const safeDecode = (value?: string | null) => {
 const loginInviteEmailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const getLoginInviteIntent = (value: string | null): LoginInviteIntent | null => {
-  if (value === 'corporate_partner' || value === 'technician' || value === 'machine_manager') {
+  if (
+    value === 'corporate_partner' ||
+    value === 'technician' ||
+    value === 'machine_manager' ||
+    value === 'scoped_admin'
+  ) {
     return value;
   }
 
@@ -158,6 +168,13 @@ const getInviteIntentCopy = (intent: LoginInviteIntent) => {
         description:
           'Sign in with this email so Bloomjoy can assign you to the right machine for refund review and follow-up. Use Email Code if you have not set a password yet.',
         icon: Wrench,
+      };
+    case 'scoped_admin':
+      return {
+        title: 'Scoped Admin invitation',
+        description:
+          'Sign up with this invited email to activate limited admin access for the assigned machines. Use Email Code, then create a password if this is your first sign-in.',
+        icon: ShieldCheck,
       };
   }
 };

@@ -65,6 +65,7 @@ const adminUser = {
 };
 
 const targetEmail = 'new-partner-manager@example.test';
+const scopedAdminEmail = 'new-scoped-admin@example.test';
 const partnerId = '22222222-2222-4222-8222-222222222222';
 const noPortalPartnerId = '22222222-2222-4222-8222-333333333333';
 const partyId = '33333333-3333-4333-8333-333333333333';
@@ -319,7 +320,11 @@ const installMockRoutes = async (context, state) => {
       id: `invite-${state.accessInviteBodies.length}`,
       invite_type: body?.inviteType ?? 'corporate_partner',
       source_type:
-        body?.inviteType === 'technician' ? 'technician_grant' : 'corporate_partner_membership',
+        body?.inviteType === 'technician'
+          ? 'technician_grant'
+          : body?.inviteType === 'scoped_admin'
+            ? 'scoped_admin_invite'
+            : 'corporate_partner_membership',
       source_id: body?.sourceId,
       target_email: body?.targetEmail,
       sent_by: adminUser.id,
@@ -537,7 +542,86 @@ const installMockRoutes = async (context, state) => {
     }
 
     if (rpcName === 'admin_get_reporting_access_matrix') {
-      return route.fulfill(jsonResponse({ people: [], machines: [], grants: [] }));
+      return route.fulfill(
+        jsonResponse({
+          people: [],
+          machines: [
+            {
+              id: machineId,
+              accountId,
+              accountName: 'Bubble Planet Pier 39',
+              locationId: '77777777-7777-4777-8777-777777777777',
+              locationName: 'Pier 39',
+              machineLabel: 'Bubble Planet Kiosk 01',
+              machineType: 'commercial',
+              sunzeMachineId: 'SUNZE-KIOSK-01',
+              status: 'active',
+              latestSaleDate: null,
+              viewerCount: 0,
+              viewers: [],
+            },
+            {
+              id: machineTwoId,
+              accountId,
+              accountName: 'Bubble Planet Pier 39',
+              locationId: '77777777-7777-4777-8777-777777777778',
+              locationName: 'Market Street',
+              machineLabel: 'Bubble Planet Kiosk 02',
+              machineType: 'commercial',
+              sunzeMachineId: 'SUNZE-KIOSK-02',
+              status: 'active',
+              latestSaleDate: null,
+              viewerCount: 0,
+              viewers: [],
+            },
+          ],
+          grants: [],
+        })
+      );
+    }
+
+    if (rpcName === 'admin_list_scoped_admin_invites') {
+      return route.fulfill(jsonResponse(state.scopedAdminInvites));
+    }
+
+    if (rpcName === 'admin_create_scoped_admin_invite') {
+      const invite = {
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        targetEmail: String(body?.p_target_email ?? scopedAdminEmail).toLowerCase(),
+        status: 'pending',
+        grantReason: String(body?.p_reason ?? 'Agent UAT Scoped Admin invite'),
+        createdBy: adminUser.id,
+        createdAt: new Date().toISOString(),
+        expiresAt: isoHoursFromNow(24 * 7),
+        activatedUserId: null,
+        activatedGrantId: null,
+        activatedAt: null,
+        revokedBy: null,
+        revokedAt: null,
+        revokeReason: null,
+        machineIds: Array.isArray(body?.p_machine_ids) ? body.p_machine_ids : [],
+        machineLabels: (Array.isArray(body?.p_machine_ids) ? body.p_machine_ids : []).map(
+          (selectedMachineId) =>
+            selectedMachineId === machineId ? 'Bubble Planet Kiosk 01' : 'Bubble Planet Kiosk 02'
+        ),
+      };
+      state.scopedAdminInvites = [invite];
+      return route.fulfill(jsonResponse(invite));
+    }
+
+    if (rpcName === 'admin_revoke_scoped_admin_invite') {
+      state.scopedAdminInvites = state.scopedAdminInvites.map((invite) =>
+        invite.id === body?.p_invite_id
+          ? {
+              ...invite,
+              status: 'revoked',
+              revokedBy: adminUser.id,
+              revokedAt: new Date().toISOString(),
+              revokeReason: String(body?.p_reason ?? ''),
+            }
+          : invite
+      );
+      return route.fulfill(jsonResponse({ inviteId: body?.p_invite_id, status: 'revoked' }));
     }
 
     if (
@@ -601,6 +685,7 @@ const run = async () => {
     inviteDeliveries: [],
     memberships: [],
     technicianGrants: [],
+    scopedAdminInvites: [],
     rpcCalls: [],
     isLoggedIn: false,
   };
@@ -624,6 +709,24 @@ const run = async () => {
   });
 
   try {
+    await page.goto(
+      `${args.appUrl}/login?intent=scoped_admin&email=${encodeURIComponent(scopedAdminEmail)}`,
+      { waitUntil: 'domcontentloaded' }
+    );
+    await page.getByText('Scoped Admin invitation').waitFor({ timeout: 10000 }).catch(async (error) => {
+      console.log('Scoped Admin invite login page body:', await page.locator('body').innerText());
+      console.log('Scoped Admin invite login errors:', consoleErrors);
+      throw error;
+    });
+    recorder.assert(
+      'Scoped Admin invite link opens Email Code sign-in by default',
+      (await page.getByRole('button', { name: 'Email Code', exact: true }).getAttribute('aria-pressed')) === 'true'
+    );
+    recorder.assert(
+      'Scoped Admin invite link prefills the exact invited email',
+      (await page.locator('#email-code-address').inputValue()) === scopedAdminEmail
+    );
+
     await page.goto(
       `${args.appUrl}/login?intent=technician&email=${encodeURIComponent(targetEmail)}`,
       { waitUntil: 'domcontentloaded' }
@@ -815,6 +918,66 @@ const run = async () => {
       sourceMapText
     );
 
+    await page.getByRole('button', { name: 'Add or invite access' }).click();
+    await page.getByRole('heading', { name: 'Add or invite access' }).waitFor({ timeout: 10000 });
+    const launcherDialog = page.getByRole('dialog');
+    await launcherDialog.getByRole('radio', { name: /Scoped Admin/i }).click();
+    await launcherDialog.locator('#access-launcher-target').fill(scopedAdminEmail);
+    await launcherDialog.getByText(/No auth user found/i).waitFor({ timeout: 10000 });
+    await launcherDialog.getByText('Bubble Planet Kiosk 01', { exact: true }).click();
+    await launcherDialog.locator('#access-launcher-reason').fill('Agent UAT invitation-first Scoped Admin');
+
+    recorder.assert(
+      'Scoped Admin new-email launcher requires a machine and audit reason',
+      !(await launcherDialog.getByRole('button', { name: 'Send Scoped Admin invite' }).isDisabled())
+    );
+    await launcherDialog.getByRole('button', { name: 'Send Scoped Admin invite' }).click();
+    await waitForCondition(() => state.accessInviteBodies.length === 3, 'Scoped Admin invite');
+    await launcherDialog.getByText(scopedAdminEmail, { exact: true }).waitFor({ timeout: 10000 });
+
+    const scopedAdminCreateCall = state.rpcCalls.find(
+      (call) => call.rpcName === 'admin_create_scoped_admin_invite'
+    );
+    const scopedAdminInviteBody = state.accessInviteBodies[2];
+    recorder.assert(
+      'Scoped Admin save stages exact email, machine scope, and audit reason',
+      scopedAdminCreateCall?.body?.p_target_email === scopedAdminEmail &&
+        scopedAdminCreateCall?.body?.p_reason === 'Agent UAT invitation-first Scoped Admin' &&
+        Array.isArray(scopedAdminCreateCall?.body?.p_machine_ids) &&
+        scopedAdminCreateCall.body.p_machine_ids.length === 1 &&
+        scopedAdminCreateCall.body.p_machine_ids[0] === machineId,
+      JSON.stringify(scopedAdminCreateCall?.body)
+    );
+    recorder.assert(
+      'Scoped Admin save sends stable invitation-first login URL',
+      scopedAdminInviteBody?.inviteType === 'scoped_admin' &&
+        scopedAdminInviteBody?.sourceId === state.scopedAdminInvites[0]?.id &&
+        scopedAdminInviteBody?.targetEmail === scopedAdminEmail &&
+        String(scopedAdminInviteBody?.loginUrl ?? '').includes('intent=scoped_admin'),
+      JSON.stringify(scopedAdminInviteBody)
+    );
+    recorder.assert(
+      'Scoped Admin invitation stays pending without an immediate grant RPC',
+      state.scopedAdminInvites[0]?.status === 'pending' &&
+        !state.rpcCalls.some((call) => call.rpcName === 'admin_grant_scoped_admin_by_email')
+    );
+    await launcherDialog.screenshot({
+      path: path.join(args.artifactDir, 'scoped-admin-invite-pending-desktop.png'),
+    });
+
+    await launcherDialog.getByRole('button', { name: 'Resend' }).click();
+    await waitForCondition(() => state.accessInviteBodies.length === 4, 'Scoped Admin resend');
+    recorder.pass('Pending Scoped Admin invite can be resent without a duplicate grant');
+
+    await launcherDialog.getByPlaceholder('Required reason to revoke').fill('UAT revoke coverage');
+    await launcherDialog.getByRole('button', { name: 'Revoke' }).click();
+    await launcherDialog.getByText('revoked', { exact: true }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Pending Scoped Admin invite can be revoked with an audited reason',
+      state.scopedAdminInvites[0]?.status === 'revoked' &&
+        state.scopedAdminInvites[0]?.revokeReason === 'UAT revoke coverage'
+    );
+
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
     recorder.assert('Admin Access desktop has no horizontal overflow', !overflow);
 
@@ -827,10 +990,14 @@ const run = async () => {
 
     await page.setViewportSize({ width: 390, height: 900 });
     await page.evaluate(() => window.scrollTo(0, 0));
+    await launcherDialog.getByText('Scoped Admin invitation status').scrollIntoViewIfNeeded();
     await delay(250);
     await page.screenshot({
       path: path.join(args.artifactDir, 'admin-access-corporate-partner-invite-mobile.png'),
       fullPage: true,
+    });
+    await launcherDialog.screenshot({
+      path: path.join(args.artifactDir, 'scoped-admin-invite-status-mobile.png'),
     });
 
     const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);

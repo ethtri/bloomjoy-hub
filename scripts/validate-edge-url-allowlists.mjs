@@ -147,6 +147,17 @@ assert.equal(
   "https://app.bloomjoyusa.com/login?intent=machine_manager&email=manager%40example.com",
 );
 
+const scopedAdminInviteResult = validateAccessInvitePreflight(
+  "scoped_admin",
+  "Scoped.Admin@Example.com",
+  makeLocation("https://app.bloomjoyusa.com"),
+);
+assert.equal(scopedAdminInviteResult.ok, true, "Scoped Admin invite URLs should be allowed");
+assert.equal(
+  scopedAdminInviteResult.loginUrl,
+  "https://app.bloomjoyusa.com/login?intent=scoped_admin&email=scoped.admin%40example.com",
+);
+
 const rejectedClientInviteOrigins = [
   "https://www.bloomjoyusa.com",
   "http://app.bloomjoyusa.com",
