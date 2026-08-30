@@ -9,7 +9,7 @@ create or replace function public.refund_nayax_outcome_resolution_enabled()
 returns boolean language sql immutable set search_path = public
 as $$ select false; $$;
 
-select plan(138);
+select plan(145);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -1012,10 +1012,13 @@ select ok(
   public.refund_nayax_retry_safe_resolution_is_current(
     'b1700000-0000-4000-8000-000000000011'
   )
+  and public.refund_nayax_retry_safe_resolution_is_historical(
+    'b1700000-0000-4000-8000-000000000011'
+  )
   and not public.refund_nayax_retry_safe_resolution_is_current(
     '00000000-0000-4000-8000-000000000000'
   ),
-  'Only the exact linked current-generation resolution is retry-safe');
+  'The exact linked current-generation resolution is both active and historical');
 select ok(
   not (public.refund_nayax_account_execution_hold(
     'RESOLUTION-RETRY-ACCOUNT'
@@ -1040,6 +1043,120 @@ select ok((
     'b1600000-0000-4000-8000-000000000011'
   ) readiness) checked
 ), 'Database readiness reopens only the exact resolved manager case');
+
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'public.refund_nayax_retry_safe_resolution_is_historical(uuid)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'public.refund_nayax_retry_safe_resolution_is_historical(uuid)',
+    'execute'
+  ),
+  'The historical account-hold predicate remains private to trusted database functions');
+
+-- Projection-only fixtures model later immutable generations without invoking
+-- provider or customer-delivery code. The generation guard is bypassed only
+-- inside this rolled-back pgTAP transaction; production generation changes
+-- still require the exact retry-safe resolver.
+set local session_replication_role = replica;
+update public.refund_cases
+set nayax_refund_attempt_generation = 2
+where id = 'b1600000-0000-4000-8000-000000000011';
+set local session_replication_role = origin;
+
+select ok(
+  not public.refund_nayax_retry_safe_resolution_is_current(
+    'b1700000-0000-4000-8000-000000000011'
+  )
+  and public.refund_nayax_retry_safe_resolution_is_historical(
+    'b1700000-0000-4000-8000-000000000011'
+  ),
+  'A generation 0 to 1 resolution stays historical after generation 2 while no longer driving the active lifecycle');
+
+select ok((
+  select not (hold ->> 'blocked')::boolean
+    and (hold ->> 'unresolvedCount')::integer = 0
+    and hold -> 'oldestUnresolvedAt' = 'null'::jsonb
+  from (select public.refund_nayax_account_execution_hold(
+    'RESOLUTION-RETRY-ACCOUNT'
+  ) hold) checked
+), 'A superseded resolved generation cannot re-enter the account breaker');
+
+select ok(
+  (select count(*) = 1
+    from public.refund_case_nayax_refund_attempts
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000011')
+  and (select count(*) = 1
+    from public.refund_nayax_outcome_resolutions
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000011')
+  and (select count(*) = 0
+    from public.refund_case_messages
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000011')
+  and (select count(*) = 0
+    from public.sales_adjustment_facts
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000011'),
+  'The projection repair preserves append-only evidence and creates no attempt, message, or reporting side effect');
+
+insert into public.refund_case_nayax_refund_attempts (
+  id, refund_case_id, actor_user_id, execution_mode, status, idempotency_key,
+  amount_cents, transaction_id_present, site_id_present,
+  machine_auth_time_present, request_fingerprint, currency_code,
+  provider_outcome, provider_outcome_recorded_at, reconciliation_required,
+  sanitized_request, sanitized_response, created_at
+) values (
+  'b1700000-0000-4000-8000-000000000012',
+  'b1600000-0000-4000-8000-000000000011',
+  'b1000000-0000-4000-8000-000000000001',
+  'request_and_approve', 'ambiguous', 'resolution-generation-2-current',
+  711, true, true, true, repeat('c', 64), 'USD', 'unknown',
+  statement_timestamp() - interval '1 minute', true,
+  '{"payload_redacted":true}'::jsonb,
+  '{"payload_redacted":true}'::jsonb,
+  statement_timestamp() - interval '2 minutes'
+);
+
+select ok((
+  select (hold ->> 'blocked')::boolean
+    and (hold ->> 'unresolvedCount')::integer = 1
+  from (select public.refund_nayax_account_execution_hold(
+    'RESOLUTION-RETRY-ACCOUNT'
+  ) hold) checked
+), 'A genuinely unresolved current generation still fails closed while resolved history stays excluded');
+
+select ok(
+  not public.refund_nayax_retry_safe_resolution_is_historical(
+    'b1700000-0000-4000-8000-000000000012'
+  ),
+  'An unresolved attempt cannot borrow a retry-safe resolution from an older generation');
+
+-- Advance once more and model a terminal newer attempt. The account projection
+-- must remain replay-stable even though the first resolution is now two
+-- generations behind and the case no longer has a current no-refund shape.
+set local session_replication_role = replica;
+update public.refund_case_nayax_refund_attempts
+set
+  status = 'succeeded',
+  provider_outcome = 'success',
+  reconciliation_required = false
+where id = 'b1700000-0000-4000-8000-000000000012';
+update public.refund_cases
+set
+  nayax_refund_attempt_generation = 3,
+  nayax_refund_execution_status = 'approved'
+where id = 'b1600000-0000-4000-8000-000000000011';
+set local session_replication_role = origin;
+
+select ok(
+  public.refund_nayax_retry_safe_resolution_is_historical(
+    'b1700000-0000-4000-8000-000000000011'
+  )
+  and not (public.refund_nayax_account_execution_hold(
+    'RESOLUTION-RETRY-ACCOUNT'
+  ) ->> 'blocked')::boolean,
+  'Three-generation and newer-terminal replay cannot revive the oldest resolved attempt');
 
 select ok((
   with simulated_clock as (
