@@ -52,6 +52,20 @@ Deno.test("customer lifecycle strips manager, lookup, operations, and provider f
   ]);
 });
 
+Deno.test("customer lifecycle accepts the canonical waiting-on-customer stage", () => {
+  const lifecycle = requireCustomerRefundLifecycle({
+    schemaVersion: "refund_lifecycle_v1",
+    stage: "waiting_on_customer",
+    stageRank: 15,
+    lastUpdatedAt: "2026-08-30T18:00:00.000Z",
+    publicCopyKey: "refund_waiting_on_customer",
+    terminal: false,
+    refreshAfterSeconds: 15,
+    payloadRedacted: true,
+  });
+  assertEquals(lifecycle.stage, "waiting_on_customer");
+});
+
 Deno.test("unknown, unredacted, and over-polling lifecycle responses fail closed", async () => {
   for (const fixture of [
     { schemaVersion: "refund_lifecycle_v2", payloadRedacted: true },

@@ -9,6 +9,10 @@ const refundsSource = await readFile(
   new URL('../../src/pages/admin/Refunds.tsx', import.meta.url),
   'utf8'
 );
+const queueSource = await readFile(
+  new URL('../../src/lib/refundQueue.ts', import.meta.url),
+  'utf8'
+);
 const lifecycleSource = await readFile(
   new URL('./refund-portal-uat-lifecycle.mjs', import.meta.url),
   'utf8'
@@ -93,6 +97,34 @@ assert.match(
 assert.match(
   refundsSource,
   /data-testid="refund-gmail-open-recovery"[\s\S]*?h-auto w-full whitespace-normal border-orange-400 bg-white py-2 text-center leading-5 text-orange-950 hover:bg-orange-100 sm:w-auto[\s\S]*?Review and resume automatic email/
+);
+assert.match(
+  queueSource,
+  /if \(refundCase\.lifecycle\) return refundCase\.lifecycle\.managerQueue\.bucket;/
+);
+assert.match(
+  refundsSource,
+  /const activeRefreshIntervals = \(data\?\.cases \?\? \[\]\)[\s\S]*?Math\.min\(15_000[\s\S]*?Math\.min\(\.\.\.activeRefreshIntervals\)/
+);
+assert.match(
+  refundsSource,
+  /ready_to_pay: overview\.cases\.filter\(isReadyToPayCase\)\.length[\s\S]*?waiting_on_customer: overview\.cases\.filter/
+);
+assert.doesNotMatch(
+  refundsSource,
+  /const availabilityOverride = refundCase\.id === selectedId/
+);
+assert.match(
+  refundsSource,
+  /selectedCase\.lifecycle\?\.managerQueue\.safeRetryEligible === true &&[\s\S]*?nextAction === 'retry_read_only_lookup'/
+);
+assert.doesNotMatch(
+  refundsSource,
+  /selectedCase\.lifecycle\?\.lookup\.safeRetryEligible === true \|\|/
+);
+assert.match(
+  refundsSource,
+  /const selectedCaseStillExists = filteredCases\.some\([\s\S]*?setSelectedId\(null\)/
 );
 
 console.log('Refund portal lifecycle and mobile-width static checks passed.');

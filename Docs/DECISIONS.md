@@ -1334,3 +1334,21 @@ Nayax's supported public contract does not provide a read-only API that authorit
 **Why this choice**
 - It closes the operational dead end for real refunds already completed in Nayax without weakening the no-blind-retry rule.
 - It separates recording historical provider truth from issuing money, so recovery cannot become a duplicate-refund path.
+
+## 2026-08-30 - Refund lifecycle owns the manager queue (`#992`)
+
+Queue placement is part of the server-owned refund lifecycle, not a browser inference from separate status, lookup, readiness, or selected-case fields.
+
+**Canonical choices**
+- `refund_lifecycle_v1` includes an explicit `waiting_on_customer` stage. It takes precedence over matching, candidate review, and transaction-confirmed projections, but never hides an initiated, uncertain, confirmed, or Refund Operations payment state.
+- The manager overview nests one redacted `refund_manager_queue_v1` projection in each lifecycle. Its bucket, label, next action, and read-only retry eligibility drive the queue row, filter, count, selected detail, and URL routing.
+- The six manager buckets remain Action needed, Ready to refund, In progress, Needs Refund Operations, Waiting on customer, and Done. Opening or selecting a case cannot change its bucket.
+- Every loaded nonterminal lifecycle participates in automatic refresh; refresh is not limited to the selected case and remains capped at 15 seconds.
+- A read-only Nayax lookup still stored as `checking` after 90 seconds projects as `lookup_timed_out`. Only `retry_read_only_lookup` may be exposed, and only when the server projection marks it safe. A client/network error cannot grant retry eligibility.
+- Customer status uses the same `waiting_on_customer` vocabulary and directs the customer to reply to the existing Bloomjoy email instead of submitting another form.
+- Deploy the database migration first, then `refund-case-intake` (whose secure-status parser accepts the new customer stage), and then the frontend. Both customer and manager parsers fail closed when their canonical contract is absent or unknown.
+
+**Why this choice**
+- It removes the live contradiction where detail, queue placement, and counts could disagree or change merely because a manager opened the case.
+- It keeps stale lookup recovery read-only and preserves the separate no-blind-payment-retry boundary.
+- It gives managers and customers one truthful state vocabulary without exposing provider or reconciliation details.

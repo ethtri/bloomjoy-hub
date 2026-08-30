@@ -85,6 +85,7 @@ import {
   type RefundManagerState,
   type RefundManagerStateTone,
 } from '@/lib/refundManagerState';
+import { getRefundManagerQueueBucket } from '@/lib/refundQueue';
 import { cn } from '@/lib/utils';
 
 const statusDecisionMap: Partial<Record<RefundCaseStatus, Exclude<RefundDecision, null>>> = {
@@ -775,10 +776,12 @@ const hasCardRefundAuthority = (refundCase: RefundCaseRecord) =>
   Number(refundCase.officialActionVersion ?? 0) > 0 &&
   refundCase.reconciliationActionBlocked !== true;
 
-const isReadyToPayCase = (
-  refundCase: RefundCaseRecord,
-  cardRefundAvailabilityConfirmed: boolean | null = null
-) => {
+const canonicalQueueBucket = (refundCase: RefundCaseRecord) =>
+  getRefundManagerQueueBucket(refundCase);
+
+const isReadyToPayCase = (refundCase: RefundCaseRecord) => {
+  if (refundCase.lifecycle) return canonicalQueueBucket(refundCase) === 'ready_to_pay';
+
   if (
     refundCase.paymentMethod === 'cash' &&
     !['waiting_on_customer', 'completed', 'denied', 'closed'].includes(refundCase.status)
@@ -788,44 +791,44 @@ const isReadyToPayCase = (
       refundCase.paymentAmountCents > 0;
   }
 
-  return refundCase.lifecycle?.stage === 'transaction_confirmed' &&
-    refundCase.providerHold !== true &&
-    (
+  return refundCase.providerHold !== true &&
     refundCase.hasMatchedNayaxTransaction === true &&
     hasCardRefundAuthority(refundCase) &&
-    (
-      cardRefundAvailabilityConfirmed === null
-        ? refundCase.refundReadiness?.canIssueCardRefund === true
-        : cardRefundAvailabilityConfirmed
-    )
+    refundCase.refundReadiness?.canIssueCardRefund === true;
+};
+
+const isRefundInProgressCase = (refundCase: RefundCaseRecord) => {
+  if (refundCase.lifecycle) return canonicalQueueBucket(refundCase) === 'in_progress';
+  return refundCase.paymentMethod === 'card' &&
+    ['refund_initiated', 'confirming_with_nayax', 'refund_confirmed'].includes(
+      refundCase.lifecycle?.stage ?? ''
     );
 };
 
-const isRefundInProgressCase = (refundCase: RefundCaseRecord) =>
-  refundCase.paymentMethod === 'card' &&
-  ['refund_initiated', 'confirming_with_nayax', 'refund_confirmed'].includes(
-    refundCase.lifecycle?.stage ?? ''
-  );
-
-const isRefundOperationsCase = (refundCase: RefundCaseRecord) =>
-  refundCase.paymentMethod === 'card' &&
-  refundCase.lifecycle?.stage === 'needs_refund_operations';
+const isRefundOperationsCase = (refundCase: RefundCaseRecord) => {
+  if (refundCase.lifecycle) return canonicalQueueBucket(refundCase) === 'provider_hold';
+  return refundCase.paymentMethod === 'card' &&
+    refundCase.lifecycle?.stage === 'needs_refund_operations';
+};
 
 const isWaitingCase = (
   refundCase: RefundCaseRecord,
   _refundOperationsAccess: boolean
-) =>
-  refundCase.status === 'waiting_on_customer' ||
-  (
+) => {
+  if (refundCase.lifecycle) return canonicalQueueBucket(refundCase) === 'waiting_on_customer';
+  return refundCase.status === 'waiting_on_customer' || (
     refundCase.paymentMethod === 'card' &&
     refundCase.lifecycle?.stage === 'matching' &&
     refundCase.lifecycle.managerNextAction === 'wait'
   );
+};
 
-const isDoneCase = (refundCase: RefundCaseRecord) =>
-  doneStatuses.has(refundCase.status) ||
-  refundCase.lifecycle?.stage === 'customer_notified' ||
-  refundCase.lifecycle?.stage === 'denied';
+const isDoneCase = (refundCase: RefundCaseRecord) => {
+  if (refundCase.lifecycle) return canonicalQueueBucket(refundCase) === 'completed';
+  return doneStatuses.has(refundCase.status) ||
+    refundCase.lifecycle?.stage === 'customer_notified' ||
+    refundCase.lifecycle?.stage === 'denied';
+};
 
 const isBlockedCase = (refundCase: RefundCaseRecord) => {
   const lookupStatus = refundCase.nayaxLookupSummary?.lookupStatus;
@@ -841,13 +844,10 @@ const isBlockedCase = (refundCase: RefundCaseRecord) => {
   );
 };
 
-const caseUrgencyRank = (
-  refundCase: RefundCaseRecord,
-  cardRefundAvailabilityConfirmed: boolean | null = null
-) => {
+const caseUrgencyRank = (refundCase: RefundCaseRecord) => {
   if (refundCase.possibleDuplicate || refundCase.confirmedDuplicate) return 0;
   if (customerMessageNeedsAttention(refundCase)) return 0;
-  if (isReadyToPayCase(refundCase, cardRefundAvailabilityConfirmed)) return 1;
+  if (isReadyToPayCase(refundCase)) return 1;
   if (refundCase.status === 'draft') return 2;
   if (isBlockedCase(refundCase)) return 3;
   if (refundCase.status === 'submitted' || refundCase.status === 'needs_review' || refundCase.status === 'correlated') {
@@ -926,7 +926,7 @@ const getOperationalSignals = (
   ) {
     signals.push({ label: 'Card refunds unavailable', className: 'border-orange-200 bg-orange-50 text-orange-900' });
   }
-  if (isReadyToPayCase(refundCase, cardRefundAvailabilityConfirmed)) {
+  if (isReadyToPayCase(refundCase)) {
     signals.push({ label: 'Ready to refund', className: 'border-sky-200 bg-sky-50 text-sky-700' });
   }
   return signals.slice(0, 3);
@@ -2213,12 +2213,15 @@ export default function AdminRefundsPage() {
     staleTime: 1000 * 30,
     refetchInterval: (query) => {
       const data = query.state.data as RefundOperationsOverview | undefined;
-      const activeCase = data?.cases.find((refundCase) => refundCase.id === selectedId);
-      const refreshAfterSeconds = activeCase?.lifecycle?.refreshAfterSeconds;
-      if (!activeCase?.lifecycle || activeCase.lifecycle.terminal || !refreshAfterSeconds) {
-        return false;
-      }
-      return Math.min(15_000, Math.max(1_000, refreshAfterSeconds * 1_000));
+      const activeRefreshIntervals = (data?.cases ?? [])
+        .map((refundCase) => refundCase.lifecycle)
+        .filter((lifecycle): lifecycle is NonNullable<typeof lifecycle> =>
+          Boolean(lifecycle && !lifecycle.terminal && lifecycle.refreshAfterSeconds)
+        )
+        .map((lifecycle) =>
+          Math.min(15_000, Math.max(1_000, (lifecycle.refreshAfterSeconds ?? 5) * 1_000))
+        );
+      return activeRefreshIntervals.length > 0 ? Math.min(...activeRefreshIntervals) : false;
     },
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
@@ -2292,10 +2295,7 @@ export default function AdminRefundsPage() {
     const normalizedSearch = search.trim().toLowerCase();
 
     return overview.cases.filter((refundCase) => {
-      const availabilityOverride = refundCase.id === selectedId
-        ? cardRefundAvailabilityConfirmed
-        : null;
-      const readyToRefund = isReadyToPayCase(refundCase, availabilityOverride);
+      const readyToRefund = isReadyToPayCase(refundCase);
       const inProgress = isRefundInProgressCase(refundCase);
       const needsRefundOperations = isRefundOperationsCase(refundCase);
       const waiting = isWaitingCase(refundCase, refundOperationsAccess);
@@ -2337,40 +2337,27 @@ export default function AdminRefundsPage() {
         .toLowerCase()
         .includes(normalizedSearch);
     }).sort((left, right) => {
-      const leftAvailability = left.id === selectedId ? cardRefundAvailabilityConfirmed : null;
-      const rightAvailability = right.id === selectedId ? cardRefundAvailabilityConfirmed : null;
-      const rankDelta = caseUrgencyRank(left, leftAvailability) -
-        caseUrgencyRank(right, rightAvailability);
+      const rankDelta = caseUrgencyRank(left) - caseUrgencyRank(right);
       if (rankDelta !== 0) return rankDelta;
       return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
     });
   }, [
-    cardRefundAvailabilityConfirmed,
     overview.cases,
     refundOperationsAccess,
     search,
-    selectedId,
     statusFilter,
   ]);
 
   const primaryQueueCounts = useMemo(() => ({
     needs_action: overview.cases.filter((refundCase) =>
       openStatuses.has(refundCase.status) &&
-      !isReadyToPayCase(
-        refundCase,
-        refundCase.id === selectedId ? cardRefundAvailabilityConfirmed : null
-      ) &&
+      !isReadyToPayCase(refundCase) &&
       !isRefundInProgressCase(refundCase) &&
       !isRefundOperationsCase(refundCase) &&
       !isWaitingCase(refundCase, refundOperationsAccess) &&
       !isDoneCase(refundCase)
     ).length,
-    ready_to_pay: overview.cases.filter((refundCase) =>
-      isReadyToPayCase(
-        refundCase,
-        refundCase.id === selectedId ? cardRefundAvailabilityConfirmed : null
-      )
-    ).length,
+    ready_to_pay: overview.cases.filter(isReadyToPayCase).length,
     in_progress: overview.cases.filter(isRefundInProgressCase).length,
     waiting_on_customer: overview.cases.filter((refundCase) =>
       isWaitingCase(refundCase, refundOperationsAccess)
@@ -2379,7 +2366,7 @@ export default function AdminRefundsPage() {
       ? overview.cases.filter(isRefundOperationsCase).length
       : 0,
     completed: overview.cases.filter(isDoneCase).length,
-  }), [cardRefundAvailabilityConfirmed, overview.cases, refundOperationsAccess, selectedId]);
+  }), [overview.cases, refundOperationsAccess]);
 
   const hasAnyCases = overview.cases.length > 0;
   const emptyQueueTitle = hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
@@ -2390,7 +2377,7 @@ export default function AdminRefundsPage() {
   useEffect(() => {
     if (!selectedId) return;
 
-    const selectedCaseStillExists = overview.cases.some((refundCase) => refundCase.id === selectedId);
+    const selectedCaseStillExists = filteredCases.some((refundCase) => refundCase.id === selectedId);
     if (selectedCaseStillExists) return;
 
     setSelectedId(null);
@@ -2404,7 +2391,7 @@ export default function AdminRefundsPage() {
     setIsCashConfirmationOpen(false);
     setMessageSubject('');
     setMessageBody('');
-  }, [overview.cases, selectedId]);
+  }, [filteredCases, selectedId]);
 
   useLayoutEffect(() => {
     if (!selectedId || typeof window === 'undefined' || !window.matchMedia('(max-width: 1023px)').matches) {
@@ -3735,7 +3722,7 @@ export default function AdminRefundsPage() {
         candidateCount: 0,
         summary: `${message} Keep the case open and try the transaction check again later.`,
         recommendedAction: 'Do not tell the customer a refund succeeded until the transaction check is working.',
-        safeRetryEligible: true,
+        safeRetryEligible: false,
         failureClass: 'network_or_server_error',
         automatic: true,
         lastUpdatedAt: new Date().toISOString(),
@@ -3803,11 +3790,12 @@ export default function AdminRefundsPage() {
 
     if (!filteredCases.some((refundCase) => refundCase.id === caseFromUrl.id)) {
       setStatusFilter(
-        doneStatuses.has(caseFromUrl.status)
-          ? 'completed'
-          : caseFromUrl.status === 'waiting_on_customer'
-            ? 'waiting_on_customer'
-            : 'needs_action'
+        caseFromUrl.lifecycle?.managerQueue.bucket ??
+          (doneStatuses.has(caseFromUrl.status)
+            ? 'completed'
+            : caseFromUrl.status === 'waiting_on_customer'
+              ? 'waiting_on_customer'
+              : 'needs_action')
       );
       setSearch('');
     }
@@ -4311,13 +4299,8 @@ export default function AdminRefundsPage() {
     const showVisibleLookupRetry =
       !automaticLookupPending &&
       !hasSelectedMatch &&
-      (
-        selectedCase.lifecycle?.lookup.safeRetryEligible === true ||
-        ['lookup_failed', 'lookup_timed_out', 'response_limited'].includes(
-          selectedNayaxSummary?.lookupStatus ?? ''
-        ) ||
-        nayaxLookupNotice?.title === 'Transaction results expired'
-      );
+      selectedCase.lifecycle?.managerQueue.safeRetryEligible === true &&
+      selectedCase.lifecycle.managerQueue.nextAction === 'retry_read_only_lookup';
     const needsDisagreementReason = Boolean(selectedCandidate && selectedCandidate.isRecommended !== true);
     const selectCandidate = (candidate: NayaxLookupCandidate) => {
       if (!caseAllowsCandidateSelection || candidate.selectionAllowed === false) return;

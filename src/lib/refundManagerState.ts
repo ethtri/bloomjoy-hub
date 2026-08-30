@@ -2,6 +2,7 @@ import type { RefundLifecycleContract } from './refundLifecycle.ts';
 
 export type RefundManagerStateId =
   | 'needs_information'
+  | 'waiting_on_customer'
   | 'checking_nayax'
   | 'ready_for_review'
   | 'match_attention'
@@ -150,6 +151,14 @@ export const getRefundManagerState = (
   if (refundCase.paymentMethod === 'card' && refundCase.lifecycle) {
     const lifecycle = refundCase.lifecycle;
     switch (lifecycle.stage) {
+      case 'waiting_on_customer':
+        return state(
+          'waiting_on_customer',
+          'Waiting on customer',
+          'Bloomjoy needs one specific purchase detail before matching can continue.',
+          'Wait for the customer to reply to the existing email. Do not start another transaction check yet.',
+          'warning'
+        );
       case 'matching':
         return lifecycle.lookup.safeRetryEligible
           ? state(

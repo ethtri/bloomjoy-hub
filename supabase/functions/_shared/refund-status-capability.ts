@@ -13,6 +13,7 @@ export type CustomerRefundLifecycle = {
   schemaVersion: "refund_lifecycle_v1";
   stage:
     | "matching"
+    | "waiting_on_customer"
     | "needs_transaction_selection"
     | "transaction_confirmed"
     | "refund_initiated"
@@ -41,6 +42,7 @@ const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
 const digestPattern = /^[a-f0-9]{64}$/;
 const lifecycleStages = new Set<CustomerRefundLifecycle["stage"]>([
   "matching",
+  "waiting_on_customer",
   "needs_transaction_selection",
   "transaction_confirmed",
   "refund_initiated",

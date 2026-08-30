@@ -12,6 +12,7 @@ const milestones = [
 
 const stageLabel: Record<RefundLifecycleContract['stage'], string> = {
   matching: 'Matching the purchase',
+  waiting_on_customer: 'Waiting for customer reply',
   needs_transaction_selection: 'Waiting for transaction confirmation',
   transaction_confirmed: 'Transaction confirmed',
   refund_initiated: 'Refund initiated',

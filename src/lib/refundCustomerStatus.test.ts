@@ -33,6 +33,7 @@ Deno.test('customer lifecycle rejects technical or unknown contracts', () => {
 Deno.test('customer copy maps every canonical stage without provider troubleshooting', () => {
   const expected = new Map([
     ['matching', 'Request received'],
+    ['waiting_on_customer', 'Waiting for your reply'],
     ['needs_transaction_selection', 'Reviewing your purchase'],
     ['transaction_confirmed', 'Reviewing your purchase'],
     ['refund_initiated', 'Refund initiated'],
@@ -52,6 +53,13 @@ Deno.test('customer copy maps every canonical stage without provider troubleshoo
       `${copy.title} ${copy.detail} ${copy.nextExpectation}`,
     ), false);
   }
+});
+
+Deno.test('waiting-on-customer copy directs one reply without restarting intake', () => {
+  const copy = getRefundCustomerStatusCopy(
+    requireRefundCustomerLifecycle(lifecycle('waiting_on_customer', 15)),
+  );
+  assertEquals(copy.nextExpectation, 'Please reply to the existing Bloomjoy email. You do not need to submit another form.');
 });
 
 Deno.test('active customer status refreshes within 15 seconds and terminal status stops', () => {

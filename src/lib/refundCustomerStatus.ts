@@ -2,6 +2,7 @@ export const REFUND_CUSTOMER_LIFECYCLE_SCHEMA_VERSION = 'refund_lifecycle_v1' as
 
 export const refundCustomerLifecycleStages = [
   'matching',
+  'waiting_on_customer',
   'needs_transaction_selection',
   'transaction_confirmed',
   'refund_initiated',
@@ -67,6 +68,13 @@ export const getRefundCustomerStatusCopy = (
   lifecycle: RefundCustomerLifecycle,
 ): RefundCustomerStatusCopy => {
   switch (lifecycle.stage) {
+    case 'waiting_on_customer':
+      return {
+        title: 'Waiting for your reply',
+        detail: 'We need one more purchase detail before we can finish matching your transaction.',
+        nextExpectation: 'Please reply to the existing Bloomjoy email. You do not need to submit another form.',
+        milestone: 'received',
+      };
     case 'needs_transaction_selection':
     case 'transaction_confirmed':
       return {

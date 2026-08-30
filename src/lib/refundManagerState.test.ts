@@ -30,6 +30,24 @@ const lifecycle = (
   terminal: stage === 'customer_notified' || stage === 'denied',
   refreshAfterSeconds:
     stage === 'customer_notified' || stage === 'denied' ? null : 5,
+  managerQueue: {
+    schemaVersion: 'refund_manager_queue_v1',
+    bucket: stage === 'waiting_on_customer'
+      ? 'waiting_on_customer'
+      : stage === 'needs_refund_operations'
+        ? 'provider_hold'
+        : stage === 'customer_notified' || stage === 'denied'
+          ? 'completed'
+          : stage === 'transaction_confirmed'
+            ? 'ready_to_pay'
+            : ['refund_initiated', 'confirming_with_nayax', 'refund_confirmed'].includes(stage)
+              ? 'in_progress'
+              : 'needs_action',
+    label: 'Synthetic queue',
+    nextAction: managerNextAction,
+    safeRetryEligible: false,
+    payloadRedacted: true,
+  },
   lookup: {
     status: stage === 'matching' ? 'checking' : 'match_found',
     safeRetryEligible: false,
@@ -167,6 +185,22 @@ Deno.test('manager state consumes the canonical lifecycle for automatic progress
     });
     assertEquals(result.label, label, `${stage} label`);
   }
+});
+
+Deno.test('canonical waiting-on-customer stage wins over matching facts', () => {
+  const result = getRefundManagerState({
+    ...baseCase,
+    status: 'waiting_on_customer',
+    missingInformation: true,
+    lifecycle: lifecycle('waiting_on_customer', 15, 'wait_for_customer_reply'),
+  });
+  assertEquals(result.id, 'waiting_on_customer', 'waiting state id');
+  assertEquals(result.label, 'Waiting on customer', 'waiting label');
+  assertEquals(
+    result.nextStep,
+    'Wait for the customer to reply to the existing email. Do not start another transaction check yet.',
+    'waiting next action'
+  );
 });
 
 Deno.test('canonical operations hold gives routine managers no technical action', () => {
