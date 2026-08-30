@@ -2,6 +2,19 @@
 
 Entries are newest-first. For production refund work, the 2026-08-28 capability-versus-automation and canonical Nayax identity decisions plus the 2026-08-27 exact response-contract decision govern. Older conflicting pilot, unfamiliar-`2xx`, permission, and TOTP mechanics are retained only as historical audit records.
 
+## 2026-08-29 - Scoped Admin supports invitation-first exact-email activation (`#989`)
+
+- A Super Admin may create a pending Scoped Admin invitation for a valid email that does not yet have a Bloomjoy Auth account. The invitation must include an audit reason and at least one active reporting machine.
+- A pending invitation is not an effective grant. Scoped Admin authority and machine visibility activate atomically and exactly once only after the same normalized email is verified by Supabase Auth and completes the normal password-backed sign-in flow.
+- Pending invitations expire after seven days, may be resent without creating a duplicate pending grant, and may be revoked before activation. Create/update, delivery, failure, expiry, revoke, and activation events remain auditable.
+- The official email uses the existing scanner-resistant `access-invite` service and a stable `/login?intent=scoped_admin&email=...` route with no credential in the URL.
+- Existing authenticated users continue to use the person workspace for immediate Scoped Admin grant/update/revoke. The earlier decision that an existing Scoped Admin may have zero machine scopes remains unchanged; only invitation-first onboarding requires a non-empty initial machine boundary.
+
+**Why this choice**
+- Requiring a person to discover and create an account before an administrator can invite them reverses the expected onboarding sequence and produces avoidable support work.
+- Separating pending intent from effective authority prevents an unverified or mistyped email from receiving admin access.
+- Reusing the established email-code activation path preserves scanner resistance, password completion, delivery evidence, and a consistent recipient experience.
+
 ## 2026-08-28 - Reconciled refund work waits on confirmed Nayax routes, not speculative writes (`#990`)
 
 - Provider-free reconciliation of both later `$8` attempts is complete. Neither attempt is pending, neither may be replayed or approved, and no provider request or approval is currently in flight.

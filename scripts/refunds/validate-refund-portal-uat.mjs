@@ -36,6 +36,7 @@ const simpleJourneyFixture = JSON.parse(await readFile(
 
 const NAVIGATION_READ_ONLY_RPCS = new Set([
   'resolve_my_technician_entitlements',
+  'resolve_my_scoped_admin_invites',
   'get_my_admin_access_context',
   'get_my_plus_access',
   'get_my_operator_timekeeping_context',
@@ -1789,6 +1790,17 @@ const installMockSupabaseRoutes = async (
           resolvedOperatorTrainingGrantCount: 0,
           upsertedReportingEntitlementCount: 0,
           skippedGrantCount: 0,
+        })
+      );
+    }
+
+    if (url.includes('/resolve_my_scoped_admin_invites')) {
+      return route.fulfill(
+        jsonResponse({
+          targetEmail: mockUser.email,
+          resolvedInviteCount: 0,
+          grantId: null,
+          machineCount: 0,
         })
       );
     }

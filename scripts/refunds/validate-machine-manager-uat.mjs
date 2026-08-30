@@ -349,6 +349,17 @@ const installMockSupabaseRoutes = async (context, state) => {
       );
     }
 
+    if (url.includes('/resolve_my_scoped_admin_invites')) {
+      return route.fulfill(
+        jsonResponse({
+          targetEmail: mockUser.email,
+          resolvedInviteCount: 0,
+          grantId: null,
+          machineCount: 0,
+        })
+      );
+    }
+
     if (url.includes('/admin_get_partnership_reporting_setup')) {
       return route.fulfill(jsonResponse(buildMockSetup()));
     }

@@ -56,14 +56,18 @@ import {
 import {
   fetchAdminAuditLog,
   fetchAdminRoles,
+  fetchScopedAdminInvites,
   fetchScopedAdminGrants,
+  createScopedAdminInvite,
   grantScopedAdminByEmail,
   grantSuperAdminByEmail,
   revokeScopedAdmin,
+  revokeScopedAdminInvite,
   revokeSuperAdmin,
   type AdminAuditLogRecord,
   type AdminRoleRecord,
   type ScopedAdminGrantRecord,
+  type ScopedAdminInviteRecord,
 } from '@/lib/adminGovernance';
 import {
   adminGrantTechnicianAccess,
@@ -239,9 +243,11 @@ const emptyTechnicianAccessContext: AdminTechnicianAccessContext = {
 };
 const emptyReportingAccessMatrix: AdminReportingAccessMatrix = { people: [], machines: [], grants: [] };
 const emptyScopedAdminGrants: ScopedAdminGrantRecord[] = [];
+const emptyScopedAdminInvites: ScopedAdminInviteRecord[] = [];
 const emptyAdminRoles: AdminRoleRecord[] = [];
 const emptyMachineInventory: CustomerMachineInventoryRecord[] = [];
 const emptyAuditLog: AdminAuditLogRecord[] = [];
+const emptyAccessInviteDeliveries: AccessInviteDelivery[] = [];
 const emptyPartnerForm = {
   name: '',
   legalName: '',
@@ -265,8 +271,8 @@ const accessLauncherPresets: AccessLauncherPresetMeta[] = [
   {
     key: 'scoped_admin',
     label: 'Scoped Admin',
-    description: 'Existing auth user required; grant limited admin reporting access by machine.',
-    inviteable: false,
+    description: 'Invite by email, then activate limited admin access for selected machines after sign-up.',
+    inviteable: true,
   },
   {
     key: 'super_admin',
@@ -1254,6 +1260,10 @@ function AccessLauncher({
   const [selectedPartnerId, setSelectedPartnerId] = useState(initialPartnerId ?? '');
   const [selectedAccountId, setSelectedAccountId] = useState(initialAccountId ?? '');
   const [selectedTechnicianMachineIds, setSelectedTechnicianMachineIds] = useState<Set<string>>(new Set());
+  const [selectedScopedAdminMachineIds, setSelectedScopedAdminMachineIds] = useState<Set<string>>(new Set());
+  const [scopedAdminMachineSearch, setScopedAdminMachineSearch] = useState('');
+  const [scopedAdminInviteRevokeReasons, setScopedAdminInviteRevokeReasons] = useState<Record<string, string>>({});
+  const [busyScopedAdminInviteId, setBusyScopedAdminInviteId] = useState<string | null>(null);
   const [trainingOnlyConfirmed, setTrainingOnlyConfirmed] = useState(false);
   const [grantReason, setGrantReason] = useState('');
   const [partnerForm, setPartnerForm] = useState(emptyPartnerForm);
@@ -1277,6 +1287,10 @@ function AccessLauncher({
     setSelectedPartnerId(initialPartnerId ?? '');
     setSelectedAccountId(initialAccountId ?? '');
     setSelectedTechnicianMachineIds(new Set());
+    setSelectedScopedAdminMachineIds(new Set());
+    setScopedAdminMachineSearch('');
+    setScopedAdminInviteRevokeReasons({});
+    setBusyScopedAdminInviteId(null);
     setTrainingOnlyConfirmed(false);
     setGrantReason('');
     setPartnerForm(emptyPartnerForm);
@@ -1295,6 +1309,10 @@ function AccessLauncher({
     enabled: open && searchValue.length >= 3,
     staleTime: 1000 * 30,
   });
+  const existingAuthPeople = useMemo(
+    () => existingPeople.filter((account) => Boolean(account.user_id)),
+    [existingPeople]
+  );
 
   const {
     data: corporateOptions = emptyCorporatePartnerOptions,
@@ -1318,17 +1336,55 @@ function AccessLauncher({
     staleTime: 1000 * 20,
   });
 
+  const {
+    data: scopedAdminMatrix = emptyReportingAccessMatrix,
+    isFetching: isFetchingScopedAdminMachines,
+    error: scopedAdminMachinesError,
+  } = useQuery({
+    queryKey: ['admin-reporting-access-matrix'],
+    queryFn: fetchAdminReportingAccessMatrix,
+    enabled: open && preset === 'scoped_admin',
+    staleTime: 1000 * 30,
+  });
+
+  const {
+    data: scopedAdminInvites = emptyScopedAdminInvites,
+    isFetching: isFetchingScopedAdminInvites,
+    error: scopedAdminInvitesError,
+  } = useQuery({
+    queryKey: ['admin-scoped-admin-invites'],
+    queryFn: fetchScopedAdminInvites,
+    enabled: open && preset === 'scoped_admin',
+    staleTime: 1000 * 15,
+  });
+
+  const scopedAdminInviteIds = useMemo(
+    () => scopedAdminInvites.map((invite) => invite.id),
+    [scopedAdminInvites]
+  );
+  const { data: scopedAdminInviteDeliveries = emptyAccessInviteDeliveries } = useQuery({
+    queryKey: ['access-invite-deliveries', 'scoped_admin', scopedAdminInviteIds],
+    queryFn: () =>
+      fetchAccessInviteDeliveries({
+        inviteType: 'scoped_admin',
+        sourceType: 'scoped_admin_invite',
+        sourceIds: scopedAdminInviteIds,
+      }),
+    enabled: open && preset === 'scoped_admin' && scopedAdminInviteIds.length > 0,
+    staleTime: 1000 * 15,
+  });
+
   const selectedExistingAccount = useMemo(() => {
     if (selectedExistingUserId) {
-      return existingPeople.find((account) => account.user_id === selectedExistingUserId) ?? null;
+      return existingAuthPeople.find((account) => account.user_id === selectedExistingUserId) ?? null;
     }
 
-    const exactByUserId = existingPeople.find((account) => account.user_id === searchValue);
+    const exactByUserId = existingAuthPeople.find((account) => account.user_id === searchValue);
     if (exactByUserId) return exactByUserId;
 
     if (normalizedEmail) {
       return (
-        existingPeople.find(
+        existingAuthPeople.find(
           (account) =>
             account.customer_email &&
             normalizeSearch(account.customer_email) === normalizedEmail
@@ -1336,18 +1392,18 @@ function AccessLauncher({
       );
     }
 
-    return existingPeople.length === 1 ? existingPeople[0] : null;
-  }, [existingPeople, normalizedEmail, searchValue, selectedExistingUserId]);
+    return existingAuthPeople.length === 1 ? existingAuthPeople[0] : null;
+  }, [existingAuthPeople, normalizedEmail, searchValue, selectedExistingUserId]);
 
   useEffect(() => {
-    if (selectedExistingUserId && existingPeople.some((account) => account.user_id === selectedExistingUserId)) {
+    if (selectedExistingUserId && existingAuthPeople.some((account) => account.user_id === selectedExistingUserId)) {
       return;
     }
 
     const exactAccount =
-      existingPeople.find((account) => account.user_id === searchValue) ??
+      existingAuthPeople.find((account) => account.user_id === searchValue) ??
       (normalizedEmail
-        ? existingPeople.find(
+        ? existingAuthPeople.find(
             (account) =>
               account.customer_email &&
               normalizeSearch(account.customer_email) === normalizedEmail
@@ -1355,7 +1411,7 @@ function AccessLauncher({
         : null);
 
     setSelectedExistingUserId(exactAccount?.user_id ?? '');
-  }, [existingPeople, normalizedEmail, searchValue, selectedExistingUserId]);
+  }, [existingAuthPeople, normalizedEmail, searchValue, selectedExistingUserId]);
 
   useEffect(() => {
     if (preset !== 'corporate_partner') return;
@@ -1517,6 +1573,17 @@ function AccessLauncher({
     }
   }, [preset, selectedTechnicianMachineIds, selectedTechnicianMachines]);
 
+  useEffect(() => {
+    if (preset !== 'scoped_admin') return;
+    const availableMachineIds = new Set(scopedAdminMatrix.machines.map((machine) => machine.id));
+    const nextSelectedMachineIds = new Set(
+      [...selectedScopedAdminMachineIds].filter((machineId) => availableMachineIds.has(machineId))
+    );
+    if (!haveSameStringSetValues(selectedScopedAdminMachineIds, nextSelectedMachineIds)) {
+      setSelectedScopedAdminMachineIds(nextSelectedMachineIds);
+    }
+  }, [preset, scopedAdminMatrix.machines, selectedScopedAdminMachineIds]);
+
   const selectedTechnicianMachineIdList = sortedSetValues(selectedTechnicianMachineIds);
   const isTechnicianTrainingOnlyInvite =
     preset === 'technician' && selectedTechnicianMachineIdList.length === 0;
@@ -1534,14 +1601,40 @@ function AccessLauncher({
     !isFetchingTechnicianContext &&
     !technicianContextError &&
     technicianContext.accounts.length === 0;
+  const filteredScopedAdminMachines = useMemo(() => {
+    const search = normalizeSearch(scopedAdminMachineSearch);
+    if (!search) return scopedAdminMatrix.machines;
+
+    return scopedAdminMatrix.machines.filter((machine) =>
+      [machine.machineLabel, machine.sunzeMachineId ?? '', machine.accountName]
+        .join(' ')
+        .toLowerCase()
+        .includes(search)
+    );
+  }, [scopedAdminMachineSearch, scopedAdminMatrix.machines]);
+  const groupedScopedAdminMachines = useMemo(
+    () => groupMachines(filteredScopedAdminMachines),
+    [filteredScopedAdminMachines]
+  );
+  const latestScopedAdminInviteDeliveryBySourceId = useMemo(() => {
+    const latest = new Map<string, AccessInviteDelivery>();
+    for (const delivery of scopedAdminInviteDeliveries) {
+      if (!latest.has(delivery.sourceId)) latest.set(delivery.sourceId, delivery);
+    }
+    return latest;
+  }, [scopedAdminInviteDeliveries]);
+  const shouldOpenScopedAdminExistingUser =
+    preset === 'scoped_admin' && Boolean(selectedExistingAccount?.user_id);
   const isExistingUserPreset = !presetMeta.inviteable;
   const canSaveInvite =
     presetMeta.inviteable &&
+    !shouldOpenScopedAdminExistingUser &&
     Boolean(normalizedEmail) &&
     Boolean(grantReason.trim()) &&
     (!isTechnicianTrainingOnlyInvite ||
       (technicianAllowsTrainingOnly && trainingOnlyConfirmed)) &&
-    (!technicianRequiresMachineScope || selectedTechnicianMachineIdList.length > 0);
+    (!technicianRequiresMachineScope || selectedTechnicianMachineIdList.length > 0) &&
+    (preset !== 'scoped_admin' || selectedScopedAdminMachineIds.size > 0);
   const existingPresetActionLabel =
     preset === 'plus_customer' ? 'Open Plus Customer workspace' : 'Open person workspace';
 
@@ -1555,6 +1648,8 @@ function AccessLauncher({
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['admin-corporate-partner-access-options'] }),
       queryClient.invalidateQueries({ queryKey: ['admin-technician-access-context'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-scoped-admin-invites'] }),
+      queryClient.invalidateQueries({ queryKey: ['access-invite-deliveries', 'scoped_admin'] }),
       queryClient.invalidateQueries({ queryKey: ['access-launcher-person-search'] }),
     ]);
   };
@@ -1611,7 +1706,13 @@ function AccessLauncher({
 
   const saveInviteableAccess = async () => {
     const inviteType: AccessInviteType | null =
-      preset === 'corporate_partner' ? 'corporate_partner' : preset === 'technician' ? 'technician' : null;
+      preset === 'corporate_partner'
+        ? 'corporate_partner'
+        : preset === 'technician'
+          ? 'technician'
+          : preset === 'scoped_admin'
+            ? 'scoped_admin'
+            : null;
     if (!inviteType) {
       toast.error('Choose an inviteable access type.');
       return;
@@ -1630,6 +1731,55 @@ function AccessLauncher({
     setIsSaving(true);
     try {
       let inviteDeliveryFailed = false;
+
+      if (preset === 'scoped_admin') {
+        const selectedMachineIds = sortedSetValues(selectedScopedAdminMachineIds);
+        if (selectedMachineIds.length === 0) {
+          toast.error('Select at least one machine for the Scoped Admin invite.');
+          return;
+        }
+
+        const invite = await createScopedAdminInvite({
+          targetEmail: invitePreflight.targetEmail,
+          machineIds: selectedMachineIds,
+          reason: grantReasonText,
+        });
+
+        if (!invite.id) {
+          throw new Error('Scoped Admin invite was saved without an invite ID.');
+        }
+
+        try {
+          await sendAccessInvite({
+            inviteType: 'scoped_admin',
+            sourceId: invite.id,
+            targetEmail: invitePreflight.targetEmail,
+            loginUrl: invitePreflight.loginUrl,
+          });
+          toast.success('Scoped Admin invite saved and email sent. Access stays pending until sign-up.');
+          setTargetInput('');
+          setSelectedExistingUserId('');
+          setSelectedScopedAdminMachineIds(new Set());
+          setGrantReason('');
+        } catch (inviteError) {
+          inviteDeliveryFailed = true;
+          toast.error(
+            inviteError instanceof Error
+              ? `Scoped Admin invite saved, but email failed: ${inviteError.message}. Use Resend below.`
+              : 'Scoped Admin invite saved, but email failed. Use Resend below.'
+          );
+        }
+
+        trackEvent('admin_access_launcher_saved', {
+          preset,
+          inviteable: true,
+          machine_count: selectedMachineIds.length,
+          delivery_status: inviteDeliveryFailed ? 'failed' : 'sent',
+        });
+        await refreshLauncherQueries();
+        await onChanged();
+        return;
+      }
 
       if (preset === 'corporate_partner') {
         if (!selectedPartner) {
@@ -1853,6 +2003,57 @@ function AccessLauncher({
     }
   };
 
+  const resendScopedAdminInvite = async (invite: ScopedAdminInviteRecord) => {
+    const invitePreflight = validateAccessInvitePreflight('scoped_admin', invite.targetEmail);
+    if (!invitePreflight.ok) {
+      toast.error(invitePreflight.message);
+      return;
+    }
+
+    setBusyScopedAdminInviteId(invite.id);
+    try {
+      await sendAccessInvite({
+        inviteType: 'scoped_admin',
+        sourceId: invite.id,
+        targetEmail: invite.targetEmail,
+        loginUrl: invitePreflight.loginUrl,
+      });
+      toast.success(`Scoped Admin invite resent to ${invite.targetEmail}.`);
+      await queryClient.invalidateQueries({
+        queryKey: ['access-invite-deliveries', 'scoped_admin'],
+      });
+    } catch (resendError) {
+      toast.error(
+        resendError instanceof Error ? resendError.message : 'Unable to resend Scoped Admin invite.'
+      );
+    } finally {
+      setBusyScopedAdminInviteId(null);
+    }
+  };
+
+  const revokePendingScopedAdminInvite = async (invite: ScopedAdminInviteRecord) => {
+    const reason = scopedAdminInviteRevokeReasons[invite.id]?.trim();
+    if (!reason) {
+      toast.error('Enter a revoke reason for this pending invite.');
+      return;
+    }
+
+    setBusyScopedAdminInviteId(invite.id);
+    try {
+      await revokeScopedAdminInvite({ inviteId: invite.id, reason });
+      setScopedAdminInviteRevokeReasons((current) => ({ ...current, [invite.id]: '' }));
+      toast.success(`Scoped Admin invite for ${invite.targetEmail} revoked.`);
+      await refreshLauncherQueries();
+      await onChanged();
+    } catch (revokeError) {
+      toast.error(
+        revokeError instanceof Error ? revokeError.message : 'Unable to revoke Scoped Admin invite.'
+      );
+    } finally {
+      setBusyScopedAdminInviteId(null);
+    }
+  };
+
   const corporatePartnerConfirmationNeedsAttention =
     corporatePartnerSaveConfirmation?.inviteOutcome === 'failed' ||
     (corporatePartnerSaveConfirmation
@@ -1892,7 +2093,9 @@ function AccessLauncher({
                   {normalizedEmail ? normalizedEmail : 'Existing-user lookup'}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {presetMeta.inviteable
+                  {shouldOpenScopedAdminExistingUser
+                    ? 'Existing Auth user found; manage Scoped Admin access in the person workspace.'
+                    : presetMeta.inviteable
                     ? 'This preset can be granted before first sign-in.'
                     : 'This preset requires an existing Supabase Auth user.'}
                 </p>
@@ -1909,14 +2112,14 @@ function AccessLauncher({
                   <p className="mt-2 text-sm text-destructive">
                     {getErrorMessage(personSearchError, 'Unable to search people.')}
                   </p>
-                ) : existingPeople.length === 0 && !isSearchingPeople ? (
+                ) : existingAuthPeople.length === 0 && !isSearchingPeople ? (
                   <p className="mt-2 text-sm text-muted-foreground">
-                    No auth user found. Corporate Partner and Technician invites can still be sent
-                    to a valid email.
+                    No auth user found. Corporate Partner, Technician, and Scoped Admin invites can
+                    still be sent to a valid email.
                   </p>
                 ) : (
                   <div className="mt-2 grid gap-2 md:grid-cols-2">
-                    {existingPeople.slice(0, 4).map((account) => (
+                    {existingAuthPeople.slice(0, 4).map((account) => (
                       <button
                         key={account.user_id}
                         type="button"
@@ -1960,7 +2163,11 @@ function AccessLauncher({
                     <div className="flex items-start justify-between gap-2">
                       <p className="font-medium text-foreground">{item.label}</p>
                       <Badge variant={item.inviteable ? 'default' : 'outline'}>
-                        {item.inviteable ? 'Invite' : 'Existing'}
+                        {item.key === 'scoped_admin'
+                          ? 'New / Existing'
+                          : item.inviteable
+                            ? 'Invite'
+                            : 'Existing'}
                       </Badge>
                     </div>
                     <p className="mt-2 text-xs leading-5 text-muted-foreground">{item.description}</p>
@@ -2429,6 +2636,185 @@ function AccessLauncher({
             </section>
           )}
 
+          {preset === 'scoped_admin' && selectedExistingAccount && (
+            <section className="rounded-md border border-amber/40 bg-amber/10 p-4">
+              <div className="flex items-start gap-3">
+                <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber" />
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-foreground">This person already has an account</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Open their person workspace to review effective access and grant or update Scoped
+                    Admin access immediately. Invitation-first access is only for a new email.
+                  </p>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {preset === 'scoped_admin' && !selectedExistingAccount && (
+            <section className="space-y-4">
+              <div className="grid gap-4 lg:grid-cols-[0.58fr_0.42fr]">
+                <div className="space-y-3">
+                  <div>
+                    <Label htmlFor="access-launcher-scoped-machine-search">Machine scope</Label>
+                    <Input
+                      id="access-launcher-scoped-machine-search"
+                      value={scopedAdminMachineSearch}
+                      onChange={(event) => setScopedAdminMachineSearch(event.target.value)}
+                      placeholder="Filter active machines"
+                      className="mt-1"
+                    />
+                  </div>
+                  {scopedAdminMachinesError && (
+                    <p className="text-sm text-destructive">
+                      {getErrorMessage(scopedAdminMachinesError, 'Unable to load active machines.')}
+                    </p>
+                  )}
+                  <MachineChecklist
+                    groupedMachines={groupedScopedAdminMachines}
+                    selectedMachineIds={selectedScopedAdminMachineIds}
+                    toggleMachine={(machineId, checked) =>
+                      setSelectedScopedAdminMachineIds((current) => {
+                        const next = new Set(current);
+                        if (checked) next.add(machineId);
+                        else next.delete(machineId);
+                        return next;
+                      })
+                    }
+                    isFetching={isFetchingScopedAdminMachines}
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                    <SummaryMetric label="Invite email" value={normalizedEmail || 'Enter a valid email'} />
+                    <SummaryMetric
+                      label="Machine scope"
+                      value={
+                        selectedScopedAdminMachineIds.size > 0
+                          ? pluralize(selectedScopedAdminMachineIds.size, 'machine')
+                          : 'Select at least one'
+                      }
+                    />
+                  </div>
+                  <PreviewBox>
+                    This saves a pending Scoped Admin invitation and sends a branded sign-up email.
+                    It grants no admin or reporting access yet. After the invited person verifies this
+                    exact email and finishes sign-up, their access activates once for only the selected
+                    machines.
+                  </PreviewBox>
+                  <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-sm">
+                    <div className="flex items-start gap-2">
+                      <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                      <div>
+                        <p className="font-medium text-foreground">Seven-day activation window</p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          Resending uses the same pending invite without creating a duplicate. You can
+                          revoke it at any time before sign-up or re-create it after expiry.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-md border border-border bg-muted/10 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold text-foreground">Scoped Admin invitation status</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Recent pending, accepted, revoked, and expired invitations. Access is effective only
+                      after acceptance.
+                    </p>
+                  </div>
+                  {isFetchingScopedAdminInvites && (
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+                  )}
+                </div>
+
+                {scopedAdminInvitesError ? (
+                  <p className="mt-3 text-sm text-destructive">
+                    {getErrorMessage(scopedAdminInvitesError, 'Unable to load Scoped Admin invitations.')}
+                  </p>
+                ) : scopedAdminInvites.length === 0 && !isFetchingScopedAdminInvites ? (
+                  <p className="mt-3 text-sm text-muted-foreground">No Scoped Admin invitations yet.</p>
+                ) : (
+                  <div className="mt-3 space-y-3">
+                    {scopedAdminInvites.slice(0, 8).map((invite) => {
+                      const latestDelivery = latestScopedAdminInviteDeliveryBySourceId.get(invite.id);
+                      const isBusy = busyScopedAdminInviteId === invite.id;
+                      return (
+                        <div key={invite.id} className="rounded-md border border-border bg-background p-3">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-foreground">{invite.targetEmail}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {pluralize(invite.machineIds.length, 'machine')} · expires {formatDate(invite.expiresAt)}
+                              </p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {invite.machineLabels.join(', ') || 'Machine labels unavailable'}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Badge variant={invite.status === 'pending' || invite.status === 'activated' ? 'default' : 'outline'}>
+                                {invite.status === 'activated' ? 'Accepted' : invite.status}
+                              </Badge>
+                              {latestDelivery && (
+                                <Badge variant={latestDelivery.deliveryStatus === 'sent' ? 'outline' : 'destructive'}>
+                                  Email {latestDelivery.deliveryStatus}
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+
+                          {invite.status === 'pending' && (
+                            <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+                              <Label
+                                htmlFor={`scoped-admin-invite-revoke-reason-${invite.id}`}
+                                className="sr-only"
+                              >
+                                Revoke reason for {invite.targetEmail}
+                              </Label>
+                              <Input
+                                id={`scoped-admin-invite-revoke-reason-${invite.id}`}
+                                value={scopedAdminInviteRevokeReasons[invite.id] ?? ''}
+                                onChange={(event) =>
+                                  setScopedAdminInviteRevokeReasons((current) => ({
+                                    ...current,
+                                    [invite.id]: event.target.value,
+                                  }))
+                                }
+                                placeholder="Required reason to revoke"
+                                disabled={isBusy}
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => void resendScopedAdminInvite(invite)}
+                                disabled={isBusy}
+                              >
+                                {isBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                                Resend
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => void revokePendingScopedAdminInvite(invite)}
+                                disabled={isBusy}
+                              >
+                                Revoke
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
           {isExistingUserPreset && (
             <section className="rounded-md border border-amber/40 bg-amber/10 p-4">
               <div className="flex items-start gap-3">
@@ -2461,7 +2847,7 @@ function AccessLauncher({
             </section>
           )}
 
-          {presetMeta.inviteable && (
+          {presetMeta.inviteable && !shouldOpenScopedAdminExistingUser && (
             <section>
               <Label htmlFor="access-launcher-reason">Grant reason</Label>
               <Textarea
@@ -2479,7 +2865,12 @@ function AccessLauncher({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          {presetMeta.inviteable ? (
+          {shouldOpenScopedAdminExistingUser ? (
+            <Button type="button" onClick={openSelectedWorkspace}>
+              <UserRound className="mr-2 h-4 w-4" />
+              Open person workspace
+            </Button>
+          ) : presetMeta.inviteable ? (
             <Button
               type="button"
               onClick={saveInviteableAccess}
@@ -2491,7 +2882,11 @@ function AccessLauncher({
               }
             >
               {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-              {preset === 'technician' ? 'Save and send Technician invite' : 'Grant and send invite'}
+              {preset === 'technician'
+                ? 'Save and send Technician invite'
+                : preset === 'scoped_admin'
+                  ? 'Send Scoped Admin invite'
+                  : 'Grant and send invite'}
             </Button>
           ) : (
             <Button type="button" onClick={openSelectedWorkspace} disabled={!selectedExistingAccount}>

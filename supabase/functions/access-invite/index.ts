@@ -26,8 +26,12 @@ const supabase = supabaseUrl && supabaseServiceRoleKey
     })
   : null;
 
-type InviteType = "corporate_partner" | "technician" | "machine_manager";
-type SourceType = "corporate_partner_membership" | "technician_grant" | "reporting_machine";
+type InviteType = "corporate_partner" | "technician" | "machine_manager" | "scoped_admin";
+type SourceType =
+  | "corporate_partner_membership"
+  | "technician_grant"
+  | "reporting_machine"
+  | "scoped_admin_invite";
 
 type InviteSource = {
   inviteType: InviteType;
@@ -38,6 +42,7 @@ type InviteSource = {
   title: string;
   body: string;
   accessSummary: string;
+  expiresAt?: string | null;
 };
 
 type InviteAttempt = {
@@ -61,6 +66,7 @@ const sourceTypeByInviteType: Record<InviteType, SourceType> = {
   corporate_partner: "corporate_partner_membership",
   technician: "technician_grant",
   machine_manager: "reporting_machine",
+  scoped_admin: "scoped_admin_invite",
 };
 const maxEvidenceMessageLength = 500;
 const sentEvidenceFailureMessage =
@@ -203,8 +209,18 @@ async function getTechnicianMachineLabels(sourceId: string): Promise<string[]> {
 }
 
 const buildInviteEmail = (source: InviteSource, loginUrl: string, actorEmail: string) => {
-  const subject = "Bloomjoy portal invitation";
+  const subject = source.inviteType === "scoped_admin"
+    ? "You’re invited as a Bloomjoy Scoped Admin"
+    : "Bloomjoy portal invitation";
   const inviter = actorEmail || "A Bloomjoy administrator";
+  const expiryCopy = source.expiresAt
+    ? `Complete sign-up by ${new Date(source.expiresAt).toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "UTC",
+      })}.`
+    : "";
 
   const text = [
     source.title,
@@ -213,6 +229,7 @@ const buildInviteEmail = (source: InviteSource, loginUrl: string, actorEmail: st
     source.body,
     "",
     source.accessSummary,
+    ...(expiryCopy ? ["", expiryCopy] : []),
     "",
     "Open Bloomjoy Hub:",
     loginUrl,
@@ -229,7 +246,7 @@ const buildInviteEmail = (source: InviteSource, loginUrl: string, actorEmail: st
             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border:1px solid #f5c8d6;border-radius:8px;overflow:hidden;">
               <tr>
                 <td style="padding:28px 28px 22px 28px;">
-                  <div style="font-size:12px;line-height:18px;letter-spacing:1px;text-transform:uppercase;color:#be5b7b;font-weight:700;">
+                  <div style="font-size:12px;line-height:18px;letter-spacing:1px;text-transform:uppercase;color:#9b3157;font-weight:700;">
                     Bloomjoy Hub
                   </div>
                   <h1 style="margin:10px 0 12px 0;font-size:24px;line-height:32px;color:#111827;">
@@ -241,16 +258,17 @@ const buildInviteEmail = (source: InviteSource, loginUrl: string, actorEmail: st
                   <p style="margin:0 0 14px 0;font-size:15px;line-height:24px;color:#4b5563;">
                     ${escapeHtml(source.body)}
                   </p>
-                  <p style="margin:0 0 24px 0;font-size:15px;line-height:24px;color:#4b5563;">
+                  <div style="margin:0 0 20px 0;padding:14px 16px;background:#fff7fb;border:1px solid #f5c8d6;border-radius:8px;font-size:14px;line-height:22px;color:#374151;">
                     ${escapeHtml(source.accessSummary)}
-                  </p>
-                  <a href="${escapeHtml(loginUrl)}" style="display:inline-block;background:#ec8aaa;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;line-height:20px;padding:12px 18px;border-radius:8px;">
+                  </div>
+                  ${expiryCopy ? `<p style="margin:0 0 20px 0;font-size:13px;line-height:20px;color:#6b7280;">${escapeHtml(expiryCopy)}</p>` : ""}
+                  <a href="${escapeHtml(loginUrl)}" style="display:inline-block;background:#9b3157;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;line-height:20px;padding:12px 18px;border-radius:8px;">
                     Open Bloomjoy Hub
                   </a>
                   <p style="margin:24px 0 0 0;font-size:12px;line-height:18px;color:#6b7280;">
                     Use this same email address, choose Email Code, and enter the newest code Bloomjoy sends you. If this is your first sign-in, create a password to finish activation.<br /><br />
                     If the button does not work, open this link:<br />
-                    <a href="${escapeHtml(loginUrl)}" style="color:#be5b7b;">${escapeHtml(loginUrl)}</a>
+                    <a href="${escapeHtml(loginUrl)}" style="color:#9b3157;">${escapeHtml(loginUrl)}</a>
                   </p>
                 </td>
               </tr>
@@ -409,6 +427,91 @@ async function getMachineManagerSource(sourceId: string, targetEmail: string): P
     body: `You have been invited to create or sign in to Bloomjoy Hub so Bloomjoy can assign you as a Machine Manager for ${machineLabel}${locationCopy}.`,
     accessSummary:
       "This invite does not assign machine access by itself. After you sign in with this email, a Bloomjoy administrator can add the Machine Manager assignment from Admin > Machines.",
+  };
+}
+
+async function getScopedAdminSource(sourceId: string, targetEmail: string): Promise<InviteSource> {
+  if (!supabase) throw new Error("Access invite email is not configured.");
+
+  const { data: invite, error: inviteError } = await supabase
+    .from("admin_scoped_access_invites")
+    .select("id, target_email, status, expires_at")
+    .eq("id", sourceId)
+    .maybeSingle();
+
+  if (inviteError || !invite) {
+    throw new Error("Scoped Admin invite was not found.");
+  }
+
+  const inviteRecord = invite as Record<string, unknown>;
+  if (normalizeEmail(inviteRecord["target_email"]) !== targetEmail) {
+    throw new Error("Invite email does not match the Scoped Admin invite.");
+  }
+
+  if (getStringValue(inviteRecord, "status") !== "pending") {
+    throw new Error("Scoped Admin invite is no longer pending.");
+  }
+
+  const expiresAt = getStringValue(inviteRecord, "expires_at");
+  if (!expiresAt || new Date(expiresAt).getTime() <= Date.now()) {
+    throw new Error("Scoped Admin invite is expired.");
+  }
+
+  const { data: scopes, error: scopesError } = await supabase
+    .from("admin_scoped_access_invite_scopes")
+    .select("machine_id")
+    .eq("invite_id", sourceId);
+
+  if (scopesError) {
+    throw new Error("Unable to load Scoped Admin machine scope.");
+  }
+
+  const machineIds = ((scopes as Record<string, unknown>[] | null) ?? [])
+    .map((scope) => getStringValue(scope, "machine_id"))
+    .filter(Boolean);
+
+  if (machineIds.length === 0) {
+    throw new Error("Scoped Admin invite has no machine scope.");
+  }
+
+  const { data: machines, error: machinesError } = await supabase
+    .from("reporting_machines")
+    .select("id, machine_label, status")
+    .in("id", [...new Set(machineIds)])
+    .eq("status", "active");
+
+  if (machinesError) {
+    throw new Error("Unable to load Scoped Admin machines.");
+  }
+
+  const machineLabelById = new Map(
+    ((machines as Record<string, unknown>[] | null) ?? []).map((machine) => [
+      getStringValue(machine, "id"),
+      getStringValue(machine, "machine_label") || "Bloomjoy machine",
+    ] as const),
+  );
+  const machineLabels = machineIds
+    .map((machineId) => machineLabelById.get(machineId))
+    .filter((label): label is string => Boolean(label));
+
+  if (machineLabels.length !== new Set(machineIds).size) {
+    throw new Error("One or more Scoped Admin machines are no longer active.");
+  }
+
+  const scopeSummary = machineLabels.length === 1
+    ? `Your admin access will be limited to one assigned machine: ${machineLabels[0]}.`
+    : `Your admin access will be limited to ${machineLabels.length} assigned machines: ${machineLabels.join(", ")}.`;
+
+  return {
+    inviteType: "scoped_admin",
+    sourceType: "scoped_admin_invite",
+    sourceId,
+    targetEmail,
+    targetUserId: null,
+    title: "You’re invited as a Bloomjoy Scoped Admin",
+    body: "Create your Bloomjoy account to help with limited internal administration for the machines assigned to you.",
+    accessSummary: `${scopeSummary} No access is granted until you verify this exact email and finish sign-up.`,
+    expiresAt,
   };
 }
 
@@ -583,7 +686,7 @@ serve(async (req) => {
       allowConfiguredPreviewOrigins: true,
     });
 
-    if (!["corporate_partner", "technician", "machine_manager"].includes(inviteType)) {
+    if (!["corporate_partner", "technician", "machine_manager", "scoped_admin"].includes(inviteType)) {
       return new Response(JSON.stringify({ error: "Unsupported invite type." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -651,7 +754,9 @@ serve(async (req) => {
         ? await getCorporatePartnerSource(sourceId, targetEmail)
         : inviteType === "technician"
           ? await getTechnicianSource(sourceId, targetEmail)
-          : await getMachineManagerSource(sourceId, targetEmail);
+          : inviteType === "machine_manager"
+            ? await getMachineManagerSource(sourceId, targetEmail)
+            : await getScopedAdminSource(sourceId, targetEmail);
     } catch (sourceError) {
       await recordFailureEvidence(
         inviteAttempt,

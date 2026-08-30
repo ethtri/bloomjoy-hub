@@ -20,6 +20,7 @@ import {
   type PortalAccessTier,
 } from '@/lib/membership';
 import { fetchMyPlusAccess } from '@/lib/plusAccess';
+import { resolveMyScopedAdminInvites } from '@/lib/adminGovernance';
 import {
   emptyReportingAccessContext,
   fetchReportingAccessContext,
@@ -166,20 +167,27 @@ const getPortalAccessContext = async (): Promise<PortalAccessContextRecord | nul
     : ((data as PortalAccessContextRecord | null) ?? null);
 };
 
-const resolveTechnicianEntitlements = async (): Promise<void> => {
-  try {
-    await resolveMyTechnicianEntitlements();
-  } catch {
-    // Missing or failed resolution should not block login; access checks below
-    // still reflect the database state already available to the session.
-  }
+const resolvePendingEntitlements = async (): Promise<void> => {
+  const settle = async (resolver: () => Promise<unknown>) => {
+    try {
+      await resolver();
+    } catch {
+      // A missing migration or one failed resolver must not block login. The
+      // access checks below still reflect the durable database state.
+    }
+  };
+
+  await Promise.all([
+    settle(resolveMyTechnicianEntitlements),
+    settle(resolveMyScopedAdminInvites),
+  ]);
 };
 
 const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
   const email = supabaseUser.email ?? '';
 
   if (email) {
-    await resolveTechnicianEntitlements();
+    await resolvePendingEntitlements();
   }
 
   const [plusAccess, dbAdminAccess, portalAccessContext, reportingAccess] = await Promise.all([
