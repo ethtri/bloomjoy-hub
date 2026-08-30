@@ -2,6 +2,20 @@
 
 Entries are newest-first. For production refund work, the 2026-08-28 capability-versus-automation and canonical Nayax identity decisions plus the 2026-08-27 exact response-contract decision govern. Older conflicting pilot, unfamiliar-`2xx`, permission, and TOTP mechanics are retained only as historical audit records.
 
+## 2026-08-30 - Supabase Cron is the primary refund-automation clock (`#1045`)
+
+- Supabase Cron dispatches the existing refund sweep four times per hour and its health check four times per hour through a dedicated Vault-backed scheduler credential. Both database jobs install default-off and have no authority beyond the existing Edge Function gates.
+- GitHub Actions remains an independent fallback. Supabase and GitHub derive the same UTC 15-minute `scheduled` or `health_check` run key, so an on-time overlap or delayed GitHub event is an idempotent replay rather than a second sweep.
+- Scheduler health alerts are durable incidents, not messages keyed to the latest successful run. One incident sends one opening alert, at most one reminder per 24 hours, and one recovery notice only after health remains stable for 60 minutes. A brief success followed by another stale check stays inside the same incident.
+- Incident, scheduler-setting, and dispatch records contain operational timestamps and redacted status only. Browser roles cannot read or mutate them. Existing refund intake, manager authority, customer-contact, payment, provider, idempotency, and kill-switch controls are unchanged.
+- Production activation requires the exact Edge Function URL and a dedicated 32+ character token in Supabase Vault, matching the server-only Edge secret, followed by disabled-state proof, synthetic replay proof, and a two-hour schedule soak. Rollback disables the database scheduler first, then the GitHub fallback and Edge automation only if the whole automation lane must stop.
+
+**Why this choice**
+- GitHub documents scheduled Actions as best-effort and production history showed multi-hour gaps despite successful jobs. A database-owned primary clock removes that external timing dependency.
+- Treating every newer success timestamp as a new alert fingerprint caused repeated email during one unresolved reliability incident. A durable incident preserves attention without spamming the same recipients.
+
+This supersedes the 2026-07-21 choice of GitHub Actions as the primary refund-automation schedule. Its action idempotency, independent monitoring, redaction, and fail-closed requirements remain in force.
+
 ## 2026-08-29 - Scoped Admin supports invitation-first exact-email activation (`#989`)
 
 - A Super Admin may create a pending Scoped Admin invitation for a valid email that does not yet have a Bloomjoy Auth account. The invitation must include an audit reason and at least one active reporting machine.

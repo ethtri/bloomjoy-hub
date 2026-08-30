@@ -2,7 +2,8 @@ name: Refund Automation Sweep
 
 on:
   schedule:
-    # Four times per hour; the Edge Function enforces the configured local customer-contact window.
+    # External fallback for the primary Supabase schedule. Both lanes use the
+    # same 15-minute key, so delayed GitHub events are idempotent replays.
     - cron: '7,22,37,52 * * * *'
   workflow_dispatch:
     inputs:
@@ -60,8 +61,15 @@ jobs:
             console.error('Manual refund automation requires a synthetic UUID run key.');
             process.exit(1);
           }
+          const now = new Date();
+          const scheduledAt = triggerSource === 'scheduled'
+            ? new Date(Math.floor(now.getTime() / (15 * 60 * 1000)) * 15 * 60 * 1000)
+            : now;
+          const scheduledBucketKey = `${scheduledAt.toISOString()
+            .slice(0, 16)
+            .replace(/[-:]/g, '')}Z`;
           const runKey = triggerSource === 'scheduled'
-            ? `scheduled:${process.env.GITHUB_RUN_ID}`
+            ? `scheduled:${scheduledBucketKey}`
             : `${mode === 'failure_test' ? 'failure_test' : 'manual'}:${manualRunKey}`;
           const response = await fetch(url, {
             method: 'POST',
@@ -73,7 +81,7 @@ jobs:
               mode,
               triggerSource,
               runKey,
-              scheduledAt: new Date().toISOString(),
+              scheduledAt: scheduledAt.toISOString(),
             }),
           });
           const raw = await response.text();

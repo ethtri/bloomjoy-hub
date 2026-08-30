@@ -12,6 +12,9 @@ const checks = [];
 const check = (name, condition) => checks.push({ name, pass: Boolean(condition) });
 
 const migration = read('supabase/migrations/202607210005_refund_automation_scheduler_health.sql');
+const schedulerReliabilityMigration = read(
+  'supabase/migrations/20260830175740_refund_automation_scheduler_reliability.sql'
+);
 const followUpMigration = read('supabase/migrations/202608030005_refund_deterministic_follow_up_cycles.sql');
 const managerAgingMigration = read('supabase/migrations/202608040001_refund_manager_aging_reminders.sql');
 const sweep = read('supabase/functions/refund-case-automation-sweep/index.ts');
@@ -132,6 +135,30 @@ check(
     sweep.includes('ops_alert:')
 );
 check(
+  'Supabase owns a default-off primary clock while GitHub uses the same idempotent buckets',
+  schedulerReliabilityMigration.includes('create table if not exists public.refund_automation_scheduler_settings') &&
+    schedulerReliabilityMigration.includes('enabled boolean not null default false') &&
+    schedulerReliabilityMigration.includes("'refund-automation-sweep-primary-v1'") &&
+    schedulerReliabilityMigration.includes("'refund-automation-health-primary-v1'") &&
+    schedulerReliabilityMigration.includes('service_dispatch_refund_automation_scheduler') &&
+    schedulerReliabilityMigration.includes("'refund_automation_scheduler_url'") &&
+    schedulerReliabilityMigration.includes("'refund_automation_scheduler_secret'") &&
+    schedulerReliabilityMigration.includes("'scheduled:'") &&
+    schedulerReliabilityMigration.includes("'health_check:'")
+);
+check(
+  'Scheduler incidents limit noise to one opening alert, daily reminders, and stable recovery',
+  schedulerReliabilityMigration.includes('create table if not exists public.refund_automation_alert_incidents') &&
+    schedulerReliabilityMigration.includes('refund_automation_alert_incidents_one_open_idx') &&
+    schedulerReliabilityMigration.includes("default interval '24 hours'") &&
+    schedulerReliabilityMigration.includes("default interval '60 minutes'") &&
+    schedulerReliabilityMigration.includes("'notificationType', 'initial'") &&
+    schedulerReliabilityMigration.includes("'notificationType', 'reminder'") &&
+    schedulerReliabilityMigration.includes("'notificationType', 'recovery'") &&
+    sweep.includes('service_claim_refund_automation_health_notification') &&
+    sweep.includes('[Recovered] Refund automation scheduler healthy')
+);
+check(
   'The response and alert paths expose aggregate redacted fields only',
   sweep.includes('payloadRedacted: true') &&
     sweep.includes('reasonCounts') &&
@@ -158,16 +185,22 @@ check(
     schedulerWorkflow.includes("const manualRunKey = (process.env.SWEEP_RUN_KEY || '').trim()") &&
     schedulerWorkflow.includes("/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i") &&
     schedulerWorkflow.includes("triggerSource === 'scheduled'") &&
-    schedulerWorkflow.includes('`scheduled:${process.env.GITHUB_RUN_ID}`') &&
+    schedulerWorkflow.includes('scheduledBucketKey') &&
+    schedulerWorkflow.includes('.slice(0, 16)') &&
+    schedulerWorkflow.includes('`scheduled:${scheduledBucketKey}`') &&
     schedulerWorkflow.includes("`${mode === 'failure_test' ? 'failure_test' : 'manual'}:${manualRunKey}`") &&
+    !schedulerWorkflow.includes('`scheduled:${process.env.GITHUB_RUN_ID}`') &&
     !schedulerWorkflow.includes("`${mode === 'failure_test' ? 'failure_test' : triggerSource}:${process.env.GITHUB_RUN_ID}`")
 );
 check(
   'An independent hourly health workflow checks freshness and alerts stale runs',
   healthWorkflow.includes("cron: '43 * * * *'") &&
     healthWorkflow.includes("mode: 'health_check'") &&
-    healthWorkflow.includes('health_check:${process.env.GITHUB_RUN_ID}') &&
-    healthWorkflow.includes('lastSuccessAt')
+    healthWorkflow.includes('.slice(0, 16)') &&
+    healthWorkflow.includes('health_check:${scheduledBucketKey}') &&
+    healthWorkflow.includes('lastSuccessAt') &&
+    healthWorkflow.includes('notificationType') &&
+    !healthWorkflow.includes('health_check:${process.env.GITHUB_RUN_ID}')
 );
 check(
   'Workflow logs are restricted to aggregate, non-customer fields',

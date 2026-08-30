@@ -60,6 +60,7 @@
    - Live refund sheet ingestion source marker: `supabase/migrations/202604270002_live_refund_sheet_ingestion.sql`
    - Audited, idempotent cash refund completion: `supabase/migrations/202607210004_refund_cash_completion_audit.sql`
    - Refund automation run/action ledger and manager health: `supabase/migrations/202607210005_refund_automation_scheduler_health.sql`
+   - Refund automation Supabase primary schedule and incident-level alert cooldown: `supabase/migrations/20260830175740_refund_automation_scheduler_reliability.sql`
    - Gmail refund draft/thread linkage, quarantine metadata, health, and retention: `supabase/migrations/202607210006_refund_gmail_thread_linkage.sql`
    - Machine QR identifiers and short-lived server-timestamped refund claim contexts: `supabase/migrations/202607260001_refund_qr_claim_context.sql`
    - Scoped Admin entitlements: `supabase/migrations/202604270004_scoped_admin_entitlements.sql`
