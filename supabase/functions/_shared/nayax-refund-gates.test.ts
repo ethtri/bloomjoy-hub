@@ -1,6 +1,7 @@
 import {
   buildNayaxRefundIdempotencyKey,
   readNayaxRefundAvailability,
+  resolveNormalNayaxRefundAmountCents,
   resolveNayaxRefundAvailability,
   resolveNayaxRefundExecutionConfig,
 } from "./nayax-refund-gates.ts";
@@ -59,6 +60,39 @@ Deno.test("legacy canary and cap variables do not gate qualified transactions", 
     NAYAX_REFUND_DAILY_COUNT_CAP: "1",
   }));
   assert(config.blocks.length === 0, "pilot variables must be ignored");
+});
+
+Deno.test("normal execution derives the full selected transaction amount", () => {
+  assert(
+    resolveNormalNayaxRefundAmountCents({
+      matchedTransactionAmountCents: 1090,
+    }) === 1090,
+    "the selected settled transaction amount must be authoritative",
+  );
+  assert(
+    resolveNormalNayaxRefundAmountCents({
+      matchedTransactionAmountCents: 1090,
+      remainingRefundableAmountCents: 1090,
+    }) === 1090,
+    "an authoritative full remaining allocation must preserve the exact amount",
+  );
+});
+
+Deno.test("partial or custom amounts are exception-only", () => {
+  assert(
+    resolveNormalNayaxRefundAmountCents({
+      matchedTransactionAmountCents: 1090,
+      remainingRefundableAmountCents: 500,
+    }) === null,
+    "a partial remaining allocation must fail closed in the normal path",
+  );
+  assert(
+    resolveNormalNayaxRefundAmountCents({
+      matchedTransactionAmountCents: 1090,
+      remainingRefundableAmountCents: 1500,
+    }) === null,
+    "a custom amount above the selected transaction must fail closed",
+  );
 });
 
 Deno.test("production scope never waives provider contract or approval-scope proof", () => {

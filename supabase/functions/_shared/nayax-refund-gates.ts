@@ -44,6 +44,34 @@ export type NayaxRefundIdempotencyEvidence = {
   currencyCode: "USD";
 };
 
+export const resolveNormalNayaxRefundAmountCents = ({
+  matchedTransactionAmountCents,
+  remainingRefundableAmountCents,
+}: {
+  matchedTransactionAmountCents: number | null;
+  remainingRefundableAmountCents?: number | null;
+}) => {
+  if (
+    !Number.isSafeInteger(matchedTransactionAmountCents) ||
+    Number(matchedTransactionAmountCents) <= 0
+  ) {
+    return null;
+  }
+  if (remainingRefundableAmountCents === undefined) {
+    return Number(matchedTransactionAmountCents);
+  }
+  if (
+    !Number.isSafeInteger(remainingRefundableAmountCents) ||
+    Number(remainingRefundableAmountCents) <= 0 ||
+    remainingRefundableAmountCents !== matchedTransactionAmountCents
+  ) {
+    // The normal manager action is full-transaction only. A provider-reported
+    // partial remainder needs a separately reviewed exception workflow.
+    return null;
+  }
+  return Number(matchedTransactionAmountCents);
+};
+
 const secureSecret = (value: string | undefined) => {
   const normalized = value?.trim() ?? "";
   return /^[A-Za-z0-9_-]{43,256}$/.test(normalized) ? normalized : null;

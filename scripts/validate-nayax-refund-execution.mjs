@@ -43,6 +43,7 @@ const files = {
   refundPortalUat: 'scripts/refunds/validate-refund-portal-uat.mjs',
   nayaxCandidateTokenMigration: 'supabase/migrations/202605130001_refund_nayax_lookup_candidate_tokens.sql',
   nayaxRecommendationMigration: 'supabase/migrations/202607210003_refund_nayax_recommendation_state.sql',
+  manualPortalTest: 'supabase/tests/refund_nc_manual_nayax_portal.sql',
 };
 
 const read = (relativePath) =>
@@ -97,6 +98,7 @@ const refundOperationsUi = read(files.refundOperationsUi);
 const refundPortalUat = read(files.refundPortalUat);
 const nayaxCandidateTokenMigration = read(files.nayaxCandidateTokenMigration);
 const nayaxRecommendationMigration = read(files.nayaxRecommendationMigration);
+const manualPortalTest = read(files.manualPortalTest);
 
 assert(
   migration.includes('refund_case_nayax_refund_attempts'),
@@ -186,7 +188,9 @@ assert(
     operationAllowlist.includes('"execute"') &&
     operationAllowlist.includes('"availability"') &&
     !operationAllowlist.includes('controlled_owner_pilot') &&
-    !operationAllowlist.includes('approve_pending_request') &&
+    operationAllowlist.includes('approve_pending_request') &&
+    fn.includes('NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_SUPPORTED = false') &&
+    fn.includes('pending_approval_recovery_retired') &&
     normalIdempotency > normalExecutionGate &&
     normalOrchestration > normalIdempotency &&
     providerGates.includes('NAYAX_REFUND_EXECUTOR_ASSERTION') &&
@@ -196,7 +200,7 @@ assert(
     providerGatesTest.includes('legacy canary and cap variables do not gate qualified transactions') &&
     managerSessionMigration.includes('pg_catalog.pg_advisory_xact_lock') &&
     providerGatesTest.includes('reports every genuine safety gate'),
-  'Only production execute/availability operations are reachable, with genuine gates enforced before idempotency and provider orchestration.'
+  'Production execute/availability and the explicitly retired pending-request forensic route are reachable, with genuine gates enforced before idempotency and provider orchestration.'
 );
 assert(
   fn.includes('operation === "availability" && !requestedCaseId') &&
@@ -255,11 +259,20 @@ assert(
   'Nayax execution must reject stale, replayed, expired, or candidate-mutated receipts and must not expose a provider-success finalizer before attempt-bound integration.'
 );
 assert(
-  fn.includes('refundCase.refund_amount_cents ?? 0') &&
-    !fn.includes('body?.refundAmountCents') &&
-    !fn.includes('requestedRefundAmountCents') &&
-    !fn.includes('refundCase.refund_amount_cents ='),
-  'Nayax execution must use the server-stored refund amount and must not let callers override the execution amount.'
+  fn.includes('resolveNormalNayaxRefundAmountCents({') &&
+  fn.includes('matchedTransactionAmountCents: refundCase.matched_nayax_amount_cents') &&
+  !fn.includes('body?.refundAmountCents') &&
+  !fn.includes('requestedRefundAmountCents') &&
+  !fn.includes('refundCase.refund_amount_cents ='),
+  'Nayax execution must derive the full selected provider transaction amount server-side and must not let callers override the execution amount.'
+);
+assert(
+  providerGates.includes('resolveNormalNayaxRefundAmountCents') &&
+    providerGatesTest.includes('normal execution derives the full selected transaction amount') &&
+    providerGatesTest.includes('partial or custom amounts are exception-only') &&
+    manualPortalTest.includes('The same account-scope transaction cannot enter a second case') &&
+    nayaxRecommendationMigration.includes('refund_cases_unique_matched_nayax_transaction_id_idx'),
+  'Focused tests must prove full selected-transaction amount derivation, exception-only partials, and cross-case exact-transaction uniqueness.'
 );
 assert(
   providerOrchestration.includes('provider_execution_not_yet_enabled') &&
@@ -528,9 +541,12 @@ assert(
     refundOperationsUi.includes('caseAllowsCandidateSelection') &&
     refundOperationsUi.includes('refundAmount:') &&
     refundOperationsUi.includes('(candidate.amountCents / 100).toFixed(2)') &&
+    refundOperationsUi.includes('const refundAmountCents = selectedCase.matchedNayaxAmountCents') &&
+    refundOperationsUi.includes('The full selected Nayax transaction amount is set automatically') &&
+    !refundOperationsUi.includes('data-testid="legacy-refund-amount-input"') &&
     !refundOperationsUi.includes('Match strength:') &&
     !refundOperationsUi.includes('Card details agree'),
-  'The manager UI must show all safe candidates in likely order without a confidence rating and prepare the exact selected transaction amount.'
+  'The manager UI must show all safe candidates in likely order, derive the exact selected transaction amount, and provide no editable normal card-refund amount.'
 );
 assert(
   refundOperationsUi.includes('RefundLifecycleProgress') &&

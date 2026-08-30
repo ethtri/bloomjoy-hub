@@ -3221,11 +3221,11 @@ export default function AdminRefundsPage() {
       return;
     }
 
-    const refundAmountCents = centsFromCurrency(editor.refundAmount);
-    if (!editor.refundAmount || refundAmountCents === null || refundAmountCents <= 0) {
+    const refundAmountCents = selectedCase.matchedNayaxAmountCents;
+    if (typeof refundAmountCents !== 'number' || refundAmountCents <= 0) {
       setNayaxExecutionNotice({
         tone: 'warning',
-        message: 'Enter a positive refund amount before refunding the card payment.',
+        message: 'Confirm the exact Nayax transaction before refunding the card payment.',
       });
       return;
     }
@@ -6636,7 +6636,7 @@ export default function AdminRefundsPage() {
                     <div className="space-y-4 rounded-lg border border-border bg-background p-4">
                       <StepHeader
                         step={3}
-                        title={isCardCompletion ? 'Confirm refund amount' : primaryActionIsCompletion ? `Record ${completionActionName} completion` : 'Decision'}
+                        title={isCardCompletion ? 'Review selected transaction' : primaryActionIsCompletion ? `Record ${completionActionName} completion` : 'Decision'}
                       >
                         {isCardCompletion
                           ? 'The refund uses the selected transaction amount. The customer\'s reported amount stays visible for comparison.'
@@ -6664,24 +6664,15 @@ export default function AdminRefundsPage() {
                                 {formatCurrency(matchedCardSaleAmountCents)}
                               </p>
                             </div>
-                            <div>
-                              <Label>Refund amount</Label>
-                              <Input
-                                data-testid="legacy-refund-amount-input"
-                                value={editor.refundAmount}
-                                disabled={isUsingDemoData}
-                                onChange={(event) =>
-                                  setEditor((current) =>
-                                    current ? { ...current, refundAmount: event.target.value } : current
-                                  )
-                                }
-                                className="mt-2"
-                                placeholder="12.00"
-                              />
+                            <div className="rounded-md border border-primary/20 bg-background p-3">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                Refund to send
+                              </p>
+                              <p className="mt-1 text-base font-semibold text-foreground">
+                                {formatCurrency(matchedCardSaleAmountCents)}
+                              </p>
                               <InfoHint>
-                                {isUsingDemoData
-                                  ? 'Demo cases are read-only, so the amount cannot be changed.'
-                                  : 'The refund amount must match the selected transaction. Partial card refunds are not available.'}
+                                The full selected Nayax transaction amount is set automatically. There is no separate amount to enter.
                               </InfoHint>
                             </div>
                           </div>

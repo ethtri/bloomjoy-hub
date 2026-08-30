@@ -10,7 +10,7 @@ the original payment transaction is.
    more information.
 2. A manager confirms one exact settled Nayax transaction. The refund amount is
    the full amount of that selected transaction; the customer does not specify
-   an execution amount.
+   an execution amount, and the normal manager UI has no editable amount.
 3. The authorized manager receives one final confirmation immediately before
    money moves.
 4. Bloomjoy submits one request and at most one approval for that attempt
@@ -54,6 +54,8 @@ time, amount, currency, and card evidence.
 
 - Exact transaction and machine/account binding.
 - Positive full provider-transaction amount and supported currency.
+- A provider-confirmed partial remainder is exception-only; the normal manager
+  action fails closed instead of silently substituting a custom amount.
 - Current mapped-manager authority and one money-moving confirmation.
 - Case-version checks, row locking, idempotency, and one live attempt.
 - Server-only provider credentials and an immutable provider journal.

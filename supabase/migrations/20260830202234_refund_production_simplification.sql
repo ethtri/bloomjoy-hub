@@ -305,7 +305,7 @@ begin
     'transactionConfirmed', transaction_confirmed,
     'canIssueCardRefund', can_issue_card_refund,
     'blockReason', block_reason,
-    'refundAmountCents', refund_case.refund_amount_cents,
+    'refundAmountCents', refund_case.matched_nayax_amount_cents,
     'machineLimitCents', null,
     'caseVersion', refund_case.official_action_version,
     'accountCircuitBreakerActive', false

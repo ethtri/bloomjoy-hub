@@ -9,6 +9,7 @@ import {
 import {
   buildNayaxRefundIdempotencyKey,
   NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
+  resolveNormalNayaxRefundAmountCents,
   resolveNayaxRefundAvailability,
   resolveNayaxRefundExecutionConfig,
 } from "../_shared/nayax-refund-gates.ts";
@@ -289,7 +290,9 @@ const safeNayaxReference = (value: string | null | undefined) =>
   Boolean(value && /^[A-Za-z0-9][A-Za-z0-9._:-]{5,79}$/.test(value));
 
 const resolveRefundAmountCents = (refundCase: RefundCaseForExecution) =>
-  refundCase.refund_amount_cents ?? 0;
+  resolveNormalNayaxRefundAmountCents({
+    matchedTransactionAmountCents: refundCase.matched_nayax_amount_cents,
+  }) ?? 0;
 
 const getPreflightBlocks = ({
   refundCase,
@@ -399,6 +402,11 @@ serve(async (req) => {
       !new Set([
         "execute",
         "availability",
+        // Preserve the retired forensic route so a legacy pending request
+        // receives its explicit fail-closed recovery result instead of being
+        // mistaken for an unknown operation. The support flag and revoked RPC
+        // grants below still prevent any provider write.
+        "approve_pending_request",
       ]).has(operation)
     ) {
       return jsonResponse({ error: "Unsupported operation." }, 400);
@@ -440,7 +448,7 @@ serve(async (req) => {
           caseId,
           transactionConfirmed: refundCase.matched_nayax_transaction_id !== null,
           canIssueCardRefund: false,
-          refundAmountCents: refundCase.refund_amount_cents,
+          refundAmountCents: refundCase.matched_nayax_amount_cents,
           machineLimitCents: null,
           caseVersion: refundCase.official_action_version,
           payloadRedacted: true,
