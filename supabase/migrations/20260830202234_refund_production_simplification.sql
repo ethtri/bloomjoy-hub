@@ -434,8 +434,11 @@ begin
   );
   execute lookup_definition;
 
+  -- The durable-lifecycle wrapper only checks candidate generation and then
+  -- delegates to this renamed implementation, where authority and
+  -- reconciliation are enforced.
   selection_definition := pg_catalog.pg_get_functiondef(
-    'public.service_select_refund_nayax_candidate_as_actor(uuid,uuid,bigint,uuid,text)'::regprocedure
+    'public.service_select_refund_nayax_candidate_as_actor_pre_lookup_generation_v1(uuid,uuid,bigint,uuid,text)'::regprocedure
   );
   selection_definition := replace(selection_definition, E'\r\n', E'\n');
   if length(selection_definition) - length(replace(
