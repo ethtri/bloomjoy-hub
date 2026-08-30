@@ -20,6 +20,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -125,6 +126,23 @@ const getSafeArchiveEndDate = (effectiveStartDate: string) => {
   const currentDate = today();
   return effectiveStartDate > currentDate ? effectiveStartDate : currentDate;
 };
+
+type ReportingPartnershipWithEndDate = ReportingPartnership & { effective_end_date: string };
+
+const partnershipReportingDatesNeedReview = (
+  partnership: ReportingPartnership,
+  currentDate = today()
+): partnership is ReportingPartnershipWithEndDate =>
+  partnership.status === 'active' &&
+  partnership.effective_end_date !== null &&
+  partnership.effective_end_date < currentDate;
+
+const formatPartnershipReviewDate = (value: string) =>
+  new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 
 const emptyPartnerForm = {
   partnerId: null as string | null,
@@ -630,6 +648,13 @@ export default function AdminPartnershipsPage() {
             </div>
           )}
 
+          {!isLoading && (
+            <PartnershipDateReviewBanner
+              partnerships={visiblePartnerships}
+              onReview={(partnershipId) => requestRouteState(partnershipId, 'details')}
+            />
+          )}
+
           {isLoading ? (
             <div className="mt-6 rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
               Loading partnership setup...
@@ -1010,6 +1035,13 @@ function ScopedPartnershipsWorkspace({
             </div>
           )}
 
+          {!isLoading && (
+            <PartnershipDateReviewBanner
+              partnerships={visiblePartnerships}
+              onReview={setSelectedPartnershipId}
+            />
+          )}
+
           {isLoading ? (
             <div className="mt-6 rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
               Loading scoped partnership setup...
@@ -1060,7 +1092,14 @@ function ScopedPartnershipsWorkspace({
                                 : 'border-border bg-background text-foreground hover:bg-muted/40'
                             }`}
                           >
-                            <div className="font-medium">{partnership.name}</div>
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="font-medium">{partnership.name}</div>
+                              {partnershipReportingDatesNeedReview(partnership) && (
+                                <Badge variant="outline" className="border-amber-400 bg-amber-50 text-amber-900">
+                                  Ended
+                                </Badge>
+                              )}
+                            </div>
                             <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
                               <span>{formatLabel(partnership.status)}</span>
                               <span>{formatDate(partnership.effective_start_date)}</span>
@@ -1363,7 +1402,14 @@ function PartnershipPicker({
                     : 'border-border bg-background text-foreground hover:bg-muted/40'
                 }`}
               >
-                <div className="font-medium">{partnership.name}</div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-medium">{partnership.name}</div>
+                  {partnershipReportingDatesNeedReview(partnership) && (
+                    <Badge variant="outline" className="border-amber-400 bg-amber-50 text-amber-900">
+                      Ended
+                    </Badge>
+                  )}
+                </div>
                 <div className="mt-1 text-xs text-muted-foreground">
                   {formatLabel(partnership.partnership_type)}
                 </div>
@@ -1373,6 +1419,66 @@ function PartnershipPicker({
         )}
       </div>
     </div>
+  );
+}
+
+function PartnershipDateReviewBanner({
+  partnerships,
+  onReview,
+}: {
+  partnerships: ReportingPartnership[];
+  onReview: (partnershipId: string) => void;
+}) {
+  const partnershipsNeedingReview = partnerships.filter((partnership) =>
+    partnershipReportingDatesNeedReview(partnership)
+  );
+
+  if (partnershipsNeedingReview.length === 0) return null;
+
+  return (
+    <section
+      className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950"
+      aria-label="Partnership dates needing review"
+    >
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <h2 className="font-semibold">Partnership dates need review</h2>
+          <p className="mt-1 text-sm">
+            These partnerships are still marked active even though their reporting end date has
+            passed. Reports after that date are intentionally unavailable.
+          </p>
+          <p className="mt-1 text-sm">
+            If an agreement was renewed, update its dates, then confirm Machines and Payout Rules
+            cover the new period. Otherwise archive the partnership.
+          </p>
+          <div className="mt-3 grid gap-2">
+            {partnershipsNeedingReview.map((partnership) => (
+              <div
+                key={partnership.id}
+                className="flex flex-col gap-2 rounded-md border border-amber-300/80 bg-background/70 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div>
+                  <div className="font-medium">{partnership.name}</div>
+                  <div className="text-xs text-amber-900/80">
+                    Reporting ended {formatPartnershipReviewDate(partnership.effective_end_date)}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="min-h-11 border-amber-400 bg-background sm:min-h-9"
+                  onClick={() => onReview(partnership.id)}
+                >
+                  Review dates
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -2226,19 +2332,35 @@ function MachineAssignmentsSection({
     return assignmentMap;
   }, [currentDate, setup]);
 
-  const activeAssignments = useMemo(
-    () =>
-      setup.machines.flatMap((machine) =>
-        (activeAssignmentsByMachineId.get(machine.id) ?? []).filter(
-          (assignment) => assignment.partnership_id === selectedPartnership.id
-        )
-      ),
-    [activeAssignmentsByMachineId, selectedPartnership.id, setup.machines]
+  const selectedPartnershipAssignmentsByMachineId = useMemo(() => {
+    const assignmentsByMachineId = new Map<
+      string,
+      PartnershipReportingSetup['assignments'][number]
+    >();
+
+    setup.assignments
+      .filter(
+        (assignment) =>
+          assignment.partnership_id === selectedPartnership.id && assignment.status === 'active'
+      )
+      .sort((left, right) => right.effective_start_date.localeCompare(left.effective_start_date))
+      .forEach((assignment) => {
+        if (!assignmentsByMachineId.has(assignment.machine_id)) {
+          assignmentsByMachineId.set(assignment.machine_id, assignment);
+        }
+      });
+
+    return assignmentsByMachineId;
+  }, [selectedPartnership.id, setup.assignments]);
+
+  const selectedPartnershipAssignments = useMemo(
+    () => [...selectedPartnershipAssignmentsByMachineId.values()],
+    [selectedPartnershipAssignmentsByMachineId]
   );
 
   const originalMachineIds = useMemo(
-    () => new Set(activeAssignments.map((assignment) => assignment.machine_id)),
-    [activeAssignments]
+    () => new Set(selectedPartnershipAssignments.map((assignment) => assignment.machine_id)),
+    [selectedPartnershipAssignments]
   );
 
   const assignmentWarnings = setup.warnings.filter(
@@ -2270,10 +2392,10 @@ function MachineAssignmentsSection({
 
   const addedMachineIds = [...selectedMachineIds].filter((machineId) => !originalMachineIds.has(machineId));
   const removedMachineIds = [...originalMachineIds].filter((machineId) => !selectedMachineIds.has(machineId));
-  const assignmentsToSync = activeAssignments.filter(
+  const assignmentsToSync = selectedPartnershipAssignments.filter(
     (assignment) =>
       !removedMachineIds.includes(assignment.machine_id) &&
-      (assignment.effective_start_date !== machineAlignmentStartDate || assignment.effective_end_date)
+      Boolean(assignment.effective_end_date)
   );
   const hasChanges =
     addedMachineIds.length > 0 || removedMachineIds.length > 0 || assignmentsToSync.length > 0;
@@ -2342,7 +2464,7 @@ function MachineAssignmentsSection({
         });
       }
 
-      const assignmentsToArchive = activeAssignments.filter((assignment) =>
+      const assignmentsToArchive = selectedPartnershipAssignments.filter((assignment) =>
         removedMachineIds.includes(assignment.machine_id)
       );
 
@@ -2352,7 +2474,7 @@ function MachineAssignmentsSection({
           machineId: assignment.machine_id,
           partnershipId: selectedPartnership.id,
           assignmentRole: assignment.assignment_role,
-          effectiveStartDate: machineAlignmentStartDate,
+          effectiveStartDate: assignment.effective_start_date,
           effectiveEndDate: '',
           status: 'active',
           notes: assignment.notes ?? null,
@@ -2395,6 +2517,18 @@ function MachineAssignmentsSection({
   return (
     <section className="space-y-4">
       {assignmentWarnings.length > 0 && <WarningList warnings={assignmentWarnings} />}
+      {assignmentsToSync.length > 0 && (
+        <Alert className="border-amber-300 bg-amber-50 text-amber-950">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Machine reporting dates need synchronization</AlertTitle>
+          <AlertDescription>
+            {assignmentsToSync.length} saved machine assignment
+            {assignmentsToSync.length === 1 ? ' still has a legacy end date' : 's still have legacy end dates'}.
+            Save Machine Alignment to keep the same machines and start dates while removing only
+            the outdated end {assignmentsToSync.length === 1 ? 'date' : 'dates'}.
+          </AlertDescription>
+        </Alert>
+      )}
       {conflictingAddedMachines.length > 0 && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
           <div className="flex items-start gap-3">
@@ -2417,7 +2551,8 @@ function MachineAssignmentsSection({
             <h2 className="font-semibold text-foreground">Assign Machines</h2>
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
               Select every machine that belongs to this partnership, then save once. Dates, status,
-              and assignment role use the normal V1 defaults in the background.
+              and assignment role use the normal V1 defaults in the background. Saved legacy end
+              dates remain visible here until they are synchronized.
             </p>
           </div>
           <Button asChild variant="outline" size="sm" className="min-h-11">
@@ -2465,8 +2600,11 @@ function MachineAssignmentsSection({
             </div>
             {hasChanges && (
               <Badge variant="secondary">
-                +{addedMachineIds.length} / -{removedMachineIds.length}
-                {assignmentsToSync.length > 0 ? ` / ${assignmentsToSync.length} date sync` : ''}
+                {(addedMachineIds.length > 0 || removedMachineIds.length > 0) &&
+                  `+${addedMachineIds.length} / -${removedMachineIds.length}`}
+                {assignmentsToSync.length > 0
+                  ? `${addedMachineIds.length > 0 || removedMachineIds.length > 0 ? ' / ' : ''}${assignmentsToSync.length} legacy end ${assignmentsToSync.length === 1 ? 'date' : 'dates'} to sync`
+                  : ''}
               </Badge>
             )}
           </div>
@@ -2480,9 +2618,7 @@ function MachineAssignmentsSection({
                 const otherAssignments = machineAssignments.filter(
                   (assignment) => assignment.partnership_id !== selectedPartnership.id
                 );
-                const currentAssignment = machineAssignments.find(
-                  (assignment) => assignment.partnership_id === selectedPartnership.id
-                );
+                const currentAssignment = selectedPartnershipAssignmentsByMachineId.get(machine.id);
 
                 return (
                   <label
@@ -2499,6 +2635,12 @@ function MachineAssignmentsSection({
                       <span className="mt-1 block text-sm text-muted-foreground">
                         {machine.account_name} / external machine ID: {machine.sunze_machine_id ?? 'n/a'}
                       </span>
+                      {currentAssignment?.effective_end_date && (
+                        <span className="mt-1 block text-xs font-medium text-amber-800">
+                          Saved assignment ended {formatPartnershipReviewDate(currentAssignment.effective_end_date)} —
+                          it will be synchronized when you save.
+                        </span>
+                      )}
                       {otherAssignments.length > 0 && (
                         <span className="mt-2 flex flex-wrap gap-1">
                           {otherAssignments.map((assignment) => (
@@ -2533,7 +2675,8 @@ function MachineAssignmentsSection({
             Save Machine Alignment
           </Button>
           <div className="text-sm text-muted-foreground">
-            Assignments use the partnership start date: {formatDate(machineAlignmentStartDate)}.
+            New assignments use the partnership start date: {formatDate(machineAlignmentStartDate)}.
+            Existing assignment start dates stay unchanged.
           </div>
         </div>
       </div>
@@ -2618,6 +2761,11 @@ function FinancialTermsSection({
   const payoutPreset = getPayoutModelPreset(form);
   const allocationTotal = getPayoutAllocationTotal(form, payoutParticipants.length);
   const isRuleFormDirty = JSON.stringify(form) !== JSON.stringify(defaultRuleForm);
+  const payoutRuleDatesNeedSync = Boolean(
+    currentFinancialRule &&
+      (currentFinancialRule.effective_start_date !== hiddenRuleStartDate ||
+        currentFinancialRule.effective_end_date)
+  );
   const saveDisabledReason = additionalPayoutParticipants.length > 0
       ? 'V1 supports two payout recipients plus Bloomjoy. Change extra payout recipients to another participant role before saving.'
       : allocationTotal !== 100
@@ -2635,8 +2783,8 @@ function FinancialTermsSection({
   }, [defaultRuleForm]);
 
   useEffect(() => {
-    onDirtyChange?.(isRuleFormDirty);
-  }, [isRuleFormDirty, onDirtyChange]);
+    onDirtyChange?.(isRuleFormDirty || payoutRuleDatesNeedSync);
+  }, [isRuleFormDirty, onDirtyChange, payoutRuleDatesNeedSync]);
 
   const editRule = (rule: ReportingPartnershipFinancialRule) => {
     setForm(createRuleFormFromRule(rule));
@@ -2702,6 +2850,20 @@ function FinancialTermsSection({
   return (
     <section className="space-y-4">
       {financialWarnings.length > 0 && <WarningList warnings={financialWarnings} />}
+      {payoutRuleDatesNeedSync && currentFinancialRule && (
+        <Alert className="border-amber-300 bg-amber-50 text-amber-950">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Payout rule dates need synchronization</AlertTitle>
+          <AlertDescription>
+            The current payout calculation still uses legacy reporting dates
+            {currentFinancialRule.effective_end_date
+              ? ` and ended on ${formatPartnershipReviewDate(currentFinancialRule.effective_end_date)}`
+              : ''}
+            . Save Payout Rules to keep the same calculation and use the partnership reporting
+            window instead.
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="rounded-lg border border-border bg-card p-5">
         <div>
@@ -2835,7 +2997,7 @@ function FinancialTermsSection({
             disabled={isSaving || Boolean(saveDisabledReason)}
           >
             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-            Save Payout Rules
+            {payoutRuleDatesNeedSync ? 'Save & Sync Payout Rules' : 'Save Payout Rules'}
           </Button>
           {saveDisabledReason && (
             <div className="basis-full text-sm text-destructive">{saveDisabledReason}</div>
