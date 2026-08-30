@@ -150,6 +150,12 @@ assert(
   'The overview must stay redacted, use an empty search path, and bind exact fact versions',
 );
 assert(
+  migration.includes('else refund_case.deterministic_facts_updated_at') &&
+    !migration.includes("'appliedAt', coalesce(correction.created_at, refund_case.created_at)") &&
+    databaseTest.includes('later deterministic fact-update timestamp, not intake or correction time'),
+  'Unmatched current-record provenance must use the authoritative fact-version update timestamp',
+);
+assert(
   databaseTest.includes('advances the deterministic fact version exactly once') &&
     databaseTest.includes('cannot apply the same correction twice'),
   'Database replay must prove one version and idempotent token consumption',

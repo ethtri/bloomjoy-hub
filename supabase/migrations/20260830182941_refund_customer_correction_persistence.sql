@@ -582,7 +582,12 @@ begin
               then 'initial_customer_submission'
             else 'current_case_record'
           end,
-          'appliedAt', coalesce(correction.created_at, refund_case.created_at),
+          'appliedAt', case
+            when correction.event_type is not null then correction.created_at
+            when refund_case.deterministic_fact_version <= 1
+              then refund_case.created_at
+            else refund_case.deterministic_facts_updated_at
+          end,
           'changedFields', coalesce(
             correction.metadata -> 'applied_fields',
             correction.metadata -> 'changed_fields',

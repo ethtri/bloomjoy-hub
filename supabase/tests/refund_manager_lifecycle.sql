@@ -77,12 +77,12 @@ select ok(
   (
     pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
     || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
-    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
     || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
   )
     like '%refundOperationsAccess%'
   and (
     pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
     || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
   )
     like '%is_super_admin%',

@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(28);
+select plan(31);
 
 select has_column(
   'public',
@@ -80,6 +80,16 @@ select ok(
   'Authenticated browser clients cannot call the wallet correction persistence RPC directly'
 );
 
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+) values (
+  '00000000-0000-0000-0000-000000000000',
+  'a0000000-0000-4000-8000-000000000001',
+  'authenticated', 'authenticated', 'correction-manager@example.test', '',
+  now(), '{}'::jsonb, '{}'::jsonb, now(), now()
+);
+
 insert into public.customer_accounts (id, name, account_type)
 values (
   'a1000000-0000-4000-8000-000000000001',
@@ -121,6 +131,15 @@ values (
   'active',
   true,
   'Cotton Candy correction test'
+);
+
+insert into public.reporting_machine_refund_managers (
+  reporting_machine_id, manager_user_id, manager_email, grant_reason
+) values (
+  'a3000000-0000-4000-8000-000000000001',
+  'a0000000-0000-4000-8000-000000000001',
+  'correction-manager@example.test',
+  'Customer correction provenance fixture'
 );
 
 insert into public.refund_cases (
@@ -384,6 +403,77 @@ select is(
   ),
   0,
   'A conflict records no final ledger row so duplicate ingestion may retry later'
+);
+
+-- A later manager/system change advances the current fact snapshot without a
+-- customer-correction event for that version. Provenance must name the current
+-- case record and use the authoritative fact-update clock, never intake time.
+update public.refund_cases
+set card_network = 'discover'
+where id = 'a4000000-0000-4000-8000-000000000001';
+
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"a0000000-0000-4000-8000-000000000001","role":"authenticated"}',
+  true
+);
+
+select is(
+  (
+    select item #>> '{customerFactEvidence,source}'
+    from jsonb_array_elements(
+      public.admin_get_refund_operations_overview() -> 'cases'
+    ) item
+    where item ->> 'id' = 'a4000000-0000-4000-8000-000000000001'
+  ),
+  'current_case_record',
+  'A later non-customer fact version is labeled as the current case record'
+);
+
+select is(
+  (
+    select (item #>> '{customerFactEvidence,factVersion}')::bigint
+    from jsonb_array_elements(
+      public.admin_get_refund_operations_overview() -> 'cases'
+    ) item
+    where item ->> 'id' = 'a4000000-0000-4000-8000-000000000001'
+  ),
+  (
+    select deterministic_fact_version
+    from public.refund_cases
+    where id = 'a4000000-0000-4000-8000-000000000001'
+  ),
+  'Current-record provenance reports the exact later fact version'
+);
+
+select ok(
+  (
+    select
+      (item #>> '{customerFactEvidence,appliedAt}')::timestamptz
+        = refund_case.deterministic_facts_updated_at
+      and (item #>> '{customerFactEvidence,appliedAt}')::timestamptz
+        is distinct from refund_case.created_at
+      and (item #>> '{customerFactEvidence,appliedAt}')::timestamptz
+        is distinct from correction.created_at
+    from jsonb_array_elements(
+      public.admin_get_refund_operations_overview() -> 'cases'
+    ) item
+    join public.refund_cases refund_case
+      on refund_case.id = (item ->> 'id')::uuid
+    left join lateral (
+      select event.created_at
+      from public.refund_case_events event
+      where event.refund_case_id = refund_case.id
+        and event.event_type in (
+          'gmail_customer_facts_applied',
+          'wallet_correction_received'
+        )
+      order by event.created_at desc, event.id desc
+      limit 1
+    ) correction on true
+    where refund_case.id = 'a4000000-0000-4000-8000-000000000001'
+  ),
+  'Current-record provenance uses the later deterministic fact-update timestamp, not intake or correction time'
 );
 
 select ok(

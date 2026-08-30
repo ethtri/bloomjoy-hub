@@ -35,22 +35,18 @@ select ok(
   (
     pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
     || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
-    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
-    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
-    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
-    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
-    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
-    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
     || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
   )
     like '%paymentInteraction%'
   and (
     pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
     || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
   )
     like '%incidentTimeConfidence%'
   and (
     pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
     || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
   )
     like '%issueCategory%',
@@ -60,21 +56,25 @@ select ok(
 select ok(
   (
     pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
     || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
   )
     like '%productLabel%'
   and (
     pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
     || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
   )
     like '%machineStatus%'
   and (
     pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
     || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
   )
     like '%nearbyMachineAlerts%'
   and (
     pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
     || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
   )
     not like '%provider_transaction_id%',
