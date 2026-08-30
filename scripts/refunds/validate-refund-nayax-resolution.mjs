@@ -19,6 +19,16 @@ const evidenceOnly = read('supabase/migrations/20260825185840_refund_nayax_evide
 const preexistingAttemptEvidence = read(
   'supabase/migrations/20260825211442_refund_nayax_preexisting_attempt_evidence.sql'
 );
+const retrySafeRelease = read(
+  'supabase/migrations/20260828035155_refund_nayax_retry_safe_resolution_release.sql'
+);
+const supersededGenerationHold = read(
+  'supabase/migrations/20260830182744_refund_nayax_superseded_generation_hold.sql'
+);
+const outcomeResolutionTest = read('supabase/tests/refund_nayax_outcome_resolution.sql');
+const outcomeResolutionConcurrencyTest = read(
+  'supabase/tests/refund_nayax_outcome_resolution_concurrency.sql'
+);
 const edge = read('supabase/functions/refund-nayax-outcome-resolve/index.ts');
 const completion = read('supabase/functions/_shared/nayax-resolution-completion.ts');
 const messageSend = read('supabase/functions/refund-case-message-send/index.ts');
@@ -125,6 +135,61 @@ assert(
     managerSession.includes('resolution_row.next_attempt_generation') &&
     managerSession.includes("nayax_refund_execution_status = 'not_requested'"),
   'Retry-safe evidence must advance the guarded attempt generation without retrying a payment.'
+);
+
+assert(
+  retrySafeRelease.includes(
+    'resolution.next_attempt_generation = refund_case.nayax_refund_attempt_generation'
+  ) &&
+    supersededGenerationHold.includes(
+      'refund_nayax_retry_safe_resolution_is_historical'
+    ) &&
+    supersededGenerationHold.includes(
+      'resolution.next_attempt_generation <='
+    ) &&
+    supersededGenerationHold.includes(
+      'refund_case.nayax_refund_attempt_generation'
+    ) &&
+    supersededGenerationHold.includes(
+      'not public.refund_nayax_retry_safe_resolution_is_historical('
+    ) &&
+    !supersededGenerationHold.includes(
+      'refund_case.nayax_refund_execution_status ='
+    ) &&
+    !supersededGenerationHold.includes('refund_case.refund_completed_at') &&
+    !supersededGenerationHold.includes('refund_case.reporting_adjustment_id'),
+  'Current lifecycle equality must remain exact while account history stays resolved at every later or terminal generation.'
+);
+
+assert(
+  supersededGenerationHold.includes(
+    'revoke execute on function public.refund_nayax_retry_safe_resolution_is_historical(uuid)'
+  ) &&
+    !/\b(http_post|net\.http|fetch\s*\(|insert\s+into|update\s+public|delete\s+from)\b/i.test(
+      supersededGenerationHold
+    ),
+  'The superseded-generation repair must be private, projection-only, and provider-free.'
+);
+
+for (const marker of [
+  'A generation 0 to 1 resolution stays historical after generation 2',
+  'A superseded resolved generation cannot re-enter the account breaker',
+  'A genuinely unresolved current generation still fails closed',
+  'Three-generation and newer-terminal replay cannot revive the oldest resolved attempt',
+  'creates no attempt, message, or reporting side effect',
+]) {
+  assert(
+    outcomeResolutionTest.includes(marker),
+    `The pgTAP projection regression must prove: ${marker}`
+  );
+}
+
+assert(
+  outcomeResolutionConcurrencyTest.includes('dblink_send_query') &&
+    outcomeResolutionConcurrencyTest.includes(
+      'Concurrency creates one adjustment, one bound message, and no additional provider attempt'
+    ),
+  'The existing two-session resolver regression must continue proving serialized exactly-once completion.'
 );
 
 assert(
