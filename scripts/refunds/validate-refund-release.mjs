@@ -189,7 +189,7 @@ const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-relea
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
 const reviewedManagerSourceSha256 = {
   'refund-manager-action-step-up':
-    'c9605b7987896ab6d99cebdbaa52e9e3653e9e896b4cb0d82c1e3ce45ffb7c80',
+    '318c7413b5f2f1ca45cb395b133fd33ada856b9e007b21ce8d0779691b2d90fb',
   'refund-manager-totp-enrollment':
     'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
 };
@@ -224,8 +224,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    97,
-    'Refund release inventory must cover exactly 97 discovered refund/Nayax migrations'
+    98,
+    'Refund release inventory must cover exactly 98 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -250,6 +250,10 @@ try {
   assert(
     repositoryMigrations.includes('20260830182744_refund_nayax_superseded_generation_hold.sql'),
     'The superseded-generation account-hold migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260830183702_refund_customer_status_recovery.sql'),
+    'The customer status recovery migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260812200000_refund_owner_totp_enrollment_window.sql'),
