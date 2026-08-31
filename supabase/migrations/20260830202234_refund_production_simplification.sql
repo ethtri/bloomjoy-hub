@@ -690,6 +690,450 @@ begin
 end;
 $$;
 
+-- Direct API execution is intentionally hard-disabled until Nayax remaining
+-- refundable value is authoritative. Keep production cases operable through
+-- the already-audited manual portal attempt lifecycle: approval is a
+-- provider-free hold, and only later documented provider evidence can settle
+-- reporting and prepare the customer completion message. The legacy manual
+-- evidence cohort remains supported, while an ordinary high-confidence exact
+-- match may now enter the same reviewed fallback without a second data-entry
+-- workflow.
+create or replace function public.refund_nayax_direct_api_execution_hard_disabled()
+returns boolean
+language sql
+immutable
+set search_path = ''
+as $$
+  select true;
+$$;
+
+revoke execute on function
+  public.refund_nayax_direct_api_execution_hard_disabled()
+  from public, anon, authenticated, service_role;
+
+create or replace function public.admin_begin_refund_manual_nayax_portal_pre_ops_v1(
+  p_case_id uuid,
+  p_expected_case_version bigint
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  current_actor_user_id uuid := auth.uid();
+  case_row public.refund_cases%rowtype;
+  machine_row public.reporting_machines%rowtype;
+  evidence_row public.refund_manual_nayax_evidence%rowtype;
+  authorization_result jsonb;
+  authorization_id uuid;
+  attempt_row public.refund_case_nayax_refund_attempts%rowtype;
+  manual_evidence_path boolean := false;
+  reviewed_transaction_id text;
+  reviewed_account_scope text;
+  reviewed_amount_cents integer;
+  reviewed_site_id_present boolean := false;
+  idempotency_key text;
+  request_fingerprint text;
+begin
+  if current_actor_user_id is null
+    or coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) then
+    raise exception 'Authenticated Refund Operations session required';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(
+      'refund-manual-nayax-approval-v2|' || p_case_id::text,
+      0
+    )
+  );
+
+  select refund_case.* into case_row
+  from public.refund_cases refund_case
+  where refund_case.id = p_case_id
+  for update;
+  if not found then
+    raise exception 'Refund case not found';
+  end if;
+
+  if not public.can_perform_refund_official_action(
+    current_actor_user_id,
+    case_row.id
+  ) then
+    raise exception 'Active Machine Manager mapping required';
+  end if;
+
+  select attempt.* into attempt_row
+  from public.refund_case_nayax_refund_attempts attempt
+  where attempt.refund_case_id = case_row.id
+    and attempt.execution_mode = 'manual_portal'
+  order by attempt.created_at desc, attempt.id desc
+  limit 1
+  for update;
+  if found then
+    return jsonb_build_object(
+      'attemptId', attempt_row.id,
+      'created', false,
+      'status', attempt_row.status,
+      'providerOutcome', attempt_row.provider_outcome,
+      'providerCallMade', false,
+      'customerMessageCreated', false,
+      'expectedCaseVersion', case_row.official_action_version,
+      'payloadRedacted', true
+    );
+  end if;
+
+  if case_row.official_action_version is distinct from
+      p_expected_case_version then
+    raise exception 'Refund case changed since review; reload before approving';
+  end if;
+
+  select machine.* into machine_row
+  from public.reporting_machines machine
+  where machine.id = case_row.reporting_machine_id
+  for share;
+
+  select evidence.* into evidence_row
+  from public.refund_manual_nayax_evidence evidence
+  where evidence.refund_case_id = case_row.id
+  for share;
+
+  manual_evidence_path :=
+    evidence_row.id is not null
+    and machine_row.nayax_manual_portal_enabled is true
+    and machine_row.nayax_manual_account_scope = evidence_row.account_scope
+    and case_row.nayax_recommendation_state = 'manual_exception'
+    and case_row.nayax_recommendation_policy_version =
+      'manual-nayax-portal-v1'
+    and case_row.matched_nayax_transaction_id =
+      evidence_row.provider_transaction_id
+    and case_row.matched_nayax_machine_auth_time =
+      evidence_row.machine_authorization_time
+    and case_row.matched_nayax_amount_cents = evidence_row.amount_cents
+    and case_row.matched_nayax_card_last4 = evidence_row.card_last4
+    and evidence_row.selected_at is not null;
+
+  if machine_row.id is null
+    or machine_row.status <> 'active'
+    or case_row.payment_method <> 'card'
+    or case_row.status not in (
+      'needs_review', 'correlated', 'approved', 'card_refund_pending'
+    )
+    or (case_row.decision is not null and case_row.decision <> 'approved')
+    or case_row.correlation_status <> 'matched'
+    or case_row.correlation_source <> 'nayax'
+    or not public.is_review_safe_nayax_transaction_reference(
+      case_row.matched_nayax_transaction_id
+    )
+    or case_row.matched_nayax_machine_auth_time is null
+    or case_row.matched_nayax_amount_cents is null
+    or case_row.matched_nayax_amount_cents <= 0
+    or case_row.refund_amount_cents is distinct from
+      case_row.matched_nayax_amount_cents
+    or case_row.matched_nayax_currency_code <> 'USD'
+    or case_row.nayax_refund_execution_status <> 'not_requested'
+    or case_row.reporting_adjustment_id is not null
+    or case_row.refund_completed_at is not null
+    or public.refund_case_has_unresolved_reconciliation(case_row.id)
+    or not exists (
+      select 1
+      from public.refund_case_events selection_event
+      where selection_event.refund_case_id = case_row.id
+        and selection_event.event_type = 'nayax_match_selected'
+        and selection_event.actor_user_id is not null
+    ) then
+    raise exception 'The selected Nayax transaction is not safe for portal approval';
+  end if;
+
+  if manual_evidence_path then
+    if machine_row.nayax_refunds_enabled is distinct from false
+      or machine_row.nayax_machine_id is not null
+      or machine_row.nayax_account_key is not null
+      or case_row.nayax_match_execution_eligible is distinct from false
+      or case_row.matched_nayax_site_id is not null then
+      raise exception 'The selected manual Nayax evidence is not safe for portal approval';
+    end if;
+    reviewed_transaction_id := evidence_row.provider_transaction_id;
+    reviewed_account_scope := evidence_row.account_scope;
+    reviewed_amount_cents := evidence_row.amount_cents;
+    reviewed_site_id_present := false;
+  else
+    if not public.refund_nayax_direct_api_execution_hard_disabled()
+      or case_row.nayax_recommendation_state <> 'high_confidence'
+      or case_row.nayax_match_execution_eligible is distinct from true
+      or case_row.nayax_recommendation_policy_version is null
+      or case_row.matched_nayax_site_id is null
+      or machine_row.nayax_refunds_enabled is distinct from true
+      or nullif(btrim(machine_row.nayax_machine_id), '') is null
+      or nullif(btrim(machine_row.nayax_account_key), '') is null then
+      raise exception 'Only an exact settled Nayax match can use the reviewed portal fallback';
+    end if;
+    reviewed_transaction_id := case_row.matched_nayax_transaction_id;
+    reviewed_account_scope := upper(btrim(machine_row.nayax_account_key));
+    reviewed_amount_cents := case_row.matched_nayax_amount_cents;
+    reviewed_site_id_present := true;
+  end if;
+
+  if exists (
+    select 1
+    from public.refund_cases duplicate_case
+    where duplicate_case.id <> case_row.id
+      and duplicate_case.matched_nayax_transaction_id =
+        reviewed_transaction_id
+  ) then
+    raise exception 'This Nayax transaction is already linked to another refund case'
+      using errcode = '23505';
+  end if;
+
+  idempotency_key := 'manual-nayax-' || encode(
+    extensions.digest(
+      convert_to(
+        case_row.id::text || '|' || reviewed_account_scope || '|' ||
+          reviewed_transaction_id,
+        'UTF8'
+      ),
+      'sha256'
+    ),
+    'hex'
+  );
+
+  authorization_result := public.admin_authorize_refund_official_action(
+    case_row.id,
+    'approve',
+    case_row.official_action_version,
+    'card_refund_pending',
+    'approved',
+    null,
+    'Exact transaction confirmed; Refund Operations approved one reviewed Nayax portal refund.',
+    null,
+    reviewed_amount_cents,
+    null,
+    null,
+    false,
+    null,
+    null
+  );
+  authorization_id := (authorization_result ->> 'authorizationId')::uuid;
+
+  perform public.service_apply_refund_official_case_update(
+    authorization_id,
+    case_row.id,
+    'approve',
+    'card_refund_pending',
+    null,
+    'approved',
+    'Exact transaction confirmed; Refund Operations approved one reviewed Nayax portal refund.',
+    null,
+    reviewed_amount_cents,
+    null,
+    null,
+    null
+  );
+
+  request_fingerprint := encode(
+    extensions.digest(
+      convert_to(
+        authorization_id::text || '|' || idempotency_key || '|USD|' ||
+          reviewed_amount_cents::text,
+        'UTF8'
+      ),
+      'sha256'
+    ),
+    'hex'
+  );
+
+  insert into public.refund_case_nayax_refund_attempts (
+    refund_case_id,
+    actor_user_id,
+    execution_mode,
+    status,
+    idempotency_key,
+    amount_cents,
+    transaction_id_present,
+    site_id_present,
+    machine_auth_time_present,
+    sanitized_request,
+    sanitized_response,
+    official_action_authorization_id,
+    step_up_intent_id,
+    request_fingerprint,
+    currency_code,
+    provider_outcome,
+    provider_outcome_recorded_at,
+    reconciliation_required
+  ) values (
+    case_row.id,
+    current_actor_user_id,
+    'manual_portal',
+    'manual_review',
+    idempotency_key,
+    reviewed_amount_cents,
+    true,
+    reviewed_site_id_present,
+    true,
+    jsonb_build_object(
+      'reviewed_portal_fallback', true,
+      'manual_evidence_path', manual_evidence_path,
+      'transaction_id_present', true,
+      'site_id_present', reviewed_site_id_present,
+      'machine_authorization_time_present', true,
+      'amount_cents', reviewed_amount_cents,
+      'currency_code', 'USD',
+      'provider_call_made', false,
+      'payload_redacted', true
+    ),
+    jsonb_build_object(
+      'manual_portal_action_required', true,
+      'provider_outcome', 'unknown',
+      'provider_call_made', false,
+      'customer_message_created', false,
+      'payload_redacted', true
+    ),
+    authorization_id,
+    null,
+    request_fingerprint,
+    'USD',
+    'unknown',
+    statement_timestamp(),
+    true
+  )
+  returning * into attempt_row;
+
+  update public.refund_cases
+  set
+    nayax_refund_execution_status = 'manual_review',
+    nayax_match_execution_eligible = false
+  where id = case_row.id;
+
+  insert into public.refund_case_events (
+    refund_case_id,
+    actor_user_id,
+    event_type,
+    message,
+    metadata
+  ) values (
+    case_row.id,
+    current_actor_user_id,
+    'manual_nayax_refund_approved',
+    'Refund Operations approved this exact transaction for one reviewed Nayax portal refund. No provider call, reporting adjustment, or customer email occurred.',
+    jsonb_build_object(
+      'attempt_id', attempt_row.id,
+      'authorization_id', authorization_id,
+      'execution_mode', 'manual_portal',
+      'manual_evidence_path', manual_evidence_path,
+      'provider_outcome', 'unknown',
+      'provider_call_made', false,
+      'customer_message_created', false,
+      'payload_redacted', true
+    )
+  );
+
+  return jsonb_build_object(
+    'attemptId', attempt_row.id,
+    'created', true,
+    'status', attempt_row.status,
+    'providerOutcome', attempt_row.provider_outcome,
+    'providerCallMade', false,
+    'customerMessageCreated', false,
+    'expectedCaseVersion', (
+      select official_action_version
+      from public.refund_cases
+      where id = case_row.id
+    ),
+    'payloadRedacted', true
+  );
+end;
+$$;
+
+create or replace function public.admin_get_refund_manual_nayax_context_pre_ops_v1()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'caseId', refund_case.id,
+        'manualNayaxPortalEnabled', true,
+        'manualNayaxEvidenceSelected',
+          evidence.selected_at is not null
+          or refund_case.nayax_recommendation_state = 'high_confidence',
+        'manualNayaxLocationTimezone', location.timezone,
+        'reviewedNayaxPortalFallbackKind', case
+          when machine.nayax_manual_portal_enabled is true
+            and evidence.selected_at is not null
+            and refund_case.nayax_recommendation_state = 'manual_exception'
+            then 'legacy_manual_evidence'
+          else 'ordinary_exact_match'
+        end
+      )
+      order by refund_case.created_at desc
+    ),
+    '[]'::jsonb
+  )
+  from public.refund_cases refund_case
+  join public.reporting_machines machine
+    on machine.id = refund_case.reporting_machine_id
+  join public.reporting_locations location
+    on location.id = refund_case.reporting_location_id
+  left join public.refund_manual_nayax_evidence evidence
+    on evidence.refund_case_id = refund_case.id
+  where public.can_manage_refund_case(auth.uid(), refund_case.id)
+    and machine.status = 'active'
+    and refund_case.payment_method = 'card'
+    and refund_case.status in (
+      'needs_review', 'correlated', 'approved', 'card_refund_pending'
+    )
+    and (refund_case.decision is null or refund_case.decision = 'approved')
+    and refund_case.correlation_status = 'matched'
+    and refund_case.correlation_source = 'nayax'
+    and public.is_review_safe_nayax_transaction_reference(
+      refund_case.matched_nayax_transaction_id
+    )
+    and refund_case.matched_nayax_machine_auth_time is not null
+    and refund_case.matched_nayax_amount_cents > 0
+    and refund_case.refund_amount_cents =
+      refund_case.matched_nayax_amount_cents
+    and refund_case.matched_nayax_currency_code = 'USD'
+    and refund_case.nayax_refund_execution_status = 'not_requested'
+    and refund_case.reporting_adjustment_id is null
+    and refund_case.refund_completed_at is null
+    and not public.refund_case_has_unresolved_reconciliation(refund_case.id)
+    and exists (
+      select 1
+      from public.refund_case_events selection_event
+      where selection_event.refund_case_id = refund_case.id
+        and selection_event.event_type = 'nayax_match_selected'
+        and selection_event.actor_user_id is not null
+    )
+    and (
+      (
+        machine.nayax_manual_portal_enabled is true
+        and evidence.selected_at is not null
+        and refund_case.nayax_recommendation_state = 'manual_exception'
+      )
+      or (
+        public.refund_nayax_direct_api_execution_hard_disabled()
+        and refund_case.nayax_recommendation_state = 'high_confidence'
+        and refund_case.nayax_match_execution_eligible is true
+        and refund_case.nayax_recommendation_policy_version is not null
+        and refund_case.matched_nayax_site_id is not null
+        and machine.nayax_refunds_enabled is true
+        and nullif(btrim(machine.nayax_machine_id), '') is not null
+        and nullif(btrim(machine.nayax_account_key), '') is not null
+      )
+    );
+$$;
+
+comment on function public.admin_begin_refund_manual_nayax_portal(uuid, bigint) is
+  'Refund Operations approval for one exact reviewed Nayax portal refund. It creates a provider-free unknown-result hold; documented evidence is required for atomic completion.';
+comment on function public.admin_get_refund_manual_nayax_context() is
+  'Private Refund Operations context for legacy manual evidence and ordinary exact matched cases eligible for the reviewed Nayax portal fallback.';
+comment on function public.refund_nayax_direct_api_execution_hard_disabled() is
+  'Immutable database-side release guard. Ordinary exact matches may use the reviewed portal fallback only while direct API execution is hard-disabled.';
+
 -- Preserve a private observability snapshot for support dashboards, but it can
 -- no longer block execution. The real hold is case/transaction scoped.
 create or replace function public.refund_nayax_account_execution_hold(

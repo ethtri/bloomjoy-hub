@@ -283,6 +283,19 @@ assert(
   'Focused tests must prove no remaining-value inference, exception-only partials, and cross-case exact-transaction uniqueness.'
 );
 assert(
+  productionSimplificationMigration.includes('create or replace function public.refund_nayax_direct_api_execution_hard_disabled()') &&
+    productionSimplificationMigration.includes('create or replace function public.admin_begin_refund_manual_nayax_portal_pre_ops_v1(') &&
+    productionSimplificationMigration.includes("'reviewedNayaxPortalFallbackKind', case") &&
+    productionSimplificationMigration.includes("else 'ordinary_exact_match'") &&
+    productionSimplificationMigration.includes("'provider_call_made', false") &&
+    productionSimplificationMigration.includes("'customer_message_created', false") &&
+    manualPortalTest.includes('ordinary exact matched wallet transaction') &&
+    manualPortalTest.includes('Ordinary exact-match portal approval makes no provider call or customer message') &&
+    refundPortalUat.includes('Ordinary portal fallback cannot bypass') &&
+    refundPortalUat.includes('Manual portal completion requires explicit verification of the full selected amount'),
+  'Reviewed portal fallback must be hard-disable-bound, wallet-capable, provider-free on approval, and full-amount evidenced on completion.'
+);
+assert(
   providerOrchestration.includes('provider_execution_not_yet_enabled') &&
     fn.includes('NAYAX_REFUND_MANAGER_CONTRACT_JSON') &&
     fn.includes('service_record_nayax_refund_provider_stage') &&
@@ -551,7 +564,9 @@ assert(
     refundOperationsUi.includes('(candidate.amountCents / 100).toFixed(2)') &&
     refundOperationsUi.includes('const refundAmountCents = selectedCase.matchedNayaxAmountCents') &&
     refundOperationsUi.includes('The full selected Nayax transaction amount is set automatically') &&
-    refundOperationsUi.includes('refundCase.manualNayaxPortalEnabled && refundReadiness?.canIssueCardRefund !== true') &&
+    refundOperationsUi.includes("refundCase.reviewedNayaxPortalFallbackKind === 'ordinary_exact_match'") &&
+    refundOperationsUi.includes("refundReadiness?.blockReason === 'provider_remaining_value_unverified'") &&
+    refundOperationsUi.includes("refundCase.reviewedNayaxPortalFallbackKind === 'legacy_manual_evidence'") &&
     refundOperationsUi.includes('Approve refund for Nayax portal') &&
     !refundOperationsUi.includes('data-testid="legacy-refund-amount-input"') &&
     !refundOperationsUi.includes('Match strength:') &&

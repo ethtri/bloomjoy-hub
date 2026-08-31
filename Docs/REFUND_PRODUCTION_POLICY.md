@@ -31,6 +31,16 @@ that constant can be changed through a separate reviewed release. The global
 kill switch remains additional incident control, not a substitute for this
 guard.
 
+While that hard guard is active, Refund Operations may approve one reviewed
+portal fallback for either the legacy manual-evidence cohort or an ordinary
+high-confidence exact match, including a wallet-backed match. That approval
+creates one provider-free unknown-result hold; it does not move money, change
+reporting, or contact the customer. The fallback is not shown for a kill
+switch, duplicate, reconciliation, authority, or other block reason. After the
+portal action, Refund Operations must verify that Nayax shows a completed
+refund equal to the full selected transaction amount. A smaller or partial
+refund stays on hold and is escalated; it cannot be recorded as completed.
+
 ## Duplicate and retry rules
 
 - One customer may receive refunds for multiple legitimate purchases.
@@ -64,8 +74,9 @@ time, amount, currency, and card evidence.
 - An immutable direct-API block until authoritative remaining-refundable state
   is available. The original sale amount cannot be used to infer that no prior
   external partial refund exists.
-- Partial/custom or reduced-remaining-value cases stay in the reviewed manual
-  exception path; they cannot silently enter the normal direct action.
+- Partial/custom or reduced-remaining-value cases stay on a reviewed hold; they
+  cannot silently enter the normal direct action or be recorded as a completed
+  full-transaction portal refund.
 - Current mapped-manager authority and one money-moving confirmation.
 - Case-version checks, row locking, idempotency, and one live attempt.
 - Server-only provider credentials and an immutable provider journal.

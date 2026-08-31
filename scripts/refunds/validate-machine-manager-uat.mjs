@@ -268,7 +268,14 @@ const installMockSupabaseRoutes = async (context, state) => {
     return route.fulfill(jsonResponse(
       state.globalRefundsPaused
         ? { available: false, status: 'unavailable', blockReason: 'kill_switch_active', payloadRedacted: true }
-        : { available: true, status: 'available', blockReason: null, payloadRedacted: true }
+        : state.globalRefundsAvailable
+          ? { available: true, status: 'available', blockReason: null, payloadRedacted: true }
+          : {
+              available: false,
+              status: 'unavailable',
+              blockReason: state.globalRefundsBlockReason,
+              payloadRedacted: true,
+            }
     ));
   });
 
@@ -593,7 +600,9 @@ const run = async () => {
       readinessState: 'setup_needed',
       readinessBlockReason: 'transaction_matching_off',
     },
+    globalRefundsAvailable: true,
     globalRefundsPaused: false,
+    globalRefundsBlockReason: null,
     rpcCalls: [],
   };
 
@@ -871,12 +880,12 @@ const run = async () => {
       'Qualified payment-disabled machine has one guided activation action',
       await reopenedMachineDialog.getByText('Ready to activate', { exact: true }).isVisible()
         && await reopenedMachineDialog.getByText(/Off — Awaiting reviewed activation/i).isVisible()
-        && await reopenedMachineDialog.getByRole('button', { name: 'Activate card refunds' }).isVisible()
+        && await reopenedMachineDialog.getByRole('button', { name: 'Activate card-refund capability' }).isVisible()
     );
     await page.screenshot({ path: path.join(args.artifactDir, 'machine-refunds-ready-to-activate-desktop.png'), fullPage: true });
 
     page.once('dialog', (dialog) => dialog.accept());
-    await reopenedMachineDialog.getByRole('button', { name: 'Activate card refunds' }).click();
+    await reopenedMachineDialog.getByRole('button', { name: 'Activate card-refund capability' }).click();
     await reopenedMachineDialog.getByText('Ready to refund', { exact: true }).waitFor({ timeout: 10000 });
     recorder.assert(
       'Guided activation enables exact-transaction refunds and becomes ready',
@@ -885,10 +894,55 @@ const run = async () => {
         && await reopenedMachineDialog.getByText('Enabled', { exact: true }).isVisible(),
       JSON.stringify(state.activationPayload)
     );
-    await page.getByText('Card refunds activated at the $50 launch limit.').waitFor({ state: 'hidden', timeout: 10000 });
+    await page.getByText('Card-refund capability activated.').waitFor({ state: 'hidden', timeout: 10000 });
     await page.screenshot({ path: path.join(args.artifactDir, 'machine-refunds-ready-desktop.png'), fullPage: true });
 
+    state.globalRefundsAvailable = false;
+    state.globalRefundsBlockReason = 'provider_remaining_value_unverified';
+    await navigateUatPageAfterDrain(page, page.url(), { waitUntil: 'networkidle' });
+    await reopenedMachineDialog.getByText('Manual portal only', { exact: true }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Remaining-value guard separates manual portal fallback from direct API readiness',
+      await reopenedMachineDialog.getByText('Manual portal only', { exact: true }).isVisible()
+        && await reopenedMachineDialog.getByText(/Direct API blocked until Nayax remaining refundable value can be verified/i).isVisible()
+        && await reopenedMachineDialog.getByText('Blocked · remaining value unverified', { exact: true }).isVisible()
+        && (await reopenedMachineDialog.getByText('Ready to refund', { exact: true }).count()) === 0
+    );
+    recorder.assert(
+      'Guarded detail preserves customer intake, transaction lookup, and machine capability facts',
+      await reopenedMachineDialog.locator('dl > div').filter({ hasText: 'Customer requests' }).getByText('Accepting', { exact: true }).isVisible()
+        && await reopenedMachineDialog.locator('dl > div').filter({ hasText: 'Transaction lookup' }).getByText('Ready', { exact: true }).isVisible()
+        && await reopenedMachineDialog.locator('dl > div').filter({ hasText: 'Card-refund capability' }).getByText('Enabled', { exact: true }).isVisible()
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'machine-refunds-manual-portal-only-desktop.png'),
+      fullPage: true,
+    });
+
     await page.getByRole('link', { name: 'Back to machines' }).click();
+    const guardedMachineRow = page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' });
+    await guardedMachineRow.getByText('Manual portal only', { exact: true }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Guarded Machines row is not labeled Ready',
+      await guardedMachineRow.getByText('Manual portal only', { exact: true }).isVisible()
+        && (await guardedMachineRow.getByText('Ready', { exact: true }).count()) === 0
+    );
+    await page.getByText('Filters', { exact: true }).click();
+    await page.locator('#refund-filter').selectOption('ready');
+    recorder.assert(
+      'Ready refund filter requires live global availability',
+      (await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).count()) === 0
+    );
+    const directBlockedFilterUrl = new URL(page.url());
+    directBlockedFilterUrl.searchParams.set('refund', 'direct_blocked');
+    await navigateUatPageAfterDrain(page, directBlockedFilterUrl.toString(), { waitUntil: 'networkidle' });
+    recorder.assert(
+      'Direct API blocked filter keeps the manual portal machine discoverable',
+      await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByText('Manual portal only', { exact: true }).isVisible()
+    );
+    const allRefundStatesUrl = new URL(page.url());
+    allRefundStatesUrl.searchParams.delete('refund');
+    await navigateUatPageAfterDrain(page, allRefundStatesUrl.toString(), { waitUntil: 'networkidle' });
     state.globalRefundsPaused = true;
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('button', { name: 'Refresh' }).click();
@@ -898,7 +952,7 @@ const run = async () => {
     await pausedMachineDialog.getByText('Paused for all machines', { exact: true }).waitFor({ timeout: 10000 });
     recorder.assert(
       'Global pause is distinct from machine setup',
-      await pausedMachineDialog.getByText('Paused', { exact: true }).isVisible()
+      await pausedMachineDialog.getByText('Paused', { exact: true }).first().isVisible()
         && await pausedMachineDialog.getByText('Enabled', { exact: true }).isVisible()
     );
     await page.screenshot({

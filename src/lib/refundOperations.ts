@@ -430,6 +430,7 @@ export type RefundCaseRecord = {
   manualNayaxPortalEnabled?: boolean;
   manualNayaxEvidenceSelected?: boolean;
   manualNayaxLocationTimezone?: string | null;
+  reviewedNayaxPortalFallbackKind?: 'legacy_manual_evidence' | 'ordinary_exact_match';
   lifecycle?: RefundLifecycleContract | null;
 };
 
@@ -1557,6 +1558,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         manualNayaxPortalEnabled: true,
         manualNayaxEvidenceSelected: false,
         manualNayaxLocationTimezone: 'America/New_York',
+        reviewedNayaxPortalFallbackKind: 'legacy_manual_evidence',
         nayaxLookupSummary: {
           lookupStatus: 'setup_needed',
           candidateCount: 0,
@@ -1889,6 +1891,7 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
         manualNayaxPortalEnabled: boolean;
         manualNayaxEvidenceSelected: boolean;
         manualNayaxLocationTimezone: string | null;
+        reviewedNayaxPortalFallbackKind?: 'legacy_manual_evidence' | 'ordinary_exact_match';
       }>)
     : [];
   const manualNayaxByCaseId = new Map(
@@ -1923,6 +1926,7 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
         manualNayaxPortalEnabled: manualNayax.manualNayaxPortalEnabled,
         manualNayaxEvidenceSelected: manualNayax.manualNayaxEvidenceSelected,
         manualNayaxLocationTimezone: manualNayax.manualNayaxLocationTimezone,
+        reviewedNayaxPortalFallbackKind: manualNayax.reviewedNayaxPortalFallbackKind,
       } : {}),
     };
   });

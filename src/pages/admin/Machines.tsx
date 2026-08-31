@@ -101,7 +101,7 @@ import {
 type MachineTaxFilter = 'all' | TaxStatus;
 type MachineAssignmentFilter = 'all' | 'unassigned' | 'overlap';
 type MachineTypeFilter = 'all' | ReportingMachineType;
-type MachineRefundFilter = 'all' | 'ready' | 'setup' | 'paused';
+type MachineRefundFilter = 'all' | 'ready' | 'direct_blocked' | 'setup' | 'paused';
 type MachineActivityFilter = 'all' | 'recent' | 'no_sales';
 type MachineSort = 'status' | 'machine' | 'latest_sale';
 type MachineView = 'all' | 'attention' | 'ready';
@@ -318,7 +318,7 @@ const parseMachineTypeFilter = (value: string | null): MachineTypeFilter =>
     : 'all';
 
 const parseRefundFilter = (value: string | null): MachineRefundFilter => {
-  if (value === 'ready' || value === 'setup' || value === 'paused') return value;
+  if (value === 'ready' || value === 'direct_blocked' || value === 'setup' || value === 'paused') return value;
   return 'all';
 };
 
@@ -769,7 +769,12 @@ export default function AdminMachinesPage() {
         if (refundFilter === 'all') return true;
         if (refundFilter === 'paused') return refundManagerSetup.globalRefunds.paused;
         if (refundFilter === 'ready') {
-          return row.refundReadinessState === 'ready_to_refund' && !refundManagerSetup.globalRefunds.paused;
+          return row.refundReadinessState === 'ready_to_refund' && refundManagerSetup.globalRefunds.available;
+        }
+        if (refundFilter === 'direct_blocked') {
+          return row.refundReadinessState === 'ready_to_refund' &&
+            !refundManagerSetup.globalRefunds.available &&
+            !refundManagerSetup.globalRefunds.paused;
         }
         return row.refundReadinessState !== 'ready_to_refund';
       })
@@ -801,7 +806,7 @@ export default function AdminMachinesPage() {
         if (attentionDifference !== 0) return attentionDifference;
         return left.machine.machine_label.localeCompare(right.machine.machine_label);
       });
-  }, [activityFilter, allMachineRows, assignmentFilter, machineTypeFilter, refundFilter, refundManagerSetup.globalRefunds.paused, search, sort, taxFilter]);
+  }, [activityFilter, allMachineRows, assignmentFilter, machineTypeFilter, refundFilter, refundManagerSetup.globalRefunds.available, refundManagerSetup.globalRefunds.paused, search, sort, taxFilter]);
 
   const visibleMachineRows = useMemo(
     () =>
@@ -1121,7 +1126,7 @@ export default function AdminMachinesPage() {
   };
 
   const activateQualifiedRefundMachines = async () => {
-    if (!window.confirm('Activate card refunds for every qualified machine at the $50 launch limit? Approved pause exceptions will remain off.')) return;
+    if (!window.confirm('Activate the card-refund capability for every qualified machine? Direct API availability is controlled separately, and approved pause exceptions will remain off.')) return;
     setIsBulkActivatingRefunds(true);
     try {
       const result = await activateQualifiedRefundMachinesAdmin(
@@ -1129,15 +1134,15 @@ export default function AdminMachinesPage() {
       );
       toast.success(
         result.activatedCount === 0
-          ? 'No qualified machines needed activation.'
-          : `${result.activatedCount} qualified ${result.activatedCount === 1 ? 'machine' : 'machines'} activated.`
+          ? 'No qualified machine capabilities needed activation.'
+          : `${result.activatedCount} qualified machine ${result.activatedCount === 1 ? 'capability' : 'capabilities'} activated. Direct API availability is controlled separately.`
       );
       if (result.approvedExceptionCount > 0) {
         toast.info(`${result.approvedExceptionCount} approved pause ${result.approvedExceptionCount === 1 ? 'exception remains' : 'exceptions remain'} off.`);
       }
       await refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to activate qualified machines.');
+      toast.error(error instanceof Error ? error.message : 'Unable to activate qualified machine capabilities.');
     } finally {
       setIsBulkActivatingRefunds(false);
     }
@@ -1425,6 +1430,7 @@ export default function AdminMachinesPage() {
                     >
                       <option value="all">All refund states</option>
                       <option value="ready">Ready</option>
+                      <option value="direct_blocked">Direct API blocked</option>
                       <option value="setup">Setup needed</option>
                       <option value="paused">Paused</option>
                     </select>
@@ -1575,7 +1581,7 @@ export default function AdminMachinesPage() {
                       row={row}
                       isHighlighted={[highlightedMachineId, selectedRowId].includes(row.machine.id)}
                       onEdit={openEditMachine}
-                      globalRefundsPaused={refundManagerSetup.globalRefunds.paused}
+                      globalRefunds={refundManagerSetup.globalRefunds}
                     />
                   ))}
                 </div>
@@ -1637,22 +1643,37 @@ export default function AdminMachinesPage() {
 function MachinePortfolioRow({
   row,
   isHighlighted,
-  globalRefundsPaused,
+  globalRefunds,
   onEdit,
 }: {
   row: MachineSetupRowViewModel;
   isHighlighted: boolean;
-  globalRefundsPaused: boolean;
+  globalRefunds: RefundManagerSetup['globalRefunds'];
   onEdit: (machine: PartnershipSetupMachine, tab?: MachineDetailTab) => void;
 }) {
   const { machine, taxRate, taxStatus, activeAssignments, attentionReasons } = row;
   const primaryReason = attentionReasons[0];
-  const refundIsReady = row.refundReadinessState === 'ready_to_refund' && !globalRefundsPaused;
-  const refundLabel = globalRefundsPaused
+  const refundIsReady = row.refundReadinessState === 'ready_to_refund' && globalRefunds.available;
+  const refundIsDirectBlocked =
+    row.refundReadinessState === 'ready_to_refund' && !globalRefunds.available && !globalRefunds.paused;
+  const providerRemainingValueUnverified =
+    globalRefunds.blockReason === 'provider_remaining_value_unverified';
+  const refundLabel = globalRefunds.paused
     ? 'Paused globally'
     : refundIsReady
       ? 'Ready'
+      : refundIsDirectBlocked && providerRemainingValueUnverified
+        ? 'Manual portal only'
+        : refundIsDirectBlocked
+          ? 'Direct API blocked'
       : refundReadinessLabel(row.refundReadinessState);
+  const refundDetail = refundIsDirectBlocked
+    ? providerRemainingValueUnverified
+      ? 'Direct API blocked until Nayax remaining value is verified'
+      : 'Direct API is unavailable'
+    : row.refundBlockReason
+      ? refundReasonLabel(row.refundBlockReason)
+      : null;
   const reportingLabel =
     activeAssignments.length === 0
       ? 'Not in partner reports'
@@ -1703,7 +1724,7 @@ function MachinePortfolioRow({
           </div>
         ) : (
           <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
-            <CheckCircle2 className="h-4 w-4" /> Ready
+            <CheckCircle2 className="h-4 w-4" /> No setup issues
           </span>
         )}
       </div>
@@ -1711,8 +1732,8 @@ function MachinePortfolioRow({
       <div role="cell" className="min-w-0 xl:col-span-1">
         <CellLabel>Refunds</CellLabel>
         <div className={cn('font-medium', refundIsReady && 'text-emerald-700')}>{refundLabel}</div>
-        {!refundIsReady && row.refundBlockReason && (
-          <div className="mt-0.5 text-xs text-muted-foreground">{refundReasonLabel(row.refundBlockReason)}</div>
+        {!refundIsReady && refundDetail && (
+          <div className="mt-0.5 text-xs text-muted-foreground">{refundDetail}</div>
         )}
       </div>
 
@@ -1852,7 +1873,7 @@ function RefundNayaxInventoryPanel({
           {canBulkActivate && (
             <Button variant="outline" className="min-h-11" onClick={() => void onBulkActivate()} disabled={isBulkActivating || eligibleActivationCount === 0}>
               {isBulkActivating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-              Activate {eligibleActivationCount} qualified {eligibleActivationCount === 1 ? 'machine' : 'machines'}
+              Activate {eligibleActivationCount} qualified machine {eligibleActivationCount === 1 ? 'capability' : 'capabilities'}
             </Button>
           )}
         </div>
@@ -2886,7 +2907,7 @@ function MachineDialog({
   ].filter(Boolean) as string[];
   const activateCardRefunds = async () => {
     if (!form.machineId) return;
-    if (!window.confirm(`Activate card refunds for ${form.machineLabel} at the $50 launch limit?`)) return;
+    if (!window.confirm(`Activate the card-refund capability for ${form.machineLabel}? Direct API availability is controlled separately.`)) return;
     setIsActivatingCardRefunds(true);
     try {
       await setRefundMachineCardActivationAdmin({
@@ -2894,7 +2915,7 @@ function MachineDialog({
         enabled: true,
         reason: 'Reviewed machine activation from Admin Machines',
       });
-      toast.success('Card refunds activated at the $50 launch limit.');
+      toast.success('Card-refund capability activated.');
       await onSaved();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to activate card refunds.');
@@ -2903,11 +2924,22 @@ function MachineDialog({
     }
   };
   const machineReadinessState = refundManagerSetup?.readinessState ?? 'setup_needed';
+  const providerRemainingValueUnverified =
+    globalRefunds.blockReason === 'provider_remaining_value_unverified';
   const overallReadinessLabel = globalRefunds.paused
     ? 'Paused'
-    : !globalRefunds.available && machineReadinessState === 'ready_to_refund'
-      ? 'Setup needed'
+    : providerRemainingValueUnverified && machineReadinessState === 'ready_to_refund'
+      ? 'Manual portal only'
+      : !globalRefunds.available && machineReadinessState === 'ready_to_refund'
+        ? 'Direct API blocked'
       : refundReadinessLabel(machineReadinessState);
+  const directApiStatus = globalRefunds.available
+    ? 'Available'
+    : globalRefunds.paused
+      ? 'Paused'
+      : providerRemainingValueUnverified
+        ? 'Blocked · remaining value unverified'
+        : 'Unavailable';
   const cardRefundStatus = refundManagerSetup?.nayaxRefundsEnabled
     ? 'Enabled'
     : `Off — ${refundReasonLabel(
@@ -3142,11 +3174,19 @@ function MachineDialog({
                 Paused for all machines
               </div>
             )}
+            {!globalRefunds.available && !globalRefunds.paused && (
+              <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                {providerRemainingValueUnverified
+                  ? 'Direct API blocked until Nayax remaining refundable value can be verified. Customer requests and transaction lookup remain available; use the reviewed Nayax portal for money movement.'
+                  : 'Direct card refunds are unavailable. This machine\'s customer-intake, lookup, and capability settings are shown separately below.'}
+              </div>
+            )}
             <dl className="mt-5 divide-y divide-border rounded-md border border-border text-sm">
               <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Customer requests</dt><dd className="font-medium">{refundManagerSetup?.customerIntakeAccepting ? 'Accepting' : 'Unavailable'}</dd></div>
               <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Transaction lookup</dt><dd className="font-medium">{refundManagerSetup?.transactionLookupReady ? 'Ready' : 'Setup needed'}</dd></div>
               <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine Managers</dt><dd className="font-medium">{savedMachineManagerEmails.length} saved</dd></div>
-              <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Card refunds</dt><dd className="font-medium">{cardRefundStatus}</dd></div>
+              <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Card-refund capability</dt><dd className="font-medium">{cardRefundStatus}</dd></div>
+              <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Direct API</dt><dd className="font-medium">{directApiStatus}</dd></div>
               <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Refund amount</dt><dd className="font-medium">Exact Nayax sale</dd></div>
             </dl>
             {machineManagerHasChanges && (
@@ -3181,7 +3221,7 @@ function MachineDialog({
             </div>
             <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-border pt-4">
               {canActivateCardRefunds && refundManagerSetup?.activationEligible && !refundManagerSetup.nayaxRefundsEnabled && (
-                <Button variant="outline" onClick={() => void activateCardRefunds()} disabled={isSavingMachineChanges}>Activate card refunds</Button>
+                <Button variant="outline" onClick={() => void activateCardRefunds()} disabled={isSavingMachineChanges}>Activate card-refund capability</Button>
               )}
               <Button variant="outline" onClick={cancelRefundReadinessChanges} disabled={isSavingMachineChanges || !refundReadinessHasChanges}>Cancel</Button>
               <Button onClick={() => void saveMachine('refund')} disabled={isSavingMachineChanges || !refundReadinessHasChanges || machineManagerHasChanges}>
@@ -3531,7 +3571,9 @@ function MachineDialog({
             )}
             {!globalRefunds.available && !globalRefunds.paused && (
               <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                The card-refund service needs production configuration. This machine's setup is unchanged.
+                {providerRemainingValueUnverified
+                  ? 'Direct API blocked until Nayax remaining refundable value can be verified. Customer requests and transaction lookup remain available; use the reviewed Nayax portal for money movement.'
+                  : 'Direct card refunds are unavailable. This machine\'s customer-intake, lookup, and capability settings are shown separately below.'}
               </div>
             )}
             <dl className="mt-4 divide-y divide-border overflow-hidden rounded-md border border-border bg-background text-sm">
@@ -3548,10 +3590,14 @@ function MachineDialog({
                 <dd className="font-medium">{refundManagerSetup?.managerCount ?? machineManagerCount} assigned</dd>
               </div>
               <div className="flex items-center justify-between gap-4 px-3 py-2.5">
-                <dt className="text-muted-foreground">Card refunds</dt>
+                <dt className="text-muted-foreground">Card-refund capability</dt>
                 <dd className={cn('text-right font-medium', refundManagerSetup?.nayaxRefundsEnabled && 'text-emerald-700')}>
                   {cardRefundStatus}
                 </dd>
+              </div>
+              <div className="flex items-center justify-between gap-4 px-3 py-2.5">
+                <dt className="text-muted-foreground">Direct API</dt>
+                <dd className="text-right font-medium">{directApiStatus}</dd>
               </div>
               <div className="flex items-center justify-between gap-4 px-3 py-2.5">
                 <dt className="text-muted-foreground">Refund amount</dt>
@@ -3561,7 +3607,7 @@ function MachineDialog({
             {canActivateCardRefunds && refundManagerSetup?.activationEligible && !refundManagerSetup.nayaxRefundsEnabled && (
               <Button className="mt-4 w-full sm:w-auto" onClick={() => void activateCardRefunds()} disabled={isSavingMachineChanges}>
                 {isActivatingCardRefunds ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-                Activate card refunds · $50 limit
+                Activate card-refund capability
               </Button>
             )}
             <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">

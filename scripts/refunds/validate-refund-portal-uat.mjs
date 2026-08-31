@@ -2159,6 +2159,24 @@ const installMockSupabaseRoutes = async (
       return route.fulfill(jsonResponse(response));
     }
 
+    if (url.includes('/admin_begin_refund_manual_nayax_portal')) {
+      const requestBody = request.postDataJSON();
+      const caseId = requestBody?.p_case_id ?? 'case-card-1';
+      const currentVersion = officialActionVersions.get(caseId) ?? 1;
+      const nextVersion = currentVersion + 1;
+      officialActionVersions.set(caseId, nextVersion);
+      return route.fulfill(jsonResponse({
+        attemptId: '8a840000-0000-4000-8000-000000000001',
+        created: true,
+        status: 'manual_review',
+        providerOutcome: 'unknown',
+        expectedCaseVersion: nextVersion,
+        providerCallMade: false,
+        customerMessageCreated: false,
+        payloadRedacted: true,
+      }));
+    }
+
     if (url.includes('/admin_prepare_refund_nayax_resolution_intent')) {
       return route.fulfill(jsonResponse(nayaxResolutionPrepareResponse));
     }
@@ -5507,15 +5525,57 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
   });
   await closeRefundPortalContext(staleContext);
 
-  const blockedContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
-  await installMockSupabaseRoutes(blockedContext, {
+  const guardedManagerContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await installMockSupabaseRoutes(guardedManagerContext, {
     refundOverview: buildMockRefundOverview,
     nayaxCardRefundAvailabilityResponse: {
       available: false,
       status: 'unavailable',
-      blockReason: 'machine_not_enabled',
+      blockReason: 'provider_remaining_value_unverified',
       payloadRedacted: true,
     },
+  });
+  const guardedManagerPage = await guardedManagerContext.newPage();
+  await signInRefundUser(guardedManagerPage, appUrl);
+  await guardedManagerPage.getByRole('button', { name: /^Action needed \d+$/ }).click();
+  await waitForQueueCount(guardedManagerPage, 1);
+  await queueCase(guardedManagerPage, 'RF-UAT-CARD').click();
+  await guardedManagerPage.getByTestId('refund-manager-state').getByText('Transaction confirmed', { exact: true })
+    .waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Routine manager receives the exact remaining-value handoff without a money action',
+    (await guardedManagerPage.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
+      (await guardedManagerPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).count()) === 0 &&
+      await guardedManagerPage.getByTestId('refund-action-status').getByText('Refund Operations review required', { exact: true }).isVisible() &&
+      await guardedManagerPage.getByText(/Direct card refunds are unavailable until Nayax remaining refundable value can be verified\. Refund Operations can use the reviewed Nayax portal fallback/).isVisible(),
+    await guardedManagerPage.getByTestId('refund-primary-action').innerText()
+  );
+  await closeRefundPortalContext(guardedManagerContext);
+
+  const blockedContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const blockedFunctionCalls = [];
+  const blockedFunctionBodies = [];
+  const blockedRpcCalls = [];
+  await installMockSupabaseRoutes(blockedContext, {
+    refundOverview: () => {
+      const overview = buildMockRefundOverview();
+      overview.refundOperationsAccess = true;
+      overview.cases[0].manualNayaxPortalEnabled = true;
+      overview.cases[0].reviewedNayaxPortalFallbackKind = 'ordinary_exact_match';
+      overview.cases[0].cardWalletUsed = true;
+      overview.cases[0].paymentInteraction = 'phone_watch_wallet';
+      overview.cases[0].walletProvider = 'apple_pay';
+      return overview;
+    },
+    nayaxCardRefundAvailabilityResponse: {
+      available: false,
+      status: 'unavailable',
+      blockReason: 'provider_remaining_value_unverified',
+      payloadRedacted: true,
+    },
+    functionCalls: blockedFunctionCalls,
+    functionBodies: blockedFunctionBodies,
+    rpcCalls: blockedRpcCalls,
   });
   const blockedPage = await blockedContext.newPage();
   await signInRefundUser(blockedPage, appUrl);
@@ -5525,14 +5585,18 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
   await blockedPage.getByTestId('refund-manager-state').getByText('Transaction confirmed', { exact: true })
     .waitFor({ timeout: 10000 });
   recorder.assert(
-    'Confirmed transaction shows the exact safe reason when refunding is blocked',
+    'Refund Operations can approve the reviewed portal fallback while direct API stays blocked',
     (await blockedPage.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
-      await blockedPage.getByTestId('refund-action-status').getByText('Refund temporarily unavailable', { exact: true }).isVisible() &&
-      await blockedPage.getByText(
-        'Card refunds are not enabled for this machine. An administrator needs to enable them.',
-        { exact: true }
-      ).first().isVisible() &&
-      (await blockedPage.getByTestId('refund-primary-action').innerText()).includes('Payment: Not issued')
+      await blockedPage.getByText(/Direct card refunds are unavailable until Nayax remaining refundable value can be verified\. Use the reviewed Nayax portal fallback\./).first().isVisible() &&
+      await blockedPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).isVisible() &&
+      await blockedPage.getByText('Apple Pay on a phone or watch', { exact: true }).isVisible() &&
+      (await blockedPage.getByTestId('refund-primary-action').innerText()).includes('Payment: Not issued'),
+    JSON.stringify({
+      managerState: await blockedPage.getByTestId('refund-manager-state').innerText(),
+      primaryAction: await blockedPage.getByTestId('refund-primary-action').innerText(),
+      portalActionCount: await blockedPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).count(),
+      directRefundActionCount: await blockedPage.getByRole('button', { name: /^Refund \$/i }).count(),
+    })
   );
   await blockedPage.screenshot({
     path: path.join(artifactDir, 'refund-manager-confirmed-blocked-desktop.png'),
@@ -5540,14 +5604,71 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
   });
   await blockedPage.setViewportSize({ width: 390, height: 844 });
   recorder.assert(
-    'Confirmed blocked state remains clear without mobile overflow',
+    'Confirmed remaining-value guard remains clear without mobile overflow',
     await blockedPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
   );
   await blockedPage.screenshot({
     path: path.join(artifactDir, 'refund-manager-confirmed-blocked-mobile.png'),
     fullPage: false,
   });
+  await blockedPage.setViewportSize({ width: 1440, height: 1000 });
+  await blockedPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).click();
+  await blockedPage.getByTestId('refund-confirmation-dialog').waitFor({ timeout: 10000 });
+  await blockedPage.getByTestId('refund-confirm-nayax-refund').click();
+  await blockedPage.getByTestId('refund-action-receipt')
+    .getByText('Approved for Nayax portal', { exact: true })
+    .waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Reviewed portal approval records one provider-free hold and no customer message',
+    blockedRpcCalls.filter((name) => name === 'admin_begin_refund_manual_nayax_portal').length === 1 &&
+      blockedFunctionBodies.filter((entry) =>
+        entry.functionName === 'nayax-card-refund' && entry.body?.operation !== 'availability'
+      ).length === 0 &&
+      !blockedFunctionCalls.includes('refund-case-message-send') &&
+      !blockedFunctionCalls.includes('refund-nayax-outcome-resolve') &&
+      await blockedPage.getByTestId('refund-action-receipt').getByText(/No provider call or customer email was sent/).isVisible(),
+    JSON.stringify({ blockedRpcCalls, blockedFunctionCalls })
+  );
   await closeRefundPortalContext(blockedContext);
+
+  const portalBypassScenarios = [
+    { name: 'kill switch', blockReason: 'kill_switch' },
+    { name: 'reconciliation hold', blockReason: 'reconciliation_hold' },
+    { name: 'duplicate transaction', blockReason: 'duplicate_transaction' },
+    { name: 'authority failure', blockReason: 'unauthorized' },
+  ];
+  for (const scenario of portalBypassScenarios) {
+    const bypassContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    await installMockSupabaseRoutes(bypassContext, {
+      refundOverview: () => {
+        const overview = buildMockRefundOverview();
+        overview.refundOperationsAccess = true;
+        overview.cases[0].manualNayaxPortalEnabled = true;
+        overview.cases[0].reviewedNayaxPortalFallbackKind = 'ordinary_exact_match';
+        return overview;
+      },
+      nayaxCardRefundAvailabilityResponse: {
+        available: false,
+        status: 'unavailable',
+        blockReason: scenario.blockReason,
+        payloadRedacted: true,
+      },
+    });
+    const bypassPage = await bypassContext.newPage();
+    await signInRefundUser(bypassPage, appUrl);
+    await bypassPage.getByRole('button', { name: /^Action needed \d+$/ }).click();
+    await waitForQueueCount(bypassPage, 1);
+    await queueCase(bypassPage, 'RF-UAT-CARD').click();
+    await bypassPage.getByTestId('refund-manager-state').getByText('Transaction confirmed', { exact: true })
+      .waitFor({ timeout: 10000 });
+    recorder.assert(
+      `Ordinary portal fallback cannot bypass ${scenario.name}`,
+      (await bypassPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).count()) === 0 &&
+        (await bypassPage.getByRole('button', { name: /^Refund \$/i }).count()) === 0,
+      await bypassPage.getByTestId('refund-primary-action').innerText()
+    );
+    await closeRefundPortalContext(bypassContext);
+  }
 };
 
 const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
@@ -6111,6 +6232,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
         blockReason: null,
         attemptId: '8a810000-0000-4000-8000-000000000001',
         providerOutcome: 'timeout',
+        manualPortalAttempt: scenario.result === 'documented_manual_completion',
         expectedCaseVersion: 9,
         allowedResults: scenarios.map(({ result }) => result),
         payloadRedacted: true,
@@ -6158,9 +6280,19 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
     const panel = page.getByTestId('refund-nayax-resolution-panel');
     await panel.waitFor({ timeout: 10000 });
 
+    if (scenario.result === 'documented_manual_completion') {
+      await panel.getByTestId('refund-nayax-resolution-result').selectOption('remain_on_hold');
+      recorder.assert(
+        'A partial or smaller portal refund can remain on hold instead of being recorded as complete',
+        (await panel.getByTestId('refund-nayax-full-amount-verified').count()) === 0 &&
+          await panel.getByTestId('refund-nayax-resolution-result').inputValue() === 'remain_on_hold'
+      );
+    }
     await panel.getByTestId('refund-nayax-resolution-result').selectOption(scenario.result);
-    await panel.getByTestId('refund-nayax-resolution-evidence-type')
-      .selectOption(scenario.evidenceType);
+    if (scenario.result !== 'documented_manual_completion') {
+      await panel.getByTestId('refund-nayax-resolution-evidence-type')
+        .selectOption(scenario.evidenceType);
+    }
     if (scenarioIndex === 0) {
       recorder.assert(
         'Managers see exactly four structured outcomes and no arbitrary communication controls',
@@ -6201,6 +6333,20 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
     if (scenario.evidenceOccurredAt) {
       await panel.getByTestId('refund-nayax-resolution-occurred-at')
         .fill(scenario.evidenceOccurredAt);
+    }
+    if (scenario.result === 'documented_manual_completion') {
+      recorder.assert(
+        'Manual portal completion requires explicit verification of the full selected amount',
+        await panel.getByText(/verify Nayax shows a completed refund of \$7\.00.*full selected transaction amount/i).isVisible() &&
+          await panel.getByText(/not a smaller or partial refund/i).isVisible() &&
+          await panel.getByTestId('refund-nayax-full-amount-verified').isVisible() &&
+          await panel.getByTestId('refund-nayax-resolution-prepare').isDisabled()
+      );
+      await panel.getByTestId('refund-nayax-full-amount-verified').check();
+      recorder.assert(
+        'Full-amount verification unlocks evidence-backed completion without a provider call',
+        await panel.getByTestId('refund-nayax-resolution-prepare').isEnabled()
+      );
     }
 
     recorder.assert(

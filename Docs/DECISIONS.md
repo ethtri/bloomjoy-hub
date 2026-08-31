@@ -6,15 +6,16 @@ Entries are newest-first. For production refund work, the 2026-08-30 production-
 
 - Bloomjoy is in production. Exact-case canaries, first-proof limits, pilot cohorts, observers, staffed windows, and repeated go/no-go ceremony are retired.
 - A customer may receive refunds for multiple legitimate purchases. One exact Nayax transaction may support only one Bloomjoy refund case.
-- The normal refund amount is the full selected Nayax transaction amount. Bloomjoy does not enforce arbitrary per-refund, machine, daily amount, or daily count launch caps.
+- The normal refund amount may be only the exact full remaining allocation for the selected Nayax transaction. Bloomjoy does not enforce arbitrary per-refund, machine, daily amount, or daily count launch caps, and the browser cannot supply or edit the direct execution amount.
 - A confirmed rejection or authoritative proof that no refund occurred permits a fresh manager-confirmed attempt generation. Unknown or pending outcomes pause only that transaction; unrelated customers and transactions continue.
-- The production path keeps one explicit money confirmation, mapped-manager authorization, exact transaction evidence, row locking, idempotency, one live attempt, immutable provider journaling, confirmed-success-only customer/reporting completion, server-only credentials, and a systemic-incident kill switch.
+- Direct API availability and execution are immutably blocked as `provider_remaining_value_unverified`, before reservation or provider orchestration, until #990/#751 provide authoritative cumulative-refunded and remaining-refundable ingestion plus an atomic pre-request recheck. Read-only matching remains available. Refund Operations may approve the provider-free reviewed Nayax portal fallback for either legacy manual evidence or an ordinary exact matched card/wallet transaction only under that exact hard-guard reason; kill-switch, reconciliation, duplicate, and authority failures do not expose the ordinary fallback. Approval creates no provider call, report, or customer message. Completion requires evidence that Nayax refunded the full selected amount, while a smaller or partial result remains on hold.
+- Any later direct production path keeps one explicit money confirmation, mapped-manager authorization, exact transaction evidence, row locking, idempotency, one live attempt, immutable provider journaling, confirmed-success-only customer/reporting completion, server-only credentials, and a systemic-incident kill switch.
 - Customer amount, card type, and last four are matching clues. Bloomjoy searches Nayax itself before asking a customer for more work; manager-confirmed exact portal evidence is authoritative.
 
 The concise operating standard is `Docs/REFUND_PRODUCTION_POLICY.md`.
 
 **Why this choice**
-- Nayax rejects amounts above the original transaction and prevents another full refund after the transaction is fully refunded. Local transaction identity and idempotency still protect concurrency, reporting, messaging, and partial-refund edge cases.
+- Nayax supports partial refunds, so original sale amount alone cannot prove the remaining refundable allocation. Provider rejection is a backstop, not a substitute for authoritative pre-request remaining-value evidence. Local transaction identity and idempotency still protect Bloomjoy concurrency, reporting, and messaging.
 - Customer-, account-, and volume-wide pilot blocks delay unrelated legitimate refunds without adding transaction-level safety.
 
 ## 2026-08-30 - Refund automation runs every 30 minutes (`#1054`)

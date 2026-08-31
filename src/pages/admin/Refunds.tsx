@@ -1812,7 +1812,16 @@ const primaryActionConfig = (
 
     const selectedTransactionReady = hasSelectedCardEvidence(refundCase, editor);
     if (matched && selectedTransactionReady) {
-      if (refundCase.manualNayaxPortalEnabled && refundReadiness?.canIssueCardRefund !== true) {
+      const reviewedPortalFallbackAvailable =
+        refundCase.manualNayaxPortalEnabled === true &&
+        (
+          refundCase.reviewedNayaxPortalFallbackKind === 'legacy_manual_evidence' ||
+          (
+            refundCase.reviewedNayaxPortalFallbackKind === 'ordinary_exact_match' &&
+            refundReadiness?.blockReason === 'provider_remaining_value_unverified'
+          )
+        );
+      if (reviewedPortalFallbackAvailable && refundReadiness?.canIssueCardRefund !== true) {
         return {
           label: 'Approve refund for Nayax portal',
           helper: 'Approve this exact refund, then finish it in Nayax and record the confirmation. This step sends no money or customer email.',
@@ -1829,6 +1838,13 @@ const primaryActionConfig = (
         };
       }
       if (!refundReadiness.canIssueCardRefund) {
+        if (refundReadiness.blockReason === 'provider_remaining_value_unverified') {
+          return {
+            label: 'Refund Operations review required',
+            helper: 'Direct card refunds are unavailable until Nayax remaining refundable value can be verified. Refund Operations can use the reviewed Nayax portal fallback; no money or customer email is sent from this screen.',
+            disabled: true,
+          };
+        }
         return {
           label: 'Refund temporarily unavailable',
           helper: refundReadinessBlockMessage(refundReadiness.blockReason),
@@ -2206,6 +2222,7 @@ export default function AdminRefundsPage() {
     useState<RefundNayaxResolutionEvidenceType>('nayax_support_ticket');
   const [nayaxResolutionEvidenceReference, setNayaxResolutionEvidenceReference] = useState('');
   const [nayaxResolutionEvidenceOccurredAt, setNayaxResolutionEvidenceOccurredAt] = useState('');
+  const [manualPortalFullAmountVerified, setManualPortalFullAmountVerified] = useState(false);
   const [nayaxResolutionReason, setNayaxResolutionReason] =
     useState<RefundNayaxResolutionReason>('evidence_incomplete');
   const [isPreparingNayaxResolution, setIsPreparingNayaxResolution] = useState(false);
@@ -2634,6 +2651,7 @@ export default function AdminRefundsPage() {
     );
     setNayaxResolutionEvidenceReference('');
     setNayaxResolutionEvidenceOccurredAt('');
+    setManualPortalFullAmountVerified(false);
     setNayaxResolutionReason(
       manualPortalAttempt
         ? 'manual_nayax_completion'
@@ -3326,6 +3344,14 @@ export default function AdminRefundsPage() {
     }
     const completedPaymentOutcome = nayaxResolutionResult === 'provider_confirmed_success' ||
       nayaxResolutionResult === 'documented_manual_completion';
+    if (
+      nayaxResolutionReadiness.manualPortalAttempt &&
+      nayaxResolutionResult === 'documented_manual_completion' &&
+      !manualPortalFullAmountVerified
+    ) {
+      toast.error('Verify the full selected transaction amount was refunded in Nayax before completing this case.');
+      return;
+    }
     const evidenceOccurredAtValue = completedPaymentOutcome
       ? new Date(nayaxResolutionEvidenceOccurredAt)
       : null;
@@ -5251,7 +5277,7 @@ export default function AdminRefundsPage() {
                       <p className="font-semibold">Refund Operations</p>
                       <p className="mt-1 text-sm leading-6">
                         {nayaxResolutionReadiness?.manualPortalAttempt
-                          ? 'Finish the exact refund once in Nayax, then record the Nayax confirmation. Bloomjoy will not call Nayax or send a second refund.'
+                          ? `Before recording success, verify Nayax shows a completed refund of ${formatCurrency(cardAmountCents)}—the full selected transaction amount. If Nayax shows a smaller or partial refund, keep the case waiting and escalate. Bloomjoy will not call Nayax or send a second refund.`
                           : nayaxResolutionReadiness?.evidenceOnlyAttempt
                             ? 'Record the existing Nayax refund. This step can never call Nayax or send a second refund.'
                           : 'Record what the provider confirmed. Bloomjoy will never send a second refund from this step.'}
@@ -5340,7 +5366,6 @@ export default function AdminRefundsPage() {
                           id="refund-nayax-resolution-result"
                           data-testid="refund-nayax-resolution-result"
                           value={nayaxResolutionResult}
-                          disabled={nayaxResolutionReadiness?.manualPortalAttempt}
                           onChange={(event) => {
                             const nextResult = event.target.value as RefundNayaxResolutionResult;
                             const defaults = defaultNayaxResolutionSelection(nextResult);
@@ -5348,6 +5373,7 @@ export default function AdminRefundsPage() {
                             setNayaxResolutionEvidenceType(defaults.evidenceType);
                             setNayaxResolutionReason(defaults.reason);
                             setNayaxResolutionEvidenceReference('');
+                            setManualPortalFullAmountVerified(false);
                             if (![
                               'provider_confirmed_success',
                               'documented_manual_completion',
@@ -5451,6 +5477,22 @@ export default function AdminRefundsPage() {
                         </div>
                       )}
 
+                      {nayaxResolutionReadiness?.manualPortalAttempt &&
+                        nayaxResolutionResult === 'documented_manual_completion' && (
+                          <label className="flex items-start gap-3 rounded-md border border-border bg-muted/30 p-3 text-sm">
+                            <input
+                              data-testid="refund-nayax-full-amount-verified"
+                              type="checkbox"
+                              checked={manualPortalFullAmountVerified}
+                              onChange={(event) => setManualPortalFullAmountVerified(event.target.checked)}
+                              className="mt-1 h-4 w-4 shrink-0 accent-foreground"
+                            />
+                            <span>
+                              I verified Nayax shows a completed refund of {formatCurrency(cardAmountCents)}, the full selected transaction amount—not a smaller or partial refund.
+                            </span>
+                          </label>
+                        )}
+
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-xs leading-5 text-muted-foreground">
                           Only Refund Operations can save authoritative payment evidence.
@@ -5467,7 +5509,10 @@ export default function AdminRefundsPage() {
                             )) ||
                             ((nayaxResolutionResult === 'provider_confirmed_success' ||
                               nayaxResolutionResult === 'documented_manual_completion') &&
-                              !nayaxResolutionEvidenceOccurredAt)
+                              !nayaxResolutionEvidenceOccurredAt) ||
+                            (nayaxResolutionReadiness?.manualPortalAttempt === true &&
+                              nayaxResolutionResult === 'documented_manual_completion' &&
+                              !manualPortalFullAmountVerified)
                           }
                           className="min-h-11 shrink-0 bg-foreground text-background hover:bg-foreground/90"
                         >
