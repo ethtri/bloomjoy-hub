@@ -1,9 +1,10 @@
 import { readFile } from 'node:fs/promises';
 
-const [appSource, machinesSource, machineUatSource] = await Promise.all([
+const [appSource, machinesSource, machineUatSource, refundPortalUatSource] = await Promise.all([
   readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/pages/admin/Machines.tsx', import.meta.url), 'utf8'),
   readFile(new URL('./refunds/validate-machine-manager-uat.mjs', import.meta.url), 'utf8'),
+  readFile(new URL('./refunds/validate-refund-portal-uat.mjs', import.meta.url), 'utf8'),
 ]);
 
 const checks = [
@@ -22,7 +23,15 @@ const checks = [
   ['Scoped Admin tax actions are hidden', machinesSource.includes('canEditMachineIdentity && (') && machinesSource.includes("'Change tax rate' : 'Set tax rate'")],
   ['no manager autosave copy', !machinesSource.includes('assignments autosave')],
   ['exceptions-first Nayax review', machinesSource.includes("inventoryView === 'attention'") && machinesSource.includes('No Nayax setup needs attention')],
+  ['Ready refund rows require live global availability', machinesSource.includes("row.refundReadinessState === 'ready_to_refund' && globalRefunds.available") && machinesSource.includes("row.refundReadinessState === 'ready_to_refund' && refundManagerSetup.globalRefunds.available")],
+  ['remaining-value guard is represented as manual portal only', machinesSource.includes("globalRefunds.blockReason === 'provider_remaining_value_unverified'") && machinesSource.includes("'Manual portal only'") && machinesSource.includes('Direct API blocked until Nayax remaining refundable value can be verified')],
+  ['blocked direct API has a dedicated refund filter', machinesSource.includes("value=\"direct_blocked\"") && machinesSource.includes("refundFilter === 'direct_blocked'")],
+  ['machine capability, intake, and lookup remain separate facts', machinesSource.includes('Card-refund capability') && machinesSource.includes('Customer requests') && machinesSource.includes('Transaction lookup') && machinesSource.includes('Direct API')],
+  ['capability activation does not imply a live money path', machinesSource.includes('Activate card-refund capability') && machinesSource.includes('Direct API availability is controlled separately') && !machinesSource.includes('Activate card refunds')],
+  ['retired launch-cap copy is absent', !machinesSource.includes('$50 launch limit') && !machinesSource.includes('Activate card refunds · $50 limit')],
   ['UAT waits for asynchronous field hydration', machineUatSource.includes('if (await predicate()) return;')],
+  ['UAT proves guard truthfulness in row, filter, and detail', machineUatSource.includes('Ready refund filter requires live global availability') && machineUatSource.includes('Remaining-value guard separates manual portal fallback from direct API readiness') && machineUatSource.includes('Guarded detail preserves customer intake, transaction lookup, and machine capability facts')],
+  ['Refund portal UAT proves exact guard handoff and usable portal fallback', refundPortalUatSource.includes("blockReason: 'provider_remaining_value_unverified'") && refundPortalUatSource.includes('Routine manager receives the exact remaining-value handoff without a money action') && refundPortalUatSource.includes('Refund Operations can approve the reviewed portal fallback while direct API stays blocked') && refundPortalUatSource.includes('Direct card refunds are unavailable until Nayax remaining refundable value can be verified') && refundPortalUatSource.includes('Use the reviewed Nayax portal fallback') && refundPortalUatSource.includes("name: 'Approve refund for Nayax portal'")],
   ['production PPV skips local-only demo assertions', machineUatSource.includes("if (arg === '--skip-demo')") && machineUatSource.includes('Production PPV skips local-only demo assertions')],
 ];
 

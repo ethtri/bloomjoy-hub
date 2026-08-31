@@ -1,6 +1,6 @@
 # Controlled owner Nayax provider pilot
 
-> **Historical record only.** The 2026-08-27 operating decision in `Docs/DECISIONS.md` supersedes this owner-self/non-customer pilot as a launch requirement. Do not use the private ceremony, manufactured transaction, separate approvals, or retirement sequence below to block the current `#628` / `#990` / `#427` path. Current operation may use an eligible unresolved customer refund of $10 or less and is governed by `Docs/PRODUCTION_RUNBOOK.md`; the exact binding, immutable generation, at-most-one request/approval, caps, circuit breaker, kill switch, audit, and uncertainty hold remain mandatory.
+> **Retired historical record only.** The 2026-08-30 production policy in `Docs/REFUND_PRODUCTION_POLICY.md` fully retires this owner-self pilot, its runner, amount caps, canary/case allowlist, account-wide circuit breaker, private ceremony, and separate go/no-go steps. Do not run its commands or use any requirement below to delay a customer refund. Only its audit history remains; current transaction-scoped controls are defined in the production policy.
 
 Status: retired historical implementation for issue `#430`; not authority to initialize, arm, call Nayax, change production, or diagnose current account permissions. The migration/function counts and activation prerequisites below describe that older release only.
 

@@ -8,12 +8,11 @@ import {
 } from "../_shared/refund-official-action.ts";
 import {
   buildNayaxRefundIdempotencyKey,
-  isNayaxRefundCaseReleaseAuthorized,
+  NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED,
   NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
-  resolveNayaxRefundCaseExecutionConfig,
+  resolveNormalNayaxRefundAmountCents,
   resolveNayaxRefundAvailability,
   resolveNayaxRefundExecutionConfig,
-  resolveNayaxRefundRolloutConfig,
 } from "../_shared/nayax-refund-gates.ts";
 import {
   type NayaxAttemptReservation,
@@ -41,7 +40,6 @@ import { tryIssueRefundStatusCapabilityForMessage } from "../_shared/refund-stat
 import {
   mergeRuntimeRefundReadiness,
   parseDatabaseRefundReadiness,
-  parseNayaxRefundDailyUsage,
   type RefundReadiness,
 } from "../_shared/refund-readiness.ts";
 
@@ -264,27 +262,13 @@ const resolveCaseRefundReadiness = async ({
     managerContract?.contractVersion ?? null,
   );
   const providerCredentialAvailable = Boolean(
-    accountKey && writeCredentialsReady && managerContract && journalCompatible &&
-      isNayaxRefundCaseReleaseAuthorized({
-        rolloutConfig: resolveNayaxRefundRolloutConfig((name) =>
-          Deno.env.get(name)
-        ),
-        caseId: refundCase.id,
-      }),
+    accountKey && writeCredentialsReady && managerContract && journalCompatible,
   );
-  const { data: dailyUsageValue, error: dailyUsageError } = await supabase.rpc(
-    "service_refund_nayax_daily_usage",
-  );
-  const dailyUsage = dailyUsageError
-    ? null
-    : parseNayaxRefundDailyUsage(dailyUsageValue);
   const readiness = mergeRuntimeRefundReadiness({
     databaseReadiness,
     executionConfig,
     officialActionsEnabled: NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
     providerCredentialAvailable,
-    dailyAmountUsedCents: dailyUsage?.dailyAmountUsedCents ?? null,
-    dailyCountUsed: dailyUsage?.dailyCountUsed ?? null,
   });
   console.info(JSON.stringify({
     event: "nayax_refund_availability_runtime",
@@ -297,13 +281,9 @@ const resolveCaseRefundReadiness = async ({
       NAYAX_REFUND_PRODUCTION_BASE_URL,
     writeCredentialsReady,
     journalCompatible,
-    releaseAuthorized: isNayaxRefundCaseReleaseAuthorized({
-      rolloutConfig: resolveNayaxRefundRolloutConfig((name) =>
-        Deno.env.get(name)
-      ),
-      caseId: refundCase.id,
-    }),
-    dailyUsageAvailable: dailyUsage !== null,
+    externalPartialGuardSupported:
+      NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED,
+    productionScope: "direct_api_hard_disabled_remaining_value_unverified",
     payloadRedacted: true,
   }));
   return readiness;
@@ -313,16 +293,16 @@ const safeNayaxReference = (value: string | null | undefined) =>
   Boolean(value && /^[A-Za-z0-9][A-Za-z0-9._:-]{5,79}$/.test(value));
 
 const resolveRefundAmountCents = (refundCase: RefundCaseForExecution) =>
-  refundCase.refund_amount_cents ?? 0;
+  resolveNormalNayaxRefundAmountCents({
+    matchedTransactionAmountCents: refundCase.matched_nayax_amount_cents,
+  }) ?? 0;
 
 const getPreflightBlocks = ({
   refundCase,
   actorCanManageCase,
-  globalMaxAmountCents,
 }: {
   refundCase: RefundCaseForExecution;
   actorCanManageCase: boolean;
-  globalMaxAmountCents: number;
 }) => {
   const blocks: string[] = [];
   const machine = refundCase.reporting_machines;
@@ -365,21 +345,12 @@ const getPreflightBlocks = ({
   if (refundCase.matched_nayax_amount_cents !== amountCents) {
     blocks.push("validation_rejected");
   }
-  if (amountCents > globalMaxAmountCents) {
-    blocks.push("amount_cap_exceeded");
-  }
   if (refundCase.reporting_adjustment_id) blocks.push("already_refunded");
   if (!machine || machine.status !== "active") {
     blocks.push("configuration_missing");
   }
   if (!machine?.nayax_machine_id) blocks.push("configuration_missing");
   if (!machine?.nayax_refunds_enabled) blocks.push("feature_disabled");
-  if (
-    machine?.nayax_refund_max_amount_cents &&
-    amountCents > machine.nayax_refund_max_amount_cents
-  ) {
-    blocks.push("amount_cap_exceeded");
-  }
 
   return Array.from(new Set(blocks));
 };
@@ -434,7 +405,10 @@ serve(async (req) => {
       !new Set([
         "execute",
         "availability",
-        "controlled_owner_pilot",
+        // Preserve the retired forensic route so a legacy pending request
+        // receives its explicit fail-closed recovery result instead of being
+        // mistaken for an unknown operation. The support flag and revoked RPC
+        // grants below still prevent any provider write.
         "approve_pending_request",
       ]).has(operation)
     ) {
@@ -442,9 +416,6 @@ serve(async (req) => {
     }
 
     const executionConfig = resolveNayaxRefundExecutionConfig((name) =>
-      Deno.env.get(name)
-    );
-    const rolloutConfig = resolveNayaxRefundRolloutConfig((name) =>
       Deno.env.get(name)
     );
     const requestedCaseId = sanitizeText(body?.caseId, 80);
@@ -464,11 +435,7 @@ serve(async (req) => {
     if (!refundCase) {
       return jsonResponse({ error: "Refund case not found." }, 404);
     }
-    const caseExecutionConfig = resolveNayaxRefundCaseExecutionConfig({
-      executionConfig,
-      rolloutConfig,
-      caseId: refundCase.id,
-    });
+    const caseExecutionConfig = executionConfig;
     const { data: actorCanPerformOfficialAction, error: accessError } =
       await supabase.rpc(
         "can_perform_refund_official_action",
@@ -484,8 +451,8 @@ serve(async (req) => {
           caseId,
           transactionConfirmed: refundCase.matched_nayax_transaction_id !== null,
           canIssueCardRefund: false,
-          refundAmountCents: refundCase.refund_amount_cents,
-          machineLimitCents: refundCase.reporting_machines?.nayax_refund_max_amount_cents ?? null,
+          refundAmountCents: refundCase.matched_nayax_amount_cents,
+          machineLimitCents: null,
           caseVersion: refundCase.official_action_version,
           payloadRedacted: true,
         });
@@ -527,10 +494,6 @@ serve(async (req) => {
           ?.trim() || ""
         : "";
       const managerContract = parseConfiguredManagerContract();
-      const releaseAuthorized = isNayaxRefundCaseReleaseAuthorized({
-        rolloutConfig,
-        caseId: refundCase.id,
-      });
       const rawApprovalContract = Deno.env.get(
         "NAYAX_REFUND_PENDING_APPROVAL_CONTRACT_JSON",
       )?.trim() ?? "";
@@ -554,7 +517,6 @@ serve(async (req) => {
           ? "official_actions_disabled"
           : null,
         ...caseExecutionConfig.blocks,
-        !releaseAuthorized ? "production_canary_required" : null,
         Deno.env.get("NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_ENABLED")?.trim()
             .toLowerCase() !== "true"
           ? "pending_approval_recovery_disabled"
@@ -775,8 +737,6 @@ serve(async (req) => {
     const preflightBlocks = getPreflightBlocks({
       refundCase,
       actorCanManageCase: true,
-      globalMaxAmountCents: executionConfig.maxAmountCents ??
-        Number.MAX_SAFE_INTEGER,
     });
     const duplicateTransactionBlocks = await getDuplicateTransactionBlocks(
       refundCase,
@@ -860,13 +820,7 @@ serve(async (req) => {
         // The broad production confirmations remain false. Exact sponsor and
         // written-contract evidence is bound to the one database authorization
         // by private SHA-256 digests instead of enabling shared provider gates.
-        executionConfig.maxAmountCents !== amountCents
-          ? "exact_amount_cap_missing"
-          : null,
-        executionConfig.dailyAmountCapCents !== amountCents
-          ? "exact_daily_amount_cap_missing"
-          : null,
-        executionConfig.dailyCountCap !== 1 ? "exact_count_cap_missing" : null,
+        "controlled_pilot_retired",
         !executionConfig.idempotencySecret
           ? "idempotency_secret_missing"
           : null,
@@ -1157,11 +1111,6 @@ serve(async (req) => {
       caseExecutionConfig.executorAssertion,
       managerContract?.contractVersion ?? null,
     );
-    const releaseAuthorized = isNayaxRefundCaseReleaseAuthorized({
-      rolloutConfig,
-      caseId: refundCase.id,
-    });
-
     const preExecutionBlocks = Array.from(
       new Set([
         ...(NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED
@@ -1188,7 +1137,6 @@ serve(async (req) => {
           ? ["provider_credentials_invalid"]
           : []),
         ...(!journalCompatible ? ["provider_journal_version_mismatch"] : []),
-        ...(!releaseAuthorized ? ["production_canary_required"] : []),
       ]),
     );
     if (preExecutionBlocks.length > 0) {
@@ -1196,10 +1144,10 @@ serve(async (req) => {
         ? "authorization_failed"
         : preExecutionBlocks.includes("official_actions_disabled")
         ? "official_actions_disabled"
+        : preExecutionBlocks.includes("provider_remaining_value_unverified")
+        ? "provider_remaining_value_unverified"
         : preExecutionBlocks.includes("already_refunded")
         ? "already_refunded"
-        : preExecutionBlocks.includes("amount_cap_exceeded")
-        ? "amount_cap_exceeded"
         : preExecutionBlocks.includes("duplicate_transaction")
         ? "manual_review"
         : preExecutionBlocks.includes("manual_review")
@@ -1216,8 +1164,7 @@ serve(async (req) => {
             preExecutionBlocks.includes("machine_account_key_missing") ||
             preExecutionBlocks.includes("provider_request_credential_missing") ||
             preExecutionBlocks.includes("provider_approval_credential_missing") ||
-            preExecutionBlocks.includes("provider_journal_version_mismatch") ||
-            preExecutionBlocks.includes("production_canary_required")
+            preExecutionBlocks.includes("provider_journal_version_mismatch")
         ? "configuration_missing"
         : "validation_rejected";
 
@@ -1380,8 +1327,8 @@ serve(async (req) => {
               p_expected_case_version: expectedOfficialActionVersion,
               p_idempotency_key: request.idempotencyKey,
               p_amount_cents: request.amountCents,
-              p_daily_amount_cap_cents: executionConfig.dailyAmountCapCents,
-              p_daily_count_cap: executionConfig.dailyCountCap,
+              p_daily_amount_cap_cents: null,
+              p_daily_count_cap: null,
               p_currency_code: request.currencyCode,
               p_provider_contract_version: managerContract!.contractVersion,
               p_journal_contract_version: NAYAX_REFUND_JOURNAL_CONTRACT_VERSION,

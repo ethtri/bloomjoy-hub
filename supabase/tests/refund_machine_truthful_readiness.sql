@@ -114,10 +114,10 @@ select is(
 
 select ok(
   (select nayax_refunds_enabled
-     and nayax_refund_max_amount_cents = 5000
+     and nayax_refund_max_amount_cents is null
      and nayax_refunds_disabled_reason is null
    from public.reporting_machines where id = 'b0300000-0000-4000-8000-000000000001'),
-  'Activation always applies the $50 launch limit and clears the disabled reason'
+  'Activation enables production refunds without a launch cap and clears the disabled reason'
 );
 
 select is(
@@ -213,11 +213,11 @@ select ok(
 );
 
 select ok(
-  (select nayax_refunds_enabled and nayax_refund_max_amount_cents = 5000
+  (select nayax_refunds_enabled and nayax_refund_max_amount_cents is null
    from public.reporting_machines where id = 'b0300000-0000-4000-8000-000000000002')
   and (select not nayax_refunds_enabled and nayax_refunds_disabled_reason = 'owner_pause'
    from public.reporting_machines where id = 'b0300000-0000-4000-8000-000000000003'),
-  'Bulk activation applies the standard cap and never overrides an approved exception'
+  'Bulk activation applies no launch cap and never overrides an approved exception'
 );
 
 reset role;

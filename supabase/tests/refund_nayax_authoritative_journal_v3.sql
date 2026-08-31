@@ -509,34 +509,26 @@ select ok((
   'The v3 wrapper reserves once and sets the transaction-local journal version'
 );
 
-select pg_catalog.set_config(
-  'bloomjoy.nayax_journal_contract_version', 'nayax-provider-journal-v3', true
-);
 select ok(
-  pg_temp.capture_error($sql$insert into public.refund_case_nayax_refund_attempts (
-    refund_case_id, actor_user_id, execution_mode, status, idempotency_key,
-    amount_cents, currency_code, reconciliation_required
-  ) values (
-    '9f500000-0000-4000-8000-000000000014',
-    '9f000000-0000-4000-8000-000000000001', 'request_and_approve', 'in_progress',
-    'journal-v3-circuit-block', 700, 'USD', true
-  )$sql$) like '%account is paused for unresolved refund reconciliation%',
-  'The account circuit breaker recognizes journal v3 reservations'
+  not exists (
+    select 1
+    from pg_catalog.pg_trigger
+    where tgname = 'refund_nayax_account_circuit_breaker'
+      and not tgisinternal
+  ),
+  'Production removes the account-wide circuit-breaker trigger'
 );
 
-select pg_catalog.set_config(
-  'bloomjoy.nayax_journal_contract_version', 'nayax-provider-journal-v2', true
-);
 select ok(
-  pg_temp.capture_error($sql$insert into public.refund_case_nayax_refund_attempts (
-    refund_case_id, actor_user_id, execution_mode, status, idempotency_key,
-    amount_cents, currency_code, reconciliation_required
-  ) values (
-    '9f500000-0000-4000-8000-000000000014',
-    '9f000000-0000-4000-8000-000000000001', 'request_and_approve', 'in_progress',
-    'journal-v2-circuit-still-blocks', 700, 'USD', true
-  )$sql$) like '%account is paused for unresolved refund reconciliation%',
-  'The shared account circuit breaker preserves journal v2 behavior'
+  not (
+    public.refund_nayax_account_execution_hold('JOURNAL-V3-ACCOUNT')
+      ->> 'blocked'
+  )::boolean
+  and (
+    public.refund_nayax_account_execution_hold('JOURNAL-V3-ACCOUNT')
+      ->> 'unresolvedCount'
+  )::integer >= 1,
+  'Journal v2/v3 account history is observable but never blocks unrelated transactions'
 );
 
 select pg_catalog.set_config('bloomjoy.nayax_journal_contract_version', '', true);

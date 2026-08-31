@@ -150,8 +150,8 @@ for (const retiredPilotGate of [
 }
 assert.match(
   productionRunbook,
-  /exactly 67 reviewed synthetic screenshots/,
-  'Production runbook must use the current 67-screenshot evidence inventory'
+  /exactly 68 reviewed synthetic screenshots/,
+  'Production runbook must use the current 68-screenshot evidence inventory'
 );
 assert.doesNotMatch(
   productionRunbook,
@@ -189,7 +189,7 @@ const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-relea
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
 const reviewedManagerSourceSha256 = {
   'refund-manager-action-step-up':
-    '270bd5bfd913be3493c04c65fa25a49f997b183fe8708ba9b2c3cc3a92b31c3c',
+    'f02e601678638646bf407612fd88311d868f24b2d1533bc8e83046df68ba04b6',
   'refund-manager-totp-enrollment':
     'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
 };
@@ -224,8 +224,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    101,
-    'Refund release inventory must cover exactly 101 discovered refund/Nayax migrations'
+    102,
+    'Refund release inventory must cover exactly 102 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -266,6 +266,10 @@ try {
   assert(
     repositoryMigrations.includes('20260830182941_refund_customer_correction_persistence.sql'),
     'The customer-correction persistence migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260830202234_refund_production_simplification.sql'),
+    'The transaction-scoped production simplification migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260830205449_refund_automation_scheduler_30_minute_cadence.sql'),

@@ -2,37 +2,27 @@ export type NayaxRefundConfigBlock =
   | "kill_switch_active"
   | "feature_disabled"
   | "dry_run_active"
-  | "per_refund_cap_missing"
-  | "daily_amount_cap_missing"
-  | "daily_count_cap_missing"
   | "idempotency_secret_missing"
   | "executor_assertion_missing"
   | "manager_contract_unconfirmed"
-  | "approval_scope_unconfirmed";
+  | "approval_scope_unconfirmed"
+  | "provider_remaining_value_unverified";
 
 export type NayaxRefundExecutionConfig = {
   blocks: NayaxRefundConfigBlock[];
   killSwitchActive: boolean;
   executionEnabled: boolean;
   dryRun: boolean;
-  maxAmountCents: number | null;
-  dailyAmountCapCents: number | null;
-  dailyCountCap: number | null;
   idempotencySecret: string | null;
   executorAssertion: string | null;
   managerContractConfirmed: boolean;
   approvalScopeConfirmed: boolean;
 };
 
-export type NayaxRefundRolloutConfig = {
-  broadReopenApproved: boolean;
-  canaryEnabled: boolean;
-  canaryCaseId: string | null;
-};
-
 export type NayaxRefundAvailabilityBlockReason =
   | "official_actions_disabled"
   | "kill_switch_active"
+  | "provider_remaining_value_unverified"
   | "configuration_missing";
 
 export type NayaxRefundAvailability = {
@@ -42,10 +32,12 @@ export type NayaxRefundAvailability = {
   payloadRedacted: true;
 };
 
-// The normal card-refund function may reach the existing provider adapter, but
-// only after the authenticated mapped-manager, immutable evidence, per-machine
-// enablement, caps, kill-switch, dry-run, and idempotency checks all pass.
+// The ordinary official-action boundary remains part of the reviewed contract,
+// but direct provider execution is hard-disabled until #990 can supply and
+// atomically verify authoritative remaining-refundable value for the selected
+// transaction. This is intentionally not configurable through the environment.
 export const NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = true;
+export const NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED = false;
 
 export type NayaxRefundIdempotencyEvidence = {
   caseId: string;
@@ -57,75 +49,38 @@ export type NayaxRefundIdempotencyEvidence = {
   currencyCode: "USD";
 };
 
+export const resolveNormalNayaxRefundAmountCents = ({
+  matchedTransactionAmountCents,
+  remainingRefundableAmountCents,
+}: {
+  matchedTransactionAmountCents: number | null;
+  remainingRefundableAmountCents?: number | null;
+}) => {
+  if (
+    !Number.isSafeInteger(matchedTransactionAmountCents) ||
+    Number(matchedTransactionAmountCents) <= 0
+  ) {
+    return null;
+  }
+  if (
+    !Number.isSafeInteger(remainingRefundableAmountCents) ||
+    Number(remainingRefundableAmountCents) <= 0 ||
+    remainingRefundableAmountCents !== matchedTransactionAmountCents
+  ) {
+    // The normal manager action is full-transaction only. A provider-reported
+    // partial remainder needs a separately reviewed exception workflow.
+    return null;
+  }
+  return Number(matchedTransactionAmountCents);
+};
+
 const secureSecret = (value: string | undefined) => {
   const normalized = value?.trim() ?? "";
   return /^[A-Za-z0-9_-]{43,256}$/.test(normalized) ? normalized : null;
 };
 
-const boundedInteger = (
-  value: string | undefined,
-  maximum: number,
-) => {
-  const normalized = value?.trim() ?? "";
-  if (!/^[1-9][0-9]*$/.test(normalized)) return null;
-  const parsed = Number(normalized);
-  return Number.isSafeInteger(parsed) && parsed <= maximum ? parsed : null;
-};
-
 const exactFlag = (value: string | undefined, expected: string) =>
   value?.trim().toLowerCase() === expected;
-
-const normalizedUuid = (value: string | undefined) => {
-  const normalized = value?.trim().toLowerCase() ?? "";
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-      .test(normalized)
-    ? normalized
-    : null;
-};
-
-export const resolveNayaxRefundRolloutConfig = (
-  readEnv: (name: string) => string | undefined,
-): NayaxRefundRolloutConfig => ({
-  broadReopenApproved: exactFlag(
-    readEnv("NAYAX_REFUND_BROAD_REOPEN_APPROVED"),
-    "true",
-  ),
-  canaryEnabled: exactFlag(readEnv("NAYAX_REFUND_CANARY_ENABLED"), "true"),
-  canaryCaseId: normalizedUuid(readEnv("NAYAX_REFUND_CANARY_CASE_ID")),
-});
-
-const isExactCanaryCase = (
-  rolloutConfig: NayaxRefundRolloutConfig,
-  caseId: string,
-) =>
-  rolloutConfig.canaryEnabled &&
-  rolloutConfig.canaryCaseId !== null &&
-  rolloutConfig.canaryCaseId === caseId.trim().toLowerCase();
-
-export const isNayaxRefundCaseReleaseAuthorized = ({
-  rolloutConfig,
-  caseId,
-}: {
-  rolloutConfig: NayaxRefundRolloutConfig;
-  caseId: string;
-}) =>
-  rolloutConfig.broadReopenApproved || isExactCanaryCase(
-    rolloutConfig,
-    caseId,
-  );
-
-export const resolveNayaxRefundCaseExecutionConfig = ({
-  executionConfig,
-  rolloutConfig: _rolloutConfig,
-  caseId: _caseId,
-}: {
-  executionConfig: NayaxRefundExecutionConfig;
-  rolloutConfig: NayaxRefundRolloutConfig;
-  caseId: string;
-}): NayaxRefundExecutionConfig =>
-  // A case allowlist can bound rollout, but it can never substitute for an
-  // account-specific provider contract or approval-scope confirmation.
-  executionConfig;
 
 export const resolveNayaxRefundExecutionConfig = (
   readEnv: (name: string) => string | undefined,
@@ -141,18 +96,6 @@ export const resolveNayaxRefundExecutionConfig = (
   const dryRun = !exactFlag(
     readEnv("NAYAX_REFUND_EXECUTION_DRY_RUN"),
     "false",
-  );
-  const maxAmountCents = boundedInteger(
-    readEnv("NAYAX_REFUND_MAX_AMOUNT_CENTS"),
-    1_000_000,
-  );
-  const dailyAmountCapCents = boundedInteger(
-    readEnv("NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS"),
-    1_000_000,
-  );
-  const dailyCountCap = boundedInteger(
-    readEnv("NAYAX_REFUND_DAILY_COUNT_CAP"),
-    100,
   );
   const idempotencySecret = secureSecret(
     readEnv("NAYAX_REFUND_IDEMPOTENCY_SECRET"),
@@ -173,13 +116,13 @@ export const resolveNayaxRefundExecutionConfig = (
     killSwitchActive ? "kill_switch_active" : null,
     executionEnabled ? null : "feature_disabled",
     dryRun ? "dry_run_active" : null,
-    maxAmountCents === null ? "per_refund_cap_missing" : null,
-    dailyAmountCapCents === null ? "daily_amount_cap_missing" : null,
-    dailyCountCap === null ? "daily_count_cap_missing" : null,
     idempotencySecret === null ? "idempotency_secret_missing" : null,
     executorAssertion === null ? "executor_assertion_missing" : null,
     managerContractConfirmed ? null : "manager_contract_unconfirmed",
     approvalScopeConfirmed ? null : "approval_scope_unconfirmed",
+    NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED
+      ? null
+      : "provider_remaining_value_unverified",
   ].filter((block): block is NayaxRefundConfigBlock => block !== null);
 
   return {
@@ -187,9 +130,6 @@ export const resolveNayaxRefundExecutionConfig = (
     killSwitchActive,
     executionEnabled,
     dryRun,
-    maxAmountCents,
-    dailyAmountCapCents,
-    dailyCountCap,
     idempotencySecret,
     executorAssertion,
     managerContractConfirmed,
@@ -209,6 +149,10 @@ export const resolveNayaxRefundAvailability = ({
     blockReason = "official_actions_disabled";
   } else if (executionConfig.blocks.includes("kill_switch_active")) {
     blockReason = "kill_switch_active";
+  } else if (
+    executionConfig.blocks.includes("provider_remaining_value_unverified")
+  ) {
+    blockReason = "provider_remaining_value_unverified";
   } else if (executionConfig.blocks.length > 0) {
     blockReason = "configuration_missing";
   }

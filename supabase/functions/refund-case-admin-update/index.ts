@@ -32,11 +32,8 @@ import {
 } from "../_shared/refund-evidence-selection.ts";
 import { isRefundCustomerSafeDenialReason } from "../_shared/refund-denial.ts";
 import {
-  isNayaxRefundCaseReleaseAuthorized,
   NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
-  resolveNayaxRefundCaseExecutionConfig,
   resolveNayaxRefundExecutionConfig,
-  resolveNayaxRefundRolloutConfig,
 } from "../_shared/nayax-refund-gates.ts";
 // @deno-types="../_shared/nayax-refund-provider.d.ts"
 import {
@@ -47,7 +44,6 @@ import {
 import {
   mergeRuntimeRefundReadiness,
   parseDatabaseRefundReadiness,
-  parseNayaxRefundDailyUsage,
   type RefundReadiness,
 } from "../_shared/refund-readiness.ts";
 import { deriveManualExternalCashCompletionContext } from "../_shared/manual-external-cash-completion.ts";
@@ -282,14 +278,6 @@ const resolveSelectionRefundReadiness = async ({
   const executionConfig = resolveNayaxRefundExecutionConfig((name) =>
     Deno.env.get(name)
   );
-  const rolloutConfig = resolveNayaxRefundRolloutConfig((name) =>
-    Deno.env.get(name)
-  );
-  const caseExecutionConfig = resolveNayaxRefundCaseExecutionConfig({
-    executionConfig,
-    rolloutConfig,
-    caseId,
-  });
   const accountKey = normalizeAccountKey(
     afterRow.reporting_machines?.nayax_account_key ?? "",
   );
@@ -307,13 +295,13 @@ const resolveSelectionRefundReadiness = async ({
   }
   let providerJournalAvailable = false;
   if (
-    caseExecutionConfig.executorAssertion &&
+    executionConfig.executorAssertion &&
     managerContract?.contractVersion === NAYAX_REFUND_PROVIDER_CONTRACT_VERSION &&
     managerContract.baseUrl === NAYAX_REFUND_PRODUCTION_BASE_URL
   ) {
     const { data, error } = await supabase.rpc(
       "service_get_nayax_refund_provider_journal_capability_v3",
-      { p_executor_assertion: caseExecutionConfig.executorAssertion },
+      { p_executor_assertion: executionConfig.executorAssertion },
     );
     const capability = !error && data && typeof data === "object"
       ? data as Record<string, unknown>
@@ -353,23 +341,14 @@ const resolveSelectionRefundReadiness = async ({
     accountKey &&
       writeCredentialsReady &&
       managerContract &&
-      providerJournalAvailable &&
-      isNayaxRefundCaseReleaseAuthorized({ rolloutConfig, caseId }),
+      providerJournalAvailable,
   );
-  const { data: dailyUsageValue, error: dailyUsageError } = await supabase.rpc(
-    "service_refund_nayax_daily_usage",
-  );
-  const dailyUsage = dailyUsageError
-    ? null
-    : parseNayaxRefundDailyUsage(dailyUsageValue);
 
   return mergeRuntimeRefundReadiness({
     databaseReadiness,
-    executionConfig: caseExecutionConfig,
+    executionConfig,
     officialActionsEnabled: NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
     providerCredentialAvailable,
-    dailyAmountUsedCents: dailyUsage?.dailyAmountUsedCents ?? null,
-    dailyCountUsed: dailyUsage?.dailyCountUsed ?? null,
   });
 };
 

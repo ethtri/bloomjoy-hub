@@ -255,9 +255,6 @@ function run() {
       'NAYAX_REFUND_MANAGER_CONTRACT_JSON',
       'NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED',
       'NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED',
-      'NAYAX_REFUND_MAX_AMOUNT_CENTS',
-      'NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS',
-      'NAYAX_REFUND_DAILY_COUNT_CAP',
       'NAYAX_REFUND_IDEMPOTENCY_SECRET',
       'NAYAX_REFUND_EXECUTOR_ASSERTION'
     );
@@ -402,22 +399,6 @@ function run() {
       }
     }
 
-    for (const [key, maximum] of [
-      ['NAYAX_REFUND_MAX_AMOUNT_CENTS', 1_000_000],
-      ['NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS', 1_000_000],
-      ['NAYAX_REFUND_DAILY_COUNT_CAP', 100],
-    ]) {
-      const normalized = String(env[key] || '').trim();
-      const numeric = Number(normalized);
-      if (
-        normalized &&
-        (!/^[1-9][0-9]*$/.test(normalized) ||
-          !Number.isSafeInteger(numeric) ||
-          numeric > maximum)
-      ) {
-        errors.push(`${key} must be a positive bounded integer no greater than ${maximum}.`);
-      }
-    }
 
     if (String(env.NAYAX_REFUND_EXECUTION_KILL_SWITCH || '').trim().toLowerCase() !== 'true') {
       warnings.push(
@@ -484,7 +465,7 @@ function run() {
       'Nayax Lynx base URL configured',
       'Nayax account-specific token or fallback token configured',
       'Exact production Nayax manager contract and account-scoped request/approval credentials configured',
-      'Nayax refund execution, manager-contract, approval-scope, caps, and idempotency gates configured fail-closed',
+      'Nayax refund execution, manager-contract, approval-scope, and idempotency gates configured fail-closed',
       'Refund reminder/escalation scheduler secret configured',
       'Resend sender and API key configured for refund-case-intake',
       'Supabase service-role key configured for refund Edge Functions',

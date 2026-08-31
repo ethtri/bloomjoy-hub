@@ -361,25 +361,6 @@ Deno.test('canonical matching lifecycle keeps non-selectable results in review',
   );
 });
 
-Deno.test('account reconciliation hold explains the account-level circuit breaker', () => {
-  const result = getRefundManagerState({
-    ...baseCase,
-    hasMatchedNayaxTransaction: true,
-    refundReadiness: {
-      transactionConfirmed: true,
-      canIssueCardRefund: false,
-      blockReason: 'account_reconciliation_hold',
-    },
-  });
-
-  assertEquals(result.id, 'refund_unavailable', 'account hold state');
-  assertEquals(
-    result.nextStep,
-    'Card refunds for this payment account are paused because an earlier result still needs review.',
-    'account hold guidance'
-  );
-});
-
 Deno.test('uncertain provider result blocks a second action even when old status looks ready', () => {
   const result = getRefundManagerState({
     ...baseCase,
@@ -429,6 +410,25 @@ Deno.test('confirmed transaction shows the exact safe reason when refunding is u
     result.nextStep,
     'Card refunds are not enabled for this machine. An administrator needs to enable them.',
     'specific safe reason'
+  );
+});
+
+Deno.test('remaining-value guard directs managers to the reviewed portal fallback', () => {
+  const result = getRefundManagerState({
+    ...baseCase,
+    hasMatchedNayaxTransaction: true,
+    refundReadiness: {
+      transactionConfirmed: true,
+      canIssueCardRefund: false,
+      blockReason: 'provider_remaining_value_unverified',
+    },
+  });
+
+  assertEquals(result.id, 'refund_unavailable', 'guarded confirmed state');
+  assertEquals(
+    result.nextStep,
+    'Direct card refunds are unavailable until Nayax remaining refundable value can be verified. Use the reviewed Nayax portal fallback.',
+    'manual portal fallback guidance'
   );
 });
 

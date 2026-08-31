@@ -1718,10 +1718,10 @@ select ok(
       and payload -> 'refundReadiness' ->> 'canIssueCardRefund' = 'true'
       and payload -> 'refundReadiness' -> 'blockReason' = 'null'::jsonb
       and payload -> 'refundReadiness' ->> 'refundAmountCents' = '450'
-      and payload -> 'refundReadiness' ->> 'machineLimitCents' = '2000'
+      and payload -> 'refundReadiness' -> 'machineLimitCents' = 'null'::jsonb
     from pg_temp.nayax_selection_result
   ),
-  'First confirmation returns the updated case and a ready explicit-refund contract'
+  'First confirmation returns a ready production refund without a machine launch cap'
 );
 
 select ok(

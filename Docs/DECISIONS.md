@@ -1,6 +1,22 @@
 # Decisions
 
-Entries are newest-first. For production refund work, the 2026-08-28 capability-versus-automation and canonical Nayax identity decisions plus the 2026-08-27 exact response-contract decision govern. Older conflicting pilot, unfamiliar-`2xx`, permission, and TOTP mechanics are retained only as historical audit records.
+Entries are newest-first. For production refund work, the 2026-08-30 production-simplification decision below governs. Older conflicting pilot, cap, account-hold, canary, unfamiliar-`2xx`, permission, and TOTP mechanics are retained only as historical audit records.
+
+## 2026-08-30 - Refund safety is transaction-scoped in production (`#990`)
+
+- Bloomjoy is in production. Exact-case canaries, first-proof limits, pilot cohorts, observers, staffed windows, and repeated go/no-go ceremony are retired.
+- A customer may receive refunds for multiple legitimate purchases. One exact Nayax transaction may support only one Bloomjoy refund case.
+- The normal refund amount may be only the exact full remaining allocation for the selected Nayax transaction. Bloomjoy does not enforce arbitrary per-refund, machine, daily amount, or daily count launch caps, and the browser cannot supply or edit the direct execution amount.
+- A confirmed rejection or authoritative proof that no refund occurred permits a fresh manager-confirmed attempt generation. Unknown or pending outcomes pause only that transaction; unrelated customers and transactions continue.
+- Direct API availability and execution are immutably blocked as `provider_remaining_value_unverified`, before reservation or provider orchestration, until #990/#751 provide authoritative cumulative-refunded and remaining-refundable ingestion plus an atomic pre-request recheck. Read-only matching remains available. Refund Operations may approve the provider-free reviewed Nayax portal fallback for either legacy manual evidence or an ordinary exact matched card/wallet transaction only under that exact hard-guard reason; kill-switch, reconciliation, duplicate, and authority failures do not expose the ordinary fallback. Approval creates no provider call, report, or customer message. Completion requires evidence that Nayax refunded the full selected amount, while a smaller or partial result remains on hold.
+- Any later direct production path keeps one explicit money confirmation, mapped-manager authorization, exact transaction evidence, row locking, idempotency, one live attempt, immutable provider journaling, confirmed-success-only customer/reporting completion, server-only credentials, and a systemic-incident kill switch.
+- Customer amount, card type, and last four are matching clues. Bloomjoy searches Nayax itself before asking a customer for more work; manager-confirmed exact portal evidence is authoritative.
+
+The concise operating standard is `Docs/REFUND_PRODUCTION_POLICY.md`.
+
+**Why this choice**
+- Nayax supports partial refunds, so original sale amount alone cannot prove the remaining refundable allocation. Provider rejection is a backstop, not a substitute for authoritative pre-request remaining-value evidence. Local transaction identity and idempotency still protect Bloomjoy concurrency, reporting, and messaging.
+- Customer-, account-, and volume-wide pilot blocks delay unrelated legitimate refunds without adding transaction-level safety.
 
 ## 2026-08-30 - Refund automation runs every 30 minutes (`#1054`)
 
@@ -130,12 +146,12 @@ This supersedes the 2026-08-22 unfamiliar-request-`2xx` advancement rule and the
 - Bloomjoy accepts the bounded business risk that a provider failure may waste time or that an incorrectly selected transaction may return a small amount to the wrong cardholder. The first risk moves no money; the second is constrained by the $10 operating limit, exact matching, manager confirmation, and the fact that Nayax returns funds only to the selected transaction's payment method.
 - This acceptance removes the non-customer-only canary, manufactured purchase, staffed window, separate observer/rollback roles, recruited UAT, first-ten sample, staged cohort, and repeated go/no-go decisions as launch requirements. One manager's actual **Refund $X** confirmation remains the intentional human payment decision.
 - One manager action creates one immutable server-owned attempt generation. That generation permits at most one Nayax refund request and at most one Nayax approval. Double-clicks, reloads, concurrent workers, client/network retries, and schedule replays must reuse or reconcile that generation and cannot create another provider send.
-- There is no bulk-refund action. Per-refund and daily count/value caps, exact manager/machine/transaction authorization, idempotency uniqueness, one-live-attempt constraints, one-provider-stage constraints, the account circuit breaker, and the kill switch remain mandatory server controls.
+- There is no bulk-refund action. At that launch checkpoint, per-refund/daily caps and an account circuit breaker were still enforced; the 2026-08-30 production decision above retires them. Exact manager/machine/transaction authorization, idempotency uniqueness, one-live-attempt constraints, one-provider-stage constraints, and the kill switch remain mandatory server controls.
 - A confirmed success completes the case, reporting adjustment, audit trail, and customer message once. Authoritative proof that no refund occurred may create one new generation. A timeout, unknown result, or conflicting record remains locked in Refund Operations and must be checked in Nayax before any manual refund or later attempt.
 - Automatic Nayax report-feed reconciliation in `#973`/`#971` is a nonblocking improvement. The current manual Nayax/DTM exception path with a 60-minute target is an accepted operational limitation.
 - `#427` starts a 72-hour post-launch observation with the first legitimate direct refund and reviews whatever genuine refunds occur. No minimum transaction count or manufactured activity is required.
 
-This decision supersedes every earlier instruction that requires a fresh non-customer canary, a separate broad-reopen approval, recruited UAT, or Nayax automatic readback before ordinary production refunds can operate. It does not supersede the exactly-once, authorization, matching, cap, journal, circuit-breaker, or uncertainty-hold controls.
+This decision superseded earlier canary and ceremony requirements. The later 2026-08-30 production decision above also retires the launch caps and account-wide circuit breaker while preserving exactly-once, authorization, exact matching, journal, and transaction-scoped uncertainty controls.
 
 ## 2026-08-27 - Only authoritative no-refund evidence may release a fresh manager action (`#990`)
 
@@ -159,7 +175,7 @@ This clarifies earlier “never retry an uncertain result” decisions: uncertai
 - This exception requires `NAYAX_REFUND_CANARY_UNPROVEN_PROVIDER_APPROVED=true`, the existing canary switch, and an exact UUID match. It removes only the manager-contract-confirmation and approval-scope-confirmation blocks for that one case. Kill switch, execution, dry-run, amount/daily caps, idempotency, executor identity, manager authority, exact transaction evidence, journal compatibility, account circuit breaker, and separate request/approval credentials remain mandatory.
 - The exception is disabled whenever broad reopening is approved. Broad execution still requires independent confirmation of both provider facts. An unknown, denied, timed-out, malformed, or unfamiliar result remains a no-retry reconciliation hold and cannot be promoted to success.
 
-This records why the exact-case mechanism exists in deployed code. The 2026-08-27 operating decision supersedes its non-customer-only and repeated-approval ceremony. The exact-case switch remains useful as a technical blast-radius control when broad execution is not appropriate.
+This records why the exact-case mechanism existed. The 2026-08-30 production decision above fully retires that rollout switch; exact transaction binding remains the safety boundary.
 
 ## 2026-08-25 - Historical implementation of the database-authoritative execution contract (`#961`; current activation follows 2026-08-27)
 

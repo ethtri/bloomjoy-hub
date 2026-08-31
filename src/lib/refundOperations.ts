@@ -316,8 +316,8 @@ export type RefundReadinessBlockReason =
   | 'duplicate_transaction'
   | 'case_not_refundable'
   | 'machine_not_enabled'
-  | 'cap_exceeded'
   | 'globally_paused'
+  | 'provider_remaining_value_unverified'
   | 'provider_unavailable';
 
 export type RefundReadiness = {
@@ -430,6 +430,7 @@ export type RefundCaseRecord = {
   manualNayaxPortalEnabled?: boolean;
   manualNayaxEvidenceSelected?: boolean;
   manualNayaxLocationTimezone?: string | null;
+  reviewedNayaxPortalFallbackKind?: 'legacy_manual_evidence' | 'ordinary_exact_match';
   lifecycle?: RefundLifecycleContract | null;
 };
 
@@ -697,17 +698,16 @@ export type RefundManagerSetupMachine = {
     | 'transaction_matching_off'
     | 'transaction_lookup_not_ready'
     | 'manager_route_not_ready'
-    | 'machine_limit_missing'
     | null;
 };
 
 export type RefundManagerSetup = {
   machines: RefundManagerSetupMachine[];
-  standardLaunchLimitCents: number;
+  standardLaunchLimitCents: number | null;
   globalRefunds: {
     available: boolean;
     paused: boolean;
-    blockReason: 'official_actions_disabled' | 'kill_switch_active' | 'configuration_missing' | null;
+    blockReason: 'official_actions_disabled' | 'kill_switch_active' | 'provider_remaining_value_unverified' | 'configuration_missing' | null;
   };
 };
 
@@ -1005,9 +1005,6 @@ export type NayaxCardRefundExecutionBlock =
   | 'feature_disabled'
   | 'kill_switch_active'
   | 'already_refunded'
-  | 'amount_cap_exceeded'
-  | 'daily_amount_cap_exceeded'
-  | 'daily_count_cap_exceeded'
   | (string & {});
 
 export type NayaxCardRefundExecutionErrorCode =
@@ -1018,7 +1015,6 @@ export type NayaxCardRefundExecutionErrorCode =
   | 'feature_disabled'
   | 'kill_switch_active'
   | 'already_refunded'
-  | 'amount_cap_exceeded'
   | 'provider_contract_unconfirmed'
   | 'provider_execution_not_yet_enabled'
   | (string & {});
@@ -1284,7 +1280,7 @@ const emptyOverview: RefundOperationsOverview = {
 
 const emptyRefundManagerSetup: RefundManagerSetup = {
   machines: [],
-  standardLaunchLimitCents: 5000,
+  standardLaunchLimitCents: null,
   globalRefunds: { available: false, paused: true, blockReason: 'configuration_missing' },
 };
 
@@ -1562,6 +1558,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         manualNayaxPortalEnabled: true,
         manualNayaxEvidenceSelected: false,
         manualNayaxLocationTimezone: 'America/New_York',
+        reviewedNayaxPortalFallbackKind: 'legacy_manual_evidence',
         nayaxLookupSummary: {
           lookupStatus: 'setup_needed',
           candidateCount: 0,
@@ -1894,6 +1891,7 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
         manualNayaxPortalEnabled: boolean;
         manualNayaxEvidenceSelected: boolean;
         manualNayaxLocationTimezone: string | null;
+        reviewedNayaxPortalFallbackKind?: 'legacy_manual_evidence' | 'ordinary_exact_match';
       }>)
     : [];
   const manualNayaxByCaseId = new Map(
@@ -1928,6 +1926,7 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
         manualNayaxPortalEnabled: manualNayax.manualNayaxPortalEnabled,
         manualNayaxEvidenceSelected: manualNayax.manualNayaxEvidenceSelected,
         manualNayaxLocationTimezone: manualNayax.manualNayaxLocationTimezone,
+        reviewedNayaxPortalFallbackKind: manualNayax.reviewedNayaxPortalFallbackKind,
       } : {}),
     };
   });
@@ -2185,6 +2184,7 @@ export const fetchRefundManagerSetup = async (): Promise<RefundManagerSetup> => 
   const safeGlobalBlockReason =
     globalBlockReason === 'official_actions_disabled' ||
     globalBlockReason === 'kill_switch_active' ||
+    globalBlockReason === 'provider_remaining_value_unverified' ||
     globalBlockReason === 'configuration_missing'
       ? globalBlockReason
       : globalAvailability?.available
@@ -2741,7 +2741,7 @@ export const activateQualifiedRefundMachinesAdmin = async (reason: string) => {
     ok: boolean;
     activatedCount: number;
     approvedExceptionCount: number;
-    standardLaunchLimitCents: number;
+    standardLaunchLimitCents: number | null;
   };
 };
 

@@ -1023,10 +1023,10 @@ select ok(
   not (public.refund_nayax_account_execution_hold(
     'RESOLUTION-RETRY-ACCOUNT'
   ) ->> 'blocked')::boolean
-  and (public.refund_nayax_account_execution_hold(
+  and not (public.refund_nayax_account_execution_hold(
     'RESOLUTION-ACCOUNT'
   ) ->> 'blocked')::boolean,
-  'The resolved account reopens while an account with unresolved attempts remains paused');
+  'An unresolved transaction never pauses unrelated refunds on its account');
 select ok((
   select lifecycle ->> 'stage' = 'transaction_confirmed'
     and (lifecycle ->> 'safeRetryEligible')::boolean
@@ -1055,7 +1055,7 @@ select ok(
     'public.refund_nayax_retry_safe_resolution_is_historical(uuid)',
     'execute'
   ),
-  'The historical account-hold predicate remains private to trusted database functions');
+  'The historical resolution predicate remains private to trusted database functions');
 
 -- Projection-only fixtures model later immutable generations without invoking
 -- provider or customer-delivery code. The generation guard is bypassed only
@@ -1119,12 +1119,13 @@ insert into public.refund_case_nayax_refund_attempts (
 );
 
 select ok((
-  select (hold ->> 'blocked')::boolean
+  select not (hold ->> 'blocked')::boolean
     and (hold ->> 'unresolvedCount')::integer = 1
+    and (hold ->> 'legacyHoldRetired')::boolean
   from (select public.refund_nayax_account_execution_hold(
     'RESOLUTION-RETRY-ACCOUNT'
   ) hold) checked
-), 'A genuinely unresolved current generation still fails closed while resolved history stays excluded');
+), 'An unresolved current transaction remains visible without blocking its account');
 
 select ok(
   not public.refund_nayax_retry_safe_resolution_is_historical(
