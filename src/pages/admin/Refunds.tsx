@@ -636,7 +636,7 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
   if (refundCase.status === 'draft') {
     return 'Review the Gmail message, then ask for the missing location, purchase time, payment method, and transaction details.';
   }
-  if (refundCase.status === 'waiting_on_customer') {
+  if (isWaitingCase(refundCase, false)) {
     return 'Wait for the customer\'s reply. Review the case if the email fails or the reply is overdue.';
   }
 
@@ -915,7 +915,7 @@ const getOperationalSignals = (
   if (refundCase.cardWalletUsed) {
     signals.push({ label: 'Wallet payment', className: 'border-sky-200 bg-sky-50 text-sky-700' });
   }
-  if (refundCase.status === 'waiting_on_customer') {
+  if (isWaitingCase(refundCase, false)) {
     signals.push({ label: 'Waiting on customer', className: 'border-orange-200 bg-orange-50 text-orange-900' });
   }
   if (
@@ -1695,7 +1695,7 @@ const primaryActionConfig = (
   const matched = hasTransactionMatch(refundCase, editor);
   const noMatch = refundCase.correlationStatus === 'no_match' || (!matched && candidates.length === 0);
   const missingFields = derivePortalRefundMissingFields(refundCase);
-  const waitingOnCustomer = refundCase.status === 'waiting_on_customer' || editor.status === 'waiting_on_customer';
+  const waitingOnCustomer = isWaitingCase(refundCase, false);
   const customerAlreadyAsked =
     waitingOnCustomer &&
     latestMessage &&
@@ -4350,8 +4350,7 @@ export default function AdminRefundsPage() {
     const selectableCandidateCount = effectiveCandidates.filter(
       (candidate) => candidate.selectionAllowed !== false
     ).length;
-    const waitingOnCustomer =
-      selectedCase.status === 'waiting_on_customer' || editor.status === 'waiting_on_customer';
+    const waitingOnCustomer = isWaitingCase(selectedCase, refundOperationsAccess);
     const caseAllowsCandidateSelection =
       selectedCase.status === 'needs_review' &&
       editor.status === 'needs_review' &&
@@ -4815,8 +4814,7 @@ export default function AdminRefundsPage() {
     const hasSelectableCandidate = effectiveCandidates.some(
       (candidate) => candidate.selectionAllowed !== false
     );
-    const waitingOnCustomer =
-      selectedCase.status === 'waiting_on_customer' || editor.status === 'waiting_on_customer';
+    const waitingOnCustomer = isWaitingCase(selectedCase, refundOperationsAccess);
     const cardAmountCents = selectedCase.legacyStateReviewRequired
       ? selectedCase.paymentAmountCents
       : matchedCardSaleAmountCents ?? selectedCase.paymentAmountCents;

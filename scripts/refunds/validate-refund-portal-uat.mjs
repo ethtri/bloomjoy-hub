@@ -275,6 +275,9 @@ const buildLifecycleFixture = (stage = 'matching', stageRank = 10, managerNextAc
       label: queueLabel,
       nextAction: queueNextAction,
       safeRetryEligible: false,
+      ...(stage === 'waiting_on_customer'
+        ? { customerActionFields: ['incident_date', 'incident_time'] }
+        : {}),
       payloadRedacted: true,
     },
     payloadRedacted: true,
@@ -1496,6 +1499,12 @@ const installMockSupabaseRoutes = async (
           label,
           nextAction,
           safeRetryEligible,
+          ...(Array.isArray(refundCase.lifecycle.managerQueue?.customerActionFields)
+            ? {
+                customerActionFields:
+                  refundCase.lifecycle.managerQueue.customerActionFields,
+              }
+            : {}),
           payloadRedacted: true,
         },
       },
@@ -3035,7 +3044,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       waitingRowText.includes('Waiting on customer') &&
       waitingDetailState === 'Waiting on customer' &&
       waitingDetailNextStep.includes(
-        'Wait for the customer to reply to the existing email.'
+        'Wait for the customer to reply with purchase date, purchase time in the existing email thread.'
       ),
     JSON.stringify({
       waitingPressed: await waitingFilter.getAttribute('aria-pressed'),

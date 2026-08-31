@@ -1318,6 +1318,9 @@ const demoLifecycle = (
     label: 'Synthetic queue',
     nextAction: managerNextAction,
     safeRetryEligible: false,
+    ...(stage === 'waiting_on_customer'
+      ? { customerActionFields: ['incident_date', 'incident_time'] }
+      : {}),
     payloadRedacted: true,
   },
   lookup: {
@@ -1740,6 +1743,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         matchedNayaxCardLast4: null,
         matchedNayaxCurrencyCode: null,
         nayaxLookupCandidates: [],
+        lifecycle: demoLifecycle('waiting_on_customer', 15, 'wait_for_customer_reply'),
         assignedManagerEmail: managerEmail,
         decision: null,
         decisionReason: null,
