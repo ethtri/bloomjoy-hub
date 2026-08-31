@@ -122,15 +122,11 @@ select is(
   'The canonical queue uses the same truthful waiting contract'
 );
 
-select is_deeply(
-  array(
-    select jsonb_array_elements_text(
-      public.refund_lifecycle_contract(
-        'e4000000-0000-4000-8000-000000000001'
-      ) #> '{managerQueue,customerActionFields}'
-    )
-  ),
-  array['card_last4']::text[],
+select is(
+  public.refund_lifecycle_contract(
+    'e4000000-0000-4000-8000-000000000001'
+  ) #> '{managerQueue,customerActionFields}',
+  '["card_last4"]'::jsonb,
   'Case detail receives the exact customer-correctable fields'
 );
 

@@ -1419,8 +1419,8 @@ reset role;
 
 select is(
   (select status from public.refund_cases where id = '79600000-0000-4000-8000-000000000005'),
-  'waiting_on_customer',
-  'The legacy service wrapper remains available for non-official triage'
+  'needs_review',
+  'The legacy service wrapper cannot create unsupported customer waiting'
 );
 
 set local role service_role;
@@ -1439,8 +1439,8 @@ reset role;
 
 select is(
   (select status from public.refund_cases where id = '79600000-0000-4000-8000-000000000005'),
-  'waiting_on_customer',
-  'A rejected service approval leaves the triage case non-official'
+  'needs_review',
+  'A rejected service approval leaves the unsupported triage request in manager review'
 );
 
 set local role authenticated;

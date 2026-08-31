@@ -85,6 +85,19 @@ insert into public.refund_cases (
     'not_started', null, false
   );
 
+insert into public.refund_case_messages (
+  refund_case_id, message_type, status, recipient_email, subject, body,
+  template_key, content_source, delivery_kind, reason_code,
+  requested_fields, sent_at
+) values (
+  'd4000000-0000-4000-8000-000000000001', 'more_info', 'sent',
+  'queue-wait@example.invalid', 'Purchase details needed',
+  'Please reply with the purchase time and physical-card last four.',
+  'refund_more_info_editable_v1', 'manager_authored', 'manual',
+  'missing_information', array['incident_time', 'card_last4'],
+  statement_timestamp()
+);
+
 select is(
   public.refund_lifecycle_contract(
     'd4000000-0000-4000-8000-000000000001'
