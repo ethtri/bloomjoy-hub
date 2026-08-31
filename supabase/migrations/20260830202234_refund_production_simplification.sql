@@ -1065,7 +1065,10 @@ as $$
         'manualNayaxPortalEnabled', true,
         'manualNayaxEvidenceSelected',
           evidence.selected_at is not null
-          or refund_case.nayax_recommendation_state = 'high_confidence',
+          or coalesce(
+            refund_case.nayax_recommendation_state = 'high_confidence',
+            false
+          ),
         'manualNayaxLocationTimezone', case
           when machine.nayax_manual_portal_enabled is true
             then machine.nayax_manual_portal_timezone
