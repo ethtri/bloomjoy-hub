@@ -260,9 +260,16 @@ select ok(
 
 select pg_temp.set_auth_claims('94130000-0000-4000-8000-000000000001');
 select is(
-  public.admin_get_refund_manual_nayax_context() -> 0 ->> 'manualNayaxLocationTimezone',
+  (
+    select context ->> 'manualNayaxLocationTimezone'
+    from jsonb_array_elements(
+      public.admin_get_refund_manual_nayax_context()
+    ) context
+    where context ->> 'caseId' =
+      '94140000-0000-4000-8000-000000000001'
+  ),
   'America/New_York',
-  'The UI receives the machine timezone instead of the shared placeholder timezone'
+  'The exact legacy case receives its machine timezone instead of relying on array order'
 );
 select ok(
   pg_get_functiondef(
