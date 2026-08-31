@@ -287,9 +287,12 @@ assert(
     productionSimplificationMigration.includes('create or replace function public.admin_begin_refund_manual_nayax_portal_pre_ops_v1(') &&
     productionSimplificationMigration.includes("'reviewedNayaxPortalFallbackKind', case") &&
     productionSimplificationMigration.includes("else 'ordinary_exact_match'") &&
+    productionSimplificationMigration.includes('case_row.card_wallet_used is true') &&
+    productionSimplificationMigration.includes('case_row.nayax_match_execution_eligible is false') &&
     productionSimplificationMigration.includes("'provider_call_made', false") &&
     productionSimplificationMigration.includes("'customer_message_created', false") &&
     manualPortalTest.includes('ordinary exact matched wallet transaction') &&
+    manualPortalTest.includes('execution-ineligible physical-card fallback') &&
     manualPortalTest.includes('Ordinary exact-match portal approval makes no provider call or customer message') &&
     refundPortalUat.includes('Ordinary portal fallback cannot bypass') &&
     refundPortalUat.includes('Manual portal completion requires explicit verification of the full selected amount'),

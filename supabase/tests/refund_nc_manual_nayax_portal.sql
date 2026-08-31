@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(49);
+select plan(51);
 
 create function pg_temp.set_auth_claims(p_user_id uuid)
 returns void language plpgsql as $$
@@ -134,7 +134,8 @@ insert into public.refund_cases (
 ) values
   ('94140000-0000-4000-8000-000000000001', '94120000-0000-4000-8000-000000000001', '94110000-0000-4000-8000-000000000001', 'customer-one@example.test', 'Customer One', 'Manual Nayax refund fixture one', now() - interval '30 minutes', to_char(now() - interval '30 minutes', 'YYYY-MM-DD"T"HH24:MI'), 'America/New_York', 'exact', 'card', 700, '4242', 'visa', 'tap_card', 'exact', 'charged_no_product', 'needs_review', 'nayax_not_configured'),
   ('94140000-0000-4000-8000-000000000002', '94120000-0000-4000-8000-000000000001', '94110000-0000-4000-8000-000000000001', 'customer-two@example.test', 'Customer Two', 'Manual Nayax refund fixture two', now() - interval '25 minutes', to_char(now() - interval '25 minutes', 'YYYY-MM-DD"T"HH24:MI'), 'America/New_York', 'exact', 'card', 800, '4242', 'visa', 'tap_card', 'exact', 'charged_no_product', 'needs_review', 'nayax_not_configured'),
-  ('94140000-0000-4000-8000-000000000003', '94120000-0000-4000-8000-000000000002', '94110000-0000-4000-8000-000000000001', 'customer-standard@example.test', 'Standard Customer', 'Exact matched standard Nayax wallet refund fixture', now() - interval '20 minutes', to_char(now() - interval '20 minutes', 'YYYY-MM-DD"T"HH24:MI'), 'America/Los_Angeles', 'exact', 'card', 600, '1111', 'mastercard', 'phone_watch_wallet', 'exact', 'charged_no_product', 'needs_review', 'matched');
+  ('94140000-0000-4000-8000-000000000003', '94120000-0000-4000-8000-000000000002', '94110000-0000-4000-8000-000000000001', 'customer-standard@example.test', 'Standard Customer', 'Exact matched standard Nayax wallet refund fixture', now() - interval '20 minutes', to_char(now() - interval '20 minutes', 'YYYY-MM-DD"T"HH24:MI'), 'America/Los_Angeles', 'exact', 'card', 600, '1111', 'mastercard', 'phone_watch_wallet', 'exact', 'charged_no_product', 'needs_review', 'matched'),
+  ('94140000-0000-4000-8000-000000000004', '94120000-0000-4000-8000-000000000002', '94110000-0000-4000-8000-000000000001', 'customer-physical@example.test', 'Physical Customer', 'Exact matched physical-card ineligible fixture', now() - interval '15 minutes', to_char(now() - interval '15 minutes', 'YYYY-MM-DD"T"HH24:MI'), 'America/Los_Angeles', 'exact', 'card', 1000, '4444', 'visa', 'tap_card', 'exact', 'charged_no_product', 'needs_review', 'matched');
 
 update public.refund_cases
 set
@@ -151,7 +152,7 @@ set
   nayax_recommendation_state = 'high_confidence',
   nayax_recommendation_policy_version = '2026-07-21.v1',
   nayax_recommendation_evaluated_at = statement_timestamp(),
-  nayax_match_execution_eligible = true,
+  nayax_match_execution_eligible = false,
   card_wallet_used = true,
   wallet_provider = 'apple_pay'
 where id = '94140000-0000-4000-8000-000000000003';
@@ -167,7 +168,43 @@ insert into public.refund_case_events (
     'policy_version', '2026-07-21.v1',
     'recommendation_state', 'high_confidence',
     'selected_recommended', true,
-    'execution_eligible', true,
+    'execution_eligible', false,
+    'payload_redacted', true
+  )
+);
+
+update public.refund_cases
+set
+  correlation_source = 'nayax',
+  correlation_confidence = 0.99,
+  correlation_summary = 'Exact physical-card fixture transaction selected.',
+  refund_amount_cents = 1000,
+  matched_nayax_transaction_id = 'STANDARD-TXN-941-0004',
+  matched_nayax_site_id = 94104,
+  matched_nayax_machine_auth_time = statement_timestamp() - interval '15 minutes',
+  matched_nayax_amount_cents = 1000,
+  matched_nayax_card_last4 = '4444',
+  matched_nayax_currency_code = 'USD',
+  nayax_recommendation_state = 'high_confidence',
+  nayax_recommendation_policy_version = '2026-07-21.v1',
+  nayax_recommendation_evaluated_at = statement_timestamp(),
+  nayax_match_execution_eligible = false,
+  card_wallet_used = false,
+  wallet_provider = null
+where id = '94140000-0000-4000-8000-000000000004';
+
+insert into public.refund_case_events (
+  refund_case_id, actor_user_id, event_type, message, metadata
+) values (
+  '94140000-0000-4000-8000-000000000004',
+  '94130000-0000-4000-8000-000000000001',
+  'nayax_match_selected',
+  'Refund Operations confirmed the exact physical-card fixture transaction.',
+  jsonb_build_object(
+    'policy_version', '2026-07-21.v1',
+    'recommendation_state', 'high_confidence',
+    'selected_recommended', true,
+    'execution_eligible', false,
     'payload_redacted', true
   )
 );
@@ -402,6 +439,23 @@ select ok(
       and context ->> 'reviewedNayaxPortalFallbackKind' = 'ordinary_exact_match'
   ),
   'Refund Operations receives the reviewed portal fallback for an ordinary exact matched wallet transaction'
+);
+select ok(
+  not exists (
+    select 1
+    from jsonb_array_elements(public.admin_get_refund_manual_nayax_context()) context
+    where context ->> 'caseId' = '94140000-0000-4000-8000-000000000004'
+  ),
+  'An execution-ineligible physical-card match cannot use the ordinary portal fallback'
+);
+select ok(
+  pg_temp.capture_error(format(
+    $$select public.admin_begin_refund_manual_nayax_portal(
+      '94140000-0000-4000-8000-000000000004', %s)$$,
+    (select official_action_version from public.refund_cases
+     where id = '94140000-0000-4000-8000-000000000004')
+  )) like 'P0001:Only an exact settled Nayax match can use the reviewed portal fallback%',
+  'The server rejects an execution-ineligible physical-card fallback even when called directly'
 );
 insert into pg_temp.manual_results
 select 'standard_approval', public.admin_begin_refund_manual_nayax_portal(

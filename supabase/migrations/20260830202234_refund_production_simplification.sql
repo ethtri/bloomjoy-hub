@@ -860,7 +860,13 @@ begin
   else
     if not public.refund_nayax_direct_api_execution_hard_disabled()
       or case_row.nayax_recommendation_state <> 'high_confidence'
-      or case_row.nayax_match_execution_eligible is distinct from true
+      or not (
+        case_row.nayax_match_execution_eligible is true
+        or (
+          case_row.card_wallet_used is true
+          and case_row.nayax_match_execution_eligible is false
+        )
+      )
       or case_row.nayax_recommendation_policy_version is null
       or case_row.matched_nayax_site_id is null
       or machine_row.nayax_refunds_enabled is distinct from true
@@ -1117,7 +1123,13 @@ as $$
       or (
         public.refund_nayax_direct_api_execution_hard_disabled()
         and refund_case.nayax_recommendation_state = 'high_confidence'
-        and refund_case.nayax_match_execution_eligible is true
+        and (
+          refund_case.nayax_match_execution_eligible is true
+          or (
+            refund_case.card_wallet_used is true
+            and refund_case.nayax_match_execution_eligible is false
+          )
+        )
         and refund_case.nayax_recommendation_policy_version is not null
         and refund_case.matched_nayax_site_id is not null
         and machine.nayax_refunds_enabled is true
