@@ -27,14 +27,16 @@ values (
 insert into public.refund_cases (
   id, public_reference, reporting_machine_id, reporting_location_id,
   customer_email, issue_summary, incident_at, payment_method,
-  payment_amount_cents, refund_amount_cents, card_last4, status,
+  incident_time_resolution, payment_amount_cents, refund_amount_cents,
+  card_last4, status,
   correlation_status, correlation_source, automation_state
 ) values (
   'e4000000-0000-4000-8000-000000000001', 'RF-WAIT-TRUTH',
   'e3000000-0000-4000-8000-000000000001',
   'e2000000-0000-4000-8000-000000000001',
-  'waiting-truth@example.invalid', '', null, 'card',
-  700, 700, '4242', 'needs_review', 'no_match', 'nayax', 'under_review'
+  'waiting-truth@example.invalid', '',
+  statement_timestamp() - interval '30 minutes', 'card', 'exact',
+  700, 700, null, 'needs_review', 'no_match', 'nayax', 'under_review'
 );
 
 select lives_ok($sql$
@@ -85,9 +87,9 @@ select lives_ok($sql$
   ) values (
     'e4000000-0000-4000-8000-000000000001', 'more_info', 'sent',
     'waiting-truth@example.invalid', 'Purchase details needed',
-    'Please reply with the purchase date and time.',
+    'Please reply with the physical-card last four.',
     'refund_more_info_editable_v1', 'manager_authored', 'manual',
-    'missing_information', null, array['incident_date', 'incident_time'],
+    'missing_information', null, array['card_last4'],
     statement_timestamp()
   )
 $sql$, 'A sent deterministic request with exact missing fields is accepted');
@@ -128,7 +130,7 @@ select is_deeply(
       ) #> '{managerQueue,customerActionFields}'
     )
   ),
-  array['incident_date', 'incident_time']::text[],
+  array['card_last4']::text[],
   'Case detail receives the exact customer-correctable fields'
 );
 
