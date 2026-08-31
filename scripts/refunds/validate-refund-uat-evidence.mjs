@@ -322,7 +322,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 67, 'Evidence must enumerate all 67 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 68, 'Evidence must enumerate all 68 reviewed screenshots');
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-direct-intake-cash-desktop.png') &&
       EXPECTED_SCREENSHOTS.includes('refund-qr-intake-cash-mobile.png'),
@@ -335,8 +335,8 @@ try {
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('machine-refunds-')).length,
-    5,
-    'Evidence must include ready, ready-to-activate, setup-needed, machine-disabled, and global-pause Admin states'
+    6,
+    'Evidence must include ready, ready-to-activate, setup-needed, manual-portal-only, machine-disabled, and global-pause Admin states'
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-simple-journey-')).length,
