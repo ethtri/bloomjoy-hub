@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(51);
+select plan(52);
 
 create function pg_temp.set_auth_claims(p_user_id uuid)
 returns void language plpgsql as $$
@@ -261,15 +261,23 @@ select ok(
 select pg_temp.set_auth_claims('94130000-0000-4000-8000-000000000001');
 select is(
   (
-    select context ->> 'manualNayaxLocationTimezone'
+    select jsonb_build_object(
+      'fallbackKind', context ->> 'reviewedNayaxPortalFallbackKind',
+      'selected', (context ->> 'manualNayaxEvidenceSelected')::boolean,
+      'timezone', context ->> 'manualNayaxLocationTimezone'
+    )
     from jsonb_array_elements(
       public.admin_get_refund_manual_nayax_context()
     ) context
     where context ->> 'caseId' =
       '94140000-0000-4000-8000-000000000001'
   ),
-  'America/New_York',
-  'The exact legacy case receives its machine timezone instead of relying on array order'
+  jsonb_build_object(
+    'fallbackKind', 'legacy_manual_evidence',
+    'selected', false,
+    'timezone', 'America/New_York'
+  ),
+  'Legacy portal work is discoverable before evidence with its exact kind, unselected state, and machine timezone'
 );
 select ok(
   pg_get_functiondef(
@@ -361,6 +369,22 @@ select lives_ok(format(
   (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001'),
   (select value ->> 'candidateToken' from pg_temp.manual_results where key = 'candidate')
 ), 'The established confirmation boundary accepts the exact private manual evidence');
+reset role;
+
+set local role authenticated;
+select pg_temp.set_auth_claims('94130000-0000-4000-8000-000000000001');
+select is(
+  (
+    select (context ->> 'manualNayaxEvidenceSelected')::boolean
+    from jsonb_array_elements(
+      public.admin_get_refund_manual_nayax_context()
+    ) context
+    where context ->> 'caseId' =
+      '94140000-0000-4000-8000-000000000001'
+  ),
+  true,
+  'The exact legacy context becomes selected after the guarded evidence-selection boundary'
+);
 reset role;
 
 select is((select matched_nayax_site_id from public.refund_cases where id = '94140000-0000-4000-8000-000000000001'), null::integer, 'Confirmed manual evidence remains honest about the absent API site');

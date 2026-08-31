@@ -1069,8 +1069,6 @@ as $$
         'manualNayaxLocationTimezone', location.timezone,
         'reviewedNayaxPortalFallbackKind', case
           when machine.nayax_manual_portal_enabled is true
-            and evidence.selected_at is not null
-            and refund_case.nayax_recommendation_state = 'manual_exception'
             then 'legacy_manual_evidence'
           else 'ordinary_exact_match'
         end
@@ -1087,41 +1085,42 @@ as $$
   left join public.refund_manual_nayax_evidence evidence
     on evidence.refund_case_id = refund_case.id
   where public.can_manage_refund_case(auth.uid(), refund_case.id)
-    and machine.status = 'active'
-    and refund_case.payment_method = 'card'
-    and refund_case.status in (
-      'needs_review', 'correlated', 'approved', 'card_refund_pending'
-    )
-    and (refund_case.decision is null or refund_case.decision = 'approved')
-    and refund_case.correlation_status = 'matched'
-    and refund_case.correlation_source = 'nayax'
-    and public.is_review_safe_nayax_transaction_reference(
-      refund_case.matched_nayax_transaction_id
-    )
-    and refund_case.matched_nayax_machine_auth_time is not null
-    and refund_case.matched_nayax_amount_cents > 0
-    and refund_case.refund_amount_cents =
-      refund_case.matched_nayax_amount_cents
-    and refund_case.matched_nayax_currency_code = 'USD'
-    and refund_case.nayax_refund_execution_status = 'not_requested'
-    and refund_case.reporting_adjustment_id is null
-    and refund_case.refund_completed_at is null
-    and not public.refund_case_has_unresolved_reconciliation(refund_case.id)
-    and exists (
-      select 1
-      from public.refund_case_events selection_event
-      where selection_event.refund_case_id = refund_case.id
-        and selection_event.event_type = 'nayax_match_selected'
-        and selection_event.actor_user_id is not null
-    )
     and (
-      (
-        machine.nayax_manual_portal_enabled is true
-        and evidence.selected_at is not null
-        and refund_case.nayax_recommendation_state = 'manual_exception'
-      )
+      machine.nayax_manual_portal_enabled is true
       or (
         public.refund_nayax_direct_api_execution_hard_disabled()
+        and machine.status = 'active'
+        and refund_case.payment_method = 'card'
+        and refund_case.status in (
+          'needs_review', 'correlated', 'approved', 'card_refund_pending'
+        )
+        and (
+          refund_case.decision is null
+          or refund_case.decision = 'approved'
+        )
+        and refund_case.correlation_status = 'matched'
+        and refund_case.correlation_source = 'nayax'
+        and public.is_review_safe_nayax_transaction_reference(
+          refund_case.matched_nayax_transaction_id
+        )
+        and refund_case.matched_nayax_machine_auth_time is not null
+        and refund_case.matched_nayax_amount_cents > 0
+        and refund_case.refund_amount_cents =
+          refund_case.matched_nayax_amount_cents
+        and refund_case.matched_nayax_currency_code = 'USD'
+        and refund_case.nayax_refund_execution_status = 'not_requested'
+        and refund_case.reporting_adjustment_id is null
+        and refund_case.refund_completed_at is null
+        and not public.refund_case_has_unresolved_reconciliation(
+          refund_case.id
+        )
+        and exists (
+          select 1
+          from public.refund_case_events selection_event
+          where selection_event.refund_case_id = refund_case.id
+            and selection_event.event_type = 'nayax_match_selected'
+            and selection_event.actor_user_id is not null
+        )
         and refund_case.nayax_recommendation_state = 'high_confidence'
         and (
           refund_case.nayax_match_execution_eligible is true
