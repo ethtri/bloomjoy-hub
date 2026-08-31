@@ -106,7 +106,8 @@
     "20260830182941_refund_customer_correction_persistence.sql",
     "20260830183702_refund_customer_status_recovery.sql",
     "20260830202234_refund_production_simplification.sql",
-    "20260830205449_refund_automation_scheduler_30_minute_cadence.sql"
+    "20260830205449_refund_automation_scheduler_30_minute_cadence.sql",
+    "20260831232759_refund_waiting_lifecycle_truth.sql"
   ],
   "migrationFilesSha256": "933bd0531dbca9a74d0ce5f07146e4c5e698c8968734ac157020f84956023f22",
   "migrationVersionSetSha256": "61c64dc95ad26672218f27b6d22caf5294986ab3ea2c9764a792bb68654333b4",
