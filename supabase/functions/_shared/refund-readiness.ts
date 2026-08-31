@@ -10,6 +10,7 @@ export type RefundReadinessBlockReason =
   | "case_not_refundable"
   | "machine_not_enabled"
   | "globally_paused"
+  | "provider_remaining_value_unverified"
   | "provider_unavailable";
 
 export type RefundReadiness = {
@@ -31,6 +32,7 @@ const knownBlockReasons = new Set<RefundReadinessBlockReason>([
   "case_not_refundable",
   "machine_not_enabled",
   "globally_paused",
+  "provider_remaining_value_unverified",
   "provider_unavailable",
 ]);
 
@@ -84,6 +86,10 @@ export const mergeRuntimeRefundReadiness = ({
     executionConfig.blocks.includes("dry_run_active")
   ) {
     blockReason = "globally_paused";
+  } else if (
+    executionConfig.blocks.includes("provider_remaining_value_unverified")
+  ) {
+    blockReason = "provider_remaining_value_unverified";
   } else if (executionConfig.blocks.length > 0 || !providerCredentialAvailable) {
     blockReason = "provider_unavailable";
   }

@@ -317,6 +317,7 @@ export type RefundReadinessBlockReason =
   | 'case_not_refundable'
   | 'machine_not_enabled'
   | 'globally_paused'
+  | 'provider_remaining_value_unverified'
   | 'provider_unavailable';
 
 export type RefundReadiness = {
@@ -705,7 +706,7 @@ export type RefundManagerSetup = {
   globalRefunds: {
     available: boolean;
     paused: boolean;
-    blockReason: 'official_actions_disabled' | 'kill_switch_active' | 'configuration_missing' | null;
+    blockReason: 'official_actions_disabled' | 'kill_switch_active' | 'provider_remaining_value_unverified' | 'configuration_missing' | null;
   };
 };
 
@@ -2179,6 +2180,7 @@ export const fetchRefundManagerSetup = async (): Promise<RefundManagerSetup> => 
   const safeGlobalBlockReason =
     globalBlockReason === 'official_actions_disabled' ||
     globalBlockReason === 'kill_switch_active' ||
+    globalBlockReason === 'provider_remaining_value_unverified' ||
     globalBlockReason === 'configuration_missing'
       ? globalBlockReason
       : globalAvailability?.available

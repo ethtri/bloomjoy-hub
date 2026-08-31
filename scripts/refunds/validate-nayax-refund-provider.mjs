@@ -1163,12 +1163,15 @@ check(
     handler.includes('db-authoritative-exact-200-json-v1') &&
     handler.includes('nayax-response-envelope-v1') &&
     handler.includes('approvalAuthorized: decision.approvalAuthorized === true') &&
-    handler.includes('productionScope: "all_qualified_transactions"') &&
+    handler.includes('productionScope: "direct_api_hard_disabled_remaining_value_unverified"') &&
+    handler.includes('NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED') &&
+    gates.includes('NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED = false') &&
+    gates.includes('provider_remaining_value_unverified') &&
     !gates.includes('NAYAX_REFUND_BROAD_REOPEN_APPROVED') &&
     !gates.includes('NAYAX_REFUND_CANARY_CASE_ID') &&
     !handler.includes('resolveNayaxRefundCaseExecutionConfig') &&
     !handler.includes('provider: disabledNayaxProviderAdapter'),
-  'The normal manager action requires explicit write credentials, the v3 response envelope, and a database-owned transition without pilot release authorization.',
+  'The reviewed provider contract remains intact but direct execution is immutably blocked until authoritative remaining-value preflight exists.',
 );
 check(
   authoritativeJournalMigration.includes('service_record_nayax_refund_provider_stage_v2') &&

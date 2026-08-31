@@ -1,5 +1,6 @@
 import {
   buildNayaxRefundIdempotencyKey,
+  NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED,
   readNayaxRefundAvailability,
   resolveNormalNayaxRefundAmountCents,
   resolveNayaxRefundAvailability,
@@ -34,15 +35,27 @@ Deno.test("missing production configuration reports every genuine safety gate", 
       "executor_assertion_missing",
       "manager_contract_unconfirmed",
       "approval_scope_unconfirmed",
+      "provider_remaining_value_unverified",
     ]
   ) {
     assert(config.blocks.includes(block as never), `${block} must block`);
   }
 });
 
-Deno.test("a complete production configuration has no pilot or cap block", () => {
+Deno.test("all environment gates open cannot bypass the immutable remaining-value guard", () => {
   const config = resolveNayaxRefundExecutionConfig(envReader(enabledConfig));
-  assert(config.blocks.length === 0, "complete config should pass gates");
+  let providerCalls = 0;
+  if (config.blocks.length === 0) providerCalls += 1;
+  assert(
+    NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED === false,
+    "remaining-value support must be an immutable reviewed code decision",
+  );
+  assert(
+    config.blocks.length === 1 &&
+      config.blocks[0] === "provider_remaining_value_unverified",
+    "the normal direct API path must stay hard-disabled with every env gate open",
+  );
+  assert(providerCalls === 0, "the provider boundary must remain unreachable");
   assert(
     !("maxAmountCents" in config) && !("dailyCountCap" in config),
     "retired launch caps must not remain in the production contract",
@@ -59,15 +72,19 @@ Deno.test("legacy canary and cap variables do not gate qualified transactions", 
     NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS: "1",
     NAYAX_REFUND_DAILY_COUNT_CAP: "1",
   }));
-  assert(config.blocks.length === 0, "pilot variables must be ignored");
+  assert(
+    config.blocks.length === 1 &&
+      config.blocks[0] === "provider_remaining_value_unverified",
+    "pilot variables must be ignored without bypassing the immutable guard",
+  );
 });
 
-Deno.test("normal execution derives the full selected transaction amount", () => {
+Deno.test("normal execution cannot infer remaining value from the original sale", () => {
   assert(
     resolveNormalNayaxRefundAmountCents({
       matchedTransactionAmountCents: 1090,
-    }) === 1090,
-    "the selected settled transaction amount must be authoritative",
+    }) === null,
+    "the original selected amount alone cannot prove no external partial exists",
   );
   assert(
     resolveNormalNayaxRefundAmountCents({
@@ -189,16 +206,19 @@ Deno.test("idempotency never falls back to a service key or local default", asyn
   assert(failed, "missing dedicated secret must fail before HMAC");
 });
 
-Deno.test("availability returns only the redacted safe contract", () => {
+Deno.test("availability exposes the immutable remaining-value block safely", () => {
   const result = resolveNayaxRefundAvailability({
     executionConfig: resolveNayaxRefundExecutionConfig(
       envReader(enabledConfig),
     ),
     officialActionsEnabled: true,
   });
-  assert(result.available, "complete config must be available");
-  assert(result.status === "available", "status must be available");
-  assert(result.blockReason === null, "available must have no reason");
+  assert(!result.available, "direct API execution must remain unavailable");
+  assert(result.status === "unavailable", "status must be unavailable");
+  assert(
+    result.blockReason === "provider_remaining_value_unverified",
+    "availability must name the immutable guard honestly",
+  );
   assert(result.payloadRedacted === true, "payload must be redacted");
   assert(
     Object.keys(result).sort().join("|") ===
@@ -235,6 +255,11 @@ Deno.test("availability fail-closes to the bounded reason precedence", () => {
       config: defaultConfig,
       reason: "kill_switch_active",
     },
+    {
+      officialActionsEnabled: true,
+      config: enabled,
+      reason: "provider_remaining_value_unverified",
+    },
   ];
   for (const fixture of cases) {
     const result = resolveNayaxRefundAvailability({
@@ -260,7 +285,10 @@ Deno.test("availability reads gates only and performs zero execution side effect
   });
   // Provider, reservation, and mutation dependencies are intentionally absent
   // from the read-only operation's type and therefore cannot be invoked.
-  assert(result.available, "bounded gates should report available");
+  assert(
+    result.blockReason === "provider_remaining_value_unverified",
+    "bounded gates must report the immutable provider-readback requirement",
+  );
   assert(providerCalls === 0, "availability must not call a provider");
   assert(reservations === 0, "availability must not reserve an attempt");
   assert(mutations === 0, "availability must not mutate a case");

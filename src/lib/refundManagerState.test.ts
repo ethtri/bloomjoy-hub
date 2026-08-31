@@ -413,6 +413,25 @@ Deno.test('confirmed transaction shows the exact safe reason when refunding is u
   );
 });
 
+Deno.test('remaining-value guard directs managers to the reviewed portal fallback', () => {
+  const result = getRefundManagerState({
+    ...baseCase,
+    hasMatchedNayaxTransaction: true,
+    refundReadiness: {
+      transactionConfirmed: true,
+      canIssueCardRefund: false,
+      blockReason: 'provider_remaining_value_unverified',
+    },
+  });
+
+  assertEquals(result.id, 'refund_unavailable', 'guarded confirmed state');
+  assertEquals(
+    result.nextStep,
+    'Direct card refunds are unavailable until Nayax remaining refundable value can be verified. Use the reviewed Nayax portal fallback.',
+    'manual portal fallback guidance'
+  );
+});
+
 Deno.test('cash cases with an amount are ready to mark refunded without a transaction match', () => {
   const result = getRefundManagerState({
     ...baseCase,

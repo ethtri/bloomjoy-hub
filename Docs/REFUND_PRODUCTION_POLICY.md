@@ -11,18 +11,25 @@ the original payment transaction is.
 2. A manager confirms one exact settled Nayax transaction. The refund amount is
    the full amount of that selected transaction; the customer does not specify
    an execution amount, and the normal manager UI has no editable amount.
-3. The authorized manager receives one final confirmation immediately before
-   money moves.
-4. Bloomjoy submits one request and at most one approval for that attempt
-   generation, with a transaction-bound idempotency key and immutable audit
-   evidence.
+3. Bloomjoy verifies the transaction's authoritative remaining refundable
+   value before presenting a direct money-moving action.
+4. After that provider readback is implemented and reviewed, the authorized
+   manager receives one final confirmation and Bloomjoy may submit one request
+   and at most one approval for that attempt generation, with a
+   transaction-bound idempotency key and immutable audit evidence.
 5. Bloomjoy sends success copy and creates reporting adjustments only after the
    provider result is confirmed.
 
 There is no first-proof case, $10/$50 refund ceiling, daily customer-service
 quota, exact-case allowlist, pilot cohort, observer, or account-wide hold.
-Healthy qualified machines remain available. The global kill switch is only
-for a genuine systemic incident.
+Read-only search, exact evidence selection, and the reviewed manual Nayax portal
+fallback remain available. Direct API execution is currently hard-disabled in
+code by `NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED = false`; environment
+flags cannot open it. #990/#751 must ingest, bind, display, and atomically
+recheck authoritative cumulative-refunded and remaining-refundable state before
+that constant can be changed through a separate reviewed release. The global
+kill switch remains additional incident control, not a substitute for this
+guard.
 
 ## Duplicate and retry rules
 
@@ -54,17 +61,11 @@ time, amount, currency, and card evidence.
 
 - Exact transaction and machine/account binding.
 - Positive full provider-transaction amount and supported currency.
-- A provider-confirmed partial remainder is exception-only; the normal manager
-  action fails closed instead of silently substituting a custom amount.
-- Current limitation: the normal execution path derives the original selected
-  transaction amount but does not yet ingest Nayax's cumulative-refunded or
-  remaining-refundable value. Bloomjoy's transaction reservation prevents a
-  second Bloomjoy case from using the same sale, but an earlier partial refund
-  performed outside Bloomjoy may be known only when Nayax rejects or reports
-  the transaction state. Broad live execution therefore requires #990/#751 to
-  prove and ingest authoritative remaining value before the provider request;
-  the normal action must fail closed when that value is missing or below the
-  original settled amount.
+- An immutable direct-API block until authoritative remaining-refundable state
+  is available. The original sale amount cannot be used to infer that no prior
+  external partial refund exists.
+- Partial/custom or reduced-remaining-value cases stay in the reviewed manual
+  exception path; they cannot silently enter the normal direct action.
 - Current mapped-manager authority and one money-moving confirmation.
 - Case-version checks, row locking, idempotency, and one live attempt.
 - Server-only provider credentials and an immutable provider journal.

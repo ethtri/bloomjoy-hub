@@ -8,6 +8,7 @@ import {
 } from "../_shared/refund-official-action.ts";
 import {
   buildNayaxRefundIdempotencyKey,
+  NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED,
   NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
   resolveNormalNayaxRefundAmountCents,
   resolveNayaxRefundAvailability,
@@ -280,7 +281,9 @@ const resolveCaseRefundReadiness = async ({
       NAYAX_REFUND_PRODUCTION_BASE_URL,
     writeCredentialsReady,
     journalCompatible,
-    productionScope: "all_qualified_transactions",
+    externalPartialGuardSupported:
+      NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED,
+    productionScope: "direct_api_hard_disabled_remaining_value_unverified",
     payloadRedacted: true,
   }));
   return readiness;
@@ -1141,6 +1144,8 @@ serve(async (req) => {
         ? "authorization_failed"
         : preExecutionBlocks.includes("official_actions_disabled")
         ? "official_actions_disabled"
+        : preExecutionBlocks.includes("provider_remaining_value_unverified")
+        ? "provider_remaining_value_unverified"
         : preExecutionBlocks.includes("already_refunded")
         ? "already_refunded"
         : preExecutionBlocks.includes("duplicate_transaction")

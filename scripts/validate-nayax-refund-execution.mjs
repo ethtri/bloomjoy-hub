@@ -155,8 +155,9 @@ assert(
     providerGates.includes('NAYAX_REFUND_EXECUTION_ENABLED') &&
     providerGates.includes('NAYAX_REFUND_EXECUTION_DRY_RUN') &&
     providerGates.includes('NAYAX_REFUND_EXECUTOR_ASSERTION') &&
-    providerGates.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET'),
-  'The HTTP boundary must retain the ordinary kill switch, enablement, dry-run, executor, and idempotency gates.'
+    providerGates.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET') &&
+    providerGates.includes('NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED = false'),
+  'The HTTP boundary must retain the ordinary gates and the immutable external-partial readback guard.'
 );
 assert(
   fn.includes('can_perform_refund_official_action') &&
@@ -189,6 +190,8 @@ assert(
     operationAllowlist.includes('"availability"') &&
     !operationAllowlist.includes('controlled_owner_pilot') &&
     operationAllowlist.includes('approve_pending_request') &&
+    fn.includes('NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED') &&
+    fn.includes('preExecutionBlocks.includes("provider_remaining_value_unverified")') &&
     fn.includes('NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_SUPPORTED = false') &&
     fn.includes('pending_approval_recovery_retired') &&
     normalIdempotency > normalExecutionGate &&
@@ -198,9 +201,12 @@ assert(
     !providerGates.includes('NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS') &&
     !providerGates.includes('NAYAX_REFUND_DAILY_COUNT_CAP') &&
     providerGatesTest.includes('legacy canary and cap variables do not gate qualified transactions') &&
+    providerGatesTest.includes('all environment gates open cannot bypass the immutable remaining-value guard') &&
+    providerGatesTest.includes('the provider boundary must remain unreachable') &&
+    providerGatesTest.includes('normal execution cannot infer remaining value from the original sale') &&
     managerSessionMigration.includes('pg_catalog.pg_advisory_xact_lock') &&
     providerGatesTest.includes('reports every genuine safety gate'),
-  'Production execute/availability and the explicitly retired pending-request forensic route are reachable, with genuine gates enforced before idempotency and provider orchestration.'
+  'Production execute/availability and the retired forensic route retain their contracts, while direct execution is immutably blocked before idempotency and provider orchestration.'
 );
 assert(
   fn.includes('operation === "availability" && !requestedCaseId') &&
@@ -233,6 +239,7 @@ assert(
 assert(
   providerGates.includes('official_actions_disabled') &&
     providerGates.includes('kill_switch_active') &&
+    providerGates.includes('provider_remaining_value_unverified') &&
     providerGates.includes('configuration_missing') &&
     !availabilityBranch.includes('...executionConfig') &&
     !availabilityBranch.includes('executionConfig.blocks') &&
@@ -261,18 +268,19 @@ assert(
 assert(
   fn.includes('resolveNormalNayaxRefundAmountCents({') &&
   fn.includes('matchedTransactionAmountCents: refundCase.matched_nayax_amount_cents') &&
+  !fn.includes('remainingRefundableAmountCents:') &&
   !fn.includes('body?.refundAmountCents') &&
   !fn.includes('requestedRefundAmountCents') &&
   !fn.includes('refundCase.refund_amount_cents ='),
-  'Nayax execution must derive the full selected provider transaction amount server-side and must not let callers override the execution amount.'
+  'Nayax execution must not infer remaining refundable value from the original sale or let callers override the execution amount.'
 );
 assert(
   providerGates.includes('resolveNormalNayaxRefundAmountCents') &&
-    providerGatesTest.includes('normal execution derives the full selected transaction amount') &&
+    providerGatesTest.includes('normal execution cannot infer remaining value from the original sale') &&
     providerGatesTest.includes('partial or custom amounts are exception-only') &&
     manualPortalTest.includes('The same account-scope transaction cannot enter a second case') &&
     nayaxRecommendationMigration.includes('refund_cases_unique_matched_nayax_transaction_id_idx'),
-  'Focused tests must prove full selected-transaction amount derivation, exception-only partials, and cross-case exact-transaction uniqueness.'
+  'Focused tests must prove no remaining-value inference, exception-only partials, and cross-case exact-transaction uniqueness.'
 );
 assert(
   providerOrchestration.includes('provider_execution_not_yet_enabled') &&
@@ -284,7 +292,7 @@ assert(
     !fn.includes('mode: "synthetic"') &&
     !fn.includes('/payment/refund-request') &&
     !fn.includes('/payment/refund-approve'),
-  'The normal path must select the live adapter without exposing a synthetic switch or duplicating provider endpoints in the handler.'
+  'The reviewed live adapter must remain intact but unreachable until authoritative remaining-value support is implemented.'
 );
 assert(
   fn.includes('operation === "approve_pending_request"') &&
@@ -543,10 +551,12 @@ assert(
     refundOperationsUi.includes('(candidate.amountCents / 100).toFixed(2)') &&
     refundOperationsUi.includes('const refundAmountCents = selectedCase.matchedNayaxAmountCents') &&
     refundOperationsUi.includes('The full selected Nayax transaction amount is set automatically') &&
+    refundOperationsUi.includes('refundCase.manualNayaxPortalEnabled && refundReadiness?.canIssueCardRefund !== true') &&
+    refundOperationsUi.includes('Approve refund for Nayax portal') &&
     !refundOperationsUi.includes('data-testid="legacy-refund-amount-input"') &&
     !refundOperationsUi.includes('Match strength:') &&
     !refundOperationsUi.includes('Card details agree'),
-  'The manager UI must show all safe candidates in likely order, derive the exact selected transaction amount, and provide no editable normal card-refund amount.'
+  'The manager UI must show safe candidates, provide no editable normal amount, and preserve the reviewed manual portal fallback while direct execution is blocked.'
 );
 assert(
   refundOperationsUi.includes('RefundLifecycleProgress') &&

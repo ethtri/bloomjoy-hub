@@ -5,7 +5,8 @@ export type NayaxRefundConfigBlock =
   | "idempotency_secret_missing"
   | "executor_assertion_missing"
   | "manager_contract_unconfirmed"
-  | "approval_scope_unconfirmed";
+  | "approval_scope_unconfirmed"
+  | "provider_remaining_value_unverified";
 
 export type NayaxRefundExecutionConfig = {
   blocks: NayaxRefundConfigBlock[];
@@ -21,6 +22,7 @@ export type NayaxRefundExecutionConfig = {
 export type NayaxRefundAvailabilityBlockReason =
   | "official_actions_disabled"
   | "kill_switch_active"
+  | "provider_remaining_value_unverified"
   | "configuration_missing";
 
 export type NayaxRefundAvailability = {
@@ -30,9 +32,12 @@ export type NayaxRefundAvailability = {
   payloadRedacted: true;
 };
 
-// Production execution is available to every qualified machine. The kill
-// switch is incident control; it is not a rollout or case-allowlist mechanism.
+// The ordinary official-action boundary remains part of the reviewed contract,
+// but direct provider execution is hard-disabled until #990 can supply and
+// atomically verify authoritative remaining-refundable value for the selected
+// transaction. This is intentionally not configurable through the environment.
 export const NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = true;
+export const NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED = false;
 
 export type NayaxRefundIdempotencyEvidence = {
   caseId: string;
@@ -56,9 +61,6 @@ export const resolveNormalNayaxRefundAmountCents = ({
     Number(matchedTransactionAmountCents) <= 0
   ) {
     return null;
-  }
-  if (remainingRefundableAmountCents === undefined) {
-    return Number(matchedTransactionAmountCents);
   }
   if (
     !Number.isSafeInteger(remainingRefundableAmountCents) ||
@@ -118,6 +120,9 @@ export const resolveNayaxRefundExecutionConfig = (
     executorAssertion === null ? "executor_assertion_missing" : null,
     managerContractConfirmed ? null : "manager_contract_unconfirmed",
     approvalScopeConfirmed ? null : "approval_scope_unconfirmed",
+    NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED
+      ? null
+      : "provider_remaining_value_unverified",
   ].filter((block): block is NayaxRefundConfigBlock => block !== null);
 
   return {
@@ -144,6 +149,10 @@ export const resolveNayaxRefundAvailability = ({
     blockReason = "official_actions_disabled";
   } else if (executionConfig.blocks.includes("kill_switch_active")) {
     blockReason = "kill_switch_active";
+  } else if (
+    executionConfig.blocks.includes("provider_remaining_value_unverified")
+  ) {
+    blockReason = "provider_remaining_value_unverified";
   } else if (executionConfig.blocks.length > 0) {
     blockReason = "configuration_missing";
   }

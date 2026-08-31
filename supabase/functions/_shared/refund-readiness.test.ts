@@ -24,7 +24,7 @@ const databaseReady = parseDatabaseRefundReadiness({
   caseVersion: 3,
 });
 
-Deno.test("confirmed database readiness stays ready when runtime and provider pass", () => {
+Deno.test("confirmed database readiness cannot bypass remaining-value verification", () => {
   assertEquals(
     mergeRuntimeRefundReadiness({
       databaseReadiness: databaseReady,
@@ -32,7 +32,11 @@ Deno.test("confirmed database readiness stays ready when runtime and provider pa
       officialActionsEnabled: true,
       providerCredentialAvailable: true,
     }),
-    databaseReady,
+    {
+      ...databaseReady,
+      canIssueCardRefund: false,
+      blockReason: "provider_remaining_value_unverified",
+    },
   );
 });
 
@@ -74,7 +78,7 @@ Deno.test("provider configuration never hides a database safety block", () => {
   assertEquals(result.transactionConfirmed, true);
 });
 
-Deno.test("a normal transaction amount is not blocked by a Bloomjoy launch cap", () => {
+Deno.test("a normal transaction amount has no launch cap but remains provider-readback blocked", () => {
   const result = mergeRuntimeRefundReadiness({
     databaseReadiness: {
       ...databaseReady,
@@ -85,8 +89,8 @@ Deno.test("a normal transaction amount is not blocked by a Bloomjoy launch cap",
     officialActionsEnabled: true,
     providerCredentialAvailable: true,
   });
-  assertEquals(result.canIssueCardRefund, true);
-  assertEquals(result.blockReason, null);
+  assertEquals(result.canIssueCardRefund, false);
+  assertEquals(result.blockReason, "provider_remaining_value_unverified");
 });
 
 Deno.test("unknown database values fail closed without leaking internals", () => {
