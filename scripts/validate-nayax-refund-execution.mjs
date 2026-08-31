@@ -287,6 +287,7 @@ assert(
     productionSimplificationMigration.includes('create or replace function public.admin_begin_refund_manual_nayax_portal_pre_ops_v1(') &&
     productionSimplificationMigration.includes("'reviewedNayaxPortalFallbackKind', case") &&
     productionSimplificationMigration.includes("else 'ordinary_exact_match'") &&
+    productionSimplificationMigration.includes('then machine.nayax_manual_portal_timezone') &&
     productionSimplificationMigration.includes('machine.nayax_manual_portal_enabled is true\n      or (') &&
     productionSimplificationMigration.includes('case_row.card_wallet_used is true') &&
     productionSimplificationMigration.includes('case_row.nayax_match_execution_eligible is false') &&

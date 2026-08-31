@@ -1066,7 +1066,11 @@ as $$
         'manualNayaxEvidenceSelected',
           evidence.selected_at is not null
           or refund_case.nayax_recommendation_state = 'high_confidence',
-        'manualNayaxLocationTimezone', location.timezone,
+        'manualNayaxLocationTimezone', case
+          when machine.nayax_manual_portal_enabled is true
+            then machine.nayax_manual_portal_timezone
+          else location.timezone
+        end,
         'reviewedNayaxPortalFallbackKind', case
           when machine.nayax_manual_portal_enabled is true
             then 'legacy_manual_evidence'
