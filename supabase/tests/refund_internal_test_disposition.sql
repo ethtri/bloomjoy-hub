@@ -373,7 +373,10 @@ select ok(
 );
 
 reset role;
-set local role service_role;
+
+-- Exercise the trigger invariants as the migration owner. Several protected
+-- child tables intentionally revoke direct service_role access, so using that
+-- role here would test grants before PostgreSQL can reach these triggers.
 
 select ok(
   pg_temp.capture_error($$insert into public.refund_case_messages (
@@ -425,7 +428,7 @@ select ok(
       status = 'needs_review', automation_state = 'under_review'
     where id = 'ba140000-0000-4000-8000-000000000001'$$)
     like 'P4638:Internal/test classification is immutable%',
-  'A service identity cannot reclassify the immutable archive record'
+  'The database owner cannot reclassify the immutable archive record'
 );
 
 reset role;
