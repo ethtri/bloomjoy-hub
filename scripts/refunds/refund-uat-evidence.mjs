@@ -28,6 +28,8 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-internal-test-confirmation-desktop.png',
   'refund-internal-test-archive-desktop.png',
   'refund-internal-test-archive-mobile.png',
+  'refund-inbound-case-link-review-desktop.png',
+  'refund-inbound-case-link-review-mobile.png',
   'refund-transactional-delivery-desktop.png',
   'refund-transactional-delivery-mobile.png',
   'refund-automatic-nayax-ready-desktop.png',
