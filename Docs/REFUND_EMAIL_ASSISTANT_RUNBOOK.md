@@ -156,6 +156,8 @@ Every automatic message uses a versioned deterministic template, a durable opera
 
 A skipped initial acknowledgement remains a manager-owned delivery exception even if a later customer message was sent. If no later sent message exists, use the safe acknowledgement path and reconcile uncertain Gmail delivery before sending. If later contact is already durably recorded as sent, do not resend the acknowledgement and do not contact the customer again for that exception. A currently authorized manager may record the fixed later-contact disposition against the current case version; replay returns the existing result, and the disposition creates only one redacted immutable audit event with no message, payment, decision, provider, or reporting effect.
 
+New requests persist the conservative customer locale used by approved deterministic templates. For an existing case that shows **Not set — English fallback**, a current mapped manager may review the customer evidence and select only **English** or **Spanish + English** with one fixed reason. Do not infer language from unreviewed prose and do not ask the customer to repeat information already present in Bloomjoy records. The correction is versioned separately, affects future approved templates only, and never rewrites message history or sends a message. It creates one redacted immutable audit event and has no payment, decision, provider, reporting, or official-action effect.
+
 ### Candidate template registry
 
 | Template/version | Audience and use | Automatic-send boundary |

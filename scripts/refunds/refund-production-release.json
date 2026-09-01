@@ -109,6 +109,7 @@
     "20260830205449_refund_automation_scheduler_30_minute_cadence.sql",
     "20260831232759_refund_waiting_lifecycle_truth.sql",
     "20260901010259_refund_acknowledgement_recovery_disposition.sql",
+    "20260901021433_refund_customer_locale_correction.sql",
     "20260901172459_refund_scheduler_incident_1069.sql",
     "20260901185049_refund_provider_delay_evidence_1069.sql"
   ],

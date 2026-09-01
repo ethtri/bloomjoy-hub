@@ -21,6 +21,15 @@ This corrects the older shared `decision is null` check, which made the provider
 
 This decision changes scheduler truth and internal read authority only. It does not authorize customer contact, manager decisions, provider writes, or money movement.
 
+## 2026-08-31 - Existing-case customer language is an explicit manager correction (`#891`)
+
+- New refund requests retain the conservative intake-inferred `en` or `es` locale. An existing case without bounded locale evidence displays **Not set — English fallback**; Bloomjoy does not guess from customer prose or silently backfill it.
+- A current mapped manager may select only **English** or **Spanish + English** and one fixed reviewed reason. The write locks the case, checks the current official case version and an independent locale version, and records one redacted immutable event. Replay of the same correction is idempotent.
+- The setting applies only to future approved deterministic templates. It does not translate or rewrite message history, send a message, change the case decision/status or official-action version, call a provider, issue money, or adjust reporting.
+
+**Why this choice**
+- Language is customer-visible and can need correction, but inferring it again from historical free text could be wrong. A small bounded contract gives operators a safe repair path while preserving the evidentiary history and every payment boundary.
+
 ## 2026-08-31 - Customer-wait state requires sent, specific action (`#891`)
 
 - `waiting_on_customer` and `more_info_needed` are valid only when a successfully sent message names at least one deterministic field the customer can correct. The canonical lifecycle carries those exact fields so queue label, detail copy, and next action cannot disagree.

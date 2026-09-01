@@ -34,6 +34,8 @@ const run = async () => {
     acknowledgementRecoveryMigration,
     refundOperations,
     acknowledgementRecoveryTest,
+    localeCorrectionMigration,
+    localeCorrectionTest,
     schedulerIncidentMigration,
     providerDelayEvidenceMigration,
   ] = await Promise.all([
@@ -53,6 +55,8 @@ const run = async () => {
     readText('supabase/migrations/20260901010259_refund_acknowledgement_recovery_disposition.sql'),
     readText('src/lib/refundOperations.ts'),
     readText('supabase/tests/refund_acknowledgement_recovery_disposition.sql'),
+    readText('supabase/migrations/20260901021433_refund_customer_locale_correction.sql'),
+    readText('supabase/tests/refund_customer_locale_correction.sql'),
     readText('supabase/migrations/20260901172459_refund_scheduler_incident_1069.sql'),
     readText('supabase/migrations/20260901185049_refund_provider_delay_evidence_1069.sql'),
   ]);
@@ -255,6 +259,39 @@ const run = async () => {
       includesAll(adminUpdate, ['refundCustomerLocaleFromIntakeMeta', 'customerLocale:']) &&
       includesAll(automationSweep, ['refundCustomerLocaleFromIntakeMeta', 'customerLocale:']) &&
       includesAll(gmailSync, ['refundCustomerLocaleFromIntakeMeta', 'refundCaseLocale?.intake_meta'])
+  );
+  assert(
+    'Existing-case locale correction is bounded, versioned, audit-only, and visible to managers',
+    includesAll(localeCorrectionMigration, [
+      'admin_correct_refund_customer_locale',
+      "normalized_locale not in ('en', 'es')",
+      'p_expected_case_version',
+      'p_expected_locale_version',
+      'for update',
+      "'customer_locale_corrected'",
+      "'payload_redacted', true",
+      "'customerLocale'",
+      "'customerLocaleContractVersion'",
+    ]) && includesAll(localeCorrectionTest, [
+      'A stale case version cannot correct the customer locale',
+      'A stale locale version cannot overwrite a newer correction',
+      'Correcting locale creates no customer message',
+      'changes no decision, payment, provider, reporting, or official-action state',
+      'A replay cannot duplicate the locale audit event',
+    ]) && includesAll(refundOperations, [
+      'RefundCustomerLocaleContract',
+      'correctRefundCustomerLocale',
+      'expectedLocaleVersion',
+    ]) && includesAll(portalPage, [
+      'Customer message language',
+      'Not set — English fallback',
+      'Existing message history is unchanged',
+      'handleCorrectCustomerLocale',
+    ]) && includesAll(portalUat, [
+      'buildLocaleCorrectionOverview',
+      'runCustomerLocaleCorrectionChecks',
+      'performs no message, provider, payment, or official case action',
+    ])
   );
   assert(
     'Wallet last-four corrections are forced through the secure flow',
