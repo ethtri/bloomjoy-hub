@@ -179,12 +179,13 @@ export const sendNayaxCustomerCorrectionEmail = async (
     input.managerRecipientOverlap,
     input.managerRecipientCount,
   );
-  await sendRefundTransactionalEmail({
+  const delivery = await sendRefundTransactionalEmail({
     to: [input.customerEmail],
     cc: managerCcEmails,
     subject: email.subject,
     text: email.text,
     html: email.html,
+    idempotencyKey: input.idempotencyKey,
   });
-  return email;
+  return { ...email, delivery };
 };

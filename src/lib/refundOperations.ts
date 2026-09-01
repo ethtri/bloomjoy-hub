@@ -249,6 +249,31 @@ export type RefundCaseMessage = {
   templateVersion?: string | null;
   requestedFields?: RefundMissingField[];
   followUpCycleId?: string | null;
+  deliveryTransport?: 'resend' | null;
+  deliveryState?: RefundTransactionalDeliveryState;
+  deliveryStateUpdatedAt?: string | null;
+  providerEvidenceAvailable?: boolean;
+};
+
+export type RefundTransactionalDeliveryState =
+  | 'unknown'
+  | 'accepted'
+  | 'deferred'
+  | 'delivered'
+  | 'failed'
+  | 'bounced'
+  | 'complained';
+
+export type RefundCustomerDeliveryException = {
+  schemaVersion: 'refund_transactional_delivery_v1';
+  state: Exclude<RefundTransactionalDeliveryState, 'accepted' | 'delivered'>;
+  messageType: string;
+  occurredAt: string;
+  recoveryOwner: 'refund_operations';
+  nextAction: 'review_delivery_no_resend';
+  customerMessageReplayAllowed: false;
+  paymentReplayAllowed: false;
+  payloadRedacted: true;
 };
 
 export type RefundCustomerCommunicationStatus =
@@ -421,6 +446,59 @@ const requireRefundInternalTestContract = (
     throw new Error('Unsupported Internal/test archive response.');
   }
   return contract as RefundInternalTestContract;
+};
+
+const refundTransactionalDeliveryStates = new Set<RefundTransactionalDeliveryState>([
+  'unknown',
+  'accepted',
+  'deferred',
+  'delivered',
+  'failed',
+  'bounced',
+  'complained',
+]);
+
+const requireRefundTransactionalDeliveryCase = (
+  refundCase: RefundCaseRecord
+): RefundCaseRecord => {
+  const messages = refundCase.messages.map((message) => {
+    if (
+      (message.deliveryTransport !== null && message.deliveryTransport !== 'resend') ||
+      typeof message.deliveryState !== 'string' ||
+      !refundTransactionalDeliveryStates.has(message.deliveryState) ||
+      (message.deliveryStateUpdatedAt !== null && (
+        typeof message.deliveryStateUpdatedAt !== 'string' ||
+        Number.isNaN(Date.parse(message.deliveryStateUpdatedAt))
+      )) ||
+      typeof message.providerEvidenceAvailable !== 'boolean'
+    ) {
+      throw new Error('Unsupported transactional delivery response.');
+    }
+    return message;
+  });
+  const value = refundCase.customerDeliveryException;
+  if (value !== null) {
+    const exception = value && typeof value === 'object'
+      ? value as Record<string, unknown>
+      : null;
+    if (
+      exception?.schemaVersion !== 'refund_transactional_delivery_v1' ||
+      !['unknown', 'deferred', 'failed', 'bounced', 'complained'].includes(
+        typeof exception.state === 'string' ? exception.state : ''
+      ) ||
+      typeof exception.messageType !== 'string' ||
+      typeof exception.occurredAt !== 'string' ||
+      Number.isNaN(Date.parse(exception.occurredAt)) ||
+      exception.recoveryOwner !== 'refund_operations' ||
+      exception.nextAction !== 'review_delivery_no_resend' ||
+      exception.customerMessageReplayAllowed !== false ||
+      exception.paymentReplayAllowed !== false ||
+      exception.payloadRedacted !== true
+    ) {
+      throw new Error('Unsupported transactional delivery response.');
+    }
+  }
+  return { ...refundCase, messages };
 };
 
 export type NayaxMatchFactor = {
@@ -639,6 +717,7 @@ export type RefundCaseRecord = {
   latestCustomerMessageType?: string | null;
   latestCustomerMessageAt?: string | null;
   acknowledgementDeliveryException?: RefundAcknowledgementDeliveryException | null;
+  customerDeliveryException?: RefundCustomerDeliveryException | null;
   customerLocale?: RefundCustomerLocaleContract | null;
   internalTest?: RefundInternalTestContract | null;
   nayaxLookupSummary?: RefundNayaxLookupSummary | null;
@@ -673,6 +752,7 @@ export type RefundOperationsOverview = {
   internalTestContractVersion?: 'refund_internal_test_v1';
   selectedNayaxTransactionContractVersion?: 'refund_selected_nayax_transaction_v1';
   nayaxScopeRecoveryContractVersion?: 'refund_nayax_scope_recovery_v1';
+  transactionalDeliveryContractVersion?: 'refund_transactional_delivery_v1';
   refundOperationsAccess?: boolean;
 };
 
@@ -2150,6 +2230,12 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   ) {
     throw new Error('Unsupported Nayax scope recovery response.');
   }
+  if (
+    overview.transactionalDeliveryContractVersion !== undefined &&
+    overview.transactionalDeliveryContractVersion !== 'refund_transactional_delivery_v1'
+  ) {
+    throw new Error('Unsupported transactional delivery response.');
+  }
   const internalTestCases = Array.isArray(overview.internalTestCases)
     ? overview.internalTestCases.map((refundCase) => ({
         ...refundCase,
@@ -2182,7 +2268,12 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   const manualNayaxByCaseId = new Map(
     manualNayaxContexts.map((context) => [context.caseId, context] as const)
   );
-  const cases = [...gmailDrafts, ...overview.cases].map((refundCase) => {
+  const cases = [...gmailDrafts, ...overview.cases].map((rawRefundCase) => {
+    const refundCase = overview.transactionalDeliveryContractVersion ===
+        'refund_transactional_delivery_v1' &&
+        !gmailDrafts.includes(rawRefundCase)
+      ? requireRefundTransactionalDeliveryCase(rawRefundCase)
+      : rawRefundCase;
     const state = queueStateByCaseId.get(refundCase.id);
     const manualNayax = manualNayaxByCaseId.get(refundCase.id);
     const selectedNayaxTransaction = refundCase.selectedNayaxTransaction

@@ -87,6 +87,7 @@ const parseArgs = (argv) => {
     duplicateOnly: false,
     demoOnly: false,
     managerQueueOnly: false,
+    deliveryTruthOnly: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -152,6 +153,11 @@ const parseArgs = (argv) => {
       continue;
     }
 
+    if (arg === '--delivery-truth-only') {
+      args.deliveryTruthOnly = true;
+      continue;
+    }
+
     if (arg === '--app-url') {
       args.appUrl = argv[index + 1] || args.appUrl;
       index += 1;
@@ -201,7 +207,7 @@ const parseArgs = (argv) => {
   args.appUrl = args.appUrl.replace(/\/+$/, '');
   args.artifactDir = path.resolve(process.cwd(), args.artifactDir);
   args.fragmentDir = path.resolve(process.cwd(), args.fragmentDir);
-  if (!args.managerStepUpOnly && !args.demoOnly && !args.managerQueueOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
+  if (!args.managerStepUpOnly && !args.demoOnly && !args.managerQueueOnly && !args.deliveryTruthOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
     !args.ownerTotpOnly && !args.legacyStateOnly && !args.nayaxResolutionOnly &&
     !args.nayaxLookupOnly && !args.duplicateOnly) {
     requireEvidenceRunToken(args.runToken);
@@ -1470,6 +1476,58 @@ const buildWalletMismatchWaitingRefundOverview = () => {
   return overview;
 };
 
+const buildTransactionalDeliveryTruthOverview = () => {
+  const overview = buildMockRefundOverview();
+  const refundCase = overview.cases[0];
+  const lifecycle = buildLifecycleFixture('customer_notified', 80, 'none');
+  lifecycle.managerNextAction = 'review_customer_delivery';
+  lifecycle.managerQueue = {
+    ...lifecycle.managerQueue,
+    bucket: 'needs_action',
+    label: 'Delivery review',
+    nextAction: 'review_customer_delivery',
+    safeRetryEligible: false,
+  };
+  overview.transactionalDeliveryContractVersion =
+    'refund_transactional_delivery_v1';
+  overview.cases = [{
+    ...refundCase,
+    publicReference: 'RF-UAT-DELIVERY',
+    status: 'completed',
+    providerOutcome: 'succeeded',
+    hasReportingAdjustment: true,
+    lifecycle,
+    customerDeliveryException: {
+      schemaVersion: 'refund_transactional_delivery_v1',
+      state: 'bounced',
+      messageType: 'completed',
+      occurredAt: isoHoursAgo(0.5),
+      recoveryOwner: 'refund_operations',
+      nextAction: 'review_delivery_no_resend',
+      customerMessageReplayAllowed: false,
+      paymentReplayAllowed: false,
+      payloadRedacted: true,
+    },
+    messages: [{
+      id: 'delivery-message-1',
+      messageType: 'completed',
+      status: 'failed',
+      recipientEmail: 'delivery-customer@example.test',
+      subject: 'Your Bloomjoy refund is on its way',
+      body: 'Synthetic completion message for visual verification.',
+      sentAt: isoHoursAgo(1),
+      errorMessage: 'transactional_delivery_bounced',
+      createdAt: isoHoursAgo(1),
+      deliveryKind: 'automatic',
+      deliveryTransport: 'resend',
+      deliveryState: 'bounced',
+      deliveryStateUpdatedAt: isoHoursAgo(0.5),
+      providerEvidenceAvailable: true,
+    }],
+  }];
+  return overview;
+};
+
 const buildPhysicalCardMismatchRefundOverview = () => {
   const overview = buildPendingNayaxRefundOverview();
   overview.cases[0].cardLast4 = '6768';
@@ -1591,7 +1649,11 @@ const installMockSupabaseRoutes = async (
     const officialActionVersion = Number(refundCase.officialActionVersion ?? 0);
     const stage = refundCase.lifecycle.stage;
     const terminal = refundCase.lifecycle.terminal === true;
-    const bucket = stage === 'waiting_on_customer'
+    const deliveryReview = refundCase.customerDeliveryException?.nextAction ===
+      'review_delivery_no_resend';
+    const bucket = deliveryReview
+      ? 'needs_action'
+      : stage === 'waiting_on_customer'
       ? 'waiting_on_customer'
       : terminal
         ? 'completed'
@@ -1619,7 +1681,9 @@ const installMockSupabaseRoutes = async (
       ready_to_pay: 'Ready to refund',
       needs_action: 'Action needed',
     }[bucket];
-    const nextAction = bucket === 'completed'
+    const nextAction = deliveryReview
+      ? 'review_customer_delivery'
+      : bucket === 'completed'
       ? 'none'
       : bucket === 'waiting_on_customer'
         ? 'wait_for_customer_reply'
@@ -6501,6 +6565,79 @@ const runInternalTestDispositionChecks = async ({ browser, appUrl, artifactDir, 
   await closeRefundPortalContext(context);
 };
 
+const runTransactionalDeliveryTruthChecks = async ({
+  browser,
+  appUrl,
+  artifactDir,
+  recorder,
+}) => {
+  const functionCalls = [];
+  const rpcCalls = [];
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await installMockSupabaseRoutes(context, {
+    refundOverview: buildTransactionalDeliveryTruthOverview,
+    functionCalls,
+    rpcCalls,
+  });
+
+  const page = await context.newPage();
+  await signInRefundUser(page, appUrl);
+  await page.getByRole('heading', { name: /^Refunds$/i }).last()
+    .waitFor({ timeout: 10000 });
+  await page.getByText('Signed in. Redirecting...', { exact: true })
+    .waitFor({ state: 'hidden', timeout: 5000 })
+    .catch(() => undefined);
+  await waitForQueueCount(page, 1);
+  await queueCase(page, 'RF-UAT-DELIVERY').click();
+
+  recorder.assert(
+    'A provider bounce is manager-owned without changing successful payment truth',
+    await page.getByTestId('refund-terminal-primary-action')
+      .getByText('Delivery needs review', { exact: true }).isVisible() &&
+      (await page.getByTestId('refund-terminal-primary-helper').innerText())
+        .includes('do not resend the message or retry a payment blindly')
+  );
+  const messageHistory = page.getByText('Customer messages (1)', { exact: true });
+  await messageHistory.click();
+  recorder.assert(
+    'Message history distinguishes provider delivery from application send status',
+    await page.getByTestId('refund-message-delivery-delivery-message-1')
+      .getByText('Bounced', { exact: true }).isVisible()
+  );
+  recorder.assert(
+    'Delivery review renders no provider identifier and performs no message or payment mutation',
+    !(await page.locator('body').innerText()).includes('resend_delivery') &&
+      functionCalls.length === 0 &&
+      rpcCalls.every((name) => NAVIGATION_READ_ONLY_RPCS.has(name)),
+    JSON.stringify({ functionCalls, rpcCalls })
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-transactional-delivery-desktop.png'),
+    fullPage: true,
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByTestId('refund-message-delivery-delivery-message-1')
+    .scrollIntoViewIfNeeded();
+  const mobileLayout = await page.evaluate(() => ({
+    documentWidth: document.documentElement.scrollWidth,
+    bodyWidth: document.body.scrollWidth,
+    viewportWidth: window.innerWidth,
+  }));
+  recorder.assert(
+    'Delivery truth remains readable without mobile horizontal overflow',
+    mobileLayout.documentWidth <= mobileLayout.viewportWidth + 1 &&
+      mobileLayout.bodyWidth <= mobileLayout.viewportWidth + 1,
+    JSON.stringify(mobileLayout)
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-transactional-delivery-mobile.png'),
+    fullPage: false,
+  });
+
+  await closeRefundPortalContext(context);
+};
+
 const openNayaxManagerStepUp = async (page) => {
   await page.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
   await waitForQueueCount(page, 1);
@@ -8237,7 +8374,14 @@ const run = async () => {
     }
   );
   try {
-    if (args.managerQueueOnly) {
+    if (args.deliveryTruthOnly) {
+      await runTransactionalDeliveryTruthChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
+    } else if (args.managerQueueOnly) {
       await runRefundOnlyChecks({
         browser,
         appUrl: args.appUrl,
@@ -8262,6 +8406,12 @@ const run = async () => {
         recorder,
       });
       await runInternalTestDispositionChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
+      await runTransactionalDeliveryTruthChecks({
         browser,
         appUrl: args.appUrl,
         artifactDir: args.artifactDir,
@@ -8430,6 +8580,12 @@ const run = async () => {
       artifactDir: args.artifactDir,
       recorder,
     });
+    await runTransactionalDeliveryTruthChecks({
+      browser,
+      appUrl: args.appUrl,
+      artifactDir: args.artifactDir,
+      recorder,
+    });
     await runNayaxResolutionChecks({
       browser,
       appUrl: args.appUrl,
@@ -8459,6 +8615,18 @@ const run = async () => {
     networkFailures.length === 0,
     [...networkFailures, ...fixtureOwnedPortalFailureDiagnostics].slice(0, 5).join(' | ')
   );
+
+  if (args.deliveryTruthOnly) {
+    const focusedFailures = recorder.failed();
+    if (focusedFailures.length > 0) {
+      console.error(`\nRefund delivery-truth UAT failed: ${focusedFailures.length} check(s).`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log('\nRefund delivery-truth UAT passed.');
+    console.log(`Screenshots written to ${args.artifactDir}`);
+    return;
+  }
 
   if (args.managerQueueOnly) {
     const focusedFailures = recorder.failed();

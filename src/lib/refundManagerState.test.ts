@@ -76,6 +76,45 @@ Deno.test('manager state presents the normal card case as ready for review', () 
   assertEquals(getRefundPaymentStateLabel(baseCase), 'Not issued', 'separate payment label');
 });
 
+Deno.test('manager state surfaces a direct-email bounce without changing payment truth', () => {
+  const result = getRefundManagerState({
+    ...baseCase,
+    providerOutcome: 'succeeded',
+    customerDeliveryException: {
+      state: 'bounced',
+      messageType: 'completed',
+      recoveryOwner: 'refund_operations',
+      nextAction: 'review_delivery_no_resend',
+      customerMessageReplayAllowed: false,
+      paymentReplayAllowed: false,
+    },
+  });
+  assertEquals(result.label, 'Delivery needs review', 'delivery exception label');
+  assertEquals(
+    result.explanation,
+    'The customer address bounced. The refund and payment state have not been changed.',
+    'payment truth remains separate'
+  );
+});
+
+Deno.test('an active money action remains more urgent than an earlier delivery exception', () => {
+  const result = getRefundManagerState(
+    {
+      ...baseCase,
+      customerDeliveryException: {
+        state: 'unknown',
+        messageType: 'status_update',
+        recoveryOwner: 'refund_operations',
+        nextAction: 'review_delivery_no_resend',
+        customerMessageReplayAllowed: false,
+        paymentReplayAllowed: false,
+      },
+    },
+    { isRefunding: true }
+  );
+  assertEquals(result.id, 'refunding', 'active refund state');
+});
+
 Deno.test('manager state distinguishes missing facts and automatic lookup', () => {
   assertEquals(
     getRefundManagerState({ ...baseCase, status: 'waiting_on_customer', missingInformation: true }).label,

@@ -1655,6 +1655,16 @@ const primaryActionConfig = (
       disabled: true,
     };
   }
+  if (refundCase.customerDeliveryException) {
+    const stateLabel = transactionalDeliveryLabel(
+      refundCase.customerDeliveryException.state
+    );
+    return {
+      label: 'Delivery needs review',
+      helper: `${stateLabel}. Refund Operations must review provider evidence. The successful payment state is unchanged; do not resend the message or retry a payment blindly.`,
+      disabled: true,
+    };
+  }
   if (refundCase.providerHold) {
     return {
       label: 'Refund status not confirmed',
@@ -2057,6 +2067,35 @@ const messageStatusBadgeClass = (status: string) => {
   return 'border-orange-200 bg-orange-50 text-orange-800';
 };
 
+const isNeedsActionCase = (refundCase: RefundCaseRecord) => {
+  if (refundCase.lifecycle) return canonicalQueueBucket(refundCase) === 'needs_action';
+  return openStatuses.has(refundCase.status) &&
+    !isReadyToPayCase(refundCase) &&
+    !isRefundInProgressCase(refundCase) &&
+    !isRefundOperationsCase(refundCase) &&
+    !isWaitingCase(refundCase, false) &&
+    !isDoneCase(refundCase);
+};
+
+const transactionalDeliveryLabel = (state: string | undefined) => ({
+  accepted: 'Accepted by provider',
+  delivered: 'Delivered',
+  deferred: 'Delivery delayed',
+  failed: 'Delivery failed',
+  bounced: 'Bounced',
+  complained: 'Complaint reported',
+  unknown: 'Delivery unknown',
+}[state ?? 'unknown'] ?? 'Delivery unknown');
+
+const transactionalDeliveryBadgeClass = (state: string | undefined) => {
+  if (state === 'delivered') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  if (state === 'accepted') return 'border-sky-200 bg-sky-50 text-sky-800';
+  if (state === 'deferred' || state === 'unknown') {
+    return 'border-orange-200 bg-orange-50 text-orange-800';
+  }
+  return 'border-destructive/30 bg-destructive/10 text-destructive';
+};
+
 const nayaxExecutionBlockLabel = (block: string) => {
   switch (block) {
     case 'kill_switch_active':
@@ -2441,14 +2480,7 @@ export default function AdminRefundsPage() {
       if (
         statusFilter !== 'internal_test' &&
         statusFilter === 'needs_action' &&
-        (
-          !openStatuses.has(refundCase.status) ||
-          readyToRefund ||
-          inProgress ||
-          needsRefundOperations ||
-          waiting ||
-          done
-        )
+        !isNeedsActionCase(refundCase)
       ) return false;
       if (statusFilter === 'missing_information' && !refundCase.missingInformation) return false;
       if (statusFilter === 'possible_duplicate' && !refundCase.possibleDuplicate && !refundCase.confirmedDuplicate) return false;
@@ -2489,14 +2521,7 @@ export default function AdminRefundsPage() {
   ]);
 
   const primaryQueueCounts = useMemo(() => ({
-    needs_action: overview.cases.filter((refundCase) =>
-      openStatuses.has(refundCase.status) &&
-      !isReadyToPayCase(refundCase) &&
-      !isRefundInProgressCase(refundCase) &&
-      !isRefundOperationsCase(refundCase) &&
-      !isWaitingCase(refundCase, refundOperationsAccess) &&
-      !isDoneCase(refundCase)
-    ).length,
+    needs_action: overview.cases.filter(isNeedsActionCase).length,
     ready_to_pay: overview.cases.filter(isReadyToPayCase).length,
     in_progress: overview.cases.filter(isRefundInProgressCase).length,
     waiting_on_customer: overview.cases.filter((refundCase) =>
@@ -5087,7 +5112,9 @@ export default function AdminRefundsPage() {
     const hasUnsavedTransactionChoice =
       !selectedCase.hasMatchedNayaxTransaction &&
       Boolean(editor.matchedNayaxCandidateToken.trim());
-    const managerState: RefundManagerState = paymentActionNeedsOperations
+    const managerState: RefundManagerState = selectedCase.customerDeliveryException
+      ? baseManagerState
+      : paymentActionNeedsOperations
       ? {
           id: 'needs_refund_operations',
           label: 'Needs Refund Operations',
@@ -6943,8 +6970,12 @@ export default function AdminRefundsPage() {
 
                     {!selectedCaseIsInternalTest && (selectedCaseIsTerminal ? (
                       <section data-testid="refund-terminal-history" className="border-t border-border pt-4">
-                        <p className="font-medium text-foreground">{primaryAction?.label}</p>
-                        <p className="mt-1 text-sm text-muted-foreground">{primaryAction?.helper}</p>
+                        <p data-testid="refund-terminal-primary-action" className="font-medium text-foreground">
+                          {primaryAction?.label}
+                        </p>
+                        <p data-testid="refund-terminal-primary-helper" className="mt-1 text-sm text-muted-foreground">
+                          {primaryAction?.helper}
+                        </p>
                         {selectedCase.decisionReason && (
                           <div className="mt-4">
                             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -7920,6 +7951,15 @@ export default function AdminRefundsPage() {
                                   <Badge className={cn('capitalize', messageStatusBadgeClass(message.status))}>
                                     {message.status}
                                   </Badge>
+                                  {message.deliveryTransport === 'resend' && (
+                                    <Badge
+                                      data-testid={`refund-message-delivery-${message.id}`}
+                                      variant="outline"
+                                      className={transactionalDeliveryBadgeClass(message.deliveryState)}
+                                    >
+                                      {transactionalDeliveryLabel(message.deliveryState)}
+                                    </Badge>
+                                  )}
                                   {message.deliveryKind && (
                                     <Badge variant="secondary" className="capitalize">
                                       {message.deliveryKind === 'automatic' ? 'Automatic' : 'Manager sent'}
@@ -7951,11 +7991,19 @@ export default function AdminRefundsPage() {
                                 </p>
                                 <p className="mt-1 break-words text-xs text-muted-foreground">
                                   To {message.recipientEmail} /{' '}
-                                  {message.sentAt
-                                    ? `sent ${formatDate(message.sentAt)}`
-                                    : `created ${formatDate(message.createdAt)}`}
+                                  {message.deliveryTransport === 'resend'
+                                    ? `${transactionalDeliveryLabel(message.deliveryState).toLowerCase()} ${
+                                        formatDate(message.deliveryStateUpdatedAt ?? message.sentAt ?? message.createdAt)
+                                      }`
+                                    : message.sentAt
+                                      ? `sent ${formatDate(message.sentAt)}`
+                                      : `created ${formatDate(message.createdAt)}`}
                                 </p>
-                                {message.errorMessage && (
+                                {message.errorMessage &&
+                                  !(
+                                    message.deliveryTransport === 'resend' &&
+                                    message.errorMessage.startsWith('transactional_delivery_')
+                                  ) && (
                                   <p className="mt-1 break-words text-xs text-destructive">
                                     {message.errorMessage}
                                   </p>

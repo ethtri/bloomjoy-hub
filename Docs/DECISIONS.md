@@ -1,5 +1,15 @@
 # Decisions
 
+## 2026-08-31 - Transactional acceptance is not customer delivery (`#917`)
+
+- Every direct Website-case email is marked in the message ledger before provider access and uses one stable per-message idempotency key. A successful Resend API response records its exact provider message ID as **Accepted by provider**; it is never labeled delivered from API acceptance alone.
+- Signed webhooks write only an event-key digest, provider message ID, normalized delivery state, event time, and internal match metadata. At-least-once replay is deduplicated, out-of-order events can only advance the safety rank, and webhook handling cannot send or retry a message, create a payment attempt, or call Nayax.
+- Managers see provider acceptance, delivered, delayed, bounced, complained, or unknown—not the private provider ID. Stale acceptance and actionable delivery failures route the case to Refund Operations in **Action needed** with an explicit no-resend/no-payment-replay next action. Payment outcome remains authoritative and independent; a bounced completion receipt cannot reopen or replay a successful refund.
+- Gmail-thread delivery keeps its existing provider-thread ledger and uncertain-delivery recovery. Direct-email webhooks do not create a Gmail fallback or a second conversation. Internal/test records cannot start or bind direct transactional delivery.
+
+**Why this choice**
+- Provider acceptance proves only that the API accepted a request. Persisting later provider evidence without replay authority makes the queue truthful while preserving exactly-once customer messaging and transaction-scoped payment safety.
+
 ## 2026-08-31 - Nayax lookup recovery is exact-account and internally owned (`#890`, `#992`)
 
 - Every transaction lookup uses the reporting machine's explicit Nayax account scope. A non-default account may resolve only its exact server-side credential; missing scope or access never falls back to the default account and never cross-searches a sibling machine or location.

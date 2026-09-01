@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
+import { Webhook } from "npm:svix@2.2.0";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
@@ -33,6 +34,12 @@ import {
   RefundNayaxCompletionMessageLaneBlockedError,
 } from "../_shared/nayax-resolution-message-lane.ts";
 import { tryIssueRefundStatusCapability } from "../_shared/refund-status-capability.ts";
+import {
+  bindRefundTransactionalDelivery,
+  markRefundTransactionalDeliveryAttempt,
+  parseRefundTransactionalDeliveryWebhook,
+  sha256Hex,
+} from "../_shared/refund-transactional-delivery.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -150,6 +157,72 @@ const sameMissingFields = (
   left.length === right.length &&
   left.every((field, index) => field === right[index]);
 
+const handleTransactionalDeliveryWebhook = async (req: Request) => {
+  if (!supabase) {
+    return jsonResponse({ error: "Delivery tracking is unavailable." }, 503);
+  }
+  const secret = (Deno.env.get("RESEND_REFUND_WEBHOOK_SECRET") ?? "").trim();
+  const eventId = (req.headers.get("svix-id") ?? "").trim();
+  const timestamp = (req.headers.get("svix-timestamp") ?? "").trim();
+  const signature = (req.headers.get("svix-signature") ?? "").trim();
+  if (!secret || !eventId || !timestamp || !signature) {
+    return jsonResponse({ error: "Invalid delivery webhook." }, 401);
+  }
+  const rawBody = await req.text();
+  if (!rawBody || rawBody.length > 65_536) {
+    return jsonResponse({ error: "Invalid delivery webhook." }, 400);
+  }
+
+  let verified: unknown;
+  try {
+    verified = new Webhook(secret).verify(rawBody, {
+      "svix-id": eventId,
+      "svix-timestamp": timestamp,
+      "svix-signature": signature,
+    });
+  } catch {
+    return jsonResponse({ error: "Invalid delivery webhook." }, 401);
+  }
+
+  let event;
+  try {
+    event = parseRefundTransactionalDeliveryWebhook(verified);
+  } catch {
+    return jsonResponse({ error: "Invalid delivery webhook evidence." }, 400);
+  }
+  if (!event) {
+    return jsonResponse({ accepted: true, tracked: false, payloadRedacted: true });
+  }
+
+  const { data, error } = await supabase.rpc(
+    "service_record_refund_transactional_delivery_event",
+    {
+      p_event_key_digest: await sha256Hex(eventId),
+      p_provider_message_id: event.providerMessageId,
+      p_delivery_state: event.state,
+      p_event_at: event.eventAt,
+    },
+  );
+  const result = data && typeof data === "object"
+    ? data as Record<string, unknown>
+    : null;
+  if (error || result?.payloadRedacted !== true) {
+    console.error("refund delivery webhook record failed", {
+      errorType: error?.name ?? "database_error",
+      payloadRedacted: true,
+    });
+    return jsonResponse({ error: "Unable to record delivery state." }, 500);
+  }
+  return jsonResponse({
+    accepted: true,
+    tracked: true,
+    duplicate: result.duplicate === true,
+    matched: result.matched === true,
+    applied: result.applied === true,
+    payloadRedacted: true,
+  });
+};
+
 const syncAutomationFields = async (
   refundCaseId: string,
   messageType: RefundCustomerMessageType,
@@ -185,6 +258,10 @@ const syncAutomationFields = async (
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
+  }
+
+  if (req.method === "POST" && req.headers.has("svix-id")) {
+    return await handleTransactionalDeliveryWebhook(req);
   }
 
   try {
@@ -323,7 +400,11 @@ serve(async (req) => {
 
         const customerCompletion = await deliverNayaxCompletionOnce({
           deliver: async () => {
-            await sendRefundTransactionalEmail({
+            await markRefundTransactionalDeliveryAttempt({
+              supabase,
+              refundCaseMessageId: nayaxCompletionRecoveryMessageId,
+            });
+            const receipt = await sendRefundTransactionalEmail({
               to: [recipientEmail],
               cc: managerCcEmails,
               subject,
@@ -332,6 +413,13 @@ serve(async (req) => {
                 headline: "Your refund is on its way",
                 text: messageBody,
               }),
+              idempotencyKey:
+                `refund-message-${nayaxCompletionRecoveryMessageId}`,
+            });
+            await bindRefundTransactionalDelivery({
+              supabase,
+              refundCaseMessageId: nayaxCompletionRecoveryMessageId,
+              receipt,
             });
             return true;
           },
@@ -761,12 +849,22 @@ serve(async (req) => {
         syntheticProofAuthorizationId: syntheticProof.authorizationId,
       });
       if (!gmailDelivery.usedGmail) {
-        await sendRefundTransactionalEmail({
+        await markRefundTransactionalDeliveryAttempt({
+          supabase,
+          refundCaseMessageId: messageRow.id,
+        });
+        const receipt = await sendRefundTransactionalEmail({
           to: [refundCase.customer_email],
           cc: gmailDelivery.managerCcEmails,
           subject: email.subject,
           text: email.text,
           html: email.html,
+          idempotencyKey: `refund-message-${messageRow.id}`,
+        });
+        await bindRefundTransactionalDelivery({
+          supabase,
+          refundCaseMessageId: messageRow.id,
+          receipt,
         });
       }
 
