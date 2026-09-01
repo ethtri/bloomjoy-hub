@@ -287,13 +287,19 @@ select is(
   'Replay cannot create a second manager task'
 );
 
+select set_config(
+  'refund_test.ambiguous_review_id',
+  (select result -> 'linkReview' ->> 'reviewId' from ambiguous_link),
+  true
+);
+
 set local role authenticated;
 select pg_temp.set_auth_claims('b8900000-0000-4000-8000-000000000002');
 
 select ok(
   pg_temp.capture_error(format(
     'select public.admin_resolve_refund_gmail_case_link_review(%L,1,%L)',
-    (select (result -> 'linkReview' ->> 'reviewId')::uuid from ambiguous_link),
+    current_setting('refund_test.ambiguous_review_id')::uuid,
     'b8940000-0000-4000-8000-000000000002'
   )) like 'P4655:Current manager access%',
   'An unrelated authenticated user cannot resolve the linking task'
@@ -321,19 +327,17 @@ select ok(
   'Each candidate exposes one Action needed manager task and blocks official action'
 );
 
-create temporary table resolved_link as
-select public.admin_resolve_refund_gmail_case_link_review(
-  (select (result -> 'linkReview' ->> 'reviewId')::uuid from ambiguous_link),
-  1,
-  'b8940000-0000-4000-8000-000000000002'
-) as result;
-
 select ok(
-  (select (result ->> 'resolved')::boolean from resolved_link)
-    and not (select (result ->> 'customerMessageSent')::boolean from resolved_link)
-    and not (select (result ->> 'caseCreated')::boolean from resolved_link)
-    and not (select (result ->> 'providerCallMade')::boolean from resolved_link)
-    and not (select (result ->> 'paymentActionTaken')::boolean from resolved_link),
+  (select (result ->> 'resolved')::boolean
+      and (result ->> 'customerMessageSent')::boolean is false
+      and (result ->> 'caseCreated')::boolean is false
+      and (result ->> 'providerCallMade')::boolean is false
+      and (result ->> 'paymentActionTaken')::boolean is false
+    from (select public.admin_resolve_refund_gmail_case_link_review(
+      current_setting('refund_test.ambiguous_review_id')::uuid,
+      1,
+      'b8940000-0000-4000-8000-000000000002'
+    ) as result) resolved),
   'Manager resolution returns an explicit no-side-effect receipt'
 );
 
@@ -397,7 +401,7 @@ select ok(
       and (result ->> 'providerCallMade')::boolean is false
       and (result ->> 'paymentActionTaken')::boolean is false
     from (select public.admin_resolve_refund_gmail_case_link_review(
-    (select (result -> 'linkReview' ->> 'reviewId')::uuid from ambiguous_link),
+    current_setting('refund_test.ambiguous_review_id')::uuid,
     1,
     'b8940000-0000-4000-8000-000000000002'
   ) as result) replay),
