@@ -37,6 +37,8 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-email-pilot-source-badges-mobile.png',
   'refund-evidence-selection-desktop.png',
   'refund-evidence-selection-mobile.png',
+  'refund-case-availability-error-desktop.png',
+  'refund-case-availability-error-mobile.png',
   'refund-manager-confirmed-blocked-desktop.png',
   'refund-manager-confirmed-blocked-mobile.png',
   'refund-manager-confirmed-ready-desktop.png',
