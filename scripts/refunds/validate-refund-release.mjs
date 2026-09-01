@@ -224,8 +224,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    109,
-    'Refund release inventory must cover exactly 109 discovered refund/Nayax migrations'
+    110,
+    'Refund release inventory must cover exactly 110 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -250,6 +250,10 @@ try {
   assert(
     repositoryMigrations.includes('20260901070000_refund_transactional_delivery_truth.sql'),
     'The transactional delivery truth migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260901080000_refund_gmail_existing_case_linking.sql'),
+    'The existing-case-first Gmail linking migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260830182855_refund_manager_queue_truth.sql'),

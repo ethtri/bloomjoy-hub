@@ -88,6 +88,7 @@ const parseArgs = (argv) => {
     demoOnly: false,
     managerQueueOnly: false,
     deliveryTruthOnly: false,
+    inboundLinkOnly: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -158,6 +159,11 @@ const parseArgs = (argv) => {
       continue;
     }
 
+    if (arg === '--inbound-link-only') {
+      args.inboundLinkOnly = true;
+      continue;
+    }
+
     if (arg === '--app-url') {
       args.appUrl = argv[index + 1] || args.appUrl;
       index += 1;
@@ -207,7 +213,7 @@ const parseArgs = (argv) => {
   args.appUrl = args.appUrl.replace(/\/+$/, '');
   args.artifactDir = path.resolve(process.cwd(), args.artifactDir);
   args.fragmentDir = path.resolve(process.cwd(), args.fragmentDir);
-  if (!args.managerStepUpOnly && !args.demoOnly && !args.managerQueueOnly && !args.deliveryTruthOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
+  if (!args.managerStepUpOnly && !args.demoOnly && !args.managerQueueOnly && !args.deliveryTruthOnly && !args.inboundLinkOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
     !args.ownerTotpOnly && !args.legacyStateOnly && !args.nayaxResolutionOnly &&
     !args.nayaxLookupOnly && !args.duplicateOnly) {
     requireEvidenceRunToken(args.runToken);
@@ -6565,6 +6571,69 @@ const runInternalTestDispositionChecks = async ({ browser, appUrl, artifactDir, 
   await closeRefundPortalContext(context);
 };
 
+const runInboundCaseLinkReviewChecks = async ({
+  browser,
+  appUrl,
+  artifactDir,
+  recorder,
+}) => {
+  const functionCalls = [];
+  const rpcCalls = [];
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await installMockSupabaseRoutes(context, { functionCalls, rpcCalls });
+  const page = await context.newPage();
+
+  await signInRefundUser(page, appUrl);
+  await navigateRefundPortalPage(
+    page,
+    `${appUrl}/refunds?demo=on&inbound-link=on&case=demo-nc-manual`,
+    { waitUntil: 'networkidle' }
+  );
+  const review = page.getByTestId('refund-inbound-link-review');
+  await review.waitFor({ state: 'visible' });
+  const reviewText = await review.innerText();
+  recorder.assert(
+    'Ambiguous inbound email is held for one manager-owned existing-case link review',
+    reviewText.includes('Link an existing customer email') &&
+      reviewText.includes('matches 2 recent open cases') &&
+      reviewText.includes('has not sent another form request') &&
+      reviewText.includes('every other candidate remains associated as related work')
+  );
+  recorder.assert(
+    'Inbound link review names the no-side-effect boundary and disables synthetic resolution',
+    reviewText.includes('no case, customer message, provider call, or refund') &&
+      await page.getByTestId('refund-resolve-inbound-link').isDisabled() &&
+      functionCalls.length === 0 &&
+      rpcCalls.every((name) => NAVIGATION_READ_ONLY_RPCS.has(name)),
+    JSON.stringify({ functionCalls, rpcCalls })
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-inbound-case-link-review-desktop.png'),
+    fullPage: false,
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await review.scrollIntoViewIfNeeded();
+  const mobileLayout = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    bodyScrollWidth: document.body.scrollWidth,
+    innerWidth: window.innerWidth,
+  }));
+  recorder.assert(
+    'Inbound case-link review remains usable without mobile horizontal overflow',
+    await review.isVisible() &&
+      mobileLayout.scrollWidth <= mobileLayout.innerWidth + 1 &&
+      mobileLayout.bodyScrollWidth <= mobileLayout.innerWidth + 1,
+    JSON.stringify(mobileLayout)
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-inbound-case-link-review-mobile.png'),
+    fullPage: false,
+  });
+
+  await closeRefundPortalContext(context);
+};
+
 const runTransactionalDeliveryTruthChecks = async ({
   browser,
   appUrl,
@@ -8357,7 +8426,8 @@ const run = async () => {
   await mkdir(args.artifactDir, { recursive: true });
   if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.ownerTotpOnly &&
     !args.legacyStateOnly && !args.nayaxResolutionOnly && !args.nayaxLookupOnly &&
-    !args.gmailDraftOnly && !args.duplicateOnly && !args.managerQueueOnly) {
+    !args.gmailDraftOnly && !args.duplicateOnly && !args.managerQueueOnly &&
+    !args.inboundLinkOnly) {
     await mkdir(args.fragmentDir, { recursive: true });
   }
   await waitForServer(args.appUrl);
@@ -8374,7 +8444,14 @@ const run = async () => {
     }
   );
   try {
-    if (args.deliveryTruthOnly) {
+    if (args.inboundLinkOnly) {
+      await runInboundCaseLinkReviewChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
+    } else if (args.deliveryTruthOnly) {
       await runTransactionalDeliveryTruthChecks({
         browser,
         appUrl: args.appUrl,
@@ -8586,6 +8663,12 @@ const run = async () => {
       artifactDir: args.artifactDir,
       recorder,
     });
+    await runInboundCaseLinkReviewChecks({
+      browser,
+      appUrl: args.appUrl,
+      artifactDir: args.artifactDir,
+      recorder,
+    });
     await runNayaxResolutionChecks({
       browser,
       appUrl: args.appUrl,
@@ -8615,6 +8698,18 @@ const run = async () => {
     networkFailures.length === 0,
     [...networkFailures, ...fixtureOwnedPortalFailureDiagnostics].slice(0, 5).join(' | ')
   );
+
+  if (args.inboundLinkOnly) {
+    const focusedFailures = recorder.failed();
+    if (focusedFailures.length > 0) {
+      console.error(`\nRefund inbound-link UAT failed: ${focusedFailures.length} check(s).`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log('\nRefund inbound-link UAT passed.');
+    console.log(`Screenshots written to ${args.artifactDir}`);
+    return;
+  }
 
   if (args.deliveryTruthOnly) {
     const focusedFailures = recorder.failed();

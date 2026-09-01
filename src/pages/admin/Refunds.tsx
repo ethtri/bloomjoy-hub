@@ -59,6 +59,7 @@ import {
   rejectRefundGptTriage,
   resolveRefundNayaxOutcome,
   resolveRefundGmailDeliveryNotFound,
+  resolveRefundGmailCaseLinkReview,
   resolveRefundCaseReconciliation,
   sendRefundCaseMessage,
   updateRefundCaseAdmin,
@@ -2367,6 +2368,7 @@ export default function AdminRefundsPage() {
   const [gmailRecoveryVerified, setGmailRecoveryVerified] = useState(false);
   const [isRecoveringGmailContact, setIsRecoveringGmailContact] = useState(false);
   const [isResolvingReconciliation, setIsResolvingReconciliation] = useState(false);
+  const [isResolvingInboundLink, setIsResolvingInboundLink] = useState(false);
   const forceDemoData = isLocalUatDemoForced();
   const showLegacyCashWorkbench =
     import.meta.env.DEV &&
@@ -2750,6 +2752,8 @@ export default function AdminRefundsPage() {
     ? 'Resolve the possible duplicate review before approving, declining, completing, or issuing this refund.'
     : selectedCaseOfficialActionBlockReason === 'manager_verification_required'
     ? 'Your manager session needs to be refreshed before you can take this action.'
+    : selectedCaseOfficialActionBlockReason === 'inbound_link_review_required'
+    ? 'Link the verified support conversation to one primary case before taking an official action.'
     : selectedCaseOfficialActionBlockReason === 'official_actions_disabled'
       ? 'Refund actions are temporarily unavailable.'
       : selectedCaseOfficialActionBlockReason === 'exact_machine_required'
@@ -3108,6 +3112,37 @@ export default function AdminRefundsPage() {
     setIsGmailRecoveryOpen(false);
     setGmailRecoveryVerified(false);
 
+  };
+
+  const handleResolveInboundLink = async () => {
+    const review = selectedCase?.inboundLinkReview;
+    if (!selectedCase || !review || review.status !== 'pending' || isResolvingInboundLink) return;
+    setIsResolvingInboundLink(true);
+    try {
+      const result = await resolveRefundGmailCaseLinkReview({
+        reviewId: review.reviewId,
+        expectedVersion: review.version,
+        primaryRefundCaseId: selectedCase.id,
+      });
+      if (
+        result.customerMessageSent !== false || result.caseCreated !== false ||
+        result.providerCallMade !== false || result.paymentActionTaken !== false
+      ) {
+        throw new Error('Inbound email linking returned an unsafe side-effect receipt.');
+      }
+      toast.success(
+        result.replayed
+          ? 'This support conversation was already linked.'
+          : 'Support conversation linked. No customer message or refund was sent.'
+      );
+      await refresh();
+    } catch (linkError) {
+      toast.error(linkError instanceof Error
+        ? linkError.message
+        : 'Unable to link the support conversation.');
+    } finally {
+      setIsResolvingInboundLink(false);
+    }
   };
 
   const handleSaveCase = async (
@@ -6681,6 +6716,83 @@ export default function AdminRefundsPage() {
                         {formatCurrency(selectedCase.paymentAmountCents)}
                       </p>
                     </div>
+
+                    {selectedCase.inboundLinkReview?.status === 'pending' && (
+                      <section
+                        data-testid="refund-inbound-link-review"
+                        className="rounded-xl border border-orange-300 bg-orange-50 p-4 text-orange-950"
+                        role="status"
+                      >
+                        <div className="flex items-start gap-3">
+                          <Mail className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold">Link an existing customer email</p>
+                            <p className="mt-1 text-sm leading-6">
+                              A verified support email matches {selectedCase.inboundLinkReview.candidateCount}{' '}
+                              recent open {selectedCase.inboundLinkReview.candidateCount === 1 ? 'case' : 'cases'}.
+                              Bloomjoy has not sent another form request. Choose the primary case; every other candidate remains associated as related work.
+                            </p>
+                            <p className="mt-2 text-xs leading-5 text-orange-900">
+                              Received {formatDate(selectedCase.inboundLinkReview.receivedAt)}. Linking creates no case, customer message, provider call, or refund.
+                            </p>
+                            <div className="mt-3 space-y-2">
+                              {selectedCase.inboundLinkReview.candidates.map((candidate) => {
+                                const matchedContext = [
+                                  candidate.evidence.amount === true ? 'amount' : null,
+                                  candidate.evidence.paymentMethod === true ? 'payment method' : null,
+                                  candidate.evidence.incidentDate === true ? 'purchase date' : null,
+                                  candidate.evidence.locationOrMachine === true ? 'location or machine' : null,
+                                ].filter(Boolean);
+                                const isCurrent = candidate.caseId === selectedCase.id;
+                                return (
+                                  <div
+                                    key={candidate.caseId}
+                                    className="rounded-lg border border-orange-200 bg-white p-3"
+                                  >
+                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <p className="font-semibold text-foreground">{candidate.publicReference}</p>
+                                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                          {formatRefundMachineLocation(candidate.locationName, candidate.machineLabel)} ·{' '}
+                                          {formatCurrency(candidate.paymentAmountCents)} · {formatDate(candidate.incidentAt)}
+                                        </p>
+                                        <p className="mt-1 text-xs leading-5 text-orange-900">
+                                          Exact sender email
+                                          {matchedContext.length > 0 ? `; matching ${matchedContext.join(', ')}` : ''}.
+                                        </p>
+                                      </div>
+                                      {isCurrent ? (
+                                        <Badge className="border-orange-300 bg-orange-100 text-orange-950">
+                                          Selected
+                                        </Badge>
+                                      ) : (
+                                        <Button asChild type="button" size="sm" variant="outline">
+                                          <a href={`/refunds?case=${candidate.caseId}`}>Review as primary</a>
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <Button
+                              type="button"
+                              data-testid="refund-resolve-inbound-link"
+                              className="mt-4 h-auto max-w-full whitespace-normal py-2 text-left leading-5"
+                              onClick={() => void handleResolveInboundLink()}
+                              disabled={isUsingDemoData || isResolvingInboundLink}
+                            >
+                              {isResolvingInboundLink ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                              ) : (
+                                <ShieldCheck className="mr-2 h-4 w-4" aria-hidden="true" />
+                              )}
+                              Link to {selectedCase.publicReference} as primary; keep the others related
+                            </Button>
+                          </div>
+                        </div>
+                      </section>
+                    )}
 
                     {selectedCaseIsInternalTest && selectedCase.internalTest && (
                       <section

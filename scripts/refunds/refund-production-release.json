@@ -113,7 +113,8 @@
     "20260901033000_refund_internal_test_disposition.sql",
     "20260901050000_refund_selected_nayax_transaction_evidence.sql",
     "20260901060000_refund_nayax_scope_recovery.sql",
-    "20260901070000_refund_transactional_delivery_truth.sql"
+    "20260901070000_refund_transactional_delivery_truth.sql",
+    "20260901080000_refund_gmail_existing_case_linking.sql"
   ],
   "migrationFilesSha256": "1f7d5f202506698ab377fb337a774700d0c6c361ed5bcd46fbc8714c0195efa1",
   "migrationVersionSetSha256": "066001cbebb00f7d4e93299c9391e6c39bcc0a320e20e0c4db65af083340cd58",

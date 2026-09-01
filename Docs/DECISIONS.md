@@ -1422,3 +1422,20 @@ Queue placement is part of the server-owned refund lifecycle, not a browser infe
 - It removes the live contradiction where detail, queue placement, and counts could disagree or change merely because a manager opened the case.
 - It keeps stale lookup recovery read-only and preserves the separate no-blind-payment-retry boundary.
 - It gives managers and customers one truthful state vocabulary without exposing provider or reconciliation details.
+
+## 2026-09-01 - Gmail intake resolves existing cases before asking for another form (`#889`)
+
+A verified support email from a customer with a recent open Website case is existing-case work, not a reason to restart intake.
+
+**Canonical choices**
+- Evidence is considered in this order: an existing provider thread, an explicit same-sender case reference, then exact normalized sender identity across recent open customer cases with bounded deterministic contextual match flags. Internal/test and terminal cases are excluded.
+- One recent open case is linked atomically before any generic form response can be claimed. The message continues in the existing case/thread and creates no pre-form contact, new case, customer message, provider call, or payment action.
+- Multiple plausible cases create one versioned manager-owned linking task. The contact enters a non-sendable `link_review` state, every candidate's official action fails closed, and replay cannot claim a form response or create a duplicate task.
+- Resolution selects one primary case and retains every other candidate as a related immutable association. A current manager must have access to every candidate; Refund Operations may resolve portfolio-spanning work. The retained conversation moves only to the primary case so one customer message is never copied into multiple case threads.
+- Candidate projection is redacted: public case reference, safe machine/location, incident time, amount, and boolean match signals only. Sender addresses and message content remain in the existing protected case/message surfaces.
+- Resolution is versioned and replay-safe and returns explicit negative side-effect evidence. It does not infer purchase-specific facts across related cases or authorize a refund. Managers continue from the submitted form facts and linked conversation without asking the customer to repeat information Bloomjoy already possesses.
+
+**Why this choice**
+- It removes the production failure where a customer who had already submitted two forms received another form request.
+- It uses exact identity and existing records conservatively: an unambiguous case can proceed automatically, while multiple plausible purchases remain human-owned without another customer chore.
+- It preserves form-only case creation, provider/payment isolation, exact-transaction protection, and immutable replay evidence.

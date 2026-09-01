@@ -27,7 +27,7 @@ for (const token of [
   assert.ok(migration.includes(token), `Migration is missing ${token}.`);
 }
 assert.ok(
-  migration.includes("revoke all on table public.refund_transactional_delivery_events\n  from service_role"),
+  /revoke all on table public\.refund_transactional_delivery_events\r?\n  from service_role/.test(migration),
   'Provider delivery events must remain private behind security-definer RPCs.'
 );
 assert.ok(
