@@ -2962,46 +2962,18 @@ const runProviderDelayCustomerStatusSweep = async (
   observedAt: Date,
 ) => {
   if (!supabase || !automaticCustomerContactEnabled) return;
-  const { data: dueRows, error: dueError } = await supabase
-    .from("refund_case_nayax_refund_attempts")
-    .select(
-      "id,refund_case_id,status,safe_transport_stage,reconciliation_required,refund_operations_due_at,created_at",
-    )
-    .eq("reconciliation_required", true)
-    .eq("safe_transport_stage", "confirmation_hold")
-    .lte("refund_operations_due_at", observedAt.toISOString())
-    .order("created_at", { ascending: false })
-    .limit(100);
+  const { data: dueRows, error: dueError } = await supabase.rpc(
+    "service_list_due_refund_provider_delay_attempts",
+    {
+      p_observed_at: observedAt.toISOString(),
+      p_limit: 100,
+    },
+  );
   if (dueError) throw dueError;
 
   const dueAttempts = (dueRows ?? []) as RefundProviderDelayAttempt[];
-  const caseIds = [...new Set(dueAttempts.map((attempt) => attempt.refund_case_id))];
-  if (caseIds.length === 0) return;
-
-  // Re-read every latest attempt for these cases. A historical hold must never
-  // notify after a newer attempt superseded it, even if stale legacy flags remain.
-  const { data: latestRows, error: latestError } = await supabase
-    .from("refund_case_nayax_refund_attempts")
-    .select(
-      "id,refund_case_id,status,safe_transport_stage,reconciliation_required,refund_operations_due_at,created_at",
-    )
-    .in("refund_case_id", caseIds)
-    .order("created_at", { ascending: false })
-    .order("id", { ascending: false })
-    .limit(500);
-  if (latestError) throw latestError;
-  const latestByCase = new Map<string, RefundProviderDelayAttempt>();
-  for (const attempt of (latestRows ?? []) as RefundProviderDelayAttempt[]) {
-    if (!latestByCase.has(attempt.refund_case_id)) {
-      latestByCase.set(attempt.refund_case_id, attempt);
-    }
-  }
 
   for (const attempt of dueAttempts) {
-    if (latestByCase.get(attempt.refund_case_id)?.id !== attempt.id) {
-      addReason(counters, "superseded_provider_delay_suppressed");
-      continue;
-    }
     const refundCase = await getSweepCase(attempt.refund_case_id);
     if (!refundCase || !["submitted", "needs_review", "correlated", "card_refund_pending"].includes(refundCase.status)) {
       addReason(counters, "provider_delay_case_not_contactable");
@@ -3435,6 +3407,7 @@ serve(async (req) => {
 
   let runId: string | null = null;
   let runKey: string | null = null;
+  let failureStage = "request_setup";
   const counters = createCounters();
 
   try {
@@ -3448,6 +3421,7 @@ serve(async (req) => {
       return jsonResponse({ error: "Unauthorized." }, 401);
     }
 
+    failureStage = "status_evidence_retention";
     const { error: statusRetentionError } = await supabase.rpc(
       "service_prune_refund_status_access_evidence",
     );
@@ -3475,6 +3449,7 @@ serve(async (req) => {
       : `${triggerSource}:${schedulerWindowStart(scheduledAt).toISOString().replace(/[.]/g, "-")}`;
     runKey = suppliedRunKey ?? defaultRunKey;
 
+    failureStage = "run_claim";
     const startedRun = await startRun(runKey, triggerSource, scheduledAt.toISOString());
     runId = typeof startedRun.runId === "string" ? startedRun.runId : null;
     if (!runId) throw new Error("Refund automation run could not be started.");
@@ -3492,6 +3467,7 @@ serve(async (req) => {
     const policyWindowStart = schedulerWindowStart(scheduledAt).toISOString();
 
     if (mode === "health_check") {
+      failureStage = "health_check";
       const result = await runHealthCheck(runId, runKey, counters, policyWindowStart);
       return jsonResponse({
         status: result.alertStatus === "failed" ? "failed" : "health_checked",
@@ -3505,6 +3481,7 @@ serve(async (req) => {
     }
 
     if (mode === "failure_test") {
+      failureStage = "failure_test";
       const alertStatus = await runFailureTest(runId, runKey, counters, policyWindowStart);
       return jsonResponse({
         status: alertStatus === "sent" ? "failure_test_recorded" : "failure_test_alert_failed",
@@ -3515,6 +3492,7 @@ serve(async (req) => {
     }
 
     if (!automationEnabled) {
+      failureStage = "automation_gate";
       counters.actionsSuppressed += 1;
       addReason(counters, "automation_disabled");
       await finishRun(runId, "suppressed", counters, "automation_disabled", "suppressed");
@@ -3526,9 +3504,16 @@ serve(async (req) => {
     }
 
     if (!policyWindowIsOpen(scheduledAt)) {
+      failureStage = "policy_window";
       counters.actionsSuppressed += 1;
       addReason(counters, "outside_policy_window");
-      await finishRun(runId, "succeeded", counters);
+      await finishRun(
+        runId,
+        "suppressed",
+        counters,
+        "outside_policy_window",
+        "suppressed",
+      );
       return jsonResponse({
         status: "outside_policy_window",
         runKey,
@@ -3540,38 +3525,50 @@ serve(async (req) => {
     if (!automaticCustomerContactEnabled) {
       addReason(counters, "automatic_customer_contact_disabled");
     }
+    failureStage = "stale_follow_up_claims";
     await settleStaleFollowUpClaims(counters);
+    failureStage = "customer_reply_follow_up";
     await runCustomerReplyFollowUpSweep(runId, counters, policyWindowStart);
+    failureStage = "missing_information";
     await runMissingInformationSweep(runId, counters, policyWindowStart);
+    failureStage = "cash_no_safe_match";
     await runCashNoSafeMatchSweep(runId, counters, policyWindowStart);
+    failureStage = "card_nayax_lookup";
     await runCardNayaxLookupSweep(runId, counters, policyWindowStart);
+    failureStage = "persisted_nayax_correction";
     await runPersistedNayaxCustomerCorrectionSweep(
       runId,
       counters,
       policyWindowStart,
     );
+    failureStage = "wallet_correction_expiry";
     await runWalletCorrectionExpirySweep(
       runId,
       counters,
       policyWindowStart,
     );
+    failureStage = "customer_reminder";
     await runReminderSweep(runId, counters, policyWindowStart);
+    failureStage = "provider_delay_status";
     await runProviderDelayCustomerStatusSweep(
       runId,
       counters,
       policyWindowStart,
       scheduledAt,
     );
+    failureStage = "sla_at_risk_status";
     await runSlaAtRiskCustomerStatusSweep(
       runId,
       counters,
       policyWindowStart,
       scheduledAt,
     );
+    failureStage = "manager_aging";
     await runManagerAgingSweep(runId, counters, policyWindowStart);
     if (counters.actionsFailed > 0) {
       throw new RefundAutomationActionFailure();
     }
+    failureStage = "run_finalize";
     await finishRun(runId, "succeeded", counters);
 
     return jsonResponse({
@@ -3581,9 +3578,11 @@ serve(async (req) => {
     });
   } catch (error) {
     const failureCategory = sanitizeFailureCategory(error);
+    addReason(counters, `failed_stage_${failureStage}`);
     console.error("refund-case-automation-sweep error", {
       errorType: error instanceof Error ? error.name : typeof error,
       failureCategory,
+      failureStage,
     });
 
     if (supabase && runId) {
