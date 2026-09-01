@@ -36,6 +36,7 @@ const run = async () => {
     acknowledgementRecoveryTest,
     localeCorrectionMigration,
     localeCorrectionTest,
+    schedulerIncidentMigration,
   ] = await Promise.all([
     readText('supabase/functions/refund-case-admin-update/index.ts'),
     readText('src/pages/admin/Refunds.tsx'),
@@ -55,6 +56,7 @@ const run = async () => {
     readText('supabase/tests/refund_acknowledgement_recovery_disposition.sql'),
     readText('supabase/migrations/20260901021433_refund_customer_locale_correction.sql'),
     readText('supabase/tests/refund_customer_locale_correction.sql'),
+    readText('supabase/migrations/20260901172459_refund_scheduler_incident_1069.sql'),
   ]);
 
   assert(
@@ -169,9 +171,14 @@ const run = async () => {
       'service_refund_business_days_elapsed',
       'customer_status:provider_delay:',
       'customer_status:sla_at_risk:',
-      'superseded_provider_delay_suppressed',
+      'service_list_due_refund_provider_delay_attempts',
       'customer_status_update',
     ]) &&
+      includesAll(schedulerIncidentMigration, [
+        'service_list_due_refund_provider_delay_attempts',
+        'not exists (',
+        'later_attempt.refund_case_id = attempt.refund_case_id',
+      ]) &&
       includesAll(statusRecoveryMigration, [
         "'customer_status_update'",
         "'provider_delay', 'sla_at_risk'",

@@ -224,8 +224,12 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    105,
-    'Refund release inventory must cover exactly 105 discovered refund/Nayax migrations'
+    106,
+    'Refund release inventory must cover exactly 106 discovered refund/Nayax migrations'
+  );
+  assert(
+    repositoryMigrations.includes('20260901172459_refund_scheduler_incident_1069.sql'),
+    'The refund scheduler incident repair must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
