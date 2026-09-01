@@ -115,7 +115,8 @@
     "20260901060000_refund_nayax_scope_recovery.sql",
     "20260901070000_refund_transactional_delivery_truth.sql",
     "20260901080000_refund_gmail_existing_case_linking.sql",
-    "20260901172459_refund_scheduler_incident_1069.sql"
+    "20260901172459_refund_scheduler_incident_1069.sql",
+    "20260901185049_refund_provider_delay_evidence_1069.sql"
   ],
   "migrationFilesSha256": "155c0df3de7004b12729f21eca6d2411e72a2c698e162c57889ec13cfa0388a5",
   "migrationVersionSetSha256": "349f127db4322026abef65b10b2f66f29e60a43d8973395eb38837099bf12499",
