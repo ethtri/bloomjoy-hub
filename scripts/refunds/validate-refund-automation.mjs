@@ -18,6 +18,9 @@ const schedulerReliabilityMigration = read(
 const schedulerCadenceMigration = read(
   'supabase/migrations/20260830205449_refund_automation_scheduler_30_minute_cadence.sql'
 );
+const schedulerIncidentMigration = read(
+  'supabase/migrations/20260901172459_refund_scheduler_incident_1069.sql'
+);
 const followUpMigration = read('supabase/migrations/202608030005_refund_deterministic_follow_up_cycles.sql');
 const managerAgingMigration = read('supabase/migrations/202608040001_refund_manager_aging_reminders.sql');
 const sweep = read('supabase/functions/refund-case-automation-sweep/index.ts');
@@ -165,6 +168,28 @@ check(
     schedulerReliabilityMigration.includes("'notificationType', 'recovery'") &&
     sweep.includes('service_claim_refund_automation_health_notification') &&
     sweep.includes('[Recovered] Refund automation scheduler healthy')
+);
+check(
+  'Provider-delay status uses a service-only projection instead of direct protected-table access',
+  schedulerIncidentMigration.includes(
+    'service_list_due_refund_provider_delay_attempts'
+  ) &&
+    schedulerIncidentMigration.includes('security definer') &&
+    schedulerIncidentMigration.includes('to service_role') &&
+    schedulerIncidentMigration.includes('from public, anon, authenticated') &&
+    sweep.includes('service_list_due_refund_provider_delay_attempts') &&
+    !sweep.includes('.from("refund_case_nayax_refund_attempts")')
+);
+check(
+  'Outside-policy clock heartbeats cannot clear an unresolved processing failure',
+  schedulerIncidentMigration.includes("reason_counts ? 'outside_policy_window'") &&
+    schedulerIncidentMigration.includes('latest_scheduler_heartbeat') &&
+    schedulerIncidentMigration.includes('when consecutive_failures > 0 then \'failing\'') &&
+    /await finishRun\(\s*runId,\s*"suppressed",\s*counters,\s*"outside_policy_window"/.test(
+      sweep
+    ) &&
+    sweep.includes('failed_stage_${failureStage}') &&
+    sweep.includes('failureStage = "provider_delay_status"')
 );
 check(
   'The response and alert paths expose aggregate redacted fields only',
