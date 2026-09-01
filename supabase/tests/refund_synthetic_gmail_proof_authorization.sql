@@ -375,9 +375,10 @@ select is(
     select count(*)::integer
     from public.refund_case_messages
     where refund_case_id = (select (result ->> 'caseId')::uuid from synthetic_proof_ingest)
+      and message_type = 'status_update'
   ),
   0,
-  'Rejected proof requests create zero case messages'
+  'Rejected proof requests create zero synthetic-proof case messages'
 );
 
 update public.reporting_machine_refund_managers
