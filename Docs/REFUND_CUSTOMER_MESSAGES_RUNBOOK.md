@@ -58,6 +58,22 @@ The appeal preserves the prior customer-safe denial reason, reopens the same cas
 
 The automatic appeal receipt is deterministic. Automatic contact remains off by default and requires both the Edge environment switch and the database switch. A confirmed failure may be retried through the controlled path. An uncertain delivery is never blindly retried; reconcile the original Gmail conversation first.
 
+## Internal/test archive disposition
+
+Use **Internal/test — no customer refund** only for a reviewed employee/technician test, machine setup or commissioning run, payment-provider test, duplicate synthetic record, or other genuine internal test. Only Refund Operations can apply it. Select one fixed reason; never choose a customer denial reason and never paste customer or provider content into repository or issue notes.
+
+Before confirming, verify the record has no completed refund, reporting adjustment, manual refund reference, successful provider outcome, or unresolved provider attempt. If any of those exist, stop and reconcile the authoritative payment evidence through the existing provider/result workflow. The Internal/test action must not erase or reinterpret payment history.
+
+After confirmation:
+
+- the record disappears from every customer queue count and appears only in the Refund Operations **Internal/test archive**;
+- any unsent queued customer message is skipped, active reminder work becomes non-runnable, and active customer status links are revoked;
+- stale official actions fail by case version, while new customer messages, reminders, status links, and refund attempts are rejected at the database boundary;
+- existing messages, events, attachments, and transaction evidence remain readable for audit; and
+- the classification event must show no customer message, provider call, or reporting adjustment.
+
+The initial disposition is one-way. If a record was classified incorrectly, do not edit database fields or send denial copy. Record the sanitized case reference and reason on `#1048` for a separately reviewed reclassification design.
+
 ## Safety boundaries
 
 - Duplicate-payment protections remain mandatory: provider idempotency, one-attempt settlement, case/reconciliation guards, and existing reporting adjustment uniqueness are unchanged.

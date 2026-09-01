@@ -97,6 +97,7 @@ const centsFromInput = (value: unknown): number | null => {
 
 type RefundCaseRow = {
   id: string;
+  case_population: string;
   public_reference: string;
   status: string;
   decision: string | null;
@@ -145,6 +146,7 @@ const nayaxDisagreementReasons = new Set([
 
 const selectCaseQuery = `
   id,
+  case_population,
   public_reference,
   status,
   decision,
@@ -760,7 +762,6 @@ serve(async (req) => {
     if (!beforeRow) {
       return jsonResponse({ error: "Refund case not found." }, 404);
     }
-
     const { data: canManageCase, error: accessError } = await supabase.rpc(
       "can_manage_refund_case",
       { p_user_id: user.id, p_refund_case_id: caseId },
@@ -769,6 +770,13 @@ serve(async (req) => {
     if (accessError) throw accessError;
     if (!canManageCase) {
       return jsonResponse({ error: "Refund case access required." }, 403);
+    }
+    if (beforeRow.case_population === "internal_test") {
+      return jsonResponse({
+        error:
+          "Customer decisions, messages, and refunds are suppressed for this Internal/test archive record.",
+        errorCode: "internal_test_customer_actions_suppressed",
+      }, 409);
     }
 
     const requestedStatus = sanitizeText(body?.status, 80).toLowerCase() ||
@@ -1254,6 +1262,13 @@ serve(async (req) => {
       return jsonResponse({
         error: "Refund case was updated but could not be reloaded.",
       }, 500);
+    }
+    if (afterRow.case_population === "internal_test") {
+      return jsonResponse({
+        error:
+          "Customer decisions, messages, and refunds are suppressed for this Internal/test archive record.",
+        errorCode: "internal_test_customer_actions_suppressed",
+      }, 409);
     }
 
     const resolvedMessageType = isNayaxEvidenceSelection

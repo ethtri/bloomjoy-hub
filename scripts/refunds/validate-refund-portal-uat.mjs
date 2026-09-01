@@ -629,6 +629,49 @@ const buildLocaleCorrectionOverview = ({ corrected = false } = {}) => {
   return overview;
 };
 
+const buildInternalTestOverview = ({ classified = false } = {}) => {
+  const overview = buildMockRefundOverview();
+  const baseCase = overview.cases[0];
+  const archivedCase = {
+    ...baseCase,
+    status: 'closed',
+    decision: null,
+    decisionReason: null,
+    decidedAt: null,
+    refundAmountCents: null,
+    officialActionVersion: 2,
+    lifecycle: null,
+    internalTest: {
+      schemaVersion: 'refund_internal_test_v1',
+      classification: 'internal_test_no_customer_refund',
+      reason: 'employee_technician_test',
+      reasonLabel: 'Employee or technician test',
+      classifiedAt: isoHoursAgo(0.02),
+      suppressesCustomerMessages: true,
+      suppressesRefunds: true,
+      suppressesReportingAdjustments: true,
+      suppressesReminders: true,
+      suppressesCustomerSla: true,
+      payloadRedacted: true,
+    },
+  };
+  return {
+    ...overview,
+    refundOperationsAccess: true,
+    internalTestContractVersion: 'refund_internal_test_v1',
+    cases: classified ? [] : [{
+      ...baseCase,
+      status: 'needs_review',
+      decision: null,
+      decisionReason: null,
+      decidedAt: null,
+      refundAmountCents: null,
+      lifecycle: buildLifecycleFixture('matching', 10, 'review_case'),
+    }],
+    internalTestCases: classified ? [archivedCase] : [],
+  };
+};
+
 const buildLegacyStateReviewOverview = () => {
   const overview = buildMockRefundOverview();
   const historicalCase = overview.cases[0];
@@ -1478,6 +1521,7 @@ const installMockSupabaseRoutes = async (
     reconciliationContext = null,
     acknowledgementDispositionHandler = null,
     localeCorrectionHandler = null,
+    internalTestClassificationHandler = null,
   } = {}
 ) => {
   const officialActionVersions = new Map();
@@ -2487,6 +2531,32 @@ const installMockSupabaseRoutes = async (
             reason: requestBody?.p_reason,
             caseVersion: Number(requestBody?.p_expected_case_version ?? 1),
             localeVersion: Number(requestBody?.p_expected_locale_version ?? 0) + 1,
+            payloadRedacted: true,
+          };
+      return route.fulfill(jsonResponse(response));
+    }
+
+    if (url.includes('/admin_classify_refund_case_internal_test')) {
+      const requestBody = request.postDataJSON();
+      const response = internalTestClassificationHandler
+        ? await internalTestClassificationHandler(requestBody)
+        : {
+            classified: true,
+            replayed: false,
+            caseVersion: Number(requestBody?.p_expected_case_version ?? 1) + 1,
+            classification: {
+              schemaVersion: 'refund_internal_test_v1',
+              classification: 'internal_test_no_customer_refund',
+              reason: requestBody?.p_reason,
+              reasonLabel: 'Employee or technician test',
+              classifiedAt: new Date().toISOString(),
+              suppressesCustomerMessages: true,
+              suppressesRefunds: true,
+              suppressesReportingAdjustments: true,
+              suppressesReminders: true,
+              suppressesCustomerSla: true,
+              payloadRedacted: true,
+            },
             payloadRedacted: true,
           };
       return route.fulfill(jsonResponse(response));
@@ -6200,6 +6270,131 @@ const runCustomerLocaleCorrectionChecks = async ({ browser, appUrl, artifactDir,
   await closeRefundPortalContext(context);
 };
 
+const runInternalTestDispositionChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+  let classified = false;
+  const classificationBodies = [];
+  const functionCalls = [];
+  const rpcCalls = [];
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await installMockSupabaseRoutes(context, {
+    refundOverview: () => buildInternalTestOverview({ classified }),
+    functionCalls,
+    rpcCalls,
+    internalTestClassificationHandler: async (body) => {
+      classificationBodies.push(body);
+      classified = true;
+      return {
+        classified: true,
+        replayed: false,
+        caseVersion: Number(body?.p_expected_case_version ?? 1) + 1,
+        classification: buildInternalTestOverview({ classified: true })
+          .internalTestCases[0].internalTest,
+        payloadRedacted: true,
+      };
+    },
+  });
+
+  const page = await context.newPage();
+  await signInRefundUser(page, appUrl);
+  await page.getByRole('button', { name: /^Action needed \d+$/ }).click();
+  await waitForQueueCount(page, 1);
+  await queueCase(page, 'RF-UAT-CARD').click();
+
+  const disposition = page.getByTestId('refund-internal-test-disposition');
+  recorder.assert(
+    'Refund Operations sees a non-denial Internal/test disposition with a required reason',
+    await disposition.isVisible() &&
+      (await disposition.innerText()).includes('This is not a denial and sends no customer message') &&
+      await page.getByTestId('refund-open-internal-test-confirmation').isDisabled()
+  );
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await disposition.scrollIntoViewIfNeeded();
+  await page.getByTestId('refund-internal-test-reason')
+    .selectOption('employee_technician_test');
+  const mobileOverflow = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    bodyScrollWidth: document.body.scrollWidth,
+    innerWidth: window.innerWidth,
+  }));
+  recorder.assert(
+    'The Internal/test control remains usable without mobile horizontal overflow',
+    await disposition.isVisible() &&
+      mobileOverflow.scrollWidth <= mobileOverflow.innerWidth + 1 &&
+      mobileOverflow.bodyScrollWidth <= mobileOverflow.innerWidth + 1,
+    JSON.stringify(mobileOverflow)
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-internal-test-disposition-mobile.png'),
+    fullPage: false,
+  });
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByTestId('refund-open-internal-test-confirmation').click();
+  const confirmation = page.getByTestId('refund-internal-test-confirmation-dialog');
+  await confirmation.waitFor({ state: 'visible' });
+  await page.getByText('Signed in. Redirecting...', { exact: true })
+    .waitFor({ state: 'hidden', timeout: 5000 })
+    .catch(() => undefined);
+  await confirmation.evaluate((element) => Promise.all(
+    element.getAnimations({ subtree: true }).map((animation) => animation.finished)
+  ));
+  recorder.assert(
+    'Confirmation names every suppressed workflow and preserves audit history',
+    (await confirmation.innerText()).includes('one-way audited disposition') &&
+      (await confirmation.innerText()).includes('Customer messages, refunds, reporting adjustments, reminders, and customer SLA escalation') &&
+      (await confirmation.innerText()).includes('Existing evidence and message history remain in the archive')
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-internal-test-confirmation-desktop.png'),
+    fullPage: false,
+  });
+  await page.getByTestId('refund-confirm-internal-test-classification').click();
+  await page.getByRole('button', { name: /^Internal\/test archive 1$/ })
+    .waitFor({ timeout: 10000 });
+  await waitForQueueCount(page, 1);
+  await queueCase(page, 'RF-UAT-CARD').click();
+
+  const archiveSummary = page.getByTestId('refund-internal-test-archive-summary');
+  recorder.assert(
+    'Classified records leave customer counts and remain visible in the restricted audit archive',
+    await archiveSummary.isVisible() &&
+      (await page.getByRole('button', { name: /^Action needed 0$/ }).count()) === 1 &&
+      (await archiveSummary.innerText()).includes('Employee or technician test') &&
+      (await archiveSummary.innerText()).includes('excluded from customer queue counts')
+  );
+  recorder.assert(
+    'The archive exposes history but no denial or customer-action workbench',
+    (await page.getByTestId('refund-internal-test-disposition').count()) === 0 &&
+      (await page.getByTestId('refund-customer-locale').count()) === 0 &&
+      (await page.getByTestId('refund-denial-reason').count()) === 0 &&
+      (await page.getByTestId('refund-run-nayax-refund').count()) === 0
+  );
+  recorder.assert(
+    'Classification uses one versioned fixed-reason RPC and no message or provider function',
+    classificationBodies.length === 1 &&
+      classificationBodies[0]?.p_case_id === 'case-card-1' &&
+      classificationBodies[0]?.p_expected_case_version === 1 &&
+      classificationBodies[0]?.p_reason === 'employee_technician_test' &&
+      functionCalls.length === 0 &&
+      rpcCalls.filter((name) => name === 'admin_classify_refund_case_internal_test').length === 1,
+    JSON.stringify({ classificationBodies, functionCalls, rpcCalls })
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-internal-test-archive-desktop.png'),
+    fullPage: false,
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await archiveSummary.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-internal-test-archive-mobile.png'),
+    fullPage: false,
+  });
+
+  await closeRefundPortalContext(context);
+};
+
 const openNayaxManagerStepUp = async (page) => {
   await page.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
   await waitForQueueCount(page, 1);
@@ -7960,6 +8155,12 @@ const run = async () => {
         artifactDir: args.artifactDir,
         recorder,
       });
+      await runInternalTestDispositionChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
     } else if (args.demoOnly) {
       await runDemoFallbackChecks({
         browser,
@@ -8112,6 +8313,12 @@ const run = async () => {
       recorder,
     });
     await runCustomerLocaleCorrectionChecks({
+      browser,
+      appUrl: args.appUrl,
+      artifactDir: args.artifactDir,
+      recorder,
+    });
+    await runInternalTestDispositionChecks({
       browser,
       appUrl: args.appUrl,
       artifactDir: args.artifactDir,

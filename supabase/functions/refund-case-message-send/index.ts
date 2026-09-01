@@ -65,6 +65,7 @@ type OneOrMany<T> = T | T[] | null | undefined;
 
 type RefundCaseRow = {
   id: string;
+  case_population: string;
   public_reference: string;
   status: string;
   decision_reason: string | null;
@@ -109,6 +110,7 @@ const allowedPortalMessageTypes = new Set<RefundCustomerMessageType>([
 
 const selectCaseQuery = `
   id,
+  case_population,
   public_reference,
   status,
   decision_reason,
@@ -216,6 +218,27 @@ serve(async (req) => {
       return jsonResponse({ error: "Refund case is required." }, 400);
     }
 
+    const { data: canManageCase, error: accessError } = await supabase.rpc(
+      "can_manage_refund_case",
+      { p_user_id: user.id, p_refund_case_id: caseId },
+    );
+    if (accessError) throw accessError;
+    if (!canManageCase) {
+      return jsonResponse({ error: "Refund case access required." }, 403);
+    }
+
+    const refundCase = await getRefundCase(caseId);
+    if (!refundCase) {
+      return jsonResponse({ error: "Refund case not found." }, 404);
+    }
+    if (refundCase.case_population === "internal_test") {
+      return jsonResponse({
+        error:
+          "Customer messages are suppressed for this Internal/test archive record.",
+        errorCode: "internal_test_customer_contact_suppressed",
+      }, 409);
+    }
+
     const nayaxCompletionMessageId = sanitizeText(
       body?.nayaxCompletionMessageId,
       80,
@@ -241,15 +264,6 @@ serve(async (req) => {
             "Review the exact interrupted completion before recovering it.",
         }, 400);
       }
-      const { data: canManageCase, error: accessError } = await supabase.rpc(
-        "can_manage_refund_case",
-        { p_user_id: user.id, p_refund_case_id: caseId },
-      );
-      if (accessError) throw accessError;
-      if (!canManageCase) {
-        return jsonResponse({ error: "Refund case access required." }, 403);
-      }
-
       const { data: formPrepared, error: formPrepareError } = await supabase
         .rpc(
           "service_prepare_nayax_form_completion_retry",
@@ -407,15 +421,6 @@ serve(async (req) => {
         }, 503);
       }
 
-      const { data: canManageCase, error: accessError } = await supabase.rpc(
-        "can_manage_refund_case",
-        { p_user_id: user.id, p_refund_case_id: caseId },
-      );
-      if (accessError) throw accessError;
-      if (!canManageCase) {
-        return jsonResponse({ error: "Refund case access required." }, 403);
-      }
-
       const { data: prepared, error: prepareError } = await supabase.rpc(
         "service_prepare_nayax_completion_retry",
         {
@@ -561,16 +566,6 @@ serve(async (req) => {
       }, 400);
     }
 
-    const { data: canManageCase, error: accessError } = await supabase.rpc(
-      "can_manage_refund_case",
-      { p_user_id: user.id, p_refund_case_id: caseId },
-    );
-
-    if (accessError) throw accessError;
-    if (!canManageCase) {
-      return jsonResponse({ error: "Refund case access required." }, 403);
-    }
-
     await assertOpenNayaxCompletionMessageLane({
       checkOpen: async () => {
         const { data: laneOpen, error: laneError } = await supabase.rpc(
@@ -581,11 +576,6 @@ serve(async (req) => {
         return laneOpen === true;
       },
     });
-
-    const refundCase = await getRefundCase(caseId);
-    if (!refundCase) {
-      return jsonResponse({ error: "Refund case not found." }, 404);
-    }
 
     if (!refundCase.customer_email) {
       return jsonResponse({
@@ -743,6 +733,23 @@ serve(async (req) => {
     if (messageError) throw messageError;
 
     try {
+      const deliveryCase = await getRefundCase(refundCase.id);
+      if (deliveryCase?.case_population === "internal_test") {
+        await supabase
+          .from("refund_case_messages")
+          .update({
+            status: "skipped",
+            error_message: "internal_test_customer_contact_suppressed",
+          })
+          .eq("id", messageRow.id)
+          .eq("status", "pending");
+        return jsonResponse({
+          error:
+            "Customer messages are suppressed for this Internal/test archive record.",
+          errorCode: "internal_test_customer_contact_suppressed",
+        }, 409);
+      }
+
       const gmailDelivery = await dispatchRefundCaseGmailReply({
         supabase,
         refundCaseId: refundCase.id,
