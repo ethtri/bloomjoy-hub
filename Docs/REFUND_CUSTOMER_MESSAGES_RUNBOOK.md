@@ -7,7 +7,7 @@ This runbook defines the customer communication boundary for Refund Operations v
 - Customer contact alone does not create an operational refund case. The first reply directs the customer to the Bloomjoy hosted form.
 - Form submission creates the case. If the form was opened from the private email link, it completes that one draft context rather than creating a second case.
 - Form submission creates the case exactly once; subsequent customer replies update the same case.
-- The email assistant may collect only explicit missing purchase facts and rerun the existing read-only transaction match. It cannot choose a transaction, decide a refund, or issue a payment.
+- The email assistant may collect only an explicit missing or disputed purchase fact and rerun the existing read-only transaction match. A Nayax mismatch asks for only the one conflicting fact (last four, amount, or time); it never asks the customer to reconfirm fields already present and agreed by the case evidence. It cannot choose a transaction, decide a refund, or issue a payment.
 - A manager confirms the transaction first. Approval or denial is a separate manager decision. Confirmed payment success is separate again and is the only event that permits success copy.
 
 ## Customer message matrix
