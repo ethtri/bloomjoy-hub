@@ -131,7 +131,7 @@ select ok(
   'Manager delivery projection is versioned and never exposes provider identifiers'
 );
 select ok(
-  (select item -> 'customerDeliveryException' is null
+  (select item ->> 'customerDeliveryException' is null
     and exists (
       select 1
       from jsonb_array_elements(item -> 'messages') message_item
