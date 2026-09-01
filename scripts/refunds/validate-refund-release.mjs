@@ -224,8 +224,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    104,
-    'Refund release inventory must cover exactly 104 discovered refund/Nayax migrations'
+    105,
+    'Refund release inventory must cover exactly 105 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -250,6 +250,10 @@ try {
   assert(
     repositoryMigrations.includes('20260901010259_refund_acknowledgement_recovery_disposition.sql'),
     'The skipped-acknowledgement recovery migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260901021433_refund_customer_locale_correction.sql'),
+    'The existing-case customer-locale correction migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260828035155_refund_nayax_retry_safe_resolution_release.sql'),

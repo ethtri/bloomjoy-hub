@@ -36,6 +36,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   buildLocalRefundDemoOverview,
   canUseLocalRefundDemoData,
+  correctRefundCustomerLocale,
   createRefundAttachmentSignedUrl,
   createRefundManualNayaxCandidate,
   disposeRefundAcknowledgementException,
@@ -65,6 +66,8 @@ import {
   type NayaxLookupCandidate,
   type NayaxDisagreementReason,
   type RefundCaseRecord,
+  type RefundCustomerLocale,
+  type RefundCustomerLocaleCorrectionReason,
   type RefundOperationsOverview,
   type RefundReadiness,
   type RefundNayaxLookupStatus,
@@ -2223,6 +2226,10 @@ export default function AdminRefundsPage() {
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
   const [isDisposingAcknowledgementException, setIsDisposingAcknowledgementException] =
     useState(false);
+  const [customerLocaleDraft, setCustomerLocaleDraft] = useState<RefundCustomerLocale | ''>('');
+  const [customerLocaleReason, setCustomerLocaleReason] =
+    useState<RefundCustomerLocaleCorrectionReason | ''>('');
+  const [isCorrectingCustomerLocale, setIsCorrectingCustomerLocale] = useState(false);
   const [nayaxCandidates, setNayaxCandidates] = useState<NayaxLookupCandidate[]>([]);
   const [nayaxLookupNotice, setNayaxLookupNotice] = useState<NayaxLookupNotice | null>(null);
   const [nayaxExecutionNotice, setNayaxExecutionNotice] = useState<NayaxLookupNotice | null>(null);
@@ -2488,6 +2495,7 @@ export default function AdminRefundsPage() {
 
   const selectedCase = overview.cases.find((refundCase) => refundCase.id === selectedId) ?? null;
   const selectedAcknowledgementException = selectedCase?.acknowledgementDeliveryException ?? null;
+  const selectedCustomerLocale = selectedCase?.customerLocale ?? null;
   const selectedCaseIdForSync = selectedCase?.id ?? null;
   const selectedCaseCandidatesForSync = selectedCase?.nayaxLookupCandidates;
   const selectedCaseLookupSummaryForSync = selectedCase?.nayaxLookupSummary;
@@ -2676,6 +2684,10 @@ export default function AdminRefundsPage() {
     selectedCase?.id,
     selectedCase?.officialActionVersion,
   ]);
+  useEffect(() => {
+    setCustomerLocaleDraft(selectedCustomerLocale?.locale ?? '');
+    setCustomerLocaleReason('');
+  }, [selectedCase?.id, selectedCustomerLocale?.locale, selectedCustomerLocale?.version]);
   const {
     data: gmailContext,
     isLoading: gmailContextIsLoading,
@@ -4292,6 +4304,43 @@ export default function AdminRefundsPage() {
       await refresh();
     } finally {
       setIsDisposingAcknowledgementException(false);
+    }
+  };
+
+  const handleCorrectCustomerLocale = async () => {
+    if (!selectedCase || !customerLocaleDraft || !customerLocaleReason) return;
+    if (isUsingDemoData) {
+      toast.info('Demo cases are read-only.');
+      return;
+    }
+    if (officialActionVersion <= 0 || !selectedCustomerLocale) {
+      toast.error('Refresh the case before correcting the customer language.');
+      return;
+    }
+
+    setIsCorrectingCustomerLocale(true);
+    try {
+      const result = await correctRefundCustomerLocale({
+        caseId: selectedCase.id,
+        expectedCaseVersion: officialActionVersion,
+        expectedLocaleVersion: selectedCustomerLocale.version,
+        locale: customerLocaleDraft,
+        reason: customerLocaleReason,
+      });
+      toast.success(
+        result.replayed
+          ? 'This customer-language correction was already recorded.'
+          : 'Customer language saved for future approved messages.'
+      );
+      await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
+    } catch (localeError) {
+      const message = localeError instanceof Error
+        ? localeError.message
+        : 'Unable to correct the customer language.';
+      toast.error(message);
+      await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
+    } finally {
+      setIsCorrectingCustomerLocale(false);
     }
   };
 
@@ -6331,6 +6380,79 @@ export default function AdminRefundsPage() {
                         {formatCurrency(selectedCase.paymentAmountCents)}
                       </p>
                     </div>
+
+                    <section
+                      data-testid="refund-customer-locale"
+                      className="rounded-xl border border-border bg-muted/20 p-4"
+                    >
+                      <div className="space-y-4">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-foreground">Customer message language</p>
+                          <p data-testid="refund-customer-locale-current" className="mt-1 text-sm text-muted-foreground">
+                            {selectedCustomerLocale?.locale
+                              ? selectedCustomerLocale.label
+                              : 'Not set — English fallback'}
+                            {' · '}
+                            {selectedCustomerLocale?.sourceLabel ?? 'Needs manager review'}
+                          </p>
+                          <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
+                            This setting applies only to future approved refund templates. Existing message history is unchanged. Spanish uses the approved Spanish + English template.
+                          </p>
+                        </div>
+                        <div className="grid w-full min-w-0 gap-3 sm:grid-cols-2">
+                          <div className="min-w-0 space-y-1.5">
+                            <Label htmlFor="refund-customer-locale-select">Language</Label>
+                            <select
+                              id="refund-customer-locale-select"
+                              data-testid="refund-customer-locale-select"
+                              value={customerLocaleDraft}
+                              onChange={(event) => setCustomerLocaleDraft(event.target.value as RefundCustomerLocale | '')}
+                              className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                              <option value="">Select language</option>
+                              <option value="en">English</option>
+                              <option value="es">Spanish + English</option>
+                            </select>
+                          </div>
+                          <div className="min-w-0 space-y-1.5">
+                            <Label htmlFor="refund-customer-locale-reason">Reviewed reason</Label>
+                            <select
+                              id="refund-customer-locale-reason"
+                              data-testid="refund-customer-locale-reason"
+                              value={customerLocaleReason}
+                              onChange={(event) => setCustomerLocaleReason(
+                                event.target.value as RefundCustomerLocaleCorrectionReason | ''
+                              )}
+                              className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                              <option value="">Select reason</option>
+                              <option value="reviewed_customer_request_language">Reviewed customer request language</option>
+                              <option value="customer_confirmed_language">Customer confirmed language</option>
+                            </select>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            data-testid="refund-save-customer-locale"
+                            className="h-10 w-full sm:col-span-2 sm:w-auto sm:justify-self-start"
+                            onClick={() => void handleCorrectCustomerLocale()}
+                            disabled={
+                              isUsingDemoData ||
+                              isCorrectingCustomerLocale ||
+                              officialActionVersion <= 0 ||
+                              !selectedCustomerLocale ||
+                              !customerLocaleDraft ||
+                              !customerLocaleReason
+                            }
+                          >
+                            {isCorrectingCustomerLocale && (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                            )}
+                            Save language
+                          </Button>
+                        </div>
+                      </div>
+                    </section>
 
                     {selectedCaseIsReviewOnly && !selectedCaseIsTerminal && !selectedCase.providerHold && (
                       <div

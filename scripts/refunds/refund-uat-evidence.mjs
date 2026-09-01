@@ -22,6 +22,8 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-direct-intake-desktop.png',
   'refund-acknowledgement-recovery-mobile.png',
   'refund-acknowledgement-recovery-resolved.png',
+  'refund-customer-locale-correction-mobile.png',
+  'refund-customer-locale-correction-saved.png',
   'refund-automatic-nayax-ready-desktop.png',
   'refund-automatic-nayax-ready-mobile.png',
   'refund-email-pilot-duplicate-review-desktop.png',
