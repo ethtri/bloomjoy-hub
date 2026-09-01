@@ -103,6 +103,23 @@ const state = (
   tone: RefundManagerStateTone
 ): RefundManagerState => ({ id, label, explanation, nextStep, tone });
 
+const customerActionFieldLabels: Record<string, string> = {
+  location_or_machine: 'machine or location',
+  incident_date: 'purchase date',
+  incident_time: 'purchase time',
+  payment_method: 'payment method',
+  payment_interaction: 'card or wallet interaction',
+  wallet_provider: 'wallet provider',
+  amount: 'purchase amount',
+  card_last4: 'physical-card last four',
+  card_network: 'card type',
+};
+
+const waitingCustomerFieldSummary = (lifecycle: RefundLifecycleContract) =>
+  (lifecycle.managerQueue.customerActionFields ?? [])
+    .map((field) => customerActionFieldLabels[field] ?? field.replaceAll('_', ' '))
+    .join(', ');
+
 export const refundReadinessBlockMessage = (blockReason: string | null | undefined) => {
   switch (blockReason) {
     case 'unauthorized':
@@ -147,11 +164,16 @@ export const getRefundManagerState = (
   }
 
   if (refundCase.lifecycle?.stage === 'waiting_on_customer') {
+    const fieldSummary = waitingCustomerFieldSummary(refundCase.lifecycle);
     return state(
       'waiting_on_customer',
       'Waiting on customer',
-      'Bloomjoy needs one specific purchase detail before matching can continue.',
-      'Wait for the customer to reply to the existing email. Do not start another transaction check yet.',
+      fieldSummary
+        ? `Bloomjoy sent a request for: ${fieldSummary}.`
+        : 'Bloomjoy needs one specific purchase detail before matching can continue.',
+      fieldSummary
+        ? `Wait for the customer to reply with ${fieldSummary} in the existing email thread.`
+        : 'Wait for the customer to reply to the existing email. Do not start another transaction check yet.',
       'warning'
     );
   }
@@ -159,14 +181,20 @@ export const getRefundManagerState = (
   if (refundCase.paymentMethod === 'card' && refundCase.lifecycle) {
     const lifecycle = refundCase.lifecycle;
     switch (lifecycle.stage) {
-      case 'waiting_on_customer':
+      case 'waiting_on_customer': {
+        const fieldSummary = waitingCustomerFieldSummary(lifecycle);
         return state(
           'waiting_on_customer',
           'Waiting on customer',
-          'Bloomjoy needs one specific purchase detail before matching can continue.',
-          'Wait for the customer to reply to the existing email. Do not start another transaction check yet.',
+          fieldSummary
+            ? `Bloomjoy sent a request for: ${fieldSummary}.`
+            : 'Bloomjoy needs one specific purchase detail before matching can continue.',
+          fieldSummary
+            ? `Wait for the customer to reply with ${fieldSummary} in the existing email thread.`
+            : 'Wait for the customer to reply to the existing email. Do not start another transaction check yet.',
           'warning'
         );
+      }
       case 'matching':
         if (
           refundCase.nayaxLookupSummary?.lookupStatus === 'no_match' ||

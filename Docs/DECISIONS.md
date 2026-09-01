@@ -12,6 +12,16 @@ Entries are newest-first. For production refund work, the 2026-08-30 production-
 
 This decision changes scheduler truth and internal read authority only. It does not authorize customer contact, manager decisions, provider writes, or money movement.
 
+## 2026-08-31 - Customer-wait state requires sent, specific action (`#891`)
+
+- `waiting_on_customer` and `more_info_needed` are valid only when a successfully sent message names at least one deterministic field the customer can correct. The canonical lifecycle carries those exact fields so queue label, detail copy, and next action cannot disagree.
+- A notice-only no-match cycle may still send approved informational copy, but empty `requested_fields` never make it customer-owned work. After the bounded notice/reminder path, the case is **Action needed** with a redacted manager-owned exception.
+- Unsupported historical waiting and more-information states are repaired in place without sending mail or touching provider/payment state. A secure wallet-correction request enters customer waiting only after its single-use deterministic message is recorded as sent.
+
+**Why this choice**
+- A customer cannot act on an empty or optional request. Treating that state as waiting hides Bloomjoy-owned work and makes queue, copy, and delivery evidence contradict one another.
+- Delivery success and exact requested fields are durable evidence. Reusing them across the database and manager projection preserves replay safety without adding payment authority or asking the customer for facts Bloomjoy can retrieve itself.
+
 ## 2026-08-30 - Refund safety is transaction-scoped in production (`#990`)
 
 - Bloomjoy is in production. Exact-case canaries, first-proof limits, pilot cohorts, observers, staffed windows, and repeated go/no-go ceremony are retired.

@@ -107,3 +107,24 @@ Deno.test("manager queue projection is required and fails closed", () => {
     "unknown manager queue buckets must fail closed",
   );
 });
+
+Deno.test("manager queue customer action fields are string-only", () => {
+  const withFields = {
+    ...fixture,
+    managerQueue: {
+      ...fixture.managerQueue,
+      customerActionFields: ["incident_time", "card_last4"],
+    },
+  };
+  assert(isRefundLifecycleContract(withFields), "string action fields should parse");
+  assert(
+    !isRefundLifecycleContract({
+      ...withFields,
+      managerQueue: {
+        ...withFields.managerQueue,
+        customerActionFields: ["incident_time", 4],
+      },
+    }),
+    "non-string action fields should fail closed",
+  );
+});

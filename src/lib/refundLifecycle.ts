@@ -32,6 +32,7 @@ export type RefundManagerQueueContract = {
   label: string;
   nextAction: string;
   safeRetryEligible: boolean;
+  customerActionFields?: string[];
   payloadRedacted: true;
 };
 
@@ -94,6 +95,9 @@ export const isRefundLifecycleContract = (
     typeof managerQueue?.label === "string" &&
     typeof managerQueue?.nextAction === "string" &&
     typeof managerQueue?.safeRetryEligible === "boolean" &&
+    (managerQueue?.customerActionFields === undefined ||
+      (Array.isArray(managerQueue.customerActionFields) &&
+        managerQueue.customerActionFields.every((field) => typeof field === "string"))) &&
     managerQueue?.payloadRedacted === true &&
     (contract.definitiveNoRefund === undefined ||
       typeof contract.definitiveNoRefund === "boolean") &&

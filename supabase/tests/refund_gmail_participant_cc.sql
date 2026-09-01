@@ -154,8 +154,28 @@ set
   reporting_machine_id = '78630000-0000-4000-8000-000000000001',
   reporting_location_id = '78620000-0000-4000-8000-000000000001',
   incident_at = now() - interval '1 hour',
+  incident_time_resolution = 'exact',
   payment_method = 'card',
   payment_amount_cents = 500,
+  status = 'needs_review',
+  automation_state = 'under_review'
+where id = (select (result ->> 'caseId')::uuid from first_customer_ingest);
+
+insert into public.refund_case_messages (
+  refund_case_id, message_type, status, recipient_email, subject, body,
+  template_key, content_source, delivery_kind, reason_code,
+  requested_fields, sent_at
+)
+select
+  (result ->> 'caseId')::uuid, 'more_info', 'sent',
+  'customer@example.test', 'Card detail needed',
+  'Please reply with the physical-card last four.',
+  'refund_more_info_editable_v1', 'manager_authored', 'manual',
+  'missing_information', array['card_last4'], statement_timestamp()
+from first_customer_ingest;
+
+update public.refund_cases
+set
   status = 'waiting_on_customer',
   automation_state = 'more_info_needed',
   automation_follow_up_due_at = now() + interval '2 days'

@@ -414,6 +414,18 @@ select ok(
   'Attempt and settlement audit evidence omits recipients, customer, payment, and complaint content'
 );
 
+insert into public.refund_case_messages (
+  refund_case_id, message_type, status, recipient_email, subject, body,
+  template_key, content_source, delivery_kind, reason_code,
+  requested_fields, sent_at
+) values (
+  '91500000-0000-4000-8000-000000000001', 'more_info', 'sent',
+  'aging-customer@example.test', 'Purchase time needed',
+  'Please reply with the purchase time.',
+  'refund_more_info_editable_v1', 'manager_authored', 'manual',
+  'missing_information', array['incident_time'], statement_timestamp()
+);
+
 update public.refund_cases
 set status = 'waiting_on_customer', automation_state = 'more_info_needed'
 where id = '91500000-0000-4000-8000-000000000001';

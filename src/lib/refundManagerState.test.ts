@@ -207,6 +207,27 @@ Deno.test('canonical waiting-on-customer stage wins over matching facts', () => 
   }
 });
 
+Deno.test('canonical waiting state names the exact customer-correctable fields', () => {
+  const waitingLifecycle = lifecycle('waiting_on_customer', 15, 'wait_for_customer_reply');
+  waitingLifecycle.managerQueue.customerActionFields = ['incident_time', 'card_last4'];
+  const result = getRefundManagerState({
+    ...baseCase,
+    status: 'waiting_on_customer',
+    lifecycle: waitingLifecycle,
+  });
+
+  assertEquals(
+    result.explanation,
+    'Bloomjoy sent a request for: purchase time, physical-card last four.',
+    'waiting explanation names the exact requested fields'
+  );
+  assertEquals(
+    result.nextStep,
+    'Wait for the customer to reply with purchase time, physical-card last four in the existing email thread.',
+    'waiting next step uses the same field contract'
+  );
+});
+
 Deno.test('transaction-confirmed detail cannot overrule blocked canonical queue authority', () => {
   const fixtures = [
     {

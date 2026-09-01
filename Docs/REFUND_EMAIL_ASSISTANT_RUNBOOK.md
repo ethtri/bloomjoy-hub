@@ -152,6 +152,8 @@ A physical-card versus wallet/device last-four mismatch is expected and must not
 
 Every automatic message uses a versioned deterministic template, a durable operation key, a bounded contact policy, and a kill switch. An arbitrary GPT completion is never an automatic outbound message.
 
+`waiting_on_customer` and `more_info_needed` require durable proof of a successfully sent request with at least one deterministic customer-correctable field. The canonical lifecycle exposes the exact field list to the manager queue and case detail. A no-safe-match notice with no required fields remains Bloomjoy-owned review work; its bounded reminder cannot extend or recreate a customer wait. Unsupported historical states return to manager review without sending another message. Secure wallet correction uses its versioned, single-use correction context as the deterministic field contract and enters waiting only after the message is recorded as sent.
+
 ### Candidate template registry
 
 | Template/version | Audience and use | Automatic-send boundary |

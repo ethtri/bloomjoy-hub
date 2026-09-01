@@ -30,6 +30,7 @@ const run = async () => {
     messageSend,
     gmailSync,
     statusRecoveryMigration,
+    waitingLifecycleMigration,
     schedulerIncidentMigration,
   ] = await Promise.all([
     readText('supabase/functions/refund-case-admin-update/index.ts'),
@@ -44,6 +45,7 @@ const run = async () => {
     readText('supabase/functions/refund-case-message-send/index.ts'),
     readText('supabase/functions/refund-gmail-sync/index.ts'),
     readText('supabase/migrations/20260830183702_refund_customer_status_recovery.sql'),
+    readText('supabase/migrations/20260831232759_refund_waiting_lifecycle_truth.sql'),
     readText('supabase/migrations/20260901172459_refund_scheduler_incident_1069.sql'),
   ]);
 
@@ -180,6 +182,22 @@ const run = async () => {
       'event_type: "automatic_customer_contact_limit_reached"',
       'status: "needs_review"',
       'automatic_customer_contact_stopped: true',
+    ])
+  );
+  assert(
+    'Customer waiting and more-info state require one sent deterministic request',
+    includesAll(waitingLifecycleMigration, [
+      'refund_customer_action_contract',
+      "message.status = 'sent'",
+      "message.sent_at is not null",
+      "cardinality(action_fields) > 0",
+      "new.status = 'waiting_on_customer'",
+      "new.automation_state = 'more_info_needed'",
+      "'customer_waiting_contract_rejected'",
+      "'customer_waiting_contract_repaired'",
+      "'more_information_state_repaired'",
+      "'customerActionFields'",
+      "'review_customer_contact'",
     ])
   );
   assert(
