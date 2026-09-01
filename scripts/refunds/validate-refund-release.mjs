@@ -85,14 +85,20 @@ assert(
   'The runbook must contain the reviewed Refund Operations deployment block'
 );
 const refundDeployBlock = productionRunbook.slice(refundDeployStart, refundDeployEnd);
-let previousDeployIndex = -1;
+assert(
+  refundDeployBlock.includes(
+    'npm run refunds:deploy:functions -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --all'
+  ) &&
+    refundDeployBlock.includes('--execute --authorize "DEPLOY CANONICAL REFUND FUNCTIONS"') &&
+    refundDeployBlock.includes('absolute repository-root') &&
+    refundDeployBlock.includes('exact reviewed `origin/main` source'),
+  'Refund Operations deployment must use the exact-project root-pinned guarded wrapper'
+);
 for (const slug of requiredFunctionSlugs) {
-  const deployIndex = refundDeployBlock.indexOf(`supabase functions deploy ${slug} --no-verify-jwt`);
   assert(
-    deployIndex > previousDeployIndex,
-    `Refund Operations deploy order is missing or out of order for ${slug}`
+    !refundDeployBlock.includes(`supabase functions deploy ${slug} --no-verify-jwt`),
+    `Raw Refund Operations deployment must not bypass the root-pinned wrapper for ${slug}`
   );
-  previousDeployIndex = deployIndex;
 }
 
 for (const requiredFailClosedControl of [
@@ -150,8 +156,8 @@ for (const retiredPilotGate of [
 }
 assert.match(
   productionRunbook,
-  /exactly 76 reviewed synthetic screenshots/,
-  'Production runbook must use the current 76-screenshot evidence inventory'
+  /exactly 83 reviewed synthetic screenshots/,
+  'Production runbook must use the current 83-screenshot evidence inventory'
 );
 assert.doesNotMatch(
   productionRunbook,
@@ -189,7 +195,7 @@ const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-relea
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
 const reviewedManagerSourceSha256 = {
   'refund-manager-action-step-up':
-    'f02e601678638646bf407612fd88311d868f24b2d1533bc8e83046df68ba04b6',
+    '7ef32d2ed7e69d77fb5807dce3fc15a0acdf8276fc9154623e25b6634f03409f',
   'refund-manager-totp-enrollment':
     'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
 };
@@ -224,8 +230,12 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    110,
-    'Refund release inventory must cover exactly 110 discovered refund/Nayax migrations'
+    112,
+    'Refund release inventory must cover exactly 112 discovered refund/Nayax migrations'
+  );
+  assert(
+    repositoryMigrations.includes('20260901080000_refund_gmail_existing_case_linking.sql'),
+    'The existing-case inbound linking migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260901185049_refund_provider_delay_evidence_1069.sql'),
@@ -254,6 +264,14 @@ try {
   assert(
     repositoryMigrations.includes('20260901060000_refund_nayax_scope_recovery.sql'),
     'The bounded Nayax account-scope recovery migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260901070000_refund_transactional_delivery_truth.sql'),
+    'The transactional delivery truth migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260901080000_refund_gmail_existing_case_linking.sql'),
+    'The existing-case-first Gmail linking migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260830182855_refund_manager_queue_truth.sql'),

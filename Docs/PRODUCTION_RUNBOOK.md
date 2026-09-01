@@ -163,7 +163,7 @@ Security rule:
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds` passes
 - [ ] `npm run refunds:validate-release-tooling` passes.
 - [ ] `npm run refunds:release:check` confirms that the ten candidate Refund Operations functions, required migrations, source commit, and `verify_jwt` settings match the approved release manifest. Do not substitute the separate eight-route `OPTIONS` smoke count for the manifest count.
-- [ ] The same fresh `Refund UAT Evidence` run contains exactly 76 reviewed synthetic screenshots and the five sanitized JSON artifacts named below; the final manifest hashes every artifact and binds to the reviewed PR head. The evidence covers form-only intake, card-network evidence, Nayax inventory/Snapcase, the manual-portal-only machine state, branded messages and same-case appeals, duplicate decisions, the source-aware manager queue, routine-manager isolation, the Internal/test disposition/archive, and provider-free existing-refund reconciliation without production data. Final migration/test-file counts and SHA are generated from that tree, not copied from an earlier branch or written by hand.
+- [ ] The same fresh `Refund UAT Evidence` run contains exactly 83 reviewed synthetic screenshots and the five sanitized JSON artifacts named below; the final manifest hashes every artifact and binds to the reviewed PR head. The evidence covers form-only intake, card-network evidence, Nayax inventory/Snapcase, the manual-portal-only machine state, branded messages and same-case appeals, duplicate decisions, the source-aware manager queue, routine-manager isolation, the Internal/test disposition/archive, inbound existing-case linking review, provider-free existing-refund reconciliation, and transactional delivery truth without production data or provider identifiers. Final migration/test-file counts and SHA are generated from that tree, not copied from an earlier branch or written by hand.
 - [ ] In the owner's private shell, `npm run refunds:production-auth-closed -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --phase predeploy` passes with the short-lived `SUPABASE_AUTH_CONFIG_READ_TOKEN`. This is the final read-only barrier before the first refund production database/function write.
 - [ ] Before deployment, `supabase db push --dry-run` reports exactly the reviewed pending migration set and no unexpected migration. Save the sanitized command result; the Edge Function drift check does not prove remote migration parity.
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
@@ -294,7 +294,7 @@ Before deploying reporting functions, confirm Step B has completed and `supabase
 
 After applying the reviewed migrations, rerun `supabase db push --dry-run` and require zero pending migrations before deploying dependent Refund Operations functions.
 
-Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit. Revalidate the manifest and transitive source binding immediately before deployment. Keep the runtime Nayax execution gates off during deployment (`NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, and `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`). The normal manager action uses dedicated server-side Nayax account credentials only after the reviewed migration and function are deployed, the machine is qualified and enabled, the executor assertion is registered, and the genuine runtime safety gates are deliberately opened. Retired pilot, sponsor, canary, broad-reopen, and cap flags do not authorize or block a normal manager action.
+Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit. Revalidate the manifest and transitive source binding immediately before deployment. Use the root-pinned wrapper below rather than a raw `supabase functions deploy` command: it requires the exact clean fetched `origin/main` commit, the production project ref twice, an explicit production phrase, the existing predeploy/postdeploy Auth closed-state gates, and an absolute repository-root `--workdir`. The postdeploy Auth gate still runs after a partial or failed deploy. Keep the runtime Nayax execution gates off during deployment (`NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, and `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`). The normal manager action uses dedicated server-side Nayax account credentials only after the reviewed migration and function are deployed, the machine is qualified and enabled, the executor assertion is registered, and the genuine runtime safety gates are deliberately opened. Retired pilot, sponsor, canary, broad-reopen, and cap flags do not authorize or block a normal manager action.
 
 `Docs/REFUND_NAYAX_CONTROLLED_OWNER_PILOT.md` is historical documentation for the retired owner-only runner. It is not current launch authority and must not impose case allowlists, amount caps, TOTP, staffing, non-customer-only, observer, retention-review, or repeated go/no-go ceremony on the normal authenticated-manager path. Current operation is governed by `Docs/REFUND_PRODUCTION_POLICY.md` and the first section of this runbook.
 
@@ -315,22 +315,24 @@ supabase functions deploy sales-report-scheduler --no-verify-jwt
 supabase functions deploy sunze-sales-ingest --no-verify-jwt
 supabase functions deploy sunze-sales-sync --no-verify-jwt
 supabase functions deploy refund-adjustment-sync --no-verify-jwt
-supabase functions deploy refund-case-intake --no-verify-jwt
-supabase functions deploy nayax-transaction-lookup --no-verify-jwt
-supabase functions deploy refund-case-admin-update --no-verify-jwt
-supabase functions deploy refund-case-message-send --no-verify-jwt
-supabase functions deploy refund-case-automation-sweep --no-verify-jwt
-supabase functions deploy refund-gmail-sync --no-verify-jwt
-supabase functions deploy refund-gpt-triage --no-verify-jwt
-supabase functions deploy nayax-card-refund --no-verify-jwt
-supabase functions deploy refund-manager-action-step-up --no-verify-jwt
-supabase functions deploy refund-manager-totp-enrollment --no-verify-jwt
 supabase functions deploy refund-nayax-outcome-resolve --no-verify-jwt
 ```
 
-After deploying the ten manifest-tracked Refund Operations functions:
+First inspect the no-write plan. It prints only the ordered approved function names:
 
-Before any smoke, UAT, or enablement decision, rerun the exact read-only gate:
+```bash
+npm run refunds:deploy:functions -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --all
+```
+
+During the governed production window, with the owner-held short-lived `SUPABASE_AUTH_CONFIG_READ_TOKEN` present only in that private shell, execute the same approved plan:
+
+```bash
+npm run refunds:deploy:functions -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --all --execute --authorize "DEPLOY CANONICAL REFUND FUNCTIONS"
+```
+
+For an isolated canonical-entrypoint repair, replace `--all` with one or more approved `--function <slug>` values. Never loosen the production capture to accept a function-local entrypoint. Redeploy the exact reviewed `origin/main` source through this wrapper, then rerun the pre-deployment baseline capture and require the canonical `supabase/functions/<slug>/index.ts` identity before continuing.
+
+After deploying the ten manifest-tracked Refund Operations functions, the wrapper has already run the exact read-only postdeploy Auth gate. Before any smoke, UAT, or enablement decision, repeat it directly only when the wrapper reports a postdeploy failure or when the release window requires an independent receipt:
 
 ```bash
 npm run refunds:production-auth-closed -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --phase postdeploy
@@ -490,7 +492,7 @@ Historical completed held-case outcome resolution (`#767`, `#427`; not a Refund 
 - Stop on expired/changed intent, actor/mapping/operator/enrollment drift, ambiguous evidence, missing exact attempt, stale case version, or inability to prove zero provider side effects and the exact bounded message shape. Never repeat an uncertain resolution or uncertain Gmail delivery; inspect the immutable record and original thread first.
 
 Integrated Refund UAT evidence:
-- In one fresh workflow run, generate exactly 76 reviewed synthetic screenshots and exactly five sanitized JSON artifacts: `refund-portal-assertions.json`, `refund-database-counts.json`, `refund-gmail-mime-roles.json`, `refund-kill-switches.json`, and `refund-provider-outcomes.json`. The set covers the current form-only, card-network evidence, inventory/Snapcase, manual-portal-only machine state, branded-message/appeal, duplicate, source-aware queue, routine-manager isolation, Internal/test disposition/archive, and provider-free existing-refund states and contains no production data, provider identifier, QR, or TOTP.
+- In one fresh workflow run, generate exactly 83 reviewed synthetic screenshots and exactly five sanitized JSON artifacts: `refund-portal-assertions.json`, `refund-database-counts.json`, `refund-gmail-mime-roles.json`, `refund-kill-switches.json`, and `refund-provider-outcomes.json`. The set covers the current form-only, card-network evidence, inventory/Snapcase, manual-portal-only machine state, branded-message/appeal, duplicate, source-aware queue, routine-manager isolation, Internal/test disposition/archive, inbound existing-case linking review, and provider-free existing-refund states and contains no production data, provider identifier, QR, or TOTP.
 - The finalizer rejects stale, missing, extra, malformed, duplicate-image, PII-bearing, UUID/provider-ID-bearing, URL-bearing, or free-text-bearing artifacts. The database producer derives exact migration and test-file counts from the final tree; do not write those counts or the final release SHA by hand.
 - The portal evidence must prove zero side effects from exact links, filter/queue navigation, and initial render; exactly one lookup after **Check Nayax transaction**; and no admin-update or message shortcut on provider success. The provider JSON must prove one success, rejection, timeout, and unknown attempt with zero provider attempts on replay.
 

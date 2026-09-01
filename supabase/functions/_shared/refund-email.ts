@@ -65,6 +65,7 @@ export type RefundCustomerEmailInput = {
   managerRecipientOverlap?: boolean;
   managerRecipientCount?: number;
   statusUrl?: string | null;
+  idempotencyKey?: string | null;
 };
 
 const refundMissingFieldRequest: Record<RefundMissingField, string> = {
@@ -722,15 +723,16 @@ export const sendRefundCustomerEmail = async (
     input.managerRecipientOverlap,
     input.managerRecipientCount,
   );
-  await sendRefundTransactionalEmail({
+  const delivery = await sendRefundTransactionalEmail({
     to: [input.customerEmail],
     cc: managerCcEmails,
     subject: email.subject,
     text: email.text,
     html: email.html,
+    idempotencyKey: input.idempotencyKey,
   });
 
-  return email;
+  return { ...email, delivery };
 };
 
 export const buildBrandedRefundHtmlFromStoredText =
@@ -747,6 +749,7 @@ export type RefundWalletCorrectionEmailInput = {
   managerCcEmails?: string[];
   managerRecipientOverlap?: boolean;
   managerRecipientCount?: number;
+  idempotencyKey?: string | null;
 };
 
 export const buildRefundWalletCorrectionEmail = (
@@ -822,13 +825,14 @@ export const sendRefundWalletCorrectionEmail = async (
     input.managerRecipientOverlap,
     input.managerRecipientCount,
   );
-  await sendRefundTransactionalEmail({
+  const delivery = await sendRefundTransactionalEmail({
     to: [input.customerEmail],
     cc: managerCcEmails,
     subject: email.subject,
     text: email.text,
     html: email.html,
+    idempotencyKey: input.idempotencyKey,
   });
 
-  return email;
+  return { ...email, delivery };
 };

@@ -50,6 +50,16 @@ The monitored customer-reply route is always `info@bloomjoysweets.com`.
 | Manual portal message | Gmail thread when linked; otherwise verified transactional sender | Same case/thread; monitored Reply-To; mapped managers CC'd | Manager-reviewed, exactly once; Gmail uncertainty never falls through |
 | Manager notice | Internal notice transport and internal recipients only | No customer Reply-To/thread; customer is never a recipient | Separate internal exception lane; cannot substitute for customer delivery |
 
+## Direct transactional delivery truth
+
+For Website cases that use the verified transactional sender, the application must mark the exact message before provider access and send with `refund-message-<message-id>` as its provider idempotency key. A successful API response is **Accepted by provider**, not **Delivered**. Bind the returned provider message ID to the same message before recording the application send result.
+
+Configure Resend to POST signed delivery events to the existing `refund-case-message-send` endpoint using the private server-side `RESEND_REFUND_WEBHOOK_SECRET`. The endpoint verifies the raw body and Svix headers, hashes the provider event ID for replay protection, and persists only normalized delivery metadata. Never log or store the webhook payload, recipient, subject, message body, or private provider identifier in manager-visible data.
+
+Provider states are monotonic for safety: accepted, delayed, delivered, failed, bounced, then complained. Duplicate delivery events are no-ops. A lower-ranked or later-arriving event cannot erase a stronger failure state. An event that arrives before API evidence is bound stays private and applies atomically when the exact message is later bound.
+
+If acceptance remains unconfirmed after 15 minutes, or the provider reports delayed, failed, bounced, or complained, the case moves to **Action needed** with **Delivery needs review**. Refund Operations reviews the provider evidence and chooses a safe disposition; do not blindly resend the message, switch transports, retry a payment, or alter a confirmed refund. A delivery webhook must never invoke customer messaging, Nayax, reporting adjustment, or payment code.
+
 ## Reply-based denial appeal
 
 Only a verified direct reply from the case customer after a sent denial is an appeal. Forwarded, automated, spoof-suspected, manager, or unrelated messages cannot reopen a case.

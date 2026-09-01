@@ -13,6 +13,10 @@ import {
 } from "../_shared/refund-gmail.ts";
 import { deliverPreparedNayaxCompletionOnce } from "../_shared/nayax-resolution-completion.ts";
 import { tryIssueRefundStatusCapabilityForMessage } from "../_shared/refund-status-capability.ts";
+import {
+  bindRefundTransactionalDelivery,
+  markRefundTransactionalDeliveryAttempt,
+} from "../_shared/refund-transactional-delivery.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
@@ -355,12 +359,22 @@ serve(async (req) => {
         }
 
         try {
-          await sendRefundTransactionalEmail({
+          await markRefundTransactionalDeliveryAttempt({
+            supabase: serviceClient,
+            refundCaseMessageId,
+          });
+          const receipt = await sendRefundTransactionalEmail({
             to: [recipientEmail],
             cc: managerCcEmails,
             subject: email.subject,
             text: email.text,
             html: email.html,
+            idempotencyKey: `refund-message-${refundCaseMessageId}`,
+          });
+          await bindRefundTransactionalDelivery({
+            supabase: serviceClient,
+            refundCaseMessageId,
+            receipt,
           });
         } catch (error) {
           if (
