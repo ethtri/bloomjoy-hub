@@ -224,8 +224,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    106,
-    'Refund release inventory must cover exactly 106 discovered refund/Nayax migrations'
+    107,
+    'Refund release inventory must cover exactly 107 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('202608040004_refund_nayax_provider_orchestration.sql'),
@@ -238,6 +238,10 @@ try {
   assert(
     repositoryMigrations.includes('20260828003503_refund_nayax_authoritative_journal_v3.sql'),
     'The hardened Nayax journal v3 migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260901050000_refund_selected_nayax_transaction_evidence.sql'),
+    'The selected Nayax transaction evidence migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260830182855_refund_manager_queue_truth.sql'),
