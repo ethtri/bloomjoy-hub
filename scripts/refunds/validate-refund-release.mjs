@@ -85,14 +85,20 @@ assert(
   'The runbook must contain the reviewed Refund Operations deployment block'
 );
 const refundDeployBlock = productionRunbook.slice(refundDeployStart, refundDeployEnd);
-let previousDeployIndex = -1;
+assert(
+  refundDeployBlock.includes(
+    'npm run refunds:deploy:functions -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --all'
+  ) &&
+    refundDeployBlock.includes('--execute --authorize "DEPLOY CANONICAL REFUND FUNCTIONS"') &&
+    refundDeployBlock.includes('absolute repository-root') &&
+    refundDeployBlock.includes('exact reviewed `origin/main` source'),
+  'Refund Operations deployment must use the exact-project root-pinned guarded wrapper'
+);
 for (const slug of requiredFunctionSlugs) {
-  const deployIndex = refundDeployBlock.indexOf(`supabase functions deploy ${slug} --no-verify-jwt`);
   assert(
-    deployIndex > previousDeployIndex,
-    `Refund Operations deploy order is missing or out of order for ${slug}`
+    !refundDeployBlock.includes(`supabase functions deploy ${slug} --no-verify-jwt`),
+    `Raw Refund Operations deployment must not bypass the root-pinned wrapper for ${slug}`
   );
-  previousDeployIndex = deployIndex;
 }
 
 for (const requiredFailClosedControl of [
