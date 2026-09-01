@@ -7536,6 +7536,7 @@ const runNayaxExecutionOutcomeChecks = async ({
   const availabilityScenarios = [
     {
       name: 'loading',
+      viewport: { width: 1440, height: 1000 },
       delayMs: 2000,
       status: 200,
       response: {
@@ -7548,6 +7549,8 @@ const runNayaxExecutionOutcomeChecks = async ({
     },
     {
       name: 'request error',
+      viewport: { width: 1440, height: 1000 },
+      availabilityScreenshot: 'refund-case-availability-error-desktop.png',
       delayMs: 0,
       status: 503,
       response: { error: 'Synthetic availability request failed.' },
@@ -7555,6 +7558,8 @@ const runNayaxExecutionOutcomeChecks = async ({
     },
     {
       name: 'malformed response',
+      viewport: { width: 390, height: 844 },
+      availabilityScreenshot: 'refund-case-availability-error-mobile.png',
       delayMs: 0,
       status: 200,
       response: { available: true, status: 'available' },
@@ -7563,14 +7568,23 @@ const runNayaxExecutionOutcomeChecks = async ({
   ];
 
   for (const scenario of availabilityScenarios) {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    const context = await browser.newContext({ viewport: scenario.viewport });
     const functionCalls = [];
     const functionBodies = [];
     await installMockSupabaseRoutes(context, {
-      refundOverview: () => ({
-        ...buildMockRefundOverview(),
-        refundOperationsAccess: true,
-      }),
+      refundOverview: () => {
+        const overview = buildMockRefundOverview();
+        return {
+          ...overview,
+          refundOperationsAccess: true,
+          cases: overview.cases.map((refundCase) => ({
+            ...refundCase,
+            lifecycle: refundCase.lifecycle
+              ? { ...refundCase.lifecycle, refreshAfterSeconds: 60 }
+              : refundCase.lifecycle,
+          })),
+        };
+      },
       functionCalls,
       functionBodies,
       nayaxCardRefundAvailabilityResponse: scenario.response,
@@ -7616,8 +7630,15 @@ const runNayaxExecutionOutcomeChecks = async ({
     if (scenario.eventuallyAvailable) {
       await page.getByTestId('refund-run-nayax-refund').waitFor({ state: 'visible', timeout: 10000 });
     } else {
-      await page.getByRole('status', { name: 'Refund temporarily unavailable', exact: true })
+      await page.getByRole('status', { name: 'Checking refund availability', exact: true })
         .waitFor({ timeout: 10000 });
+    }
+
+    if (scenario.availabilityScreenshot) {
+      await page.screenshot({
+        path: path.join(artifactDir, scenario.availabilityScreenshot),
+        fullPage: true,
+      });
     }
 
     const availabilityBodies = functionBodies.filter(
@@ -7633,14 +7654,23 @@ const runNayaxExecutionOutcomeChecks = async ({
         }) &&
         (scenario.eventuallyAvailable || (
           (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-          await page.getByRole('status', { name: 'Refund temporarily unavailable', exact: true }).isVisible() &&
-          await page.getByText(
-            'The payment connection is temporarily unavailable. Try again later or contact Operations.',
-            { exact: true }
-          ).first().isVisible()
+          await page.getByRole('status', { name: 'Checking refund availability', exact: true }).isVisible() &&
+          (await page.getByText('Card refunds unavailable', { exact: true }).count()) === 0 &&
+          (await page.getByRole('status', { name: 'Refund temporarily unavailable', exact: true }).count()) === 0 &&
+          await page.getByText('Transaction confirmed. Payment: Not issued.', { exact: true }).first().isVisible()
         )),
       JSON.stringify({ functionCalls, availabilityBodies })
     );
+    if (scenario.viewport.width === 390) {
+      const mobileLayout = await page.evaluate(() => ({
+        viewportWidth: window.innerWidth,
+        documentWidth: document.documentElement.scrollWidth,
+      }));
+      recorder.assert(
+        'Case-specific refund availability remains readable on mobile without horizontal overflow',
+        mobileLayout.documentWidth <= mobileLayout.viewportWidth
+      );
+    }
     await closeRefundPortalContext(context);
   }
 
