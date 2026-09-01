@@ -12,6 +12,7 @@ Bloomjoy is in production. Follow `Docs/REFUND_PRODUCTION_POLICY.md`; do not rei
 
 1. Search Bloomjoy and Nayax records before asking the customer for more information.
 2. Confirm the exact settled transaction, machine/account, provider time, currency, and full transaction amount. Customer amount, card type, and last four are clues; the selected provider transaction is authoritative.
+   - In the manager evidence card, copy the **Selected Nayax transaction ID** into Dynamic Transactions Monitor and use the separately labeled **Provider machine-local time** plus its IANA timezone for the report window. Do not reconstruct the ID from raw data or ask the customer to repeat details Bloomjoy already holds.
 3. Run the privacy-safe preflight: active mapped machine and manager; no successful or unresolved attempt on this transaction; exact transaction uniqueness; current case version; idempotency, unique-attempt, unique-provider-stage, journal, and kill-switch controls present.
 4. Healthy operation uses execution enabled, dry-run false, kill switch false, the idempotency secret, executor assertion, exact provider contract, and separate account-scoped request/approval credentials. No case allowlist or amount/count cap is required.
 5. The mapped manager selects **Refund $X** and confirms once immediately before money moves. One immutable generation permits at most one Nayax request and one approval. Double-click, reload, stale tab, concurrency, and replay cannot create a second send.

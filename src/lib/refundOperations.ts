@@ -421,6 +421,123 @@ export type NayaxMatchFactor = {
   label: string;
 };
 
+export type RefundSelectedNayaxTransaction = {
+  schemaVersion: 'refund_selected_nayax_transaction_v1';
+  transactionId: string;
+  saleAmountCents: number;
+  currencyCode: string;
+  machineLabel: string;
+  locationName: string;
+  customerReportedAt: string;
+  providerAuthorizedAt: string;
+  machineTimezone: string;
+  providerTimeResolution: string;
+  cardLast4: string | null;
+  cardNetwork: RefundCardNetwork | null;
+  recognitionMethod: string | null;
+  paymentInteraction: RefundPaymentInteraction | null;
+  walletProvider: RefundWalletProvider | null;
+  matchExplanation: string;
+  matchFactors: NayaxMatchFactor[];
+  evidenceSource: 'nayax_last_sales' | 'manual_nayax_portal' | 'selected_case_record';
+  payloadRedacted: true;
+};
+
+const selectedNayaxEvidenceSources = new Set<RefundSelectedNayaxTransaction['evidenceSource']>([
+  'nayax_last_sales',
+  'manual_nayax_portal',
+  'selected_case_record',
+]);
+const selectedNayaxCardNetworks = new Set<RefundCardNetwork>([
+  'visa', 'mastercard', 'discover', 'american_express', 'other_unknown',
+]);
+const selectedNayaxPaymentInteractions = new Set<RefundPaymentInteraction>([
+  'phone_watch_wallet', 'tap_card', 'insert_or_swipe', 'cash', 'unsure',
+]);
+const selectedNayaxWalletProviders = new Set<RefundWalletProvider>([
+  'apple_pay', 'google_wallet', 'other', 'unsure',
+]);
+
+const requireRefundSelectedNayaxTransaction = (
+  value: unknown
+): RefundSelectedNayaxTransaction => {
+  const evidence = value && typeof value === 'object'
+    ? value as Record<string, unknown>
+    : null;
+  const matchFactors = Array.isArray(evidence?.matchFactors)
+    ? evidence.matchFactors
+    : null;
+  const evidenceSource = evidence?.evidenceSource;
+  if (
+    evidence?.schemaVersion !== 'refund_selected_nayax_transaction_v1' ||
+    typeof evidence.transactionId !== 'string' ||
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]{5,119}$/.test(evidence.transactionId) ||
+    typeof evidence.saleAmountCents !== 'number' ||
+    !Number.isInteger(evidence.saleAmountCents) ||
+    evidence.saleAmountCents < 0 ||
+    typeof evidence.currencyCode !== 'string' ||
+    !/^[A-Z]{3}$/.test(evidence.currencyCode) ||
+    typeof evidence.machineLabel !== 'string' ||
+    evidence.machineLabel.trim().length === 0 ||
+    typeof evidence.locationName !== 'string' ||
+    evidence.locationName.trim().length === 0 ||
+    typeof evidence.customerReportedAt !== 'string' ||
+    Number.isNaN(Date.parse(evidence.customerReportedAt)) ||
+    typeof evidence.providerAuthorizedAt !== 'string' ||
+    Number.isNaN(Date.parse(evidence.providerAuthorizedAt)) ||
+    typeof evidence.machineTimezone !== 'string' ||
+    evidence.machineTimezone.trim().length === 0 ||
+    typeof evidence.providerTimeResolution !== 'string' ||
+    evidence.providerTimeResolution.trim().length === 0 ||
+    (evidence.cardLast4 !== null && (
+      typeof evidence.cardLast4 !== 'string' || !/^[0-9]{4}$/.test(evidence.cardLast4)
+    )) ||
+    (evidence.cardNetwork !== null && (
+      typeof evidence.cardNetwork !== 'string' ||
+      !selectedNayaxCardNetworks.has(evidence.cardNetwork as RefundCardNetwork)
+    )) ||
+    (evidence.recognitionMethod !== null && (
+      typeof evidence.recognitionMethod !== 'string' ||
+      evidence.recognitionMethod.length > 80
+    )) ||
+    (evidence.paymentInteraction !== null && (
+      typeof evidence.paymentInteraction !== 'string' ||
+      !selectedNayaxPaymentInteractions.has(
+        evidence.paymentInteraction as RefundPaymentInteraction
+      )
+    )) ||
+    (evidence.walletProvider !== null && (
+      typeof evidence.walletProvider !== 'string' ||
+      !selectedNayaxWalletProviders.has(evidence.walletProvider as RefundWalletProvider)
+    )) ||
+    typeof evidence.matchExplanation !== 'string' ||
+    evidence.matchExplanation.trim().length === 0 ||
+    evidence.matchExplanation.length > 500 ||
+    !matchFactors ||
+    matchFactors.length > 20 ||
+    !matchFactors.every((factor) => {
+      if (!factor || typeof factor !== 'object') return false;
+      const candidate = factor as Record<string, unknown>;
+      return typeof candidate.key === 'string' && candidate.key.length <= 80 &&
+        typeof candidate.outcome === 'string' && candidate.outcome.length <= 80 &&
+        typeof candidate.label === 'string' && candidate.label.length <= 300;
+    }) ||
+    typeof evidenceSource !== 'string' ||
+    !selectedNayaxEvidenceSources.has(
+      evidenceSource as RefundSelectedNayaxTransaction['evidenceSource']
+    ) ||
+    evidence.payloadRedacted !== true
+  ) {
+    throw new Error('Unsupported selected Nayax transaction response.');
+  }
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: evidence.machineTimezone }).format();
+  } catch {
+    throw new Error('Unsupported selected Nayax transaction response.');
+  }
+  return evidence as RefundSelectedNayaxTransaction;
+};
+
 export type RefundCaseRecord = {
   id: string;
   publicReference: string;
@@ -482,6 +599,7 @@ export type RefundCaseRecord = {
   matchedNayaxAmountCents: number | null;
   matchedNayaxCardLast4: string | null;
   matchedNayaxCurrencyCode: string | null;
+  selectedNayaxTransaction?: RefundSelectedNayaxTransaction | null;
   nayaxLookupCandidates: NayaxLookupCandidate[];
   assignedManagerEmail: string | null;
   decision: RefundDecision;
@@ -545,6 +663,7 @@ export type RefundOperationsOverview = {
   acknowledgementRecoveryContractVersion?: 'refund_acknowledgement_recovery_v1';
   customerLocaleContractVersion?: 'refund_customer_locale_v1';
   internalTestContractVersion?: 'refund_internal_test_v1';
+  selectedNayaxTransactionContractVersion?: 'refund_selected_nayax_transaction_v1';
   refundOperationsAccess?: boolean;
 };
 
@@ -1555,6 +1674,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
   return {
     lifecycleContractVersion: REFUND_LIFECYCLE_SCHEMA_VERSION,
     managerQueueContractVersion: 'refund_manager_queue_v1',
+    selectedNayaxTransactionContractVersion: 'refund_selected_nayax_transaction_v1',
     refundOperationsAccess: false,
     machines: [
       {
@@ -1726,6 +1846,31 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         matchedNayaxAmountCents: 700,
         matchedNayaxCardLast4: '4242',
         matchedNayaxCurrencyCode: 'USD',
+        selectedNayaxTransaction: {
+          schemaVersion: 'refund_selected_nayax_transaction_v1',
+          transactionId: 'NAYAX-UAT-4100000031',
+          saleAmountCents: 700,
+          currencyCode: 'USD',
+          machineLabel: 'Cotton Candy 01',
+          locationName: 'Mall Atrium',
+          customerReportedAt: demoIsoHoursAgo(5.05),
+          providerAuthorizedAt: demoIsoHoursAgo(5),
+          machineTimezone: 'America/Los_Angeles',
+          providerTimeResolution: 'exact',
+          cardLast4: '4242',
+          cardNetwork: 'visa',
+          recognitionMethod: 'tap',
+          paymentInteraction: 'tap_card',
+          walletProvider: null,
+          matchExplanation: 'Exact mapped machine and location; exact amount; card last four matches',
+          matchFactors: [
+            { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+            { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
+            { key: 'card', outcome: 'match', label: 'Card last four matches' },
+          ],
+          evidenceSource: 'nayax_last_sales',
+          payloadRedacted: true,
+        },
         nayaxLookupCandidates: [
           {
             candidateToken: '41000000-0000-4000-8000-000000000031',
@@ -1980,6 +2125,12 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   ) {
     throw new Error('Unsupported Internal/test archive response.');
   }
+  if (
+    overview.selectedNayaxTransactionContractVersion !== undefined &&
+    overview.selectedNayaxTransactionContractVersion !== 'refund_selected_nayax_transaction_v1'
+  ) {
+    throw new Error('Unsupported selected Nayax transaction response.');
+  }
   const internalTestCases = Array.isArray(overview.internalTestCases)
     ? overview.internalTestCases.map((refundCase) => ({
         ...refundCase,
@@ -2015,15 +2166,19 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   const cases = [...gmailDrafts, ...overview.cases].map((refundCase) => {
     const state = queueStateByCaseId.get(refundCase.id);
     const manualNayax = manualNayaxByCaseId.get(refundCase.id);
+    const selectedNayaxTransaction = refundCase.selectedNayaxTransaction
+      ? requireRefundSelectedNayaxTransaction(refundCase.selectedNayaxTransaction)
+      : null;
     const lifecycle = refundCase.lifecycle
       ? requireRefundLifecycleContract(refundCase.lifecycle)
       : null;
     if (!state && !manualNayax) {
-      return { ...refundCase, lifecycle };
+      return { ...refundCase, lifecycle, selectedNayaxTransaction };
     }
     return {
       ...refundCase,
       lifecycle,
+      selectedNayaxTransaction,
       ...(state ? {
         intakeSource: state.intakeSource,
         exactCasePath: state.exactCasePath,

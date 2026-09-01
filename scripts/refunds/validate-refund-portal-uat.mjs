@@ -343,6 +343,7 @@ const mockSession = {
 
 const buildMockRefundOverview = () => ({
   managerQueueContractVersion: 'refund_manager_queue_v1',
+  selectedNayaxTransactionContractVersion: 'refund_selected_nayax_transaction_v1',
   machines: [
     {
       id: 'machine-1',
@@ -385,8 +386,11 @@ const buildMockRefundOverview = () => ({
       paymentMethod: 'card',
       paymentAmountCents: 700,
       cardLast4: '4242',
+      cardLast4Provenance: 'physical_card',
       cardNetwork: 'visa',
       cardWalletUsed: false,
+      paymentInteraction: 'tap_card',
+      walletProvider: null,
       hasMatchedSalesFact: false,
       hasMatchedNayaxTransaction: true,
       lifecycle: buildLifecycleFixture('transaction_confirmed', 30, 'issue_refund'),
@@ -401,6 +405,31 @@ const buildMockRefundOverview = () => ({
       matchedNayaxAmountCents: 700,
       matchedNayaxCardLast4: '4242',
       matchedNayaxCurrencyCode: 'USD',
+      selectedNayaxTransaction: {
+        schemaVersion: 'refund_selected_nayax_transaction_v1',
+        transactionId: 'NAYAX-UAT-SELECTED-7001',
+        saleAmountCents: 700,
+        currencyCode: 'USD',
+        machineLabel: 'Cotton Candy 01',
+        locationName: 'Mall Atrium',
+        customerReportedAt: isoHoursAgo(5.05),
+        providerAuthorizedAt: isoHoursAgo(5),
+        machineTimezone: 'America/Los_Angeles',
+        providerTimeResolution: 'exact',
+        cardLast4: '4242',
+        cardNetwork: 'visa',
+        recognitionMethod: 'tap',
+        paymentInteraction: 'tap_card',
+        walletProvider: null,
+        matchExplanation: 'Exact mapped machine and location; exact amount; card last four matches',
+        matchFactors: [
+          { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+          { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
+          { key: 'card', outcome: 'match', label: 'Card last four matches' },
+        ],
+        evidenceSource: 'nayax_last_sales',
+        payloadRedacted: true,
+      },
       nayaxLookupCandidates: [
         {
           candidateToken: '41000000-0000-4000-8000-000000000101',
@@ -3115,6 +3144,21 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
   });
+  // Keep clipboard verification synthetic and deterministic. Chromium can deny
+  // clipboard reads in headless CI even after permissions are granted, so this
+  // context records only what the manager UI asks the browser to copy.
+  await context.addInitScript(() => {
+    let clipboardText = '';
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (value) => {
+          clipboardText = String(value);
+        },
+        readText: async () => clipboardText,
+      },
+    });
+  });
   const functionCalls = [];
   const functionBodies = [];
   await installMockSupabaseRoutes(context, { functionCalls, functionBodies });
@@ -3306,6 +3350,48 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       await page.getByTestId('nayax-result-card').getByText('Transaction selected', { exact: true }).isVisible() &&
       await page.getByTestId('nayax-result-card').getByText('Selected', { exact: true }).isVisible()
   );
+  const selectedTransactionEvidence = page.getByTestId('selected-nayax-transaction-evidence');
+  const copyTransactionButton = page.getByTestId('copy-selected-nayax-transaction-id');
+  const copyTransactionButtonBox = await copyTransactionButton.boundingBox();
+  recorder.assert(
+    'Selected transaction evidence is visible, source-labeled, and copyable',
+    await selectedTransactionEvidence.isVisible() &&
+      await selectedTransactionEvidence.getByText('NAYAX-UAT-SELECTED-7001', { exact: true }).isVisible() &&
+      await selectedTransactionEvidence.getByText('$7.00 USD', { exact: true }).isVisible() &&
+      await selectedTransactionEvidence.getByText('Customer-reported time', { exact: true }).isVisible() &&
+      await selectedTransactionEvidence.getByText('Provider machine-local time', { exact: true }).isVisible() &&
+      (await selectedTransactionEvidence.getByText('America/Los_Angeles', { exact: false }).count()) >= 2 &&
+      await selectedTransactionEvidence.getByText('Why this transaction was selected', { exact: true }).isVisible() &&
+      Boolean(copyTransactionButtonBox && copyTransactionButtonBox.height >= 44),
+    JSON.stringify(copyTransactionButtonBox)
+  );
+  await copyTransactionButton.click();
+  recorder.assert(
+    'Copy ID writes only the exact selected Nayax transaction reference',
+    await page.evaluate(() => navigator.clipboard.readText()) === 'NAYAX-UAT-SELECTED-7001'
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-selected-nayax-transaction-desktop.png'),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await selectedTransactionEvidence.scrollIntoViewIfNeeded();
+  const mobileEvidenceBox = await selectedTransactionEvidence.boundingBox();
+  const mobileCopyButtonBox = await copyTransactionButton.boundingBox();
+  recorder.assert(
+    'Selected transaction evidence remains readable with a 44px copy target on mobile',
+    Boolean(
+      mobileEvidenceBox && mobileEvidenceBox.x >= 0 &&
+      mobileEvidenceBox.x + mobileEvidenceBox.width <= 390 &&
+      mobileCopyButtonBox && mobileCopyButtonBox.height >= 44
+    ),
+    JSON.stringify({ mobileEvidenceBox, mobileCopyButtonBox })
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-selected-nayax-transaction-mobile.png'),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
   recorder.assert(
     'Customer and Nayax card types are compared in plain language',
     /Card type\s+Visa\s+Visa\s+Same card type/.test(
@@ -3349,8 +3435,9 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       await page.getByText(/Customer messages \(1\)/).isVisible()
   );
   recorder.assert(
-    'Raw provider transaction IDs are absent from the workflow body',
-    !(await page.locator('body').innerText()).includes('hidden-provider-id-for-selection-only')
+    'Unselected provider transaction IDs remain absent from the workflow body',
+    !(await page.locator('body').innerText()).includes('hidden-provider-id-for-selection-only') &&
+      (await page.getByText('NAYAX-UAT-SELECTED-7001', { exact: true }).count()) === 1
   );
 
   recorder.assert(
