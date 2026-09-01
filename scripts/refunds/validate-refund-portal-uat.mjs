@@ -551,6 +551,58 @@ const buildEmptyRefundOverview = () => ({
   cases: [],
 });
 
+const buildAcknowledgementRecoveryOverview = ({ resolved = false } = {}) => {
+  const overview = buildMockRefundOverview();
+  const refundCase = overview.cases[0];
+  overview.acknowledgementRecoveryContractVersion = 'refund_acknowledgement_recovery_v1';
+  overview.cases = [{
+    ...refundCase,
+    status: 'needs_review',
+    decision: null,
+    decisionReason: null,
+    decidedAt: null,
+    refundAmountCents: null,
+    lifecycle: buildLifecycleFixture('matching', 10, 'review_customer_contact'),
+    acknowledgementDeliveryException: {
+      schemaVersion: 'refund_acknowledgement_recovery_v1',
+      status: resolved ? 'resolved_later_contact' : 'unresolved',
+      reasonCode: 'initial_acknowledgement_skipped',
+      skippedAt: isoHoursAgo(6),
+      laterContactSent: true,
+      laterContactMessageType: 'status_update',
+      laterContactSentAt: isoHoursAgo(4),
+      recoveryAction: resolved ? 'none' : 'record_later_contact_disposition',
+      resolvedAt: resolved ? isoHoursAgo(0.1) : null,
+      payloadRedacted: true,
+    },
+    messages: [
+      {
+        id: 'msg-ack-later-contact',
+        messageType: 'status_update',
+        status: 'sent',
+        recipientEmail: 'customer-card@example.test',
+        subject: 'Refund review update',
+        body: 'Bloomjoy is reviewing the request.',
+        sentAt: isoHoursAgo(4),
+        errorMessage: null,
+        createdAt: isoHoursAgo(4),
+      },
+      {
+        id: 'msg-ack-skipped',
+        messageType: 'confirmation',
+        status: 'skipped',
+        recipientEmail: 'customer-card@example.test',
+        subject: 'Request received',
+        body: 'Your request was stored.',
+        sentAt: null,
+        errorMessage: 'automatic_customer_contact_disabled',
+        createdAt: isoHoursAgo(6),
+      },
+    ],
+  }];
+  return overview;
+};
+
 const buildLegacyStateReviewOverview = () => {
   const overview = buildMockRefundOverview();
   const historicalCase = overview.cases[0];
@@ -1398,6 +1450,7 @@ const installMockSupabaseRoutes = async (
     adminAccessContext = null,
     emailQueueStates = null,
     reconciliationContext = null,
+    acknowledgementDispositionHandler = null,
   } = {}
 ) => {
   const officialActionVersions = new Map();
@@ -2380,6 +2433,20 @@ const installMockSupabaseRoutes = async (
           }
         : currentOverview;
       return route.fulfill(jsonResponse(withOfficialActionState(settledOverview)));
+    }
+
+    if (url.includes('/admin_dispose_refund_acknowledgement_exception')) {
+      const requestBody = request.postDataJSON();
+      const response = acknowledgementDispositionHandler
+        ? await acknowledgementDispositionHandler(requestBody)
+        : {
+            recorded: true,
+            replayed: false,
+            reason: 'later_customer_contact_already_sent',
+            caseVersion: Number(requestBody?.p_expected_case_version ?? 1),
+            payloadRedacted: true,
+          };
+      return route.fulfill(jsonResponse(response));
     }
 
     if (url.includes('/admin_update_refund_case')) {
@@ -5885,6 +5952,102 @@ const runCustomerCommsFailureChecks = async ({ browser, appUrl, recorder }) => {
   await closeRefundPortalContext(context);
 };
 
+const runAcknowledgementRecoveryChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+  let resolved = false;
+  const dispositionBodies = [];
+  const functionCalls = [];
+  const rpcCalls = [];
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await installMockSupabaseRoutes(context, {
+    refundOverview: () => buildAcknowledgementRecoveryOverview({ resolved }),
+    functionCalls,
+    rpcCalls,
+    acknowledgementDispositionHandler: async (body) => {
+      dispositionBodies.push(body);
+      resolved = true;
+      return {
+        recorded: true,
+        replayed: false,
+        reason: 'later_customer_contact_already_sent',
+        caseVersion: Number(body?.p_expected_case_version ?? 1),
+        payloadRedacted: true,
+      };
+    },
+  });
+
+  const page = await context.newPage();
+  await signInRefundUser(page, appUrl);
+  await page.getByRole('button', { name: /^Action needed \d+$/ }).click();
+  await waitForQueueCount(page, 1);
+  await queueCase(page, 'RF-UAT-CARD').click();
+
+  const exception = page.getByTestId('refund-acknowledgement-delivery-exception');
+  const disposition = page.getByTestId('refund-record-later-contact-disposition');
+  recorder.assert(
+    'A later message cannot hide the skipped initial acknowledgement',
+    await exception.isVisible() &&
+      await page.getByLabel('Selected refund case')
+        .getByText('Acknowledgement needs review', { exact: true }).isVisible() &&
+      await disposition.isVisible()
+  );
+  recorder.assert(
+    'The recovery copy explicitly forbids duplicate customer contact',
+    (await exception.innerText()).includes('Do not resend the initial acknowledgement') &&
+      (await exception.innerText()).includes('Do not contact the customer again')
+  );
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(100);
+  const mobileOverflow = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    bodyScrollWidth: document.body.scrollWidth,
+    innerWidth: window.innerWidth,
+  }));
+  recorder.assert(
+    'Acknowledgement recovery remains usable without mobile horizontal overflow',
+    await exception.isVisible() && await disposition.isVisible() &&
+      mobileOverflow.scrollWidth <= mobileOverflow.innerWidth + 1 &&
+      mobileOverflow.bodyScrollWidth <= mobileOverflow.innerWidth + 1,
+    JSON.stringify(mobileOverflow)
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-acknowledgement-recovery-mobile.png'),
+    fullPage: false,
+  });
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await disposition.click();
+  await exception.waitFor({ state: 'hidden', timeout: 10000 });
+  recorder.assert(
+    'Recording later contact uses one versioned fixed-reason disposition',
+    dispositionBodies.length === 1 &&
+      dispositionBodies[0]?.p_case_id === 'case-card-1' &&
+      dispositionBodies[0]?.p_expected_case_version === 1 &&
+      dispositionBodies[0]?.p_reason === 'later_customer_contact_already_sent',
+    JSON.stringify(dispositionBodies)
+  );
+  recorder.assert(
+    'The no-resend disposition performs no customer, provider, or official-action call',
+    !functionCalls.includes('refund-case-message-send') &&
+      !functionCalls.includes('refund-case-admin-update') &&
+      !functionCalls.includes('nayax-card-refund') &&
+      rpcCalls.filter((name) => name === 'admin_dispose_refund_acknowledgement_exception').length === 1,
+    JSON.stringify({ functionCalls, rpcCalls })
+  );
+  recorder.assert(
+    'The manager view clears the warning only after the disposition is recorded',
+    (await page.getByTestId('refund-acknowledgement-delivery-exception').count()) === 0 &&
+      !(await page.locator('body').innerText()).includes('Acknowledgement needs review') &&
+      (await page.locator('body').innerText()).includes('Checking transactions')
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-acknowledgement-recovery-resolved.png'),
+    fullPage: false,
+  });
+
+  await closeRefundPortalContext(context);
+};
+
 const openNayaxManagerStepUp = async (page) => {
   await page.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
   await waitForQueueCount(page, 1);
@@ -7633,6 +7796,12 @@ const run = async () => {
         appUrl: args.appUrl,
         recorder,
       });
+      await runAcknowledgementRecoveryChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
     } else if (args.demoOnly) {
       await runDemoFallbackChecks({
         browser,
@@ -7776,6 +7945,12 @@ const run = async () => {
     await runCustomerCommsFailureChecks({
       browser,
       appUrl: args.appUrl,
+      recorder,
+    });
+    await runAcknowledgementRecoveryChecks({
+      browser,
+      appUrl: args.appUrl,
+      artifactDir: args.artifactDir,
       recorder,
     });
     await runNayaxResolutionChecks({

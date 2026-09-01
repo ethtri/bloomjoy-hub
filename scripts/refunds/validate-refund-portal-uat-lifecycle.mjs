@@ -32,6 +32,7 @@ const overviewFixtureBuilders = [
 assert.deepEqual(overviewFixtureBuilders, [
   'buildMockRefundOverview',
   'buildEmptyRefundOverview',
+  'buildAcknowledgementRecoveryOverview',
   'buildLegacyStateReviewOverview',
   'buildFailedCommsRefundOverview',
   'buildCashRefundReviewOverview',

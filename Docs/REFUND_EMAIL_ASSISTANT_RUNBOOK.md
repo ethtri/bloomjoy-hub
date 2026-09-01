@@ -154,6 +154,8 @@ Every automatic message uses a versioned deterministic template, a durable opera
 
 `waiting_on_customer` and `more_info_needed` require durable proof of a successfully sent request with at least one deterministic customer-correctable field. The canonical lifecycle exposes the exact field list to the manager queue and case detail. A no-safe-match notice with no required fields remains Bloomjoy-owned review work; its bounded reminder cannot extend or recreate a customer wait. Unsupported historical states return to manager review without sending another message. Secure wallet correction uses its versioned, single-use correction context as the deterministic field contract and enters waiting only after the message is recorded as sent.
 
+A skipped initial acknowledgement remains a manager-owned delivery exception even if a later customer message was sent. If no later sent message exists, use the safe acknowledgement path and reconcile uncertain Gmail delivery before sending. If later contact is already durably recorded as sent, do not resend the acknowledgement and do not contact the customer again for that exception. A currently authorized manager may record the fixed later-contact disposition against the current case version; replay returns the existing result, and the disposition creates only one redacted immutable audit event with no message, payment, decision, provider, or reporting effect.
+
 ### Candidate template registry
 
 | Template/version | Audience and use | Automatic-send boundary |
