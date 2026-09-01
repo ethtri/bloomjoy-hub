@@ -89,7 +89,7 @@ insert into public.refund_cases (
     'b9120000-0000-4000-8000-000000000001',
     'locale-unset@example.invalid', 'Existing case without a stored locale',
     statement_timestamp() - interval '2 hours', 'cash', 800,
-    'needs_review', 'not_applicable', 'manual', '{}'::jsonb
+    'needs_review', 'not_started', 'manual', '{}'::jsonb
   ),
   (
     'b9140000-0000-4000-8000-000000000002', 'RF-LOCALE-INTAKE',
