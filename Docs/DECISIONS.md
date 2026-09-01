@@ -17,6 +17,15 @@
 
 Entries are newest-first. For production refund work, the 2026-08-30 production-simplification decision below governs. Older conflicting pilot, cap, account-hold, canary, unfamiliar-`2xx`, permission, and TOTP mechanics are retained only as historical audit records.
 
+## 2026-09-01 - Refund function deployment is root-pinned and fail-closed (`#917`, `#1069`)
+
+- Manifest-tracked refund functions deploy only through the repository wrapper from the exact clean fetched `origin/main` commit. The wrapper supplies the absolute repository root to Supabase, preserves manifest order, requires the production project ref twice plus an explicit production phrase, and runs the existing closed-state Auth gate before and after the write.
+- The postdeploy Auth check runs even after a partial or failed function deployment. A no-execute invocation prints the approved function names only and performs no production read or write.
+- Production capture continues to reject a function-local entrypoint. The remedy is an isolated redeploy of the exact reviewed source through the same guarded wrapper followed by a fresh exact capture, never a looser path normalizer or manifest exception.
+
+**Why this choice**
+- Production evidence showed one healthy refund automation bundle deployed from a function-local folder while the remaining refund functions retained the canonical `supabase/functions/<slug>/index.ts` identity. Pinning the CLI workdir removes operator-folder ambiguity without weakening source digests, project confirmation, Auth state, rollback evidence, or payment/customer-message controls.
+
 ## 2026-09-01 - Provider-delay evidence requires approved pending state (`#1069`)
 
 - A provider-delay update is valid only when the case is `card_refund_pending` with `decision=approved` and the latest provider attempt is still a due unresolved confirmation hold. That is the truthful state after Bloomjoy approves the refund but before provider completion is known.

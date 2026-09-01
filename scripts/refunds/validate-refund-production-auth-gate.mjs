@@ -265,7 +265,7 @@ const predeployGateIndex = runbook.indexOf(
 );
 const firstProductionWriteIndex = runbook.indexOf('   - `supabase db push`');
 const finalRefundDeployIndex = runbook.indexOf(
-  'supabase functions deploy refund-manager-totp-enrollment --no-verify-jwt'
+  'npm run refunds:deploy:functions -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --all --execute --authorize "DEPLOY CANONICAL REFUND FUNCTIONS"'
 );
 const postdeployGateIndex = runbook.indexOf(
   'npm run refunds:production-auth-closed -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --phase postdeploy'
@@ -282,7 +282,7 @@ assert(
   finalRefundDeployIndex >= 0 &&
     postdeployGateIndex > finalRefundDeployIndex &&
     postdeployGateIndex < postdeploySmokeIndex,
-  'The live closed-state postdeploy gate must follow the final refund function and precede smoke/UAT'
+  'The live closed-state postdeploy receipt must follow the guarded refund deployment and precede smoke/UAT'
 );
 assert.match(runbook, /Do not reuse or broaden `SUPABASE_EDGE_FUNCTIONS_READ_TOKEN`/u);
 assert.match(runbook, /never auto-restores or changes Auth/u);
