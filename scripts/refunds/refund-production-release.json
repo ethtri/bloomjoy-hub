@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "202fcc7e51ee09c4a912c529481e8744c6d56320",
+  "sourceGitCommit": "d62159b298e9a6b11d9a77b345790f20c0490319",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -112,8 +112,8 @@
     "20260901021433_refund_customer_locale_correction.sql",
     "20260901033000_refund_internal_test_disposition.sql"
   ],
-  "migrationFilesSha256": "91ac217a67c1f1bb04cb4bbe3040817ad3a521bf2c92392e9e67476badf11aa6",
-  "migrationVersionSetSha256": "0cb978212cb42c49630daa18963c8c8bf2c20673ab8953fe60789b7e52acc3fb",
+  "migrationFilesSha256": "8d504f2e3a7cb47f5c3b8d9228c248ba62822fa2763c33c7b4c62ca26de3fd18",
+  "migrationVersionSetSha256": "4334c1e56a74709d008c46949e74edf5b8a2f9d023a4761ddf4e66d69112cf81",
   "preMigrationCompatibility": {
     "releaseId": "refund-ops-2026-08-14-pre-controlled-nayax-pilot",
     "sourceGitCommit": "71eb076bc3ad95ccabd0c591b8140820bed6c393",
@@ -199,7 +199,7 @@
     {
       "slug": "refund-case-admin-update",
       "verifyJwt": false,
-      "sourceSha256": "36bb51b8780214affea126d0cfd69418519fc293f7c1b4ae2837533488cc7093",
+      "sourceSha256": "957eb5a40c89f9d9f694680c13d9629266492eda38d12842d765f496080eaa4f",
       "production": {
         "version": 98,
         "ezbrSha256": "880be23006955443c105ddfce7a7cfd106f5b75de6184a6201099ec3c679e68d",
@@ -210,7 +210,7 @@
     {
       "slug": "refund-case-message-send",
       "verifyJwt": false,
-      "sourceSha256": "f1bcbb6c2bc3debe983742fac2fcf56bf509b5465dd374caccde589ae8101eb6",
+      "sourceSha256": "2bfb8e3a11d4daa4961f5cd697f2ec36728d1e791a6c4ee6d9d717b365233f9e",
       "production": {
         "version": 92,
         "ezbrSha256": "0baafe1a38f4567a3721a72d743cde0ac7ac84f8100ee6aa02d9f4821c2ca116",
@@ -254,7 +254,7 @@
     {
       "slug": "nayax-card-refund",
       "verifyJwt": false,
-      "sourceSha256": "4af2282b7e130a552a2de2b5856aff0c56f0053e1e9845890739ca529373d52b",
+      "sourceSha256": "8ac3ee97c3eb2f3f2af3775d8e3c1e1fbdd5e9d6fdda4a9033dc7f4fccf7d683",
       "production": {
         "version": 99,
         "ezbrSha256": "2f69af93a5ce25fd9f7f5e9a6a8b36f129ac024c57a749bf8e19ef479c676c0f",
