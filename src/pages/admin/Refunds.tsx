@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock3,
+  Copy,
   ExternalLink,
   Info,
   Loader2,
@@ -508,6 +509,34 @@ const formatDate = (value: string | null) => {
     hour: 'numeric',
     minute: '2-digit',
   });
+};
+
+const formatMachineLocalDate = (value: string | null, timeZone: string) => {
+  if (!value) return 'n/a';
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone,
+      timeZoneName: 'short',
+    }).format(new Date(value));
+  } catch {
+    return 'n/a';
+  }
+};
+
+const formatProviderCurrency = (cents: number, currencyCode: string) => {
+  try {
+    return `${new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currencyCode,
+    }).format(cents / 100)} ${currencyCode}`;
+  } catch {
+    return `${(cents / 100).toFixed(2)} ${currencyCode}`;
+  }
 };
 
 const formatAge = (value: string | null) => {
@@ -4978,6 +5007,9 @@ export default function AdminRefundsPage() {
     const hasSelectedMatch = selectedCase.legacyStateReviewRequired
       ? false
       : hasSelectedCardEvidence(selectedCase, editor);
+    const selectedTransactionEvidence = hasSelectedMatch
+      ? selectedCase.selectedNayaxTransaction ?? null
+      : null;
     const hasSelectableCandidate = effectiveCandidates.some(
       (candidate) => candidate.selectionAllowed !== false
     );
@@ -5250,6 +5282,120 @@ export default function AdminRefundsPage() {
                       )}
                 </Badge>
               </div>
+
+              {selectedTransactionEvidence ? (
+                <section
+                  data-testid="selected-nayax-transaction-evidence"
+                  className="mt-3 rounded-lg border border-primary/25 bg-primary/5 p-3"
+                  aria-label="Selected Nayax transaction evidence"
+                >
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Selected Nayax transaction ID
+                      </p>
+                      <code
+                        data-testid="selected-nayax-transaction-id"
+                        className="mt-1 block break-all font-mono text-sm font-semibold text-foreground"
+                      >
+                        {selectedTransactionEvidence.transactionId}
+                      </code>
+                    </div>
+                    <Button
+                      data-testid="copy-selected-nayax-transaction-id"
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="min-h-11 shrink-0 bg-background"
+                      aria-label="Copy selected Nayax transaction ID"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(selectedTransactionEvidence.transactionId)
+                          .then(() => toast.success('Nayax transaction ID copied.'))
+                          .catch(() => toast.error('Unable to copy the transaction ID. Select the ID and copy it manually.'));
+                      }}
+                    >
+                      <Copy className="mr-2 h-4 w-4" />
+                      Copy ID
+                    </Button>
+                  </div>
+
+                  <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Provider-confirmed sale</dt>
+                      <dd className="mt-1 font-medium text-foreground">
+                        {formatProviderCurrency(
+                          selectedTransactionEvidence.saleAmountCents,
+                          selectedTransactionEvidence.currencyCode
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Machine</dt>
+                      <dd className="mt-1 font-medium text-foreground">
+                        {selectedTransactionEvidence.machineLabel}
+                      </dd>
+                      <dd className="mt-1 text-xs text-muted-foreground">
+                        {selectedTransactionEvidence.locationName}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Customer-reported time</dt>
+                      <dd className="mt-1 font-medium text-foreground">
+                        {formatMachineLocalDate(
+                          selectedTransactionEvidence.customerReportedAt,
+                          selectedTransactionEvidence.machineTimezone
+                        )}
+                      </dd>
+                      <dd className="mt-1 text-xs text-muted-foreground">
+                        Customer clue · {selectedTransactionEvidence.machineTimezone}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Provider machine-local time</dt>
+                      <dd className="mt-1 font-medium text-foreground">
+                        {formatMachineLocalDate(
+                          selectedTransactionEvidence.providerAuthorizedAt,
+                          selectedTransactionEvidence.machineTimezone
+                        )}
+                      </dd>
+                      <dd className="mt-1 text-xs text-muted-foreground">
+                        Nayax record · {selectedTransactionEvidence.machineTimezone}
+                        {selectedTransactionEvidence.providerTimeResolution === 'exact'
+                          ? ' · exact provider time'
+                          : ' · provider time needs review'}
+                      </dd>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <dt className="text-xs text-muted-foreground">Safe card and wallet context</dt>
+                      <dd className="mt-1 font-medium text-foreground">
+                        Nayax: {cardNetworkLabel(selectedTransactionEvidence.cardNetwork)}
+                        {' · '}ending {selectedTransactionEvidence.cardLast4 || 'n/a'}
+                        {selectedTransactionEvidence.recognitionMethod
+                          ? ` · ${selectedTransactionEvidence.recognitionMethod}`
+                          : ''}
+                      </dd>
+                      <dd className="mt-1 text-xs text-muted-foreground">
+                        Customer: {paymentInteractionLabel(selectedCase)}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <div className="mt-3 border-t border-primary/15 pt-3 text-xs leading-5">
+                    <p className="font-semibold text-foreground">Why this transaction was selected</p>
+                    <p className="mt-1 text-muted-foreground">
+                      {selectedTransactionEvidence.matchExplanation}
+                    </p>
+                  </div>
+                </section>
+              ) : hasSelectedMatch ? (
+                <div
+                  data-testid="selected-nayax-transaction-evidence-missing"
+                  className="mt-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm leading-6 text-orange-950"
+                  role="status"
+                >
+                  The selected transaction evidence needs an internal Refund Operations repair. Do not ask the customer to repeat purchase details.
+                </div>
+              ) : null}
 
               {comparisonCandidate ? (
                 <>
