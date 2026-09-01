@@ -33,6 +33,7 @@ import {
   classifyRefundCustomerFactApplication,
   type RefundCustomerFactApplicationResult,
 } from "../_shared/refund-customer-fact-application.ts";
+import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
 import {
   buildRefundFirstContactEmail,
   isRefundFirstContactSenderAllowed,
@@ -1295,6 +1296,15 @@ const applyDeterministicCustomerReplyFacts = async ({
   if (classifyRefundCustomerFactApplication(application) !== "accepted") {
     throw new Error("refund_customer_fact_application_conflict");
   }
+  // Coordinate on both a fresh application and an idempotent replay. The
+  // fact-version action key makes a completed lookup a no-op while allowing a
+  // replay to recover if the first worker persisted facts but stopped before
+  // it could start the recheck.
+  await runAutomaticNayaxLookupIfReady({
+    supabase,
+    caseId: refundCaseId,
+    source: "customer_reply_recheck",
+  });
   return { allowRoutineContact: true };
 };
 
