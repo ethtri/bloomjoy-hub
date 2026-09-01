@@ -74,10 +74,12 @@ select ok(
     like '%nearbyMachineAlerts%'
   and (
     pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_nayax_scope_recovery_v1()'::regprocedure)
   )
     like '%selectedNayaxTransaction%'
   and (
     pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_nayax_scope_recovery_v1()'::regprocedure)
   )
     like '%payloadRedacted%',
   'The manager overview exposes sanitized context and only the exact provider transaction after selection'

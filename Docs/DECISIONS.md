@@ -1,5 +1,14 @@
 # Decisions
 
+## 2026-08-31 - Nayax lookup recovery is exact-account and internally owned (`#890`, `#992`)
+
+- Every transaction lookup uses the reporting machine's explicit Nayax account scope. A non-default account may resolve only its exact server-side credential; missing scope or access never falls back to the default account and never cross-searches a sibling machine or location.
+- The provider request remains bounded by the existing timeout, response-byte, and record limits. A transient initial failure may consume at most one manager-owned read-only retry for the current deterministic fact version under the existing case row lock and advisory lock. A second failure routes to the reviewed internal/manual-portal fallback without another provider request.
+- Machine mapping, account scope, and account access failures are **Refund Operations** work. The manager view names the missing internal field and safe location-scoped account label and explicitly says customer action is none. No correction message, payment approval, provider write, or refund is created by setup or retry handling.
+
+**Why this choice**
+- Nashville and Asheville use a separate Nayax account. Borrowing the default credential can search the wrong provider scope and misclassify an internal setup defect as missing customer information. Exact-account credential resolution plus a bounded retry preserves lookup availability without weakening transaction, case-version, replay, or payment safeguards.
+
 ## 2026-08-31 - Exact selected Nayax identity is visible only after guarded selection
 
 - The actor-scoped manager overview may expose one copyable provider transaction ID only after the existing server workflow has committed that exact transaction to the case. Unselected candidates remain tokenized; raw provider payloads, credentials, and unrelated provider identifiers remain private.

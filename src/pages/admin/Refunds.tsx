@@ -746,7 +746,9 @@ const managerNayaxLookupNotice = (
   if (notice.title === 'Transaction results expired') return notice.message;
   switch (summary?.lookupStatus) {
     case 'setup_needed':
-      return 'Transaction search is unavailable for this machine.';
+      return summary.responsibleOwner === 'refund_operations' && summary.customerActionRequired === false
+        ? summary.summary
+        : 'Transaction search needs internal machine/account setup.';
     case 'lookup_failed':
       return 'Bloomjoy could not finish checking transactions.';
     case 'no_match':
@@ -1221,9 +1223,13 @@ const transactionSearchDescription = (summary: RefundNayaxLookupSummary | null) 
     case 'checking':
       return 'Checking transactions near the time the customer provided.';
     case 'setup_needed':
-      return 'Bloomjoy cannot check this machine\'s transactions right now. Keep the case open and try again later.';
+      return summary.responsibleOwner === 'refund_operations' && summary.customerActionRequired === false
+        ? summary.summary
+        : 'Bloomjoy needs internal machine/account setup before it can check this machine. Do not ask the customer to repeat details Bloomjoy owns.';
     case 'lookup_failed':
-      return 'The transaction search could not be completed. Try again or ask the customer for more details.';
+      return summary.safeRetryEligible
+        ? 'The bounded transaction search did not finish. Refund Operations owns one safe read-only retry; no customer correction is needed.'
+        : 'The bounded transaction search did not finish. Refund Operations owns the internal fallback; do not ask the customer to repeat purchase details.';
     case 'no_match':
       return summary.providerWindowRecordCount && summary.providerWindowRecordCount > 0
         ? `${summary.providerWindowRecordCount} transaction${summary.providerWindowRecordCount === 1 ? ' was' : 's were'} checked, but none matched enough customer details.`
@@ -1463,6 +1469,21 @@ const nayaxResultTitle = (
   return 'Card transaction check';
 };
 
+const nayaxSetupIssueLabel = (summary: RefundNayaxLookupSummary) => {
+  switch (summary.setupIssueCode) {
+    case 'machine_mapping_missing':
+      return 'Exact Nayax machine mapping missing';
+    case 'account_scope_missing':
+      return 'Nayax account scope mapping missing';
+    case 'account_access_unavailable':
+      return 'Required Nayax account is not connected';
+    case 'grouped_mapping_incomplete':
+      return 'Grouped machine/account mapping incomplete';
+    default:
+      return 'Machine/account setup incomplete';
+  }
+};
+
 const nayaxNextActionText = (
   summary: RefundNayaxLookupSummary,
   refundCase: RefundCaseRecord,
@@ -1485,9 +1506,13 @@ const nayaxNextActionText = (
     case 'no_match':
       return 'Next: Keep the case open. Do not choose a transaction unless you can clearly identify it.';
     case 'setup_needed':
-      return 'Next: Keep the case open and try the transaction check again later.';
+      return summary.responsibleOwner === 'refund_operations' && summary.customerActionRequired === false
+        ? `Next: ${summary.recommendedAction}`
+        : 'Next: Refund Operations must repair the machine/account scope. Do not ask the customer to repeat details.';
     case 'lookup_failed':
-      return 'Next: Select Refresh transaction results. No refund has been issued.';
+      return summary.safeRetryEligible
+        ? 'Next: Refund Operations can select Refresh transaction results once. No refund has been issued.'
+        : 'Next: Refund Operations must use the internal fallback. No refund has been issued.';
     case 'not_applicable':
     default:
       return 'Next: Review the customer and payment details before continuing.';
@@ -1809,7 +1834,7 @@ const primaryActionConfig = (
   ) {
     return {
       label: 'Transaction search unavailable',
-      helper: 'Keep the case open and try again later.',
+      helper: 'Refund Operations owns the machine/account repair. Do not ask the customer to repeat details Bloomjoy can retrieve.',
       disabled: true,
     };
   }
@@ -3827,6 +3852,10 @@ export default function AdminRefundsPage() {
         evidenceVersion: result.evidenceVersion,
         lookupGeneration: result.lookupGeneration,
         lastUpdatedAt: result.lastUpdatedAt ?? result.lastCheckedAt ?? null,
+        setupIssueCode: result.setupIssueCode,
+        responsibleOwner: result.responsibleOwner,
+        requiredAccountScope: result.requiredAccountScope,
+        customerActionRequired: result.customerActionRequired,
       };
       setNayaxLookupSummary(nextSummary);
       if (!result.configured) {
@@ -5282,6 +5311,35 @@ export default function AdminRefundsPage() {
                       )}
                 </Badge>
               </div>
+
+              {selectedNayaxSummary?.lookupStatus === 'setup_needed' && (
+                <section
+                  data-testid="nayax-internal-setup-owner"
+                  className="mt-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950"
+                  aria-label="Internal Nayax setup owner"
+                >
+                  <p className="font-semibold">Internal lookup setup required</p>
+                  <dl className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <div>
+                      <dt className="text-xs font-medium uppercase tracking-wide text-orange-800">Owner</dt>
+                      <dd className="mt-1 font-medium">Refund Operations</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs font-medium uppercase tracking-wide text-orange-800">Required account scope</dt>
+                      <dd className="mt-1 font-medium">
+                        {selectedNayaxSummary.requiredAccountScope || `${selectedCase.locationName} Nayax account scope`}
+                      </dd>
+                    </div>
+                  </dl>
+                  <p className="mt-3 font-medium">{nayaxSetupIssueLabel(selectedNayaxSummary)}</p>
+                  <p className="mt-1 leading-5">
+                    {selectedNayaxSummary.recommendedAction}
+                  </p>
+                  <p className="mt-2 text-xs font-semibold text-orange-900">
+                    Customer action: none. Do not ask the customer to repeat machine or purchase details Bloomjoy can retrieve internally.
+                  </p>
+                </section>
+              )}
 
               {selectedTransactionEvidence ? (
                 <section
