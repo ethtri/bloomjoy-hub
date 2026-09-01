@@ -83,7 +83,7 @@ insert into public.refund_cases (
   800, 'NAYAX-751000001', 751,
   '2026-08-31T18:07:00Z', 800, '9999', 'USD',
   'high_confidence', 'selected-evidence-test.v1',
-  '2026-08-31T18:15:00Z', true
+  '2026-08-31T18:15:00Z', false
 );
 
 insert into public.refund_nayax_lookup_candidates (
