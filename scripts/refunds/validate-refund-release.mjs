@@ -248,6 +248,10 @@ try {
     'The truthful customer-wait lifecycle migration must be in the discovered release inventory'
   );
   assert(
+    repositoryMigrations.includes('20260901010259_refund_acknowledgement_recovery_disposition.sql'),
+    'The skipped-acknowledgement recovery migration must be in the discovered release inventory'
+  );
+  assert(
     repositoryMigrations.includes('20260828035155_refund_nayax_retry_safe_resolution_release.sql'),
     'The retry-safe account and lifecycle release migration must be in the discovered release inventory'
   );
