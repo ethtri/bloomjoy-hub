@@ -17,6 +17,15 @@
 
 Entries are newest-first. For production refund work, the 2026-08-30 production-simplification decision below governs. Older conflicting pilot, cap, account-hold, canary, unfamiliar-`2xx`, permission, and TOTP mechanics are retained only as historical audit records.
 
+## 2026-09-01 - Provider-delay evidence requires approved pending state (`#1069`)
+
+- A provider-delay update is valid only when the case is `card_refund_pending` with `decision=approved` and the latest provider attempt is still a due unresolved confirmation hold. That is the truthful state after Bloomjoy approves the refund but before provider completion is known.
+- The provider-hold message freeze admits only the exact deterministic automatic `provider_delay` envelope. The independent customer-status guard still proves the approved case, recipient, template, and latest due hold; approval, completion, denial, and arbitrary customer messages remain frozen.
+- An SLA-at-risk update remains valid only for an undecided `submitted`, `needs_review`, or `correlated` case. The two message reasons cannot borrow one another's lifecycle authority.
+- A failed or uncertain message remains exactly-once manager work and is not retried by changing this guard. The repair authorizes no payment, provider call, decision, or completion claim.
+
+This corrects the older shared `decision is null` check, which made the provider-delay branch internally unreachable for the production lifecycle it was designed to describe.
+
 ## 2026-09-01 - Refund scheduler health separates clock liveness from processing recovery (`#1069`)
 
 - A scheduled call outside the customer-contact policy window is a scheduler heartbeat, not a successful processing run. It prevents a false stale-clock alert but cannot reset a database/action failure or qualify as incident recovery.
