@@ -43,6 +43,7 @@ const files = {
   refundPortalUat: 'scripts/refunds/validate-refund-portal-uat.mjs',
   nayaxCandidateTokenMigration: 'supabase/migrations/202605130001_refund_nayax_lookup_candidate_tokens.sql',
   nayaxRecommendationMigration: 'supabase/migrations/202607210003_refund_nayax_recommendation_state.sql',
+  selectedNayaxEvidenceMigration: 'supabase/migrations/20260901050000_refund_selected_nayax_transaction_evidence.sql',
   manualPortalTest: 'supabase/tests/refund_nc_manual_nayax_portal.sql',
 };
 
@@ -98,6 +99,7 @@ const refundOperationsUi = read(files.refundOperationsUi);
 const refundPortalUat = read(files.refundPortalUat);
 const nayaxCandidateTokenMigration = read(files.nayaxCandidateTokenMigration);
 const nayaxRecommendationMigration = read(files.nayaxRecommendationMigration);
+const selectedNayaxEvidenceMigration = read(files.selectedNayaxEvidenceMigration);
 const manualPortalTest = read(files.manualPortalTest);
 
 assert(
@@ -515,14 +517,19 @@ assert(
   'Portal customer messaging must be authorized, logged, editable from approved templates, reply-to the support inbox, reject premature card approval/completion messages, and expose only customer-safe denial reasons.'
 );
 assert(
-  !refundOperationsLib.includes('transactionId: string') &&
-    !refundOperationsLib.includes('matchedNayaxTransactionId'),
-  'Browser refund operation types must not expose raw Nayax transaction IDs.'
+  refundOperationsLib.includes("selectedNayaxTransactionContractVersion?: 'refund_selected_nayax_transaction_v1'") &&
+    refundOperationsLib.includes('selectedNayaxTransaction?: RefundSelectedNayaxTransaction | null') &&
+    !refundOperationsLib.includes('matchedNayaxTransactionId') &&
+    selectedNayaxEvidenceMigration.includes("refund_case.matched_nayax_transaction_id is not null") &&
+    selectedNayaxEvidenceMigration.includes("'payloadRedacted', true"),
+  'Browser refund operation types may expose only the redacted, already-selected transaction evidence contract.'
 );
 assert(
   !refundOperationsUi.includes('candidate.transactionId') &&
-    !refundOperationsUi.includes('matchedNayaxTransactionId'),
-  'Browser refund UI must not store or submit raw Nayax transaction IDs.'
+    !refundOperationsUi.includes('matchedNayaxTransactionId') &&
+    refundOperationsUi.includes('selectedTransactionEvidence.transactionId') &&
+    refundOperationsUi.includes('navigator.clipboard.writeText(selectedTransactionEvidence.transactionId)'),
+  'Browser refund UI must keep candidates tokenized and may copy only the exact selected transaction reference.'
 );
 assert(
   !normalPreflight.includes('if (refundCase.card_wallet_used) blocks.push("manual_review")') &&

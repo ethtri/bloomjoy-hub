@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-08-31 - Exact selected Nayax identity is visible only after guarded selection
+
+- The actor-scoped manager overview may expose one copyable provider transaction ID only after the existing server workflow has committed that exact transaction to the case. Unselected candidates remain tokenized; raw provider payloads, credentials, and unrelated provider identifiers remain private.
+- The versioned redacted evidence card labels the provider sale amount/currency, machine/location, customer-reported time, provider machine-local time and timezone, safe card/wallet context, and match explanation by source. Customer-entered facts remain matching clues; the selected provider sale remains authoritative for execution.
+- Missing, unsafe, or malformed selected evidence is an internal Refund Operations exception. It must not create `waiting_on_customer`, ask the customer to repeat information, enable a refund, or weaken exact-transaction allocation, row locks, case versions, idempotency, or remaining-value verification.
+
 Entries are newest-first. For production refund work, the 2026-08-30 production-simplification decision below governs. Older conflicting pilot, cap, account-hold, canary, unfamiliar-`2xx`, permission, and TOTP mechanics are retained only as historical audit records.
 
 ## 2026-09-01 - Provider-delay evidence requires approved pending state (`#1069`)
@@ -440,7 +446,7 @@ The hosted refund form will collect a small set of structured, non-sensitive fac
 - The customer also states how closely they remember the purchase time and chooses a structured issue category. An exact or roughly 15-minute time may support the existing deterministic recommendation. An estimate that may be off by an hour or is only rough remains manager-review evidence and cannot make a transaction execution-eligible.
 - Nayax machine-product configuration, current machine status, and alerts near the sale may help investigation but do not increase the recommendation score, prove a failed vend, approve a refund, or authorize payment execution. Customer product text is no longer collected under `#753`.
 - The manager workbench presents one customer-versus-Nayax comparison, plain-language reasons, collapsed alternatives/context, and one primary next action. It does not use internal terms such as "safety exception" in manager guidance.
-- Sanitized provider context is snapshotted with the candidate evidence. Raw Nayax payloads and provider transaction IDs remain server-only.
+- Sanitized provider context is snapshotted with candidate evidence. Raw Nayax payloads and unselected provider transaction IDs remain server-only; the exact transaction already committed to a case is visible through the actor-scoped redacted manager contract for deterministic verification.
 - Richer fields from a separately permissioned Nayax transaction feed require Bloomjoy sample validation under `#751` before they may be persisted or shown. A generic phone/contactless field may not be used to infer a wallet brand.
 
 The email assistant remains limited to communication, follow-up, and reminders. A machine manager performs every official refund action in the portal, and live Nayax execution remains governed by `#430`.

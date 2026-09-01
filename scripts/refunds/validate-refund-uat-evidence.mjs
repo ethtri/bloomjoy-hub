@@ -322,7 +322,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 76, 'Evidence must enumerate all 76 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 78, 'Evidence must enumerate all 78 reviewed screenshots');
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-acknowledgement-recovery-mobile.png') &&
       EXPECTED_SCREENSHOTS.includes('refund-acknowledgement-recovery-resolved.png'),
@@ -339,6 +339,11 @@ try {
       EXPECTED_SCREENSHOTS.includes('refund-internal-test-archive-desktop.png') &&
       EXPECTED_SCREENSHOTS.includes('refund-internal-test-archive-mobile.png'),
     'Evidence must include the reviewed Internal/test disposition and restricted archive states'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-selected-nayax-transaction-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-selected-nayax-transaction-mobile.png'),
+    'Evidence must include the reviewed selected Nayax transaction identity on desktop and mobile'
   );
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-direct-intake-cash-desktop.png') &&
