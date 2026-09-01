@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "9a9518c3ce727c4934d38a08aa17d4dbaeeb7182",
+  "sourceGitCommit": "a31a654ed113e6ab8e73f6ea2b948e5d6f50c8ea",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -229,7 +229,7 @@
     {
       "slug": "refund-gmail-sync",
       "verifyJwt": false,
-      "sourceSha256": "f2a353b2edef090dfd5e4efa30aba00246a2c35fe4028b1e58ff0053a85e5db2",
+      "sourceSha256": "810523fc2befc68224590de9ff990d04eb4fd1457d5d3a889256aeeb9486114c",
       "production": {
         "version": 92,
         "ezbrSha256": "32bc343507d218d9872239e65987f8ff3f4057ae66c4154b2f5910f34ba3680a",
