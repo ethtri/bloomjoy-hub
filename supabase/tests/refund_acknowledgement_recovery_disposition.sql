@@ -144,6 +144,16 @@ insert into public.refund_case_messages (
     statement_timestamp() - interval '2 hours'
   );
 
+create temp table ack_case_state_before on commit drop as
+select
+  status,
+  decision,
+  refund_completed_at,
+  reporting_adjustment_id,
+  nayax_refund_execution_status
+from public.refund_cases
+where id = 'a9140000-0000-4000-8000-000000000001';
+
 select ok(
   has_function_privilege(
     'authenticated',
@@ -282,18 +292,35 @@ select is(
   'Recording the disposition sends or creates no customer message'
 );
 
-select ok(
+reset role;
+
+select is(
   (
-    select refund_case.status = 'needs_review'
-      and refund_case.decision is null
-      and refund_case.refund_completed_at is null
-      and refund_case.reporting_adjustment_id is null
-      and refund_case.nayax_refund_execution_status = 'not_started'
+    select jsonb_build_object(
+      'status', refund_case.status,
+      'decision', refund_case.decision,
+      'refundCompletedAt', refund_case.refund_completed_at,
+      'reportingAdjustmentId', refund_case.reporting_adjustment_id,
+      'nayaxRefundExecutionStatus', refund_case.nayax_refund_execution_status
+    )
     from public.refund_cases refund_case
     where refund_case.id = 'a9140000-0000-4000-8000-000000000001'
   ),
+  (
+    select jsonb_build_object(
+      'status', snapshot.status,
+      'decision', snapshot.decision,
+      'refundCompletedAt', snapshot.refund_completed_at,
+      'reportingAdjustmentId', snapshot.reporting_adjustment_id,
+      'nayaxRefundExecutionStatus', snapshot.nayax_refund_execution_status
+    )
+    from pg_temp.ack_case_state_before snapshot
+  ),
   'The disposition changes no case decision, payment, provider, or reporting state'
 );
+
+set local role authenticated;
+select pg_temp.set_auth_claims('a9100000-0000-4000-8000-000000000001');
 
 select is(
   (public.admin_dispose_refund_acknowledgement_exception(

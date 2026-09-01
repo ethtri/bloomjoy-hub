@@ -485,11 +485,11 @@ select ok(
 );
 
 select ok(
-  pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+  pg_get_functiondef('public.admin_get_refund_operations_overview_pre_ack_recovery_v1()'::regprocedure)
     like '%resulting_fact_version%'
-  and pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+  and pg_get_functiondef('public.admin_get_refund_operations_overview_pre_ack_recovery_v1()'::regprocedure)
     like '%refund_case.deterministic_fact_version%'
-  and pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+  and pg_get_functiondef('public.admin_get_refund_operations_overview_pre_ack_recovery_v1()'::regprocedure)
     like '%current_case_record%',
   'Manager provenance binds correction evidence to the exact current fact version'
 );
@@ -505,11 +505,11 @@ select ok(
 );
 
 select ok(
-  pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+  pg_get_functiondef('public.admin_get_refund_operations_overview_pre_ack_recovery_v1()'::regprocedure)
     like '%customerFactEvidence%'
-  and pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+  and pg_get_functiondef('public.admin_get_refund_operations_overview_pre_ack_recovery_v1()'::regprocedure)
     like '%cardLast4Provenance%'
-  and pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+  and pg_get_functiondef('public.admin_get_refund_operations_overview_pre_ack_recovery_v1()'::regprocedure)
     not like '%source_message_id%',
   'The manager overview exposes redacted source/time/provenance without raw message IDs'
 );
