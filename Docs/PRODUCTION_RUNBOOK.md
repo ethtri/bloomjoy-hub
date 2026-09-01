@@ -294,7 +294,7 @@ Before deploying reporting functions, confirm Step B has completed and `supabase
 
 After applying the reviewed migrations, rerun `supabase db push --dry-run` and require zero pending migrations before deploying dependent Refund Operations functions.
 
-Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit. Revalidate the manifest and transitive source binding immediately before deployment. Keep the runtime Nayax execution gates off during deployment (`NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, and `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`). The normal manager action uses dedicated server-side Nayax account credentials only after the reviewed migration and function are deployed, the machine is qualified and enabled, the executor assertion is registered, and the genuine runtime safety gates are deliberately opened. Retired pilot, sponsor, canary, broad-reopen, and cap flags do not authorize or block a normal manager action.
+Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit. Revalidate the manifest and transitive source binding immediately before deployment. Use the root-pinned wrapper below rather than a raw `supabase functions deploy` command: it requires the exact clean fetched `origin/main` commit, the production project ref twice, an explicit production phrase, the existing predeploy/postdeploy Auth closed-state gates, and an absolute repository-root `--workdir`. The postdeploy Auth gate still runs after a partial or failed deploy. Keep the runtime Nayax execution gates off during deployment (`NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, and `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`). The normal manager action uses dedicated server-side Nayax account credentials only after the reviewed migration and function are deployed, the machine is qualified and enabled, the executor assertion is registered, and the genuine runtime safety gates are deliberately opened. Retired pilot, sponsor, canary, broad-reopen, and cap flags do not authorize or block a normal manager action.
 
 `Docs/REFUND_NAYAX_CONTROLLED_OWNER_PILOT.md` is historical documentation for the retired owner-only runner. It is not current launch authority and must not impose case allowlists, amount caps, TOTP, staffing, non-customer-only, observer, retention-review, or repeated go/no-go ceremony on the normal authenticated-manager path. Current operation is governed by `Docs/REFUND_PRODUCTION_POLICY.md` and the first section of this runbook.
 
@@ -315,22 +315,24 @@ supabase functions deploy sales-report-scheduler --no-verify-jwt
 supabase functions deploy sunze-sales-ingest --no-verify-jwt
 supabase functions deploy sunze-sales-sync --no-verify-jwt
 supabase functions deploy refund-adjustment-sync --no-verify-jwt
-supabase functions deploy refund-case-intake --no-verify-jwt
-supabase functions deploy nayax-transaction-lookup --no-verify-jwt
-supabase functions deploy refund-case-admin-update --no-verify-jwt
-supabase functions deploy refund-case-message-send --no-verify-jwt
-supabase functions deploy refund-case-automation-sweep --no-verify-jwt
-supabase functions deploy refund-gmail-sync --no-verify-jwt
-supabase functions deploy refund-gpt-triage --no-verify-jwt
-supabase functions deploy nayax-card-refund --no-verify-jwt
-supabase functions deploy refund-manager-action-step-up --no-verify-jwt
-supabase functions deploy refund-manager-totp-enrollment --no-verify-jwt
 supabase functions deploy refund-nayax-outcome-resolve --no-verify-jwt
 ```
 
-After deploying the ten manifest-tracked Refund Operations functions:
+First inspect the no-write plan. It prints only the ordered approved function names:
 
-Before any smoke, UAT, or enablement decision, rerun the exact read-only gate:
+```bash
+npm run refunds:deploy:functions -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --all
+```
+
+During the governed production window, with the owner-held short-lived `SUPABASE_AUTH_CONFIG_READ_TOKEN` present only in that private shell, execute the same approved plan:
+
+```bash
+npm run refunds:deploy:functions -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --all --execute --authorize "DEPLOY CANONICAL REFUND FUNCTIONS"
+```
+
+For an isolated canonical-entrypoint repair, replace `--all` with one or more approved `--function <slug>` values. Never loosen the production capture to accept a function-local entrypoint. Redeploy the exact reviewed `origin/main` source through this wrapper, then rerun the pre-deployment baseline capture and require the canonical `supabase/functions/<slug>/index.ts` identity before continuing.
+
+After deploying the ten manifest-tracked Refund Operations functions, the wrapper has already run the exact read-only postdeploy Auth gate. Before any smoke, UAT, or enablement decision, repeat it directly only when the wrapper reports a postdeploy failure or when the release window requires an independent receipt:
 
 ```bash
 npm run refunds:production-auth-closed -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --phase postdeploy
