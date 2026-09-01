@@ -184,9 +184,9 @@ const run = async () => {
         "case_row.decision is not null",
         'Provider-delay message requires the latest unresolved hold',
         'guard_refund_provider_hold_customer_message',
-        "new.message_type = 'status_update'",
-        "new.delivery_kind = 'automatic'",
-        "new.content_source = 'deterministic_template'",
+        "new.message_type is not distinct from 'status_update'",
+        "new.delivery_kind is not distinct from 'automatic'",
+        "new.content_source is not distinct from 'deterministic_template'",
       ])
   );
   assert(

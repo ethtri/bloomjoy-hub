@@ -141,13 +141,13 @@ language plpgsql
 set search_path = public
 as $$
 begin
-  if new.message_type <> 'manual_note'
+  if new.message_type is distinct from 'manual_note'
     and not (
-      new.message_type = 'status_update'
-      and new.delivery_kind = 'automatic'
-      and new.content_source = 'deterministic_template'
-      and new.reason_code = 'provider_delay'
-      and new.template_version = 'refund_customer_status_v1'
+      new.message_type is not distinct from 'status_update'
+      and new.delivery_kind is not distinct from 'automatic'
+      and new.content_source is not distinct from 'deterministic_template'
+      and new.reason_code is not distinct from 'provider_delay'
+      and new.template_version is not distinct from 'refund_customer_status_v1'
     )
     and exists (
       select 1
