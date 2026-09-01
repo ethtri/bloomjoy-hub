@@ -38,6 +38,7 @@ import {
   canUseLocalRefundDemoData,
   createRefundAttachmentSignedUrl,
   createRefundManualNayaxCandidate,
+  disposeRefundAcknowledgementException,
   beginRefundManualNayaxPortal,
   beginRefundNayaxEvidenceOnlyReconciliation,
   executeNayaxCardRefund,
@@ -723,9 +724,13 @@ const taskBadgeClass = (refundCase: RefundCaseRecord) =>
 const getLatestCustomerMessage = (refundCase: RefundCaseRecord) =>
   refundCase.messages?.[0] ?? null;
 
+const acknowledgementExceptionNeedsAttention = (refundCase: RefundCaseRecord) =>
+  refundCase.acknowledgementDeliveryException?.status === 'unresolved';
+
 const customerMessageNeedsAttention = (refundCase: RefundCaseRecord) => {
   const latest = getLatestCustomerMessage(refundCase);
-  return latest?.status === 'failed' || latest?.status === 'skipped';
+  return acknowledgementExceptionNeedsAttention(refundCase) ||
+    latest?.status === 'failed' || latest?.status === 'skipped';
 };
 
 const hasPendingDenialAppeal = (refundCase: RefundCaseRecord) =>
@@ -733,6 +738,9 @@ const hasPendingDenialAppeal = (refundCase: RefundCaseRecord) =>
   getLatestCustomerMessage(refundCase)?.messageType === 'appeal_received';
 
 const getCustomerCommunicationLabel = (refundCase: RefundCaseRecord) => {
+  if (acknowledgementExceptionNeedsAttention(refundCase)) {
+    return 'Acknowledgement needs review';
+  }
   const latest = getLatestCustomerMessage(refundCase);
   if (!latest) return 'Not contacted';
   if (latest.status === 'failed') return 'Email needs attention';
@@ -2213,6 +2221,8 @@ export default function AdminRefundsPage() {
     () => new Set()
   );
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
+  const [isDisposingAcknowledgementException, setIsDisposingAcknowledgementException] =
+    useState(false);
   const [nayaxCandidates, setNayaxCandidates] = useState<NayaxLookupCandidate[]>([]);
   const [nayaxLookupNotice, setNayaxLookupNotice] = useState<NayaxLookupNotice | null>(null);
   const [nayaxExecutionNotice, setNayaxExecutionNotice] = useState<NayaxLookupNotice | null>(null);
@@ -2477,6 +2487,7 @@ export default function AdminRefundsPage() {
   }, [selectedId, selectionRevision]);
 
   const selectedCase = overview.cases.find((refundCase) => refundCase.id === selectedId) ?? null;
+  const selectedAcknowledgementException = selectedCase?.acknowledgementDeliveryException ?? null;
   const selectedCaseIdForSync = selectedCase?.id ?? null;
   const selectedCaseCandidatesForSync = selectedCase?.nayaxLookupCandidates;
   const selectedCaseLookupSummaryForSync = selectedCase?.nayaxLookupSummary;
@@ -2831,6 +2842,9 @@ export default function AdminRefundsPage() {
         }
       : refundCase;
   const managerTaskOverride = (refundCase: RefundCaseRecord): Pick<RefundManagerState, 'label' | 'tone'> | null => {
+    if (acknowledgementExceptionNeedsAttention(refundCase)) {
+      return { label: 'Acknowledgement needs review', tone: 'warning' };
+    }
     if (refundCase.id !== selectedCase?.id || refundCase.hasMatchedNayaxTransaction || !editor) return null;
     if (editor.matchedNayaxCandidateToken.trim()) {
       return { label: 'Confirm transaction', tone: 'info' };
@@ -4241,6 +4255,43 @@ export default function AdminRefundsPage() {
       toast.error(message);
     } finally {
       setIsSendingCustomerMessage(false);
+    }
+  };
+
+  const handleDisposeAcknowledgementException = async () => {
+    if (!selectedCase || selectedAcknowledgementException?.recoveryAction !== 'record_later_contact_disposition') {
+      return;
+    }
+    if (isUsingDemoData) {
+      toast.info('Demo cases are read-only.');
+      return;
+    }
+    if (officialActionVersion <= 0) {
+      toast.error('Refresh the case before recording this recovery disposition.');
+      return;
+    }
+
+    setIsDisposingAcknowledgementException(true);
+    try {
+      const result = await disposeRefundAcknowledgementException({
+        caseId: selectedCase.id,
+        expectedCaseVersion: officialActionVersion,
+        reason: 'later_customer_contact_already_sent',
+      });
+      toast.success(
+        result.replayed
+          ? 'The acknowledgement recovery was already recorded.'
+          : 'Later customer contact recorded. The skipped acknowledgement will not be resent.'
+      );
+      await refresh();
+    } catch (recoveryError) {
+      const message = recoveryError instanceof Error
+        ? recoveryError.message
+        : 'Unable to record the acknowledgement recovery disposition.';
+      toast.error(message);
+      await refresh();
+    } finally {
+      setIsDisposingAcknowledgementException(false);
     }
   };
 
@@ -6312,6 +6363,51 @@ export default function AdminRefundsPage() {
                             </p>
                         </div>
                       </div>
+                    )}
+
+                    {selectedAcknowledgementException?.status === 'unresolved' && (
+                      <section
+                        data-testid="refund-acknowledgement-delivery-exception"
+                        className="rounded-xl border border-orange-300 bg-orange-50 p-4 text-sm text-orange-950"
+                        role="status"
+                      >
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+                          <div className="min-w-0 flex-1">
+                            <p className="font-semibold">Customer acknowledgement was skipped</p>
+                            {selectedAcknowledgementException.laterContactSent ? (
+                              <>
+                                <p className="mt-1 leading-6">
+                                  A later customer message was sent. Do not resend the initial acknowledgement. Do not contact the customer again for this exception. Record the later contact as the recovery disposition.
+                                </p>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="mt-3 h-auto max-w-full whitespace-normal border-orange-300 bg-white py-2 text-left leading-5"
+                                  data-testid="refund-record-later-contact-disposition"
+                                  onClick={() => void handleDisposeAcknowledgementException()}
+                                  disabled={
+                                    isUsingDemoData ||
+                                    isDisposingAcknowledgementException ||
+                                    officialActionVersion <= 0
+                                  }
+                                >
+                                  {isDisposingAcknowledgementException ? (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <ShieldCheck className="mr-2 h-4 w-4" />
+                                  )}
+                                  Record later contact — do not resend
+                                </Button>
+                              </>
+                            ) : (
+                              <p className="mt-1 leading-6">
+                                No later customer message is confirmed. Review the safe acknowledgement action below. If Gmail delivery is uncertain, reconcile the original thread before sending anything.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </section>
                     )}
 
                     {(reconciliationIsLoading || reconciliationError ||

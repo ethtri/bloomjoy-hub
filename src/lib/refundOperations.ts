@@ -258,6 +258,19 @@ export type RefundCustomerCommunicationStatus =
   | 'failed'
   | 'skipped';
 
+export type RefundAcknowledgementDeliveryException = {
+  schemaVersion: 'refund_acknowledgement_recovery_v1';
+  status: 'unresolved' | 'resolved_later_contact';
+  reasonCode: 'initial_acknowledgement_skipped';
+  skippedAt: string;
+  laterContactSent: boolean;
+  laterContactMessageType: string | null;
+  laterContactSentAt: string | null;
+  recoveryAction: 'record_later_contact_disposition' | 'send_safe_status_update' | 'none';
+  resolvedAt: string | null;
+  payloadRedacted: true;
+};
+
 export type RefundNayaxLookupStatus =
   | 'not_applicable'
   | 'not_started'
@@ -426,6 +439,7 @@ export type RefundCaseRecord = {
   latestCustomerMessageStatus?: string | null;
   latestCustomerMessageType?: string | null;
   latestCustomerMessageAt?: string | null;
+  acknowledgementDeliveryException?: RefundAcknowledgementDeliveryException | null;
   nayaxLookupSummary?: RefundNayaxLookupSummary | null;
   manualNayaxPortalEnabled?: boolean;
   manualNayaxEvidenceSelected?: boolean;
@@ -452,6 +466,7 @@ export type RefundOperationsOverview = {
   managerAssignments: RefundManagerAssignment[];
   lifecycleContractVersion?: typeof REFUND_LIFECYCLE_SCHEMA_VERSION;
   managerQueueContractVersion?: 'refund_manager_queue_v1';
+  acknowledgementRecoveryContractVersion?: 'refund_acknowledgement_recovery_v1';
   refundOperationsAccess?: boolean;
 };
 
@@ -2280,6 +2295,46 @@ export const updateRefundCaseAdmin = async (input: UpdateRefundCaseInput) => {
     authErrorMessage: 'Log in to update refund cases.',
   });
   return requireUpdatedRefundCase(data);
+};
+
+export type DisposeRefundAcknowledgementExceptionResponse = {
+  recorded: boolean;
+  replayed: boolean;
+  reason: 'later_customer_contact_already_sent';
+  caseVersion: number;
+  payloadRedacted: true;
+};
+
+export const disposeRefundAcknowledgementException = async (input: {
+  caseId: string;
+  expectedCaseVersion: number;
+  reason: 'later_customer_contact_already_sent';
+}): Promise<DisposeRefundAcknowledgementExceptionResponse> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_dispose_refund_acknowledgement_exception',
+    {
+      p_case_id: input.caseId,
+      p_expected_case_version: input.expectedCaseVersion,
+      p_reason: input.reason,
+    }
+  );
+  if (error || !data || typeof data !== 'object') {
+    throw new Error(error?.message || 'Unable to record the acknowledgement recovery disposition.');
+  }
+  const response = data as Record<string, unknown>;
+  if (
+    typeof response.recorded !== 'boolean' ||
+    typeof response.replayed !== 'boolean' ||
+    response.recorded === response.replayed ||
+    response.reason !== 'later_customer_contact_already_sent' ||
+    typeof response.caseVersion !== 'number' ||
+    !Number.isInteger(response.caseVersion) ||
+    response.caseVersion <= 0 ||
+    response.payloadRedacted !== true
+  ) {
+    throw new Error('The acknowledgement recovery response was invalid. Refresh before continuing.');
+  }
+  return response as DisposeRefundAcknowledgementExceptionResponse;
 };
 
 export const createRefundManualNayaxCandidate = async (
