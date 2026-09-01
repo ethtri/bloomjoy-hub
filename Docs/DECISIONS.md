@@ -2,6 +2,16 @@
 
 Entries are newest-first. For production refund work, the 2026-08-30 production-simplification decision below governs. Older conflicting pilot, cap, account-hold, canary, unfamiliar-`2xx`, permission, and TOTP mechanics are retained only as historical audit records.
 
+## 2026-09-01 - Refund scheduler health separates clock liveness from processing recovery (`#1069`)
+
+- A scheduled call outside the customer-contact policy window is a scheduler heartbeat, not a successful processing run. It prevents a false stale-clock alert but cannot reset a database/action failure or qualify as incident recovery.
+- Provider-delay candidates are read only through a service-only, security-definer projection that returns the current due attempt fields required by the sweep. The underlying Nayax attempt table remains denied to the service role and every browser role.
+- Scheduler failures record a fixed, PII-free stage name alongside the existing aggregate category. They never log customer, payment, complaint, provider-payload, or secret values.
+- Supabase Cron is the primary 30-minute clock only after the exact Vault URL/token pair is configured, the matching Edge/GitHub token is private, disabled dispatch proof passes, and one real in-policy sweep succeeds. GitHub remains an idempotent fallback because hosted schedule delivery may be delayed by hours.
+- Recovery requires a real in-policy processing success after the last failure plus the existing stable-health interval. Outside-policy heartbeats alone cannot close a repeated-failure incident.
+
+This decision changes scheduler truth and internal read authority only. It does not authorize customer contact, manager decisions, provider writes, or money movement.
+
 ## 2026-08-31 - Customer-wait state requires sent, specific action (`#891`)
 
 - `waiting_on_customer` and `more_info_needed` are valid only when a successfully sent message names at least one deterministic field the customer can correct. The canonical lifecycle carries those exact fields so queue label, detail copy, and next action cannot disagree.
