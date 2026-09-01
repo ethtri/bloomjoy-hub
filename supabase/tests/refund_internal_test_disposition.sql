@@ -198,6 +198,11 @@ select is(
   'Refund Operations can classify a reviewed no-money record'
 );
 
+-- Inspect protected workflow tables as the migration owner. The authenticated
+-- boundary above proves the RPC authorization path; these assertions verify the
+-- resulting state without broadening direct table grants for managers.
+reset role;
+
 select ok(
   (
     select case_population = 'internal_test'
@@ -286,6 +291,9 @@ select ok(
   'The immutable event has bounded redacted provenance and explicit no-side-effect evidence'
 );
 
+set local role authenticated;
+select pg_temp.set_auth_claims('ba100000-0000-4000-8000-000000000002');
+
 select is(
   (public.admin_classify_refund_case_internal_test(
     'ba140000-0000-4000-8000-000000000001',
@@ -295,6 +303,8 @@ select is(
   true,
   'An identical retry returns the existing disposition'
 );
+
+reset role;
 
 select is(
   (
@@ -326,6 +336,9 @@ select ok(
   and (public.refund_internal_test_contract('ba140000-0000-4000-8000-000000000001') ->> 'suppressesCustomerSla')::boolean,
   'The archive contract names every suppressed customer workflow'
 );
+
+set local role authenticated;
+select pg_temp.set_auth_claims('ba100000-0000-4000-8000-000000000002');
 
 select ok(
   not exists (
