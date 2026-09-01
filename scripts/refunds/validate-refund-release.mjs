@@ -150,8 +150,8 @@ for (const retiredPilotGate of [
 }
 assert.match(
   productionRunbook,
-  /exactly 68 reviewed synthetic screenshots/,
-  'Production runbook must use the current 68-screenshot evidence inventory'
+  /exactly 76 reviewed synthetic screenshots/,
+  'Production runbook must use the current 76-screenshot evidence inventory'
 );
 assert.doesNotMatch(
   productionRunbook,
@@ -224,8 +224,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    107,
-    'Refund release inventory must cover exactly 107 discovered refund/Nayax migrations'
+    108,
+    'Refund release inventory must cover exactly 108 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('20260901185049_refund_provider_delay_evidence_1069.sql'),

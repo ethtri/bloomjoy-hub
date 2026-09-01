@@ -36,6 +36,9 @@ const run = async () => {
     acknowledgementRecoveryTest,
     localeCorrectionMigration,
     localeCorrectionTest,
+    internalTestMigration,
+    internalTestTest,
+    nayaxCardRefund,
     schedulerIncidentMigration,
     providerDelayEvidenceMigration,
   ] = await Promise.all([
@@ -57,6 +60,9 @@ const run = async () => {
     readText('supabase/tests/refund_acknowledgement_recovery_disposition.sql'),
     readText('supabase/migrations/20260901021433_refund_customer_locale_correction.sql'),
     readText('supabase/tests/refund_customer_locale_correction.sql'),
+    readText('supabase/migrations/20260901033000_refund_internal_test_disposition.sql'),
+    readText('supabase/tests/refund_internal_test_disposition.sql'),
+    readText('supabase/functions/nayax-card-refund/index.ts'),
     readText('supabase/migrations/20260901172459_refund_scheduler_incident_1069.sql'),
     readText('supabase/migrations/20260901185049_refund_provider_delay_evidence_1069.sql'),
   ]);
@@ -291,6 +297,49 @@ const run = async () => {
       'buildLocaleCorrectionOverview',
       'runCustomerLocaleCorrectionChecks',
       'performs no message, provider, payment, or official case action',
+    ])
+  );
+  assert(
+    'Internal/test disposition is authorized, immutable, audit-only, and excluded from customer queues',
+    includesAll(internalTestMigration, [
+      'admin_classify_refund_case_internal_test',
+      'not public.is_super_admin(actor_user_id)',
+      'p_expected_case_version',
+      "case_population = 'internal_test'",
+      "status = 'closed'",
+      "automation_state = 'closed_incomplete'",
+      "'internal_test_classified'",
+      "'customer_message_sent', false",
+      "'provider_call_made', false",
+      "'reporting_adjustment_created', false",
+      "'internalTestCases'",
+      "'payload_redacted', true",
+    ]) && includesAll(internalTestTest, [
+      'A routine Machine Manager cannot classify Internal/test records',
+      'An unresolved provider outcome cannot be mislabeled as no customer refund',
+      'A queued unsent customer message is suppressed',
+      'The database rejects every new refund attempt for an Internal/test record',
+      'Routine managers see the record in neither customer counts nor the restricted archive',
+      'Classification creates no reporting adjustment',
+    ]) && includesAll(refundOperations, [
+      'RefundInternalTestContract',
+      'classifyRefundCaseInternalTest',
+      'internalTestCases',
+    ]) && includesAll(portalPage, [
+      'Internal/test — no customer refund',
+      'Move to Internal/test archive',
+      'handleClassifyInternalTest',
+      'refund-internal-test-confirmation-dialog',
+    ]) && includesAll(messageSend, [
+      'internal_test_customer_contact_suppressed',
+      'case_population',
+    ]) && includesAll(adminUpdate, [
+      'internal_test_customer_actions_suppressed',
+      'case_population',
+    ]) && includesAll(nayaxCardRefund, [
+      'internal_test_refund_suppressed',
+      'case_not_refundable',
+      'case_population',
     ])
   );
   assert(

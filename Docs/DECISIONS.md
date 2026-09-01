@@ -21,6 +21,16 @@ This corrects the older shared `decision is null` check, which made the provider
 
 This decision changes scheduler truth and internal read authority only. It does not authorize customer contact, manager decisions, provider writes, or money movement.
 
+## 2026-08-31 - Internal/test records use a non-customer archive disposition (`#1048`)
+
+- Only Refund Operations may apply **Internal/test — no customer refund**, with one fixed required reason and the current case version. This is a one-way classification in the initial slice; it is never represented as a customer denial.
+- Classification closes customer workflow work, invalidates stale official actions, skips unsent queued messages, makes active follow-up cycles non-runnable, revokes customer status capabilities, and removes the record from every customer queue count. A separate Refund Operations-only archive retains the original evidence, events, and message history.
+- The database rejects new customer messages, follow-up cycles, customer status links, and refund attempts for the classified record. Classification itself creates one redacted immutable event and no email, provider call, payment, reporting adjustment, or customer SLA escalation.
+- A completed refund, reporting adjustment, manual refund reference, successful provider outcome, or unresolved provider attempt must be reconciled through its existing authoritative path. It cannot be relabeled as **no customer refund**.
+
+**Why this choice**
+- Technician, commissioning, provider, and synthetic records should not consume customer queues or trigger customer automation. A distinct audited population preserves operational evidence without misusing denial copy or weakening transaction, payment, or reconciliation safeguards.
+
 ## 2026-08-31 - Existing-case customer language is an explicit manager correction (`#891`)
 
 - New refund requests retain the conservative intake-inferred `en` or `es` locale. An existing case without bounded locale evidence displays **Not set — English fallback**; Bloomjoy does not guess from customer prose or silently backfill it.

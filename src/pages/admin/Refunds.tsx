@@ -36,6 +36,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   buildLocalRefundDemoOverview,
   canUseLocalRefundDemoData,
+  classifyRefundCaseInternalTest,
   correctRefundCustomerLocale,
   createRefundAttachmentSignedUrl,
   createRefundManualNayaxCandidate,
@@ -68,6 +69,7 @@ import {
   type RefundCaseRecord,
   type RefundCustomerLocale,
   type RefundCustomerLocaleCorrectionReason,
+  type RefundInternalTestReason,
   type RefundOperationsOverview,
   type RefundReadiness,
   type RefundNayaxLookupStatus,
@@ -116,6 +118,17 @@ const customerSafeDenialReasons = [
 ] as const;
 
 const customerSafeDenialReasonSet = new Set<string>(customerSafeDenialReasons);
+
+const internalTestReasonOptions: Array<{
+  value: RefundInternalTestReason;
+  label: string;
+}> = [
+  { value: 'employee_technician_test', label: 'Employee or technician test' },
+  { value: 'machine_setup_commissioning', label: 'Machine setup or commissioning' },
+  { value: 'provider_test', label: 'Payment provider test' },
+  { value: 'duplicate_synthetic_record', label: 'Duplicate synthetic record' },
+  { value: 'other_internal_test', label: 'Other internal test' },
+];
 
 const nayaxResolutionResultOptions: Array<{
   value: RefundNayaxResolutionResult;
@@ -332,6 +345,7 @@ type QueueFilter =
   | 'ready_to_pay'
   | 'blocked'
   | 'completed'
+  | 'internal_test'
   | 'all';
 
 type CustomerMessageResult = {
@@ -2230,6 +2244,9 @@ export default function AdminRefundsPage() {
   const [customerLocaleReason, setCustomerLocaleReason] =
     useState<RefundCustomerLocaleCorrectionReason | ''>('');
   const [isCorrectingCustomerLocale, setIsCorrectingCustomerLocale] = useState(false);
+  const [internalTestReason, setInternalTestReason] = useState<RefundInternalTestReason | ''>('');
+  const [isInternalTestConfirmationOpen, setIsInternalTestConfirmationOpen] = useState(false);
+  const [isClassifyingInternalTest, setIsClassifyingInternalTest] = useState(false);
   const [nayaxCandidates, setNayaxCandidates] = useState<NayaxLookupCandidate[]>([]);
   const [nayaxLookupNotice, setNayaxLookupNotice] = useState<NayaxLookupNotice | null>(null);
   const [nayaxExecutionNotice, setNayaxExecutionNotice] = useState<NayaxLookupNotice | null>(null);
@@ -2352,17 +2369,23 @@ export default function AdminRefundsPage() {
   const demoOverview = useMemo(() => buildLocalRefundDemoOverview(), []);
   const overview = isUsingDemoData ? demoOverview : liveOverview;
   const refundOperationsAccess = overview.refundOperationsAccess === true;
+  const internalTestCases = useMemo(
+    () => refundOperationsAccess ? overview.internalTestCases ?? [] : [],
+    [overview.internalTestCases, refundOperationsAccess]
+  );
 
   const filteredCases = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
+    const sourceCases = statusFilter === 'internal_test' ? internalTestCases : overview.cases;
 
-    return overview.cases.filter((refundCase) => {
+    return sourceCases.filter((refundCase) => {
       const readyToRefund = isReadyToPayCase(refundCase);
       const inProgress = isRefundInProgressCase(refundCase);
       const needsRefundOperations = isRefundOperationsCase(refundCase);
       const waiting = isWaitingCase(refundCase, refundOperationsAccess);
       const done = isDoneCase(refundCase);
       if (
+        statusFilter !== 'internal_test' &&
         statusFilter === 'needs_action' &&
         (
           !openStatuses.has(refundCase.status) ||
@@ -2405,6 +2428,7 @@ export default function AdminRefundsPage() {
     });
   }, [
     overview.cases,
+    internalTestCases,
     refundOperationsAccess,
     search,
     statusFilter,
@@ -2428,9 +2452,10 @@ export default function AdminRefundsPage() {
       ? overview.cases.filter(isRefundOperationsCase).length
       : 0,
     completed: overview.cases.filter(isDoneCase).length,
-  }), [overview.cases, refundOperationsAccess]);
+    internal_test: refundOperationsAccess ? internalTestCases.length : 0,
+  }), [internalTestCases, overview.cases, refundOperationsAccess]);
 
-  const hasAnyCases = overview.cases.length > 0;
+  const hasAnyCases = overview.cases.length + internalTestCases.length > 0;
   const emptyQueueTitle = hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
   const emptyQueueDescription = hasAnyCases
     ? 'Try another status filter or search term.'
@@ -2493,7 +2518,10 @@ export default function AdminRefundsPage() {
     };
   }, [selectedId, selectionRevision]);
 
-  const selectedCase = overview.cases.find((refundCase) => refundCase.id === selectedId) ?? null;
+  const selectedCase = [...overview.cases, ...internalTestCases]
+    .find((refundCase) => refundCase.id === selectedId) ?? null;
+  const selectedCaseIsInternalTest = selectedCase?.internalTest?.classification ===
+    'internal_test_no_customer_refund';
   const selectedAcknowledgementException = selectedCase?.acknowledgementDeliveryException ?? null;
   const selectedCustomerLocale = selectedCase?.customerLocale ?? null;
   const selectedCaseIdForSync = selectedCase?.id ?? null;
@@ -2687,6 +2715,8 @@ export default function AdminRefundsPage() {
   useEffect(() => {
     setCustomerLocaleDraft(selectedCustomerLocale?.locale ?? '');
     setCustomerLocaleReason('');
+    setInternalTestReason('');
+    setIsInternalTestConfirmationOpen(false);
   }, [selectedCase?.id, selectedCustomerLocale?.locale, selectedCustomerLocale?.version]);
   const {
     data: gmailContext,
@@ -4341,6 +4371,43 @@ export default function AdminRefundsPage() {
       await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
     } finally {
       setIsCorrectingCustomerLocale(false);
+    }
+  };
+
+  const handleClassifyInternalTest = async () => {
+    if (!selectedCase || !internalTestReason || selectedCaseIsInternalTest) return;
+    if (isUsingDemoData) {
+      toast.info('Demo cases are read-only.');
+      return;
+    }
+    if (!refundOperationsAccess || officialActionVersion <= 0) {
+      toast.error('Refund Operations access and a current case version are required.');
+      return;
+    }
+
+    setIsClassifyingInternalTest(true);
+    try {
+      const result = await classifyRefundCaseInternalTest({
+        caseId: selectedCase.id,
+        expectedCaseVersion: officialActionVersion,
+        reason: internalTestReason,
+      });
+      setIsInternalTestConfirmationOpen(false);
+      setStatusFilter('internal_test');
+      toast.success(
+        result.replayed
+          ? 'This Internal/test disposition was already recorded.'
+          : 'Moved to the Internal/test archive. Customer work is suppressed.'
+      );
+      await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
+    } catch (classificationError) {
+      const message = classificationError instanceof Error
+        ? classificationError.message
+        : 'Unable to classify this Internal/test case.';
+      toast.error(message);
+      await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
+    } finally {
+      setIsClassifyingInternalTest(false);
     }
   };
 
@@ -6175,8 +6242,11 @@ export default function AdminRefundsPage() {
               ['provider_hold', 'Needs Refund Operations'],
               ['waiting_on_customer', 'Waiting'],
               ['completed', 'Done'],
+              ['internal_test', 'Internal/test archive'],
             ] as const)
-              .filter(([value]) => value !== 'provider_hold' || refundOperationsAccess)
+              .filter(([value]) =>
+                (value !== 'provider_hold' && value !== 'internal_test') || refundOperationsAccess
+              )
               .map(([value, label]) => (
               <Button
                 key={value}
@@ -6381,7 +6451,77 @@ export default function AdminRefundsPage() {
                       </p>
                     </div>
 
-                    <section
+                    {selectedCaseIsInternalTest && selectedCase.internalTest && (
+                      <section
+                        data-testid="refund-internal-test-archive-summary"
+                        className="rounded-xl border border-slate-300 bg-slate-50 p-4 text-slate-950"
+                      >
+                        <div className="flex items-start gap-3">
+                          <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+                          <div>
+                            <p className="text-sm font-semibold">Internal/test — no customer refund</p>
+                            <p className="mt-1 text-sm leading-6">
+                              {selectedCase.internalTest.reasonLabel}. This record is retained for audit only and is excluded from customer queue counts.
+                            </p>
+                            <p className="mt-2 text-xs leading-5 text-slate-700">
+                              Customer messages, refunds, reporting adjustments, reminders, and customer SLA escalation are suppressed. Existing evidence and message history remain unchanged.
+                            </p>
+                          </div>
+                        </div>
+                      </section>
+                    )}
+
+                    {refundOperationsAccess && !selectedCaseIsInternalTest && (
+                      <section
+                        data-testid="refund-internal-test-disposition"
+                        className="rounded-xl border border-border bg-muted/20 p-4"
+                      >
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-sm font-semibold text-foreground">Internal or test submission</p>
+                            <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
+                              Use only for employee, technician, setup, provider, or synthetic test records. This is not a denial and sends no customer message.
+                            </p>
+                          </div>
+                          <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,320px)_auto] sm:items-end">
+                            <div className="min-w-0 space-y-1.5">
+                              <Label htmlFor="refund-internal-test-reason">Required reason</Label>
+                              <select
+                                id="refund-internal-test-reason"
+                                data-testid="refund-internal-test-reason"
+                                value={internalTestReason}
+                                onChange={(event) => setInternalTestReason(
+                                  event.target.value as RefundInternalTestReason | ''
+                                )}
+                                className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              >
+                                <option value="">Select reason</option>
+                                {internalTestReasonOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              data-testid="refund-open-internal-test-confirmation"
+                              className="h-10 w-full sm:w-auto"
+                              onClick={() => setIsInternalTestConfirmationOpen(true)}
+                              disabled={
+                                isUsingDemoData ||
+                                isClassifyingInternalTest ||
+                                officialActionVersion <= 0 ||
+                                !internalTestReason
+                              }
+                            >
+                              Move to Internal/test archive
+                            </Button>
+                          </div>
+                        </div>
+                      </section>
+                    )}
+
+                    {!selectedCaseIsInternalTest && <section
                       data-testid="refund-customer-locale"
                       className="rounded-xl border border-border bg-muted/20 p-4"
                     >
@@ -6452,9 +6592,9 @@ export default function AdminRefundsPage() {
                           </Button>
                         </div>
                       </div>
-                    </section>
+                    </section>}
 
-                    {selectedCaseIsReviewOnly && !selectedCaseIsTerminal && !selectedCase.providerHold && (
+                    {!selectedCaseIsInternalTest && selectedCaseIsReviewOnly && !selectedCaseIsTerminal && !selectedCase.providerHold && (
                       <div
                         data-testid={
                           selectedCase.legacyStateReviewRequired
@@ -6487,7 +6627,7 @@ export default function AdminRefundsPage() {
                       </div>
                     )}
 
-                    {selectedAcknowledgementException?.status === 'unresolved' && (
+                    {!selectedCaseIsInternalTest && selectedAcknowledgementException?.status === 'unresolved' && (
                       <section
                         data-testid="refund-acknowledgement-delivery-exception"
                         className="rounded-xl border border-orange-300 bg-orange-50 p-4 text-sm text-orange-950"
@@ -6532,7 +6672,7 @@ export default function AdminRefundsPage() {
                       </section>
                     )}
 
-                    {(reconciliationIsLoading || reconciliationError ||
+                    {!selectedCaseIsInternalTest && (reconciliationIsLoading || reconciliationError ||
                       reconciliationContext?.reviews.some((review) => review.status === 'pending')) && (
                       <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-950">
                         <div className="flex items-start gap-3">
@@ -6597,7 +6737,7 @@ export default function AdminRefundsPage() {
                       </div>
                     )}
 
-                    {selectedCaseIsTerminal ? (
+                    {!selectedCaseIsInternalTest && (selectedCaseIsTerminal ? (
                       <section data-testid="refund-terminal-history" className="border-t border-border pt-4">
                         <p className="font-medium text-foreground">{primaryAction?.label}</p>
                         <p className="mt-1 text-sm text-muted-foreground">{primaryAction?.helper}</p>
@@ -6616,9 +6756,9 @@ export default function AdminRefundsPage() {
                         ? renderGmailDraftWorkbench()
                         : selectedCase.paymentMethod === 'card'
                           ? renderCardDecisionWorkbench()
-                          : renderCashDecisionWorkbench()}
+                          : renderCashDecisionWorkbench())}
 
-                    {(latestPendingNayaxCompletionMessage || latestFailedNayaxCompletionMessage) && (
+                    {!selectedCaseIsInternalTest && (latestPendingNayaxCompletionMessage || latestFailedNayaxCompletionMessage) && (
                       <section
                         data-testid="refund-nayax-completion-recovery"
                         className="rounded-xl border border-slate-300 bg-slate-50 p-4 text-sm text-slate-950"
@@ -7631,6 +7771,44 @@ export default function AdminRefundsPage() {
           </div>
         </div>
       </section>
+
+      <AlertDialog
+        open={isInternalTestConfirmationOpen}
+        onOpenChange={(open) => {
+          if (!isClassifyingInternalTest) setIsInternalTestConfirmationOpen(open);
+        }}
+      >
+        <AlertDialogContent data-testid="refund-internal-test-confirmation-dialog" className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Move this record to the Internal/test archive?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This one-way audited disposition is not a customer denial. It sends no message and issues no refund. Customer messages, refunds, reporting adjustments, reminders, and customer SLA escalation will be suppressed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm text-slate-950">
+            <p className="font-medium">
+              Reason: {internalTestReasonOptions.find((option) => option.value === internalTestReason)?.label ?? 'Not selected'}
+            </p>
+            <p className="mt-1 leading-6">
+              Existing evidence and message history remain in the archive. Cases with unresolved or completed payment effects cannot use this disposition.
+            </p>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isClassifyingInternalTest}>Keep in customer workflow</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="refund-confirm-internal-test-classification"
+              disabled={!internalTestReason || isClassifyingInternalTest}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleClassifyInternalTest();
+              }}
+            >
+              {isClassifyingInternalTest && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Confirm Internal/test — no customer refund
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={isGmailResolutionOpen}
