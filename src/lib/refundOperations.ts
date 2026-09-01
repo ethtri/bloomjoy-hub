@@ -307,6 +307,14 @@ export type RefundNayaxLookupSummary = {
   evidenceVersion?: number;
   lookupGeneration?: number;
   lastUpdatedAt?: string | null;
+  setupIssueCode?:
+    | 'machine_mapping_missing'
+    | 'account_scope_missing'
+    | 'account_access_unavailable'
+    | 'grouped_mapping_incomplete';
+  responsibleOwner?: 'refund_operations';
+  requiredAccountScope?: string;
+  customerActionRequired?: false;
 };
 
 export type NayaxRecommendationState =
@@ -664,6 +672,7 @@ export type RefundOperationsOverview = {
   customerLocaleContractVersion?: 'refund_customer_locale_v1';
   internalTestContractVersion?: 'refund_internal_test_v1';
   selectedNayaxTransactionContractVersion?: 'refund_selected_nayax_transaction_v1';
+  nayaxScopeRecoveryContractVersion?: 'refund_nayax_scope_recovery_v1';
   refundOperationsAccess?: boolean;
 };
 
@@ -1207,6 +1216,10 @@ export type NayaxLookupResponse = {
   evidenceVersion?: number;
   lookupGeneration?: number;
   lastUpdatedAt?: string | null;
+  setupIssueCode?: RefundNayaxLookupSummary['setupIssueCode'];
+  responsibleOwner?: RefundNayaxLookupSummary['responsibleOwner'];
+  requiredAccountScope?: string;
+  customerActionRequired?: false;
 };
 
 export type NayaxCardRefundExecutionBlock =
@@ -2130,6 +2143,12 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
     overview.selectedNayaxTransactionContractVersion !== 'refund_selected_nayax_transaction_v1'
   ) {
     throw new Error('Unsupported selected Nayax transaction response.');
+  }
+  if (
+    overview.nayaxScopeRecoveryContractVersion !== undefined &&
+    overview.nayaxScopeRecoveryContractVersion !== 'refund_nayax_scope_recovery_v1'
+  ) {
+    throw new Error('Unsupported Nayax scope recovery response.');
   }
   const internalTestCases = Array.isArray(overview.internalTestCases)
     ? overview.internalTestCases.map((refundCase) => ({

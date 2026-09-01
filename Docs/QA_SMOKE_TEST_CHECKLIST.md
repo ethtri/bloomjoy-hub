@@ -14,6 +14,9 @@
 - [ ] Duplicate IDs, malformed snapshots, provider failure, a large active-count drop, and stale/failed last run all fail safely and surface operational attention; they never delete or republish inventory.
 - [ ] Submit a stale/tampered machine ID directly to `refund-case-intake`; the server rejects it using the same portfolio eligibility RPC used by the selector and creates no case.
 - [ ] Perform one controlled Snapcase transaction lookup only after its exact label/manager/mapping is reviewed. Confirm lookup is read-only, scoped to that immutable machine/account, and live refund execution remains off.
+- [ ] Configure a synthetic Nashville/Asheville-style secondary account with only the default account credential present. Confirm lookup makes zero provider requests, reports **Required Nayax account is not connected**, assigns **Refund Operations**, shows the safe location-scoped account label, and says customer action is none.
+- [ ] For a bounded synthetic timeout, confirm exactly one read-only retry is offered for the current deterministic fact version. After that retry fails, confirm another retry is rejected before provider access and the manager sees the reviewed internal/manual-portal fallback. Change the atomic fact version and confirm a fresh bounded lookup lifecycle is available without replaying an earlier request.
+- [ ] At desktop and 390x844, confirm the internal setup owner/scope card is readable, has no horizontal overflow, and exposes no account credential, raw provider payload, customer email, or refund action.
 
 Run these checks on localhost for each PR that adds a user-facing feature.
 

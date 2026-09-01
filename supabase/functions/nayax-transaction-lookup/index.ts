@@ -158,6 +158,10 @@ serve(async (req) => {
       windowHours: result.windowHours,
       summary: result.summary,
       recommendedAction: result.recommendedAction,
+      setupIssueCode: result.setupIssueCode,
+      responsibleOwner: result.responsibleOwner,
+      requiredAccountScope: result.requiredAccountScope,
+      customerActionRequired: result.customerActionRequired,
       officialActionVersion: caseVersion.official_action_version,
     });
   } catch (error) {

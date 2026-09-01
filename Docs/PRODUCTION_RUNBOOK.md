@@ -11,6 +11,7 @@ Bloomjoy is in production. Follow `Docs/REFUND_PRODUCTION_POLICY.md`; do not rei
 ### Normal refund
 
 1. Search Bloomjoy and Nayax records before asking the customer for more information.
+   - If lookup reports missing machine mapping, account scope, or account access, assign it to **Refund Operations**. Confirm the exact reporting machine and location-scoped Nayax account. A separate account must never use the default account credential. Run at most one server-authorized read-only retry for the current fact version; after that use the reviewed manual Nayax portal fallback. Do not ask the customer to repeat the selected machine, location, or purchase facts Bloomjoy already holds.
 2. Confirm the exact settled transaction, machine/account, provider time, currency, and full transaction amount. Customer amount, card type, and last four are clues; the selected provider transaction is authoritative.
    - In the manager evidence card, copy the **Selected Nayax transaction ID** into Dynamic Transactions Monitor and use the separately labeled **Provider machine-local time** plus its IANA timezone for the report window. Do not reconstruct the ID from raw data or ask the customer to repeat details Bloomjoy already holds.
 3. Run the privacy-safe preflight: active mapped machine and manager; no successful or unresolved attempt on this transaction; exact transaction uniqueness; current case version; idempotency, unique-attempt, unique-provider-stage, journal, and kill-switch controls present.

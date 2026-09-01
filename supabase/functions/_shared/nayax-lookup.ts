@@ -190,17 +190,24 @@ const extractLast4 = (value: unknown) => {
   return digits.length >= 4 ? digits.slice(-4) : "";
 };
 
-const normalizeAccountKey = (value: unknown) => {
-  const raw = sanitizeText(value, 80) || defaultNayaxAccountKey;
+export const normalizeNayaxAccountKey = (value: unknown) => {
+  const raw = sanitizeText(value, 80);
+  if (!raw) return "";
   const normalized = raw.toUpperCase().replace(/[^A-Z0-9_]/g, "_");
-  return normalized || defaultNayaxAccountKey;
+  return normalized;
 };
 
-const resolveNayaxToken = (accountKey: string) =>
-  Deno.env.get(`NAYAX_LYNX_API_TOKEN_${normalizeAccountKey(accountKey)}`) ||
-  Deno.env.get("NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB") ||
-  Deno.env.get("NAYAX_LYNX_API_TOKEN") ||
-  "";
+export const resolveNayaxTokenForAccount = (
+  accountKey: string,
+  readEnvironment: (name: string) => string | undefined = (name) => Deno.env.get(name),
+) => {
+  const normalized = normalizeNayaxAccountKey(accountKey);
+  if (!normalized) return "";
+  const scopedToken = readEnvironment(`NAYAX_LYNX_API_TOKEN_${normalized}`) || "";
+  if (scopedToken) return scopedToken;
+  if (normalized !== defaultNayaxAccountKey) return "";
+  return readEnvironment("NAYAX_LYNX_API_TOKEN") || "";
+};
 
 export type NayaxRecommendationState =
   | "high_confidence"
@@ -301,6 +308,14 @@ export type NayaxLookupResult = {
   windowHours: number;
   summary: string;
   recommendedAction: string;
+  setupIssueCode?:
+    | "machine_mapping_missing"
+    | "account_scope_missing"
+    | "account_access_unavailable"
+    | "grouped_mapping_incomplete";
+  responsibleOwner?: "refund_operations";
+  requiredAccountScope?: string;
+  customerActionRequired?: false;
   resolvedMachineId?: string | null;
   refundCase?: {
     id: string;
@@ -617,7 +632,11 @@ const lookupGroupedLivermoreCandidates = async ({
     incidentAt: incidentAt.toISOString(),
     qrClaimOpenedAt: null,
   };
-  const setupResult = (message: string): NayaxLookupResult => ({
+  const requiredAccountScope = `${sanitizeText(location.name, 140) || "Selected location"} Nayax account scope`;
+  const setupResult = (
+    message: string,
+    setupIssueCode: NonNullable<NayaxLookupResult["setupIssueCode"]>,
+  ): NayaxLookupResult => ({
     configured: false,
     lookupStatus: "setup_needed",
     recommendationState: "manual_exception",
@@ -635,13 +654,17 @@ const lookupGroupedLivermoreCandidates = async ({
     refundCase: caseSnapshot,
     message,
     summary: "Setup needed before Nayax can check this grouped card refund.",
-    recommendedAction: "Ask an admin to restore the exact reviewed Livermore pair before deciding this case.",
+    recommendedAction: "Refund Operations must repair the exact grouped machine/account mapping, then run one safe read-only retry. Do not ask the customer to repeat details Bloomjoy owns.",
+    setupIssueCode,
+    responsibleOwner: "refund_operations",
+    requiredAccountScope,
+    customerActionRequired: false,
   });
 
   const providerInputs = orderedMachines.map((machine: ScopedMachine | undefined, index: number) => {
     const nayaxMachineId = sanitizeText(machine?.nayax_machine_id, 120);
-    const accountKey = normalizeAccountKey(machine?.nayax_account_key);
-    const token = resolveNayaxToken(accountKey);
+    const accountKey = normalizeNayaxAccountKey(machine?.nayax_account_key);
+    const token = resolveNayaxTokenForAccount(accountKey);
     return {
       reportingMachineId: scopeMachineIds[index],
       machineDisplayLabel: `San Francisco Premium Outlets — Cotton candy machine ${index === 0 ? "A" : "B"}`,
@@ -650,8 +673,17 @@ const lookupGroupedLivermoreCandidates = async ({
       token,
     };
   });
-  if (providerInputs.some((input: typeof providerInputs[number]) => !input.nayaxMachineId || !input.token)) {
-    return setupResult("Both reviewed Livermore machines must have an exact Nayax mapping and server-only account token.");
+  if (providerInputs.some((input: typeof providerInputs[number]) => !input.nayaxMachineId || !input.accountKey)) {
+    return setupResult(
+      "The reviewed grouped location is missing an exact Nayax machine or account mapping.",
+      "grouped_mapping_incomplete",
+    );
+  }
+  if (providerInputs.some((input: typeof providerInputs[number]) => !input.token)) {
+    return setupResult(
+      "The reviewed grouped location requires a separate server-only Nayax account connection.",
+      "account_access_unavailable",
+    );
   }
 
   const providerResults = await Promise.all(providerInputs.map(async (input: typeof providerInputs[number]) => {
@@ -961,9 +993,14 @@ export const lookupNayaxCandidatesForRefundCase = async ({
   };
 
   const nayaxMachineId = sanitizeText(machine?.nayax_machine_id, 120);
-  const accountKey = normalizeAccountKey(machine?.nayax_account_key);
-  const nayaxApiToken = resolveNayaxToken(accountKey);
-  const setupResult = (message: string, recommendedAction: string): NayaxLookupResult => ({
+  const accountKey = normalizeNayaxAccountKey(machine?.nayax_account_key);
+  const nayaxApiToken = resolveNayaxTokenForAccount(accountKey);
+  const requiredAccountScope = `${sanitizeText(location?.name, 140) || sanitizeText(machine?.machine_label, 140) || "Selected machine"} Nayax account scope`;
+  const setupResult = (
+    message: string,
+    recommendedAction: string,
+    setupIssueCode: NonNullable<NayaxLookupResult["setupIssueCode"]>,
+  ): NayaxLookupResult => ({
     configured: false,
     lookupStatus: "setup_needed",
     recommendationState: "manual_exception",
@@ -980,20 +1017,33 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     windowHours,
     refundCase: caseSnapshot,
     message,
-    summary: "Setup needed before Nayax can check this card refund.",
+    summary: message,
     recommendedAction,
+    setupIssueCode,
+    responsibleOwner: "refund_operations",
+    requiredAccountScope,
+    customerActionRequired: false,
   });
 
   if (!nayaxMachineId) {
     return setupResult(
       "This machine needs a Nayax machine ID before card lookup can run.",
-      "Ask an admin to add the Nayax machine ID in Admin > Machines before deciding this card case.",
+      "Refund Operations must add the exact Nayax machine mapping, then run one safe read-only retry. Do not ask the customer to repeat the selected machine or location.",
+      "machine_mapping_missing",
+    );
+  }
+  if (!accountKey) {
+    return setupResult(
+      "This machine needs an explicit Nayax account scope before card lookup can run.",
+      "Refund Operations must map the exact Nayax account scope, then run one safe read-only retry. Do not ask the customer to repeat details Bloomjoy owns.",
+      "account_scope_missing",
     );
   }
   if (!nayaxApiToken) {
     return setupResult(
-      "Nayax Lynx lookup is waiting on a server-only API token for this account.",
-      "Ask an admin to verify the server-only Nayax token before deciding this card case.",
+      "This machine's separate Nayax account scope is not connected for read-only lookup.",
+      "Refund Operations must connect the required account scope, then run one safe read-only retry or use the reviewed manual Nayax portal fallback. Do not ask the customer to repeat purchase details.",
+      "account_access_unavailable",
     );
   }
 

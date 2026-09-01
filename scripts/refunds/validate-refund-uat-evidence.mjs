@@ -322,7 +322,11 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 78, 'Evidence must enumerate all 78 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 79, 'Evidence must enumerate all 79 reviewed screenshots');
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-nayax-account-scope-mobile.png'),
+    'Evidence must include the mobile internal Nayax account-scope recovery state'
+  );
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-acknowledgement-recovery-mobile.png') &&
       EXPECTED_SCREENSHOTS.includes('refund-acknowledgement-recovery-resolved.png'),

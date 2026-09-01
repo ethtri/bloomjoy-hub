@@ -344,6 +344,7 @@ const mockSession = {
 const buildMockRefundOverview = () => ({
   managerQueueContractVersion: 'refund_manager_queue_v1',
   selectedNayaxTransactionContractVersion: 'refund_selected_nayax_transaction_v1',
+  nayaxScopeRecoveryContractVersion: 'refund_nayax_scope_recovery_v1',
   machines: [
     {
       id: 'machine-1',
@@ -4726,9 +4727,13 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
       providerWindowRecordCount: 0,
       candidateCount: 0,
       windowHours: 6,
-      message: 'Nayax lookup is waiting on configuration for this machine.',
-      summary: 'Setup needed before Nayax can check this card refund.',
-      recommendedAction: 'Ask an admin to verify Nayax setup before deciding this card case.',
+      message: 'This machine\'s separate Nayax account scope is not connected for read-only lookup.',
+      summary: 'This machine\'s separate Nayax account scope is not connected for read-only lookup.',
+      recommendedAction: 'Refund Operations must connect the required account scope, then run one safe read-only retry or use the reviewed manual Nayax portal fallback. Do not ask the customer to repeat purchase details.',
+      setupIssueCode: 'account_access_unavailable',
+      responsibleOwner: 'refund_operations',
+      requiredAccountScope: 'Nashville Nayax account scope',
+      customerActionRequired: false,
       candidates: [],
     },
   });
@@ -4833,7 +4838,7 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
     await page.getByRole('button', { name: 'Refresh transaction results' }).isVisible()
   );
   await page.getByTestId('nayax-check-transaction').click();
-  await page.getByTestId('nayax-result-card').getByText('Transaction search is unavailable for this machine.').first().waitFor({
+  await page.getByTestId('nayax-result-card').getByText('This machine\'s separate Nayax account scope is not connected for read-only lookup.').first().waitFor({
     timeout: 10000,
   });
   evidence.primaryCheckLookupCallCountAfter = functionCalls.filter(
@@ -4848,19 +4853,22 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
   );
   recorder.assert(
     'Unavailable transaction search is visible in the manager workbench',
-    await page.getByTestId('nayax-result-card').getByText('Bloomjoy cannot check this machine\'s transactions right now. Keep the case open and try again later.').isVisible()
+    await page.getByTestId('nayax-result-card').getByText('This machine\'s separate Nayax account scope is not connected for read-only lookup.').first().isVisible()
   );
   recorder.assert(
     'Provider setup state stays manager-only and cannot trigger customer correction copy',
     (await page.getByText('Transaction search unavailable', { exact: true }).count()) >= 1 &&
-      (await page.getByText('Ask customer for details', { exact: true }).count()) === 0
+      (await page.getByText('Ask customer for details', { exact: true }).count()) === 0 &&
+      await page.getByTestId('nayax-internal-setup-owner').getByText('Refund Operations', { exact: true }).isVisible() &&
+      await page.getByTestId('nayax-internal-setup-owner').getByText('Nashville Nayax account scope', { exact: true }).isVisible() &&
+      await page.getByTestId('nayax-internal-setup-owner').getByText(/Customer action: none/).isVisible()
   );
   recorder.assert(
     'Pending transaction result explains the unavailable state',
     await page.getByTestId('refund-primary-action').getByText('Transaction search unavailable', { exact: true }).isVisible() &&
       await page.getByTestId('nayax-result-card').getByText('Transaction search is unavailable', { exact: true }).isVisible() &&
       await page.getByTestId('nayax-result-card').getByText('Needs attention', { exact: true }).isVisible() &&
-      await page.getByTestId('nayax-result-card').getByText('Bloomjoy cannot check this machine\'s transactions right now. Keep the case open and try again later.').isVisible()
+      await page.getByTestId('nayax-result-card').getByText('This machine\'s separate Nayax account scope is not connected for read-only lookup.').first().isVisible()
   );
   recorder.assert(
     'Nayax setup notice does not expose raw provider IDs',
@@ -4870,6 +4878,17 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
     path: path.join(artifactDir, 'refund-portal-uat-setup-needed.png'),
     fullPage: false,
   });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByTestId('nayax-internal-setup-owner').scrollIntoViewIfNeeded();
+  recorder.assert(
+    'Internal Nayax account-scope recovery remains readable on mobile',
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-nayax-account-scope-mobile.png'),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
 
   const callsBeforeManualPortalDemo = functionCalls.length;
   await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=on`, { waitUntil: 'networkidle' });
@@ -5242,7 +5261,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedHeading: 'The transaction check did not finish',
       expectedStatus: 'Needs attention',
       expectedManagerNotice: 'Bloomjoy could not finish checking transactions.',
-      expectedDescription: /transaction search could not be completed/i,
+      expectedDescription: /bounded transaction search did not finish/i,
       expectedAction: 'Select Refresh transaction results.',
       expectedBadge: 'Check failed',
     },
