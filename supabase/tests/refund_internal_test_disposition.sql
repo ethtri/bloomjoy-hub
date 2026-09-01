@@ -398,7 +398,7 @@ select ok(
   'The database rejects every new refund attempt for an Internal/test record'
 );
 
-select ok(
+select is(
   pg_temp.capture_error($$insert into public.refund_follow_up_cycles (
     refund_case_id, cycle_number, trigger_fingerprint, reason_code,
     requested_fields, template_version, case_fact_version,
@@ -407,17 +407,19 @@ select ok(
     'ba140000-0000-4000-8000-000000000001', 2, repeat('c', 64),
     'missing_information', array['incident_time']::text[],
     'refund_follow_up_v1', 1, 48, 'claimed'
-  )$$) like 'P4640:Customer, reminder, and refund actions are suppressed%',
+  )$$),
+  'P4640:Customer, reminder, and refund actions are suppressed for Internal/test cases',
   'The database rejects a new reminder cycle for an Internal/test record'
 );
 
-select ok(
+select is(
   pg_temp.capture_error($$insert into public.refund_case_status_capabilities (
     refund_case_id, token_digest, expires_at
   ) values (
     'ba140000-0000-4000-8000-000000000001', repeat('d', 64),
     statement_timestamp() + interval '7 days'
-  )$$) like 'P4640:Customer, reminder, and refund actions are suppressed%',
+  )$$),
+  'P4640:Customer, reminder, and refund actions are suppressed for Internal/test cases',
   'The database rejects a new customer status capability for an Internal/test record'
 );
 
