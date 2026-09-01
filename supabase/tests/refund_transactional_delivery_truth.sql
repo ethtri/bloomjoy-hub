@@ -64,13 +64,6 @@ insert into public.refund_cases (
   ('d9140000-0000-4000-8000-000000000001', 'RF-DELIVERY-TRUTH', 'd9130000-0000-4000-8000-000000000001', 'd9120000-0000-4000-8000-000000000001', 'delivery-customer@example.invalid', 'Delivery truth fixture', statement_timestamp() - interval '2 hours', 'America/Los_Angeles', 'card', 700, '4242', 'needs_review', 'matched', 'nayax'),
   ('d9140000-0000-4000-8000-000000000002', 'RF-DELIVERY-INTERNAL', 'd9130000-0000-4000-8000-000000000001', 'd9120000-0000-4000-8000-000000000001', 'internal-delivery@example.invalid', 'Internal delivery fixture', statement_timestamp() - interval '1 hour', 'America/Los_Angeles', 'card', 700, '4242', 'closed', 'manual_review', 'manual');
 
-update public.refund_cases
-set case_population = 'internal_test',
-  internal_test_reason = 'provider_test',
-  internal_test_classified_at = statement_timestamp(),
-  internal_test_classified_by = 'd9100000-0000-4000-8000-000000000001'
-where id = 'd9140000-0000-4000-8000-000000000002';
-
 insert into public.refund_case_messages (
   id, refund_case_id, message_type, status, recipient_email,
   subject, body, created_by, requested_fields
@@ -78,6 +71,24 @@ insert into public.refund_case_messages (
   ('d9150000-0000-4000-8000-000000000001', 'd9140000-0000-4000-8000-000000000001', 'status_update', 'pending', 'delivery-customer@example.invalid', 'Synthetic delivery update', 'Synthetic body', 'd9100000-0000-4000-8000-000000000001', '{}'::text[]),
   ('d9150000-0000-4000-8000-000000000002', 'd9140000-0000-4000-8000-000000000001', 'more_info', 'pending', 'delivery-customer@example.invalid', 'Synthetic second update', 'Synthetic second body', 'd9100000-0000-4000-8000-000000000001', array['incident_time']::text[]),
   ('d9150000-0000-4000-8000-000000000003', 'd9140000-0000-4000-8000-000000000002', 'status_update', 'failed', 'internal-delivery@example.invalid', 'Suppressed synthetic update', 'Suppressed body', 'd9100000-0000-4000-8000-000000000001', '{}'::text[]);
+
+-- Seed the historical message before classification; the production disposition
+-- suppresses every new customer message after the case enters Internal/test.
+update public.refund_cases
+set case_population = 'internal_test',
+  internal_test_reason = 'provider_test',
+  internal_test_classified_at = statement_timestamp(),
+  internal_test_classified_by = 'd9100000-0000-4000-8000-000000000001',
+  status = 'closed',
+  automation_state = 'closed_incomplete',
+  automation_follow_up_due_at = null,
+  decision = null,
+  decided_by = null,
+  decided_at = null,
+  reporting_adjustment_id = null,
+  refund_completed_by = null,
+  refund_completed_at = null
+where id = 'd9140000-0000-4000-8000-000000000002';
 
 select ok(
   has_function_privilege('service_role', 'public.service_mark_refund_transactional_delivery_attempt(uuid)', 'execute')
