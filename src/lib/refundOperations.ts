@@ -342,6 +342,23 @@ export type RefundReadiness = {
   caseVersion: number | null;
 };
 
+export type RefundCustomerLocale = 'en' | 'es';
+
+export type RefundCustomerLocaleCorrectionReason =
+  | 'reviewed_customer_request_language'
+  | 'customer_confirmed_language';
+
+export type RefundCustomerLocaleContract = {
+  schemaVersion: 'refund_customer_locale_v1';
+  locale: RefundCustomerLocale | null;
+  label: 'English' | 'Spanish + English' | 'Not set';
+  source: 'intake_inference' | 'manager_correction' | 'not_set';
+  sourceLabel: 'Captured at intake' | 'Manager reviewed' | 'Needs manager review';
+  version: number;
+  correctedAt: string | null;
+  payloadRedacted: true;
+};
+
 export type NayaxMatchFactor = {
   key: string;
   outcome: string;
@@ -440,6 +457,7 @@ export type RefundCaseRecord = {
   latestCustomerMessageType?: string | null;
   latestCustomerMessageAt?: string | null;
   acknowledgementDeliveryException?: RefundAcknowledgementDeliveryException | null;
+  customerLocale?: RefundCustomerLocaleContract | null;
   nayaxLookupSummary?: RefundNayaxLookupSummary | null;
   manualNayaxPortalEnabled?: boolean;
   manualNayaxEvidenceSelected?: boolean;
@@ -467,6 +485,7 @@ export type RefundOperationsOverview = {
   lifecycleContractVersion?: typeof REFUND_LIFECYCLE_SCHEMA_VERSION;
   managerQueueContractVersion?: 'refund_manager_queue_v1';
   acknowledgementRecoveryContractVersion?: 'refund_acknowledgement_recovery_v1';
+  customerLocaleContractVersion?: 'refund_customer_locale_v1';
   refundOperationsAccess?: boolean;
 };
 
@@ -2335,6 +2354,61 @@ export const disposeRefundAcknowledgementException = async (input: {
     throw new Error('The acknowledgement recovery response was invalid. Refresh before continuing.');
   }
   return response as DisposeRefundAcknowledgementExceptionResponse;
+};
+
+export type CorrectRefundCustomerLocaleResponse = {
+  recorded: boolean;
+  replayed: boolean;
+  locale: RefundCustomerLocale;
+  reason: RefundCustomerLocaleCorrectionReason;
+  caseVersion: number;
+  localeVersion: number;
+  payloadRedacted: true;
+};
+
+export const correctRefundCustomerLocale = async (input: {
+  caseId: string;
+  expectedCaseVersion: number;
+  expectedLocaleVersion: number;
+  locale: RefundCustomerLocale;
+  reason: RefundCustomerLocaleCorrectionReason;
+}): Promise<CorrectRefundCustomerLocaleResponse> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_correct_refund_customer_locale',
+    {
+      p_case_id: input.caseId,
+      p_expected_case_version: input.expectedCaseVersion,
+      p_expected_locale_version: input.expectedLocaleVersion,
+      p_locale: input.locale,
+      p_reason: input.reason,
+    }
+  );
+  if (error || !data || typeof data !== 'object') {
+    throw new Error(error?.message || 'Unable to correct the customer language.');
+  }
+
+  const response = data as Record<string, unknown>;
+  if (
+    typeof response.recorded !== 'boolean' ||
+    typeof response.replayed !== 'boolean' ||
+    response.recorded === response.replayed ||
+    (response.locale !== 'en' && response.locale !== 'es') ||
+    (
+      response.reason !== 'reviewed_customer_request_language' &&
+      response.reason !== 'customer_confirmed_language'
+    ) ||
+    typeof response.caseVersion !== 'number' ||
+    !Number.isInteger(response.caseVersion) ||
+    response.caseVersion <= 0 ||
+    typeof response.localeVersion !== 'number' ||
+    !Number.isInteger(response.localeVersion) ||
+    response.localeVersion <= input.expectedLocaleVersion ||
+    response.payloadRedacted !== true
+  ) {
+    throw new Error('The customer-language response was invalid. Refresh before continuing.');
+  }
+
+  return response as CorrectRefundCustomerLocaleResponse;
 };
 
 export const createRefundManualNayaxCandidate = async (

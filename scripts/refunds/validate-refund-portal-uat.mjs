@@ -603,6 +603,32 @@ const buildAcknowledgementRecoveryOverview = ({ resolved = false } = {}) => {
   return overview;
 };
 
+const buildLocaleCorrectionOverview = ({ corrected = false } = {}) => {
+  const overview = buildMockRefundOverview();
+  const refundCase = overview.cases[0];
+  overview.customerLocaleContractVersion = 'refund_customer_locale_v1';
+  overview.cases = [{
+    ...refundCase,
+    status: 'needs_review',
+    decision: null,
+    decisionReason: null,
+    decidedAt: null,
+    refundAmountCents: null,
+    lifecycle: buildLifecycleFixture('matching', 10, 'review_case'),
+    customerLocale: {
+      schemaVersion: 'refund_customer_locale_v1',
+      locale: corrected ? 'es' : null,
+      label: corrected ? 'Spanish + English' : 'Not set',
+      source: corrected ? 'manager_correction' : 'not_set',
+      sourceLabel: corrected ? 'Manager reviewed' : 'Needs manager review',
+      version: corrected ? 1 : 0,
+      correctedAt: corrected ? isoHoursAgo(0.05) : null,
+      payloadRedacted: true,
+    },
+  }];
+  return overview;
+};
+
 const buildLegacyStateReviewOverview = () => {
   const overview = buildMockRefundOverview();
   const historicalCase = overview.cases[0];
@@ -1451,6 +1477,7 @@ const installMockSupabaseRoutes = async (
     emailQueueStates = null,
     reconciliationContext = null,
     acknowledgementDispositionHandler = null,
+    localeCorrectionHandler = null,
   } = {}
 ) => {
   const officialActionVersions = new Map();
@@ -2444,6 +2471,22 @@ const installMockSupabaseRoutes = async (
             replayed: false,
             reason: 'later_customer_contact_already_sent',
             caseVersion: Number(requestBody?.p_expected_case_version ?? 1),
+            payloadRedacted: true,
+          };
+      return route.fulfill(jsonResponse(response));
+    }
+
+    if (url.includes('/admin_correct_refund_customer_locale')) {
+      const requestBody = request.postDataJSON();
+      const response = localeCorrectionHandler
+        ? await localeCorrectionHandler(requestBody)
+        : {
+            recorded: true,
+            replayed: false,
+            locale: requestBody?.p_locale,
+            reason: requestBody?.p_reason,
+            caseVersion: Number(requestBody?.p_expected_case_version ?? 1),
+            localeVersion: Number(requestBody?.p_expected_locale_version ?? 0) + 1,
             payloadRedacted: true,
           };
       return route.fulfill(jsonResponse(response));
@@ -6048,6 +6091,115 @@ const runAcknowledgementRecoveryChecks = async ({ browser, appUrl, artifactDir, 
   await closeRefundPortalContext(context);
 };
 
+const runCustomerLocaleCorrectionChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+  let corrected = false;
+  const correctionBodies = [];
+  const functionCalls = [];
+  const rpcCalls = [];
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await installMockSupabaseRoutes(context, {
+    refundOverview: () => buildLocaleCorrectionOverview({ corrected }),
+    functionCalls,
+    rpcCalls,
+    localeCorrectionHandler: async (body) => {
+      correctionBodies.push(body);
+      corrected = true;
+      return {
+        recorded: true,
+        replayed: false,
+        locale: body?.p_locale,
+        reason: body?.p_reason,
+        caseVersion: Number(body?.p_expected_case_version ?? 1),
+        localeVersion: Number(body?.p_expected_locale_version ?? 0) + 1,
+        payloadRedacted: true,
+      };
+    },
+  });
+
+  const page = await context.newPage();
+  await signInRefundUser(page, appUrl);
+  await page.getByRole('button', { name: /^Action needed \d+$/ }).click();
+  await waitForQueueCount(page, 1);
+  await queueCase(page, 'RF-UAT-CARD').click();
+
+  const localeSection = page.getByTestId('refund-customer-locale');
+  recorder.assert(
+    'An existing case without persisted locale is visibly manager-owned',
+    await localeSection.isVisible() &&
+      (await page.getByTestId('refund-customer-locale-current').innerText()).includes(
+        'Not set — English fallback · Needs manager review'
+      )
+  );
+  recorder.assert(
+    'Locale correction explains future-only behavior and preserves existing history',
+    (await localeSection.innerText()).includes('future approved refund templates') &&
+      (await localeSection.innerText()).includes('Existing message history is unchanged')
+  );
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await localeSection.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+  await page.waitForTimeout(100);
+  const mobileOverflow = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    bodyScrollWidth: document.body.scrollWidth,
+    innerWidth: window.innerWidth,
+  }));
+  recorder.assert(
+    'Customer-language correction remains usable without mobile horizontal overflow',
+    await localeSection.isVisible() &&
+      mobileOverflow.scrollWidth <= mobileOverflow.innerWidth + 1 &&
+      mobileOverflow.bodyScrollWidth <= mobileOverflow.innerWidth + 1,
+    JSON.stringify(mobileOverflow)
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-customer-locale-correction-mobile.png'),
+    fullPage: false,
+  });
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByTestId('refund-customer-locale-select').selectOption('es');
+  await page.getByTestId('refund-customer-locale-reason')
+    .selectOption('reviewed_customer_request_language');
+  await page.getByTestId('refund-save-customer-locale').click();
+  await page.getByTestId('refund-customer-locale-current')
+    .getByText('Spanish + English · Manager reviewed', { exact: true })
+    .waitFor({ timeout: 10000 });
+
+  recorder.assert(
+    'Locale correction uses one bounded, independently versioned manager RPC',
+    correctionBodies.length === 1 &&
+      correctionBodies[0]?.p_case_id === 'case-card-1' &&
+      correctionBodies[0]?.p_expected_case_version === 1 &&
+      correctionBodies[0]?.p_expected_locale_version === 0 &&
+      correctionBodies[0]?.p_locale === 'es' &&
+      correctionBodies[0]?.p_reason === 'reviewed_customer_request_language',
+    JSON.stringify(correctionBodies)
+  );
+  recorder.assert(
+    'Saving customer language performs no message, provider, payment, or official case action',
+    functionCalls.length === 0 &&
+      rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length === 1 &&
+      rpcCalls.filter((name) => name === 'admin_correct_refund_customer_locale').length === 1,
+    JSON.stringify({ functionCalls, rpcCalls })
+  );
+
+  await page.getByTestId('refund-customer-locale-current').scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-customer-locale-correction-saved.png'),
+    fullPage: false,
+  });
+
+  const messageHistory = page.getByText('Customer messages (1)', { exact: true });
+  await messageHistory.click();
+  recorder.assert(
+    'The already-sent English acknowledgement remains unchanged after correction',
+    await page.getByText('Thanks for reaching out. Our team will review this with care.', { exact: true })
+      .isVisible()
+  );
+
+  await closeRefundPortalContext(context);
+};
+
 const openNayaxManagerStepUp = async (page) => {
   await page.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
   await waitForQueueCount(page, 1);
@@ -7802,6 +7954,12 @@ const run = async () => {
         artifactDir: args.artifactDir,
         recorder,
       });
+      await runCustomerLocaleCorrectionChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
     } else if (args.demoOnly) {
       await runDemoFallbackChecks({
         browser,
@@ -7948,6 +8106,12 @@ const run = async () => {
       recorder,
     });
     await runAcknowledgementRecoveryChecks({
+      browser,
+      appUrl: args.appUrl,
+      artifactDir: args.artifactDir,
+      recorder,
+    });
+    await runCustomerLocaleCorrectionChecks({
       browser,
       appUrl: args.appUrl,
       artifactDir: args.artifactDir,
