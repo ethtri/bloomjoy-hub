@@ -32,6 +32,7 @@ const run = async () => {
     statusRecoveryMigration,
     waitingLifecycleMigration,
     schedulerIncidentMigration,
+    providerDelayEvidenceMigration,
   ] = await Promise.all([
     readText('supabase/functions/refund-case-admin-update/index.ts'),
     readText('src/pages/admin/Refunds.tsx'),
@@ -47,6 +48,7 @@ const run = async () => {
     readText('supabase/migrations/20260830183702_refund_customer_status_recovery.sql'),
     readText('supabase/migrations/20260831232759_refund_waiting_lifecycle_truth.sql'),
     readText('supabase/migrations/20260901172459_refund_scheduler_incident_1069.sql'),
+    readText('supabase/migrations/20260901185049_refund_provider_delay_evidence_1069.sql'),
   ]);
 
   assert(
@@ -173,6 +175,18 @@ const run = async () => {
         "'customer_status_update'",
         "'provider_delay', 'sla_at_risk'",
         "template_version = 'refund_customer_status_v1'",
+      ]) &&
+      includesAll(providerDelayEvidenceMigration, [
+        "new.reason_code = 'provider_delay'",
+        "case_row.status <> 'card_refund_pending'",
+        "case_row.decision is distinct from 'approved'",
+        "new.reason_code = 'sla_at_risk'",
+        "case_row.decision is not null",
+        'Provider-delay message requires the latest unresolved hold',
+        'guard_refund_provider_hold_customer_message',
+        "new.message_type = 'status_update'",
+        "new.delivery_kind = 'automatic'",
+        "new.content_source = 'deterministic_template'",
       ])
   );
   assert(
