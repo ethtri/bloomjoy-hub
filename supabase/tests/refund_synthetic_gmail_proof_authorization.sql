@@ -378,7 +378,7 @@ select is(
       and message_type = 'status_update'
   ),
   0,
-  'Rejected proof requests create zero synthetic-proof case messages'
+  'Rejected proof requests create zero case messages'
 );
 
 update public.reporting_machine_refund_managers
