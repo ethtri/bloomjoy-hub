@@ -37,22 +37,37 @@ values (
 insert into public.reporting_machines (
   id, account_id, location_id, machine_label, status,
   nayax_machine_id, nayax_account_key
-) values (
-  '75130000-0000-4000-8000-000000000001',
-  '75110000-0000-4000-8000-000000000001',
-  '75120000-0000-4000-8000-000000000001',
-  'Selected transaction machine', 'active',
-  'SAFE-MACHINE-751', 'TGPACI_USA_DB'
-);
+) values
+  (
+    '75130000-0000-4000-8000-000000000001',
+    '75110000-0000-4000-8000-000000000001',
+    '75120000-0000-4000-8000-000000000001',
+    'Selected transaction machine', 'active',
+    'SAFE-MACHINE-751', 'TGPACI_USA_DB'
+  ),
+  (
+    '75130000-0000-4000-8000-000000000002',
+    '75110000-0000-4000-8000-000000000001',
+    '75120000-0000-4000-8000-000000000001',
+    'Unrelated manager machine', 'active',
+    'SAFE-MACHINE-UNRELATED-751', 'TGPACI_USA_DB'
+  );
 
 insert into public.reporting_machine_refund_managers (
   reporting_machine_id, manager_user_id, manager_email, grant_reason
-) values (
-  '75130000-0000-4000-8000-000000000001',
-  '75100000-0000-4000-8000-000000000001',
-  'selected-transaction-manager@example.invalid',
-  'Selected transaction manager fixture'
-);
+) values
+  (
+    '75130000-0000-4000-8000-000000000001',
+    '75100000-0000-4000-8000-000000000001',
+    'selected-transaction-manager@example.invalid',
+    'Selected transaction manager fixture'
+  ),
+  (
+    '75130000-0000-4000-8000-000000000002',
+    '75100000-0000-4000-8000-000000000002',
+    'unrelated-manager@example.invalid',
+    'Unrelated manager isolation fixture'
+  );
 
 insert into public.refund_cases (
   id, public_reference, reporting_machine_id, reporting_location_id,
@@ -83,7 +98,7 @@ insert into public.refund_cases (
   800, 'NAYAX-751000001', 751,
   '2026-08-31T18:07:00Z', 800, '9999', 'USD',
   'high_confidence', 'selected-evidence-test.v1',
-  '2026-08-31T18:15:00Z', true
+  '2026-08-31T18:15:00Z', false
 );
 
 insert into public.refund_nayax_lookup_candidates (
