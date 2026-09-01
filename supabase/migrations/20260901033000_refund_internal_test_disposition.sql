@@ -158,15 +158,16 @@ begin
   for share;
 
   if coalesce(target_is_internal, false) then
-    if tg_table_name = 'refund_case_messages'
-      and new.status not in ('pending', 'sent') then
-      return new;
+    if tg_table_name = 'refund_case_messages' then
+      if new.status not in ('pending', 'sent') then
+        return new;
+      end if;
     end if;
 
-    if tg_table_name = 'refund_follow_up_cycles'
-      and tg_op = 'UPDATE'
-      and new.status = 'manual_review' then
-      return new;
+    if tg_table_name = 'refund_follow_up_cycles' then
+      if tg_op = 'UPDATE' and new.status = 'manual_review' then
+        return new;
+      end if;
     end if;
 
     raise exception using errcode = 'P4640',
@@ -185,7 +186,9 @@ for each row execute function public.guard_refund_internal_test_child_action();
 
 drop trigger if exists refund_follow_up_cycles_guard_internal_test
   on public.refund_follow_up_cycles;
-create trigger refund_follow_up_cycles_guard_internal_test
+drop trigger if exists refund_00_internal_test_follow_up_guard
+  on public.refund_follow_up_cycles;
+create trigger refund_00_internal_test_follow_up_guard
 before insert or update on public.refund_follow_up_cycles
 for each row execute function public.guard_refund_internal_test_child_action();
 
