@@ -146,6 +146,7 @@ const securePilotAssertion = (value: string | undefined) => {
 
 type RefundCaseForExecution = {
   id: string;
+  case_population: string;
   nayax_refund_attempt_generation: number;
   public_reference: string;
   status: string;
@@ -186,6 +187,7 @@ const getRefundCase = async (
     .from("refund_cases")
     .select(`
       id,
+      case_population,
       nayax_refund_attempt_generation,
       public_reference,
       status,
@@ -463,6 +465,29 @@ serve(async (req) => {
         errorCode: "authorization_failed",
         blocks: ["authorization_failed"],
       }, 403);
+    }
+
+    if (refundCase.case_population === "internal_test") {
+      if (operation === "availability") {
+        return jsonResponse({
+          available: false,
+          status: "unavailable",
+          blockReason: "case_not_refundable",
+          caseId,
+          transactionConfirmed: false,
+          canIssueCardRefund: false,
+          refundAmountCents: null,
+          machineLimitCents: null,
+          caseVersion: refundCase.official_action_version,
+          payloadRedacted: true,
+        });
+      }
+      return jsonResponse({
+        executed: false,
+        status: "preflight_blocked",
+        errorCode: "internal_test_refund_suppressed",
+        blocks: ["case_not_refundable"],
+      }, 409);
     }
 
     if (operation === "availability") {

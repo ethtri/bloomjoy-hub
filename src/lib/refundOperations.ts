@@ -359,6 +359,62 @@ export type RefundCustomerLocaleContract = {
   payloadRedacted: true;
 };
 
+export type RefundInternalTestReason =
+  | 'employee_technician_test'
+  | 'machine_setup_commissioning'
+  | 'provider_test'
+  | 'duplicate_synthetic_record'
+  | 'other_internal_test';
+
+export type RefundInternalTestContract = {
+  schemaVersion: 'refund_internal_test_v1';
+  classification: 'internal_test_no_customer_refund';
+  reason: RefundInternalTestReason;
+  reasonLabel: string;
+  classifiedAt: string;
+  suppressesCustomerMessages: true;
+  suppressesRefunds: true;
+  suppressesReportingAdjustments: true;
+  suppressesReminders: true;
+  suppressesCustomerSla: true;
+  payloadRedacted: true;
+};
+
+const refundInternalTestReasons = new Set<RefundInternalTestReason>([
+  'employee_technician_test',
+  'machine_setup_commissioning',
+  'provider_test',
+  'duplicate_synthetic_record',
+  'other_internal_test',
+]);
+
+const requireRefundInternalTestContract = (
+  value: unknown
+): RefundInternalTestContract => {
+  const contract = value && typeof value === 'object'
+    ? value as Record<string, unknown>
+    : null;
+  if (
+    contract?.schemaVersion !== 'refund_internal_test_v1' ||
+    contract.classification !== 'internal_test_no_customer_refund' ||
+    typeof contract.reason !== 'string' ||
+    !refundInternalTestReasons.has(contract.reason as RefundInternalTestReason) ||
+    typeof contract.reasonLabel !== 'string' ||
+    contract.reasonLabel.trim().length === 0 ||
+    typeof contract.classifiedAt !== 'string' ||
+    Number.isNaN(Date.parse(contract.classifiedAt)) ||
+    contract.suppressesCustomerMessages !== true ||
+    contract.suppressesRefunds !== true ||
+    contract.suppressesReportingAdjustments !== true ||
+    contract.suppressesReminders !== true ||
+    contract.suppressesCustomerSla !== true ||
+    contract.payloadRedacted !== true
+  ) {
+    throw new Error('Unsupported Internal/test archive response.');
+  }
+  return contract as RefundInternalTestContract;
+};
+
 export type NayaxMatchFactor = {
   key: string;
   outcome: string;
@@ -458,6 +514,7 @@ export type RefundCaseRecord = {
   latestCustomerMessageAt?: string | null;
   acknowledgementDeliveryException?: RefundAcknowledgementDeliveryException | null;
   customerLocale?: RefundCustomerLocaleContract | null;
+  internalTest?: RefundInternalTestContract | null;
   nayaxLookupSummary?: RefundNayaxLookupSummary | null;
   manualNayaxPortalEnabled?: boolean;
   manualNayaxEvidenceSelected?: boolean;
@@ -480,12 +537,14 @@ export type RefundManagerAssignment = {
 
 export type RefundOperationsOverview = {
   cases: RefundCaseRecord[];
+  internalTestCases?: RefundCaseRecord[];
   machines: RefundAdminMachine[];
   managerAssignments: RefundManagerAssignment[];
   lifecycleContractVersion?: typeof REFUND_LIFECYCLE_SCHEMA_VERSION;
   managerQueueContractVersion?: 'refund_manager_queue_v1';
   acknowledgementRecoveryContractVersion?: 'refund_acknowledgement_recovery_v1';
   customerLocaleContractVersion?: 'refund_customer_locale_v1';
+  internalTestContractVersion?: 'refund_internal_test_v1';
   refundOperationsAccess?: boolean;
 };
 
@@ -1308,6 +1367,7 @@ export const fetchRefundCustomerStatus = async (
 
 const emptyOverview: RefundOperationsOverview = {
   cases: [],
+  internalTestCases: [],
   machines: [],
   managerAssignments: [],
 };
@@ -1914,8 +1974,25 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   ) {
     throw new Error('Unsupported refund manager queue response.');
   }
+  if (
+    overview.internalTestContractVersion !== undefined &&
+    overview.internalTestContractVersion !== 'refund_internal_test_v1'
+  ) {
+    throw new Error('Unsupported Internal/test archive response.');
+  }
+  const internalTestCases = Array.isArray(overview.internalTestCases)
+    ? overview.internalTestCases.map((refundCase) => ({
+        ...refundCase,
+        internalTest: requireRefundInternalTestContract(refundCase.internalTest),
+        lifecycle: refundCase.lifecycle
+          ? requireRefundLifecycleContract(refundCase.lifecycle)
+          : null,
+      }))
+    : [];
+  const internalTestCaseIds = new Set(internalTestCases.map((refundCase) => refundCase.id));
   const gmailDrafts = Array.isArray(gmailDraftResult.data)
     ? (gmailDraftResult.data as RefundCaseRecord[])
+        .filter((refundCase) => !internalTestCaseIds.has(refundCase.id))
     : [];
   const queueStates = Array.isArray(queueStateResult.data)
     ? (queueStateResult.data as RefundEmailQueueState[])
@@ -1972,6 +2049,7 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   return {
     ...overview,
     cases,
+    internalTestCases,
   };
 };
 
@@ -2409,6 +2487,67 @@ export const correctRefundCustomerLocale = async (input: {
   }
 
   return response as CorrectRefundCustomerLocaleResponse;
+};
+
+export type ClassifyRefundCaseInternalTestResponse = {
+  classified: boolean;
+  replayed: boolean;
+  caseVersion: number;
+  classification: RefundInternalTestContract;
+  payloadRedacted: true;
+};
+
+export const classifyRefundCaseInternalTest = async (input: {
+  caseId: string;
+  expectedCaseVersion: number;
+  reason: RefundInternalTestReason;
+}): Promise<ClassifyRefundCaseInternalTestResponse> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_classify_refund_case_internal_test',
+    {
+      p_case_id: input.caseId,
+      p_expected_case_version: input.expectedCaseVersion,
+      p_reason: input.reason,
+    }
+  );
+  if (error || !data || typeof data !== 'object') {
+    throw new Error(error?.message || 'Unable to classify this Internal/test case.');
+  }
+
+  const response = data as Record<string, unknown>;
+  const classification = response.classification && typeof response.classification === 'object'
+    ? response.classification as Record<string, unknown>
+    : null;
+  if (
+    typeof response.classified !== 'boolean' ||
+    typeof response.replayed !== 'boolean' ||
+    response.classified === response.replayed ||
+    typeof response.caseVersion !== 'number' ||
+    !Number.isInteger(response.caseVersion) ||
+    (
+      response.replayed === true
+        ? response.caseVersion < input.expectedCaseVersion
+        : response.caseVersion <= input.expectedCaseVersion
+    ) ||
+    classification?.schemaVersion !== 'refund_internal_test_v1' ||
+    classification?.classification !== 'internal_test_no_customer_refund' ||
+    classification?.reason !== input.reason ||
+    typeof classification.reasonLabel !== 'string' ||
+    classification.reasonLabel.trim().length === 0 ||
+    typeof classification.classifiedAt !== 'string' ||
+    Number.isNaN(Date.parse(classification.classifiedAt)) ||
+    classification?.suppressesCustomerMessages !== true ||
+    classification?.suppressesRefunds !== true ||
+    classification?.suppressesReportingAdjustments !== true ||
+    classification?.suppressesReminders !== true ||
+    classification?.suppressesCustomerSla !== true ||
+    classification?.payloadRedacted !== true ||
+    response.payloadRedacted !== true
+  ) {
+    throw new Error('The Internal/test disposition response was invalid. Refresh before continuing.');
+  }
+
+  return response as ClassifyRefundCaseInternalTestResponse;
 };
 
 export const createRefundManualNayaxCandidate = async (

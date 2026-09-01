@@ -322,7 +322,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 72, 'Evidence must enumerate all 72 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 76, 'Evidence must enumerate all 76 reviewed screenshots');
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-acknowledgement-recovery-mobile.png') &&
       EXPECTED_SCREENSHOTS.includes('refund-acknowledgement-recovery-resolved.png'),
@@ -332,6 +332,13 @@ try {
     EXPECTED_SCREENSHOTS.includes('refund-customer-locale-correction-mobile.png') &&
       EXPECTED_SCREENSHOTS.includes('refund-customer-locale-correction-saved.png'),
     'Evidence must include both reviewed customer-locale correction states'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-internal-test-disposition-mobile.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-internal-test-confirmation-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-internal-test-archive-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-internal-test-archive-mobile.png'),
+    'Evidence must include the reviewed Internal/test disposition and restricted archive states'
   );
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-direct-intake-cash-desktop.png') &&

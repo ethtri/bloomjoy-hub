@@ -34,6 +34,7 @@ assert.deepEqual(overviewFixtureBuilders, [
   'buildEmptyRefundOverview',
   'buildAcknowledgementRecoveryOverview',
   'buildLocaleCorrectionOverview',
+  'buildInternalTestOverview',
   'buildLegacyStateReviewOverview',
   'buildFailedCommsRefundOverview',
   'buildCashRefundReviewOverview',
