@@ -132,7 +132,12 @@ select ok(
 );
 select ok(
   (select item -> 'customerDeliveryException' is null
-    and item -> 'messages' -> 0 ->> 'deliveryState' = 'accepted'
+    and exists (
+      select 1
+      from jsonb_array_elements(item -> 'messages') message_item
+      where message_item ->> 'id' = 'd9150000-0000-4000-8000-000000000001'
+        and message_item ->> 'deliveryState' = 'accepted'
+    )
    from jsonb_array_elements(public.admin_get_refund_operations_overview() -> 'cases') item
    where item ->> 'id' = 'd9140000-0000-4000-8000-000000000001'),
   'Recent provider acceptance does not claim delivery or prematurely create an exception'
