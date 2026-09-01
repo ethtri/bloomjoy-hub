@@ -31,6 +31,9 @@ const run = async () => {
     gmailSync,
     statusRecoveryMigration,
     waitingLifecycleMigration,
+    acknowledgementRecoveryMigration,
+    refundOperations,
+    acknowledgementRecoveryTest,
     schedulerIncidentMigration,
     providerDelayEvidenceMigration,
   ] = await Promise.all([
@@ -47,6 +50,9 @@ const run = async () => {
     readText('supabase/functions/refund-gmail-sync/index.ts'),
     readText('supabase/migrations/20260830183702_refund_customer_status_recovery.sql'),
     readText('supabase/migrations/20260831232759_refund_waiting_lifecycle_truth.sql'),
+    readText('supabase/migrations/20260901010259_refund_acknowledgement_recovery_disposition.sql'),
+    readText('src/lib/refundOperations.ts'),
+    readText('supabase/tests/refund_acknowledgement_recovery_disposition.sql'),
     readText('supabase/migrations/20260901172459_refund_scheduler_incident_1069.sql'),
     readText('supabase/migrations/20260901185049_refund_provider_delay_evidence_1069.sql'),
   ]);
@@ -212,6 +218,34 @@ const run = async () => {
       "'more_information_state_repaired'",
       "'customerActionFields'",
       "'review_customer_contact'",
+    ])
+  );
+  assert(
+    'Skipped acknowledgements remain visible and have one no-resend recovery disposition',
+    includesAll(acknowledgementRecoveryMigration, [
+      'refund_acknowledgement_delivery_exception',
+      "message.message_type = 'confirmation'",
+      "message.status = 'skipped'",
+      "'record_later_contact_disposition'",
+      "'send_safe_status_update'",
+      'admin_dispose_refund_acknowledgement_exception',
+      'p_expected_case_version',
+      'later_customer_contact_already_sent',
+      "'customer_acknowledgement_recovery_disposition'",
+      "'payload_redacted', true",
+    ]) && includesAll(portalPage, [
+      'Customer acknowledgement was skipped',
+      'Record later contact — do not resend',
+      'handleDisposeAcknowledgementException',
+      'acknowledgementExceptionNeedsAttention',
+    ]) && includesAll(refundOperations, [
+      'acknowledgementDeliveryException',
+      'disposeRefundAcknowledgementException',
+    ]) && includesAll(acknowledgementRecoveryTest, [
+      'A stale case version cannot record the disposition',
+      'Recording the disposition sends or creates no customer message',
+      'A replay cannot duplicate the audit event',
+      'changes no case decision, payment, provider, or reporting state',
     ])
   );
   assert(
