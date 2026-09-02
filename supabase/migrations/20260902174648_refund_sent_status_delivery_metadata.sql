@@ -115,7 +115,10 @@ begin
           select 1 from public.refund_transactional_delivery_events event
           where event.provider_message_id = old.provider_message_id
             and event.delivery_state = new.delivery_state
-            and event.event_at <= new.delivery_state_updated_at
+            and new.delivery_state_updated_at is not distinct from greatest(
+              coalesce(old.delivery_state_updated_at, '-infinity'::timestamptz),
+              coalesce(event.event_at, '-infinity'::timestamptz)
+            )
         ) then
         return new;
       end if;
