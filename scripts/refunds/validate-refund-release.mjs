@@ -195,7 +195,7 @@ const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-relea
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
 const reviewedManagerSourceSha256 = {
   'refund-manager-action-step-up':
-    '6e00f66d64de64af006d42e661a70c428e80d47e8c1fbfaaceff72e2e0a5c875',
+    'd04073ca6ea91d75d13e9414b1bc23cd5aa76a57cd4e62a8d5182accdaee668a',
   'refund-manager-totp-enrollment':
     'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
 };
