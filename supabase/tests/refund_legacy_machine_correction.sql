@@ -56,6 +56,13 @@ from generate_series(1,5) n;
 insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body)
 values('be810000-0000-4000-8000-000000000001','be400000-0000-4000-8000-000000000001',
   'confirmation','pending','correction-customer@example.invalid','Synthetic pre-existing send','Synthetic pre-existing send');
+-- Exact historical 0700 backfill shape: this is neither a pending send nor
+-- proof of delivery. The atomic correction must preserve it without adoption.
+insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,
+  created_at,sent_at,delivery_transport,delivery_state,provider_message_id,delivery_state_updated_at)
+values('be820000-0000-4000-8000-000000000001','be400000-0000-4000-8000-000000000001',
+  'confirmation','sent','correction-customer@example.invalid','Synthetic historical notice','Synthetic immutable historical notice',
+  '2026-09-01 18:30:00+00','2026-09-01 18:30:00+00','resend','unknown',null,'2026-09-01 18:30:00+00');
 update public.refund_cases set nayax_refund_execution_status='manual_review'
 where reporting_machine_id='be300000-0000-4000-8000-000000000001';
 with inserted as (
@@ -93,6 +100,8 @@ create table refund_machine_correction_test.history as select id,to_jsonb(e) as 
   from public.refund_case_events e where e.refund_case_id in (select id from refund_machine_correction_test.snapshots);
 create table refund_machine_correction_test.mail as select id,to_jsonb(g) as evidence
   from public.refund_gmail_messages g where id='be800000-0000-4000-8000-000000000001';
+create table refund_machine_correction_test.transactional_mail as select id,to_jsonb(msg) as evidence
+  from public.refund_case_messages msg where id='be820000-0000-4000-8000-000000000001';
 create function refund_machine_correction_test.authorize() returns void language plpgsql as $$ begin
   perform set_config('request.jwt.claim.sub','be000000-0000-4000-8000-000000000001',true);
   perform set_config('request.jwt.claim.role','authenticated',true);
@@ -205,6 +214,10 @@ create temporary table correction_positive_input as select c.official_action_ver
 from public.refund_cases c join public.refund_case_nayax_refund_attempts a on a.refund_case_id=c.id
 where c.id='be400000-0000-4000-8000-000000000001';
 grant select on correction_positive_input to authenticated;
+select ok(exists(select 1 from public.refund_case_messages where id='be820000-0000-4000-8000-000000000001'
+  and status='sent' and sent_at='2026-09-01 18:30:00+00'::timestamptz and delivery_transport='resend'
+  and delivery_state='unknown' and provider_message_id is null and delivery_state_updated_at=sent_at),
+  'Actual authenticated correction starts with the exact historical SENT unknown backfill shape');
 set local role authenticated;
 select is(public.admin_correct_legacy_refund_machine_and_record_observation('be400000-0000-4000-8000-000000000001',
   (select attempt_id from correction_positive_input),(select official_action_version from correction_positive_input),
@@ -284,6 +297,10 @@ select ok((select bool_and(coalesce(to_jsonb(a)=s.attempt_before,false)) from re
   left join public.refund_case_nayax_refund_attempts a on a.refund_case_id=s.id),'Historical attempts are byte-for-byte unchanged');
 select ok((select bool_and(coalesce(to_jsonb(e)=s.evidence,false)) from refund_machine_correction_test.history s left join public.refund_case_events e on e.id=s.id),'Historical events are unchanged');
 select ok((select bool_and(coalesce(to_jsonb(g)=s.evidence,false)) from refund_machine_correction_test.mail s left join public.refund_gmail_messages g on g.id=s.id),'Sent customer notice content, CC and thread ownership are unchanged');
+select ok((select bool_and(coalesce(to_jsonb(msg)=s.evidence,false)) from refund_machine_correction_test.transactional_mail s
+  left join public.refund_case_messages msg on msg.id=s.id),'Historical SENT unknown transactional row is unchanged in full');
+select is((select count(*)::integer from public.refund_completion_notice_adoptions where refund_case_id in
+  (select id from refund_machine_correction_test.snapshots)),0,'Historical unknown notice is not automatically adopted as completion evidence');
 select ok((select bool_and(c.intake_meta-array['manager_assignment_rule','manager_assignment_status','manager_assignment_active_mapping_count'] =
   (s.case_before->'intake_meta')-array['manager_assignment_rule','manager_assignment_status','manager_assignment_active_mapping_count'])
   from refund_machine_correction_test.snapshots s join public.refund_cases c on c.id=s.id),'Original intake metadata survives except existing derived assignment fields');
@@ -293,7 +310,7 @@ select ok((select bool_and(c.incident_at=(s.case_before->>'incident_at')::timest
   and c.refund_qr_claim_context_id is null and c.refund_completed_at is null and c.reporting_adjustment_id is null)
   from refund_machine_correction_test.snapshots s join public.refund_cases c on c.id=s.id),'Original, sale time, intake timezone and unknown settlement remain unchanged');
 select is((select count(*)::integer from public.sales_adjustment_facts where refund_case_id in (select id from refund_machine_correction_test.snapshots)),0,'No financial adjustment');
-select is((select count(*)::integer from public.refund_case_messages where refund_case_id in (select id from refund_machine_correction_test.snapshots)),0,'No customer-send intent');
+select is((select count(*)::integer from public.refund_case_messages where refund_case_id in (select id from refund_machine_correction_test.snapshots)),1,'Only the original historical notice remains; no new customer-send intent');
 select throws_ok($$update public.refund_legacy_machine_corrections set recorded_at=now()$$,'P4660',null,'Correction audit is immutable');
 begin;
 select refund_machine_correction_test.authorize();
@@ -330,6 +347,7 @@ alter table public.refund_legacy_machine_corrections enable trigger refund_legac
 alter table public.refund_authoritative_receipts enable trigger refund_authoritative_receipts_immutable;
 delete from public.refund_gmail_messages where id='be800000-0000-4000-8000-000000000001';
 delete from public.refund_gmail_threads where id='be700000-0000-4000-8000-000000000001';
+delete from public.refund_case_messages where id='be820000-0000-4000-8000-000000000001';
 delete from public.refund_case_nayax_refund_attempts where refund_case_id in (select id from refund_machine_correction_test.snapshots);
 delete from public.refund_cases where id in (select id from refund_machine_correction_test.snapshots);
 delete from public.refund_nayax_machine_inventory where id='be600000-0000-4000-8000-000000000002';
