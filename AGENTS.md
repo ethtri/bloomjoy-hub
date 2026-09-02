@@ -57,6 +57,14 @@ If docs and the GitHub board disagree on active task state, the board wins. If d
 - Do not introduce a new platform such as a CMS or headless commerce system without a decision entry in `Docs/DECISIONS.md`.
 - Never put secret keys into client-exposed Vite env vars. Anything starting with `VITE_` is exposed to the browser.
 
+## Temporary Refund Scope - Bloomjoy NC / Adam (2026-09-02)
+
+- Until explicitly revised by the owner, machines owned by **Bloomjoy NC** and managed **solely by Adam Rogers** are outside agent-assisted refund triage and review. Route these cases to Adam for his own review and decision.
+- We do not have access to Adam's Nayax account and cannot make decisions on his behalf. Do not assess refund eligibility, recommend or record approval/denial, change decision or payment state, initiate reimbursement, or communicate an approval/payment promise for these cases.
+- Broad instructions such as "complete all Bloomjoy work" or approval to send a batch of messages do not override this exclusion or establish Adam's review. An existing `approved` label or an actor ID written by an agent is not proof that Adam approved a refund; verify the originating action and its authority before describing a decision.
+- Check actual ownership and current sole-manager responsibility before including a machine in agent work. Conflicting, missing, or incorrect location/machine mappings leave scope unverified; do not use a convenient mapped machine, another manager's account, or another Nayax account to infer authority.
+- Factual routing, an explicitly requested read-only provenance investigation, and an explicitly authorized brief acknowledgement/manager handoff are permitted. Preserve historical evidence, state what is unverified, and leave substantive triage, review, and decisions to Adam.
+
 ## Frontend and Design Workflow
 
 - For net-new app/site/tool work, redesigns, production UI surfaces, or visually important pages, use `build-web-apps:frontend-app-builder`.
