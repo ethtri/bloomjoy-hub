@@ -91,6 +91,18 @@ begin
     x->>'original',(x->>'amount')::integer,(x->>'refunded')::integer,x->>'currency',(x->>'status')::integer,
     x->>'reference',(x->>'reviewed')::boolean);
 end; $$;
+-- Keep pgTAP assertions outside the rolled-back corruption subtransaction.
+create function refund_machine_correction_test.reject_corruption(p_setup text) returns text language plpgsql as $$
+declare setup_complete boolean:=false;
+begin
+  execute p_setup;
+  setup_complete:=true;
+  perform refund_machine_correction_test.run(1);
+  raise exception 'Corrupt fixture unexpectedly accepted' using errcode='XX001';
+exception when others then
+  if not setup_complete then raise; end if;
+  return sqlstate;
+end; $$;
 create function refund_machine_correction_test.race(p_action text,n integer) returns jsonb language plpgsql as $$
 declare c public.refund_cases%rowtype; a uuid;
 begin
@@ -136,50 +148,30 @@ select throws_ok($$select refund_machine_correction_test.run(1,'{"refunded":699}
 select throws_ok($$select refund_machine_correction_test.run(1,'{"currency":"EUR"}')$$,'P4661',null,'Changed currency fails closed');
 select throws_ok($$select refund_machine_correction_test.run(1,'{"reviewed":false}')$$,'42501',null,'Unreviewed observation fails closed');
 select throws_ok($$select refund_machine_correction_test.run(1,'{"reviewed":null}')$$,'42501',null,'NULL current observation fails closed');
-savepoint revoked_role;
-update public.admin_roles set active=false where user_id='be000000-0000-4000-8000-000000000001';
-select throws_ok($$select refund_machine_correction_test.run(1)$$,'42501',null,'Revoked superadmin fails closed');
-rollback to revoked_role;
-savepoint revoked_session;
-delete from auth.sessions where id='be010000-0000-4000-8000-000000000001';
-select throws_ok($$select refund_machine_correction_test.run(1)$$,'42501',null,'Revoked session fails closed');
-rollback to revoked_session;
-savepoint missing_target_mapping;
-update public.reporting_machine_refund_managers set status='revoked',revoked_at=now() where reporting_machine_id='be300000-0000-4000-8000-000000000002';
-select throws_ok($$select refund_machine_correction_test.run(1)$$,'42501',null,'Missing target mapping fails closed');
-rollback to missing_target_mapping;
-savepoint missing_old_mapping;
-update public.reporting_machine_refund_managers set status='revoked',revoked_at=now() where reporting_machine_id='be300000-0000-4000-8000-000000000001';
-select throws_ok($$select refund_machine_correction_test.run(1)$$,'42501',null,'Missing old mapping fails closed');
-rollback to missing_old_mapping;
-savepoint qr_present;
-update public.refund_cases set intake_meta=intake_meta||'{"qr_claim_present":true}' where id='be400000-0000-4000-8000-000000000001';
-select throws_ok($$select refund_machine_correction_test.run(1)$$,'P4665',null,'QR-bound intake fails closed');
-rollback to qr_present;
-savepoint timezone_mismatch;
-update public.refund_cases set incident_timezone='America/New_York' where id='be400000-0000-4000-8000-000000000001';
-select throws_ok($$select refund_machine_correction_test.run(1)$$,'P4665',null,'Changed timezone interpretation fails closed');
-rollback to timezone_mismatch;
-savepoint unsupported_legacy;
-update public.refund_case_nayax_refund_attempts set idempotency_key='unsupported-batch' where refund_case_id='be400000-0000-4000-8000-000000000001';
-select throws_ok($$select refund_machine_correction_test.run(1)$$,'P4665',null,'Unrecognized historical provenance fails closed');
-rollback to unsupported_legacy;
-savepoint inactive_inventory;
-update public.refund_nayax_machine_inventory set reconciliation_state='needs_setup',provider_is_active=false where id='be600000-0000-4000-8000-000000000002';
-select throws_ok($$select refund_machine_correction_test.run(1)$$,'P4665',null,'Inactive inventory fails closed');
-rollback to inactive_inventory;
+select is(refund_machine_correction_test.reject_corruption($setup$update public.admin_roles set active=false where user_id='be000000-0000-4000-8000-000000000001';$setup$),
+  '42501','Revoked superadmin fails closed');
+select is(refund_machine_correction_test.reject_corruption($setup$delete from auth.sessions where id='be010000-0000-4000-8000-000000000001';$setup$),
+  '42501','Revoked session fails closed');
+select is(refund_machine_correction_test.reject_corruption($setup$update public.reporting_machine_refund_managers set status='revoked',revoked_at=now() where reporting_machine_id='be300000-0000-4000-8000-000000000002';$setup$),
+  '42501','Missing target mapping fails closed');
+select is(refund_machine_correction_test.reject_corruption($setup$update public.reporting_machine_refund_managers set status='revoked',revoked_at=now() where reporting_machine_id='be300000-0000-4000-8000-000000000001';$setup$),
+  '42501','Missing old mapping fails closed');
+select is(refund_machine_correction_test.reject_corruption($setup$update public.refund_cases set intake_meta=intake_meta||'{"qr_claim_present":true}' where id='be400000-0000-4000-8000-000000000001';$setup$),
+  'P4665','QR-bound intake fails closed');
+select is(refund_machine_correction_test.reject_corruption($setup$update public.refund_cases set incident_timezone='America/New_York' where id='be400000-0000-4000-8000-000000000001';$setup$),
+  'P4665','Changed timezone interpretation fails closed');
+select is(refund_machine_correction_test.reject_corruption($setup$update public.refund_case_nayax_refund_attempts set idempotency_key='unsupported-batch' where refund_case_id='be400000-0000-4000-8000-000000000001';$setup$),
+  'P4665','Unrecognized historical provenance fails closed');
+select is(refund_machine_correction_test.reject_corruption($setup$update public.refund_nayax_machine_inventory set reconciliation_state='needs_setup',provider_is_active=false where id='be600000-0000-4000-8000-000000000002';$setup$),
+  'P4665','Inactive inventory fails closed');
 select is((select count(*)::integer from public.refund_legacy_machine_corrections),0,'All failed corrections roll back their audit');
-savepoint pending_message;
-insert into public.refund_case_messages(refund_case_id,message_type,status,recipient_email,subject,body)
-values('be400000-0000-4000-8000-000000000001','confirmation','pending','correction-customer@example.invalid','Synthetic in-flight send','Synthetic in-flight send');
-select throws_ok($$select refund_machine_correction_test.run(1)$$,'P4661',null,'In-flight customer work blocks the atomic correction');
-rollback to pending_message;
-savepoint bound_intake;
-update public.refund_cases set intake_selection_kind='exact_machine',intake_selection_key='synthetic-original-machine',
+select is(refund_machine_correction_test.reject_corruption($setup$insert into public.refund_case_messages(refund_case_id,message_type,status,recipient_email,subject,body)
+values('be400000-0000-4000-8000-000000000001','confirmation','pending','correction-customer@example.invalid','Synthetic in-flight send','Synthetic in-flight send');$setup$),
+  'P4661','In-flight customer work blocks the atomic correction');
+select is(refund_machine_correction_test.reject_corruption($setup$update public.refund_cases set intake_selection_kind='exact_machine',intake_selection_key='synthetic-original-machine',
   intake_selection_machine_ids=array['be300000-0000-4000-8000-000000000001'::uuid]
-  where id='be400000-0000-4000-8000-000000000001';
-select throws_ok($$select refund_machine_correction_test.run(1)$$,'P4665',null,'Existing exact intake selection is not rewritten');
-rollback to bound_intake;
+  where id='be400000-0000-4000-8000-000000000001';$setup$),
+  'P4665','Existing exact intake selection is not rewritten');
 select is((select count(*)::integer from public.refund_authoritative_receipts where refund_case_id in (select id from refund_machine_correction_test.snapshots)),0,'All failed corrections roll back their receipt');
 select is((select reporting_machine_id from public.refund_cases where id='be400000-0000-4000-8000-000000000001'),'be300000-0000-4000-8000-000000000001'::uuid,'Receipt rejection rolls back the machine correction');
 select is(refund_machine_correction_test.run(1)->>'machineCorrected','true','Exact current evidence atomically corrects the machine and records receipt');
