@@ -14,7 +14,8 @@ const exactKeys = (body: Record<string, unknown>, keys: string[]) =>
   Object.keys(body).length === keys.length && keys.every((key) => Object.hasOwn(body, key));
 
 export const isAuthoritativeReceiptMode = (mode: unknown) =>
-  mode === "record_authoritative_receipt" || mode === "adopt_completion_notice";
+  mode === "record_authoritative_receipt" || mode === "adopt_completion_notice" ||
+  mode === "correct_legacy_machine_and_record_observation";
 
 export async function handleAuthoritativeReceipt(
   body: Record<string, unknown>,
@@ -24,10 +25,12 @@ export async function handleAuthoritativeReceipt(
   if (!uuid(body.caseId) || !positiveInteger(body.expectedCaseVersion)) return invalid;
   let name: string;
   let args: Record<string, unknown>;
-  if (body.mode === "record_authoritative_receipt") {
+  const correctingMachine = body.mode === "correct_legacy_machine_and_record_observation";
+  if (body.mode === "record_authoritative_receipt" || correctingMachine) {
     if (!exactKeys(body, ["mode", "caseId", "attemptId", "expectedCaseVersion", "accountScope",
       "providerMachineId", "originalTransactionId", "originalAmountCents", "refundedAmountCents",
-      "currencyCode", "providerStatus", "evidenceReference", "reviewedCurrentProviderObservation"]) ||
+      "currencyCode", "providerStatus", "evidenceReference", "reviewedCurrentProviderObservation",
+      ...(correctingMachine ? ["expectedOldMachineId", "targetMachineId", "inventoryId", "inventoryEvidenceDigest", "machineNumber"] : [])]) ||
       body.reviewedCurrentProviderObservation !== true ||
       (body.attemptId !== null && !uuid(body.attemptId)) ||
       !text(body.accountScope, 100) || !text(body.providerMachineId, 120) ||
@@ -35,6 +38,10 @@ export async function handleAuthoritativeReceipt(
       body.refundedAmountCents !== body.originalAmountCents || body.providerStatus !== 62 ||
       typeof body.currencyCode !== "string" || !/^[A-Z]{3}$/.test(body.currencyCode) ||
       body.evidenceReference !== `DTM:NAYAX-${body.originalTransactionId}`) return invalid;
+    if (correctingMachine && (!uuid(body.attemptId) || !uuid(body.expectedOldMachineId) ||
+      !uuid(body.targetMachineId) || body.targetMachineId === body.expectedOldMachineId ||
+      !uuid(body.inventoryId) || !text(body.machineNumber, 120) ||
+      typeof body.inventoryEvidenceDigest !== "string" || !/^[a-f0-9]{64}$/.test(body.inventoryEvidenceDigest))) return invalid;
     name = "admin_record_refund_authoritative_receipt";
     args = {
       p_case_id: body.caseId, p_attempt_id: body.attemptId, p_expected_case_version: body.expectedCaseVersion,
@@ -44,6 +51,12 @@ export async function handleAuthoritativeReceipt(
       p_provider_status: body.providerStatus, p_evidence_reference: body.evidenceReference,
       p_reviewed_current_provider_observation: true,
     };
+    if (correctingMachine) {
+      name = "admin_correct_legacy_refund_machine_and_record_observation";
+      Object.assign(args, { p_expected_old_machine_id: body.expectedOldMachineId,
+        p_target_machine_id: body.targetMachineId, p_inventory_id: body.inventoryId,
+        p_inventory_evidence_digest: body.inventoryEvidenceDigest, p_machine_number: body.machineNumber });
+    }
   } else if (body.mode === "adopt_completion_notice") {
     if (!exactKeys(body, ["mode", "caseId", "receiptId", "gmailMessageId", "expectedCaseVersion",
       "completionCaseReference", "completionOriginalTransactionId", "completionAmountCents",
@@ -65,18 +78,24 @@ export async function handleAuthoritativeReceipt(
   // Whitelist response fields; raw database errors, identities, content and
   // provider references never cross this handler boundary.
   const result = data as Record<string, unknown>;
-  const allowedStatuses = body.mode === "record_authoritative_receipt"
+  const allowedStatuses = correctingMachine ? ["recorded"] : body.mode === "record_authoritative_receipt"
     ? ["recorded", "already_recorded"] : ["adopted", "already_adopted"];
   if (!allowedStatuses.includes(String(result.status)) || result.customerMessageSent !== false || result.payloadRedacted !== true) {
     return { status: 409, body: { errorCode: "receipt_response_invalid", error: "Check the saved evidence before any further action." } };
   }
   const safe: Record<string, unknown> = { status: result.status, customerMessageSent: false, payloadRedacted: true };
-  if (body.mode === "record_authoritative_receipt") {
+  if (body.mode === "record_authoritative_receipt" || correctingMachine) {
     if (!uuid(result.receiptId) || result.settlementTimePrecision !== "unknown" ||
       result.paymentConfirmed !== true || result.accountingPending !== true) {
       return { status: 409, body: { errorCode: "receipt_response_invalid", error: "Check the saved evidence before any further action." } };
     }
     Object.assign(safe, { receiptId: result.receiptId, paymentConfirmed: true, accountingPending: true, settlementTimePrecision: "unknown" });
+    if (correctingMachine) {
+      if (!uuid(result.correctionId) || result.machineCorrected !== true) {
+        return { status: 409, body: { errorCode: "receipt_response_invalid", error: "Check the saved evidence before any further action." } };
+      }
+      Object.assign(safe, { correctionId: result.correctionId, machineCorrected: true });
+    }
   } else if (typeof result.managerCcVerified === "boolean") safe.managerCcVerified = result.managerCcVerified;
   return { status: 200, body: safe };
 }

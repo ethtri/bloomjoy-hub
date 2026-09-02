@@ -11,6 +11,44 @@ const request = () => ({
 const response = { receiptId: id, status: "recorded", paymentConfirmed: true, accountingPending: true,
   settlementTimePrecision: "unknown", customerMessageSent: false, payloadRedacted: true };
 
+const correctionRequest = () => ({ ...request(), mode: "correct_legacy_machine_and_record_observation",
+  attemptId: id, expectedOldMachineId: id, targetMachineId: "a4000000-0000-4000-8000-000000000002",
+  inventoryId: id, inventoryEvidenceDigest: "a".repeat(64), machineNumber: "555000002" });
+Deno.test("legacy machine correction uses exactly one authenticated evidence capability", async () => {
+  let calls = 0;
+  const result = await handleAuthoritativeReceipt(correctionRequest(), (name, args) => {
+    calls++;
+    assertEquals(name, "admin_correct_legacy_refund_machine_and_record_observation");
+    assertEquals(args.p_machine_number, "555000002");
+    assertEquals(args.p_inventory_evidence_digest, "a".repeat(64));
+    assertEquals(args.p_expected_old_machine_id, id);
+    return Promise.resolve({ data: { ...response, correctionId: id, machineCorrected: true,
+      rawHistoricalEvidence: "not-for-browser" }, error: null });
+  });
+  assertEquals(result.status, 200);
+  assertEquals(calls, 1);
+  assertEquals(result.body.machineCorrected, true);
+  assertFalse(Object.hasOwn(result.body, "rawHistoricalEvidence"));
+});
+for (const change of [
+  { attemptId: null }, { expectedOldMachineId: null }, { targetMachineId: id },
+  { inventoryId: null }, { inventoryEvidenceDigest: "wrong" }, { machineNumber: "" },
+  { reviewedCurrentProviderObservation: false }, { providerStatus: 63 }, { refundedAmountCents: 699 },
+  { actorId: id }, { observedAt: "2026-09-02T00:00:00Z" }, { customerConfirmedMachine: true },
+]) Deno.test(`legacy correction rejects ${Object.keys(change)[0]} without a write`, async () => {
+  const result = await handleAuthoritativeReceipt({ ...correctionRequest(), ...change }, () => {
+    throw new Error("Invalid input must not reach any capability");
+  });
+  assertEquals(result.status, 400);
+});
+Deno.test("legacy correction never treats an incomplete or replay response as success", async () => {
+  for (const data of [response, { ...response, status: "already_recorded", correctionId: id, machineCorrected: true },
+    { ...response, correctionId: id, machineCorrected: false }]) {
+    const result = await handleAuthoritativeReceipt(correctionRequest(), () => Promise.resolve({ data, error: null }));
+    assertEquals(result.status, 409);
+  }
+});
+
 Deno.test("unknown settlement receipt performs one authenticated evidence RPC and strips unexpected output", async () => {
   const calls: { name: string; args: Record<string, unknown> }[] = [];
   const result = await handleAuthoritativeReceipt(request(), (name, args) => {
