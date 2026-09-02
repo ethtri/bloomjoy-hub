@@ -10,19 +10,35 @@ export type RefundStatusCapability = {
 };
 
 export type CustomerRefundLifecycle = {
-  schemaVersion: "refund_lifecycle_v1";
+  schemaVersion: "refund_lifecycle_v2";
+  version: number;
   stage:
     | "matching"
     | "waiting_on_customer"
     | "needs_transaction_selection"
     | "transaction_confirmed"
+    | "awaiting_payout"
     | "refund_initiated"
     | "confirming_with_nayax"
     | "refund_confirmed"
     | "customer_notified"
     | "needs_refund_operations"
-    | "denied";
+    | "integrity_hold"
+    | "denied"
+    | "unable_to_complete";
   stageRank: number;
+  reasonCode: string;
+  customerAction: {
+    action: string;
+    required: boolean;
+    requestedFields: string[];
+    payloadRedacted: true;
+  };
+  paymentState: string;
+  messageState: {
+    state: string;
+    payloadRedacted: true;
+  };
   lastUpdatedAt: string;
   publicCopyKey: string;
   terminal: boolean;
@@ -45,12 +61,15 @@ const lifecycleStages = new Set<CustomerRefundLifecycle["stage"]>([
   "waiting_on_customer",
   "needs_transaction_selection",
   "transaction_confirmed",
+  "awaiting_payout",
   "refund_initiated",
   "confirming_with_nayax",
   "refund_confirmed",
   "customer_notified",
   "needs_refund_operations",
+  "integrity_hold",
   "denied",
+  "unable_to_complete",
 ]);
 
 const base64Url = (bytes: Uint8Array) => {
@@ -199,12 +218,22 @@ export const requireCustomerRefundLifecycle = (
   }
   const source = value as Record<string, unknown>;
   if (
-    source.schemaVersion !== "refund_lifecycle_v1" ||
+    source.schemaVersion !== "refund_lifecycle_v2" ||
     source.payloadRedacted !== true ||
+    typeof source.version !== "number" ||
+    !Number.isSafeInteger(source.version) ||
+    source.version < 1 ||
     typeof source.stage !== "string" ||
     !lifecycleStages.has(source.stage as CustomerRefundLifecycle["stage"]) ||
     typeof source.stageRank !== "number" ||
     !Number.isFinite(source.stageRank) ||
+    typeof source.reasonCode !== "string" ||
+    source.reasonCode.length === 0 ||
+    !source.customerAction ||
+    typeof source.customerAction !== "object" ||
+    !source.messageState ||
+    typeof source.messageState !== "object" ||
+    typeof source.paymentState !== "string" ||
     typeof source.lastUpdatedAt !== "string" ||
     Number.isNaN(Date.parse(source.lastUpdatedAt)) ||
     typeof source.publicCopyKey !== "string" ||
@@ -221,9 +250,14 @@ export const requireCustomerRefundLifecycle = (
   }
 
   return {
-    schemaVersion: "refund_lifecycle_v1",
+    schemaVersion: "refund_lifecycle_v2",
+    version: source.version,
     stage: source.stage as CustomerRefundLifecycle["stage"],
     stageRank: source.stageRank,
+    reasonCode: source.reasonCode,
+    customerAction: source.customerAction as CustomerRefundLifecycle["customerAction"],
+    paymentState: source.paymentState,
+    messageState: source.messageState as CustomerRefundLifecycle["messageState"],
     lastUpdatedAt: source.lastUpdatedAt,
     publicCopyKey: source.publicCopyKey,
     terminal: source.terminal,

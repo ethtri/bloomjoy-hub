@@ -12,6 +12,9 @@ export type RefundManagerStateId =
   | 'refunding'
   | 'refund_confirmed'
   | 'needs_refund_operations'
+  | 'awaiting_payout'
+  | 'integrity_hold'
+  | 'internal_test_archived'
   | 'completed'
   | 'refund_rejected'
   | 'check_nayax_result'
@@ -342,6 +345,24 @@ export const getRefundManagerState = (
             : 'Bloomjoy is checking current refund availability.',
           refundCase.refundReadiness?.blockReason ? 'warning' : 'info'
         );
+      case 'awaiting_payout':
+        return lifecycle.managerAction.action === 'mark_external_refund'
+          ? state(
+              'awaiting_payout',
+              'Ready to reimburse',
+              'The reimbursement destination and amount are recorded. Payment: Not issued.',
+              'Send the exact reimbursement outside Bloomjoy Hub, then record the payment proof once.',
+              'success'
+            )
+          : state(
+              'awaiting_payout',
+              'Payout details needed',
+              'The reimbursement cannot be sent until the missing payout destination is recorded.',
+              lifecycle.managerAction.action === 'request_payout_destination'
+                ? 'Request only the payout destination in the existing customer thread.'
+                : 'Resolve manager access before taking a payment action.',
+              'warning'
+            );
       case 'refund_initiated':
         return state(
           'refunding',
@@ -383,6 +404,30 @@ export const getRefundManagerState = (
             ? 'Use the Refund Operations panel below to record authoritative evidence. Never retry the payment.'
             : 'Refund Operations owns the next step. No action is needed, and the payment will not be tried again.',
           'warning'
+        );
+      case 'integrity_hold':
+        return state(
+          'integrity_hold',
+          'Lifecycle evidence needs review',
+          'The case payment state does not have the durable attempt evidence required to prove what happened.',
+          'Refund Operations must reconcile the existing evidence. Do not retry payment or contact the customer from a separate thread.',
+          'danger'
+        );
+      case 'unable_to_complete':
+        return state(
+          'closed',
+          'Unable to complete',
+          'The case ended without a recorded refund or denial.',
+          'Review the history only if new evidence arrives; do not describe this as denied.',
+          'neutral'
+        );
+      case 'internal_test_archived':
+        return state(
+          'internal_test_archived',
+          'Internal/test archived',
+          'This record is excluded from customer contact, refund counts, and active manager work.',
+          'No customer or payment action is allowed.',
+          'neutral'
         );
       case 'denied':
         return state(
@@ -635,6 +680,8 @@ export const getRefundPaymentStateLabel = (
     if (refundCase.lifecycle.stage === 'needs_refund_operations') {
       return 'Being confirmed';
     }
+    if (refundCase.lifecycle.stage === 'integrity_hold') return 'Evidence required';
+    if (refundCase.lifecycle.stage === 'internal_test_archived') return 'Suppressed';
     return 'Not issued';
   }
   if (refundCase.status === 'completed' || refundCase.providerOutcome === 'succeeded') return 'Refunded';

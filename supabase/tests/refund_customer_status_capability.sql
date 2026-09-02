@@ -128,7 +128,7 @@ select is(
 select is(
   public.service_read_refund_status_capability(repeat('a', 64), repeat('2', 64))
     #>> '{lifecycle,schemaVersion}',
-  'refund_lifecycle_v1',
+  'refund_lifecycle_v2',
   'The read consumes the canonical lifecycle contract'
 );
 select is(

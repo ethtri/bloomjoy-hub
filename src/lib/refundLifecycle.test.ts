@@ -12,16 +12,54 @@ const assert = (condition: unknown, message: string) => {
 
 const fixture = {
   schemaVersion: REFUND_LIFECYCLE_SCHEMA_VERSION,
+  version: 7,
   stage: "needs_refund_operations",
   stageRank: 60,
+  reasonCode: "provider_outcome_unknown",
+  actor: "system",
+  customerAction: {
+    action: "none",
+    required: false,
+    requestedFields: [],
+    payloadRedacted: true,
+  },
+  managerAction: {
+    action: "refund_operations",
+    owner: "Refund Operations",
+    safeRetryEligible: false,
+    payloadRedacted: true,
+  },
+  paymentState: "outcome_unknown",
+  messageState: {
+    state: "none",
+    messageType: null,
+    lastUpdatedAt: null,
+    payloadRedacted: true,
+  },
+  classification: "customer",
   evidenceState: "operations_hold",
+  locationEvidence: {
+    customerReported: {
+      selectionKey: "test-selection", selectionKind: "exact_machine",
+      machineIds: ["a3000000-0000-4000-8000-000000000001"], preserved: true,
+      payloadRedacted: true,
+    },
+    normalized: {
+      locationId: "a2000000-0000-4000-8000-000000000001",
+      machineId: "a3000000-0000-4000-8000-000000000001",
+      timezone: "America/Los_Angeles", providerAccountKey: "TEST",
+      mappingSource: "nayax", mappingVersion: 1, confidence: 1,
+      authoritative: true, payloadRedacted: true,
+    },
+    payloadRedacted: true,
+  },
   lastUpdatedAt: "2026-08-26T17:00:00.000Z",
   publicCopyKey: "refund_confirmation_in_progress",
   managerNextAction: "refund_operations",
   terminal: false,
   refreshAfterSeconds: 5,
   managerQueue: {
-    schemaVersion: "refund_manager_queue_v1",
+    schemaVersion: "refund_manager_queue_v2",
     bucket: "provider_hold",
     label: "Needs Refund Operations",
     nextAction: "refund_operations",
@@ -83,7 +121,7 @@ Deno.test("the lifecycle parser accepts only boolean definitive no-refund marker
 
 Deno.test("unknown lifecycle versions and provider-shaped payloads fail closed", () => {
   assert(
-    !isRefundLifecycleContract({ ...fixture, schemaVersion: "refund_lifecycle_v2" }),
+    !isRefundLifecycleContract({ ...fixture, schemaVersion: "refund_lifecycle_v3" }),
     "unknown versions must fail closed",
   );
   assert(

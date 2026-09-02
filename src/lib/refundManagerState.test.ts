@@ -20,10 +20,48 @@ const lifecycle = (
   stageRank: number,
   managerNextAction = 'wait'
 ): RefundLifecycleContract => ({
-  schemaVersion: 'refund_lifecycle_v1',
+  schemaVersion: 'refund_lifecycle_v2',
+  version: 1,
   stage,
   stageRank,
+  reasonCode: `test_${stage}`,
+  actor: 'system',
+  customerAction: {
+    action: stage === 'waiting_on_customer' ? 'reply_in_existing_thread' : 'none',
+    required: stage === 'waiting_on_customer',
+    requestedFields: stage === 'waiting_on_customer' ? ['incident_time'] : [],
+    payloadRedacted: true,
+  },
+  managerAction: {
+    action: managerNextAction,
+    owner: stage === 'needs_refund_operations' ? 'Refund Operations' : 'Machine Manager',
+    safeRetryEligible: false,
+    payloadRedacted: true,
+  },
+  paymentState: stage === 'needs_refund_operations' ? 'outcome_unknown' : 'not_requested',
+  messageState: {
+    state: 'none',
+    messageType: null,
+    lastUpdatedAt: null,
+    payloadRedacted: true,
+  },
+  classification: 'customer',
   evidenceState: 'synthetic',
+  locationEvidence: {
+    customerReported: {
+      selectionKey: 'test-selection', selectionKind: 'exact_machine',
+      machineIds: ['b3000000-0000-4000-8000-000000000001'], preserved: true,
+      payloadRedacted: true,
+    },
+    normalized: {
+      locationId: 'b2000000-0000-4000-8000-000000000001',
+      machineId: 'b3000000-0000-4000-8000-000000000001',
+      timezone: 'America/Los_Angeles', providerAccountKey: 'TEST',
+      mappingSource: 'nayax', mappingVersion: 1, confidence: 1,
+      authoritative: true, payloadRedacted: true,
+    },
+    payloadRedacted: true,
+  },
   lastUpdatedAt: '2026-08-26T20:00:00.000Z',
   publicCopyKey: `refund_${stage}`,
   managerNextAction,
@@ -31,7 +69,7 @@ const lifecycle = (
   refreshAfterSeconds:
     stage === 'customer_notified' || stage === 'denied' ? null : 5,
   managerQueue: {
-    schemaVersion: 'refund_manager_queue_v1',
+    schemaVersion: 'refund_manager_queue_v2',
     bucket: stage === 'waiting_on_customer'
       ? 'waiting_on_customer'
       : stage === 'needs_refund_operations'
@@ -69,6 +107,34 @@ const lifecycle = (
       : null,
   },
   payloadRedacted: true,
+});
+
+Deno.test('v2-only payout, integrity, closure, and internal/test states stay explicit', () => {
+  const fixtures = [
+    ['awaiting_payout', 'awaiting_payout', 'Ready to reimburse'],
+    ['integrity_hold', 'integrity_hold', 'Lifecycle evidence needs review'],
+    ['unable_to_complete', 'closed', 'Unable to complete'],
+    ['internal_test_archived', 'internal_test_archived', 'Internal/test archived'],
+  ] as const;
+  for (const [stage, expectedId, expectedLabel] of fixtures) {
+    const contract = lifecycle(
+      stage,
+      stage === 'internal_test_archived' ? 100 : 60,
+      stage === 'awaiting_payout' ? 'mark_external_refund' : 'none',
+    );
+    if (stage === 'integrity_hold') {
+      contract.managerAction.action = 'reconcile_lifecycle_integrity';
+      contract.managerAction.owner = 'Refund Operations';
+      contract.managerQueue.bucket = 'integrity_hold';
+    }
+    if (stage === 'internal_test_archived') {
+      contract.classification = 'internal_test';
+      contract.managerQueue.bucket = 'internal_archive';
+    }
+    const result = getRefundManagerState({ ...baseCase, lifecycle: contract });
+    assertEquals(result.id, expectedId, `${stage} id`);
+    assertEquals(result.label, expectedLabel, `${stage} label`);
+  }
 });
 
 Deno.test('manager state presents the normal card case as ready for review', () => {

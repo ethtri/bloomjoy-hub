@@ -80,13 +80,28 @@ export default function RefundStatusPage() {
       ? requestedStage as RefundCustomerLifecycle['stage']
       : 'matching';
     return {
-      schemaVersion: 'refund_lifecycle_v1',
+      schemaVersion: 'refund_lifecycle_v2',
+      version: 1,
       stage,
       stageRank: refundCustomerLifecycleStages.indexOf(stage),
+      reasonCode: `demo_${stage}`,
+      customerAction: {
+        action: stage === 'waiting_on_customer' ? 'reply_in_existing_thread' : 'none',
+        required: stage === 'waiting_on_customer',
+        requestedFields: stage === 'waiting_on_customer' ? ['incident_time'] : [],
+        payloadRedacted: true,
+      },
+      paymentState: ['refund_confirmed', 'customer_notified'].includes(stage)
+        ? 'confirmed'
+        : 'not_requested',
+      messageState: {
+        state: stage === 'customer_notified' ? 'delivered' : 'none',
+        payloadRedacted: true,
+      },
       lastUpdatedAt: new Date().toISOString(),
       publicCopyKey: `demo_${stage}`,
-      terminal: stage === 'customer_notified' || stage === 'denied',
-      refreshAfterSeconds: stage === 'customer_notified' || stage === 'denied' ? null : 5,
+      terminal: ['customer_notified', 'denied', 'unable_to_complete'].includes(stage),
+      refreshAfterSeconds: ['customer_notified', 'denied', 'unable_to_complete'].includes(stage) ? null : 5,
       payloadRedacted: true,
     };
   }, [isDemoMode]);

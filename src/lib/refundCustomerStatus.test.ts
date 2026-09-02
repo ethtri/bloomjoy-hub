@@ -8,9 +8,21 @@ import {
 } from './refundCustomerStatus.ts';
 
 const lifecycle = (stage: string, stageRank: number, terminal = false) => ({
-  schemaVersion: 'refund_lifecycle_v1',
+  schemaVersion: 'refund_lifecycle_v2',
+  version: 3,
   stage,
   stageRank,
+  reasonCode: `test_${stage}`,
+  customerAction: {
+    action: stage === 'waiting_on_customer' ? 'reply_in_existing_thread' : 'none',
+    required: stage === 'waiting_on_customer',
+    requestedFields: stage === 'waiting_on_customer' ? ['incident_time'] : [],
+    payloadRedacted: true,
+  },
+  paymentState: ['refund_confirmed', 'customer_notified'].includes(stage)
+    ? 'confirmed'
+    : 'not_requested',
+  messageState: { state: 'none', payloadRedacted: true },
   lastUpdatedAt: '2026-08-26T17:00:00.000Z',
   publicCopyKey: `refund_${stage}`,
   terminal,
@@ -21,7 +33,7 @@ const lifecycle = (stage: string, stageRank: number, terminal = false) => ({
 Deno.test('customer lifecycle rejects technical or unknown contracts', () => {
   assertThrows(() => requireRefundCustomerLifecycle({
     ...lifecycle('matching', 10),
-    schemaVersion: 'refund_lifecycle_v2',
+    schemaVersion: 'refund_lifecycle_v3',
   }));
   assertThrows(() => requireRefundCustomerLifecycle({
     ...lifecycle('matching', 10),
@@ -36,12 +48,15 @@ Deno.test('customer copy maps every canonical stage without provider troubleshoo
     ['waiting_on_customer', 'Waiting for your reply'],
     ['needs_transaction_selection', 'Reviewing your purchase'],
     ['transaction_confirmed', 'Reviewing your purchase'],
+    ['awaiting_payout', 'Preparing your reimbursement'],
     ['refund_initiated', 'Refund initiated'],
     ['confirming_with_nayax', 'Confirming the refund'],
     ['needs_refund_operations', 'Confirming the refund'],
+    ['integrity_hold', 'Confirming the refund'],
     ['refund_confirmed', 'Refund confirmed'],
     ['customer_notified', 'Refund confirmed'],
     ['denied', 'Review complete'],
+    ['unable_to_complete', 'We could not complete the refund'],
   ]);
   for (const [stage, title] of expected) {
     const contract = requireRefundCustomerLifecycle(

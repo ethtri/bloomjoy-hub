@@ -225,13 +225,17 @@ const now = new Date();
 const isoHoursAgo = (hours) => new Date(now.getTime() - hours * 60 * 60 * 1000).toISOString();
 
 const buildLifecycleFixture = (stage = 'matching', stageRank = 10, managerNextAction = 'wait') => {
-  const terminal = stage === 'customer_notified' || stage === 'denied';
+  const terminal = ['customer_notified', 'denied', 'unable_to_complete', 'internal_test_archived'].includes(stage);
   const bucket = terminal
     ? 'completed'
     : stage === 'waiting_on_customer'
       ? 'waiting_on_customer'
       : stage === 'needs_refund_operations'
         ? 'provider_hold'
+        : stage === 'integrity_hold'
+          ? 'integrity_hold'
+        : stage === 'internal_test_archived'
+          ? 'internal_archive'
         : ['refund_initiated', 'confirming_with_nayax', 'refund_confirmed'].includes(stage)
           ? 'in_progress'
           : stage === 'transaction_confirmed'
@@ -241,6 +245,8 @@ const buildLifecycleFixture = (stage = 'matching', stageRank = 10, managerNextAc
     completed: 'Done',
     waiting_on_customer: 'Waiting on customer',
     provider_hold: 'Needs Refund Operations',
+    integrity_hold: 'Needs Refund Operations',
+    internal_archive: 'Internal/test archive',
     in_progress: 'In progress',
     ready_to_pay: 'Ready to refund',
     needs_action: 'Action needed',
@@ -254,10 +260,48 @@ const buildLifecycleFixture = (stage = 'matching', stageRank = 10, managerNextAc
   }[bucket] ?? managerNextAction;
 
   return {
-    schemaVersion: 'refund_lifecycle_v1',
+    schemaVersion: 'refund_lifecycle_v2',
+    version: 1,
     stage,
     stageRank,
+    reasonCode: `synthetic_${stage}`,
+    actor: 'system',
+    customerAction: {
+      action: stage === 'waiting_on_customer' ? 'reply_in_existing_thread' : 'none',
+      required: stage === 'waiting_on_customer',
+      requestedFields: stage === 'waiting_on_customer' ? ['incident_date', 'incident_time'] : [],
+      payloadRedacted: true,
+    },
+    managerAction: {
+      action: managerNextAction,
+      owner: ['needs_refund_operations', 'integrity_hold'].includes(stage)
+        ? 'Refund Operations'
+        : 'Machine Manager',
+      safeRetryEligible: managerNextAction === 'retry_read_only_lookup',
+      payloadRedacted: true,
+    },
+    paymentState: stage === 'integrity_hold' ? 'integrity_unknown' : 'not_requested',
+    messageState: {
+      state: stage === 'customer_notified' ? 'delivered' : 'none',
+      messageType: stage === 'customer_notified' ? 'completed' : null,
+      lastUpdatedAt: now.toISOString(),
+      payloadRedacted: true,
+    },
+    classification: stage === 'internal_test_archived' ? 'internal_test' : 'customer',
     evidenceState: 'synthetic_uat',
+    locationEvidence: {
+      customerReported: {
+        selectionKey: 'uat-selection', selectionKind: 'exact_machine',
+        machineIds: ['machine-1'], preserved: true, payloadRedacted: true,
+      },
+      normalized: {
+        locationId: 'location-1', machineId: 'machine-1',
+        timezone: 'America/Los_Angeles', providerAccountKey: 'UAT',
+        mappingSource: 'nayax', mappingVersion: 1, confidence: 1,
+        authoritative: true, payloadRedacted: true,
+      },
+      payloadRedacted: true,
+    },
     lastUpdatedAt: now.toISOString(),
     publicCopyKey: `refund_${stage}`,
     managerNextAction,
@@ -282,7 +326,7 @@ const buildLifecycleFixture = (stage = 'matching', stageRank = 10, managerNextAc
       nextStep: null,
     },
     managerQueue: {
-      schemaVersion: 'refund_manager_queue_v1',
+      schemaVersion: 'refund_manager_queue_v2',
       bucket,
       label: queueLabel,
       nextAction: queueNextAction,
@@ -354,7 +398,7 @@ const mockSession = {
 };
 
 const buildMockRefundOverview = () => ({
-  managerQueueContractVersion: 'refund_manager_queue_v1',
+  managerQueueContractVersion: 'refund_manager_queue_v2',
   selectedNayaxTransactionContractVersion: 'refund_selected_nayax_transaction_v1',
   nayaxScopeRecoveryContractVersion: 'refund_nayax_scope_recovery_v1',
   machines: [
@@ -1036,7 +1080,7 @@ const buildFailedCommsRefundOverview = () => {
 };
 
 const buildCashRefundReviewOverview = () => ({
-  managerQueueContractVersion: 'refund_manager_queue_v1',
+  managerQueueContractVersion: 'refund_manager_queue_v2',
   machines: [
     {
       id: 'machine-cash-1',
@@ -1167,7 +1211,7 @@ const buildCashRefundVariantsOverview = () => {
 
 const buildPendingNayaxRefundOverview = () => {
   const overview = {
-  managerQueueContractVersion: 'refund_manager_queue_v1',
+  managerQueueContractVersion: 'refund_manager_queue_v2',
   machines: [
     {
       id: 'machine-unconfigured',
@@ -1257,7 +1301,7 @@ const buildNavigationOnlyPendingOverview = () => {
 
 const buildSimpleCardRefundJourneyOverview = () => {
   const overview = buildPendingNayaxRefundOverview();
-  overview.lifecycleContractVersion = 'refund_lifecycle_v1';
+  overview.lifecycleContractVersion = 'refund_lifecycle_v2';
   overview.refundOperationsAccess = false;
   overview.machines[0] = {
     ...overview.machines[0],
@@ -1718,7 +1762,7 @@ const installMockSupabaseRoutes = async (
       lifecycle: {
         ...refundCase.lifecycle,
         managerQueue: {
-          schemaVersion: 'refund_manager_queue_v1',
+          schemaVersion: 'refund_manager_queue_v2',
           bucket,
           label,
           nextAction,

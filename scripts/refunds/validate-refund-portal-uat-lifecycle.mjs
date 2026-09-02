@@ -56,7 +56,7 @@ assert.deepEqual(overviewFixtureBuilders, [
 ]);
 assert.match(
   portalSource,
-  /const buildLifecycleFixture = [\s\S]*?managerQueue: \{[\s\S]*?schemaVersion: 'refund_manager_queue_v1'/
+  /const buildLifecycleFixture = [\s\S]*?schemaVersion: 'refund_lifecycle_v2'[\s\S]*?version: 1[\s\S]*?locationEvidence: \{[\s\S]*?managerQueue: \{[\s\S]*?schemaVersion: 'refund_manager_queue_v2'/
 );
 assert.match(
   portalSource,
@@ -68,7 +68,7 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /const buildPendingNayaxRefundOverview = [\s\S]*?managerQueueContractVersion: 'refund_manager_queue_v1'[\s\S]*?lifecycle: buildLifecycleFixture\('matching', 10, 'wait'\)/
+  /const buildPendingNayaxRefundOverview = [\s\S]*?managerQueueContractVersion: 'refund_manager_queue_v2'[\s\S]*?lifecycle: buildLifecycleFixture\('matching', 10, 'wait'\)/
 );
 assert.match(
   portalSource,
@@ -76,7 +76,7 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /const buildCashRefundReviewOverview = [\s\S]*?managerQueueContractVersion: 'refund_manager_queue_v1'[\s\S]*?lifecycle: buildCashRefundLifecycleFixture\(\)/
+  /const buildCashRefundReviewOverview = [\s\S]*?managerQueueContractVersion: 'refund_manager_queue_v2'[\s\S]*?lifecycle: buildCashRefundLifecycleFixture\(\)/
 );
 assert.match(
   portalSource,

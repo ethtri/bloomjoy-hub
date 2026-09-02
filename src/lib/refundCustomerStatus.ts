@@ -1,24 +1,40 @@
-export const REFUND_CUSTOMER_LIFECYCLE_SCHEMA_VERSION = 'refund_lifecycle_v1' as const;
+export const REFUND_CUSTOMER_LIFECYCLE_SCHEMA_VERSION = 'refund_lifecycle_v2' as const;
 
 export const refundCustomerLifecycleStages = [
   'matching',
   'waiting_on_customer',
   'needs_transaction_selection',
   'transaction_confirmed',
+  'awaiting_payout',
   'refund_initiated',
   'confirming_with_nayax',
   'refund_confirmed',
   'customer_notified',
   'needs_refund_operations',
+  'integrity_hold',
   'denied',
+  'unable_to_complete',
 ] as const;
 
 export type RefundCustomerLifecycleStage = typeof refundCustomerLifecycleStages[number];
 
 export type RefundCustomerLifecycle = {
   schemaVersion: typeof REFUND_CUSTOMER_LIFECYCLE_SCHEMA_VERSION;
+  version: number;
   stage: RefundCustomerLifecycleStage;
   stageRank: number;
+  reasonCode: string;
+  customerAction: {
+    action: string;
+    required: boolean;
+    requestedFields: string[];
+    payloadRedacted: true;
+  };
+  paymentState: string;
+  messageState: {
+    state: string;
+    payloadRedacted: true;
+  };
   lastUpdatedAt: string;
   publicCopyKey: string;
   terminal: boolean;
@@ -43,10 +59,20 @@ export const requireRefundCustomerLifecycle = (value: unknown): RefundCustomerLi
   if (
     lifecycle.schemaVersion !== REFUND_CUSTOMER_LIFECYCLE_SCHEMA_VERSION ||
     lifecycle.payloadRedacted !== true ||
+    typeof lifecycle.version !== 'number' ||
+    !Number.isSafeInteger(lifecycle.version) ||
+    lifecycle.version < 1 ||
     typeof lifecycle.stage !== 'string' ||
     !stageSet.has(lifecycle.stage) ||
     typeof lifecycle.stageRank !== 'number' ||
     !Number.isFinite(lifecycle.stageRank) ||
+    typeof lifecycle.reasonCode !== 'string' ||
+    !lifecycle.reasonCode ||
+    !lifecycle.customerAction ||
+    typeof lifecycle.customerAction !== 'object' ||
+    !lifecycle.messageState ||
+    typeof lifecycle.messageState !== 'object' ||
+    typeof lifecycle.paymentState !== 'string' ||
     typeof lifecycle.lastUpdatedAt !== 'string' ||
     Number.isNaN(Date.parse(lifecycle.lastUpdatedAt)) ||
     typeof lifecycle.publicCopyKey !== 'string' ||
@@ -83,6 +109,19 @@ export const getRefundCustomerStatusCopy = (
         nextExpectation: 'A Bloomjoy manager will review the matching purchase. No action is needed from you.',
         milestone: 'reviewing',
       };
+    case 'awaiting_payout':
+      return {
+        title: lifecycle.reasonCode === 'payout_destination_missing'
+          ? 'Waiting for payment details'
+          : 'Preparing your reimbursement',
+        detail: lifecycle.reasonCode === 'payout_destination_missing'
+          ? 'We need one approved payment destination before we can send the reimbursement.'
+          : 'A Bloomjoy manager is preparing the approved reimbursement.',
+        nextExpectation: lifecycle.reasonCode === 'payout_destination_missing'
+          ? 'Please reply to the existing Bloomjoy email. You do not need to submit another form.'
+          : 'No action is needed from you.',
+        milestone: 'reviewing',
+      };
     case 'refund_initiated':
       return {
         title: 'Refund initiated',
@@ -92,6 +131,7 @@ export const getRefundCustomerStatusCopy = (
       };
     case 'confirming_with_nayax':
     case 'needs_refund_operations':
+    case 'integrity_hold':
       return {
         title: 'Confirming the refund',
         detail: 'Bloomjoy is confirming the refund result safely.',
@@ -111,6 +151,13 @@ export const getRefundCustomerStatusCopy = (
         title: 'Review complete',
         detail: 'We could not approve this refund request.',
         nextExpectation: 'Please reply to your Bloomjoy email if we missed or misunderstood something. We will keep the same request open for review.',
+        milestone: 'denied',
+      };
+    case 'unable_to_complete':
+      return {
+        title: 'We could not complete the refund',
+        detail: 'The request was reviewed, but Bloomjoy could not complete a payment from the available evidence.',
+        nextExpectation: 'Reply to your existing Bloomjoy email if you have new information. Do not submit a second form.',
         milestone: 'denied',
       };
     case 'matching':

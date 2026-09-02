@@ -230,7 +230,8 @@ security definer
 set search_path = ''
 as $$
   select jsonb_build_object(
-    'schemaVersion', 'refund_lifecycle_v1',
+    'schemaVersion', 'refund_lifecycle_v2',
+    'version', 1,
     'stage', 'transaction_confirmed',
     'stageRank', 30,
     'evidenceState', 'transaction_confirmed',

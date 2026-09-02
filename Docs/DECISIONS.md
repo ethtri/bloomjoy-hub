@@ -1467,3 +1467,20 @@ A verified support email from a customer with a recent open Website case is exis
 - It removes the production failure where a customer who had already submitted two forms received another form request.
 - It uses exact identity and existing records conservatively: an unambiguous case can proceed automatically, while multiple plausible purchases remain human-owned without another customer chore.
 - It preserves form-only case creation, provider/payment isolation, exact-transaction protection, and immutable replay evidence.
+
+## 2026-09-02 - Refund lifecycle v2 is the cross-surface release contract (`#628`, `#991`, `#992`)
+
+Payment attempts, case state, manager work, customer status, delivery state, location/machine evidence, and Internal/test disposition must project one versioned story. A consumer may not reconstruct status from legacy fields when the canonical release is absent.
+
+**Canonical choices**
+- `refund_lifecycle_v2` and nested `refund_manager_queue_v2` supersede the v1 browser contracts. Every case carries a monotonic lifecycle revision, explicit reason/actor/customer action/manager action/payment/message state, and one redacted location-evidence projection.
+- The customer-reported selection remains distinct from normalized location, exact machine, timezone, provider-account scope, mapping source/version, and confidence. Customer capabilities omit this manager-only provenance.
+- Customer card cases in pending/completed or active execution states require at least one durable attempt. Existing impossible rows are quarantined with a named integrity hold; reconciliation makes no provider call, payment retry, or customer message. New split writes fail at deferred commit, while a case and attempt may transition atomically.
+- `closed` means unable to complete, never denied. Cash uses a named payout stage. Failed/uncertain delivery remains separate from confirmed payment. Internal/test is a distinct terminal archive suppressed from customer status and active work.
+- Release order is database, then functions, then UI. Manager/customer parsers reject unknown or missing versions, the release inventory includes the exact migration, and aggregate health advertises the same lifecycle version and release order.
+- The manager-authored transactional outbox is a required adjacent integration owned separately; #628 cannot close until that ledger and this lifecycle release are combined and proven on the same deployment.
+
+**Why this choice**
+- It prevents a locally plausible screen from contradicting payment, message, evidence, or test-population truth.
+- Deferred integrity checks preserve one-transaction server workflows while blocking observable case-only payment transitions.
+- Explicit version and release order turn deployment skew into a safe failure instead of a partially working portal.

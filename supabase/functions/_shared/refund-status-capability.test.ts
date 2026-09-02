@@ -26,9 +26,19 @@ Deno.test("refund status hashing is stable and one way", async () => {
 
 Deno.test("customer lifecycle strips manager, lookup, operations, and provider fields", () => {
   const lifecycle = requireCustomerRefundLifecycle({
-    schemaVersion: "refund_lifecycle_v1",
+    schemaVersion: "refund_lifecycle_v2",
+    version: 4,
     stage: "needs_refund_operations",
     stageRank: 60,
+    reasonCode: "provider_outcome_unknown",
+    customerAction: {
+      action: "none",
+      required: false,
+      requestedFields: [],
+      payloadRedacted: true,
+    },
+    paymentState: "outcome_unknown",
+    messageState: { state: "none", payloadRedacted: true },
     evidenceState: "operations_hold",
     lastUpdatedAt: "2026-08-26T17:00:00.000Z",
     publicCopyKey: "refund_confirmation_in_progress",
@@ -41,22 +51,37 @@ Deno.test("customer lifecycle strips manager, lookup, operations, and provider f
     payloadRedacted: true,
   });
   assertEquals(Object.keys(lifecycle).sort(), [
+    "customerAction",
     "lastUpdatedAt",
+    "messageState",
     "payloadRedacted",
+    "paymentState",
     "publicCopyKey",
+    "reasonCode",
     "refreshAfterSeconds",
     "schemaVersion",
     "stage",
     "stageRank",
     "terminal",
+    "version",
   ]);
 });
 
 Deno.test("customer lifecycle accepts the canonical waiting-on-customer stage", () => {
   const lifecycle = requireCustomerRefundLifecycle({
-    schemaVersion: "refund_lifecycle_v1",
+    schemaVersion: "refund_lifecycle_v2",
+    version: 5,
     stage: "waiting_on_customer",
     stageRank: 15,
+    reasonCode: "waiting_for_purchase_evidence",
+    customerAction: {
+      action: "reply_in_existing_thread",
+      required: true,
+      requestedFields: ["incident_time"],
+      payloadRedacted: true,
+    },
+    paymentState: "not_requested",
+    messageState: { state: "sent", payloadRedacted: true },
     lastUpdatedAt: "2026-08-30T18:00:00.000Z",
     publicCopyKey: "refund_waiting_on_customer",
     terminal: false,
@@ -68,11 +93,16 @@ Deno.test("customer lifecycle accepts the canonical waiting-on-customer stage", 
 
 Deno.test("unknown, unredacted, and over-polling lifecycle responses fail closed", async () => {
   for (const fixture of [
-    { schemaVersion: "refund_lifecycle_v2", payloadRedacted: true },
+    { schemaVersion: "refund_lifecycle_v3", payloadRedacted: true },
     {
-      schemaVersion: "refund_lifecycle_v1",
+      schemaVersion: "refund_lifecycle_v2",
+      version: 1,
       stage: "matching",
       stageRank: 10,
+      reasonCode: "lookup_in_progress",
+      customerAction: { action: "none", required: false, requestedFields: [], payloadRedacted: true },
+      paymentState: "not_requested",
+      messageState: { state: "none", payloadRedacted: true },
       lastUpdatedAt: "2026-08-26T17:00:00.000Z",
       publicCopyKey: "refund_request_received",
       terminal: false,
@@ -80,9 +110,14 @@ Deno.test("unknown, unredacted, and over-polling lifecycle responses fail closed
       payloadRedacted: false,
     },
     {
-      schemaVersion: "refund_lifecycle_v1",
+      schemaVersion: "refund_lifecycle_v2",
+      version: 1,
       stage: "matching",
       stageRank: 10,
+      reasonCode: "lookup_in_progress",
+      customerAction: { action: "none", required: false, requestedFields: [], payloadRedacted: true },
+      paymentState: "not_requested",
+      messageState: { state: "none", payloadRedacted: true },
       lastUpdatedAt: "2026-08-26T17:00:00.000Z",
       publicCopyKey: "refund_request_received",
       terminal: false,

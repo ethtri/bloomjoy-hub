@@ -230,8 +230,12 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    112,
-    'Refund release inventory must cover exactly 112 discovered refund/Nayax migrations'
+    113,
+    'Refund release inventory must cover exactly 113 discovered refund/Nayax migrations'
+  );
+  assert(
+    repositoryMigrations.includes('20260902000417_refund_lifecycle_v2_integrity.sql'),
+    'The integrated lifecycle v2 integrity and release-skew boundary must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260901080000_refund_gmail_existing_case_linking.sql'),

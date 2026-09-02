@@ -847,7 +847,7 @@ export type RefundOperationsOverview = {
   machines: RefundAdminMachine[];
   managerAssignments: RefundManagerAssignment[];
   lifecycleContractVersion?: typeof REFUND_LIFECYCLE_SCHEMA_VERSION;
-  managerQueueContractVersion?: 'refund_manager_queue_v1';
+  managerQueueContractVersion?: 'refund_manager_queue_v2';
   acknowledgementRecoveryContractVersion?: 'refund_acknowledgement_recovery_v1';
   customerLocaleContractVersion?: 'refund_customer_locale_v1';
   internalTestContractVersion?: 'refund_internal_test_v1';
@@ -1702,22 +1702,72 @@ const demoLifecycle = (
   operationsRequired = false
 ): RefundLifecycleContract => ({
   schemaVersion: REFUND_LIFECYCLE_SCHEMA_VERSION,
+  version: 1,
   stage,
   stageRank,
+  reasonCode: `demo_${stage}`,
+  actor: 'system',
+  customerAction: {
+    action: stage === 'waiting_on_customer' ? 'reply_in_existing_thread' : 'none',
+    required: stage === 'waiting_on_customer',
+    requestedFields: stage === 'waiting_on_customer'
+      ? ['incident_date', 'incident_time']
+      : [],
+    payloadRedacted: true,
+  },
+  managerAction: {
+    action: managerNextAction,
+    owner: operationsRequired ? 'Refund Operations' : 'Machine Manager',
+    safeRetryEligible: managerNextAction === 'retry_read_only_lookup',
+    payloadRedacted: true,
+  },
+  paymentState: ['refund_confirmed', 'customer_notified'].includes(stage)
+    ? 'confirmed'
+    : operationsRequired
+      ? 'outcome_unknown'
+      : 'not_requested',
+  messageState: {
+    state: stage === 'customer_notified' ? 'delivered' : 'none',
+    messageType: stage === 'customer_notified' ? 'completed' : null,
+    lastUpdatedAt: stage === 'customer_notified' ? demoIsoHoursAgo(0.05) : null,
+    payloadRedacted: true,
+  },
+  classification: 'customer',
   evidenceState: 'synthetic_demo',
+  locationEvidence: {
+    customerReported: {
+      selectionKey: 'demo-selection', selectionKind: 'exact_machine',
+      machineIds: ['00000000-0000-4000-8000-000000000003'], preserved: true,
+      payloadRedacted: true,
+    },
+    normalized: {
+      locationId: '00000000-0000-4000-8000-000000000002',
+      machineId: '00000000-0000-4000-8000-000000000003',
+      timezone: 'America/Los_Angeles', providerAccountKey: 'DEMO',
+      mappingSource: 'nayax', mappingVersion: 1, confidence: 1,
+      authoritative: true, payloadRedacted: true,
+    },
+    payloadRedacted: true,
+  },
   lastUpdatedAt: demoIsoHoursAgo(0.05),
   publicCopyKey: `refund_${stage}`,
   managerNextAction,
-  terminal: stage === 'customer_notified' || stage === 'denied',
-  refreshAfterSeconds: stage === 'customer_notified' || stage === 'denied' ? null : 5,
+  terminal: ['customer_notified', 'denied', 'unable_to_complete', 'internal_test_archived'].includes(stage),
+  refreshAfterSeconds: ['customer_notified', 'denied', 'unable_to_complete', 'internal_test_archived'].includes(stage)
+    ? null
+    : 5,
   managerQueue: {
-    schemaVersion: 'refund_manager_queue_v1',
+    schemaVersion: 'refund_manager_queue_v2',
     bucket: stage === 'waiting_on_customer'
       ? 'waiting_on_customer'
       : stage === 'needs_refund_operations'
         ? 'provider_hold'
-        : stage === 'customer_notified' || stage === 'denied'
+        : stage === 'integrity_hold'
+          ? 'integrity_hold'
+        : ['customer_notified', 'denied', 'unable_to_complete'].includes(stage)
           ? 'completed'
+          : stage === 'internal_test_archived'
+            ? 'internal_archive'
           : stage === 'transaction_confirmed'
             ? 'ready_to_pay'
             : ['refund_initiated', 'confirming_with_nayax', 'refund_confirmed'].includes(stage)
@@ -1870,7 +1920,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
 
   return {
     lifecycleContractVersion: REFUND_LIFECYCLE_SCHEMA_VERSION,
-    managerQueueContractVersion: 'refund_manager_queue_v1',
+    managerQueueContractVersion: 'refund_manager_queue_v2',
     selectedNayaxTransactionContractVersion: 'refund_selected_nayax_transaction_v1',
     ...(showInboundLinkReview
       ? { inboundLinkReviewContractVersion: 'refund_gmail_case_link_review_v1' as const }
@@ -2367,7 +2417,7 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   }
   if (
     overview.managerQueueContractVersion !== undefined &&
-    overview.managerQueueContractVersion !== 'refund_manager_queue_v1'
+    overview.managerQueueContractVersion !== 'refund_manager_queue_v2'
   ) {
     throw new Error('Unsupported refund manager queue response.');
   }
