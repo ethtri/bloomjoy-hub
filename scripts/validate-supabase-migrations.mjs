@@ -10,6 +10,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { createAuthenticatedEvidenceFragment } from './refunds/refund-uat-fragment-provenance.mjs';
 import { getRefundGmailIntakeShadowOwnerQuerySnapshots } from './refunds/refund-gmail-intake-shadow-runner-clients.mjs';
+import { writePopulatedDeliveryUpgradeTest } from './refunds/refund-populated-delivery-upgrade.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -395,6 +396,15 @@ async function main() {
 
     run('supabase', args, { stdio: 'inherit' });
     log('\nSupabase migration apply validation passed.');
+
+    run(process.execPath, ['--test', path.join(__dirname, 'refunds', 'refund-populated-delivery-upgrade.test.mjs')], { relayOutput: true });
+    const { testPath: populatedUpgradePath, testRelativePath: populatedUpgradeRelativePath } =
+      writePopulatedDeliveryUpgradeTest(repoRoot, tempRoot);
+    const populatedUpgradeArgs = ['test', 'db', populatedUpgradeRelativePath, '--workdir', tempRoot];
+    if (options.debug) populatedUpgradeArgs.push('--debug');
+    run('supabase', populatedUpgradeArgs, { relayOutput: true, cwd: tempRoot });
+    fs.rmSync(populatedUpgradePath);
+    log('Populated out-of-order delivery migration regression passed with all triggers enabled.');
 
     const { testPath: ownerAdapterTestPath, testRelativePath: ownerAdapterTestRelativePath } =
       writeRefundGmailIntakeShadowAdapterTest(tempRoot);
