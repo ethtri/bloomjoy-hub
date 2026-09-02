@@ -1,12 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { fetchRefundReceiptOverview, saveRefundReceiptEvidence } from '@/lib/refundAuthoritativeReceiptApi';
-import { buildReceiptAdoptionRequest, buildReceiptRecordRequest, refreshRefundReceiptViews, refundReceiptReviewSnapshot, type RefundReceiptOverview } from '@/lib/refundAuthoritativeReceipt';
+import { buildReceiptAdoptionRequest, buildReceiptRecordRequest, refreshRefundReceiptViews, refundReceiptReviewSnapshot, type RefundReceiptOverview, type RefundMachineCorrectionEvidence } from '@/lib/refundAuthoritativeReceipt';
+import { RefundMachineCorrectionReview } from './RefundMachineCorrectionReview';
 
-type Props = { caseId: string; demo?: boolean };
+type Props = { caseId: string; demo?: boolean;
+  machineContext?: { machineLabel: string; locationName: string; expectedCaseVersion?: number };
+  machineCorrection?: RefundMachineCorrectionEvidence | null;
+  onCorrectionReviewChange?: (active: boolean) => void;
+};
 const demoOverview: RefundReceiptOverview = {
   schemaVersion: 'refund_receipt_overview_v1', visible: true, caseId: 'ad400000-0000-4000-8000-000000000001',
   caseReference: 'RF-RECEIPT-DEMO', expectedCaseVersion: 1, canRecord: true, attemptId: null,
@@ -15,7 +20,7 @@ const demoOverview: RefundReceiptOverview = {
   originalAmountCents: 700, currencyCode: 'USD', receipt: null, noticeChoices: [],
 };
 
-export function RefundAuthoritativeReceiptPanel({ caseId, demo = false }: Props) {
+export function RefundAuthoritativeReceiptPanel({ caseId, demo = false, machineContext, machineCorrection, onCorrectionReviewChange }: Props) {
   const queryClient = useQueryClient();
   const [localDemo, setLocalDemo] = useState(demoOverview);
   const [reference, setReference] = useState('');
@@ -24,9 +29,15 @@ export function RefundAuthoritativeReceiptPanel({ caseId, demo = false }: Props)
   const [noticeReviewSnapshot, setNoticeReviewSnapshot] = useState('');
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState('');
+  const [correctionOpen, setCorrectionOpen] = useState(false);
   const query = useQuery({ queryKey: ['refund-authoritative-receipt', caseId],
     queryFn: () => fetchRefundReceiptOverview(caseId), enabled: !demo, retry: false, staleTime: 0, gcTime: 0 });
   const v = demo ? localDemo : query.data;
+  const correcting = correctionOpen && !v?.receipt;
+  useEffect(() => {
+    onCorrectionReviewChange?.(correcting);
+    return () => onCorrectionReviewChange?.(false);
+  }, [correcting, onCorrectionReviewChange]);
   const currentSnapshot = refundReceiptReviewSnapshot(v);
   const reviewedPayment = Boolean(currentSnapshot) && paymentReviewSnapshot === currentSnapshot;
   const reviewedNotice = Boolean(currentSnapshot) && noticeReviewSnapshot === currentSnapshot;
@@ -79,7 +90,18 @@ export function RefundAuthoritativeReceiptPanel({ caseId, demo = false }: Props)
       Legacy portal record: historical evidence links this claim, original and amount, but does not establish account authorization.
       This receipt records your separate review of the current provider account, machine and full refund. It does not approve or rewrite the historical attempt.
     </p>}
-    {!v.receipt ? <div className="space-y-3">
+    {machineCorrection && v.receipt?.id === machineCorrection.receiptId && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-sm leading-6 text-emerald-950">
+      Current machine correction saved: {machineContext?.machineLabel || 'the verified machine'}.
+      {' '}The historical attempt, customer report and sent notice remain unchanged. Historical candidate factors are not corroboration for this machine.
+    </p>}
+    {!demo && machineContext && !v.receipt && v.attemptBindingKind === 'legacy_manual_portal_observation' && <div className="space-y-3">
+      <Button variant="outline" className="min-h-11 w-full whitespace-normal sm:w-auto" disabled={busy} aria-expanded={correcting}
+        onClick={() => { setCorrectionOpen(!correctionOpen); setReviewedPayment(false); setFeedback(''); }}>
+        {correcting ? 'Cancel machine correction review' : 'Provider evidence shows a different machine?'}
+      </Button>
+      {correcting && <RefundMachineCorrectionReview overview={v} context={machineContext} onBusyChange={setBusy} />}
+    </div>}
+    {!v.receipt ? (!correcting && <div className="space-y-3">
       <Label htmlFor="refund-receipt-reference">Exact Nayax original reference</Label>
       <Input id="refund-receipt-reference" value={reference} onChange={(e) => { setReference(e.target.value); setReviewedPayment(false); }} placeholder={`DTM:NAYAX-${v.originalTransactionId}`} disabled={busy} className="min-h-11" />
       <label className="flex min-h-11 cursor-pointer items-start gap-3 py-2 text-sm leading-6">
@@ -87,7 +109,7 @@ export function RefundAuthoritativeReceiptPanel({ caseId, demo = false }: Props)
         <span>I verified this exact account, machine and original in Nayax: status is Refunded (62), the refunded amount is the full {amount}, and the actual settlement time is unavailable. The sale/update date is not a refund date.</span>
       </label>
       <Button className="min-h-11 w-full whitespace-normal sm:w-auto" disabled={busy || !v.canRecord || !reviewedPayment || reference !== `DTM:NAYAX-${v.originalTransactionId}`} onClick={() => void save('record')}>{busy ? 'Saving evidence…' : 'Record full-refund observation only'}</Button>
-    </div> : <div className="space-y-3">
+    </div>) : <div className="space-y-3">
       <p className="text-sm text-pretty">Observed {new Date(v.receipt.observedAt).toLocaleString()}. This is not the settlement time. Accounting-date review stays with Refund Operations; do not retry payment.</p>
       {v.receipt.noticeAdopted ? <div className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-950" role="status">
         <p className="font-medium">Customer already updated · existing notice verified</p>

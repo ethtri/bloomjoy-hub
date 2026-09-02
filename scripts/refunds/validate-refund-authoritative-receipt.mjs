@@ -16,6 +16,43 @@ assert.match(panel, /buildReceiptAdoptionRequest\(v, messageId, reviewedNotice\)
 assert.match(panel, /Refresh saved evidence/);
 assert.match(client, /admin_get_refund_authoritative_receipt_overview/);
 assert.match(client, /requireUserAuth: true/);
+// Execute the actual client wrapper with capability mocks, not a rewritten caller.
+// The correction must use a live-user authenticated edge request, never actor RPCs.
+const apiExports = {};
+const apiCalls = [];
+let apiResult = { status: 'recorded', customerMessageSent: false, payloadRedacted: true,
+  machineCorrected: true, correctionId: 'ad500000-0000-4000-8000-000000000001',
+  receiptId: 'ad900000-0000-4000-8000-000000000001', paymentConfirmed: true,
+  accountingPending: true, settlementTimePrecision: 'unknown' };
+vm.runInNewContext(ts.transpileModule(client, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, {
+  exports: apiExports,
+  require(name) {
+    if (name === '@/lib/supabaseClient') return { supabaseClient: { rpc: async (...args) => { apiCalls.push(args); return { data: { parsed: true }, error: null }; } } };
+    if (name === '@/lib/edgeFunctions') return { invokeEdgeFunction: async (...args) => { apiCalls.push(args); return apiResult; } };
+    if (name === './refundAuthoritativeReceipt') return { parseRefundReceiptOverview: (value) => value, parseRefundMachineCorrectionOptions: (value) => value };
+    throw new Error(`Unexpected client capability: ${name}`);
+  },
+});
+await apiExports.fetchRefundMachineCorrectionOptions('ad400000-0000-4000-8000-000000000001');
+assert.equal(apiCalls[0][0], 'admin_get_refund_legacy_machine_correction_options');
+assert.deepEqual(JSON.parse(JSON.stringify(apiCalls[0][1])), { p_case_id: 'ad400000-0000-4000-8000-000000000001' });
+const correctionInput = { mode: 'correct_legacy_machine_and_record_observation' };
+await apiExports.saveRefundReceiptEvidence(correctionInput);
+assert.equal(apiCalls[1][0], 'refund-case-admin-update');
+assert.equal(apiCalls[1][1], correctionInput);
+assert.deepEqual(JSON.parse(JSON.stringify(apiCalls[1][2])), { requireUserAuth: true });
+const validCorrectionResult = apiResult;
+for (const invalid of [{ status: 'already_recorded' }, { machineCorrected: false }, { correctionId: null },
+  { receiptId: null }, { paymentConfirmed: false }, { accountingPending: false }, { settlementTimePrecision: 'exact' },
+  { customerMessageSent: true }, { payloadRedacted: false }]) {
+  apiResult = { ...validCorrectionResult, ...invalid };
+  await assert.rejects(() => apiExports.saveRefundReceiptEvidence(correctionInput));
+}
+const correctionPanel = read('src/components/refunds/RefundMachineCorrectionReview.tsx');
+assert.match(correctionPanel, /freshCase, freshOptions/);
+assert.match(correctionPanel, /!== approvedSnapshot/);
+assert.match(correctionPanel, /buildRefundMachineCorrectionRequest/);
+assert.doesNotMatch(correctionPanel, /localStorage|sessionStorage|dangerouslySetInnerHTML|executeAsActor|service_role/);
 assert.doesNotMatch(panel, /localStorage|sessionStorage|dangerouslySetInnerHTML/);
 assert.match(migration, /settled_at timestamptz check \(settled_at is null\)/);
 assert.match(migration, /observed_at timestamptz not null default statement_timestamp\(\)/);
