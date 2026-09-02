@@ -460,12 +460,14 @@ const claimAction = async (
     p_policy_window_start: policyWindowStart,
   });
   if (error) throw error;
-  const result = data as { actionId?: string; claimed?: boolean; status?: string };
+  const result = data as { actionId?: string; claimed?: boolean; status?: string; reasonCategory?: string };
   if (result.claimed === true) {
     counters.actionsAttempted += 1;
   } else {
     counters.actionsSuppressed += 1;
-    addReason(counters, "duplicate_action");
+    addReason(counters, result.reasonCategory === "authoritative_refund_receipt"
+      ? "authoritative_refund_receipt"
+      : "duplicate_action");
   }
   return {
     actionId: typeof result.actionId === "string" ? result.actionId : null,
@@ -1865,14 +1867,10 @@ const runCustomerReplyFollowUpSweep = async (
   policyWindowStart: string,
 ) => {
   if (!supabase) return;
-  const { data, error } = await supabase
-    .from("refund_follow_up_cycles")
-    .select("id,refund_case_id")
-    .in("status", ["waiting", "customer_replied"])
-    .not("request_sent_at", "is", null)
-    .is("recheck_claimed_at", null)
-    .order("request_sent_at", { ascending: true })
-    .limit(25);
+  const { data, error } = await supabase.rpc(
+    "service_list_refund_follow_up_customer_reply_candidates",
+    { p_limit: 25 },
+  );
   if (error) throw error;
 
   for (const candidate of data ?? []) {
