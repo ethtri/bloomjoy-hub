@@ -244,10 +244,29 @@ select ok(not (public.service_read_refund_status_capability(repeat('e', 64), rep
 select ok(not (public.service_read_refund_status_capability(repeat('e', 64), repeat('3', 64)) -> 'lifecycle') ? 'managerAction',
   'Customer status excludes manager actions');
 
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, incident_timezone,
+  payment_method, payment_amount_cents, refund_amount_cents, card_last4,
+  status, correlation_status, correlation_source, automation_state
+) values (
+  'e4000000-0000-4000-8000-000000000008', 'RF-LIFECYCLE-V2-CAPABILITY',
+  'e3000000-0000-4000-8000-000000000001',
+  'e2000000-0000-4000-8000-000000000001',
+  'lifecycle-capability@example.invalid', 'Capability classification fixture',
+  statement_timestamp(), 'America/Los_Angeles', 'card', 700, 700, '4242',
+  'closed', 'not_started', null, 'closed_incomplete'
+);
 select is((public.service_issue_refund_status_capability(
-  'e4000000-0000-4000-8000-000000000004', repeat('f', 64),
+  'e4000000-0000-4000-8000-000000000008', repeat('f', 64),
   statement_timestamp() + interval '1 day'
 ) ->> 'issued')::boolean, true, 'An existing capability record can be reconciled for Internal/test');
+update public.refund_cases
+set case_population = 'internal_test',
+  internal_test_reason = 'employee_technician_test',
+  internal_test_classified_at = statement_timestamp(),
+  internal_test_classified_by = 'e0000000-0000-4000-8000-000000000001'
+where id = 'e4000000-0000-4000-8000-000000000008';
 select is((public.service_read_refund_status_capability(repeat('f', 64), repeat('4', 64)) ->> 'available')::boolean,
   false, 'Internal/test never exposes a customer status lifecycle');
 

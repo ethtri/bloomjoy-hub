@@ -364,6 +364,8 @@ declare
   terminal boolean := false;
   manager_has_authority boolean := false;
   operations_required boolean := false;
+  payment_operations_required boolean := false;
+  delivery_review_required boolean := false;
   operations_due_at timestamptz;
   operations_age_minutes integer;
   last_updated_at timestamptz;
@@ -469,7 +471,7 @@ begin
     else 'none'
   end;
 
-  operations_required := integrity_code is not null or (
+  payment_operations_required := integrity_code is not null or (
     not definitive_no_refund
     and
     attempt_row.id is not null and (
@@ -477,14 +479,19 @@ begin
       or attempt_row.reconciliation_required is true
       or attempt_row.provider_outcome in ('timeout', 'unknown', 'rejected')
     )
-  ) or (
-    completion_message.id is not null and (
-      completion_message.status = 'failed'
-      or completion_message.delivery_state in (
-        'unknown', 'accepted', 'deferred', 'failed', 'bounced', 'complained'
-      )
-    )
   );
+  delivery_review_required := classification <> 'internal_test'
+    and latest_message.id is not null
+    and (
+      latest_message.status = 'failed'
+      or latest_message.delivery_state in ('failed', 'bounced', 'complained')
+      or (
+        latest_message.message_type = 'completed'
+        and latest_message.delivery_state in ('unknown', 'accepted', 'deferred')
+      )
+    );
+  operations_required := payment_operations_required
+    or delivery_review_required;
   operations_due_at := case
     when integrity_code is not null then coalesce(
       case_row.lifecycle_integrity_detected_at,
@@ -494,7 +501,9 @@ begin
       attempt_row.refund_operations_due_at,
       attempt_row.created_at + interval '60 minutes',
       completion_message.delivery_state_updated_at + interval '60 minutes',
-      completion_message.created_at + interval '60 minutes'
+      completion_message.created_at + interval '60 minutes',
+      latest_message.delivery_state_updated_at + interval '60 minutes',
+      latest_message.created_at + interval '60 minutes'
     )
     else null
   end;
@@ -506,6 +515,8 @@ begin
         attempt_row.created_at,
         completion_message.delivery_state_updated_at,
         completion_message.created_at,
+        latest_message.delivery_state_updated_at,
+        latest_message.created_at,
         case_row.updated_at
       )
     )) / 60)::integer
@@ -516,7 +527,7 @@ begin
     when integrity_code is not null then 'integrity_unknown'
     when case_row.status = 'completed'
       or attempt_row.provider_outcome = 'success' then 'confirmed'
-    when operations_required then 'outcome_unknown'
+    when payment_operations_required then 'outcome_unknown'
     when attempt_row.id is not null
       and attempt_row.execution_mode = 'manual_portal' then 'submitted_pending'
     when attempt_row.id is not null
@@ -564,7 +575,7 @@ begin
     manager_action := case when completion_message.status = 'failed'
       then 'recover_customer_delivery' else 'wait_for_customer_notification' end;
     terminal := false;
-  elsif operations_required then
+  elsif payment_operations_required then
     stage := 'needs_refund_operations'; stage_rank := 60;
     reason_code := coalesce(attempt_row.safe_failure_class, 'provider_outcome_unknown');
     customer_action := 'none'; manager_action := 'refund_operations';
@@ -647,6 +658,11 @@ begin
     and not operations_required
     and not terminal then
     manager_action := 'review_inbound_case_link';
+  end if;
+  if delivery_review_required
+    and integrity_code is null
+    and not terminal then
+    manager_action := 'review_delivery_no_resend';
   end if;
 
   queue_bucket := case
@@ -822,11 +838,16 @@ begin
       'safeStage', case when integrity_code is not null
         then 'integrity_hold'
         else coalesce(attempt_row.safe_transport_stage, 'not_started') end,
-      'failureClass', coalesce(integrity_code, attempt_row.safe_failure_class),
+      'failureClass', case
+        when delivery_review_required then 'customer_delivery_exception'
+        else coalesce(integrity_code, attempt_row.safe_failure_class)
+      end,
       'nextStep', case
         when integrity_code is not null
           then 'Reconcile the durable attempt and case evidence. Do not retry payment.'
-        when operations_required
+        when delivery_review_required
+          then 'Review customer delivery evidence. Do not replay the message or payment.'
+        when payment_operations_required
           then 'Confirm the authoritative Nayax result. Do not retry.'
         else null
       end
