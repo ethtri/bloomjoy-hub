@@ -1,5 +1,11 @@
 # QA Smoke Test Checklist
 
+## Historical sent-message delivery upgrade (`#628`, `#917`)
+
+- [ ] In a disposable database, create a valid automatic status message, record it SENT, then advance its case and turn automatic contact off. Replay the actual historical provider-delay guard and delivery migration prefix: the original guard rejects the historical backfill, while the repaired prefix records only delivery metadata with all triggers enabled.
+- [ ] Verify fresh chronological replay and the populated/out-of-order upgrade install identical final guard definitions. Message identity, content, recipient, original sent time, and financial facts remain unchanged; no message or payment attempt is created.
+- [ ] Verify changes to automatic-message type/kind, send result, content, recipient, reason, or sent time remain rejected, and contact-off still rejects new automatic messages and pending-to-SENT transitions.
+
 ## Refund Operations v1 Nayax inventory (`#890`)
 
 - [ ] With the sync switch false, scheduled and manual health paths make no Nayax request and no inventory mutation.

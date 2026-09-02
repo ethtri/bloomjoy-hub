@@ -287,8 +287,12 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    116,
-    'Refund release inventory must cover exactly 116 discovered refund/Nayax migrations'
+    117,
+    'Refund release inventory must cover exactly 117 discovered refund/Nayax migrations'
+  );
+  assert(
+    repositoryMigrations.includes('20260902174648_refund_sent_status_delivery_metadata.sql'),
+    'The populated-upgrade status delivery metadata repair must be in the release inventory'
   );
   assert(
     repositoryMigrations.includes('20260902000417_refund_lifecycle_v2_integrity.sql'),

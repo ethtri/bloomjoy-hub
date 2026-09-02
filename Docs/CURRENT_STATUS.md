@@ -22,6 +22,7 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 ## Current Themes
 
+- **Populated refund upgrades (`#628`, `#917`):** historical SENT status messages may receive delivery metadata without reauthorizing their original send against a case that has since advanced. The same narrow guard must run before the delivery backfill and after the later provider-delay guard in chronological replay. Production cutover remains blocked until a disposable populated/out-of-order upgrade regression passes; do not disable triggers or rewrite old send/payment evidence to force migration success.
 - **Refund release completeness (`#628`):** the current release inventory includes the live outcome resolver as the eleventh function, with transitive-source deployment/capture checks and a separately captured restore baseline. The original ten-function/51-migration evidence remains immutable; production acceptance still requires exact-head verification and postdeploy source parity.
 - **Localized refund replies (`#891`, `#923`):** Spanish email instructions must round-trip into the same structured case. Exact localized labels, decimal amounts, and quoted-message boundaries require parser/renderer coverage; production closeout includes a controlled Spanish reply and exactly one rerank, not translated outgoing copy alone.
 
