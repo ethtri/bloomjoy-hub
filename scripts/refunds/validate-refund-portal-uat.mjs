@@ -779,6 +779,7 @@ const buildMockGmailDraftCases = () => ([
   {
     id: 'case-gmail-draft-1',
     publicReference: 'RF-UAT-GMAIL',
+    officialActionVersion: 1,
     status: 'draft',
     priority: 'normal',
     correlationStatus: 'unmatched',
@@ -4146,6 +4147,9 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'Manager Gmail reply uses the approved customer-message path exactly once',
     functionCalls.filter((name) => name === 'refund-case-message-send').length === 1 &&
       replyBody.caseId === 'case-gmail-draft-1' &&
+      replyBody.expectedCaseVersion === 1 &&
+      typeof replyBody.messageIntentId === 'string' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(replyBody.messageIntentId) &&
       replyBody.messageType === 'more_info' &&
       replyBody.triageSuggestionId === '79000000-0000-4000-8000-000000000001' &&
       replyBody.body === reviewedDraft,

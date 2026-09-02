@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(26);
+select plan(27);
 
 create function pg_temp.capture_error(statement text)
 returns text language plpgsql as $$
@@ -52,6 +52,9 @@ insert into auth.users (
   '{}'::jsonb, '{}'::jsonb, now(), now()
 );
 
+insert into public.admin_roles (user_id, role, active)
+values ('b1000000-0000-4000-8000-000000000001', 'super_admin', true);
+
 insert into public.customer_accounts (id, name, account_type)
 values ('b1100000-0000-4000-8000-000000000001', 'Manual outbox fixture', 'internal');
 
@@ -81,7 +84,26 @@ insert into public.refund_cases (
   ('b1400000-0000-4000-8000-000000000002', 'RF-OUTBOX-VERSION', 'b1300000-0000-4000-8000-000000000001', 'b1200000-0000-4000-8000-000000000001', 'outbox-version@example.invalid', 'Manual outbox version fixture', statement_timestamp() - interval '2 hours', 'America/Los_Angeles', 'card', 800, '4242', 'needs_review', 'matched', 'nayax', 'under_review'),
   ('b1400000-0000-4000-8000-000000000003', 'RF-OUTBOX-INTERNAL', 'b1300000-0000-4000-8000-000000000001', 'b1200000-0000-4000-8000-000000000001', 'outbox-internal@example.invalid', 'Manual outbox internal fixture', statement_timestamp() - interval '2 hours', 'America/Los_Angeles', 'card', 900, '4242', 'needs_review', 'matched', 'nayax', 'under_review'),
   ('b1400000-0000-4000-8000-000000000004', 'RF-OUTBOX-STALE', 'b1300000-0000-4000-8000-000000000001', 'b1200000-0000-4000-8000-000000000001', 'outbox-stale@example.invalid', 'Manual outbox stale fixture', statement_timestamp() - interval '2 hours', 'America/Los_Angeles', 'card', 1000, '4242', 'needs_review', 'matched', 'nayax', 'under_review'),
-  ('b1400000-0000-4000-8000-000000000005', 'RF-OUTBOX-UNKNOWN', 'b1300000-0000-4000-8000-000000000001', 'b1200000-0000-4000-8000-000000000001', 'outbox-unknown@example.invalid', 'Manual outbox unknown fixture', statement_timestamp() - interval '2 hours', 'America/Los_Angeles', 'card', 1100, '4242', 'needs_review', 'matched', 'nayax', 'under_review');
+  ('b1400000-0000-4000-8000-000000000005', 'RF-OUTBOX-UNKNOWN', 'b1300000-0000-4000-8000-000000000001', 'b1200000-0000-4000-8000-000000000001', 'outbox-unknown@example.invalid', 'Manual outbox unknown fixture', statement_timestamp() - interval '2 hours', 'America/Los_Angeles', 'card', 1100, '4242', 'needs_review', 'matched', 'nayax', 'under_review'),
+  ('b1400000-0000-4000-8000-000000000006', 'RF-OUTBOX-GMAIL', 'b1300000-0000-4000-8000-000000000001', 'b1200000-0000-4000-8000-000000000001', 'outbox-gmail@example.invalid', 'Manual outbox Gmail draft fixture', statement_timestamp() - interval '2 hours', 'America/Los_Angeles', 'unknown', null, null, 'draft', 'unmatched', null, 'under_review');
+
+update public.refund_cases
+set official_action_version = 9
+where id = 'b1400000-0000-4000-8000-000000000006';
+
+insert into public.refund_gmail_threads (
+  id, refund_case_id, mailbox_hash, provider_thread_id, thread_subject,
+  first_message_at, latest_message_at, retention_expires_at
+) values (
+  'b1600000-0000-4000-8000-000000000001',
+  'b1400000-0000-4000-8000-000000000006',
+  repeat('f', 64),
+  'manual-outbox-gmail-thread',
+  'Synthetic manual outbox Gmail thread',
+  statement_timestamp() - interval '2 hours',
+  statement_timestamp() - interval '1 hour',
+  statement_timestamp() + interval '180 days'
+);
 
 select ok(
   has_function_privilege('service_role', 'public.service_enqueue_refund_manual_message_intent(uuid,bigint,uuid,uuid,text,text,text,text,text,text,text,text[],uuid,boolean,uuid)', 'execute')
@@ -107,6 +129,21 @@ select ok(
       ])
   ),
   'The customer-message ledger exposes the durable outbox state'
+);
+
+select set_config('request.jwt.claim.sub', 'b1000000-0000-4000-8000-000000000001', true);
+select is(
+  (
+    select (draft_case ->> 'officialActionVersion')::bigint
+    from jsonb_array_elements(public.admin_get_refund_gmail_draft_cases()) as draft_case
+    where draft_case ->> 'id' = 'b1400000-0000-4000-8000-000000000006'
+  ),
+  (
+    select official_action_version
+    from public.refund_cases
+    where id = 'b1400000-0000-4000-8000-000000000006'
+  ),
+  'Gmail draft cases expose the authoritative version required by the durable outbox'
 );
 
 set local role service_role;

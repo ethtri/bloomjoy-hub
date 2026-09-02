@@ -739,4 +739,54 @@ comment on function public.service_finish_refund_manual_message_delivery(
   uuid, uuid, text, text, text, integer, text
 ) is 'Atomically records manager-authored delivery outcome, redacted audit evidence, and sent-only customer lifecycle state.';
 
+-- Gmail-created draft cases are returned by a separate manager projection. The
+-- durable outbox must receive the same authoritative case version as ordinary
+-- overview cases; defaulting or inferring a version would weaken stale-write
+-- protection for the exact conversation path this migration is securing.
+alter function public.admin_get_refund_gmail_draft_cases()
+  rename to admin_get_refund_gmail_draft_cases_pre_manual_outbox_20260902;
+
+revoke execute on function public.admin_get_refund_gmail_draft_cases_pre_manual_outbox_20260902()
+  from public, anon, authenticated;
+
+create function public.admin_get_refund_gmail_draft_cases()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, auth
+as $$
+declare
+  base_result jsonb;
+  versioned_result jsonb;
+begin
+  base_result := public.admin_get_refund_gmail_draft_cases_pre_manual_outbox_20260902();
+
+  select coalesce(
+    jsonb_agg(
+      case_item.case_json || jsonb_build_object(
+        'officialActionVersion', refund_case.official_action_version
+      )
+      order by case_item.case_order
+    ),
+    '[]'::jsonb
+  )
+  into versioned_result
+  from jsonb_array_elements(coalesce(base_result, '[]'::jsonb))
+    with ordinality as case_item(case_json, case_order)
+  join public.refund_cases refund_case
+    on refund_case.id = (case_item.case_json ->> 'id')::uuid;
+
+  return versioned_result;
+end;
+$$;
+
+revoke execute on function public.admin_get_refund_gmail_draft_cases()
+  from public, anon;
+grant execute on function public.admin_get_refund_gmail_draft_cases()
+  to authenticated;
+
+comment on function public.admin_get_refund_gmail_draft_cases()
+  is 'Returns manager-authorized Gmail draft cases with the authoritative official-action version required by durable message intents.';
+
 select pg_notify('pgrst', 'reload schema');
