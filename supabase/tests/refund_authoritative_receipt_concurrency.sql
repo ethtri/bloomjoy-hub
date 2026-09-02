@@ -67,10 +67,10 @@ begin
       c.public_reference,c.matched_nayax_transaction_id,700,true);
   elsif p_action='old_resolver' then
     return public.admin_resolve_refund_nayax_outcome_manager_session(c.id,a,'documented_manual_completion','documented_manual_refund',
-      'MANUAL:'||c.matched_nayax_transaction_id,statement_timestamp(),'manual_nayax_completion',c.official_action_version);
+      'MANUAL:RECEIPT-RACE',statement_timestamp(),'manual_nayax_completion',c.official_action_version);
   end if;
   raise exception 'Unexpected test action';
-exception when others then return jsonb_build_object('error',sqlstate);
+exception when others then return jsonb_build_object('error',sqlstate,'message',sqlerrm);
 end; $$;
 create function refund_receipt_race_test.wait_for_blocked_b() returns boolean language plpgsql as $$ begin
   for i in 1..100 loop
@@ -82,6 +82,8 @@ create function refund_receipt_race_test.wait_for_blocked_b() returns boolean la
 end; $$;
 commit;
 select no_plan();
+select ok(public.refund_nayax_resolution_reference_is_safe('MANUAL:RECEIPT-RACE','documented_manual_refund'),
+  'Resolver race uses a safe synthetic evidence reference without prohibited numeric identity');
 
 -- B reaches the real row lock before A records; B then observes durable replay.
 select extensions.dblink_exec('receipt_race_a','begin');
@@ -138,6 +140,8 @@ alter table public.refund_completion_notice_adoptions enable trigger refund_comp
 alter table public.refund_authoritative_receipts enable trigger refund_authoritative_receipts_immutable;
 delete from public.refund_gmail_messages where gmail_thread_id='af700000-0000-4000-8000-000000000001';
 delete from public.refund_gmail_threads where id='af700000-0000-4000-8000-000000000001';
+delete from public.refund_case_nayax_refund_attempts where refund_case_id='af400000-0000-4000-8000-000000000002';
+delete from public.refund_case_official_action_authorizations where refund_case_id='af400000-0000-4000-8000-000000000002';
 delete from public.refund_cases where reporting_machine_id='af300000-0000-4000-8000-000000000001';
 delete from public.reporting_machine_refund_managers where reporting_machine_id='af300000-0000-4000-8000-000000000001';
 delete from public.reporting_machines where id='af300000-0000-4000-8000-000000000001';
