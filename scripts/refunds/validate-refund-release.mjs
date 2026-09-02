@@ -287,8 +287,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    119,
-    'Refund release inventory must cover exactly 119 discovered refund/Nayax migrations'
+    120,
+    'Refund release inventory must cover exactly 120 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('20260902191832_refund_authoritative_reconciliation_receipt.sql'),

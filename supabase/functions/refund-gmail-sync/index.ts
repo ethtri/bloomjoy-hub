@@ -975,6 +975,47 @@ const applyDeterministicCustomerReplyFacts = async ({
   sensitiveDataRedacted: boolean;
 }) => {
   if (!supabase) return { allowRoutineContact: false };
+  const hasAuthoritativeReceipt = async () => {
+    const lifecycle = await rpc<{ paymentState?: string; reasonCode?: string }>(
+      "refund_lifecycle_contract",
+      { p_refund_case_id: refundCaseId },
+    );
+    if (!lifecycle || typeof lifecycle.paymentState !== "string") {
+      throw new Error("refund_customer_reply_lifecycle_unavailable");
+    }
+    return lifecycle.paymentState === "confirmed" &&
+      lifecycle.reasonCode === "settlement_time_unknown";
+  };
+  // Ingestion and the internal incoming-message notice remain outside this
+  // boundary. A confirmed refund must not be reopened by old correction work.
+  if (await hasAuthoritativeReceipt()) return { allowRoutineContact: false };
+  try {
+    return await applyUnreceiptedCustomerReplyFacts({
+      refundCaseId, sourceMessageId, body, sensitiveDataRedacted,
+    });
+  } catch (error) {
+    // A receipt can commit after the initial read but before a direct routing
+    // update. Only its exact storage guard plus fresh readback is a normal skip.
+    if (
+      typeof error === "object" && error !== null && "code" in error &&
+      error.code === "P4663" && await hasAuthoritativeReceipt()
+    ) return { allowRoutineContact: false };
+    throw error;
+  }
+};
+
+const applyUnreceiptedCustomerReplyFacts = async ({
+  refundCaseId,
+  sourceMessageId,
+  body,
+  sensitiveDataRedacted,
+}: {
+  refundCaseId: string;
+  sourceMessageId: string;
+  body: string;
+  sensitiveDataRedacted: boolean;
+}) => {
+  if (!supabase) return { allowRoutineContact: false };
   const extracted = extractLabeledRefundEmailFacts(body);
   const manualReviewReason = sensitiveDataRedacted
     ? "sensitive_or_escalated_content"
@@ -1332,6 +1373,10 @@ const applyDeterministicCustomerReplyFacts = async ({
         : "labeled_routine_facts_v1",
     },
   );
+  if (
+    application?.outcome === "skipped" &&
+    application.reason === "authoritative_receipt_recorded"
+  ) return { allowRoutineContact: false };
   if (classifyRefundCustomerFactApplication(application) !== "accepted") {
     throw new Error("refund_customer_fact_application_conflict");
   }

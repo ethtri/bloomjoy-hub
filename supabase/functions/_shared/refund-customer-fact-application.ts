@@ -1,5 +1,5 @@
 export type RefundCustomerFactApplicationResult = {
-  outcome?: "applied" | "conflict" | "already_applied";
+  outcome?: "applied" | "conflict" | "already_applied" | "skipped";
   factVersion?: number;
   reason?: string;
 };

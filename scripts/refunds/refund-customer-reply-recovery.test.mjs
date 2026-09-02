@@ -44,8 +44,17 @@ function harness() {
     },
     ledger: new Map(), actions: new Set(), applications: 0, events: 0, lookups: 0,
     breakAfterCommit: false, receiptOverride: undefined, driftAfterReceipt: false,
+    authoritativeReceipt: false, lifecycleOverride: undefined, lifecycleReads: 0,
+    receiptAtApply: false, routingError: null, receiptAtRouting: false, routingUpdates: 0,
   };
   async function rpc(name, args) {
+    if (name === 'refund_lifecycle_contract') {
+      state.lifecycleReads++;
+      return state.lifecycleOverride !== undefined ? state.lifecycleOverride
+        : state.authoritativeReceipt
+        ? { paymentState: 'confirmed', reasonCode: 'settlement_time_unknown' }
+        : { paymentState: 'not_started', reasonCode: 'lookup_ready' };
+    }
     if (name === 'service_get_refund_gmail_fact_application_v1') {
       if (state.receiptOverride !== undefined) return state.receiptOverride;
       const entry = state.ledger.get(args.p_gmail_message_id);
@@ -56,6 +65,7 @@ function harness() {
       return receipt;
     }
     if (name === 'service_apply_refund_gmail_customer_facts_v1') {
+      if (state.receiptAtApply) return { outcome: 'skipped', reason: 'authoritative_receipt_recorded' };
       state.applications++;
       const prior = state.ledger.get(args.p_gmail_message_id);
       if (prior) return { outcome: 'already_applied', ...prior };
@@ -85,6 +95,11 @@ function harness() {
       assert(['refund_cases', 'refund_follow_up_cycles'].includes(table), `Unexpected table: ${table}`);
       const chain = {
         select: () => chain, eq: () => chain, not: () => chain,
+        update: () => {
+          state.routingUpdates++;
+          if (state.receiptAtRouting) state.authoritativeReceipt = true;
+          return { eq: async () => ({ error: state.routingError }) };
+        },
         order: () => chain, limit: () => chain,
         maybeSingle: async () => ({ data: table === 'refund_cases' ? { ...state.current } : null, error: null }),
       };
@@ -111,10 +126,10 @@ function harness() {
     },
   });
   const { apply } = execute(handlerSource, { supabase, rpc, ...extraction, ...classification, ...lookup });
-  const run = (sourceMessageId = 'verified-message', body = 'Card type: Visa') => apply({
-    refundCaseId: 'synthetic-case', sourceMessageId, body, sensitiveDataRedacted: false,
+  const run = (sourceMessageId = 'verified-message', body = 'Card type: Visa', sensitiveDataRedacted = false) => apply({
+    refundCaseId: 'synthetic-case', sourceMessageId, body, sensitiveDataRedacted,
   });
-  return { state, run };
+  return { state, run, apply };
 }
 
 test('actual handler recovers committed facts once; settled and concurrent replay never rerank twice', async () => {
@@ -192,4 +207,81 @@ test('payout-only receipt never reranks even if the current case is lookup-ready
   await run();
   assert.equal(state.lookups, 0);
   assert.equal(state.applications, 0);
+});
+
+for (const [body, sensitive] of [['Card type: Visa', false], ['redacted content', true], ['Payment method: cash', false]]) {
+  test(`authoritative receipt skips real handler before extraction or routing: ${body}`, async () => {
+    const { state, run } = harness();
+    state.authoritativeReceipt = true;
+    const before = JSON.stringify(state.current);
+    assert.equal((await run('new-reply', body, sensitive)).allowRoutineContact, false);
+    assert.equal(JSON.stringify(state.current), before);
+    assert.equal(state.routingUpdates + state.applications + state.events + state.lookups, 0);
+    assert.equal(state.lifecycleReads, 1);
+  });
+}
+
+test('receipt committed after initial read is a normal no-effect SQL skip', async () => {
+  const { state, run } = harness();
+  state.receiptAtApply = true;
+  const before = JSON.stringify(state.current);
+  assert.equal((await run()).allowRoutineContact, false);
+  assert.equal(JSON.stringify(state.current), before);
+  assert.equal(state.applications + state.events + state.lookups, 0);
+});
+
+test('receipt wins direct routing race without turning preserved incoming mail into failure', async () => {
+  const { state, run } = harness();
+  state.receiptAtRouting = true;
+  state.routingError = { code: 'P4663' };
+  assert.equal((await run('new-reply', 'redacted', true)).allowRoutineContact, false);
+  assert.equal(state.lifecycleReads, 2);
+  assert.equal(state.applications + state.events + state.lookups, 0);
+});
+
+for (const [code, receipt] of [['P4663', false], ['42501', true]]) {
+  test(`unrelated routing failure remains a failure: ${code}/${receipt}`, async () => {
+    const { state, run } = harness();
+    state.receiptAtRouting = receipt;
+    state.routingError = { code };
+    await assert.rejects(run('new-reply', 'redacted', true), (error) => error.code === code);
+  });
+}
+
+test('ordinary confirmed payment is not mistaken for this receipt exception', async () => {
+  const { state, run } = harness();
+  state.lifecycleOverride = { paymentState: 'confirmed', reasonCode: 'completed' };
+  await run();
+  assert.equal(state.applications, 1);
+});
+
+test('missing lifecycle fails closed without applying facts', async () => {
+  const { state, run } = harness();
+  state.lifecycleOverride = null;
+  await assert.rejects(run(), /lifecycle_unavailable/);
+  assert.equal(state.applications + state.events + state.lookups, 0);
+});
+
+test('actual post-ingestion path preserves internal incoming notice and records no false failure', async () => {
+  const { state, apply } = harness();
+  state.authoritativeReceipt = true;
+  const callerStart = sync.indexOf('const caseId = sanitizeText(ingestion?.caseId, 80);');
+  const callerEnd = sync.indexOf('            processFirstContact:', callerStart);
+  assert(callerStart >= 0 && callerEnd > callerStart);
+  const body = sync.slice(callerStart, callerEnd).replace(/\},\s*$/, '');
+  const counters = { messagesFailed: 0, attachmentsQuarantined: 0 };
+  let internalNotices = 0;
+  const { process } = execute(`exports.process = async () => { ${body} };`, {
+    ingestion: { created: true, caseId: 'synthetic-case', messageId: 'new-reply', participantRole: 'customer' },
+    sanitizeText: (value) => String(value ?? ''), intakeShadow: false, counters,
+    from: { name: 'Synthetic', email: 'customer@example.invalid' },
+    redactedBody: { text: 'Card type: Visa', redacted: false }, redactedSubject: { redacted: false },
+    applyDeterministicCustomerReplyFacts: apply,
+    sendGmailCaseActionNotice: async () => { internalNotices++; },
+    console: { error: () => assert.fail('No false failure should be logged') },
+  });
+  assert.equal(await process(), null);
+  assert.equal(internalNotices, 1);
+  assert.equal(counters.messagesFailed, 0);
+  assert.equal(state.applications + state.events + state.lookups + state.routingUpdates, 0);
 });
