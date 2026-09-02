@@ -107,6 +107,7 @@ select extensions.dblink_exec('receipt_race_a','commit');
 insert into refund_receipt_race_test.results select 'resolver_loses',payload from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
 select * from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
 select is((select payload->>'status' from refund_receipt_race_test.results where lane='receipt_wins'),'recorded','Receipt winner is committed');
+select diag((select payload::text from refund_receipt_race_test.results where lane='resolver_loses'));
 select is((select payload->>'error' from refund_receipt_race_test.results where lane='resolver_loses'),'P4663','Waiting old resolver is stopped by the receipt effects guard');
 
 select extensions.dblink_exec('receipt_race_a','begin');
