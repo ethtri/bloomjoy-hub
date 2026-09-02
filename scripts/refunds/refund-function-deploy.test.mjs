@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
+import { requiredFunctionSlugs } from './refund-release.mjs';
 import {
   buildCanonicalDeployArgs,
   parseCanonicalDeployArgs,
@@ -15,6 +16,49 @@ const baseArgs = [
   '--confirm-project-ref',
   refundProductionProjectRef,
 ];
+
+test('the complete current plan contains all eleven functions including the live outcome resolver', () => {
+  const options = parseCanonicalDeployArgs([...baseArgs, '--all']);
+  assert.equal(options.functions.length, 11);
+  assert.equal(options.functions.at(-1), 'refund-nayax-outcome-resolve');
+  const root = path.resolve('safe-release-root');
+  const result = runCanonicalRefundDeployment(options, { root, runner: () => assert.fail('Plan must not execute') });
+  assert.deepEqual(result.plan.map((entry) => entry.slug), requiredFunctionSlugs);
+  for (const entry of result.plan) {
+    assert.equal(entry.args.at(-1), root);
+    assert.equal(entry.args[entry.args.indexOf('--project-ref') + 1], refundProductionProjectRef);
+  }
+  assert.deepEqual(parseCanonicalDeployArgs([...baseArgs, '--function', 'refund-nayax-outcome-resolve']).functions,
+    ['refund-nayax-outcome-resolve']);
+});
+
+for (const captureFails of [false, true]) {
+  test(`full deployment verifies all current downloaded sources after Auth; capture failure=${captureFails}`, () => {
+    const options = parseCanonicalDeployArgs([...baseArgs, '--all', '--execute', '--authorize', productionAuthorizationPhrase]);
+    const calls = [];
+    const root = path.resolve('safe-release-root');
+    const runner = (command, args, runOptions) => {
+      calls.push({ command, args, runOptions });
+      if (command === 'git') return { status: 0, stdout: args[0] === 'rev-parse' ? 'a'.repeat(40) : '' };
+      if (args.includes('--capture-production') && captureFails) return { status: 1 };
+      return { status: 0 };
+    };
+    if (captureFails) {
+      assert.throws(() => runCanonicalRefundDeployment(options, { root, runner }), /source verification failed; release is not accepted/);
+    } else {
+      assert.equal(runCanonicalRefundDeployment(options, { root, runner }).executed, true);
+    }
+    assert.deepEqual(calls.filter((call) => call.args[0] === 'functions').map((call) => call.args[2]), requiredFunctionSlugs);
+    const capture = calls.at(-1);
+    assert.deepEqual(capture.args, [
+      path.join(root, 'scripts', 'refunds', 'refund-release.mjs'), '--capture-production',
+      '--project-ref', refundProductionProjectRef, '--confirm-project-ref', refundProductionProjectRef,
+      '--output', `output/refund-production-postdeploy-${'a'.repeat(40)}.json`,
+    ]);
+    assert.equal(capture.runOptions.cwd, root);
+    assert.equal(calls.at(-2).args.at(-1), 'postdeploy');
+  });
+}
 
 test('plan mode selects approved functions in release order without executing commands', () => {
   const options = parseCanonicalDeployArgs([

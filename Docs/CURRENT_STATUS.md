@@ -24,6 +24,7 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 - **Unknown-time refund receipts (`#628`, `#971`):** Evidence-only reconciliation preserves unknown settlement time and existing sent notices. Legacy portal provenance is not historical account authorization; current exact provider account/machine/full-refund review remains mandatory. Wrong-machine, incomplete provider identity and unavailable current provider evidence remain holds. Hosted database verification and independent review are release gates; no production reconciliation or accounting-date policy is included. See `Docs/REFUND_AUTHORITATIVE_RECEIPTS.md`.
 
+- **Refund release completeness (`#628`):** the current release inventory includes the live outcome resolver as the eleventh function, with transitive-source deployment/capture checks and a separately captured restore baseline. The original ten-function/51-migration evidence remains immutable; production acceptance still requires exact-head verification and postdeploy source parity.
 - **Localized refund replies (`#891`, `#923`):** Spanish email instructions must round-trip into the same structured case. Exact localized labels, decimal amounts, and quoted-message boundaries require parser/renderer coverage; production closeout includes a controlled Spanish reply and exactly one rerank, not translated outgoing copy alone.
 
 ### Refund lifecycle v2 integration candidate (`#628`, `#991`, `#992`)

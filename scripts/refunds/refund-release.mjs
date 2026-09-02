@@ -13,7 +13,8 @@ const scriptDirectory = path.dirname(scriptPath);
 export const repoRoot = path.resolve(scriptDirectory, '..', '..');
 export const manifestPath = path.join(scriptDirectory, 'refund-production-release.json');
 
-export const requiredFunctionSlugs = [
+// The pre-#427 evidence is immutable; additions belong only to the current inventory.
+export const historicalFunctionSlugs = [
   'refund-case-intake',
   'nayax-transaction-lookup',
   'refund-case-admin-update',
@@ -25,6 +26,8 @@ export const requiredFunctionSlugs = [
   'refund-manager-action-step-up',
   'refund-manager-totp-enrollment',
 ];
+export const additionalFunctionSlugs = ['refund-nayax-outcome-resolve'];
+export const requiredFunctionSlugs = [...historicalFunctionSlugs, ...additionalFunctionSlugs];
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const normalizeText = (value) => value.replace(/\r\n?/g, '\n');
@@ -420,7 +423,7 @@ export const validateManifestShape = (manifest, { allowPending = false } = {}) =
   assert(Array.isArray(approvedRestoreSource.functions), 'approvedRestoreSource functions are missing');
   assert(
     JSON.stringify(approvedRestoreSource.functions.map((entry) => entry.slug)) ===
-      JSON.stringify(requiredFunctionSlugs),
+      JSON.stringify(historicalFunctionSlugs),
     'approvedRestoreSource function allowlist is invalid'
   );
   for (const entry of approvedRestoreSource.functions) {
@@ -449,7 +452,7 @@ export const validateManifestShape = (manifest, { allowPending = false } = {}) =
     assert(Array.isArray(manifest.preDeploymentProduction), 'preDeploymentProduction baseline is invalid');
     assert(
       JSON.stringify(manifest.preDeploymentProduction.map((entry) => entry.slug)) ===
-        JSON.stringify(requiredFunctionSlugs),
+        JSON.stringify(historicalFunctionSlugs),
       'preDeploymentProduction function allowlist is invalid'
     );
     for (const entry of manifest.preDeploymentProduction) {
@@ -468,6 +471,29 @@ export const validateManifestShape = (manifest, { allowPending = false } = {}) =
         }
       }
     }
+  }
+  assert(
+    Array.isArray(manifest.additionalFunctionBaselines) &&
+      JSON.stringify(manifest.additionalFunctionBaselines.map((entry) => entry.slug)) ===
+        JSON.stringify(additionalFunctionSlugs),
+    'additionalFunctionBaselines function allowlist is invalid'
+  );
+  for (const entry of manifest.additionalFunctionBaselines) {
+    assert(Number.isFinite(Date.parse(entry.capturedAt)), `Additional baseline timestamp is invalid for ${entry.slug}`);
+    assert(entry.status === 'ACTIVE', `Additional baseline must be ACTIVE for ${entry.slug}`);
+    assert(Number.isInteger(entry.version) && entry.version > 0, `Additional baseline version is invalid for ${entry.slug}`);
+    assert(
+      entry.verifyJwt === manifest.functions.find((candidate) => candidate.slug === entry.slug).verifyJwt &&
+        entry.importMap === false,
+      `Additional baseline security pairing is invalid for ${entry.slug}`
+    );
+    assert(digestPattern.test(entry.ezbrSha256 ?? ''), `Additional baseline bundle digest is invalid for ${entry.slug}`);
+    assert(digestPattern.test(entry.sourceSha256 ?? ''), `Additional baseline source digest is invalid for ${entry.slug}`);
+    assert(
+      entry.entrypointIdentity === canonicalFunctionEntrypointIdentity(entry.slug),
+      `Additional baseline entrypoint identity is invalid for ${entry.slug}`
+    );
+    assert(gitCommitPattern.test(entry.restoreSourceGitCommit ?? ''), `Additional baseline restore commit is invalid for ${entry.slug}`);
   }
 };
 
@@ -528,6 +554,15 @@ export const validateApprovedRestoreSource = (rootDirectory, manifest) => {
       `approvedRestoreSource does not match ${entry.slug}`
     );
   }
+  for (const entry of manifest.additionalFunctionBaselines) {
+    const committedSource = calculateFunctionSourceAtGitCommit(
+      rootDirectory, entry.restoreSourceGitCommit, entry.slug, { sourceCache: committedSourceCache }
+    );
+    assert(
+      committedSource.sourceSha256 === entry.sourceSha256,
+      `Additional baseline restore source does not match ${entry.slug}`
+    );
+  }
 };
 
 export const validateHistoricalPreMigrationCompatibilityEntries = ({
@@ -542,19 +577,19 @@ export const validateHistoricalPreMigrationCompatibilityEntries = ({
   );
   assert(
     JSON.stringify(preDeploymentProduction.map((entry) => entry.slug)) ===
-      JSON.stringify(requiredFunctionSlugs),
+      JSON.stringify(historicalFunctionSlugs),
     'preMigrationCompatibility historical baseline function allowlist is invalid'
   );
   assert(
     historicalSourceBySlug instanceof Map &&
-      historicalSourceBySlug.size === requiredFunctionSlugs.length &&
-      requiredFunctionSlugs.every((slug) =>
+      historicalSourceBySlug.size === historicalFunctionSlugs.length &&
+      historicalFunctionSlugs.every((slug) =>
         digestPattern.test(historicalSourceBySlug.get(slug) ?? '')
       ),
     'preMigrationCompatibility historical source map is invalid'
   );
 
-  for (const entry of functions) {
+  for (const entry of functions.filter((candidate) => historicalFunctionSlugs.includes(candidate.slug))) {
     const historicalEntry = preDeploymentProduction.find(
       (candidate) => candidate.slug === entry.slug
     );
@@ -590,7 +625,7 @@ export const validatePreMigrationCompatibilitySource = (rootDirectory, manifest)
 
   const historicalSourceCache = new Map();
   const historicalSourceBySlug = new Map(
-    manifest.functions.map((entry) => [
+    manifest.functions.filter((entry) => historicalFunctionSlugs.includes(entry.slug)).map((entry) => [
       entry.slug,
       calculateFunctionSourceAtGitCommit(
         rootDirectory,
@@ -772,6 +807,7 @@ export const buildProductionCaptureReceipt = (
     migrationVersionSetSha256: manifest.migrationVersionSetSha256,
     preDeploymentProduction: manifest.preDeploymentProduction,
     approvedRestoreSource: manifest.approvedRestoreSource,
+    additionalFunctionBaselines: manifest.additionalFunctionBaselines,
     functions: productionFunctions.map((entry) => {
       const expected = manifestBySlug.get(entry.slug);
       const approved = expected.production;

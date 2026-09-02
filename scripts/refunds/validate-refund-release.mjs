@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -26,8 +27,10 @@ import {
   prepareManifestForLocalRefresh,
   repoRoot,
   requiredFunctionSlugs,
+  historicalFunctionSlugs,
   sanitizeProductionMetadata,
   validateManifestShape,
+  validateApprovedRestoreSource,
   validateHistoricalPreMigrationCompatibilityEntries,
   validatePreMigrationCompatibilitySource,
   validateReleaseManifestGitAnchorState,
@@ -69,7 +72,7 @@ assert(
       'paired provider-free resolution-window/closure sequence'
     ) &&
     productionRunbook.includes(
-      'Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit'
+      'Deploy only the eleven functions listed in the release manifest from the exact immutable, reviewed canonical-main commit'
     ) &&
     productionRunbook.includes('production Gmail OAuth/mailbox connection is now configured and proved under `#634`') &&
     productionRunbook.includes('production adapter exists but cannot reserve or call Nayax') &&
@@ -85,7 +88,7 @@ assert(
 
 const refundDeployStart = productionRunbook.indexOf('Before deploying Refund Operations functions');
 const refundDeployEnd = productionRunbook.indexOf(
-  'After deploying the ten manifest-tracked Refund Operations functions',
+  'After deploying the eleven manifest-tracked Refund Operations functions',
   refundDeployStart
 );
 assert(
@@ -230,14 +233,45 @@ const canonicalPreDeploymentManagerSourceSha256 = {
 };
 
 try {
-  assert.equal(requiredFunctionSlugs.length, 10, 'Refund release inventory must cover exactly ten functions');
+  assert.equal(requiredFunctionSlugs.length, 11, 'Current refund release inventory must cover exactly eleven functions');
+  assert.equal(historicalFunctionSlugs.length, 10, 'Historical inventory must remain exactly ten functions');
+  assert.equal(requiredFunctionSlugs.at(-1), 'refund-nayax-outcome-resolve');
   assert.deepEqual(
-    requiredFunctionSlugs.slice(-2),
+    historicalFunctionSlugs.slice(-2),
     ['refund-manager-action-step-up', 'refund-manager-totp-enrollment'],
     'Manager step-up and TOTP enrollment must be in the release inventory'
   );
   const repositoryManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   validateManifestShape(repositoryManifest);
+  const priorInventoryManifest = JSON.parse(execFileSync('git', [
+    'show', '2e0316b7e074f5ff133d40cc1e9faa0724ba059e:scripts/refunds/refund-production-release.json',
+  ], { cwd: repoRoot, encoding: 'utf8', windowsHide: true }));
+  for (const key of ['preDeploymentCapturedAt', 'preDeploymentProduction', 'approvedRestoreSource', 'preMigrationCompatibility']) {
+    assert.deepEqual(repositoryManifest[key], priorInventoryManifest[key], `${key} must preserve immutable historical ten/51 evidence`);
+  }
+  const oldInventoryManifest = structuredClone(repositoryManifest);
+  oldInventoryManifest.functions.pop();
+  assert.throws(() => validateManifestShape(oldInventoryManifest), /function order or allowlist/);
+  const oldRestoreOnlyManifest = structuredClone(repositoryManifest);
+  delete oldRestoreOnlyManifest.additionalFunctionBaselines;
+  assert.throws(() => validateManifestShape(oldRestoreOnlyManifest), /additionalFunctionBaselines function allowlist/);
+  for (const [property, value] of [
+    ['status', 'MISSING'], ['verifyJwt', true], ['importMap', true],
+    ['entrypointIdentity', canonicalFunctionEntrypointIdentity('refund-case-intake')],
+    ['restoreSourceGitCommit', 'not-a-commit'],
+  ]) {
+    const badBaseline = structuredClone(repositoryManifest);
+    badBaseline.additionalFunctionBaselines[0][property] = value;
+    assert.throws(() => validateManifestShape(badBaseline), /Additional baseline/);
+  }
+  const invalidAdditionalRestore = structuredClone(repositoryManifest);
+  invalidAdditionalRestore.additionalFunctionBaselines[0].sourceSha256 = 'e'.repeat(64);
+  assert.throws(() => validateApprovedRestoreSource(repoRoot, invalidAdditionalRestore), /Additional baseline restore source does not match/);
+  assert.match(
+    fs.readFileSync(path.join(repoRoot, '.github/workflows/refund-production-drift.yml'), 'utf8'),
+    /supabase\/functions\/refund-nayax-outcome-resolve\/\*\*/,
+    'Resolver-only edits must trigger the production source guard'
+  );
   const missingEntrypointManifest = structuredClone(repositoryManifest);
   delete missingEntrypointManifest.functions[0].production.entrypointIdentity;
   assert.throws(
@@ -508,8 +542,8 @@ try {
   );
   assert.equal(
     repositoryManifest.functions.length,
-    10,
-    'Repository release manifest must contain exactly ten functions'
+    11,
+    'Repository release manifest must contain exactly eleven functions'
   );
   const repositoryLocalState = buildLocalReleaseState(repoRoot, repositoryManifest);
   assert.deepEqual(
@@ -694,7 +728,8 @@ try {
     ...calculateFunctionSource(fixtureRoot, slug),
     production: null,
   }));
-  const previousFunctions = localFunctions.map(({ slug, sourceSha256 }) => ({ slug, sourceSha256 }));
+  const previousFunctions = localFunctions.filter(({ slug }) => historicalFunctionSlugs.includes(slug))
+    .map(({ slug, sourceSha256 }) => ({ slug, sourceSha256 }));
   const shapeManifest = {
     schemaVersion: 3,
     environment: 'production',
@@ -706,7 +741,8 @@ try {
     migrationVersionSetSha256: calculateMigrationVersionSetDigest(migrationFiles),
     functions: localFunctions,
     preDeploymentCapturedAt: '2026-01-01T00:00:00.000Z',
-    preDeploymentProduction: requiredFunctionSlugs.map((slug) => ({ slug, status: 'MISSING' })),
+    preDeploymentProduction: historicalFunctionSlugs.map((slug) => ({ slug, status: 'MISSING' })),
+    additionalFunctionBaselines: structuredClone(repositoryManifest.additionalFunctionBaselines),
     approvedRestoreSource: {
       releaseId: 'fixture-restore',
       sourceGitCommit: 'b'.repeat(40),
@@ -1024,6 +1060,23 @@ try {
     slug: entry.slug,
     sourceSha256: entry.sourceSha256,
   }));
+  const withoutResolver = (entries) => entries.filter((entry) => entry.slug !== 'refund-nayax-outcome-resolve');
+  assert.match(compareProductionState(manifest, withoutResolver(sanitized)).join('\n'), /refund-nayax-outcome-resolve: missing/);
+  assert.match(compareCaptureState(manifest, withoutResolver(sanitized), withoutResolver(productionSources)).join('\n'), /refund-nayax-outcome-resolve: missing/);
+  assert.throws(
+    () => buildProductionCaptureReceipt(manifest, withoutResolver(sanitized), withoutResolver(productionSources), '2026-09-02T00:00:00.000Z'),
+    /refund-nayax-outcome-resolve: missing/,
+    'A ten-function capture must never produce a successful current release receipt'
+  );
+  assert.match(compareCaptureState(manifest, sanitized, withoutResolver(productionSources)).join('\n'), /refund-nayax-outcome-resolve: downloaded production source/);
+  for (const patch of [
+    { status: 'MISSING' }, { version: 0 }, { verifyJwt: true }, { importMap: true },
+    { ezbrSha256: 'e'.repeat(64) },
+    { entrypointIdentity: canonicalFunctionEntrypointIdentity('refund-case-intake') },
+  ]) {
+    const changedResolver = sanitized.map((entry) => entry.slug === 'refund-nayax-outcome-resolve' ? { ...entry, ...patch } : entry);
+    assert.match(compareProductionState(manifest, changedResolver).join('\n'), /refund-nayax-outcome-resolve:/);
+  }
   const compatibilityManifest = structuredClone(manifest);
   compatibilityManifest.functions[0].sourceSha256 = 'd'.repeat(64);
   assert.deepEqual(
