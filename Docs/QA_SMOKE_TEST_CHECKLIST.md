@@ -944,6 +944,14 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] Super-admin can grant and revoke super-admin role with reason metadata
 - [ ] Audit log view supports filtering and shows role + operational actions (support, orders, machine inventory)
 - [ ] Signed-in super-admin can reach `/admin` from visible navigation without typing the URL manually
+## Reviewed legacy machine correction (`#971`, `#628`)
+
+- [ ] In a disposable synthetic environment, open an eligible legacy case through the authenticated `/admin/refunds` workbench as a current Super Admin mapped to both machines. Open the inline different-machine review; compare original and corrected machine, exact provider account/ID, numeric machine number (including leading zeroes), unchanged original, and full amount/status 62. No SQL, actor impersonation, payment or send action is part of the user workflow.
+- [ ] A wrong number/reference, missing review, changed case version, changed inventory snapshot or changed target disables confirmation. A same-case background refresh cannot retain a checked attestation for different evidence. The final pre-submit reads do not silently rebase an earlier review.
+- [ ] Missing current authority, unavailable inventory, a stale version and a concurrent winner fail closed without a second effect. Refresh shows the authoritative state; no automatic retry or alternative payment/message path is invoked.
+- [ ] A successful correction refreshes the real workbench and saved receipt: current machine corrected, historical attempt/customer report/QR evidence/notice preserved, selected candidate factors no longer presented as corroboration, refund confirmed with accounting date unknown. No financial/send/deny/details controls appear in the correction review or confirmed receipt state.
+- [ ] Verify an eligible existing sent notice for only the exact corrected claim; related pending claims remain pending. Close and reopen the workbench to verify persisted correction/receipt/notice readback. Check readable comparison, keyboard focus, 44px controls and no horizontal overflow at desktop and 390px mobile widths. Keep all screenshots synthetic.
+
 ## Legacy card-state normalization (`#784`, `#793`)
 
 - [ ] In a disposable local Supabase project, seed only the exact legacy structure: card, `card_refund_pending`, `decision=approved`, `not_requested`, zero provider attempts, exactly two sent messages consisting of one `confirmation` and one `approved`, zero messages of every other type/status, and no completion/reference/adjustment evidence.

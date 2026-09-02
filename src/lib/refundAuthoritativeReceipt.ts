@@ -10,6 +10,7 @@ export const refundReceiptRefreshQueryKeys = [
   ['refund-nayax-resolution-readiness'],
   ['refund-gmail-case-context'],
   ['refund-case-reconciliation'],
+  ['refund-legacy-machine-correction-options'],
 ] as const;
 
 export async function refreshRefundReceiptViews(
@@ -86,4 +87,67 @@ export function buildReceiptAdoptionRequest(v: RefundReceiptOverview, messageId:
     expectedCaseVersion: v.expectedCaseVersion, completionCaseReference: v.caseReference,
     completionOriginalTransactionId: v.originalTransactionId, completionAmountCents: v.originalAmountCents,
     reviewedFullRefundNotice: true };
+}
+
+export type RefundMachineCorrectionTarget = {
+  inventoryId: string; inventoryEvidenceDigest: string; reportingMachineId: string;
+  machineLabel: string; accountScope: string; providerMachineId: string; machineNumber: string;
+};
+export type RefundMachineCorrectionOptions = {
+  schemaVersion: 'refund_legacy_machine_correction_options_v1'; caseId: string;
+  expectedCaseVersion: number; oldMachineId: string; targets: RefundMachineCorrectionTarget[];
+  payloadRedacted: true;
+};
+export type RefundMachineCorrectionEvidence = {
+  schemaVersion: 'refund_legacy_machine_correction_v1'; correctionId: string; receiptId: string;
+  recordedAt: string; historicalEvidencePreserved: true; payloadRedacted: true;
+};
+
+export function parseRefundMachineCorrectionEvidence(value: unknown): RefundMachineCorrectionEvidence | null {
+  if (value == null) return null;
+  const v = record(value);
+  if (v.schemaVersion !== 'refund_legacy_machine_correction_v1' || !uuid(v.correctionId) || !uuid(v.receiptId) ||
+    !date(v.recordedAt) || v.historicalEvidencePreserved !== true || v.payloadRedacted !== true) {
+    throw new Error('Reload the saved machine correction evidence.');
+  }
+  return { schemaVersion: 'refund_legacy_machine_correction_v1', correctionId: v.correctionId as string,
+    receiptId: v.receiptId as string, recordedAt: v.recordedAt as string, historicalEvidencePreserved: true, payloadRedacted: true };
+}
+
+export function parseRefundMachineCorrectionOptions(value: unknown): RefundMachineCorrectionOptions {
+  const v = record(value);
+  if (v.schemaVersion !== 'refund_legacy_machine_correction_options_v1' || !uuid(v.caseId) || !uuid(v.oldMachineId) ||
+    !Number.isSafeInteger(v.expectedCaseVersion) || Number(v.expectedCaseVersion) < 1 || v.payloadRedacted !== true ||
+    !Array.isArray(v.targets)) throw new Error('Current machine review is unavailable.');
+  const targets = v.targets.map((item) => {
+    const t = record(item);
+    if (!uuid(t.inventoryId) || !uuid(t.reportingMachineId) || t.reportingMachineId === v.oldMachineId ||
+      typeof t.inventoryEvidenceDigest !== 'string' || !/^[a-f0-9]{64}$/.test(t.inventoryEvidenceDigest) ||
+      !bounded(t.machineLabel, 240) || !bounded(t.accountScope, 100) || !bounded(t.providerMachineId, 120) ||
+      typeof t.machineNumber !== 'string' || !/^[0-9]{1,120}$/.test(t.machineNumber)) throw new Error('Reload current inventory evidence.');
+    return { inventoryId: t.inventoryId as string, inventoryEvidenceDigest: t.inventoryEvidenceDigest,
+      reportingMachineId: t.reportingMachineId as string, machineLabel: t.machineLabel as string,
+      accountScope: t.accountScope as string, providerMachineId: t.providerMachineId as string, machineNumber: t.machineNumber };
+  });
+  if (new Set(targets.map((t) => t.inventoryId)).size !== targets.length) throw new Error('Ambiguous inventory evidence.');
+  return { schemaVersion: 'refund_legacy_machine_correction_options_v1', caseId: v.caseId as string,
+    expectedCaseVersion: v.expectedCaseVersion as number, oldMachineId: v.oldMachineId as string, targets, payloadRedacted: true };
+}
+
+// Bind review to the whole currently rendered case AND all current inventory evidence.
+export const refundMachineCorrectionReviewSnapshot = (v: RefundReceiptOverview, options: RefundMachineCorrectionOptions,
+  inventoryId: string, context: { machineLabel: string; locationName: string; expectedCaseVersion?: number },
+  evidenceReference: string, machineNumber: string) => JSON.stringify({ v, options, inventoryId, context, evidenceReference, machineNumber });
+
+export function buildRefundMachineCorrectionRequest(v: RefundReceiptOverview, options: RefundMachineCorrectionOptions,
+  inventoryId: string, machineNumber: string, evidenceReference: string, reviewed: boolean, currentCaseVersion?: number) {
+  const t = options.targets.find((target) => target.inventoryId === inventoryId);
+  if (!reviewed || !v.canRecord || v.receipt || v.attemptBindingKind !== 'legacy_manual_portal_observation' || !uuid(v.attemptId) ||
+    v.caseId !== options.caseId || v.expectedCaseVersion !== options.expectedCaseVersion || currentCaseVersion !== v.expectedCaseVersion ||
+    !t || t.accountScope !== v.accountScope || t.machineNumber !== machineNumber ||
+    evidenceReference !== `DTM:NAYAX-${v.originalTransactionId}`) throw new Error('Review the current case and exact provider machine again.');
+  return { ...buildReceiptRecordRequest(v, evidenceReference, true), mode: 'correct_legacy_machine_and_record_observation',
+    expectedOldMachineId: options.oldMachineId, targetMachineId: t.reportingMachineId, inventoryId: t.inventoryId,
+    inventoryEvidenceDigest: t.inventoryEvidenceDigest, accountScope: t.accountScope,
+    providerMachineId: t.providerMachineId, machineNumber: t.machineNumber };
 }

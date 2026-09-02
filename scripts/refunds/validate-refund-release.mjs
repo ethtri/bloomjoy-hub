@@ -287,8 +287,12 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    120,
-    'Refund release inventory must cover exactly 120 discovered refund/Nayax migrations'
+    121,
+    'Refund release inventory must cover exactly 121 discovered refund/Nayax migrations'
+  );
+  assert(
+    repositoryMigrations.includes('20260902192844_refund_legacy_machine_correction.sql'),
+    'The bounded legacy machine correction must be in the release inventory'
   );
   assert(
     repositoryMigrations.includes('20260902191832_refund_authoritative_reconciliation_receipt.sql'),
@@ -297,6 +301,13 @@ try {
   assert(
     repositoryMigrations.includes('20260902182311_refund_all_message_delivery_bookkeeping.sql'),
     'The complete historical message delivery bookkeeping repair must be in the release inventory'
+  );
+  assert(
+    repositoryMigrations.indexOf('20260902182311_refund_all_message_delivery_bookkeeping.sql') <
+      repositoryMigrations.indexOf('20260902191832_refund_authoritative_reconciliation_receipt.sql') &&
+    repositoryMigrations.indexOf('20260902191832_refund_authoritative_reconciliation_receipt.sql') <
+      repositoryMigrations.indexOf('20260902192844_refund_legacy_machine_correction.sql'),
+    'Fresh replay must install current core delegates, then receipt guards, then machine correction'
   );
   assert(
     repositoryMigrations.includes('20260902174648_refund_sent_status_delivery_metadata.sql'),
