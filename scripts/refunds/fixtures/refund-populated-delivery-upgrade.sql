@@ -19,7 +19,7 @@ $$;
 create temporary table delivery_upgrade_initial_guard as
 select prosrc from pg_proc where oid = 'public.guard_refund_customer_status_message()'::regprocedure;
 create temporary table delivery_upgrade_initial_triggers as
-select oid, tgenabled, pg_get_triggerdef(oid) as definition
+select tgrelid, tgname, tgenabled, pg_get_triggerdef(oid) as definition
 from pg_trigger where tgrelid in ('public.refund_case_messages'::regclass, 'public.refund_cases'::regclass);
 
 /* __HISTORICAL_GUARD__ */
@@ -119,6 +119,14 @@ select matches(pg_temp.capture_delivery_upgrade_error($sql$
   where id = 'da150000-0000-4000-8000-000000000001'
 $sql$), '^23514:', 'Delivery metadata cannot replace deterministic evidence');
 select matches(pg_temp.capture_delivery_upgrade_error($sql$
+  update public.refund_case_messages set delivery_kind = 'manual', delivery_state = 'accepted'
+  where id = 'da150000-0000-4000-8000-000000000001'
+$sql$), '^23514:', 'Automatic status evidence cannot escape by changing delivery kind');
+select matches(pg_temp.capture_delivery_upgrade_error($sql$
+  update public.refund_case_messages set message_type = 'manual_note', delivery_state = 'accepted'
+  where id = 'da150000-0000-4000-8000-000000000001'
+$sql$), '^23514:', 'Automatic status evidence cannot escape by changing message type');
+select matches(pg_temp.capture_delivery_upgrade_error($sql$
   update public.refund_case_messages set error_message = 'arbitrary change', delivery_state = 'accepted'
   where id = 'da150000-0000-4000-8000-000000000001'
 $sql$), '^23514:', 'Whole-row allowlist rejects other non-delivery metadata changes');
@@ -129,11 +137,11 @@ select is((select count(*)::bigint from public.refund_case_messages
   2::bigint, 'Upgrade and negative tests create no duplicate communication');
 select ok(not exists (
   select 1 from delivery_upgrade_initial_triggers initial
-  full join (select oid, tgenabled, pg_get_triggerdef(oid) as definition from pg_trigger
-    where tgrelid in ('public.refund_case_messages'::regclass, 'public.refund_cases'::regclass)) current using (oid)
-  where initial.oid is null or current.oid is null or initial.tgenabled is distinct from current.tgenabled
+  full join (select tgrelid, tgname, tgenabled, pg_get_triggerdef(oid) as definition from pg_trigger
+    where tgrelid in ('public.refund_case_messages'::regclass, 'public.refund_cases'::regclass)) current using (tgrelid, tgname)
+  where initial.tgrelid is null or current.tgrelid is null or initial.tgenabled is distinct from current.tgenabled
     or initial.definition is distinct from current.definition
-), 'Every case and message trigger retains its original identity, definition, and enabled state');
+), 'Every case and message trigger retains its logical name, definition, and enabled state');
 select ok(not exists (select 1 from pg_trigger where tgrelid in ('public.refund_case_messages'::regclass, 'public.refund_cases'::regclass)
   and not tgisinternal and tgenabled = 'D'), 'No case or message trigger is disabled during regression');
 select * from finish();
