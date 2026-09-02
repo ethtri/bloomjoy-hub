@@ -112,10 +112,10 @@ begin
     and p_message ->> 'delivery_transport' = 'resend'
     and p_message ->> 'provider_message_id' is not null
     and p_message ->> 'delivery_state' in ('failed', 'bounced', 'complained')
-    and p_message ->> 'error_message' = case p_message ->> 'delivery_state'
+    and p_message ->> 'error_message' = (case p_message ->> 'delivery_state'
       when 'failed' then 'transactional_delivery_failed'
       when 'bounced' then 'transactional_delivery_bounced'
-      when 'complained' then 'transactional_delivery_complained' end then
+      when 'complained' then 'transactional_delivery_complained' end) then
     return exists (
       select 1 from public.refund_transactional_delivery_events event
       where event.provider_message_id = p_message ->> 'provider_message_id'
