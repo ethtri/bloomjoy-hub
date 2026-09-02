@@ -50,6 +50,8 @@ jobs:
         run: npm run reporting:validate-refund-adjustments
       - name: Edge URL Allowlist Checks
         run: npm run edge-url-allowlists:check
+      - name: Storefront Payment Checks
+        run: npm run commerce:validate-payment-first
       - name: Test
         run: npm test --if-present
       - name: Lint

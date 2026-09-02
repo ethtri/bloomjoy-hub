@@ -2,6 +2,7 @@ type OrderType =
   | "sugar"
   | "blank_sticks"
   | "micro_machine"
+  | "mini_machine"
   | "mixed"
   | "unknown";
 type PricingTier = "plus_member" | "standard" | null;
@@ -51,6 +52,7 @@ export type CustomerOrderEmailContext = {
   sugarMix: SugarMixSummary;
   blankSticks: BlankSticksSummary | null;
   microMachine: MicroMachineSummary | null;
+  miniMachine?: MicroMachineSummary | null;
 };
 
 export type CustomerOrderEmailPayload = {
@@ -132,6 +134,8 @@ const formatOrderType = (orderType: OrderType) => {
       return "Bloomjoy branded paper sticks";
     case "micro_machine":
       return "Micro Machine";
+    case "mini_machine":
+      return "Mini Machine";
     case "mixed":
       return "Bloomjoy storefront order";
     default:
@@ -147,6 +151,8 @@ const formatOrderTypeNoun = (orderType: OrderType) => {
       return "branded paper sticks";
     case "micro_machine":
       return "Micro Machine";
+    case "mini_machine":
+      return "Mini Machine";
     case "mixed":
       return "storefront";
     default:
@@ -218,6 +224,12 @@ const formatAddressLines = (
 const buildOrderSpecificRows = (
   context: CustomerOrderEmailContext,
 ): DetailRow[] => {
+  if (context.orderType === "mini_machine") {
+    return [
+      ["Product", "Bloomjoy Sweets Mini Machine"],
+      ["Quantity", String(context.miniMachine?.quantity ?? "n/a")],
+    ];
+  }
   if (context.orderType === "blank_sticks") {
     return [
       ["Product", "Bloomjoy branded paper sticks"],
@@ -332,6 +344,8 @@ export const buildCustomerOrderEmail = (
     ? "Your Bloomjoy sugar order is confirmed"
     : context.orderType === "micro_machine"
     ? "Your Bloomjoy Micro Machine order is confirmed"
+    : context.orderType === "mini_machine"
+    ? "Your Bloomjoy Mini Machine order is confirmed"
     : "Your Bloomjoy order is confirmed";
 
   const text = [

@@ -7,7 +7,7 @@ import { trackEvent } from '@/lib/analytics';
 import { trackBuyerFlowPlaybookLinkClick } from '@/lib/businessPlaybookAnalytics';
 import { plannerPath } from '@/data/businessPlaybookPlanner';
 import { MACHINE_NAMES } from '@/lib/machineNames';
-import { isMicroCheckoutEnabled } from '@/lib/commerceAvailability';
+import { isMicroCheckoutEnabled, isMiniCheckoutEnabled } from '@/lib/commerceAvailability';
 import landingHero from '@/assets/real/landing-hero.jpg';
 import commercialMain from '@/assets/real/commercial-main.jpg';
 import miniMain from '@/assets/real/mini-main.webp';
@@ -25,9 +25,9 @@ const productCards = [
   {
     title: MACHINE_NAMES.mini,
     price: '$4,000',
-    description: 'Portable at 1/5 the size. Payment-first ordering will open when Mini launches.',
+    description: 'Portable at 1/5 the size. Complex cotton candy patterns with manual stick feeding.',
     href: '/machines/mini',
-    badge: 'Coming Soon',
+    badge: isMiniCheckoutEnabled ? 'Buy Online' : 'Checkout Pending',
     image: miniMain,
   },
   {

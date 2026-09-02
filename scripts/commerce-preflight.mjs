@@ -57,6 +57,10 @@ function parseArgs(argv) {
       parsed.microEnabled = true;
       continue;
     }
+    if (arg === '--mini-enabled') {
+      parsed.miniEnabled = true;
+      continue;
+    }
   }
 
   if (parsed.envFiles.length === 0) {
@@ -243,6 +247,13 @@ function run() {
       'STRIPE_MICRO_PRICE_ID',
       'STRIPE_MICRO_SHIPPING_RATE_ID'
     );
+  }
+
+  const miniCheckoutEnabled = isRemoteSource
+    ? args.miniEnabled === true
+    : String(env.MINI_CHECKOUT_ENABLED || '').trim() === 'true';
+  if (miniCheckoutEnabled) {
+    requiredKeys.push('MINI_CHECKOUT_ENABLED', 'STRIPE_MINI_PRICE_ID', 'STRIPE_MINI_SHIPPING_RATE_ID');
   }
 
   if (args.includeRefunds) {
@@ -458,6 +469,9 @@ function run() {
       : 'Micro Machine activation checks deferred; server gate remains off'
   );
   printList('Required commerce checks', commerceChecks);
+  console.log(miniCheckoutEnabled
+    ? 'Mini Machine: required server gate and price/shipping IDs are included in this check.'
+    : 'Mini Machine: activation is deferred; pass --mini-enabled to check required secret names.');
 
   if (args.includeRefunds) {
     printList('Required refund operations checks', [

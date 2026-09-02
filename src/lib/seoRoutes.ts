@@ -1,7 +1,7 @@
 import type { AppSurface } from "@/lib/appSurface";
 import { businessPlaybookArticles } from "@/data/businessPlaybook";
 import { paybackPlannerPath } from "@/data/businessPlaybookPaybackPlanner";
-import { isMicroCheckoutEnabled } from "@/lib/commerceAvailability";
+import { isMicroCheckoutEnabled, isMiniCheckoutEnabled } from "@/lib/commerceAvailability";
 import {
   FOOD_TRUCK_SOLUTION_PATH,
   MOBILE_SETUP_GUIDE_PATH,
@@ -116,7 +116,7 @@ export const miniMachineFaqs = [
   },
   {
     q: "What are the Mini Machine dimensions and power requirements?",
-    a: "Mini specs are 430 x 555 x 1582 mm, 83.9 kg, AC 110V/220V rated voltage, 2400W maximum power, and 100W standby power. Final placement and power details will be confirmed when payment-first ordering launches.",
+    a: "Mini specs are 430 x 555 x 1582 mm, 83.9 kg, AC 110V/220V rated voltage, 2400W maximum power, and 100W standby power. Confirm that your placement and power supply meet the machine requirements before purchase.",
   },
   {
     q: "Can the Mini Machine work in compact, quiet, or hospitality environments?",
@@ -147,9 +147,11 @@ export const machineBuyerFaqs = [
   },
   {
     q: "Are Bloomjoy machines sold through checkout or quote?",
-    a: isMicroCheckoutEnabled
-      ? "The available Micro Machine is purchased through online checkout. The Mini Machine is coming soon and does not accept orders yet. Only the BloomDirect Commercial Machine uses a quote request because its final configuration, shipping, and delivery requirements vary."
-      : "The Micro Machine will use online checkout after its shipping policy is approved. The Mini Machine is coming soon and does not accept orders yet. Only the BloomDirect Commercial Machine uses a quote request because its final configuration, shipping, and delivery requirements vary.",
+    a: [
+      isMiniCheckoutEnabled ? "Buy the Mini Machine online for $4,000, plus shipping and applicable tax." : "Mini online ordering is being prepared; checkout is not available yet.",
+      isMicroCheckoutEnabled ? "The Micro Machine is also purchased through online checkout." : "Micro checkout will open after its shipping policy is approved.",
+      "Only the BloomDirect Commercial Machine uses a quote request because its final configuration, shipping, and delivery requirements vary.",
+    ].join(" "),
   },
   {
     q: "Do all machines support complex cotton candy patterns?",
@@ -416,7 +418,7 @@ export const publicRoutes: RouteSeo[] = [
     path: "/machines/mini",
     title: "Mini Robotic Cotton Candy Machine | Bloomjoy",
     description:
-      "Explore Bloomjoy Mini Machine specs, proof clips, 90-second cycle guidance, compact venue fit, support, and coming-soon availability.",
+      "Explore Bloomjoy Mini Machine specs, proof clips, 90-second cycle guidance, compact venue fit, support, and online ordering availability.",
     robots: PUBLIC_ROBOTS,
     surface: "marketing",
     ogImagePath: "/seo/mini-machine.jpg",

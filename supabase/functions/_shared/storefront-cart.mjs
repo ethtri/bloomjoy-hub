@@ -7,6 +7,7 @@ export const SUGAR_SKUS = new Set([
 ]);
 
 export const MICRO_MACHINE_SKU = "micro";
+export const MINI_MACHINE_SKU = "mini";
 export const MAX_SUGAR_KG_PER_CHECKOUT = 200000;
 export const MAX_MICRO_MACHINES_PER_CHECKOUT = 20;
 
@@ -27,12 +28,13 @@ export const normalizeStorefrontCart = (items) => {
 
   const sugarBreakdown = createEmptySugarBreakdown();
   let microMachineQuantity = 0;
+  let miniMachineQuantity = 0;
 
   for (const item of items) {
     const sku = String(item?.sku ?? "");
     const quantity = Number(item?.quantity ?? 0);
 
-    if (!SUGAR_SKUS.has(sku) && sku !== MICRO_MACHINE_SKU) {
+    if (!SUGAR_SKUS.has(sku) && sku !== MICRO_MACHINE_SKU && sku !== MINI_MACHINE_SKU) {
       return {
         ok: false,
         error: "This cart contains an item that is not available for checkout.",
@@ -46,6 +48,10 @@ export const normalizeStorefrontCart = (items) => {
 
     if (sku === MICRO_MACHINE_SKU) {
       microMachineQuantity += quantity;
+      continue;
+    }
+    if (sku === MINI_MACHINE_SKU) {
+      miniMachineQuantity += quantity;
       continue;
     }
 
@@ -86,11 +92,19 @@ export const normalizeStorefrontCart = (items) => {
     };
   }
 
-  if (!totalSugarKg && !microMachineQuantity) {
+  // A reusable shipping rate applies once per session, not once per machine.
+  // Keep Mini delivery separate until multi-machine/mixed shipping is approved.
+  if (miniMachineQuantity > 1 || (miniMachineQuantity && (totalSugarKg || microMachineQuantity))) {
+    return { ok: false, error: "Check out one Mini Machine at a time, separately from other products." };
+  }
+
+  if (!totalSugarKg && !microMachineQuantity && !miniMachineQuantity) {
     return { ok: false, error: "No valid items in cart." };
   }
 
-  const orderType = totalSugarKg && microMachineQuantity
+  const orderType = miniMachineQuantity
+    ? "mini_machine"
+    : totalSugarKg && microMachineQuantity
     ? "mixed"
     : microMachineQuantity
       ? "micro_machine"
@@ -102,5 +116,6 @@ export const normalizeStorefrontCart = (items) => {
     sugarBreakdown,
     totalSugarKg,
     microMachineQuantity,
+    miniMachineQuantity,
   };
 };

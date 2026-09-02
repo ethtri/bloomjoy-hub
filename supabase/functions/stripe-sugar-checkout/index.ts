@@ -16,6 +16,9 @@ const memberSugarPriceId = Deno.env.get("STRIPE_SUGAR_MEMBER_PRICE_ID") ||
   legacySugarPriceId;
 const nonMemberSugarPriceId = Deno.env.get("STRIPE_SUGAR_NON_MEMBER_PRICE_ID");
 const microCheckoutEnabled = Deno.env.get("MICRO_CHECKOUT_ENABLED") === "true";
+const miniCheckoutEnabled = Deno.env.get("MINI_CHECKOUT_ENABLED") === "true";
+const miniMachinePriceId = Deno.env.get("STRIPE_MINI_PRICE_ID");
+const miniMachineShippingRateId = Deno.env.get("STRIPE_MINI_SHIPPING_RATE_ID");
 const microMachinePriceId = Deno.env.get("STRIPE_MICRO_PRICE_ID");
 const microMachineShippingRateId = Deno.env.get(
   "STRIPE_MICRO_SHIPPING_RATE_ID",
@@ -34,7 +37,7 @@ type NormalizedStorefrontCart =
   }
   | {
     ok: true;
-    orderType: "sugar" | "micro_machine" | "mixed";
+    orderType: "sugar" | "micro_machine" | "mini_machine" | "mixed";
     sugarBreakdown: {
       white: number;
       blue: number;
@@ -43,6 +46,7 @@ type NormalizedStorefrontCart =
     };
     totalSugarKg: number;
     microMachineQuantity: number;
+    miniMachineQuantity: number;
   };
 
 type ResolvedCheckoutUser = {
@@ -292,6 +296,19 @@ serve(async (req) => {
       );
     }
 
+    if (cart.miniMachineQuantity > 0 && !miniCheckoutEnabled) {
+      return new Response(JSON.stringify({ error: "Mini Machine checkout is not available yet." }), {
+        status: 409,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (cart.miniMachineQuantity > 0 && (!miniMachinePriceId || !miniMachineShippingRateId)) {
+      return new Response(JSON.stringify({ error: "Mini Machine price and shipping are not configured." }), {
+        status: 503,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
     if (cart.totalSugarKg > 0 && sugarPriceId) {
       lineItems.push({ price: sugarPriceId, quantity: cart.totalSugarKg });
@@ -302,13 +319,34 @@ serve(async (req) => {
         quantity: cart.microMachineQuantity,
       });
     }
+    if (cart.miniMachineQuantity > 0 && miniMachinePriceId) {
+      // Catch an archived/misconfigured Price before charging a different amount
+      // from the public $4,000 offer. Shipping must be an explicit reusable rate.
+      const price = await stripe.prices.retrieve(miniMachinePriceId, { expand: ["product"] });
+      const shipping = await stripe.shippingRates.retrieve(miniMachineShippingRateId!);
+      const product = price.product as Stripe.Product;
+      if (!price.active || price.type !== "one_time" || price.currency !== "usd" ||
+        price.unit_amount !== 400000 || price.tax_behavior !== "exclusive" ||
+        !product.active || !product.tax_code || !shipping.active ||
+        shipping.type !== "fixed_amount" || shipping.fixed_amount?.currency !== "usd" ||
+        !shipping.delivery_estimate?.minimum || !shipping.delivery_estimate?.maximum) {
+        return new Response(JSON.stringify({ error: "Mini Machine checkout configuration needs attention." }), {
+          status: 503,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      lineItems.push({ price: miniMachinePriceId, quantity: cart.miniMachineQuantity });
+    }
+
+    const machineShippingRateId = cart.miniMachineQuantity > 0
+      ? miniMachineShippingRateId
+      : cart.microMachineQuantity > 0 ? microMachineShippingRateId : null;
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
-      payment_method_types: ["card"],
       line_items: lineItems,
-      ...(cart.microMachineQuantity > 0 && microMachineShippingRateId
-        ? { shipping_options: [{ shipping_rate: microMachineShippingRateId }] }
+      ...(machineShippingRateId
+        ? { shipping_options: [{ shipping_rate: machineShippingRateId }] }
         : {}),
       success_url: successUrl,
       cancel_url: cancelUrl,
@@ -334,6 +372,7 @@ serve(async (req) => {
         sugar_orange_kg: String(cart.sugarBreakdown.orange),
         sugar_red_kg: String(cart.sugarBreakdown.red),
         micro_machine_quantity: String(cart.microMachineQuantity),
+        mini_machine_quantity: String(cart.miniMachineQuantity),
         ...(authResult.user?.id ? { user_id: authResult.user.id } : {}),
         supply_discount_tier: pricingTier,
       },

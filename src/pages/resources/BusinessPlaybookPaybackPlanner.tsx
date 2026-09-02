@@ -21,7 +21,7 @@ import {
   trackBusinessPlaybookPaybackPlannerInteraction,
 } from "@/lib/businessPlaybookAnalytics";
 import { type PlannerBudget, type PlannerBudgetKey } from "@/data/businessPlaybookPlanner";
-import { isMicroCheckoutEnabled } from "@/lib/commerceAvailability";
+import { isMicroCheckoutEnabled, isMiniCheckoutEnabled } from "@/lib/commerceAvailability";
 import {
   blankPaybackInputs,
   blankStartupCosts,
@@ -491,7 +491,7 @@ export default function BusinessPlaybookPaybackPlannerPage() {
         ? "Buy Micro Machine"
         : "View Micro checkout status"
       : scenario === "mini"
-        ? "View Mini launch status"
+        ? isMiniCheckoutEnabled ? "Buy Mini Machine" : "View Mini checkout status"
         : "Compare purchase paths";
   const activeProfile = scenario ? paybackScenarioProfiles[scenario] : undefined;
   const activeInputs = scenario === "commercial" ? inputs.commercial : inputs.event;

@@ -15,7 +15,7 @@ import {
 } from '@/lib/sugar';
 import { useAuth } from '@/contexts/auth-context';
 import { toast } from 'sonner';
-import { isMicroCheckoutEnabled } from '@/lib/commerceAvailability';
+import { isMicroCheckoutEnabled, isMiniCheckoutEnabled } from '@/lib/commerceAvailability';
 
 export default function CartPage() {
   const { user } = useAuth();
@@ -26,9 +26,12 @@ export default function CartPage() {
   const sugarBreakdown = getSugarColorBreakdown(items);
   const hasMicroMachine = items.some((item) => item.sku === 'micro');
   const hasUnavailableMicro = hasMicroMachine && !isMicroCheckoutEnabled;
+  const hasMiniMachine = items.some((item) => item.sku === 'mini');
+  const hasUnavailableMini = hasMiniMachine && !isMiniCheckoutEnabled;
+  const hasInvalidMiniCart = hasMiniMachine && (items.length !== 1 || items[0].quantity !== 1);
   const sugarTotalKg = Object.values(sugarBreakdown).reduce((sum, quantity) => sum + quantity, 0);
   const getDisplayUnitPrice = (sku: string, fallbackPrice: number) =>
-    isSugarSku(sku) ? sugarPricePerKg : fallbackPrice;
+    isSugarSku(sku) ? sugarPricePerKg : sku === 'mini' ? 4000 : fallbackPrice;
   const displayTotal = items.reduce(
     (sum, item) => sum + getDisplayUnitPrice(item.sku, item.price) * item.quantity,
     0
@@ -56,10 +59,10 @@ export default function CartPage() {
     void getCheckoutStatus(sessionId)
       .then((status) => {
         if (cancelled) return;
-        const isStorefrontOrder = ['sugar', 'micro_machine', 'mixed'].includes(status.orderType);
+        const isStorefrontOrder = ['sugar', 'micro_machine', 'mini_machine', 'mixed'].includes(status.orderType);
         if (status.paymentStatus === 'paid' && isStorefrontOrder) {
           clearCart();
-          toast.success('Payment confirmed. Your order is ready for fulfillment.');
+          toast.success('Payment confirmed. Your order confirmation will arrive by email.');
           return;
         }
         toast.info('Payment is not yet confirmed. Your cart has been kept.');
@@ -89,7 +92,12 @@ export default function CartPage() {
       return;
     }
 
-    if (items.some((item) => !isSugarSku(item.sku) && item.sku !== 'micro')) {
+    if (hasUnavailableMini || hasInvalidMiniCart) {
+      toast.error(hasUnavailableMini ? 'Mini checkout is not available yet. Remove it to continue.' : 'Check out one Mini Machine at a time, separately from other products.');
+      return;
+    }
+
+    if (items.some((item) => !isSugarSku(item.sku) && !['micro', 'mini'].includes(item.sku))) {
       toast.error('Remove unavailable items before checkout.');
       return;
     }
@@ -121,7 +129,7 @@ export default function CartPage() {
                 Your cart is empty
               </h1>
               <p className="mt-2 text-muted-foreground">
-                Shop available sugar supplies to continue.
+                Browse machines and supplies to continue shopping.
               </p>
               <div className="mt-8 flex flex-wrap justify-center gap-4">
                 <Link to="/supplies">
@@ -147,6 +155,11 @@ export default function CartPage() {
           <div className="mt-8 grid gap-8 lg:grid-cols-3">
             {/* Cart Items */}
             <div className="lg:col-span-2">
+              {(hasUnavailableMini || hasInvalidMiniCart) && (
+                <div role="status" className="mb-4 rounded-lg border border-amber/30 bg-amber/5 p-4 text-sm text-muted-foreground">
+                  {hasUnavailableMini ? 'Mini checkout is not available yet. Remove it to check out other items.' : 'Check out one Mini Machine at a time. Remove the other items to continue, or remove Mini and purchase it separately.'}
+                </div>
+              )}
               {hasUnavailableMicro && (
                 <div className="mb-4 rounded-lg border border-amber/30 bg-amber/5 p-4 text-sm text-muted-foreground">
                   Micro checkout is pending an executive shipping decision. Remove the Micro
@@ -184,6 +197,7 @@ export default function CartPage() {
                         size="icon"
                         className="h-8 w-8"
                         onClick={() => updateQuantity(item.sku, item.quantity + 1)}
+                        disabled={item.sku === 'mini'}
                         aria-label={`Increase quantity for ${item.name}`}
                       >
                         <Plus className="h-4 w-4" />
@@ -194,12 +208,13 @@ export default function CartPage() {
                         type="number"
                         inputMode="numeric"
                         min={0}
+                        max={item.sku === 'mini' ? 1 : undefined}
                         value={item.quantity}
                         onChange={(event) => {
                           const value = Number(event.target.value);
                           updateQuantity(
                             item.sku,
-                            Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
+                            Number.isFinite(value) ? Math.max(0, Math.min(item.sku === 'mini' ? 1 : Infinity, Math.floor(value))) : 0
                           );
                         }}
                         className="h-8 min-w-0 flex-1 text-right sm:w-20 sm:flex-none"
@@ -282,9 +297,9 @@ export default function CartPage() {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Shipping</span>
                     <span className="text-muted-foreground">
-                      {hasUnavailableMicro
+                      {hasUnavailableMicro || hasUnavailableMini
                         ? 'Decision pending'
-                        : hasMicroMachine
+                        : hasMicroMachine || hasMiniMachine
                           ? 'Shown at checkout'
                           : 'No charge'}
                     </span>
@@ -297,7 +312,7 @@ export default function CartPage() {
                 <div className="mt-4 border-t border-border pt-4">
                   <div className="flex justify-between">
                     <span className="font-semibold text-foreground">
-                      Estimated total before tax
+                      Subtotal before shipping and tax
                     </span>
                     <span className="font-display text-xl font-bold text-primary">
                       ${displayTotal.toFixed(2)}
@@ -309,7 +324,7 @@ export default function CartPage() {
                   size="lg"
                   className="mt-6 w-full"
                   onClick={handleCheckout}
-                  disabled={isCheckingOut || hasUnavailableMicro}
+                  disabled={isCheckingOut || hasUnavailableMicro || hasUnavailableMini || hasInvalidMiniCart}
                 >
                   {isCheckingOut ? 'Redirecting…' : 'Checkout'}
                   <ArrowRight className="ml-2 h-4 w-4" />

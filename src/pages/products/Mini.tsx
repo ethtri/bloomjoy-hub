@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
   ArrowRight,
@@ -25,6 +25,8 @@ import { MACHINE_NAMES } from '@/lib/machineNames';
 import { FOOD_TRUCK_SOLUTION_PATH } from '@/data/mobileOperatorPages';
 import { plannerPath } from '@/data/businessPlaybookPlanner';
 import { miniMachineFaqs } from '@/lib/seoRoutes';
+import { isMiniCheckoutEnabled } from '@/lib/commerceAvailability';
+import { useCart } from '@/lib/cart';
 import miniMain from '@/assets/real/mini-main.webp';
 import miniGallery1 from '@/assets/real/mini-gallery-1.webp';
 import miniGallery2 from '@/assets/real/mini-gallery-2.webp';
@@ -44,9 +46,11 @@ const miniFitNotes = [
 ];
 
 const miniPlanningNotes = [
-  'Mini is coming soon and is not currently available to order.',
-  'Payment-first online ordering will open after the final price and shipping policy are ready.',
-  'No quote or unpaid order request is accepted while Mini remains unavailable.',
+  isMiniCheckoutEnabled
+    ? 'Pay the $4,000 machine price securely online. Shipping and applicable tax are shown before payment.'
+    : 'Online ordering is being prepared. Checkout is not available yet.',
+  'Order one Mini Machine at a time, separately from supplies and other machines.',
+  'After payment, Bloomjoy coordinates delivery using the contact and shipping details on your order.',
 ];
 
 const specHighlights = [
@@ -73,7 +77,7 @@ const proofClips = [
   {
     title: 'Real operation cycle',
     description:
-      'A public Mini operation clip so buyers can see the machine rhythm, movement, and output style before ordering launches.',
+      'See the Mini machine rhythm, movement, and output style before you order.',
     src: '/media/mini/mini-operation-proof.mp4',
     poster: '/media/mini/mini-operation-poster.jpg',
   },
@@ -211,7 +215,7 @@ const operationalFit = [
 
 const reliabilityNotes = [
   'Mini sits in the same core operating and support family as the Commercial Machine, packaged into a smaller cabinet and manual-stick service model.',
-  'Machine warranty coverage follows the same public posture as Commercial: up to 1.5 years, with final terms confirmed when payment-first ordering launches and during handoff.',
+  'Machine warranty coverage follows the same public posture as Commercial: up to 1.5 years. Review the applicable coverage and exclusions before purchase.',
   'Manufacturer support provides 24/7 first-line remote technical support via WeChat for diagnostics, troubleshooting, warranty service, and replacement-part workflow.',
   'Manufacturer remote response timing depends on channel availability, time zone, and issue context; Bloomjoy concierge support helps triage, translate, escalate, and coordinate parts during US business hours.',
   'Common operator checks include dry sugar feed, sugar fill level and cap seal, paper-stick position, output path debris, sugar pickup or sensor areas, and burner/spinner residue.',
@@ -225,6 +229,16 @@ const sourceBasisNotes = [
 ];
 
 export default function MiniPage() {
+  const navigate = useNavigate();
+  const { addItem, updateQuantity } = useCart();
+
+  const handleBuyMini = () => {
+    if (!isMiniCheckoutEnabled) return;
+    addItem({ sku: 'mini', name: `Bloomjoy Sweets ${MACHINE_NAMES.mini}`, price: 4000, type: 'machine' });
+    updateQuantity('mini', 1);
+    trackEvent('add_to_cart', { sku: 'mini', quantity: 1 });
+    navigate('/cart');
+  };
   useEffect(() => {
     trackEvent('view_product_mini');
   }, []);
@@ -250,7 +264,7 @@ export default function MiniPage() {
 
             <div>
               <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">
-                Coming Soon
+                {isMiniCheckoutEnabled ? 'Buy Online' : 'Checkout Pending'}
               </span>
               <h1 className="mt-4 font-display text-3xl font-bold text-foreground sm:text-4xl">
                 Bloomjoy Sweets {MACHINE_NAMES.mini}
@@ -259,14 +273,13 @@ export default function MiniPage() {
                 $4,000
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Expected baseline price; final payment-first launch details are still being prepared.
+                {isMiniCheckoutEnabled ? 'Machine price. Shipping and applicable tax are shown at checkout.' : 'Machine price. Online ordering is being prepared.'}
               </p>
 
               <p className="mt-6 text-lg leading-relaxed text-muted-foreground">
                 Portable robotic cotton candy machine at 1/5 the size of our commercial unit.
-                Mini is being prepared for operators who want Bloomjoy pattern capability in a
-                smaller footprint. Ordering will open only when the complete payment-first flow is
-                ready.
+                Built for operators who want Bloomjoy pattern capability in a smaller footprint,
+                with a staff member feeding each stick.
               </p>
 
               <div className="mt-6 rounded-lg border border-sage/20 bg-sage-light/40 p-4">
@@ -279,11 +292,12 @@ export default function MiniPage() {
               </div>
 
               <div className="mt-8 space-y-4">
-                <Button variant="hero" size="xl" className="w-full" disabled>
-                  Coming Soon
+                <Button type="button" variant="hero" size="xl" className="w-full" onClick={handleBuyMini} disabled={!isMiniCheckoutEnabled}>
+                  {isMiniCheckoutEnabled ? 'Buy Mini Machine' : 'Checkout Pending'}
+                  {isMiniCheckoutEnabled && <ArrowRight className="ml-2 h-5 w-5" />}
                 </Button>
                 <p className="text-center text-sm text-muted-foreground">
-                  Mini orders will use online payment when the product launches.
+                  {isMiniCheckoutEnabled ? 'Secure checkout. Review your delivery details and total before you pay.' : 'Checkout will open when delivery details are ready.'}
                 </p>
               </div>
 
@@ -574,7 +588,7 @@ export default function MiniPage() {
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
               Use these short clips to evaluate service rhythm, manual stick handling, cabinet
-              access, and guest-facing motion before payment-first ordering launches.
+              access, and guest-facing motion before purchase.
             </p>
           </div>
 
@@ -752,8 +766,8 @@ export default function MiniPage() {
                     Reliability and Support
                   </h2>
                   <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                    Component, warranty, and support details will be confirmed when payment-first
-                    ordering launches, but the public support posture is aligned with the Commercial Machine.
+                    Review warranty coverage and support options before purchase.
+                    Mini follows the same public support posture as the Commercial Machine.
                   </p>
                 </div>
               </div>
