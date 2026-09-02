@@ -118,7 +118,8 @@
     "20260901180116_refund_scheduler_incident_1069.sql",
     "20260901202359_refund_provider_delay_evidence_1069.sql",
     "20260902000417_refund_lifecycle_v2_integrity.sql",
-    "20260902002716_refund_manual_message_outbox.sql"
+    "20260902002716_refund_manual_message_outbox.sql",
+    "20260902004500_refund_payout_destination_follow_up.sql"
   ],
   "migrationFilesSha256": "8ee2e3ffe66b1dd33f0782cfbb8a07ac337838f4a7f566696dae3a1e70fa8bd9",
   "migrationVersionSetSha256": "354fef54d7546560d466189a3dcc39052d7b7a4e63885b6b7248f97bb47290d3",
