@@ -19,6 +19,9 @@ export async function saveRefundReceiptEvidence(input: Record<string, unknown>) 
     !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(result.correctionId) || typeof result.receiptId !== 'string' ||
     !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(result.receiptId) || result.paymentConfirmed !== true ||
     result.accountingPending !== true || result.settlementTimePrecision !== 'unknown')) throw new Error('Reload the saved machine correction evidence.');
+  if (input.mode === 'record_historical_owner_notice' && (!['adopted', 'already_adopted'].includes(String(result.status)) ||
+    result.noticeSource !== 'historical_owner_mailbox' || result.noticeVerification !== 'operator_observed' ||
+    result.supportThread !== false || result.managerCcVerified !== false)) throw new Error('Reload the historical notice provenance.');
   return result;
 }
 

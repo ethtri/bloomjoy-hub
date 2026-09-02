@@ -26,7 +26,10 @@ export type RefundReceiptOverview = {
   attemptBindingKind: typeof bindingKinds[number];
   originalTransactionId: string; originalAmountCents: number; currencyCode: string;
   receipt: null | { id: string; observedAt: string; settlementTimePrecision: 'unknown';
-    noticeAdopted: boolean; noticeSentAt: string | null; managerCcVerified: boolean | null };
+    noticeAdopted: boolean; noticeSentAt: string | null; managerCcVerified: boolean | null;
+    noticeSource?: 'support_gmail' | 'historical_owner_mailbox' | null;
+    noticeVerification?: 'support_gmail_sent' | 'operator_observed' | null; supportThread?: boolean | null };
+  historicalOwnerNoticeAvailable?: boolean; historicalOwnerNoticeCutoff?: string;
   noticeChoices: ReceiptNoticeChoice[];
 };
 
@@ -58,6 +61,17 @@ export function parseRefundReceiptOverview(value: unknown): RefundReceiptOvervie
     if (!uuid(n.id) || !date(n.sentAt) || typeof n.subject !== 'string' || !bounded(n.plainBody, 100000)) throw new Error('Reload the original thread evidence.');
     return { id: n.id as string, sentAt: n.sentAt as string, subject: n.subject, plainBody: n.plainBody as string };
   });
+  const hasProvenance = ['noticeSource', 'noticeVerification', 'supportThread'].some((key) => Object.hasOwn(receipt, key));
+  if (hasProvenance && !(
+    (receipt.noticeAdopted === false && receipt.noticeSource === null && receipt.noticeVerification === null && receipt.supportThread === null) ||
+    (receipt.noticeAdopted === true && date(receipt.noticeSentAt) && receipt.noticeSource === 'support_gmail' && receipt.noticeVerification === 'support_gmail_sent' && receipt.supportThread === true) ||
+    (receipt.noticeAdopted === true && date(receipt.noticeSentAt) && receipt.noticeSource === 'historical_owner_mailbox' && receipt.noticeVerification === 'operator_observed' &&
+      receipt.supportThread === false && receipt.managerCcVerified === false)
+  )) throw new Error('Reload the notice provenance.');
+  const hasHistoricalOption = Object.hasOwn(v, 'historicalOwnerNoticeAvailable') || Object.hasOwn(v, 'historicalOwnerNoticeCutoff');
+  if (hasHistoricalOption && (typeof v.historicalOwnerNoticeAvailable !== 'boolean' ||
+    v.historicalOwnerNoticeCutoff !== '2026-09-02T19:51:58Z' ||
+    (v.historicalOwnerNoticeAvailable && (v.receipt === null || receipt.noticeAdopted)))) throw new Error('Reload historical notice review availability.');
   return {
     schemaVersion: 'refund_receipt_overview_v1', visible: true, caseId: v.caseId as string,
     caseReference: v.caseReference as string, expectedCaseVersion: v.expectedCaseVersion as number,
@@ -67,8 +81,13 @@ export function parseRefundReceiptOverview(value: unknown): RefundReceiptOvervie
     originalAmountCents: v.originalAmountCents as number, currencyCode: v.currencyCode,
     receipt: v.receipt === null ? null : { id: receipt.id as string, observedAt: receipt.observedAt as string,
       settlementTimePrecision: 'unknown', noticeAdopted: receipt.noticeAdopted as boolean,
-      noticeSentAt: receipt.noticeSentAt as string | null, managerCcVerified: receipt.managerCcVerified as boolean | null },
+      noticeSentAt: receipt.noticeSentAt as string | null, managerCcVerified: receipt.managerCcVerified as boolean | null,
+      ...(hasProvenance ? { noticeSource: receipt.noticeSource as 'support_gmail' | 'historical_owner_mailbox' | null,
+        noticeVerification: receipt.noticeVerification as 'support_gmail_sent' | 'operator_observed' | null,
+        supportThread: receipt.supportThread as boolean | null } : {}) },
     noticeChoices: choices,
+    ...(hasHistoricalOption ? { historicalOwnerNoticeAvailable: v.historicalOwnerNoticeAvailable as boolean,
+      historicalOwnerNoticeCutoff: v.historicalOwnerNoticeCutoff as string } : {}),
   };
 }
 

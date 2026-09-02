@@ -124,7 +124,8 @@
     "20260902174648_refund_sent_status_delivery_metadata.sql",
     "20260902182311_refund_all_message_delivery_bookkeeping.sql",
     "20260902191832_refund_authoritative_reconciliation_receipt.sql",
-    "20260902192844_refund_legacy_machine_correction.sql"
+    "20260902192844_refund_legacy_machine_correction.sql",
+    "20260902195401_refund_historical_owner_notice.sql"
   ],
   "migrationFilesSha256": "5c6be91d38394f6751e75f69fedb5b775ad59d6aa0d7ee68b8eba5546528e287",
   "migrationVersionSetSha256": "30e958d9e28dc0f05e6bbebe29350637680c9aa168b188144f5b9cc6156ecfbb",

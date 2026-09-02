@@ -1,5 +1,12 @@
 # QA Smoke Test Checklist
 
+## Historical owner-mailbox refund notice
+
+- With a synthetic confirmed receipt and current verified mapped Super Admin, open the historical notice review in `/admin/refunds`. Fill exact lowercase API IDs, pre-cutoff UTC sent time, sole customer and fingerprint; all three reviews are required.
+- Change any field or refresh a changed case version: reviews clear and save is disabled. After-cutoff mail, another customer, revoked session/mapping and a claim without a receipt must not save.
+- Save once while parent refresh is delayed or fails. Confirm the saved owner-source/no-manager-CC label remains, no alternate adoption/payment/send controls return, and reopen shows the same evidence. Settlement/accounting dates remain unknown.
+- Repeat on a narrow mobile viewport. Existing support-mailbox choices must remain separate; do not send or ingest a message to create proof. See `Docs/REFUND_HISTORICAL_OWNER_NOTICE.md`.
+
 ## Authoritative refund receipt with unknown settlement time (`#628`, `#971`)
 
 - [ ] In a disposable database, use the receipt fixture for both an unresolved attempt and an explicit no-attempt integrity hold. Confirm exact status `62` plus full-amount proof is required and no attempt, adjustment, settlement timestamp or customer message is created.
