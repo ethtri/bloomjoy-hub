@@ -94,6 +94,10 @@ select throws_ok($$select pg_temp.record_receipt(1,'{"currency":"EUR"}')$$,'P466
 select throws_ok($$select pg_temp.record_receipt(1,'{"original":"123456782"}')$$,'P4661',null,'Wrong original fails closed');
 select throws_ok($$select pg_temp.record_receipt(1,'{"version":0}')$$,'P4661',null,'Stale case version fails closed');
 select throws_ok($$select pg_temp.record_receipt(2,'{"attemptId":null}')$$,'P4661',null,'Existing attempt cannot be omitted');
+select throws_ok($$select pg_temp.record_receipt(1,'{"reviewedCurrent":false}')$$,'P4661',null,'No-attempt receipt requires fresh provider observation review');
+select throws_ok($$select pg_temp.record_receipt(1,'{"reviewedCurrent":null}')$$,'P4661',null,'NULL no-attempt observation review fails closed');
+select throws_ok($$select pg_temp.record_receipt(2,'{"reviewedCurrent":false}')$$,'P4661',null,'Modern attempt authorization is not current provider observation review');
+select throws_ok($$select pg_temp.record_receipt(2,'{"reviewedCurrent":null}')$$,'P4661',null,'NULL modern observation review fails closed');
 savepoint nullable_source;
 update public.refund_cases set correlation_source=null where id='ad400000-0000-4000-8000-000000000001';
 select throws_ok($$select pg_temp.record_receipt(1)$$,'P4661',null,'NULL correlation source fails closed');
