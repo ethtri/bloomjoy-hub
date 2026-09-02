@@ -300,16 +300,20 @@ select is((select jsonb_agg(refund_case_id order by refund_case_id)
   from public.service_list_refund_follow_up_customer_reply_candidates(25)),
   '["af400000-0000-4000-8000-000000000028"]'::jsonb,
   'Newer unresolved reply is still discovered behind a full receipt-backed page');
-select * from finish();
 select extensions.dblink_disconnect('receipt_race_a');
 select extensions.dblink_disconnect('receipt_race_b');
 select extensions.dblink_disconnect('receipt_race_c');
 
 -- Restore all guards in the same transaction while removing only named fixtures.
 begin;
+alter table public.refund_customer_contact_settings disable trigger refund_customer_contact_settings_set_updated_at;
 update public.refund_customer_contact_settings settings
-set automatic_customer_contact_enabled=original.automatic_customer_contact_enabled
+set automatic_customer_contact_enabled=original.automatic_customer_contact_enabled,updated_at=original.updated_at
 from refund_receipt_race_test.contact_before original where settings.singleton=original.singleton;
+alter table public.refund_customer_contact_settings enable trigger refund_customer_contact_settings_set_updated_at;
+select is((select to_jsonb(settings) from public.refund_customer_contact_settings settings),
+  (select to_jsonb(original) from refund_receipt_race_test.contact_before original),
+  'Fixture cleanup restores the complete original contact-settings row');
 alter table public.refund_completion_notice_adoptions disable trigger refund_completion_notice_adoptions_immutable;
 alter table public.refund_authoritative_receipts disable trigger refund_authoritative_receipts_immutable;
 delete from public.refund_completion_notice_adoptions where refund_case_id='af400000-0000-4000-8000-000000000001';
@@ -333,3 +337,4 @@ delete from public.customer_accounts where id='af100000-0000-4000-8000-000000000
 delete from auth.users where id='af000000-0000-4000-8000-000000000001';
 drop schema refund_receipt_race_test cascade;
 commit;
+select * from finish();
