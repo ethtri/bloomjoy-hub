@@ -21,6 +21,7 @@ const run = async () => {
     adminUpdate,
     automationSweep,
     messageSend,
+    manualMessageOutbox,
     gmailTransport,
     gmailSync,
     nayaxRefund,
@@ -41,6 +42,7 @@ const run = async () => {
       read('supabase/functions/refund-case-admin-update/index.ts'),
       read('supabase/functions/refund-case-automation-sweep/index.ts'),
       read('supabase/functions/refund-case-message-send/index.ts'),
+      read('supabase/functions/_shared/refund-manual-message-outbox.ts'),
       read('supabase/functions/_shared/refund-gmail-transport.ts'),
       read('supabase/functions/refund-gmail-sync/index.ts'),
       read('supabase/functions/nayax-card-refund/index.ts'),
@@ -125,7 +127,8 @@ const run = async () => {
     includesAll(intake, ['issueRefundStatusCapability', 'statusToken', 'statusExpiresAt']) &&
       adminUpdate.includes('tryIssueRefundStatusCapability') &&
       automationSweep.includes('tryIssueRefundStatusCapability') &&
-      messageSend.includes('tryIssueRefundStatusCapability') &&
+      messageSend.includes('refundStatusLinksEnabled') &&
+      manualMessageOutbox.includes('tryIssueRefundStatusCapabilityForMessage') &&
       gmailSync.includes('tryIssueRefundStatusCapabilityForMessage') &&
       includesAll(email, ['statusUrl', 'Check refund status']) &&
       capability.includes('?.trim().toLowerCase() === "true"'),
@@ -137,7 +140,7 @@ const run = async () => {
       'refund status capability issuance unavailable',
       'return null',
     ]) &&
-      [adminUpdate, automationSweep, messageSend].every((source) =>
+      [adminUpdate, automationSweep, manualMessageOutbox].every((source) =>
         source.includes('tryIssueRefundStatusCapability')
       ),
   );
@@ -148,9 +151,13 @@ const run = async () => {
         'redactRefundStatusLinksForStorage',
         '[Secure refund status link included at delivery]',
       ]) &&
-      [intake, adminUpdate, automationSweep, messageSend, gmailTransport].every((source) =>
+      [intake, adminUpdate, automationSweep, gmailTransport].every((source) =>
         source.includes('redactRefundStatusLinksForStorage')
-      ),
+      ) &&
+      includesAll(manualMessageOutbox, [
+        'tryIssueRefundStatusCapabilityForMessage',
+        'buildRefundStoredTextWithStatus',
+      ]),
   );
   assert(
     'Authoritative Nayax completion paths attach a status link without changing provider execution',
