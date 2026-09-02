@@ -7,7 +7,7 @@ import { trackEvent } from '@/lib/analytics';
 import { trackBuyerFlowPlaybookLinkClick } from '@/lib/businessPlaybookAnalytics';
 import { MACHINE_NAMES } from '@/lib/machineNames';
 import { machineBuyerFaqs } from '@/lib/seoRoutes';
-import { isMicroCheckoutEnabled } from '@/lib/commerceAvailability';
+import { isMicroCheckoutEnabled, isMiniCheckoutEnabled } from '@/lib/commerceAvailability';
 import { FOOD_TRUCK_SOLUTION_PATH } from '@/data/mobileOperatorPages';
 import { plannerPath } from '@/data/businessPlaybookPlanner';
 import commercialMain from '@/assets/real/commercial-main.jpg';
@@ -28,10 +28,10 @@ const machineProducts = [
     sku: 'mini',
     name: MACHINE_NAMES.mini,
     price: '$4,000',
-    description: 'Portable at 1/5 the size. Payment-first ordering will open when Mini launches.',
+    description: 'Portable at 1/5 the size. Complex cotton candy patterns with manual stick feeding.',
     href: '/machines/mini',
     image: miniMain,
-    badge: 'Coming Soon',
+    badge: isMiniCheckoutEnabled ? 'Buy Online' : 'Checkout Pending',
   },
   {
     sku: 'micro',
@@ -55,7 +55,7 @@ const comparisonRows = [
     model: MACHINE_NAMES.mini,
     fit: 'Mobile operators and smaller venues that need a portable footprint',
     capability: 'Manual stick feeding with most complex pattern capabilities',
-    buyingPath: 'Coming soon; no request or checkout is accepted yet',
+    buyingPath: isMiniCheckoutEnabled ? 'Buy online for $4,000, plus shipping and applicable tax' : 'Online ordering is being prepared; checkout is not available yet',
   },
   {
     model: MACHINE_NAMES.micro,
@@ -72,7 +72,7 @@ const buyerSteps = [
   isMicroCheckoutEnabled
     ? 'Buy the available Micro Machine online, or request a quote only for the Commercial Machine.'
     : 'Micro checkout opens after its shipping policy is approved; only the Commercial Machine uses a quote request.',
-  'Bloomjoy follows up after payment for sellable products; Mini remains unavailable until launch.',
+  isMiniCheckoutEnabled ? 'Buy Mini online for $4,000. Bloomjoy coordinates delivery after payment.' : 'Mini online ordering is being prepared. Checkout is not available yet.',
 ];
 
 export default function ProductsPage() {
@@ -180,7 +180,7 @@ export default function ProductsPage() {
               Choose the machine that fits your operation
             </h2>
             <p className="mt-3 text-muted-foreground">
-              Micro is payment-first once shipping is approved, Mini is coming soon, and the
+              Mini and Micro use online checkout when available, and the
               Commercial Machine is the only model that uses a quote request.
             </p>
           </div>
@@ -238,8 +238,8 @@ export default function ProductsPage() {
                 Machine buyer comparison
               </h2>
               <p className="mt-3 max-w-3xl text-muted-foreground">
-                Use this comparison to choose the correct path: payment-first Micro when enabled,
-                coming-soon Mini, or quote review for the Commercial Machine.
+                Compare Mini and Micro online ordering availability, or request a quote
+                for the Commercial Machine.
               </p>
               <div className="mt-6 grid gap-3 md:hidden">
                 {comparisonRows.map((row) => (

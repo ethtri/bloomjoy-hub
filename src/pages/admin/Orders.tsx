@@ -97,6 +97,8 @@ const formatOrderType = (orderType: OrderRecord['order_type']) => {
       return 'Bloomjoy branded sticks';
     case 'micro_machine':
       return 'Micro Machine';
+    case 'mini_machine':
+      return 'Mini Machine';
     case 'mixed':
       return 'Mixed storefront';
     default:

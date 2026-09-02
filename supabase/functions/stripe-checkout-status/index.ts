@@ -18,6 +18,7 @@ const nonMemberSugarPriceId = Deno.env.get("STRIPE_SUGAR_NON_MEMBER_PRICE_ID");
 const sticksPriceId = Deno.env.get("STRIPE_STICKS_PRICE_ID");
 const memberSticksPriceId = Deno.env.get("STRIPE_STICKS_MEMBER_PRICE_ID");
 const microMachinePriceId = Deno.env.get("STRIPE_MICRO_PRICE_ID");
+const miniMachinePriceId = Deno.env.get("STRIPE_MINI_PRICE_ID");
 const plusPriceId = Deno.env.get("STRIPE_PLUS_PRICE_ID");
 const checkoutPriceConfig = {
   sugarPriceIds: [
@@ -27,6 +28,7 @@ const checkoutPriceConfig = {
   ],
   sticksPriceIds: [sticksPriceId, memberSticksPriceId],
   microMachinePriceId,
+  miniMachinePriceId,
   plusPriceId,
 };
 const stripe = stripeSecretKey

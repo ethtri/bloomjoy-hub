@@ -1,5 +1,14 @@
 # QA Smoke Test Checklist
 
+## Mini machine checkout
+
+- [ ] Follow `Docs/MINI_SALES_LAUNCH.md`; use sandbox payments and a disposable local database/notification sink.
+- [ ] With the Mini browser flag off, Home, Machines, Mini, catalog, and planner show unavailable checkout consistently; a stale Mini cart cannot proceed. Direct server requests also fail while its gate or required configuration is absent.
+- [ ] With approved sandbox configuration and both flags enabled, `/machines/mini` adds one Mini at $4,000 to `/cart`; repeated clicks do not add another. Mini cannot share a checkout with sugar/Micro or another Mini.
+- [ ] Stripe shows the approved machine price, shipping rate and delivery estimate, applicable tax, and required contact/shipping details before payment. Wrong/archived prices, archived shipping, and absent delivery estimates fail without creating a session.
+- [ ] Cancel, decline, or an unverified/unpaid return keeps the cart. Verified paid Mini returns clear it. Signed paid and delayed-success events create one `mini_machine` order, correct Mini quantity/address/total/receipt, customer confirmation, internal email, and WeCom; replay creates no duplicates.
+- [ ] `/admin/orders` labels the product Mini Machine and supports normal fulfillment/tracking. Linked customers see the order in `/portal/orders`. Check Mini and Cart at 1440px and 390px without overflow.
+
 ## Refund Operations v1 Nayax inventory (`#890`)
 
 - [ ] With the sync switch false, scheduled and manual health paths make no Nayax request and no inventory mutation.
@@ -350,14 +359,14 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] At 320px, 390px, 768px, and 1440px, all three mobile routes have no horizontal page overflow, keep 44px controls, preserve readable cards/results, and leave the primary CTA clear
 - [ ] Run `npm run mobile-content:check`, `npm run mobile-fit-checker:check`, and `npm run seo:check`; confirm route, claim, decision-rule, context, structured-data, source, no-proof, internal-link, and responsive guardrails pass
 - [ ] Product pages load (Full, Micro, Mini)
-- [ ] Home, `/machines`, and Mini detail consistently show Mini as `Coming Soon` and expose no quote/procurement checkout path
+- [ ] Home, `/machines`, and Mini detail share the Mini availability flag: `Buy Online` when enabled, `Checkout Pending` when disabled; no quote/procurement form is offered
 - [ ] Machine detail pages support image gallery selection (thumbnail click changes main image)
 - [ ] Commercial page shows native specs content (not image-only text for core specs)
 - [ ] Commercial page "Open full size" actions open in-page modal and can be closed to return to the same screen
 - [ ] Commercial machine sales copy/quote CTA clearly shows wrap options and marks custom wrap as Commercial-only with offline design-team handoff
 - [ ] Home, `/machines`, Commercial detail, comparison, and payback-planner surfaces do not show a Commercial Machine price; they direct buyers to request a quote
 - [ ] Mini and Micro machine pages do not advertise custom wrap as an available option
-- [ ] Mini page shows the expected `$4,000` baseline as coming-soon planning context, with a disabled `Coming Soon` CTA and no order form
+- [ ] Mini shows `$4,000` with shipping/tax disclosure and `Buy Mini Machine` when enabled; otherwise it shows disabled `Checkout Pending`
 - [ ] Mini page shows readable specs, `~90 seconds per candy`, `~40 candies/hour` planning guidance, staffed-throughput estimates, public proof video clips with controls/posters, compact/hospitality fit notes, serving-cost assumptions, and no ROI/payback guarantees
 - [ ] Micro machine page shows the updated target/list price (`$2,200`)
 - [ ] With `VITE_MICRO_CHECKOUT_ENABLED` unset/false, the Micro page keeps the `$2,200` planning price but shows a disabled `Checkout Pending` CTA, has no quote/request form, and a stale Micro cart item blocks checkout until removed
@@ -396,7 +405,7 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] Run `npm run planner-context:check`; confirm discovery, allowlist, Commercial-only policy, malformed context, lead-message privacy, and bounded analytics assertions pass
 - [ ] `/resources/business-playbook/payback-planner` direct-loads and shows the Payback Scenario Planner with Commercial, Mini, and Micro paths, landed-cost fields for import fees/tariffs/shipping/duties/brokerage/accessories/supplies, fictional presets that are not loaded by default, and no earnings or payback promises
 - [ ] Payback Scenario Planner math handles Commercial foot traffic/family-presence/capacity/rent/revenue share, Mini/Micro event attendance/competition/event costs, and zero or negative contribution scenarios without showing `NaN`, `Infinity`, or guaranteed-result language
-- [ ] Payback Scenario Planner routes Commercial to quote, Mini to coming-soon status, and Micro to its availability-aware purchase/status page, and logs only scenario labels, bands, and booleans rather than exact dollar or sales inputs
+- [ ] Payback Scenario Planner routes Commercial to quote and Mini/Micro to their availability-aware purchase/status pages, and logs only scenario labels, bands, and booleans rather than exact dollar or sales inputs
 - [ ] ROI/payback and revenue-share/rent article routes direct-load, show Article JSON-LD, source links, useful tables/scripts/checklists, and backlinks to the planner and related playbook content
 - [ ] Business Playbook article routes direct-load, show a real Bloomjoy image, useful visual blocks (tables/checklists/scorecards/scripts), source links, related articles, and quote/machine CTAs
 - [ ] Business Playbook article routes are readable on mobile widths (`360x800`, `390x844`, `414x896`) with no clipped tables or horizontal page overflow

@@ -3,7 +3,7 @@ import {
   STICKS_PIECES_PER_BOX,
   STICKS_PRICE_PER_BOX,
 } from '@/lib/sticks';
-import { isMicroCheckoutEnabled } from '@/lib/commerceAvailability';
+import { isMicroCheckoutEnabled, isMiniCheckoutEnabled } from '@/lib/commerceAvailability';
 
 export interface Product {
   sku: string;
@@ -54,8 +54,8 @@ export const products: Record<string, Product> = {
     limitations: [
       'No automatic stick dispenser—operator manually feeds each stick'
     ],
-    ctaType: 'waitlist',
-    inStock: false,
+    ctaType: isMiniCheckoutEnabled ? 'buy' : 'waitlist',
+    inStock: isMiniCheckoutEnabled,
   },
   'micro': {
     sku: 'micro',

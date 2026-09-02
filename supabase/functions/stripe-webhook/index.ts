@@ -30,6 +30,7 @@ const nonMemberSugarPriceId = Deno.env.get("STRIPE_SUGAR_NON_MEMBER_PRICE_ID");
 const sticksPriceId = Deno.env.get("STRIPE_STICKS_PRICE_ID");
 const memberSticksPriceId = Deno.env.get("STRIPE_STICKS_MEMBER_PRICE_ID");
 const microMachinePriceId = Deno.env.get("STRIPE_MICRO_PRICE_ID");
+const miniMachinePriceId = Deno.env.get("STRIPE_MINI_PRICE_ID");
 const plusPriceId = Deno.env.get("STRIPE_PLUS_PRICE_ID");
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -83,6 +84,7 @@ type OrderType =
   | "sugar"
   | "blank_sticks"
   | "micro_machine"
+  | "mini_machine"
   | "mixed"
   | "unknown";
 type PricingTier = "plus_member" | "standard" | null;
@@ -95,6 +97,7 @@ const checkoutPriceConfig = {
   ],
   sticksPriceIds: [sticksPriceId, memberSticksPriceId],
   microMachinePriceId,
+  miniMachinePriceId,
   plusPriceId,
 };
 
@@ -162,6 +165,7 @@ type OrderContext = {
   sugarMix: SugarMixSummary;
   blankSticks: BlankSticksSummary | null;
   microMachine: MicroMachineSummary | null;
+  miniMachine: MicroMachineSummary | null;
   existingInternalNotificationSentAt: string | null;
   existingCustomerConfirmationSentAt: string | null;
   existingWeComAlertSentAt: string | null;
@@ -296,6 +300,8 @@ const formatOrderType = (orderType: OrderType) => {
       return "Bloomjoy branded sticks";
     case "micro_machine":
       return "Micro Machine";
+    case "mini_machine":
+      return "Mini Machine";
     case "mixed":
       return "Mixed storefront";
     default:
@@ -500,6 +506,7 @@ const coerceOrderType = (
     value === "sugar" ||
     value === "blank_sticks" ||
     value === "micro_machine" ||
+    value === "mini_machine" ||
     value === "mixed"
   ) {
     return value;
@@ -542,6 +549,12 @@ const buildInternalOrderEmail = (context: OrderContext) => {
           : "USD 0.00"
       }`,
       `- Free shipping: ${context.blankSticks?.free_shipping ? "Yes" : "No"}`,
+    ];
+  } else if (context.orderType === "mini_machine") {
+    detailSection = [
+      "",
+      "Mini Machine Details:",
+      `- Quantity: ${context.miniMachine?.quantity ?? "n/a"}`,
     ];
   } else if (context.orderType === "micro_machine") {
     detailSection = [
@@ -613,6 +626,9 @@ const buildInternalOrderEmail = (context: OrderContext) => {
 };
 
 const buildWeComProductSummary = (context: OrderContext): string => {
+  if (context.orderType === "mini_machine") {
+    return `Mini Machines: ${context.miniMachine?.quantity ?? "n/a"}`;
+  }
   if (context.orderType === "blank_sticks") {
     return `Boxes / Pieces per box: ${
       context.blankSticks?.box_count ?? "n/a"
@@ -704,6 +720,12 @@ async function upsertOrder(
 
   const microMachine: MicroMachineSummary = {
     quantity: parseNumber(expanded.metadata?.micro_machine_quantity),
+  };
+  // Use the paid Stripe line item, never a browser quantity or descriptive metadata.
+  const miniMachine: MicroMachineSummary = {
+    quantity: expanded.metadata?.order_type === "mini_machine"
+      ? lineItems.find((item) => item.price_id === miniMachinePriceId)?.quantity ?? 0
+      : 0,
   };
 
   if (sugarMix.total_kg > 0) {
@@ -843,6 +865,7 @@ async function upsertOrder(
       ? blankSticks
       : null,
     microMachine: microMachine.quantity > 0 ? microMachine : null,
+    miniMachine: miniMachine.quantity > 0 ? miniMachine : null,
     existingInternalNotificationSentAt:
       persistedOrder.internal_notification_sent_at,
     existingCustomerConfirmationSentAt:
@@ -942,6 +965,7 @@ const sendCustomerConfirmation = async (context: OrderContext) => {
     sugarMix: context.sugarMix,
     blankSticks: context.blankSticks,
     microMachine: context.microMachine,
+    miniMachine: context.miniMachine,
   });
 
   try {

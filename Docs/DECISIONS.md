@@ -1,5 +1,9 @@
 # Decisions
 
+## 2026-09-02 - Prepare Mini for direct purchase (`#715`, `#717`)
+
+The owner requested Mini sales readiness rather than its old Coming Soon posture. Prepare the existing payment-first checkout at the public $4,000 price, with server-selected pricing, shipping, tax, paid-order persistence, and confirmation/fulfillment support. The initial contract accepts one Mini per standalone checkout so a fixed shipping rate cannot undercharge multiple machines or mixed carts. Browser and server Mini gates stay off until shipping terms, Stripe product/rate configuration, purchase terms, sandbox payment proof, and production go/no-go are complete. This does not approve a shipping amount or service area and does not enable Micro. `Docs/MINI_SALES_LAUNCH.md` defines the remaining evidence and deployment order.
+
 ## 2026-08-31 - Nayax lookup recovery is exact-account and internally owned (`#890`, `#992`)
 
 - Every transaction lookup uses the reporting machine's explicit Nayax account scope. A non-default account may resolve only its exact server-side credential; missing scope or access never falls back to the default account and never cross-searches a sibling machine or location.

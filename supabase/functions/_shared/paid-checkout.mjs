@@ -9,6 +9,7 @@ const PAYMENT_ORDER_TYPES = new Set([
   "sugar",
   "blank_sticks",
   "micro_machine",
+  "mini_machine",
   "mixed",
 ]);
 
@@ -39,6 +40,7 @@ export const hasAllowedCheckoutPrices = (session, config) => {
   const sugarPriceIds = compactPriceSet(config?.sugarPriceIds ?? []);
   const sticksPriceIds = compactPriceSet(config?.sticksPriceIds ?? []);
   const microMachinePriceId = config?.microMachinePriceId;
+  const miniMachinePriceId = config?.miniMachinePriceId;
   const plusPriceId = config?.plusPriceId;
   const orderType = session?.metadata?.order_type;
 
@@ -54,6 +56,13 @@ export const hasAllowedCheckoutPrices = (session, config) => {
     return Boolean(microMachinePriceId) &&
       priceIds.length === 1 &&
       priceIds[0] === microMachinePriceId;
+  }
+
+  if (orderType === "mini_machine") {
+    return Boolean(miniMachinePriceId) &&
+      !session.line_items.has_more &&
+      priceIds.length === 1 && priceIds[0] === miniMachinePriceId &&
+      session.line_items.data[0].quantity === 1;
   }
 
   if (orderType === "mixed") {

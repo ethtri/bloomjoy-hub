@@ -6,6 +6,8 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 ## Live Work
 
+- **Mini sales preparation (`#715`, `#717`, September 2):** Mini checkout now has a prepared end-to-end branch, including server price/shipping guards, paid-order storage, confirmations, and public availability controls. Live Mini product/shipping configuration and shipping terms are still absent; both Mini activation gates remain off. See `Docs/MINI_SALES_LAUNCH.md` for release order and remaining proof.
+
 - Run `npm run agent:github-hygiene` before planning sprint work, branch syncs, or broad closeout.
 - Use issue labels, project status, PR checks, and latest issue/PR comments instead of static docs for task state.
 - Keep active blockers, UAT evidence, and closeout notes on the issue or PR where the work is happening.

@@ -40,6 +40,20 @@ Deno.test("Micro Machine confirmation identifies the paid product and quantity",
   assertStringIncludes(email.text, "Quantity: 1");
 });
 
+Deno.test("Mini confirmation identifies the product, quantity, shipping and full total", () => {
+  const email = buildCustomerOrderEmail({
+    ...baseContext, orderType: "mini_machine", microMachine: null,
+    miniMachine: { quantity: 1 }, unitPriceCents: 400000,
+    amountTotal: 465000, shippingTotalCents: 25000,
+  });
+  assertEquals(email.subject, "Your Bloomjoy Mini Machine order is confirmed");
+  assertStringIncludes(email.text, "Product: Bloomjoy Sweets Mini Machine");
+  assertStringIncludes(email.text, "Quantity: 1");
+  assertStringIncludes(email.text, "$250.00");
+  assertStringIncludes(email.text, "$4,650.00");
+  assertEquals(email.text.includes("Sugar total"), false);
+});
+
 Deno.test("mixed confirmation includes both sugar and Micro Machine", () => {
   const email = buildCustomerOrderEmail({
     ...baseContext,

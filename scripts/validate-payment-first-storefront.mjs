@@ -26,6 +26,7 @@ assert.deepEqual(
     sugarBreakdown: { white: 0, blue: 0, orange: 0, red: 0 },
     totalSugarKg: 0,
     microMachineQuantity: 1,
+    miniMachineQuantity: 0,
   }
 );
 
@@ -204,7 +205,8 @@ assert.match(cartPage, /hasUnavailableMicro/);
 assert.match(cartPage, /Micro checkout is pending a shipping decision/);
 
 const miniPage = read('src/pages/products/Mini.tsx');
-assert.match(miniPage, /Coming Soon/);
+assert.match(miniPage, /Buy Mini Machine/);
+assert.match(miniPage, /disabled=\{!isMiniCheckoutEnabled\}/);
 
 const webhook = read('supabase/functions/stripe-webhook/index.ts');
 assert.match(webhook, /shouldFulfillCheckoutSession/);
@@ -241,7 +243,7 @@ const sugarCheckout = read('supabase/functions/stripe-sugar-checkout/index.ts');
 assert.match(sugarCheckout, /MICRO_CHECKOUT_ENABLED/);
 assert.match(sugarCheckout, /microMachineQuantity > 0 && !microCheckoutEnabled/);
 assert.match(sugarCheckout, /checkout_source: "bloomjoy_storefront"/);
-assert.match(sugarCheckout, /payment_method_types: \["card"\]/);
+assert.doesNotMatch(sugarCheckout, /payment_method_types:/);
 
 const plusCheckout = read('supabase/functions/stripe-plus-checkout/index.ts');
 const plusBilling = read('supabase/functions/_shared/plus-billing.mjs');
