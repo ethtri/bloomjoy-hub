@@ -46,6 +46,7 @@ function harness() {
     breakAfterCommit: false, receiptOverride: undefined, driftAfterReceipt: false,
     authoritativeReceipt: false, lifecycleOverride: undefined, lifecycleReads: 0,
     receiptAtApply: false, routingError: null, receiptAtRouting: false, routingUpdates: 0,
+    receiptBeforeLookupClaim: false, suppressedLookupClaims: 0,
   };
   async function rpc(name, args) {
     if (name === 'refund_lifecycle_contract') {
@@ -83,6 +84,16 @@ function harness() {
     }
     if (name === 'service_start_refund_automation_run') return { runId: 'synthetic-run' };
     if (name === 'service_claim_refund_automation_action') {
+      if (state.receiptBeforeLookupClaim) {
+        // Exact forward automation-eligibility contract. Its SQL race is tested
+        // independently; execute the real caller's behavior here as well.
+        assert.equal(args.p_action_type, 'nayax_lookup');
+        state.authoritativeReceipt = true;
+        state.current.decision = 'approved';
+        state.current.status = 'card_refund_pending';
+        state.suppressedLookupClaims++;
+        return { actionId: null, claimed: false, status: 'not_eligible', reasonCategory: 'authoritative_refund_receipt' };
+      }
       const claimed = !state.actions.has(args.p_action_key);
       state.actions.add(args.p_action_key);
       return { claimed, actionId: 'synthetic-action' };
@@ -228,6 +239,19 @@ test('receipt committed after initial read is a normal no-effect SQL skip', asyn
   assert.equal((await run()).allowRoutineContact, false);
   assert.equal(JSON.stringify(state.current), before);
   assert.equal(state.applications + state.events + state.lookups, 0);
+});
+
+test('receipt between accepted facts/readiness and central claim prevents actual coordinator provider lookup', async () => {
+  const { state, run } = harness();
+  state.receiptBeforeLookupClaim = true;
+  await run();
+  assert.equal(state.applications, 1);
+  assert.equal(state.events, 1);
+  assert.equal(state.suppressedLookupClaims, 1);
+  assert.equal(state.lookups, 0);
+  assert.equal(state.actions.size, 0);
+  assert.equal(state.current.card_network, 'visa');
+  assert.equal(state.current.decision, 'approved');
 });
 
 test('receipt wins direct routing race without turning preserved incoming mail into failure', async () => {
