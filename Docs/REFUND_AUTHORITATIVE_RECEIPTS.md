@@ -104,6 +104,10 @@ Run `npm run refunds:validate-authoritative-receipt`, the full application check
 and `supabase/tests/refund_authoritative_reconciliation_receipt.sql` in the
 disposable hosted migration test workflow. Before deployment, sync onto canonical
 main and regenerate the refund release manifest for the final source commit.
+The unapplied receipt migration must sort after the current core delivery repair;
+its outer send guards wrap the current core implementations, not earlier copies.
+The disposable runner compares all four exact function bodies and service-only
+permissions against source before and after populated-upgrade regressions.
 Deploy database contract, tracked `refund-case-admin-update` function and frontend
 as one gated release. Verify the existing workbench/customer copy with synthetic
 receipt cases at desktop and mobile widths. Never use production rows as fixtures.
