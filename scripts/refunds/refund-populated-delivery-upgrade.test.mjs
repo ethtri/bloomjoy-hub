@@ -23,6 +23,10 @@ test('populated upgrade embeds actual guard and entire current delivery prefix w
   assert.ok(sql.includes('23514:Automatic customer status update requires current deterministic evidence'));
   assert.ok(sql.includes('Fresh replay final guard and populated-upgrade guard are identical'));
   assert.ok(sql.includes('Pending-to-SENT delivery still fails with contact disabled'));
+  assert.ok(sql.includes('public.service_bind_refund_transactional_delivery('));
+  assert.ok(sql.includes('public.service_record_refund_transactional_delivery_event('));
+  assert.ok(sql.includes('Status-preserving delivered metadata requires a matching recorded event'));
+  assert.ok(sql.includes('A later verified complaint advances already-failed automatic status delivery truth'));
   assert.ok(sql.trimEnd().endsWith('rollback;'));
   assert.doesNotMatch(sql, /disable\s+trigger|session_replication_role|__HISTORICAL_GUARD__|__ORIGINAL_BACKFILL__|__CURRENT_DELIVERY_PREFIX__/iu);
 });

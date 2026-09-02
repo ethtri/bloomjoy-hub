@@ -130,6 +130,96 @@ select matches(pg_temp.capture_delivery_upgrade_error($sql$
   update public.refund_case_messages set error_message = 'arbitrary change', delivery_state = 'accepted'
   where id = 'da150000-0000-4000-8000-000000000001'
 $sql$), '^23514:', 'Whole-row allowlist rejects other non-delivery metadata changes');
+
+-- Exercise real RPCs for the automatic-message family, not the all-null
+-- legacy/manual envelope used by the original transactional delivery tests.
+set local role service_role;
+select is(public.service_bind_refund_transactional_delivery(
+  'da150000-0000-4000-8000-000000000001', 'resend_populated_upgrade_status', statement_timestamp()
+) ->> 'bound', 'true', 'Actual provider receipt binding works for historical SENT automatic status after case advance');
+reset role;
+select matches(pg_temp.capture_delivery_upgrade_error($sql$
+  update public.refund_case_messages set provider_message_id = 'resend_populated_upgrade_forged'
+  where id = 'da150000-0000-4000-8000-000000000001'
+$sql$), '^23514:', 'An already-bound automatic status cannot replace provider identity');
+select matches(pg_temp.capture_delivery_upgrade_error($sql$
+  update public.refund_case_messages set delivery_state = 'delivered', delivery_state_updated_at = statement_timestamp()
+  where id = 'da150000-0000-4000-8000-000000000001'
+$sql$), '^23514:', 'Status-preserving delivered metadata requires a matching recorded event');
+select matches(pg_temp.capture_delivery_upgrade_error($sql$
+  update public.refund_case_messages set status = 'failed', delivery_state = 'bounced',
+    delivery_state_updated_at = statement_timestamp(), error_message = 'transactional_delivery_bounced'
+  where id = 'da150000-0000-4000-8000-000000000001'
+$sql$), '^23514:', 'A terminal delivery failure cannot be forged without a recorded provider event');
+
+set local role service_role;
+select is(public.service_record_refund_transactional_delivery_event(
+  repeat('b8', 32), 'resend_populated_upgrade_other', 'bounced', statement_timestamp()
+) ->> 'matched', 'false', 'A different provider identity does not match the historical automatic status');
+reset role;
+select matches(pg_temp.capture_delivery_upgrade_error($sql$
+  update public.refund_case_messages set status = 'failed', delivery_state = 'bounced',
+    delivery_state_updated_at = statement_timestamp(), error_message = 'transactional_delivery_bounced'
+  where id = 'da150000-0000-4000-8000-000000000001'
+$sql$), '^23514:', 'Another provider identity receipt cannot authorize this automatic status failure');
+
+set local role service_role;
+select is(public.service_record_refund_transactional_delivery_event(
+  repeat('c8', 32), 'resend_populated_upgrade_status', 'bounced', statement_timestamp()
+) ->> 'deliveryState', 'bounced', 'Actual bound bounce RPC settles an automatic status after case advance with contact disabled');
+reset role;
+select ok((select status = 'failed' and delivery_state = 'bounced'
+  and error_message = 'transactional_delivery_bounced'
+  and sent_at = ((select value from delivery_upgrade_message_before) ->> 'sent_at')::timestamptz
+  from public.refund_case_messages where id = 'da150000-0000-4000-8000-000000000001'),
+  'Bound bounce records delivery failure while preserving the actual original sent timestamp');
+select is((select count(*)::bigint from public.refund_transactional_delivery_events
+  where event_key_digest = repeat('c8', 32)
+    and matched_refund_case_message_id = 'da150000-0000-4000-8000-000000000001'
+    and applied_at is not null), 1::bigint, 'The exact private event is bound and applied to this message once');
+
+set local role service_role;
+select is(public.service_record_refund_transactional_delivery_event(
+  repeat('d8', 32), 'resend_populated_upgrade_status', 'complained', statement_timestamp()
+) ->> 'deliveryState', 'complained', 'A later verified complaint advances already-failed automatic status delivery truth');
+reset role;
+create temporary table delivery_upgrade_after_complaint as
+select to_jsonb(message) as value from public.refund_case_messages message where id = 'da150000-0000-4000-8000-000000000001';
+set local role service_role;
+select is(public.service_record_refund_transactional_delivery_event(
+  repeat('d8', 32), 'resend_populated_upgrade_status', 'complained', statement_timestamp()
+) ->> 'duplicate', 'true', 'Exact provider event replay is deduplicated without sending again');
+reset role;
+select is((select to_jsonb(message) from public.refund_case_messages message where id = 'da150000-0000-4000-8000-000000000001'),
+  (select value from delivery_upgrade_after_complaint), 'Event replay changes no historical message field');
+select matches(pg_temp.capture_delivery_upgrade_error($sql$
+  update public.refund_case_messages set status = 'sent'
+  where id = 'da150000-0000-4000-8000-000000000001'
+$sql$), '^23514:', 'Verified terminal failure cannot be returned to SENT');
+select matches(pg_temp.capture_delivery_upgrade_error($sql$
+  update public.refund_case_messages set body = 'Forged content after real receipt', delivery_state = 'complained'
+  where id = 'da150000-0000-4000-8000-000000000001'
+$sql$), '^23514:', 'A genuine event cannot authorize changed customer content');
+select matches(pg_temp.capture_delivery_upgrade_error($sql$
+  update public.refund_case_messages set provider_message_id = 'resend_populated_upgrade_other'
+  where id = 'da150000-0000-4000-8000-000000000001'
+$sql$), '^23514:', 'A genuine event cannot authorize provider identity substitution');
+select matches(pg_temp.capture_delivery_upgrade_error($sql$
+  update public.refund_case_messages set delivery_state = 'bounced', error_message = 'transactional_delivery_bounced'
+  where id = 'da150000-0000-4000-8000-000000000001'
+$sql$), '^23514:', 'An older genuine bounce cannot downgrade the stronger recorded complaint');
+select is((select to_jsonb(message) - array['delivery_transport', 'provider_message_id', 'delivery_state', 'delivery_state_updated_at', 'status', 'error_message']
+  from public.refund_case_messages message where id = 'da150000-0000-4000-8000-000000000001'),
+  (select value - array['delivery_transport', 'provider_message_id', 'delivery_state', 'delivery_state_updated_at', 'status', 'error_message'] from delivery_upgrade_message_before),
+  'Verified terminal events preserve every message identity, envelope, evidence, and original send field');
+select is((select to_jsonb(refund_case) - array['lifecycle_revision', 'updated_at'] from public.refund_cases refund_case
+  where id = 'da140000-0000-4000-8000-000000000001'), (select value from delivery_upgrade_case_before),
+  'Verified delivery events never alter financial, decision, customer, or machine facts');
+select is((select count(*)::bigint from public.refund_case_nayax_refund_attempts
+  where refund_case_id in ('da140000-0000-4000-8000-000000000001', 'da140000-0000-4000-8000-000000000002')),
+  0::bigint, 'Verified delivery events and replay create no financial attempt');
+select ok(not (select automatic_customer_contact_enabled from public.refund_customer_contact_settings where singleton),
+  'Verified delivery bookkeeping never reopens customer contact');
 select is((select status from public.refund_case_messages where id = 'da150000-0000-4000-8000-000000000002'),
   'pending', 'Rejected sends preserve the pending message without any dispatch');
 select is((select count(*)::bigint from public.refund_case_messages
