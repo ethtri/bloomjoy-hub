@@ -4,6 +4,7 @@ import {
   type EdgeFunctionError,
 } from '@/lib/edgeFunctions';
 import { supabaseClient } from '@/lib/supabaseClient';
+import { parseRefundMachineCorrectionEvidence, type RefundMachineCorrectionEvidence } from '@/lib/refundAuthoritativeReceipt';
 import {
   REFUND_LIFECYCLE_SCHEMA_VERSION,
   requireRefundLifecycleContract,
@@ -725,6 +726,7 @@ const requireRefundGmailCaseLinkReview = (
 
 export type RefundCaseRecord = {
   id: string;
+  machineCorrection?: RefundMachineCorrectionEvidence | null;
   publicReference: string;
   canPerformOfficialAction?: boolean;
   canSelectNayaxCandidate?: boolean;
@@ -2502,18 +2504,20 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
     const lifecycle = refundCase.lifecycle
       ? requireRefundLifecycleContract(refundCase.lifecycle)
       : null;
+    const machineCorrection = parseRefundMachineCorrectionEvidence(refundCase.machineCorrection);
     const inboundLinkReview = overview.inboundLinkReviewContractVersion ===
         'refund_gmail_case_link_review_v1'
       ? requireRefundGmailCaseLinkReview(refundCase.inboundLinkReview)
       : null;
     if (!state && !manualNayax) {
-      return { ...refundCase, lifecycle, selectedNayaxTransaction, inboundLinkReview };
+      return { ...refundCase, lifecycle, selectedNayaxTransaction, inboundLinkReview, machineCorrection };
     }
     return {
       ...refundCase,
       lifecycle,
       selectedNayaxTransaction,
       inboundLinkReview,
+      machineCorrection,
       ...(state ? {
         intakeSource: state.intakeSource,
         exactCasePath: state.exactCasePath,
