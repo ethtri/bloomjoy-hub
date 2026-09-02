@@ -56,7 +56,7 @@ from family_cases where family = 'legacy';
 -- Real cycle claim -> request -> reminder -> verified reply -> receipt -> close.
 create temporary table family_cycles as
 select c.family, (public.service_claim_refund_follow_up_cycle(c.id, 'missing_information',
-  'refund_follow_up_v1', repeat('f1', 32), null) #>> '{cycle,id}')::uuid as id
+  (select template_version from public.refund_customer_contact_settings where singleton), repeat('f1', 32), null) #>> '{cycle,id}')::uuid as id
 from family_cases c where c.family = 'follow';
 insert into public.refund_case_messages(id, refund_case_id, message_type, status, recipient_email, subject, body,
   content_source, delivery_kind, reason_code, template_version, follow_up_cycle_id, requested_fields, created_at)
@@ -115,7 +115,7 @@ update public.refund_cases set reporting_machine_id = 'da130000-0000-4000-8000-0
   nayax_recommendation_policy_version = 'synthetic.v1', nayax_recommendation_evaluated_at = statement_timestamp()
 where id in (select id from family_cases where family in ('no_match','no_match_review'));
 insert into family_cycles select family, (public.service_claim_refund_follow_up_cycle(
-  id, 'no_safe_match', 'refund_follow_up_v1', repeat('f3',32), null) #>> '{cycle,id}')::uuid
+  id, 'no_safe_match', (select template_version from public.refund_customer_contact_settings where singleton), repeat('f3',32), null) #>> '{cycle,id}')::uuid
 from family_cases where family in ('no_match','no_match_review');
 insert into public.refund_case_messages(id, refund_case_id, message_type, status, recipient_email, subject, body,
   content_source, delivery_kind, reason_code, template_version, follow_up_cycle_id, requested_fields)
