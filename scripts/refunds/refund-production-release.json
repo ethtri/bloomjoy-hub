@@ -116,7 +116,8 @@
     "20260901070000_refund_transactional_delivery_truth.sql",
     "20260901080000_refund_gmail_existing_case_linking.sql",
     "20260901172459_refund_scheduler_incident_1069.sql",
-    "20260901185049_refund_provider_delay_evidence_1069.sql"
+    "20260901185049_refund_provider_delay_evidence_1069.sql",
+    "20260902002716_refund_manual_message_outbox.sql"
   ],
   "migrationFilesSha256": "6b138d77d49546b08c754f22d52ddcbc671569829618fa808e630cbb00287ad6",
   "migrationVersionSetSha256": "996faab4468803d851894f4f7d7ac4051d244bfaa67b72d81437b137ec33f358",
