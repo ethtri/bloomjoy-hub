@@ -7,8 +7,15 @@ create schema refund_machine_correction_test;
 create table refund_machine_correction_test.results(lane text primary key,payload jsonb);
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
 values('00000000-0000-0000-0000-000000000000','be000000-0000-4000-8000-000000000001','authenticated','authenticated','correction-ops@example.invalid','',now(),'{}','{}',now(),now());
+insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
+select '00000000-0000-0000-0000-000000000000',('be000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
+  'authenticated','authenticated','correction-manager-'||n||'@example.invalid','',now(),'{}','{}',now(),now()
+from generate_series(2,3) n;
 insert into auth.sessions(id,user_id,created_at,updated_at)
 values('be010000-0000-4000-8000-000000000001','be000000-0000-4000-8000-000000000001',now(),now());
+insert into auth.sessions(id,user_id,created_at,updated_at)
+select ('be010000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,('be000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,now(),now()
+from generate_series(2,3) n;
 insert into public.admin_roles(user_id,role,active) values('be000000-0000-4000-8000-000000000001','super_admin',true);
 insert into public.customer_accounts(id,name,account_type) values('be100000-0000-4000-8000-000000000001','Correction fixture','internal');
 insert into public.reporting_locations(id,account_id,name,timezone)
@@ -20,6 +27,9 @@ from generate_series(1,2) n;
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
 select id,'be000000-0000-4000-8000-000000000001','correction-ops@example.invalid','Synthetic correction fixture'
 from public.reporting_machines where id in ('be300000-0000-4000-8000-000000000001','be300000-0000-4000-8000-000000000002');
+insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
+values('be300000-0000-4000-8000-000000000001','be000000-0000-4000-8000-000000000002','correction-manager-2@example.invalid','Synthetic old-only manager'),
+  ('be300000-0000-4000-8000-000000000002','be000000-0000-4000-8000-000000000003','correction-manager-3@example.invalid','Synthetic corrected-only manager');
 insert into public.refund_nayax_machine_inventory(id,account_key,nayax_machine_id,machine_number,provider_is_active,
   refund_category,reporting_machine_id,reconciliation_state)
 values('be600000-0000-4000-8000-000000000002','CORRECTION-ACCOUNT','CORRECTION-MACHINE-2','555000002',true,
@@ -174,7 +184,19 @@ select is(refund_machine_correction_test.reject_corruption($setup$update public.
   'P4665','Existing exact intake selection is not rewritten');
 select is((select count(*)::integer from public.refund_authoritative_receipts where refund_case_id in (select id from refund_machine_correction_test.snapshots)),0,'All failed corrections roll back their receipt');
 select is((select reporting_machine_id from public.refund_cases where id='be400000-0000-4000-8000-000000000001'),'be300000-0000-4000-8000-000000000001'::uuid,'Receipt rejection rolls back the machine correction');
-select is(refund_machine_correction_test.run(1)->>'machineCorrected','true','Exact current evidence atomically corrects the machine and records receipt');
+create temporary table correction_positive_input as select c.official_action_version,a.id as attempt_id,
+  public.refund_machine_correction_inventory_digest('be600000-0000-4000-8000-000000000002') as inventory_digest
+from public.refund_cases c join public.refund_case_nayax_refund_attempts a on a.refund_case_id=c.id
+where c.id='be400000-0000-4000-8000-000000000001';
+grant select on correction_positive_input to authenticated;
+set local role authenticated;
+select is(public.admin_correct_legacy_refund_machine_and_record_observation('be400000-0000-4000-8000-000000000001',
+  (select attempt_id from correction_positive_input),(select official_action_version from correction_positive_input),
+  'be300000-0000-4000-8000-000000000001','be300000-0000-4000-8000-000000000002','be600000-0000-4000-8000-000000000002',
+  (select inventory_digest from correction_positive_input),'CORRECTION-ACCOUNT','CORRECTION-MACHINE-2','555000002',
+  '323456781',700,700,'USD',62,'DTM:NAYAX-323456781',true)->>'machineCorrected','true',
+  'Actual authenticated role atomically corrects the machine and records receipt');
+reset role;
 select throws_ok($$select refund_machine_correction_test.run(1)$$,'P4665',null,'Repeated correction cannot create another effect');
 select is((select reporting_machine_id from public.refund_authoritative_receipts where refund_case_id='be400000-0000-4000-8000-000000000001'),'be300000-0000-4000-8000-000000000002'::uuid,'Receipt binds only the corrected machine');
 commit;
@@ -258,6 +280,17 @@ select is((select item#>>'{selectedNayaxTransaction,machineLabel}' from jsonb_ar
 select is((select item#>'{selectedNayaxTransaction,matchFactors}' from jsonb_array_elements(public.admin_get_refund_operations_overview()->'cases') item
   where item->>'id'='be400000-0000-4000-8000-000000000001'),'[]'::jsonb,'Old-machine candidate factors do not corroborate current machine');
 select ok(not public.can_perform_refund_official_action('be000000-0000-4000-8000-000000000001','be400000-0000-4000-8000-000000000003'),'Correction does not reauthorize payment');
+set local role authenticated;
+select set_config('request.jwt.claim.sub','be000000-0000-4000-8000-000000000002',true);
+select set_config('request.jwt.claims','{"sub":"be000000-0000-4000-8000-000000000002","role":"authenticated","session_id":"be010000-0000-4000-8000-000000000002","is_anonymous":false}',true);
+select ok(not exists(select 1 from jsonb_array_elements(public.admin_get_refund_operations_overview()->'cases') item
+  where item->>'id'='be400000-0000-4000-8000-000000000001'),'Old-machine-only manager loses corrected case visibility');
+select set_config('request.jwt.claim.sub','be000000-0000-4000-8000-000000000003',true);
+select set_config('request.jwt.claims','{"sub":"be000000-0000-4000-8000-000000000003","role":"authenticated","session_id":"be010000-0000-4000-8000-000000000003","is_anonymous":false}',true);
+select ok(exists(select 1 from jsonb_array_elements(public.admin_get_refund_operations_overview()->'cases') item
+  where item->>'id'='be400000-0000-4000-8000-000000000001' and item#>>'{machineCorrection,historicalEvidencePreserved}'='true'),
+  'Current corrected-machine manager sees scoped correction readback');
+reset role;
 commit;
 select * from finish();
 
@@ -278,6 +311,6 @@ delete from public.reporting_machine_refund_managers where reporting_machine_id 
 delete from public.reporting_machines where id in ('be300000-0000-4000-8000-000000000001','be300000-0000-4000-8000-000000000002');
 delete from public.reporting_locations where id='be200000-0000-4000-8000-000000000001';
 delete from public.customer_accounts where id='be100000-0000-4000-8000-000000000001';
-delete from auth.users where id='be000000-0000-4000-8000-000000000001';
+delete from auth.users where id in ('be000000-0000-4000-8000-000000000001','be000000-0000-4000-8000-000000000002','be000000-0000-4000-8000-000000000003');
 drop schema refund_machine_correction_test cascade;
 commit;
