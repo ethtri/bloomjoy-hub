@@ -473,9 +473,12 @@ create temporary table active_accepted_reminder_before as select to_jsonb(m) as 
 from public.refund_case_messages m where m.id = 'da200000-0000-4000-8000-000000000001';
 update public.refund_customer_contact_settings set automatic_customer_contact_enabled = false where singleton;
 set local role service_role;
-select is(public.service_record_refund_transactional_delivery_event(repeat('d8',32), 'resend_active_healthy',
+select is(public.service_record_refund_transactional_delivery_event(md5('accepted-reminder-original-bounce') || md5('accepted-reminder-original-bounce'), 'resend_active_healthy',
   'bounced', statement_timestamp())->>'applied', 'true',
   'Original request genuinely bounces after reminder provider acceptance with contact paused');
+select is((select m.status || ':' || m.delivery_state from public.refund_case_messages m
+  join active_reminder_cases k on k.message_id = m.id where k.family = 'healthy'), 'failed:bounced',
+  'Original request has persisted terminal delivery failure before accepted reminder finalization');
 select lives_ok($sql$
   update public.refund_case_messages set status = 'sent', sent_at = statement_timestamp(), error_message = null
   where id = 'da200000-0000-4000-8000-000000000001'
