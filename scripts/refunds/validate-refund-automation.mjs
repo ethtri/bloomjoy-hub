@@ -19,7 +19,7 @@ const schedulerCadenceMigration = read(
   'supabase/migrations/20260830205449_refund_automation_scheduler_30_minute_cadence.sql'
 );
 const schedulerIncidentMigration = read(
-  'supabase/migrations/20260901172459_refund_scheduler_incident_1069.sql'
+  'supabase/migrations/20260901180116_refund_scheduler_incident_1069.sql'
 );
 const followUpMigration = read('supabase/migrations/202608030005_refund_deterministic_follow_up_cycles.sql');
 const managerAgingMigration = read('supabase/migrations/202608040001_refund_manager_aging_reminders.sql');

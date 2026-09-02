@@ -65,8 +65,8 @@ const run = async () => {
     readText('supabase/migrations/20260901033000_refund_internal_test_disposition.sql'),
     readText('supabase/tests/refund_internal_test_disposition.sql'),
     readText('supabase/functions/nayax-card-refund/index.ts'),
-    readText('supabase/migrations/20260901172459_refund_scheduler_incident_1069.sql'),
-    readText('supabase/migrations/20260901185049_refund_provider_delay_evidence_1069.sql'),
+    readText('supabase/migrations/20260901180116_refund_scheduler_incident_1069.sql'),
+    readText('supabase/migrations/20260901202359_refund_provider_delay_evidence_1069.sql'),
   ]);
 
   assert(

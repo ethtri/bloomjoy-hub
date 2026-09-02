@@ -246,11 +246,11 @@ try {
     'The existing-case inbound linking migration must be in the discovered release inventory'
   );
   assert(
-    repositoryMigrations.includes('20260901185049_refund_provider_delay_evidence_1069.sql'),
+    repositoryMigrations.includes('20260901202359_refund_provider_delay_evidence_1069.sql'),
     'The provider-delay evidence repair must be in the discovered release inventory'
   );
   assert(
-    repositoryMigrations.includes('20260901172459_refund_scheduler_incident_1069.sql'),
+    repositoryMigrations.includes('20260901180116_refund_scheduler_incident_1069.sql'),
     'The refund scheduler incident repair must be in the discovered release inventory'
   );
   assert(
