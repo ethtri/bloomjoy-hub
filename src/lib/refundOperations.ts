@@ -1504,6 +1504,8 @@ export type RefundCustomerPortalMessageType =
 export type SendRefundCaseMessageInput =
   | {
       caseId: string;
+      expectedCaseVersion: number;
+      messageIntentId: string;
       messageType: RefundCustomerPortalMessageType;
       subject?: string;
       body?: string;
@@ -1514,6 +1516,8 @@ export type SendRefundCaseMessageInput =
   | {
       caseId: string;
       nayaxCompletionMessageId: string;
+      expectedCaseVersion?: never;
+      messageIntentId?: never;
       messageType?: never;
       subject?: never;
       body?: never;

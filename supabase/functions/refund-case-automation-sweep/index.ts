@@ -59,6 +59,7 @@ import {
 } from "../_shared/refund-wallet-correction.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
+import { drainRefundManualMessageOutbox } from "../_shared/refund-manual-message-outbox.ts";
 import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
 import {
   beginNayaxLookup,
@@ -348,6 +349,26 @@ const redactedSummary = (counters: SweepCounters) => ({
   customerStatusUpdatesFailed: counters.customerStatusUpdatesFailed,
   payloadRedacted: true,
 });
+
+const runManualMessageOutboxSweep = async (counters: SweepCounters) => {
+  if (!supabase) return;
+  const results = await drainRefundManualMessageOutbox({ supabase, limit: 10 });
+  for (const result of results) {
+    counters.actionsAttempted += 1;
+    if (result.outcome === "sent") {
+      counters.actionsSucceeded += 1;
+      addReason(counters, "manual_message_outbox_sent");
+      continue;
+    }
+    counters.actionsFailed += 1;
+    addReason(
+      counters,
+      result.outcome === "delivery_unknown"
+        ? "manual_message_outbox_delivery_unknown"
+        : "manual_message_outbox_failed",
+    );
+  }
+};
 
 const firstRelation = <T>(value: OneOrMany<T>) =>
   Array.isArray(value) ? value[0] ?? null : value ?? null;
@@ -3521,6 +3542,14 @@ serve(async (req) => {
         alertStatus,
         ...redactedSummary(counters),
       }, alertStatus === "sent" ? 200 : 502);
+    }
+
+    // This exact content was already approved in the manager portal, so its
+    // durable queue does not depend on automatic-contact or policy-window gates.
+    failureStage = "manual_message_outbox";
+    await runManualMessageOutboxSweep(counters);
+    if (counters.actionsFailed > 0) {
+      throw new RefundAutomationActionFailure();
     }
 
     if (!automationEnabled) {

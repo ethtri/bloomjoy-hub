@@ -45,7 +45,7 @@ assert.ok(messageSend.includes('new Webhook(secret).verify(rawBody'));
 assert.ok(messageSend.includes('service_record_refund_transactional_delivery_event'));
 const webhookHandler = messageSend.slice(
   messageSend.indexOf('const handleTransactionalDeliveryWebhook'),
-  messageSend.indexOf('const syncAutomationFields')
+  messageSend.indexOf('serve(async')
 );
 assert.ok(!webhookHandler.includes('sendRefundTransactionalEmail('));
 assert.ok(!webhookHandler.includes('nayax-card-refund'));

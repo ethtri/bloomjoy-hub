@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { isEdgeFunctionError } from '@/lib/edgeFunctions';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecycleProgress';
 import {
@@ -2348,6 +2349,7 @@ export default function AdminRefundsPage() {
   const [messageType, setMessageType] = useState<RefundCustomerPortalMessageType>('status_update');
   const [messageSubject, setMessageSubject] = useState('');
   const [messageBody, setMessageBody] = useState('');
+  const manualMessageIntentRef = useRef<{ fingerprint: string; id: string } | null>(null);
   const [appliedTriageSuggestionId, setAppliedTriageSuggestionId] = useState<string | null>(null);
   const [isTriageRejectOpen, setIsTriageRejectOpen] = useState(false);
   const [isRejectingTriage, setIsRejectingTriage] = useState(false);
@@ -4359,28 +4361,58 @@ export default function AdminRefundsPage() {
       toast.error('Customer message body is required.');
       return;
     }
+    if (officialActionVersion <= 0) {
+      toast.error('Refresh the case before queueing this customer message.');
+      return;
+    }
+
+    const missingFields = nextMessageType === 'more_info'
+      ? usesReviewedTriageDraft
+        ? sanitizePortalMissingFields(triageSuggestion?.missingFields ?? [])
+        : derivePortalRefundMissingFields(selectedCase)
+      : [];
+    const messageFingerprint = JSON.stringify({
+      caseId: selectedCase.id,
+      expectedCaseVersion: officialActionVersion,
+      messageType: nextMessageType,
+      subject: subject.trim(),
+      body: body.trim(),
+      triageSuggestionId: usesReviewedTriageDraft ? triageSuggestion?.id ?? null : null,
+      missingFields,
+    });
+    if (manualMessageIntentRef.current?.fingerprint !== messageFingerprint) {
+      manualMessageIntentRef.current = {
+        fingerprint: messageFingerprint,
+        id: crypto.randomUUID(),
+      };
+    }
 
     setIsSendingCustomerMessage(true);
     try {
       const sentMessage = await sendRefundCaseMessage({
         caseId: selectedCase.id,
+        expectedCaseVersion: officialActionVersion,
+        messageIntentId: manualMessageIntentRef.current.id,
         messageType: nextMessageType,
         subject: subject.trim(),
         body: body.trim(),
         triageSuggestionId: usesReviewedTriageDraft ? triageSuggestion?.id : undefined,
-        missingFields: nextMessageType === 'more_info'
-          ? usesReviewedTriageDraft
-            ? sanitizePortalMissingFields(triageSuggestion?.missingFields ?? [])
-            : derivePortalRefundMissingFields(selectedCase)
-          : [],
+        missingFields,
       });
+      manualMessageIntentRef.current = null;
       toast.success(
         sentMessage.transport === 'gmail_thread'
           ? 'Reply sent in the Gmail thread.'
-          : 'Customer email sent from Bloomjoy.'
+          : 'Email accepted by the provider. Delivery tracking is pending.'
       );
       await refresh();
     } catch (sendError) {
+      if (
+        isEdgeFunctionError(sendError) &&
+        sendError.data?.errorCode === 'customer_email_delivery_failed'
+      ) {
+        manualMessageIntentRef.current = null;
+      }
       const message = sendError instanceof Error ? sendError.message : 'Unable to send customer email.';
       toast.error(message);
     } finally {
