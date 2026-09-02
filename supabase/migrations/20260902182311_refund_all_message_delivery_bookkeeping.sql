@@ -662,7 +662,7 @@ begin
   elsif new.message_type = 'reminder' then
     -- Historical send evidence may survive a later bounce, but it cannot
     -- authorize another automatic reminder to the failed destination.
-    if attempting_delivery and not exists (
+    if attempting_automatic_delivery and not exists (
       select 1 from public.refund_case_messages request
       where request.id = cycle_row.request_message_id
         and request.refund_case_id = new.refund_case_id
