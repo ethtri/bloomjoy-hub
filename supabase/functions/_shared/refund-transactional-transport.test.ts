@@ -3,6 +3,7 @@ import {
   assertRejects,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { sendRefundTransactionalEmail } from "./refund-email.ts";
+import { markRefundTransactionalDeliveryAttempt } from "./refund-transactional-delivery.ts";
 import {
   TransactionalEmailDeliveryUnknownError,
 } from "./internal-email.ts";
@@ -11,6 +12,37 @@ const restoreEnv = (name: string, value: string | undefined) => {
   if (value === undefined) Deno.env.delete(name);
   else Deno.env.set(name, value);
 };
+
+Deno.test("bounced original request mark rejection stops actual Resend transport before provider access", async () => {
+  const originalFetch = globalThis.fetch;
+  let markCalls = 0;
+  let providerCalls = 0;
+  globalThis.fetch = async () => {
+    providerCalls += 1;
+    throw new Error("Bounced original must never reach Resend");
+  };
+  try {
+    await assertRejects(async () => {
+      await markRefundTransactionalDeliveryAttempt({
+        refundCaseMessageId: "79860000-0000-4000-8000-000000000042",
+        supabase: { rpc: async (name) => {
+          assertEquals(name, "service_mark_refund_transactional_delivery_attempt");
+          markCalls += 1;
+          return { data: null, error: { name: "23514" } };
+        } },
+      });
+      await sendRefundTransactionalEmail({
+        to: ["customer@example.test"], cc: ["manager@example.test"],
+        subject: "Synthetic reminder", text: "Synthetic reminder only",
+        idempotencyKey: "synthetic-reminder-bounced-request",
+      });
+    }, Error, "Transactional delivery attempt could not be recorded");
+    assertEquals(markCalls, 1);
+    assertEquals(providerCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 Deno.test("transactional refund mail uses the verified sender with the monitored Reply-To", async () => {
   const originalFetch = globalThis.fetch;

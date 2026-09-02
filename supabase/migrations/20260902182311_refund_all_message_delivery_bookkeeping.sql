@@ -1,273 +1,3 @@
--- #917: persist direct transactional-email provider acceptance and delivery truth.
--- Webhook events are redacted, replay-safe, and can only update the existing
--- message ledger. They never send a message or touch payment/provider actions.
-
-alter table public.refund_case_messages
-  add column if not exists delivery_transport text,
-  add column if not exists provider_message_id text,
-  add column if not exists delivery_state text not null default 'unknown',
-  add column if not exists delivery_state_updated_at timestamptz;
-
-alter table public.refund_case_messages
-  drop constraint if exists refund_case_messages_delivery_transport_check,
-  add constraint refund_case_messages_delivery_transport_check check (
-    delivery_transport is null or delivery_transport = 'resend'
-  ),
-  drop constraint if exists refund_case_messages_provider_message_id_check,
-  add constraint refund_case_messages_provider_message_id_check check (
-    provider_message_id is null
-    or provider_message_id ~ '^[A-Za-z0-9_-]{8,255}$'
-  ),
-  drop constraint if exists refund_case_messages_delivery_state_check,
-  add constraint refund_case_messages_delivery_state_check check (
-    delivery_state in (
-      'unknown', 'accepted', 'deferred', 'delivered',
-      'failed', 'bounced', 'complained'
-    )
-  ),
-  drop constraint if exists refund_case_messages_delivery_evidence_check,
-  add constraint refund_case_messages_delivery_evidence_check check (
-    (delivery_transport is null and provider_message_id is null)
-    or delivery_transport = 'resend'
-  );
-
-create unique index if not exists refund_case_messages_resend_provider_unique
-  on public.refund_case_messages (provider_message_id)
-  where delivery_transport = 'resend' and provider_message_id is not null;
-
--- Install the final status guard before backfilling populated environments
--- that already applied the later #1069 guard. The forward repair repeats this
--- definition so chronological replay and out-of-order upgrades converge.
-create or replace function public.guard_refund_customer_status_message()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  case_row public.refund_cases;
-  automatic_contact_enabled boolean := false;
-begin
-  -- An existing automatic status message cannot escape its immutable evidence
-  -- checks by changing the discriminators used by the early return below.
-  if tg_op = 'UPDATE' then
-    if old.message_type = 'status_update'
-      and old.delivery_kind = 'automatic'
-      and (
-        new.message_type is distinct from old.message_type
-        or new.delivery_kind is distinct from old.delivery_kind
-      ) then
-      raise exception 'Automatic customer status evidence is immutable'
-        using errcode = '23514';
-    end if;
-  end if;
-
-  if new.message_type <> 'status_update'
-    or new.delivery_kind is distinct from 'automatic' then
-    return new;
-  end if;
-
-  if tg_op = 'UPDATE' then
-    if new.refund_case_id is distinct from old.refund_case_id
-      or new.message_type is distinct from old.message_type
-      or new.recipient_email is distinct from old.recipient_email
-      or new.subject is distinct from old.subject
-      or new.body is distinct from old.body
-      or new.template_key is distinct from old.template_key
-      or new.content_source is distinct from old.content_source
-      or new.delivery_kind is distinct from old.delivery_kind
-      or new.reason_code is distinct from old.reason_code
-      or new.template_version is distinct from old.template_version
-      or new.follow_up_cycle_id is distinct from old.follow_up_cycle_id
-      or new.requested_fields is distinct from old.requested_fields
-      or new.created_at is distinct from old.created_at then
-      raise exception 'Automatic customer status evidence is immutable'
-        using errcode = '23514';
-    end if;
-    -- Historical SENT messages retain their original send evidence after the
-    -- case advances. Delivery-only bookkeeping must not authorize a new send
-    -- or revalidate the old send against today's case/contact state.
-    if old.status = 'sent'
-      and new.status = 'sent'
-      and old.sent_at is not null
-      and new.sent_at is not distinct from old.sent_at
-      -- Before a provider identity exists, only the historical unknown
-      -- backfill or the first accepted provider binding is bookkeeping.
-      and old.provider_message_id is null
-      and (
-        (
-          old.delivery_transport is null
-          and new.delivery_transport = 'resend'
-          and new.provider_message_id is null
-          and new.delivery_state = 'unknown'
-          and new.delivery_state_updated_at
-            is not distinct from coalesce(old.sent_at, old.created_at)
-        )
-        or (
-          old.delivery_transport = 'resend'
-          and new.delivery_transport = 'resend'
-          and old.delivery_state = 'unknown'
-          and new.provider_message_id is not null
-          and new.delivery_state = 'accepted'
-          and new.delivery_state_updated_at >= old.delivery_state_updated_at
-        )
-      )
-      and (
-        to_jsonb(new) - array[
-          'delivery_transport', 'provider_message_id',
-          'delivery_state', 'delivery_state_updated_at'
-        ]::text[]
-      ) is not distinct from (
-        to_jsonb(old) - array[
-          'delivery_transport', 'provider_message_id',
-          'delivery_state', 'delivery_state_updated_at'
-        ]::text[]
-      ) then
-      return new;
-    end if;
-
-    -- A verified provider event may change delivery outcome after the case
-    -- advances or contact closes. It cannot change provider binding, original
-    -- sent time, immutable message evidence, or authorize a new send.
-    if old.delivery_transport = 'resend'
-      and old.provider_message_id is not null
-      and old.status in ('pending', 'sent', 'failed') then
-      if to_jsonb(new)
-          - 'status' - 'error_message' - 'delivery_state' - 'delivery_state_updated_at'
-        is not distinct from to_jsonb(old)
-          - 'status' - 'error_message' - 'delivery_state' - 'delivery_state_updated_at'
-        and public.refund_transactional_delivery_state_rank(new.delivery_state)
-          >= public.refund_transactional_delivery_state_rank(old.delivery_state)
-        and new.delivery_state_updated_at >= old.delivery_state_updated_at
-        and new.status = (case
-          when new.delivery_state in ('failed', 'bounced', 'complained') then 'failed'
-          else old.status end)
-        and new.error_message is not distinct from (case new.delivery_state
-          when 'failed' then 'transactional_delivery_failed'
-          when 'bounced' then 'transactional_delivery_bounced'
-          when 'complained' then 'transactional_delivery_complained'
-          else old.error_message end)
-        and exists (
-          select 1 from public.refund_transactional_delivery_events event
-          where event.provider_message_id = old.provider_message_id
-            and event.delivery_state = new.delivery_state
-            and new.delivery_state_updated_at is not distinct from greatest(
-              coalesce(old.delivery_state_updated_at, '-infinity'::timestamptz),
-              coalesce(event.event_at, '-infinity'::timestamptz)
-            )
-        ) then
-        return new;
-      end if;
-    end if;
-
-    if old.status <> 'pending' and new.status is distinct from old.status then
-      raise exception 'Delivered or uncertain status update cannot be retried'
-        using errcode = '23514';
-    end if;
-    if old.status = 'pending'
-      and new.status not in ('pending', 'sent', 'failed', 'skipped') then
-      raise exception 'Invalid customer status delivery transition'
-        using errcode = '23514';
-    end if;
-    if old.sent_at is not null and new.sent_at is distinct from old.sent_at then
-      raise exception 'Customer status sent timestamp is immutable'
-        using errcode = '23514';
-    end if;
-  end if;
-
-  select refund_case.* into case_row
-  from public.refund_cases refund_case
-  where refund_case.id = new.refund_case_id
-  for share;
-
-  if case_row.id is null
-    or lower(btrim(new.recipient_email)) <> lower(btrim(case_row.customer_email))
-    or new.content_source <> 'deterministic_template'
-    or new.reason_code not in ('provider_delay', 'sla_at_risk')
-    or new.template_version <> 'refund_customer_status_v1'
-    or new.follow_up_cycle_id is not null
-    or cardinality(new.requested_fields) <> 0
-    or (
-      new.reason_code = 'provider_delay'
-      and (
-        case_row.status <> 'card_refund_pending'
-        or case_row.decision is distinct from 'approved'
-      )
-    )
-    or (
-      new.reason_code = 'sla_at_risk'
-      and (
-        case_row.status not in ('submitted', 'needs_review', 'correlated')
-        or case_row.decision is not null
-      )
-    ) then
-    raise exception 'Automatic customer status update requires current deterministic evidence'
-      using errcode = '23514';
-  end if;
-
-  if new.reason_code = 'provider_delay' and not exists (
-    select 1
-    from public.refund_case_nayax_refund_attempts attempt
-    where attempt.refund_case_id = case_row.id
-      and attempt.reconciliation_required is true
-      and attempt.safe_transport_stage = 'confirmation_hold'
-      and attempt.refund_operations_due_at <= statement_timestamp()
-      and not exists (
-        select 1
-        from public.refund_case_nayax_refund_attempts later_attempt
-        where later_attempt.refund_case_id = attempt.refund_case_id
-          and (later_attempt.created_at, later_attempt.id) >
-            (attempt.created_at, attempt.id)
-      )
-  ) then
-    raise exception 'Provider-delay message requires the latest unresolved hold'
-      using errcode = '23514';
-  end if;
-
-  if new.reason_code = 'sla_at_risk'
-    and public.service_refund_business_days_elapsed(
-      case_row.created_at,
-      statement_timestamp(),
-      'America/Los_Angeles'
-    ) < 4 then
-    raise exception 'SLA status update is not due'
-      using errcode = '23514';
-  end if;
-
-  if (tg_op = 'INSERT' and new.status in ('pending', 'sent'))
-    or (tg_op = 'UPDATE' and old.status = 'pending' and new.status = 'sent') then
-    select settings.automatic_customer_contact_enabled
-    into automatic_contact_enabled
-    from public.refund_customer_contact_settings settings
-    where settings.singleton
-    for share;
-    if not coalesce(automatic_contact_enabled, false) then
-      raise exception 'Automatic customer contact is disabled'
-        using errcode = '23514';
-    end if;
-  end if;
-
-  if new.status = 'sent' and new.sent_at is null then
-    raise exception 'Sent customer status update requires a sent timestamp'
-      using errcode = '23514';
-  end if;
-  return new;
-end;
-$$;
-
-revoke all on function public.guard_refund_customer_status_message()
-  from public, anon, authenticated, service_role;
-
--- Dispatch updates even when an existing automatic status message changes its
--- type; the function itself safely ignores unrelated message rows.
-create or replace trigger refund_case_messages_customer_status_guard
-before insert or update on public.refund_case_messages
-for each row
-execute function public.guard_refund_customer_status_message();
-
-
--- Historical non-Gmail sends have no provider identifier. Make that absence
--- explicit without guessing delivery or modifying the application send result.
 -- #628/#917: delivery-only history must not replay present-day send gates.
 -- This private predicate neither authorizes a send nor changes any row. VOLATILE
 -- is required to see the redacted event inserted earlier in the same RPC.
@@ -1641,230 +1371,8 @@ revoke all on function public.service_claim_due_refund_follow_up_reminders(integ
 grant execute on function public.service_claim_due_refund_follow_up_reminders(integer)
   to service_role;
 
-update public.refund_case_messages message
-set
-  delivery_transport = 'resend',
-  delivery_state = 'unknown',
-  delivery_state_updated_at = coalesce(message.sent_at, message.created_at)
-where message.status = 'sent'
-  and message.delivery_transport is null
-  and not exists (
-    select 1
-    from public.refund_cases refund_case
-    where refund_case.id = message.refund_case_id
-      and refund_case.case_population = 'internal_test'
-  )
-  and not exists (
-    select 1
-    from public.refund_gmail_messages gmail_message
-    where gmail_message.refund_case_message_id = message.id
-  );
 
-create table if not exists public.refund_transactional_delivery_events (
-  event_key_digest text primary key
-    check (event_key_digest ~ '^[a-f0-9]{64}$'),
-  provider_message_id text not null
-    check (provider_message_id ~ '^[A-Za-z0-9_-]{8,255}$'),
-  delivery_state text not null check (
-    delivery_state in (
-      'accepted', 'deferred', 'delivered',
-      'failed', 'bounced', 'complained'
-    )
-  ),
-  event_at timestamptz not null,
-  matched_refund_case_message_id uuid
-    references public.refund_case_messages(id) on delete restrict,
-  applied_at timestamptz,
-  created_at timestamptz not null default statement_timestamp(),
-  constraint refund_transactional_delivery_event_time_check check (
-    event_at >= '2026-01-01T00:00:00Z'::timestamptz
-    and event_at <= created_at + interval '5 minutes'
-  )
-);
-
-create index if not exists refund_transactional_delivery_events_provider_idx
-  on public.refund_transactional_delivery_events (
-    provider_message_id, event_at, event_key_digest
-  );
-
-alter table public.refund_transactional_delivery_events enable row level security;
-revoke all on table public.refund_transactional_delivery_events
-  from public, anon, authenticated;
-revoke all on table public.refund_transactional_delivery_events
-  from service_role;
-
-create or replace function public.refund_transactional_delivery_state_rank(
-  p_state text
-)
-returns smallint
-language sql
-immutable
-security definer
-set search_path = ''
-as $$
-  select case p_state
-    when 'accepted' then 1
-    when 'deferred' then 2
-    when 'delivered' then 3
-    when 'failed' then 4
-    when 'bounced' then 5
-    when 'complained' then 6
-    else 0
-  end::smallint;
-$$;
-
-create or replace function public.apply_refund_transactional_delivery_events(
-  p_provider_message_id text
-)
-returns jsonb
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
-  message_row public.refund_case_messages%rowtype;
-  event_row public.refund_transactional_delivery_events%rowtype;
-  next_state text;
-  next_event_at timestamptz;
-begin
-  select message.* into message_row
-  from public.refund_case_messages message
-  where message.delivery_transport = 'resend'
-    and message.provider_message_id = p_provider_message_id
-  for update;
-
-  if not found then
-    return jsonb_build_object(
-      'matched', false,
-      'applied', false,
-      'payloadRedacted', true
-    );
-  end if;
-
-  if exists (
-    select 1
-    from public.refund_cases refund_case
-    where refund_case.id = message_row.refund_case_id
-      and refund_case.case_population = 'internal_test'
-  ) then
-    return jsonb_build_object(
-      'matched', true,
-      'applied', false,
-      'internalTestSuppressed', true,
-      'payloadRedacted', true
-    );
-  end if;
-
-  select event.* into event_row
-  from public.refund_transactional_delivery_events event
-  where event.provider_message_id = p_provider_message_id
-  order by
-    public.refund_transactional_delivery_state_rank(event.delivery_state) desc,
-    event.event_at desc,
-    event.event_key_digest
-  limit 1;
-
-  if not found then
-    return jsonb_build_object(
-      'matched', true,
-      'applied', false,
-      'payloadRedacted', true
-    );
-  end if;
-  if public.refund_transactional_delivery_state_rank(event_row.delivery_state)
-      >= public.refund_transactional_delivery_state_rank(message_row.delivery_state) then
-    next_state := event_row.delivery_state;
-    next_event_at := event_row.event_at;
-  else
-    next_state := message_row.delivery_state;
-    next_event_at := message_row.delivery_state_updated_at;
-  end if;
-
-  update public.refund_case_messages message
-  set
-    delivery_state = next_state,
-    delivery_state_updated_at = greatest(
-      coalesce(message.delivery_state_updated_at, '-infinity'::timestamptz),
-      coalesce(next_event_at, '-infinity'::timestamptz)
-    ),
-    status = case
-      when next_state in ('failed', 'bounced', 'complained') then 'failed'
-      else message.status
-    end,
-    error_message = case next_state
-      when 'failed' then 'transactional_delivery_failed'
-      when 'bounced' then 'transactional_delivery_bounced'
-      when 'complained' then 'transactional_delivery_complained'
-      else message.error_message
-    end
-  where message.id = message_row.id;
-
-  update public.refund_transactional_delivery_events event
-  set
-    matched_refund_case_message_id = message_row.id,
-    applied_at = coalesce(event.applied_at, statement_timestamp())
-  where event.provider_message_id = p_provider_message_id;
-
-  return jsonb_build_object(
-    'matched', true,
-    'applied', true,
-    'deliveryState', next_state,
-    'payloadRedacted', true
-  );
-end;
-$$;
-
-create or replace function public.guard_refund_transactional_delivery_status()
-returns trigger
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-  if old.delivery_transport = 'resend'
-    and old.delivery_state in ('failed', 'bounced', 'complained')
-    and new.status = 'sent' then
-    new.status := 'failed';
-    new.error_message := case old.delivery_state
-      when 'bounced' then 'transactional_delivery_bounced'
-      when 'complained' then 'transactional_delivery_complained'
-      else 'transactional_delivery_failed'
-    end;
-  end if;
-  return new;
-end;
-$$;
-
-drop trigger if exists refund_zz_transactional_delivery_status_guard
-  on public.refund_case_messages;
-create trigger refund_zz_transactional_delivery_status_guard
-before update of status on public.refund_case_messages
-for each row execute function public.guard_refund_transactional_delivery_status();
-
-create or replace function public.sync_refund_transactional_delivery_events()
-returns trigger
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-  if new.delivery_transport = 'resend' and new.provider_message_id is not null then
-    perform public.apply_refund_transactional_delivery_events(
-      new.provider_message_id
-    );
-  end if;
-  return null;
-end;
-$$;
-
-drop trigger if exists refund_transactional_delivery_bind_sync
-  on public.refund_case_messages;
-create trigger refund_transactional_delivery_bind_sync
-after update of provider_message_id on public.refund_case_messages
-for each row
-when (new.provider_message_id is not null)
-execute function public.sync_refund_transactional_delivery_events();
-
+-- Fresh-send RPC repairs follow the unchanged nine-function delivery prefix.
 create or replace function public.service_mark_refund_transactional_delivery_attempt(
   p_refund_case_message_id uuid
 )
@@ -1902,6 +1410,29 @@ begin
       using errcode = 'P4651';
   end if;
 
+
+  -- Recheck the original request at the last database boundary before a new
+  -- provider send. A reminder created earlier does not retain send authority
+  -- after its exact request bounces, fails, or receives a complaint.
+  if message_row.delivery_kind = 'automatic'
+    and message_row.message_type = 'reminder'
+    and message_row.follow_up_cycle_id is not null
+    and not exists (
+      select 1
+      from public.refund_follow_up_cycles cycle
+      join public.refund_case_messages request on request.id = cycle.request_message_id
+      where cycle.id = message_row.follow_up_cycle_id
+        and cycle.refund_case_id = message_row.refund_case_id
+        and request.refund_case_id = message_row.refund_case_id
+        and request.follow_up_cycle_id = cycle.id
+        and request.status = 'sent'
+        and request.sent_at = cycle.request_sent_at
+        and request.delivery_state not in ('failed', 'bounced', 'complained')
+    ) then
+    raise exception 'Follow-up reminder requires a non-failed original request'
+      using errcode = '23514';
+  end if;
+
   update public.refund_case_messages message
   set
     delivery_transport = 'resend',
@@ -1920,295 +1451,391 @@ begin
 end;
 $$;
 
-create or replace function public.service_bind_refund_transactional_delivery(
+create or replace function public.service_claim_refund_gmail_outbound_v3(
+  p_refund_case_id uuid,
   p_refund_case_message_id uuid,
-  p_provider_message_id text,
-  p_accepted_at timestamptz
+  p_operation_key text,
+  p_sender_email text,
+  p_recipient_email text,
+  p_plain_body text,
+  p_mailbox_identities text[],
+  p_delivery_kind text,
+  p_target_gmail_thread_id uuid default null
 )
 returns jsonb
 language plpgsql
 security definer
-set search_path = ''
+set search_path = public
 as $$
 declare
-  message_row public.refund_case_messages%rowtype;
-  normalized_provider_message_id text := btrim(coalesce(p_provider_message_id, ''));
-  result jsonb;
+  thread_row public.refund_gmail_threads;
+  latest_message public.refund_gmail_messages;
+  outbound_row public.refund_gmail_messages;
+  message_row public.refund_case_messages;
+  delivery_authorization jsonb;
+  manager_cc_emails text[] := '{}'::text[];
+  manager_recipient_overlap boolean := false;
+  manager_recipient_count integer := 0;
+  mailbox_identities text[] := public.normalize_refund_mailbox_identities(
+    p_mailbox_identities
+  );
+  normalized_sender text := lower(btrim(coalesce(p_sender_email, '')));
+  normalized_recipient text := lower(btrim(coalesce(p_recipient_email, '')));
+  normalized_delivery_kind text := lower(btrim(coalesce(p_delivery_kind, '')));
+  reply_subject text;
+  reply_references text;
+  case_pause_at timestamptz;
 begin
-  if p_refund_case_message_id is null
-    or normalized_provider_message_id !~ '^[A-Za-z0-9_-]{8,255}$'
-    or p_accepted_at is null
-    or p_accepted_at > statement_timestamp() + interval '5 minutes'
-    or p_accepted_at < statement_timestamp() - interval '1 day' then
-    raise exception 'Exact transactional delivery evidence is required'
-      using errcode = 'P4650';
+  if length(btrim(coalesce(p_operation_key, ''))) not between 8 and 255 then
+    raise exception 'Valid Gmail outbound operation key required';
+  end if;
+  if normalized_delivery_kind not in ('manual', 'automatic') then
+    raise exception 'Valid Gmail delivery kind required';
+  end if;
+  if coalesce(p_plain_body, '') ~* '/refunds\?case=' then
+    raise exception 'Customer Gmail reply cannot contain an internal refund case link';
+  end if;
+  if not public.refund_email_address_is_valid(normalized_sender)
+    or not (normalized_sender = any(mailbox_identities)) then
+    raise exception 'Authorized refund mailbox sender required';
   end if;
 
-  select message.* into message_row
-  from public.refund_case_messages message
-  where message.id = p_refund_case_message_id
+  select * into message_row
+  from public.refund_case_messages
+  where id = p_refund_case_message_id
   for update;
 
-  if not found then
-    raise exception 'Refund customer message not found' using errcode = 'P4650';
-  end if;
-  if exists (
-    select 1
-    from public.refund_cases refund_case
-    where refund_case.id = message_row.refund_case_id
-      and refund_case.case_population = 'internal_test'
-  ) then
-    raise exception 'Customer delivery evidence is suppressed for Internal/test cases'
-      using errcode = 'P4640';
-  end if;
-  if message_row.status not in ('pending', 'sent', 'failed') then
-    raise exception 'Refund customer message cannot bind provider delivery'
-      using errcode = 'P4651';
-  end if;
-  if message_row.provider_message_id is not null
-    and message_row.provider_message_id <> normalized_provider_message_id then
-    raise exception 'Refund customer message already has different provider evidence'
-      using errcode = 'P4651';
-  end if;
-  if exists (
-    select 1 from public.refund_gmail_messages gmail_message
-    where gmail_message.refund_case_message_id = message_row.id
-  ) then
-    raise exception 'Refund customer message already uses Gmail transport'
-      using errcode = 'P4651';
+  if message_row.id is null
+    or message_row.refund_case_id <> p_refund_case_id then
+    raise exception 'Tracked refund customer message required';
   end if;
 
-  update public.refund_case_messages message
-  set
-    delivery_transport = 'resend',
-    provider_message_id = normalized_provider_message_id,
-    delivery_state = case
-      when public.refund_transactional_delivery_state_rank(message.delivery_state) > 1
-        then message.delivery_state
-      else 'accepted'
-    end,
-    delivery_state_updated_at = greatest(
-      coalesce(message.delivery_state_updated_at, '-infinity'::timestamptz),
-      p_accepted_at
-    )
-  where message.id = message_row.id;
+  -- Reconcile a previously provider-confirmed milestone before evaluating any
+  -- gate that applies only to a new external send. This is not a retry: the
+  -- operation key and exact stored thread/message must already match.
+  select * into outbound_row
+  from public.refund_gmail_messages
+  where operation_key = btrim(p_operation_key)
+  for update;
 
-  result := public.apply_refund_transactional_delivery_events(
-    normalized_provider_message_id
-  );
-  return result || jsonb_build_object(
-    'bound', true,
-    'payloadRedacted', true
-  );
-end;
-$$;
+  if outbound_row.id is not null then
+    if outbound_row.refund_case_id is distinct from p_refund_case_id
+      or outbound_row.refund_case_message_id is distinct from p_refund_case_message_id
+      or (
+        p_target_gmail_thread_id is not null
+        and outbound_row.gmail_thread_id is distinct from p_target_gmail_thread_id
+      ) then
+      raise exception 'Refund Gmail outbound operation key collision';
+    end if;
 
-create or replace function public.service_record_refund_transactional_delivery_event(
-  p_event_key_digest text,
-  p_provider_message_id text,
-  p_delivery_state text,
-  p_event_at timestamptz
-)
-returns jsonb
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
-  inserted_count integer := 0;
-  result jsonb;
-begin
-  if p_event_key_digest !~ '^[a-f0-9]{64}$'
-    or btrim(coalesce(p_provider_message_id, '')) !~ '^[A-Za-z0-9_-]{8,255}$'
-    or p_delivery_state not in (
-      'accepted', 'deferred', 'delivered',
-      'failed', 'bounced', 'complained'
-    )
-    or p_event_at is null
-    or p_event_at > statement_timestamp() + interval '5 minutes'
-    or p_event_at < '2026-01-01T00:00:00Z'::timestamptz then
-    raise exception 'Valid redacted delivery event evidence is required'
-      using errcode = 'P4650';
-  end if;
+    select * into thread_row
+    from public.refund_gmail_threads
+    where id = outbound_row.gmail_thread_id;
 
-  insert into public.refund_transactional_delivery_events (
-    event_key_digest, provider_message_id, delivery_state, event_at
-  ) values (
-    p_event_key_digest, btrim(p_provider_message_id), p_delivery_state,
-    p_event_at
-  ) on conflict (event_key_digest) do nothing;
-  get diagnostics inserted_count = row_count;
+    if outbound_row.status = 'sent' and outbound_row.sent_at is not null then
+      update public.refund_case_messages
+      set
+        status = 'sent',
+        sent_at = coalesce(sent_at, outbound_row.sent_at),
+        error_message = null
+      where id = message_row.id
+        and status = 'pending';
 
-  if inserted_count = 0 then
+      return jsonb_build_object(
+        'linked', true,
+        'claimed', false,
+        'reconciled', true,
+        'transportMessageId', outbound_row.id,
+        'gmailThreadId', outbound_row.gmail_thread_id,
+        'providerThreadId', thread_row.provider_thread_id,
+        'subject', outbound_row.subject,
+        'managerCcEmails', to_jsonb(outbound_row.recipient_cc_emails),
+        'managerCcCount', outbound_row.recipient_cc_count,
+        'managerRecipientOverlap', outbound_row.recipient_manager_overlap,
+        'managerRecipientCount', outbound_row.recipient_manager_count,
+        'recipientResolutionStatus', outbound_row.recipient_resolution_status,
+        'status', 'sent'
+      );
+    end if;
+
     return jsonb_build_object(
-      'duplicate', true,
-      'matched', exists (
-        select 1 from public.refund_transactional_delivery_events event
-        where event.event_key_digest = p_event_key_digest
-          and event.matched_refund_case_message_id is not null
-      ),
-      'applied', false,
-      'payloadRedacted', true
+      'linked', true,
+      'claimed', false,
+      'transportMessageId', outbound_row.id,
+      'status', outbound_row.status
     );
   end if;
 
-  result := public.apply_refund_transactional_delivery_events(
-    btrim(p_provider_message_id)
+  if message_row.status <> 'pending' then
+    return jsonb_build_object(
+      'linked', true,
+      'claimed', false,
+      'status', 'message_not_pending'
+    );
+  end if;
+  if normalized_delivery_kind = 'automatic' and not (
+    (
+      message_row.delivery_kind = 'automatic'
+      and message_row.content_source = 'deterministic_template'
+    )
+    or (
+      -- The public first-contact confirmation predates the follow-up evidence
+      -- columns and is separately versioned/guarded by its exact template key.
+      message_row.message_type = 'confirmation'
+      and message_row.template_key = 'refund_confirmation_v1'
+      and message_row.delivery_kind is null
+      and message_row.content_source is null
+    )
+  ) then
+    return jsonb_build_object(
+      'linked', true,
+      'claimed', false,
+      'status', 'unsafe_automatic_message'
+    );
+  end if;
+  if normalized_delivery_kind = 'manual'
+    and message_row.delivery_kind = 'automatic' then
+    return jsonb_build_object(
+      'linked', true,
+      'claimed', false,
+      'status', 'delivery_kind_mismatch'
+    );
+  end if;
+
+
+  -- Recheck the original request at the last database boundary before a new
+  -- provider send. A reminder created earlier does not retain send authority
+  -- after its exact request bounces, fails, or receives a complaint.
+  if message_row.delivery_kind = 'automatic'
+    and message_row.message_type = 'reminder'
+    and message_row.follow_up_cycle_id is not null
+    and not exists (
+      select 1
+      from public.refund_follow_up_cycles cycle
+      join public.refund_case_messages request on request.id = cycle.request_message_id
+      where cycle.id = message_row.follow_up_cycle_id
+        and cycle.refund_case_id = message_row.refund_case_id
+        and request.refund_case_id = message_row.refund_case_id
+        and request.follow_up_cycle_id = cycle.id
+        and request.status = 'sent'
+        and request.sent_at = cycle.request_sent_at
+        and request.delivery_state not in ('failed', 'bounced', 'complained')
+    ) then
+    raise exception 'Follow-up reminder requires a non-failed original request'
+      using errcode = '23514';
+  end if;
+
+  delivery_authorization := public.service_authorize_refund_customer_outbound(
+    p_refund_case_id,
+    normalized_recipient,
+    mailbox_identities,
+    normalized_delivery_kind
   );
-  return result || jsonb_build_object(
-    'duplicate', false,
-    'payloadRedacted', true
+  if not coalesce((delivery_authorization ->> 'allowed')::boolean, false) then
+    return jsonb_build_object(
+      'linked', true,
+      'claimed', false,
+      'status', delivery_authorization ->> 'status',
+      'recipientResolutionStatus',
+        delivery_authorization ->> 'recipientResolutionStatus',
+      'managerCcCount', coalesce(
+        (delivery_authorization ->> 'managerCcCount')::integer,
+        0
+      )
+    );
+  end if;
+  select coalesce(array_agg(value order by value), '{}'::text[])
+  into manager_cc_emails
+  from jsonb_array_elements_text(
+    delivery_authorization -> 'managerCcEmails'
+  ) value;
+  manager_recipient_overlap := coalesce((delivery_authorization ->> 'managerRecipientOverlap')::boolean, false);
+  manager_recipient_count := coalesce((delivery_authorization ->> 'managerRecipientCount')::integer, 0);
+
+  -- Lock every linked thread before selecting the exact reply target. A hard
+  -- bounce on any older conversation remains a case-wide automatic-send stop.
+  perform linked_thread.id
+  from public.refund_gmail_threads linked_thread
+  where linked_thread.refund_case_id = p_refund_case_id
+  order by linked_thread.id
+  for update;
+
+  if p_target_gmail_thread_id is not null then
+    select * into thread_row
+    from public.refund_gmail_threads
+    where id = p_target_gmail_thread_id
+      and refund_case_id = p_refund_case_id;
+
+    if thread_row.id is null then
+      raise exception 'Target Gmail thread does not belong to the refund case';
+    end if;
+  elsif normalized_delivery_kind = 'automatic' and exists (
+    select 1
+    from public.refund_gmail_threads linked_thread
+    where linked_thread.refund_case_id = p_refund_case_id
+  ) then
+    return jsonb_build_object(
+      'linked', true,
+      'claimed', false,
+      'status', 'source_thread_required'
+    );
+  else
+    select * into thread_row
+    from public.refund_gmail_threads
+    where refund_case_id = p_refund_case_id
+    order by latest_message_at desc, id desc
+    limit 1;
+  end if;
+
+  if thread_row.id is null then
+    return jsonb_build_object('linked', false, 'claimed', false);
+  end if;
+
+  select min(linked_thread.automatic_customer_contact_paused_at)
+  into case_pause_at
+  from public.refund_gmail_threads linked_thread
+  where linked_thread.refund_case_id = p_refund_case_id
+    and linked_thread.automatic_customer_contact_paused_at is not null;
+
+  if normalized_delivery_kind = 'automatic' and case_pause_at is not null then
+    return jsonb_build_object(
+      'linked', true,
+      'claimed', false,
+      'status', 'automatic_contact_paused',
+      'automaticCustomerContactPaused', true,
+      'automaticCustomerContactPauseReason', 'hard_bounce'
+    );
+  end if;
+
+  select * into latest_message
+  from public.refund_gmail_messages
+  where gmail_thread_id = thread_row.id
+    and message_kind = 'message'
+  order by received_at desc, id desc
+  limit 1;
+
+  if latest_message.id is null then
+    raise exception 'Target Gmail thread has no message to reply to';
+  end if;
+  reply_subject := coalesce(
+    nullif(btrim(latest_message.subject), ''),
+    thread_row.thread_subject
+  );
+  reply_references := btrim(concat_ws(
+    ' ',
+    nullif(btrim(coalesce(latest_message.references_header, '')), ''),
+    nullif(btrim(coalesce(latest_message.provider_message_header, '')), '')
+  ));
+
+  insert into public.refund_gmail_messages (
+    gmail_thread_id,
+    refund_case_id,
+    refund_case_message_id,
+    operation_key,
+    direction,
+    message_kind,
+    status,
+    sender_email,
+    recipient_email,
+    recipient_cc_emails,
+    recipient_cc_count,
+    recipient_resolution_status,
+    recipient_manager_overlap,
+    recipient_manager_count,
+    delivery_kind,
+    participant_role,
+    participant_trust,
+    subject,
+    plain_body,
+    received_at,
+    retention_expires_at
+  ) values (
+    thread_row.id,
+    p_refund_case_id,
+    p_refund_case_message_id,
+    btrim(p_operation_key),
+    'outbound',
+    'message',
+    'pending_send',
+    normalized_sender,
+    normalized_recipient,
+    manager_cc_emails,
+    cardinality(manager_cc_emails),
+    delivery_authorization ->> 'recipientResolutionStatus',
+    manager_recipient_overlap,
+    manager_recipient_count,
+    normalized_delivery_kind,
+    'mailbox',
+    'verified',
+    reply_subject,
+    left(coalesce(p_plain_body, ''), 50000),
+    now(),
+    now() + interval '180 days'
+  )
+  on conflict (operation_key) do nothing
+  returning * into outbound_row;
+
+  if outbound_row.id is null then
+    select * into outbound_row
+    from public.refund_gmail_messages
+    where operation_key = btrim(p_operation_key);
+
+    if outbound_row.refund_case_id is distinct from p_refund_case_id
+      or outbound_row.refund_case_message_id is distinct from p_refund_case_message_id
+      or outbound_row.gmail_thread_id is distinct from thread_row.id then
+      raise exception 'Refund Gmail outbound operation key collision';
+    end if;
+
+    return jsonb_build_object(
+      'linked', true,
+      'claimed', false,
+      'transportMessageId', outbound_row.id,
+      'status', outbound_row.status
+    );
+  end if;
+
+  insert into public.refund_case_events (
+    refund_case_id,
+    event_type,
+    message,
+    metadata
+  ) values (
+    p_refund_case_id,
+    'gmail_manager_cc_resolved',
+    'Current mapped Machine Managers were included on the customer Gmail reply.',
+    jsonb_build_object(
+      'recipient_resolution_status',
+        delivery_authorization ->> 'recipientResolutionStatus',
+      'manager_cc_count', cardinality(manager_cc_emails),
+      'source_thread_bound', p_target_gmail_thread_id is not null,
+      'payload_redacted', true
+    )
+  );
+
+  return jsonb_build_object(
+    'linked', true,
+    'claimed', true,
+    'transportMessageId', outbound_row.id,
+    'gmailThreadId', thread_row.id,
+    'providerThreadId', thread_row.provider_thread_id,
+    'subject', reply_subject,
+    'inReplyTo', latest_message.provider_message_header,
+    'references', nullif(reply_references, ''),
+    'managerCcEmails', to_jsonb(manager_cc_emails),
+    'managerCcCount', cardinality(manager_cc_emails),
+    'managerRecipientOverlap', manager_recipient_overlap,
+    'managerRecipientCount', manager_recipient_count,
+    'recipientResolutionStatus',
+      delivery_authorization ->> 'recipientResolutionStatus'
   );
 end;
 $$;
 
-revoke execute on function public.refund_transactional_delivery_state_rank(text)
-  from public, anon, authenticated, service_role;
-revoke execute on function public.apply_refund_transactional_delivery_events(text)
-  from public, anon, authenticated, service_role;
-revoke execute on function public.guard_refund_transactional_delivery_status()
-  from public, anon, authenticated, service_role;
-revoke execute on function public.sync_refund_transactional_delivery_events()
-  from public, anon, authenticated, service_role;
-revoke execute on function public.service_mark_refund_transactional_delivery_attempt(uuid)
+revoke all on function public.service_mark_refund_transactional_delivery_attempt(uuid)
   from public, anon, authenticated;
 grant execute on function public.service_mark_refund_transactional_delivery_attempt(uuid)
   to service_role;
-revoke execute on function public.service_bind_refund_transactional_delivery(
-  uuid, text, timestamptz
-) from public, anon, authenticated;
-grant execute on function public.service_bind_refund_transactional_delivery(
-  uuid, text, timestamptz
-) to service_role;
-revoke execute on function public.service_record_refund_transactional_delivery_event(
-  text, text, text, timestamptz
-) from public, anon, authenticated;
-grant execute on function public.service_record_refund_transactional_delivery_event(
-  text, text, text, timestamptz
-) to service_role;
-
-alter function public.admin_get_refund_operations_overview()
-  rename to admin_get_refund_operations_overview_pre_delivery_truth_v1;
-
-revoke execute on function
-  public.admin_get_refund_operations_overview_pre_delivery_truth_v1()
-  from public, anon, authenticated, service_role;
-
-create function public.admin_get_refund_operations_overview()
-returns jsonb
-language plpgsql
-stable
-security definer
-set search_path = ''
-as $$
-declare
-  base_result jsonb;
-  projected_cases jsonb;
-begin
-  base_result := public.admin_get_refund_operations_overview_pre_delivery_truth_v1();
-
-  select coalesce(jsonb_agg(
-    case
-      when latest_delivery.actionable then
-        item.case_json || jsonb_build_object(
-          'messages', message_projection.messages_json,
-          'customerDeliveryException', jsonb_build_object(
-            'schemaVersion', 'refund_transactional_delivery_v1',
-            'state', latest_delivery.effective_state,
-            'messageType', latest_delivery.message_type,
-            'occurredAt', latest_delivery.state_at,
-            'recoveryOwner', 'refund_operations',
-            'nextAction', 'review_delivery_no_resend',
-            'customerMessageReplayAllowed', false,
-            'paymentReplayAllowed', false,
-            'payloadRedacted', true
-          ),
-          'lifecycle', (item.case_json -> 'lifecycle') || jsonb_build_object(
-            'managerNextAction', 'review_customer_delivery',
-            'managerQueue', coalesce(
-              item.case_json -> 'lifecycle' -> 'managerQueue', '{}'::jsonb
-            ) || jsonb_build_object(
-              'bucket', 'needs_action',
-              'label', 'Delivery review',
-              'nextAction', 'review_customer_delivery',
-              'safeRetryEligible', false,
-              'payloadRedacted', true
-            )
-          )
-        )
-      else item.case_json || jsonb_build_object(
-        'messages', message_projection.messages_json,
-        'customerDeliveryException', null
-      )
-    end order by item.case_order
-  ), '[]'::jsonb)
-  into projected_cases
-  from jsonb_array_elements(coalesce(base_result -> 'cases', '[]'::jsonb))
-    with ordinality item(case_json, case_order)
-  left join lateral (
-    select coalesce(jsonb_agg(
-      message_item.message_json || jsonb_build_object(
-        'deliveryTransport', message_row.delivery_transport,
-        'deliveryState', case
-          when message_row.delivery_transport = 'resend'
-            and message_row.delivery_state = 'accepted'
-            and message_row.delivery_state_updated_at <
-              statement_timestamp() - interval '15 minutes'
-            then 'unknown'
-          else message_row.delivery_state
-        end,
-        'deliveryStateUpdatedAt', message_row.delivery_state_updated_at,
-        'providerEvidenceAvailable', message_row.provider_message_id is not null
-      ) order by message_item.message_order
-    ), '[]'::jsonb) as messages_json
-    from jsonb_array_elements(coalesce(item.case_json -> 'messages', '[]'::jsonb))
-      with ordinality message_item(message_json, message_order)
-    left join public.refund_case_messages message_row
-      on message_row.id = (message_item.message_json ->> 'id')::uuid
-  ) message_projection on true
-  left join lateral (
-    select
-      message.message_type,
-      case
-        when message.delivery_state = 'accepted'
-          and message.delivery_state_updated_at <
-            statement_timestamp() - interval '15 minutes'
-          then 'unknown'
-        else message.delivery_state
-      end as effective_state,
-      coalesce(message.delivery_state_updated_at, message.created_at) as state_at,
-      case
-        when message.delivery_state = 'accepted'
-          and message.delivery_state_updated_at >=
-            statement_timestamp() - interval '15 minutes'
-          then false
-        when message.delivery_state = 'delivered' then false
-        else true
-      end as actionable
-    from public.refund_case_messages message
-    where message.refund_case_id = (item.case_json ->> 'id')::uuid
-      and message.delivery_transport = 'resend'
-    order by coalesce(message.delivery_state_updated_at, message.created_at) desc,
-      message.id
-    limit 1
-  ) latest_delivery on true;
-
-  return jsonb_set(
-    base_result || jsonb_build_object(
-      'transactionalDeliveryContractVersion',
-      'refund_transactional_delivery_v1'
-    ),
-    '{cases}', projected_cases, true
-  );
-end;
-$$;
-
-revoke execute on function public.admin_get_refund_operations_overview()
-  from public, anon;
-grant execute on function public.admin_get_refund_operations_overview()
-  to authenticated, service_role;
-
-comment on function public.admin_get_refund_operations_overview() is
-  'Actor-scoped refund overview with redacted direct-email acceptance/delivery truth and no-resend manager recovery.';
-
-select pg_notify('pgrst', 'reload schema');
+revoke all on function public.service_claim_refund_gmail_outbound_v3(uuid, uuid, text, text, text, text, text[], text, uuid)
+  from public, anon, authenticated;
+grant execute on function public.service_claim_refund_gmail_outbound_v3(uuid, uuid, text, text, text, text, text[], text, uuid)
+  to service_role;
