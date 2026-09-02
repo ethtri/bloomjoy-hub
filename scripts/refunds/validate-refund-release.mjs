@@ -253,8 +253,8 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    115,
-    'Refund release inventory must cover exactly 115 discovered refund/Nayax migrations'
+    116,
+    'Refund release inventory must cover exactly 116 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('20260902000417_refund_lifecycle_v2_integrity.sql'),
@@ -267,6 +267,10 @@ try {
   assert(
     repositoryMigrations.includes('20260902004500_refund_payout_destination_follow_up.sql'),
     'The protected payout-destination follow-up migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260902160946_refund_gmail_reply_recovery.sql'),
+    'The exact-message customer correction replay recovery must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260901080000_refund_gmail_existing_case_linking.sql'),
