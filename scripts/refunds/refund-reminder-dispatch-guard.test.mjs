@@ -215,6 +215,23 @@ test('forward-only RPC definitions preserve previous logic with only the new pre
     assert(start >= 0 && end > start);
     return text.slice(start, end + 4);
   };
+  const applyActualRouteV2 = (definition) => {
+    const migration = read('supabase/migrations/20260825231621_refund_manager_recipient_route_v2.sql');
+    const block = migration.slice(migration.indexOf('-- Persist the complete route on Gmail claims'),
+      migration.indexOf('-- The original-thread Nayax completion proof'));
+    const decode = (literal) => {
+      const escaped = literal.startsWith('E');
+      const value = literal.slice(escaped ? 2 : 1, -1).replaceAll("''", "'");
+      return escaped ? value.replace(/\\([nrt\\])/g, (_, char) => ({ n: '\n', r: '\r', t: '\t', '\\': '\\' })[char]) : value;
+    };
+    const replacements = [...block.matchAll(/revised := replace\(\s*(?:definition|revised),\s*(E?'(?:[^']|'')*'),\s*(E?'(?:[^']|'')*')\s*\);/g)];
+    assert.equal(replacements.length, 6, 'Every actual route-v2 Gmail transformation must be extracted');
+    for (const [, before, after] of replacements) {
+      assert(definition.includes(decode(before)), 'Actual route-v2 replacement must match the earlier function');
+      definition = definition.replaceAll(decode(before), decode(after));
+    }
+    return definition;
+  };
   for (const [name, historical] of [
     ['service_mark_refund_transactional_delivery_attempt', '20260901070000_refund_transactional_delivery_truth.sql'],
     ['service_claim_refund_gmail_outbound_v3', '202608030005_refund_deterministic_follow_up_cycles.sql'],
@@ -228,8 +245,9 @@ test('forward-only RPC definitions preserve previous logic with only the new pre
       'request.id = cycle.request_message_id', 'request.refund_case_id = message_row.refund_case_id',
       'request.follow_up_cycle_id = cycle.id', "request.status = 'sent'", 'request.sent_at = cycle.request_sent_at',
       "request.delivery_state not in ('failed', 'bounced', 'complained')"]) assert(gate.includes(predicate));
+    const original = extract(read(`supabase/migrations/${historical}`).replaceAll('\r\n', '\n'), name);
     assert.equal((actual.slice(0, begin) + actual.slice(end)).replace(/\n{3,}/g, '\n\n'),
-      extract(read(`supabase/migrations/${historical}`).replaceAll('\r\n', '\n'), name));
+      name.includes('gmail') ? applyActualRouteV2(original) : original);
     if (name.includes('gmail')) assert(actual.indexOf("outbound_row.status = 'sent'") < begin);
   }
 });

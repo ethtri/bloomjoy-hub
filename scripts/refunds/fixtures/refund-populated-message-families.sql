@@ -425,8 +425,15 @@ from active_reminder_cycles k join public.refund_follow_up_cycles f using(id)
 join public.refund_cases c on c.id = f.refund_case_id where k.family = 'healthy';
 create temporary table active_unbound_reminder_before as select to_jsonb(m) as value
 from public.refund_case_messages m where m.id = 'da200000-0000-4000-8000-000000000001';
-create function pg_temp.probe_unbound_reminder_sent(forge_new_binding boolean) returns text language plpgsql as $$
+create function pg_temp.probe_unbound_reminder_sent(forge_new_binding boolean, malformed_old_binding boolean default false) returns text language plpgsql as $$
 begin
+  if malformed_old_binding then
+    -- The legacy CHECK accepts this NULL expression. A malformed OLD record
+    -- must never turn the reconciliation or fresh-send gate into SQL NULL.
+    update public.refund_case_messages set provider_message_id = 'resend_malformed_old_transport',
+      delivery_state = 'accepted', delivery_state_updated_at = statement_timestamp()
+    where id = 'da200000-0000-4000-8000-000000000001';
+  end if;
   perform public.service_record_refund_transactional_delivery_event(repeat('d7',32), 'resend_active_healthy',
     'bounced', statement_timestamp());
   update public.refund_case_messages set status = 'sent', sent_at = statement_timestamp(),
@@ -447,6 +454,9 @@ select is(pg_temp.probe_unbound_reminder_sent(false),
 select is(pg_temp.probe_unbound_reminder_sent(true),
   '23514:Follow-up reminder requires a non-failed original request',
   'Supplying accepted binding only in NEW never fabricates reconciliation authority');
+select is(pg_temp.probe_unbound_reminder_sent(false, true),
+  '23514:Follow-up reminder requires a non-failed original request',
+  'Malformed OLD provider proof with NULL transport fails closed instead of bypassing delivery gates');
 select is((select to_jsonb(m) from public.refund_case_messages m where m.id = 'da200000-0000-4000-8000-000000000001'),
   (select value from active_unbound_reminder_before), 'Rejected unproved sends leave the entire pending reminder unchanged');
 select is((select m.status || ':' || m.delivery_state from public.refund_case_messages m
@@ -480,3 +490,68 @@ where m.id = 'da200000-0000-4000-8000-000000000001';
 select is((select count(*) from public.refund_case_messages m join active_reminder_cases k on k.id = m.refund_case_id
   where k.family = 'healthy' and m.message_type = 'reminder'), 1::bigint,
   'Accepted-before-bounce ordering retains exactly one original reminder');
+
+-- Exercise the actual latest Gmail route contract, including its later dynamic
+-- route-v2 migration. A customer who is also mapped counts once in To, not CC.
+insert into auth.users(instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at) values
+('00000000-0000-0000-0000-000000000000', 'da250000-0000-4000-8000-000000000001', 'authenticated', 'authenticated',
+  'overlap-customer@example.invalid', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
+('00000000-0000-0000-0000-000000000000', 'da260000-0000-4000-8000-000000000001', 'authenticated', 'authenticated',
+  'overlap-other-manager@example.invalid', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now());
+insert into public.reporting_machine_refund_managers(id, reporting_machine_id, manager_user_id, manager_email, status, grant_reason) values
+('da270000-0000-4000-8000-000000000001', 'da130000-0000-4000-8000-000000000001', 'da250000-0000-4000-8000-000000000001',
+  'overlap-customer@example.invalid', 'active', 'Synthetic actual Gmail route regression'),
+('da280000-0000-4000-8000-000000000001', 'da130000-0000-4000-8000-000000000001', 'da260000-0000-4000-8000-000000000001',
+  'overlap-other-manager@example.invalid', 'active', 'Synthetic actual Gmail route regression');
+insert into public.refund_cases(id, customer_email, issue_summary, status, payment_method,
+  reporting_machine_id, reporting_location_id, incident_at) values
+('da210000-0000-4000-8000-000000000001', 'overlap-customer@example.invalid', 'Synthetic customer-manager route', 'needs_review', 'cash',
+  'da130000-0000-4000-8000-000000000001', 'da120000-0000-4000-8000-000000000001', statement_timestamp());
+insert into public.refund_case_messages(id, refund_case_id, message_type, status, recipient_email, subject, body,
+  content_source, delivery_kind) values
+('da220000-0000-4000-8000-000000000001', 'da210000-0000-4000-8000-000000000001', 'confirmation', 'pending',
+  'overlap-customer@example.invalid', 'Synthetic overlap route', 'Synthetic complete manager recipient route.', 'manager_authored', 'manual');
+insert into public.refund_gmail_threads(id, refund_case_id, mailbox_hash, provider_thread_id, thread_subject,
+  first_message_at, latest_message_at, retention_expires_at) values
+('da230000-0000-4000-8000-000000000001', 'da210000-0000-4000-8000-000000000001', repeat('d9',32), 'synthetic-overlap-thread',
+  'Synthetic overlap route', statement_timestamp(), statement_timestamp(), statement_timestamp() + interval '180 days');
+insert into public.refund_gmail_messages(id, gmail_thread_id, refund_case_id, direction, status, sender_email,
+  recipient_email, subject, plain_body, received_at, retention_expires_at, participant_role, participant_trust) values
+('da240000-0000-4000-8000-000000000001', 'da230000-0000-4000-8000-000000000001', 'da210000-0000-4000-8000-000000000001',
+  'inbound', 'received', 'overlap-customer@example.invalid', 'fixture-mailbox@example.invalid', 'Synthetic overlap route',
+  'Synthetic inbound request.', statement_timestamp(), statement_timestamp() + interval '180 days', 'customer', 'verified');
+set local role service_role;
+create temporary table actual_overlap_claim as select public.service_claim_refund_gmail_outbound_v3(
+  'da210000-0000-4000-8000-000000000001', 'da220000-0000-4000-8000-000000000001', 'synthetic-overlap-route-operation',
+  'fixture-mailbox@example.invalid', 'overlap-customer@example.invalid', 'Synthetic complete manager recipient route.',
+  array['fixture-mailbox@example.invalid'], 'manual', 'da230000-0000-4000-8000-000000000001') as result;
+select is(result->>'claimed', 'true', 'Actual Gmail fresh claim accepts the complete customer-manager overlap route') from actual_overlap_claim;
+select is(result->>'managerRecipientOverlap', 'true', 'Actual Gmail fresh claim returns customer-manager overlap') from actual_overlap_claim;
+select is(result->>'managerRecipientCount', '2', 'Actual Gmail fresh claim counts customer-manager plus separate manager exactly once') from actual_overlap_claim;
+select is(result->'managerCcEmails', '["overlap-other-manager@example.invalid"]'::jsonb,
+  'Customer-manager is never duplicated in the fresh Gmail CC list') from actual_overlap_claim;
+select is(public.service_finish_refund_gmail_outbound((result->>'transportMessageId')::uuid, 'sent',
+  'synthetic-overlap-sent-provider', '<synthetic-overlap-sent@example.invalid>', null), true,
+  'Actual Gmail completion records the original overlap-route operation') from actual_overlap_claim;
+reset role;
+select ok(recipient_manager_overlap and recipient_manager_count = 2 and recipient_cc_count = 1,
+  'Actual Gmail claim persists complete manager overlap and recipient count on the transport record')
+from public.refund_gmail_messages where operation_key = 'synthetic-overlap-route-operation';
+-- Later roster changes do not rewrite the already-SENT operation's route.
+update public.reporting_machine_refund_managers set status = 'revoked', revoked_at = statement_timestamp(),
+  revoke_reason = 'Synthetic roster advance after recorded send' where id = 'da280000-0000-4000-8000-000000000001';
+set local role service_role;
+create temporary table actual_overlap_replay as select public.service_claim_refund_gmail_outbound_v3(
+  'da210000-0000-4000-8000-000000000001', 'da220000-0000-4000-8000-000000000001', 'synthetic-overlap-route-operation',
+  'fixture-mailbox@example.invalid', 'overlap-customer@example.invalid', 'Synthetic complete manager recipient route.',
+  array['fixture-mailbox@example.invalid'], 'manual', 'da230000-0000-4000-8000-000000000001') as result;
+select ok(result->>'reconciled' = 'true' and result->>'claimed' = 'false',
+  'Actual known-SENT Gmail overlap replay reconciles without a second claim') from actual_overlap_replay;
+select is(result->>'managerRecipientOverlap', 'true', 'Actual Gmail SENT replay preserves stored overlap truth') from actual_overlap_replay;
+select is(result->>'managerRecipientCount', '2', 'Actual Gmail SENT replay returns original complete count despite later roster change') from actual_overlap_replay;
+select is(result->'managerCcEmails', '["overlap-other-manager@example.invalid"]'::jsonb,
+  'Actual Gmail SENT replay retains the original visible CC route') from actual_overlap_replay;
+reset role;
+select is((select count(*) from public.refund_gmail_messages where operation_key = 'synthetic-overlap-route-operation'),
+  1::bigint, 'Actual overlap-route replay retains exactly one original Gmail operation');
