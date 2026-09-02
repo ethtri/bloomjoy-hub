@@ -84,19 +84,6 @@ begin
       raise exception 'Automatic customer status evidence is immutable'
         using errcode = '23514';
     end if;
-    if old.status <> 'pending' and new.status is distinct from old.status then
-      raise exception 'Delivered or uncertain status update cannot be retried'
-        using errcode = '23514';
-    end if;
-    if old.status = 'pending'
-      and new.status not in ('pending', 'sent', 'failed', 'skipped') then
-      raise exception 'Invalid customer status delivery transition'
-        using errcode = '23514';
-    end if;
-    if old.sent_at is not null and new.sent_at is distinct from old.sent_at then
-      raise exception 'Customer status sent timestamp is immutable'
-        using errcode = '23514';
-    end if;
     -- Historical SENT messages retain their original send evidence after the
     -- case advances. Delivery-only bookkeeping must not authorize a new send
     -- or revalidate the old send against today's case/contact state.
@@ -104,6 +91,27 @@ begin
       and new.status = 'sent'
       and old.sent_at is not null
       and new.sent_at is not distinct from old.sent_at
+      -- Before a provider identity exists, only the historical unknown
+      -- backfill or the first accepted provider binding is bookkeeping.
+      and old.provider_message_id is null
+      and (
+        (
+          old.delivery_transport is null
+          and new.delivery_transport = 'resend'
+          and new.provider_message_id is null
+          and new.delivery_state = 'unknown'
+          and new.delivery_state_updated_at
+            is not distinct from coalesce(old.sent_at, old.created_at)
+        )
+        or (
+          old.delivery_transport = 'resend'
+          and new.delivery_transport = 'resend'
+          and old.delivery_state = 'unknown'
+          and new.provider_message_id is not null
+          and new.delivery_state = 'accepted'
+          and new.delivery_state_updated_at >= old.delivery_state_updated_at
+        )
+      )
       and (
         to_jsonb(new) - array[
           'delivery_transport', 'provider_message_id',
@@ -116,6 +124,51 @@ begin
         ]::text[]
       ) then
       return new;
+    end if;
+
+    -- A verified provider event may change delivery outcome after the case
+    -- advances or contact closes. It cannot change provider binding, original
+    -- sent time, immutable message evidence, or authorize a new send.
+    if old.delivery_transport = 'resend'
+      and old.provider_message_id is not null
+      and old.status in ('pending', 'sent', 'failed') then
+      if to_jsonb(new)
+          - 'status' - 'error_message' - 'delivery_state' - 'delivery_state_updated_at'
+        is not distinct from to_jsonb(old)
+          - 'status' - 'error_message' - 'delivery_state' - 'delivery_state_updated_at'
+        and public.refund_transactional_delivery_state_rank(new.delivery_state)
+          >= public.refund_transactional_delivery_state_rank(old.delivery_state)
+        and new.delivery_state_updated_at >= old.delivery_state_updated_at
+        and new.status = (case
+          when new.delivery_state in ('failed', 'bounced', 'complained') then 'failed'
+          else old.status end)
+        and new.error_message is not distinct from (case new.delivery_state
+          when 'failed' then 'transactional_delivery_failed'
+          when 'bounced' then 'transactional_delivery_bounced'
+          when 'complained' then 'transactional_delivery_complained'
+          else old.error_message end)
+        and exists (
+          select 1 from public.refund_transactional_delivery_events event
+          where event.provider_message_id = old.provider_message_id
+            and event.delivery_state = new.delivery_state
+            and event.event_at <= new.delivery_state_updated_at
+        ) then
+        return new;
+      end if;
+    end if;
+
+    if old.status <> 'pending' and new.status is distinct from old.status then
+      raise exception 'Delivered or uncertain status update cannot be retried'
+        using errcode = '23514';
+    end if;
+    if old.status = 'pending'
+      and new.status not in ('pending', 'sent', 'failed', 'skipped') then
+      raise exception 'Invalid customer status delivery transition'
+        using errcode = '23514';
+    end if;
+    if old.sent_at is not null and new.sent_at is distinct from old.sent_at then
+      raise exception 'Customer status sent timestamp is immutable'
+        using errcode = '23514';
     end if;
   end if;
 
