@@ -51,6 +51,7 @@ assert.deepEqual(overviewFixtureBuilders, [
   'buildOfficialActionVersionResetOverview',
   'buildWalletMismatchRefundOverview',
   'buildWalletMismatchWaitingRefundOverview',
+  'buildTransactionalDeliveryTruthOverview',
   'buildPhysicalCardMismatchRefundOverview',
 ]);
 assert.match(

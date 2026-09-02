@@ -41,6 +41,10 @@ import {
   type RefundStatusCapability,
 } from "../_shared/refund-status-capability.ts";
 import {
+  bindRefundTransactionalDelivery,
+  markRefundTransactionalDeliveryAttempt,
+} from "../_shared/refund-transactional-delivery.ts";
+import {
   buildRefundManagerAgingNotice,
   REFUND_MANAGER_AGING_TEMPLATE_VERSION,
   runRefundManagerAgingWhenEnabled,
@@ -768,17 +772,25 @@ const sendDeterministicFollowUpMessage = async (
           "Automatic customer contact was disabled before provider delivery.",
         );
       }
+      await markRefundTransactionalDeliveryAttempt({
+        supabase: supabase!,
+        refundCaseMessageId: messageId,
+      });
       const transactionalInput = {
         ...emailInput,
         managerCcEmails: gmailDelivery.managerCcEmails,
         managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
         managerRecipientCount: gmailDelivery.managerRecipientCount,
+        idempotencyKey: `refund-message-${messageId}`,
       };
-      if (customerCorrectionFields.length > 0) {
-        await sendNayaxCustomerCorrectionEmail(transactionalInput);
-      } else {
-        await sendRefundCustomerEmail(transactionalInput);
-      }
+      const sentEmail = customerCorrectionFields.length > 0
+        ? await sendNayaxCustomerCorrectionEmail(transactionalInput)
+        : await sendRefundCustomerEmail(transactionalInput);
+      await bindRefundTransactionalDelivery({
+        supabase: supabase!,
+        refundCaseMessageId: messageId,
+        receipt: sentEmail.delivery,
+      });
     }
 
     if (messageId) {
@@ -922,11 +934,21 @@ const sendCustomerStatusUpdate = async (
           "Automatic customer contact was disabled before provider delivery.",
         );
       }
-      await sendRefundCustomerEmail({
+      await markRefundTransactionalDeliveryAttempt({
+        supabase,
+        refundCaseMessageId: messageId,
+      });
+      const sentEmail = await sendRefundCustomerEmail({
         ...emailInput,
         managerCcEmails: gmailDelivery.managerCcEmails,
         managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
         managerRecipientCount: gmailDelivery.managerRecipientCount,
+        idempotencyKey: `refund-message-${messageId}`,
+      });
+      await bindRefundTransactionalDelivery({
+        supabase,
+        refundCaseMessageId: messageId,
+        receipt: sentEmail.delivery,
       });
     }
 
@@ -1464,11 +1486,21 @@ const sendWalletCorrectionMessage = async (
           "Automatic customer contact was disabled before provider delivery.",
         );
       }
-      await sendRefundWalletCorrectionEmail({
+      await markRefundTransactionalDeliveryAttempt({
+        supabase,
+        refundCaseMessageId: messageId,
+      });
+      const sentEmail = await sendRefundWalletCorrectionEmail({
         ...emailInput,
         managerCcEmails: gmailDelivery.managerCcEmails,
         managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
         managerRecipientCount: gmailDelivery.managerRecipientCount,
+        idempotencyKey: `refund-message-${messageId}`,
+      });
+      await bindRefundTransactionalDelivery({
+        supabase,
+        refundCaseMessageId: messageId,
+        receipt: sentEmail.delivery,
       });
     }
 

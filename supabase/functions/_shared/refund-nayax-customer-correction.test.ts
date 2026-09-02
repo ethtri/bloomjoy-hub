@@ -37,16 +37,40 @@ Deno.test("physical-card conflicts request the smallest customer-correctable fac
     }],
   });
   assert(
-    JSON.stringify(fields) === JSON.stringify([
-      "incident_time",
-      "payment_method",
-      "payment_interaction",
-      "wallet_provider",
-      "amount",
-      "card_last4",
-      "card_network",
-    ]),
-    "a physical-card mismatch should confirm only time, payment method, amount, and physical-card last four",
+    JSON.stringify(fields) === JSON.stringify(["card_last4"]),
+    "a physical-card mismatch should ask only for the disputed physical-card last four",
+  );
+});
+
+Deno.test("amount and time conflicts each request only their disputed fact", () => {
+  const amountFields = deriveNayaxCustomerCorrectionFields({
+    recommendationState: "manual_exception",
+    cardWalletUsed: false,
+    candidates: [{
+      isTopRanked: true,
+      reasonCodes: [
+        "machine_exact",
+        "amount_mismatch",
+        "incident_time_within_60m",
+      ],
+    }],
+  });
+  assert(
+    JSON.stringify(amountFields) === JSON.stringify(["amount"]),
+    "an amount conflict should ask only for the reported amount",
+  );
+
+  const timeFields = deriveNayaxCustomerCorrectionFields({
+    recommendationState: "manual_exception",
+    cardWalletUsed: false,
+    candidates: [{
+      isTopRanked: true,
+      reasonCodes: ["machine_exact", "amount_exact", "incident_time_too_far"],
+    }],
+  });
+  assert(
+    JSON.stringify(timeFields) === JSON.stringify(["incident_time"]),
+    "a time conflict should ask only for the reported purchase time",
   );
 });
 
@@ -95,28 +119,40 @@ Deno.test("physical-card conflict email is branded, targeted, and reply-safe", (
     locationName: "Example venue",
     paymentMethod: "card",
     refundAmountCents: 1090,
-    missingFields: [
-      "incident_time",
-      "payment_method",
-      "payment_interaction",
-      "wallet_provider",
-      "amount",
-      "card_last4",
-      "card_network",
-    ],
+    missingFields: ["card_last4"],
   });
 
   assertIncludes(email.text, "Card last four:", "reply parser label");
-  assertIncludes(email.text, "Card last four source", "last-four provenance label");
-  assertIncludes(email.text, "Card type", "card-network label");
-  assertIncludes(email.text, "Payment interaction", "interaction label");
-  assertIncludes(email.text, "Wallet provider", "wallet-provider label");
+  assertIncludes(
+    email.text,
+    "Card last four source",
+    "last-four provenance label",
+  );
+  assertIncludes(
+    email.text,
+    "add only the requested detail",
+    "single-detail instruction",
+  );
   assertIncludes(
     email.text,
     "exact physical card you tapped",
     "physical card safety",
   );
-  assertIncludes(email.text, "Visa, Mastercard, Discover", "card type request");
+  for (
+    const repeatedField of [
+      "Approximate purchase time",
+      "Payment method",
+      "Payment interaction",
+      "Wallet provider",
+      "Amount (for example",
+      "Card type (Visa",
+    ]
+  ) {
+    assert(
+      !email.text.includes(repeatedField),
+      `targeted correction must not request ${repeatedField}`,
+    );
+  }
   assertIncludes(
     email.text,
     "do not need to submit another form",

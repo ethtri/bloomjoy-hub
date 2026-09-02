@@ -1,5 +1,15 @@
 # Decisions
 
+## 2026-08-31 - Transactional acceptance is not customer delivery (`#917`)
+
+- Every direct Website-case email is marked in the message ledger before provider access and uses one stable per-message idempotency key. A successful Resend API response records its exact provider message ID as **Accepted by provider**; it is never labeled delivered from API acceptance alone.
+- Signed webhooks write only an event-key digest, provider message ID, normalized delivery state, event time, and internal match metadata. At-least-once replay is deduplicated, out-of-order events can only advance the safety rank, and webhook handling cannot send or retry a message, create a payment attempt, or call Nayax.
+- Managers see provider acceptance, delivered, delayed, bounced, complained, or unknown—not the private provider ID. Stale acceptance and actionable delivery failures route the case to Refund Operations in **Action needed** with an explicit no-resend/no-payment-replay next action. Payment outcome remains authoritative and independent; a bounced completion receipt cannot reopen or replay a successful refund.
+- Gmail-thread delivery keeps its existing provider-thread ledger and uncertain-delivery recovery. Direct-email webhooks do not create a Gmail fallback or a second conversation. Internal/test records cannot start or bind direct transactional delivery.
+
+**Why this choice**
+- Provider acceptance proves only that the API accepted a request. Persisting later provider evidence without replay authority makes the queue truthful while preserving exactly-once customer messaging and transaction-scoped payment safety.
+
 ## 2026-08-31 - Nayax lookup recovery is exact-account and internally owned (`#890`, `#992`)
 
 - Every transaction lookup uses the reporting machine's explicit Nayax account scope. A non-default account may resolve only its exact server-side credential; missing scope or access never falls back to the default account and never cross-searches a sibling machine or location.
@@ -16,6 +26,15 @@
 - Missing, unsafe, or malformed selected evidence is an internal Refund Operations exception. It must not create `waiting_on_customer`, ask the customer to repeat information, enable a refund, or weaken exact-transaction allocation, row locks, case versions, idempotency, or remaining-value verification.
 
 Entries are newest-first. For production refund work, the 2026-08-30 production-simplification decision below governs. Older conflicting pilot, cap, account-hold, canary, unfamiliar-`2xx`, permission, and TOTP mechanics are retained only as historical audit records.
+
+## 2026-09-01 - Refund function deployment is root-pinned and fail-closed (`#917`, `#1069`)
+
+- Manifest-tracked refund functions deploy only through the repository wrapper from the exact clean fetched `origin/main` commit. The wrapper supplies the absolute repository root to Supabase, preserves manifest order, requires the production project ref twice plus an explicit production phrase, and runs the existing closed-state Auth gate before and after the write.
+- The postdeploy Auth check runs even after a partial or failed function deployment. A no-execute invocation prints the approved function names only and performs no production read or write.
+- Production capture continues to reject a function-local entrypoint. The remedy is an isolated redeploy of the exact reviewed source through the same guarded wrapper followed by a fresh exact capture, never a looser path normalizer or manifest exception.
+
+**Why this choice**
+- Production evidence showed one healthy refund automation bundle deployed from a function-local folder while the remaining refund functions retained the canonical `supabase/functions/<slug>/index.ts` identity. Pinning the CLI workdir removes operator-folder ambiguity without weakening source digests, project confirmation, Auth state, rollback evidence, or payment/customer-message controls.
 
 ## 2026-09-01 - Provider-delay evidence requires approved pending state (`#1069`)
 
@@ -1431,3 +1450,20 @@ Queue placement is part of the server-owned refund lifecycle, not a browser infe
 - It removes the live contradiction where detail, queue placement, and counts could disagree or change merely because a manager opened the case.
 - It keeps stale lookup recovery read-only and preserves the separate no-blind-payment-retry boundary.
 - It gives managers and customers one truthful state vocabulary without exposing provider or reconciliation details.
+
+## 2026-09-01 - Gmail intake resolves existing cases before asking for another form (`#889`)
+
+A verified support email from a customer with a recent open Website case is existing-case work, not a reason to restart intake.
+
+**Canonical choices**
+- Evidence is considered in this order: an existing provider thread, an explicit same-sender case reference, then exact normalized sender identity across recent open customer cases with bounded deterministic contextual match flags. Internal/test and terminal cases are excluded.
+- One recent open case is linked atomically before any generic form response can be claimed. The message continues in the existing case/thread and creates no pre-form contact, new case, customer message, provider call, or payment action.
+- Multiple plausible cases create one versioned manager-owned linking task. The contact enters a non-sendable `link_review` state, every candidate's official action fails closed, and replay cannot claim a form response or create a duplicate task.
+- Resolution selects one primary case and retains every other candidate as a related immutable association. A current manager must have access to every candidate; Refund Operations may resolve portfolio-spanning work. The retained conversation moves only to the primary case so one customer message is never copied into multiple case threads.
+- Candidate projection is redacted: public case reference, safe machine/location, incident time, amount, and boolean match signals only. Sender addresses and message content remain in the existing protected case/message surfaces.
+- Resolution is versioned and replay-safe and returns explicit negative side-effect evidence. It does not infer purchase-specific facts across related cases or authorize a refund. Managers continue from the submitted form facts and linked conversation without asking the customer to repeat information Bloomjoy already possesses.
+
+**Why this choice**
+- It removes the production failure where a customer who had already submitted two forms received another form request.
+- It uses exact identity and existing records conservatively: an unambiguous case can proceed automatically, while multiple plausible purchases remain human-owned without another customer chore.
+- It preserves form-only case creation, provider/payment isolation, exact-transaction protection, and immutable replay evidence.

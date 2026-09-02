@@ -78,6 +78,14 @@ type RefundManagerCaseFacts = {
     recommendationState?: 'high_confidence' | 'ambiguous' | 'no_safe_match' | 'manual_exception';
   } | null;
   lifecycle?: RefundLifecycleContract | null;
+  customerDeliveryException?: {
+    state: 'unknown' | 'deferred' | 'failed' | 'bounced' | 'complained';
+    messageType: string;
+    recoveryOwner: 'refund_operations';
+    nextAction: 'review_delivery_no_resend';
+    customerMessageReplayAllowed: false;
+    paymentReplayAllowed: false;
+  } | null;
 };
 
 export const isDefinitiveNoRefundRetryReady = (
@@ -160,6 +168,23 @@ export const getRefundManagerState = (
       'Bloomjoy accepted the refund action and is processing it.',
       'Wait for confirmation. Do not try the refund again.',
       'info'
+    );
+  }
+
+  if (refundCase.customerDeliveryException) {
+    const deliveryLabel = {
+      unknown: 'Delivery is unconfirmed',
+      deferred: 'The provider delayed delivery',
+      failed: 'The provider could not deliver the message',
+      bounced: 'The customer address bounced',
+      complained: 'The provider recorded a complaint',
+    }[refundCase.customerDeliveryException.state];
+    return state(
+      'needs_refund_operations',
+      'Delivery needs review',
+      `${deliveryLabel}. The refund and payment state have not been changed.`,
+      'Refund Operations must review provider evidence and choose a safe disposition. Do not resend the message or retry a payment blindly.',
+      'warning'
     );
   }
 

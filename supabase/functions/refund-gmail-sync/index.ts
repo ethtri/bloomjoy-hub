@@ -60,6 +60,10 @@ import { automaticRefundCustomerContactEnabled } from "../_shared/refund-determi
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { tryIssueRefundStatusCapabilityForMessage } from "../_shared/refund-status-capability.ts";
 import { refundCustomerLocaleFromIntakeMeta } from "../_shared/refund-language.ts";
+import {
+  bindRefundTransactionalDelivery,
+  markRefundTransactionalDeliveryAttempt,
+} from "../_shared/refund-transactional-delivery.ts";
 import { resolveLocalDateTimeInZone } from "../_shared/timezone-resolution.mjs";
 import {
   completeRefundGmailIntakeShadowFirstContact,
@@ -428,12 +432,22 @@ const processDenialAppealConfirmation = async ({
       gmailThreadId: gmailThreadId || null,
     });
     if (!delivery.usedGmail) {
-      await sendRefundCustomerEmail({
+      await markRefundTransactionalDeliveryAttempt({
+        supabase,
+        refundCaseMessageId,
+      });
+      const sentEmail = await sendRefundCustomerEmail({
         ...deliveryEmailInput,
         customerEmail: claimedCustomerEmail,
         managerCcEmails: delivery.managerCcEmails,
         managerRecipientOverlap: delivery.managerRecipientOverlap,
         managerRecipientCount: delivery.managerRecipientCount,
+        idempotencyKey: `refund-message-${refundCaseMessageId}`,
+      });
+      await bindRefundTransactionalDelivery({
+        supabase,
+        refundCaseMessageId,
+        receipt: sentEmail.delivery,
       });
     }
   } catch (error) {
@@ -2135,6 +2149,10 @@ serve(async (request) => {
               const rawBody = extractPlainTextBody(message.payload);
               const redactedSubject = redactPaymentCardNumbers(rawSubject);
               const redactedBody = redactPaymentCardNumbers(rawBody);
+              const existingCaseContext = direction === "inbound" &&
+                  participantTrust === "direct_human"
+                ? extractLabeledRefundEmailFacts(redactedBody.text)
+                : null;
               const attachmentDescriptors =
                 refundEmailPilotAttachmentsEnabled &&
                   direction === "inbound" && !isBounce
@@ -2143,7 +2161,7 @@ serve(async (request) => {
               const ingestion = await rpc(
                 intakeShadow
                   ? "service_ingest_refund_gmail_message_v2"
-                  : "service_ingest_refund_gmail_contact_v1",
+                  : "service_ingest_refund_gmail_contact_v2",
                 {
                   p_mailbox_hash: mailboxHash,
                   p_provider_thread_id: providerThreadId,
@@ -2177,6 +2195,20 @@ serve(async (request) => {
                   p_is_hard_bounce: isHardBounce,
                   p_failed_recipient_emails:
                     participantSignals.failedRecipientEmails,
+                  ...(!intakeShadow
+                    ? {
+                      p_contextual_facts: existingCaseContext
+                        ? {
+                          locationOrMachine:
+                            existingCaseContext.locationOrMachine,
+                          incidentDate: existingCaseContext.incidentDate,
+                          paymentMethod: existingCaseContext.paymentMethod,
+                          amountCents: existingCaseContext.amountCents,
+                          payloadRedacted: true,
+                        }
+                        : { payloadRedacted: true },
+                    }
+                    : {}),
                 },
               );
               if (ingestion?.created) counters.messagesCreated += 1;
