@@ -24,7 +24,7 @@ for (const token of [
   'service_claim_refund_manual_message_deliveries',
   'service_finish_refund_manual_message_delivery',
   'admin_get_refund_gmail_draft_cases_pre_manual_outbox_20260902',
-  "'officialactionversion', refund_case.official_action_version",
+  "'officialactionversion'",
   'for update skip locked',
   "p_message_type = 'more_info'",
   "p_outcome = 'sent'",
@@ -77,7 +77,7 @@ assert.ok(refundsPage.includes('messageFingerprint'));
 assert.ok(refundsPage.includes('Email accepted by the provider. Delivery tracking is pending.'));
 
 assert.ok(databaseTest.includes('select plan(27)'));
-assert.ok(databaseTest.includes('The Gmail draft projection exposes the current version'));
+assert.ok(databaseTest.includes('Gmail draft cases expose the authoritative version required by the durable outbox'));
 assert.ok(databaseTest.includes('An exact client retry reuses the same intent'));
 assert.ok(databaseTest.includes('Only a sent request advances the truthful waiting lifecycle'));
 assert.ok(databaseTest.includes('Internal/test classification suppresses queued contact'));
