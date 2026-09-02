@@ -32,14 +32,15 @@ const senderSource = names.map((name) => {
 }).join('\n') + '\nexports.send = sendDeterministicFollowUpMessage;';
 const delivery = execute(read('supabase/functions/_shared/refund-transactional-delivery.ts'));
 const email = { subject: 'Synthetic reminder', text: 'Synthetic reminder only', html: '<p>Synthetic</p>' };
+const acceptedReceipt = { providerMessageId: 'synthetic-resend-message', acceptedAt: '2026-09-02T12:00:00Z' };
 class RefundGmailError extends Error {
   constructor(code, message) { super(message); this.code = code; }
 }
 
-function harness(transport, { bounceAfterPending = false, confirmedGmailReplay = false } = {}) {
+function harness(transport, { bounceAfterPending = false, bounceAfterProviderAccepted = false, confirmedGmailReplay = false } = {}) {
   const state = { requestDelivery: 'delivered', pending: null, marks: 0, claims: 0,
     transactionalSenderCalls: 0, gmailProviderCalls: 0, transactionalProviderCalls: 0,
-    binds: 0, finishes: 0, updates: [], sequence: [] };
+    binds: 0, finishes: 0, updates: [], sequence: [], acceptanceBinding: null };
   const route = { recipientResolutionStatus: 'resolved', managerCcEmails: ['manager@example.invalid'],
     managerRecipientOverlap: false, managerRecipientCount: 1 };
   const supabase = {
@@ -48,7 +49,14 @@ function harness(transport, { bounceAfterPending = false, confirmedGmailReplay =
       const query = {
         select() { return query; }, order() { return query; }, limit() { return query; },
         insert(input) { value = input; return query; },
-        update(input) { state.updates.push(input); return query; },
+        update(input) {
+          state.updates.push(input);
+          if (table === 'refund_case_messages') {
+            state.pending = { ...state.pending, ...input };
+            state.sequence.push(`bookkeeping-${input.status}`);
+          }
+          return query;
+        },
         eq() { return query; },
         then(resolve) { return Promise.resolve({ data: null, error: null }).then(resolve); },
         async single() {
@@ -74,10 +82,15 @@ function harness(transport, { bounceAfterPending = false, confirmedGmailReplay =
       };
       return query;
     },
-    async rpc(name) {
+    async rpc(name, args) {
       if (name === 'service_authorize_refund_customer_outbound') return { data: { allowed: true, ...route }, error: null };
       if (name === 'service_bind_refund_transactional_delivery') {
-        state.binds++; return { data: { bound: true, payloadRedacted: true }, error: null };
+        state.binds++;
+        state.acceptanceBinding = { ...args };
+        state.sequence.push('acceptance-bound');
+        state.pending = { ...state.pending, delivery_transport: 'resend', delivery_state: 'accepted',
+          provider_message_id: args.p_provider_message_id, delivery_state_updated_at: args.p_accepted_at };
+        return { data: { bound: true, payloadRedacted: true }, error: null };
       }
       if (name === 'service_finish_refund_gmail_outbound') {
         state.finishes++; return { data: true, error: null };
@@ -124,7 +137,12 @@ function harness(transport, { bounceAfterPending = false, confirmedGmailReplay =
     sendRefundCustomerEmail: async () => {
       state.transactionalSenderCalls++;
       state.transactionalProviderCalls++;
-      return { delivery: { providerMessageId: 'synthetic-resend-message', acceptedAt: '2026-09-02T12:00:00Z' } };
+      state.sequence.push('provider-accepted');
+      if (bounceAfterProviderAccepted) {
+        state.requestDelivery = 'bounced';
+        state.sequence.push('original-request-bounced');
+      }
+      return { delivery: acceptedReceipt };
     },
     textValue: (value) => typeof value === 'string' ? value.trim() : '',
   });
@@ -158,6 +176,35 @@ test('confirmed Gmail SENT reconciliation after original bounce does not resend 
   assert.equal(state.claims, 1);
   assert.equal(state.marks + state.transactionalSenderCalls + state.transactionalProviderCalls + state.gmailProviderCalls, 0);
   assert.equal(state.binds + state.finishes, 0);
+});
+
+test('Resend acceptance before original bounce is bound and reconciled SENT exactly once, not labelled failed or resent', async () => {
+  const { state, send } = harness('resend', { bounceAfterProviderAccepted: true });
+  assert.equal((await send()).status, 'sent');
+  assert.deepEqual(state.sequence, [
+    'pending-created', 'service_mark_refund_transactional_delivery_attempt',
+    'provider-accepted', 'original-request-bounced', 'acceptance-bound', 'bookkeeping-sent',
+  ]);
+  assert.equal(state.requestDelivery, 'bounced');
+  assert.equal(state.marks, 1);
+  assert.equal(state.transactionalSenderCalls, 1);
+  assert.equal(state.transactionalProviderCalls, 1);
+  assert.equal(state.gmailProviderCalls + state.claims + state.finishes, 0);
+  assert.equal(state.binds, 1);
+  assert.deepEqual(state.acceptanceBinding, {
+    p_refund_case_message_id: 'synthetic-reminder',
+    p_provider_message_id: acceptedReceipt.providerMessageId,
+    p_accepted_at: acceptedReceipt.acceptedAt,
+  });
+  assert.equal(state.pending.status, 'sent');
+  assert.equal(state.pending.delivery_transport, 'resend');
+  assert.equal(state.pending.delivery_state, 'accepted');
+  assert.equal(state.pending.provider_message_id, acceptedReceipt.providerMessageId);
+  assert.equal(state.pending.delivery_state_updated_at, acceptedReceipt.acceptedAt);
+  assert.equal(state.updates.length, 1);
+  assert.equal(state.updates.some((update) => update.status === 'failed'), false);
+  assert.equal(state.updates.some((update) => 'provider_message_id' in update ||
+    'delivery_transport' in update || 'delivery_state' in update || 'delivery_state_updated_at' in update), false);
 });
 
 test('forward-only RPC definitions preserve previous logic with only the new pre-provider gate', () => {
