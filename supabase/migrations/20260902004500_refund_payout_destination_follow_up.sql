@@ -391,7 +391,70 @@ declare
   case_row public.refund_cases%rowtype;
   follow_up_row public.refund_payout_destination_follow_ups%rowtype;
   automatic_contact_enabled boolean := false;
+  provider_sent_at timestamptz;
 begin
+  if tg_op = 'UPDATE'
+    and old.delivery_kind = 'automatic'
+    and old.payout_destination_follow_up_id is not null then
+    -- A reply cannot recall a transport already entered. Bind its first HTTP
+    -- receipt even if that reply satisfied the request while the call ran.
+    if old.delivery_transport = 'resend'
+      and old.delivery_state_updated_at is not null
+      and old.provider_message_id is null
+      and old.delivery_state = 'unknown'
+      and new.provider_message_id is not null
+      and new.delivery_state = 'accepted'
+      and new.delivery_state_updated_at >= old.delivery_state_updated_at
+      and to_jsonb(new)
+          - 'provider_message_id' - 'delivery_state' - 'delivery_state_updated_at'
+        is not distinct from to_jsonb(old)
+          - 'provider_message_id' - 'delivery_state' - 'delivery_state_updated_at' then
+      return new;
+    end if;
+
+    -- This is settlement of the existing delivery, never permission to send.
+    -- Gmail's immutable outbound receipt or the bound transactional receipt
+    -- proves the provider accepted this exact message before the reply won.
+    if new.status = 'sent' and new.sent_at is not null
+      and old.status in ('pending', 'sent', 'skipped')
+      and to_jsonb(new) - 'status' - 'sent_at' - 'error_message'
+        is not distinct from to_jsonb(old) - 'status' - 'sent_at' - 'error_message' then
+      select coalesce(outbound.sent_at, outbound.received_at)
+      into provider_sent_at
+      from public.refund_gmail_messages outbound
+      where outbound.refund_case_message_id = old.id
+        and outbound.refund_case_id = old.refund_case_id
+        and outbound.direction = 'outbound'
+        and outbound.message_kind = 'message'
+        and outbound.status = 'sent'
+      order by outbound.sent_at desc, outbound.id desc
+      limit 1;
+      if provider_sent_at is not null
+        or (old.delivery_transport = 'resend'
+          and old.provider_message_id is not null) then
+        new.sent_at := coalesce(old.sent_at, provider_sent_at, new.sent_at);
+        new.error_message := null;
+        return new;
+      end if;
+    end if;
+
+    if old.status = 'pending' and new.status = 'failed'
+      and new.error_message ~ '^[a-z0-9_:-]{3,160}$'
+      and to_jsonb(new) - 'status' - 'error_message'
+        is not distinct from to_jsonb(old) - 'status' - 'error_message'
+      and (
+        old.delivery_transport = 'resend'
+        or exists (
+          select 1 from public.refund_gmail_messages outbound
+          where outbound.refund_case_message_id = old.id
+            and outbound.refund_case_id = old.refund_case_id
+            and outbound.direction = 'outbound'
+        )
+      ) then
+      return new;
+    end if;
+  end if;
+
   -- Delivery receipts settle the immutable intent after the sending claim has
   -- finished, including after a reply, payment, or contact-gate change. Only
   -- the existing provider identity's recorded, monotonic delivery evidence may
@@ -408,14 +471,14 @@ begin
     and public.refund_transactional_delivery_state_rank(new.delivery_state)
       >= public.refund_transactional_delivery_state_rank(old.delivery_state)
     and new.delivery_state_updated_at >= old.delivery_state_updated_at
-    and new.status = case
+    and new.status = (case
       when new.delivery_state in ('failed', 'bounced', 'complained') then 'failed'
-      else old.status end
-    and new.error_message is not distinct from case new.delivery_state
+      else old.status end)
+    and new.error_message is not distinct from (case new.delivery_state
       when 'failed' then 'transactional_delivery_failed'
       when 'bounced' then 'transactional_delivery_bounced'
       when 'complained' then 'transactional_delivery_complained'
-      else old.error_message end
+      else old.error_message end)
     and exists (
       select 1 from public.refund_transactional_delivery_events event
       where event.provider_message_id = old.provider_message_id
@@ -840,7 +903,28 @@ begin
     return new;
   end if;
 
-  if old.status = 'pending' and new.status = 'sent' then
+  if old.status <> 'sent' and new.status = 'sent' then
+    -- The immutable send receipt is still recorded if a customer reply or
+    -- manager action won the race. Never restart a satisfied/exhausted wait.
+    if follow_up_row.status <> 'reminder_claimed' or not exists (
+      select 1 from public.refund_cases refund_case
+      where refund_case.id = follow_up_row.refund_case_id
+        and refund_case.status = 'waiting_on_customer'
+        and nullif(btrim(coalesce(refund_case.zelle_payment_contact, '')), '') is null
+    ) then
+      update public.refund_payout_destination_follow_ups follow_up
+      set status = case when follow_up.status = 'reminder_claimed'
+            then 'manual_review' else follow_up.status end,
+          reminder_claim_token = null,
+          manual_review_at = case when follow_up.status = 'reminder_claimed'
+            then coalesce(follow_up.manual_review_at, statement_timestamp())
+            else follow_up.manual_review_at end,
+          reminder_sent_at = coalesce(follow_up.reminder_sent_at, new.sent_at),
+          updated_at = statement_timestamp()
+      where follow_up.id = follow_up_row.id;
+      return new;
+    end if;
+
     next_due := new.sent_at + make_interval(hours => follow_up_row.reminder_delay_hours);
     update public.refund_payout_destination_follow_ups follow_up
     set status = 'reminder_sent',
@@ -1456,7 +1540,16 @@ begin
   from public.refund_payout_destination_follow_ups follow_up
   where follow_up.request_message_id = request_message.id
     and message.id = follow_up.reminder_message_id
-    and message.status = 'pending';
+    and message.status = 'pending'
+    and message.delivery_transport is distinct from 'resend'
+    and not exists (
+      select 1 from public.refund_gmail_messages outbound
+      where outbound.refund_case_message_id = message.id
+        and outbound.refund_case_id = message.refund_case_id
+        and outbound.direction = 'outbound'
+        and outbound.message_kind = 'message'
+        and outbound.status in ('pending_send', 'sent', 'delivery_unknown')
+    );
 
   update public.refund_cases refund_case
   set

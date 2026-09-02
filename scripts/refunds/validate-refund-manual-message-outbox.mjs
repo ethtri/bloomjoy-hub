@@ -116,6 +116,10 @@ assert.deepEqual(
 assert.ok(payoutDatabaseTest.includes('Late delivered receipt settles after reminder_sent'));
 assert.ok(payoutDatabaseTest.includes('Late bounced receipt settles after the reminder send phase'));
 assert.ok(payoutDatabaseTest.includes('Gmail thread subject remains transport evidence'));
+assert.ok(payoutDatabaseTest.includes('Same-thread payout replies apply between provider entry and reminder settlement'));
+assert.ok(payoutDatabaseTest.includes('Resend receipt binds after a same-thread reply wins'));
+assert.ok(payoutDatabaseTest.includes('Late sent evidence never restarts satisfied follow-ups'));
+assert.ok(payoutDatabaseTest.includes('Reply cancels only pre-provider reminders'));
 
 assert.ok(operations.includes('expectedCaseVersion: number'));
 assert.ok(operations.includes('messageIntentId: string'));

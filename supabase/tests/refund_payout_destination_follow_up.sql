@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(43);
+select plan(54);
 
 create function pg_temp.capture_error(statement text)
 returns text language plpgsql as $$
@@ -809,6 +809,217 @@ select is(
   'complained', 'Out-of-order provider evidence cannot regress delivery truth'
 );
 reset role;
+
+-- Interleave the real same-thread reply application between provider entry and
+-- case-message settlement. No test hand-edits the satisfied state.
+create temp table payout_race_fixtures (
+  transport text, case_id uuid, request_id uuid, reminder_id uuid,
+  thread_id uuid, reply_id uuid, reply_result jsonb
+);
+grant select on payout_race_fixtures to service_role;
+update public.refund_customer_contact_settings set automatic_customer_contact_enabled = true;
+do $$
+declare
+  transport text;
+  case_id uuid;
+  request_id uuid;
+  thread_id uuid;
+  reply_id uuid;
+  recipient text;
+  claim jsonb;
+  reminder jsonb;
+  reply_result jsonb;
+begin
+  foreach transport in array array['gmail', 'resend', 'not_started'] loop
+    case_id := gen_random_uuid(); request_id := gen_random_uuid();
+    thread_id := gen_random_uuid(); reply_id := gen_random_uuid();
+    recipient := 'payout-race-' || transport || '@example.invalid';
+    insert into public.refund_cases (
+      id, public_reference, reporting_machine_id, reporting_location_id,
+      customer_email, issue_summary, incident_at, incident_timezone,
+      incident_time_resolution, payment_method, payment_amount_cents,
+      refund_amount_cents, status, decision, decided_by, decided_at,
+      correlation_status, correlation_source, automation_state, intake_source
+    ) values (
+      case_id, 'RF-RACE-' || upper(transport),
+      'c1300000-0000-4000-8000-000000000001',
+      'c1200000-0000-4000-8000-000000000001',
+      recipient, 'Payout late-settlement race fixture',
+      statement_timestamp() - interval '2 hours', 'America/Los_Angeles', 'exact',
+      'cash', 1000, 1000, 'cash_zelle_pending', 'approved',
+      'c1000000-0000-4000-8000-000000000001', statement_timestamp(),
+      'manual_review', 'manual', 'approved', 'form'
+    );
+    insert into public.refund_case_messages (
+      id, refund_case_id, message_type, status, recipient_email, subject, body,
+      template_key, created_by, content_source, delivery_kind, reason_code,
+      requested_fields, sent_at, created_at
+    ) values (
+      request_id, case_id, 'more_info', 'sent', recipient,
+      'Original payout thread subject', 'Zelle email or phone number:',
+      'refund_more_info_editable_v1', 'c1000000-0000-4000-8000-000000000001',
+      'manager_authored', 'manual', 'missing_information',
+      array['zelle_payment_contact']::text[],
+      statement_timestamp() - interval '2 hours', statement_timestamp() - interval '2 hours'
+    );
+    update public.refund_cases
+    set status = 'waiting_on_customer', automation_state = 'more_info_needed'
+    where id = case_id;
+    insert into public.refund_payout_destination_follow_ups (
+      refund_case_id, request_message_id, reminder_delay_hours, reminder_due_at
+    ) values (case_id, request_id, 48, statement_timestamp() - interval '1 minute');
+    insert into public.refund_gmail_threads (
+      id, refund_case_id, mailbox_hash, provider_thread_id, thread_subject,
+      first_message_at, latest_message_at, retention_expires_at
+    ) values (
+      thread_id, case_id, repeat('f', 64), 'payout-race-thread-' || transport,
+      'Original payout thread subject', statement_timestamp() - interval '2 hours',
+      statement_timestamp(), statement_timestamp() + interval '30 days'
+    );
+    insert into public.refund_gmail_messages (
+      gmail_thread_id, refund_case_id, refund_case_message_id,
+      provider_message_id, provider_message_header, operation_key,
+      direction, message_kind, status, sender_email, recipient_email,
+      recipient_cc_emails, recipient_cc_count, recipient_resolution_status,
+      delivery_kind, participant_role, participant_trust, subject, plain_body,
+      received_at, sent_at, retention_expires_at
+    ) values (
+      thread_id, case_id, request_id, 'payout-race-original-' || transport,
+      '<payout-race-original-' || transport || '@example.invalid>',
+      'payout-race-original-' || transport, 'outbound', 'message', 'sent',
+      'refunds@example.invalid', recipient, array['payout-manager@example.invalid'],
+      1, 'resolved', 'manual', 'mailbox', 'verified',
+      'Original payout thread subject', 'Zelle email or phone number:',
+      statement_timestamp() - interval '2 hours', statement_timestamp() - interval '2 hours',
+      statement_timestamp() + interval '30 days'
+    );
+    claim := public.service_claim_due_refund_payout_destination_follow_ups(1);
+    reminder := public.service_create_refund_payout_destination_reminder_message(
+      (claim #>> '{reminders,0,followUpId}')::uuid,
+      (claim #>> '{reminders,0,claimToken}')::uuid,
+      'Generated payout reminder subject', 'Zelle email or phone number:'
+    );
+    if transport = 'gmail' then
+      insert into public.refund_gmail_messages (
+        gmail_thread_id, refund_case_id, refund_case_message_id,
+        provider_message_id, provider_message_header, operation_key,
+        direction, message_kind, status, sender_email, recipient_email,
+        recipient_cc_emails, recipient_cc_count, recipient_resolution_status,
+        delivery_kind, participant_role, participant_trust, subject, plain_body,
+        received_at, sent_at, retention_expires_at
+      ) values (
+        thread_id, case_id, (reminder ->> 'messageId')::uuid,
+        'payout-race-reminder-gmail', '<payout-race-reminder-gmail@example.invalid>',
+        'payout-race-reminder-gmail', 'outbound', 'message', 'sent',
+        'refunds@example.invalid', recipient, array['payout-manager@example.invalid'],
+        1, 'resolved', 'automatic', 'mailbox', 'verified',
+        'Original payout thread subject', 'Zelle email or phone number:',
+        statement_timestamp(), statement_timestamp(), statement_timestamp() + interval '30 days'
+      );
+    elsif transport = 'resend' then
+      perform public.service_mark_refund_transactional_delivery_attempt(
+        (reminder ->> 'messageId')::uuid
+      );
+    end if;
+    insert into public.refund_gmail_messages (
+      id, gmail_thread_id, refund_case_id, provider_message_id,
+      direction, message_kind, status, sender_email, recipient_email,
+      participant_role, participant_trust, subject, plain_body,
+      received_at, retention_expires_at
+    ) values (
+      reply_id, thread_id, case_id, 'payout-race-reply-' || transport,
+      'inbound', 'message', 'received', recipient, 'refunds@example.invalid',
+      'customer', 'verified', 'Original payout thread subject',
+      'Zelle email: ' || recipient, statement_timestamp(),
+      statement_timestamp() + interval '30 days'
+    );
+    reply_result := public.service_apply_refund_gmail_customer_facts_v1(
+      case_id, reply_id, 1, jsonb_build_object('zelle_payment_contact', recipient),
+      array['zelle_payment_contact']::text[], 'labeled_routine_facts_v1'
+    );
+    insert into payout_race_fixtures values (
+      transport, case_id, request_id, (reminder ->> 'messageId')::uuid,
+      thread_id, reply_id, reply_result
+    );
+  end loop;
+end;
+$$;
+select is((select count(*)::integer from payout_race_fixtures
+  where reply_result ->> 'outcome' = 'applied'), 3,
+  'Same-thread payout replies apply between provider entry and reminder settlement');
+select ok(
+  (select bool_and(message.status = 'pending')
+   from payout_race_fixtures fixture join public.refund_case_messages message
+     on message.id = fixture.reminder_id where fixture.transport <> 'not_started')
+  and (select message.status = 'skipped'
+   from payout_race_fixtures fixture join public.refund_case_messages message
+     on message.id = fixture.reminder_id where fixture.transport = 'not_started'),
+  'Reply cancels only pre-provider reminders and preserves started transport uncertainty'
+);
+select ok(pg_temp.capture_error($$update public.refund_case_messages
+  set status = 'sent', sent_at = statement_timestamp()
+  where id = (select reminder_id from payout_race_fixtures where transport = 'resend')$$)
+  like '23514:%', 'A transactional attempt marker alone cannot fabricate a sent result');
+select ok(pg_temp.capture_error($$update public.refund_case_messages
+  set status = 'sent', sent_at = statement_timestamp()
+  where id = (select reminder_id from payout_race_fixtures where transport = 'not_started')$$)
+  like '23514:%', 'A reply-cancelled pre-provider reminder cannot resume or claim sent');
+set local role service_role;
+select lives_ok($$select public.service_bind_refund_transactional_delivery(
+  (select reminder_id from payout_race_fixtures where transport = 'resend'),
+  'payout-race-reminder-resend', statement_timestamp()
+)$$, 'Resend receipt binds after a same-thread reply wins between attempt and binding');
+reset role;
+update public.refund_customer_contact_settings set automatic_customer_contact_enabled = false;
+update public.refund_cases set status = 'completed', automation_state = 'completed'
+where id = (select case_id from payout_race_fixtures where transport = 'resend');
+select lives_ok($$update public.refund_case_messages
+  set status = 'sent', sent_at = statement_timestamp()
+  where id in (select reminder_id from payout_race_fixtures where transport <> 'not_started')$$,
+  'Late Gmail and transactional sent settlement succeeds after satisfied reply and payment completion');
+select ok(
+  (select bool_and(follow_up.status = 'satisfied'
+    and follow_up.reminder_sent_at is not null and follow_up.escalation_due_at is null)
+   from payout_race_fixtures fixture join public.refund_payout_destination_follow_ups follow_up
+     on follow_up.refund_case_id = fixture.case_id where fixture.transport <> 'not_started')
+  and (select bool_and(refund_case.automation_follow_up_due_at is null
+    and (public.refund_customer_action_contract(refund_case.id) ->> 'valid') = 'false')
+   from payout_race_fixtures fixture join public.refund_cases refund_case
+     on refund_case.id = fixture.case_id),
+  'Late sent evidence never restarts satisfied follow-ups or customer due dates'
+);
+select ok(
+  (select refund_case.status = 'completed' and refund_case.automation_state = 'completed'
+   from payout_race_fixtures fixture join public.refund_cases refund_case
+     on refund_case.id = fixture.case_id where fixture.transport = 'resend')
+  and (select refund_case.status = 'needs_review' and refund_case.automation_state = 'customer_replied'
+   from payout_race_fixtures fixture join public.refund_cases refund_case
+     on refund_case.id = fixture.case_id where fixture.transport = 'gmail'),
+  'Late reminder settlement preserves both completed payment and payout-ready reply states'
+);
+create temp table payout_race_sent_snapshot as
+select message.id, message.sent_at from public.refund_case_messages message
+where message.id in (select reminder_id from payout_race_fixtures where transport <> 'not_started');
+update public.refund_case_messages set status = 'sent', sent_at = statement_timestamp()
+where id in (select id from payout_race_sent_snapshot);
+select ok((select bool_and(message.sent_at = snapshot.sent_at)
+  from payout_race_sent_snapshot snapshot join public.refund_case_messages message
+    on message.id = snapshot.id), 'Duplicate late worker settlement preserves the first sent receipt');
+select ok(
+  pg_temp.capture_error($$update public.refund_case_messages set body = 'Changed'
+    where id = (select reminder_id from payout_race_fixtures where transport = 'gmail')$$) like '23514:%'
+  and pg_temp.capture_error($$update public.refund_case_messages set provider_message_id = 'other-provider-identity'
+    where id = (select reminder_id from payout_race_fixtures where transport = 'resend')$$) like '23514:%',
+  'Late settlement cannot mutate message content or switch provider identity'
+);
+select ok(
+  (select count(*) = 3 from public.refund_case_messages message
+   where message.refund_case_id in (select case_id from payout_race_fixtures)
+     and message.message_type = 'reminder')
+  and not exists (select 1 from public.refund_case_nayax_refund_attempts attempt
+    where attempt.refund_case_id in (select case_id from payout_race_fixtures)),
+  'Reply and settlement races create one reminder per case and no payment attempt'
+);
 
 select * from finish();
 rollback;
