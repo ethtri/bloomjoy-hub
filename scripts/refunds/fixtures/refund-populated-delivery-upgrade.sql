@@ -208,6 +208,10 @@ select matches(pg_temp.capture_delivery_upgrade_error($sql$
   update public.refund_case_messages set delivery_state = 'bounced', error_message = 'transactional_delivery_bounced'
   where id = 'da150000-0000-4000-8000-000000000001'
 $sql$), '^23514:', 'An older genuine bounce cannot downgrade the stronger recorded complaint');
+select matches(pg_temp.capture_delivery_upgrade_error($sql$
+  update public.refund_case_messages set delivery_state_updated_at = delivery_state_updated_at + interval '1 day'
+  where id = 'da150000-0000-4000-8000-000000000001'
+$sql$), '^23514:', 'A genuine provider event cannot authorize an invented future delivery timestamp');
 select is((select to_jsonb(message) - array['delivery_transport', 'provider_message_id', 'delivery_state', 'delivery_state_updated_at', 'status', 'error_message']
   from public.refund_case_messages message where id = 'da150000-0000-4000-8000-000000000001'),
   (select value - array['delivery_transport', 'provider_message_id', 'delivery_state', 'delivery_state_updated_at', 'status', 'error_message'] from delivery_upgrade_message_before),
