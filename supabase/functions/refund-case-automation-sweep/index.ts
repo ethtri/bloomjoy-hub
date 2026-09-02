@@ -3066,11 +3066,13 @@ const sendPayoutDestinationReminder = async (
       });
     }
 
+    // The immutable intent retains its reviewed subject. Gmail's canonical
+    // thread subject is already recorded in refund_gmail_messages; writing it
+    // back here would reject settlement after the provider has sent the mail.
     const { error: updateError } = await supabase.from("refund_case_messages")
       .update({
         status: "sent",
         sent_at: new Date().toISOString(),
-        subject: gmailDelivery.usedGmail ? gmailDelivery.subject : email.subject,
       })
       .eq("id", messageId);
     if (updateError) throw updateError;

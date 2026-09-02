@@ -2,6 +2,7 @@
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { runInNewContext } from 'node:vm';
 
 const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8');
 
@@ -82,6 +83,39 @@ assert.ok(outboxSweepIndex > 0 && outboxSweepIndex < automationGateIndex);
 assert.ok(automationSweep.includes('manual_message_outbox_delivery_unknown'));
 assert.ok(automationSweep.includes('runPayoutDestinationReminderSweep'));
 assert.ok(automationSweep.includes('payout_destination_reminder_sent'));
+const payoutReminderWorker = automationSweep.slice(
+  automationSweep.indexOf('const sendPayoutDestinationReminder ='),
+  automationSweep.indexOf('const runPayoutDestinationReminderSweep =')
+);
+const payoutSentPatch = payoutReminderWorker.match(
+  /const \{ error: updateError \} = await supabase\.from\("refund_case_messages"\)\s*\.update\(\{([\s\S]*?)\}\)/
+);
+assert.ok(payoutSentPatch, 'Payout reminder must settle its existing message intent.');
+assert.match(payoutSentPatch[1], /status: "sent"/);
+assert.match(payoutSentPatch[1], /sent_at:/);
+assert.doesNotMatch(
+  payoutSentPatch[1], /subject:|body:|recipient_email:/,
+  'Actual worker must not overwrite reviewed content with Gmail thread content after sending.'
+);
+// Execute the actual worker's settlement object, not a hand-copied test shape.
+// The database fixture pairs this patch with a different canonical Gmail subject.
+const actualPayoutSentPatch = runInNewContext(`({${payoutSentPatch[1]}})`);
+assert.deepEqual(Object.keys(actualPayoutSentPatch).sort(), ['sent_at', 'status']);
+assert.equal(actualPayoutSentPatch.status, 'sent');
+assert.ok(Number.isFinite(Date.parse(actualPayoutSentPatch.sent_at)));
+const immutableReminder = {
+  subject: 'Reminder: your approved reimbursement needs one detail',
+  body: 'Zelle email or phone number:',
+  recipient_email: 'payout-customer@example.invalid',
+};
+assert.deepEqual(
+  { ...immutableReminder, ...actualPayoutSentPatch },
+  { ...immutableReminder, status: 'sent', sent_at: actualPayoutSentPatch.sent_at },
+  'The executed worker settlement preserves the message intent even when Gmail uses another thread subject.'
+);
+assert.ok(payoutDatabaseTest.includes('Late delivered receipt settles after reminder_sent'));
+assert.ok(payoutDatabaseTest.includes('Late bounced receipt settles after the reminder send phase'));
+assert.ok(payoutDatabaseTest.includes('Gmail thread subject remains transport evidence'));
 
 assert.ok(operations.includes('expectedCaseVersion: number'));
 assert.ok(operations.includes('messageIntentId: string'));

@@ -392,6 +392,39 @@ declare
   follow_up_row public.refund_payout_destination_follow_ups%rowtype;
   automatic_contact_enabled boolean := false;
 begin
+  -- Delivery receipts settle the immutable intent after the sending claim has
+  -- finished, including after a reply, payment, or contact-gate change. Only
+  -- the existing provider identity's recorded, monotonic delivery evidence may
+  -- use this path; it cannot edit content, recipients, or resend the reminder.
+  if tg_op = 'UPDATE'
+    and old.delivery_kind = 'automatic'
+    and old.payout_destination_follow_up_id is not null
+    and old.delivery_transport = 'resend'
+    and old.provider_message_id is not null
+    and to_jsonb(new)
+        - 'status' - 'error_message' - 'delivery_state' - 'delivery_state_updated_at'
+      is not distinct from to_jsonb(old)
+        - 'status' - 'error_message' - 'delivery_state' - 'delivery_state_updated_at'
+    and public.refund_transactional_delivery_state_rank(new.delivery_state)
+      >= public.refund_transactional_delivery_state_rank(old.delivery_state)
+    and new.delivery_state_updated_at >= old.delivery_state_updated_at
+    and new.status = case
+      when new.delivery_state in ('failed', 'bounced', 'complained') then 'failed'
+      else old.status end
+    and new.error_message is not distinct from case new.delivery_state
+      when 'failed' then 'transactional_delivery_failed'
+      when 'bounced' then 'transactional_delivery_bounced'
+      when 'complained' then 'transactional_delivery_complained'
+      else old.error_message end
+    and exists (
+      select 1 from public.refund_transactional_delivery_events event
+      where event.provider_message_id = old.provider_message_id
+        and event.delivery_state = new.delivery_state
+        and event.event_at <= new.delivery_state_updated_at
+    ) then
+    return new;
+  end if;
+
   select refund_case.* into case_row
   from public.refund_cases refund_case
   where refund_case.id = new.refund_case_id
@@ -822,20 +855,22 @@ begin
         customer_last_contacted_at = new.sent_at,
         last_customer_message_type = 'reminder'
     where refund_case.id = follow_up_row.refund_case_id;
-  elsif old.status = 'pending' and new.status in ('failed', 'skipped') then
+  elsif old.status in ('pending', 'sent') and new.status in ('failed', 'skipped') then
     update public.refund_payout_destination_follow_ups follow_up
     set status = 'manual_review',
         reminder_claim_token = null,
         manual_review_at = statement_timestamp(),
         updated_at = statement_timestamp()
-    where follow_up.id = follow_up_row.id;
+    where follow_up.id = follow_up_row.id
+      and follow_up.status <> 'satisfied';
 
     update public.refund_cases refund_case
-    set status = case when refund_case.status = 'waiting_on_customer'
-          then 'needs_review' else refund_case.status end,
+    set status = 'needs_review',
         automation_state = 'under_review',
         automation_follow_up_due_at = null
-    where refund_case.id = follow_up_row.refund_case_id;
+    where refund_case.id = follow_up_row.refund_case_id
+      and refund_case.status = 'waiting_on_customer'
+      and follow_up_row.status <> 'satisfied';
   end if;
   return new;
 end;

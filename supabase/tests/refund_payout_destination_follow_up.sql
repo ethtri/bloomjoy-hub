@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(30);
+select plan(43);
 
 create function pg_temp.capture_error(statement text)
 returns text language plpgsql as $$
@@ -436,6 +436,17 @@ set status = 'sent', sent_at = statement_timestamp()
 where id = (select (result ->> 'messageId')::uuid from payout_reminder_message);
 
 select ok(
+  (select message.status = 'sent'
+      and message.subject = 'Reminder: your approved reimbursement needs one detail'
+      and gmail.subject = 'Payout destination reminder'
+   from public.refund_case_messages message
+   join public.refund_gmail_messages gmail
+     on gmail.refund_case_message_id = message.id
+   where message.id = (select (result ->> 'messageId')::uuid from payout_reminder_message)),
+  'Gmail thread subject remains transport evidence without mutating the sent reminder intent'
+);
+
+select ok(
   (select status = 'reminder_sent'
       and reminder_sent_at is not null
       and escalation_due_at is not null
@@ -652,6 +663,152 @@ select is(
   0,
   'Request, reply, and payout readiness create no provider or payment attempt'
 );
+
+-- Exercise the actual transactional reminder path, including receipts arriving
+-- after the send phase, a closed contact gate, and later payment completion.
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, incident_timezone,
+  incident_time_resolution, payment_method, payment_amount_cents,
+  refund_amount_cents, status, decision, decided_by, decided_at,
+  correlation_status, correlation_source, automation_state, intake_source
+) values (
+  'c1400000-0000-4000-8000-000000000005', 'RF-PAYOUT-RECEIPT',
+  'c1300000-0000-4000-8000-000000000001',
+  'c1200000-0000-4000-8000-000000000001',
+  'payout-receipt@example.invalid', 'Transactional payout receipt fixture',
+  statement_timestamp() - interval '2 hours', 'America/Los_Angeles', 'exact',
+  'cash', 1000, 1000, 'cash_zelle_pending', 'approved',
+  'c1000000-0000-4000-8000-000000000001', statement_timestamp(),
+  'manual_review', 'manual', 'approved', 'form'
+);
+insert into public.refund_case_messages (
+  id, refund_case_id, message_type, status, recipient_email, subject, body,
+  template_key, created_by, content_source, delivery_kind, reason_code,
+  requested_fields, sent_at, created_at
+) values (
+  'c1450000-0000-4000-8000-000000000005',
+  'c1400000-0000-4000-8000-000000000005', 'more_info', 'sent',
+  'payout-receipt@example.invalid', 'Payout destination request',
+  'Zelle email or phone number:', 'refund_more_info_editable_v1',
+  'c1000000-0000-4000-8000-000000000001', 'manager_authored', 'manual',
+  'missing_information', array['zelle_payment_contact']::text[],
+  statement_timestamp() - interval '2 hours', statement_timestamp() - interval '2 hours'
+);
+update public.refund_cases
+set status = 'waiting_on_customer', automation_state = 'more_info_needed'
+where id = 'c1400000-0000-4000-8000-000000000005';
+insert into public.refund_payout_destination_follow_ups (
+  refund_case_id, request_message_id, reminder_delay_hours, reminder_due_at
+) values (
+  'c1400000-0000-4000-8000-000000000005',
+  'c1450000-0000-4000-8000-000000000005', 48,
+  statement_timestamp() - interval '1 minute'
+);
+set local role service_role;
+create temp table payout_receipt_claim as
+select public.service_claim_due_refund_payout_destination_follow_ups(1) as result;
+create temp table payout_receipt_message as
+select public.service_create_refund_payout_destination_reminder_message(
+  (select (result #>> '{reminders,0,followUpId}')::uuid from payout_receipt_claim),
+  (select (result #>> '{reminders,0,claimToken}')::uuid from payout_receipt_claim),
+  'Protected transactional reminder', 'Zelle email or phone number:'
+) as result;
+select public.service_mark_refund_transactional_delivery_attempt(
+  (select (result ->> 'messageId')::uuid from payout_receipt_message)
+);
+select public.service_bind_refund_transactional_delivery(
+  (select (result ->> 'messageId')::uuid from payout_receipt_message),
+  'payout-reminder-receipt-5', statement_timestamp()
+);
+update public.refund_case_messages
+set status = 'sent', sent_at = statement_timestamp()
+where id = (select (result ->> 'messageId')::uuid from payout_receipt_message);
+reset role;
+update public.refund_customer_contact_settings
+set automatic_customer_contact_enabled = false;
+
+set local role service_role;
+select lives_ok($$select public.service_record_refund_transactional_delivery_event(
+  repeat('1', 64), 'payout-reminder-receipt-5', 'delivered', statement_timestamp()
+)$$, 'Late delivered receipt settles after reminder_sent with automatic contact disabled');
+select is(
+  (select delivery_state from public.refund_case_messages
+   where id = (select (result ->> 'messageId')::uuid from payout_receipt_message)),
+  'delivered', 'Delivered payout reminder evidence is tracked on the original message'
+);
+select is(
+  public.service_record_refund_transactional_delivery_event(
+    repeat('1', 64), 'payout-reminder-receipt-5', 'delivered', statement_timestamp()
+  ) ->> 'duplicate', 'true', 'Repeated reminder receipt is idempotent'
+);
+select ok(
+  pg_temp.capture_error($$update public.refund_case_messages set subject = 'Changed'
+    where provider_message_id = 'payout-reminder-receipt-5'$$) like '23514:%'
+  and pg_temp.capture_error($$update public.refund_case_messages
+    set recipient_email = 'wrong@example.invalid'
+    where provider_message_id = 'payout-reminder-receipt-5'$$) like '23514:%',
+  'Delivery settlement cannot mutate protected reminder content or recipient'
+);
+select ok(
+  pg_temp.capture_error($$update public.refund_case_messages
+    set delivery_state = 'complained', status = 'failed',
+      error_message = 'transactional_delivery_complained',
+      delivery_state_updated_at = statement_timestamp()
+    where provider_message_id = 'payout-reminder-receipt-5'$$) like '23514:%',
+  'A fabricated reminder receipt without provider-event evidence is rejected'
+);
+select lives_ok($$select public.service_record_refund_transactional_delivery_event(
+  repeat('2', 64), 'payout-reminder-receipt-5', 'bounced', statement_timestamp()
+)$$, 'Late bounced receipt settles after the reminder send phase');
+reset role;
+select ok(
+  (select delivery_state = 'bounced' and status = 'failed'
+   from public.refund_case_messages
+   where provider_message_id = 'payout-reminder-receipt-5')
+  and (select status = 'needs_review' from public.refund_cases
+       where id = 'c1400000-0000-4000-8000-000000000005')
+  and (select status = 'manual_review' from public.refund_payout_destination_follow_ups
+       where refund_case_id = 'c1400000-0000-4000-8000-000000000005')
+  and (public.refund_customer_action_contract(
+       'c1400000-0000-4000-8000-000000000005') ->> 'valid') = 'false',
+  'A bounced reminder returns waiting work to managers without a stale customer obligation'
+);
+select ok(
+  (select count(*) = 1 from public.refund_case_messages
+   where refund_case_id = 'c1400000-0000-4000-8000-000000000005'
+     and message_type = 'reminder')
+  and not exists (select 1 from public.refund_case_nayax_refund_attempts
+   where refund_case_id = 'c1400000-0000-4000-8000-000000000005'),
+  'Reminder receipts create no duplicate message or payment attempt'
+);
+
+update public.refund_cases
+set zelle_payment_contact = 'payout-receipt@example.invalid',
+    status = 'completed', automation_state = 'completed'
+where id = 'c1400000-0000-4000-8000-000000000005';
+set local role service_role;
+select lives_ok($$select public.service_record_refund_transactional_delivery_event(
+  repeat('3', 64), 'payout-reminder-receipt-5', 'complained', statement_timestamp()
+)$$, 'Late complaint remains recordable after payout destination and payment completion');
+reset role;
+select ok(
+  (select status = 'completed' and automation_state = 'completed'
+   from public.refund_cases where id = 'c1400000-0000-4000-8000-000000000005')
+  and (select delivery_state = 'complained' from public.refund_case_messages
+       where provider_message_id = 'payout-reminder-receipt-5'),
+  'A delivery complaint never regresses completed payment truth'
+);
+set local role service_role;
+select lives_ok($$select public.service_record_refund_transactional_delivery_event(
+  repeat('4', 64), 'payout-reminder-receipt-5', 'accepted', statement_timestamp()
+)$$, 'An out-of-order reminder receipt is safely recorded');
+select is(
+  (select delivery_state from public.refund_case_messages
+   where provider_message_id = 'payout-reminder-receipt-5'),
+  'complained', 'Out-of-order provider evidence cannot regress delivery truth'
+);
+reset role;
 
 select * from finish();
 rollback;
