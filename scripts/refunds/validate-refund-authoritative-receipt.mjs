@@ -3,14 +3,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { buildReceiptWrapperParityTest } from './refund-receipt-wrapper-parity.mjs';
 
 const read = (file) => fs.readFileSync(path.resolve(file), 'utf8');
-const migration = read('supabase/migrations/20260902161318_refund_authoritative_reconciliation_receipt.sql');
+const migration = read('supabase/migrations/20260902191832_refund_authoritative_reconciliation_receipt.sql');
 const handler = read('supabase/functions/_shared/refund-authoritative-receipt.ts');
 const edge = read('supabase/functions/refund-case-admin-update/index.ts');
 const tests = read('supabase/tests/refund_authoritative_reconciliation_receipt.sql');
 const panel = read('src/components/refunds/RefundAuthoritativeReceiptPanel.tsx');
 const client = read('src/lib/refundAuthoritativeReceiptApi.ts');
+assert.match(buildReceiptWrapperParityTest(path.resolve('.')), /select plan\(20\)/);
 assert.match(panel, /buildReceiptRecordRequest\(v, reference, reviewedPayment\)/);
 assert.match(panel, /buildReceiptAdoptionRequest\(v, messageId, reviewedNotice\)/);
 assert.match(panel, /Refresh saved evidence/);
