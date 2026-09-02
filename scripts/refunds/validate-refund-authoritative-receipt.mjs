@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import vm from 'node:vm';
+import ts from 'typescript';
 
 const read = (file) => fs.readFileSync(path.resolve(file), 'utf8');
 const migration = read('supabase/migrations/20260902161318_refund_authoritative_reconciliation_receipt.sql');
@@ -32,6 +34,33 @@ assert.match(migration, /event.actor_user_id=a.actor_user_id/);
 assert.match(migration, /event.created_at<=a.created_at\+interval '1 minute'/);
 assert.match(panel, /refreshRefundReceiptViews/);
 const receiptClient = read('src/lib/refundAuthoritativeReceipt.ts');
+const workbench = read('src/pages/admin/Refunds.tsx');
+const extract = (source, names) => {
+  const ast = ts.createSourceFile('fixture.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const chunks = [];
+  for (const statement of ast.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && names.includes(declaration.name.text)) chunks.push(`const ${declaration.getText(ast)};`);
+    }
+  }
+  assert.equal(chunks.length, names.length, 'Extract actual production helper declarations');
+  return ts.transpileModule(chunks.join('\n'), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+};
+const actualHelpers = extract(receiptClient, ['hasConfirmedRefundReceipt']) + extract(workbench, ['primaryActionConfig', 'getSuggestedNextAction']);
+for (const stage of ['refund_confirmed', 'customer_notified']) {
+  const fixture = { status: 'card_refund_pending', paymentMethod: 'card', providerHold: true, providerOutcome: 'unconfirmed',
+    lifecycle: { stage, reasonCode: 'settlement_time_unknown', paymentState: 'confirmed' } };
+  const result = vm.runInNewContext(`${actualHelpers}\n({ action: primaryActionConfig(fixture, {}, [], null), next: getSuggestedNextAction(fixture, []) })`, { fixture });
+  assert.equal(result.action.disabled, true);
+  assert.match(result.action.label, /Refund confirmed/);
+  assert.match(result.next, /Refund confirmed/);
+  assert.equal(result.action.mode, undefined, 'No financial or messaging action is exposed');
+  assert.doesNotMatch(result.action.helper + result.next, /result is unclear|not confirmed|No refund is recorded/);
+}
+assert.match(workbench, /hasConfirmedRefundReceipt\(selectedCase\) \|\| selectedCase.customerDeliveryException/);
+assert.match(workbench, /!hasConfirmedRefundReceipt\(selectedCase\) && refundOperationsBlockedCaseIds.has/);
+assert.match(workbench, /hasConfirmedRefundReceipt\(selectedCase\) \? \(\s*<p data-testid="refund-receipt-accounting-only"/);
 assert.match(receiptClient, /\['admin-refund-operations-overview'\]/);
 assert.match(receiptClient, /\['nayax-card-refund-availability'\]/);
 assert.match(migration, /when n.receipt_id is null then 70 else 80/);

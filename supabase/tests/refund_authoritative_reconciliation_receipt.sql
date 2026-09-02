@@ -138,9 +138,9 @@ rollback to competing_original;
 savepoint inflight_gmail;
 insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,first_message_at,latest_message_at,retention_expires_at)
 values('ad700000-0000-4000-8000-000000000009','ad400000-0000-4000-8000-000000000001',repeat('d',64),'inflight-thread','Synthetic pending send',now(),now(),now()+interval '30 days');
-insert into public.refund_gmail_messages(gmail_thread_id,refund_case_id,operation_key,direction,message_kind,status,sender_email,recipient_email,subject,plain_body,retention_expires_at)
+insert into public.refund_gmail_messages(gmail_thread_id,refund_case_id,operation_key,direction,message_kind,status,sender_email,recipient_email,subject,plain_body,retention_expires_at,received_at)
 values('ad700000-0000-4000-8000-000000000009','ad400000-0000-4000-8000-000000000001','synthetic-inflight','outbound','message','pending_send',
-  'info@bloomjoysweets.com','receipt-customer@example.invalid','Synthetic pending send','Synthetic pending send',now()+interval '30 days');
+  'info@bloomjoysweets.com','receipt-customer@example.invalid','Synthetic pending send','Synthetic pending send',now()+interval '30 days',now());
 select throws_ok($$select pg_temp.record_receipt(1)$$,'P4661',null,'In-flight Gmail claim blocks receipt entry');
 rollback to inflight_gmail;
 
@@ -168,10 +168,10 @@ select throws_ok($$insert into public.refund_case_nayax_refund_attempts(refund_c
 insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,first_message_at,latest_message_at,retention_expires_at)
 values('ad700000-0000-4000-8000-000000000001','ad400000-0000-4000-8000-000000000001',repeat('a',64),'receipt-thread-1','Synthetic shared claim thread',now()-interval '1 day',now(),now()+interval '30 days');
 insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,provider_message_id,operation_key,direction,message_kind,status,
-  sender_email,recipient_email,subject,plain_body,sent_at,retention_expires_at,recipient_cc_emails,recipient_cc_count)
+  sender_email,recipient_email,subject,plain_body,sent_at,retention_expires_at,recipient_cc_emails,recipient_cc_count,received_at)
 values('ad800000-0000-4000-8000-000000000001','ad700000-0000-4000-8000-000000000001','ad400000-0000-4000-8000-000000000001',
   'receipt-sent-message-1','imported:receipt-sent-1','outbound','message','sent','info@bloomjoysweets.com','receipt-customer@example.invalid',
-  'Synthetic case-specific update','This exact claim is fully refunded. The other purchase is still pending.',now()-interval '1 hour',now()+interval '30 days','{}',0);
+  'Synthetic case-specific update','This exact claim is fully refunded. The other purchase is still pending.',now()-interval '1 hour',now()+interval '30 days','{}',0,now()-interval '1 hour');
 
 create function pg_temp.adopt_notice(n integer,changes jsonb default '{}'::jsonb)
 returns jsonb language plpgsql as $$ declare

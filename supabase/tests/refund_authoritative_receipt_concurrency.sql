@@ -48,10 +48,10 @@ select public.admin_begin_refund_manual_nayax_portal('af400000-0000-4000-8000-00
   (select official_action_version from public.refund_cases where id='af400000-0000-4000-8000-000000000002'));
 insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,first_message_at,latest_message_at,retention_expires_at)
 values('af700000-0000-4000-8000-000000000001','af400000-0000-4000-8000-000000000001',repeat('f',64),'receipt-race-thread','Synthetic already-sent notice',now()-interval '1 day',now(),now()+interval '30 days');
-insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,provider_message_id,operation_key,direction,message_kind,status,sender_email,recipient_email,subject,plain_body,sent_at,retention_expires_at)
+insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,provider_message_id,operation_key,direction,message_kind,status,sender_email,recipient_email,subject,plain_body,sent_at,retention_expires_at,received_at)
 values('af800000-0000-4000-8000-000000000001','af700000-0000-4000-8000-000000000001','af400000-0000-4000-8000-000000000001',
   'receipt-race-sent','imported:receipt-race-sent','outbound','message','sent','info@bloomjoysweets.com','receipt-race-customer@example.invalid',
-  'Synthetic refund confirmation','RF-RECEIPT-RACE-1 original223456781 is fully refunded $7.00.',now()-interval '1 hour',now()+interval '30 days');
+  'Synthetic refund confirmation','RF-RECEIPT-RACE-1 original223456781 is fully refunded $7.00.',now()-interval '1 hour',now()+interval '30 days',now()-interval '1 hour');
 create function refund_receipt_race_test.run(p_action text,n integer) returns jsonb language plpgsql as $$
 declare c public.refund_cases%rowtype; a uuid; r uuid;
 begin
