@@ -8170,7 +8170,13 @@ export default function AdminRefundsPage() {
           data-testid="refund-internal-test-confirmation-dialog"
           className="flex max-h-[calc(100dvh_-_2rem)] w-[calc(100%_-_2rem)] max-w-lg flex-col overflow-hidden break-words rounded-lg"
         >
-          <div className="min-h-0 space-y-4 overflow-y-auto">
+          <div
+            data-testid="refund-internal-test-details"
+            role="region"
+            aria-label="Internal/test disposition details"
+            tabIndex={0}
+            className="min-h-0 space-y-4 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          >
             <AlertDialogHeader>
               <AlertDialogTitle>Move this record to the Internal/test archive?</AlertDialogTitle>
               <AlertDialogDescription>

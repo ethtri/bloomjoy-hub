@@ -6599,6 +6599,31 @@ const runInternalTestDispositionChecks = async ({ browser, appUrl, artifactDir, 
       `Internal/test confirmation safely focuses Cancel at ${viewport.width}px`,
       await cancel.evaluate((element) => element === document.activeElement)
     );
+    if (viewport.width === 320) {
+      const details = confirmation.getByRole('region', { name: 'Internal/test disposition details' });
+      await page.keyboard.press('Shift+Tab');
+      recorder.assert(
+        'Keyboard can reach the scrollable Internal/test details without selecting an action',
+        await details.evaluate((element) => element === document.activeElement)
+      );
+      await page.keyboard.press('PageDown');
+      await page.waitForFunction(() => {
+        const element = document.querySelector('[data-testid="refund-internal-test-details"]');
+        return element?.scrollTop > 0 &&
+          element.lastElementChild.getBoundingClientRect().bottom <= element.getBoundingClientRect().bottom + 1;
+      });
+      const reasonVisible = await details.evaluate((element) =>
+        element.scrollTop > 0 &&
+        element.lastElementChild.getBoundingClientRect().bottom <= element.getBoundingClientRect().bottom + 1
+      );
+      await page.keyboard.press('Tab');
+      const cancelFocused = await cancel.evaluate((element) => element === document.activeElement);
+      recorder.assert(
+        'Keyboard scroll reveals the complete reason and returns safely to Cancel',
+        reasonVisible && cancelFocused,
+        JSON.stringify({ reasonVisible, cancelFocused })
+      );
+    }
     const cancelKey = viewport.width === 320 ? 'Escape' : 'Enter';
     await page.keyboard.press(cancelKey);
     await confirmation.waitFor({ state: 'hidden' });
