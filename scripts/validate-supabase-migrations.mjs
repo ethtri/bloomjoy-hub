@@ -10,7 +10,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { createAuthenticatedEvidenceFragment } from './refunds/refund-uat-fragment-provenance.mjs';
 import { getRefundGmailIntakeShadowOwnerQuerySnapshots } from './refunds/refund-gmail-intake-shadow-runner-clients.mjs';
-import { writePopulatedDeliveryUpgradeTest } from './refunds/refund-populated-delivery-upgrade.mjs';
+import { writePopulatedDeliveryUpgradeTest, writeSettledCompletionDeliveryTest } from './refunds/refund-populated-delivery-upgrade.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -405,6 +405,14 @@ async function main() {
     run('supabase', populatedUpgradeArgs, { relayOutput: true, cwd: tempRoot });
     fs.rmSync(populatedUpgradePath);
     log('Populated out-of-order delivery migration regression passed with all triggers enabled.');
+
+    const { testPath: settledDeliveryPath, testRelativePath: settledDeliveryRelativePath } =
+      writeSettledCompletionDeliveryTest(repoRoot, tempRoot);
+    const settledDeliveryArgs = ['test', 'db', settledDeliveryRelativePath, '--workdir', tempRoot];
+    if (options.debug) settledDeliveryArgs.push('--debug');
+    run('supabase', settledDeliveryArgs, { relayOutput: true, cwd: tempRoot });
+    fs.rmSync(settledDeliveryPath);
+    log('Settled token-bound completion delivery regression passed with all triggers enabled.');
 
     const { testPath: ownerAdapterTestPath, testRelativePath: ownerAdapterTestRelativePath } =
       writeRefundGmailIntakeShadowAdapterTest(tempRoot);
