@@ -28,6 +28,7 @@ const run = async () => {
     automationSweep,
     intake,
     messageSend,
+    manualMessageOutbox,
     gmailSync,
     statusRecoveryMigration,
     waitingLifecycleMigration,
@@ -52,6 +53,7 @@ const run = async () => {
     readText('supabase/functions/refund-case-automation-sweep/index.ts'),
     readText('supabase/functions/refund-case-intake/index.ts'),
     readText('supabase/functions/refund-case-message-send/index.ts'),
+    readText('supabase/functions/_shared/refund-manual-message-outbox.ts'),
     readText('supabase/functions/refund-gmail-sync/index.ts'),
     readText('supabase/migrations/20260830183702_refund_customer_status_recovery.sql'),
     readText('supabase/migrations/20260831232759_refund_waiting_lifecycle_truth.sql'),
@@ -371,8 +373,12 @@ const run = async () => {
     ]) &&
       includesAll(messageSend, [
         'manager_reviewed_gpt',
-        'delivery_kind: "manual"',
         'validateRefundGptReviewedDraft',
+        'service_enqueue_refund_manual_message_intent',
+      ]) &&
+      includesAll(manualMessageOutbox, [
+        'deliveryKind: "manual"',
+        'service_record_refund_gpt_triage_delivery',
       ])
   );
   assert(
