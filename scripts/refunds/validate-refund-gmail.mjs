@@ -33,6 +33,7 @@ const [
   managerNotification,
   syncFunction,
   sendFunction,
+  manualMessageOutbox,
   adminUpdate,
   automationSweep,
   intakeFunction,
@@ -76,6 +77,7 @@ const [
     read('supabase/functions/_shared/refund-manager-notification.ts'),
     read('supabase/functions/refund-gmail-sync/index.ts'),
     read('supabase/functions/refund-case-message-send/index.ts'),
+    read('supabase/functions/_shared/refund-manual-message-outbox.ts'),
     read('supabase/functions/refund-case-admin-update/index.ts'),
     read('supabase/functions/refund-case-automation-sweep/index.ts'),
     read('supabase/functions/refund-case-intake/index.ts'),
@@ -1555,9 +1557,9 @@ assert(
   'QA guidance must preserve private manager-notice fields and exact complete-route fallback semantics',
 );
 assert(
-  intakeFunction.includes('dispatchRefundCaseGmailReply') &&
+    intakeFunction.includes('dispatchRefundCaseGmailReply') &&
     intakeFunction.includes('cc: gmailDelivery.managerCcEmails') &&
-    sendFunction.includes('cc: gmailDelivery.managerCcEmails') &&
+    manualMessageOutbox.includes('cc: gmailDelivery.managerCcEmails') &&
     adminUpdate.includes('managerCcEmails: gmailDelivery.managerCcEmails') &&
     automationSweep.includes('managerCcEmails: gmailDelivery.managerCcEmails'),
   'Every transactional refund fallback must receive its complete manager recipient route from the fail-closed send-time resolver',
@@ -1571,26 +1573,27 @@ assert(
 const proofAuthorizationCall = sendFunction.indexOf(
   'authorizeRefundSyntheticGmailProof({',
 );
-const proofMessageInsert = sendFunction.indexOf(
-  '.from("refund_case_messages")',
+const proofMessageEnqueue = sendFunction.indexOf(
+  'service_enqueue_refund_manual_message_intent',
   proofAuthorizationCall,
 );
 const proofDatabaseBinding = sendFunction.indexOf(
-  'synthetic_gmail_proof_authorization_id:',
-  proofMessageInsert,
+  'p_synthetic_proof_authorization_id:',
+  proofMessageEnqueue,
 );
-const proofTransportCall = sendFunction.indexOf(
+const proofTransportCall = manualMessageOutbox.indexOf(
   'dispatchRefundCaseGmailReply({',
-  proofDatabaseBinding,
 );
 assert(
   proofAuthorizationCall >= 0 &&
-    proofMessageInsert > proofAuthorizationCall &&
-    proofDatabaseBinding > proofMessageInsert &&
-    proofTransportCall > proofDatabaseBinding &&
+    proofMessageEnqueue > proofAuthorizationCall &&
+    proofDatabaseBinding > proofMessageEnqueue &&
+    proofTransportCall >= 0 &&
     sendFunction.includes('runToken: body?.syntheticProofRunToken') &&
     sendFunction.includes('defaultTemplateOnly: !triageSuggestionId') &&
-    sendFunction.includes('syntheticProofAuthorizationId: syntheticProof.authorizationId'),
+    manualMessageOutbox.includes(
+      'syntheticProofAuthorizationId:\n        message.synthetic_gmail_proof_authorization_id',
+    ),
   'The case-message Edge path must authorize before insert, then pass its internal binding through the shared database boundary before transport',
 );
 const proofTransportVerification = gmailTransport.indexOf(
