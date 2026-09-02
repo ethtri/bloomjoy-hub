@@ -373,6 +373,7 @@ declare
   automatic_contact_enabled boolean := false;
   attempting_automatic_delivery boolean := false;
   reconciling_known_gmail_delivery boolean := false;
+  reconciling_known_transactional_delivery boolean := false;
 begin
   -- Immutable history can receive exact delivery bookkeeping after the case
   -- advances; every new send and non-delivery edit still uses the guards below.
@@ -462,6 +463,16 @@ begin
         and gmail_message.status = 'sent'
         and gmail_message.sent_at is not null
     ) into reconciling_known_gmail_delivery;
+    -- The provider may have accepted this exact reminder before its original
+    -- request failed. Finalizing that recorded acceptance is not another send.
+    reconciling_known_transactional_delivery :=
+      new.message_type = 'reminder'
+      and old.delivery_transport = 'resend'
+      and nullif(btrim(old.provider_message_id), '') is not null
+      and old.delivery_state in ('accepted', 'deferred', 'delivered')
+      and old.delivery_state_updated_at is not null
+      and (to_jsonb(new) - array['status', 'sent_at']::text[])
+        is not distinct from (to_jsonb(old) - array['status', 'sent_at']::text[]);
   end if;
 
   if tg_op = 'INSERT' then
@@ -469,7 +480,8 @@ begin
   elsif tg_op = 'UPDATE' then
     attempting_automatic_delivery := old.status = 'pending'
       and new.status = 'sent'
-      and not reconciling_known_gmail_delivery;
+      and not reconciling_known_gmail_delivery
+      and not reconciling_known_transactional_delivery;
   end if;
 
   if attempting_automatic_delivery then
