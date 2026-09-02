@@ -123,7 +123,8 @@
     "20260902160946_refund_gmail_reply_recovery.sql",
     "20260902174648_refund_sent_status_delivery_metadata.sql",
     "20260902182311_refund_all_message_delivery_bookkeeping.sql",
-    "20260902191832_refund_authoritative_reconciliation_receipt.sql"
+    "20260902191832_refund_authoritative_reconciliation_receipt.sql",
+    "20260902200508_refund_gmail_receipt_processing.sql"
   ],
   "migrationFilesSha256": "4bd41eb51e9a9e29c16c0dffbd1b9702a8475647f42db7f2d60f5e5004e78651",
   "migrationVersionSetSha256": "e63a7ac86ee773fcbe714a04d6a36ef595e2f09dc339fc66e322a6b85002fd06",
