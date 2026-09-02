@@ -19,6 +19,8 @@ import { toast } from 'sonner';
 import { isEdgeFunctionError } from '@/lib/edgeFunctions';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecycleProgress';
+import { RefundAuthoritativeReceiptPanel } from '@/components/refunds/RefundAuthoritativeReceiptPanel';
+import { hasConfirmedRefundReceipt } from '@/lib/refundAuthoritativeReceipt';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -694,6 +696,9 @@ const nayaxLookupNoticeClass = (tone: NayaxLookupNotice['tone']) =>
 const getRefundReferenceLabel = (_refundCase: RefundCaseRecord) => 'External refund confirmation/reference';
 
 const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxLookupCandidate[]) => {
+  if (hasConfirmedRefundReceipt(refundCase)) {
+    return 'Refund confirmed. Refund Operations must resolve the accounting date internally. Do not retry payment or send another customer notice.';
+  }
   if (refundCase.status === 'draft') {
     return 'Review the Gmail message, then ask for the missing location, purchase time, payment method, and transaction details.';
   }
@@ -1649,6 +1654,13 @@ const primaryActionConfig = (
   candidates: NayaxLookupCandidate[],
   refundReadiness: RefundReadiness | null
 ): PrimaryActionConfig => {
+  if (hasConfirmedRefundReceipt(refundCase)) {
+    return {
+      label: 'Refund confirmed · accounting review',
+      helper: 'Payment is confirmed. The settlement date remains unknown. Review the saved receipt and any existing sent notice below; do not retry payment or resend.',
+      disabled: true,
+    };
+  }
   const latestMessage = getLatestCustomerMessage(refundCase);
   const definitiveNoRefundRetryReady = isDefinitiveNoRefundRetryReady(refundCase);
   if (refundCase.legacyStateReviewRequired) {
@@ -2357,6 +2369,7 @@ export default function AdminRefundsPage() {
   const [isInternalTestConfirmationOpen, setIsInternalTestConfirmationOpen] = useState(false);
   const [isClassifyingInternalTest, setIsClassifyingInternalTest] = useState(false);
   const [nayaxCandidates, setNayaxCandidates] = useState<NayaxLookupCandidate[]>([]);
+  const [receiptCorrectionReviewActive, setReceiptCorrectionReviewActive] = useState(false);
   const [nayaxLookupNotice, setNayaxLookupNotice] = useState<NayaxLookupNotice | null>(null);
   const [nayaxExecutionNotice, setNayaxExecutionNotice] = useState<NayaxLookupNotice | null>(null);
   const [nayaxResolutionResult, setNayaxResolutionResult] =
@@ -2939,7 +2952,7 @@ export default function AdminRefundsPage() {
   );
   const primaryActionIssues = useMemo(
     () =>
-      primaryAction?.mode === 'retry_message'
+      (selectedCase && hasConfirmedRefundReceipt(selectedCase)) || primaryAction?.mode === 'retry_message'
         ? []
         : selectedCase && primaryActionEditor
           ? getCaseSaveIssues(selectedCase, primaryActionEditor)
@@ -5142,7 +5155,7 @@ export default function AdminRefundsPage() {
       (selectedCase.legacyStateReviewRequired ? null : editor.matchedNayaxMachineAuthTime) ||
       selectedCase.incidentAt;
     const actionLabel = `Refund ${formatCurrency(cardAmountCents)}`;
-    const paymentActionNeedsOperations = refundOperationsBlockedCaseIds.has(selectedCase.id);
+    const paymentActionNeedsOperations = !hasConfirmedRefundReceipt(selectedCase) && refundOperationsBlockedCaseIds.has(selectedCase.id);
     const hasReadyRefund =
       primaryAction?.mode === 'nayax_refund_execution' &&
       primaryAction.disabled !== true &&
@@ -5171,7 +5184,7 @@ export default function AdminRefundsPage() {
     const hasUnsavedTransactionChoice =
       !selectedCase.hasMatchedNayaxTransaction &&
       Boolean(editor.matchedNayaxCandidateToken.trim());
-    const managerState: RefundManagerState = selectedCase.customerDeliveryException
+    const managerState: RefundManagerState = hasConfirmedRefundReceipt(selectedCase) || selectedCase.customerDeliveryException
       ? baseManagerState
       : paymentActionNeedsOperations
       ? {
@@ -5696,12 +5709,25 @@ export default function AdminRefundsPage() {
             <div className={nayaxLookupNoticeClass(nayaxExecutionNotice.tone)}>{nayaxExecutionNotice.message}</div>
           )}
 
-          {selectedCase.legacyStateReviewRequired ||
+          {refundOperationsAccess && selectedCase.paymentMethod === 'card' && selectedCase.hasMatchedNayaxTransaction && (
+            <RefundAuthoritativeReceiptPanel key={selectedCase.id} caseId={selectedCase.id} demo={forceDemoData}
+              machineContext={{ machineLabel: selectedCase.machineLabel, locationName: selectedCase.locationName,
+                expectedCaseVersion: selectedCase.officialActionVersion }}
+              machineCorrection={selectedCase.machineCorrection} onCorrectionReviewChange={setReceiptCorrectionReviewActive} />
+          )}
+
+          {hasConfirmedRefundReceipt(selectedCase) ? (
+            <p data-testid="refund-receipt-accounting-only" className="mt-4 border-t border-border pt-4 text-sm text-muted-foreground">
+              Payment is confirmed. Accounting-date review is internal work. No new payment or customer message is available here.
+            </p>
+          ) : receiptCorrectionReviewActive ? (
+            <p className="mt-4 border-t border-border pt-4 text-sm text-muted-foreground">Machine correction review only. No payment or customer message is available in this review.</p>
+          ) : (selectedCase.legacyStateReviewRequired ||
           selectedCase.providerHold ||
           (selectedCase.providerOutcome === 'rejected' &&
             !isDefinitiveNoRefundRetryReady(selectedCase)) ||
           nayaxResolutionReadiness?.canStartEvidenceOnlyReconciliation === true ||
-          nayaxResolutionReadiness?.evidenceOnlyAttempt === true ? (
+          nayaxResolutionReadiness?.evidenceOnlyAttempt === true) ? (
             <>
               <div
                 data-testid={selectedCase.legacyStateReviewRequired

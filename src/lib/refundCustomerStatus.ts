@@ -44,6 +44,7 @@ export const refundCustomerMessageStates = [
 ] as const;
 export type RefundCustomerMessageState = typeof refundCustomerMessageStates[number];
 export const refundCustomerReasonCodes = [
+  'settlement_time_unknown',
   'card_payment_state_without_attempt',
   'refund_denied',
   'closed_without_denial',
@@ -301,6 +302,12 @@ export const getRefundCustomerStatusCopy = (
       };
     case 'refund_confirmed':
     case 'customer_notified':
+      if (lifecycle.reasonCode === 'settlement_time_unknown') return {
+        title: 'Refund confirmed',
+        detail: 'Nayax confirms that the full refund was completed. The exact processing date is not available.',
+        nextExpectation: 'No new refund request is needed. Reply to your existing Bloomjoy email if the credit is not visible.',
+        milestone: 'confirmed',
+      };
       return {
         title: 'Refund confirmed',
         detail: 'Nayax has approved your refund. Your bank may take up to 4 business days to show it on your account.',

@@ -292,6 +292,16 @@ Deno.test('manager state consumes the canonical lifecycle for automatic progress
   }
 });
 
+Deno.test('adopted unknown-date receipt keeps accounting internal without implying another customer send', () => {
+  const result = getRefundManagerState({ ...baseCase, lifecycle: {
+    ...lifecycle('customer_notified', 80, 'review_accounting_date'),
+    reasonCode: 'settlement_time_unknown', terminal: false,
+  } });
+  assertEquals(result.label, 'Refund confirmed · customer updated', 'Adopted notice is visible');
+  assertEquals(result.nextStep.includes('Do not retry payment or resend'), true, 'No second payment or send');
+  assertEquals(result.explanation.includes('settlement date remains unknown'), true, 'Accounting date remains unknown');
+});
+
 Deno.test('canonical waiting-on-customer stage wins over matching facts', () => {
   for (const paymentMethod of ['card', 'cash'] as const) {
     const result = getRefundManagerState({
