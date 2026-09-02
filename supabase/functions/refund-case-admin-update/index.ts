@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
+import { handleAuthoritativeReceipt, isAuthoritativeReceiptMode } from "../_shared/refund-authoritative-receipt.ts";
 import {
   buildRefundCustomerEmail,
   redactRefundStatusLinksForStorage,
@@ -769,6 +770,18 @@ serve(async (req) => {
     }
 
     const body = await req.json();
+    if (isAuthoritativeReceiptMode(body?.mode)) {
+      const receiptAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+      if (!supabaseUrl || !receiptAnonKey || user.is_anonymous) {
+        return jsonResponse({ errorCode: "receipt_unavailable", error: "Current Refund Operations access is required." }, 403);
+      }
+      const receiptClient = createClient(supabaseUrl, receiptAnonKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+        global: { headers: { Authorization: `Bearer ${accessToken}` } },
+      });
+      const receipt = await handleAuthoritativeReceipt(body, (name, args) => receiptClient.rpc(name, args));
+      return jsonResponse(receipt.body, receipt.status);
+    }
     const caseId = sanitizeText(body?.caseId, 80);
     if (!isUuid(caseId)) {
       return jsonResponse({ error: "Refund case is required." }, 400);

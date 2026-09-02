@@ -1,5 +1,12 @@
 # QA Smoke Test Checklist
 
+## Authoritative refund receipt with unknown settlement time (`#628`, `#971`)
+
+- [ ] In a disposable database, use the receipt fixture for both an unresolved attempt and an explicit no-attempt integrity hold. Confirm exact status `62` plus full-amount proof is required and no attempt, adjustment, settlement timestamp or customer message is created.
+- [ ] On `/admin/refunds` and the synthetic customer's `/refunds/status` view, at desktop and mobile widths, confirm payment is shown as confirmed with internal accounting-date review, no payment retry and no invented settlement or bank-arrival date.
+- [ ] Adopt a verified prior completion notice for one exact claim; replay creates no second adoption or outgoing message. A second pending claim in the same thread remains unnotified. Missing historical manager CC stays missing, not synthesized or resent.
+- [ ] Confirm current-session/machine mapping checks, stale/wrong evidence rejection, immutable receipt/adoption guards and legacy payment/send blocking in the hosted pgTAP suite. See `Docs/REFUND_AUTHORITATIVE_RECEIPTS.md`; production records are not test fixtures.
+
 ## Refund Operations v1 Nayax inventory (`#890`)
 
 - [ ] With the sync switch false, scheduled and manual health paths make no Nayax request and no inventory mutation.

@@ -381,6 +381,13 @@ export const getRefundManagerState = (
           'info'
         );
       case 'refund_confirmed':
+        if (lifecycle.reasonCode === 'settlement_time_unknown') return state(
+          'refund_confirmed',
+          'Refund confirmed · accounting review',
+          'Nayax confirms the full refund. Its settlement date is unknown, so no dated reporting adjustment has been applied.',
+          'Refund Operations owns the accounting-date review. Do not retry payment or resend the customer completion notice.',
+          'warning'
+        );
         return state(
           'refund_confirmed',
           'Refund confirmed',
