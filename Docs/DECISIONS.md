@@ -1519,3 +1519,13 @@ The earlier one-action cash-completion decision assumed the payout destination h
 - It preserves the external manual-payment boundary while removing the unsafe assumption that a usable destination exists off-system.
 
 This supersedes only the older assumption that the payout destination always exists outside Hub before completion. It does not make Hub a Zelle provider or authorize automatic payment.
+
+## 2026-09-02 - Historical owner-mailbox completion notices are private operator observations
+
+A current verified owner may record an already-SENT message from their own mailbox at or before the fixed cutoff `2026-09-02T19:51:58Z`, only against an existing exact full-refund receipt. This bounded historical exception records an operator observation, not provider-confirmed delivery, support-thread ownership, manager CC, or a new sender permission.
+
+The operator reviews the exact case reference and full amount in the notice against the selected receipt. The server binds the receipt's original transaction, account, machine and currency without claiming those identifiers appeared in the email. Another claim in the thread does not inherit completion. Current authenticated identity, live session, Super Admin authority, active machine mapping and case version are rechecked, including on replay.
+
+Checked evidence carries an opaque current-user/session/verified-email review binding, never a raw token or authority grant. A changed sign-in cannot inherit another owner's attestation even when the redacted case overview is otherwise identical.
+
+Private immutable evidence and the existing canonical notice-adoption row are committed together. Both source kinds share the mailbox/provider-message identity namespace and one adoption per receipt/case. Support Gmail ingestion and its `info@` sender guard remain unchanged; no historical owner message is copied into that mailbox. Exact replay is harmless; conflicting evidence fails. Public status contains no mailbox identity, message/thread ID or private evidence reference. Nothing sends, retries payment, changes historical messages/attempts, invents a settlement time or creates accounting entries.

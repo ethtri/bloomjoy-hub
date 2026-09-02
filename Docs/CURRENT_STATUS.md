@@ -23,6 +23,7 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 ## Current Themes
 
 - **Unknown-time refund receipts (`#628`, `#971`):** Evidence-only reconciliation preserves unknown settlement time and existing sent notices. Legacy portal provenance is not historical account authorization; current exact provider account/machine/full-refund review remains mandatory. Wrong-machine, incomplete provider identity and unavailable current provider evidence remain holds. Hosted database verification and independent review are release gates; no production reconciliation or accounting-date policy is included. See `Docs/REFUND_AUTHORITATIVE_RECEIPTS.md`.
+- **Historical owner-mailbox evidence (`#628`, `#971`):** A bounded pre-cutoff SENT observation uses the current verified mailbox owner and the same exact-receipt canonical adoption, without support ingestion, manager CC or delivery claims. This is not new sender permission; production activation still requires hosted race/security proof and actual workbench verification. See `Docs/REFUND_HISTORICAL_OWNER_NOTICE.md`.
 
 - **Internal/test confirmation fit (`#1048`):** the scoped confirmation layout must contain its explanation, reason, and wrapped action labels on desktop and narrow mobile screens. Short screens scroll the explanation while both actions remain visible. Reusable UAT checks dialog descendants, visible minimum-size touch targets, initial Cancel focus, and zero-mutation keyboard dismissal; classification and financial safeguards remain unchanged.
 

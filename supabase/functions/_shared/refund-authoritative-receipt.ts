@@ -1,5 +1,6 @@
 // Evidence-only handlers intentionally receive only an authenticated RPC
 // capability. They cannot reach a mail sender, provider executor, or service key.
+import { handleHistoricalOwnerNotice } from "./refund-historical-owner-notice.ts";
 type ReceiptRpc = (name: string, args: Record<string, unknown>) => PromiseLike<{
   data: unknown;
   error: unknown;
@@ -15,12 +16,13 @@ const exactKeys = (body: Record<string, unknown>, keys: string[]) =>
 
 export const isAuthoritativeReceiptMode = (mode: unknown) =>
   mode === "record_authoritative_receipt" || mode === "adopt_completion_notice" ||
-  mode === "correct_legacy_machine_and_record_observation";
+  mode === "correct_legacy_machine_and_record_observation" || mode === "record_historical_owner_notice";
 
 export async function handleAuthoritativeReceipt(
   body: Record<string, unknown>,
   rpc: ReceiptRpc,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
+  if (body.mode === "record_historical_owner_notice") return await handleHistoricalOwnerNotice(body, rpc);
   const invalid = { status: 400, body: { errorCode: "invalid_receipt_evidence", error: "Review the exact evidence again." } };
   if (!uuid(body.caseId) || !positiveInteger(body.expectedCaseVersion)) return invalid;
   let name: string;

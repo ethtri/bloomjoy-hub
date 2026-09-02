@@ -398,7 +398,7 @@ export const getRefundManagerState = (
         case 'customer_notified':
           if (lifecycle.reasonCode === 'settlement_time_unknown') return state(
             'refund_confirmed', 'Refund confirmed · customer updated',
-            'The existing customer notice is verified. The settlement date remains unknown and no dated reporting adjustment has been applied.',
+            'The existing customer notice is recorded for this claim. The settlement date remains unknown and no dated reporting adjustment has been applied.',
             'Refund Operations owns the accounting-date review. Do not retry payment or resend the customer notice.', 'warning'
           );
         return state(
