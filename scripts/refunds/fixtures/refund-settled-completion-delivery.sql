@@ -19,10 +19,16 @@ select ok((select attempt_value->>'status' = 'succeeded' and attempt_value->>'pr
   from settled_delivery_before), 'Delivery fixture has an actual settled token-bound completion and real reporting adjustment');
 update public.refund_customer_contact_settings set automatic_customer_contact_enabled = false where singleton;
 set local role service_role;
-select ok(pg_temp.capture_error($sql$
+select matches(pg_temp.capture_error($sql$
   update public.refund_case_messages set delivery_state_updated_at = delivery_state_updated_at + interval '1 second'
   where refund_case_id = '9a600000-0000-4000-8000-000000000001' and message_type = 'completed'
-$sql$) like '%orchestration-wrapper owned%', 'Direct API updates to token-bound completion remain wrapper-owned');
+$sql$), '^(42501:permission denied for table refund_case_nayax_refund_attempts|P0001:Nayax completion messages are orchestration-wrapper owned)$',
+  'Direct API completion updates are rejected by private attempt ACL or wrapper ownership');
+reset role;
+select is(to_jsonb(m), b.message_value, 'Rejected direct API update leaves every settled message field unchanged')
+from public.refund_case_messages m cross join settled_delivery_before b
+where m.refund_case_id = '9a600000-0000-4000-8000-000000000001' and m.message_type = 'completed';
+set local role service_role;
 select is(public.service_bind_refund_transactional_delivery(
   (select (result->>'refundCaseMessageId')::uuid from pg_temp.nayax_provider_results where result_key = 'completion-claim'),
   'resend_settled_completion_fixture', statement_timestamp())->>'bound', 'true',
