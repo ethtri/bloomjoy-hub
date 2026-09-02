@@ -209,7 +209,11 @@ assert.match(
 );
 assert.match(
   refundsSource,
-  /setStatusFilter\('all'\);[\s\S]*?invalidateQueries\(\{ queryKey: \['admin-refund-operations-overview'\] \}\)[\s\S]*?setStatusFilter\(canonicalQueueBucket\(authoritativeCase\)\)/
+  /setStatusFilter\('all'\);[\s\S]*?invalidateQueries\(\{ queryKey: \['admin-refund-operations-overview'\] \}\)[\s\S]*?setStatusFilter\(getRefundQueueFilterForCase\(authoritativeCase, refundOperationsAccess\)\)/
+);
+assert.match(
+  refundsSource,
+  /findRefundDeepLinkedCase\(caseIdFromUrl, overview\.cases, internalTestCases\)/
 );
 
 console.log(

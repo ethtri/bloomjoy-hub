@@ -6,7 +6,7 @@ import type {
   RefundManagerQueueBucket,
 } from "./refundLifecycle.ts";
 import { getRefundManagerState } from "./refundManagerState.ts";
-import { getRefundManagerQueueBucket } from "./refundQueue.ts";
+import { findRefundDeepLinkedCase, getRefundManagerQueueBucket, getRefundQueueFilterForCase } from "./refundQueue.ts";
 
 const lifecycle = (
   stage: RefundLifecycleContract["stage"],
@@ -97,6 +97,18 @@ const cardCase = (contract: RefundLifecycleContract) => ({
   paymentMethod: "card" as const,
   correlationStatus: "needs_nayax" as const,
   lifecycle: contract,
+});
+
+Deno.test('v2 exception buckets map to visible filters without exposing archive deep links', () => {
+  const integrity = { id: 'integrity-case', ...cardCase(lifecycle('integrity_hold', 'integrity_hold', 'refund_operations')) };
+  const archived = { id: 'archived-case', ...cardCase(lifecycle('internal_test_archived', 'internal_archive', 'none')) };
+  assertEquals(getRefundQueueFilterForCase(integrity, true), 'provider_hold');
+  assertEquals(getRefundQueueFilterForCase(integrity, false), 'all');
+  assertEquals(getRefundQueueFilterForCase(archived, true), 'internal_test');
+  assertEquals(findRefundDeepLinkedCase('integrity-case', [integrity], []), integrity);
+  assertEquals(findRefundDeepLinkedCase('archived-case', [integrity], [archived]), archived);
+  assertEquals(findRefundDeepLinkedCase('archived-case', [integrity], []), undefined);
+  assertEquals(findRefundDeepLinkedCase('missing-case', [integrity], [archived]), undefined);
 });
 
 Deno.test(

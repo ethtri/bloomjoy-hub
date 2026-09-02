@@ -4,11 +4,23 @@ import {
   isRefundLifecycleContract,
   REFUND_LIFECYCLE_SCHEMA_VERSION,
   requireRefundLifecycleContract,
+  refundLifecycleStages,
 } from "./refundLifecycle.ts";
+import { getRefundLifecycleProgressPresentation } from './refundLifecyclePresentation.ts';
 
 const assert = (condition: unknown, message: string) => {
   if (!condition) throw new Error(message);
 };
+
+Deno.test('every v2 lifecycle has an explicit progress label and nonpayment states have no payment milestones', () => {
+  for (const stage of refundLifecycleStages) {
+    const presentation = getRefundLifecycleProgressPresentation({ stage });
+    assert(Boolean(presentation.label?.trim()), `${stage} has a readable label`);
+    const nonPayment = ['denied', 'unable_to_complete', 'internal_test_archived', 'integrity_hold'].includes(stage);
+    assert(presentation.showMilestones === !nonPayment, `${stage} milestone visibility`);
+    if (nonPayment) assert(Boolean(presentation.note), `${stage} has explicit nonpayment copy`);
+  }
+});
 
 const fixture = {
   schemaVersion: REFUND_LIFECYCLE_SCHEMA_VERSION,

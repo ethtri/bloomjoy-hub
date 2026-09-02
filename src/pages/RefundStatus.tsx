@@ -9,10 +9,10 @@ import { fetchRefundCustomerStatus, isLocalUatDemoForced } from '@/lib/refundOpe
 import {
   getRefundCustomerRefreshMs,
   getRefundCustomerStatusCopy,
-  refundCustomerLifecycleStages,
   type RefundCustomerLifecycle,
   type RefundCustomerStatusCopy,
 } from '@/lib/refundCustomerStatus';
+import { buildRefundCustomerStatusDemo } from '@/lib/refundCustomerStatusDemo';
 import { cn } from '@/lib/utils';
 
 const SESSION_TOKEN_KEY = 'bloomjoy-refund-status-capability';
@@ -73,37 +73,7 @@ export default function RefundStatusPage() {
   const isDemoMode = isLocalUatDemoForced();
   const demoLifecycle = useMemo<RefundCustomerLifecycle | null>(() => {
     if (!isDemoMode || typeof window === 'undefined') return null;
-    const requestedStage = new URLSearchParams(window.location.search).get('stage') ?? 'matching';
-    const stage = refundCustomerLifecycleStages.includes(
-      requestedStage as RefundCustomerLifecycle['stage'],
-    )
-      ? requestedStage as RefundCustomerLifecycle['stage']
-      : 'matching';
-    return {
-      schemaVersion: 'refund_lifecycle_v2',
-      version: 1,
-      stage,
-      stageRank: refundCustomerLifecycleStages.indexOf(stage),
-      reasonCode: `demo_${stage}`,
-      customerAction: {
-        action: stage === 'waiting_on_customer' ? 'reply_in_existing_thread' : 'none',
-        required: stage === 'waiting_on_customer',
-        requestedFields: stage === 'waiting_on_customer' ? ['incident_time'] : [],
-        payloadRedacted: true,
-      },
-      paymentState: ['refund_confirmed', 'customer_notified'].includes(stage)
-        ? 'confirmed'
-        : 'not_requested',
-      messageState: {
-        state: stage === 'customer_notified' ? 'delivered' : 'none',
-        payloadRedacted: true,
-      },
-      lastUpdatedAt: new Date().toISOString(),
-      publicCopyKey: `demo_${stage}`,
-      terminal: ['customer_notified', 'denied', 'unable_to_complete'].includes(stage),
-      refreshAfterSeconds: ['customer_notified', 'denied', 'unable_to_complete'].includes(stage) ? null : 5,
-      payloadRedacted: true,
-    };
+    return buildRefundCustomerStatusDemo(new URLSearchParams(window.location.search).get('stage'));
   }, [isDemoMode]);
 
   useEffect(() => {

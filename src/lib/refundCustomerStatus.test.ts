@@ -5,7 +5,24 @@ import {
   getRefundCustomerRefreshMs,
   getRefundCustomerStatusCopy,
   requireRefundCustomerLifecycle,
+  refundCustomerLifecycleStages,
 } from './refundCustomerStatus.ts';
+import { buildRefundCustomerStatusDemo } from './refundCustomerStatusDemo.ts';
+
+Deno.test('every customer demo stage passes the strict live parser with canonical facts', () => {
+  for (const stage of refundCustomerLifecycleStages) {
+    const demo = buildRefundCustomerStatusDemo(stage, '2026-09-02T12:00:00.000Z');
+    assertEquals(requireRefundCustomerLifecycle(demo), demo);
+    assertEquals(demo.stage, stage);
+    assertEquals(demo.reasonCode.startsWith('demo_'), false);
+    assertEquals(demo.publicCopyKey.startsWith('demo_'), false);
+  }
+  assertEquals(buildRefundCustomerStatusDemo('internal_test_archived').stage, 'matching');
+  assertEquals(buildRefundCustomerStatusDemo(null).stage, 'matching');
+  assertEquals(buildRefundCustomerStatusDemo('integrity_hold').paymentState, 'integrity_unknown');
+  assertEquals(buildRefundCustomerStatusDemo('awaiting_payout').paymentState, 'external_payment_required');
+  assertEquals(buildRefundCustomerStatusDemo('unable_to_complete').terminal, true);
+});
 
 const reasonCodes: Record<string, string> = {
   matching: 'lookup_in_progress',

@@ -94,7 +94,12 @@ import {
   type RefundManagerState,
   type RefundManagerStateTone,
 } from '@/lib/refundManagerState';
-import { getRefundManagerQueueBucket } from '@/lib/refundQueue';
+import {
+  findRefundDeepLinkedCase,
+  getRefundManagerQueueBucket,
+  getRefundQueueFilterForCase,
+  type RefundQueueFilter as QueueFilter,
+} from '@/lib/refundQueue';
 import { cn } from '@/lib/utils';
 
 const statusDecisionMap: Partial<Record<RefundCaseStatus, Exclude<RefundDecision, null>>> = {
@@ -336,20 +341,6 @@ type NayaxLookupNotice = {
   title?: string;
   message: string;
 };
-
-type QueueFilter =
-  | 'needs_action'
-  | 'in_progress'
-  | 'missing_information'
-  | 'possible_duplicate'
-  | 'aging'
-  | 'provider_hold'
-  | 'waiting_on_customer'
-  | 'ready_to_pay'
-  | 'blocked'
-  | 'completed'
-  | 'internal_test'
-  | 'all';
 
 type CustomerMessageResult = {
   type: string;
@@ -885,7 +876,7 @@ const isRefundInProgressCase = (refundCase: RefundCaseRecord) => {
 };
 
 const isRefundOperationsCase = (refundCase: RefundCaseRecord) => {
-  if (refundCase.lifecycle) return canonicalQueueBucket(refundCase) === 'provider_hold';
+  if (refundCase.lifecycle) return ['provider_hold', 'integrity_hold'].includes(canonicalQueueBucket(refundCase));
   return refundCase.paymentMethod === 'card' &&
     refundCase.lifecycle?.stage === 'needs_refund_operations';
 };
@@ -3051,7 +3042,7 @@ export default function AdminRefundsPage() {
         // A confirmed transaction can change queues. Keep the selected detail
         // attached to the server-owned queue instead of deriving readiness
         // from this mutation response or clearing it under the old filter.
-        setStatusFilter(canonicalQueueBucket(authoritativeCase));
+        setStatusFilter(getRefundQueueFilterForCase(authoritativeCase, refundOperationsAccess));
         setEditor(toEditorState(authoritativeCase));
       } else {
         setEditor(toEditorState(confirmedCase));
@@ -4028,31 +4019,24 @@ export default function AdminRefundsPage() {
   ]);
 
   useEffect(() => {
-    if (overview.cases.length === 0) return;
+    if (overview.cases.length === 0 && internalTestCases.length === 0) return;
     if (typeof window === 'undefined') return;
 
     const caseIdFromUrl = new URLSearchParams(window.location.search).get('case');
     if (!caseIdFromUrl || handledCaseQueryRef.current === caseIdFromUrl) return;
 
-    const caseFromUrl = overview.cases.find((refundCase) => refundCase.id === caseIdFromUrl);
+    const caseFromUrl = findRefundDeepLinkedCase(caseIdFromUrl, overview.cases, internalTestCases);
     if (!caseFromUrl) return;
     handledCaseQueryRef.current = caseIdFromUrl;
 
     if (!filteredCases.some((refundCase) => refundCase.id === caseFromUrl.id)) {
-      setStatusFilter(
-        caseFromUrl.lifecycle?.managerQueue.bucket ??
-          (doneStatuses.has(caseFromUrl.status)
-            ? 'completed'
-            : caseFromUrl.status === 'waiting_on_customer'
-              ? 'waiting_on_customer'
-              : 'needs_action')
-      );
+      setStatusFilter(getRefundQueueFilterForCase(caseFromUrl, refundOperationsAccess));
       setSearch('');
     }
     handleSelectCase(caseFromUrl);
     // The selector intentionally runs once per loaded overview/query-string case.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overview.cases]);
+  }, [overview.cases, internalTestCases]);
 
   const handleOpenAttachment = async (attachmentId: string) => {
     const attachment = selectedCase?.attachments.find((item) => item.id === attachmentId);
