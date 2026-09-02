@@ -6582,11 +6582,16 @@ const runInternalTestDispositionChecks = async ({ browser, appUrl, artifactDir, 
         }),
         touchTargets: [...element.querySelectorAll('button')].every((button) =>
           button.getBoundingClientRect().height >= 44),
+        actionsVisible: [...element.querySelectorAll('button')].every((button) => {
+          const rect = button.getBoundingClientRect();
+          return rect.top >= dialog.top + 1 && rect.bottom <= dialog.bottom - 1 &&
+            rect.top >= 8 && rect.bottom <= window.innerHeight - 8;
+        }),
       };
     });
     recorder.assert(
       `Internal/test confirmation stays inside its background and viewport at ${viewport.width}px`,
-      bounds.fitsViewport && bounds.contentFits && bounds.touchTargets,
+      bounds.fitsViewport && bounds.contentFits && bounds.touchTargets && bounds.actionsVisible,
       JSON.stringify(bounds)
     );
     const cancel = confirmation.getByRole('button', { name: 'Keep in customer workflow', exact: true });

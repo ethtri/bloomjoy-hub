@@ -8168,23 +8168,25 @@ export default function AdminRefundsPage() {
       >
         <AlertDialogContent
           data-testid="refund-internal-test-confirmation-dialog"
-          className="max-h-[calc(100dvh_-_2rem)] w-[calc(100%_-_2rem)] max-w-lg grid-cols-1 overflow-y-auto break-words rounded-lg"
+          className="flex max-h-[calc(100dvh_-_2rem)] w-[calc(100%_-_2rem)] max-w-lg flex-col overflow-hidden break-words rounded-lg"
         >
-          <AlertDialogHeader>
-            <AlertDialogTitle>Move this record to the Internal/test archive?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This one-way audited disposition is not a customer denial. It sends no message and issues no refund. Customer messages, refunds, reporting adjustments, reminders, and customer SLA escalation will be suppressed.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm text-slate-950">
-            <p className="font-medium">
-              Reason: {internalTestReasonOptions.find((option) => option.value === internalTestReason)?.label ?? 'Not selected'}
-            </p>
-            <p className="mt-1 leading-6">
-              Existing evidence and message history remain in the archive. Cases with unresolved or completed payment effects cannot use this disposition.
-            </p>
+          <div className="min-h-0 space-y-4 overflow-y-auto">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Move this record to the Internal/test archive?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This one-way audited disposition is not a customer denial. It sends no message and issues no refund. Customer messages, refunds, reporting adjustments, reminders, and customer SLA escalation will be suppressed.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm text-slate-950">
+              <p className="font-medium">
+                Reason: {internalTestReasonOptions.find((option) => option.value === internalTestReason)?.label ?? 'Not selected'}
+              </p>
+              <p className="mt-1 leading-6">
+                Existing evidence and message history remain in the archive. Cases with unresolved or completed payment effects cannot use this disposition.
+              </p>
+            </div>
           </div>
-          <AlertDialogFooter className="gap-2 sm:flex-col-reverse sm:space-x-0">
+          <AlertDialogFooter className="shrink-0 gap-2 sm:flex-col-reverse sm:space-x-0">
             <AlertDialogCancel
               className="mt-0 h-auto min-h-11 w-full whitespace-normal py-2"
               disabled={isClassifyingInternalTest}
