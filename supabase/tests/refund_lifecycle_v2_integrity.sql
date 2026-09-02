@@ -288,9 +288,9 @@ insert into public.refund_case_messages (
   refund_case_id, message_type, status, recipient_email, subject, body,
   template_key, delivery_transport, delivery_state, delivery_state_updated_at
 ) values (
-  'e4000000-0000-4000-8000-000000000001', 'completed', 'failed',
-  'lifecycle-normal@example.invalid', 'Completion', 'Redacted completion',
-  'refund_completed_v2_test', 'resend', 'failed', statement_timestamp()
+  'e4000000-0000-4000-8000-000000000001', 'status_update', 'failed',
+  'lifecycle-normal@example.invalid', 'Status update', 'Redacted status update',
+  'refund_status_update_v2_test', 'resend', 'failed', statement_timestamp()
 );
 
 select ok(
