@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(26);
+select plan(27);
 
 create function pg_temp.capture_error(statement text)
 returns text language plpgsql as $$
@@ -107,6 +107,13 @@ select ok(
       ])
   ),
   'The customer-message ledger exposes the durable outbox state'
+);
+
+select ok(
+  pg_get_functiondef(
+    'public.admin_get_refund_gmail_draft_cases()'::regprocedure
+  ) like '%''officialActionVersion'', refund_case.official_action_version%',
+  'The Gmail draft projection exposes the current version required to queue a durable reply'
 );
 
 set local role service_role;
