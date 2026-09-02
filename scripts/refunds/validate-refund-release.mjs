@@ -287,8 +287,12 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    118,
-    'Refund release inventory must cover exactly 118 discovered refund/Nayax migrations'
+    119,
+    'Refund release inventory must cover exactly 119 discovered refund/Nayax migrations'
+  );
+  assert(
+    repositoryMigrations.includes('20260902181044_refund_legacy_machine_correction.sql'),
+    'The bounded legacy machine correction must be in the release inventory'
   );
   assert(
     repositoryMigrations.includes('20260902161318_refund_authoritative_reconciliation_receipt.sql'),
