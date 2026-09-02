@@ -121,7 +121,8 @@
     "20260902002716_refund_manual_message_outbox.sql",
     "20260902004500_refund_payout_destination_follow_up.sql",
     "20260902160946_refund_gmail_reply_recovery.sql",
-    "20260902174648_refund_sent_status_delivery_metadata.sql"
+    "20260902174648_refund_sent_status_delivery_metadata.sql",
+    "20260902182311_refund_all_message_delivery_bookkeeping.sql"
   ],
   "migrationFilesSha256": "c68e054f291c630aa8c477683b26f97178c44b639afcf43b664443e7c9400ab2",
   "migrationVersionSetSha256": "36c4daa72699b34eb3bb3d82f561d69b389848fa38233a3739659f29f8be6626",
