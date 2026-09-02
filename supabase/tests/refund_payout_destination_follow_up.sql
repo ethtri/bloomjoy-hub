@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(54);
+select plan(55);
 
 create function pg_temp.capture_error(statement text)
 returns text language plpgsql as $$
@@ -814,7 +814,7 @@ reset role;
 -- case-message settlement. No test hand-edits the satisfied state.
 create temp table payout_race_fixtures (
   transport text, case_id uuid, request_id uuid, reminder_id uuid,
-  thread_id uuid, reply_id uuid, reply_result jsonb
+  thread_id uuid, reply_id uuid, reply_result jsonb, message_status_after_reply text
 );
 grant select on payout_race_fixtures to service_role;
 update public.refund_customer_contact_settings set automatic_customer_contact_enabled = true;
@@ -939,7 +939,9 @@ begin
     );
     insert into payout_race_fixtures values (
       transport, case_id, request_id, (reminder ->> 'messageId')::uuid,
-      thread_id, reply_id, reply_result
+      thread_id, reply_id, reply_result,
+      (select message.status from public.refund_case_messages message
+       where message.id = (reminder ->> 'messageId')::uuid)
     );
   end loop;
 end;
@@ -947,14 +949,39 @@ $$;
 select is((select count(*)::integer from payout_race_fixtures
   where reply_result ->> 'outcome' = 'applied'), 3,
   'Same-thread payout replies apply between provider entry and reminder settlement');
+select diag((select jsonb_object_agg(fixture.transport, jsonb_build_object(
+  'immediatelyAfterReply', fixture.message_status_after_reply,
+  'afterSubsequentClaims', message.status,
+  'followUp', follow_up.status
+))::text
+from payout_race_fixtures fixture
+join public.refund_case_messages message on message.id = fixture.reminder_id
+join public.refund_payout_destination_follow_ups follow_up
+  on follow_up.refund_case_id = fixture.case_id));
 select ok(
-  (select bool_and(message.status = 'pending')
-   from payout_race_fixtures fixture join public.refund_case_messages message
-     on message.id = fixture.reminder_id where fixture.transport <> 'not_started')
-  and (select message.status = 'skipped'
-   from payout_race_fixtures fixture join public.refund_case_messages message
-     on message.id = fixture.reminder_id where fixture.transport = 'not_started'),
+  (select bool_and(message_status_after_reply = 'pending')
+   from payout_race_fixtures where transport <> 'not_started')
+  and (select message_status_after_reply = 'skipped'
+   from payout_race_fixtures where transport = 'not_started'),
   'Reply cancels only pre-provider reminders and preserves started transport uncertainty'
+);
+-- Creating the next fixture calls the real claim sweep, whose first action is
+-- to reconcile an earlier Gmail sent receipt. Verify that recovery separately
+-- from the immediate post-reply race boundary captured above.
+select ok(
+  (select message.status = 'sent' and message.sent_at = outbound.sent_at
+      and follow_up.status = 'satisfied' and follow_up.escalation_due_at is null
+      and refund_case.automation_follow_up_due_at is null
+   from payout_race_fixtures fixture
+   join public.refund_case_messages message on message.id = fixture.reminder_id
+   join public.refund_gmail_messages outbound
+     on outbound.refund_case_message_id = message.id
+       and outbound.direction = 'outbound' and outbound.status = 'sent'
+   join public.refund_payout_destination_follow_ups follow_up
+     on follow_up.refund_case_id = fixture.case_id
+   join public.refund_cases refund_case on refund_case.id = fixture.case_id
+   where fixture.transport = 'gmail'),
+  'Subsequent sweep settles the exact Gmail sent receipt without reopening its satisfied request'
 );
 select ok(pg_temp.capture_error($$update public.refund_case_messages
   set status = 'sent', sent_at = statement_timestamp()
