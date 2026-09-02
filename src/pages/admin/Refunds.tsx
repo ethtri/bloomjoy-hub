@@ -8166,7 +8166,10 @@ export default function AdminRefundsPage() {
           if (!isClassifyingInternalTest) setIsInternalTestConfirmationOpen(open);
         }}
       >
-        <AlertDialogContent data-testid="refund-internal-test-confirmation-dialog" className="max-w-lg">
+        <AlertDialogContent
+          data-testid="refund-internal-test-confirmation-dialog"
+          className="max-h-[calc(100dvh_-_2rem)] w-[calc(100%_-_2rem)] max-w-lg grid-cols-1 overflow-y-auto break-words rounded-lg"
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>Move this record to the Internal/test archive?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -8181,10 +8184,16 @@ export default function AdminRefundsPage() {
               Existing evidence and message history remain in the archive. Cases with unresolved or completed payment effects cannot use this disposition.
             </p>
           </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isClassifyingInternalTest}>Keep in customer workflow</AlertDialogCancel>
+          <AlertDialogFooter className="gap-2 sm:flex-col-reverse sm:space-x-0">
+            <AlertDialogCancel
+              className="mt-0 h-auto min-h-11 w-full whitespace-normal py-2"
+              disabled={isClassifyingInternalTest}
+            >
+              Keep in customer workflow
+            </AlertDialogCancel>
             <AlertDialogAction
               data-testid="refund-confirm-internal-test-classification"
+              className="h-auto min-h-11 w-full whitespace-normal py-2"
               disabled={!internalTestReason || isClassifyingInternalTest}
               onClick={(event) => {
                 event.preventDefault();

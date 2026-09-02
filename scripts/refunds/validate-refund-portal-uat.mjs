@@ -6554,9 +6554,58 @@ const runInternalTestDispositionChecks = async ({ browser, appUrl, artifactDir, 
     fullPage: false,
   });
 
-  await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.getByTestId('refund-open-internal-test-confirmation').click();
   const confirmation = page.getByTestId('refund-internal-test-confirmation-dialog');
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 320, height: 568 },
+    { width: 1440, height: 1000 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.getByTestId('refund-open-internal-test-confirmation').click();
+    await confirmation.waitFor({ state: 'visible' });
+    await confirmation.evaluate((element) => Promise.all(
+      element.getAnimations({ subtree: true }).map((animation) => animation.finished)
+    ));
+    const bounds = await confirmation.evaluate((element) => {
+      const dialog = element.getBoundingClientRect();
+      const descendants = [...element.querySelectorAll('*')].filter((child) => {
+        const rect = child.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+      return {
+        fitsViewport: dialog.left >= 8 && dialog.right <= window.innerWidth - 8 &&
+          dialog.top >= 8 && dialog.bottom <= window.innerHeight - 8,
+        contentFits: element.scrollWidth <= element.clientWidth + 1 && descendants.every((child) => {
+          const rect = child.getBoundingClientRect();
+          return rect.left >= dialog.left - 1 && rect.right <= dialog.right + 1 &&
+            child.scrollWidth <= child.clientWidth + 1;
+        }),
+        touchTargets: [...element.querySelectorAll('button')].every((button) =>
+          button.getBoundingClientRect().height >= 44),
+      };
+    });
+    recorder.assert(
+      `Internal/test confirmation stays inside its background and viewport at ${viewport.width}px`,
+      bounds.fitsViewport && bounds.contentFits && bounds.touchTargets,
+      JSON.stringify(bounds)
+    );
+    const cancel = confirmation.getByRole('button', { name: 'Keep in customer workflow', exact: true });
+    recorder.assert(
+      `Internal/test confirmation safely focuses Cancel at ${viewport.width}px`,
+      await cancel.evaluate((element) => element === document.activeElement)
+    );
+    const cancelKey = viewport.width === 320 ? 'Escape' : 'Enter';
+    await page.keyboard.press(cancelKey);
+    await confirmation.waitFor({ state: 'hidden' });
+    recorder.assert(
+      `Keyboard ${cancelKey} dismisses Internal/test confirmation without a mutation at ${viewport.width}px`,
+      !classified && classificationBodies.length === 0 && functionCalls.length === 0 &&
+        rpcCalls.filter((name) => name === 'admin_classify_refund_case_internal_test').length === 0 &&
+        await disposition.isVisible() &&
+        await page.getByTestId('refund-internal-test-reason').inputValue() === 'employee_technician_test'
+    );
+  }
+  await page.getByTestId('refund-open-internal-test-confirmation').click();
   await confirmation.waitFor({ state: 'visible' });
   await page.getByText('Signed in. Redirecting...', { exact: true })
     .waitFor({ state: 'hidden', timeout: 5000 })
