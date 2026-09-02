@@ -176,6 +176,7 @@ begin
     or p_currency_code is distinct from c.matched_nayax_currency_code
     or p_currency_code is null or p_currency_code !~ '^[A-Z]{3}$'
     or p_provider_status is distinct from 62
+    or p_reviewed_current_provider_observation is distinct from true
     or not public.refund_nayax_resolution_reference_is_safe(p_evidence_reference, 'nayax_dtm_transaction')
     or p_evidence_reference is distinct from 'DTM:NAYAX-' || p_original_transaction_id then
     raise exception 'Exact original, account, machine, full amount and authoritative Refunded evidence required' using errcode = 'P4661';
@@ -234,9 +235,6 @@ begin
     or a.case_finalization_committed_at is not null then
     raise exception 'Exact latest unresolved attempt required' using errcode = 'P4661';
   elsif legacy_event_id is not null then
-    if p_reviewed_current_provider_observation is distinct from true then
-      raise exception 'Separately review the current provider account, machine and exact full refund' using errcode='P4661';
-    end if;
     binding_kind:='legacy_manual_portal_observation';
   elsif
     -- Modern authorization validation remains unchanged. A legacy receipt is a
