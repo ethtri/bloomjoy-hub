@@ -230,8 +230,12 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    112,
-    'Refund release inventory must cover exactly 112 discovered refund/Nayax migrations'
+    113,
+    'Refund release inventory must cover exactly 113 discovered refund/Nayax migrations'
+  );
+  assert(
+    repositoryMigrations.includes('20260902002716_refund_manual_message_outbox.sql'),
+    'The durable manager-message outbox migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260901080000_refund_gmail_existing_case_linking.sql'),
