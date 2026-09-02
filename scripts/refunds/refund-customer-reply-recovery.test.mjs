@@ -142,6 +142,17 @@ test('fresh application and unchanged arbitrary reply do not duplicate lookup', 
   assert.equal(state.applications, 1);
 });
 
+test('Spanish card-type reply persists on the same case and reranks exactly once on replay', async () => {
+  const { state, run } = harness();
+  await run('verified-spanish-message', 'Tipo de tarjeta: Visa');
+  await run('verified-spanish-message', 'Tipo de tarjeta: Visa');
+  assert.equal(state.current.card_network, 'visa');
+  assert.equal(state.current.deterministic_fact_version, 2);
+  assert.equal(state.events, 1);
+  assert.equal(state.applications, 1);
+  assert.equal(state.lookups, 1);
+});
+
 test('old applied reply cannot overwrite or rerank newer facts', async () => {
   const { state, run } = harness();
   await run();

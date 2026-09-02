@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-09-02 - Localized refund reply instructions are a parser contract (`#891`, `#923`)
+
+- Every copyable Spanish field label emitted by the customer email must be recognized by the deterministic reply extractor; translation alone does not complete the customer workflow. Supported payment answers use a fixed translation dictionary, not free-form inference.
+- Spanish `Monto` accepts an unambiguous one- or two-digit decimal comma or the existing decimal point. Ambiguous grouping, mixed separators, invalid dates/times, and conflicting bilingual fields require manager review. A comma must never be removed in a way that multiplies a customer-reported amount.
+- English and Spanish quoted-message boundaries are excluded. Physical-card/wallet provenance, atomic same-case fact application, one version-keyed lookup, and authoritative selected-transaction execution values remain unchanged. This contract grants no customer-contact or payment authority.
+
 ## 2026-09-01 - Manager-authored refund email uses one durable outbox (`#917`)
 
 - The manager portal commits the exact case version, recipient, subject, body, message class, requested fields, locale-derived copy, reviewed-triage provenance, and one client intent ID in the customer-message ledger before any Gmail or transactional-provider access. The same transaction records a redacted queued event.
