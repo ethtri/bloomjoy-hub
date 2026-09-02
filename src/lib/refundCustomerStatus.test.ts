@@ -24,6 +24,17 @@ Deno.test('every customer demo stage passes the strict live parser with canonica
   assertEquals(buildRefundCustomerStatusDemo('unable_to_complete').terminal, true);
 });
 
+Deno.test('confirmed refund with unknown settlement time never invents a processing date or deadline', () => {
+  const value = requireRefundCustomerLifecycle({
+    ...lifecycle('refund_confirmed', 80), reasonCode: 'settlement_time_unknown',
+  });
+  const copy = getRefundCustomerStatusCopy(value);
+  assertEquals(copy.title, 'Refund confirmed');
+  assertEquals(copy.detail.includes('exact processing date is not available'), true);
+  assertEquals(copy.nextExpectation.includes('4 business days'), false);
+  assertEquals(getRefundCustomerRefreshMs(value), 5000);
+});
+
 const reasonCodes: Record<string, string> = {
   matching: 'lookup_in_progress',
   waiting_on_customer: 'waiting_for_purchase_evidence',

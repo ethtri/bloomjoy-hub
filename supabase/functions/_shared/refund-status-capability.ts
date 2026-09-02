@@ -67,6 +67,7 @@ type CustomerRefundMessageState =
   | "delivery_unconfirmed"
   | "sent";
 type CustomerRefundReasonCode =
+  | "settlement_time_unknown"
   | "card_payment_state_without_attempt"
   | "refund_denied"
   | "closed_without_denial"
@@ -177,6 +178,7 @@ const lifecycleMessageStates = new Set<CustomerRefundMessageState>([
   "sent",
 ]);
 const lifecycleReasonCodes = new Set<CustomerRefundReasonCode>([
+  "settlement_time_unknown",
   "card_payment_state_without_attempt",
   "refund_denied",
   "closed_without_denial",

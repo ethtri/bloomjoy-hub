@@ -221,7 +221,7 @@ const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-relea
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
 const reviewedManagerSourceSha256 = {
   'refund-manager-action-step-up':
-    'd04073ca6ea91d75d13e9414b1bc23cd5aa76a57cd4e62a8d5182accdaee668a',
+    'b81f078b652bd1ae576d5c6da14962039a755e9f47bfe8be0971484a1c25e447',
   'refund-manager-totp-enrollment':
     'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
 };
@@ -287,8 +287,12 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    118,
-    'Refund release inventory must cover exactly 118 discovered refund/Nayax migrations'
+    119,
+    'Refund release inventory must cover exactly 119 discovered refund/Nayax migrations'
+  );
+  assert(
+    repositoryMigrations.includes('20260902191832_refund_authoritative_reconciliation_receipt.sql'),
+    'The exact-original authoritative receipt contract must be in the release inventory'
   );
   assert(
     repositoryMigrations.includes('20260902182311_refund_all_message_delivery_bookkeeping.sql'),
