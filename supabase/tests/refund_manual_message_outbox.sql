@@ -85,10 +85,11 @@ insert into public.refund_cases (
   ('b1400000-0000-4000-8000-000000000003', 'RF-OUTBOX-INTERNAL', 'b1300000-0000-4000-8000-000000000001', 'b1200000-0000-4000-8000-000000000001', 'outbox-internal@example.invalid', 'Manual outbox internal fixture', statement_timestamp() - interval '2 hours', 'America/Los_Angeles', 'card', 900, '4242', 'needs_review', 'matched', 'nayax', 'under_review'),
   ('b1400000-0000-4000-8000-000000000004', 'RF-OUTBOX-STALE', 'b1300000-0000-4000-8000-000000000001', 'b1200000-0000-4000-8000-000000000001', 'outbox-stale@example.invalid', 'Manual outbox stale fixture', statement_timestamp() - interval '2 hours', 'America/Los_Angeles', 'card', 1000, '4242', 'needs_review', 'matched', 'nayax', 'under_review'),
   ('b1400000-0000-4000-8000-000000000005', 'RF-OUTBOX-UNKNOWN', 'b1300000-0000-4000-8000-000000000001', 'b1200000-0000-4000-8000-000000000001', 'outbox-unknown@example.invalid', 'Manual outbox unknown fixture', statement_timestamp() - interval '2 hours', 'America/Los_Angeles', 'card', 1100, '4242', 'needs_review', 'matched', 'nayax', 'under_review'),
-  ('b1400000-0000-4000-8000-000000000006', 'RF-OUTBOX-GMAIL', 'b1300000-0000-4000-8000-000000000001', 'b1200000-0000-4000-8000-000000000001', 'outbox-gmail@example.invalid', 'Manual outbox Gmail draft fixture', statement_timestamp() - interval '2 hours', 'America/Los_Angeles', 'unknown', null, null, 'draft', 'not_started', null, 'under_review');
+  ('b1400000-0000-4000-8000-000000000006', 'RF-OUTBOX-GMAIL', 'b1300000-0000-4000-8000-000000000001', 'b1200000-0000-4000-8000-000000000001', 'outbox-gmail@example.invalid', 'Manual outbox Gmail draft fixture', statement_timestamp() - interval '2 hours', 'America/Los_Angeles', 'card', null, null, 'draft', 'not_started', null, 'under_review');
 
 update public.refund_cases
-set official_action_version = 9
+set official_action_version = 9,
+    intake_source = 'gmail'
 where id = 'b1400000-0000-4000-8000-000000000006';
 
 insert into public.refund_gmail_threads (
