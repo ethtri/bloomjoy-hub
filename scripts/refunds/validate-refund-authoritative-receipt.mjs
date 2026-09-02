@@ -53,6 +53,48 @@ assert.match(correctionPanel, /freshCase, freshOptions/);
 assert.match(correctionPanel, /!== approvedSnapshot/);
 assert.match(correctionPanel, /buildRefundMachineCorrectionRequest/);
 assert.doesNotMatch(correctionPanel, /localStorage|sessionStorage|dangerouslySetInnerHTML|executeAsActor|service_role/);
+// Run the real panel's effect through receipt-first and failed-parent ordering.
+// Stop before JSX because this test isolates the actual hook/state contract.
+const readActualCorrectionLatch = (receipt, reviewOpen) => {
+  const exports = {};
+  const done = new Error('effect captured');
+  let stateIndex = 0;
+  let latch;
+  const ast = ts.createSourceFile('panel.tsx', panel, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const stateNames = [];
+  const visit = (node) => {
+    if (ts.isVariableDeclaration(node) && ts.isArrayBindingPattern(node.name) && ts.isCallExpression(node.initializer) &&
+      node.initializer.expression.getText(ast) === 'useState') stateNames.push(node.name.elements[0].getText(ast));
+    ts.forEachChild(node, visit);
+  };
+  visit(ast);
+  assert.ok(stateNames.includes('correctionOpen'));
+  vm.runInNewContext(ts.transpileModule(panel, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS,
+    jsx: ts.JsxEmit.React } }).outputText, { exports, require(name) {
+    if (name === 'react') return {
+      useState: (initial) => [stateNames[stateIndex++] === 'correctionOpen' ? reviewOpen : initial, () => {}],
+      useEffect: (effect) => { effect(); throw done; },
+    };
+    if (name === '@tanstack/react-query') return { useQueryClient: () => ({}), useQuery: () => ({ data: { receipt } }) };
+    return {};
+  } });
+  assert.throws(() => exports.RefundAuthoritativeReceiptPanel({ caseId: 'synthetic-case', onCorrectionReviewChange: (active) => { latch = active; } }), (error) => error === done);
+  return latch;
+};
+let releaseParentRefresh;
+const delayedParent = new Promise((resolve) => { releaseParentRefresh = resolve; });
+let parentLifecycleConfirmed = false;
+const parentRefresh = delayedParent.then(() => { parentLifecycleConfirmed = true; });
+const freshReceipt = await Promise.resolve({ id: 'ad900000-0000-4000-8000-000000000001' });
+assert.equal(parentLifecycleConfirmed, false, 'Controlled parent read remains in flight after receipt succeeds');
+assert.equal(readActualCorrectionLatch(freshReceipt, true), true, 'Actual panel retains suppression during receipt-first refresh');
+await Promise.reject(new Error('synthetic parent refresh failure')).catch(() => {});
+assert.equal(readActualCorrectionLatch(freshReceipt, true), true, 'Parent refresh failure cannot restore stale financial/footer controls');
+releaseParentRefresh();
+await parentRefresh;
+assert.equal(parentLifecycleConfirmed, true);
+assert.equal(readActualCorrectionLatch(freshReceipt, true), true, 'Confirmed parent chooses accounting-only branch before the retained latch');
+assert.equal(readActualCorrectionLatch(null, false), false, 'Cancel before recording or fresh pane has no correction latch');
 assert.doesNotMatch(panel, /localStorage|sessionStorage|dangerouslySetInnerHTML/);
 assert.match(migration, /settled_at timestamptz check \(settled_at is null\)/);
 assert.match(migration, /observed_at timestamptz not null default statement_timestamp\(\)/);

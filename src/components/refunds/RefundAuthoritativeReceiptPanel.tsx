@@ -35,9 +35,12 @@ export function RefundAuthoritativeReceiptPanel({ caseId, demo = false, machineC
   const v = demo ? localDemo : query.data;
   const correcting = correctionOpen && !v?.receipt;
   useEffect(() => {
-    onCorrectionReviewChange?.(correcting);
+    // Receipt and parent overview refresh independently. Keep suppression latched
+    // even if the receipt wins the race or the parent refresh fails. The parent's
+    // confirmed lifecycle takes precedence; closing this pane clears the latch.
+    onCorrectionReviewChange?.(correctionOpen);
     return () => onCorrectionReviewChange?.(false);
-  }, [correcting, onCorrectionReviewChange]);
+  }, [correctionOpen, onCorrectionReviewChange]);
   const currentSnapshot = refundReceiptReviewSnapshot(v);
   const reviewedPayment = Boolean(currentSnapshot) && paymentReviewSnapshot === currentSnapshot;
   const reviewedNotice = Boolean(currentSnapshot) && noticeReviewSnapshot === currentSnapshot;
