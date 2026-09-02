@@ -11,12 +11,13 @@ export const HISTORICAL_MESSAGE_GUARDS = [
   ['202608030005_refund_deterministic_follow_up_cycles.sql', 'guard_refund_follow_up_message'],
   ['202608030005_refund_deterministic_follow_up_cycles.sql', 'guard_refund_follow_up_cycle'],
   ['202608030005_refund_deterministic_follow_up_cycles.sql', 'sync_refund_follow_up_cycle_from_message'],
+  ['202608030005_refund_deterministic_follow_up_cycles.sql', 'service_claim_due_refund_follow_up_reminders'],
 ];
 
 export function readHistoricalMessageGuards(repoRoot) {
   return HISTORICAL_MESSAGE_GUARDS.map(([file, name]) => {
     const source = fs.readFileSync(path.join(repoRoot, 'supabase/migrations', file), 'utf8').replaceAll('\r\n', '\n');
-    const start = source.indexOf(`create or replace function public.${name}()`);
+    const start = source.indexOf(`create or replace function public.${name}(`);
     const end = source.indexOf('\n$$;', start);
     if (start < 0 || end < start) throw new Error(`Historical message guard boundary missing: ${name}`);
     return source.slice(start, end + 4);

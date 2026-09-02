@@ -44,7 +44,7 @@ test('every historical message guard is extracted from its actual applied migrat
   const guards = readHistoricalMessageGuards(repoRoot);
   for (const [file, name] of HISTORICAL_MESSAGE_GUARDS) {
     const source = read(file);
-    const start = source.indexOf(`create or replace function public.${name}()`);
+    const start = source.indexOf(`create or replace function public.${name}(`);
     const end = source.indexOf('\n$$;', start);
     assert.ok(guards.includes(source.slice(start, end + 4)));
   }

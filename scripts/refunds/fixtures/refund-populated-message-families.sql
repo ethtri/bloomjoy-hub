@@ -179,7 +179,8 @@ from pg_proc where pronamespace = 'public'::regnamespace and proname in (
   'is_refund_message_delivery_bookkeeping', 'is_refund_message_recorded_delivery_failure',
   'guard_nayax_attempt_completion_message', 'guard_refund_legacy_state_message',
   'guard_refund_denial_appeal_message', 'guard_refund_follow_up_message',
-  'guard_refund_follow_up_cycle', 'sync_refund_follow_up_cycle_from_message');
+  'guard_refund_follow_up_cycle', 'sync_refund_follow_up_cycle_from_message',
+  'service_claim_due_refund_follow_up_reminders');
 
 /* __HISTORICAL_FAMILY_GUARDS__ */
 
@@ -203,8 +204,8 @@ $delivery_upgrade$) is not null, 'The complete actual backfill fails against pop
 select lives_ok($delivery_upgrade$
 /* __FAMILY_CURRENT_DELIVERY_PREFIX__ */
 $delivery_upgrade$, 'The complete current 0700 prefix upgrades every populated historical family with enabled triggers');
-select is((select count(*) from family_functions_before), 8::bigint,
-  'Fresh replay contains all eight comprehensive bookkeeping helper/guard functions');
+select is((select count(*) from family_functions_before), 9::bigint,
+  'Fresh replay contains all nine comprehensive bookkeeping helper/guard/claim functions');
 select ok(not exists(select 1 from family_functions_before b full join (
   select proname, prosrc, prosecdef, provolatile, proconfig, proacl from pg_proc
   where pronamespace = 'public'::regnamespace and proname in (select proname from family_functions_before)
@@ -288,3 +289,71 @@ select is((select count(*) from public.refund_case_messages where refund_case_id
   15::bigint, 'Multi-family upgrade and real delivery events create no duplicate customer messages');
 select ok(not exists(select 1 from pg_trigger where tgrelid in ('public.refund_case_messages'::regclass, 'public.refund_cases'::regclass,
   'public.refund_follow_up_cycles'::regclass) and not tgisinternal and tgenabled = 'D'), 'Every case, message and cycle guard stays enabled throughout family regression');
+
+-- Keep these cases OPEN and WAITING. Closing all historical examples would
+-- hide the risk of a new reminder after a terminal original-request receipt.
+create temporary table active_reminder_cases(family text primary key, id uuid default gen_random_uuid(), message_id uuid default gen_random_uuid());
+insert into active_reminder_cases(family) values ('bounced'),('complained'),('claimed'),('healthy');
+grant select on active_reminder_cases to service_role;
+insert into public.refund_cases(id, customer_email, issue_summary, status, payment_method,
+  reporting_machine_id, reporting_location_id, incident_at, created_at)
+select id, 'active-' || family || '@example.invalid', 'Synthetic active reminder delivery safety', 'needs_review', 'cash',
+  'da130000-0000-4000-8000-000000000001', 'da120000-0000-4000-8000-000000000001',
+  statement_timestamp() - interval '8 days', statement_timestamp() - interval '8 days'
+from active_reminder_cases;
+update public.refund_customer_contact_settings set automatic_customer_contact_enabled = true where singleton;
+create temporary table active_reminder_cycles as
+select family, (public.service_claim_refund_follow_up_cycle(id, 'missing_information',
+  (select template_version from public.refund_customer_contact_settings where singleton),
+  md5(family || ':active') || md5(family || ':active'), null) #>> '{cycle,id}')::uuid as id
+from active_reminder_cases;
+insert into public.refund_case_messages(id, refund_case_id, message_type, status, recipient_email, subject, body,
+  content_source, delivery_kind, reason_code, template_version, follow_up_cycle_id, requested_fields, created_at)
+select k.message_id, f.refund_case_id, 'more_info', 'pending', c.customer_email, 'Synthetic active request', 'Synthetic missing facts.',
+  'deterministic_template', 'automatic', f.reason_code, f.template_version, f.id, f.requested_fields,
+  statement_timestamp() - case when k.family = 'claimed' then interval '6 days' else interval '4 days' end
+from active_reminder_cases k join active_reminder_cycles r using(family)
+join public.refund_follow_up_cycles f on f.id = r.id join public.refund_cases c on c.id = f.refund_case_id;
+update public.refund_case_messages m set status = 'sent', sent_at = m.created_at + interval '1 minute'
+from active_reminder_cases k where m.id = k.message_id;
+select is((public.service_claim_due_refund_follow_up_reminders(1)->'reminders'->0->>'refundCaseId')::uuid,
+  (select id from active_reminder_cases where family = 'claimed'),
+  'Before terminal delivery, the oldest healthy request obtains a real reminder claim');
+insert into public.refund_case_messages(id, refund_case_id, message_type, status, recipient_email, subject, body,
+  content_source, delivery_kind, reason_code, template_version, follow_up_cycle_id, requested_fields)
+select 'da170000-0000-4000-8000-000000000001', f.refund_case_id, 'reminder', 'pending', c.customer_email,
+  'Synthetic claimed reminder', 'Synthetic reminder claimed before bounce.',
+  'deterministic_template', 'automatic', f.reason_code, f.template_version, f.id, f.requested_fields
+from active_reminder_cycles k join public.refund_follow_up_cycles f using(id)
+join public.refund_cases c on c.id = f.refund_case_id where k.family = 'claimed';
+update public.refund_case_messages m set delivery_transport = 'resend', delivery_state = 'unknown', delivery_state_updated_at = m.sent_at
+from active_reminder_cases k where m.id = k.message_id;
+update public.refund_customer_contact_settings set automatic_customer_contact_enabled = false where singleton;
+set local role service_role;
+select is(public.service_bind_refund_transactional_delivery(message_id, 'resend_active_' || family, statement_timestamp())->>'bound',
+  'true', family || ': active request binds real provider delivery while customer contact is paused') from active_reminder_cases;
+select is(public.service_record_refund_transactional_delivery_event(md5(family || ':active-fail') || md5(family || ':active-fail'),
+  'resend_active_' || family, case when family = 'complained' then 'complained' else 'bounced' end,
+  statement_timestamp())->>'applied', 'true', family || ': verified terminal receipt applies to the still-open request')
+from active_reminder_cases where family <> 'healthy';
+reset role;
+select is(c.status, 'waiting_on_customer', k.family || ': case remains open after historical delivery bookkeeping')
+from active_reminder_cases k join public.refund_cases c using(id);
+select is(f.status, 'waiting', k.family || ': existing cycle remains immutable waiting history')
+from active_reminder_cycles k join public.refund_follow_up_cycles f using(id);
+update public.refund_customer_contact_settings set automatic_customer_contact_enabled = true where singleton;
+create temporary table active_due_result as select public.service_claim_due_refund_follow_up_reminders(100) as value;
+select is(jsonb_array_length(value->'reminders'), 1,
+  'Restored contact claims only the healthy request, never bounced or complained open requests') from active_due_result;
+select is((value->'reminders'->0->>'refundCaseId')::uuid,
+  (select id from active_reminder_cases where family = 'healthy'),
+  'Still-successful original request remains eligible after restoration') from active_due_result;
+select is(pg_temp.capture_delivery_upgrade_error($sql$
+  update public.refund_case_messages set status = 'sent', sent_at = statement_timestamp()
+  where id = 'da170000-0000-4000-8000-000000000001'
+$sql$), '23514:Follow-up reminder requires a non-failed original request',
+  'A pre-bounce claimed reminder cannot send after contact restoration');
+select is((select status from public.refund_case_messages where id = 'da170000-0000-4000-8000-000000000001'),
+  'pending', 'Rejected in-flight reminder creates no SENT communication');
+select is((select count(*) from public.refund_case_messages where refund_case_id in (select id from active_reminder_cases)),
+  5::bigint, 'Active-request delivery safety creates no duplicate customer messages');
