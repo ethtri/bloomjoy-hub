@@ -2369,6 +2369,7 @@ export default function AdminRefundsPage() {
   const [isInternalTestConfirmationOpen, setIsInternalTestConfirmationOpen] = useState(false);
   const [isClassifyingInternalTest, setIsClassifyingInternalTest] = useState(false);
   const [nayaxCandidates, setNayaxCandidates] = useState<NayaxLookupCandidate[]>([]);
+  const [receiptCorrectionReviewActive, setReceiptCorrectionReviewActive] = useState(false);
   const [nayaxLookupNotice, setNayaxLookupNotice] = useState<NayaxLookupNotice | null>(null);
   const [nayaxExecutionNotice, setNayaxExecutionNotice] = useState<NayaxLookupNotice | null>(null);
   const [nayaxResolutionResult, setNayaxResolutionResult] =
@@ -5709,13 +5710,18 @@ export default function AdminRefundsPage() {
           )}
 
           {refundOperationsAccess && selectedCase.paymentMethod === 'card' && selectedCase.hasMatchedNayaxTransaction && (
-            <RefundAuthoritativeReceiptPanel key={selectedCase.id} caseId={selectedCase.id} demo={forceDemoData} />
+            <RefundAuthoritativeReceiptPanel key={selectedCase.id} caseId={selectedCase.id} demo={forceDemoData}
+              machineContext={{ machineLabel: selectedCase.machineLabel, locationName: selectedCase.locationName,
+                expectedCaseVersion: selectedCase.officialActionVersion }}
+              machineCorrection={selectedCase.machineCorrection} onCorrectionReviewChange={setReceiptCorrectionReviewActive} />
           )}
 
           {hasConfirmedRefundReceipt(selectedCase) ? (
             <p data-testid="refund-receipt-accounting-only" className="mt-4 border-t border-border pt-4 text-sm text-muted-foreground">
               Payment is confirmed. Accounting-date review is internal work. No new payment or customer message is available here.
             </p>
+          ) : receiptCorrectionReviewActive ? (
+            <p className="mt-4 border-t border-border pt-4 text-sm text-muted-foreground">Machine correction review only. No payment or customer message is available in this review.</p>
           ) : (selectedCase.legacyStateReviewRequired ||
           selectedCase.providerHold ||
           (selectedCase.providerOutcome === 'rejected' &&
