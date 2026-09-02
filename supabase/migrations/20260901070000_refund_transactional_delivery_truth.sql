@@ -202,6 +202,14 @@ $$;
 revoke all on function public.guard_refund_customer_status_message()
   from public, anon, authenticated, service_role;
 
+-- Dispatch updates even when an existing automatic status message changes its
+-- type; the function itself safely ignores unrelated message rows.
+create or replace trigger refund_case_messages_customer_status_guard
+before insert or update on public.refund_case_messages
+for each row
+execute function public.guard_refund_customer_status_message();
+
+
 -- Historical non-Gmail sends have no provider identifier. Make that absence
 -- explicit without guessing delivery or modifying the application send result.
 update public.refund_case_messages message
