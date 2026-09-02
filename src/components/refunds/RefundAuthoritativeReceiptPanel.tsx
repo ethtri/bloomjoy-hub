@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { fetchRefundReceiptOverview, saveRefundReceiptEvidence } from '@/lib/refundAuthoritativeReceiptApi';
 import { buildReceiptAdoptionRequest, buildReceiptRecordRequest, refreshRefundReceiptViews, refundReceiptReviewSnapshot, type RefundReceiptOverview, type RefundMachineCorrectionEvidence } from '@/lib/refundAuthoritativeReceipt';
 import { RefundMachineCorrectionReview } from './RefundMachineCorrectionReview';
+import { RefundHistoricalOwnerNoticeReview, historicalOwnerNoticeRecordedLabel } from './RefundHistoricalOwnerNoticeReview';
 
 type Props = { caseId: string; demo?: boolean;
   machineContext?: { machineLabel: string; locationName: string; expectedCaseVersion?: number };
@@ -30,6 +31,8 @@ export function RefundAuthoritativeReceiptPanel({ caseId, demo = false, machineC
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [correctionOpen, setCorrectionOpen] = useState(false);
+  const [historicalNoticeOpen, setHistoricalNoticeOpen] = useState(false);
+  const [historicalSavedCaseId, setHistoricalSavedCaseId] = useState('');
   const query = useQuery({ queryKey: ['refund-authoritative-receipt', caseId],
     queryFn: () => fetchRefundReceiptOverview(caseId), enabled: !demo, retry: false, staleTime: 0, gcTime: 0 });
   const v = demo ? localDemo : query.data;
@@ -114,22 +117,31 @@ export function RefundAuthoritativeReceiptPanel({ caseId, demo = false, machineC
       <Button className="min-h-11 w-full whitespace-normal sm:w-auto" disabled={busy || !v.canRecord || !reviewedPayment || reference !== `DTM:NAYAX-${v.originalTransactionId}`} onClick={() => void save('record')}>{busy ? 'Saving evidence…' : 'Record full-refund observation only'}</Button>
     </div>) : <div className="space-y-3">
       <p className="text-sm text-pretty">Observed {new Date(v.receipt.observedAt).toLocaleString()}. This is not the settlement time. Accounting-date review stays with Refund Operations; do not retry payment.</p>
-      {v.receipt.noticeAdopted ? <div className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-950" role="status">
-        <p className="font-medium">Customer already updated · existing notice verified</p>
-        <p className="mt-1">No second message will be sent.{v.receipt.managerCcVerified === false ? ' Historical manager CC was not verified; the original message remains unchanged.' : ''}</p>
+      {v.receipt.noticeAdopted || historicalSavedCaseId === v.caseId ? <div className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-950" role="status">
+        <p className="font-medium">{v.receipt.noticeSource === 'historical_owner_mailbox' || historicalSavedCaseId === v.caseId ? historicalOwnerNoticeRecordedLabel : 'Customer already updated · existing notice verified'}</p>
+        <p className="mt-1">No second message will be sent.{v.receipt.noticeSource === 'historical_owner_mailbox' || historicalSavedCaseId === v.caseId
+          ? ' The original SENT time is preserved. Provider delivery and support-thread ownership were not verified.'
+          : v.receipt.managerCcVerified === false ? ' Historical manager CC was not verified; the original message remains unchanged.' : ''}</p>
       </div> : <>
         <Label htmlFor="refund-receipt-notice">Review an existing sent notice for this claim</Label>
         <select id="refund-receipt-notice" value={messageId} onChange={(e) => { setMessageId(e.target.value); setReviewedNotice(false); }} disabled={busy} className="min-h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm">
           <option value="">Choose a verified sent message</option>
           {v.noticeChoices.map((n) => <option key={n.id} value={n.id}>{new Date(n.sentAt).toLocaleString()} · {n.subject || '(No subject)'}</option>)}
         </select>
-        {v.noticeChoices.length === 0 && <p className="text-sm text-muted-foreground">No eligible sent evidence is linked yet. Refresh after the existing thread is synchronized; do not resend to create evidence.</p>}
+        {v.noticeChoices.length === 0 && <p className="text-sm text-muted-foreground">No eligible support-mailbox notice is linked yet. Do not resend to create evidence.</p>}
         {selected && <div className="max-h-72 overflow-y-auto rounded-lg bg-muted/30 p-3 text-sm"><p className="font-medium break-words">{selected.subject}</p><p className="mt-2 whitespace-pre-wrap break-words">{selected.plainBody}</p></div>}
         <label className="flex min-h-11 cursor-pointer items-start gap-3 py-2 text-sm leading-6">
           <input type="checkbox" className="mt-1.5 h-4 w-4 shrink-0" checked={reviewedNotice} onChange={(e) => setReviewedNotice(e.target.checked)} disabled={busy || !selected} />
           <span>I read this sent notice and confirm it states the full {amount} refund for {v.caseReference}, original {v.originalTransactionId}. Another claim in the same thread is not being marked complete.</span>
         </label>
         <Button className="min-h-11 w-full whitespace-normal sm:w-auto" variant="outline" disabled={busy || !selected || !reviewedNotice} onClick={() => void save('adopt')}>{busy ? 'Verifying notice…' : 'Use existing notice · do not send again'}</Button>
+        {!demo && v.historicalOwnerNoticeAvailable && <div className="space-y-4 border-t border-border pt-4">
+          <Button variant="ghost" className="min-h-11 w-full whitespace-normal sm:w-auto" disabled={busy} aria-expanded={historicalNoticeOpen}
+            onClick={() => { setHistoricalNoticeOpen(!historicalNoticeOpen); setReviewedNotice(false); }}>
+            {historicalNoticeOpen ? 'Close historical notice review' : 'Already notified from your own mailbox before the cutoff?'}
+          </Button>
+          {historicalNoticeOpen && <RefundHistoricalOwnerNoticeReview overview={v} onBusyChange={setBusy} onSaved={() => setHistoricalSavedCaseId(v.caseId)} />}
+        </div>}
       </>}
     </div>}
     {feedback && <p role="status" aria-live="polite" className="text-sm text-pretty">{feedback}</p>}
