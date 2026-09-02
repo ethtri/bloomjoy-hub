@@ -287,14 +287,20 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    121,
-    'Refund release inventory must cover exactly 121 discovered refund/Nayax migrations'
+    122,
+    'Refund release inventory must cover exactly 122 discovered refund/Nayax migrations'
   );
   assert(
     repositoryMigrations.includes('20260902195401_refund_historical_owner_notice.sql') &&
       repositoryMigrations.indexOf('20260902192844_refund_legacy_machine_correction.sql') <
       repositoryMigrations.indexOf('20260902195401_refund_historical_owner_notice.sql'),
     'Historical owner observation extends the already-installed canonical receipt and correction contract'
+  );
+  assert(
+    repositoryMigrations.includes('20260902200508_refund_gmail_receipt_processing.sql') &&
+      repositoryMigrations.indexOf('20260902195401_refund_historical_owner_notice.sql') <
+      repositoryMigrations.indexOf('20260902200508_refund_gmail_receipt_processing.sql'),
+    'Receipt-aware Gmail fact processing follows the canonical owner-notice contract'
   );
   assert(
     repositoryMigrations.includes('20260902192844_refund_legacy_machine_correction.sql'),

@@ -8,6 +8,21 @@ Tracking epic: [#683 Refund Email Assistant and Manager Communications](https://
 
 ## Plain-English outcome
 
+Authoritative refund receipts suppress obsolete automatic reply-fact processing,
+including sensitive-content reopening and replayed customer corrections. Incoming
+mail is still ingested and visible to the mapped managers through the existing
+internal incoming-message notice. Receipt checks happen before worker extraction
+and again under the database case lock; a receipt winning the race is a normal
+skip, not a failed message. This does not change normal cash payout replies,
+delivery reconciliation, receipt adoption, or accounting review, and it sends no
+new customer notice.
+
+Activation also requires the forward receipt-aware automation eligibility guard:
+if a receipt commits after a fact application but before its automatic lookup
+claim, the central claim must return `claimed: false` before creating any action
+ledger or making a provider lookup. The Gmail coordinator regression exercises
+that exact contract; the automation migration owns its database lock-race proof.
+
 The email assistant helps Bloomjoy receive, organize, and advance refund requests. It acknowledges new conversations, identifies missing information, keeps customer follow-up moving, and reminds the right Machine Managers with a link to the exact portal case.
 
 The assistant is not a refund approver and is not a payment operator. The target production actor for every official decision is a currently active Machine Manager mapped to the machine, acting in the authenticated Refunds portal. A link in an email may open a case; opening the link, selecting a queue row, or changing a filter performs no lookup, message, mutation, official action, or payment.
