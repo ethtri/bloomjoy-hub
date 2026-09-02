@@ -35,6 +35,14 @@ import {
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const productionRunbook = fs.readFileSync(path.join(repositoryRoot, 'Docs', 'PRODUCTION_RUNBOOK.md'), 'utf8');
+const qaSmokeChecklist = fs.readFileSync(
+  path.join(repositoryRoot, 'Docs', 'QA_SMOKE_TEST_CHECKLIST.md'),
+  'utf8'
+);
+const refundEmailAssistantRunbook = fs.readFileSync(
+  path.join(repositoryRoot, 'Docs', 'REFUND_EMAIL_ASSISTANT_RUNBOOK.md'),
+  'utf8'
+);
 const cutoverPacket = fs.readFileSync(
   path.join(repositoryRoot, 'Docs', 'REFUND_PRODUCTION_CUTOVER_PACKET.md'),
   'utf8'
@@ -156,14 +164,29 @@ for (const retiredPilotGate of [
 }
 assert.match(
   productionRunbook,
-  /exactly 83 reviewed synthetic screenshots/,
-  'Production runbook must use the current 83-screenshot evidence inventory'
+  /exactly 85 reviewed synthetic screenshots/,
+  'Production runbook must use the current 85-screenshot evidence inventory'
 );
 assert.doesNotMatch(
   productionRunbook,
-  /exactly 44 reviewed synthetic screenshots/,
-  'Production runbook must not retain the retired 44-screenshot evidence count'
+  /exactly (?:44|83) reviewed synthetic screenshots/,
+  'Production runbook must not retain a retired screenshot evidence count'
 );
+for (const [documentName, document] of [
+  ['QA smoke checklist', qaSmokeChecklist],
+  ['refund email assistant runbook', refundEmailAssistantRunbook],
+]) {
+  assert.match(
+    document,
+    /exactly 85 reviewed synthetic screenshots/,
+    `${documentName} must use the current 85-screenshot evidence inventory`
+  );
+  assert.doesNotMatch(
+    document,
+    /exactly (?:44|83) reviewed synthetic screenshots/,
+    `${documentName} must not retain a retired screenshot evidence count`
+  );
+}
 const smokeOrder = cutoverPacket.indexOf('## Exact postdeployment readiness order');
 const routeSmoke = cutoverPacket.indexOf('refunds:smoke-routes', smokeOrder);
 const captureManifest = cutoverPacket.indexOf(
