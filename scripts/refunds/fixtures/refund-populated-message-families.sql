@@ -411,3 +411,72 @@ select is(public.service_claim_refund_gmail_outbound_v3((select id from active_r
 reset role;
 select is((select count(*) from public.refund_gmail_messages where operation_key = 'refund-active-failed-request'),
   1::bigint, 'Known-SENT reconciliation retains exactly one original Gmail operation');
+
+-- The healthy positive control already holds a real due-reminder claim. Its
+-- provider may accept the reminder before the original request's bounce arrives.
+-- That ordering is reconciliation, not fresh-send authority or a failed send.
+update public.refund_customer_contact_settings set automatic_customer_contact_enabled = true where singleton;
+insert into public.refund_case_messages(id, refund_case_id, message_type, status, recipient_email, subject, body,
+  content_source, delivery_kind, reason_code, template_version, follow_up_cycle_id, requested_fields)
+select 'da200000-0000-4000-8000-000000000001', f.refund_case_id, 'reminder', 'pending', c.customer_email,
+  'Synthetic provider-accepted reminder', 'Synthetic provider acceptance before original bounce.',
+  'deterministic_template', 'automatic', f.reason_code, f.template_version, f.id, f.requested_fields
+from active_reminder_cycles k join public.refund_follow_up_cycles f using(id)
+join public.refund_cases c on c.id = f.refund_case_id where k.family = 'healthy';
+create temporary table active_unbound_reminder_before as select to_jsonb(m) as value
+from public.refund_case_messages m where m.id = 'da200000-0000-4000-8000-000000000001';
+create function pg_temp.probe_unbound_reminder_sent(forge_new_binding boolean) returns text language plpgsql as $$
+begin
+  perform public.service_record_refund_transactional_delivery_event(repeat('d7',32), 'resend_active_healthy',
+    'bounced', statement_timestamp());
+  update public.refund_case_messages set status = 'sent', sent_at = statement_timestamp(),
+    delivery_transport = case when forge_new_binding then 'resend' else delivery_transport end,
+    provider_message_id = case when forge_new_binding then 'resend_unproved_new_only' else provider_message_id end,
+    delivery_state = case when forge_new_binding then 'accepted' else delivery_state end,
+    delivery_state_updated_at = case when forge_new_binding then statement_timestamp() else delivery_state_updated_at end
+  where id = 'da200000-0000-4000-8000-000000000001';
+  raise exception using errcode = 'ZX001', message = 'probe_succeeded';
+exception when others then
+  if sqlstate = 'ZX001' then return null; end if;
+  return sqlstate || ':' || sqlerrm;
+end;
+$$;
+select is(pg_temp.probe_unbound_reminder_sent(false),
+  '23514:Follow-up reminder requires a non-failed original request',
+  'No OLD provider acceptance means original bounce still blocks final SENT');
+select is(pg_temp.probe_unbound_reminder_sent(true),
+  '23514:Follow-up reminder requires a non-failed original request',
+  'Supplying accepted binding only in NEW never fabricates reconciliation authority');
+select is((select to_jsonb(m) from public.refund_case_messages m where m.id = 'da200000-0000-4000-8000-000000000001'),
+  (select value from active_unbound_reminder_before), 'Rejected unproved sends leave the entire pending reminder unchanged');
+select is((select m.status || ':' || m.delivery_state from public.refund_case_messages m
+  join active_reminder_cases k on k.message_id = m.id where k.family = 'healthy'), 'sent:accepted',
+  'Rollback-contained negative receipt probes preserve the actual healthy original request');
+set local role service_role;
+select is(public.service_mark_refund_transactional_delivery_attempt('da200000-0000-4000-8000-000000000001')->>'marked',
+  'true', 'Healthy original permits the actual last pre-provider mark');
+select is(public.service_bind_refund_transactional_delivery('da200000-0000-4000-8000-000000000001',
+  'resend_accepted_reminder_before_bounce', statement_timestamp())->>'bound', 'true',
+  'Actual provider binding records accepted reminder before original-request bounce');
+reset role;
+create temporary table active_accepted_reminder_before as select to_jsonb(m) as value
+from public.refund_case_messages m where m.id = 'da200000-0000-4000-8000-000000000001';
+update public.refund_customer_contact_settings set automatic_customer_contact_enabled = false where singleton;
+set local role service_role;
+select is(public.service_record_refund_transactional_delivery_event(repeat('d8',32), 'resend_active_healthy',
+  'bounced', statement_timestamp())->>'applied', 'true',
+  'Original request genuinely bounces after reminder provider acceptance with contact paused');
+select lives_ok($sql$
+  update public.refund_case_messages set status = 'sent', sent_at = statement_timestamp(), error_message = null
+  where id = 'da200000-0000-4000-8000-000000000001'
+$sql$, 'Already-accepted Resend reminder reconciles SENT without a new mark or send after original bounce');
+reset role;
+select is((select status || ':' || delivery_state from public.refund_case_messages where id = 'da200000-0000-4000-8000-000000000001'),
+  'sent:accepted', 'Accepted reminder is not mislabeled failed by a later original-request bounce');
+select is(to_jsonb(m) - array['status','sent_at','error_message'], b.value - array['status','sent_at','error_message'],
+  'Accepted reminder reconciliation preserves exact provider binding and every original envelope/evidence field')
+from public.refund_case_messages m cross join active_accepted_reminder_before b
+where m.id = 'da200000-0000-4000-8000-000000000001';
+select is((select count(*) from public.refund_case_messages m join active_reminder_cases k on k.id = m.refund_case_id
+  where k.family = 'healthy' and m.message_type = 'reminder'), 1::bigint,
+  'Accepted-before-bounce ordering retains exactly one original reminder');
