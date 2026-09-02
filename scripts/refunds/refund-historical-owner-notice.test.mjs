@@ -21,7 +21,7 @@ const overview = () => ({ schemaVersion: 'refund_receipt_overview_v1', visible: 
   providerMachineId: 'SYNTHETIC-MACHINE', originalTransactionId: '123456781', originalAmountCents: 700, currencyCode: 'USD',
   receipt: { id: 'bd500000-0000-4000-8000-000000000001', observedAt: '2026-09-02T19:00:00Z', settlementTimePrecision: 'unknown',
     noticeAdopted: false, noticeSentAt: null, managerCcVerified: null }, noticeChoices: [],
-  historicalOwnerNoticeAvailable: true, historicalOwnerNoticeCutoff: '2026-09-02T19:51:58Z' });
+  historicalOwnerNoticeAvailable: true, historicalOwnerNoticeCutoff: '2026-09-02T19:51:58Z', historicalOwnerReviewBinding: 'f'.repeat(64) });
 const fields = { providerMessageId: 'abcdef0123456789', providerThreadId: 'abcdef0123456790',
   originalSentAt: '2026-09-02T16:07:00Z', recipientEmail: 'synthetic-customer@example.invalid', reviewedMessageDigest: 'a'.repeat(64) };
 const flatten = (value) => !value || typeof value !== 'object' ? [] : Array.isArray(value)
@@ -77,6 +77,7 @@ test('actual authenticated API wrapper rejects delivery/source upgrades and neve
 });
 test('actual component clears reviewed checks when case or evidence changes, with no write', () => {
   for (const changed of [{ expectedCaseVersion: 3 }, { accountScope: 'CHANGED' }, { providerMachineId: 'CHANGED' },
+    { historicalOwnerReviewBinding: 'e'.repeat(64) },
     { historicalOwnerNoticeAvailable: false }, { receipt: { ...overview().receipt, noticeAdopted: true } }]) {
     const form = actualForm(); form.fillAndReview(); assert.equal(form.button().props.disabled, false);
     form.setCurrent({ ...overview(), ...changed });
@@ -88,10 +89,12 @@ test('actual component clears reviewed checks when case or evidence changes, wit
   assert(form.render().filter((n) => n.props.type === 'checkbox').every((n) => !n.props.checked));
 });
 test('actual save rereads current case and rejects stale evidence before any write', async () => {
-  const form = actualForm(); form.fillAndReview(); form.setFresh({ ...overview(), expectedCaseVersion: 3 });
+  for (const changed of [{ expectedCaseVersion: 3 }, { historicalOwnerReviewBinding: 'e'.repeat(64) }]) {
+  const form = actualForm(); form.fillAndReview(); form.setFresh({ ...overview(), ...changed });
   await form.button().props.onClick();
   assert.deepEqual(form.calls.map((c) => c[0]), ['read']); assert.equal(form.saved(), 0);
   assert(form.render().filter((n) => n.props.type === 'checkbox').every((n) => !n.props.checked));
+  }
 });
 test('actual authority failure clears review and creates no saved latch', async () => {
   const form = actualForm(); form.fillAndReview(); form.failSave(); await form.button().props.onClick();

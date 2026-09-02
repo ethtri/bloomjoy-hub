@@ -29,7 +29,7 @@ export type RefundReceiptOverview = {
     noticeAdopted: boolean; noticeSentAt: string | null; managerCcVerified: boolean | null;
     noticeSource?: 'support_gmail' | 'historical_owner_mailbox' | null;
     noticeVerification?: 'support_gmail_sent' | 'operator_observed' | null; supportThread?: boolean | null };
-  historicalOwnerNoticeAvailable?: boolean; historicalOwnerNoticeCutoff?: string;
+  historicalOwnerNoticeAvailable?: boolean; historicalOwnerNoticeCutoff?: string; historicalOwnerReviewBinding?: string | null;
   noticeChoices: ReceiptNoticeChoice[];
 };
 
@@ -68,9 +68,11 @@ export function parseRefundReceiptOverview(value: unknown): RefundReceiptOvervie
     (receipt.noticeAdopted === true && date(receipt.noticeSentAt) && receipt.noticeSource === 'historical_owner_mailbox' && receipt.noticeVerification === 'operator_observed' &&
       receipt.supportThread === false && receipt.managerCcVerified === false)
   )) throw new Error('Reload the notice provenance.');
-  const hasHistoricalOption = Object.hasOwn(v, 'historicalOwnerNoticeAvailable') || Object.hasOwn(v, 'historicalOwnerNoticeCutoff');
+  const hasHistoricalOption = ['historicalOwnerNoticeAvailable', 'historicalOwnerNoticeCutoff', 'historicalOwnerReviewBinding'].some((key) => Object.hasOwn(v, key));
   if (hasHistoricalOption && (typeof v.historicalOwnerNoticeAvailable !== 'boolean' ||
     v.historicalOwnerNoticeCutoff !== '2026-09-02T19:51:58Z' ||
+    (v.historicalOwnerNoticeAvailable ? typeof v.historicalOwnerReviewBinding !== 'string' || !/^[a-f0-9]{64}$/.test(v.historicalOwnerReviewBinding)
+      : v.historicalOwnerReviewBinding !== null) ||
     (v.historicalOwnerNoticeAvailable && (v.receipt === null || receipt.noticeAdopted)))) throw new Error('Reload historical notice review availability.');
   return {
     schemaVersion: 'refund_receipt_overview_v1', visible: true, caseId: v.caseId as string,
@@ -87,7 +89,7 @@ export function parseRefundReceiptOverview(value: unknown): RefundReceiptOvervie
         supportThread: receipt.supportThread as boolean | null } : {}) },
     noticeChoices: choices,
     ...(hasHistoricalOption ? { historicalOwnerNoticeAvailable: v.historicalOwnerNoticeAvailable as boolean,
-      historicalOwnerNoticeCutoff: v.historicalOwnerNoticeCutoff as string } : {}),
+      historicalOwnerNoticeCutoff: v.historicalOwnerNoticeCutoff as string, historicalOwnerReviewBinding: v.historicalOwnerReviewBinding as string | null } : {}),
   };
 }
 

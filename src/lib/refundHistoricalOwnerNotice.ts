@@ -9,6 +9,7 @@ export function buildHistoricalOwnerNoticeRequest(v: RefundReceiptOverview, fiel
   const at = Date.parse(fields.originalSentAt);
   if (!v.receipt || v.receipt.noticeAdopted || v.historicalOwnerNoticeAvailable !== true || !reviewed ||
     v.historicalOwnerNoticeCutoff !== historicalOwnerNoticeCutoff ||
+    typeof v.historicalOwnerReviewBinding !== 'string' || !/^[a-f0-9]{64}$/.test(v.historicalOwnerReviewBinding) ||
     !/^[a-f0-9]{8,64}$/.test(fields.providerMessageId) || !/^[a-f0-9]{8,64}$/.test(fields.providerThreadId) ||
     !/^[a-f0-9]{64}$/.test(fields.reviewedMessageDigest) || !Number.isFinite(at) || at > Date.parse(historicalOwnerNoticeCutoff) ||
     !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/.test(fields.originalSentAt) ||
@@ -19,5 +20,6 @@ export function buildHistoricalOwnerNoticeRequest(v: RefundReceiptOverview, fiel
     expectedCaseVersion: v.expectedCaseVersion, completionCaseReference: v.caseReference,
     completionOriginalTransactionId: v.originalTransactionId, completionAmountCents: v.originalAmountCents,
     currencyCode: v.currencyCode, ...fields, evidenceReference: `GMAIL-SENT:${fields.providerMessageId}`,
+    expectedOwnerReviewBinding: v.historicalOwnerReviewBinding,
     reviewedOwnedMailboxSent: true, reviewedCustomerOnlyNoCc: true, reviewedExactCaseAmount: true };
 }

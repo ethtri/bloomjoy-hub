@@ -5,7 +5,7 @@ const request = () => ({ mode: "record_historical_owner_notice", caseId: "bd4000
   completionOriginalTransactionId: "123456781", completionAmountCents: 700, currencyCode: "USD",
   providerMessageId: "abcdef0123456789", providerThreadId: "abcdef0123456790", originalSentAt: "2026-09-02T16:07:00Z",
   recipientEmail: "synthetic-customer@example.invalid", reviewedMessageDigest: "a".repeat(64), evidenceReference: "GMAIL-SENT:abcdef0123456789",
-  reviewedOwnedMailboxSent: true, reviewedCustomerOnlyNoCc: true, reviewedExactCaseAmount: true });
+  reviewedOwnedMailboxSent: true, reviewedCustomerOnlyNoCc: true, reviewedExactCaseAmount: true, expectedOwnerReviewBinding: 'f'.repeat(64) });
 const result = () => ({ status: "adopted", noticeSource: "historical_owner_mailbox", noticeVerification: "operator_observed",
   supportThread: false, managerCcVerified: false, customerMessageSent: false, payloadRedacted: true });
 Deno.test("historical owner notice uses one authenticated evidence capability, derives identity server-side and redacts output", async () => {
@@ -25,7 +25,7 @@ for (const [key, value] of Object.entries({ senderEmail: "forged@example.invalid
   reviewedOwnedMailboxSent: false, reviewedCustomerOnlyNoCc: null, reviewedExactCaseAmount: false,
   originalSentAt: "2026-09-02T19:51:59Z", providerMessageId: "ABCDEF0123456789", providerThreadId: "RFC:<id>",
   recipientEmail: "a@example.invalid,b@example.invalid", reviewedMessageDigest: "bad", evidenceReference: "other",
-  currencyCode: "usd", completionAmountCents: 0, expectedCaseVersion: null, receiptId: null })) {
+  currencyCode: "usd", completionAmountCents: 0, expectedCaseVersion: null, receiptId: null, expectedOwnerReviewBinding: null })) {
   Deno.test(`historical notice rejects forged or invalid ${key} before RPC`, async () => {
     let calls = 0;
     const response = await handleAuthoritativeReceipt({ ...request(), [key]: value }, () => { calls++; return Promise.resolve({ data: result(), error: null }); });

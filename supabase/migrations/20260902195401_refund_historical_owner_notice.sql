@@ -15,7 +15,7 @@ create table public.refund_external_notice_observations (
   reviewed_message_digest text not null check(reviewed_message_digest ~ '^[a-f0-9]{64}$'),
   evidence_reference text not null check(evidence_reference='GMAIL-SENT:'||provider_message_id),
   evidence_snapshot_digest text not null check(evidence_snapshot_digest ~ '^[a-f0-9]{64}$'),
-  sent_at timestamptz not null check(sent_at<='2026-09-02T19:51:58Z'::timestamptz),
+  sent_at timestamptz not null check(isfinite(sent_at) and sent_at<='2026-09-02T19:51:58Z'::timestamptz),
   observed_at timestamptz not null default statement_timestamp(),
   observed_by uuid not null references auth.users(id),
   customer_only_no_cc_reviewed boolean not null check(customer_only_no_cc_reviewed),
@@ -47,13 +47,26 @@ alter table public.refund_completion_notice_adoptions
     foreign key(external_notice_observation_id,receipt_id,refund_case_id)
     references public.refund_external_notice_observations(id,receipt_id,refund_case_id);
 
+-- Opaque review identity, not authority and not a token. The public reader/write
+-- validate current authority separately; checked reviews cannot cross sessions.
+create function public.refund_owner_notice_review_binding()
+returns text language sql stable security definer set search_path='' as $$
+  select encode(extensions.digest(convert_to(jsonb_build_array(u.id,
+    auth.jwt()->>'session_id',lower(btrim(u.email)))::text,'UTF8'),'sha256'),'hex')
+  from auth.users u where u.id=auth.uid() and u.email_confirmed_at is not null
+    and nullif(btrim(u.email),'') is not null and auth.role()='authenticated'
+    and nullif(auth.jwt()->>'session_id','') is not null;
+$$;
+revoke all on function public.refund_owner_notice_review_binding() from public,anon,authenticated,service_role;
+
 create function public.admin_record_refund_historical_owner_notice(
   p_case_id uuid,p_receipt_id uuid,p_expected_case_version bigint,
   p_completion_case_reference text,p_completion_original_transaction_id text,
   p_completion_amount_cents integer,p_currency_code text,
   p_provider_message_id text,p_provider_thread_id text,p_original_sent_at timestamptz,
   p_recipient_email text,p_reviewed_message_digest text,p_evidence_reference text,
-  p_reviewed_owned_mailbox_sent boolean,p_reviewed_customer_only_no_cc boolean,p_reviewed_exact_case_amount boolean
+  p_reviewed_owned_mailbox_sent boolean,p_reviewed_customer_only_no_cc boolean,p_reviewed_exact_case_amount boolean,
+  p_expected_owner_review_binding text
 )
 returns jsonb language plpgsql security definer set search_path='' as $$
 declare
@@ -79,7 +92,9 @@ begin
     raise exception 'A current verified owner-mailbox identity is required' using errcode='42501';
   end if;
   select * into r from public.refund_authoritative_receipts where id=p_receipt_id and refund_case_id=c.id for share;
-  if r.id is null or c.official_action_version is distinct from p_expected_case_version
+  if p_expected_owner_review_binding is null
+    or p_expected_owner_review_binding is distinct from public.refund_owner_notice_review_binding()
+    or r.id is null or c.official_action_version is distinct from p_expected_case_version
     or c.case_population is distinct from 'customer' or c.payment_method is distinct from 'card'
     or c.status is distinct from 'card_refund_pending' or c.duplicate_of_refund_case_id is not null
     or r.provider_status is distinct from 62 or r.refunded_amount_cents is distinct from r.original_amount_cents
@@ -151,9 +166,9 @@ begin
     'customerMessageSent',false,'payloadRedacted',true);
 end;
 $$;
-revoke all on function public.admin_record_refund_historical_owner_notice(uuid,uuid,bigint,text,text,integer,text,text,text,timestamptz,text,text,text,boolean,boolean,boolean)
+revoke all on function public.admin_record_refund_historical_owner_notice(uuid,uuid,bigint,text,text,integer,text,text,text,timestamptz,text,text,text,boolean,boolean,boolean,text)
   from public,anon,authenticated,service_role;
-grant execute on function public.admin_record_refund_historical_owner_notice(uuid,uuid,bigint,text,text,integer,text,text,text,timestamptz,text,text,text,boolean,boolean,boolean) to authenticated;
+grant execute on function public.admin_record_refund_historical_owner_notice(uuid,uuid,bigint,text,text,integer,text,text,text,timestamptz,text,text,text,boolean,boolean,boolean,text) to authenticated;
 
 -- Keep the original reader and support-mailbox choices untouched. The extension
 -- labels provenance explicitly and never masquerades as a support-thread choice.
@@ -174,7 +189,9 @@ begin
         then 'operator_observed' when n.source_kind='support_gmail' then 'support_gmail_sent' else null end,
       'supportThread',case when n.receipt_id is null then null else n.source_kind='support_gmail' end));
   end if;
-  return base||jsonb_build_object('historicalOwnerNoticeAvailable',owner_available and base->'receipt'<>'null'::jsonb and n.receipt_id is null,
+  owner_available:=owner_available and base->'receipt'<>'null'::jsonb and n.receipt_id is null;
+  return base||jsonb_build_object('historicalOwnerNoticeAvailable',owner_available,
+    'historicalOwnerReviewBinding',case when owner_available then public.refund_owner_notice_review_binding() else null end,
     'historicalOwnerNoticeCutoff','2026-09-02T19:51:58Z');
 end;
 $$;

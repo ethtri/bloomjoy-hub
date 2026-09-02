@@ -67,7 +67,8 @@ begin
   end if;
   return public.admin_record_refund_historical_owner_notice(c.id,r,c.official_action_version,c.public_reference,
     c.matched_nayax_transaction_id,700,'USD',message_id,'feed000000000099','2026-09-02T16:07:00Z',
-    'owner-race-customer@example.invalid',repeat('e',64),'GMAIL-SENT:'||message_id,true,true,true);
+    'owner-race-customer@example.invalid',repeat('e',64),'GMAIL-SENT:'||message_id,true,true,true,
+    public.admin_get_refund_authoritative_receipt_overview(c.id)->>'historicalOwnerReviewBinding');
 exception when others then return jsonb_build_object('error',sqlstate,'message',sqlerrm);
 end; $$;
 create function refund_owner_race_test.wait_for_b() returns boolean language plpgsql as $$ begin

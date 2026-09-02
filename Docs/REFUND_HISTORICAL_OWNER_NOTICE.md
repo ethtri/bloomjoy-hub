@@ -12,6 +12,8 @@ This is evidence-only historical reconciliation, not an alternate email workflow
 
 No customer contact, payment, accounting, mailbox ingestion, source-history rewrite, sender alias or OAuth configuration is part of this action. A claim without a confirmed full-refund receipt cannot adopt a notice. One message cannot complete multiple claims, even in the same thread. Existing support-mailbox adoption remains its separate unchanged path.
 
+An opaque SHA-256 review binding ties checked evidence to the current validated session, user and verified normalized email. It contains no raw identity, token or secret. The write compares it before replay or insert; changing actor, session or email requires fresh review. This binding is not a substitute for current authority checks.
+
 ## Verification
 
 - `npm run refunds:validate-authoritative-receipt` includes the new strict handler/client tests and actual component/API execution checks.

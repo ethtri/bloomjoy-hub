@@ -8,7 +8,9 @@ values('00000000-0000-0000-0000-000000000000','bd000000-0000-4000-8000-000000000
   ('00000000-0000-0000-0000-000000000000','bd000000-0000-4000-8000-000000000002','authenticated','authenticated',
   'historical-outsider@example.invalid','',now(),'{}','{}',now(),now());
 insert into auth.sessions(id,user_id,created_at,updated_at)
-values('bd010000-0000-4000-8000-000000000001','bd000000-0000-4000-8000-000000000001',now(),now());
+values('bd010000-0000-4000-8000-000000000001','bd000000-0000-4000-8000-000000000001',now(),now()),
+  ('bd010000-0000-4000-8000-000000000002','bd000000-0000-4000-8000-000000000001',now(),now()),
+  ('bd010000-0000-4000-8000-000000000003','bd000000-0000-4000-8000-000000000002',now(),now());
 insert into public.admin_roles(user_id,role,active) values('bd000000-0000-4000-8000-000000000001','super_admin',true);
 insert into public.customer_accounts(id,name,account_type) values('bd100000-0000-4000-8000-000000000001','Historical fixture','internal');
 insert into public.reporting_locations(id,account_id,name,timezone)
@@ -60,6 +62,7 @@ select public.admin_record_refund_authoritative_receipt(c.id,a.id,c.official_act
   c.matched_nayax_transaction_id,700,700,'USD',62,'DTM:NAYAX-'||c.matched_nayax_transaction_id,true)
 from public.refund_cases c left join public.refund_case_nayax_refund_attempts a on a.refund_case_id=c.id
 where c.id in ('bd400000-0000-4000-8000-000000000001','bd400000-0000-4000-8000-000000000002','bd400000-0000-4000-8000-000000000003');
+select set_config('test.owner_review_binding',public.admin_get_refund_authoritative_receipt_overview('bd400000-0000-4000-8000-000000000001')->>'historicalOwnerReviewBinding',true);
 create function pg_temp.adopt_owner(n integer,changes jsonb default '{}'::jsonb) returns jsonb language plpgsql as $$
 declare c public.refund_cases%rowtype; r uuid; x jsonb;
 begin
@@ -68,11 +71,12 @@ begin
   x:=jsonb_build_object('receipt',r,'version',c.official_action_version,'caseReference',c.public_reference,
     'original',c.matched_nayax_transaction_id,'amount',700,'currency','USD','message','cafe000000000001','thread','cafe000000000099',
     'sentAt','2026-09-02T16:07:00Z','recipient','historical-customer@example.invalid','digest',repeat('b',64),
-    'reference','GMAIL-SENT:cafe000000000001','owned',true,'recipientReviewed',true,'claimReviewed',true)||changes;
+    'reference','GMAIL-SENT:cafe000000000001','owned',true,'recipientReviewed',true,'claimReviewed',true,
+    'reviewBinding',current_setting('test.owner_review_binding'))||changes;
   return public.admin_record_refund_historical_owner_notice(c.id,(x->>'receipt')::uuid,(x->>'version')::bigint,
     x->>'caseReference',x->>'original',(x->>'amount')::integer,x->>'currency',x->>'message',x->>'thread',
     (x->>'sentAt')::timestamptz,x->>'recipient',x->>'digest',x->>'reference',(x->>'owned')::boolean,
-    (x->>'recipientReviewed')::boolean,(x->>'claimReviewed')::boolean);
+    (x->>'recipientReviewed')::boolean,(x->>'claimReviewed')::boolean,x->>'reviewBinding');
 end; $$;
 create function pg_temp.change_and_adopt(setup_sql text,n integer) returns text language plpgsql as $$
 declare setup_done boolean:=false;
@@ -83,10 +87,14 @@ select ok(not has_table_privilege(role_name,'public.refund_external_notice_obser
   and not has_table_privilege(role_name,'public.refund_external_notice_observations','insert'),role_name||' cannot directly read/write historical evidence')
 from unnest(array['anon','authenticated','service_role']) role_name;
 select ok(not has_function_privilege(role_name,
-  'public.admin_record_refund_historical_owner_notice(uuid,uuid,bigint,text,text,integer,text,text,text,timestamptz,text,text,text,boolean,boolean,boolean)','execute'),
+  'public.admin_record_refund_historical_owner_notice(uuid,uuid,bigint,text,text,integer,text,text,text,timestamptz,text,text,text,boolean,boolean,boolean,text)','execute'),
   role_name||' cannot impersonate current owner review') from unnest(array['anon','service_role']) role_name;
 select ok(not has_function_privilege('authenticated','public.admin_get_refund_receipt_overview_pre_owner_notice_v1(uuid)','execute'),
   'Old reader delegate is private');
+select ok(not has_function_privilege(role_name,'public.refund_owner_notice_review_binding()','execute'),
+  role_name||' cannot directly call the private review-binding helper') from unnest(array['anon','authenticated','service_role']) role_name;
+select ok(current_setting('test.owner_review_binding') ~ '^[a-f0-9]{64}$',
+  'Authorized overview gives an opaque binding, never raw user identity or session ID');
 select is(public.admin_get_refund_authoritative_receipt_overview('bd400000-0000-4000-8000-000000000001')->>'historicalOwnerNoticeAvailable','true',
   'Current verified mapped owner can review a historical notice only after a receipt');
 select is(public.admin_get_refund_authoritative_receipt_overview('bd400000-0000-4000-8000-000000000004')->>'historicalOwnerNoticeAvailable','false',
@@ -96,6 +104,8 @@ select throws_ok(format('select pg_temp.adopt_owner(1,%L::jsonb)',change),'P4664
 from (values
   ('{"version":0}','Stale case version is rejected'),
   ('{"receipt":null}','Missing receipt cannot be supplied by observation'),
+  ('{"reviewBinding":null}','Missing current-owner review binding is rejected'),
+  ('{"reviewBinding":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}','Forged current-owner review binding is rejected'),
   ('{"caseReference":"RF-HISTORICAL-4"}','Another case reference is rejected'),
   ('{"original":"223456784"}','Another original cannot replace the selected receipt'),
   ('{"amount":1400}','Combined thread amount cannot substitute exact claim amount'),
@@ -114,6 +124,15 @@ from (values
 ) invalid(change,label);
 select is(pg_temp.change_and_adopt($$update auth.users set email_confirmed_at=null where id=auth.uid()$$,1),'42501','Unverified email cannot claim mailbox ownership');
 select is(pg_temp.change_and_adopt($$update auth.users set email='info@bloomjoysweets.com' where id=auth.uid()$$,1),'42501','Support mailbox cannot bypass its existing provider ingestion proof');
+select is(pg_temp.change_and_adopt($$select set_config('request.jwt.claims','{"sub":"bd000000-0000-4000-8000-000000000001","role":"authenticated","session_id":"bd010000-0000-4000-8000-000000000002","is_anonymous":false}',true)$$,1),
+  'P4664','New valid session cannot reuse the previous session checked review');
+select is(pg_temp.change_and_adopt($setup$
+  insert into public.admin_roles(user_id,role,active) values('bd000000-0000-4000-8000-000000000002','super_admin',true);
+  insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
+    values('bd300000-0000-4000-8000-000000000001','bd000000-0000-4000-8000-000000000002','historical-outsider@example.invalid','Synthetic second authorized owner');
+  select set_config('request.jwt.claim.sub','bd000000-0000-4000-8000-000000000002',true);
+  select set_config('request.jwt.claims','{"sub":"bd000000-0000-4000-8000-000000000002","role":"authenticated","session_id":"bd010000-0000-4000-8000-000000000003","is_anonymous":false}',true)
+$setup$,1),'P4664','Another verified fully authorized owner cannot inherit the old checked review');
 select is(pg_temp.change_and_adopt($$delete from auth.sessions where user_id=auth.uid()$$,1),'42501','Revoked current session prevents observation');
 select is(pg_temp.change_and_adopt($$update public.admin_roles set active=false where user_id=auth.uid()$$,1),'42501','Revoked Super Admin cannot observe');
 select is(pg_temp.change_and_adopt($$update public.reporting_machine_refund_managers set status='revoked',revoked_at=now(),revoke_reason='Synthetic revoked mapping' where manager_user_id=auth.uid()$$,1),
@@ -129,12 +148,12 @@ set local role authenticated;
 select is(public.admin_record_refund_historical_owner_notice('bd400000-0000-4000-8000-000000000001',
   current_setting('test.owner_receipt_id')::uuid,current_setting('test.owner_case_version')::bigint,
   'RF-HISTORICAL-1','223456781',700,'USD','cafe000000000001','cafe000000000099','2026-09-02T16:07:00Z',
-  'historical-customer@example.invalid',repeat('b',64),'GMAIL-SENT:cafe000000000001',true,true,true)->>'status',
+  'historical-customer@example.invalid',repeat('b',64),'GMAIL-SENT:cafe000000000001',true,true,true,current_setting('test.owner_review_binding'))->>'status',
   'adopted','Actual authenticated owner records one historical notice atomically');
 select is(public.admin_record_refund_historical_owner_notice('bd400000-0000-4000-8000-000000000001',
   current_setting('test.owner_receipt_id')::uuid,current_setting('test.owner_case_version')::bigint,
   'RF-HISTORICAL-1','223456781',700,'USD','cafe000000000001','cafe000000000099','2026-09-02T16:07:00Z',
-  'historical-customer@example.invalid',repeat('b',64),'GMAIL-SENT:cafe000000000001',true,true,true)->>'status',
+  'historical-customer@example.invalid',repeat('b',64),'GMAIL-SENT:cafe000000000001',true,true,true,current_setting('test.owner_review_binding'))->>'status',
   'already_adopted','Exact reviewed evidence replay has no second effect');
 reset role;
 select is((select count(*) from public.refund_external_notice_observations),1::bigint,'One external observation');

@@ -7,7 +7,7 @@ export async function handleHistoricalOwnerNotice(body: Record<string, unknown>,
   const keys = ["mode", "caseId", "receiptId", "expectedCaseVersion", "completionCaseReference",
     "completionOriginalTransactionId", "completionAmountCents", "currencyCode", "providerMessageId",
     "providerThreadId", "originalSentAt", "recipientEmail", "reviewedMessageDigest", "evidenceReference",
-    "reviewedOwnedMailboxSent", "reviewedCustomerOnlyNoCc", "reviewedExactCaseAmount"];
+    "reviewedOwnedMailboxSent", "reviewedCustomerOnlyNoCc", "reviewedExactCaseAmount", "expectedOwnerReviewBinding"];
   const at = typeof body.originalSentAt === "string" ? Date.parse(body.originalSentAt) : NaN;
   if (Object.keys(body).length !== keys.length || !keys.every((k) => Object.hasOwn(body, k)) ||
     !uuid(body.caseId) || !uuid(body.receiptId) || !Number.isSafeInteger(body.expectedCaseVersion) || Number(body.expectedCaseVersion) < 1 ||
@@ -19,6 +19,7 @@ export async function handleHistoricalOwnerNotice(body: Record<string, unknown>,
     new Date(at).toISOString().slice(0, 19) !== body.originalSentAt.slice(0, 19) ||
     !text(body.recipientEmail, 320) || typeof body.recipientEmail !== "string" || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(body.recipientEmail) ||
     body.recipientEmail !== body.recipientEmail.toLowerCase() || typeof body.reviewedMessageDigest !== "string" || !/^[a-f0-9]{64}$/.test(body.reviewedMessageDigest) ||
+    typeof body.expectedOwnerReviewBinding !== "string" || !/^[a-f0-9]{64}$/.test(body.expectedOwnerReviewBinding) ||
     body.evidenceReference !== `GMAIL-SENT:${body.providerMessageId}` || body.reviewedOwnedMailboxSent !== true ||
     body.reviewedCustomerOnlyNoCc !== true || body.reviewedExactCaseAmount !== true) {
     return { status: 400, body: { errorCode: "invalid_historical_notice_evidence", error: "Review this historical message and current receipt again." } };
@@ -31,6 +32,7 @@ export async function handleHistoricalOwnerNotice(body: Record<string, unknown>,
     p_original_sent_at: body.originalSentAt, p_recipient_email: body.recipientEmail,
     p_reviewed_message_digest: body.reviewedMessageDigest, p_evidence_reference: body.evidenceReference,
     p_reviewed_owned_mailbox_sent: true, p_reviewed_customer_only_no_cc: true, p_reviewed_exact_case_amount: true,
+    p_expected_owner_review_binding: body.expectedOwnerReviewBinding,
   });
   const result = data && typeof data === "object" && !Array.isArray(data) ? data as Record<string, unknown> : {};
   if (error || !["adopted", "already_adopted"].includes(String(result.status)) || result.noticeSource !== "historical_owner_mailbox" ||
