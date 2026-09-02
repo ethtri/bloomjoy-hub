@@ -49,8 +49,15 @@ select ('be400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-CORRECTION-'
   'be300000-0000-4000-8000-000000000001','be200000-0000-4000-8000-000000000001','correction-customer@example.invalid',
   'Synthetic correction fixture',now()-interval '3 days','America/Los_Angeles','card',700,700,'4242',
   'card_refund_pending','matched','nayax',1,'approved',(323456780+n)::text,700,'USD',now()-interval '3 days',
-  '{"qr_claim_present":false,"source":"hosted_refund_intake","sentinel":"preserve"}'::jsonb,'approved','manual_review'
+  '{"qr_claim_present":false,"source":"hosted_refund_intake","sentinel":"preserve"}'::jsonb,'approved','not_requested'
 from generate_series(1,5) n;
+-- A legitimate pre-existing send intent is queued before provider hold, not
+-- inserted through the hold's independent new-customer-message guard.
+insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body)
+values('be810000-0000-4000-8000-000000000001','be400000-0000-4000-8000-000000000001',
+  'confirmation','pending','correction-customer@example.invalid','Synthetic pre-existing send','Synthetic pre-existing send');
+update public.refund_cases set nayax_refund_execution_status='manual_review'
+where reporting_machine_id='be300000-0000-4000-8000-000000000001';
 with inserted as (
   insert into public.refund_case_nayax_refund_attempts(refund_case_id,actor_user_id,execution_mode,status,
     idempotency_key,amount_cents,provider_reference,provider_status,request_fingerprint,currency_code,
@@ -148,6 +155,8 @@ select ok(not has_table_privilege('service_role','public.refund_legacy_machine_c
 select ok(not has_function_privilege(role_name,'public.admin_correct_legacy_refund_machine_and_record_observation(uuid,uuid,bigint,uuid,uuid,uuid,text,text,text,text,text,integer,integer,text,integer,text,boolean)','execute'),role_name||' cannot impersonate current operator')
 from unnest(array['anon','service_role']) role_name;
 select is(jsonb_array_length(public.admin_get_refund_legacy_machine_correction_options('be400000-0000-4000-8000-000000000001')->'targets'),1,'Current mapped exact inventory target is offered');
+select throws_ok($$select refund_machine_correction_test.run(1)$$,'P4661',null,'Pre-existing in-flight customer work blocks the atomic correction');
+delete from public.refund_case_messages where id='be810000-0000-4000-8000-000000000001';
 select throws_ok($$select refund_machine_correction_test.run(1,'{"version":0}')$$,'P4665',null,'Stale case version fails closed');
 select throws_ok($$select refund_machine_correction_test.run(1,'{"old":null}')$$,'P4665',null,'Missing old machine fails closed');
 select throws_ok($$select refund_machine_correction_test.run(1,'{"target":null}')$$,'P4665',null,'Missing target fails closed');
@@ -185,9 +194,6 @@ select is(refund_machine_correction_test.reject_corruption($setup$update public.
   where id='be600000-0000-4000-8000-000000000002';$setup$,'{"number":"CORRECTION-MACHINE-2"}'),
   'P4665','Matching malformed inventory label is not a numeric machine number');
 select is((select count(*)::integer from public.refund_legacy_machine_corrections),0,'All failed corrections roll back their audit');
-select is(refund_machine_correction_test.reject_corruption($setup$insert into public.refund_case_messages(refund_case_id,message_type,status,recipient_email,subject,body)
-values('be400000-0000-4000-8000-000000000001','confirmation','pending','correction-customer@example.invalid','Synthetic in-flight send','Synthetic in-flight send');$setup$),
-  'P4661','In-flight customer work blocks the atomic correction');
 select is(refund_machine_correction_test.reject_corruption($setup$update public.refund_cases set intake_selection_kind='exact_machine',intake_selection_key='synthetic-original-machine',
   intake_selection_machine_ids=array['be300000-0000-4000-8000-000000000001'::uuid]
   where id='be400000-0000-4000-8000-000000000001';$setup$),
