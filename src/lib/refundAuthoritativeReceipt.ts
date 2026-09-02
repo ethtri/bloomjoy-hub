@@ -1,4 +1,7 @@
 export type ReceiptNoticeChoice = { id: string; sentAt: string; subject: string; plainBody: string };
+export const hasConfirmedRefundReceipt = (value: { lifecycle?: { reasonCode?: string; paymentState?: string; stage?: string } | null }) =>
+  value.lifecycle?.reasonCode === 'settlement_time_unknown' && value.lifecycle.paymentState === 'confirmed' &&
+  ['refund_confirmed', 'customer_notified'].includes(value.lifecycle.stage ?? '');
 const bindingKinds = ['modern_authorized_manual', 'legacy_manual_portal_observation', 'no_attempt_integrity_hold', 'unverified_attempt'] as const;
 export const refundReceiptRefreshQueryKeys = [
   ['admin-refund-operations-overview'],

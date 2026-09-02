@@ -465,7 +465,6 @@ create function public.service_claim_refund_gmail_outbound_v3(
 )
 returns jsonb language plpgsql security definer set search_path='' as $$
 begin
-  if auth.role() is distinct from 'service_role' then raise exception 'Service role required' using errcode='42501'; end if;
   perform 1 from public.refund_cases where id=p_refund_case_id for update;
   if exists(select 1 from public.refund_authoritative_receipts where refund_case_id=p_refund_case_id) then
     raise exception 'Authoritative receipt forbids customer resend; adopt existing sent evidence' using errcode='P4663';
@@ -486,7 +485,6 @@ create function public.service_mark_refund_transactional_delivery_attempt(p_refu
 returns jsonb language plpgsql security definer set search_path='' as $$
 declare case_id uuid;
 begin
-  if auth.role() is distinct from 'service_role' then raise exception 'Service role required' using errcode='42501'; end if;
   select refund_case_id into case_id from public.refund_case_messages where id=p_refund_case_message_id;
   perform 1 from public.refund_cases where id=case_id for update;
   if exists(select 1 from public.refund_authoritative_receipts where refund_case_id=case_id) then

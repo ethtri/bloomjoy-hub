@@ -20,6 +20,7 @@ import { isEdgeFunctionError } from '@/lib/edgeFunctions';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecycleProgress';
 import { RefundAuthoritativeReceiptPanel } from '@/components/refunds/RefundAuthoritativeReceiptPanel';
+import { hasConfirmedRefundReceipt } from '@/lib/refundAuthoritativeReceipt';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -695,6 +696,9 @@ const nayaxLookupNoticeClass = (tone: NayaxLookupNotice['tone']) =>
 const getRefundReferenceLabel = (_refundCase: RefundCaseRecord) => 'External refund confirmation/reference';
 
 const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxLookupCandidate[]) => {
+  if (hasConfirmedRefundReceipt(refundCase)) {
+    return 'Refund confirmed. Refund Operations must resolve the accounting date internally. Do not retry payment or send another customer notice.';
+  }
   if (refundCase.status === 'draft') {
     return 'Review the Gmail message, then ask for the missing location, purchase time, payment method, and transaction details.';
   }
@@ -1650,6 +1654,13 @@ const primaryActionConfig = (
   candidates: NayaxLookupCandidate[],
   refundReadiness: RefundReadiness | null
 ): PrimaryActionConfig => {
+  if (hasConfirmedRefundReceipt(refundCase)) {
+    return {
+      label: 'Refund confirmed · accounting review',
+      helper: 'Payment is confirmed. The settlement date remains unknown. Review the saved receipt and any existing sent notice below; do not retry payment or resend.',
+      disabled: true,
+    };
+  }
   const latestMessage = getLatestCustomerMessage(refundCase);
   const definitiveNoRefundRetryReady = isDefinitiveNoRefundRetryReady(refundCase);
   if (refundCase.legacyStateReviewRequired) {
@@ -2940,7 +2951,7 @@ export default function AdminRefundsPage() {
   );
   const primaryActionIssues = useMemo(
     () =>
-      primaryAction?.mode === 'retry_message'
+      (selectedCase && hasConfirmedRefundReceipt(selectedCase)) || primaryAction?.mode === 'retry_message'
         ? []
         : selectedCase && primaryActionEditor
           ? getCaseSaveIssues(selectedCase, primaryActionEditor)
@@ -5143,7 +5154,7 @@ export default function AdminRefundsPage() {
       (selectedCase.legacyStateReviewRequired ? null : editor.matchedNayaxMachineAuthTime) ||
       selectedCase.incidentAt;
     const actionLabel = `Refund ${formatCurrency(cardAmountCents)}`;
-    const paymentActionNeedsOperations = refundOperationsBlockedCaseIds.has(selectedCase.id);
+    const paymentActionNeedsOperations = !hasConfirmedRefundReceipt(selectedCase) && refundOperationsBlockedCaseIds.has(selectedCase.id);
     const hasReadyRefund =
       primaryAction?.mode === 'nayax_refund_execution' &&
       primaryAction.disabled !== true &&
@@ -5172,7 +5183,7 @@ export default function AdminRefundsPage() {
     const hasUnsavedTransactionChoice =
       !selectedCase.hasMatchedNayaxTransaction &&
       Boolean(editor.matchedNayaxCandidateToken.trim());
-    const managerState: RefundManagerState = selectedCase.customerDeliveryException
+    const managerState: RefundManagerState = hasConfirmedRefundReceipt(selectedCase) || selectedCase.customerDeliveryException
       ? baseManagerState
       : paymentActionNeedsOperations
       ? {
@@ -5701,7 +5712,11 @@ export default function AdminRefundsPage() {
             <RefundAuthoritativeReceiptPanel key={selectedCase.id} caseId={selectedCase.id} demo={forceDemoData} />
           )}
 
-          {selectedCase.lifecycle?.reasonCode !== 'settlement_time_unknown' && (selectedCase.legacyStateReviewRequired ||
+          {hasConfirmedRefundReceipt(selectedCase) ? (
+            <p data-testid="refund-receipt-accounting-only" className="mt-4 border-t border-border pt-4 text-sm text-muted-foreground">
+              Payment is confirmed. Accounting-date review is internal work. No new payment or customer message is available here.
+            </p>
+          ) : (selectedCase.legacyStateReviewRequired ||
           selectedCase.providerHold ||
           (selectedCase.providerOutcome === 'rejected' &&
             !isDefinitiveNoRefundRetryReady(selectedCase)) ||

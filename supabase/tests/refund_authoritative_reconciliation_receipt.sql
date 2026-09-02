@@ -76,6 +76,14 @@ select ok(not has_table_privilege('service_role','public.refund_authoritative_re
 select ok(not has_table_privilege('authenticated','public.refund_completion_notice_adoptions','select'), 'Prior message evidence is private');
 select ok(not has_function_privilege('anon','public.admin_record_refund_authoritative_receipt(uuid,uuid,bigint,text,text,text,integer,integer,text,integer,text,boolean)','execute'), 'Anonymous cannot record evidence');
 select ok(not has_function_privilege('service_role','public.admin_record_refund_authoritative_receipt(uuid,uuid,bigint,text,text,text,integer,integer,text,integer,text,boolean)','execute'), 'Background service cannot impersonate operator');
+select ok(not has_function_privilege(role_name,signature,'execute'),role_name||' cannot execute '||signature)
+from unnest(array['anon','authenticated']) role_name
+cross join unnest(array[
+  'public.service_claim_refund_gmail_outbound_v3(uuid,uuid,text,text,text,text,text[],text,uuid)',
+  'public.service_claim_refund_gmail_outbound_pre_receipt_v1(uuid,uuid,text,text,text,text,text[],text,uuid)',
+  'public.service_mark_refund_transactional_delivery_attempt(uuid)',
+  'public.service_mark_refund_delivery_pre_receipt_v1(uuid)'
+]) signature;
 
 select throws_ok($$select pg_temp.record_receipt(1,'{"status":61}')$$,'P4661',null,'Pending provider status cannot confirm payment');
 select throws_ok($$select pg_temp.record_receipt(1,'{"refunded":699}')$$,'P4661',null,'Partial amount cannot confirm full refund');
@@ -123,10 +131,9 @@ values('ad400000-0000-4000-8000-000000000001','confirmation','sent','receipt-cus
 select throws_ok($$select pg_temp.record_receipt(1)$$,'P4661',null,'Uncertain Resend delivery blocks receipt entry');
 rollback to inflight_resend;
 savepoint competing_original;
-update public.refund_cases set matched_nayax_transaction_id='123456781' where id='ad400000-0000-4000-8000-000000000004';
-insert into public.refund_case_nayax_refund_attempts(refund_case_id,execution_mode,status,idempotency_key,amount_cents,provider_outcome)
-values('ad400000-0000-4000-8000-000000000004','manual_portal','manual_review','competing-original',700,'unknown');
-select throws_ok($$select pg_temp.record_receipt(1)$$,'P4661',null,'Competing exact-original held attempt blocks receipt entry');
+select throws_ok($$update public.refund_cases set matched_nayax_transaction_id='123456781'
+  where id='ad400000-0000-4000-8000-000000000004'$$,'23505',null,
+  'Existing unique-original guard prevents constructing a competing active claim');
 rollback to competing_original;
 savepoint inflight_gmail;
 insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,first_message_at,latest_message_at,retention_expires_at)
