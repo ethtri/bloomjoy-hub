@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(29);
+select plan(30);
 
 create function pg_temp.capture_error(statement text)
 returns text language plpgsql as $$
@@ -514,6 +514,27 @@ insert into public.refund_gmail_messages (
   'customer', 'verified', 'Unrelated Zelle detail',
   'Zelle email or phone number: wrong-thread@example.invalid',
   statement_timestamp(), statement_timestamp() + interval '30 days'
+);
+
+select ok(
+  pg_temp.capture_error($$update public.refund_case_messages
+    set body = 'Tampered payout request'
+    where manual_delivery_intent_id =
+      'c1500000-0000-4000-8000-000000000001'$$)
+      like '23514:Protected payout request content and identity are immutable%'
+  and pg_temp.capture_error($$update public.refund_case_messages
+    set recipient_email = 'other-customer@example.invalid'
+    where manual_delivery_intent_id =
+      'c1500000-0000-4000-8000-000000000001'$$)
+      like '23514:Protected payout-destination message is not eligible%'
+  and pg_temp.capture_error($$update public.refund_case_messages
+    set requested_fields_satisfied_by_gmail_message_id =
+          'c1700000-0000-4000-8000-000000000002',
+        requested_fields_satisfied_at = statement_timestamp()
+    where manual_delivery_intent_id =
+      'c1500000-0000-4000-8000-000000000001'$$)
+      like '23514:Protected payout request satisfaction evidence is invalid%',
+  'Payout request content, recipient, and satisfaction proof are immutable without the exact verified reply'
 );
 
 set local role service_role;

@@ -400,7 +400,10 @@ begin
   if not found
     or case_row.payment_method <> 'cash'
     or case_row.decision is distinct from 'approved'
-    or nullif(btrim(coalesce(case_row.zelle_payment_contact, '')), '') is not null
+    or (
+      nullif(btrim(coalesce(case_row.zelle_payment_contact, '')), '') is not null
+      and (tg_op = 'INSERT' or new.delivery_kind <> 'manual')
+    )
     or lower(btrim(coalesce(new.recipient_email, ''))) <>
       lower(btrim(coalesce(case_row.customer_email, '')))
     or new.requested_fields is distinct from array['zelle_payment_contact']::text[]
@@ -417,6 +420,108 @@ begin
       or new.payout_destination_follow_up_id is not null then
       raise exception 'Protected payout request requires one manager-reviewed ledger intent'
         using errcode = '23514';
+    end if;
+
+    if tg_op = 'UPDATE' then
+      if to_jsonb(new)
+          - 'status'
+          - 'sent_at'
+          - 'error_message'
+          - 'manual_delivery_state'
+          - 'manual_delivery_claim_token'
+          - 'manual_delivery_claimed_at'
+          - 'manual_delivery_provider_attempted_at'
+          - 'manual_delivery_attempt_count'
+          - 'delivery_transport'
+          - 'provider_message_id'
+          - 'delivery_state'
+          - 'delivery_state_updated_at'
+          - 'status_capability_id'
+          - 'status_link_included'
+          - 'requested_fields_satisfied_by_gmail_message_id'
+          - 'requested_fields_satisfied_at'
+        is distinct from to_jsonb(old)
+          - 'status'
+          - 'sent_at'
+          - 'error_message'
+          - 'manual_delivery_state'
+          - 'manual_delivery_claim_token'
+          - 'manual_delivery_claimed_at'
+          - 'manual_delivery_provider_attempted_at'
+          - 'manual_delivery_attempt_count'
+          - 'delivery_transport'
+          - 'provider_message_id'
+          - 'delivery_state'
+          - 'delivery_state_updated_at'
+          - 'status_capability_id'
+          - 'status_link_included'
+          - 'requested_fields_satisfied_by_gmail_message_id'
+          - 'requested_fields_satisfied_at' then
+        raise exception 'Protected payout request content and identity are immutable'
+          using errcode = '23514';
+      end if;
+
+      if new.requested_fields_satisfied_by_gmail_message_id is distinct from
+          old.requested_fields_satisfied_by_gmail_message_id
+        or new.requested_fields_satisfied_at is distinct from
+          old.requested_fields_satisfied_at then
+        if old.requested_fields_satisfied_by_gmail_message_id is not null
+          or old.requested_fields_satisfied_at is not null
+          or new.requested_fields_satisfied_by_gmail_message_id is null
+          or new.requested_fields_satisfied_at is null
+          or old.status <> 'sent'
+          or old.sent_at is null
+          or to_jsonb(new)
+              - 'requested_fields_satisfied_by_gmail_message_id'
+              - 'requested_fields_satisfied_at'
+            is distinct from to_jsonb(old)
+              - 'requested_fields_satisfied_by_gmail_message_id'
+              - 'requested_fields_satisfied_at' then
+          raise exception 'Protected payout request satisfaction evidence is invalid'
+            using errcode = '23514';
+        end if;
+
+        if not exists (
+          select 1
+          from public.refund_gmail_messages source
+          where source.id =
+              new.requested_fields_satisfied_by_gmail_message_id
+            and source.refund_case_id = new.refund_case_id
+            and source.direction = 'inbound'
+            and source.message_kind = 'message'
+            and source.status = 'received'
+            and source.participant_role = 'customer'
+            and source.participant_trust = 'verified'
+            and lower(btrim(source.sender_email)) =
+              lower(btrim(case_row.customer_email))
+            and source.received_at = new.requested_fields_satisfied_at
+            and source.received_at >= old.sent_at
+            and (
+              exists (
+                select 1
+                from public.refund_gmail_messages outbound
+                where outbound.refund_case_message_id = old.id
+                  and outbound.direction = 'outbound'
+                  and outbound.message_kind = 'message'
+                  and outbound.status = 'sent'
+                  and outbound.gmail_thread_id = source.gmail_thread_id
+                  and coalesce(outbound.sent_at, outbound.received_at) <=
+                    source.received_at
+              )
+              or (
+                old.delivery_transport = 'resend'
+                and old.provider_message_id is not null
+                and position(upper(case_row.public_reference) in upper(
+                  coalesce(source.subject, '') || E'\n' ||
+                  coalesce(source.plain_body, '')
+                )) > 0
+              )
+            )
+        ) then
+          raise exception 'Protected payout request satisfaction evidence is invalid'
+            using errcode = '23514';
+        end if;
+      end if;
     end if;
     return new;
   end if;
@@ -1305,6 +1410,12 @@ begin
   end if;
 
   update public.refund_case_messages message
+  set
+    requested_fields_satisfied_by_gmail_message_id = p_gmail_message_id,
+    requested_fields_satisfied_at = source_row.received_at
+  where message.id = request_message.id;
+
+  update public.refund_case_messages message
   set status = 'skipped',
       error_message = 'payout_destination_reply_superseded_reminder'
   from public.refund_payout_destination_follow_ups follow_up
@@ -1358,12 +1469,6 @@ begin
     array['zelle_payment_contact']::text[],
     p_extraction_policy
   );
-
-  update public.refund_case_messages message
-  set
-    requested_fields_satisfied_by_gmail_message_id = p_gmail_message_id,
-    requested_fields_satisfied_at = source_row.received_at
-  where message.id = request_message.id;
 
   update public.refund_payout_destination_follow_ups follow_up
   set status = 'satisfied',
