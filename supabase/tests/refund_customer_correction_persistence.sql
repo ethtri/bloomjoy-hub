@@ -549,10 +549,16 @@ select ok(
   pg_get_functiondef('public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)'::regprocedure)
     like '%for update%'
   and pg_get_functiondef('public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)'::regprocedure)
-    like '%refund_customer_fact_applications%'
+    like '%refund_authoritative_receipts%'
   and pg_get_functiondef('public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)'::regprocedure)
+    like '%service_apply_refund_gmail_customer_facts_pre_receipt(%'
+  and pg_get_functiondef('public.service_apply_refund_gmail_customer_facts_pre_receipt(uuid,uuid,bigint,jsonb,text[],text)'::regprocedure)
+    like '%for update%'
+  and pg_get_functiondef('public.service_apply_refund_gmail_customer_facts_pre_receipt(uuid,uuid,bigint,jsonb,text[],text)'::regprocedure)
+    like '%refund_customer_fact_applications%'
+  and pg_get_functiondef('public.service_apply_refund_gmail_customer_facts_pre_receipt(uuid,uuid,bigint,jsonb,text[],text)'::regprocedure)
     like '%gmail_customer_facts_applied%',
-  'The RPC serializes source and case state and owns update, ledger, and event atomicity'
+  'The receipt wrapper serializes state and delegates update, ledger, and event atomicity to the current private implementation'
 );
 
 select ok(

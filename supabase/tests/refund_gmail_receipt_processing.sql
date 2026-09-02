@@ -126,9 +126,11 @@ select is((select count(*)::integer from public.refund_case_events where refund_
 
 -- The receipt wins while an actual service-role fact application is waiting.
 select extensions.dblink_exec('gmail_receipt_a','begin');
+-- The disposable coordinator holds the barrier; the real operation below still
+-- runs as authenticated, which correctly has no direct table UPDATE grant.
+select * from extensions.dblink('gmail_receipt_a',$q$select id::text from public.refund_cases where id='c9400000-0000-4000-8000-000000000003' for update$q$) as x(id text);
 select extensions.dblink_exec('gmail_receipt_a','set local role authenticated');
 select * from extensions.dblink('gmail_receipt_a','select refund_gmail_receipt_test.authorize()::text') as x(result text);
-select * from extensions.dblink('gmail_receipt_a',$q$select id::text from public.refund_cases where id='c9400000-0000-4000-8000-000000000003' for update$q$) as x(id text);
 select extensions.dblink_exec('gmail_receipt_b','set role service_role');
 select extensions.dblink_send_query('gmail_receipt_b','select refund_gmail_receipt_test.apply(3)');
 select ok(refund_gmail_receipt_test.blocked(),'Fact application is verified waiting on receipt case lock');
