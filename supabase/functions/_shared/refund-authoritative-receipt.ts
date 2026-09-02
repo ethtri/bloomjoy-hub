@@ -40,7 +40,7 @@ export async function handleAuthoritativeReceipt(
       body.evidenceReference !== `DTM:NAYAX-${body.originalTransactionId}`) return invalid;
     if (correctingMachine && (!uuid(body.attemptId) || !uuid(body.expectedOldMachineId) ||
       !uuid(body.targetMachineId) || body.targetMachineId === body.expectedOldMachineId ||
-      !uuid(body.inventoryId) || !text(body.machineNumber, 120) ||
+      !uuid(body.inventoryId) || typeof body.machineNumber !== "string" || !/^[0-9]{1,120}$/.test(body.machineNumber) ||
       typeof body.inventoryEvidenceDigest !== "string" || !/^[a-f0-9]{64}$/.test(body.inventoryEvidenceDigest))) return invalid;
     name = "admin_record_refund_authoritative_receipt";
     args = {

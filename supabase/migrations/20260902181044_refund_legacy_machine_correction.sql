@@ -10,7 +10,7 @@ create table public.refund_legacy_machine_corrections (
   new_machine_id uuid not null references public.reporting_machines(id),
   reporting_location_id uuid not null references public.reporting_locations(id),
   inventory_id uuid not null references public.refund_nayax_machine_inventory(id),
-  provider_machine_number text not null check (length(provider_machine_number) between 1 and 120),
+  provider_machine_number text not null check (provider_machine_number ~ '^[0-9]{1,120}$'),
   inventory_evidence_digest text not null check (inventory_evidence_digest ~ '^[a-f0-9]{64}$'),
   historical_attempt_digest text not null check (historical_attempt_digest ~ '^[a-f0-9]{64}$'),
   prior_case_version bigint not null,
@@ -58,7 +58,7 @@ begin
     and m.status='active' and m.nayax_manual_portal_enabled is false
     and i.account_key=m.nayax_account_key and i.nayax_machine_id=m.nayax_machine_id
     and i.provider_is_active and i.reconciliation_state='published' and i.missing_successful_snapshots=0
-    and nullif(i.machine_number,'') is not null and exists(select 1
+    and i.machine_number ~ '^[0-9]{1,120}$' and exists(select 1
       from public.reporting_machine_refund_managers mm where mm.reporting_machine_id=m.id
       and mm.manager_user_id=auth.uid() and mm.status='active' and mm.revoked_at is null);
   return jsonb_build_object('schemaVersion','refund_legacy_machine_correction_options_v1',
@@ -126,7 +126,8 @@ begin
     or p_inventory_evidence_digest is distinct from public.refund_machine_correction_inventory_digest(inventory.id)
     or inventory.reconciliation_state is distinct from 'published' or inventory.provider_is_active is distinct from true
     or inventory.missing_successful_snapshots is distinct from 0
-    or nullif(inventory.machine_number,'') is null or p_machine_number is distinct from inventory.machine_number
+    or inventory.machine_number is null or inventory.machine_number !~ '^[0-9]{1,120}$'
+    or p_machine_number is distinct from inventory.machine_number
     or nullif(inventory.account_key,'') is null or p_account_scope is distinct from inventory.account_key
     or nullif(inventory.nayax_machine_id,'') is null or p_provider_machine_id is distinct from inventory.nayax_machine_id
     or inventory.account_key is distinct from new_m.nayax_account_key

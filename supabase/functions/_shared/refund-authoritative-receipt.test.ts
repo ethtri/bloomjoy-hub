@@ -33,6 +33,7 @@ Deno.test("legacy machine correction uses exactly one authenticated evidence cap
 for (const change of [
   { attemptId: null }, { expectedOldMachineId: null }, { targetMachineId: id },
   { inventoryId: null }, { inventoryEvidenceDigest: "wrong" }, { machineNumber: "" },
+  { machineNumber: "CORRECTION-MACHINE-2" }, { machineNumber: "１２３４" },
   { reviewedCurrentProviderObservation: false }, { providerStatus: 63 }, { refundedAmountCents: 699 },
   { actorId: id }, { observedAt: "2026-09-02T00:00:00Z" }, { customerConfirmedMachine: true },
 ]) Deno.test(`legacy correction rejects ${Object.keys(change)[0]} without a write`, async () => {
@@ -47,6 +48,13 @@ Deno.test("legacy correction never treats an incomplete or replay response as su
     const result = await handleAuthoritativeReceipt(correctionRequest(), () => Promise.resolve({ data, error: null }));
     assertEquals(result.status, 409);
   }
+});
+Deno.test("numeric provider machine numbers remain exact text including leading zeroes", async () => {
+  const result = await handleAuthoritativeReceipt({ ...correctionRequest(), machineNumber: "00555000002" }, (_name, args) => {
+    assertEquals(args.p_machine_number, "00555000002");
+    return Promise.resolve({ data: { ...response, correctionId: id, machineCorrected: true }, error: null });
+  });
+  assertEquals(result.status, 200);
 });
 
 Deno.test("unknown settlement receipt performs one authenticated evidence RPC and strips unexpected output", async () => {

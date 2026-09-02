@@ -2,6 +2,13 @@
 create extension if not exists pgtap with schema extensions;
 create extension if not exists dblink with schema extensions;
 set search_path=public,extensions;
+-- Verify disposable connectivity before any fixture can be committed.
+select extensions.dblink_connect('correction_race_a','host=db port='||current_setting('port')||
+  ' dbname='||current_database()||' user=postgres password=postgres sslmode=disable application_name=correction_race_a');
+select extensions.dblink_connect('correction_race_b','host=db port='||current_setting('port')||
+  ' dbname='||current_database()||' user=postgres password=postgres sslmode=disable application_name=correction_race_b');
+select extensions.dblink_exec('correction_race_a','set statement_timeout=''15s''');
+select extensions.dblink_exec('correction_race_b','set statement_timeout=''15s''');
 begin;
 create schema refund_machine_correction_test;
 create table refund_machine_correction_test.results(lane text primary key,payload jsonb);
@@ -37,12 +44,12 @@ values('be600000-0000-4000-8000-000000000002','CORRECTION-ACCOUNT','CORRECTION-M
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,issue_summary,
   incident_at,incident_timezone,payment_method,payment_amount_cents,refund_amount_cents,card_last4,status,correlation_status,correlation_source,
   correlation_confidence,automation_state,matched_nayax_transaction_id,matched_nayax_amount_cents,matched_nayax_currency_code,
-  matched_nayax_machine_auth_time,intake_meta)
+  matched_nayax_machine_auth_time,intake_meta,decision,nayax_refund_execution_status)
 select ('be400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-CORRECTION-'||n,
   'be300000-0000-4000-8000-000000000001','be200000-0000-4000-8000-000000000001','correction-customer@example.invalid',
   'Synthetic correction fixture',now()-interval '3 days','America/Los_Angeles','card',700,700,'4242',
   'card_refund_pending','matched','nayax',1,'approved',(323456780+n)::text,700,'USD',now()-interval '3 days',
-  '{"qr_claim_present":false,"source":"hosted_refund_intake","sentinel":"preserve"}'::jsonb
+  '{"qr_claim_present":false,"source":"hosted_refund_intake","sentinel":"preserve"}'::jsonb,'approved','manual_review'
 from generate_series(1,5) n;
 with inserted as (
   insert into public.refund_case_nayax_refund_attempts(refund_case_id,actor_user_id,execution_mode,status,
@@ -102,12 +109,12 @@ begin
     x->>'reference',(x->>'reviewed')::boolean);
 end; $$;
 -- Keep pgTAP assertions outside the rolled-back corruption subtransaction.
-create function refund_machine_correction_test.reject_corruption(p_setup text) returns text language plpgsql as $$
+create function refund_machine_correction_test.reject_corruption(p_setup text,p_changes jsonb default '{}'::jsonb) returns text language plpgsql as $$
 declare setup_complete boolean:=false;
 begin
   execute p_setup;
   setup_complete:=true;
-  perform refund_machine_correction_test.run(1);
+  perform refund_machine_correction_test.run(1,p_changes);
   raise exception 'Corrupt fixture unexpectedly accepted' using errcode='XX001';
 exception when others then
   if not setup_complete then raise; end if;
@@ -174,6 +181,9 @@ select is(refund_machine_correction_test.reject_corruption($setup$update public.
   'P4665','Unrecognized historical provenance fails closed');
 select is(refund_machine_correction_test.reject_corruption($setup$update public.refund_nayax_machine_inventory set reconciliation_state='needs_setup',provider_is_active=false where id='be600000-0000-4000-8000-000000000002';$setup$),
   'P4665','Inactive inventory fails closed');
+select is(refund_machine_correction_test.reject_corruption($setup$update public.refund_nayax_machine_inventory set machine_number='CORRECTION-MACHINE-2'
+  where id='be600000-0000-4000-8000-000000000002';$setup$,'{"number":"CORRECTION-MACHINE-2"}'),
+  'P4665','Matching malformed inventory label is not a numeric machine number');
 select is((select count(*)::integer from public.refund_legacy_machine_corrections),0,'All failed corrections roll back their audit');
 select is(refund_machine_correction_test.reject_corruption($setup$insert into public.refund_case_messages(refund_case_id,message_type,status,recipient_email,subject,body)
 values('be400000-0000-4000-8000-000000000001','confirmation','pending','correction-customer@example.invalid','Synthetic in-flight send','Synthetic in-flight send');$setup$),
@@ -201,13 +211,6 @@ select throws_ok($$select refund_machine_correction_test.run(1)$$,'P4665',null,'
 select is((select reporting_machine_id from public.refund_authoritative_receipts where refund_case_id='be400000-0000-4000-8000-000000000001'),'be300000-0000-4000-8000-000000000002'::uuid,'Receipt binds only the corrected machine');
 commit;
 
-select extensions.dblink_connect('correction_race_a','host=db port='||current_setting('port')||
-  ' dbname='||current_database()||' user=postgres password=postgres sslmode=disable application_name=correction_race_a');
-select extensions.dblink_connect('correction_race_b','host=db port='||current_setting('port')||
-  ' dbname='||current_database()||' user=postgres password=postgres sslmode=disable application_name=correction_race_b');
-select extensions.dblink_exec('correction_race_a','set statement_timeout=''15s''');
-select extensions.dblink_exec('correction_race_b','set statement_timeout=''15s''');
-
 -- B has captured the original reviewed version and is actually queued on A.
 select extensions.dblink_exec('correction_race_a','begin');
 select * from extensions.dblink('correction_race_a',$q$select id::text from public.refund_cases where id='be400000-0000-4000-8000-000000000002' for update$q$) as x(id text);
@@ -220,6 +223,16 @@ select * from extensions.dblink_get_result('correction_race_b') as x(payload jso
 select is((select payload->>'status' from refund_machine_correction_test.results where lane='correct_a'),'recorded','One correction wins');
 select is((select payload->>'error' from refund_machine_correction_test.results where lane='correct_b'),'P4665','Concurrent stale correction loses safely');
 
+begin;
+select refund_machine_correction_test.authorize();
+select ok((select c.decision='approved' and c.status='card_refund_pending' and c.refund_completed_at is null
+  and c.reporting_adjustment_id is null and public.refund_nayax_provider_outcome_state(c.nayax_refund_execution_status)='unconfirmed'
+  and c.official_action_version=(s.case_before->>'official_action_version')::bigint
+  from public.refund_cases c join refund_machine_correction_test.snapshots s on s.id=c.id
+  where c.id='be400000-0000-4000-8000-000000000003'),'Before the race the old resolver has the exact current held-case state and version');
+select ok(public.can_perform_refund_official_action('be000000-0000-4000-8000-000000000001','be400000-0000-4000-8000-000000000003'),
+  'Before correction the mapped operator still has the old resolver capability');
+commit;
 select extensions.dblink_exec('correction_race_a','begin');
 select * from extensions.dblink('correction_race_a',$q$select id::text from public.refund_cases where id='be400000-0000-4000-8000-000000000003' for update$q$) as x(id text);
 select extensions.dblink_send_query('correction_race_b',$q$select refund_machine_correction_test.race('old_resolver',3)$q$);
@@ -229,8 +242,11 @@ select extensions.dblink_exec('correction_race_a','commit');
 insert into refund_machine_correction_test.results select 'resolver_loses',payload from extensions.dblink_get_result('correction_race_b') as x(payload jsonb);
 select * from extensions.dblink_get_result('correction_race_b') as x(payload jsonb);
 select is((select payload->>'status' from refund_machine_correction_test.results where lane='correct_before_resolver'),'recorded','Correction commits before old resolver');
-select is((select payload->>'error' from refund_machine_correction_test.results where lane='resolver_loses'),'P0001','Old resolver loses its receipt-aware official capability');
-select is((select payload->>'message' from refund_machine_correction_test.results where lane='resolver_loses'),'Active Machine Manager mapping required','Old resolver fails at the exact official capability gate');
+select is((select payload->>'error' from refund_machine_correction_test.results where lane='resolver_loses'),'P0001','Old resolver rejects the changed case version after the correction');
+select is((select payload->>'message' from refund_machine_correction_test.results where lane='resolver_loses'),'Payment result changed; reload before confirming it','Old resolver fails at the exact post-lock case-version gate');
+select ok((select c.official_action_version>(s.case_before->>'official_action_version')::bigint
+  from public.refund_cases c join refund_machine_correction_test.snapshots s on s.id=c.id
+  where c.id='be400000-0000-4000-8000-000000000003'),'Correction actually advances the queued resolver review version');
 
 -- A revocation already in progress must win over a queued correction.
 select extensions.dblink_exec('correction_race_a','begin');
