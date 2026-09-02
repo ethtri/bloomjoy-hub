@@ -65,6 +65,16 @@ Deno.test("customer lifecycle strips manager, lookup, operations, and provider f
     "terminal",
     "version",
   ]);
+  assertEquals(lifecycle.customerAction, {
+    action: "none",
+    required: false,
+    requestedFields: [],
+    payloadRedacted: true,
+  });
+  assertEquals(lifecycle.messageState, {
+    state: "none",
+    payloadRedacted: true,
+  });
 });
 
 Deno.test("customer lifecycle accepts the canonical waiting-on-customer stage", () => {
@@ -125,6 +135,62 @@ Deno.test("unknown, unredacted, and over-polling lifecycle responses fail closed
       payloadRedacted: true,
     },
   ]) {
+    await assertRejects(
+      async () => requireCustomerRefundLifecycle(fixture),
+      Error,
+      "Refund status is unavailable.",
+    );
+  }
+});
+
+Deno.test("nested lifecycle objects and bounded public values fail closed on extra or malformed data", async () => {
+  const base = {
+    schemaVersion: "refund_lifecycle_v2",
+    version: 7,
+    stage: "waiting_on_customer",
+    stageRank: 15,
+    reasonCode: "waiting_for_payout_destination",
+    customerAction: {
+      action: "reply_in_existing_thread",
+      required: true,
+      requestedFields: ["zelle_payment_contact"],
+      payloadRedacted: true,
+    },
+    paymentState: "approved_external_pending",
+    messageState: { state: "sent", payloadRedacted: true },
+    lastUpdatedAt: "2026-09-02T03:00:00.000Z",
+    publicCopyKey: "refund_waiting_on_payout_destination",
+    terminal: false,
+    refreshAfterSeconds: 15,
+    payloadRedacted: true,
+  };
+  const fixtures: unknown[] = [];
+  const add = (mutate: (fixture: Record<string, unknown>) => void) => {
+    const fixture = structuredClone(base) as Record<string, unknown>;
+    mutate(fixture);
+    fixtures.push(fixture);
+  };
+  const customerAction = (fixture: Record<string, unknown>) =>
+    fixture.customerAction as Record<string, unknown>;
+  const messageState = (fixture: Record<string, unknown>) =>
+    fixture.messageState as Record<string, unknown>;
+  add((fixture) => customerAction(fixture).providerReference = "private");
+  add((fixture) => customerAction(fixture).required = "true");
+  add((fixture) => customerAction(fixture).payloadRedacted = false);
+  add((fixture) => customerAction(fixture).requestedFields = [7]);
+  add((fixture) => customerAction(fixture).requestedFields = [
+    "zelle_payment_contact",
+    "zelle_payment_contact",
+  ]);
+  add((fixture) => customerAction(fixture).requestedFields = ["provider_account"]);
+  add((fixture) => messageState(fixture).providerReference = "private");
+  add((fixture) => messageState(fixture).state = 7);
+  add((fixture) => messageState(fixture).payloadRedacted = false);
+  add((fixture) => fixture.reasonCode = "r".repeat(81));
+  add((fixture) => fixture.paymentState = "provider secret");
+  add((fixture) => fixture.publicCopyKey = "p".repeat(121));
+
+  for (const fixture of fixtures) {
     await assertRejects(
       async () => requireCustomerRefundLifecycle(fixture),
       Error,

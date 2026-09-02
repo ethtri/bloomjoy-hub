@@ -71,6 +71,26 @@ const lifecycleStages = new Set<CustomerRefundLifecycle["stage"]>([
   "denied",
   "unable_to_complete",
 ]);
+const lifecycleRequestedFields = new Set([
+  "location_or_machine",
+  "incident_date",
+  "incident_time",
+  "payment_method",
+  "payment_interaction",
+  "wallet_provider",
+  "amount",
+  "card_last4",
+  "card_network",
+  "zelle_payment_contact",
+]);
+const boundedContractValue = (value: unknown, maximum = 80): value is string =>
+  typeof value === "string" && value.length >= 1 && value.length <= maximum &&
+  /^[a-z0-9_:-]+$/u.test(value);
+const exactObjectKeys = (value: Record<string, unknown>, expected: string[]) => {
+  const actual = Object.keys(value).sort();
+  return actual.length === expected.length &&
+    actual.every((key, index) => key === expected[index]);
+};
 
 const base64Url = (bytes: Uint8Array) => {
   let binary = "";
@@ -217,6 +237,24 @@ export const requireCustomerRefundLifecycle = (
     throw new Error("Refund status is unavailable.");
   }
   const source = value as Record<string, unknown>;
+  const customerAction = source.customerAction &&
+      typeof source.customerAction === "object" &&
+      !Array.isArray(source.customerAction)
+    ? source.customerAction as Record<string, unknown>
+    : null;
+  const messageState = source.messageState &&
+      typeof source.messageState === "object" &&
+      !Array.isArray(source.messageState)
+    ? source.messageState as Record<string, unknown>
+    : null;
+  const requestedFields = customerAction && Array.isArray(customerAction.requestedFields)
+    ? customerAction.requestedFields
+    : null;
+  const requestedFieldStrings = requestedFields?.every((field) =>
+      typeof field === "string" && lifecycleRequestedFields.has(field)
+    ) === true
+    ? requestedFields as string[]
+    : null;
   if (
     source.schemaVersion !== "refund_lifecycle_v2" ||
     source.payloadRedacted !== true ||
@@ -227,16 +265,28 @@ export const requireCustomerRefundLifecycle = (
     !lifecycleStages.has(source.stage as CustomerRefundLifecycle["stage"]) ||
     typeof source.stageRank !== "number" ||
     !Number.isFinite(source.stageRank) ||
-    typeof source.reasonCode !== "string" ||
-    source.reasonCode.length === 0 ||
-    !source.customerAction ||
-    typeof source.customerAction !== "object" ||
-    !source.messageState ||
-    typeof source.messageState !== "object" ||
-    typeof source.paymentState !== "string" ||
+    !boundedContractValue(source.reasonCode) ||
+    !customerAction ||
+    !exactObjectKeys(customerAction, [
+      "action",
+      "payloadRedacted",
+      "requestedFields",
+      "required",
+    ]) ||
+    !boundedContractValue(customerAction.action) ||
+    typeof customerAction.required !== "boolean" ||
+    customerAction.payloadRedacted !== true ||
+    !requestedFieldStrings ||
+    requestedFieldStrings.length > lifecycleRequestedFields.size ||
+    new Set(requestedFieldStrings).size !== requestedFieldStrings.length ||
+    !messageState ||
+    !exactObjectKeys(messageState, ["payloadRedacted", "state"]) ||
+    !boundedContractValue(messageState.state) ||
+    messageState.payloadRedacted !== true ||
+    !boundedContractValue(source.paymentState) ||
     typeof source.lastUpdatedAt !== "string" ||
     Number.isNaN(Date.parse(source.lastUpdatedAt)) ||
-    typeof source.publicCopyKey !== "string" ||
+    !boundedContractValue(source.publicCopyKey, 120) ||
     typeof source.terminal !== "boolean" ||
     !(
       source.refreshAfterSeconds === null ||
@@ -254,12 +304,20 @@ export const requireCustomerRefundLifecycle = (
     version: source.version,
     stage: source.stage as CustomerRefundLifecycle["stage"],
     stageRank: source.stageRank,
-    reasonCode: source.reasonCode,
-    customerAction: source.customerAction as CustomerRefundLifecycle["customerAction"],
-    paymentState: source.paymentState,
-    messageState: source.messageState as CustomerRefundLifecycle["messageState"],
+    reasonCode: source.reasonCode as string,
+    customerAction: {
+      action: customerAction.action as string,
+      required: customerAction.required as boolean,
+      requestedFields: [...requestedFieldStrings],
+      payloadRedacted: true,
+    },
+    paymentState: source.paymentState as string,
+    messageState: {
+      state: messageState.state as string,
+      payloadRedacted: true,
+    },
     lastUpdatedAt: source.lastUpdatedAt,
-    publicCopyKey: source.publicCopyKey,
+    publicCopyKey: source.publicCopyKey as string,
     terminal: source.terminal,
     refreshAfterSeconds: source.refreshAfterSeconds as number | null,
     payloadRedacted: true,
