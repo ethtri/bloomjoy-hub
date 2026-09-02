@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'supabase/functions/refund-case-*/**'
+      - 'supabase/functions/refund-nayax-outcome-resolve/**'
       - 'supabase/functions/nayax-*/**'
       - 'supabase/functions/_shared/**'
       - 'supabase/migrations/**refund**'

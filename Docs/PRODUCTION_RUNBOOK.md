@@ -298,7 +298,11 @@ After applying the reviewed migrations, rerun `supabase db push --dry-run` and r
 
 For the manager-message outbox slice, apply `20260902002716_refund_manual_message_outbox.sql` before deploying the matching `refund-case-message-send` and `refund-case-automation-sweep` bundles. Keep `REFUND_MANUAL_MESSAGE_OUTBOX_ENABLED=true` for normal operation. After deployment, queue only a Bloomjoy-controlled synthetic message and prove the immediate request or scheduled sweep settles that same message ID once. Do not use an open customer or a payment-capable synthetic case.
 
-Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit. Revalidate the manifest and transitive source binding immediately before deployment. Use the root-pinned wrapper below rather than a raw `supabase functions deploy` command: it requires the exact clean fetched `origin/main` commit, the production project ref twice, an explicit production phrase, the existing predeploy/postdeploy Auth closed-state gates, and an absolute repository-root `--workdir`. The postdeploy Auth gate still runs after a partial or failed deploy. Keep the runtime Nayax execution gates off during deployment (`NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, and `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`). The normal manager action uses dedicated server-side Nayax account credentials only after the reviewed migration and function are deployed, the machine is qualified and enabled, the executor assertion is registered, and the genuine runtime safety gates are deliberately opened. Retired pilot, sponsor, canary, broad-reopen, and cap flags do not authorize or block a normal manager action.
+Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the eleven functions listed in the release manifest from the exact immutable, reviewed canonical-main commit. Revalidate the manifest and transitive source binding immediately before deployment. Use the root-pinned wrapper below rather than a raw `supabase functions deploy` command: it requires the exact clean fetched `origin/main` commit, the production project ref twice, an explicit production phrase, the existing predeploy/postdeploy Auth closed-state gates, and an absolute repository-root `--workdir`. The postdeploy Auth gate still runs after a partial or failed deploy. Keep the runtime Nayax execution gates off during deployment (`NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, and `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`). The normal manager action uses dedicated server-side Nayax account credentials only after the reviewed migration and function are deployed, the machine is qualified and enabled, the executor assertion is registered, and the genuine runtime safety gates are deliberately opened. Retired pilot, sponsor, canary, broad-reopen, and cap flags do not authorize or block a normal manager action.
+
+The current inventory adds `refund-nayax-outcome-resolve`, which is called by the existing manager reconciliation UI and shares the completion-delivery helpers. Its `additionalFunctionBaselines` entry records the independently downloaded ACTIVE v35 source, canonical entrypoint, bundle, capture time, and exact matching restore commit. The historical `preDeploymentProduction`, `approvedRestoreSource`, and ten-function/51-migration bridge stay unchanged; they are not an eleven-function restore plan. A resolver rollback must use its separately pinned source and full dependency tree only after review against the deployed schema, not the historical ten-function source root. `refund-nayax-inventory-sync` and `refund-adjustment-sync` remain outside this release: the 2026-09-02 read-only audit found both deployed transitive source trees identical to the reviewed current source.
+
+A successful `--all` wrapper run also downloads and checks all eleven deployed source trees and writes `output/refund-production-postdeploy-<exact-head>.json`; a mismatch fails release acceptance after the Auth post-check. A selective `--function` deployment is not release acceptance: run the complete production capture below before smoke or enablement. No capture changes the approved manifest automatically.
 
 `Docs/REFUND_NAYAX_CONTROLLED_OWNER_PILOT.md` is historical documentation for the retired owner-only runner. It is not current launch authority and must not impose case allowlists, amount caps, TOTP, staffing, non-customer-only, observer, retention-review, or repeated go/no-go ceremony on the normal authenticated-manager path. Current operation is governed by `Docs/REFUND_PRODUCTION_POLICY.md` and the first section of this runbook.
 
@@ -319,7 +323,6 @@ supabase functions deploy sales-report-scheduler --no-verify-jwt
 supabase functions deploy sunze-sales-ingest --no-verify-jwt
 supabase functions deploy sunze-sales-sync --no-verify-jwt
 supabase functions deploy refund-adjustment-sync --no-verify-jwt
-supabase functions deploy refund-nayax-outcome-resolve --no-verify-jwt
 ```
 
 First inspect the no-write plan. It prints only the ordered approved function names:
@@ -336,7 +339,7 @@ npm run refunds:deploy:functions -- --project-ref ygbzkgxktzqsiygjlqyg --confirm
 
 For an isolated canonical-entrypoint repair, replace `--all` with one or more approved `--function <slug>` values. Never loosen the production capture to accept a function-local entrypoint. Redeploy the exact reviewed `origin/main` source through this wrapper, then rerun the pre-deployment baseline capture and require the canonical `supabase/functions/<slug>/index.ts` identity before continuing.
 
-After deploying the ten manifest-tracked Refund Operations functions, the wrapper has already run the exact read-only postdeploy Auth gate. Before any smoke, UAT, or enablement decision, repeat it directly only when the wrapper reports a postdeploy failure or when the release window requires an independent receipt:
+After deploying the eleven manifest-tracked Refund Operations functions, the wrapper has already run the exact read-only postdeploy Auth gate. Before any smoke, UAT, or enablement decision, repeat it directly only when the wrapper reports a postdeploy failure or when the release window requires an independent receipt:
 
 ```bash
 npm run refunds:production-auth-closed -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --phase postdeploy
@@ -344,7 +347,7 @@ npm run refunds:production-auth-closed -- --project-ref ygbzkgxktzqsiygjlqyg --c
 
 If it does not pass, stop. Keep all operational switches off and use the same owner-only remediation above. The command never auto-restores or changes Auth; a passing result proves the deployment ended with enrollment off and verification on.
 
-1. Run the no-auth, no-body route smoke. It deliberately probes the eight established application routes only; that probe count is not the ten-function manifest count. It sends only `OPTIONS`, creates no case, sends no email, and makes no Nayax/OpenAI/Gmail provider request:
+1. Run the no-auth, no-body route smoke. It deliberately probes the eight established application routes only; that probe count is not the eleven-function manifest count. It sends only `OPTIONS`, creates no case, sends no email, and makes no Nayax/OpenAI/Gmail provider request:
    - `npm run refunds:smoke-routes -- --project-ref <project-ref> --confirm-project-ref <project-ref>`
 2. Run the aggregate-only public-options smoke. It fails when an internal `Unmapped`/`Unknown` label, duplicate machine/display row, or missing Atlanta/DC/Seattle option remains and never prints machine/location identifiers:
    - `npm run refunds:smoke-public-options -- --project-ref <project-ref> --confirm-project-ref <project-ref>`
@@ -357,7 +360,7 @@ If it does not pass, stop. Keep all operational switches off and use the same ow
    - `npm run refunds:release:capture-production -- --project-ref <project-ref> --confirm-project-ref <project-ref> --output output/refund-production-release.json`
 7. Review each function's `ACTIVE` status, live version, approved-bundle version, version relation, `verify_jwt`, canonical entrypoint identity, bundle digest, and downloaded source digest.
 8. When a receipt reports `new_bundle_candidate`, update `scripts/refunds/refund-production-release.json` through a reviewed PR; capture is not automatic approval. When it reports `same_bundle_later_revision`, preserve the sealed manifest and do not rewrite its historical counter solely to match mutable live metadata.
-9. Run `npm run refunds:release:check-production -- --project-ref <project-ref>` and require all ten manifest-tracked functions to pass. The live counter must not regress below the approved-bundle version, while the bundle digest, source pairing, JWT setting, import-map state, and canonical entrypoint identity remain exact.
+9. Run `npm run refunds:release:check-production -- --project-ref <project-ref>` and require all eleven manifest-tracked functions to pass. The live counter must not regress below the approved-bundle version, while the bundle digest, source pairing, JWT setting, import-map state, and canonical entrypoint identity remain exact.
 10. Run the remaining refund production smoke rows in `Docs/QA_SMOKE_TEST_CHECKLIST.md` using sanitized evidence only.
 
 ### Reconcile a refund completed in Nayax before Bloomjoy recorded an attempt (`#971`)
@@ -407,7 +410,7 @@ Legacy card-state normalization (`#784`, `#793`):
 There is no destructive rollback. If any precheck/postcheck differs, keep every operational switch off and preserve the event/message history. Use a new reviewed forward-only repair based on the immutable normalization event; never rewrite/delete the event or manually infer provider success.
 
 Supabase function version numbers are monotonic audit evidence, not source identity or rollback targets. A rollback redeploy creates a new version number. Each manifest `production.version` records where its exact bundle was approved, so a lower live counter fails closed; a higher counter passes only when the approved bundle digest, source pairing, JWT setting, import-map state, and canonical entrypoint identity remain exact, and is reported as a same-bundle later revision. Host/worktree prefixes in Supabase's absolute `entrypoint_path` are discarded, but traversal, query/fragment suffixes, backslashes, a wrong function slug, or any entrypoint other than `index.ts` are rejected. This classification does not approve a secret or control-plane change; the separate operational-gate checks remain authoritative.
-The manifest's `sourceGitCommit` is checked against every function's transitive source. `preDeploymentProduction` records the exact live baseline, including missing functions. `approvedRestoreSource` validates the immutable known-good source for every existing core function; newly introduced disable-only functions such as `refund-gmail-sync`, `refund-gpt-triage`, `refund-manager-action-step-up`, and `refund-manager-totp-enrollment` record `restoreAction=disable` and use their documented switch-off procedures instead of pretending an older deployed source existed.
+The manifest's `sourceGitCommit` is checked against every current function's transitive source. `preDeploymentProduction` records the historical ten-function live baseline, including missing functions. `approvedRestoreSource` validates that historical known-good source; its disable-only functions such as `refund-gmail-sync`, `refund-gpt-triage`, `refund-manager-action-step-up`, and `refund-manager-totp-enrollment` record `restoreAction=disable` and use their documented switch-off procedures instead of pretending an older deployed source existed. `additionalFunctionBaselines` separately validates the live outcome resolver's captured source and matching restore commit; omitting it fails current release validation.
 
 Refund sync validation:
 - First run the `Refund Adjustment Sync` workflow manually with `dry_run=true`. The workflow should print aggregate counts only.
@@ -625,7 +628,7 @@ GPT-only rollback: set `REFUND_GPT_TRIAGE_SYNC_ENABLED=false`, then `REFUND_GPT_
 Post-rollback:
 - [ ] Confirm site/checkout baseline health.
 - [ ] Run `npm run refunds:release:capture-production` and update the approved manifest through review.
-- [ ] Confirm the ten manifest-tracked functions match the reviewed restore/disable plan, the separate eight no-auth route probes return their exact safe statuses, official actions remain statically false, and both `refund-gpt-triage` and `nayax-card-refund` remain fail-closed.
+- [ ] Confirm the eleven manifest-tracked functions match the reviewed historical restore/disable plan plus the separately pinned resolver restore source, the separate eight no-auth route probes return their exact safe statuses, official actions remain statically false, and both `refund-gpt-triage` and `nayax-card-refund` remain fail-closed.
 - [ ] Log incident summary and root cause.
 - [ ] Create follow-up issue before reattempting launch.
 
