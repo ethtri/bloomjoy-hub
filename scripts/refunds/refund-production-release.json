@@ -119,7 +119,8 @@
     "20260901202359_refund_provider_delay_evidence_1069.sql",
     "20260902000417_refund_lifecycle_v2_integrity.sql",
     "20260902002716_refund_manual_message_outbox.sql",
-    "20260902004500_refund_payout_destination_follow_up.sql"
+    "20260902004500_refund_payout_destination_follow_up.sql",
+    "20260902160946_refund_gmail_reply_recovery.sql"
   ],
   "migrationFilesSha256": "0e735efd36f1bb17df78015838400b16911eaea8b5e983cc364292125f25e696",
   "migrationVersionSetSha256": "00a209a599dd0decf8706a9dd81c90bbb6d85ad78f450c538414dcb9a9913616",
