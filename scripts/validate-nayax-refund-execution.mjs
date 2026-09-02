@@ -37,6 +37,8 @@ const files = {
   nayaxLookupShared: 'supabase/functions/_shared/nayax-lookup.ts',
   refundAdminUpdate: 'supabase/functions/refund-case-admin-update/index.ts',
   refundCaseMessageSend: 'supabase/functions/refund-case-message-send/index.ts',
+  refundManualMessageOutbox: 'supabase/functions/_shared/refund-manual-message-outbox.ts',
+  refundManualMessageOutboxMigration: 'supabase/migrations/20260902002716_refund_manual_message_outbox.sql',
   refundEmailShared: 'supabase/functions/_shared/refund-email.ts',
   refundOperationsLib: 'src/lib/refundOperations.ts',
   refundOperationsUi: 'src/pages/admin/Refunds.tsx',
@@ -93,6 +95,8 @@ const nayaxLookup = read(files.nayaxLookup);
 const nayaxLookupShared = read(files.nayaxLookupShared);
 const refundAdminUpdate = read(files.refundAdminUpdate);
 const refundCaseMessageSend = read(files.refundCaseMessageSend);
+const refundManualMessageOutbox = read(files.refundManualMessageOutbox);
+const refundManualMessageOutboxMigration = read(files.refundManualMessageOutboxMigration);
 const refundEmailShared = read(files.refundEmailShared);
 const refundOperationsLib = read(files.refundOperationsLib);
 const refundOperationsUi = read(files.refundOperationsUi);
@@ -507,9 +511,10 @@ assert(
 assert(
   refundCaseMessageSend.includes('can_manage_refund_case') &&
     refundCaseMessageSend.includes('buildEditableRefundCustomerEmail') &&
-    refundCaseMessageSend.includes('sendRefundTransactionalEmail') &&
+    refundManualMessageOutbox.includes('sendRefundTransactionalEmail') &&
     refundEmailShared.includes('replyTo: getRefundReplyToEmail()') &&
-    refundCaseMessageSend.includes('created_by: user.id') &&
+    refundManualMessageOutboxMigration.includes('p_actor_user_id') &&
+    refundManualMessageOutboxMigration.includes('customer_message_queued') &&
     refundCaseMessageSend.includes('validateRefundCustomerMessageRequest') &&
     refundCaseMessageSend.includes('decisionReason: refundCase.decision_reason') &&
     refundEmailShared.includes('sanitizeRefundCustomerSafeDenialReason') &&
