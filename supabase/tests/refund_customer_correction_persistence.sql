@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(31);
+select plan(44);
 
 select has_column(
   'public',
@@ -405,12 +405,63 @@ select is(
   'A conflict records no final ledger row so duplicate ingestion may retry later'
 );
 
+select ok(not has_function_privilege('anon',
+  'public.service_get_refund_gmail_fact_application_v1(uuid,uuid)', 'execute'),
+  'Anonymous clients cannot read private reply receipts');
+select ok(not has_function_privilege('authenticated',
+  'public.service_get_refund_gmail_fact_application_v1(uuid,uuid)', 'execute'),
+  'Browser clients cannot read private reply receipts');
+select ok(has_function_privilege('service_role',
+  'public.service_get_refund_gmail_fact_application_v1(uuid,uuid)', 'execute'),
+  'The worker can read a narrowly scoped reply receipt');
+select ok(not has_table_privilege('service_role',
+  'public.refund_customer_fact_applications', 'select'),
+  'Reply recovery does not expose the private application ledger');
+
+select is(public.service_get_refund_gmail_fact_application_v1(
+  'a4000000-0000-4000-8000-000000000001', 'a6000000-0000-4000-8000-000000000001'),
+  '{"outcome":"already_applied","factVersion":3,"appliedFields":["wallet_provider"]}'::jsonb,
+  'The same verified message recovers its exact current-version redacted receipt');
+select is(public.service_get_refund_gmail_fact_application_v1(
+  'a4000000-0000-4000-8000-000000000001', 'a6000000-0000-4000-8000-000000000001'),
+  '{"outcome":"already_applied","factVersion":3,"appliedFields":["wallet_provider"]}'::jsonb,
+  'Repeating receipt recovery is read-only and idempotent');
+select is(public.service_get_refund_gmail_fact_application_v1(
+  'a4000000-0000-4000-8000-000000000001', 'a6000000-0000-4000-8000-000000000002') ->> 'outcome',
+  'not_applied', 'A different verified message cannot borrow the earlier application');
+select is(public.service_get_refund_gmail_fact_application_v1(
+  'a4000000-0000-4000-8000-000000000001', null) ->> 'outcome',
+  'conflict', 'A missing source cannot authorize reply recovery');
+select is(public.service_get_refund_gmail_fact_application_v1(
+  'a4000000-0000-4000-8000-000000000099', 'a6000000-0000-4000-8000-000000000001') ->> 'outcome',
+  'conflict', 'A foreign case cannot borrow a verified reply receipt');
+
+update public.refund_gmail_messages set participant_trust = 'unverified'
+where id = 'a6000000-0000-4000-8000-000000000001';
+select is(public.service_get_refund_gmail_fact_application_v1(
+  'a4000000-0000-4000-8000-000000000001', 'a6000000-0000-4000-8000-000000000001') ->> 'outcome',
+  'conflict', 'An unverified source cannot recover even a previously applied reply');
+update public.refund_gmail_messages set participant_trust = 'verified', direction = 'outbound'
+where id = 'a6000000-0000-4000-8000-000000000001';
+select is(public.service_get_refund_gmail_fact_application_v1(
+  'a4000000-0000-4000-8000-000000000001', 'a6000000-0000-4000-8000-000000000001') ->> 'outcome',
+  'conflict', 'An outbound source cannot authorize reply recovery');
+update public.refund_gmail_messages set direction = 'inbound'
+where id = 'a6000000-0000-4000-8000-000000000001';
+select is((select count(*)::integer from public.refund_customer_fact_applications
+  where refund_case_id = 'a4000000-0000-4000-8000-000000000001'),
+  1, 'Receipt reads neither reapply facts nor create application records');
+
 -- A later manager/system change advances the current fact snapshot without a
 -- customer-correction event for that version. Provenance must name the current
 -- case record and use the authoritative fact-update clock, never intake time.
 update public.refund_cases
 set card_network = 'discover'
 where id = 'a4000000-0000-4000-8000-000000000001';
+
+select is(public.service_get_refund_gmail_fact_application_v1(
+  'a4000000-0000-4000-8000-000000000001', 'a6000000-0000-4000-8000-000000000001') ->> 'outcome',
+  'stale', 'A previously applied reply cannot authorize reranking a newer fact version');
 
 select set_config(
   'request.jwt.claims',

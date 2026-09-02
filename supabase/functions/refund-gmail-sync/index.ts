@@ -31,6 +31,7 @@ import {
 } from "../_shared/refund-email-fact-extraction.ts";
 import {
   classifyRefundCustomerFactApplication,
+  type RefundCustomerFactApplicationReceipt,
   type RefundCustomerFactApplicationResult,
 } from "../_shared/refund-customer-fact-application.ts";
 import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
@@ -1011,6 +1012,36 @@ const applyDeterministicCustomerReplyFacts = async ({
   if (caseError) throw caseError;
   if (!current) return { allowRoutineContact: true };
 
+  // The same reply may have committed its facts before the worker stopped.
+  // Check its private, verified receipt before recalculating a now-empty diff.
+  const receipt = await rpc<RefundCustomerFactApplicationReceipt>(
+    "service_get_refund_gmail_fact_application_v1",
+    { p_refund_case_id: refundCaseId, p_gmail_message_id: sourceMessageId },
+  );
+  if (receipt?.outcome === "stale") return { allowRoutineContact: false };
+  if (receipt?.outcome === "already_applied") {
+    if (
+      classifyRefundCustomerFactApplication({
+        outcome: "already_applied",
+        factVersion: receipt.factVersion,
+      }) !== "accepted" ||
+      !Array.isArray(receipt.appliedFields) ||
+      receipt.appliedFields.length === 0
+    ) throw new Error("refund_customer_fact_receipt_invalid");
+    if (receipt.appliedFields.some((field) => field !== "zelle_payment_contact")) {
+      await runAutomaticNayaxLookupIfReady({
+        supabase,
+        caseId: refundCaseId,
+        source: "customer_reply_recheck",
+        expectedFactVersion: receipt.factVersion,
+      });
+    }
+    return { allowRoutineContact: true };
+  }
+  if (receipt?.outcome !== "not_applied") {
+    throw new Error("refund_customer_fact_receipt_invalid");
+  }
+
   const { data: correctionCycle, error: correctionCycleError } = await supabase
     .from("refund_follow_up_cycles")
     .select("reason_code,status,request_sent_at")
@@ -1304,10 +1335,8 @@ const applyDeterministicCustomerReplyFacts = async ({
   if (classifyRefundCustomerFactApplication(application) !== "accepted") {
     throw new Error("refund_customer_fact_application_conflict");
   }
-  // Coordinate on both a fresh application and an idempotent replay. The
-  // fact-version action key makes a completed lookup a no-op while allowing a
-  // replay to recover if the first worker persisted facts but stopped before
-  // it could start the recheck.
+  // Concurrent application can return already_applied. Bind the recheck to
+  // that receipt's version, never to newer facts from a different correction.
   if (!(
     appliedFields.length === 1 &&
     appliedFields[0] === "zelle_payment_contact"
@@ -1316,6 +1345,7 @@ const applyDeterministicCustomerReplyFacts = async ({
       supabase,
       caseId: refundCaseId,
       source: "customer_reply_recheck",
+      expectedFactVersion: application.factVersion,
     });
   }
   return { allowRoutineContact: true };
