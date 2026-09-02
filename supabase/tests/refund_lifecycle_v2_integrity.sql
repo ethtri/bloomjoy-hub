@@ -103,7 +103,7 @@ insert into public.refund_cases (
 
 select has_column('public', 'refund_cases', 'lifecycle_revision',
   'Cases retain a monotonic lifecycle revision');
-select has_check('public', 'refund_cases', 'refund_cases_lifecycle_integrity_shape_check',
+select has_constraint('public', 'refund_cases', 'refund_cases_lifecycle_integrity_shape_check',
   'Integrity holds have a constrained redacted shape');
 select is(public.refund_lifecycle_contract('e4000000-0000-4000-8000-000000000001') ->> 'schemaVersion',
   'refund_lifecycle_v2', 'The shared projection is v2');

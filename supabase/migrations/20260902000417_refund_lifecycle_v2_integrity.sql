@@ -246,12 +246,16 @@ declare
   computed_code text;
   case_row public.refund_cases%rowtype;
 begin
-  affected_case_id := case
-    when tg_table_name = 'refund_cases' then
-      case when tg_op = 'DELETE' then old.id else new.id end
-    else
-      case when tg_op = 'DELETE' then old.refund_case_id else new.refund_case_id end
-  end;
+  -- Keep the trigger-record field access in separate PL/pgSQL branches. A SQL
+  -- CASE expression still resolves every record field against the trigger's
+  -- row type, so OLD.refund_case_id is invalid when this fires on refund_cases.
+  if tg_table_name = 'refund_cases' then
+    affected_case_id := new.id;
+  elsif tg_op = 'DELETE' then
+    affected_case_id := old.refund_case_id;
+  else
+    affected_case_id := new.refund_case_id;
+  end if;
 
   select refund_case.* into case_row
   from public.refund_cases refund_case
