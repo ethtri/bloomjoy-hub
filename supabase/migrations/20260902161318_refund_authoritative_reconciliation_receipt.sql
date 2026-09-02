@@ -118,7 +118,7 @@ begin
   machine_value := case when m.nayax_manual_portal_enabled then e.portal_machine_reference else m.nayax_machine_id end;
   if c.id is null or c.case_population <> 'customer' or c.payment_method <> 'card'
     or c.duplicate_of_refund_case_id is not null
-    or c.correlation_status <> 'matched' or c.correlation_source <> 'nayax'
+    or c.correlation_status is distinct from 'matched' or c.correlation_source is distinct from 'nayax'
     or nullif(scope_value, '') is null or nullif(machine_value, '') is null
     or p_account_scope is distinct from scope_value
     or p_provider_machine_id is distinct from machine_value
@@ -186,7 +186,21 @@ begin
   elsif a.id is distinct from p_attempt_id or a.amount_cents is distinct from p_original_amount_cents
     or a.currency_code is distinct from p_currency_code
     or a.status not in ('manual_review', 'ambiguous', 'failed', 'declined')
-    or a.provider_outcome not in ('unknown', 'timeout', 'rejected')
+    or coalesce(a.provider_outcome,'') not in ('unknown', 'timeout', 'rejected')
+    -- This bounded observation path accepts the supported manual portal
+    -- identity, not an arbitrary same-value historical/direct attempt.
+    or a.execution_mode is distinct from 'manual_portal'
+    or a.idempotency_key is distinct from 'manual-nayax-' || encode(extensions.digest(
+      convert_to(c.id::text||'|'||upper(btrim(scope_value))||'|'||p_original_transaction_id,'UTF8'),'sha256'),'hex')
+    or a.official_action_authorization_id is null
+    or a.request_fingerprint is distinct from encode(extensions.digest(convert_to(
+      a.official_action_authorization_id::text||'|'||a.idempotency_key||'|'||p_currency_code||'|'||p_original_amount_cents::text,
+      'UTF8'),'sha256'),'hex')
+    or not exists(select 1 from public.refund_case_official_action_authorizations authz
+      join public.reporting_machine_refund_managers mapping on mapping.id=authz.manager_mapping_id
+      where authz.id=a.official_action_authorization_id and authz.refund_case_id=c.id
+        and authz.action='approve' and authz.status='consumed'
+        and mapping.reporting_machine_id=c.reporting_machine_id)
     or a.support_resolution_id is not null or a.reporting_adjustment_id is not null
     or a.case_finalization_committed_at is not null then
     raise exception 'Exact latest unresolved attempt required' using errcode = 'P4661';
@@ -215,6 +229,30 @@ $$;
 revoke all on function public.admin_record_refund_authoritative_receipt(uuid,uuid,bigint,text,text,text,integer,integer,text,integer,text)
   from public, anon, authenticated, service_role;
 grant execute on function public.admin_record_refund_authoritative_receipt(uuid,uuid,bigint,text,text,text,integer,integer,text,integer,text) to authenticated;
+
+create function public.refund_receipt_notice_matches_case(p_case_id uuid,p_message_id uuid)
+returns boolean language sql stable security definer set search_path='' as $$
+  select exists(select 1 from public.refund_gmail_messages g
+    join public.refund_gmail_threads t on t.id=g.gmail_thread_id
+    join public.refund_cases target on target.id=p_case_id
+    join public.refund_cases primary_case on primary_case.id=t.refund_case_id
+    where g.id=p_message_id and g.refund_case_id=t.refund_case_id
+      and lower(btrim(g.recipient_email))=lower(btrim(target.customer_email))
+      and lower(btrim(primary_case.customer_email))=lower(btrim(target.customer_email))
+      and (t.refund_case_id=target.id or exists(
+        select 1 from public.refund_gmail_contact_case_associations association
+        join public.refund_gmail_case_link_reviews review on review.id=association.review_id
+        join public.refund_gmail_intake_contacts contact on contact.id=association.contact_id
+        where association.refund_case_id=target.id and association.relationship='related'
+          and review.contact_id=contact.id and review.status='resolved'
+          and review.primary_refund_case_id=t.refund_case_id and review.resolved_by is not null
+          and review.resolved_at is not null and contact.status='linked'
+          and contact.linked_refund_case_id=t.refund_case_id
+          and contact.mailbox_hash=t.mailbox_hash and contact.provider_thread_id=t.provider_thread_id
+          and lower(btrim(contact.customer_email))=lower(btrim(target.customer_email))
+      )));
+$$;
+revoke all on function public.refund_receipt_notice_matches_case(uuid,uuid) from public,anon,authenticated,service_role;
 
 create function public.admin_adopt_refund_completion_notice(
   p_case_id uuid, p_receipt_id uuid, p_gmail_message_id uuid,
@@ -255,7 +293,7 @@ begin
   end if;
   select * into g from public.refund_gmail_messages where id=p_gmail_message_id for share;
   select * into t from public.refund_gmail_threads where id=g.gmail_thread_id for share;
-  if g.id is null or g.refund_case_id is distinct from c.id or t.refund_case_id is distinct from c.id
+  if g.id is null or not public.refund_receipt_notice_matches_case(c.id,g.id)
     or g.direction <> 'outbound' or g.message_kind <> 'message' or g.status <> 'sent'
     or g.sent_at is null or g.sent_at > statement_timestamp()+interval '30 seconds'
     or nullif(g.provider_message_id,'') is null or nullif(t.provider_thread_id,'') is null
@@ -421,7 +459,8 @@ begin
   if r.id is null then return base; end if;
   select * into n from public.refund_completion_notice_adoptions where receipt_id=r.id;
   return base || jsonb_build_object(
-    'stage','refund_confirmed','stageRank',80,'reasonCode','settlement_time_unknown',
+    'stage',case when n.receipt_id is null then 'refund_confirmed' else 'customer_notified' end,
+    'stageRank',case when n.receipt_id is null then 70 else 80 end,'reasonCode','settlement_time_unknown',
     'paymentState','confirmed','evidenceState','provider_confirmed_time_unknown',
     'publicCopyKey','refund_confirmed_bank_pending','terminal',false,'refreshAfterSeconds',5,
     'safeRetryEligible',false,'definitiveNoRefund',false,'managerNextAction','review_accounting_date',
@@ -448,3 +487,70 @@ comment on table public.refund_authoritative_receipts is
   'Private append-only observations of an exact original fully refunded by Nayax; observed_at is never a settlement timestamp. No dated accounting or payment effects.';
 comment on table public.refund_completion_notice_adoptions is
   'Private exact-case, human-reviewed adoption of pre-existing provider SENT evidence. Does not rewrite mail, fabricate CC, or send anything.';
+
+-- Narrow authenticated reader: no raw Gmail provider IDs, digest or customer
+-- address is returned. Actual plain-text notice content is visible only to the
+-- current mapped operator who must review it before exact-case adoption.
+create function public.admin_get_refund_authoritative_receipt_overview(p_case_id uuid)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare
+  c public.refund_cases%rowtype;
+  m public.reporting_machines%rowtype;
+  e public.refund_manual_nayax_evidence%rowtype;
+  a public.refund_case_nayax_refund_attempts%rowtype;
+  r public.refund_authoritative_receipts%rowtype;
+  n public.refund_completion_notice_adoptions%rowtype;
+  choices jsonb:='[]'::jsonb;
+  eligible boolean;
+begin
+  if auth.role() is distinct from 'authenticated' or auth.uid() is null or not public.is_super_admin(auth.uid()) then
+    raise exception 'Current Refund Operations session required' using errcode='42501';
+  end if;
+  select * into c from public.refund_cases where id=p_case_id for share;
+  perform public.assert_refund_receipt_operator(p_case_id);
+  select * into r from public.refund_authoritative_receipts where refund_case_id=c.id;
+  if c.case_population is distinct from 'customer' or c.payment_method is distinct from 'card' or c.correlation_status is distinct from 'matched'
+    or c.correlation_source is distinct from 'nayax' or c.duplicate_of_refund_case_id is not null then
+    return jsonb_build_object('schemaVersion','refund_receipt_overview_v1','visible',false);
+  end if;
+  select * into m from public.reporting_machines where id=c.reporting_machine_id;
+  select * into e from public.refund_manual_nayax_evidence where refund_case_id=c.id and selected_at is not null;
+  select * into a from public.refund_case_nayax_refund_attempts where refund_case_id=c.id
+    order by created_at desc,id desc limit 1;
+  select * into n from public.refund_completion_notice_adoptions where receipt_id=r.id;
+  eligible:=c.status='card_refund_pending' and c.refund_completed_at is null and c.reporting_adjustment_id is null
+    and ((a.id is null and c.lifecycle_integrity_status='hold' and c.lifecycle_integrity_code='card_payment_state_without_attempt')
+      or (a.id is not null and a.execution_mode='manual_portal' and a.status in ('manual_review','ambiguous','failed','declined')
+        and a.provider_outcome in ('unknown','timeout','rejected') and a.support_resolution_id is null));
+  if r.id is not null and n.receipt_id is null then
+    select coalesce(jsonb_agg(choice order by sent_at desc,id),'[]'::jsonb) into choices from (
+      select g.id,g.sent_at,jsonb_build_object('id',g.id,'sentAt',g.sent_at,
+        'subject',g.subject,'plainBody',g.plain_body) choice
+      from public.refund_gmail_messages g join public.refund_gmail_threads t on t.id=g.gmail_thread_id
+      where public.refund_receipt_notice_matches_case(c.id,g.id) and g.direction='outbound'
+        and g.message_kind='message' and g.status='sent' and g.sent_at is not null
+        and g.sent_at<=statement_timestamp()+interval '30 seconds'
+        and nullif(g.provider_message_id,'') is not null and nullif(t.provider_thread_id,'') is not null
+        and lower(btrim(g.sender_email))='info@bloomjoysweets.com'
+        and lower(btrim(g.recipient_email))=lower(btrim(c.customer_email))
+        and nullif(btrim(g.plain_body),'') is not null and g.content_deleted_at is null
+        and not exists(select 1 from public.refund_completion_notice_adoptions adopted where adopted.gmail_message_id=g.id)
+      order by g.sent_at desc,g.id limit 20
+    ) messages;
+  end if;
+  return jsonb_build_object('schemaVersion','refund_receipt_overview_v1','visible',r.id is not null or coalesce(eligible,false),
+    'caseId',c.id,'caseReference',c.public_reference,'expectedCaseVersion',c.official_action_version,
+    'canRecord',r.id is null and coalesce(eligible,false),'attemptId',a.id,
+    'accountScope',coalesce(r.account_scope,case when m.nayax_manual_portal_enabled then e.account_scope else m.nayax_account_key end),
+    'providerMachineId',coalesce(r.provider_machine_id,case when m.nayax_manual_portal_enabled then e.portal_machine_reference else m.nayax_machine_id end),
+    'originalTransactionId',coalesce(r.original_transaction_id,c.matched_nayax_transaction_id),
+    'originalAmountCents',coalesce(r.original_amount_cents,c.matched_nayax_amount_cents),
+    'currencyCode',coalesce(r.currency_code,c.matched_nayax_currency_code),
+    'receipt',case when r.id is null then null else jsonb_build_object('id',r.id,'observedAt',r.observed_at,
+      'settlementTimePrecision','unknown','noticeAdopted',n.receipt_id is not null,
+      'noticeSentAt',n.sent_at,'managerCcVerified',n.manager_cc_verified) end,
+    'noticeChoices',choices);
+end;
+$$;
+revoke all on function public.admin_get_refund_authoritative_receipt_overview(uuid) from public,anon,authenticated,service_role;
+grant execute on function public.admin_get_refund_authoritative_receipt_overview(uuid) to authenticated;

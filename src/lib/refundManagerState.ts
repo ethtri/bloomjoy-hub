@@ -380,7 +380,7 @@ export const getRefundManagerState = (
           'No action is needed. The refund will not be tried again while confirmation is pending.',
           'info'
         );
-      case 'refund_confirmed':
+        case 'refund_confirmed':
         if (lifecycle.reasonCode === 'settlement_time_unknown') return state(
           'refund_confirmed',
           'Refund confirmed · accounting review',
@@ -395,7 +395,12 @@ export const getRefundManagerState = (
           'Bloomjoy is recording the receipt and customer update. The bank may take time to post it.',
           'success'
         );
-      case 'customer_notified':
+        case 'customer_notified':
+          if (lifecycle.reasonCode === 'settlement_time_unknown') return state(
+            'refund_confirmed', 'Refund confirmed · customer updated',
+            'The existing customer notice is verified. The settlement date remains unknown and no dated reporting adjustment has been applied.',
+            'Refund Operations owns the accounting-date review. Do not retry payment or resend the customer notice.', 'warning'
+          );
         return state(
           'completed',
           'Completed',

@@ -19,6 +19,7 @@ import { toast } from 'sonner';
 import { isEdgeFunctionError } from '@/lib/edgeFunctions';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecycleProgress';
+import { RefundAuthoritativeReceiptPanel } from '@/components/refunds/RefundAuthoritativeReceiptPanel';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -5696,12 +5697,16 @@ export default function AdminRefundsPage() {
             <div className={nayaxLookupNoticeClass(nayaxExecutionNotice.tone)}>{nayaxExecutionNotice.message}</div>
           )}
 
-          {selectedCase.legacyStateReviewRequired ||
+          {refundOperationsAccess && selectedCase.paymentMethod === 'card' && selectedCase.hasMatchedNayaxTransaction && (
+            <RefundAuthoritativeReceiptPanel key={selectedCase.id} caseId={selectedCase.id} demo={forceDemoData} />
+          )}
+
+          {selectedCase.lifecycle?.reasonCode !== 'settlement_time_unknown' && (selectedCase.legacyStateReviewRequired ||
           selectedCase.providerHold ||
           (selectedCase.providerOutcome === 'rejected' &&
             !isDefinitiveNoRefundRetryReady(selectedCase)) ||
           nayaxResolutionReadiness?.canStartEvidenceOnlyReconciliation === true ||
-          nayaxResolutionReadiness?.evidenceOnlyAttempt === true ? (
+          nayaxResolutionReadiness?.evidenceOnlyAttempt === true) ? (
             <>
               <div
                 data-testid={selectedCase.legacyStateReviewRequired

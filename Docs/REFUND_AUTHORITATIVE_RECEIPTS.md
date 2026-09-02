@@ -12,6 +12,10 @@ currency, sale amount and full refunded amount must agree with authoritative
 Nayax `Refunded` status `62`. Pending, partial, mismatched and stale evidence fails
 closed. A receipt binds the latest unresolved attempt, or explicitly binds the
 legacy `card_payment_state_without_attempt` integrity hold when no attempt exists.
+For an existing attempt, this slice requires the supported manual-portal
+registration's exact-original/account idempotency key, consumed approval and
+request fingerprint. Incompatible historical/direct attempts fail closed for
+separate evidence review; same amount and latest-row status alone are not proof.
 It never creates an attempt to repair historical structure.
 
 The authenticated `refund-case-admin-update` endpoint accepts two evidence-only
@@ -31,6 +35,21 @@ Unknown fields, including any supplied observation/settlement timestamp, are
 rejected by the handler. Exact replay is idempotent. Conflicting evidence needs
 internal review, not another payment or notification.
 
+In `/refunds`, open the exact card case's existing decision/reconciliation panel.
+The **Nayax confirms a full refund, but no settlement date?** section shows the
+selected claim, original, account/machine and full amount. Enter the exact source
+reference and attest to the reviewed full-refund evidence, then choose **Record
+full-refund observation only**. No settlement date input exists.
+
+The same panel then loads eligible already-sent messages, including an explicitly
+reviewed related-case thread. Read the actual plain-text message, attest to this
+claim/original/amount only, and choose **Use existing notice · do not send again**.
+**Refresh saved evidence** re-reads the private receipt/adoption, so reopening the
+case does not require preserving an ID or repeating either write. Missing sent
+evidence stays internal synchronization/review work, never a prompt to resend.
+The authenticated overview RPC independently checks current session and exact
+machine mapping; receipt tables remain unreadable through the public Data API.
+
 ## Time, accounting and communication remain separate
 
 The append-only receipt records server `observed_at` and explicit
@@ -46,13 +65,17 @@ cases. A separately reviewed accounting finalization contract is still required
 to clear that internal work; this slice intentionally provides no date policy.
 
 Notice adoption requires an already-ingested, provider-identified Gmail `sent`
-message in the exact case's original thread, addressed from the canonical mailbox
+message in the exact case's original or explicitly reviewed related-case thread,
+addressed from the canonical mailbox
 to that case's customer. An operator must review the actual content and attest to
 the exact claim/original/amount; thread membership alone is not completion proof.
 A combined notice cannot silently complete another pending claim in that thread.
 The immutable adoption snapshots digests and actual send time, not copied content.
 Existing CC evidence is retained as found; a missing manager CC is recorded as
 unverified, never fabricated and never repaired by sending the customer again.
+Before adoption, payment is confirmed at progress rank 70; only an exact adopted
+notice advances to `customer_notified` at rank 80. Accounting remains pending in
+both states, and a related claim's adoption does not alter the primary claim.
 
 No provider call, customer send, import, lifecycle backfill or production mutation
 is part of this implementation. Receipt identities and mail evidence are private;
