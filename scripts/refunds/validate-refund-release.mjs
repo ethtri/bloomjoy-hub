@@ -291,6 +291,10 @@ try {
     'Refund release inventory must cover exactly 118 discovered refund/Nayax migrations'
   );
   assert(
+    repositoryMigrations.includes('20260902161318_refund_authoritative_reconciliation_receipt.sql'),
+    'The exact-original authoritative receipt contract must be in the release inventory'
+  );
+  assert(
     repositoryMigrations.includes('20260902174648_refund_sent_status_delivery_metadata.sql'),
     'The populated-upgrade status delivery metadata repair must be in the release inventory'
   );
