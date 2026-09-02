@@ -494,40 +494,34 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] Dashboard loading does not show a fallback action or premature zero/caught-up state while profile-derived timekeeping access is unresolved; an unavailable current-work query keeps known capability-based access usable, shows plain-language Retry, and recovers after a successful retry; completed setup/training renders an explicit caught-up state.
 - [ ] Device-local onboarding checklist progress is labeled as device-local; training completion is shown only when progress records exist, and fallback training content is not called a live recommendation.
 - [ ] Portal navigation does not require horizontal scrolling on common mobile viewports (`360x800`, `390x844`, `414x896`)
-- [ ] Technician Time (`/portal/time`) loads for an authenticated Technician with an active timekeeping profile as a lightweight monthly hub, with one dominant Add completed shift action, month selection, actual/rounded totals, and Machine Manager review states.
-- [ ] Focused Add Time (`/portal/time/new`) allows only assigned machines effective on the work date, shows actual and rounded time before save, rounds a short shift up to the next full hour, and submits without exposing tax, direct-deposit, or payment-execution controls.
-- [ ] Technician Time warns before save for end-before-start, work date outside the selected monthly period, duplicate/exact shift, overlapping shift, and 10+ hour shifts.
-- [ ] Technician Time shows Waiting for review, Approved, Correction requested, Included, and Paid states; a correction includes the Machine Manager reason, and editing approved/returned time resets review to pending.
-- [ ] Technician Time edit/delete controls work for unlocked draft/submitted entries and are disabled or blocked for locked, pay-included, paid, or voided entries.
-- [ ] Technician Time empty state explains that an admin or Machine Manager must add a Technician pay profile and assigned machines before shifts can be submitted.
-- [ ] Review Time (`/portal/time-review`) appears only for users with existing machine-manager/payout-management authority and the server returns only shifts for machines they can manage.
-- [ ] Review Time defaults to the current month, supports reviewing another month, filters by managed machine and review state, and shows worker, machine, location, actual duration, and rounded time without worker email or unrelated account data.
-- [ ] A Machine Manager can approve an unlocked submitted shift with one action or request a correction with a required worker-visible reason; each action updates the queue and preserves review/audit history.
-- [ ] Out-of-scope users, out-of-scope time-entry IDs, locked entries, and non-submitted entries fail closed when calling the manager-review RPC directly.
-- [ ] A worker direct table INSERT/UPDATE attempt cannot self-approve or bypass the audited timekeeping RPCs; browser table writes fail, and the insert guard also forces pending/null review fields as defense in depth.
-- [ ] Manager review does not generate a pay run, issue a pay statement, mark time paid, or invoke payment/provider behavior.
-- [ ] Worker and manager timekeeping pages have no horizontal page overflow at `390x844` across loading, load-error, setup/no-access, empty, mutation-failure, correction-dialog, and populated queue states, and remain usable at desktop width.
-- [ ] Timekeeping status badges for correction requested, approved, included in pay, paid, and locked meet WCAG AA normal-text contrast at 12px in light and dark themes.
-- [ ] Multi-profile timekeeping selects have associated visible labels; repeated Edit, Delete, Approve, and Request correction controls announce the shift context; successful manager actions move keyboard focus to the updated review-queue heading.
+- [ ] Technician Time (`/portal/time`) loads for every active Technician as a lightweight weekly calendar and shows actual time plus calculated one-hour shift units without approval states.
+- [ ] Add Time allows only machines effective in the Technician's assignment scope, accepts actual work date/start/end, and previews the independently rounded machine shift count before save.
+- [ ] One machine-specific entry rounds 1-60 minutes to one shift, 61-120 minutes to two shifts, and so on; separate machine entries round independently.
+- [ ] Technician Time blocks end-before-start, future work, exact duplicates, and any overlapping time for the same Technician, including overlaps across different machines.
+- [ ] Technician edit/delete controls work through 11:59 p.m. Pacific on the fourth day after month-end and fail closed at the start of day five; December time therefore locks to the Technician at the start of January 5.
+- [ ] Technician Time empty state explains that assigned machines are required before time can be entered, without exposing payroll-setup jargon.
+- [ ] Review Time (`/portal/time-review`) becomes the manager Time Report, appears only for machine-manager/payout-management authority, and returns time only for machines the current manager may manage.
+- [ ] The Time Report defaults to the current month, supports another month, filters by Technician and machine, and shows actual time, calculated shifts, per-Technician totals, and machine breakdowns without unrelated account data.
+- [ ] The manager Time Report contains no approve, reject, return, or correction-request workflow.
+- [ ] A Machine Manager may edit an in-scope entry before or after the Technician lock date without supplying a written reason; the database retains before/after audit history.
+- [ ] Out-of-scope users and out-of-scope time-entry IDs fail closed for manager reads and edits, and browser direct table writes cannot bypass the audited timekeeping RPCs.
+- [ ] Worker and manager timekeeping pages have no horizontal page overflow at `390x844` across loading, load-error, setup/no-access, empty, mutation-failure, weekly-calendar, manager-edit, and populated-report states, and remain usable at desktop width.
+- [ ] Multi-profile and machine controls have associated visible labels; repeated Edit and Delete controls announce the Technician, machine, date, and time context.
 
-### Admin Technician Pay Review
+### Technician Pay Report
 - [ ] Admin or scoped Technician Pay manager can open `/admin/payouts`; users without Technician Pay admin access see the existing admin access-required state.
-- [ ] Pay periods list shows account, period dates, status, Technician count, total Technician pay, warnings, and revision count without horizontal overflow on desktop or mobile.
-- [ ] Generating or recalculating a pay run uses submitted/locked/included time, revenue snapshots, compensation rules, and adjustments; recalculation requires an audit reason.
-- [ ] Manager review shows operator totals, machine-level time/revenue/commission breakdown, adjustments, and warning details while respecting scoped machine visibility.
-- [ ] Adding an adjustment requires a Technician, non-zero amount, Technician-visible description, and manager audit reason, then recalculates the run.
-- [ ] Finalization blocks when critical pay warnings are present unless the manager records an explicit override reason.
-- [ ] Finalization blocks if issued/revised pay statements already exist for the run, preventing duplicate statements.
-- [ ] Mark reviewed, finalize, reopen, and void actions all require audit reasons and preserve review/revision snapshots.
-- [ ] Reopening or voiding an unissued run leaves the period ready for corrected calculation without unlocking unrelated admin surfaces.
+- [ ] The monthly report groups actual time, paid shift count, applicable per-shift rate, and calculated pay by Technician, with a machine breakdown where applicable.
+- [ ] Technician rates are effective-dated; a raise changes work on or after its effective date without rewriting earlier shifts or historical pay stubs.
+- [ ] Manager corrections after the Technician cutoff recalculate the affected report without requiring a per-entry approval or edit reason.
+- [ ] Reporting and pay-stub publication do not execute payment, require proof of payment, or claim direct-deposit/tax-provider behavior.
 
-### Technician Pay Statements
-- [ ] Managers can preview pay statements before issuance from `/admin/payouts`; preview rows are not visible to Technicians and do not create statement records.
-- [ ] Issuing pay statements requires a finalized pay run plus an audit reason; reissuing existing statements also requires a revision reason.
-- [ ] Issuance creates one versioned statement per payable Technician, marks previous versions revised, publishes portal availability, marks included time paid, and records an audit entry without executing payroll provider payments.
-- [ ] Technicians see only latest issued pay statements for their own Technician pay profile on `/portal/time`; drafts, other Technicians' statements, and manager previews are not visible.
-- [ ] Technicians can download the generated pay statement artifact and it includes entity branding fields, period, issue date, machines, hours, revenue basis, commission, adjustments, total Technician pay, disclaimer, and revision status.
-- [ ] Direct artifact requests for drafts, missing statements, or another Technician's statement fail with an access error.
+### Technician Pay Stubs
+- [ ] At the start of the fifth day after month-end, the system idempotently generates and publishes one Pay Stub for each payable Technician from the locked monthly report.
+- [ ] Automatic publication does not require a manager approval action or proof that payment occurred.
+- [ ] An authorized manager can regenerate an affected Pay Stub after correcting time or an applicable rate; regeneration preserves prior versions and publishes the latest version.
+- [ ] Technicians see only the latest published Pay Stub for each period in their own Technician profile and retain historical self-service access.
+- [ ] The polished Pay Stub follows the owner-provided reference layout once supplied and clearly shows the period, actual time, paid shifts, applicable rate, calculated pay, machine detail where appropriate, issue date, and revision/version context.
+- [ ] Direct artifact requests for drafts, missing stubs, superseded versions without manager authority, or another Technician's stub fail with an access error.
 - [ ] Desktop portal top bar shows one profile/session menu instead of separate Account and Sign Out buttons
 - [ ] Profile/session menu shows the signed-in email, an Account Settings link when the user can access `/portal/account`, and Sign Out
 - [ ] Portal section navigation labels `/portal/account` as Settings and does not show a separate Admin link for admin users
@@ -539,7 +533,7 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] At desktop widths, normal portal, normal admin, Scoped Admin, and permission-neutral loading shells align sidebar/content header dividers within `1` CSS px, use one divider color, and keep EN/ZH scoped context inside the fixed header row
 - [ ] Run `npm run portal-personas:uat -- --app-url http://127.0.0.1:8081`; confirm exact authenticated navigation sets, allowed and denied direct loads, one correct active destination, signed-out `next` preservation, legacy refund redirects, and dashboard CTA routes for Super Admin, Scoped Admin, Corporate Partner, reporting/training Technician, Technician Timekeeper, Generic Plus Member, and Baseline Customer.
 - [ ] Review the deterministic persona evidence in `output/playwright/issue-553`, including Super Admin, Scoped Admin, Corporate Partner, signed-out redirect, and admin/non-admin mobile drawer screenshots; the mobile drawer must focus its first destination, scroll to utilities, close on Escape and selection, restore trigger focus, and expose no hidden persona destinations.
-- [ ] `/portal/time-review` is hidden and direct-load blocked unless the session is Super Admin, has the `payouts`/global admin surface, or has `timekeeping.review`; an authorized reviewer sees exactly one active Review Time destination.
+- [ ] `/portal/time-review` is hidden and direct-load blocked unless the session is Super Admin, has the `payouts`/global admin surface, or has time-report authority; an authorized manager sees exactly one active Time Report destination.
 - [ ] On mobile (`390x844`), Chinese app-shell and portal navigation labels fit without horizontal page overflow
 - [ ] User with reporting access, including Corporate Partner capability-based access, sees Reporting in portal navigation and exactly one dashboard link to `/portal/reports`; assigned machine/location scope is truthful, including the zero-machine state.
 - [ ] User without reporting access does not see Reporting in portal navigation, the primary dashboard action, needs-attention rows, or useful links.
