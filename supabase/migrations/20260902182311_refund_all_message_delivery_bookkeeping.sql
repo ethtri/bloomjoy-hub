@@ -660,6 +660,20 @@ begin
         using errcode = '23514';
     end if;
   elsif new.message_type = 'reminder' then
+    -- Historical send evidence may survive a later bounce, but it cannot
+    -- authorize another automatic reminder to the failed destination.
+    if attempting_delivery and not exists (
+      select 1 from public.refund_case_messages request
+      where request.id = cycle_row.request_message_id
+        and request.refund_case_id = new.refund_case_id
+        and request.follow_up_cycle_id = cycle_row.id
+        and request.status = 'sent'
+        and request.sent_at = cycle_row.request_sent_at
+        and request.delivery_state not in ('failed', 'bounced', 'complained')
+    ) then
+      raise exception 'Follow-up reminder requires a non-failed original request'
+        using errcode = '23514';
+    end if;
     if cycle_row.status <> 'waiting'
       or cycle_row.request_sent_at is null
       or cycle_row.reminder_due_at is null
@@ -1261,3 +1275,85 @@ $$;
 
 revoke all on function public.guard_refund_follow_up_cycle()
   from public, anon, authenticated, service_role;
+
+create or replace function public.service_claim_due_refund_follow_up_reminders(
+  p_limit integer default 25
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  settings_row public.refund_customer_contact_settings;
+  cycle_row public.refund_follow_up_cycles;
+  claimed_cycle public.refund_follow_up_cycles;
+  reminders jsonb := '[]'::jsonb;
+  normalized_limit integer := least(greatest(coalesce(p_limit, 25), 1), 100);
+begin
+  select * into settings_row
+  from public.refund_customer_contact_settings
+  where singleton;
+
+  if not coalesce(settings_row.automatic_customer_contact_enabled, false) then
+    return jsonb_build_object(
+      'enabled', false,
+      'reminders', reminders,
+      'reason', 'automatic_customer_contact_disabled'
+    );
+  end if;
+
+  for cycle_row in
+    select cycle.*
+    from public.refund_follow_up_cycles cycle
+    where cycle.status = 'waiting'
+      and cycle.request_sent_at is not null
+      and cycle.reminder_due_at <= statement_timestamp()
+      and cycle.reminder_claimed_at is null
+      and cycle.reminder_message_id is null
+      and cycle.reply_customer_message_id is null
+      -- Preserve original sent evidence without turning a terminal delivery
+      -- failure into authority for another customer contact.
+      and exists (
+        select 1 from public.refund_case_messages request
+        where request.id = cycle.request_message_id
+          and request.refund_case_id = cycle.refund_case_id
+          and request.follow_up_cycle_id = cycle.id
+          and request.status = 'sent'
+          and request.sent_at = cycle.request_sent_at
+          and request.delivery_state not in ('failed', 'bounced', 'complained')
+      )
+      and not exists (
+        select 1
+        from public.refund_gmail_threads thread
+        where thread.refund_case_id = cycle.refund_case_id
+          and thread.automatic_customer_contact_paused_at is not null
+      )
+    order by cycle.reminder_due_at, cycle.id
+    limit normalized_limit
+    for update skip locked
+  loop
+    update public.refund_follow_up_cycles
+    set reminder_claimed_at = statement_timestamp()
+    where id = cycle_row.id
+      and reminder_claimed_at is null
+    returning * into claimed_cycle;
+
+    if claimed_cycle.id is not null then
+      reminders := reminders || jsonb_build_array(
+        public.refund_follow_up_cycle_json(claimed_cycle)
+      );
+    end if;
+  end loop;
+
+  return jsonb_build_object(
+    'enabled', true,
+    'reminders', reminders
+  );
+end;
+$$;
+
+revoke all on function public.service_claim_due_refund_follow_up_reminders(integer)
+  from public, anon, authenticated;
+grant execute on function public.service_claim_due_refund_follow_up_reminders(integer)
+  to service_role;
