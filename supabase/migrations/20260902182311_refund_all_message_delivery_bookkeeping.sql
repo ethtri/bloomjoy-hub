@@ -1357,3 +1357,460 @@ revoke all on function public.service_claim_due_refund_follow_up_reminders(integ
   from public, anon, authenticated;
 grant execute on function public.service_claim_due_refund_follow_up_reminders(integer)
   to service_role;
+
+
+-- Fresh-send RPC repairs follow the unchanged nine-function delivery prefix.
+create or replace function public.service_mark_refund_transactional_delivery_attempt(
+  p_refund_case_message_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  message_row public.refund_case_messages%rowtype;
+begin
+  select message.* into message_row
+  from public.refund_case_messages message
+  where message.id = p_refund_case_message_id
+  for update;
+
+  if not found or message_row.status not in ('pending', 'failed') then
+    raise exception 'Refund customer message is not ready for delivery'
+      using errcode = 'P4651';
+  end if;
+  if exists (
+    select 1
+    from public.refund_cases refund_case
+    where refund_case.id = message_row.refund_case_id
+      and refund_case.case_population = 'internal_test'
+  ) then
+    raise exception 'Customer delivery is suppressed for Internal/test cases'
+      using errcode = 'P4640';
+  end if;
+  if exists (
+    select 1 from public.refund_gmail_messages gmail_message
+    where gmail_message.refund_case_message_id = message_row.id
+  ) then
+    raise exception 'Refund customer message already uses Gmail transport'
+      using errcode = 'P4651';
+  end if;
+
+
+  -- Recheck the original request at the last database boundary before a new
+  -- provider send. A reminder created earlier does not retain send authority
+  -- after its exact request bounces, fails, or receives a complaint.
+  if message_row.delivery_kind = 'automatic'
+    and message_row.message_type = 'reminder'
+    and message_row.follow_up_cycle_id is not null
+    and not exists (
+      select 1
+      from public.refund_follow_up_cycles cycle
+      join public.refund_case_messages request on request.id = cycle.request_message_id
+      where cycle.id = message_row.follow_up_cycle_id
+        and cycle.refund_case_id = message_row.refund_case_id
+        and request.refund_case_id = message_row.refund_case_id
+        and request.follow_up_cycle_id = cycle.id
+        and request.status = 'sent'
+        and request.sent_at = cycle.request_sent_at
+        and request.delivery_state not in ('failed', 'bounced', 'complained')
+    ) then
+    raise exception 'Follow-up reminder requires a non-failed original request'
+      using errcode = '23514';
+  end if;
+
+  update public.refund_case_messages message
+  set
+    delivery_transport = 'resend',
+    delivery_state = 'unknown',
+    delivery_state_updated_at = coalesce(
+      message.delivery_state_updated_at,
+      statement_timestamp()
+    )
+  where message.id = message_row.id;
+
+  return jsonb_build_object(
+    'marked', true,
+    'deliveryState', 'unknown',
+    'payloadRedacted', true
+  );
+end;
+$$;
+
+create or replace function public.service_claim_refund_gmail_outbound_v3(
+  p_refund_case_id uuid,
+  p_refund_case_message_id uuid,
+  p_operation_key text,
+  p_sender_email text,
+  p_recipient_email text,
+  p_plain_body text,
+  p_mailbox_identities text[],
+  p_delivery_kind text,
+  p_target_gmail_thread_id uuid default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  thread_row public.refund_gmail_threads;
+  latest_message public.refund_gmail_messages;
+  outbound_row public.refund_gmail_messages;
+  message_row public.refund_case_messages;
+  delivery_authorization jsonb;
+  manager_cc_emails text[] := '{}'::text[];
+  mailbox_identities text[] := public.normalize_refund_mailbox_identities(
+    p_mailbox_identities
+  );
+  normalized_sender text := lower(btrim(coalesce(p_sender_email, '')));
+  normalized_recipient text := lower(btrim(coalesce(p_recipient_email, '')));
+  normalized_delivery_kind text := lower(btrim(coalesce(p_delivery_kind, '')));
+  reply_subject text;
+  reply_references text;
+  case_pause_at timestamptz;
+begin
+  if length(btrim(coalesce(p_operation_key, ''))) not between 8 and 255 then
+    raise exception 'Valid Gmail outbound operation key required';
+  end if;
+  if normalized_delivery_kind not in ('manual', 'automatic') then
+    raise exception 'Valid Gmail delivery kind required';
+  end if;
+  if coalesce(p_plain_body, '') ~* '/refunds\?case=' then
+    raise exception 'Customer Gmail reply cannot contain an internal refund case link';
+  end if;
+  if not public.refund_email_address_is_valid(normalized_sender)
+    or not (normalized_sender = any(mailbox_identities)) then
+    raise exception 'Authorized refund mailbox sender required';
+  end if;
+
+  select * into message_row
+  from public.refund_case_messages
+  where id = p_refund_case_message_id
+  for update;
+
+  if message_row.id is null
+    or message_row.refund_case_id <> p_refund_case_id then
+    raise exception 'Tracked refund customer message required';
+  end if;
+
+  -- Reconcile a previously provider-confirmed milestone before evaluating any
+  -- gate that applies only to a new external send. This is not a retry: the
+  -- operation key and exact stored thread/message must already match.
+  select * into outbound_row
+  from public.refund_gmail_messages
+  where operation_key = btrim(p_operation_key)
+  for update;
+
+  if outbound_row.id is not null then
+    if outbound_row.refund_case_id is distinct from p_refund_case_id
+      or outbound_row.refund_case_message_id is distinct from p_refund_case_message_id
+      or (
+        p_target_gmail_thread_id is not null
+        and outbound_row.gmail_thread_id is distinct from p_target_gmail_thread_id
+      ) then
+      raise exception 'Refund Gmail outbound operation key collision';
+    end if;
+
+    select * into thread_row
+    from public.refund_gmail_threads
+    where id = outbound_row.gmail_thread_id;
+
+    if outbound_row.status = 'sent' and outbound_row.sent_at is not null then
+      update public.refund_case_messages
+      set
+        status = 'sent',
+        sent_at = coalesce(sent_at, outbound_row.sent_at),
+        error_message = null
+      where id = message_row.id
+        and status = 'pending';
+
+      return jsonb_build_object(
+        'linked', true,
+        'claimed', false,
+        'reconciled', true,
+        'transportMessageId', outbound_row.id,
+        'gmailThreadId', outbound_row.gmail_thread_id,
+        'providerThreadId', thread_row.provider_thread_id,
+        'subject', outbound_row.subject,
+        'managerCcEmails', to_jsonb(outbound_row.recipient_cc_emails),
+        'managerCcCount', outbound_row.recipient_cc_count,
+        'recipientResolutionStatus', outbound_row.recipient_resolution_status,
+        'status', 'sent'
+      );
+    end if;
+
+    return jsonb_build_object(
+      'linked', true,
+      'claimed', false,
+      'transportMessageId', outbound_row.id,
+      'status', outbound_row.status
+    );
+  end if;
+
+  if message_row.status <> 'pending' then
+    return jsonb_build_object(
+      'linked', true,
+      'claimed', false,
+      'status', 'message_not_pending'
+    );
+  end if;
+  if normalized_delivery_kind = 'automatic' and not (
+    (
+      message_row.delivery_kind = 'automatic'
+      and message_row.content_source = 'deterministic_template'
+    )
+    or (
+      -- The public first-contact confirmation predates the follow-up evidence
+      -- columns and is separately versioned/guarded by its exact template key.
+      message_row.message_type = 'confirmation'
+      and message_row.template_key = 'refund_confirmation_v1'
+      and message_row.delivery_kind is null
+      and message_row.content_source is null
+    )
+  ) then
+    return jsonb_build_object(
+      'linked', true,
+      'claimed', false,
+      'status', 'unsafe_automatic_message'
+    );
+  end if;
+  if normalized_delivery_kind = 'manual'
+    and message_row.delivery_kind = 'automatic' then
+    return jsonb_build_object(
+      'linked', true,
+      'claimed', false,
+      'status', 'delivery_kind_mismatch'
+    );
+  end if;
+
+
+  -- Recheck the original request at the last database boundary before a new
+  -- provider send. A reminder created earlier does not retain send authority
+  -- after its exact request bounces, fails, or receives a complaint.
+  if message_row.delivery_kind = 'automatic'
+    and message_row.message_type = 'reminder'
+    and message_row.follow_up_cycle_id is not null
+    and not exists (
+      select 1
+      from public.refund_follow_up_cycles cycle
+      join public.refund_case_messages request on request.id = cycle.request_message_id
+      where cycle.id = message_row.follow_up_cycle_id
+        and cycle.refund_case_id = message_row.refund_case_id
+        and request.refund_case_id = message_row.refund_case_id
+        and request.follow_up_cycle_id = cycle.id
+        and request.status = 'sent'
+        and request.sent_at = cycle.request_sent_at
+        and request.delivery_state not in ('failed', 'bounced', 'complained')
+    ) then
+    raise exception 'Follow-up reminder requires a non-failed original request'
+      using errcode = '23514';
+  end if;
+
+  delivery_authorization := public.service_authorize_refund_customer_outbound(
+    p_refund_case_id,
+    normalized_recipient,
+    mailbox_identities,
+    normalized_delivery_kind
+  );
+  if not coalesce((delivery_authorization ->> 'allowed')::boolean, false) then
+    return jsonb_build_object(
+      'linked', true,
+      'claimed', false,
+      'status', delivery_authorization ->> 'status',
+      'recipientResolutionStatus',
+        delivery_authorization ->> 'recipientResolutionStatus',
+      'managerCcCount', coalesce(
+        (delivery_authorization ->> 'managerCcCount')::integer,
+        0
+      )
+    );
+  end if;
+  select coalesce(array_agg(value order by value), '{}'::text[])
+  into manager_cc_emails
+  from jsonb_array_elements_text(
+    delivery_authorization -> 'managerCcEmails'
+  ) value;
+
+  -- Lock every linked thread before selecting the exact reply target. A hard
+  -- bounce on any older conversation remains a case-wide automatic-send stop.
+  perform linked_thread.id
+  from public.refund_gmail_threads linked_thread
+  where linked_thread.refund_case_id = p_refund_case_id
+  order by linked_thread.id
+  for update;
+
+  if p_target_gmail_thread_id is not null then
+    select * into thread_row
+    from public.refund_gmail_threads
+    where id = p_target_gmail_thread_id
+      and refund_case_id = p_refund_case_id;
+
+    if thread_row.id is null then
+      raise exception 'Target Gmail thread does not belong to the refund case';
+    end if;
+  elsif normalized_delivery_kind = 'automatic' and exists (
+    select 1
+    from public.refund_gmail_threads linked_thread
+    where linked_thread.refund_case_id = p_refund_case_id
+  ) then
+    return jsonb_build_object(
+      'linked', true,
+      'claimed', false,
+      'status', 'source_thread_required'
+    );
+  else
+    select * into thread_row
+    from public.refund_gmail_threads
+    where refund_case_id = p_refund_case_id
+    order by latest_message_at desc, id desc
+    limit 1;
+  end if;
+
+  if thread_row.id is null then
+    return jsonb_build_object('linked', false, 'claimed', false);
+  end if;
+
+  select min(linked_thread.automatic_customer_contact_paused_at)
+  into case_pause_at
+  from public.refund_gmail_threads linked_thread
+  where linked_thread.refund_case_id = p_refund_case_id
+    and linked_thread.automatic_customer_contact_paused_at is not null;
+
+  if normalized_delivery_kind = 'automatic' and case_pause_at is not null then
+    return jsonb_build_object(
+      'linked', true,
+      'claimed', false,
+      'status', 'automatic_contact_paused',
+      'automaticCustomerContactPaused', true,
+      'automaticCustomerContactPauseReason', 'hard_bounce'
+    );
+  end if;
+
+  select * into latest_message
+  from public.refund_gmail_messages
+  where gmail_thread_id = thread_row.id
+    and message_kind = 'message'
+  order by received_at desc, id desc
+  limit 1;
+
+  if latest_message.id is null then
+    raise exception 'Target Gmail thread has no message to reply to';
+  end if;
+  reply_subject := coalesce(
+    nullif(btrim(latest_message.subject), ''),
+    thread_row.thread_subject
+  );
+  reply_references := btrim(concat_ws(
+    ' ',
+    nullif(btrim(coalesce(latest_message.references_header, '')), ''),
+    nullif(btrim(coalesce(latest_message.provider_message_header, '')), '')
+  ));
+
+  insert into public.refund_gmail_messages (
+    gmail_thread_id,
+    refund_case_id,
+    refund_case_message_id,
+    operation_key,
+    direction,
+    message_kind,
+    status,
+    sender_email,
+    recipient_email,
+    recipient_cc_emails,
+    recipient_cc_count,
+    recipient_resolution_status,
+    delivery_kind,
+    participant_role,
+    participant_trust,
+    subject,
+    plain_body,
+    received_at,
+    retention_expires_at
+  ) values (
+    thread_row.id,
+    p_refund_case_id,
+    p_refund_case_message_id,
+    btrim(p_operation_key),
+    'outbound',
+    'message',
+    'pending_send',
+    normalized_sender,
+    normalized_recipient,
+    manager_cc_emails,
+    cardinality(manager_cc_emails),
+    delivery_authorization ->> 'recipientResolutionStatus',
+    normalized_delivery_kind,
+    'mailbox',
+    'verified',
+    reply_subject,
+    left(coalesce(p_plain_body, ''), 50000),
+    now(),
+    now() + interval '180 days'
+  )
+  on conflict (operation_key) do nothing
+  returning * into outbound_row;
+
+  if outbound_row.id is null then
+    select * into outbound_row
+    from public.refund_gmail_messages
+    where operation_key = btrim(p_operation_key);
+
+    if outbound_row.refund_case_id is distinct from p_refund_case_id
+      or outbound_row.refund_case_message_id is distinct from p_refund_case_message_id
+      or outbound_row.gmail_thread_id is distinct from thread_row.id then
+      raise exception 'Refund Gmail outbound operation key collision';
+    end if;
+
+    return jsonb_build_object(
+      'linked', true,
+      'claimed', false,
+      'transportMessageId', outbound_row.id,
+      'status', outbound_row.status
+    );
+  end if;
+
+  insert into public.refund_case_events (
+    refund_case_id,
+    event_type,
+    message,
+    metadata
+  ) values (
+    p_refund_case_id,
+    'gmail_manager_cc_resolved',
+    'Current mapped Machine Managers were included on the customer Gmail reply.',
+    jsonb_build_object(
+      'recipient_resolution_status',
+        delivery_authorization ->> 'recipientResolutionStatus',
+      'manager_cc_count', cardinality(manager_cc_emails),
+      'source_thread_bound', p_target_gmail_thread_id is not null,
+      'payload_redacted', true
+    )
+  );
+
+  return jsonb_build_object(
+    'linked', true,
+    'claimed', true,
+    'transportMessageId', outbound_row.id,
+    'gmailThreadId', thread_row.id,
+    'providerThreadId', thread_row.provider_thread_id,
+    'subject', reply_subject,
+    'inReplyTo', latest_message.provider_message_header,
+    'references', nullif(reply_references, ''),
+    'managerCcEmails', to_jsonb(manager_cc_emails),
+    'managerCcCount', cardinality(manager_cc_emails),
+    'recipientResolutionStatus',
+      delivery_authorization ->> 'recipientResolutionStatus'
+  );
+end;
+$$;
+
+revoke all on function public.service_mark_refund_transactional_delivery_attempt(uuid)
+  from public, anon, authenticated;
+grant execute on function public.service_mark_refund_transactional_delivery_attempt(uuid)
+  to service_role;
+revoke all on function public.service_claim_refund_gmail_outbound_v3(uuid, uuid, text, text, text, text, text[], text, uuid)
+  from public, anon, authenticated;
+grant execute on function public.service_claim_refund_gmail_outbound_v3(uuid, uuid, text, text, text, text, text[], text, uuid)
+  to service_role;

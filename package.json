@@ -56,7 +56,7 @@
     "refunds:validate-portal-uat-lifecycle": "node --test scripts/refunds/refund-portal-uat-lifecycle.test.mjs && node scripts/refunds/validate-refund-portal-uat-lifecycle.mjs",
     "refunds:validate-legacy-state-uat": "node scripts/refunds/validate-refund-portal-uat.mjs --legacy-state-only",
     "refunds:validate-customer-comms": "node scripts/refunds/validate-refund-customer-comms.mjs",
-    "refunds:validate-transactional-delivery": "deno test --allow-env --no-lock supabase/functions/_shared/refund-transactional-transport.test.ts supabase/functions/_shared/refund-transactional-delivery.test.ts && node scripts/refunds/validate-refund-transactional-delivery.mjs",
+    "refunds:validate-transactional-delivery": "deno test --allow-env --no-lock supabase/functions/_shared/refund-transactional-transport.test.ts supabase/functions/_shared/refund-transactional-delivery.test.ts && node --test scripts/refunds/refund-reminder-dispatch-guard.test.mjs && node scripts/refunds/validate-refund-transactional-delivery.mjs",
     "refunds:validate-manual-message-outbox": "deno test --allow-env --no-lock supabase/functions/_shared/refund-manual-message-outbox.test.ts && node scripts/refunds/validate-refund-manual-message-outbox.mjs",
     "refunds:validate-customer-status": "deno test --no-lock supabase/functions/_shared/refund-status-capability.test.ts src/lib/refundCustomerStatus.test.ts && node scripts/refunds/validate-refund-customer-status.mjs",
     "refunds:validate-location-safety": "deno test --no-lock supabase/functions/_shared/refund-location.test.ts",
