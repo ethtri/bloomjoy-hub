@@ -9,6 +9,7 @@ export const HISTORICAL_MESSAGE_GUARDS = [
   ['20260812210000_refund_legacy_card_state_normalization.sql', 'guard_refund_legacy_state_message'],
   ['20260821100000_refund_branded_appeals.sql', 'guard_refund_denial_appeal_message'],
   ['202608030005_refund_deterministic_follow_up_cycles.sql', 'guard_refund_follow_up_message'],
+  ['202608030005_refund_deterministic_follow_up_cycles.sql', 'guard_refund_follow_up_cycle'],
   ['202608030005_refund_deterministic_follow_up_cycles.sql', 'sync_refund_follow_up_cycle_from_message'],
 ];
 

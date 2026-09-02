@@ -19,14 +19,16 @@ insert into family_messages(family, expected_old_error) values
  ('internal', 'P4640:Customer, reminder, and refund actions are suppressed for Internal/test cases'),
  ('manual', null), ('manual_denied', null), ('manual_more_info', null);
 
-insert into public.refund_cases(id, customer_email, issue_summary, status, intake_source)
-select id, 'family-' || family || '@example.invalid', 'Synthetic populated message-family history', 'draft', 'gmail'
+insert into public.refund_cases(id, customer_email, issue_summary, status, intake_source,
+  reporting_machine_id, reporting_location_id, incident_at)
+select id, 'family-' || family || '@example.invalid', 'Synthetic populated message-family history', 'draft', 'gmail',
+  'da130000-0000-4000-8000-000000000001', 'da120000-0000-4000-8000-000000000001', statement_timestamp() - interval '2 days'
 from family_cases;
 update public.refund_cases set payment_method = 'cash', status = 'needs_review'
 where id in (select id from family_cases where family in ('card_approved', 'card_completed', 'manual', 'internal'));
 update public.refund_cases set payment_method = 'card', status = 'needs_review'
 where id = (select id from family_cases where family = 'legacy');
-update public.refund_cases set status = 'needs_review', automation_state = 'appeal_received'
+update public.refund_cases set payment_method = 'card', status = 'needs_review', automation_state = 'appeal_received'
 where id = (select id from family_cases where family = 'appeal');
 update public.refund_customer_contact_settings set automatic_customer_contact_enabled = true where singleton;
 
@@ -151,7 +153,8 @@ from family_messages m cross join public.refund_case_appeals a where m.family = 
 and a.refund_case_id = (select id from family_cases where family = 'appeal');
 update public.refund_case_messages set status = 'sent', sent_at = statement_timestamp()
 where id = (select id from family_messages where family = 'appeal_received');
-update public.refund_cases set status = 'closed', automation_state = 'closed_incomplete', automation_follow_up_due_at = null
+update public.refund_cases set status = 'closed', payment_method = coalesce(payment_method, 'card'),
+  automation_state = 'closed_incomplete', automation_follow_up_due_at = null
 where id in (select id from family_cases where family in ('follow','no_match','no_match_review','wallet','appeal'));
 
 -- Classifying a previously contacted synthetic case must still suppress the
@@ -170,6 +173,13 @@ from public.refund_cases c join family_cases k using(id);
 create temporary table family_cycle_before as select f.id, to_jsonb(f) as value from public.refund_follow_up_cycles f join family_cycles k using(id);
 create temporary table family_appeal_before as select a.id, to_jsonb(a) as value from public.refund_case_appeals a
 where a.refund_case_id in (select id from family_cases);
+create temporary table family_functions_before as
+select proname, prosrc, prosecdef, provolatile, proconfig, proacl
+from pg_proc where pronamespace = 'public'::regnamespace and proname in (
+  'is_refund_message_delivery_bookkeeping', 'is_refund_message_recorded_delivery_failure',
+  'guard_nayax_attempt_completion_message', 'guard_refund_legacy_state_message',
+  'guard_refund_denial_appeal_message', 'guard_refund_follow_up_message',
+  'guard_refund_follow_up_cycle', 'sync_refund_follow_up_cycle_from_message');
 
 /* __HISTORICAL_FAMILY_GUARDS__ */
 
@@ -193,6 +203,19 @@ $delivery_upgrade$) is not null, 'The complete actual backfill fails against pop
 select lives_ok($delivery_upgrade$
 /* __FAMILY_CURRENT_DELIVERY_PREFIX__ */
 $delivery_upgrade$, 'The complete current 0700 prefix upgrades every populated historical family with enabled triggers');
+select is((select count(*) from family_functions_before), 8::bigint,
+  'Fresh replay contains all eight comprehensive bookkeeping helper/guard functions');
+select ok(not exists(select 1 from family_functions_before b full join (
+  select proname, prosrc, prosecdef, provolatile, proconfig, proacl from pg_proc
+  where pronamespace = 'public'::regnamespace and proname in (select proname from family_functions_before)
+) p using(proname) where b.proname is null or p.proname is null or b.prosrc is distinct from p.prosrc
+  or b.prosecdef is distinct from p.prosecdef or b.provolatile is distinct from p.provolatile
+  or b.proconfig is distinct from p.proconfig or b.proacl is distinct from p.proacl),
+  'Fresh final and populated-upgrade functions have identical bodies, ownership mode, volatility, path and ACL');
+select ok(not has_function_privilege(api_role, 'public.is_refund_message_delivery_bookkeeping(jsonb,jsonb)', 'execute')
+  and not has_function_privilege(api_role, 'public.is_refund_message_recorded_delivery_failure(jsonb)', 'execute'),
+  api_role || ': private bookkeeping helpers are not callable by API roles')
+from (values ('anon'),('authenticated'),('service_role')) roles(api_role);
 select is((select count(*) from public.refund_case_messages m join family_messages k using(id)
   where k.family <> 'internal' and m.delivery_transport = 'resend' and m.delivery_state = 'unknown' and m.provider_message_id is null),
   14::bigint, 'All fourteen non-internal historical message families receive unknown-only delivery metadata');
@@ -208,8 +231,13 @@ from family_messages where family <> 'internal' order by family;
 reset role;
 
 -- For every guarded family, forged receipt/content/identity changes must fail.
+select is(public.is_refund_message_delivery_bookkeeping(to_jsonb(m), to_jsonb(m) || jsonb_build_object(
+  'status','failed','delivery_state','bounced','error_message','transactional_delivery_bounced',
+  'delivery_state_updated_at',statement_timestamp())), false,
+  k.family || ': private helper never authorizes an unrecorded terminal delivery event')
+from family_messages k join public.refund_case_messages m using(id);
 select ok(pg_temp.capture_delivery_upgrade_error(format('update public.refund_case_messages set status = ''failed'', delivery_state = ''bounced'', error_message = ''transactional_delivery_bounced'', delivery_state_updated_at = statement_timestamp() where id = %L', id)) is not null,
-  family || ': no-event terminal failure is rejected') from family_messages where family <> 'internal' and family not like 'manual%' order by family;
+  family || ': no-event terminal failure is rejected') from family_messages where family <> 'internal' and family not like 'manual%' and family not like 'wallet%' order by family;
 set local role service_role;
 select is(public.service_record_refund_transactional_delivery_event(md5(family || ':bounce') || md5(family || ':bounce'),
   'resend_family_' || family, 'bounced', statement_timestamp())->>'deliveryState', 'bounced',
@@ -229,6 +257,16 @@ select is(pg_temp.capture_delivery_upgrade_error(format('select public.service_b
   'Previously sent Internal/test message remains explicitly suppressed by real binding RPC');
 reset role;
 
+select is(public.is_refund_message_delivery_bookkeeping(to_jsonb(m), to_jsonb(m) || jsonb_build_object(changed.column_name, changed.value)),
+  false, k.family || ': private helper rejects forged ' || changed.column_name || ' despite a genuine receipt')
+from family_messages k join public.refund_case_messages m using(id)
+cross join (values ('body','Forged body'), ('recipient_email','other@example.invalid'),
+  ('provider_message_id','resend_forged_identity'), ('status','pending'), ('message_type','manual_note')) changed(column_name,value);
+select is(public.is_refund_message_delivery_bookkeeping(to_jsonb(m), to_jsonb(m) || jsonb_build_object(
+  'delivery_state_updated_at',m.delivery_state_updated_at + interval '1 day')), false,
+  k.family || ': private helper rejects an invented future event timestamp')
+from family_messages k join public.refund_case_messages m using(id) where k.family <> 'internal';
+
 select is(to_jsonb(m) - array['delivery_transport','provider_message_id','delivery_state','delivery_state_updated_at','status','error_message'],
   b.value - array['delivery_transport','provider_message_id','delivery_state','delivery_state_updated_at','status','error_message'],
   k.family || ': verified events preserve every original envelope/evidence/send field')
@@ -237,6 +275,9 @@ select is(to_jsonb(c) - array['lifecycle_revision','updated_at'], b.value, k.fam
 from family_cases k join public.refund_cases c using(id) join family_case_before b using(id);
 select is(to_jsonb(f), b.value, k.family || ': delivery bookkeeping does not rewrite advanced follow-up cycle')
 from family_cycles k join public.refund_follow_up_cycles f using(id) join family_cycle_before b using(id);
+select lives_ok(format('update public.refund_follow_up_cycles set status = status where id = %L', id),
+  family || ': a later valid cycle update still recognizes actual SENT evidence after a verified failure')
+from family_cycles order by family;
 select is(to_jsonb(a), b.value, 'Delivery bookkeeping preserves the appeal ledger')
 from public.refund_case_appeals a join family_appeal_before b using(id);
 select is((select to_jsonb(m) from public.refund_case_messages m where id = (select id from family_messages where family = 'internal')),
