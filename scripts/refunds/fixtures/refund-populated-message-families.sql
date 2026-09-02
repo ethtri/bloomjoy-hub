@@ -1,7 +1,7 @@
 -- Additional historical families. Seed through enabled real guards under valid
 -- earlier facts, advance case/cycle facts, then replay actual pre-0700 guards.
 create temporary table family_cases (family text primary key, id uuid not null default gen_random_uuid());
-insert into family_cases(family) values ('follow'), ('no_match'), ('wallet'),
+insert into family_cases(family) values ('follow'), ('no_match'), ('no_match_review'), ('wallet'),
   ('appeal'), ('card_approved'), ('card_completed'), ('legacy'), ('internal'), ('manual');
 create temporary table family_messages (family text primary key, id uuid not null default gen_random_uuid(), expected_old_error text);
 grant select on family_messages to service_role;
@@ -10,13 +10,14 @@ insert into family_messages(family, expected_old_error) values
  ('reminder', '23514:Follow-up reminder is not due or was already claimed'),
  ('information_received', '23514:Information-received receipt requires one verified customer reply'),
  ('no_safe_match', '23514:Follow-up request is no longer claimable'),
+ ('no_safe_match_review', '23514:Follow-up request is no longer claimable'),
  ('wallet_correction', null), ('wallet_correction_reminder', null),
  ('appeal_received', '23514:Appeal receipt requires current same-case deterministic evidence'),
  ('card_approved', 'P0001:Card success messages require committed token-bound provider settlement'),
  ('card_completed', 'P0001:Card success messages require committed token-bound provider settlement'),
  ('legacy', 'P0001:Run a fresh transaction check before any customer message'),
  ('internal', 'P4640:Customer, reminder, and refund actions are suppressed for Internal/test cases'),
- ('manual', null);
+ ('manual', null), ('manual_denied', null), ('manual_more_info', null);
 
 insert into public.refund_cases(id, customer_email, issue_summary, status, intake_source)
 select id, 'family-' || family || '@example.invalid', 'Synthetic populated message-family history', 'draft', 'gmail'
@@ -37,6 +38,13 @@ select m.id, c.id, case c.family when 'card_approved' then 'approved' when 'card
   'sent', 'family-' || c.family || '@example.invalid', 'Synthetic notice', 'Historical synthetic customer notice.', statement_timestamp()
 from family_cases c join family_messages m using(family)
 where c.family in ('card_approved', 'card_completed', 'legacy', 'internal', 'manual');
+insert into public.refund_case_messages(id, refund_case_id, message_type, status, recipient_email, subject, body, sent_at,
+  content_source, delivery_kind)
+select m.id, c.id, case m.family when 'manual_denied' then 'denied' else 'more_info' end,
+  'sent', 'family-manual@example.invalid', 'Synthetic manual history', 'Synthetic prior manual history.', statement_timestamp(),
+  case when m.family = 'manual_denied' then 'manager_authored' end,
+  case when m.family = 'manual_denied' then 'manual' end
+from family_cases c cross join family_messages m where c.family = 'manual' and m.family in ('manual_denied','manual_more_info');
 update public.refund_cases set payment_method = 'card'
 where id in (select id from family_cases where family in ('card_approved', 'card_completed'));
 insert into public.refund_case_events(refund_case_id, event_type, message, metadata)
@@ -103,17 +111,21 @@ update public.refund_cases set reporting_machine_id = 'da130000-0000-4000-8000-0
   payment_amount_cents = 700, card_last4 = '4242', card_wallet_used = false, status = 'needs_review',
   correlation_status = 'no_match', correlation_source = 'nayax', nayax_recommendation_state = 'no_safe_match',
   nayax_recommendation_policy_version = 'synthetic.v1', nayax_recommendation_evaluated_at = statement_timestamp()
-where id = (select id from family_cases where family = 'no_match');
-insert into family_cycles select 'no_match', (public.service_claim_refund_follow_up_cycle(
-  (select id from family_cases where family = 'no_match'), 'no_safe_match', 'refund_follow_up_v1', repeat('f3',32), null) #>> '{cycle,id}')::uuid;
+where id in (select id from family_cases where family in ('no_match','no_match_review'));
+insert into family_cycles select family, (public.service_claim_refund_follow_up_cycle(
+  id, 'no_safe_match', 'refund_follow_up_v1', repeat('f3',32), null) #>> '{cycle,id}')::uuid
+from family_cases where family in ('no_match','no_match_review');
 insert into public.refund_case_messages(id, refund_case_id, message_type, status, recipient_email, subject, body,
   content_source, delivery_kind, reason_code, template_version, follow_up_cycle_id, requested_fields)
 select m.id, f.refund_case_id, 'no_safe_match', 'pending', c.customer_email, 'Synthetic no-match request', 'Synthetic match-information request.',
   'deterministic_template', 'automatic', f.reason_code, f.template_version, f.id, f.requested_fields
 from family_messages m cross join family_cycles k join public.refund_follow_up_cycles f on f.id = k.id
-join public.refund_cases c on c.id = f.refund_case_id where m.family = 'no_safe_match' and k.family = 'no_match';
+join public.refund_cases c on c.id = f.refund_case_id where (m.family = 'no_safe_match' and k.family = 'no_match')
+  or (m.family = 'no_safe_match_review' and k.family = 'no_match_review');
 update public.refund_case_messages set status = 'sent', sent_at = statement_timestamp()
-where id = (select id from family_messages where family = 'no_safe_match');
+where id in (select id from family_messages where family in ('no_safe_match','no_safe_match_review'));
+update public.refund_follow_up_cycles set status = 'manual_review'
+where id = (select id from family_cycles where family = 'no_match_review');
 
 update public.refund_cases set payment_method = 'card', card_wallet_used = true,
   wallet_correction_state = 'sent', wallet_correction_version = 1
@@ -140,7 +152,7 @@ and a.refund_case_id = (select id from family_cases where family = 'appeal');
 update public.refund_case_messages set status = 'sent', sent_at = statement_timestamp()
 where id = (select id from family_messages where family = 'appeal_received');
 update public.refund_cases set status = 'closed', automation_state = 'closed_incomplete', automation_follow_up_due_at = null
-where id in (select id from family_cases where family in ('follow','no_match','wallet','appeal'));
+where id in (select id from family_cases where family in ('follow','no_match','no_match_review','wallet','appeal'));
 
 -- Classifying a previously contacted synthetic case must still suppress the
 -- backfill and real provider RPC; never weaken Internal/test protection.
@@ -183,7 +195,7 @@ select lives_ok($delivery_upgrade$
 $delivery_upgrade$, 'The complete current 0700 prefix upgrades every populated historical family with enabled triggers');
 select is((select count(*) from public.refund_case_messages m join family_messages k using(id)
   where k.family <> 'internal' and m.delivery_transport = 'resend' and m.delivery_state = 'unknown' and m.provider_message_id is null),
-  11::bigint, 'All eleven non-internal historical message families receive unknown-only delivery metadata');
+  14::bigint, 'All fourteen non-internal historical message families receive unknown-only delivery metadata');
 select is(to_jsonb(m) - array['delivery_transport','provider_message_id','delivery_state','delivery_state_updated_at'],
   b.value - array['delivery_transport','provider_message_id','delivery_state','delivery_state_updated_at'],
   k.family || ': backfill preserves every non-delivery field')
@@ -197,7 +209,7 @@ reset role;
 
 -- For every guarded family, forged receipt/content/identity changes must fail.
 select ok(pg_temp.capture_delivery_upgrade_error(format('update public.refund_case_messages set status = ''failed'', delivery_state = ''bounced'', error_message = ''transactional_delivery_bounced'', delivery_state_updated_at = statement_timestamp() where id = %L', id)) is not null,
-  family || ': no-event terminal failure is rejected') from family_messages where family not in ('internal','manual') order by family;
+  family || ': no-event terminal failure is rejected') from family_messages where family <> 'internal' and family not like 'manual%' order by family;
 set local role service_role;
 select is(public.service_record_refund_transactional_delivery_event(md5(family || ':bounce') || md5(family || ':bounce'),
   'resend_family_' || family, 'bounced', statement_timestamp())->>'deliveryState', 'bounced',
@@ -232,6 +244,6 @@ select is((select to_jsonb(m) from public.refund_case_messages m where id = (sel
 select is((select count(*) from public.refund_case_nayax_refund_attempts where refund_case_id in (select id from family_cases)),
   0::bigint, 'Multi-family upgrade and real delivery events create no payment attempts');
 select is((select count(*) from public.refund_case_messages where refund_case_id in (select id from family_cases)),
-  12::bigint, 'Multi-family upgrade and real delivery events create no duplicate customer messages');
+  15::bigint, 'Multi-family upgrade and real delivery events create no duplicate customer messages');
 select ok(not exists(select 1 from pg_trigger where tgrelid in ('public.refund_case_messages'::regclass, 'public.refund_cases'::regclass,
   'public.refund_follow_up_cycles'::regclass) and not tgisinternal and tgenabled = 'D'), 'Every case, message and cycle guard stays enabled throughout family regression');
