@@ -134,9 +134,10 @@ The detailed refund bullets below retain supporting design and audit context. Wh
 - Scoped Admin Technician provisioning is tracked by P0 issues `#536`-`#542`; local executable implementation/UAT belongs in `#537`-`#541`, while `#542` requires post-deploy live invite/account verification.
 - Operator Pay, partner reporting, and scheduled exports are active shared foundations.
 - Operator report PDF exports depend on the deployed `sales-report-export` Edge Function matching the repo's polished generator; stale deployments can still produce legacy monospaced PDFs and should be redeployed before partner-facing report sharing.
-- Timekeeping V1 is a distinct worker-entry and machine-manager-review workflow: monthly completed shifts, per-shift whole-hour rounding, worker-visible correction notes, and issued-statement self-service. Shift review does not execute or alter payments.
-- Operator Pay calculation, finalization, payment execution, tax/compliance handling, and provider integration remain separate from the Timekeeping V1 replacement for Sheets/AppSheet.
-- Operator pay statements slice `#449` remains the versioned foundation for issued-statement self-service; drafts and manager previews are not worker-visible.
+- The owner-approved Timekeeping direction is now a weekly-calendar, machine-specific entry flow where every started hour is one paid shift unit, rounding occurs independently per machine, and overlapping Technician time is disallowed. Managers view and correct time without per-entry approvals or required edit reasons.
+- Calendar-month Technician entry closes at 11:59 p.m. Pacific on the fourth day after month-end; managers retain correction access. Per-Technician effective-dated shift rates feed automatic post-lock Pay Stub publication and manager-triggered regeneration with version history.
+- The merged Timekeeping UI still reflects the superseded approval/correction queue and earlier period defaults, so it requires implementation alignment and owner UAT before a real Technician pilot. The final polished Pay Stub layout remains pending the owner's reference example.
+- Payment execution, direct deposit, withholding, payroll tax calculation, tax filing, W-2s, 1099 generation, and provider integration remain separate from this lightweight Timekeeping and Pay Stub scope.
 - Authenticated portal bootstrap is shell-first and permission-neutral: Technician and pending Scoped Admin invitation resolution remain authoritative before access reads, access-sensitive navigation waits for hydration, and session-to-shell/dashboard timing contains no account or identity data.
 - Frontend work should use existing app patterns plus `PRODUCT.md`, `DESIGN.md`, and `impeccable` when the visible experience matters.
 
