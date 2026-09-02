@@ -47,6 +47,6 @@ assert.doesNotMatch(statusCapability, /managerAction/);
 assert.doesNotMatch(statusCapability, /providerAccountKey/);
 assert.doesNotMatch(portalFixture, /refund_lifecycle_v1|refund_manager_queue_v1/);
 assert.match(releaseValidator, /20260902000417_refund_lifecycle_v2_integrity\.sql/);
-assert.match(releaseValidator, /exactly 115 discovered refund\/Nayax migrations/);
+assert.match(releaseValidator, /exactly 116 discovered refund\/Nayax migrations/);
 
 console.log('Refund lifecycle v2 integrity, privacy, UI, fixture, and release-skew validation passed.');
