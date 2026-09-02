@@ -18,7 +18,7 @@ The authenticated admin update mode `correct_legacy_machine_and_record_observati
 
 One database transaction changes only the current case machine binding and invokes the existing authoritative receipt recorder using the new server-derived case version. Existing assignment/version/fact triggers retain their normal semantics. If receipt recording fails, the machine change rolls back too. An immutable private correction audit links both machines, the unchanged location, inventory snapshot/number, historical event, historical attempt digest, actor, and server observation time. A repeated correction fails closed; it never makes another payment, receipt, or message.
 
-The selected-transaction overview identifies the corrected current machine but removes historical candidate match factors, network/recognition annotations, and inferred time precision. Original sale time, original customer/QR/intake evidence, historical attempt/events, and already-sent mail remain unchanged. Notice adoption is still a separate reviewed operation; prior manager CC is not rewritten or resent.
+The selected-transaction overview identifies the corrected current machine but removes historical candidate match factors, network/recognition annotations, and inferred time precision. Current lookup candidate/summary projections are cleared so the workbench cannot reuse their comparison factors; the underlying historical candidate rows remain unchanged. Original sale time, original customer/QR/intake evidence, historical attempt/events, and already-sent mail remain unchanged. Notice adoption is still a separate reviewed operation; prior manager CC is not rewritten or resent.
 
 ## Verification and remaining work
 

@@ -295,6 +295,10 @@ select is((select item#>>'{selectedNayaxTransaction,machineLabel}' from jsonb_ar
   where item->>'id'='be400000-0000-4000-8000-000000000001'),'Correction machine 2','Selected evidence identifies the corrected current machine');
 select is((select item#>'{selectedNayaxTransaction,matchFactors}' from jsonb_array_elements(public.admin_get_refund_operations_overview()->'cases') item
   where item->>'id'='be400000-0000-4000-8000-000000000001'),'[]'::jsonb,'Old-machine candidate factors do not corroborate current machine');
+select is((select item->'nayaxLookupCandidates' from jsonb_array_elements(public.admin_get_refund_operations_overview()->'cases') item
+  where item->>'id'='be400000-0000-4000-8000-000000000001'),'[]'::jsonb,'Current workbench does not reuse historical candidate comparison factors');
+select is((select count(*)::integer from public.refund_nayax_lookup_candidates where refund_case_id='be400000-0000-4000-8000-000000000001'
+  and reporting_machine_id='be300000-0000-4000-8000-000000000001'),1,'Historical wrong-machine candidate remains preserved in source');
 select ok(not public.can_perform_refund_official_action('be000000-0000-4000-8000-000000000001','be400000-0000-4000-8000-000000000003'),'Correction does not reauthorize payment');
 set local role authenticated;
 select set_config('request.jwt.claim.sub','be000000-0000-4000-8000-000000000002',true);

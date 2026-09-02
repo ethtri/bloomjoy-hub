@@ -193,7 +193,8 @@ declare base jsonb; cases jsonb;
 begin
   base:=public.admin_get_refund_operations_overview_pre_legacy_machine_correction_v1();
   select coalesce(jsonb_agg(case when correction.id is null then item.value else
-    item.value||jsonb_build_object('machineCorrection',jsonb_build_object(
+    item.value||jsonb_build_object('nayaxLookupCandidates','[]'::jsonb,'nayaxLookupSummary',null,
+      'machineCorrection',jsonb_build_object(
       'schemaVersion','refund_legacy_machine_correction_v1','correctionId',correction.id,
       'receiptId',correction.receipt_id,'recordedAt',correction.recorded_at,
       'historicalEvidencePreserved',true,'payloadRedacted',true),
