@@ -735,14 +735,15 @@ begin
     ) into reconciling_known_gmail_delivery;
     -- The provider may have accepted this exact reminder before its original
     -- request failed. Finalizing that recorded acceptance is not another send.
-    reconciling_known_transactional_delivery :=
+    reconciling_known_transactional_delivery := (
       new.message_type = 'reminder'
       and old.delivery_transport = 'resend'
       and nullif(btrim(old.provider_message_id), '') is not null
       and old.delivery_state in ('accepted', 'deferred', 'delivered')
       and old.delivery_state_updated_at is not null
       and (to_jsonb(new) - array['status', 'sent_at']::text[])
-        is not distinct from (to_jsonb(old) - array['status', 'sent_at']::text[]);
+        is not distinct from (to_jsonb(old) - array['status', 'sent_at']::text[])
+    ) is true;
   end if;
 
   if tg_op = 'INSERT' then

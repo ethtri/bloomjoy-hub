@@ -465,14 +465,15 @@ begin
     ) into reconciling_known_gmail_delivery;
     -- The provider may have accepted this exact reminder before its original
     -- request failed. Finalizing that recorded acceptance is not another send.
-    reconciling_known_transactional_delivery :=
+    reconciling_known_transactional_delivery := (
       new.message_type = 'reminder'
       and old.delivery_transport = 'resend'
       and nullif(btrim(old.provider_message_id), '') is not null
       and old.delivery_state in ('accepted', 'deferred', 'delivered')
       and old.delivery_state_updated_at is not null
       and (to_jsonb(new) - array['status', 'sent_at']::text[])
-        is not distinct from (to_jsonb(old) - array['status', 'sent_at']::text[]);
+        is not distinct from (to_jsonb(old) - array['status', 'sent_at']::text[])
+    ) is true;
   end if;
 
   if tg_op = 'INSERT' then
@@ -1473,6 +1474,8 @@ declare
   message_row public.refund_case_messages;
   delivery_authorization jsonb;
   manager_cc_emails text[] := '{}'::text[];
+  manager_recipient_overlap boolean := false;
+  manager_recipient_count integer := 0;
   mailbox_identities text[] := public.normalize_refund_mailbox_identities(
     p_mailbox_identities
   );
@@ -1548,6 +1551,8 @@ begin
         'subject', outbound_row.subject,
         'managerCcEmails', to_jsonb(outbound_row.recipient_cc_emails),
         'managerCcCount', outbound_row.recipient_cc_count,
+        'managerRecipientOverlap', outbound_row.recipient_manager_overlap,
+        'managerRecipientCount', outbound_row.recipient_manager_count,
         'recipientResolutionStatus', outbound_row.recipient_resolution_status,
         'status', 'sent'
       );
@@ -1644,6 +1649,8 @@ begin
   from jsonb_array_elements_text(
     delivery_authorization -> 'managerCcEmails'
   ) value;
+  manager_recipient_overlap := coalesce((delivery_authorization ->> 'managerRecipientOverlap')::boolean, false);
+  manager_recipient_count := coalesce((delivery_authorization ->> 'managerRecipientCount')::integer, 0);
 
   -- Lock every linked thread before selecting the exact reply target. A hard
   -- bounce on any older conversation remains a case-wide automatic-send stop.
@@ -1733,6 +1740,8 @@ begin
     recipient_cc_emails,
     recipient_cc_count,
     recipient_resolution_status,
+    recipient_manager_overlap,
+    recipient_manager_count,
     delivery_kind,
     participant_role,
     participant_trust,
@@ -1753,6 +1762,8 @@ begin
     manager_cc_emails,
     cardinality(manager_cc_emails),
     delivery_authorization ->> 'recipientResolutionStatus',
+    manager_recipient_overlap,
+    manager_recipient_count,
     normalized_delivery_kind,
     'mailbox',
     'verified',
@@ -1812,6 +1823,8 @@ begin
     'references', nullif(reply_references, ''),
     'managerCcEmails', to_jsonb(manager_cc_emails),
     'managerCcCount', cardinality(manager_cc_emails),
+    'managerRecipientOverlap', manager_recipient_overlap,
+    'managerRecipientCount', manager_recipient_count,
     'recipientResolutionStatus',
       delivery_authorization ->> 'recipientResolutionStatus'
   );
