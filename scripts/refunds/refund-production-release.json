@@ -121,10 +121,11 @@
     "20260902002716_refund_manual_message_outbox.sql",
     "20260902004500_refund_payout_destination_follow_up.sql",
     "20260902160946_refund_gmail_reply_recovery.sql",
-    "20260902161318_refund_authoritative_reconciliation_receipt.sql"
+    "20260902161318_refund_authoritative_reconciliation_receipt.sql",
+    "20260902174648_refund_sent_status_delivery_metadata.sql"
   ],
-  "migrationFilesSha256": "463c2a84a9d7405dd2095c0fa106f1848bd81df9617c245d307e54876570d2b4",
-  "migrationVersionSetSha256": "a9f12d3c01eb6bb7f87152ea083b24a1aa175041bc9d555445eda0fd3fe27779",
+  "migrationFilesSha256": "c68e054f291c630aa8c477683b26f97178c44b639afcf43b664443e7c9400ab2",
+  "migrationVersionSetSha256": "36c4daa72699b34eb3bb3d82f561d69b389848fa38233a3739659f29f8be6626",
   "preMigrationCompatibility": {
     "releaseId": "refund-ops-2026-08-14-pre-controlled-nayax-pilot",
     "sourceGitCommit": "71eb076bc3ad95ccabd0c591b8140820bed6c393",
