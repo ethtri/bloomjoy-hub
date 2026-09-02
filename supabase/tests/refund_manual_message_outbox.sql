@@ -93,11 +93,19 @@ select ok(
 );
 
 select ok(
-  has_column('public', 'refund_case_messages', 'manual_delivery_intent_id')
-  and has_column('public', 'refund_case_messages', 'manual_delivery_state')
-  and has_column('public', 'refund_case_messages', 'manual_delivery_expected_case_version')
-  and has_column('public', 'refund_case_messages', 'manual_delivery_provider_attempted_at')
-  and has_column('public', 'refund_case_messages', 'manual_delivery_attempt_count'),
+  (
+    select count(*) = 5
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'refund_case_messages'
+      and column_name = any(array[
+        'manual_delivery_intent_id',
+        'manual_delivery_state',
+        'manual_delivery_expected_case_version',
+        'manual_delivery_provider_attempted_at',
+        'manual_delivery_attempt_count'
+      ])
+  ),
   'The customer-message ledger exposes the durable outbox state'
 );
 
