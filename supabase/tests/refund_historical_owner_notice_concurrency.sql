@@ -43,6 +43,11 @@ select refund_owner_race_test.authorize();
 select public.admin_record_refund_authoritative_receipt(c.id,null,c.official_action_version,'OWNER-RACE-ACCOUNT','OWNER-RACE-MACHINE',
   c.matched_nayax_transaction_id,700,700,'USD',62,'DTM:NAYAX-'||c.matched_nayax_transaction_id,true)
 from public.refund_cases c where reporting_machine_id='bf300000-0000-4000-8000-000000000001';
+-- Both callers have already reviewed while the action is available. Fetching
+-- the overview only after a competing adopter commits would correctly return
+-- unavailable/null binding, which is not a concurrent reviewed-write attempt.
+create table refund_owner_race_test.review as
+  select public.admin_get_refund_authoritative_receipt_overview('bf400000-0000-4000-8000-000000000001')->>'historicalOwnerReviewBinding' as binding;
 insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,first_message_at,latest_message_at,retention_expires_at)
 values('bf700000-0000-4000-8000-000000000002','bf400000-0000-4000-8000-000000000002',
   encode(extensions.digest(convert_to('info@bloomjoysweets.com','UTF8'),'sha256'),'hex'),'feed000000000022',
@@ -68,7 +73,7 @@ begin
   return public.admin_record_refund_historical_owner_notice(c.id,r,c.official_action_version,c.public_reference,
     c.matched_nayax_transaction_id,700,'USD',message_id,'feed000000000099','2026-09-02T16:07:00Z',
     'owner-race-customer@example.invalid',repeat('e',64),'GMAIL-SENT:'||message_id,true,true,true,
-    public.admin_get_refund_authoritative_receipt_overview(c.id)->>'historicalOwnerReviewBinding');
+    (select binding from refund_owner_race_test.review));
 exception when others then return jsonb_build_object('error',sqlstate,'message',sqlerrm);
 end; $$;
 create function refund_owner_race_test.wait_for_b() returns boolean language plpgsql as $$ begin
@@ -81,6 +86,8 @@ create function refund_owner_race_test.wait_for_b() returns boolean language plp
 end; $$;
 commit;
 select no_plan();
+select ok((select binding ~ '^[a-f0-9]{64}$' from refund_owner_race_test.review),
+  'Both callers hold an authorized pre-race reviewed-owner binding');
 
 -- Same-case external race: B must actually be waiting before A commits.
 select extensions.dblink_exec('owner_notice_a','begin');
