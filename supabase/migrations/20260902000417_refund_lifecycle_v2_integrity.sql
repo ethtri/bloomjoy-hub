@@ -86,6 +86,32 @@ begin
   elsif new.lifecycle_revision <= old.lifecycle_revision then
     new.lifecycle_revision := old.lifecycle_revision + 1;
   end if;
+
+  -- A historical hold is released by the same case transition that removes
+  -- the impossible payment state, or after durable attempt evidence has been
+  -- inserted earlier in the transaction. New impossible states still arrive
+  -- as `ok` and are rejected by the deferred constraint below.
+  if tg_op = 'UPDATE'
+    and old.lifecycle_integrity_status = 'hold'
+    and (
+      new.case_population = 'internal_test'
+      or new.payment_method <> 'card'
+      or (
+        new.status not in ('card_refund_pending', 'completed')
+        and new.nayax_refund_execution_status not in (
+          'requested', 'approved', 'ambiguous', 'manual_review'
+        )
+      )
+      or exists (
+        select 1
+        from public.refund_case_nayax_refund_attempts attempt
+        where attempt.refund_case_id = new.id
+      )
+    ) then
+    new.lifecycle_integrity_status := 'ok';
+    new.lifecycle_integrity_code := null;
+    new.lifecycle_integrity_detected_at := null;
+  end if;
   return new;
 end;
 $$;
@@ -341,6 +367,9 @@ declare
   operations_due_at timestamptz;
   operations_age_minutes integer;
   last_updated_at timestamptz;
+  definitive_no_refund boolean := false;
+  lookup_safe_retry_eligible boolean := false;
+  pending_inbound_link_review boolean := false;
 begin
   select refund_case.* into case_row
   from public.refund_cases refund_case
@@ -372,6 +401,34 @@ begin
   where event.refund_case_id = case_row.id
   order by event.created_at desc, event.id desc
   limit 1;
+
+  definitive_no_refund := attempt_row.id is not null and (
+    (
+      attempt_row.provider_outcome = 'rejected'
+      and attempt_row.safe_transport_stage = 'released_no_refund'
+      and attempt_row.reconciliation_required is false
+      and case_row.nayax_refund_execution_status = 'not_requested'
+      and public.refund_nayax_definitive_rejection_is_retry_safe(
+        attempt_row.id
+      )
+    )
+    or public.refund_nayax_retry_safe_resolution_is_current(attempt_row.id)
+  );
+  lookup_safe_retry_eligible :=
+    case_row.nayax_lookup_safe_retry_eligible
+    or (
+      case_row.nayax_lookup_status = 'checking'
+      and case_row.nayax_lookup_started_at <
+        statement_timestamp() - interval '90 seconds'
+    );
+  select exists (
+    select 1
+    from public.refund_gmail_case_link_review_candidates candidate
+    join public.refund_gmail_case_link_reviews review
+      on review.id = candidate.review_id
+    where candidate.refund_case_id = case_row.id
+      and review.status = 'pending'
+  ) into pending_inbound_link_review;
 
   integrity_code := coalesce(
     public.refund_case_lifecycle_integrity_code(case_row.id),
@@ -413,6 +470,8 @@ begin
   end;
 
   operations_required := integrity_code is not null or (
+    not definitive_no_refund
+    and
     attempt_row.id is not null and (
       attempt_row.status in ('ambiguous', 'manual_review')
       or attempt_row.reconciliation_required is true
@@ -574,13 +633,20 @@ begin
     end;
     customer_action := 'none';
     manager_action := case
-      when case_row.nayax_lookup_safe_retry_eligible then 'retry_read_only_lookup'
+      when lookup_safe_retry_eligible then 'retry_read_only_lookup'
       when case_row.nayax_lookup_status in (
         'setup_needed', 'lookup_failed', 'lookup_timed_out', 'response_limited'
       ) then 'refund_operations'
       else 'wait'
     end;
     terminal := false;
+  end if;
+
+  if pending_inbound_link_review
+    and integrity_code is null
+    and not operations_required
+    and not terminal then
+    manager_action := 'review_inbound_case_link';
   end if;
 
   queue_bucket := case
@@ -648,6 +714,8 @@ begin
       'payloadRedacted', true
     ),
     'managerNextAction', manager_action,
+    'definitiveNoRefund', definitive_no_refund,
+    'safeRetryEligible', definitive_no_refund,
     'paymentState', payment_state,
     'messageState', jsonb_build_object(
       'state', message_state,
@@ -730,7 +798,7 @@ begin
           then 'lookup_timed_out'
         else case_row.nayax_lookup_status
       end,
-      'safeRetryEligible', manager_action = 'retry_read_only_lookup',
+      'safeRetryEligible', lookup_safe_retry_eligible,
       'failureClass', case when case_row.nayax_lookup_status = 'checking'
         and case_row.nayax_lookup_started_at <
           statement_timestamp() - interval '90 seconds'

@@ -8,6 +8,7 @@ type RefundQueueCase = {
   status: string;
   paymentMethod: "card" | "cash" | "unknown";
   paymentAmountCents?: number | null;
+  zellePaymentContact?: string | null;
 };
 
 /**
@@ -25,7 +26,8 @@ export const getRefundManagerQueueBucket = (
   if (
     refundCase.paymentMethod === "cash" &&
     typeof refundCase.paymentAmountCents === "number" &&
-    refundCase.paymentAmountCents > 0
+    refundCase.paymentAmountCents > 0 &&
+    Boolean(refundCase.zellePaymentContact?.trim())
   ) {
     return "ready_to_pay";
   }

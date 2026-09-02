@@ -558,11 +558,26 @@ Deno.test('remaining-value guard directs managers to the reviewed portal fallbac
   );
 });
 
-Deno.test('cash cases with an amount are ready to mark refunded without a transaction match', () => {
+Deno.test('cash cases require both an amount and payout destination', () => {
+  const missingDestination = getRefundManagerState({
+    ...baseCase,
+    paymentMethod: 'cash',
+    paymentAmountCents: 800,
+    correlationStatus: 'no_match',
+    nayaxRecommendationState: null,
+  });
+  assertEquals(missingDestination.id, 'needs_information', 'cash destination gate');
+  assertEquals(
+    missingDestination.label,
+    'Needs payout destination',
+    'cash destination label'
+  );
+
   const result = getRefundManagerState({
     ...baseCase,
     paymentMethod: 'cash',
     paymentAmountCents: 800,
+    zellePaymentContact: 'cash-customer@example.test',
     correlationStatus: 'no_match',
     nayaxRecommendationState: null,
   });

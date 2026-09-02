@@ -46,6 +46,7 @@ type RefundManagerCaseFacts = {
     | 'closed';
   paymentMethod: 'card' | 'cash' | 'unknown';
   paymentAmountCents?: number | null;
+  zellePaymentContact?: string | null;
   correlationStatus:
     | 'not_started'
     | 'matched'
@@ -506,6 +507,16 @@ export const getRefundManagerState = (
         'Needs payment amount',
         'The customer payment amount is missing.',
         'Ask the customer for the amount paid before recording an external refund.',
+        'warning'
+      );
+    }
+
+    if (!refundCase.zellePaymentContact?.trim()) {
+      return state(
+        'needs_information',
+        'Needs payout destination',
+        'The customer payout destination is missing.',
+        'Request only the payout destination in the existing customer thread.',
         'warning'
       );
     }

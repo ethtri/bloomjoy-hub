@@ -210,7 +210,7 @@ select ok(
       and (item -> 'customerDeliveryException' ->> 'customerMessageReplayAllowed')::boolean is false
       and (item -> 'customerDeliveryException' ->> 'paymentReplayAllowed')::boolean is false
       and item -> 'lifecycle' -> 'managerQueue' ->> 'bucket' = 'needs_action'
-      and item -> 'lifecycle' ->> 'managerNextAction' = 'review_customer_delivery'
+      and item -> 'lifecycle' ->> 'managerNextAction' = 'review_delivery_no_resend'
    from jsonb_array_elements(public.admin_get_refund_operations_overview() -> 'cases') item
    where item ->> 'id' = 'd9140000-0000-4000-8000-000000000001'),
   'Queue, case detail, and next action share the no-replay delivery contract'

@@ -231,8 +231,18 @@ Deno.test("cash and pre-case Gmail fallbacks are deterministic", () => {
       status: "needs_review",
       paymentMethod: "cash",
       paymentAmountCents: 800,
+      zellePaymentContact: "cash-customer@example.test",
     }),
     "ready_to_pay",
+  );
+  assertEquals(
+    getRefundManagerQueueBucket({
+      status: "needs_review",
+      paymentMethod: "cash",
+      paymentAmountCents: 800,
+      zellePaymentContact: null,
+    }),
+    "needs_action",
   );
   assertEquals(
     getRefundManagerQueueBucket({
