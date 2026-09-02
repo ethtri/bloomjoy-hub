@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { buildPopulatedDeliveryUpgradeTest, writePopulatedDeliveryUpgradeTest, HISTORICAL_MESSAGE_GUARDS, readHistoricalMessageGuards } from './refund-populated-delivery-upgrade.mjs';
+import { buildPopulatedDeliveryUpgradeTest, writePopulatedDeliveryUpgradeTest, HISTORICAL_MESSAGE_GUARDS, readHistoricalMessageGuards, buildSettledCompletionDeliveryTest } from './refund-populated-delivery-upgrade.mjs';
 
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 const read = (name) => fs.readFileSync(path.join(repoRoot, 'supabase/migrations', name), 'utf8').replaceAll('\r\n', '\n');
@@ -56,6 +56,19 @@ test('every historical message guard is extracted from its actual applied migrat
   }
   assert.ok(sql.includes('does not rewrite advanced follow-up cycle'));
   assert.ok(sql.includes('probe_old_family_backfill'));
+});
+
+test('settled completion delivery reuses the actual guarded reserve/settle fixture before Gmail delivery', () => {
+  const original = fs.readFileSync(path.join(repoRoot, 'supabase/tests/refund_nayax_provider_orchestration.sql'), 'utf8').replaceAll('\r\n', '\n');
+  const sql = buildSettledCompletionDeliveryTest(original);
+  assert.ok(sql.includes('public.service_reserve_and_consume_nayax_refund_attempt_v2('));
+  assert.ok(sql.includes('public.service_settle_nayax_refund_attempt('));
+  assert.ok(sql.includes("'completion-claim-replay'"));
+  assert.ok(sql.includes('public.service_bind_refund_transactional_delivery('));
+  assert.ok(sql.includes('public.service_record_refund_transactional_delivery_event('));
+  assert.doesNotMatch(sql, /provider-gmail-completion-1|select plan\(|session_replication_role|disable\s+trigger/iu);
+  assert.ok(sql.trimEnd().endsWith('rollback;'));
+  assert.throws(() => buildSettledCompletionDeliveryTest(''), /boundary/);
 });
 
 test('missing extraction boundaries and SQL delimiter collisions fail closed', () => {

@@ -23,6 +23,27 @@ export function readHistoricalMessageGuards(repoRoot) {
   }).join('\n\n');
 }
 export const POPULATED_DELIVERY_UPGRADE_TEST = 'refund_populated_delivery_upgrade.sql';
+export const SETTLED_COMPLETION_DELIVERY_TEST = 'refund_settled_completion_delivery.sql';
+
+export function buildSettledCompletionDeliveryTest(orchestrationTest) {
+  const normalized = orchestrationTest.replaceAll('\r\n', '\n');
+  const boundary = normalized.indexOf('insert into public.refund_gmail_messages (\n  id, gmail_thread_id, refund_case_id, refund_case_message_id,');
+  if (boundary < 0 || !normalized.slice(0, boundary).includes("'completion-claim-replay'")) {
+    throw new Error('Exact settled orchestration fixture boundary is required.');
+  }
+  const prefix = normalized.slice(0, boundary).replace('select plan(61);', 'select no_plan();');
+  if (/select plan\(/u.test(prefix) || /session_replication_role|disable\s+trigger/iu.test(prefix)) {
+    throw new Error('Settled orchestration fixture must retain all enabled guards and use a dynamic plan.');
+  }
+  return `${prefix}\n${fs.readFileSync(fileURLToPath(new URL('./fixtures/refund-settled-completion-delivery.sql', import.meta.url)), 'utf8').replaceAll('\r\n', '\n')}`;
+}
+
+export function writeSettledCompletionDeliveryTest(repoRoot, tempRoot) {
+  const source = buildSettledCompletionDeliveryTest(fs.readFileSync(path.join(repoRoot, 'supabase/tests/refund_nayax_provider_orchestration.sql'), 'utf8'));
+  const testPath = path.join(tempRoot, 'supabase', 'tests', SETTLED_COMPLETION_DELIVERY_TEST);
+  fs.writeFileSync(testPath, source, { encoding: 'utf8', flag: 'wx' });
+  return { testPath, testRelativePath: path.posix.join('supabase', 'tests', SETTLED_COMPLETION_DELIVERY_TEST) };
+}
 
 export function buildPopulatedDeliveryUpgradeTest({ historicalGuardMigration, deliveryMigration, historicalMessageGuards = readHistoricalMessageGuards(fileURLToPath(new URL('../../', import.meta.url))) }) {
   const guardStart = historicalGuardMigration.indexOf('create or replace function public.guard_refund_customer_status_message()');
