@@ -42,6 +42,8 @@ const run = async () => {
     nayaxCardRefund,
     schedulerIncidentMigration,
     providerDelayEvidenceMigration,
+    payoutDestinationMigration,
+    payoutDestinationTest,
   ] = await Promise.all([
     readText('supabase/functions/refund-case-admin-update/index.ts'),
     readText('src/pages/admin/Refunds.tsx'),
@@ -67,6 +69,8 @@ const run = async () => {
     readText('supabase/functions/nayax-card-refund/index.ts'),
     readText('supabase/migrations/20260901180116_refund_scheduler_incident_1069.sql'),
     readText('supabase/migrations/20260901202359_refund_provider_delay_evidence_1069.sql'),
+    readText('supabase/migrations/20260902004500_refund_payout_destination_follow_up.sql'),
+    readText('supabase/tests/refund_payout_destination_follow_up.sql'),
   ]);
 
   assert(
@@ -90,8 +94,9 @@ const run = async () => {
     ])
   );
   assert(
-    'Portal primary case actions send the matching customer message type',
-    includesAll(portalPage, ['handleSaveCase(primaryActionEditor, primaryAction.messageType', 'customerMessageType'])
+    'Portal primary customer requests use the durable message outbox',
+    includesAll(portalPage, ["mode: 'retry_message'", 'handleSendCustomerMessage(primaryAction.messageType)']) &&
+      includesAll(messageSend, ['service_enqueue_refund_manual_message_intent', 'drainRefundManualMessageOutbox'])
   );
   assert(
     'Normal path no longer has a standalone Send customer email button',
@@ -138,6 +143,31 @@ const run = async () => {
         'sanitizeRefundMissingFields',
         'requiresSecureWalletCorrection',
       ])
+  );
+  assert(
+    'Approved cash payout requests and replies share one protected field contract',
+    includesAll(portalPage, [
+      "missing.push('zelle_payment_contact')",
+      "label: 'Request payout destination'",
+      "mode: 'retry_message'",
+    ]) && includesAll(refundEmail, [
+      'zelle_payment_contact',
+      'Zelle email or phone number:',
+      'Correo electrónico o número de teléfono de Zelle:',
+    ]) && includesAll(payoutDestinationMigration, [
+      'requested_fields_satisfied_by_gmail_message_id',
+      'payout_destination_request_not_active',
+      'refund_payout_destination_follow_ups',
+      'service_claim_due_refund_payout_destination_follow_ups',
+      "'reminder_sent', 'satisfied', 'manual_review'",
+      "array['zelle_payment_contact']::text[]",
+      'payload_redacted',
+    ]) && includesAll(payoutDestinationTest, [
+      'verified customer message on another thread cannot satisfy the request',
+      'An unanswered reminder exits Waiting and returns the case to manager review',
+      'cannot remain a stale customer action',
+      'create no provider or payment attempt',
+    ])
   );
   assert(
     'Hosted intake no longer sends the old generic photo or wallet-digit request',
@@ -214,6 +244,10 @@ const run = async () => {
       'event_type: "automatic_customer_contact_limit_reached"',
       'status: "needs_review"',
       'automatic_customer_contact_stopped: true',
+    ]) && includesAll(automationSweep, [
+      'runPayoutDestinationReminderSweep',
+      'payout_destination_contact_exhausted',
+      'service_claim_due_refund_payout_destination_follow_ups',
     ])
   );
   assert(

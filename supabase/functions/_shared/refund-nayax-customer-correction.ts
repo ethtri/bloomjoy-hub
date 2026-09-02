@@ -97,6 +97,7 @@ const fieldRequest: Record<RefundMissingField, string> = {
   card_last4:
     "only the last four digits printed on the physical card you tapped",
   card_network: "the card type shown on the card or inside the wallet",
+  zelle_payment_contact: "the Zelle email address or phone number",
 };
 
 const fieldReplyLine: Record<RefundMissingField, string> = {
@@ -112,6 +113,7 @@ const fieldReplyLine: Record<RefundMissingField, string> = {
   card_last4: "Card last four:",
   card_network:
     "Card type (Visa, Mastercard, Discover, American Express, or not sure):",
+  zelle_payment_contact: "Zelle email or phone number:",
 };
 
 export const buildNayaxCustomerCorrectionEmail = (

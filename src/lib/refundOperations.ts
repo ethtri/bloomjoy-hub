@@ -1531,7 +1531,8 @@ export type RefundMissingField =
   | 'incident_time'
   | 'payment_method'
   | 'amount'
-  | 'card_last4';
+  | 'card_last4'
+  | 'zelle_payment_contact';
 
 export const fetchRefundMachineOptions = async (): Promise<RefundPublicSelection[]> => {
   const current = await supabaseClient.rpc('public_refund_selections_v2');

@@ -76,6 +76,7 @@ type RefundCaseRow = {
   case_population: string;
   public_reference: string;
   status: string;
+  decision: string | null;
   decision_reason: string | null;
   customer_email: string;
   customer_name: string | null;
@@ -84,6 +85,7 @@ type RefundCaseRow = {
   refund_amount_cents: number | null;
   card_wallet_used: boolean;
   card_last4: string | null;
+  zelle_payment_contact: string | null;
   reporting_machine_id: string | null;
   reporting_location_id: string | null;
   incident_at: string | null;
@@ -122,6 +124,7 @@ const selectCaseQuery = `
   case_population,
   public_reference,
   status,
+  decision,
   decision_reason,
   customer_email,
   customer_name,
@@ -130,6 +133,7 @@ const selectCaseQuery = `
   refund_amount_cents,
   card_wallet_used,
   card_last4,
+  zelle_payment_contact,
   reporting_machine_id,
   reporting_location_id,
   incident_at,
@@ -660,6 +664,10 @@ serve(async (req) => {
       paymentAmountCents: refundCase.payment_amount_cents,
       cardLast4: refundCase.card_last4,
       cardWalletUsed: refundCase.card_wallet_used,
+      zellePaymentContact: refundCase.zelle_payment_contact,
+      cashPayoutDestinationRequired:
+        refundCase.payment_method === "cash" &&
+        refundCase.decision === "approved",
     });
     const reviewedMissingFields = triageSuggestion
       ? sanitizeRefundMissingFields(triageSuggestion.missing_fields)
@@ -784,9 +792,14 @@ serve(async (req) => {
       typeof queued.messageId !== "string" || !isUuid(queued.messageId) ||
       queued.payloadRedacted !== true
     ) {
-      const conflict = ["P4609", "P4656", "P4657"].includes(enqueueError?.code ?? "");
+      const payoutContactExhausted = enqueueError?.code === "P4662";
+      const conflict = ["P4609", "P4656", "P4657", "P4662"].includes(
+        enqueueError?.code ?? "",
+      );
       return jsonResponse({
-        error: conflict
+        error: payoutContactExhausted
+          ? "This payout-destination contact cycle is complete. Refund Operations must review the case before any new customer request."
+          : conflict
           ? "The case or queued message changed. Refresh before sending."
           : "Unable to queue customer email.",
       }, conflict ? 409 : 500);

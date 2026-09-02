@@ -22,6 +22,7 @@ export type RefundEmailFactExtraction = {
     | "american_express"
     | "other_unknown"
     | null;
+  zellePaymentContact: string | null;
   ambiguousFields: string[];
   manualReviewReason:
     | "sensitive_or_escalated_content"
@@ -49,6 +50,8 @@ const labelAliases = new Map([
   ["card last four", "cardLast4"],
   ["card last four source", "cardLast4Provenance"],
   ["card type", "cardNetwork"],
+  ["zelle email or phone number", "zellePaymentContact"],
+  ["correo electrónico o número de teléfono de zelle", "zellePaymentContact"],
 ]);
 
 const manualReviewPattern =
@@ -213,6 +216,16 @@ const amountCents = (value: string) => {
     : null;
 };
 
+const zellePaymentContact = (value: string) => {
+  const normalized = clean(value, 320);
+  if (/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/u.test(normalized)) {
+    return normalized.toLowerCase();
+  }
+  const compactPhone = normalized.replace(/[\s().-]/gu, "");
+  if (/^\+?[0-9]{10,15}$/u.test(compactPhone)) return normalized;
+  return null;
+};
+
 export const extractLabeledRefundEmailFacts = (
   body: string,
 ): RefundEmailFactExtraction => {
@@ -239,12 +252,18 @@ export const extractLabeledRefundEmailFacts = (
   const explicitWalletProvider = walletProvider(values.get("walletProvider") ?? "");
   const explicitNetwork = cardNetwork(values.get("cardNetwork") ?? "");
   const explicitProvenance = cardLast4Provenance(values.get("cardLast4Provenance") ?? "");
+  const explicitZellePaymentContact = zellePaymentContact(
+    values.get("zellePaymentContact") ?? "",
+  );
   if (values.has("paymentMethod") && payment.paymentMethod === null) ambiguousFields.add("paymentMethod");
   if (values.has("paymentInteraction") && explicitInteraction === null) ambiguousFields.add("paymentInteraction");
   if (values.has("walletProvider") && explicitWalletProvider === null) ambiguousFields.add("walletProvider");
   if (values.has("cardNetwork") && explicitNetwork === null) ambiguousFields.add("cardNetwork");
   if (values.has("cardLast4Provenance") && explicitProvenance === null) {
     ambiguousFields.add("cardLast4Provenance");
+  }
+  if (values.has("zellePaymentContact") && explicitZellePaymentContact === null) {
+    ambiguousFields.add("zellePaymentContact");
   }
 
   let resolvedInteraction = explicitInteraction ?? payment.paymentInteraction;
@@ -310,6 +329,7 @@ export const extractLabeledRefundEmailFacts = (
       : null,
     cardLast4Provenance: resolvedProvenance,
     cardNetwork: explicitNetwork,
+    zellePaymentContact: explicitZellePaymentContact,
     ambiguousFields: ambiguousFieldList,
     manualReviewReason: manualReviewPattern.test(reply)
       ? "sensitive_or_escalated_content"

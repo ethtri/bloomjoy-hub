@@ -5,15 +5,17 @@ import { readFile } from 'node:fs/promises';
 
 const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8');
 
-const [migration, shared, messageSend, automationSweep, operations, refundsPage, databaseTest] =
+const [migration, payoutMigration, shared, messageSend, automationSweep, operations, refundsPage, databaseTest, payoutDatabaseTest] =
   await Promise.all([
     read('supabase/migrations/20260902002716_refund_manual_message_outbox.sql'),
+    read('supabase/migrations/20260902004500_refund_payout_destination_follow_up.sql'),
     read('supabase/functions/_shared/refund-manual-message-outbox.ts'),
     read('supabase/functions/refund-case-message-send/index.ts'),
     read('supabase/functions/refund-case-automation-sweep/index.ts'),
     read('src/lib/refundOperations.ts'),
     read('src/pages/admin/Refunds.tsx'),
     read('supabase/tests/refund_manual_message_outbox.sql'),
+    read('supabase/tests/refund_payout_destination_follow_up.sql'),
   ]);
 
 for (const token of [
@@ -50,6 +52,16 @@ assert.ok(
   !/insert into public\.refund_case_nayax_refund_attempts/i.test(migration),
   'The message outbox must not create payment attempts.'
 );
+assert.ok(migration.includes("'zelle_payment_contact'"));
+assert.ok(migration.includes("then 'waiting_on_customer'"));
+assert.ok(payoutMigration.includes('requested_fields_satisfied_by_gmail_message_id'));
+assert.ok(payoutMigration.includes('payout_destination_request_not_active'));
+assert.ok(payoutMigration.includes('service_claim_due_refund_payout_destination_follow_ups'));
+assert.ok(payoutMigration.includes('service_create_refund_payout_destination_reminder_message'));
+assert.ok(payoutMigration.includes('payout_destination_reply_thread_mismatch'));
+assert.ok(payoutMigration.includes('contactDisabledToReview'));
+assert.ok(payoutMigration.includes('pausedThreadToReview'));
+assert.ok(payoutMigration.includes("errcode = 'P4662'"));
 
 assert.ok(shared.includes('idempotencyKey: `refund-message-${message.id}`'));
 assert.ok(shared.includes('manual_delivery_case_version_changed'));
@@ -68,6 +80,8 @@ const outboxSweepIndex = automationSweep.indexOf('runManualMessageOutboxSweep(co
 const automationGateIndex = automationSweep.indexOf('if (!automationEnabled)');
 assert.ok(outboxSweepIndex > 0 && outboxSweepIndex < automationGateIndex);
 assert.ok(automationSweep.includes('manual_message_outbox_delivery_unknown'));
+assert.ok(automationSweep.includes('runPayoutDestinationReminderSweep'));
+assert.ok(automationSweep.includes('payout_destination_reminder_sent'));
 
 assert.ok(operations.includes('expectedCaseVersion: number'));
 assert.ok(operations.includes('messageIntentId: string'));
@@ -83,5 +97,14 @@ assert.ok(databaseTest.includes('Only a sent request advances the truthful waiti
 assert.ok(databaseTest.includes('Internal/test classification suppresses queued contact'));
 assert.ok(databaseTest.includes('A case change after provider access preserves unknown evidence'));
 assert.ok(databaseTest.includes('remain payment-inert'));
+assert.ok(payoutDatabaseTest.includes('queues one protected payout request'));
+assert.ok(payoutDatabaseTest.includes('The only automated reminder claim is the protected payout field'));
+assert.ok(payoutDatabaseTest.includes('another thread cannot satisfy the request'));
+assert.ok(payoutDatabaseTest.includes('An unanswered reminder exits Waiting'));
+assert.ok(payoutDatabaseTest.includes('The disabled-contact branch sends no reminder and cannot remain Waiting'));
+assert.ok(payoutDatabaseTest.includes('The paused-thread branch sends no reminder and cannot remain Waiting'));
+assert.ok(payoutDatabaseTest.includes('Post-exhaustion recovery cannot send a second request into a dead reminder ledger'));
+assert.ok(payoutDatabaseTest.includes('cannot remain a stale customer action'));
+assert.ok(payoutDatabaseTest.includes('create no provider or payment attempt'));
 
 console.log('Refund manual-message outbox validator passed.');

@@ -611,6 +611,16 @@ const derivePortalRefundMissingFields = (refundCase: RefundCaseRecord): RefundMi
   ) {
     missing.push('card_last4');
   }
+  if (
+    refundCase.paymentMethod === 'cash' &&
+    !refundCase.zellePaymentContact?.trim() &&
+    (
+      refundCase.decision === 'approved' ||
+      refundCase.lifecycle?.managerAction.action === 'request_payout_destination'
+    )
+  ) {
+    missing.push('zelle_payment_contact');
+  }
   return missing;
 };
 
@@ -621,6 +631,17 @@ const missingFieldCustomerLabel: Record<RefundMissingField, string> = {
   payment_method: 'whether payment was by card, Apple Pay, Google Pay, or cash',
   amount: 'the exact amount charged',
   card_last4: 'only the last four digits shown on the card charge (not wallet or device-card digits)',
+  zelle_payment_contact: 'the Zelle email address or phone number for this reimbursement',
+};
+
+const missingFieldReplyLine: Record<RefundMissingField, string> = {
+  location_or_machine: 'Machine or location:',
+  incident_date: 'Purchase date (YYYY-MM-DD):',
+  incident_time: 'Approximate purchase time (include AM or PM):',
+  payment_method: 'Payment method:',
+  amount: 'Amount:',
+  card_last4: 'Card last four:',
+  zelle_payment_contact: 'Zelle email or phone number:',
 };
 
 const sanitizePortalMissingFields = (fields: string[]): RefundMissingField[] =>
@@ -1796,10 +1817,8 @@ const primaryActionConfig = (
         return {
           label: 'Ask for missing details',
           helper: 'Ask only for the purchase details that are missing.',
-          targetStatus: 'waiting_on_customer',
-          targetDecision: null,
           messageType: 'more_info',
-          mode: 'case_update',
+          mode: 'retry_message',
         };
       }
 
@@ -1807,6 +1826,15 @@ const primaryActionConfig = (
         label: 'Payment amount required',
         helper: 'Confirm the customer payment amount before marking this case refunded.',
         disabled: true,
+      };
+    }
+
+    if (missingFields.includes('zelle_payment_contact')) {
+      return {
+        label: 'Request payout destination',
+        helper: 'Ask only for the Zelle email address or phone number in the existing customer thread.',
+        messageType: 'more_info',
+        mode: 'retry_message',
       };
     }
 
@@ -1860,10 +1888,8 @@ const primaryActionConfig = (
     return {
       label: 'Ask for missing details',
       helper: 'Ask only for the purchase details that are missing.',
-      targetStatus: 'waiting_on_customer',
-      targetDecision: null,
       messageType: 'more_info',
-      mode: 'case_update',
+      mode: 'retry_message',
     };
   }
 
@@ -1990,6 +2016,7 @@ const getCustomerMessageDraft = (
   const amount = typeof editedRefundAmountCents === 'number' ? formatCurrency(editedRefundAmountCents) : formatMessageAmount(refundCase);
   const missingFields = derivePortalRefundMissingFields(refundCase);
   const missingFieldList = missingFields.map((field) => `- ${missingFieldCustomerLabel[field]}`);
+  const missingFieldReplyLines = missingFields.map((field) => missingFieldReplyLine[field]);
   switch (messageType) {
     case 'more_info':
       return {
@@ -1997,7 +2024,14 @@ const getCustomerMessageDraft = (
         body: [
           'Thank you again for reaching out. We are sorry this needs another step, and we want to make sure we review the right transaction.',
           missingFieldList.length > 0
-            ? ['Please reply with only the missing details below:', '', ...missingFieldList].join('\n')
+            ? [
+                'Please reply with only the missing details below:',
+                '',
+                ...missingFieldList,
+                '',
+                'Copy the requested line into your reply and fill in only the blank:',
+                ...missingFieldReplyLines,
+              ].join('\n')
             : 'No specific missing detail is available to request. Please return to manager review before contacting the customer.',
           'Please do not send a full card number, security code, expiration date, PIN, password, wallet digits, or payment-screen screenshot. Once we receive the requested details, we will continue the review and keep ownership of the next step.',
         ].join('\n\n'),
@@ -4351,13 +4385,16 @@ export default function AdminRefundsPage() {
       triageSuggestion?.status === 'ready_for_review' &&
       triageSuggestion.route === 'draft_reply' &&
       triageSuggestion.contentDeleted !== true;
+    const usesDefaultLocalizedTemplate = Boolean(
+      messageTypeOverride && !usesReviewedTriageDraft
+    );
     const draft = messageTypeOverride && !usesReviewedTriageDraft
       ? getCustomerMessageDraft(selectedCase, messageTypeOverride)
       : null;
     const subject = draft?.subject ?? messageSubject;
     const body = draft?.body ?? messageBody;
 
-    if (!body.trim()) {
+    if (!usesDefaultLocalizedTemplate && !body.trim()) {
       toast.error('Customer message body is required.');
       return;
     }
@@ -4375,8 +4412,8 @@ export default function AdminRefundsPage() {
       caseId: selectedCase.id,
       expectedCaseVersion: officialActionVersion,
       messageType: nextMessageType,
-      subject: subject.trim(),
-      body: body.trim(),
+      subject: usesDefaultLocalizedTemplate ? null : subject.trim(),
+      body: usesDefaultLocalizedTemplate ? null : body.trim(),
       triageSuggestionId: usesReviewedTriageDraft ? triageSuggestion?.id ?? null : null,
       missingFields,
     });
@@ -4394,8 +4431,9 @@ export default function AdminRefundsPage() {
         expectedCaseVersion: officialActionVersion,
         messageIntentId: manualMessageIntentRef.current.id,
         messageType: nextMessageType,
-        subject: subject.trim(),
-        body: body.trim(),
+        ...(usesDefaultLocalizedTemplate
+          ? {}
+          : { subject: subject.trim(), body: body.trim() }),
         triageSuggestionId: usesReviewedTriageDraft ? triageSuggestion?.id : undefined,
         missingFields,
       });

@@ -106,10 +106,10 @@ begin
     or normalized_template_key !~ '^refund_[a-z_]+_editable_v1$'
     or normalized_template_key <>
       ('refund_' || p_message_type || '_editable_v1')
-    or coalesce(array_length(p_requested_fields, 1), 0) > 8
+    or coalesce(array_length(p_requested_fields, 1), 0) > 9
     or not coalesce(p_requested_fields, '{}'::text[]) <@ array[
       'location_or_machine', 'incident_date', 'incident_time',
-      'payment_method', 'amount', 'card_last4'
+      'payment_method', 'amount', 'card_last4', 'zelle_payment_contact'
     ]::text[]
     or (p_message_type = 'more_info'
       and coalesce(array_length(p_requested_fields, 1), 0) = 0)
@@ -130,6 +130,16 @@ begin
   if case_row.case_population = 'internal_test' then
     raise exception 'Customer delivery is suppressed for Internal/test cases'
       using errcode = 'P4640';
+  end if;
+  if 'zelle_payment_contact' = any(coalesce(p_requested_fields, '{}'::text[]))
+    and (
+      p_requested_fields is distinct from array['zelle_payment_contact']::text[]
+      or case_row.payment_method <> 'cash'
+      or nullif(btrim(coalesce(case_row.zelle_payment_contact, '')), '') is not null
+      or case_row.decision is distinct from 'approved'
+    ) then
+    raise exception 'Payout destination can be requested only for an approved cash reimbursement'
+      using errcode = 'P4655';
   end if;
   if case_row.official_action_version is distinct from p_expected_case_version then
     raise exception 'Refund case changed before message intent'
@@ -639,6 +649,12 @@ begin
       message_row.manual_delivery_expected_case_version then
     update public.refund_cases refund_case
     set
+      status = case
+        when message_row.message_type = 'more_info'
+          and cardinality(message_row.requested_fields) > 0
+          then 'waiting_on_customer'
+        else refund_case.status
+      end,
       automation_state = case message_row.message_type
         when 'more_info' then 'more_info_needed'
         when 'approved' then 'approved'

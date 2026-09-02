@@ -56,6 +56,34 @@ Deno.test("ignores prose, invalid values, and quoted earlier messages", () => {
   );
 });
 
+Deno.test("extracts only a labeled valid payout destination", () => {
+  const english = extractLabeledRefundEmailFacts(
+    "Zelle email or phone number: payout.customer@example.com",
+  );
+  assert(
+    english.zellePaymentContact === "payout.customer@example.com",
+    "labeled Zelle email should be accepted",
+  );
+  assert(english.ambiguousFields.length === 0, "valid destination is unambiguous");
+
+  const spanish = extractLabeledRefundEmailFacts(
+    "Correo electrónico o número de teléfono de Zelle: +1 (415) 555-0123",
+  );
+  assert(
+    spanish.zellePaymentContact === "+1 (415) 555-0123",
+    "Spanish labeled phone should be accepted",
+  );
+
+  const invalid = extractLabeledRefundEmailFacts(
+    "Zelle email or phone number: send it to my usual account",
+  );
+  assert(invalid.zellePaymentContact === null, "free-form destination must be rejected");
+  assert(
+    invalid.manualReviewReason === "ambiguous_customer_facts",
+    "invalid payout contact must route to manager review",
+  );
+});
+
 Deno.test("wallet answers never treat emailed digits as safe physical-card evidence", () => {
   const result = extractLabeledRefundEmailFacts([
     "Payment method: Apple Pay",

@@ -77,6 +77,17 @@ Deno.test('waiting-on-customer copy directs one reply without restarting intake'
   assertEquals(copy.nextExpectation, 'Please reply to the existing Bloomjoy email. You do not need to submit another form.');
 });
 
+Deno.test('payout wait names only the approved reimbursement destination', () => {
+  const contract = lifecycle('waiting_on_customer', 15);
+  contract.customerAction.requestedFields = ['zelle_payment_contact'];
+  const copy = getRefundCustomerStatusCopy(
+    requireRefundCustomerLifecycle(contract),
+  );
+  assertEquals(copy.title, 'Waiting for your payment details');
+  assertEquals(copy.detail.includes('Zelle'), true);
+  assertEquals(/purchase|transaction|card/i.test(copy.detail), false);
+});
+
 Deno.test('active customer status refreshes within 15 seconds and terminal status stops', () => {
   assertEquals(getRefundCustomerRefreshMs(
     requireRefundCustomerLifecycle(lifecycle('matching', 10)),

@@ -3,9 +3,10 @@ import { readFile } from 'node:fs/promises';
 
 const read = (relativePath) => readFile(new URL(`../../${relativePath}`, import.meta.url), 'utf8');
 
-const [migration, lifecycle, managerState, customerStatus, statusCapability, portalFixture, releaseValidator] =
+const [migration, payoutMigration, lifecycle, managerState, customerStatus, statusCapability, portalFixture, releaseValidator] =
   await Promise.all([
     read('supabase/migrations/20260902000417_refund_lifecycle_v2_integrity.sql'),
+    read('supabase/migrations/20260902004500_refund_payout_destination_follow_up.sql'),
     read('src/lib/refundLifecycle.ts'),
     read('src/lib/refundManagerState.ts'),
     read('src/lib/refundCustomerStatus.ts'),
@@ -27,6 +28,10 @@ assert.match(migration, /'customerReported', jsonb_build_object/);
 assert.match(migration, /'normalized', jsonb_build_object/);
 assert.match(migration, /'releaseOrder', jsonb_build_array\('database', 'functions', 'ui'\)/);
 assert.match(migration, /lifecycle ->> 'classification' <> 'customer'/);
+assert.match(payoutMigration, /'zelle_payment_contact'::text, 10/);
+assert.match(payoutMigration, /requested_fields_satisfied_by_gmail_message_id/);
+assert.match(payoutMigration, /payout_destination_request_not_active/);
+assert.match(payoutMigration, /payload_redacted/);
 
 assert.match(lifecycle, /REFUND_LIFECYCLE_SCHEMA_VERSION = "refund_lifecycle_v2"/);
 assert.match(lifecycle, /"integrity_hold"/);
@@ -42,6 +47,6 @@ assert.doesNotMatch(statusCapability, /managerAction/);
 assert.doesNotMatch(statusCapability, /providerAccountKey/);
 assert.doesNotMatch(portalFixture, /refund_lifecycle_v1|refund_manager_queue_v1/);
 assert.match(releaseValidator, /20260902000417_refund_lifecycle_v2_integrity\.sql/);
-assert.match(releaseValidator, /exactly 114 discovered refund\/Nayax migrations/);
+assert.match(releaseValidator, /exactly 115 discovered refund\/Nayax migrations/);
 
 console.log('Refund lifecycle v2 integrity, privacy, UI, fixture, and release-skew validation passed.');

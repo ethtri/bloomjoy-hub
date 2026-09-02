@@ -1494,3 +1494,22 @@ Payment attempts, case state, manager work, customer status, delivery state, loc
 - It prevents a locally plausible screen from contradicting payment, message, evidence, or test-population truth.
 - Deferred integrity checks preserve one-transaction server workflows while blocking observable case-only payment transitions.
 - Explicit version and release order turn deployment skew into a safe failure instead of a partially working portal.
+
+## 2026-09-02 - Approved cash reimbursement requires one protected payout destination (`#628`, `#891`)
+
+The earlier one-action cash-completion decision assumed the payout destination had already been arranged outside Bloomjoy Hub. Production evidence showed that this assumption creates a dead end: a manager can be told to reimburse a customer without a recorded destination, while the message ledger cannot truthfully represent the one detail the customer must supply.
+
+**Canonical choices**
+- Cash intake still collects no payout handle and makes no payment promise. After a cash reimbursement is approved, a missing destination becomes one protected follow-up field: `zelle_payment_contact`.
+- The mapped manager requests only the Zelle email address or phone number in the existing customer thread. The request is committed to the durable outbox before provider access, uses the persisted customer locale, and cannot be mixed with purchase, card, time, location, or Nayax questions.
+- A still-unanswered request may receive one deterministic reminder for that same field. After the final response window, or immediately when either automatic-contact gate is off or the customer thread is paused at reminder time, the customer action clears and the case returns to named Refund Operations review. The kill switch and thread hold suppress delivery but never preserve an indefinite Waiting state. A second request cannot silently reuse an exhausted ledger; it stops before provider access with an explicit Refund Operations disposition.
+- A verified labeled reply updates the same case once, records which message request it satisfied, clears the stale customer action, and makes the manager lifecycle payout-ready. Raw payout values never enter event metadata, lifecycle payloads, or customer-message evidence.
+- No payout may be marked complete until the protected destination is present and the manager has actually sent the external reimbursement. Bloomjoy Hub still does not initiate or verify Zelle, choose an external channel, or expose the destination in completion copy.
+- Reply replay, delivery uncertainty, concurrent processing, and stale case versions create no duplicate message, fact application, payment attempt, reporting adjustment, or completion.
+
+**Why this choice**
+- It makes the customer request, message ledger, secure status, manager queue, and same-case reply one truthful contract.
+- It asks the customer for the single fact Bloomjoy cannot retrieve internally and prevents a false purchase-detail reminder after transaction review is already complete.
+- It preserves the external manual-payment boundary while removing the unsafe assumption that a usable destination exists off-system.
+
+This supersedes only the older assumption that the payout destination always exists outside Hub before completion. It does not make Hub a Zelle provider or authorize automatic payment.

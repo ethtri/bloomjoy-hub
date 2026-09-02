@@ -1004,7 +1004,7 @@ const applyDeterministicCustomerReplyFacts = async ({
   const { data: current, error: caseError } = await supabase
     .from("refund_cases")
     .select(
-      "id,deterministic_fact_version,reporting_machine_id,reporting_location_id,incident_at,incident_local_datetime,incident_timezone,incident_time_resolution,payment_method,payment_amount_cents,card_last4,card_last4_provenance,card_network,card_wallet_used,payment_interaction,wallet_provider",
+      "id,deterministic_fact_version,reporting_machine_id,reporting_location_id,incident_at,incident_local_datetime,incident_timezone,incident_time_resolution,payment_method,payment_amount_cents,card_last4,card_last4_provenance,card_network,card_wallet_used,payment_interaction,wallet_provider,zelle_payment_contact",
     )
     .eq("id", refundCaseId)
     .maybeSingle();
@@ -1278,6 +1278,14 @@ const applyDeterministicCustomerReplyFacts = async ({
     updates.card_last4_provenance = extracted.cardLast4Provenance;
     appliedFields.push("card_last4_provenance");
   }
+  if (
+    paymentMethod === "cash" &&
+    !String(current.zelle_payment_contact ?? "").trim() &&
+    extracted.zellePaymentContact
+  ) {
+    updates.zelle_payment_contact = extracted.zellePaymentContact;
+    appliedFields.push("zelle_payment_contact");
+  }
 
   if (appliedFields.length === 0) return { allowRoutineContact: true };
   const application = await rpc<RefundCustomerFactApplicationResult>(
@@ -1300,11 +1308,16 @@ const applyDeterministicCustomerReplyFacts = async ({
   // fact-version action key makes a completed lookup a no-op while allowing a
   // replay to recover if the first worker persisted facts but stopped before
   // it could start the recheck.
-  await runAutomaticNayaxLookupIfReady({
-    supabase,
-    caseId: refundCaseId,
-    source: "customer_reply_recheck",
-  });
+  if (!(
+    appliedFields.length === 1 &&
+    appliedFields[0] === "zelle_payment_contact"
+  )) {
+    await runAutomaticNayaxLookupIfReady({
+      supabase,
+      caseId: refundCaseId,
+      source: "customer_reply_recheck",
+    });
+  }
   return { allowRoutineContact: true };
 };
 

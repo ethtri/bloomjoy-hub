@@ -95,6 +95,14 @@ export const getRefundCustomerStatusCopy = (
 ): RefundCustomerStatusCopy => {
   switch (lifecycle.stage) {
     case 'waiting_on_customer':
+      if (lifecycle.customerAction.requestedFields.includes('zelle_payment_contact')) {
+        return {
+          title: 'Waiting for your payment details',
+          detail: 'We need the email address or phone number connected to Zelle for your approved reimbursement.',
+          nextExpectation: 'Please reply to the existing Bloomjoy email with only that Zelle detail. You do not need to submit another form.',
+          milestone: 'received',
+        };
+      }
       return {
         title: 'Waiting for your reply',
         detail: 'We need one more purchase detail before we can finish matching your transaction.',
