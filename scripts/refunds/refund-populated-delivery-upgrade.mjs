@@ -3,9 +3,27 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const fixturePath = fileURLToPath(new URL('./fixtures/refund-populated-delivery-upgrade.sql', import.meta.url));
+const familiesFixturePath = fileURLToPath(new URL('./fixtures/refund-populated-message-families.sql', import.meta.url));
+export const HISTORICAL_MESSAGE_GUARDS = [
+  ['202608040004_refund_nayax_provider_orchestration.sql', 'guard_nayax_attempt_completion_message'],
+  ['20260812210000_refund_legacy_card_state_normalization.sql', 'guard_refund_legacy_state_message'],
+  ['20260821100000_refund_branded_appeals.sql', 'guard_refund_denial_appeal_message'],
+  ['202608030005_refund_deterministic_follow_up_cycles.sql', 'guard_refund_follow_up_message'],
+  ['202608030005_refund_deterministic_follow_up_cycles.sql', 'sync_refund_follow_up_cycle_from_message'],
+];
+
+export function readHistoricalMessageGuards(repoRoot) {
+  return HISTORICAL_MESSAGE_GUARDS.map(([file, name]) => {
+    const source = fs.readFileSync(path.join(repoRoot, 'supabase/migrations', file), 'utf8').replaceAll('\r\n', '\n');
+    const start = source.indexOf(`create or replace function public.${name}()`);
+    const end = source.indexOf('\n$$;', start);
+    if (start < 0 || end < start) throw new Error(`Historical message guard boundary missing: ${name}`);
+    return source.slice(start, end + 4);
+  }).join('\n\n');
+}
 export const POPULATED_DELIVERY_UPGRADE_TEST = 'refund_populated_delivery_upgrade.sql';
 
-export function buildPopulatedDeliveryUpgradeTest({ historicalGuardMigration, deliveryMigration }) {
+export function buildPopulatedDeliveryUpgradeTest({ historicalGuardMigration, deliveryMigration, historicalMessageGuards = readHistoricalMessageGuards(fileURLToPath(new URL('../../', import.meta.url))) }) {
   const guardStart = historicalGuardMigration.indexOf('create or replace function public.guard_refund_customer_status_message()');
   const guardEnd = historicalGuardMigration.indexOf('\nrevoke all on function public.guard_refund_customer_status_message()', guardStart);
   const backfillStart = deliveryMigration.indexOf('update public.refund_case_messages message\nset\n');
@@ -17,8 +35,12 @@ export function buildPopulatedDeliveryUpgradeTest({ historicalGuardMigration, de
     HISTORICAL_GUARD: historicalGuardMigration.slice(guardStart, guardEnd).trim(),
     ORIGINAL_BACKFILL: deliveryMigration.slice(backfillStart, backfillEnd).trim(),
     CURRENT_DELIVERY_PREFIX: deliveryMigration.slice(0, backfillEnd).trim(),
+    HISTORICAL_FAMILY_GUARDS: historicalMessageGuards,
+    FAMILY_ORIGINAL_BACKFILL: deliveryMigration.slice(backfillStart, backfillEnd).trim(),
+    FAMILY_CURRENT_DELIVERY_PREFIX: deliveryMigration.slice(0, backfillEnd).trim(),
   };
   let fixture = fs.readFileSync(fixturePath, 'utf8').replaceAll('\r\n', '\n');
+  fixture = fixture.replace('select * from finish();', () => `${fs.readFileSync(familiesFixturePath, 'utf8').replaceAll('\r\n', '\n')}\nselect * from finish();`);
   for (const [name, sql] of Object.entries(replacements)) {
     const marker = `/* __${name}__ */`;
     if (fixture.split(marker).length !== 2 || sql.includes('$delivery_upgrade$')) {
@@ -37,6 +59,7 @@ export function writePopulatedDeliveryUpgradeTest(repoRoot, tempRoot) {
   const source = buildPopulatedDeliveryUpgradeTest({
     historicalGuardMigration: readMigration('20260901202359_refund_provider_delay_evidence_1069.sql'),
     deliveryMigration: readMigration('20260901070000_refund_transactional_delivery_truth.sql'),
+    historicalMessageGuards: readHistoricalMessageGuards(repoRoot),
   });
   const testPath = path.join(tempRoot, 'supabase', 'tests', POPULATED_DELIVERY_UPGRADE_TEST);
   fs.writeFileSync(testPath, source, { encoding: 'utf8', flag: 'wx' });

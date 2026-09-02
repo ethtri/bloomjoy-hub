@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { buildPopulatedDeliveryUpgradeTest, writePopulatedDeliveryUpgradeTest } from './refund-populated-delivery-upgrade.mjs';
+import { buildPopulatedDeliveryUpgradeTest, writePopulatedDeliveryUpgradeTest, HISTORICAL_MESSAGE_GUARDS, readHistoricalMessageGuards } from './refund-populated-delivery-upgrade.mjs';
 
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 const read = (name) => fs.readFileSync(path.join(repoRoot, 'supabase/migrations', name), 'utf8').replaceAll('\r\n', '\n');
@@ -38,6 +38,24 @@ test('changed source text reaches the fixture rather than being hidden by copied
     deliveryMigration: `${sentinel}\n${sources.deliveryMigration}`,
   });
   assert.ok(sql.includes(sentinel));
+});
+
+test('every historical message guard is extracted from its actual applied migration', () => {
+  const guards = readHistoricalMessageGuards(repoRoot);
+  for (const [file, name] of HISTORICAL_MESSAGE_GUARDS) {
+    const source = read(file);
+    const start = source.indexOf(`create or replace function public.${name}()`);
+    const end = source.indexOf('\n$$;', start);
+    assert.ok(guards.includes(source.slice(start, end + 4)));
+  }
+  const sql = buildPopulatedDeliveryUpgradeTest({ ...sources, historicalMessageGuards: guards });
+  assert.ok(sql.includes(guards));
+  for (const family of ['more_info', 'no_safe_match', 'reminder', 'information_received', 'appeal_received',
+    'wallet_correction', 'wallet_correction_reminder', 'card_approved', 'card_completed', 'legacy', 'internal', 'manual']) {
+    assert.ok(sql.includes(`'${family}'`), `${family} must be represented`);
+  }
+  assert.ok(sql.includes('does not rewrite advanced follow-up cycle'));
+  assert.ok(sql.includes('probe_old_family_backfill'));
 });
 
 test('missing extraction boundaries and SQL delimiter collisions fail closed', () => {
