@@ -293,6 +293,31 @@
         "sourceSha256": "f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511",
         "entrypointIdentity": "supabase/functions/refund-manager-totp-enrollment/index.ts"
       }
+    },
+    {
+      "slug": "refund-nayax-outcome-resolve",
+      "verifyJwt": false,
+      "sourceSha256": "4b396b307fffd15807fa3f19a8f9220febd283b9e576180313fd469c8c3db481",
+      "production": {
+        "version": 35,
+        "ezbrSha256": "ccc1e66af32a354960a556e5a4d911a0d07d6effd5510caf671b0c5e3ad79918",
+        "sourceSha256": "a974c788b4e287ce356ccf953db1b87b4160a8daa123aecfd76cf5f6aed0dd6b",
+        "entrypointIdentity": "supabase/functions/refund-nayax-outcome-resolve/index.ts"
+      }
+    }
+  ],
+  "additionalFunctionBaselines": [
+    {
+      "slug": "refund-nayax-outcome-resolve",
+      "capturedAt": "2026-09-02T16:58:21.995Z",
+      "status": "ACTIVE",
+      "version": 35,
+      "verifyJwt": false,
+      "importMap": false,
+      "ezbrSha256": "ccc1e66af32a354960a556e5a4d911a0d07d6effd5510caf671b0c5e3ad79918",
+      "sourceSha256": "a974c788b4e287ce356ccf953db1b87b4160a8daa123aecfd76cf5f6aed0dd6b",
+      "entrypointIdentity": "supabase/functions/refund-nayax-outcome-resolve/index.ts",
+      "restoreSourceGitCommit": "a5d1433c374911aa532177a6104b76c78e0e248b"
     }
   ],
   "preDeploymentCapturedAt": "2026-08-14T18:57:55.730Z",
