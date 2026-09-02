@@ -22,6 +22,8 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 ## Current Themes
 
+- **Localized refund replies (`#891`, `#923`):** Spanish email instructions must round-trip into the same structured case. Exact localized labels, decimal amounts, and quoted-message boundaries require parser/renderer coverage; production closeout includes a controlled Spanish reply and exactly one rerank, not translated outgoing copy alone.
+
 ### Refund lifecycle v2 integration candidate (`#628`, `#991`, `#992`)
 
 - The coordinated integration branch defines one `refund_lifecycle_v2` / `refund_manager_queue_v2` projection for payment attempts, manager work, customer status, delivery state, location evidence, and Internal/test disposition. Historical card payment states without durable attempts are quarantined without inventing an attempt, retrying payment, or contacting a customer; new split case-only transitions fail at commit. Customer-reported selection evidence remains separate from normalized location/machine/provider-account evidence. `closed`, payout, integrity quarantine, failed/uncertain delivery, and Internal/test now have distinct semantics. This remains a release candidate: the database migration must pass hosted disposable pgTAP, the manual-message outbox integration must land, the release must deploy database then functions then UI, and all ten `#628` scenarios plus live-population reconciliation must pass before any issue closes.
