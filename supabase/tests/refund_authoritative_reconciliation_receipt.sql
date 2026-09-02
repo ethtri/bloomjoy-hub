@@ -133,7 +133,33 @@ select pg_temp.set_receipt_auth('ad000000-0000-4000-8000-000000000001','ad010000
 
 select is(pg_temp.corrupt_and_record($$insert into public.refund_case_messages(refund_case_id,message_type,status,recipient_email,subject,body,delivery_transport,delivery_state)
 values('ad400000-0000-4000-8000-000000000001','confirmation','sent','receipt-customer@example.invalid','Synthetic prior send','Synthetic prior send','resend','unknown')$$,1),
-  'P4661','Uncertain Resend delivery blocks receipt entry');
+  'P4661','Unknown Resend without original sent time blocks receipt entry');
+select is(pg_temp.corrupt_and_record(format($fixture$
+insert into public.refund_case_messages(refund_case_id,message_type,status,recipient_email,subject,body,
+  delivery_transport,delivery_state,sent_at,delivery_state_updated_at,provider_message_id)
+values('ad400000-0000-4000-8000-000000000001','confirmation',%L,'receipt-customer@example.invalid',
+  'Synthetic unresolved send','Synthetic unresolved send','resend','unknown',
+  '2026-08-31 12:00:00+00',%L::timestamptz,%L)
+$fixture$,message_status,state_at,provider_id),1),'P4661',label)
+from (values
+  ('pending','2026-08-31 12:00:00+00',null,'Pending intent remains blocked even with sent-like metadata'),
+  ('failed','2026-08-31 12:00:00+00',null,'Unsent failed unknown attempt remains blocked'),
+  ('sent','2026-08-31 12:00:00+00','synthetic-unknown-provider','Bound provider unknown is not a historical unbound notice'),
+  ('sent','2026-08-31 12:01:00+00',null,'Later unknown timestamp is not the historical sent-time backfill'),
+  ('sent',null,null,'Missing unknown-state timestamp fails closed')
+) unresolved(message_status,state_at,provider_id,label);
+select is(pg_temp.corrupt_and_record(format($fixture$
+insert into public.refund_case_messages(refund_case_id,message_type,status,recipient_email,subject,body,
+  delivery_transport,delivery_state,sent_at,delivery_state_updated_at,delivery_kind,content_source,
+  manual_delivery_intent_id,manual_delivery_expected_case_version,manual_delivery_state,
+  manual_delivery_claim_token,manual_delivery_claimed_at)
+values('ad400000-0000-4000-8000-000000000001','confirmation','sent','receipt-customer@example.invalid',
+  'Synthetic unresolved manual intent','Synthetic unresolved manual intent','resend','unknown',
+  '2026-08-31 12:00:00+00','2026-08-31 12:00:00+00','manual','manager_authored',
+  gen_random_uuid(),1,%L,case when %L='claimed' then gen_random_uuid() end,
+  case when %L='claimed' then statement_timestamp() end)
+$fixture$,state,state,state),1),'P4661','Manual '||state||' remains blocked despite historical-shaped metadata')
+from (values ('queued'),('claimed'),('delivery_unknown')) manual(state);
 select throws_ok($$update public.refund_cases set matched_nayax_transaction_id='123456781'
   where id='ad400000-0000-4000-8000-000000000004'$$,'23505',null,
   'Existing unique-original guard prevents constructing a competing active claim');
@@ -284,6 +310,24 @@ reset role;
 -- Sanitized reproduction of the documented ad-hoc batch, not a modern RPC or
 -- invented approval. The fingerprint deliberately contains NO account identity.
 select pg_temp.set_receipt_auth('ad000000-0000-4000-8000-000000000001','ad010000-0000-4000-8000-000000000001');
+-- A historical confirmation predates the held attempt. Apply the actual 0700
+-- backfill fields/predicates to this isolated row while every trigger stays on.
+insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,sent_at)
+values('ad820000-0000-4000-8000-000000000005','ad400000-0000-4000-8000-000000000005',
+  'confirmation','sent','receipt-customer@example.invalid','Synthetic original confirmation',
+  'Original confirmation; no delivery result was retained.','2026-08-31 12:00:00+00');
+update public.refund_case_messages message set delivery_transport='resend',delivery_state='unknown',
+  delivery_state_updated_at=coalesce(message.sent_at,message.created_at)
+where message.id='ad820000-0000-4000-8000-000000000005' and message.status='sent'
+  and message.delivery_transport is null
+  and not exists(select 1 from public.refund_cases refund_case where refund_case.id=message.refund_case_id
+    and refund_case.case_population='internal_test')
+  and not exists(select 1 from public.refund_gmail_messages gmail_message where gmail_message.refund_case_message_id=message.id);
+create temporary table historical_receipt_message_before as select to_jsonb(message) as value
+from public.refund_case_messages message where id='ad820000-0000-4000-8000-000000000005';
+select ok((select status='sent' and sent_at is not null and delivery_transport='resend' and delivery_state='unknown'
+  and delivery_state_updated_at=sent_at and provider_message_id is null from public.refund_case_messages
+  where id='ad820000-0000-4000-8000-000000000005'),'Historical SENT notice has the exact real 0700 unknown-only backfill shape');
 with inserted as (
   insert into public.refund_case_nayax_refund_attempts(refund_case_id,actor_user_id,execution_mode,status,
     idempotency_key,amount_cents,provider_reference,provider_status,request_fingerprint,currency_code,
@@ -327,7 +371,9 @@ select ok((select official_action_authorization_id is null and status='manual_re
     and reporting_adjustment_id is null from public.refund_case_nayax_refund_attempts
     where refund_case_id='ad400000-0000-4000-8000-000000000005'),'Legacy attempt remains unapproved and unresolved historical evidence');
 select is((select count(*)::integer from public.sales_adjustment_facts where refund_case_id='ad400000-0000-4000-8000-000000000005'),0,'Legacy observation creates no dated adjustment');
-select is((select count(*)::integer from public.refund_case_messages where refund_case_id='ad400000-0000-4000-8000-000000000005'),0,'Legacy observation creates no customer send');
+select is((select count(*)::integer from public.refund_case_messages where refund_case_id='ad400000-0000-4000-8000-000000000005'),1,'Legacy observation retains only its original historical notice and creates no send');
+select is((select to_jsonb(message) from public.refund_case_messages message where id='ad820000-0000-4000-8000-000000000005'),
+  (select value from historical_receipt_message_before),'Receipt and replay preserve the complete historical SENT unknown row without inventing delivered evidence');
 set constraints all immediate;
 select * from finish();
 rollback;

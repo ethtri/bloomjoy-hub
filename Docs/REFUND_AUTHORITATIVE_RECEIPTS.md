@@ -74,6 +74,14 @@ The append-only receipt records server `observed_at` and explicit
 unchanged sale/update date is not a refund settlement date. No completion
 timestamp, successful execution attempt or sales adjustment is fabricated.
 
+Receipt entry still blocks pending sends, unresolved Gmail claims and queued,
+claimed or delivery-unknown manual intents. The exact historical delivery
+backfill is not in flight: `sent` with an original non-null `sent_at`, Resend
+`unknown`, no provider message ID and delivery-state timestamp equal to that
+original sent time. This narrow shape may coexist with a receipt; its entire
+message row stays unchanged and does not become delivered or an adopted refund
+completion notice. Bound-unknown or mismatched/missing timestamps stay on hold.
+
 The canonical customer/workbench projection recognizes confirmed payment only
 because the receipt exists. It says accounting-date review is internal work,
 offers no retry and makes no dated bank-arrival promise. Existing dated

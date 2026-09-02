@@ -199,7 +199,12 @@ begin
   end if;
   if exists(select 1 from public.refund_case_messages msg where msg.refund_case_id=c.id
       and (msg.status='pending' or msg.manual_delivery_state in ('queued','claimed','delivery_unknown')
-        or (msg.delivery_transport='resend' and msg.delivery_state='unknown')))
+        -- 0700 preserves historical SENT notices as unknown, not in-flight.
+        -- Admit only that exact unbound backfill shape; never infer delivery.
+        or (msg.delivery_transport='resend' and msg.delivery_state='unknown'
+          and (msg.status is distinct from 'sent' or msg.sent_at is null
+            or msg.provider_message_id is not null
+            or msg.delivery_state_updated_at is distinct from msg.sent_at))))
     or exists(select 1 from public.refund_gmail_messages msg where msg.refund_case_id=c.id
       and msg.direction='outbound' and msg.status in ('pending_send','delivery_unknown')) then
     raise exception 'Reconcile the existing in-flight customer delivery before recording this receipt' using errcode='P4661';
