@@ -152,9 +152,9 @@ select is(refund_machine_correction_test.reject_corruption($setup$update public.
   '42501','Revoked superadmin fails closed');
 select is(refund_machine_correction_test.reject_corruption($setup$delete from auth.sessions where id='be010000-0000-4000-8000-000000000001';$setup$),
   '42501','Revoked session fails closed');
-select is(refund_machine_correction_test.reject_corruption($setup$update public.reporting_machine_refund_managers set status='revoked',revoked_at=now() where reporting_machine_id='be300000-0000-4000-8000-000000000002';$setup$),
+select is(refund_machine_correction_test.reject_corruption($setup$update public.reporting_machine_refund_managers set status='revoked',revoked_at=now(),revoke_reason='Synthetic review revocation' where reporting_machine_id='be300000-0000-4000-8000-000000000002';$setup$),
   '42501','Missing target mapping fails closed');
-select is(refund_machine_correction_test.reject_corruption($setup$update public.reporting_machine_refund_managers set status='revoked',revoked_at=now() where reporting_machine_id='be300000-0000-4000-8000-000000000001';$setup$),
+select is(refund_machine_correction_test.reject_corruption($setup$update public.reporting_machine_refund_managers set status='revoked',revoked_at=now(),revoke_reason='Synthetic review revocation' where reporting_machine_id='be300000-0000-4000-8000-000000000001';$setup$),
   '42501','Missing old mapping fails closed');
 select is(refund_machine_correction_test.reject_corruption($setup$update public.refund_cases set intake_meta=intake_meta||'{"qr_claim_present":true}' where id='be400000-0000-4000-8000-000000000001';$setup$),
   'P4665','QR-bound intake fails closed');
@@ -212,7 +212,7 @@ select is((select payload->>'message' from refund_machine_correction_test.result
 
 -- A revocation already in progress must win over a queued correction.
 select extensions.dblink_exec('correction_race_a','begin');
-select extensions.dblink_exec('correction_race_a',$q$update public.reporting_machine_refund_managers set status='revoked',revoked_at=now() where reporting_machine_id='be300000-0000-4000-8000-000000000002'$q$);
+select extensions.dblink_exec('correction_race_a',$q$update public.reporting_machine_refund_managers set status='revoked',revoked_at=now(),revoke_reason='Synthetic review revocation' where reporting_machine_id='be300000-0000-4000-8000-000000000002'$q$);
 select extensions.dblink_send_query('correction_race_b',$q$select refund_machine_correction_test.race('correct',4)$q$);
 select ok(refund_machine_correction_test.wait_for_blocked_b(),'Correction waits for uncommitted target mapping revocation');
 select extensions.dblink_exec('correction_race_a','commit');
