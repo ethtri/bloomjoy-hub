@@ -12,10 +12,20 @@ currency, sale amount and full refunded amount must agree with authoritative
 Nayax `Refunded` status `62`. Pending, partial, mismatched and stale evidence fails
 closed. A receipt binds the latest unresolved attempt, or explicitly binds the
 legacy `card_payment_state_without_attempt` integrity hold when no attempt exists.
-For an existing attempt, this slice requires the supported manual-portal
+For a modern existing attempt, this slice requires the supported manual-portal
 registration's exact-original/account idempotency key, consumed approval and
-request fingerprint. Incompatible historical/direct attempts fail closed for
-separate evidence review; same amount and latest-row status alone are not proof.
+request fingerprint. One separately labelled legacy observation lane recognizes
+only the documented 20260901 ad-hoc registration shape: exact dated key,
+SHA256(case UUID|selected original|amount cents), matching provider reference,
+USD/full amount, unresolved manual state, and the companion event's exact attempt,
+actor and timestamp relationship. Its historical fingerprint contains **no account
+identity**, and the old registration is **not modern authorization**. The server
+derives this label; a caller cannot supply it. Ordinary mapped machines only are
+eligible, with a separate explicit current provider account/machine/original/full
+status-62 observation attestation saved in the immutable receipt. The provenance
+event is retained privately; the old attempt and its absent approval stay unchanged.
+Other incompatible historical/direct attempts fail closed for separate evidence
+review; same amount and latest-row status alone are not proof.
 It never creates an attempt to repair historical structure.
 
 The authenticated `refund-case-admin-update` endpoint accepts two evidence-only
@@ -25,7 +35,8 @@ modes, implemented by `handleAuthoritativeReceipt`:
   Its fields are `caseId`, nullable `attemptId`, `expectedCaseVersion`,
   `accountScope`, `providerMachineId`, `originalTransactionId`,
   `originalAmountCents`, `refundedAmountCents`, `currencyCode`, `providerStatus`
-  and the exact `evidenceReference` (`DTM:NAYAX-` plus the selected original).
+  and the exact `evidenceReference` (`DTM:NAYAX-` plus the selected original), plus
+  `reviewedCurrentProviderObservation: true`.
 - `adopt_completion_notice` calls `admin_adopt_refund_completion_notice`.
   Its fields are `caseId`, `receiptId`, `gmailMessageId`, `expectedCaseVersion`,
   `completionCaseReference`, `completionOriginalTransactionId`,
@@ -40,6 +51,9 @@ The **Nayax confirms a full refund, but no settlement date?** section shows the
 selected claim, original, account/machine and full amount. Enter the exact source
 reference and attest to the reviewed full-refund evidence, then choose **Record
 full-refund observation only**. No settlement date input exists.
+Legacy provenance is visibly labelled before and after saving. A preserved row
+or current inventory bridge is not a fresh provider-account review: if current
+account/machine evidence is unavailable or mismatched, do not attest or save.
 
 The same panel then loads eligible already-sent messages, including an explicitly
 reviewed related-case thread. Read the actual plain-text message, attest to this
@@ -49,6 +63,9 @@ case does not require preserving an ID or repeating either write. Missing sent
 evidence stays internal synchronization/review work, never a prompt to resend.
 The authenticated overview RPC independently checks current session and exact
 machine mapping; receipt tables remain unreadable through the public Data API.
+Successful record/adoption invalidates the actual parent overview and payment
+availability query keys as well as receipt/reconciliation views, so current
+progress and disabled payment controls refresh without reopening the case.
 
 ## Time, accounting and communication remain separate
 

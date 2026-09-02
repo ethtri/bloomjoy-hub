@@ -6,7 +6,7 @@ const request = () => ({
   mode: "record_authoritative_receipt", caseId: id, attemptId: null, expectedCaseVersion: 2,
   accountScope: "FIXTURE", providerMachineId: "fixture-machine", originalTransactionId: "123456789",
   originalAmountCents: 700, refundedAmountCents: 700, currencyCode: "USD", providerStatus: 62,
-  evidenceReference: "DTM:NAYAX-123456789",
+  evidenceReference: "DTM:NAYAX-123456789", reviewedCurrentProviderObservation: true,
 });
 const response = { receiptId: id, status: "recorded", paymentConfirmed: true, accountingPending: true,
   settlementTimePrecision: "unknown", customerMessageSent: false, payloadRedacted: true };
@@ -20,6 +20,7 @@ Deno.test("unknown settlement receipt performs one authenticated evidence RPC an
   assertEquals(result.status, 200);
   assertEquals(calls.length, 1);
   assertEquals(calls[0].name, "admin_record_refund_authoritative_receipt");
+  assertEquals(calls[0].args.p_reviewed_current_provider_observation, true);
   assertFalse(Object.hasOwn(calls[0].args, "p_evidence_occurred_at"));
   assertFalse(Object.hasOwn(calls[0].args, "p_observed_at"));
   assertFalse(Object.hasOwn(result.body, "secret"));
@@ -31,6 +32,8 @@ for (const change of [
   { evidenceOccurredAt: "2026-09-01T00:00:00Z" }, { refundedAmountCents: 699 },
   { providerStatus: 61 }, { originalAmountCents: 0 }, { currencyCode: "usd" },
   { evidenceReference: "DTM:NAYAX-987654321" }, { attemptId: "not-an-id" },
+  { reviewedCurrentProviderObservation: false }, { reviewedCurrentProviderObservation: null },
+  { attemptBindingKind: 'legacy_manual_portal_observation' }, { providerStatus: 63 },
 ]) Deno.test(`receipt rejects invalid/extra evidence ${Object.keys(change)[0]} without any effect`, async () => {
   let calls = 0;
   const result = await handleAuthoritativeReceipt({ ...request(), ...change }, () => {

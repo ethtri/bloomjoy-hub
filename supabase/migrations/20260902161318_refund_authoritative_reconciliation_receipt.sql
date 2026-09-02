@@ -18,9 +18,14 @@ create table public.refund_authoritative_receipts (
   settled_at timestamptz check (settled_at is null),
   observed_at timestamptz not null default statement_timestamp(),
   recorded_by uuid not null references auth.users(id),
+  attempt_binding_kind text not null check (attempt_binding_kind in ('modern_authorized_manual','legacy_manual_portal_observation','no_attempt_integrity_hold')),
+  historical_provenance_event_id uuid references public.refund_case_events(id),
+  current_provider_observation_reviewed boolean not null,
   evidence_policy text not null default 'ops_exact_full_refund_v1'
     check (evidence_policy = 'ops_exact_full_refund_v1'),
   check (refunded_amount_cents = original_amount_cents),
+  check ((attempt_binding_kind='legacy_manual_portal_observation') = (historical_provenance_event_id is not null)),
+  check (attempt_binding_kind<>'legacy_manual_portal_observation' or current_provider_observation_reviewed),
   unique (account_scope, original_transaction_id)
 );
 
@@ -47,6 +52,7 @@ revoke all on public.refund_authoritative_receipts,
   public.refund_completion_notice_adoptions from public, anon, authenticated, service_role;
 create index refund_authoritative_receipts_machine_idx on public.refund_authoritative_receipts(reporting_machine_id);
 create index refund_authoritative_receipts_actor_idx on public.refund_authoritative_receipts(recorded_by);
+create index refund_authoritative_receipts_provenance_idx on public.refund_authoritative_receipts(historical_provenance_event_id);
 create index refund_completion_notice_adoptions_thread_idx on public.refund_completion_notice_adoptions(gmail_thread_id);
 create index refund_completion_notice_adoptions_actor_idx on public.refund_completion_notice_adoptions(reviewed_by);
 
@@ -89,11 +95,44 @@ end;
 $$;
 revoke all on function public.assert_refund_receipt_operator(uuid) from public, anon, authenticated, service_role;
 
+-- Recognize only the documented historical batch. This proves a historical
+-- case/original/amount link, NOT historical account approval or provider success.
+-- Current account/machine observation is independently attested in the receipt.
+create function public.refund_receipt_legacy_provenance(p_case_id uuid,p_attempt_id uuid)
+returns uuid language sql stable security definer set search_path='' as $$
+  select event.id from public.refund_cases c
+    join public.reporting_machines m on m.id=c.reporting_machine_id
+    join public.refund_case_nayax_refund_attempts a on a.refund_case_id=c.id and a.id=p_attempt_id
+    join public.refund_case_events event on event.refund_case_id=c.id
+      and event.event_type='manual_nayax_refund_reconciliation_created'
+      and event.actor_user_id=a.actor_user_id and event.metadata->>'attempt_id'=a.id::text
+    where c.id=p_case_id and m.nayax_manual_portal_enabled is false
+      and nullif(m.nayax_account_key,'') is not null and nullif(m.nayax_machine_id,'') is not null
+      and a.official_action_authorization_id is null and a.actor_user_id is not null
+      and a.execution_mode='manual_portal' and a.status='manual_review' and a.provider_outcome='unknown'
+      and a.provider_status='request_accepted' and a.reconciliation_required is true
+      and a.safe_transport_stage='confirmation_hold' and a.safe_failure_class='provider_unknown'
+      and a.provider_reference=c.matched_nayax_transaction_id
+      and a.amount_cents=c.matched_nayax_amount_cents and a.amount_cents=c.refund_amount_cents
+      and a.currency_code='USD' and c.matched_nayax_currency_code='USD'
+      and a.idempotency_key='manual-nayax-portal-20260901-'||c.public_reference
+      and a.request_fingerprint=encode(extensions.digest(convert_to(
+        c.id::text||'|'||c.matched_nayax_transaction_id||'|'||a.amount_cents::text,'UTF8'),'sha256'),'hex')
+      and a.created_at>='2026-09-01 00:00:00+00'::timestamptz and a.created_at<'2026-09-02 00:00:00+00'::timestamptz
+      and event.created_at>=a.created_at and event.created_at<=a.created_at+interval '1 minute'
+      and event.metadata->>'provider_outcome'='unknown'
+      and event.metadata->'provider_call_made'='true'::jsonb
+      and event.metadata->'settlement_confirmation_required'='true'::jsonb
+    order by event.created_at,event.id limit 1;
+$$;
+revoke all on function public.refund_receipt_legacy_provenance(uuid,uuid) from public,anon,authenticated,service_role;
+
 create function public.admin_record_refund_authoritative_receipt(
   p_case_id uuid, p_attempt_id uuid, p_expected_case_version bigint,
   p_account_scope text, p_provider_machine_id text, p_original_transaction_id text,
   p_original_amount_cents integer, p_refunded_amount_cents integer,
-  p_currency_code text, p_provider_status integer, p_evidence_reference text
+  p_currency_code text, p_provider_status integer, p_evidence_reference text,
+  p_reviewed_current_provider_observation boolean default false
 )
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
@@ -105,6 +144,8 @@ declare
   scope_value text;
   machine_value text;
   reference_digest text;
+  legacy_event_id uuid;
+  binding_kind text:='modern_authorized_manual';
 begin
   if auth.role() is distinct from 'authenticated' or auth.uid() is null or not public.is_super_admin(auth.uid()) then
     raise exception 'Current Refund Operations session required' using errcode='42501';
@@ -178,18 +219,29 @@ begin
   end if;
   select * into a from public.refund_case_nayax_refund_attempts
     where refund_case_id = c.id order by created_at desc, id desc limit 1 for update;
+  legacy_event_id:=public.refund_receipt_legacy_provenance(c.id,a.id);
   if p_attempt_id is null then
-    if a.id is not null or c.lifecycle_integrity_status <> 'hold'
-      or c.lifecycle_integrity_code <> 'card_payment_state_without_attempt' then
+    if a.id is not null or c.lifecycle_integrity_status is distinct from 'hold'
+      or c.lifecycle_integrity_code is distinct from 'card_payment_state_without_attempt' then
       raise exception 'A missing attempt requires the explicit legacy integrity hold' using errcode = 'P4661';
     end if;
+    binding_kind:='no_attempt_integrity_hold';
   elsif a.id is distinct from p_attempt_id or a.amount_cents is distinct from p_original_amount_cents
     or a.currency_code is distinct from p_currency_code
     or a.status not in ('manual_review', 'ambiguous', 'failed', 'declined')
     or coalesce(a.provider_outcome,'') not in ('unknown', 'timeout', 'rejected')
-    -- This bounded observation path accepts the supported manual portal
-    -- identity, not an arbitrary same-value historical/direct attempt.
-    or a.execution_mode is distinct from 'manual_portal'
+    or a.support_resolution_id is not null or a.reporting_adjustment_id is not null
+    or a.case_finalization_committed_at is not null then
+    raise exception 'Exact latest unresolved attempt required' using errcode = 'P4661';
+  elsif legacy_event_id is not null then
+    if p_reviewed_current_provider_observation is distinct from true then
+      raise exception 'Separately review the current provider account, machine and exact full refund' using errcode='P4661';
+    end if;
+    binding_kind:='legacy_manual_portal_observation';
+  elsif
+    -- Modern authorization validation remains unchanged. A legacy receipt is a
+    -- separate observation and never backfills an approval into the old attempt.
+    a.execution_mode is distinct from 'manual_portal'
     or a.idempotency_key is distinct from 'manual-nayax-' || encode(extensions.digest(
       convert_to(c.id::text||'|'||upper(btrim(scope_value))||'|'||p_original_transaction_id,'UTF8'),'sha256'),'hex')
     or a.official_action_authorization_id is null
@@ -201,8 +253,7 @@ begin
       where authz.id=a.official_action_authorization_id and authz.refund_case_id=c.id
         and authz.action='approve' and authz.status='consumed'
         and mapping.reporting_machine_id=c.reporting_machine_id)
-    or a.support_resolution_id is not null or a.reporting_adjustment_id is not null
-    or a.case_finalization_committed_at is not null then
+    then
     raise exception 'Exact latest unresolved attempt required' using errcode = 'P4661';
   end if;
   -- Case lock serializes receipt/old resolver. No mutation of the old attempt,
@@ -210,15 +261,17 @@ begin
   insert into public.refund_authoritative_receipts (
     refund_case_id, nayax_refund_attempt_id, reporting_machine_id, account_scope,
     provider_machine_id, original_transaction_id, original_amount_cents,
-    refunded_amount_cents, currency_code, provider_status, evidence_reference_digest, recorded_by
+    refunded_amount_cents, currency_code, provider_status, evidence_reference_digest, recorded_by,
+    attempt_binding_kind,historical_provenance_event_id,current_provider_observation_reviewed
   ) values (c.id, a.id, m.id, scope_value, machine_value, p_original_transaction_id,
     p_original_amount_cents, p_refunded_amount_cents, p_currency_code, p_provider_status,
-    reference_digest, auth.uid()) returning * into r;
+    reference_digest, auth.uid(),binding_kind,legacy_event_id,coalesce(p_reviewed_current_provider_observation,false)) returning * into r;
   insert into public.refund_case_events(refund_case_id, actor_user_id, event_type, message, metadata)
   values(c.id, auth.uid(), 'authoritative_refund_receipt_recorded',
     'Authoritative full-refund evidence recorded. Settlement time remains unknown; no payment, dated adjustment or customer message was created.',
     jsonb_build_object('schema_version','refund_authoritative_receipt_v1','settlement_time_precision','unknown',
-      'payment_confirmed',true,'accounting_pending',true,'attempt_present',a.id is not null,'payload_redacted',true));
+      'payment_confirmed',true,'accounting_pending',true,'attempt_present',a.id is not null,
+      'attempt_binding_kind',binding_kind,'current_provider_observation_reviewed',r.current_provider_observation_reviewed,'payload_redacted',true));
   update public.refund_cases set lifecycle_revision = lifecycle_revision + 1,
     updated_at = statement_timestamp() where id = c.id;
   return jsonb_build_object('schemaVersion', 'refund_authoritative_receipt_v1',
@@ -226,9 +279,9 @@ begin
     'paymentConfirmed', true, 'accountingPending', true, 'customerMessageSent', false, 'payloadRedacted', true);
 end;
 $$;
-revoke all on function public.admin_record_refund_authoritative_receipt(uuid,uuid,bigint,text,text,text,integer,integer,text,integer,text)
+revoke all on function public.admin_record_refund_authoritative_receipt(uuid,uuid,bigint,text,text,text,integer,integer,text,integer,text,boolean)
   from public, anon, authenticated, service_role;
-grant execute on function public.admin_record_refund_authoritative_receipt(uuid,uuid,bigint,text,text,text,integer,integer,text,integer,text) to authenticated;
+grant execute on function public.admin_record_refund_authoritative_receipt(uuid,uuid,bigint,text,text,text,integer,integer,text,integer,text,boolean) to authenticated;
 
 create function public.refund_receipt_notice_matches_case(p_case_id uuid,p_message_id uuid)
 returns boolean language sql stable security definer set search_path='' as $$
@@ -541,6 +594,9 @@ begin
   return jsonb_build_object('schemaVersion','refund_receipt_overview_v1','visible',r.id is not null or coalesce(eligible,false),
     'caseId',c.id,'caseReference',c.public_reference,'expectedCaseVersion',c.official_action_version,
     'canRecord',r.id is null and coalesce(eligible,false),'attemptId',a.id,
+    'attemptBindingKind',coalesce(r.attempt_binding_kind,case when a.id is null then 'no_attempt_integrity_hold'
+      when public.refund_receipt_legacy_provenance(c.id,a.id) is not null then 'legacy_manual_portal_observation'
+      when a.official_action_authorization_id is not null then 'modern_authorized_manual' else 'unverified_attempt' end),
     'accountScope',coalesce(r.account_scope,case when m.nayax_manual_portal_enabled then e.account_scope else m.nayax_account_key end),
     'providerMachineId',coalesce(r.provider_machine_id,case when m.nayax_manual_portal_enabled then e.portal_machine_reference else m.nayax_machine_id end),
     'originalTransactionId',coalesce(r.original_transaction_id,c.matched_nayax_transaction_id),

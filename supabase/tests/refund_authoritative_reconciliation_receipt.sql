@@ -30,7 +30,7 @@ select ('ad400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-RECEIPT-'||n
   'card_refund_pending','matched','nayax',1,'approved',(123456780+n)::text,700,'USD',now()-interval '3 days',
   case when n=2 then 'ok' else 'hold' end,
   case when n=2 then null else 'card_payment_state_without_attempt' end,
-  case when n=2 then null else now()-interval '1 day' end from generate_series(1,4) n;
+  case when n=2 then null else now()-interval '1 day' end from generate_series(1,5) n;
 -- Exercise the supported portal registration, not a hand-invented money attempt.
 update public.reporting_machines set nayax_refunds_enabled=true where id='ad300000-0000-4000-8000-000000000001';
 update public.refund_cases set status='needs_review',
@@ -65,17 +65,17 @@ begin
   select id into a from public.refund_case_nayax_refund_attempts where refund_case_id=case_id order by created_at desc limit 1;
   x:=jsonb_build_object('attemptId',a,'version',v,'scope','RECEIPT-ACCOUNT','machine','RECEIPT-MACHINE',
     'original',(123456780+n)::text,'amount',700,'refunded',700,'currency','USD','status',62,
-    'reference','DTM:NAYAX-'||(123456780+n)::text)||changes;
+    'reference','DTM:NAYAX-'||(123456780+n)::text,'reviewedCurrent',true)||changes;
   return public.admin_record_refund_authoritative_receipt(case_id,(x->>'attemptId')::uuid,(x->>'version')::bigint,
     x->>'scope',x->>'machine',x->>'original',(x->>'amount')::integer,(x->>'refunded')::integer,
-    x->>'currency',(x->>'status')::integer,x->>'reference');
+    x->>'currency',(x->>'status')::integer,x->>'reference',(x->>'reviewedCurrent')::boolean);
 end; $$;
 
 select ok(not has_table_privilege('authenticated','public.refund_authoritative_receipts','select'), 'Receipt identities are not browser readable');
 select ok(not has_table_privilege('service_role','public.refund_authoritative_receipts','insert'), 'Service role cannot insert receipts directly');
 select ok(not has_table_privilege('authenticated','public.refund_completion_notice_adoptions','select'), 'Prior message evidence is private');
-select ok(not has_function_privilege('anon','public.admin_record_refund_authoritative_receipt(uuid,uuid,bigint,text,text,text,integer,integer,text,integer,text)','execute'), 'Anonymous cannot record evidence');
-select ok(not has_function_privilege('service_role','public.admin_record_refund_authoritative_receipt(uuid,uuid,bigint,text,text,text,integer,integer,text,integer,text)','execute'), 'Background service cannot impersonate operator');
+select ok(not has_function_privilege('anon','public.admin_record_refund_authoritative_receipt(uuid,uuid,bigint,text,text,text,integer,integer,text,integer,text,boolean)','execute'), 'Anonymous cannot record evidence');
+select ok(not has_function_privilege('service_role','public.admin_record_refund_authoritative_receipt(uuid,uuid,bigint,text,text,text,integer,integer,text,integer,text,boolean)','execute'), 'Background service cannot impersonate operator');
 
 select throws_ok($$select pg_temp.record_receipt(1,'{"status":61}')$$,'P4661',null,'Pending provider status cannot confirm payment');
 select throws_ok($$select pg_temp.record_receipt(1,'{"refunded":699}')$$,'P4661',null,'Partial amount cannot confirm full refund');
@@ -90,6 +90,10 @@ savepoint nullable_source;
 update public.refund_cases set correlation_source=null where id='ad400000-0000-4000-8000-000000000001';
 select throws_ok($$select pg_temp.record_receipt(1)$$,'P4661',null,'NULL correlation source fails closed');
 rollback to nullable_source;
+savepoint nullable_hold_code;
+update public.refund_cases set lifecycle_integrity_code=null where id='ad400000-0000-4000-8000-000000000001';
+select throws_ok($$select pg_temp.record_receipt(1)$$,'P4661',null,'NULL integrity code is not the explicit no-attempt hold');
+rollback to nullable_hold_code;
 savepoint nullable_outcome;
 -- Clear the authorization only in this corruption fixture so the existing bound
 -- lifecycle constraint permits testing the historical nullable outcome shape.
@@ -271,6 +275,74 @@ select throws_ok($$select public.service_mark_refund_transactional_delivery_atte
   'P4663',null,'Transactional provider-attempt marking is blocked before any Resend access');
 reset role;
 rollback to resend_claim_after_receipt;
+
+-- Sanitized reproduction of the documented ad-hoc batch, not a modern RPC or
+-- invented approval. The fingerprint deliberately contains NO account identity.
+select pg_temp.set_receipt_auth('ad000000-0000-4000-8000-000000000001','ad010000-0000-4000-8000-000000000001');
+savepoint legacy_batch;
+with inserted as (
+  insert into public.refund_case_nayax_refund_attempts(refund_case_id,actor_user_id,execution_mode,status,
+    idempotency_key,amount_cents,provider_reference,provider_status,request_fingerprint,currency_code,
+    provider_outcome,reconciliation_required,safe_transport_stage,safe_failure_class,created_at)
+  select c.id,'ad000000-0000-4000-8000-000000000001','manual_portal','manual_review',
+    'manual-nayax-portal-20260901-'||c.public_reference,700,c.matched_nayax_transaction_id,'request_accepted',
+    encode(extensions.digest(convert_to(c.id::text||'|'||c.matched_nayax_transaction_id||'|700','UTF8'),'sha256'),'hex'),
+    'USD','unknown',true,'confirmation_hold','provider_unknown','2026-09-01 18:00:00+00'
+  from public.refund_cases c where c.id='ad400000-0000-4000-8000-000000000005'
+  returning id,refund_case_id,actor_user_id,created_at
+)
+insert into public.refund_case_events(refund_case_id,actor_user_id,event_type,message,metadata,created_at)
+select refund_case_id,actor_user_id,'manual_nayax_refund_reconciliation_created','Synthetic historical registration',
+  jsonb_build_object('attempt_id',id,'provider_outcome','unknown','provider_call_made',true,
+    'settlement_confirmation_required',true,'payload_redacted',true),created_at from inserted;
+select is(public.admin_get_refund_authoritative_receipt_overview('ad400000-0000-4000-8000-000000000005')->>'attemptBindingKind',
+  'legacy_manual_portal_observation','Authorized reader identifies legacy provenance without inventing historical authorization');
+select throws_ok($$select pg_temp.record_receipt(5,'{"reviewedCurrent":false}')$$,'P4661',null,'Historical fingerprint does not replace current provider account observation');
+select throws_ok($$select pg_temp.record_receipt(5,'{"reviewedCurrent":null}')$$,'P4661',null,'NULL current provider review fails closed');
+select throws_ok($$select pg_temp.record_receipt(5,'{"status":63}')$$,'P4661',null,'Pending status63 cannot enter legacy observation lane');
+select throws_ok($$select pg_temp.record_receipt(5,'{"scope":"WRONG-CURRENT-ACCOUNT"}')$$,'P4661',null,'Legacy fingerprint does not bypass current account match');
+select throws_ok($$select pg_temp.record_receipt(5,'{"machine":"WRONG-CURRENT-MACHINE"}')$$,'P4661',null,'Legacy original cannot bypass current machine mismatch');
+savepoint legacy_bad_fingerprint;
+update public.refund_case_nayax_refund_attempts set request_fingerprint=repeat('f',64)
+  where refund_case_id='ad400000-0000-4000-8000-000000000005';
+select throws_ok($$select pg_temp.record_receipt(5)$$,'P4661',null,'Legacy wrong-original fingerprint is rejected');
+rollback to legacy_bad_fingerprint;
+savepoint legacy_bad_key;
+update public.refund_case_nayax_refund_attempts set idempotency_key='manual-nayax-portal-20260902-RF-RECEIPT-5'
+  where refund_case_id='ad400000-0000-4000-8000-000000000005';
+select throws_ok($$select pg_temp.record_receipt(5)$$,'P4661',null,'Unrecognized historical batch cannot use legacy path');
+rollback to legacy_bad_key;
+savepoint legacy_bad_actor;
+update public.refund_case_nayax_refund_attempts set actor_user_id='ad000000-0000-4000-8000-000000000002'
+  where refund_case_id='ad400000-0000-4000-8000-000000000005';
+select throws_ok($$select pg_temp.record_receipt(5)$$,'P4661',null,'Companion event actor mismatch rejects legacy provenance');
+rollback to legacy_bad_actor;
+savepoint legacy_bad_timestamp;
+update public.refund_case_nayax_refund_attempts set created_at='2026-09-01 17:00:00+00'
+  where refund_case_id='ad400000-0000-4000-8000-000000000005';
+select throws_ok($$select pg_temp.record_receipt(5)$$,'P4661',null,'Unrelated companion event timestamp rejects legacy provenance');
+rollback to legacy_bad_timestamp;
+savepoint legacy_bad_original;
+update public.refund_case_nayax_refund_attempts set provider_reference='123456786'
+  where refund_case_id='ad400000-0000-4000-8000-000000000005';
+select throws_ok($$select pg_temp.record_receipt(5)$$,'P4661',null,'Legacy provider reference must identify the exact selected original');
+rollback to legacy_bad_original;
+savepoint legacy_missing_event;
+update public.refund_case_nayax_refund_attempts set id='ad600000-0000-4000-8000-000000000005'
+  where refund_case_id='ad400000-0000-4000-8000-000000000005';
+select throws_ok($$select pg_temp.record_receipt(5)$$,'P4661',null,'Legacy companion event must bind this exact attempt ID');
+rollback to legacy_missing_event;
+select is(pg_temp.record_receipt(5)->>'status','recorded','Historical-form registration accepts separately reviewed exact current observation');
+select is(pg_temp.record_receipt(5)->>'status','already_recorded','Legacy receipt replay is idempotent');
+select ok((select attempt_binding_kind='legacy_manual_portal_observation' and historical_provenance_event_id is not null
+    and current_provider_observation_reviewed and settled_at is null from public.refund_authoritative_receipts
+    where refund_case_id='ad400000-0000-4000-8000-000000000005'),'Receipt preserves historical provenance separately from current observation and unknown settlement');
+select ok((select official_action_authorization_id is null and status='manual_review' and provider_outcome='unknown'
+    and reporting_adjustment_id is null from public.refund_case_nayax_refund_attempts
+    where refund_case_id='ad400000-0000-4000-8000-000000000005'),'Legacy attempt remains unapproved and unresolved historical evidence');
+select is((select count(*)::integer from public.sales_adjustment_facts where refund_case_id='ad400000-0000-4000-8000-000000000005'),0,'Legacy observation creates no dated adjustment');
+select is((select count(*)::integer from public.refund_case_messages where refund_case_id='ad400000-0000-4000-8000-000000000005'),0,'Legacy observation creates no customer send');
+rollback to legacy_batch;
 set constraints all immediate;
 select * from finish();
 rollback;

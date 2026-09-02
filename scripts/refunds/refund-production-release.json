@@ -120,7 +120,8 @@
     "20260902000417_refund_lifecycle_v2_integrity.sql",
     "20260902002716_refund_manual_message_outbox.sql",
     "20260902004500_refund_payout_destination_follow_up.sql",
-    "20260902160946_refund_gmail_reply_recovery.sql"
+    "20260902160946_refund_gmail_reply_recovery.sql",
+    "20260902161318_refund_authoritative_reconciliation_receipt.sql"
   ],
   "migrationFilesSha256": "6f8dcc7d16e3dc245465a6ab9ac0a19991ffbc48be9d0e4e756055e88a410328",
   "migrationVersionSetSha256": "600f5c654c74f166e9b46feecd6f197341f30547b8ca238e8e7344a5ed077edb",

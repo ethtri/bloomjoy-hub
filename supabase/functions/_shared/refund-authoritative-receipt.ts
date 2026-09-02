@@ -27,7 +27,8 @@ export async function handleAuthoritativeReceipt(
   if (body.mode === "record_authoritative_receipt") {
     if (!exactKeys(body, ["mode", "caseId", "attemptId", "expectedCaseVersion", "accountScope",
       "providerMachineId", "originalTransactionId", "originalAmountCents", "refundedAmountCents",
-      "currencyCode", "providerStatus", "evidenceReference"]) ||
+      "currencyCode", "providerStatus", "evidenceReference", "reviewedCurrentProviderObservation"]) ||
+      body.reviewedCurrentProviderObservation !== true ||
       (body.attemptId !== null && !uuid(body.attemptId)) ||
       !text(body.accountScope, 100) || !text(body.providerMachineId, 120) ||
       !text(body.originalTransactionId, 120) || !positiveInteger(body.originalAmountCents) ||
@@ -41,6 +42,7 @@ export async function handleAuthoritativeReceipt(
       p_original_transaction_id: body.originalTransactionId, p_original_amount_cents: body.originalAmountCents,
       p_refunded_amount_cents: body.refundedAmountCents, p_currency_code: body.currencyCode,
       p_provider_status: body.providerStatus, p_evidence_reference: body.evidenceReference,
+      p_reviewed_current_provider_observation: true,
     };
   } else if (body.mode === "adopt_completion_notice") {
     if (!exactKeys(body, ["mode", "caseId", "receiptId", "gmailMessageId", "expectedCaseVersion",

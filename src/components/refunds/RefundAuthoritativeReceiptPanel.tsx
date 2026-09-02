@@ -4,12 +4,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { fetchRefundReceiptOverview, saveRefundReceiptEvidence } from '@/lib/refundAuthoritativeReceiptApi';
-import { buildReceiptAdoptionRequest, buildReceiptRecordRequest, type RefundReceiptOverview } from '@/lib/refundAuthoritativeReceipt';
+import { buildReceiptAdoptionRequest, buildReceiptRecordRequest, refreshRefundReceiptViews, refundReceiptReviewSnapshot, type RefundReceiptOverview } from '@/lib/refundAuthoritativeReceipt';
 
 type Props = { caseId: string; demo?: boolean };
 const demoOverview: RefundReceiptOverview = {
   schemaVersion: 'refund_receipt_overview_v1', visible: true, caseId: 'ad400000-0000-4000-8000-000000000001',
   caseReference: 'RF-RECEIPT-DEMO', expectedCaseVersion: 1, canRecord: true, attemptId: null,
+  attemptBindingKind: 'no_attempt_integrity_hold',
   accountScope: 'SYNTHETIC-ACCOUNT', providerMachineId: 'SYNTHETIC-MACHINE', originalTransactionId: '123456781',
   originalAmountCents: 700, currencyCode: 'USD', receipt: null, noticeChoices: [],
 };
@@ -18,14 +19,19 @@ export function RefundAuthoritativeReceiptPanel({ caseId, demo = false }: Props)
   const queryClient = useQueryClient();
   const [localDemo, setLocalDemo] = useState(demoOverview);
   const [reference, setReference] = useState('');
-  const [reviewedPayment, setReviewedPayment] = useState(false);
+  const [paymentReviewSnapshot, setPaymentReviewSnapshot] = useState('');
   const [messageId, setMessageId] = useState('');
-  const [reviewedNotice, setReviewedNotice] = useState(false);
+  const [noticeReviewSnapshot, setNoticeReviewSnapshot] = useState('');
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState('');
   const query = useQuery({ queryKey: ['refund-authoritative-receipt', caseId],
     queryFn: () => fetchRefundReceiptOverview(caseId), enabled: !demo, retry: false, staleTime: 0, gcTime: 0 });
   const v = demo ? localDemo : query.data;
+  const currentSnapshot = refundReceiptReviewSnapshot(v);
+  const reviewedPayment = Boolean(currentSnapshot) && paymentReviewSnapshot === currentSnapshot;
+  const reviewedNotice = Boolean(currentSnapshot) && noticeReviewSnapshot === currentSnapshot;
+  const setReviewedPayment = (reviewed: boolean) => setPaymentReviewSnapshot(reviewed ? currentSnapshot : '');
+  const setReviewedNotice = (reviewed: boolean) => setNoticeReviewSnapshot(reviewed ? currentSnapshot : '');
   const selected = v?.noticeChoices.find((n) => n.id === messageId);
   async function save(kind: 'record' | 'adopt') {
     if (!v || busy) return;
@@ -42,8 +48,7 @@ export function RefundAuthoritativeReceiptPanel({ caseId, demo = false }: Props)
           : { ...v, receipt: { ...v.receipt!, noticeAdopted: true, noticeSentAt: selected!.sentAt, managerCcVerified: false }, noticeChoices: [] });
       } else {
         await saveRefundReceiptEvidence(request);
-        await query.refetch();
-        await queryClient.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith('refund') });
+        await refreshRefundReceiptViews((queryKey) => queryClient.invalidateQueries({ queryKey }));
       }
       setReviewedPayment(false); setReviewedNotice(false);
       setFeedback(kind === 'record' ? 'Full-refund observation saved. Nothing was sent; accounting date remains unknown.'
@@ -70,6 +75,10 @@ export function RefundAuthoritativeReceiptPanel({ caseId, demo = false }: Props)
       <div><dt className="text-muted-foreground">Selected original</dt><dd className="break-all font-medium">{v.originalTransactionId}</dd></div>
       <div><dt className="text-muted-foreground">Account / machine</dt><dd className="break-all font-medium">{v.accountScope} / {v.providerMachineId}</dd></div>
     </dl>
+    {v.attemptBindingKind === 'legacy_manual_portal_observation' && <p className="rounded-lg bg-amber-50 p-3 text-sm leading-6 text-amber-950">
+      Legacy portal record: historical evidence links this claim, original and amount, but does not establish account authorization.
+      This receipt records your separate review of the current provider account, machine and full refund. It does not approve or rewrite the historical attempt.
+    </p>}
     {!v.receipt ? <div className="space-y-3">
       <Label htmlFor="refund-receipt-reference">Exact Nayax original reference</Label>
       <Input id="refund-receipt-reference" value={reference} onChange={(e) => { setReference(e.target.value); setReviewedPayment(false); }} placeholder={`DTM:NAYAX-${v.originalTransactionId}`} disabled={busy} className="min-h-11" />
