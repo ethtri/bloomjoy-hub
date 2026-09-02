@@ -322,7 +322,17 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 79, 'Evidence must enumerate all 79 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 85, 'Evidence must enumerate all 85 reviewed screenshots');
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-inbound-case-link-review-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-inbound-case-link-review-mobile.png'),
+    'Evidence must include reviewed desktop and mobile inbound existing-case link states'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-transactional-delivery-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-transactional-delivery-mobile.png'),
+    'Evidence must include reviewed desktop and mobile transactional-delivery truth states'
+  );
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-nayax-account-scope-mobile.png'),
     'Evidence must include the mobile internal Nayax account-scope recovery state'
@@ -348,6 +358,11 @@ try {
     EXPECTED_SCREENSHOTS.includes('refund-selected-nayax-transaction-desktop.png') &&
       EXPECTED_SCREENSHOTS.includes('refund-selected-nayax-transaction-mobile.png'),
     'Evidence must include the reviewed selected Nayax transaction identity on desktop and mobile'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-case-availability-error-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-case-availability-error-mobile.png'),
+    'Evidence must include the reviewed case-specific availability state on desktop and mobile'
   );
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-direct-intake-cash-desktop.png') &&

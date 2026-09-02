@@ -9,6 +9,12 @@ export type RefundCustomerFactApplicationDecision =
   | "retryable_conflict"
   | "invalid_response";
 
+export type RefundCustomerFactApplicationReceipt = {
+  outcome?: "not_applied" | "already_applied" | "stale" | "conflict";
+  factVersion?: number;
+  appliedFields?: string[];
+};
+
 export const classifyRefundCustomerFactApplication = (
   result: RefundCustomerFactApplicationResult | null | undefined,
 ): RefundCustomerFactApplicationDecision => {

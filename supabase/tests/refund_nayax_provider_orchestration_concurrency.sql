@@ -59,7 +59,9 @@ insert into public.refund_cases (
   matched_nayax_machine_auth_time, matched_nayax_amount_cents,
   matched_nayax_card_last4, matched_nayax_currency_code,
   nayax_recommendation_state, nayax_recommendation_policy_version,
-  nayax_recommendation_evaluated_at, nayax_match_execution_eligible
+  nayax_recommendation_evaluated_at, nayax_match_execution_eligible,
+  lifecycle_integrity_status, lifecycle_integrity_code,
+  lifecycle_integrity_detected_at
 ) values (
   '9b600000-0000-4000-8000-000000000001', 'RF-PROVIDER-RACE',
   '9b300000-0000-4000-8000-000000000001',
@@ -70,7 +72,8 @@ insert into public.refund_cases (
   statement_timestamp() - interval '10 minutes', '4242', false,
   'matched', 'nayax', 1, 'PROVIDER-RACE-TX-001', 951,
   statement_timestamp() - interval '3 days', 700, '4242', 'USD',
-  'high_confidence', 'provider-race-v1', statement_timestamp(), true
+  'high_confidence', 'provider-race-v1', statement_timestamp(), true,
+  'hold', 'card_payment_state_without_attempt', statement_timestamp()
 );
 
 do $$

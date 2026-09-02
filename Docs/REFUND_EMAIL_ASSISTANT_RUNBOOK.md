@@ -120,6 +120,8 @@ Never request or use a full card number, CVV, expiration date, PIN, bank login, 
 
 A verified customer email reply applies only explicit, unambiguous labeled values and records one redacted audit event bound to the resulting deterministic fact version. A reply containing one corrected field cannot erase other known facts. After the fact application is accepted, including an idempotent replay of an already-applied provider message, Gmail sync coordinates the existing `customer_reply_recheck` for the current fact version. The versioned automation-action key runs the read-only lookup once, deduplicates ordinary replay, and recovers a worker interruption after the facts committed but before the lookup claim. Conflicting duplicate labels, an unknown value, or contradictory wallet/physical-card facts apply nothing and route to manager review. Emailed wallet/device-token digits are never accepted as physical-card evidence; that update remains limited to the single-use secure correction form. The manager portal shows the latest structured fact source, applied time, fact version, and digit provenance without exposing the raw source message identifier.
 
+Reply interruption recovery checks the private same-message application receipt **before** treating an unchanged extracted reply as a no-op. Only a verified inbound customer message with a matching immutable application event and current resulting fact version may resume its original lookup. An unrelated unchanged reply has no recovery entitlement; an older applied reply cannot overwrite or rerank newer facts. The lookup coordinator rechecks the receipt's exact version before claiming the existing version-keyed action, and the existing database locks/version checks remain authoritative if facts change afterward. Payout-destination-only replies never trigger Nayax lookup. This path sends no email, selects no transaction, and performs no payment action.
+
 ## Matching and next-action rules
 
 ### Strong physical-card path
@@ -157,6 +159,14 @@ Every automatic message uses a versioned deterministic template, a durable opera
 A skipped initial acknowledgement remains a manager-owned delivery exception even if a later customer message was sent. If no later sent message exists, use the safe acknowledgement path and reconcile uncertain Gmail delivery before sending. If later contact is already durably recorded as sent, do not resend the acknowledgement and do not contact the customer again for that exception. A currently authorized manager may record the fixed later-contact disposition against the current case version; replay returns the existing result, and the disposition creates only one redacted immutable audit event with no message, payment, decision, provider, or reporting effect.
 
 New requests persist the conservative customer locale used by approved deterministic templates. For an existing case that shows **Not set — English fallback**, a current mapped manager may review the customer evidence and select only **English** or **Spanish + English** with one fixed reason. Do not infer language from unreviewed prose and do not ask the customer to repeat information already present in Bloomjoy records. The correction is versioned separately, affects future approved templates only, and never rewrites message history or sends a message. It creates one redacted immutable audit event and has no payment, decision, provider, reporting, or official-action effect.
+
+### Existing-case-first Gmail linking
+
+Before the generic hosted-form acknowledgement can be claimed, a verified direct-human inbound Gmail thread checks the strongest safe evidence in order: an existing provider thread, an explicit case reference bound to the same normalized sender, then recent open customer cases for that normalized sender with bounded deterministic amount, payment-method, purchase-date, and exact location/machine match flags where available. Internal/test and terminal records are never candidates. The lookup stores and projects only redacted match booleans; it does not expose the sender address or customer message in the linking task.
+
+One recent open case is linked atomically and continues in that case/thread without another form request or case creation. More than one plausible case creates exactly one **Link an existing customer email** task. The contact enters the non-sendable `link_review` state, and the database rejects the normal first-contact claim even if a worker replays the message. A current manager with access to every candidate, or Refund Operations, selects one primary case; all remaining candidates are retained as related associations. Until resolution, official action is blocked for the candidate cases, but read-only evidence review remains available.
+
+Resolution moves the retained conversation to the primary case, adds redacted audit events to the primary and related cases, clears a customer-wait state on the primary when applicable, and returns an explicit receipt proving that it created no case, customer message, provider call, or payment action. It does not guess which purchase-specific facts should be copied across related cases. Managers use the now-linked conversation and existing submitted form facts to continue review without asking the customer to repeat information Bloomjoy already has. An identical resolution replay returns the existing result and cannot duplicate the thread, associations, events, message, matching work, or payment work.
 
 ### Candidate template registry
 
@@ -277,7 +287,7 @@ For `#685`, a business day is Monday through Friday in `America/Los_Angeles`, pr
 
 ## Integrated synthetic evidence contract
 
-Before this candidate can be considered release-ready, the same fresh workflow run must create exactly 76 reviewed synthetic screenshots plus these five strict, sanitized JSON artifacts:
+Before this candidate can be considered release-ready, the same fresh workflow run must create exactly 85 reviewed synthetic screenshots plus these five strict, sanitized JSON artifacts:
 
 - `refund-portal-assertions.json`;
 - `refund-database-counts.json`;

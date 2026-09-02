@@ -41,6 +41,10 @@ import {
   type RefundStatusCapability,
 } from "../_shared/refund-status-capability.ts";
 import {
+  bindRefundTransactionalDelivery,
+  markRefundTransactionalDeliveryAttempt,
+} from "../_shared/refund-transactional-delivery.ts";
+import {
   buildRefundManagerAgingNotice,
   REFUND_MANAGER_AGING_TEMPLATE_VERSION,
   runRefundManagerAgingWhenEnabled,
@@ -55,6 +59,7 @@ import {
 } from "../_shared/refund-wallet-correction.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
+import { drainRefundManualMessageOutbox } from "../_shared/refund-manual-message-outbox.ts";
 import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
 import {
   beginNayaxLookup,
@@ -344,6 +349,26 @@ const redactedSummary = (counters: SweepCounters) => ({
   customerStatusUpdatesFailed: counters.customerStatusUpdatesFailed,
   payloadRedacted: true,
 });
+
+const runManualMessageOutboxSweep = async (counters: SweepCounters) => {
+  if (!supabase) return;
+  const results = await drainRefundManualMessageOutbox({ supabase, limit: 10 });
+  for (const result of results) {
+    counters.actionsAttempted += 1;
+    if (result.outcome === "sent") {
+      counters.actionsSucceeded += 1;
+      addReason(counters, "manual_message_outbox_sent");
+      continue;
+    }
+    counters.actionsFailed += 1;
+    addReason(
+      counters,
+      result.outcome === "delivery_unknown"
+        ? "manual_message_outbox_delivery_unknown"
+        : "manual_message_outbox_failed",
+    );
+  }
+};
 
 const firstRelation = <T>(value: OneOrMany<T>) =>
   Array.isArray(value) ? value[0] ?? null : value ?? null;
@@ -768,17 +793,25 @@ const sendDeterministicFollowUpMessage = async (
           "Automatic customer contact was disabled before provider delivery.",
         );
       }
+      await markRefundTransactionalDeliveryAttempt({
+        supabase: supabase!,
+        refundCaseMessageId: messageId,
+      });
       const transactionalInput = {
         ...emailInput,
         managerCcEmails: gmailDelivery.managerCcEmails,
         managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
         managerRecipientCount: gmailDelivery.managerRecipientCount,
+        idempotencyKey: `refund-message-${messageId}`,
       };
-      if (customerCorrectionFields.length > 0) {
-        await sendNayaxCustomerCorrectionEmail(transactionalInput);
-      } else {
-        await sendRefundCustomerEmail(transactionalInput);
-      }
+      const sentEmail = customerCorrectionFields.length > 0
+        ? await sendNayaxCustomerCorrectionEmail(transactionalInput)
+        : await sendRefundCustomerEmail(transactionalInput);
+      await bindRefundTransactionalDelivery({
+        supabase: supabase!,
+        refundCaseMessageId: messageId,
+        receipt: sentEmail.delivery,
+      });
     }
 
     if (messageId) {
@@ -922,11 +955,21 @@ const sendCustomerStatusUpdate = async (
           "Automatic customer contact was disabled before provider delivery.",
         );
       }
-      await sendRefundCustomerEmail({
+      await markRefundTransactionalDeliveryAttempt({
+        supabase,
+        refundCaseMessageId: messageId,
+      });
+      const sentEmail = await sendRefundCustomerEmail({
         ...emailInput,
         managerCcEmails: gmailDelivery.managerCcEmails,
         managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
         managerRecipientCount: gmailDelivery.managerRecipientCount,
+        idempotencyKey: `refund-message-${messageId}`,
+      });
+      await bindRefundTransactionalDelivery({
+        supabase,
+        refundCaseMessageId: messageId,
+        receipt: sentEmail.delivery,
       });
     }
 
@@ -1464,11 +1507,21 @@ const sendWalletCorrectionMessage = async (
           "Automatic customer contact was disabled before provider delivery.",
         );
       }
-      await sendRefundWalletCorrectionEmail({
+      await markRefundTransactionalDeliveryAttempt({
+        supabase,
+        refundCaseMessageId: messageId,
+      });
+      const sentEmail = await sendRefundWalletCorrectionEmail({
         ...emailInput,
         managerCcEmails: gmailDelivery.managerCcEmails,
         managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
         managerRecipientCount: gmailDelivery.managerRecipientCount,
+        idempotencyKey: `refund-message-${messageId}`,
+      });
+      await bindRefundTransactionalDelivery({
+        supabase,
+        refundCaseMessageId: messageId,
+        receipt: sentEmail.delivery,
       });
     }
 
@@ -2914,6 +2967,250 @@ const runReminderSweep = async (
   }
 };
 
+const sendPayoutDestinationReminder = async (
+  refundCase: RefundSweepCase,
+  job: {
+    followUpId: string;
+    claimToken: string;
+    requestMessageId: string;
+  },
+) => {
+  if (!supabase || !(await automaticCustomerContactAllowed())) {
+    return { status: "suppressed" as const, messageId: null };
+  }
+  const publicLabels = resolveRefundPublicLabels({
+    locationName: refundCase.reporting_locations?.name,
+    publicMachineLabel: refundCase.reporting_machines?.refund_public_display_label,
+    machineLabel: refundCase.reporting_machines?.machine_label,
+  });
+  const email = buildRefundCustomerEmail({
+    messageType: "reminder",
+    publicReference: refundCase.public_reference,
+    customerName: refundCase.customer_name,
+    customerEmail: refundCase.customer_email,
+    machineLabel: publicLabels.machineLabel,
+    locationName: publicLabels.locationName,
+    refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
+    paymentMethod: refundCase.payment_method,
+    cardWalletUsed: refundCase.card_wallet_used,
+    incidentLocalDateTime: refundCase.incident_local_datetime,
+    missingFields: ["zelle_payment_contact"],
+    followUpReason: "missing_information",
+    customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
+    statusUrl: null,
+  });
+  let messageId: string | null = null;
+
+  try {
+    const { data: created, error: createError } = await supabase.rpc(
+      "service_create_refund_payout_destination_reminder_message",
+      {
+        p_follow_up_id: job.followUpId,
+        p_claim_token: job.claimToken,
+        p_subject: email.subject,
+        p_body: redactRefundStatusLinksForStorage(email.text),
+      },
+    );
+    const createdResult = created && typeof created === "object" && !Array.isArray(created)
+      ? created as Record<string, unknown>
+      : {};
+    messageId = textValue(createdResult.messageId);
+    if (createError || createdResult.created !== true || !messageId) {
+      throw createError ?? new Error("Payout reminder ledger intent was not created.");
+    }
+
+    const gmailThreadId = await getGmailThreadIdForCaseMessage(job.requestMessageId);
+    const gmailDelivery = await dispatchRefundCaseGmailReply({
+      supabase,
+      refundCaseId: refundCase.id,
+      refundCaseMessageId: messageId,
+      recipientEmail: refundCase.customer_email,
+      email,
+      deliveryKind: "automatic",
+      gmailThreadId,
+    });
+    if (!gmailDelivery.usedGmail) {
+      if (!(await automaticCustomerContactAllowed())) {
+        throw new RefundGmailError(
+          "automatic_contact_disabled",
+          "Automatic customer contact was disabled before payout-reminder delivery.",
+        );
+      }
+      await markRefundTransactionalDeliveryAttempt({
+        supabase,
+        refundCaseMessageId: messageId,
+      });
+      const sentEmail = await sendRefundCustomerEmail({
+        messageType: "reminder",
+        publicReference: refundCase.public_reference,
+        customerName: refundCase.customer_name,
+        customerEmail: refundCase.customer_email,
+        machineLabel: publicLabels.machineLabel,
+        locationName: publicLabels.locationName,
+        refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
+        paymentMethod: refundCase.payment_method,
+        cardWalletUsed: refundCase.card_wallet_used,
+        incidentLocalDateTime: refundCase.incident_local_datetime,
+        missingFields: ["zelle_payment_contact"],
+        followUpReason: "missing_information",
+        customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
+        managerCcEmails: gmailDelivery.managerCcEmails,
+        managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
+        managerRecipientCount: gmailDelivery.managerRecipientCount,
+        idempotencyKey: `refund-message-${messageId}`,
+      });
+      await bindRefundTransactionalDelivery({
+        supabase,
+        refundCaseMessageId: messageId,
+        receipt: sentEmail.delivery,
+      });
+    }
+
+    // The immutable intent retains its reviewed subject. Gmail's canonical
+    // thread subject is already recorded in refund_gmail_messages; writing it
+    // back here would reject settlement after the provider has sent the mail.
+    const { error: updateError } = await supabase.from("refund_case_messages")
+      .update({
+        status: "sent",
+        sent_at: new Date().toISOString(),
+      })
+      .eq("id", messageId);
+    if (updateError) throw updateError;
+
+    const { error: eventError } = await supabase.from("refund_case_events").insert({
+      refund_case_id: refundCase.id,
+      event_type: "refund_payout_destination_reminder_sent",
+      message: "The single protected payout-destination reminder was sent.",
+      metadata: {
+        message_id: messageId,
+        follow_up_id: job.followUpId,
+        requested_fields: ["zelle_payment_contact"],
+        transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
+        payload_redacted: true,
+      },
+    });
+    if (eventError) throw eventError;
+    return { status: "sent" as const, messageId };
+  } catch (error) {
+    console.error("refund payout-destination reminder failed", {
+      errorType: error instanceof Error ? error.name : typeof error,
+      payloadRedacted: true,
+    });
+    if (messageId) {
+      await supabase.from("refund_case_messages").update({
+        status: "failed",
+        error_message: error instanceof RefundGmailError
+          ? error.code
+          : "payout_destination_reminder_failed",
+      }).eq("id", messageId);
+    }
+    return { status: "failed" as const, messageId };
+  }
+};
+
+const runPayoutDestinationReminderSweep = async (
+  runId: string,
+  counters: SweepCounters,
+  policyWindowStart: string,
+) => {
+  if (!supabase) return;
+  const { data, error } = await supabase.rpc(
+    "service_claim_due_refund_payout_destination_follow_ups",
+    {
+      p_limit: 25,
+      p_customer_contact_runtime_enabled: automaticCustomerContactEnabled,
+    },
+  );
+  if (error) throw error;
+  const claim = data && typeof data === "object" && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : {};
+  if (claim.enabled !== true) {
+    const returnedToReview = safeInteger(
+      Number(claim.contactDisabledToReview),
+      0,
+      0,
+      100,
+    );
+    if (returnedToReview > 0) {
+      addReason(counters, "payout_destination_contact_suppressed", returnedToReview);
+    }
+    addReason(counters, "automatic_customer_contact_disabled");
+    return;
+  }
+  const escalated = safeInteger(Number(claim.escalated), 0, 0, 100);
+  if (escalated > 0) addReason(counters, "payout_destination_contact_exhausted", escalated);
+  const pausedToReview = safeInteger(
+    Number(claim.pausedThreadToReview),
+    0,
+    0,
+    100,
+  );
+  if (pausedToReview > 0) {
+    addReason(counters, "payout_destination_contact_paused", pausedToReview);
+  }
+  const jobs = Array.isArray(claim.reminders) ? claim.reminders : [];
+
+  for (const rawJob of jobs) {
+    const job = rawJob && typeof rawJob === "object"
+      ? rawJob as Record<string, unknown>
+      : {};
+    const followUpId = textValue(job.followUpId);
+    const refundCaseId = textValue(job.refundCaseId);
+    const claimToken = textValue(job.claimToken);
+    const requestMessageId = textValue(job.requestMessageId);
+    if (!followUpId || !refundCaseId || !claimToken || !requestMessageId) {
+      counters.actionsFailed += 1;
+      addReason(counters, "payout_reminder_contract_invalid");
+      continue;
+    }
+    const refundCase = await getSweepCase(refundCaseId);
+    if (!refundCase) {
+      counters.actionsFailed += 1;
+      addReason(counters, "payout_reminder_contract_invalid");
+      continue;
+    }
+    counters.evaluatedCaseIds.add(refundCase.id);
+    const action = await claimAction(
+      runId,
+      refundCase.id,
+      `payout-reminder:${followUpId}`,
+      "customer_reminder",
+      refundCase.status,
+      policyWindowStart,
+      counters,
+    );
+    if (!action.claimed) continue;
+
+    const result = await sendPayoutDestinationReminder(refundCase, {
+      followUpId,
+      claimToken,
+      requestMessageId,
+    });
+    if (result.status === "sent") {
+      counters.remindersSent += 1;
+      await finishAction(action, "completed", "payout_destination_reminder_sent", result.messageId, counters);
+    } else if (result.status === "suppressed") {
+      await finishAction(
+        action,
+        "suppressed",
+        "automatic_customer_contact_disabled",
+        result.messageId,
+        counters,
+      );
+    } else {
+      counters.remindersFailed += 1;
+      await finishAction(
+        action,
+        "failed",
+        "customer_email_failed",
+        result.messageId,
+        counters,
+      );
+    }
+  }
+};
+
 type RefundProviderDelayAttempt = {
   id: string;
   refund_case_id: string;
@@ -3491,6 +3788,14 @@ serve(async (req) => {
       }, alertStatus === "sent" ? 200 : 502);
     }
 
+    // This exact content was already approved in the manager portal, so its
+    // durable queue does not depend on automatic-contact or policy-window gates.
+    failureStage = "manual_message_outbox";
+    await runManualMessageOutboxSweep(counters);
+    if (counters.actionsFailed > 0) {
+      throw new RefundAutomationActionFailure();
+    }
+
     if (!automationEnabled) {
       failureStage = "automation_gate";
       counters.actionsSuppressed += 1;
@@ -3549,6 +3854,8 @@ serve(async (req) => {
     );
     failureStage = "customer_reminder";
     await runReminderSweep(runId, counters, policyWindowStart);
+    failureStage = "payout_destination_reminder";
+    await runPayoutDestinationReminderSweep(runId, counters, policyWindowStart);
     failureStage = "provider_delay_status";
     await runProviderDelayCustomerStatusSweep(
       runId,

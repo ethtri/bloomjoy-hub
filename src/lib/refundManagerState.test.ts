@@ -20,10 +20,48 @@ const lifecycle = (
   stageRank: number,
   managerNextAction = 'wait'
 ): RefundLifecycleContract => ({
-  schemaVersion: 'refund_lifecycle_v1',
+  schemaVersion: 'refund_lifecycle_v2',
+  version: 1,
   stage,
   stageRank,
+  reasonCode: `test_${stage}`,
+  actor: 'system',
+  customerAction: {
+    action: stage === 'waiting_on_customer' ? 'reply_in_existing_thread' : 'none',
+    required: stage === 'waiting_on_customer',
+    requestedFields: stage === 'waiting_on_customer' ? ['incident_time'] : [],
+    payloadRedacted: true,
+  },
+  managerAction: {
+    action: managerNextAction,
+    owner: stage === 'needs_refund_operations' ? 'Refund Operations' : 'Machine Manager',
+    safeRetryEligible: false,
+    payloadRedacted: true,
+  },
+  paymentState: stage === 'needs_refund_operations' ? 'outcome_unknown' : 'not_requested',
+  messageState: {
+    state: 'none',
+    messageType: null,
+    lastUpdatedAt: null,
+    payloadRedacted: true,
+  },
+  classification: 'customer',
   evidenceState: 'synthetic',
+  locationEvidence: {
+    customerReported: {
+      selectionKey: 'test-selection', selectionKind: 'exact_machine',
+      machineIds: ['b3000000-0000-4000-8000-000000000001'], preserved: true,
+      payloadRedacted: true,
+    },
+    normalized: {
+      locationId: 'b2000000-0000-4000-8000-000000000001',
+      machineId: 'b3000000-0000-4000-8000-000000000001',
+      timezone: 'America/Los_Angeles', providerAccountKey: 'TEST',
+      mappingSource: 'nayax', mappingVersion: 1, confidence: 1,
+      authoritative: true, payloadRedacted: true,
+    },
+    payloadRedacted: true,
+  },
   lastUpdatedAt: '2026-08-26T20:00:00.000Z',
   publicCopyKey: `refund_${stage}`,
   managerNextAction,
@@ -31,7 +69,7 @@ const lifecycle = (
   refreshAfterSeconds:
     stage === 'customer_notified' || stage === 'denied' ? null : 5,
   managerQueue: {
-    schemaVersion: 'refund_manager_queue_v1',
+    schemaVersion: 'refund_manager_queue_v2',
     bucket: stage === 'waiting_on_customer'
       ? 'waiting_on_customer'
       : stage === 'needs_refund_operations'
@@ -71,9 +109,76 @@ const lifecycle = (
   payloadRedacted: true,
 });
 
+Deno.test('v2-only payout, integrity, closure, and internal/test states stay explicit', () => {
+  const fixtures = [
+    ['awaiting_payout', 'awaiting_payout', 'Ready to reimburse'],
+    ['integrity_hold', 'integrity_hold', 'Lifecycle evidence needs review'],
+    ['unable_to_complete', 'closed', 'Unable to complete'],
+    ['internal_test_archived', 'internal_test_archived', 'Internal/test archived'],
+  ] as const;
+  for (const [stage, expectedId, expectedLabel] of fixtures) {
+    const contract = lifecycle(
+      stage,
+      stage === 'internal_test_archived' ? 100 : 60,
+      stage === 'awaiting_payout' ? 'mark_external_refund' : 'none',
+    );
+    if (stage === 'integrity_hold') {
+      contract.managerAction.action = 'reconcile_lifecycle_integrity';
+      contract.managerAction.owner = 'Refund Operations';
+      contract.managerQueue.bucket = 'integrity_hold';
+    }
+    if (stage === 'internal_test_archived') {
+      contract.classification = 'internal_test';
+      contract.managerQueue.bucket = 'internal_archive';
+    }
+    const result = getRefundManagerState({ ...baseCase, lifecycle: contract });
+    assertEquals(result.id, expectedId, `${stage} id`);
+    assertEquals(result.label, expectedLabel, `${stage} label`);
+  }
+});
+
 Deno.test('manager state presents the normal card case as ready for review', () => {
   assertEquals(getRefundManagerState(baseCase).label, 'Ready for review', 'ready label');
   assertEquals(getRefundPaymentStateLabel(baseCase), 'Not issued', 'separate payment label');
+});
+
+Deno.test('manager state surfaces a direct-email bounce without changing payment truth', () => {
+  const result = getRefundManagerState({
+    ...baseCase,
+    providerOutcome: 'succeeded',
+    customerDeliveryException: {
+      state: 'bounced',
+      messageType: 'completed',
+      recoveryOwner: 'refund_operations',
+      nextAction: 'review_delivery_no_resend',
+      customerMessageReplayAllowed: false,
+      paymentReplayAllowed: false,
+    },
+  });
+  assertEquals(result.label, 'Delivery needs review', 'delivery exception label');
+  assertEquals(
+    result.explanation,
+    'The customer address bounced. The refund and payment state have not been changed.',
+    'payment truth remains separate'
+  );
+});
+
+Deno.test('an active money action remains more urgent than an earlier delivery exception', () => {
+  const result = getRefundManagerState(
+    {
+      ...baseCase,
+      customerDeliveryException: {
+        state: 'unknown',
+        messageType: 'status_update',
+        recoveryOwner: 'refund_operations',
+        nextAction: 'review_delivery_no_resend',
+        customerMessageReplayAllowed: false,
+        paymentReplayAllowed: false,
+      },
+    },
+    { isRefunding: true }
+  );
+  assertEquals(result.id, 'refunding', 'active refund state');
 });
 
 Deno.test('manager state distinguishes missing facts and automatic lookup', () => {
@@ -453,11 +558,26 @@ Deno.test('remaining-value guard directs managers to the reviewed portal fallbac
   );
 });
 
-Deno.test('cash cases with an amount are ready to mark refunded without a transaction match', () => {
+Deno.test('cash cases require both an amount and payout destination', () => {
+  const missingDestination = getRefundManagerState({
+    ...baseCase,
+    paymentMethod: 'cash',
+    paymentAmountCents: 800,
+    correlationStatus: 'no_match',
+    nayaxRecommendationState: null,
+  });
+  assertEquals(missingDestination.id, 'needs_information', 'cash destination gate');
+  assertEquals(
+    missingDestination.label,
+    'Needs payout destination',
+    'cash destination label'
+  );
+
   const result = getRefundManagerState({
     ...baseCase,
     paymentMethod: 'cash',
     paymentAmountCents: 800,
+    zellePaymentContact: 'cash-customer@example.test',
     correlationStatus: 'no_match',
     nayaxRecommendationState: null,
   });

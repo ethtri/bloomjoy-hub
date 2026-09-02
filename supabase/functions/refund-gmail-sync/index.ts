@@ -31,6 +31,7 @@ import {
 } from "../_shared/refund-email-fact-extraction.ts";
 import {
   classifyRefundCustomerFactApplication,
+  type RefundCustomerFactApplicationReceipt,
   type RefundCustomerFactApplicationResult,
 } from "../_shared/refund-customer-fact-application.ts";
 import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
@@ -60,6 +61,10 @@ import { automaticRefundCustomerContactEnabled } from "../_shared/refund-determi
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { tryIssueRefundStatusCapabilityForMessage } from "../_shared/refund-status-capability.ts";
 import { refundCustomerLocaleFromIntakeMeta } from "../_shared/refund-language.ts";
+import {
+  bindRefundTransactionalDelivery,
+  markRefundTransactionalDeliveryAttempt,
+} from "../_shared/refund-transactional-delivery.ts";
 import { resolveLocalDateTimeInZone } from "../_shared/timezone-resolution.mjs";
 import {
   completeRefundGmailIntakeShadowFirstContact,
@@ -428,12 +433,22 @@ const processDenialAppealConfirmation = async ({
       gmailThreadId: gmailThreadId || null,
     });
     if (!delivery.usedGmail) {
-      await sendRefundCustomerEmail({
+      await markRefundTransactionalDeliveryAttempt({
+        supabase,
+        refundCaseMessageId,
+      });
+      const sentEmail = await sendRefundCustomerEmail({
         ...deliveryEmailInput,
         customerEmail: claimedCustomerEmail,
         managerCcEmails: delivery.managerCcEmails,
         managerRecipientOverlap: delivery.managerRecipientOverlap,
         managerRecipientCount: delivery.managerRecipientCount,
+        idempotencyKey: `refund-message-${refundCaseMessageId}`,
+      });
+      await bindRefundTransactionalDelivery({
+        supabase,
+        refundCaseMessageId,
+        receipt: sentEmail.delivery,
       });
     }
   } catch (error) {
@@ -990,12 +1005,42 @@ const applyDeterministicCustomerReplyFacts = async ({
   const { data: current, error: caseError } = await supabase
     .from("refund_cases")
     .select(
-      "id,deterministic_fact_version,reporting_machine_id,reporting_location_id,incident_at,incident_local_datetime,incident_timezone,incident_time_resolution,payment_method,payment_amount_cents,card_last4,card_last4_provenance,card_network,card_wallet_used,payment_interaction,wallet_provider",
+      "id,deterministic_fact_version,reporting_machine_id,reporting_location_id,incident_at,incident_local_datetime,incident_timezone,incident_time_resolution,payment_method,payment_amount_cents,card_last4,card_last4_provenance,card_network,card_wallet_used,payment_interaction,wallet_provider,zelle_payment_contact",
     )
     .eq("id", refundCaseId)
     .maybeSingle();
   if (caseError) throw caseError;
   if (!current) return { allowRoutineContact: true };
+
+  // The same reply may have committed its facts before the worker stopped.
+  // Check its private, verified receipt before recalculating a now-empty diff.
+  const receipt = await rpc<RefundCustomerFactApplicationReceipt>(
+    "service_get_refund_gmail_fact_application_v1",
+    { p_refund_case_id: refundCaseId, p_gmail_message_id: sourceMessageId },
+  );
+  if (receipt?.outcome === "stale") return { allowRoutineContact: false };
+  if (receipt?.outcome === "already_applied") {
+    if (
+      classifyRefundCustomerFactApplication({
+        outcome: "already_applied",
+        factVersion: receipt.factVersion,
+      }) !== "accepted" ||
+      !Array.isArray(receipt.appliedFields) ||
+      receipt.appliedFields.length === 0
+    ) throw new Error("refund_customer_fact_receipt_invalid");
+    if (receipt.appliedFields.some((field) => field !== "zelle_payment_contact")) {
+      await runAutomaticNayaxLookupIfReady({
+        supabase,
+        caseId: refundCaseId,
+        source: "customer_reply_recheck",
+        expectedFactVersion: receipt.factVersion,
+      });
+    }
+    return { allowRoutineContact: true };
+  }
+  if (receipt?.outcome !== "not_applied") {
+    throw new Error("refund_customer_fact_receipt_invalid");
+  }
 
   const { data: correctionCycle, error: correctionCycleError } = await supabase
     .from("refund_follow_up_cycles")
@@ -1264,6 +1309,14 @@ const applyDeterministicCustomerReplyFacts = async ({
     updates.card_last4_provenance = extracted.cardLast4Provenance;
     appliedFields.push("card_last4_provenance");
   }
+  if (
+    paymentMethod === "cash" &&
+    !String(current.zelle_payment_contact ?? "").trim() &&
+    extracted.zellePaymentContact
+  ) {
+    updates.zelle_payment_contact = extracted.zellePaymentContact;
+    appliedFields.push("zelle_payment_contact");
+  }
 
   if (appliedFields.length === 0) return { allowRoutineContact: true };
   const application = await rpc<RefundCustomerFactApplicationResult>(
@@ -1282,15 +1335,19 @@ const applyDeterministicCustomerReplyFacts = async ({
   if (classifyRefundCustomerFactApplication(application) !== "accepted") {
     throw new Error("refund_customer_fact_application_conflict");
   }
-  // Coordinate on both a fresh application and an idempotent replay. The
-  // fact-version action key makes a completed lookup a no-op while allowing a
-  // replay to recover if the first worker persisted facts but stopped before
-  // it could start the recheck.
-  await runAutomaticNayaxLookupIfReady({
-    supabase,
-    caseId: refundCaseId,
-    source: "customer_reply_recheck",
-  });
+  // Concurrent application can return already_applied. Bind the recheck to
+  // that receipt's version, never to newer facts from a different correction.
+  if (!(
+    appliedFields.length === 1 &&
+    appliedFields[0] === "zelle_payment_contact"
+  )) {
+    await runAutomaticNayaxLookupIfReady({
+      supabase,
+      caseId: refundCaseId,
+      source: "customer_reply_recheck",
+      expectedFactVersion: application.factVersion,
+    });
+  }
   return { allowRoutineContact: true };
 };
 
@@ -2135,6 +2192,10 @@ serve(async (request) => {
               const rawBody = extractPlainTextBody(message.payload);
               const redactedSubject = redactPaymentCardNumbers(rawSubject);
               const redactedBody = redactPaymentCardNumbers(rawBody);
+              const existingCaseContext = direction === "inbound" &&
+                  participantTrust === "direct_human"
+                ? extractLabeledRefundEmailFacts(redactedBody.text)
+                : null;
               const attachmentDescriptors =
                 refundEmailPilotAttachmentsEnabled &&
                   direction === "inbound" && !isBounce
@@ -2143,7 +2204,7 @@ serve(async (request) => {
               const ingestion = await rpc(
                 intakeShadow
                   ? "service_ingest_refund_gmail_message_v2"
-                  : "service_ingest_refund_gmail_contact_v1",
+                  : "service_ingest_refund_gmail_contact_v2",
                 {
                   p_mailbox_hash: mailboxHash,
                   p_provider_thread_id: providerThreadId,
@@ -2177,6 +2238,20 @@ serve(async (request) => {
                   p_is_hard_bounce: isHardBounce,
                   p_failed_recipient_emails:
                     participantSignals.failedRecipientEmails,
+                  ...(!intakeShadow
+                    ? {
+                      p_contextual_facts: existingCaseContext
+                        ? {
+                          locationOrMachine:
+                            existingCaseContext.locationOrMachine,
+                          incidentDate: existingCaseContext.incidentDate,
+                          paymentMethod: existingCaseContext.paymentMethod,
+                          amountCents: existingCaseContext.amountCents,
+                          payloadRedacted: true,
+                        }
+                        : { payloadRedacted: true },
+                    }
+                    : {}),
                 },
               );
               if (ingestion?.created) counters.messagesCreated += 1;

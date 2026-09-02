@@ -23,7 +23,8 @@ export type RefundMissingField =
   | "wallet_provider"
   | "amount"
   | "card_last4"
-  | "card_network";
+  | "card_network"
+  | "zelle_payment_contact";
 
 export type RefundFollowUpFacts = {
   reportingMachineId?: string | null;
@@ -34,6 +35,8 @@ export type RefundFollowUpFacts = {
   paymentAmountCents?: number | null;
   cardLast4?: string | null;
   cardWalletUsed?: boolean | null;
+  zellePaymentContact?: string | null;
+  cashPayoutDestinationRequired?: boolean;
 };
 
 const missingFieldOrder: RefundMissingField[] = [
@@ -46,6 +49,7 @@ const missingFieldOrder: RefundMissingField[] = [
   "amount",
   "card_last4",
   "card_network",
+  "zelle_payment_contact",
 ];
 
 const nonBlank = (value: unknown) => typeof value === "string" && value.trim().length > 0;
@@ -97,6 +101,13 @@ export const deriveRefundMissingFields = (
     paymentMethod === "card" && facts.cardWalletUsed === true;
   if (paymentMethod === "card" && !cardLast4Present && !requiresSecureWalletCorrection) {
     fields.push("card_last4");
+  }
+  if (
+    paymentMethod === "cash" &&
+    facts.cashPayoutDestinationRequired === true &&
+    !nonBlank(facts.zellePaymentContact)
+  ) {
+    fields.push("zelle_payment_contact");
   }
 
   return {

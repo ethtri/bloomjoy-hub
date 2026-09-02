@@ -35,6 +35,14 @@ import {
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const productionRunbook = fs.readFileSync(path.join(repositoryRoot, 'Docs', 'PRODUCTION_RUNBOOK.md'), 'utf8');
+const qaSmokeChecklist = fs.readFileSync(
+  path.join(repositoryRoot, 'Docs', 'QA_SMOKE_TEST_CHECKLIST.md'),
+  'utf8'
+);
+const refundEmailAssistantRunbook = fs.readFileSync(
+  path.join(repositoryRoot, 'Docs', 'REFUND_EMAIL_ASSISTANT_RUNBOOK.md'),
+  'utf8'
+);
 const cutoverPacket = fs.readFileSync(
   path.join(repositoryRoot, 'Docs', 'REFUND_PRODUCTION_CUTOVER_PACKET.md'),
   'utf8'
@@ -156,14 +164,29 @@ for (const retiredPilotGate of [
 }
 assert.match(
   productionRunbook,
-  /exactly 76 reviewed synthetic screenshots/,
-  'Production runbook must use the current 76-screenshot evidence inventory'
+  /exactly 85 reviewed synthetic screenshots/,
+  'Production runbook must use the current 85-screenshot evidence inventory'
 );
 assert.doesNotMatch(
   productionRunbook,
-  /exactly 44 reviewed synthetic screenshots/,
-  'Production runbook must not retain the retired 44-screenshot evidence count'
+  /exactly (?:44|83) reviewed synthetic screenshots/,
+  'Production runbook must not retain a retired screenshot evidence count'
 );
+for (const [documentName, document] of [
+  ['QA smoke checklist', qaSmokeChecklist],
+  ['refund email assistant runbook', refundEmailAssistantRunbook],
+]) {
+  assert.match(
+    document,
+    /exactly 85 reviewed synthetic screenshots/,
+    `${documentName} must use the current 85-screenshot evidence inventory`
+  );
+  assert.doesNotMatch(
+    document,
+    /exactly (?:44|83) reviewed synthetic screenshots/,
+    `${documentName} must not retain a retired screenshot evidence count`
+  );
+}
 const smokeOrder = cutoverPacket.indexOf('## Exact postdeployment readiness order');
 const routeSmoke = cutoverPacket.indexOf('refunds:smoke-routes', smokeOrder);
 const captureManifest = cutoverPacket.indexOf(
@@ -195,7 +218,7 @@ const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-relea
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
 const reviewedManagerSourceSha256 = {
   'refund-manager-action-step-up':
-    'f02e601678638646bf407612fd88311d868f24b2d1533bc8e83046df68ba04b6',
+    'd04073ca6ea91d75d13e9414b1bc23cd5aa76a57cd4e62a8d5182accdaee668a',
   'refund-manager-totp-enrollment':
     'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
 };
@@ -230,15 +253,35 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert.equal(
     repositoryMigrations.length,
-    110,
-    'Refund release inventory must cover exactly 110 discovered refund/Nayax migrations'
+    116,
+    'Refund release inventory must cover exactly 116 discovered refund/Nayax migrations'
   );
   assert(
-    repositoryMigrations.includes('20260901185049_refund_provider_delay_evidence_1069.sql'),
+    repositoryMigrations.includes('20260902000417_refund_lifecycle_v2_integrity.sql'),
+    'The integrated lifecycle v2 integrity and release-skew boundary must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260902002716_refund_manual_message_outbox.sql'),
+    'The durable manager-message outbox migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260902004500_refund_payout_destination_follow_up.sql'),
+    'The protected payout-destination follow-up migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260902160946_refund_gmail_reply_recovery.sql'),
+    'The exact-message customer correction replay recovery must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260901080000_refund_gmail_existing_case_linking.sql'),
+    'The existing-case inbound linking migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260901202359_refund_provider_delay_evidence_1069.sql'),
     'The provider-delay evidence repair must be in the discovered release inventory'
   );
   assert(
-    repositoryMigrations.includes('20260901172459_refund_scheduler_incident_1069.sql'),
+    repositoryMigrations.includes('20260901180116_refund_scheduler_incident_1069.sql'),
     'The refund scheduler incident repair must be in the discovered release inventory'
   );
   assert(
@@ -260,6 +303,14 @@ try {
   assert(
     repositoryMigrations.includes('20260901060000_refund_nayax_scope_recovery.sql'),
     'The bounded Nayax account-scope recovery migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260901070000_refund_transactional_delivery_truth.sql'),
+    'The transactional delivery truth migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260901080000_refund_gmail_existing_case_linking.sql'),
+    'The existing-case-first Gmail linking migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260830182855_refund_manager_queue_truth.sql'),

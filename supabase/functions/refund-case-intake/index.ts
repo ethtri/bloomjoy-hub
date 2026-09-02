@@ -16,6 +16,10 @@ import {
 } from "../_shared/refund-email-context.ts";
 import { sendRefundManagerActionNotice } from "../_shared/refund-manager-notification.ts";
 import {
+  bindRefundTransactionalDelivery,
+  markRefundTransactionalDeliveryAttempt,
+} from "../_shared/refund-transactional-delivery.ts";
+import {
   lookupNayaxCandidatesForRefundCase,
   type NayaxLookupResult,
 } from "../_shared/nayax-lookup.ts";
@@ -2066,12 +2070,22 @@ serve(async (req) => {
             "Automatic customer contact was disabled before provider delivery.",
           );
         }
-        await sendRefundTransactionalEmail({
+        await markRefundTransactionalDeliveryAttempt({
+          supabase,
+          refundCaseMessageId: messageRow.id,
+        });
+        const receipt = await sendRefundTransactionalEmail({
           to: [customerEmail],
           cc: gmailDelivery.managerCcEmails,
           subject: email.subject,
           text: email.text,
           html: email.html,
+          idempotencyKey: `refund-message-${messageRow.id}`,
+        });
+        await bindRefundTransactionalDelivery({
+          supabase,
+          refundCaseMessageId: messageRow.id,
+          receipt,
         });
       }
 

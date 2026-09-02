@@ -16,6 +16,10 @@ import {
 } from "../_shared/refund-deterministic-follow-up.ts";
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
 import { refundCustomerLocaleFromIntakeMeta } from "../_shared/refund-language.ts";
+import {
+  bindRefundTransactionalDelivery,
+  markRefundTransactionalDeliveryAttempt,
+} from "../_shared/refund-transactional-delivery.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import {
   REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE,
@@ -109,6 +113,7 @@ type RefundCaseRow = {
   payment_amount_cents: number | null;
   card_wallet_used: boolean;
   card_last4: string | null;
+  zelle_payment_contact: string | null;
   reporting_machine_id: string;
   reporting_location_id: string;
   incident_at: string | null;
@@ -158,6 +163,7 @@ const selectCaseQuery = `
   payment_amount_cents,
   card_wallet_used,
   card_last4,
+  zelle_payment_contact,
   reporting_machine_id,
   reporting_location_id,
   incident_at,
@@ -604,11 +610,21 @@ const sendAndLogCustomerMessage = async (
       deliveryKind: "manual",
     });
     if (!gmailDelivery.usedGmail) {
-      await sendRefundCustomerEmail({
+      await markRefundTransactionalDeliveryAttempt({
+        supabase,
+        refundCaseMessageId: messageId,
+      });
+      const sentEmail = await sendRefundCustomerEmail({
         ...emailInput,
         managerCcEmails: gmailDelivery.managerCcEmails,
         managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
         managerRecipientCount: gmailDelivery.managerRecipientCount,
+        idempotencyKey: `refund-message-${messageId}`,
+      });
+      await bindRefundTransactionalDelivery({
+        supabase,
+        refundCaseMessageId: messageId,
+        receipt: sentEmail.delivery,
       });
     }
 
@@ -979,6 +995,10 @@ serve(async (req) => {
         paymentAmountCents: beforeRow.payment_amount_cents,
         cardLast4: beforeRow.card_last4,
         cardWalletUsed: beforeRow.card_wallet_used,
+        zellePaymentContact: beforeRow.zelle_payment_contact,
+        cashPayoutDestinationRequired:
+          beforeRow.payment_method === "cash" &&
+          beforeRow.decision === "approved",
       });
       if (derived.requiresSecureWalletCorrection) {
         return jsonResponse({

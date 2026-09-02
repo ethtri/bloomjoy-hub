@@ -6,24 +6,62 @@ import type {
   RefundManagerQueueBucket,
 } from "./refundLifecycle.ts";
 import { getRefundManagerState } from "./refundManagerState.ts";
-import { getRefundManagerQueueBucket } from "./refundQueue.ts";
+import { findRefundDeepLinkedCase, getRefundManagerQueueBucket, getRefundQueueFilterForCase } from "./refundQueue.ts";
 
 const lifecycle = (
   stage: RefundLifecycleContract["stage"],
   bucket: RefundManagerQueueBucket,
   nextAction: string,
 ): RefundLifecycleContract => ({
-  schemaVersion: "refund_lifecycle_v1",
+  schemaVersion: "refund_lifecycle_v2",
+  version: 1,
   stage,
   stageRank: stage === "waiting_on_customer" ? 15 : 30,
+  reasonCode: `test_${stage}`,
+  actor: "system",
+  customerAction: {
+    action: stage === "waiting_on_customer" ? "reply_in_existing_thread" : "none",
+    required: stage === "waiting_on_customer",
+    requestedFields: stage === "waiting_on_customer" ? ["incident_time"] : [],
+    payloadRedacted: true,
+  },
+  managerAction: {
+    action: nextAction,
+    owner: bucket === "provider_hold" ? "Refund Operations" : "Machine Manager",
+    safeRetryEligible: false,
+    payloadRedacted: true,
+  },
+  paymentState: bucket === "provider_hold" ? "outcome_unknown" : "not_requested",
+  messageState: {
+    state: "none",
+    messageType: null,
+    lastUpdatedAt: null,
+    payloadRedacted: true,
+  },
+  classification: "customer",
   evidenceState: stage,
+  locationEvidence: {
+    customerReported: {
+      selectionKey: "test-selection", selectionKind: "exact_machine",
+      machineIds: ["d3000000-0000-4000-8000-000000000001"], preserved: true,
+      payloadRedacted: true,
+    },
+    normalized: {
+      locationId: "d2000000-0000-4000-8000-000000000001",
+      machineId: "d3000000-0000-4000-8000-000000000001",
+      timezone: "America/Los_Angeles", providerAccountKey: "TEST",
+      mappingSource: "nayax", mappingVersion: 1, confidence: 1,
+      authoritative: true, payloadRedacted: true,
+    },
+    payloadRedacted: true,
+  },
   lastUpdatedAt: "2026-08-30T18:00:00.000Z",
   publicCopyKey: `refund_${stage}`,
   managerNextAction: nextAction,
   terminal: bucket === "completed",
   refreshAfterSeconds: bucket === "completed" ? null : 5,
   managerQueue: {
-    schemaVersion: "refund_manager_queue_v1",
+    schemaVersion: "refund_manager_queue_v2",
     bucket,
     label: bucket,
     nextAction,
@@ -59,6 +97,18 @@ const cardCase = (contract: RefundLifecycleContract) => ({
   paymentMethod: "card" as const,
   correlationStatus: "needs_nayax" as const,
   lifecycle: contract,
+});
+
+Deno.test('v2 exception buckets map to visible filters without exposing archive deep links', () => {
+  const integrity = { id: 'integrity-case', ...cardCase(lifecycle('integrity_hold', 'integrity_hold', 'refund_operations')) };
+  const archived = { id: 'archived-case', ...cardCase(lifecycle('internal_test_archived', 'internal_archive', 'none')) };
+  assertEquals(getRefundQueueFilterForCase(integrity, true), 'provider_hold');
+  assertEquals(getRefundQueueFilterForCase(integrity, false), 'all');
+  assertEquals(getRefundQueueFilterForCase(archived, true), 'internal_test');
+  assertEquals(findRefundDeepLinkedCase('integrity-case', [integrity], []), integrity);
+  assertEquals(findRefundDeepLinkedCase('archived-case', [integrity], [archived]), archived);
+  assertEquals(findRefundDeepLinkedCase('archived-case', [integrity], []), undefined);
+  assertEquals(findRefundDeepLinkedCase('missing-case', [integrity], [archived]), undefined);
 });
 
 Deno.test(
@@ -193,8 +243,18 @@ Deno.test("cash and pre-case Gmail fallbacks are deterministic", () => {
       status: "needs_review",
       paymentMethod: "cash",
       paymentAmountCents: 800,
+      zellePaymentContact: "cash-customer@example.test",
     }),
     "ready_to_pay",
+  );
+  assertEquals(
+    getRefundManagerQueueBucket({
+      status: "needs_review",
+      paymentMethod: "cash",
+      paymentAmountCents: 800,
+      zellePaymentContact: null,
+    }),
+    "needs_action",
   );
   assertEquals(
     getRefundManagerQueueBucket({

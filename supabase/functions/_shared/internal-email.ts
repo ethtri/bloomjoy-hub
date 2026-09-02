@@ -32,7 +32,21 @@ export type TransactionalEmailInput = {
   html?: string;
   replyTo?: string | string[] | null;
   senderName?: string | null;
+  idempotencyKey?: string | null;
 };
+
+export type TransactionalEmailReceipt = {
+  provider: "resend";
+  providerMessageId: string;
+  acceptedAt: string;
+};
+
+export class TransactionalEmailDeliveryUnknownError extends TypeError {
+  constructor() {
+    super("Transactional email provider acceptance could not be confirmed.");
+    this.name = "TransactionalEmailDeliveryUnknownError";
+  }
+}
 
 const EMAIL_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
 
@@ -80,7 +94,8 @@ export async function sendTransactionalEmail({
   html,
   replyTo,
   senderName,
-}: TransactionalEmailInput) {
+  idempotencyKey,
+}: TransactionalEmailInput): Promise<TransactionalEmailReceipt> {
   const { resendApiKey, fromEmail } = getResendConfig();
 
   if (!to.length) {
@@ -127,20 +142,51 @@ export async function sendTransactionalEmail({
     payload.reply_to = replyToRecipients;
   }
 
+  const normalizedIdempotencyKey = idempotencyKey?.trim() || "";
+  if (
+    normalizedIdempotencyKey &&
+    !/^[A-Za-z0-9_-]{1,200}$/.test(normalizedIdempotencyKey)
+  ) {
+    throw new Error("Transactional email idempotency key is invalid.");
+  }
+
   const response = await fetch(RESEND_API_BASE_URL, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${resendApiKey}`,
       "Content-Type": "application/json",
+      ...(normalizedIdempotencyKey
+        ? { "Idempotency-Key": normalizedIdempotencyKey }
+        : {}),
     },
     body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(
-      `Resend request failed (${response.status}): ${errorBody || "Unknown error"}`
-    );
+    throw new Error(`Resend request failed (${response.status}).`);
+  }
+
+  let responseBody = "";
+  try {
+    responseBody = await response.text();
+    if (responseBody.length > 4096) {
+      throw new TransactionalEmailDeliveryUnknownError();
+    }
+    const parsed = JSON.parse(responseBody) as { id?: unknown };
+    const providerMessageId = typeof parsed?.id === "string"
+      ? parsed.id.trim()
+      : "";
+    if (!/^[A-Za-z0-9_-]{8,255}$/.test(providerMessageId)) {
+      throw new TransactionalEmailDeliveryUnknownError();
+    }
+    return {
+      provider: "resend",
+      providerMessageId,
+      acceptedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    if (error instanceof TransactionalEmailDeliveryUnknownError) throw error;
+    throw new TransactionalEmailDeliveryUnknownError();
   }
 }
 

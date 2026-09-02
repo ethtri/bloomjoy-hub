@@ -65,6 +65,7 @@ export type RefundCustomerEmailInput = {
   managerRecipientOverlap?: boolean;
   managerRecipientCount?: number;
   statusUrl?: string | null;
+  idempotencyKey?: string | null;
 };
 
 const refundMissingFieldRequest: Record<RefundMissingField, string> = {
@@ -78,6 +79,8 @@ const refundMissingFieldRequest: Record<RefundMissingField, string> = {
   card_last4:
     "only the last four digits shown on the card charge (do not email wallet or device-card digits)",
   card_network: "the card type shown on the card or inside the wallet",
+  zelle_payment_contact:
+    "the email address or phone number connected to Zelle for this reimbursement",
 };
 
 const refundMissingFieldReplyLine: Record<RefundMissingField, string> = {
@@ -90,6 +93,34 @@ const refundMissingFieldReplyLine: Record<RefundMissingField, string> = {
   amount: "Amount (for example, $7.25):",
   card_last4: "Card last four:",
   card_network: "Card type (Visa, Mastercard, Discover, American Express, or not sure):",
+  zelle_payment_contact: "Zelle email or phone number:",
+};
+
+const refundMissingFieldRequestSpanish: Record<RefundMissingField, string> = {
+  location_or_machine: "la máquina o ubicación de Bloomjoy",
+  incident_date: "la fecha de compra",
+  incident_time: "la hora aproximada de compra, incluyendo a. m. o p. m.",
+  payment_method: "si pagó con tarjeta, Apple Pay, Google Pay o efectivo",
+  payment_interaction: "cómo usó la tarjeta o billetera digital",
+  wallet_provider: "la billetera digital que usó",
+  amount: "el monto exacto cobrado",
+  card_last4: "solamente los últimos cuatro dígitos de la tarjeta física",
+  card_network: "el tipo de tarjeta",
+  zelle_payment_contact:
+    "el correo electrónico o número de teléfono conectado a Zelle para este reembolso",
+};
+
+const refundMissingFieldReplyLineSpanish: Record<RefundMissingField, string> = {
+  location_or_machine: "Máquina o ubicación:",
+  incident_date: "Fecha de compra (AAAA-MM-DD):",
+  incident_time: "Hora aproximada de compra (incluya a. m. o p. m.):",
+  payment_method: "Método de pago:",
+  payment_interaction: "Cómo usó la tarjeta o billetera digital:",
+  wallet_provider: "Billetera digital:",
+  amount: "Monto:",
+  card_last4: "Últimos cuatro dígitos de la tarjeta:",
+  card_network: "Tipo de tarjeta:",
+  zelle_payment_contact: "Correo electrónico o número de teléfono de Zelle:",
 };
 
 export const describeRefundMissingFields = (value: unknown) =>
@@ -489,14 +520,27 @@ const getBodyParagraphs = ({
 const getSpanishBodyParagraphs = ({
   messageType,
   paymentMethod,
+  missingFields,
   statusUpdateReason,
 }: RefundCustomerEmailInput) => {
   const isCash = paymentMethod === "cash";
+  const requestedFields = sanitizeRefundMissingFields(missingFields);
+  const requestedDetails = requestedFields
+    .map((field) => refundMissingFieldRequestSpanish[field])
+    .join("; ");
+  const replyLines = requestedFields
+    .map((field) => refundMissingFieldReplyLineSpanish[field])
+    .join("\n");
   switch (messageType) {
     case "more_info":
     case "reminder":
       return [
-        "Necesitamos un dato más para continuar la revisión. Responda en esta misma conversación solamente con la información solicitada arriba.",
+        requestedDetails
+          ? `Responda en esta misma conversación solamente con ${requestedDetails}.`
+          : "Necesitamos un dato más para continuar la revisión.",
+        replyLines
+          ? `Copie esta línea en su respuesta y complete solamente el espacio solicitado:\n${replyLines}`
+          : "Responda solamente con la información solicitada.",
         "Por su seguridad, no envíe el número completo de su tarjeta, código de seguridad, fecha de vencimiento, PIN, contraseña ni capturas de pantalla.",
       ];
     case "no_safe_match":
@@ -722,15 +766,16 @@ export const sendRefundCustomerEmail = async (
     input.managerRecipientOverlap,
     input.managerRecipientCount,
   );
-  await sendRefundTransactionalEmail({
+  const delivery = await sendRefundTransactionalEmail({
     to: [input.customerEmail],
     cc: managerCcEmails,
     subject: email.subject,
     text: email.text,
     html: email.html,
+    idempotencyKey: input.idempotencyKey,
   });
 
-  return email;
+  return { ...email, delivery };
 };
 
 export const buildBrandedRefundHtmlFromStoredText =
@@ -747,6 +792,7 @@ export type RefundWalletCorrectionEmailInput = {
   managerCcEmails?: string[];
   managerRecipientOverlap?: boolean;
   managerRecipientCount?: number;
+  idempotencyKey?: string | null;
 };
 
 export const buildRefundWalletCorrectionEmail = (
@@ -822,13 +868,14 @@ export const sendRefundWalletCorrectionEmail = async (
     input.managerRecipientOverlap,
     input.managerRecipientCount,
   );
-  await sendRefundTransactionalEmail({
+  const delivery = await sendRefundTransactionalEmail({
     to: [input.customerEmail],
     cc: managerCcEmails,
     subject: email.subject,
     text: email.text,
     html: email.html,
+    idempotencyKey: input.idempotencyKey,
   });
 
-  return email;
+  return { ...email, delivery };
 };

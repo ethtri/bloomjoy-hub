@@ -9,10 +9,10 @@ import { fetchRefundCustomerStatus, isLocalUatDemoForced } from '@/lib/refundOpe
 import {
   getRefundCustomerRefreshMs,
   getRefundCustomerStatusCopy,
-  refundCustomerLifecycleStages,
   type RefundCustomerLifecycle,
   type RefundCustomerStatusCopy,
 } from '@/lib/refundCustomerStatus';
+import { buildRefundCustomerStatusDemo } from '@/lib/refundCustomerStatusDemo';
 import { cn } from '@/lib/utils';
 
 const SESSION_TOKEN_KEY = 'bloomjoy-refund-status-capability';
@@ -73,22 +73,7 @@ export default function RefundStatusPage() {
   const isDemoMode = isLocalUatDemoForced();
   const demoLifecycle = useMemo<RefundCustomerLifecycle | null>(() => {
     if (!isDemoMode || typeof window === 'undefined') return null;
-    const requestedStage = new URLSearchParams(window.location.search).get('stage') ?? 'matching';
-    const stage = refundCustomerLifecycleStages.includes(
-      requestedStage as RefundCustomerLifecycle['stage'],
-    )
-      ? requestedStage as RefundCustomerLifecycle['stage']
-      : 'matching';
-    return {
-      schemaVersion: 'refund_lifecycle_v1',
-      stage,
-      stageRank: refundCustomerLifecycleStages.indexOf(stage),
-      lastUpdatedAt: new Date().toISOString(),
-      publicCopyKey: `demo_${stage}`,
-      terminal: stage === 'customer_notified' || stage === 'denied',
-      refreshAfterSeconds: stage === 'customer_notified' || stage === 'denied' ? null : 5,
-      payloadRedacted: true,
-    };
+    return buildRefundCustomerStatusDemo(new URLSearchParams(window.location.search).get('stage'));
   }, [isDemoMode]);
 
   useEffect(() => {

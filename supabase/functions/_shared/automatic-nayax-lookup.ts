@@ -167,10 +167,12 @@ export const runAutomaticNayaxLookupIfReady = async ({
   supabase,
   caseId,
   source,
+  expectedFactVersion,
 }: {
   supabase: SupabaseClient;
   caseId: string;
   source: AutomaticNayaxLookupSource;
+  expectedFactVersion?: number;
 }) => {
   const { data, error } = await supabase.from("refund_cases").select(`
     id,status,decision,reporting_machine_id,reporting_location_id,
@@ -181,6 +183,10 @@ export const runAutomaticNayaxLookupIfReady = async ({
   if (error) throw error;
   if (!data) return { status: "not_ready" as const };
   const refundCase = data as AutomaticNayaxLookupCase;
+  if (
+    expectedFactVersion !== undefined &&
+    refundCase.deterministic_fact_version !== expectedFactVersion
+  ) return { status: "stale" as const };
 
   return await coordinateAutomaticNayaxLookup({
     refundCase,

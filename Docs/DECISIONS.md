@@ -1,5 +1,25 @@
 # Decisions
 
+## 2026-09-01 - Manager-authored refund email uses one durable outbox (`#917`)
+
+- The manager portal commits the exact case version, recipient, subject, body, message class, requested fields, locale-derived copy, reviewed-triage provenance, and one client intent ID in the customer-message ledger before any Gmail or transactional-provider access. The same transaction records a redacted queued event.
+- One unresolved manager message may exist per case. Exact request replay returns the original message; an intent ID cannot be rebound to changed content. Workers claim with row locks and `SKIP LOCKED`, use `refund-message-<message-id>` as the stable provider identity, and recover an abandoned claim no more than three times without creating a second message.
+- A stale case version or Internal/test classification cancels the queued intent before provider access. A known failure or unknown result remains manager-owned delivery evidence. Only successful settlement records customer contact and may set `more_info_needed`; that message must contain at least one deterministic customer-correctable requested field.
+- The worker runs independently of automatic-contact and staffed-window gates because the manager already approved the exact content. `REFUND_MANUAL_MESSAGE_OUTBOX_ENABLED=false` is an incident-only delivery stop; it leaves queued evidence intact and grants no payment, decision, provider-write, or reporting authority.
+
+**Why this choice**
+- A single request that both inserted and sent could stop between those steps, leaving no safe way to know whether the provider had accepted the message. A durable intent plus stable identity makes retry and reconciliation explicit without weakening customer lifecycle or refund safeguards.
+
+## 2026-08-31 - Transactional acceptance is not customer delivery (`#917`)
+
+- Every direct Website-case email is marked in the message ledger before provider access and uses one stable per-message idempotency key. A successful Resend API response records its exact provider message ID as **Accepted by provider**; it is never labeled delivered from API acceptance alone.
+- Signed webhooks write only an event-key digest, provider message ID, normalized delivery state, event time, and internal match metadata. At-least-once replay is deduplicated, out-of-order events can only advance the safety rank, and webhook handling cannot send or retry a message, create a payment attempt, or call Nayax.
+- Managers see provider acceptance, delivered, delayed, bounced, complained, or unknown—not the private provider ID. Stale acceptance and actionable delivery failures route the case to Refund Operations in **Action needed** with an explicit no-resend/no-payment-replay next action. Payment outcome remains authoritative and independent; a bounced completion receipt cannot reopen or replay a successful refund.
+- Gmail-thread delivery keeps its existing provider-thread ledger and uncertain-delivery recovery. Direct-email webhooks do not create a Gmail fallback or a second conversation. Internal/test records cannot start or bind direct transactional delivery.
+
+**Why this choice**
+- Provider acceptance proves only that the API accepted a request. Persisting later provider evidence without replay authority makes the queue truthful while preserving exactly-once customer messaging and transaction-scoped payment safety.
+
 ## 2026-08-31 - Nayax lookup recovery is exact-account and internally owned (`#890`, `#992`)
 
 - Every transaction lookup uses the reporting machine's explicit Nayax account scope. A non-default account may resolve only its exact server-side credential; missing scope or access never falls back to the default account and never cross-searches a sibling machine or location.
@@ -1440,3 +1460,56 @@ Queue placement is part of the server-owned refund lifecycle, not a browser infe
 - It removes the live contradiction where detail, queue placement, and counts could disagree or change merely because a manager opened the case.
 - It keeps stale lookup recovery read-only and preserves the separate no-blind-payment-retry boundary.
 - It gives managers and customers one truthful state vocabulary without exposing provider or reconciliation details.
+
+## 2026-09-01 - Gmail intake resolves existing cases before asking for another form (`#889`)
+
+A verified support email from a customer with a recent open Website case is existing-case work, not a reason to restart intake.
+
+**Canonical choices**
+- Evidence is considered in this order: an existing provider thread, an explicit same-sender case reference, then exact normalized sender identity across recent open customer cases with bounded deterministic contextual match flags. Internal/test and terminal cases are excluded.
+- One recent open case is linked atomically before any generic form response can be claimed. The message continues in the existing case/thread and creates no pre-form contact, new case, customer message, provider call, or payment action.
+- Multiple plausible cases create one versioned manager-owned linking task. The contact enters a non-sendable `link_review` state, every candidate's official action fails closed, and replay cannot claim a form response or create a duplicate task.
+- Resolution selects one primary case and retains every other candidate as a related immutable association. A current manager must have access to every candidate; Refund Operations may resolve portfolio-spanning work. The retained conversation moves only to the primary case so one customer message is never copied into multiple case threads.
+- Candidate projection is redacted: public case reference, safe machine/location, incident time, amount, and boolean match signals only. Sender addresses and message content remain in the existing protected case/message surfaces.
+- Resolution is versioned and replay-safe and returns explicit negative side-effect evidence. It does not infer purchase-specific facts across related cases or authorize a refund. Managers continue from the submitted form facts and linked conversation without asking the customer to repeat information Bloomjoy already possesses.
+
+**Why this choice**
+- It removes the production failure where a customer who had already submitted two forms received another form request.
+- It uses exact identity and existing records conservatively: an unambiguous case can proceed automatically, while multiple plausible purchases remain human-owned without another customer chore.
+- It preserves form-only case creation, provider/payment isolation, exact-transaction protection, and immutable replay evidence.
+
+## 2026-09-02 - Refund lifecycle v2 is the cross-surface release contract (`#628`, `#991`, `#992`)
+
+Payment attempts, case state, manager work, customer status, delivery state, location/machine evidence, and Internal/test disposition must project one versioned story. A consumer may not reconstruct status from legacy fields when the canonical release is absent.
+
+**Canonical choices**
+- `refund_lifecycle_v2` and nested `refund_manager_queue_v2` supersede the v1 browser contracts. Every case carries a monotonic lifecycle revision, explicit reason/actor/customer action/manager action/payment/message state, and one redacted location-evidence projection.
+- The customer-reported selection remains distinct from normalized location, exact machine, timezone, provider-account scope, mapping source/version, and confidence. Customer capabilities omit this manager-only provenance.
+- Customer card cases in pending/completed or active execution states require at least one durable attempt. Existing impossible rows are quarantined with a named integrity hold; reconciliation makes no provider call, payment retry, or customer message. New split writes fail at deferred commit, while a case and attempt may transition atomically.
+- `closed` means unable to complete, never denied. Cash uses a named payout stage. Failed/uncertain delivery remains separate from confirmed payment. Internal/test is a distinct terminal archive suppressed from customer status and active work.
+- Release order is database, then functions, then UI. Manager/customer parsers reject unknown or missing versions, the release inventory includes the exact migration, and aggregate health advertises the same lifecycle version and release order.
+- The manager-authored transactional outbox is a required adjacent integration owned separately; #628 cannot close until that ledger and this lifecycle release are combined and proven on the same deployment.
+
+**Why this choice**
+- It prevents a locally plausible screen from contradicting payment, message, evidence, or test-population truth.
+- Deferred integrity checks preserve one-transaction server workflows while blocking observable case-only payment transitions.
+- Explicit version and release order turn deployment skew into a safe failure instead of a partially working portal.
+
+## 2026-09-02 - Approved cash reimbursement requires one protected payout destination (`#628`, `#891`)
+
+The earlier one-action cash-completion decision assumed the payout destination had already been arranged outside Bloomjoy Hub. Production evidence showed that this assumption creates a dead end: a manager can be told to reimburse a customer without a recorded destination, while the message ledger cannot truthfully represent the one detail the customer must supply.
+
+**Canonical choices**
+- Cash intake still collects no payout handle and makes no payment promise. After a cash reimbursement is approved, a missing destination becomes one protected follow-up field: `zelle_payment_contact`.
+- The mapped manager requests only the Zelle email address or phone number in the existing customer thread. The request is committed to the durable outbox before provider access, uses the persisted customer locale, and cannot be mixed with purchase, card, time, location, or Nayax questions.
+- A still-unanswered request may receive one deterministic reminder for that same field. After the final response window, or immediately when either automatic-contact gate is off or the customer thread is paused at reminder time, the customer action clears and the case returns to named Refund Operations review. The kill switch and thread hold suppress delivery but never preserve an indefinite Waiting state. A second request cannot silently reuse an exhausted ledger; it stops before provider access with an explicit Refund Operations disposition.
+- A verified labeled reply updates the same case once, records which message request it satisfied, clears the stale customer action, and makes the manager lifecycle payout-ready. Raw payout values never enter event metadata, lifecycle payloads, or customer-message evidence.
+- No payout may be marked complete until the protected destination is present and the manager has actually sent the external reimbursement. Bloomjoy Hub still does not initiate or verify Zelle, choose an external channel, or expose the destination in completion copy.
+- Reply replay, delivery uncertainty, concurrent processing, and stale case versions create no duplicate message, fact application, payment attempt, reporting adjustment, or completion.
+
+**Why this choice**
+- It makes the customer request, message ledger, secure status, manager queue, and same-case reply one truthful contract.
+- It asks the customer for the single fact Bloomjoy cannot retrieve internally and prevents a false purchase-detail reminder after transaction review is already complete.
+- It preserves the external manual-payment boundary while removing the unsafe assumption that a usable destination exists off-system.
+
+This supersedes only the older assumption that the payout destination always exists outside Hub before completion. It does not make Hub a Zelle provider or authorize automatic payment.

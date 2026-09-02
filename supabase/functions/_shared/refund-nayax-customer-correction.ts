@@ -1,9 +1,9 @@
 import {
   buildEditableRefundCustomerEmail,
   buildRefundCustomerEmail,
-  sendRefundTransactionalEmail,
   type RefundCustomerEmailInput,
   requireRefundManagerCcEmailsForSend,
+  sendRefundTransactionalEmail,
 } from "./refund-email.ts";
 import {
   type RefundMissingField,
@@ -70,39 +70,17 @@ export const deriveNayaxCustomerCorrectionFields = ({
   if (nonCustomerHardExclusions.length > 0) return [];
 
   if (reasons.has("card_last4_mismatch")) {
-    return sanitizeRefundMissingFields([
-      "incident_time",
-      "payment_method",
-      "payment_interaction",
-      "wallet_provider",
-      "amount",
-      "card_last4",
-      "card_network",
-    ]);
+    return ["card_last4"];
   }
   if (reasons.has("amount_mismatch") || reasons.has("amount_uncertain")) {
-    return sanitizeRefundMissingFields([
-      "incident_time",
-      "payment_interaction",
-      "wallet_provider",
-      "amount",
-      "card_last4",
-      "card_network",
-    ]);
+    return ["amount"];
   }
   if (
     reasons.has("incident_time_too_far") ||
     reasons.has("customer_time_within_1_hour") ||
     reasons.has("customer_time_rough")
   ) {
-    return sanitizeRefundMissingFields([
-      "incident_time",
-      "payment_interaction",
-      "wallet_provider",
-      "amount",
-      "card_last4",
-      "card_network",
-    ]);
+    return ["incident_time"];
   }
 
   return [];
@@ -119,6 +97,7 @@ const fieldRequest: Record<RefundMissingField, string> = {
   card_last4:
     "only the last four digits printed on the physical card you tapped",
   card_network: "the card type shown on the card or inside the wallet",
+  zelle_payment_contact: "the Zelle email address or phone number",
 };
 
 const fieldReplyLine: Record<RefundMissingField, string> = {
@@ -126,11 +105,15 @@ const fieldReplyLine: Record<RefundMissingField, string> = {
   incident_date: "Purchase date (YYYY-MM-DD):",
   incident_time: "Approximate purchase time (include AM or PM):",
   payment_method: "Payment method (card, Apple Pay, Google Pay, or cash):",
-  payment_interaction: "Payment interaction (tap card, insert or swipe, phone or watch wallet, or not sure):",
-  wallet_provider: "Wallet provider (Apple Pay, Google Wallet, other, or not sure):",
+  payment_interaction:
+    "Payment interaction (tap card, insert or swipe, phone or watch wallet, or not sure):",
+  wallet_provider:
+    "Wallet provider (Apple Pay, Google Wallet, other, or not sure):",
   amount: "Amount (for example, $7.25):",
   card_last4: "Card last four:",
-  card_network: "Card type (Visa, Mastercard, Discover, American Express, or not sure):",
+  card_network:
+    "Card type (Visa, Mastercard, Discover, American Express, or not sure):",
+  zelle_payment_contact: "Zelle email or phone number:",
 };
 
 export const buildNayaxCustomerCorrectionEmail = (
@@ -154,6 +137,9 @@ export const buildNayaxCustomerCorrectionEmail = (
       : []),
   ].join("\n");
   const reminder = input.messageType === "reminder";
+  const replyLineInstruction = fields.length === 1
+    ? "copy this line into your reply and add only the requested detail"
+    : "copy these lines into your reply and add only the requested details";
   const subject = reminder
     ? `Still here to help with your Bloomjoy refund request ${input.publicReference}`
     : `One quick detail check for your Bloomjoy refund request ${input.publicReference}`;
@@ -161,8 +147,8 @@ export const buildNayaxCustomerCorrectionEmail = (
     reminder
       ? "We are checking in once because we still want to help with your refund request. There is no need to resend the information you already shared."
       : "Thank you for the details you shared. We found nearby machine transactions, but the information did not identify one purchase safely. This does not mean you did anything wrong.",
-    `Please reply with ${requestedDetails}. Use "not sure" when you do not know one of the details.`,
-    `For the fastest automatic update, copy these lines into your reply and correct or confirm each one:\n${replyLines}`,
+    `Please reply with ${requestedDetails}. If you are not sure, say "not sure".`,
+    `For the fastest automatic update, ${replyLineInstruction}:\n${replyLines}`,
     "If you used a physical card, use only the last four digits printed on the exact physical card you tapped. If you used a phone or watch wallet, do not send wallet or device-token digits by email; we will provide a secure correction step if those digits are needed. Do not send a full card number, security code, expiration date, PIN, password, or screenshot. You do not need to submit another form; we will recheck this same request after your reply.",
   ].join("\n\n");
 
@@ -179,12 +165,13 @@ export const sendNayaxCustomerCorrectionEmail = async (
     input.managerRecipientOverlap,
     input.managerRecipientCount,
   );
-  await sendRefundTransactionalEmail({
+  const delivery = await sendRefundTransactionalEmail({
     to: [input.customerEmail],
     cc: managerCcEmails,
     subject: email.subject,
     text: email.text,
     html: email.html,
+    idempotencyKey: input.idempotencyKey,
   });
-  return email;
+  return { ...email, delivery };
 };

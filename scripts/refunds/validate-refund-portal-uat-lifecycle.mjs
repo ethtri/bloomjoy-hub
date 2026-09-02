@@ -51,11 +51,12 @@ assert.deepEqual(overviewFixtureBuilders, [
   'buildOfficialActionVersionResetOverview',
   'buildWalletMismatchRefundOverview',
   'buildWalletMismatchWaitingRefundOverview',
+  'buildTransactionalDeliveryTruthOverview',
   'buildPhysicalCardMismatchRefundOverview',
 ]);
 assert.match(
   portalSource,
-  /const buildLifecycleFixture = [\s\S]*?managerQueue: \{[\s\S]*?schemaVersion: 'refund_manager_queue_v1'/
+  /const buildLifecycleFixture = [\s\S]*?schemaVersion: 'refund_lifecycle_v2'[\s\S]*?version: 1[\s\S]*?locationEvidence: \{[\s\S]*?managerQueue: \{[\s\S]*?schemaVersion: 'refund_manager_queue_v2'/
 );
 assert.match(
   portalSource,
@@ -67,7 +68,7 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /const buildPendingNayaxRefundOverview = [\s\S]*?managerQueueContractVersion: 'refund_manager_queue_v1'[\s\S]*?lifecycle: buildLifecycleFixture\('matching', 10, 'wait'\)/
+  /const buildPendingNayaxRefundOverview = [\s\S]*?managerQueueContractVersion: 'refund_manager_queue_v2'[\s\S]*?lifecycle: buildLifecycleFixture\('matching', 10, 'wait'\)/
 );
 assert.match(
   portalSource,
@@ -75,7 +76,7 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /const buildCashRefundReviewOverview = [\s\S]*?managerQueueContractVersion: 'refund_manager_queue_v1'[\s\S]*?lifecycle: buildCashRefundLifecycleFixture\(\)/
+  /const buildCashRefundReviewOverview = [\s\S]*?managerQueueContractVersion: 'refund_manager_queue_v2'[\s\S]*?lifecycle: buildCashRefundLifecycleFixture\(\)/
 );
 assert.match(
   portalSource,
@@ -208,7 +209,11 @@ assert.match(
 );
 assert.match(
   refundsSource,
-  /setStatusFilter\('all'\);[\s\S]*?invalidateQueries\(\{ queryKey: \['admin-refund-operations-overview'\] \}\)[\s\S]*?setStatusFilter\(canonicalQueueBucket\(authoritativeCase\)\)/
+  /setStatusFilter\('all'\);[\s\S]*?invalidateQueries\(\{ queryKey: \['admin-refund-operations-overview'\] \}\)[\s\S]*?setStatusFilter\(getRefundQueueFilterForCase\(authoritativeCase, refundOperationsAccess\)\)/
+);
+assert.match(
+  refundsSource,
+  /findRefundDeepLinkedCase\(caseIdFromUrl, overview\.cases, internalTestCases\)/
 );
 
 console.log(
