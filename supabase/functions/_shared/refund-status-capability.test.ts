@@ -156,10 +156,10 @@ Deno.test("nested lifecycle objects and bounded public values fail closed on ext
       requestedFields: ["zelle_payment_contact"],
       payloadRedacted: true,
     },
-    paymentState: "approved_external_pending",
+    paymentState: "not_requested",
     messageState: { state: "sent", payloadRedacted: true },
     lastUpdatedAt: "2026-09-02T03:00:00.000Z",
-    publicCopyKey: "refund_waiting_on_payout_destination",
+    publicCopyKey: "refund_waiting_on_customer",
     terminal: false,
     refreshAfterSeconds: 15,
     payloadRedacted: true,
@@ -175,6 +175,7 @@ Deno.test("nested lifecycle objects and bounded public values fail closed on ext
   const messageState = (fixture: Record<string, unknown>) =>
     fixture.messageState as Record<string, unknown>;
   add((fixture) => customerAction(fixture).providerReference = "private");
+  add((fixture) => customerAction(fixture).action = "send_provider_account");
   add((fixture) => customerAction(fixture).required = "true");
   add((fixture) => customerAction(fixture).payloadRedacted = false);
   add((fixture) => customerAction(fixture).requestedFields = [7]);
@@ -184,11 +185,15 @@ Deno.test("nested lifecycle objects and bounded public values fail closed on ext
   ]);
   add((fixture) => customerAction(fixture).requestedFields = ["provider_account"]);
   add((fixture) => messageState(fixture).providerReference = "private");
+  add((fixture) => messageState(fixture).state = "provider_message_sent");
   add((fixture) => messageState(fixture).state = 7);
   add((fixture) => messageState(fixture).payloadRedacted = false);
   add((fixture) => fixture.reasonCode = "r".repeat(81));
+  add((fixture) => fixture.reasonCode = "provider_account_identifier");
   add((fixture) => fixture.paymentState = "provider secret");
+  add((fixture) => fixture.paymentState = "provider_account_linked");
   add((fixture) => fixture.publicCopyKey = "p".repeat(121));
+  add((fixture) => fixture.publicCopyKey = "refund_provider_account_reference");
 
   for (const fixture of fixtures) {
     await assertRejects(

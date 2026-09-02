@@ -27,24 +27,92 @@ export type CustomerRefundLifecycle = {
     | "denied"
     | "unable_to_complete";
   stageRank: number;
-  reasonCode: string;
+  reasonCode: CustomerRefundReasonCode;
   customerAction: {
-    action: string;
+    action: CustomerRefundAction;
     required: boolean;
     requestedFields: string[];
     payloadRedacted: true;
   };
-  paymentState: string;
+  paymentState: CustomerRefundPaymentState;
   messageState: {
-    state: string;
+    state: CustomerRefundMessageState;
     payloadRedacted: true;
   };
   lastUpdatedAt: string;
-  publicCopyKey: string;
+  publicCopyKey: CustomerRefundPublicCopyKey;
   terminal: boolean;
   refreshAfterSeconds: number | null;
   payloadRedacted: true;
 };
+
+type CustomerRefundAction = "none" | "reply_in_existing_thread";
+type CustomerRefundPaymentState =
+  | "integrity_unknown"
+  | "confirmed"
+  | "outcome_unknown"
+  | "submitted_pending"
+  | "external_payment_required"
+  | "not_issued"
+  | "not_requested";
+type CustomerRefundMessageState =
+  | "none"
+  | "pending"
+  | "delivered"
+  | "deferred"
+  | "failed"
+  | "bounced"
+  | "complained"
+  | "skipped"
+  | "delivery_unconfirmed"
+  | "sent";
+type CustomerRefundReasonCode =
+  | "card_payment_state_without_attempt"
+  | "refund_denied"
+  | "closed_without_denial"
+  | "completion_delivery_unconfirmed"
+  | "completion_sent"
+  | "completion_delivery_failed"
+  | "customer_notification_pending"
+  | "interrupted_before_transport"
+  | "interrupted_after_transport"
+  | "provider_timeout"
+  | "provider_network"
+  | "provider_rejected"
+  | "provider_unknown"
+  | "provider_http_error"
+  | "provider_response_invalid"
+  | "provider_semantic_mismatch"
+  | "contract_mismatch"
+  | "settlement_failure"
+  | "provider_outcome_unknown"
+  | "waiting_for_payout_destination"
+  | "waiting_for_purchase_evidence"
+  | "payment_attempt_started"
+  | "provider_confirmation_pending"
+  | "payout_destination_missing"
+  | "external_payment_ready"
+  | "exact_transaction_confirmed"
+  | "candidate_review_required"
+  | "internal_mapping_required"
+  | "lookup_failed"
+  | "lookup_timed_out"
+  | "lookup_response_limited"
+  | "no_safe_match"
+  | "lookup_in_progress";
+type CustomerRefundPublicCopyKey =
+  | "refund_request_received"
+  | "refund_waiting_on_customer"
+  | "refund_reviewing_purchase"
+  | "refund_transaction_confirmed"
+  | "refund_manual_payment_review"
+  | "refund_initiated"
+  | "refund_confirming"
+  | "refund_confirmation_in_progress"
+  | "refund_confirmed_bank_pending"
+  | "refund_customer_notified"
+  | "refund_denied"
+  | "refund_unable_to_complete";
 
 type RpcClient = {
   rpc: (
@@ -83,9 +151,80 @@ const lifecycleRequestedFields = new Set([
   "card_network",
   "zelle_payment_contact",
 ]);
-const boundedContractValue = (value: unknown, maximum = 80): value is string =>
-  typeof value === "string" && value.length >= 1 && value.length <= maximum &&
-  /^[a-z0-9_:-]+$/u.test(value);
+const lifecycleCustomerActions = new Set<CustomerRefundAction>([
+  "none",
+  "reply_in_existing_thread",
+]);
+const lifecyclePaymentStates = new Set<CustomerRefundPaymentState>([
+  "integrity_unknown",
+  "confirmed",
+  "outcome_unknown",
+  "submitted_pending",
+  "external_payment_required",
+  "not_issued",
+  "not_requested",
+]);
+const lifecycleMessageStates = new Set<CustomerRefundMessageState>([
+  "none",
+  "pending",
+  "delivered",
+  "deferred",
+  "failed",
+  "bounced",
+  "complained",
+  "skipped",
+  "delivery_unconfirmed",
+  "sent",
+]);
+const lifecycleReasonCodes = new Set<CustomerRefundReasonCode>([
+  "card_payment_state_without_attempt",
+  "refund_denied",
+  "closed_without_denial",
+  "completion_delivery_unconfirmed",
+  "completion_sent",
+  "completion_delivery_failed",
+  "customer_notification_pending",
+  "interrupted_before_transport",
+  "interrupted_after_transport",
+  "provider_timeout",
+  "provider_network",
+  "provider_rejected",
+  "provider_unknown",
+  "provider_http_error",
+  "provider_response_invalid",
+  "provider_semantic_mismatch",
+  "contract_mismatch",
+  "settlement_failure",
+  "provider_outcome_unknown",
+  "waiting_for_payout_destination",
+  "waiting_for_purchase_evidence",
+  "payment_attempt_started",
+  "provider_confirmation_pending",
+  "payout_destination_missing",
+  "external_payment_ready",
+  "exact_transaction_confirmed",
+  "candidate_review_required",
+  "internal_mapping_required",
+  "lookup_failed",
+  "lookup_timed_out",
+  "lookup_response_limited",
+  "no_safe_match",
+  "lookup_in_progress",
+]);
+const lifecyclePublicCopyKeys = new Set<CustomerRefundPublicCopyKey>([
+  "refund_request_received",
+  "refund_waiting_on_customer",
+  "refund_reviewing_purchase",
+  "refund_transaction_confirmed",
+  "refund_manual_payment_review",
+  "refund_initiated",
+  "refund_confirming",
+  "refund_confirmation_in_progress",
+  "refund_confirmed_bank_pending",
+  "refund_customer_notified",
+  "refund_denied",
+  "refund_unable_to_complete",
+]);
 const exactObjectKeys = (value: Record<string, unknown>, expected: string[]) => {
   const actual = Object.keys(value).sort();
   return actual.length === expected.length &&
@@ -265,7 +404,8 @@ export const requireCustomerRefundLifecycle = (
     !lifecycleStages.has(source.stage as CustomerRefundLifecycle["stage"]) ||
     typeof source.stageRank !== "number" ||
     !Number.isFinite(source.stageRank) ||
-    !boundedContractValue(source.reasonCode) ||
+    typeof source.reasonCode !== "string" ||
+    !lifecycleReasonCodes.has(source.reasonCode as CustomerRefundReasonCode) ||
     !customerAction ||
     !exactObjectKeys(customerAction, [
       "action",
@@ -273,7 +413,8 @@ export const requireCustomerRefundLifecycle = (
       "requestedFields",
       "required",
     ]) ||
-    !boundedContractValue(customerAction.action) ||
+    typeof customerAction.action !== "string" ||
+    !lifecycleCustomerActions.has(customerAction.action as CustomerRefundAction) ||
     typeof customerAction.required !== "boolean" ||
     customerAction.payloadRedacted !== true ||
     !requestedFieldStrings ||
@@ -281,12 +422,15 @@ export const requireCustomerRefundLifecycle = (
     new Set(requestedFieldStrings).size !== requestedFieldStrings.length ||
     !messageState ||
     !exactObjectKeys(messageState, ["payloadRedacted", "state"]) ||
-    !boundedContractValue(messageState.state) ||
+    typeof messageState.state !== "string" ||
+    !lifecycleMessageStates.has(messageState.state as CustomerRefundMessageState) ||
     messageState.payloadRedacted !== true ||
-    !boundedContractValue(source.paymentState) ||
+    typeof source.paymentState !== "string" ||
+    !lifecyclePaymentStates.has(source.paymentState as CustomerRefundPaymentState) ||
     typeof source.lastUpdatedAt !== "string" ||
     Number.isNaN(Date.parse(source.lastUpdatedAt)) ||
-    !boundedContractValue(source.publicCopyKey, 120) ||
+    typeof source.publicCopyKey !== "string" ||
+    !lifecyclePublicCopyKeys.has(source.publicCopyKey as CustomerRefundPublicCopyKey) ||
     typeof source.terminal !== "boolean" ||
     !(
       source.refreshAfterSeconds === null ||
@@ -304,20 +448,20 @@ export const requireCustomerRefundLifecycle = (
     version: source.version,
     stage: source.stage as CustomerRefundLifecycle["stage"],
     stageRank: source.stageRank,
-    reasonCode: source.reasonCode as string,
+    reasonCode: source.reasonCode as CustomerRefundReasonCode,
     customerAction: {
-      action: customerAction.action as string,
+      action: customerAction.action as CustomerRefundAction,
       required: customerAction.required as boolean,
       requestedFields: [...requestedFieldStrings],
       payloadRedacted: true,
     },
-    paymentState: source.paymentState as string,
+    paymentState: source.paymentState as CustomerRefundPaymentState,
     messageState: {
-      state: messageState.state as string,
+      state: messageState.state as CustomerRefundMessageState,
       payloadRedacted: true,
     },
     lastUpdatedAt: source.lastUpdatedAt,
-    publicCopyKey: source.publicCopyKey as string,
+    publicCopyKey: source.publicCopyKey as CustomerRefundPublicCopyKey,
     terminal: source.terminal,
     refreshAfterSeconds: source.refreshAfterSeconds as number | null,
     payloadRedacted: true,
