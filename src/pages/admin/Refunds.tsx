@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { isEdgeFunctionError } from '@/lib/edgeFunctions';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecycleProgress';
 import {
@@ -916,10 +917,7 @@ const caseUrgencyRank = (refundCase: RefundCaseRecord) => {
   return 6;
 };
 
-const getOperationalSignals = (
-  refundCase: RefundCaseRecord,
-  cardRefundAvailabilityConfirmed = false
-) => {
+const getOperationalSignals = (refundCase: RefundCaseRecord) => {
   const signals: Array<{ label: string; className: string }> = [];
   const definitiveNoRefundRetryReady = isDefinitiveNoRefundRetryReady(refundCase);
   if (refundCase.possibleDuplicate) {
@@ -974,14 +972,6 @@ const getOperationalSignals = (
   }
   if (isWaitingCase(refundCase, false)) {
     signals.push({ label: 'Waiting on customer', className: 'border-orange-200 bg-orange-50 text-orange-900' });
-  }
-  if (
-    refundCase.paymentMethod === 'card' &&
-    ['approved', 'card_refund_pending'].includes(refundCase.status) &&
-    refundCase.nayaxMatchExecutionEligible === true &&
-    !cardRefundAvailabilityConfirmed
-  ) {
-    signals.push({ label: 'Card refunds unavailable', className: 'border-orange-200 bg-orange-50 text-orange-900' });
   }
   if (isReadyToPayCase(refundCase)) {
     signals.push({ label: 'Ready to refund', className: 'border-sky-200 bg-sky-50 text-sky-700' });
@@ -2359,6 +2349,7 @@ export default function AdminRefundsPage() {
   const [messageType, setMessageType] = useState<RefundCustomerPortalMessageType>('status_update');
   const [messageSubject, setMessageSubject] = useState('');
   const [messageBody, setMessageBody] = useState('');
+  const manualMessageIntentRef = useRef<{ fingerprint: string; id: string } | null>(null);
   const [appliedTriageSuggestionId, setAppliedTriageSuggestionId] = useState<string | null>(null);
   const [isTriageRejectOpen, setIsTriageRejectOpen] = useState(false);
   const [isRejectingTriage, setIsRejectingTriage] = useState(false);
@@ -2438,16 +2429,6 @@ export default function AdminRefundsPage() {
     gmailHealth?.status === 'paused' ||
     gmailHealth?.status === 'revoked';
   const gmailRecoveryActive = gmailHealth?.status === 'recovering';
-  const cardRefundAvailabilityConfirmed =
-    !forceDemoData &&
-    nayaxCardRefundAvailability?.available === true &&
-    nayaxCardRefundAvailability.status === 'available' &&
-    nayaxCardRefundAvailability.blockReason === null &&
-    nayaxCardRefundAvailability.payloadRedacted === true &&
-    !nayaxCardRefundAvailabilityIsLoading &&
-    !nayaxCardRefundAvailabilityIsFetching &&
-    !nayaxCardRefundAvailabilityError;
-
   const refresh = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] }),
@@ -2654,16 +2635,7 @@ export default function AdminRefundsPage() {
       nayaxCardRefundAvailability.payloadRedacted !== true ||
       !['available', 'unavailable'].includes(nayaxCardRefundAvailability.status)
     ) {
-      return selectedCase.hasMatchedNayaxTransaction
-        ? {
-            transactionConfirmed: true,
-            canIssueCardRefund: false,
-            blockReason: 'provider_unavailable',
-            refundAmountCents: selectedCase.refundAmountCents ?? selectedCase.paymentAmountCents,
-            machineLimitCents: null,
-            caseVersion: selectedCase.officialActionVersion ?? null,
-          }
-        : null;
+      return null;
     }
     if (nayaxCardRefundAvailability.transactionConfirmed !== true) {
       return {
@@ -4389,28 +4361,58 @@ export default function AdminRefundsPage() {
       toast.error('Customer message body is required.');
       return;
     }
+    if (officialActionVersion <= 0) {
+      toast.error('Refresh the case before queueing this customer message.');
+      return;
+    }
+
+    const missingFields = nextMessageType === 'more_info'
+      ? usesReviewedTriageDraft
+        ? sanitizePortalMissingFields(triageSuggestion?.missingFields ?? [])
+        : derivePortalRefundMissingFields(selectedCase)
+      : [];
+    const messageFingerprint = JSON.stringify({
+      caseId: selectedCase.id,
+      expectedCaseVersion: officialActionVersion,
+      messageType: nextMessageType,
+      subject: subject.trim(),
+      body: body.trim(),
+      triageSuggestionId: usesReviewedTriageDraft ? triageSuggestion?.id ?? null : null,
+      missingFields,
+    });
+    if (manualMessageIntentRef.current?.fingerprint !== messageFingerprint) {
+      manualMessageIntentRef.current = {
+        fingerprint: messageFingerprint,
+        id: crypto.randomUUID(),
+      };
+    }
 
     setIsSendingCustomerMessage(true);
     try {
       const sentMessage = await sendRefundCaseMessage({
         caseId: selectedCase.id,
+        expectedCaseVersion: officialActionVersion,
+        messageIntentId: manualMessageIntentRef.current.id,
         messageType: nextMessageType,
         subject: subject.trim(),
         body: body.trim(),
         triageSuggestionId: usesReviewedTriageDraft ? triageSuggestion?.id : undefined,
-        missingFields: nextMessageType === 'more_info'
-          ? usesReviewedTriageDraft
-            ? sanitizePortalMissingFields(triageSuggestion?.missingFields ?? [])
-            : derivePortalRefundMissingFields(selectedCase)
-          : [],
+        missingFields,
       });
+      manualMessageIntentRef.current = null;
       toast.success(
         sentMessage.transport === 'gmail_thread'
           ? 'Reply sent in the Gmail thread.'
-          : 'Customer email sent from Bloomjoy.'
+          : 'Email accepted by the provider. Delivery tracking is pending.'
       );
       await refresh();
     } catch (sendError) {
+      if (
+        isEdgeFunctionError(sendError) &&
+        sendError.data?.errorCode === 'customer_email_delivery_failed'
+      ) {
+        manualMessageIntentRef.current = null;
+      }
       const message = sendError instanceof Error ? sendError.message : 'Unable to send customer email.';
       toast.error(message);
     } finally {
@@ -7220,9 +7222,9 @@ export default function AdminRefundsPage() {
                           <p className="mt-1 font-medium text-foreground">{formatAge(selectedCase.createdAt)} old</p>
                         </div>
                       </div>
-                      {getOperationalSignals(selectedCase, cardRefundAvailabilityConfirmed).length > 0 && (
+                      {getOperationalSignals(selectedCase).length > 0 && (
                         <div className="mt-3 flex flex-wrap gap-1.5">
-                          {getOperationalSignals(selectedCase, cardRefundAvailabilityConfirmed).map((signal) => (
+                          {getOperationalSignals(selectedCase).map((signal) => (
                             <Badge key={signal.label} className={cn('rounded-md', signal.className)}>
                               {signal.label}
                             </Badge>

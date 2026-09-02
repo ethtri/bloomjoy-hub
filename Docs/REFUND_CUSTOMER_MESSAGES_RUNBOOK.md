@@ -60,6 +60,16 @@ Provider states are monotonic for safety: accepted, delayed, delivered, failed, 
 
 If acceptance remains unconfirmed after 15 minutes, or the provider reports delayed, failed, bounced, or complained, the case moves to **Action needed** with **Delivery needs review**. Refund Operations reviews the provider evidence and chooses a safe disposition; do not blindly resend the message, switch transports, retry a payment, or alter a confirmed refund. A delivery webhook must never invoke customer messaging, Nayax, reporting adjustment, or payment code.
 
+## Manager portal message outbox
+
+The portal sends a manager-authored customer message through the same customer-message ledger; there is no separate founder-mail or off-ledger path. The browser supplies one intent ID and the case version it reviewed. The database atomically records the exact recipient, subject, body, message class, specific requested fields, reviewed suggestion provenance, and redacted queue event before any provider call.
+
+The request then asks the bounded worker to claim that exact message. A scheduled sweep also drains already-queued manager messages even when automatic customer contact is off or outside its policy window, because the manager already approved the exact content. Each claim uses the same message ID and provider idempotency identity. An interrupted claim may be recovered after ten minutes, with no more than three claims; exhaustion becomes Refund Operations review and never changes message identity or switches transport blindly.
+
+Only a successfully settled send records customer contact or advances customer lifecycle. `more_info_needed` additionally requires at least one named deterministic customer-correctable field. A changed case version, changed customer address, or Internal/test classification cancels the queued message before provider access. Known failure and unknown delivery remain manager-owned evidence; neither can send another message, call Nayax, create a payment attempt, or change a reporting adjustment.
+
+For an actual message-delivery incident, set `REFUND_MANUAL_MESSAGE_OUTBOX_ENABLED=false`. This stops new worker claims while retaining queued and claimed evidence for reconciliation. Do not delete message rows, clear claims by hand, or redeploy an older direct-send path.
+
 ## Reply-based denial appeal
 
 Only a verified direct reply from the case customer after a sent denial is an appeal. Forwarded, automated, spoof-suspected, manager, or unrelated messages cannot reopen a case.

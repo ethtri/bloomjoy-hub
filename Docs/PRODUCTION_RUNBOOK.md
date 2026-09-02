@@ -88,6 +88,7 @@ Set the following values before launch.
 | `NAYAX_REFUND_EXECUTOR_ASSERTION` | Server-only | `nayax-card-refund` | Separate generated function identity; only its SHA-256 digest is registered in the database during an approved gate-on change | Technical owner |
 | `REFUND_AUTOMATION_SWEEP_SECRET` | Server-only | `refund-case-automation-sweep` | Dedicated scheduler secret matching GitHub and Vault copies; never a service-role key | Technical owner |
 | `REFUND_AUTOMATION_ENABLED` | Server-only | `refund-case-automation-sweep` | Default `false`; set `true` only after synthetic manual-run and alert proof | Release owner |
+| `REFUND_MANUAL_MESSAGE_OUTBOX_ENABLED` | Server-only | `refund-case-message-send`, `refund-case-automation-sweep` | Default `true`; incident-only `false` stops manager-message worker claims while preserving queued evidence | Release owner |
 | `REFUND_AUTOMATION_TIMEZONE` | Server-only | `refund-case-automation-sweep` | Customer-contact policy timezone; default `America/Los_Angeles` | Release owner |
 | `REFUND_AUTOMATION_START_HOUR` | Server-only | `refund-case-automation-sweep` | Local inclusive start hour; default `8` | Release owner |
 | `REFUND_AUTOMATION_END_HOUR` | Server-only | `refund-case-automation-sweep` | Local exclusive end hour; default `20` | Release owner |
@@ -154,6 +155,7 @@ Security rule:
   - [ ] `npm test --if-present`
   - [ ] `npm run lint --if-present`
 - [ ] `npm run db:validate-migrations` passes before any production Supabase migration push.
+- [ ] `npm run refunds:validate-manual-message-outbox` passes. The disposable database proof must show exact replay, stale-version and Internal/test pre-provider suppression, bounded abandoned-claim recovery, sent-only lifecycle advancement, and zero payment/reporting effects.
 - [ ] `npm run refunds:validate-gmail` passes, and Gmail-copy retention, visible-CC privacy, and the pilot attachment-off policy are approved in `Docs/REFUND_GMAIL_DATA_HANDLING.md` before Gmail enablement.
 - [ ] Keep the unrelated optional GPT lane disabled. GPT credentials, evaluation, and enablement are not Refund Operations v1 deployment or pilot gates.
 - [ ] If Gmail enablement is approved for this release, `npm run refunds:preflight-gmail -- --project-ref <project-ref>` passes secret-name presence checks without printing values. If Gmail is deferred, record that the OAuth/mailbox secrets are intentionally absent and keep both Gmail switches off; missing optional Gmail credentials do not block the all-switches-off core deployment.
@@ -293,6 +295,8 @@ Deploy all current checkout, submission, invite, and reporting functions:
 Before deploying reporting functions, confirm Step B has completed and `supabase db push --dry-run` reports the remote database is up to date. Reporting exports may depend on newly added snapshot columns or indexes.
 
 After applying the reviewed migrations, rerun `supabase db push --dry-run` and require zero pending migrations before deploying dependent Refund Operations functions.
+
+For the manager-message outbox slice, apply `20260902002716_refund_manual_message_outbox.sql` before deploying the matching `refund-case-message-send` and `refund-case-automation-sweep` bundles. Keep `REFUND_MANUAL_MESSAGE_OUTBOX_ENABLED=true` for normal operation. After deployment, queue only a Bloomjoy-controlled synthetic message and prove the immediate request or scheduled sweep settles that same message ID once. Do not use an open customer or a payment-capable synthetic case.
 
 Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit. Revalidate the manifest and transitive source binding immediately before deployment. Use the root-pinned wrapper below rather than a raw `supabase functions deploy` command: it requires the exact clean fetched `origin/main` commit, the production project ref twice, an explicit production phrase, the existing predeploy/postdeploy Auth closed-state gates, and an absolute repository-root `--workdir`. The postdeploy Auth gate still runs after a partial or failed deploy. Keep the runtime Nayax execution gates off during deployment (`NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, and `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`). The normal manager action uses dedicated server-side Nayax account credentials only after the reviewed migration and function are deployed, the machine is qualified and enabled, the executor assertion is registered, and the genuine runtime safety gates are deliberately opened. Retired pilot, sponsor, canary, broad-reopen, and cap flags do not authorize or block a normal manager action.
 
@@ -609,6 +613,8 @@ Rollback order:
 Gmail-only rollback: set `REFUND_GMAIL_SYNC_ENABLED=false`, then `REFUND_GMAIL_ENABLED=false`, and revoke the Gmail refresh token if compromise is suspected. Do not delete Gmail linkage tables during an incident. Verify hosted-form refund intake and non-Gmail case work remain available.
 
 Automatic-contact-only rollback: set `REFUND_AUTOMATIC_CUSTOMER_CONTACT_ENABLED=false`, then set `refund_customer_contact_settings.automatic_customer_contact_enabled=false`. This leaves manual review and the independently controlled Gmail/retention lanes available.
+
+Manager-message-outbox-only rollback: set `REFUND_MANUAL_MESSAGE_OUTBOX_ENABLED=false` first. This stops worker claims but preserves queued, claimed, sent, failed, and unknown evidence. Inspect queued/claimed rows and provider/thread evidence before any function rollback. Do not deploy the retired direct-send implementation, delete message rows, clear claims manually, switch transport, or resend an unknown result. Use a reviewed forward-only repair, then re-enable and drain the original message IDs.
 
 Manager-aging-only rollback: set `REFUND_MANAGER_AGING_NOTICES_ENABLED=false`. If the whole scheduler must stop, first call `public.service_set_refund_automation_scheduler_enabled(false)`, then disable `REFUND_AUTOMATION_SWEEP_ENABLED` and `REFUND_AUTOMATION_ENABLED`. A disabled-lane proof must show zero fetch, claim, reservation, and send calls.
 

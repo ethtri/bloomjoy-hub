@@ -1,5 +1,15 @@
 # Decisions
 
+## 2026-09-01 - Manager-authored refund email uses one durable outbox (`#917`)
+
+- The manager portal commits the exact case version, recipient, subject, body, message class, requested fields, locale-derived copy, reviewed-triage provenance, and one client intent ID in the customer-message ledger before any Gmail or transactional-provider access. The same transaction records a redacted queued event.
+- One unresolved manager message may exist per case. Exact request replay returns the original message; an intent ID cannot be rebound to changed content. Workers claim with row locks and `SKIP LOCKED`, use `refund-message-<message-id>` as the stable provider identity, and recover an abandoned claim no more than three times without creating a second message.
+- A stale case version or Internal/test classification cancels the queued intent before provider access. A known failure or unknown result remains manager-owned delivery evidence. Only successful settlement records customer contact and may set `more_info_needed`; that message must contain at least one deterministic customer-correctable requested field.
+- The worker runs independently of automatic-contact and staffed-window gates because the manager already approved the exact content. `REFUND_MANUAL_MESSAGE_OUTBOX_ENABLED=false` is an incident-only delivery stop; it leaves queued evidence intact and grants no payment, decision, provider-write, or reporting authority.
+
+**Why this choice**
+- A single request that both inserted and sent could stop between those steps, leaving no safe way to know whether the provider had accepted the message. A durable intent plus stable identity makes retry and reconciliation explicit without weakening customer lifecycle or refund safeguards.
+
 ## 2026-08-31 - Transactional acceptance is not customer delivery (`#917`)
 
 - Every direct Website-case email is marked in the message ledger before provider access and uses one stable per-message idempotency key. A successful Resend API response records its exact provider message ID as **Accepted by provider**; it is never labeled delivered from API acceptance alone.

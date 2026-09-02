@@ -117,7 +117,8 @@
     "20260901080000_refund_gmail_existing_case_linking.sql",
     "20260901172459_refund_scheduler_incident_1069.sql",
     "20260901185049_refund_provider_delay_evidence_1069.sql",
-    "20260902000417_refund_lifecycle_v2_integrity.sql"
+    "20260902000417_refund_lifecycle_v2_integrity.sql",
+    "20260902002716_refund_manual_message_outbox.sql"
   ],
   "migrationFilesSha256": "2b98c6ca947a73fd5f926bcdf9468dabcc23bfd98b036b13a7e33a209a73aaa2",
   "migrationVersionSetSha256": "997dbb470f9d1e6a685c819fd5a3e173955ab13aed2359844c80f27757bc7bb8",
@@ -217,7 +218,7 @@
     {
       "slug": "refund-case-message-send",
       "verifyJwt": false,
-      "sourceSha256": "a47ea73878cd0aba3cc63caa4bf506d3442f176b6e50abc7c508589f12826760",
+      "sourceSha256": "300f9b0bb544929600ce7aaa4b117cb64dd0dbb3b70587be2778fcc4c9187636",
       "production": {
         "version": 92,
         "ezbrSha256": "0baafe1a38f4567a3721a72d743cde0ac7ac84f8100ee6aa02d9f4821c2ca116",
@@ -228,7 +229,7 @@
     {
       "slug": "refund-case-automation-sweep",
       "verifyJwt": false,
-      "sourceSha256": "80b56b6b2d28c51a1568a89e9d001791d69be6af6f0e7eabf11d8516c56123ee",
+      "sourceSha256": "1ec6e246a3fce705d4175323b7363fc193775404414c9cc281b9a8d4a42bd484",
       "production": {
         "version": 94,
         "ezbrSha256": "67b4a7fe945401f3c556086e3dce107ba10b449a9a87116cac89a6ea86bc3526",
