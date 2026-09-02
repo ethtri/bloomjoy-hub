@@ -180,7 +180,8 @@ from pg_proc where pronamespace = 'public'::regnamespace and proname in (
   'guard_nayax_attempt_completion_message', 'guard_refund_legacy_state_message',
   'guard_refund_denial_appeal_message', 'guard_refund_follow_up_message',
   'guard_refund_follow_up_cycle', 'sync_refund_follow_up_cycle_from_message',
-  'service_claim_due_refund_follow_up_reminders');
+  'service_claim_due_refund_follow_up_reminders',
+  'service_mark_refund_transactional_delivery_attempt', 'service_claim_refund_gmail_outbound_v3');
 
 /* __HISTORICAL_FAMILY_GUARDS__ */
 
@@ -204,8 +205,8 @@ $delivery_upgrade$) is not null, 'The complete actual backfill fails against pop
 select lives_ok($delivery_upgrade$
 /* __FAMILY_CURRENT_DELIVERY_PREFIX__ */
 $delivery_upgrade$, 'The complete current 0700 prefix upgrades every populated historical family with enabled triggers');
-select is((select count(*) from family_functions_before), 9::bigint,
-  'Fresh replay contains all nine comprehensive bookkeeping helper/guard/claim functions');
+select is((select count(*) from family_functions_before), 11::bigint,
+  'Fresh replay contains all eleven bookkeeping and pre-provider boundary functions');
 select ok(not exists(select 1 from family_functions_before b full join (
   select proname, prosrc, prosecdef, provolatile, proconfig, proacl from pg_proc
   where pronamespace = 'public'::regnamespace and proname in (select proname from family_functions_before)
@@ -357,3 +358,56 @@ select is((select status from public.refund_case_messages where id = 'da170000-0
   'pending', 'Rejected in-flight reminder creates no SENT communication');
 select is((select count(*) from public.refund_case_messages where refund_case_id in (select id from active_reminder_cases)),
   5::bigint, 'Active-request delivery safety creates no duplicate customer messages');
+
+create temporary table active_pending_reminder_before as select to_jsonb(m) as value
+from public.refund_case_messages m where m.id = 'da170000-0000-4000-8000-000000000001';
+set local role service_role;
+select is(pg_temp.capture_delivery_upgrade_error($sql$
+  select public.service_mark_refund_transactional_delivery_attempt('da170000-0000-4000-8000-000000000001')
+$sql$), '23514:Follow-up reminder requires a non-failed original request',
+  'Actual Resend pre-provider mark rejects a claimed reminder after original-request bounce');
+select is(pg_temp.capture_delivery_upgrade_error(format($sql$
+  select public.service_claim_refund_gmail_outbound_v3(%L, 'da170000-0000-4000-8000-000000000001',
+    'refund-active-failed-request', 'fixture-mailbox@example.invalid', 'active-claimed@example.invalid',
+    'Synthetic reminder claimed before bounce.', array['fixture-mailbox@example.invalid'], 'automatic', null)
+$sql$, (select id from active_reminder_cases where family = 'claimed'))),
+  '23514:Follow-up reminder requires a non-failed original request',
+  'Actual Gmail fresh outbound claim rejects a claimed reminder before creating a transport operation');
+reset role;
+select is((select to_jsonb(m) from public.refund_case_messages m where m.id = 'da170000-0000-4000-8000-000000000001'),
+  (select value from active_pending_reminder_before), 'Rejected pre-provider RPCs change no pending message or delivery marker');
+select is((select count(*) from public.refund_gmail_messages where operation_key = 'refund-active-failed-request'),
+  0::bigint, 'Rejected fresh Gmail claim creates no outbound operation');
+
+-- A separately verified SENT Gmail operation is immutable delivery history,
+-- not a new provider attempt. Reconcile it even after the request failed and
+-- contact was paused, retaining the original operation and provider proof.
+insert into public.refund_gmail_threads(id, refund_case_id, mailbox_hash, provider_thread_id, thread_subject,
+  first_message_at, latest_message_at, retention_expires_at)
+select 'da180000-0000-4000-8000-000000000001', id, repeat('f5',32), 'active-known-sent-replay',
+  'Synthetic previously sent reminder', statement_timestamp(), statement_timestamp(), statement_timestamp() + interval '180 days'
+from active_reminder_cases where family = 'claimed';
+insert into public.refund_gmail_messages(id, gmail_thread_id, refund_case_id, refund_case_message_id,
+  provider_message_id, operation_key, direction, status, sender_email, recipient_email, subject, plain_body,
+  received_at, sent_at, retention_expires_at, participant_role, participant_trust, delivery_kind)
+select 'da190000-0000-4000-8000-000000000001', 'da180000-0000-4000-8000-000000000001', id,
+  'da170000-0000-4000-8000-000000000001', 'synthetic-known-sent-reminder', 'refund-active-failed-request',
+  'outbound', 'sent', 'fixture-mailbox@example.invalid', 'active-claimed@example.invalid',
+  'Synthetic previously sent reminder', 'Synthetic reminder claimed before bounce.', statement_timestamp(),
+  statement_timestamp(), statement_timestamp() + interval '180 days', 'mailbox', 'verified', 'automatic'
+from active_reminder_cases where family = 'claimed';
+update public.refund_customer_contact_settings set automatic_customer_contact_enabled = false where singleton;
+set local role service_role;
+select is(public.service_claim_refund_gmail_outbound_v3((select id from active_reminder_cases where family = 'claimed'),
+  'da170000-0000-4000-8000-000000000001', 'refund-active-failed-request', 'fixture-mailbox@example.invalid',
+  'active-claimed@example.invalid', 'Synthetic reminder claimed before bounce.', array['fixture-mailbox@example.invalid'],
+  'automatic', 'da180000-0000-4000-8000-000000000001')->>'reconciled', 'true',
+  'Known-SENT Gmail replay reconciles existing truth despite failed request and paused contact');
+select is(public.service_claim_refund_gmail_outbound_v3((select id from active_reminder_cases where family = 'claimed'),
+  'da170000-0000-4000-8000-000000000001', 'refund-active-failed-request', 'fixture-mailbox@example.invalid',
+  'active-claimed@example.invalid', 'Synthetic reminder claimed before bounce.', array['fixture-mailbox@example.invalid'],
+  'automatic', 'da180000-0000-4000-8000-000000000001')->>'claimed', 'false',
+  'Repeated known-SENT Gmail reconciliation never claims another external send');
+reset role;
+select is((select count(*) from public.refund_gmail_messages where operation_key = 'refund-active-failed-request'),
+  1::bigint, 'Known-SENT reconciliation retains exactly one original Gmail operation');
