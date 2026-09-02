@@ -124,6 +124,7 @@
     "20260902174648_refund_sent_status_delivery_metadata.sql",
     "20260902182311_refund_all_message_delivery_bookkeeping.sql",
     "20260902191832_refund_authoritative_reconciliation_receipt.sql",
+    "20260902192844_refund_legacy_machine_correction.sql",
     "20260902195754_refund_receipt_automation_eligibility.sql"
   ],
   "migrationFilesSha256": "2070d0a464ee4acf743158a9c7d18b860a85fce2eb83b5a593a5f8bfde9144cc",
@@ -213,7 +214,7 @@
     {
       "slug": "refund-case-admin-update",
       "verifyJwt": false,
-      "sourceSha256": "d3e76ff822044610738b30d7b8288ceacc73f31ec2f064de47c8fb83067ed55c",
+      "sourceSha256": "5e0c4c60db84a9e54e80a26931a7fbf1b2d8391182f66abb57052ce514be7b6f",
       "production": {
         "version": 98,
         "ezbrSha256": "880be23006955443c105ddfce7a7cfd106f5b75de6184a6201099ec3c679e68d",
