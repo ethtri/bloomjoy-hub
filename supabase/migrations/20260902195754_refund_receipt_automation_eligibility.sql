@@ -174,20 +174,6 @@ begin
   if cardinality(string_to_array(definition, anchor)) <> 2 then
     raise exception 'Unexpected refund manager aging authorization source';
   end if;
-  definition := replace(definition, anchor, replacement);
-  anchor := '  for share;';
-  replacement := '  for share skip locked;';
-  if cardinality(string_to_array(definition, anchor)) <> 2 then
-    raise exception 'Unexpected refund manager aging parent lock source';
-  end if;
-  definition := replace(definition, anchor, replacement);
-  anchor := '    return jsonb_build_object(''authorized'', false, ''reason'', ''case_missing'');';
-  replacement := $aging_busy$    return jsonb_build_object('authorized', false, 'reason',
-      case when exists (select 1 from public.refund_cases where id=p_refund_case_id)
-        then 'case_busy' else 'case_missing' end);$aging_busy$;
-  if cardinality(string_to_array(definition, anchor)) <> 2 then
-    raise exception 'Unexpected refund manager aging missing-parent source';
-  end if;
   execute replace(definition, anchor, replacement);
 
   -- Ordinary payout reminders are cash-only. Preserve reconciliation of past

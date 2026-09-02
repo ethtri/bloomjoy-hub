@@ -70,6 +70,7 @@ values('af910000-0000-4000-8000-000000000001','af400000-0000-4000-8000-000000000
 alter table public.refund_follow_up_cycles enable trigger refund_follow_up_cycles_guard;
 alter table public.refund_case_messages disable trigger refund_case_messages_follow_up_guard;
 alter table public.refund_case_messages disable trigger refund_case_messages_follow_up_sync;
+alter table public.refund_case_messages disable trigger zz_refund_case_messages_waiting_truth_sync;
 insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,
   delivery_kind,content_source,reason_code,template_version,follow_up_cycle_id,requested_fields,
   created_at,sent_at,delivery_transport,delivery_state,delivery_state_updated_at)
@@ -80,6 +81,7 @@ values('af920000-0000-4000-8000-000000000001','af400000-0000-4000-8000-000000000
   'resend','unknown',now()-interval '4 days');
 alter table public.refund_case_messages enable trigger refund_case_messages_follow_up_guard;
 alter table public.refund_case_messages enable trigger refund_case_messages_follow_up_sync;
+alter table public.refund_case_messages enable trigger zz_refund_case_messages_waiting_truth_sync;
 insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,
   created_at,sent_at,delivery_transport,delivery_state,delivery_state_updated_at)
 values('af920000-0000-4000-8000-000000000002','af400000-0000-4000-8000-000000000001',
@@ -166,6 +168,8 @@ select * from extensions.dblink('receipt_race_a',$q$select id::text from public.
 -- The candidate anti-join alone would miss it; the parent lock must stop work.
 insert into refund_receipt_race_test.results select 'record_uncommitted',payload
 from extensions.dblink('receipt_race_a',$q$select refund_receipt_race_test.run('record',1)$q$) as x(payload jsonb);
+select diag(payload::text) from refund_receipt_race_test.results
+where lane='record_uncommitted' and payload->>'status' is distinct from 'recorded';
 select is((select payload->>'status' from refund_receipt_race_test.results where lane='record_uncommitted'),
   'recorded','Actual receipt RPC owns an uncommitted original-bound receipt');
 select is((select count(*)::integer from public.refund_authoritative_receipts
@@ -181,12 +185,6 @@ select is((select payload->>'reason' from extensions.dblink('receipt_race_b',$q$
   select public.service_claim_refund_follow_up_customer_reply('af400000-0000-4000-8000-000000000001',
     'af910000-0000-4000-8000-000000000001')$q$) as x(payload jsonb)),'case_busy',
   'Reply recheck preserves cycle-first order and safely skips the locked parent');
-select is((select payload->>'reason' from extensions.dblink('receipt_race_b',$q$
-  select public.service_authorize_refund_manager_aging_notice('af400000-0000-4000-8000-000000000001',
-    (select attention_version from public.refund_manager_attention_states
-      where refund_case_id='af400000-0000-4000-8000-000000000001'),
-    'escalation',statement_timestamp()+interval '20 days','America/Los_Angeles',2,5,'refund_manager_aging_v1')
-  $q$) as x(payload jsonb)),'case_busy','Manager authorization does not invert the receipt/correction parent lock');
 select is(refund_receipt_race_test.work_snapshot(),
   (select payload from refund_receipt_race_test.results where lane='historical_work_before'),
   'Overlapping scheduler calls preserve complete historical cycles, messages, and action ledger');
@@ -298,8 +296,10 @@ select is(refund_receipt_race_test.run('record',n)->>'status','recorded',
   'Old candidate '||n||' receives an actual authoritative receipt') from generate_series(3,27) n;
 select is((select count(*)::integer from public.service_list_refund_follow_up_customer_reply_candidates(25)),1,
   'Twenty-five receipt-backed cycles do not consume the bounded reply page');
-select is((select refund_case_id from public.service_list_refund_follow_up_customer_reply_candidates(25)),
-  'af400000-0000-4000-8000-000000000028'::uuid,'Newer unresolved reply is still discovered behind a full receipt-backed page');
+select is((select jsonb_agg(refund_case_id order by refund_case_id)
+  from public.service_list_refund_follow_up_customer_reply_candidates(25)),
+  '["af400000-0000-4000-8000-000000000028"]'::jsonb,
+  'Newer unresolved reply is still discovered behind a full receipt-backed page');
 select * from finish();
 select extensions.dblink_disconnect('receipt_race_a');
 select extensions.dblink_disconnect('receipt_race_b');

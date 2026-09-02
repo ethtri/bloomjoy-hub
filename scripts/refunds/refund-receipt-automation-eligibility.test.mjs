@@ -93,6 +93,8 @@ test('forward patch anchors match the current runtime source exactly once', () =
   ]) assert.equal(body.split(anchor).length, 2, anchor);
   const migration = read('supabase/migrations/20260902195754_refund_receipt_automation_eligibility.sql');
   assert.match(migration, /for update skip locked/g);
-  assert.match(migration, /for share skip locked/);
+  // Manager authorization follows a permanent action-key claim; a transient
+  // skip there would consume the ordinary milestone, so preserve that lock.
+  assert.doesNotMatch(migration, /for share skip locked/);
   assert.doesNotMatch(migration, /disable trigger|update public\.refund_authoritative_receipts/);
 });
