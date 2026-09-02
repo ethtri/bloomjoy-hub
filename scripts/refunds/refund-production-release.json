@@ -126,7 +126,8 @@
     "20260902191832_refund_authoritative_reconciliation_receipt.sql",
     "20260902192844_refund_legacy_machine_correction.sql",
     "20260902195401_refund_historical_owner_notice.sql",
-    "20260902195754_refund_receipt_automation_eligibility.sql"
+    "20260902195754_refund_receipt_automation_eligibility.sql",
+    "20260902200508_refund_gmail_receipt_processing.sql"
   ],
   "migrationFilesSha256": "19c81ea9daf45c2f4e55578be656a4194abf10cf518d5f657c69d840e836b33f",
   "migrationVersionSetSha256": "a2ab9a74726f9d577cc15034c93ebedcd39ef1aa0f4b18f574ab57f8c8076c35",
@@ -248,7 +249,7 @@
     {
       "slug": "refund-gmail-sync",
       "verifyJwt": false,
-      "sourceSha256": "de307020b85eb9988b93023e4a57d32ffb0e7dc5502c5cc520e8adf8d5c4a849",
+      "sourceSha256": "2809fd93a36323ebbb8e0e41d6091fec1a747c9fc06bd840e90e74eb369ea739",
       "production": {
         "version": 92,
         "ezbrSha256": "32bc343507d218d9872239e65987f8ff3f4057ae66c4154b2f5910f34ba3680a",

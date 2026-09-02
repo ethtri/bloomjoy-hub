@@ -970,3 +970,13 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] Add a later sanitized `nayax_recommendation_evaluated` event through the synthetic lookup flow. Confirm only the historical-review freeze clears: the case remains `needs_review`, decisionless, provider `not_requested`, and execution-ineligible.
 - [ ] Near-miss fixtures are rejected without row changes: zero messages, the former one-approval-only shape, three or more messages, pending/failed/skipped messages, a completed or other message type, a draft case, duplicate confirmations, duplicate approvals, wrong confirmation phrase, or any provider attempt.
 - [ ] Do not run the owner operation in production during PR/UAT. Live normalization requires separate owner approval, backup, exact aggregate precheck, and the private runbook ceremony.
+
+## Receipt-aware Gmail processing regression
+
+- Run `node --test scripts/refunds/refund-customer-reply-recovery.test.mjs` and
+  `npm run db:validate-migrations` in an isolated worktree/disposable database.
+  Confirm receipt-first and queued fact applications leave the complete case and
+  incoming message unchanged, with no fact ledger, customer intent, payment, or
+  accounting effect; ordinary card recovery and the existing cash payout suite
+  must still pass. The actual post-ingestion worker test must retain one internal
+  incoming-message notice and report zero false message failures.
