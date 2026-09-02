@@ -22,6 +22,7 @@ const schedulerIncidentMigration = read(
   'supabase/migrations/20260901180116_refund_scheduler_incident_1069.sql'
 );
 const followUpMigration = read('supabase/migrations/202608030005_refund_deterministic_follow_up_cycles.sql');
+const receiptEligibilityMigration = read('supabase/migrations/20260902195754_refund_receipt_automation_eligibility.sql');
 const managerAgingMigration = read('supabase/migrations/202608040001_refund_manager_aging_reminders.sql');
 const sweep = read('supabase/functions/refund-case-automation-sweep/index.ts');
 const intake = read('supabase/functions/refund-case-intake/index.ts');
@@ -107,8 +108,10 @@ check(
 check(
   'Reminder and verified-customer reply workers consume the exact database contract',
   sweep.includes('Array.isArray(claim.reminders) ? claim.reminders : []') &&
-    sweep.includes('.in("status", ["waiting", "customer_replied"])') &&
-    sweep.includes('.is("recheck_claimed_at", null)') &&
+    sweep.includes('"service_list_refund_follow_up_customer_reply_candidates"') &&
+    receiptEligibilityMigration.includes("cycle.status in ('waiting','customer_replied')") &&
+    receiptEligibilityMigration.includes('cycle.recheck_claimed_at is null') &&
+    receiptEligibilityMigration.includes('receipt.refund_case_id=cycle.refund_case_id') &&
     !sweep.includes('.is("reply_message_id", null)') &&
     followUpMigration.includes("message.participant_role = 'customer'") &&
     followUpMigration.includes("message.participant_trust = 'verified'") &&

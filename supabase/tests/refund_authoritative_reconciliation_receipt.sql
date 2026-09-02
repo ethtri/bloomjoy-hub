@@ -91,6 +91,27 @@ select ok(not has_table_privilege('service_role','public.refund_authoritative_re
 select ok(not has_table_privilege('authenticated','public.refund_completion_notice_adoptions','select'), 'Prior message evidence is private');
 select ok(not has_function_privilege('anon','public.admin_record_refund_authoritative_receipt(uuid,uuid,bigint,text,text,text,integer,integer,text,integer,text,boolean)','execute'), 'Anonymous cannot record evidence');
 select ok(not has_function_privilege('service_role','public.admin_record_refund_authoritative_receipt(uuid,uuid,bigint,text,text,text,integer,integer,text,integer,text,boolean)','execute'), 'Background service cannot impersonate operator');
+-- The full persona suite runs after the disposable historical-DDL regressions
+-- roll back. Assert the final runtime eligibility guards survived that replay.
+select ok((select prosecdef and position('refund_authoritative_receipts' in prosrc)>0
+  from pg_proc where oid=signature::regprocedure),
+  'Final post-replay receipt-aware security-definer source exists: '||signature)
+from unnest(array[
+  'public.service_list_due_refund_provider_delay_attempts(timestamptz,integer)',
+  'public.service_list_refund_follow_up_customer_reply_candidates(integer)',
+  'public.service_claim_refund_automation_action(uuid,uuid,text,text,text,timestamptz)',
+  'public.service_claim_due_refund_follow_up_reminders(integer)',
+  'public.service_claim_refund_follow_up_customer_reply(uuid,uuid)',
+  'public.service_list_due_refund_manager_aging_notices(timestamptz,text,integer,integer,text,integer)',
+  'public.service_authorize_refund_manager_aging_notice(uuid,bigint,text,timestamptz,text,integer,integer,text)',
+  'public.service_claim_due_refund_payout_destination_follow_ups(integer,boolean)'
+]) signature;
+select ok(not has_function_privilege(role_name,
+  'public.service_list_refund_follow_up_customer_reply_candidates(integer)','execute'),
+  role_name||' cannot enumerate private reply candidate identities') from unnest(array['anon','authenticated']) role_name;
+select ok(has_function_privilege('service_role',
+  'public.service_list_refund_follow_up_customer_reply_candidates(integer)','execute'),
+  'Background worker alone can discover the bounded receipt-filtered reply page');
 select ok(not has_function_privilege(role_name,signature,'execute'),role_name||' cannot execute '||signature)
 from unnest(array['anon','authenticated']) role_name
 cross join unnest(array[
@@ -172,7 +193,62 @@ values('ad700000-0000-4000-8000-000000000009','ad400000-0000-4000-8000-000000000
 
 select is(pg_temp.record_receipt(1)->>'status','recorded','Legacy no-attempt case receives an observation receipt');
 select is(pg_temp.record_receipt(1)->>'status','already_recorded','Exact replay creates no second receipt');
+set local role service_role;
+select is((select count(*)::integer from public.service_list_due_refund_provider_delay_attempts(
+  statement_timestamp()+interval '7 days',100)
+  where refund_case_id='ad400000-0000-4000-8000-000000000002'),1,
+  'A genuinely unresolved latest hold remains eligible for provider-delay work');
+reset role;
 select is(pg_temp.record_receipt(2)->>'status','recorded','Durable held attempt accepts exact authoritative observation');
+create temporary table receipt_attempt_before_scheduling as
+select to_jsonb(attempt) as value from public.refund_case_nayax_refund_attempts attempt
+where refund_case_id='ad400000-0000-4000-8000-000000000002';
+set local role service_role;
+select is((select count(*)::integer from public.service_list_due_refund_provider_delay_attempts(
+  statement_timestamp()+interval '7 days',100)
+  where refund_case_id='ad400000-0000-4000-8000-000000000002'),0,
+  'Confirmed receipt excludes the preserved unknown attempt before customer-delay action claim');
+reset role;
+select is((select to_jsonb(attempt) from public.refund_case_nayax_refund_attempts attempt
+  where refund_case_id='ad400000-0000-4000-8000-000000000002'),
+  (select value from receipt_attempt_before_scheduling),
+  'Receipt-aware scheduling preserves every historical attempt field');
+select is((select count(*)::integer from public.refund_automation_actions
+  where refund_case_id='ad400000-0000-4000-8000-000000000002'),0,
+  'Receipt-aware provider-delay selection creates neither a claim nor a failed action');
+insert into public.refund_automation_runs(id,run_key,trigger_source,status)
+values('ad900000-0000-4000-8000-000000000001','receipt-eligibility-fixture','manual','running');
+create temporary table receipt_case_before_scheduling as
+select to_jsonb(c) as value from public.refund_cases c
+where id='ad400000-0000-4000-8000-000000000002';
+set local role service_role;
+select is(public.service_claim_refund_automation_action(
+  'ad900000-0000-4000-8000-000000000001','ad400000-0000-4000-8000-000000000002',
+  'receipt-eligibility:'||action_type,action_type),
+  '{"actionId":null,"claimed":false,"status":"not_eligible","reasonCategory":"authoritative_refund_receipt"}'::jsonb,
+  'Confirmed receipt declines obsolete '||action_type||' work before writing an action')
+from unnest(array['nayax_lookup','customer_reminder','customer_more_info',
+  'wallet_correction_request','wallet_correction_reminder','customer_information_received',
+  'customer_reply_recheck','customer_status_update','manager_reminder','manager_escalation']) action_type;
+reset role;
+select is((select count(*)::integer from public.refund_automation_actions
+  where refund_case_id='ad400000-0000-4000-8000-000000000002'),0,
+  'All receipt-backed customer and old aging claims leave no claimed or failed ledger row');
+select is((select to_jsonb(c) from public.refund_cases c
+  where id='ad400000-0000-4000-8000-000000000002'),
+  (select value from receipt_case_before_scheduling),
+  'Declining obsolete work preserves every case field including lifecycle revision');
+set local role service_role;
+select is(public.service_claim_refund_automation_action(
+  'ad900000-0000-4000-8000-000000000001','ad400000-0000-4000-8000-000000000003',
+  'receipt-eligibility:unresolved','customer_status_update')->>'claimed','true',
+  'An unreceipted case can still claim ordinary status work');
+select is(public.service_claim_refund_automation_action(
+  'ad900000-0000-4000-8000-000000000001','ad400000-0000-4000-8000-000000000002',
+  'receipt-eligibility:'||action_type,action_type)->>'claimed','true',
+  'Receipt does not suppress internal '||action_type||' work')
+from unnest(array['provider_exception','internal_escalation','ops_alert']) action_type;
+reset role;
 select is((select count(*)::integer from public.refund_authoritative_receipts),2,'Only two receipts were recorded');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts where refund_case_id='ad400000-0000-4000-8000-000000000001'),0,'No attempt is fabricated for historical integrity case');
 select is((select status from public.refund_case_nayax_refund_attempts where refund_case_id='ad400000-0000-4000-8000-000000000002'),'manual_review','Original attempt remains historical evidence');
