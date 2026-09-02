@@ -1172,13 +1172,11 @@ begin
   if p_refund_case_id is null
     or p_gmail_message_id is null
     or coalesce(p_expected_fact_version, 0) < 1
-    or case
-      when pg_catalog.jsonb_typeof(p_updates) = 'object' then (
-        select count(*)
-        from pg_catalog.jsonb_object_keys(p_updates)
-      ) <> 1
-      else true
-    end
+    or pg_catalog.jsonb_typeof(p_updates) <> 'object'
+    or p_updates is distinct from jsonb_build_object(
+      'zelle_payment_contact',
+      p_updates -> 'zelle_payment_contact'
+    )
     or not (p_updates ? 'zelle_payment_contact')
     or public.canonical_refund_follow_up_fields(p_applied_fields)
       is distinct from array['zelle_payment_contact']::text[]
