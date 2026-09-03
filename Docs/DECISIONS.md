@@ -1,5 +1,14 @@
 # Decisions
 
+## 2026-09-03 - Exact purchase checks and independent refund confirmation (`#990`, `#971`)
+
+- The normal manager action may use a currently mapped manager's exact-purchase Nayax portal check while report delivery is being validated. The check records original amount, zero cumulative prior refunds, full remaining amount, USD, account/machine/original/site identity and the exact raw Machine AuTime. It expires after five minutes, binds once to an attempt, and is rechecked before each provider stage. Saving the check does not approve payment. Direct Nayax operators must coordinate because Bloomjoy cannot lock external portal actions.
+- The existing manager confirmation remains the payment authority. Both provider requests preserve the raw machine authorization time and precision; a GMT sale timestamp is not substituted.
+- A reviewed response contract may explicitly select `responseLearningMode: inspect_unknown` with only independently evidenced response pairs, including none. This supersedes the requirement to provide examples of every success/duplicate/already-refunded pair before one legitimate request. It does not waive identity, credential-scope, runtime, amount, manager, journal or concurrency checks. Unmatched responses remain unknown and cannot authorize API approval or a new request. Exact current provider inspection determines the next action; the retired approval-only recovery route remains retired.
+- Independent full-refund evidence for a verified API attempt uses the same receipt writer as portal outcomes, after its active provider claim has ended. It cannot create a second attempt, fabricate a settlement date, or send a customer message. Receipt-based accounting and existing-notice rules remain unchanged. Scheduled report data is admitted only after its actual delivery, fields, original linkage and status semantics have been validated.
+
+Production execution remains held until configuration and operational acceptance are verified. This decision implements the September 2 API-first operating direction; it supplies no new payment or messaging authority.
+
 ## 2026-09-02 - Localized refund reply instructions are a parser contract (`#891`, `#923`)
 
 - Every copyable Spanish field label emitted by the customer email must be recognized by the deterministic reply extractor; translation alone does not complete the customer workflow. Supported payment answers use a fixed translation dictionary, not free-form inference.

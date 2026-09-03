@@ -29,6 +29,15 @@ Deno.test('UI receipt request uses exact selected fields and cannot supply a set
   assertEquals(Object.hasOwn(request, 'observedAt'), false);
   assertEquals(Object.hasOwn(request, 'settledAt'), false);
 });
+Deno.test('verified API receipt uses the same evidence-only request without caller-assigned provenance', () => {
+  const v = parseRefundReceiptOverview({ ...overview(), attemptId: 'ad600000-0000-4000-8000-000000000001',
+    attemptBindingKind: 'verified_authorized_api' })!;
+  const request = buildReceiptRecordRequest(v, 'DTM:NAYAX-123456781', true);
+  assertEquals(request.mode, 'record_authoritative_receipt');
+  assertEquals(request.attemptId, v.attemptId);
+  assertEquals(Object.hasOwn(request, 'attemptBindingKind'), false);
+  assertEquals(Object.hasOwn(request, 'settledAt'), false);
+});
 Deno.test('refresh recovers receipt and exact sent choice without allowing a second-case adoption', () => {
   const v = parseRefundReceiptOverview({ ...overview(), canRecord: false,
     receipt: { id: 'ad900000-0000-4000-8000-000000000001', observedAt: '2026-09-02T16:00:00Z',

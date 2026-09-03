@@ -7,6 +7,8 @@
 - A partial balance, pending refund, changed purchase/version, revoked mapping, or expired five-minute check must prevent a new request. Coordinate direct portal actions during execution; Bloomjoy cannot lock another operator's Nayax session.
 - Run `refund_fresh_nayax_execution_verification.sql` and `refund_fresh_nayax_execution_concurrency.sql` only in the disposable database. Two simultaneous confirmations must produce one attempt/claim, and a concurrent replay must not deadlock request-start journaling. Request and approval must preserve identical original transaction, site and raw Machine AuTime.
 - Unknown provider outcomes stay held for the existing portal/outcome resolution flow. Do not retry a request or infer success from HTTP status. Production activation requires current source/migration checks and no unresolved old live provider claims.
+- With an explicit `inspect_unknown` test contract, missing request rules must produce one request and zero approval/retry calls even for HTTP 200. A learned request rule plus unknown approval response must remain held, with the identical original transaction, site and Machine AuTime.
+- For an ended, uncertain verified API attempt, record exact current full-refund evidence through the existing receipt panel. Verify one immutable receipt, no new attempt, no settlement-date guess, no accounting adjustment and no new customer message. Active provider claims, partial evidence, pending status and wrong-account evidence must fail.
 
 ## Historical owner-mailbox refund notice
 

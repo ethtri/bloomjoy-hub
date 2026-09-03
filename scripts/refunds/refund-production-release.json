@@ -128,7 +128,8 @@
     "20260902195401_refund_historical_owner_notice.sql",
     "20260902195754_refund_receipt_automation_eligibility.sql",
     "20260902200508_refund_gmail_receipt_processing.sql",
-    "20260903134847_refund_fresh_nayax_execution_verification.sql"
+    "20260903134847_refund_fresh_nayax_execution_verification.sql",
+    "20260903142925_refund_verified_api_authoritative_receipt.sql"
   ],
   "migrationFilesSha256": "18a5265762d02a88138351b112bb7ab666039f69c62b80650f2eabef08761d5b",
   "migrationVersionSetSha256": "7858ed9400e585b761a04a8af1e3203603704b9999684e15e1b2169065f0dd0e",

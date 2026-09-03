@@ -108,5 +108,50 @@ update public.refund_cases set card_last4='1234' where id='b7400000-0000-4000-80
 select throws_ok($$select pg_temp.reserve_verified(3,(select id from public.refund_nayax_execution_verifications
   where refund_case_id='b7400000-0000-4000-8000-000000000003'))$$,'P4620',null,'Changed case invalidates its earlier verification');
 
+-- One actual normal reservation/start/unknown result may be independently
+-- confirmed through the existing receipt writer. No second payment or date.
+select is(public.refund_receipt_verified_api_attempt('b7400000-0000-4000-8000-000000000001',
+  (select (result#>>'{attempt,attemptId}')::uuid from verified_result)),false,'An active provider claim cannot receive a terminal receipt');
+select public.service_record_nayax_refund_provider_stage_v3('verification-executor',
+  (select (result#>>'{attempt,attemptId}')::uuid from verified_result),(select result->>'providerClaimToken' from verified_result),
+  'request','result',200,'unknown',false,null,repeat('b',64),'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  true,'application_json','json_object','1_256',true,true,true,true,true,'string','string',false);
+select public.service_settle_nayax_refund_attempt('verification-executor',
+  (select (result#>>'{attempt,attemptId}')::uuid from verified_result),
+  (select (result#>>'{managerAction,authorizationId}')::uuid from verified_result),
+  'b7400000-0000-4000-8000-000000000001','nayax-refund-'||repeat('1',64),800,'USD',
+  (select result->>'providerClaimToken' from verified_result),'unknown',null,null,'provider_request_semantic_mismatch');
+select ok(public.refund_receipt_verified_api_attempt('b7400000-0000-4000-8000-000000000001',
+  (select (result#>>'{attempt,attemptId}')::uuid from verified_result)),'Settled uncertain API attempt has exact immutable purchase authority');
+select is(public.admin_get_refund_authoritative_receipt_overview('b7400000-0000-4000-8000-000000000001')->>'attemptBindingKind',
+  'verified_authorized_api','Existing receipt view accepts verified API outcome review');
+select is(public.admin_get_refund_authoritative_receipt_overview('b7400000-0000-4000-8000-000000000001')->>'canRecord',
+  'true','Existing receipt action is available after the API outcome is held');
+create function pg_temp.record_api_receipt(status_id integer default 62,scope text default 'VERIFICATION-ACCOUNT',amount integer default 800)
+returns jsonb language plpgsql as $$
+declare c public.refund_cases%rowtype; begin
+  select * into c from public.refund_cases where id='b7400000-0000-4000-8000-000000000001';
+  return public.admin_record_refund_authoritative_receipt(c.id,(select (result#>>'{attempt,attemptId}')::uuid from verified_result),
+    c.official_action_version,scope,'VERIFICATION-MACHINE',c.matched_nayax_transaction_id,800,amount,'USD',status_id,
+    'DTM:NAYAX-'||c.matched_nayax_transaction_id,true);
+end $$;
+select throws_ok($$select pg_temp.record_api_receipt(63)$$,'P4661',null,'Pending provider status cannot confirm payment');
+select throws_ok($$select pg_temp.record_api_receipt(62,'OTHER-ACCOUNT')$$,'P4661',null,'Another account cannot confirm this API attempt');
+select throws_ok($$select pg_temp.record_api_receipt(62,'VERIFICATION-ACCOUNT',700)$$,'P4661',null,'Partial evidence cannot confirm the full refund');
+select is(pg_temp.record_api_receipt()->>'status','recorded','Independent full refund saves through the existing receipt writer');
+select is(pg_temp.record_api_receipt()->>'status','already_recorded','Repeated independent confirmation reuses the same receipt');
+select ok((select count(*)=1 and bool_and(settled_at is null and settlement_time_precision='unknown')
+  from public.refund_authoritative_receipts where refund_case_id='b7400000-0000-4000-8000-000000000001'),
+  'One full-refund receipt preserves unknown settlement time');
+select is((select count(*) from public.refund_case_nayax_refund_attempts where refund_case_id='b7400000-0000-4000-8000-000000000001'),
+  1::bigint,'Confirmation creates no new payment attempt');
+select is((select count(*) from public.sales_adjustment_facts where refund_case_id='b7400000-0000-4000-8000-000000000001'),
+  0::bigint,'Unknown settlement date creates no falsely dated adjustment');
+select is((select count(*) from public.refund_case_messages where refund_case_id='b7400000-0000-4000-8000-000000000001'),
+  0::bigint,'Evidence import does not create a second customer message');
+select throws_ok($$insert into public.refund_case_nayax_refund_attempts(refund_case_id,execution_mode,status,idempotency_key,amount_cents)
+  values('b7400000-0000-4000-8000-000000000001','manual_portal','manual_review','forbidden-confirmed-retry',800)$$,
+  'P4663',null,'Confirmed API refund cannot receive an invented portal retry');
+
 select * from finish();
 rollback;
