@@ -31,3 +31,17 @@ Deno.test('purchase correction tokens have a distinct domain from wallet/status 
   const legacyDigest = Array.from(new Uint8Array(raw),(byte)=>byte.toString(16).padStart(2,'0')).join('');
   assert(digest.length === 64 && digest !== legacyDigest && digest === await hashCorrectionToken(token));
 });
+
+Deno.test('changed time has explicit confidence even when the clock value stays the same', () => {
+  const timeContext: CorrectionContext = { ...context, values: { card_last4: '1234', incident_time: '12:30' } };
+  rejects({ card_last4: { disposition: 'confirmed' }, incident_time: { disposition: 'changed', value: '12:30' } },timeContext);
+  const result = validateCorrectionAnswers({ card_last4: { disposition: 'confirmed' }, incident_time: { disposition: 'changed', value: '12:30', confidence: 'rough' } },timeContext);
+  assert(result.incident_time?.disposition === 'changed' && result.incident_time.confidence === 'rough');
+});
+Deno.test('new payment context requires explicit dependent answers without guessing', () => {
+  const paymentContext: CorrectionContext = { ...context, allowedFields: [...context.allowedFields!, 'wallet_provider'], values: { card_last4: '1234',payment_method:'card',payment_interaction:'tap_card' } };
+  const answers = { card_last4: { disposition:'changed',value:'1234' }, payment_interaction:{disposition:'changed',value:'phone_watch_wallet'} };
+  rejects(answers,paymentContext);
+  const result=validateCorrectionAnswers({...answers,wallet_provider:{disposition:'cannot_provide'}},paymentContext);
+  assert(result.card_last4?.disposition === 'confirmed' && result.wallet_provider?.disposition === 'cannot_provide');
+});

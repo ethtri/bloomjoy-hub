@@ -14,6 +14,25 @@ create unique index refund_correction_message_unique
   on public.refund_wallet_correction_contexts(correction_message_id)
   where correction_message_id is not null;
 
+-- Confidence is a matching fact, including a correction to the same clock time.
+do $$
+declare definition text;
+begin
+  definition:=pg_get_functiondef('public.guard_refund_deterministic_fact_version()'::regprocedure);
+  if position('or new.incident_time_confidence is distinct from old.incident_time_confidence' in definition)=0 then
+    if position('or new.incident_time_resolution is distinct from old.incident_time_resolution' in definition)=0 then raise exception 'Fact-version confidence anchor missing'; end if;
+    definition:=replace(definition,'or new.incident_time_resolution is distinct from old.incident_time_resolution',
+      'or new.incident_time_resolution is distinct from old.incident_time_resolution
+    or new.incident_time_confidence is distinct from old.incident_time_confidence');
+    execute definition;
+  end if;
+end;
+$$;
+create trigger refund_cases_guard_time_confidence_fact_version
+before update of incident_time_confidence on public.refund_cases for each row
+when (new.incident_time_confidence is distinct from old.incident_time_confidence)
+execute function public.guard_refund_deterministic_fact_version();
+
 create function public.refund_purchase_correction_eligible(p_case public.refund_cases)
 returns boolean language sql stable security definer set search_path = '' as $$
   select p_case.case_population = 'customer'
@@ -77,7 +96,8 @@ grant execute on function public.refund_purchase_correction_request_fields(uuid)
 create function public.refund_purchase_correction_values(p_case public.refund_cases)
 returns jsonb language sql stable security definer set search_path = '' as $$
   select jsonb_strip_nulls(jsonb_build_object(
-    'location_or_machine', (select l.name from public.reporting_locations l where l.id=p_case.reporting_location_id),
+    'location_or_machine', (select choice.display_label from public.public_refund_selections() choice
+      where choice.selection_key=coalesce(p_case.intake_selection_key,public.refund_public_selection_key('machine|'||p_case.reporting_machine_id::text)) limit 1),
     'incident_date', nullif(left(p_case.incident_local_datetime,10),''),
     'incident_time', case when p_case.incident_time_resolution in ('exact','legacy_absolute') then nullif(substring(p_case.incident_local_datetime from 12 for 5),'') end,
     'payment_method', case when p_case.payment_method in ('card','cash') then p_case.payment_method end,
@@ -235,6 +255,11 @@ begin
     -- Resolve only the same opaque public choice used at intake. Internal
     -- machine/manager identifiers never come from customer input.
     selection := public.service_resolve_refund_public_selection(vals->>'location_or_machine');
+    if c.refund_qr_claim_context_id is not null then
+      -- Keep the original QR proof immutable. Operations resolves the reported
+      -- different public choice from this saved response, without asking again.
+      needs_human:=true;
+    else
     next_case.reporting_location_id := (selection->>'locationId')::uuid;
     next_case.intake_selection_key := selection->>'selectionKey';
     next_case.intake_selection_kind := selection->>'selectionKind';
@@ -242,6 +267,7 @@ begin
     next_case.reporting_machine_id := case when selection->>'selectionKind'='exact_machine' then next_case.intake_selection_machine_ids[1] end;
     next_case.incident_timezone := selection->>'locationTimezone';
     if next_case.reporting_machine_id is null then needs_human:=true; end if;
+    end if;
   end if;
   if 'amount'=any(changed_fields) then next_case.payment_amount_cents := round((vals->>'amount')::numeric*100); end if;
   if 'payment_method'=any(changed_fields) then
@@ -255,6 +281,10 @@ begin
     next_case.payment_interaction := vals->>'payment_interaction';
     next_case.card_wallet_used := next_case.payment_interaction='phone_watch_wallet';
     next_case.card_last4 := null; next_case.card_last4_provenance := null; next_case.wallet_provider := null;
+  end if;
+  if changed_fields && array['payment_method','payment_interaction']::text[] and next_case.payment_method='card' then
+    if not p_answers ? 'card_last4' or (next_case.card_wallet_used and not p_answers ? 'wallet_provider') then raise exception 'Confirm dependent card details or choose cannot provide'; end if;
+    if next_case.payment_interaction='unsure' then needs_human:=true; end if;
   end if;
   if 'wallet_provider'=any(changed_fields) or
     ('payment_interaction'=any(changed_fields) and p_answers->'wallet_provider'->>'disposition' in ('confirmed','changed')) then
