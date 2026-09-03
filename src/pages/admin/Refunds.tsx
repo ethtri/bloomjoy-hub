@@ -19,6 +19,7 @@ import { toast } from 'sonner';
 import { isEdgeFunctionError } from '@/lib/edgeFunctions';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecycleProgress';
+import { RefundReportFreshnessAdvisory } from '@/components/refunds/RefundReportFreshnessAdvisory';
 import { RefundAuthoritativeReceiptPanel } from '@/components/refunds/RefundAuthoritativeReceiptPanel';
 import { RefundExternalRecoveryPanel } from '@/components/refunds/RefundExternalRecoveryPanel';
 import { hasConfirmedRefundReceipt } from '@/lib/refundAuthoritativeReceipt';
@@ -35,6 +36,9 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { refundCorrectionCopy } from '../../../supabase/functions/_shared/refund-correction-copy';
+import { correctionLabels } from '../../../supabase/functions/_shared/refund-correction';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -2051,6 +2055,10 @@ const getCustomerMessageDraft = (
   const missingFieldReplyLines = missingFields.map((field) => missingFieldReplyLine[field]);
   switch (messageType) {
     case 'more_info':
+      if (refundCase.customerCorrectionFields?.length) {
+        const preview = refundCorrectionCopy(refundCase.customerCorrectionFields, refundCase.publicReference, refundCase.customerLocale?.locale === 'es');
+        return { subject: preview.subject, body: [...preview.paragraphs, 'A secure update button and reply-for-help instructions are included.'].join('\n\n') };
+      }
       return {
         subject: `A quick detail check for your Bloomjoy refund request ${refundCase.publicReference}`,
         body: [
@@ -2388,6 +2396,7 @@ export default function AdminRefundsPage() {
     () => new Set()
   );
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
+  const [correctionSelection, setCorrectionSelection] = useState<{ caseId: string; version: number; fields: RefundMissingField[] } | null>(null);
   const [isDisposingAcknowledgementException, setIsDisposingAcknowledgementException] =
     useState(false);
   const [customerLocaleDraft, setCustomerLocaleDraft] = useState<RefundCustomerLocale | ''>('');
@@ -2649,6 +2658,16 @@ export default function AdminRefundsPage() {
 
   const selectedCase = [...overview.cases, ...internalTestCases]
     .find((refundCase) => refundCase.id === selectedId) ?? null;
+  const currentCorrectionFields = selectedCase?.customerCorrectionFields;
+  const currentCorrectionCaseId = selectedCase?.id;
+  useEffect(() => {
+    setCorrectionSelection((current) => {
+      if (!current || current.caseId !== currentCorrectionCaseId || !currentCorrectionFields) return null;
+      const fields = current.fields.filter((field) => currentCorrectionFields.includes(field));
+      if (current.version === officialActionVersion && fields.length === current.fields.length) return current;
+      return { ...current, version: officialActionVersion, fields };
+    });
+  }, [currentCorrectionCaseId, currentCorrectionFields, officialActionVersion]);
   const selectedCaseIsInternalTest = selectedCase?.internalTest?.classification ===
     'internal_test_no_customer_refund';
   const selectedAcknowledgementException = selectedCase?.acknowledgementDeliveryException ?? null;
@@ -4393,7 +4412,7 @@ export default function AdminRefundsPage() {
     );
   };
 
-  const handleSendCustomerMessage = async (messageTypeOverride?: RefundCustomerPortalMessageType | null) => {
+  const handleSendCustomerMessage = async (messageTypeOverride?: RefundCustomerPortalMessageType | null, selectedCorrectionFields?: RefundMissingField[]) => {
     if (!selectedCase) return;
     if (customerDeliveryNeedsReconciliation) {
       toast.error('Gmail delivery is uncertain. Check the original Gmail thread before sending anything else.');
@@ -4405,6 +4424,21 @@ export default function AdminRefundsPage() {
     }
 
     const nextMessageType = messageTypeOverride ?? messageType;
+    if (nextMessageType === 'more_info' && selectedCase.customerCorrectionFields) {
+      if (selectedCase.customerCorrection?.isActive || !selectedCase.customerCorrectionFields.length) {
+        toast.error('This request is already active or needs internal review. Refresh the case for its next action.');
+        return;
+      }
+      if (!selectedCorrectionFields) {
+        setCorrectionSelection({ caseId: selectedCase.id, version: officialActionVersion, fields: [...selectedCase.customerCorrectionFields] });
+        return;
+      }
+      if (!correctionSelection || correctionSelection.caseId !== selectedCase.id || correctionSelection.version !== officialActionVersion ||
+          !selectedCorrectionFields.length || selectedCorrectionFields.some((field) => !selectedCase.customerCorrectionFields!.includes(field))) {
+        toast.error('The available details changed. Reopen the correction request and choose at least one current detail.');
+        return;
+      }
+    }
     const triageSuggestion = gmailContext?.triageSuggestion;
     const usesReviewedTriageDraft =
       nextMessageType === 'more_info' &&
@@ -4432,7 +4466,7 @@ export default function AdminRefundsPage() {
 
     const missingFields = nextMessageType === 'more_info'
       ? selectedCase.customerCorrectionFields
-        ? selectedCase.customerCorrectionFields
+        ? selectedCorrectionFields!
         : usesReviewedTriageDraft
         ? sanitizePortalMissingFields(triageSuggestion?.missingFields ?? [])
         : derivePortalRefundMissingFields(selectedCase)
@@ -4467,6 +4501,7 @@ export default function AdminRefundsPage() {
         missingFields,
       });
       manualMessageIntentRef.current = null;
+      setCorrectionSelection(null);
       toast.success(
         sentMessage.transport === 'gmail_thread'
           ? 'Reply sent in the Gmail thread.'
@@ -6531,6 +6566,10 @@ export default function AdminRefundsPage() {
             </div>
           </div>
 
+          {refundOperationsAccess && !isUsingDemoData && (
+            <RefundReportFreshnessAdvisory freshness={gmailHealth?.reportFreshness} />
+          )}
+
           {error && !isUsingDemoData && (
             <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               Failed to load refund operations.
@@ -8339,6 +8378,37 @@ export default function AdminRefundsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <Dialog open={Boolean(correctionSelection)} onOpenChange={(open) => { if (!open && !isSendingCustomerMessage) setCorrectionSelection(null); }}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Request customer correction</DialogTitle>
+            <DialogDescription>Select the details that need checking. Bloomjoy will send one secure link for this existing request.</DialogDescription>
+          </DialogHeader>
+          <fieldset className="space-y-1">
+            <legend className="mb-2 text-sm font-medium">Details to check</legend>
+            {(selectedCase?.customerCorrectionFields ?? []).map((field) => <label key={field} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 hover:bg-muted">
+              <Checkbox checked={correctionSelection?.fields.includes(field) ?? false} disabled={isSendingCustomerMessage || selectedCase?.customerCorrection?.isActive === true}
+                onCheckedChange={(checked) => setCorrectionSelection((current) => current ? { ...current, fields: checked ? [...current.fields.filter((item) => item !== field), field] : current.fields.filter((item) => item !== field) } : current)} />
+              <span className="text-sm">{correctionLabels[field][0]}</span>
+            </label>)}
+          </fieldset>
+          {correctionSelection && selectedCase && correctionSelection.fields.length > 0 && <details className="rounded-md border p-3 text-sm">
+            <summary className="cursor-pointer font-medium">Preview customer email</summary>
+            <div className="mt-3 space-y-3 leading-6">
+              <p className="font-medium">{refundCorrectionCopy(correctionSelection.fields, selectedCase.publicReference, selectedCase.customerLocale?.locale === 'es').subject}</p>
+              {refundCorrectionCopy(correctionSelection.fields, selectedCase.publicReference, selectedCase.customerLocale?.locale === 'es').paragraphs.map((paragraph, index) => <p key={index}>{paragraph}</p>)}
+              <p className="text-muted-foreground">A secure update button and reply-for-help instructions are included.</p>
+            </div>
+          </details>}
+          {correctionSelection && (correctionSelection.caseId !== selectedCase?.id || correctionSelection.version !== officialActionVersion) && <p role="alert" className="text-sm text-destructive">This case changed. Close and reopen this request to review the current details.</p>}
+          {!correctionSelection?.fields.length && <p role="status" className="text-sm text-muted-foreground">Choose at least one detail to send a correction request.</p>}
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={isSendingCustomerMessage} onClick={() => setCorrectionSelection(null)}>Cancel</Button>
+            <Button type="button" disabled={isSendingCustomerMessage || !correctionSelection?.fields.length || correctionSelection.caseId !== selectedCase?.id || correctionSelection.version !== officialActionVersion || selectedCase?.customerCorrection?.isActive === true}
+              onClick={() => void handleSendCustomerMessage('more_info', correctionSelection?.fields)}>{isSendingCustomerMessage ? 'Sending…' : 'Send correction request'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

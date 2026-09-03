@@ -8,6 +8,15 @@ Last updated: 2026-08-30
 
 Bloomjoy is in production. Follow `Docs/REFUND_PRODUCTION_POLICY.md`; do not reintroduce pilot caps, canaries, account-wide holds, or first-proof ceremony.
 
+Agents start with `Docs/REFUND_AGENT_OPERATIONS.md` and current #628/#990 bodies.
+The September 3 release is deployed and API execution enabled. Ordinary exact
+refund approval covers unchanged request, approval, inspection and supported
+fallback; it survives handoff without another testing approval. The first scheduled
+report arrived September 3, but its refund row lacks terminal status. Report
+delivery is not a first-attempt dependency; use exact portal confirmation where
+needed. Historical sections below preserve earlier rollout evidence, not current
+activation gates.
+
 ### Normal refund
 
 1. Search Bloomjoy and Nayax records before asking the customer for more information.
@@ -16,8 +25,8 @@ Bloomjoy is in production. Follow `Docs/REFUND_PRODUCTION_POLICY.md`; do not rei
    - In the manager evidence card, copy the **Selected Nayax transaction ID** into Dynamic Transactions Monitor and use the separately labeled **Provider machine-local time** plus its IANA timezone for the report window. Do not reconstruct the ID from raw data or ask the customer to repeat details Bloomjoy already holds.
 3. Run the privacy-safe preflight: active mapped machine and manager; no successful or unresolved attempt on this transaction; exact transaction uniqueness; current case version; idempotency, unique-attempt, unique-provider-stage, journal, and kill-switch controls present.
 4. Healthy operation uses execution enabled, dry-run false, kill switch false, the idempotency secret, executor assertion, exact provider contract, and separate account-scoped request/approval credentials. No case allowlist or amount/count cap is required.
-5. The mapped manager selects **Refund $X** and confirms once immediately before money moves. One immutable generation permits at most one Nayax request and one approval. Double-click, reload, stale tab, concurrency, and replay cannot create a second send.
-6. On confirmed success, require one case completion, reporting adjustment, audit result, and customer completion. On confirmed rejection or authoritative proof that no refund occurred, offer a fresh manager-confirmed generation. On timeout, pending, unknown, or conflict, pause only that transaction and check Nayax before another attempt. Unrelated refunds continue.
+5. The mapped manager selects **Refund $X** and makes one exact-refund decision. That decision persists across unchanged execution and supported fallback. One immutable generation permits at most one Nayax request and one approval. Double-click, reload, stale tab, concurrency, and replay cannot create a second send.
+6. Independently confirm the provider outcome, then reconcile once and send/adopt one accurate customer completion. Unknown accounting dates stay internal and must not delay customer completion. On definite rejection or authoritative no-refund evidence, preserve unchanged approval through supported correction/fallback and a new journaled generation where needed. On pending, continue that same request; on timeout, unknown, or conflict, inspect that transaction before another payment action. Unrelated refunds continue.
 
 ### Immediate rollback
 
@@ -488,8 +497,8 @@ Normal Nayax refund operation (`#628`, `#990`):
 - Read-only lookup, exact evidence selection, and reviewed portal fallback remain usable. For an approved first attempt, the direct API uses the exact selected original transaction and full original amount; no separate remaining-balance proof is required.
 - A known prior partial refund, active or uncertain Bloomjoy attempt, duplicate transaction, stale evidence, authority failure, or inconsistent original identity remains closed for review. Nayax's original-transaction cap is a provider backstop; Bloomjoy still enforces the exact purchase, amount, manager authority, transaction uniqueness, idempotency, and immutable journal.
 - There is no $10 proof, $50 per-refund limit, daily count/value cap, case allowlist, canary, first-ten sample, or account-wide hold.
-- Require one explicit manager confirmation immediately before money moves, one immutable generation, at most one request and one approval per generation, one terminal settlement decision, and exactly-once reporting/customer completion. Repeat clicks, reloads, workers, and replays cannot create another provider send.
-- A definitive rejection or other authoritative proof that no refund occurred permits a fresh, separately confirmed generation. An uncertain outcome holds only that exact transaction while Nayax is checked. Unrelated transactions and customers continue normally.
+- Require one exact-refund manager decision preserved across unchanged execution, one immutable generation, at most one request and one approval per generation, one terminal settlement decision, and exactly-once reporting/customer completion. Repeat clicks, reloads, workers, and replays cannot create another provider send.
+- A definitive rejection or other authoritative proof that no refund occurred permits supported correction/fallback under the unchanged exact-refund approval, with a new journaled generation where needed. An uncertain outcome holds only that exact transaction while Nayax is checked. Unrelated transactions and customers continue normally.
 - A customer may receive refunds for multiple distinct purchases. The database must continue to prevent two Bloomjoy cases from using the same exact Nayax transaction; two cases with exact different transaction IDs are automatically distinct.
 - The kill switch is for a genuine systemic incident, not routine volume management. Rollback order is kill switch first and execution off second. Preserve every attempt, resolution, journal, reporting, and message record; never delete or rewrite financial history.
 

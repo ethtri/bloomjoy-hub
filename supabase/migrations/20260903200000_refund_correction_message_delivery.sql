@@ -148,6 +148,9 @@ $sync$;
       'location_or_machine', 'incident_date', 'incident_time',
       'payment_method', 'amount', 'card_last4', 'zelle_payment_contact'
     ]::text[]$legacy_fields$;
+  -- Dollar-quoted text keeps checkout line endings, just like stored function
+  -- bodies. Normalize both sides before the exact, fail-closed source match.
+  needle := replace(needle,E'\r\n',E'\n');
   replacement := $scoped_fields$    or not (
       coalesce(p_requested_fields, '{}'::text[]) <@ array[
         'location_or_machine', 'incident_date', 'incident_time',

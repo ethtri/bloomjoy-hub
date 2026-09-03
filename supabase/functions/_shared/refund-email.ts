@@ -23,7 +23,7 @@ import {
   sanitizeRefundCustomerLocale,
   type RefundCustomerLocale,
 } from "./refund-language.ts";
-import { correctionLabels } from "./refund-correction.ts";
+import { refundCorrectionCopy } from "./refund-correction-copy.ts";
 import { requireRefundCorrectionUrl, STORED_CORRECTION_LINK_MARKER } from "./refund-correction-delivery.ts";
 
 export {
@@ -625,19 +625,7 @@ export const buildRefundPurchaseCorrectionEmail = (input: RefundCustomerEmailInp
     ? null : requireRefundCorrectionUrl(input.correctionUrl);
   const spanish = sanitizeRefundCustomerLocale(input.customerLocale) === "es";
   const reference = sanitizeText(input.publicReference, 80);
-  const subject = spanish ? `Actualice su solicitud de reembolso de Bloomjoy ${reference}` : `Update your Bloomjoy refund request ${reference}`;
-  const requested = fields.map((field) => correctionLabels[field][0]).join(", ");
-  const english = [
-    `Please check these details for your existing refund request: ${requested}.`,
-    "Use the button below to update a detail, confirm it is correct, or tell us you are not sure. Your other details are already saved, and you do not need to start another request.",
-    "We will review your response and recheck the purchase when needed. Updating details does not approve or complete a refund.",
-  ];
-  const paragraphs = spanish ? [
-    `Revise estos datos de su solicitud de reembolso actual: ${fields.map((field) => correctionLabels[field][1]).join(", ")}.`,
-    "Use el botón para corregir un dato, confirmar que es correcto o indicar que no está seguro. Sus otros datos ya están guardados; no necesita crear otra solicitud.",
-    "Revisaremos su respuesta y la compra cuando sea necesario. Actualizar datos no aprueba ni completa un reembolso.",
-    "English", ...english,
-  ] : english;
+  const { subject, paragraphs } = refundCorrectionCopy(fields, reference, spanish);
   const label = spanish ? "Actualizar su solicitud / Update your refund request" : "Update your refund request";
   const replyLine = spanish
     ? "Puede responder a este correo si necesita ayuda. / You can reply to this email if you need help."

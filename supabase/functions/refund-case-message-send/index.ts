@@ -689,13 +689,21 @@ serve(async (req) => {
             "This case has no structured purchase detail to request. Return it to manager review.",
         }, 409);
       }
-      if (!sameMissingFields(reviewedMissingFields, currentFields)) {
+      const validSelection = correctionEnabled
+        ? Array.isArray(body?.missingFields) && suppliedMissingFields.length > 0 &&
+          body.missingFields.length === suppliedMissingFields.length &&
+          suppliedMissingFields.every((field) => currentFields.includes(field))
+        : sameMissingFields(reviewedMissingFields, currentFields);
+      if (!validSelection) {
         return jsonResponse({
           error:
             "The case facts changed. Refresh before asking for the exact missing purchase details.",
         }, 409);
       }
-      missingFields = currentFields;
+      if (correctionEnabled && (triageSuggestionId || body?.subject !== undefined || body?.body !== undefined)) {
+        return jsonResponse({ error: "Correction requests use the approved message for the selected details." }, 400);
+      }
+      missingFields = correctionEnabled ? suppliedMissingFields : currentFields;
     }
 
     const customerMessageError = validateRefundCustomerMessageRequest({

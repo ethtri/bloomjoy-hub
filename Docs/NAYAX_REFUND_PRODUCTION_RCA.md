@@ -2,13 +2,21 @@
 
 Last updated: 2026-09-03
 
+Current operations: the September 3 release is deployed and API execution is
+enabled. Follow `Docs/REFUND_AGENT_OPERATIONS.md` and current #990 decisions for
+real normally approved production attempts. Historical recovery prerequisites
+below do not impose a new balance fetch, vendor/report wait or testing approval.
+Independent exact portal confirmation is valid outcome evidence while automated
+terminal report confirmation remains unproved; it must be attributable to the same original/attempt
+to establish API execution success.
+
 ## Executive finding
 
 **The historical Eastridge `$10.90` refund is confirmed; its attribution to Bloomjoy's API calls is unproved.** September 3 review of the original request and both approval logs found provider-reported failures. Later Nayax Support and DTM confirmation establishes that the transaction was refunded, but does not establish which operation or actor completed it. The earlier claim that this case proved API write capability was too strong.
 
 The unresolved problem is narrower and more technical:
 
-1. Bloomjoy has not yet proved one direct, fully automatic request -> approval -> finalization run whose immediate API responses were classified correctly without Nayax Support or Dynamic Transactions Monitor (DTM) reconciliation.
+1. Bloomjoy has not yet proved one direct, fully automatic request -> approval -> finalization run. Current production acceptance first requires attributable API request/approval and an independently confirmed outcome; exact Dynamic Transactions Monitor (DTM) evidence is sufficient for that independent check while report automation is unproved.
 2. Nayax returns business meaning in the JSON `Result` and `Status` fields, but its public contract does not publish the literal accepted/rejected values that Bloomjoy must match.
 3. An outer HTTP `200` is not proof of business acceptance. Nayax's provider-owned log for the later held `$8` request proves an HTTP-`200` business rejection.
 4. Nayax's public Lynx documentation does not identify a read-only refund-status endpoint. DTM or a Nayax Support confirmation is therefore the authoritative fallback when the write response is ambiguous.
@@ -25,7 +33,8 @@ These states must not be collapsed into one “success” label:
 | Request accepted | Nayax created a pending refund request | The separate approval completed or money was returned |
 | Provider refund confirmed | Nayax/DTM shows the refund as completed | Which call or actor caused it, or whether Bloomjoy classified both write responses automatically |
 | Bloomjoy settled | The case, reporting adjustment, audit, and customer completion were committed exactly once | The provider call itself was successful unless linked to authoritative provider evidence |
-| Direct end-to-end success | One manager action produced one accepted request, at most one accepted approval, authoritative provider success, and exactly-once Bloomjoy settlement without manual provider reconciliation | Nothing further for that case; this is the required launch proof |
+| Attributed API refund | The same original/attempt has API request and approval evidence plus independent provider refund confirmation, using exact portal evidence when needed | That final confirmation is already automated |
+| Direct end-to-end success | One manager decision produces request, approval, independent provider confirmation and exactly-once Bloomjoy completion automatically | This automation target is not a prerequisite for current approved production operations |
 
 The historical Eastridge case reached **provider refund confirmed** and was reconciled into Bloomjoy. Its final refund cannot be attributed to the reviewed API calls from the retained evidence, and it does not establish **direct end-to-end success**.
 
@@ -135,11 +144,13 @@ This structural match is meaningful but not a successful-production proof. The f
 
 No code or configuration should be changed to one of these hypotheses without provider evidence.
 
-## Why production remains held
+## Historical response hold — superseded September 3
 
-The hold is not a claim that refunds are impossible. It prevents a duplicate or wrong refund while Bloomjoy cannot yet distinguish every accepted and rejected provider response deterministically.
+The earlier response hold was not a claim that refunds were impossible. The
+September 3 owner decision and deployed inspect-unknown path replace it. Do not
+use this historical section as a blanket vendor wait or first-attempt block.
 
-While the response-contract hold is active:
+The specific historical attempts still retain these boundaries:
 
 - do not replay either `$8` transaction;
 - do not send an approval for either historical request;
@@ -148,26 +159,37 @@ While the response-contract hold is active:
 - do not rotate roles or tokens unless Nayax identifies an exact scope defect;
 - use only provider-free DTM/Support reconciliation for a held attempt.
 
-## Current provider-response wait state
+## Historical August 28 vendor-wait snapshot
 
-Provider-free reconciliation of both later `$8` attempts is complete. Neither attempt is pending or replayable, and no refund request or approval is currently in flight. The production hold now exists only because Bloomjoy lacks the provider-owned response contract and rejection explanation required for one fresh direct proof.
+Provider-free reconciliation of both later `$8` attempts is complete. Neither
+attempt is pending or replayable. The August 28 audit stated “no refund request or approval is currently in flight”; that is dated evidence, not a live queue
+assertion. Its blanket response-contract production hold is superseded.
 
 The confirmed escalation routes are Nayax Support case `#03594386` and routing tickets `#03624855`, `#03624856`, and `#03624867`. A copy sent to `integration-support@nayax.com` bounced with a recipient-address rejection, so that address is not a delivered or working route. No substantive human response had arrived by this 2026-08-28 refresh.
 
 A read-only mailbox monitor checks the relevant owner mailbox at 8:00, 11:00, 14:00, and 17:00 Pacific on weekdays beginning 2026-08-31. It remains quiet when nothing material changes and must not send email, change mailbox state intentionally, edit the repository, alter Supabase or Nayax, or issue or approve a refund. When a substantive response arrives, it reports what Nayax confirmed, the exact remaining fact, and the safest next step; it does not automatically take the next external or financial action.
 
-While waiting, Bloomjoy can keep the RCA, regression coverage, issue state, and response-ready implementation path current. It cannot safely register guessed response literals, change payload values, rotate users/roles/tokens, select a live transaction in advance, or run another provider write to discover the answer.
+Do not register guessed response literals, change payload values without
+evidence, or rotate users/roles/tokens speculatively. Current #990 explicitly
+directs learning through legitimate normally approved production writes; vendor
+replies are useful evidence, not a prerequisite.
 
 ## Resolution plan and exit evidence
 
-1. Use only the confirmed Support case and routing tickets to obtain the literal, case-sensitive accepted and rejected `Result` + `Status` pairs for both request and approval. Do not reuse the bounced integration-support address.
-2. Obtain Nayax's exact classification of provider log `17117058946`, including any token-scope or payload-field defect. Do not request another provider write to learn this.
-3. If the evidence requires a change, make the smallest server-only contract/configuration correction. Keep all token values out of code, logs, docs, issues, and the browser.
-4. Run the complete local/database/provider regression suite. Preserve exact manager authority, immutable attempt generations, one request/at-most-one approval, caps, idempotency, duplicate protection, circuit breaker, kill switch, and uncertainty hold.
-5. Select one new, legitimate, owed customer refund of `$10` or less with no prior provider attempt or refund and one exact matching transaction.
-6. Perform one manager-confirmed **Refund $X** action. Immediately verify the request and approval classifications and confirm the final provider state in Nayax.
-7. Prove exactly one Bloomjoy case completion, reporting adjustment, audit outcome, and customer completion message, with no wrong payment or duplicate.
-8. Leave the ordinary qualified lane enabled only after that direct proof and start issue `#427`'s fresh 72-hour observation from the successful production refund.
+1. Follow the enabled #990 path for exact, owed, normally approved purchases.
+   Preserve the approval across unchanged stages and handoffs. No dollar cap,
+   cohort, extra test approval or independent remaining-balance proof applies.
+2. Save useful restricted request/approval diagnostics tied to one durable
+   attempt. Unknown results require inspecting that original/request before
+   another payment; accepted pending requests are continued, not recreated.
+3. Independently verify the outcome in the exact provider record. A definite
+   rejection/no-refund result permits supported correction/fallback; known
+   full refunds enter the existing #971 receipt path without another payment.
+4. Make only demonstrated fixes and run applicable code/database/browser
+   verification with independent review. Reuse unchanged valid release evidence.
+5. Record one Hub completion and send/adopt one accurate notice under existing
+   sending authority. Unknown accounting dates stay internal. Keep #427
+   observation and remaining acceptance open without suspending other refunds.
 
 ## Evidence sources
 
