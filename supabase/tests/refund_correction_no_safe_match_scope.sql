@@ -20,14 +20,14 @@ values('de000000-0000-4000-8000-000000000005','de000000-0000-4000-8000-000000000
 insert into public.refund_nayax_lookup_candidates(refund_case_id,actor_user_id,reporting_machine_id,lookup_generation,provider_transaction_id,site_id,machine_authorization_time,amount_cents,
  card_last4,currency_code,evidence_summary,expires_at)
 values('de000000-0000-4000-8000-000000000005','de000000-0000-4000-8000-000000000001','de000000-0000-4000-8000-000000000004',1,'provider-scope-fixture',1,
- statement_timestamp()-interval '2 hours',900,'1234','USD','{"is_top_ranked":true,"reason_codes":["amount_mismatch"],"hard_exclusions":[]}',statement_timestamp()+interval '30 minutes');
-select is(public.refund_purchase_correction_request_fields('de000000-0000-4000-8000-000000000005'),array['amount']::text[],'Only the fresh candidate amount conflict is a customer correction');
+ statement_timestamp()-interval '2 hours',900,'5678','USD','{"is_top_ranked":true,"reason_codes":["amount_mismatch","card_last4_mismatch"],"hard_exclusions":[]}',statement_timestamp()+interval '30 minutes');
+select is(public.refund_purchase_correction_request_fields('de000000-0000-4000-8000-000000000005'),array['amount','card_last4']::text[],'Fresh candidate conflicts supply two eligible fields for a manager-selected subset');
 create temp table scope_cycle as select public.service_claim_refund_follow_up_cycle('de000000-0000-4000-8000-000000000005','no_safe_match','refund_follow_up_v2',repeat('e',64),null) as value;
 select is((select value#>'{cycle,requestedFields}' from scope_cycle),'[]'::jsonb,'Existing no-safe-match cycle retains historical empty requested fields');
 select lives_ok($$insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,content_source,delivery_kind,reason_code,template_version,follow_up_cycle_id,requested_fields)
  values('de000000-0000-4000-8000-000000000006','de000000-0000-4000-8000-000000000005','no_safe_match','pending','scope-customer@example.invalid','Review purchase amount',
  '[Secure refund correction link included at delivery]','deterministic_template','automatic','no_safe_match','refund_follow_up_v2',(select(value#>>'{cycle,id}')::uuid from scope_cycle),array['amount'])$$,
- 'Scoped message persists current correction fields without rewriting cycle identity');
+ 'Scoped message persists one selected current field without rewriting cycle identity');
 select lives_ok($$select public.service_issue_refund_purchase_correction('de000000-0000-4000-8000-000000000006',repeat('e',64),
  (select deterministic_fact_version from public.refund_cases where id='de000000-0000-4000-8000-000000000005'))$$,'Message fields issue the exact same-case capability');
 select is((select requested_fields from public.refund_follow_up_cycles where id=(select(value#>>'{cycle,id}')::uuid from scope_cycle)),'{}'::text[],'Issuance preserves the original immutable cycle[]');
