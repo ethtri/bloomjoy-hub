@@ -191,7 +191,7 @@ begin
   definition:=pg_get_functiondef(target);
   if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Unexpected ordinary fallback writer'; end if;
   execute replace(definition,anchor,'public.refund_nayax_original_portal_fallback_ready(case_row.id)');
-  target:='public.admin_get_refund_manual_nayax_context()'::regprocedure;
+  target:='public.admin_get_refund_manual_nayax_context_pre_ops_v1()'::regprocedure;
   definition:=pg_get_functiondef(target);
   if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Unexpected ordinary fallback reader'; end if;
   execute replace(definition,anchor,'public.refund_nayax_original_portal_fallback_ready(refund_case.id)');
