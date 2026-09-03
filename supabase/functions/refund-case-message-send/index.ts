@@ -674,7 +674,7 @@ serve(async (req) => {
       ? sanitizeRefundMissingFields(triageSuggestion.missing_fields)
       : suppliedMissingFields;
     let missingFields: RefundMissingField[] = [];
-    const correctionEnabled = await refundCorrectionLinksEnabled(supabase);
+    const correctionEnabled = messageType === "more_info" && await refundCorrectionLinksEnabled(supabase);
     if (messageType === "more_info") {
       const currentFields = correctionEnabled ? await getCurrentRefundCorrectionFields(supabase, caseId) : derived.missingFields;
       if (derived.requiresSecureWalletCorrection && !correctionEnabled) {

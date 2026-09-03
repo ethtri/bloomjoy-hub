@@ -571,7 +571,7 @@ const sendAndLogCustomerMessage = async (
     return { type: messageType, status: "skipped" };
   }
 
-  const correctionEnabled = await refundCorrectionLinksEnabled(supabase);
+  const correctionEnabled = messageType === "more_info" && await refundCorrectionLinksEnabled(supabase);
   const statusCapability = correctionLinkRequested(messageType, missingFields, correctionEnabled) ? null : await tryIssueRefundStatusCapability({
     supabase,
     refundCaseId: refundCase.id,
