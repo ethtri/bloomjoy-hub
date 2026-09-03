@@ -2202,10 +2202,16 @@ serve(async (request) => {
               // Vendor reports use the same scheduler/mailbox but never become
               // customer intake, first-contact mail, or payment instructions.
               if (!intakeShadow && isNayaxScheduledReportMessage(message)) {
-                const report = await ingestNayaxReportMail({ message, mailbox: config.mailbox, rpc,
-                  getAttachment: async (id, attachmentId) => (await getRefundGmailAttachment(config, id, attachmentId)).bytes });
-                if (report.duplicate) counters.messagesDeduplicated += 1;
-                else counters.messagesCreated += 1;
+                try {
+                  const report = await ingestNayaxReportMail({ message, mailbox: config.mailbox, rpc,
+                    getAttachment: async (id, attachmentId) => (await getRefundGmailAttachment(config, id, attachmentId)).bytes });
+                  if (report.duplicate) counters.messagesDeduplicated += 1;
+                  else counters.messagesCreated += 1;
+                } catch {
+                  // One expired/invalid report must not starve newer reports or
+                  // unrelated customer messages in the same Gmail conversation.
+                  counters.messagesFailed += 1;
+                }
                 return null;
               }
               const participantSignals = inspectRefundGmailParticipantSignals({

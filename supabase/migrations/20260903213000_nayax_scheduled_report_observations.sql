@@ -103,6 +103,7 @@ begin
     if receipt.id is not null then
       if receipt.provider_machine_id=row_data->>'providerMachineId' and receipt.currency_code=row_data->>'currencyCode'
         and receipt.refunded_amount_cents=amount and amount>0
+        and exists(select 1 from public.refund_cases c where c.id=receipt.refund_case_id and c.matched_nayax_site_id=(row_data->>'siteId')::integer)
         and abs((row_data->>'authorizationAmountCents')::bigint)=amount
         and abs((row_data->>'settlementAmountCents')::bigint)=amount then
         case_id:=receipt.refund_case_id;disposition:='existing_receipt_confirmed';

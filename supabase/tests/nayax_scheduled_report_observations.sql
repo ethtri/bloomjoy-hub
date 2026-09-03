@@ -33,6 +33,8 @@ select lives_ok($$select public.service_record_nayax_scheduled_report('aa4',now(
 select is((select disposition from public.nayax_scheduled_refund_observations where observation_digest=repeat('d',64)),'identity_conflict','Original ID alone cannot reuse receipt');
 select lives_ok($$select public.service_record_nayax_scheduled_report('aa5',now(),'linked_download',pg_temp.report('e','700000001','600000001',-1000))$$,'Partial amount stays distinct');
 select is((select disposition from public.nayax_scheduled_refund_observations where observation_digest=repeat('e',64)),'identity_conflict','Partial row cannot replace full receipt');
+select lives_ok($$select public.service_record_nayax_scheduled_report('aa6',now(),'linked_download',jsonb_set(pg_temp.report('f'),'{observations,0,siteId}','"6"'))$$,'Wrong-site report stays separate from exact receipt');
+select is((select disposition from public.nayax_scheduled_refund_observations where observation_digest=repeat('f',64)),'identity_conflict','Same original/machine with wrong site cannot reuse receipt');
 select throws_ok($$select public.service_record_nayax_scheduled_report('aa1',now(),'linked_download',pg_temp.report('f'))$$,'P0001','Report message content changed','Same message cannot change content');
 select is((select count(*) from public.refund_authoritative_receipts where refund_case_id::text like 'e1400000%'),1::bigint,'No new receipt');
 select is((select count(*) from public.refund_case_nayax_refund_attempts where refund_case_id::text like 'e1400000%'),0::bigint,'No payment attempt');

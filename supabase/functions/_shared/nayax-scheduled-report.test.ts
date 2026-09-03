@@ -38,6 +38,29 @@ const message = (): GmailMessage => ({
     body: { data: b64(`<a href="${signed}">Report</a>`) },
   },
 });
+
+Deno.test("only the first receiver authentication result counts, never a later sender-supplied pass", async () => {
+  const m = message();
+  m.payload!.headers!.push({
+    name: "Authentication-Results",
+    value: "attacker.test; dmarc=pass header.from=nayax.com",
+  });
+  const deps = {
+    mailbox: "info@bloomjoysweets.com",
+    getAttachment: () => Promise.reject(),
+    download: () => Promise.reject(),
+    rpc: async () => ({ recorded: true }),
+  };
+  assertEquals(
+    (await ingestNayaxReportMail({ ...deps, message: m })).duplicate,
+    true,
+  );
+  m.payload!.headers![3].value =
+    "mx.google.com; dmarc=fail header.from=nayax.com";
+  m.payload!.headers![4].value =
+    "mx.google.com; dmarc=pass header.from=nayax.com";
+  await assertRejects(() => ingestNayaxReportMail({ ...deps, message: m }));
+});
 Deno.test("actual seven-row shape keeps parent/child coverage, day-first UTC and local clocks, and unknown refund status", async () => {
   const r = await normalizeNayaxScheduledReport(fixture);
   assertEquals(r.rowCount, 7);
