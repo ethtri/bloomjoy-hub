@@ -65,11 +65,19 @@ for (const [label, mutate] of [
   ['added file', ({ write }) => write('public/unreviewed.json', '{}\n')],
   ['deleted file', ({ root }) => fs.unlinkSync(path.join(root, 'src/refund.ts'))],
   ['renamed file', ({ git }) => git('mv', 'src/refund.ts', 'src/renamed.ts')],
-  ['changed file mode', ({ git }) => git('update-index', '--chmod=+x', 'src/refund.ts')],
+  ['changed file mode', ({ git }) => {
+    // Stage a real Git mode difference on both Windows and Linux; the later
+    // git add must not reset the staged mode from the fixture filesystem.
+    git('config', 'core.filemode', 'false');
+    git('update-index', '--chmod=+x', 'src/refund.ts');
+  }],
   ['changed neutral documentation before anchor', ({ write }) => write('Docs/fixture.md', 'Not the reviewed full tree\n')],
 ]) {
   test(`squash equivalence rejects ${label}`, (t) => {
     const f = fixture(t, mutate);
+    if (label === 'changed file mode') {
+      assert.match(f.git('diff', '--summary', f.source, f.canonicalAnchor), /mode change 100644 => 100755/);
+    }
     assert.throws(() => validateReleaseManifestGitAnchor(f.root, f.manifest), /no verified squash-equivalent anchor/);
   });
 }
