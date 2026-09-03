@@ -78,8 +78,10 @@ Deno.test('verified API receipt uses the same evidence-only request without call
   assertEquals(Object.hasOwn(request, 'settledAt'), false);
 });
 Deno.test('externally adopted notice preserves its source and cannot queue another completion', () => {
-  const v = parseRefundReceiptOverview({ ...overview(), canRecord: false,
-    attemptBindingKind: 'external_operator_observation', completionNotice: null,
+  const base = completionOverview();
+  const v = parseRefundReceiptOverview({ ...base, canRecord: false,
+    attemptBindingKind: 'external_operator_observation',
+    completionNotice: { ...base.completionNotice, canQueue: false },
     receipt: { id: 'ad900000-0000-4000-8000-000000000001', observedAt: '2026-09-03T16:00:00Z',
       settlementTimePrecision: 'unknown', noticeAdopted: true, noticeSentAt: '2026-09-03T15:00:00Z',
       managerCcVerified: true, noticeSource: 'current_operator_mailbox', noticeVerification: 'operator_observed', supportThread: false },

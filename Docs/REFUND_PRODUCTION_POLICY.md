@@ -69,9 +69,9 @@ time, amount, currency, and card evidence.
 
 - Exact transaction and machine/account binding.
 - Positive full provider-transaction amount and supported currency.
-- An immutable direct-API block until authoritative remaining-refundable state
-  is available. The original sale amount cannot be used to infer that no prior
-  external partial refund exists.
+- A first approved API attempt does not require independent remaining-balance
+  proof. Nayax enforces the original transaction total; a known prior partial
+  refund or an uncertain existing attempt still requires review.
 - Partial/custom or reduced-remaining-value cases stay on a reviewed hold; they
   cannot silently enter the normal direct action or be recorded as a completed
   full-transaction portal refund.
