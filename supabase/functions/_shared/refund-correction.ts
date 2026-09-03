@@ -6,7 +6,7 @@ export const correctionFields = [
   'zelle_payment_contact',
 ] as const;
 export type CorrectionField = typeof correctionFields[number];
-export type CorrectionAnswer = { disposition: 'changed' | 'confirmed' | 'cannot_provide'; value?: string };
+export type CorrectionAnswer = { disposition: 'changed' | 'confirmed' | 'cannot_provide'; value?: string; confidence?: 'exact' | 'within_15_minutes' | 'within_1_hour' | 'rough' };
 export type CorrectionAnswers = Partial<Record<CorrectionField, CorrectionAnswer>>;
 export type CorrectionContext = {
   state: 'ready' | 'received' | 'unavailable';
@@ -19,6 +19,7 @@ export type CorrectionContext = {
   timezone?: string;
   expiresAt?: string;
   nextAction?: 'review' | 'recheck';
+  locationChoices?: Array<{ key: string; label: string }>;
 };
 
 export const isCorrectionToken = (value: string) => /^[A-Za-z0-9_-]{43}$/.test(value);
@@ -59,8 +60,10 @@ export function validateCorrectionAnswers(input: unknown, context: CorrectionCon
     const field = key as CorrectionField;
     if (!allowed.includes(field) || !raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('unsupported_field');
     const answer = raw as CorrectionAnswer;
-    if (Object.keys(answer).some((key) => !['disposition', 'value'].includes(key)) ||
+    if (Object.keys(answer).some((key) => !['disposition', 'value', 'confidence'].includes(key)) ||
         !['changed', 'confirmed', 'cannot_provide'].includes(answer.disposition)) throw new Error('invalid_response');
+    if (answer.confidence !== undefined && (field !== 'incident_time' || answer.disposition !== 'changed' ||
+      !['exact','within_15_minutes','within_1_hour','rough'].includes(answer.confidence))) throw new Error('invalid_time_confidence');
     if (answer.disposition !== 'changed') {
       if (answer.value !== undefined || (answer.disposition === 'confirmed' && !values[field])) throw new Error(`invalid:${field}`);
       result[field] = { disposition: answer.disposition };
@@ -77,9 +80,12 @@ export function validateCorrectionAnswers(input: unknown, context: CorrectionCon
     if (field === 'incident_date' && (!/^\d{4}-\d{2}-\d{2}$/.test(value) ||
       !Number.isFinite(Date.parse(`${value}T00:00:00Z`)) || new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value)) throw new Error(`invalid:${field}`);
     if (field === 'incident_time' && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) throw new Error(`invalid:${field}`);
+    if (field === 'incident_time' && !answer.confidence) throw new Error('time_confidence_required');
+    if (field === 'location_or_machine' && !context.locationChoices?.some((choice) => choice.key === value)) throw new Error('invalid_location');
     if (correctionChoices[field] && !correctionChoices[field]!.some(([key]) => key === value)) throw new Error(`invalid:${field}`);
     if (field === 'zelle_payment_contact' && !/^(?:[^\s@]+@[^\s@]+\.[^\s@]+|\+?[\d ()-]{10,24})$/.test(value)) throw new Error(`invalid:${field}`);
-    result[field] = value === values[field] ? { disposition: 'confirmed' } : { disposition: 'changed', value };
+    result[field] = field === 'incident_time' ? { disposition: 'changed', value, confidence: answer.confidence }
+      : value === values[field] ? { disposition: 'confirmed' } : { disposition: 'changed', value };
   }
   return result;
 }
