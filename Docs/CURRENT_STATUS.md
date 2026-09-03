@@ -22,6 +22,8 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 ## Current Themes
 
+- **Signed delivery callbacks (`#628`):** Verify the original request bytes before parsing their JSON. Svix 2.2 returns no decoded payload; treating its return value as the event rejects valid delivery notifications. Production delivery readiness requires the real-library handler regression and a live signed boundary check, followed by actual provider delivery evidence.
+
 - **Receipt-aware automation (`#628`, `#971`):** confirmed receipts preserve historical attempts, messages, and follow-up cycles but exclude obsolete customer and payment-aging work before bounded selection and claim. Child-first workers must skip busy parent cases and recheck receipt evidence before mutation; receipt-backed rows must not starve unresolved replies. Internal accounting and provider-delivery reconciliation remain available. Production activation requires actual overlapping-transaction and populated-replay verification; no financial or contact switch is enabled by the eligibility migration.
 
 - **Unknown-time refund receipts (`#628`, `#971`):** Evidence-only reconciliation preserves unknown settlement time and existing sent notices. Legacy portal provenance is not historical account authorization; current exact provider account/machine/full-refund review remains mandatory. Wrong-machine, incomplete provider identity and unavailable current provider evidence remain holds. Hosted database verification and independent review are release gates; no production reconciliation or accounting-date policy is included. See `Docs/REFUND_AUTHORITATIVE_RECEIPTS.md`.
