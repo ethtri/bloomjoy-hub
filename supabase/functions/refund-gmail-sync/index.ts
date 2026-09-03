@@ -24,6 +24,7 @@ import {
   verifyRefundGmailMailbox,
 } from "../_shared/refund-gmail.ts";
 import { ingestRefundGmailThreadBeforeFirstContact } from "../_shared/refund-gmail-orchestration.ts";
+import { ingestNayaxReportMail, isNayaxScheduledReportMessage } from "../_shared/nayax-report-mail.ts";
 import {
   extractLabeledRefundEmailFacts,
   type RefundMachineFactCandidate,
@@ -2198,6 +2199,15 @@ serve(async (request) => {
                 return null;
               }
               const headers = message.payload?.headers;
+              // Vendor reports use the same scheduler/mailbox but never become
+              // customer intake, first-contact mail, or payment instructions.
+              if (!intakeShadow && isNayaxScheduledReportMessage(message)) {
+                const report = await ingestNayaxReportMail({ message, mailbox: config.mailbox, rpc,
+                  getAttachment: async (id, attachmentId) => (await getRefundGmailAttachment(config, id, attachmentId)).bytes });
+                if (report.duplicate) counters.messagesDeduplicated += 1;
+                else counters.messagesCreated += 1;
+                return null;
+              }
               const participantSignals = inspectRefundGmailParticipantSignals({
                 message,
                 mailboxIdentities: config.mailboxIdentities,
