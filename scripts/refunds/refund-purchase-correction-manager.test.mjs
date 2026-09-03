@@ -29,14 +29,27 @@ test('actual one-action correction sends canonical fields without unreviewed tri
  let sent;let refreshed=0;const errors=[];
  const handler=load('handleSendCustomerMessage',{
   selectedCase:{id:'case-1',customerCorrectionFields:['card_last4','amount']},customerDeliveryNeedsReconciliation:false,isUsingDemoData:false,
+  correctionSelection:{caseId:'case-1',version:12,fields:['amount']},setCorrectionSelection:()=>{},
   messageType:'denied',messageSubject:'Old denial subject',messageBody:'Old denial draft',
   gmailContext:{triageSuggestion:{id:'unreviewed',status:'ready_for_review',route:'draft_reply',missingFields:['incident_time']}},
   officialActionVersion:12,getCustomerMessageDraft:()=>({subject:'Canonical',body:'Canonical'}),manualMessageIntentRef:{current:null},
   setIsSendingCustomerMessage:()=>{},sendRefundCaseMessage:async input=>{sent=input;return {transport:'gmail_thread'};},refresh:async()=>{refreshed++;},
   toast:{error:value=>errors.push(value),success:()=>{},info:()=>{}},isEdgeFunctionError:()=>false,
  });
- await handler('more_info');
+ await handler('more_info',['amount']);
  assert.equal(errors.length,0);assert.equal(refreshed,1);assert.equal(sent.messageType,'more_info');
- assert.deepEqual(Array.from(sent.missingFields),['card_last4','amount']);
+ assert.deepEqual(Array.from(sent.missingFields),['amount']);
  assert.equal(sent.subject,undefined);assert.equal(sent.body,undefined);assert.equal(sent.triageSuggestionId,undefined);
+});
+
+test('actual correction action opens preselected fields, rejects empty, stale and unsupported selections before send',async()=>{
+ let selection;let sends=0;const errors=[];
+ const base={selectedCase:{id:'case-1',customerCorrectionFields:['amount','card_last4']},officialActionVersion:12,customerDeliveryNeedsReconciliation:false,isUsingDemoData:false,
+  setCorrectionSelection:value=>{selection=value;},toast:{error:value=>errors.push(value)},sendRefundCaseMessage:()=>{sends++;}};
+ await load('handleSendCustomerMessage',base)('more_info');
+ assert.deepEqual(Array.from(selection.fields),['amount','card_last4']);assert.equal(sends,0);
+ for(const [version,fields] of [[12,[]],[11,['amount']],[12,['wallet_provider']]]) {
+  await load('handleSendCustomerMessage',{...base,correctionSelection:{caseId:'case-1',version,fields}})('more_info',fields);
+ }
+ assert.equal(errors.length,3);assert.equal(sends,0);
 });
