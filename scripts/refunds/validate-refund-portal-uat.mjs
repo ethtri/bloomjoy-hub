@@ -1527,10 +1527,15 @@ const buildWalletMismatchWaitingRefundOverview = () => {
   return overview;
 };
 
-const buildTransactionalDeliveryTruthOverview = () => {
+const buildTransactionalDeliveryTruthOverview = (historicalNotice = false) => {
   const overview = buildMockRefundOverview();
   const refundCase = overview.cases[0];
-  const lifecycle = buildLifecycleFixture('customer_notified', 80, 'none');
+  const lifecycle = buildLifecycleFixture(historicalNotice ? 'refund_confirmed' : 'customer_notified', historicalNotice ? 70 : 80, 'none');
+  lifecycle.paymentState = 'confirmed';
+  if (historicalNotice) {
+    lifecycle.reasonCode = 'settlement_time_unknown';
+    lifecycle.messageState = { state: 'none', messageType: null, lastUpdatedAt: null, payloadRedacted: true };
+  }
   lifecycle.managerNextAction = 'review_customer_delivery';
   lifecycle.managerQueue = {
     ...lifecycle.managerQueue,
@@ -1544,14 +1549,14 @@ const buildTransactionalDeliveryTruthOverview = () => {
   overview.cases = [{
     ...refundCase,
     publicReference: 'RF-UAT-DELIVERY',
-    status: 'completed',
-    providerOutcome: 'succeeded',
-    hasReportingAdjustment: true,
+    status: historicalNotice ? 'card_refund_pending' : 'completed',
+    providerOutcome: historicalNotice ? 'unconfirmed' : 'succeeded',
+    hasReportingAdjustment: !historicalNotice,
     lifecycle,
     customerDeliveryException: {
       schemaVersion: 'refund_transactional_delivery_v1',
-      state: 'bounced',
-      messageType: 'completed',
+      state: historicalNotice ? 'unknown' : 'bounced',
+      messageType: historicalNotice ? 'status_update' : 'completed',
       occurredAt: isoHoursAgo(0.5),
       recoveryOwner: 'refund_operations',
       nextAction: 'review_delivery_no_resend',
@@ -1561,17 +1566,17 @@ const buildTransactionalDeliveryTruthOverview = () => {
     },
     messages: [{
       id: 'delivery-message-1',
-      messageType: 'completed',
-      status: 'failed',
+      messageType: historicalNotice ? 'status_update' : 'completed',
+      status: historicalNotice ? 'sent' : 'failed',
       recipientEmail: 'delivery-customer@example.test',
-      subject: 'Your Bloomjoy refund is on its way',
-      body: 'Synthetic completion message for visual verification.',
+      subject: historicalNotice ? 'Your refund request was submitted' : 'Your Bloomjoy refund is on its way',
+      body: historicalNotice ? 'The request was submitted and confirmation is pending.' : 'Synthetic completion message for visual verification.',
       sentAt: isoHoursAgo(1),
       errorMessage: 'transactional_delivery_bounced',
       createdAt: isoHoursAgo(1),
       deliveryKind: 'automatic',
       deliveryTransport: 'resend',
-      deliveryState: 'bounced',
+      deliveryState: historicalNotice ? 'unknown' : 'bounced',
       deliveryStateUpdatedAt: isoHoursAgo(0.5),
       providerEvidenceAvailable: true,
     }],
@@ -6764,11 +6769,12 @@ const runTransactionalDeliveryTruthChecks = async ({
   artifactDir,
   recorder,
 }) => {
+  for (const historicalNotice of [false, true]) {
   const functionCalls = [];
   const rpcCalls = [];
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   await installMockSupabaseRoutes(context, {
-    refundOverview: buildTransactionalDeliveryTruthOverview,
+    refundOverview: () => buildTransactionalDeliveryTruthOverview(historicalNotice),
     functionCalls,
     rpcCalls,
   });
@@ -6784,6 +6790,15 @@ const runTransactionalDeliveryTruthChecks = async ({
   await queueCase(page, 'RF-UAT-DELIVERY').click();
 
   recorder.assert(
+    'Confirmed payment stays explicit in the queue alongside either delivery exception',
+    await queueCase(page, 'RF-UAT-DELIVERY').getByText('Refund confirmed · delivery review', { exact: true }).isVisible()
+  );
+  if (historicalNotice) recorder.assert(
+    'An earlier submitted notice cannot obscure a confirmed receipt in the main header',
+    await page.getByTestId('refund-manager-state').getByText('Refund confirmed · delivery review', { exact: true }).isVisible() &&
+      (await page.getByTestId('refund-manager-next-step').innerText()).includes('message-delivery and accounting-date review')
+  );
+  else recorder.assert(
     'A provider bounce is manager-owned without changing successful payment truth',
     await page.getByTestId('refund-terminal-primary-action')
       .getByText('Delivery needs review', { exact: true }).isVisible() &&
@@ -6795,7 +6810,7 @@ const runTransactionalDeliveryTruthChecks = async ({
   recorder.assert(
     'Message history distinguishes provider delivery from application send status',
     await page.getByTestId('refund-message-delivery-delivery-message-1')
-      .getByText('Bounced', { exact: true }).isVisible()
+      .getByText(historicalNotice ? 'Delivery unknown' : 'Bounced', { exact: true }).isVisible()
   );
   recorder.assert(
     'Delivery review renders no provider identifier and performs no message or payment mutation',
@@ -6804,7 +6819,7 @@ const runTransactionalDeliveryTruthChecks = async ({
       rpcCalls.every((name) => NAVIGATION_READ_ONLY_RPCS.has(name)),
     JSON.stringify({ functionCalls, rpcCalls })
   );
-  await page.screenshot({
+  if (historicalNotice) await page.screenshot({
     path: path.join(artifactDir, 'refund-transactional-delivery-desktop.png'),
     fullPage: true,
   });
@@ -6823,12 +6838,20 @@ const runTransactionalDeliveryTruthChecks = async ({
       mobileLayout.bodyWidth <= mobileLayout.viewportWidth + 1,
     JSON.stringify(mobileLayout)
   );
-  await page.screenshot({
+  if (historicalNotice) {
+    await page.getByTestId('refund-manager-state').scrollIntoViewIfNeeded();
+    recorder.assert(
+      'The confirmed-refund header stays visible on mobile',
+      await page.getByTestId('refund-manager-state').getByText('Refund confirmed · delivery review', { exact: true }).isVisible()
+    );
+  }
+  if (historicalNotice) await page.screenshot({
     path: path.join(artifactDir, 'refund-transactional-delivery-mobile.png'),
     fullPage: false,
   });
 
   await closeRefundPortalContext(context);
+  }
 };
 
 const openNayaxManagerStepUp = async (page) => {
