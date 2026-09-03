@@ -87,7 +87,7 @@ $guard$;
   if scoped_correction and new.message_type in ('wallet_correction','wallet_correction_reminder') then
     if new.delivery_kind <> 'automatic' or new.content_source <> 'deterministic_template'
       or new.follow_up_cycle_id is not null or new.reason_code is not null
-      or new.template_version <> case new.message_type when 'wallet_correction' then 'refund_wallet_correction_v1' else 'refund_wallet_correction_reminder_v1' end
+      or new.template_version <> (case new.message_type when 'wallet_correction' then 'refund_wallet_correction_v1' else 'refund_wallet_correction_reminder_v1' end)
       or (new.status='sent' and new.sent_at is null) then
       raise exception 'Scoped wallet correction requires tracked automatic delivery';
     end if;
@@ -97,7 +97,7 @@ $wallet$;
   if position(needle in source)=0 then raise exception 'Wallet message guard changed'; end if;
   source := replace(source,needle,replacement || E'\n' || needle);
   if source=original then raise exception 'Scoped delivery guard was not installed'; end if;
-  execute source;
+  begin execute source; exception when others then raise exception 'Scoped message guard installation: %',sqlerrm; end;
 
   select pg_get_functiondef('public.sync_refund_follow_up_cycle_from_message()'::regprocedure) into source;
   source := replace(source,E'\r\n',E'\n');
@@ -117,18 +117,18 @@ begin
     ) then return new; end if;
 $sync$;
   source := replace(source,needle,replacement);
-  execute source;
+  begin execute source; exception when others then raise exception 'Scoped cycle synchronization installation: %',sqlerrm; end;
 
   select pg_get_functiondef('public.service_finish_refund_manual_message_delivery_pre_payout_follow_up(uuid,uuid,text,text,text,integer,text)'::regprocedure) into source;
   needle := '  if p_outcome = ''sent''';
   if position(needle in source)=0 then raise exception 'Manual result settlement changed'; end if;
   source := replace(source,needle,needle || ' and public.refund_scoped_correction_message_current(message_row)');
-  execute source;
+  begin execute source; exception when others then raise exception 'Scoped manual settlement installation: %',sqlerrm; end;
   select pg_get_functiondef('public.service_finish_refund_manual_message_delivery(uuid,uuid,text,text,text,integer,text)'::regprocedure) into source;
   needle := '  if result ->> ''outcome'' = ''sent''';
   if position(needle in source)=0 then raise exception 'Payout result settlement changed'; end if;
   source := replace(source,needle,needle || ' and public.refund_scoped_correction_message_current(message_row)');
-  execute source;
+  begin execute source; exception when others then raise exception 'Scoped payout settlement installation: %',sqlerrm; end;
 
   select pg_get_constraintdef(oid) into shape from pg_constraint
     where conrelid='public.refund_case_messages'::regclass and conname='refund_case_messages_safe_evidence_shape';
