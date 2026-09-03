@@ -23,6 +23,8 @@ import {
   sanitizeRefundCustomerLocale,
   type RefundCustomerLocale,
 } from "./refund-language.ts";
+import { correctionLabels } from "./refund-correction.ts";
+import { requireRefundCorrectionUrl, STORED_CORRECTION_LINK_MARKER } from "./refund-correction-delivery.ts";
 
 export {
   REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
@@ -65,6 +67,7 @@ export type RefundCustomerEmailInput = {
   managerRecipientOverlap?: boolean;
   managerRecipientCount?: number;
   statusUrl?: string | null;
+  correctionUrl?: string | null;
   idempotencyKey?: string | null;
 };
 
@@ -613,7 +616,44 @@ export const sanitizeRefundCustomerSafeDenialReason = (value: unknown) => {
   return /[.!?]$/u.test(normalized) ? normalized : `${normalized}.`;
 };
 
+export const buildRefundPurchaseCorrectionEmail = (input: RefundCustomerEmailInput) => {
+  const fields = sanitizeRefundMissingFields(input.missingFields);
+  if (!fields.length || !input.correctionUrl) throw new Error("A correction request needs specific fields and a scoped link.");
+  const link = input.correctionUrl === STORED_CORRECTION_LINK_MARKER
+    ? null : requireRefundCorrectionUrl(input.correctionUrl);
+  const spanish = sanitizeRefundCustomerLocale(input.customerLocale) === "es";
+  const reference = sanitizeText(input.publicReference, 80);
+  const subject = spanish ? `Actualice su solicitud de reembolso de Bloomjoy ${reference}` : `Update your Bloomjoy refund request ${reference}`;
+  const requested = fields.map((field) => correctionLabels[field][0]).join(", ");
+  const english = [
+    `Please check these details for your existing refund request: ${requested}.`,
+    "Use the button below to update a detail, confirm it is correct, or tell us you are not sure. Your other details are already saved, and you do not need to start another request.",
+    "We will review your response and recheck the purchase when needed. Updating details does not approve or complete a refund.",
+  ];
+  const paragraphs = spanish ? [
+    `Revise estos datos de su solicitud de reembolso actual: ${fields.map((field) => correctionLabels[field][1]).join(", ")}.`,
+    "Use el botón para corregir un dato, confirmar que es correcto o indicar que no está seguro. Sus otros datos ya están guardados; no necesita crear otra solicitud.",
+    "Revisaremos su respuesta y la compra cuando sea necesario. Actualizar datos no aprueba ni completa un reembolso.",
+    "English", ...english,
+  ] : english;
+  const label = spanish ? "Actualizar su solicitud / Update your refund request" : "Update your refund request";
+  const replyLine = spanish
+    ? "Puede responder a este correo si necesita ayuda. / You can reply to this email if you need help."
+    : "You can reply to this email if you need help.";
+  const safetyLine = spanish
+    ? "No envíe números completos de tarjetas, códigos de seguridad ni contraseñas. / Never send full card numbers, security codes or passwords."
+    : "Never send full card numbers, security codes or passwords.";
+  const greeting = input.customerName ? `${spanish ? 'Hola' : 'Hi'} ${sanitizeText(input.customerName, 160)},` : spanish ? "Hola," : "Hi there,";
+  return {
+    subject,
+    text: [greeting, ...paragraphs, `Reference: ${reference}`, label, link ?? STORED_CORRECTION_LINK_MARKER, replyLine, safetyLine, "Warmly,\nThe Bloomjoy Sweets Team"].join("\n\n"),
+    html: renderBloomjoyRefundEmail({ preheader: subject, headline: spanish ? "Actualice su solicitud" : "Update your refund request", greeting, paragraphs,
+      details: [{ label: "Reference", value: reference }], primaryLink: link ? { label, url: link } : null, replyLine, safetyLine }),
+  };
+};
+
 export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
+  if (input.correctionUrl) return buildRefundPurchaseCorrectionEmail(input);
   const publicReference = sanitizeText(input.publicReference, 80);
   const customerName = sanitizeText(input.customerName, 160);
   const { machineLabel, locationName } = resolveRefundPublicLabels({
@@ -709,6 +749,8 @@ export const buildEditableRefundCustomerEmail = ({
       : `${safeSubjectBase} - ${publicReference}`;
   const sanitizedBody = sanitizeText(body, 4000);
   const statusUrl = sanitizeRefundStatusUrl(input.statusUrl);
+  const correctionUrl = input.correctionUrl === STORED_CORRECTION_LINK_MARKER
+    ? null : input.correctionUrl ? requireRefundCorrectionUrl(input.correctionUrl) : null;
   const paragraphs = sanitizedBody
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
@@ -730,7 +772,8 @@ export const buildEditableRefundCustomerEmail = ({
     ...paragraphs.flatMap((paragraph) => [paragraph, ""]),
     ...details,
     "",
-    ...(statusUrl ? ["Check refund status:", statusUrl, ""] : []),
+    ...(input.correctionUrl ? ["Update your refund request:", correctionUrl ?? STORED_CORRECTION_LINK_MARKER, ""]
+      : statusUrl ? ["Check refund status:", statusUrl, ""] : []),
     "Please reply to this email if anything looks off. Replies go to our Bloomjoy support inbox.",
     "",
     "Warmly,",
@@ -748,7 +791,8 @@ export const buildEditableRefundCustomerEmail = ({
     greeting,
     paragraphs,
     details: brandDetails,
-    primaryLink: statusUrl ? { label: "Check refund status", url: statusUrl } : null,
+    primaryLink: correctionUrl ? { label: "Update your refund request", url: correctionUrl }
+      : !input.correctionUrl && statusUrl ? { label: "Check refund status", url: statusUrl } : null,
     replyLine:
       "Please reply to this email if anything looks off. Replies go to our Bloomjoy support inbox.",
   });

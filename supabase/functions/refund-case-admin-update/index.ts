@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
+import { correctionLinkRequested, getCurrentRefundCorrectionFields, issueRefundCorrectionForMessage, refundCorrectionLinksEnabled, STORED_CORRECTION_LINK_MARKER } from "../_shared/refund-correction-delivery.ts";
 import { handleAuthoritativeReceipt, isAuthoritativeReceiptMode } from "../_shared/refund-authoritative-receipt.ts";
 import {
   buildRefundCustomerEmail,
@@ -122,6 +123,7 @@ type RefundCaseRow = {
   intake_meta: Record<string, unknown> | null;
   nayax_refund_execution_status: string;
   official_action_version: number;
+  deterministic_fact_version: number;
   updated_at: string;
   reporting_machines?: {
     machine_label: string | null;
@@ -172,6 +174,7 @@ const selectCaseQuery = `
   intake_meta,
   nayax_refund_execution_status,
   official_action_version,
+  deterministic_fact_version,
   updated_at,
   reporting_machines(
     machine_label,
@@ -501,6 +504,7 @@ const logCustomerMessage = async ({
     decisionReason: refundCase.decision_reason,
     missingFields,
     cardWalletUsed: refundCase.card_wallet_used,
+    correctionUrl: correctionLinkRequested(messageType, missingFields) ? STORED_CORRECTION_LINK_MARKER : null,
     statusUrl: statusCapability?.url ?? null,
     customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
   });
@@ -565,7 +569,7 @@ const sendAndLogCustomerMessage = async (
     return { type: messageType, status: "skipped" };
   }
 
-  const statusCapability = await tryIssueRefundStatusCapability({
+  const statusCapability = correctionLinkRequested(messageType, missingFields) ? null : await tryIssueRefundStatusCapability({
     supabase,
     refundCaseId: refundCase.id,
   });
@@ -592,6 +596,9 @@ const sendAndLogCustomerMessage = async (
       decisionReason: refundCase.decision_reason,
       missingFields,
       cardWalletUsed: refundCase.card_wallet_used,
+      correctionUrl: correctionLinkRequested(messageType, missingFields) ? await issueRefundCorrectionForMessage({
+        supabase, messageId: messageId ?? '', factVersion: refundCase.deterministic_fact_version,
+      }) : null,
       statusUrl: statusCapability?.url ?? null,
       customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
     };
@@ -1013,27 +1020,28 @@ serve(async (req) => {
           beforeRow.payment_method === "cash" &&
           beforeRow.decision === "approved",
       });
-      if (derived.requiresSecureWalletCorrection) {
+      const currentFields = refundCorrectionLinksEnabled() ? await getCurrentRefundCorrectionFields(supabase, caseId) : derived.missingFields;
+      if (derived.requiresSecureWalletCorrection && !refundCorrectionLinksEnabled()) {
         return jsonResponse({
           error:
             "Use the secure mobile-wallet correction link instead of requesting wallet information by email.",
         }, 409);
       }
-      if (derived.missingFields.length === 0) {
+      if (currentFields.length === 0) {
         return jsonResponse({
           error:
             "This case has no structured purchase detail to request. Return it to manager review.",
         }, 409);
       }
       if (
-        !sameMissingFields(suppliedCustomerMissingFields, derived.missingFields)
+        !sameMissingFields(suppliedCustomerMissingFields, currentFields)
       ) {
         return jsonResponse({
           error:
             "The case facts changed. Refresh before asking for the exact missing purchase details.",
         }, 409);
       }
-      customerMissingFields = derived.missingFields;
+      customerMissingFields = currentFields;
     }
 
     const isCashCompletion = officialAction === "cash_complete";

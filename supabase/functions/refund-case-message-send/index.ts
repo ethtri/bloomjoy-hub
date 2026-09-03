@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { Webhook } from "npm:svix@2.2.0";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
+import { correctionLinkRequested, getCurrentRefundCorrectionFields, refundCorrectionLinksEnabled, STORED_CORRECTION_LINK_MARKER } from "../_shared/refund-correction-delivery.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { drainRefundManualMessageOutbox } from "../_shared/refund-manual-message-outbox.ts";
 import {
@@ -674,25 +675,26 @@ serve(async (req) => {
       : suppliedMissingFields;
     let missingFields: RefundMissingField[] = [];
     if (messageType === "more_info") {
-      if (derived.requiresSecureWalletCorrection) {
+      const currentFields = refundCorrectionLinksEnabled() ? await getCurrentRefundCorrectionFields(supabase, caseId) : derived.missingFields;
+      if (derived.requiresSecureWalletCorrection && !refundCorrectionLinksEnabled()) {
         return jsonResponse({
           error:
             "Use the secure mobile-wallet correction link instead of requesting wallet information by email.",
         }, 409);
       }
-      if (derived.missingFields.length === 0) {
+      if (currentFields.length === 0) {
         return jsonResponse({
           error:
             "This case has no structured purchase detail to request. Return it to manager review.",
         }, 409);
       }
-      if (!sameMissingFields(reviewedMissingFields, derived.missingFields)) {
+      if (!sameMissingFields(reviewedMissingFields, currentFields)) {
         return jsonResponse({
           error:
             "The case facts changed. Refresh before asking for the exact missing purchase details.",
         }, 409);
       }
-      missingFields = derived.missingFields;
+      missingFields = currentFields;
     }
 
     const customerMessageError = validateRefundCustomerMessageRequest({
@@ -725,6 +727,7 @@ serve(async (req) => {
       missingFields,
       cardWalletUsed: refundCase.card_wallet_used,
       statusUrl: null,
+      correctionUrl: correctionLinkRequested(messageType, missingFields) ? STORED_CORRECTION_LINK_MARKER : null,
       customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
     };
     const defaultEmailWithoutStatus = buildRefundCustomerEmail(templateInputWithoutStatus);
@@ -780,7 +783,7 @@ serve(async (req) => {
         p_reason_code: messageType === "more_info" ? "missing_information" : null,
         p_requested_fields: messageType === "more_info" ? missingFields : [],
         p_synthetic_proof_authorization_id: syntheticProof.authorizationId,
-        p_status_link_requested: refundStatusLinksEnabled(),
+        p_status_link_requested: !templateInputWithoutStatus.correctionUrl && refundStatusLinksEnabled(),
         p_triage_suggestion_id: triageSuggestion?.id ?? null,
       },
     );
