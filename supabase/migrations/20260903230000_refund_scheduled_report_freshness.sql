@@ -11,7 +11,7 @@ begin
   -- Preserve the existing authenticated manager/scoped-admin access boundary.
   result := public.get_refund_gmail_health_pre_report_freshness();
   -- Account-wide vendor delivery evidence belongs only to Refund Operations.
-  if not public.is_super_admin(auth.uid()) then
+  if public.is_super_admin(auth.uid()) is not true then
     return result || jsonb_build_object('reportFreshness',null);
   end if;
   select max(received_at) into latest_received
