@@ -29,7 +29,16 @@ begin
   needle := '  if tg_op = ''UPDATE'' and old.delivery_kind = ''automatic'' then';
   replacement := $guard$
   if scoped_correction and tg_op='UPDATE' and old.status='pending' and new.status='sent'
-    and (to_jsonb(new)-array['status','sent_at']::text[]) is not distinct from (to_jsonb(old)-array['status','sent_at']::text[]) then
+    and (
+      (to_jsonb(new)-array['status','sent_at']::text[]) is not distinct from (to_jsonb(old)-array['status','sent_at']::text[])
+      or (old.delivery_kind='manual' and old.manual_delivery_state='claimed' and new.manual_delivery_state='sent'
+        and old.manual_delivery_claim_token is not null and old.manual_delivery_claimed_at is not null
+        and old.manual_delivery_provider_attempted_at is not null
+        and new.manual_delivery_claim_token is null and new.manual_delivery_claimed_at is null and new.error_message is null
+        and (to_jsonb(new)-array['status','sent_at','manual_delivery_state','manual_delivery_claim_token','manual_delivery_claimed_at','error_message']::text[])
+          is not distinct from
+          (to_jsonb(old)-array['status','sent_at','manual_delivery_state','manual_delivery_claim_token','manual_delivery_claimed_at','error_message']::text[]))
+    ) then
     recorded_scope_delivery := exists (
       select 1 from public.refund_gmail_messages g where g.refund_case_message_id=new.id
         and g.refund_case_id=new.refund_case_id and g.direction='outbound' and g.status='sent' and g.sent_at is not null
