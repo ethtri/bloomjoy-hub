@@ -9,9 +9,9 @@ insert into public.reporting_locations(id,account_id,name,timezone) values('e120
 insert into public.reporting_machines(id,account_id,location_id,machine_label,nayax_machine_id,nayax_account_key)
 values('e1300000-0000-4000-8000-000000000001','e1100000-0000-4000-8000-000000000001','e1200000-0000-4000-8000-000000000001','Report machine','600000001','TGPACI_USA_DB');
 insert into public.refund_cases(id,customer_email,reporting_machine_id,reporting_location_id,payment_method,payment_amount_cents,issue_summary,status,
-matched_nayax_transaction_id,matched_nayax_site_id,matched_nayax_amount_cents,matched_nayax_currency_code)
-values('e1400000-0000-4000-8000-000000000001','report-fixture@example.invalid','e1300000-0000-4000-8000-000000000001','e1200000-0000-4000-8000-000000000001','card',3200,'refund_request','needs_review','700000001',4,3210,'USD'),
-('e1400000-0000-4000-8000-000000000002','report-fixture@example.invalid','e1300000-0000-4000-8000-000000000001','e1200000-0000-4000-8000-000000000001','card',3210,'refund_request','needs_review','700000002',4,3210,'USD');
+matched_nayax_transaction_id,matched_nayax_site_id,matched_nayax_amount_cents,matched_nayax_currency_code,incident_at)
+values('e1400000-0000-4000-8000-000000000001','report-fixture@example.invalid','e1300000-0000-4000-8000-000000000001','e1200000-0000-4000-8000-000000000001','card',3200,'refund_request','needs_review','700000001',4,3210,'USD',now()-interval '1 day'),
+('e1400000-0000-4000-8000-000000000002','report-fixture@example.invalid','e1300000-0000-4000-8000-000000000001','e1200000-0000-4000-8000-000000000001','card',3210,'refund_request','needs_review','700000002',4,3210,'USD',now()-interval '1 day');
 insert into public.refund_authoritative_receipts(id,refund_case_id,reporting_machine_id,account_scope,provider_machine_id,original_transaction_id,original_amount_cents,refunded_amount_cents,currency_code,provider_status,evidence_reference_digest,recorded_by,attempt_binding_kind,current_provider_observation_reviewed)
 values('e1500000-0000-4000-8000-000000000001','e1400000-0000-4000-8000-000000000001','e1300000-0000-4000-8000-000000000001','TGPACI_USA_DB','600000001','700000001',3210,3210,'USD',62,repeat('a',64),'e1000000-0000-4000-8000-000000000001','no_attempt_integrity_hold',true);
 create function pg_temp.report(p_digest text,p_original text default '700000001',p_machine text default '600000001',p_amount integer default -3210) returns jsonb language sql as $$
