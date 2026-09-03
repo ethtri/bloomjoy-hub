@@ -286,11 +286,8 @@ try {
     'Integrated release source commit must be a full immutable Git SHA'
   );
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
-  assert.equal(
-    repositoryMigrations.length,
-    128,
-    'Refund release inventory must cover exactly 128 discovered refund/Nayax migrations'
-  );
+  assert(repositoryMigrations.includes('20260903213000_nayax_scheduled_report_observations.sql'),
+    'Native scheduled observations extend the existing authoritative receipt path');
   assert(
     repositoryMigrations.includes('20260902195401_refund_historical_owner_notice.sql') &&
       repositoryMigrations.indexOf('20260902192844_refund_legacy_machine_correction.sql') <

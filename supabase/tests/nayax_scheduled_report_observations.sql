@@ -8,7 +8,7 @@ insert into public.customer_accounts(id,name,account_type) values('e1100000-0000
 insert into public.reporting_locations(id,account_id,name,timezone) values('e1200000-0000-4000-8000-000000000001','e1100000-0000-4000-8000-000000000001','Report location','America/Los_Angeles');
 insert into public.reporting_machines(id,account_id,location_id,machine_label,nayax_machine_id,nayax_account_key)
 values('e1300000-0000-4000-8000-000000000001','e1100000-0000-4000-8000-000000000001','e1200000-0000-4000-8000-000000000001','Report machine','600000001','TGPACI_USA_DB');
-insert into public.refund_cases(id,customer_email,reporting_machine_id,reporting_location_id,payment_method,payment_amount_cents,issue_type,status,
+insert into public.refund_cases(id,customer_email,reporting_machine_id,reporting_location_id,payment_method,payment_amount_cents,issue_summary,status,
 matched_nayax_transaction_id,matched_nayax_site_id,matched_nayax_amount_cents,matched_nayax_currency_code)
 values('e1400000-0000-4000-8000-000000000001','report-fixture@example.invalid','e1300000-0000-4000-8000-000000000001','e1200000-0000-4000-8000-000000000001','card',3200,'refund_request','needs_review','700000001',4,3210,'USD'),
 ('e1400000-0000-4000-8000-000000000002','report-fixture@example.invalid','e1300000-0000-4000-8000-000000000001','e1200000-0000-4000-8000-000000000001','card',3210,'refund_request','needs_review','700000002',4,3210,'USD');
@@ -45,4 +45,3 @@ select set_config('request.jwt.claim.role','authenticated',true);
 select throws_ok($$select public.service_record_nayax_scheduled_report('bb1',now(),'linked_download',pg_temp.report('f'))$$,'P0001','Service report ingestion required','Customer session cannot import provider observations');
 select * from finish();
 rollback;
-

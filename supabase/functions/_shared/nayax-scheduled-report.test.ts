@@ -13,10 +13,24 @@ import {
   requireNayaxReportDownloadUrl,
 } from "./nayax-scheduled-report.ts";
 import { ingestNayaxReportMail } from "./nayax-report-mail.ts";
-import type { GmailMessage } from "./refund-gmail.ts";
+import {
+  type GmailMessage,
+  nayaxScheduledReportThreadQuery,
+} from "./refund-gmail.ts";
 const fixture = await Deno.readFile(
   new URL("./fixtures/nayax-scheduled-first-delivery.csv", import.meta.url),
 );
+Deno.test("scheduled discovery needs no manual label and remains bounded to the exact vendor query", () => {
+  const query = nayaxScheduledReportThreadQuery(
+    new Date("2026-09-01T00:00:00Z"),
+  );
+  assertEquals(query.has("labelIds"), false);
+  assertEquals(query.get("maxResults"), "25");
+  assertEquals(
+    query.get("q"),
+    'from:notifier@nayax.com subject:"Nayax Transactions Report" newer_than:7d after:1788220800',
+  );
+});
 const signed =
   "https://my.nayax.com/core/reports/download?file=synthetic_reference_123456789";
 const b64 = (v: string) =>

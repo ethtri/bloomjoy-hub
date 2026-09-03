@@ -732,6 +732,16 @@ export const listLabeledRefundThreads = async (
   }>(config, `/threads?${params.toString()}`);
 };
 
+export const nayaxScheduledReportThreadQuery = (startAt: Date) => new URLSearchParams({
+    q: `from:notifier@nayax.com subject:"Nayax Transactions Report" newer_than:7d after:${Math.floor(startAt.getTime() / 1000)}`,
+    maxResults: "25",
+  });
+export const listNayaxScheduledReportThreads = async (config: RefundGmailConfig) => {
+  // Same approved mailbox and scheduler; future reports need no manually-added label.
+  const params = nayaxScheduledReportThreadQuery(config.startAt);
+  return await gmailRequest<{ threads?: Array<{ id?: string; historyId?: string }> }>(config, `/threads?${params.toString()}`);
+};
+
 export const getRefundGmailThread = async (
   config: RefundGmailConfig,
   threadId: string,
