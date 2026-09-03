@@ -1,5 +1,12 @@
 # QA Smoke Test Checklist
 
+## Already-issued refund on a corrected machine (`#1117`)
+
+- [ ] Verify the atomic South Hills category/exclusion repair leaves one correct public choice, preserves provider IDs/managers/history, survives inventory sync and safely replays. Conflicting identity or location evidence fails.
+- [ ] With synthetic data, record a full provider refund and an existing operator-mailbox SENT notice on a previously unmatched, misrouted case. Verify original intake and reported amount remain unchanged, current machine and full provider amount are correct, managers are covered by actual CC, and no attempt, authorization, message, fake Gmail row or adjustment is created.
+- [ ] Verify current-session and both-machine authority, case/inventory freshness, full status-62 evidence, correct recipient/amount/card/time, idempotent replay, no competing delivery, and immutable original facts. A stale lookup finishing afterward cannot hide the receipt.
+- [ ] Run `node scripts/refunds/validate-refund-external-recovery-ui.mjs` against the local UAT server. At desktop/mobile widths, all three reviews are required, edits invalidate review, one save records evidence and removes the save control, and no payment/email endpoint is called.
+
 ## Historical owner-mailbox refund notice
 
 - With a synthetic confirmed receipt and current verified mapped Super Admin, open the historical notice review in `/admin/refunds`. Fill exact lowercase API IDs, pre-cutoff UTC sent time, sole customer and fingerprint; all three reviews are required.

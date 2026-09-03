@@ -2,7 +2,7 @@ export type ReceiptNoticeChoice = { id: string; sentAt: string; subject: string;
 export const hasConfirmedRefundReceipt = (value: { lifecycle?: { reasonCode?: string; paymentState?: string; stage?: string } | null }) =>
   value.lifecycle?.reasonCode === 'settlement_time_unknown' && value.lifecycle.paymentState === 'confirmed' &&
   ['refund_confirmed', 'customer_notified'].includes(value.lifecycle.stage ?? '');
-const bindingKinds = ['modern_authorized_manual', 'legacy_manual_portal_observation', 'no_attempt_integrity_hold', 'unverified_attempt'] as const;
+const bindingKinds = ['modern_authorized_manual', 'legacy_manual_portal_observation', 'no_attempt_integrity_hold', 'unverified_attempt', 'external_operator_observation'] as const;
 export const refundReceiptRefreshQueryKeys = [
   ['admin-refund-operations-overview'],
   ['nayax-card-refund-availability'],
@@ -27,7 +27,7 @@ export type RefundReceiptOverview = {
   originalTransactionId: string; originalAmountCents: number; currencyCode: string;
   receipt: null | { id: string; observedAt: string; settlementTimePrecision: 'unknown';
     noticeAdopted: boolean; noticeSentAt: string | null; managerCcVerified: boolean | null;
-    noticeSource?: 'support_gmail' | 'historical_owner_mailbox' | null;
+    noticeSource?: 'support_gmail' | 'historical_owner_mailbox' | 'current_operator_mailbox' | null;
     noticeVerification?: 'support_gmail_sent' | 'operator_observed' | null; supportThread?: boolean | null };
   historicalOwnerNoticeAvailable?: boolean; historicalOwnerNoticeCutoff?: string; historicalOwnerReviewBinding?: string | null;
   noticeChoices: ReceiptNoticeChoice[];
@@ -66,7 +66,9 @@ export function parseRefundReceiptOverview(value: unknown): RefundReceiptOvervie
     (receipt.noticeAdopted === false && receipt.noticeSource === null && receipt.noticeVerification === null && receipt.supportThread === null) ||
     (receipt.noticeAdopted === true && date(receipt.noticeSentAt) && receipt.noticeSource === 'support_gmail' && receipt.noticeVerification === 'support_gmail_sent' && receipt.supportThread === true) ||
     (receipt.noticeAdopted === true && date(receipt.noticeSentAt) && receipt.noticeSource === 'historical_owner_mailbox' && receipt.noticeVerification === 'operator_observed' &&
-      receipt.supportThread === false && receipt.managerCcVerified === false)
+      receipt.supportThread === false && receipt.managerCcVerified === false) ||
+    (receipt.noticeAdopted === true && date(receipt.noticeSentAt) && receipt.noticeSource === 'current_operator_mailbox' && receipt.noticeVerification === 'operator_observed' &&
+      receipt.supportThread === false && receipt.managerCcVerified === true)
   )) throw new Error('Reload the notice provenance.');
   const hasHistoricalOption = ['historicalOwnerNoticeAvailable', 'historicalOwnerNoticeCutoff', 'historicalOwnerReviewBinding'].some((key) => Object.hasOwn(v, key));
   if (hasHistoricalOption && (typeof v.historicalOwnerNoticeAvailable !== 'boolean' ||
@@ -84,7 +86,7 @@ export function parseRefundReceiptOverview(value: unknown): RefundReceiptOvervie
     receipt: v.receipt === null ? null : { id: receipt.id as string, observedAt: receipt.observedAt as string,
       settlementTimePrecision: 'unknown', noticeAdopted: receipt.noticeAdopted as boolean,
       noticeSentAt: receipt.noticeSentAt as string | null, managerCcVerified: receipt.managerCcVerified as boolean | null,
-      ...(hasProvenance ? { noticeSource: receipt.noticeSource as 'support_gmail' | 'historical_owner_mailbox' | null,
+      ...(hasProvenance ? { noticeSource: receipt.noticeSource as 'support_gmail' | 'historical_owner_mailbox' | 'current_operator_mailbox' | null,
         noticeVerification: receipt.noticeVerification as 'support_gmail_sent' | 'operator_observed' | null,
         supportThread: receipt.supportThread as boolean | null } : {}) },
     noticeChoices: choices,

@@ -76,6 +76,8 @@ jobs:
         run: npm run refunds:validate-portal-uat -- --artifact-dir output/refund-uat-evidence --fragment-dir output/refund-uat-fragments
       - name: Run Refund QR intake synthetic UAT
         run: npm run refunds:validate-qr-intake-uat -- --artifact-dir output/refund-uat-evidence
+      - name: Verify existing-refund recovery at desktop and mobile widths
+        run: node scripts/refunds/validate-refund-external-recovery-ui.mjs
       - name: Run Machine Manager synthetic UAT
         run: npm run refunds:validate-machine-manager-uat -- --artifact-dir output/refund-uat-evidence
       - name: Finalize strict machine-readable evidence

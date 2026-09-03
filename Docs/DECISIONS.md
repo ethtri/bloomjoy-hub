@@ -1,5 +1,12 @@
 # Decisions
 
+## 2026-09-03 - Correct current refund routing while preserving the original report (`#1117`)
+
+- The verified Simon South Hill provider identity is a SnapCase machine. Its category/public choice and exclusion of the conflicting unverified Snapcase 03 route change atomically; provider IDs, manager assignments, historical cases and sales remain intact. The excluded route requires physical-location verification before republication.
+- A current, verified Refund Operations user with authority over both machines may reconcile an already-issued full refund on a previously unmatched case. One authenticated transaction records the exact current provider observation, corrected case binding and existing operator-mailbox SENT notice. Original intake selection and customer facts remain immutable. It creates no payment attempt, authorization, dated accounting adjustment or email.
+- The notice records the actual sender, recipient, CC, mailbox-specific provider identity, original sent time and reviewed content fingerprint. Current manager CC coverage is checked. This is explicitly operator-observed evidence, separate from support-mailbox ingestion and delivery confirmation; the historical owner-notice cutoff is unchanged.
+- Deploy the API receipt migration from #1116 before the external-recovery migration. Once a recovery commits, receipt guards and original-fact guards reject stale matching work and any further payment or resend. Rollback leaves recorded receipts intact and withdraws the new form rather than undoing a real refund.
+
 ## 2026-09-02 - Localized refund reply instructions are a parser contract (`#891`, `#923`)
 
 - Every copyable Spanish field label emitted by the customer email must be recognized by the deterministic reply extractor; translation alone does not complete the customer workflow. Supported payment answers use a fixed translation dictionary, not free-form inference.
