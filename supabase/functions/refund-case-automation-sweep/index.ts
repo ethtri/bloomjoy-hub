@@ -760,14 +760,6 @@ const sendDeterministicFollowUpMessage = async (
   messageClass: RefundFollowUpMessageClass,
   customerCorrectionFields: RefundMissingField[] = [],
 ) => {
-  if (
-    refundCase.payment_method === "card" &&
-    cycle.reasonCode === "no_safe_match" &&
-    messageClass !== "information_received" &&
-    customerCorrectionFields.length === 0
-  ) {
-    throw new Error("A specific customer-correctable fact is required before card follow-up.");
-  }
   if (!(await automaticCustomerContactAllowed())) {
     return { status: "suppressed" as const, messageId: null };
   }
@@ -778,6 +770,14 @@ const sendDeterministicFollowUpMessage = async (
     // be narrower than the present case. The message persists this exact list.
     customerCorrectionFields = await getCurrentRefundCorrectionFields(supabase!, refundCase.id);
     if (customerCorrectionFields.length === 0) return { status: "suppressed" as const, messageId: null };
+  }
+  if (
+    refundCase.payment_method === "card" &&
+    cycle.reasonCode === "no_safe_match" &&
+    messageClass !== "information_received" &&
+    customerCorrectionFields.length === 0
+  ) {
+    throw new Error("A specific customer-correctable fact is required before card follow-up.");
   }
   const statusCapability = correctionLinkRequested(messageType, customerCorrectionFields.length ? customerCorrectionFields : cycle.requestedFields, correctionEnabled) ? null : await tryIssueRefundStatusCapability({
     supabase: supabase!,

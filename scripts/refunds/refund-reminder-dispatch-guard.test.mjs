@@ -156,7 +156,7 @@ function harness(transport, { bounceAfterPending = false, bounceAfterProviderAcc
     },
     textValue: (value) => typeof value === 'string' ? value.trim() : '',
   });
-  return { state, send: () => sender.send({ id: 'synthetic-case', customer_email: 'customer@example.invalid' },
+  return { state, send: () => sender.send({ id: 'synthetic-case', payment_method: 'card', customer_email: 'customer@example.invalid' },
     { id: 'synthetic-cycle', requestedFields: [], reasonCode: correctionEnabled ? 'no_safe_match' : 'missing_information', templateVersion: 'synthetic-v1' }, 'reminder') };
 }
 
