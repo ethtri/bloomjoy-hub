@@ -284,8 +284,10 @@ try {
     repositoryMigrations.indexOf('20260903190000_refund_scoped_customer_corrections.sql') <
       repositoryMigrations.indexOf('20260903200000_refund_correction_message_delivery.sql'),
   'Scoped correction foundation must precede correction message delivery');
-  assert(repositoryMigrations.includes('20260903213000_nayax_scheduled_report_observations.sql'),
-    'Native scheduled observations extend the existing authoritative receipt path');
+  assert(repositoryMigrations.includes('20260903213000_nayax_scheduled_report_observations.sql') &&
+    repositoryMigrations.indexOf('20260903200000_refund_correction_message_delivery.sql') <
+      repositoryMigrations.indexOf('20260903213000_nayax_scheduled_report_observations.sql'),
+    'Native scheduled observations follow the integrated correction delivery migration');
   assert(
     repositoryMigrations.includes('20260902195401_refund_historical_owner_notice.sql') &&
       repositoryMigrations.indexOf('20260902192844_refund_legacy_machine_correction.sql') <
