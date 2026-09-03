@@ -1,5 +1,29 @@
 # Decisions
 
+## 2026-09-03 - Production refund learning and approval continuity (`#628`, `#990`, `#1088`)
+
+The deployed API is the preferred path for legitimate, owed, normally approved
+customer refunds. The owner accepts bounded transaction-value risk. Exact original
+purchase/full provider amount, active manager authority, duplicate prevention,
+one live attempt and immutable request/approval evidence remain required. There
+is no separate remaining-balance proof, cohort, arbitrary value/count limit,
+complete-vendor-contract, report-delivery or testing-approval prerequisite.
+
+One exact purchase/amount/purpose decision covers request, approval, verification
+and supported outcome-based fallback across unchanged stages and agent handoffs.
+An accepted pending request continues as the same request. A definite rejection
+or authoritative no-refund result permits evidenced correction/fallback; an
+unknown result requires exact inspection before another payment, while unrelated
+eligible refunds continue. New authority is needed only if scope changes or the
+ordinary approval is absent. Explicit exclusions, including #1095, remain.
+
+Use existing receipt and message ledgers for independent confirmation and one
+accurate completion. Unknown accounting dates remain internal follow-up. The
+historical Eastridge refund is confirmed but its API attribution is unproved.
+Scheduled delivery is configured but unproved. The operating entry point is
+`Docs/REFUND_AGENT_OPERATIONS.md`; older rollout holds are superseded by current
+issue decisions and verified release evidence, not silently reapplied.
+
 ## 2026-09-03 - API attempts and independent refund confirmation (`#990`, `#971`)
 
 - The September 3 owner decision on #990 rejects a blanket remaining-refundable-value prerequisite. Nayax enforces the original transaction total. A mapped manager may attempt the full selected original amount without a portal attestation, a balance form, or five-minute evidence expiry. Exact purchase identity, manager authority, local duplicates/idempotency, immutable request/approval history and unknown-outcome reconciliation remain mandatory.

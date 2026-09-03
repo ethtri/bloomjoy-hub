@@ -4,6 +4,11 @@ Bloomjoy is in production. Refund handling should make the customer whole with
 the fewest safe steps. Customer identity is not a duplicate-control boundary;
 the original payment transaction is.
 
+Start with [the agent operating procedure](./REFUND_AGENT_OPERATIONS.md) and the
+current #628/#990 issue bodies. The September 3 API release is deployed and
+enabled; one attributable request → approval → independently confirmed real
+refund remains to be proved through ordinary approved customer operations.
+
 ## Normal card-refund path
 
 1. Bloomjoy searches its own records and Nayax before asking the customer for
@@ -48,7 +53,9 @@ refund stays on hold and is escalated; it cannot be recorded as completed.
 - A pending request remains one active request; Bloomjoy resolves it instead of
   opening another.
 - A confirmed rejection or authoritative proof that no refund occurred permits
-  a new manager-confirmed attempt generation.
+  supported correction/fallback with a new journaled generation where needed.
+  The exact purchase/amount/purpose approval survives unchanged continuation and
+  agent handoffs; a new generation is not a second business approval.
 - A timeout or unknown result pauses only that transaction. Bloomjoy checks
   Nayax before another attempt; unrelated cases continue.
 
@@ -75,7 +82,8 @@ time, amount, currency, and card evidence.
 - Partial/custom or reduced-remaining-value cases stay on a reviewed hold; they
   cannot silently enter the normal direct action or be recorded as a completed
   full-transaction portal refund.
-- Current mapped-manager authority and one money-moving confirmation.
+- Current mapped-manager authority and one exact-refund decision, preserved
+  across unchanged execution stages and supported fallback.
 - Case-version checks, row locking, idempotency, and one live attempt.
 - Server-only provider credentials and an immutable provider journal.
 - Transaction-scoped reconciliation for unknown outcomes.
