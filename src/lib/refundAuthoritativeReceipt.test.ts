@@ -31,6 +31,7 @@ Deno.test('receipt completion binds reviewed preview and cannot specify payment 
 });
 Deno.test('receipt completion parser rejects mismatched identity and strips private fields', () => {
   const base = completionOverview();
+  assertThrows(() => parseRefundReceiptOverview({ ...base, completionNotice: {} }));
   assertThrows(() => parseRefundReceiptOverview({ ...base, completionNotice: { ...base.completionNotice, receiptId: 'another-receipt' } }));
   assertThrows(() => parseRefundReceiptOverview({ ...base, completionNotice: { ...base.completionNotice, reviewBinding: '' } }));
   assertThrows(() => parseRefundReceiptOverview({ ...base, completionNotice: { ...base.completionNotice, state: 'sent' } }));

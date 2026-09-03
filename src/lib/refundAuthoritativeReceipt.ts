@@ -65,7 +65,7 @@ export function parseRefundReceiptOverview(value: unknown): RefundReceiptOvervie
     typeof receipt.noticeAdopted !== 'boolean' || (receipt.noticeSentAt !== null && !date(receipt.noticeSentAt)) ||
     (receipt.managerCcVerified !== null && typeof receipt.managerCcVerified !== 'boolean'))) throw new Error('Reload the saved receipt evidence.');
   let completionNotice: ReceiptCompletionNotice | undefined;
-  if (Object.hasOwn(v, 'completionNotice')) {
+  if (Object.hasOwn(v, 'completionNotice') && v.completionNotice !== null) {
     const completion = record(v.completionNotice);
     if (v.receipt === null || completion.schemaVersion !== 'refund_receipt_completion_v1' || completion.receiptId !== receipt.id ||
       typeof completion.canQueue !== 'boolean' || (completion.messageId !== null && !uuid(completion.messageId)) ||
