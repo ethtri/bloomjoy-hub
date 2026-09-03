@@ -180,15 +180,15 @@ This supersedes the 2026-07-21 choice of GitHub Actions as the primary refund-au
 
 ## 2026-08-28 - Separate Nayax refund capability from Bloomjoy automatic proof (`#877`, `#961`, `#990`)
 
-**Evidence corrected September 3, 2026:** the historical Tulsa refund is confirmed, but its attribution to Bloomjoy's API calls is unproved. The original request and both approval logs report provider failures. Those responses do not prove zero side effects, and the later refund does not establish its initiating operation or actor. The owner's September 2 API-first operating decision in `#990` remains unchanged.
+**Evidence corrected September 3, 2026:** the historical Eastridge refund is confirmed, but its attribution to Bloomjoy's API calls is unproved. The original request and both approval logs report provider failures. Those responses do not prove zero side effects, and the later refund does not establish its initiating operation or actor. The owner's September 2 API-first operating decision in `#990` remains unchanged.
 
 **Canonical interpretation**
-- Bloomjoy attempted the historical Tulsa `$10.90` refund through its API path. Nayax later confirmed the refund, and Bloomjoy reconciled the case, reporting adjustment, and customer completion without another refund request.
+- Bloomjoy attempted the historical Eastridge `$10.90` refund through its API path. Nayax later confirmed the refund, and Bloomjoy reconciled the case, reporting adjustment, and customer completion without another refund request.
 - The final outcome does not substantiate the earlier claim of successful API execution. Preserve both the provider-reported failures and the later confirmed refund without rewriting historical attempts or declaring the API unavailable.
 - Production still has zero direct request -> approval -> automatic-finalization proofs under an account-confirmed response contract. The next fresh eligible refund remains that proof.
 - HTTP transport status and business outcome are separate. The later provider-owned `$8` log proves that Nayax can carry a business rejection over HTTP `200`; no unfamiliar `2xx` may authorize approval.
 - The current request/approval body structurally matches Nayax's published fields. Do not call a payload, role, token scope, or amount-unit defect the root cause unless Nayax ties it to the exact provider log.
-- Historical Tulsa and `$8` attempts are evidence only. They must not be replayed, approved, or used as the fresh direct proof.
+- Historical Eastridge, Tulsa and `$8` attempts are evidence only. They must not be replayed, approved, or used as the fresh direct proof.
 
 The durable root cause analysis, evidence timeline, code audit, open hypotheses, and exit evidence are in `Docs/NAYAX_REFUND_PRODUCTION_RCA.md`.
 

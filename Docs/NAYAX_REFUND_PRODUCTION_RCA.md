@@ -4,7 +4,7 @@ Last updated: 2026-09-03
 
 ## Executive finding
 
-**The historical Tulsa `$10.90` refund is confirmed; its attribution to Bloomjoy's API calls is unproved.** September 3 review of the original request and both approval logs found provider-reported failures. Later Nayax Support and DTM confirmation establishes that the transaction was refunded, but does not establish which operation or actor completed it. The earlier claim that this case proved API write capability was too strong.
+**The historical Eastridge `$10.90` refund is confirmed; its attribution to Bloomjoy's API calls is unproved.** September 3 review of the original request and both approval logs found provider-reported failures. Later Nayax Support and DTM confirmation establishes that the transaction was refunded, but does not establish which operation or actor completed it. The earlier claim that this case proved API write capability was too strong.
 
 The unresolved problem is narrower and more technical:
 
@@ -27,16 +27,17 @@ These states must not be collapsed into one “success” label:
 | Bloomjoy settled | The case, reporting adjustment, audit, and customer completion were committed exactly once | The provider call itself was successful unless linked to authoritative provider evidence |
 | Direct end-to-end success | One manager action produced one accepted request, at most one accepted approval, authoritative provider success, and exactly-once Bloomjoy settlement without manual provider reconciliation | Nothing further for that case; this is the required launch proof |
 
-The historical Tulsa case reached **provider refund confirmed** and was reconciled into Bloomjoy. Its final refund cannot be attributed to the reviewed API calls from the retained evidence, and it does not establish **direct end-to-end success**.
+The historical Eastridge case reached **provider refund confirmed** and was reconciled into Bloomjoy. Its final refund cannot be attributed to the reviewed API calls from the retained evidence, and it does not establish **direct end-to-end success**.
 
 ## Production evidence timeline
 
-### 1. Historical Tulsa refund: outcome confirmed, API attribution unproved (`#877`)
+### 1. Historical Eastridge refund: outcome confirmed, API attribution unproved (`#877`)
 
-- Bloomjoy attempted a legitimate Tulsa `$10.90` refund through its normal manager/API path.
+- Bloomjoy attempted a legitimate Eastridge `$10.90` refund through its normal manager/API path.
 - The original August 20 request returned HTTP `200` with business `Status: failed` and a combined access-or-transaction-credentials rejection. It did not report acceptance. A later **Refund Requested** observation does not by itself link that state to this request.
 - The then-current normal-manager implementation lacked the controlled pilot's complete stage journal, so Bloomjoy could not reconstruct the safe response envelope afterward.
 - One application recovery reservation was used. Both original approval logs return outer HTTP `500` / inner HTTP `400`, the same combined access-or-transaction-credentials error, and the same transaction/site/authorization-time identity as the request. The historical Bloomjoy journal cannot map both provider entries to one definitive application cause. These are provider-reported failures, not proof of zero side effects. DTM initially remained **Refund Requested**, and no further blind retry was permitted.
+- The fresh exact-original DTM record identifies Eastridge, full refund status, the same $10.90 amount, and a refund requester different from the reviewed API caller. That requester field alone does not identify the operation that completed it. The older Tulsa label conflated separate incidents.
 - Nayax Support later confirmed that the payment appeared refunded. DTM/production reconciliation agreed, and Bloomjoy committed one case completion, one reporting adjustment, and one customer completion without another refund request.
 
 **Conclusion:** the later refund and its reconciliation are confirmed. The initiating operation and actor remain unproved; this case cannot substantiate the prior claim of successful API execution. Preserve the historical attempt records rather than rewriting them to fit either conclusion.
