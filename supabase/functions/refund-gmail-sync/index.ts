@@ -2237,6 +2237,7 @@ serve(async (request) => {
                 "(no subject)";
               const rawBody = extractPlainTextBody(message.payload);
               const redactedSubject = redactPaymentCardNumbers(rawSubject);
+              redactedSubject.text = redactRefundStatusLinksForStorage(redactedSubject.text);
               const redactedBody = redactPaymentCardNumbers(rawBody);
               redactedBody.text = redactRefundStatusLinksForStorage(redactedBody.text);
               const existingCaseContext = direction === "inbound" &&
