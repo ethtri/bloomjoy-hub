@@ -7,6 +7,12 @@
 - [ ] Verify current-session and both-machine authority, case/inventory freshness, full status-62 evidence, correct recipient/amount/card/time, idempotent replay, no competing delivery, and immutable original facts. A stale lookup finishing afterward cannot hide the receipt.
 - [ ] Run `node scripts/refunds/validate-refund-external-recovery-ui.mjs` against the local UAT server. At desktop/mobile widths, all three reviews are required, edits invalidate review, one save records evidence and removes the save control, and no payment/email endpoint is called.
 
+## Card transaction estimates (`#1118`)
+
+- [ ] On a synthetic case with one sale on the correct machine, matching physical-card last four, a $0.10 tax difference and a 25-minute time difference, confirm a strong recommendation even when the customer selected “within an hour.” The provider amount and original reported amount stay distinct.
+- [ ] Verify the inclusive $3/60-minute boundaries, rejection beyond either boundary, and ambiguity when two sales qualify even if the display limit is one. Wrong card/network, declined/refunded sales, duplicate originals, unresolved DST and wallet provenance retain their existing restrictions.
+- [ ] Rechecking a case changes only lookup evidence; it sends no customer message and issues no refund. Accepted amount/time estimates do not request repeat details. A subsequent, separately approved refund uses the full selected provider amount.
+
 ## Historical owner-mailbox refund notice
 
 - With a synthetic confirmed receipt and current verified mapped Super Admin, open the historical notice review in `/admin/refunds`. Fill exact lowercase API IDs, pre-cutoff UTC sent time, sole customer and fingerprint; all three reviews are required.
