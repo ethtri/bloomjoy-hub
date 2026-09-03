@@ -13,6 +13,8 @@ const candidate = (
   providerMachineId: "provider-machine",
   authorizedAt: "2026-08-23T10:00:00.000Z",
   machineAuthorizationTime: "2026-08-23T10:00:00.000Z",
+  machineAuthorizationTimeRaw: "2026-08-23T10:00:00.000Z",
+  machineTimeResolution: "exact",
   providerTimeResolution: "exact",
   timeDeltaMinutes: 2,
   qrTimeDeltaMinutes: null,

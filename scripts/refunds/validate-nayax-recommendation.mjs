@@ -26,6 +26,7 @@ const sale = ({
   MachineID: machineId,
   SiteID: siteId,
   AuthorizationDateTimeGMT: at,
+  MachineAuthorizationTime: at,
   AuthorizationValue: amount,
   CurrencyCode: currency,
   CardNumber: last4 ? `************${last4}` : "",
@@ -442,6 +443,75 @@ const providerLocalDst = recommend(
 assert.equal(providerLocalDst.recommendationState, "high_confidence");
 assert.equal(providerLocalDst.candidates[0].authorizedAt, incidentAt);
 
+// Synthetic source values deliberately have different machine/GMT seconds.
+const separateMachineClock = recommend([sale({
+  id: "separate-machine-clock",
+  extra: { MachineAuthorizationTime: "2026-07-21T11:59:58.810" },
+})]);
+assert.equal(separateMachineClock.candidates[0].authorizedAt, incidentAt);
+assert.equal(separateMachineClock.candidates[0].timeDeltaMinutes, 0);
+assert.equal(separateMachineClock.candidates[0].machineAuthorizationTime, "2026-07-21T18:59:58.810Z");
+assert.equal(separateMachineClock.candidates[0].machineAuthorizationTimeRaw, "2026-07-21T11:59:58.810");
+
+for (const raw of ["2026-07-21T12:00:00.1234567", "2026-07-21T12:00:00.1234567-07:00"]) {
+  const result = recommend([sale({ id: "fractional-machine-clock", extra: {
+    AuthorizationDateTimeGMT: undefined, MachineAuthorizationTime: raw,
+  } })]);
+  assert.equal(result.candidates[0].authorizedAt, "2026-07-21T19:00:00.123Z");
+  assert.equal(result.candidates[0].machineAuthorizationTime, "2026-07-21T19:00:00.123Z");
+  assert.equal(result.candidates[0].machineAuthorizationTimeRaw, raw);
+  assert.equal(result.candidates[0].machineTimeResolution, "exact");
+}
+
+for (const raw of [undefined, null, 123, "", "2026-02-30T12:00:00Z", "2026-07-21T25:00:00", "bad identity", "x".repeat(81)]) {
+  const result = recommend([sale({ id: "missing-machine-clock", extra: { MachineAuthorizationTime: raw } })]);
+  assert.equal(result.candidateCount, 0, "GMT cannot supply a missing/malformed machine identity");
+  assert.equal(result.providerWindowRecordCount, 1, "the readable GMT record is still counted");
+  assert.equal(result.oneClickEligible, false);
+}
+
+for (const raw of [undefined, "invalid machine clock"]) {
+  const valid = sale({ id: "mixed-source-duplicate" });
+  const invalid = sale({ id: "mixed-source-duplicate", extra: { MachineAuthorizationTime: raw } });
+  for (const records of [[valid, invalid], [invalid, valid]]) {
+    const result = recommend(records);
+    assert.equal(result.candidateCount, 1);
+    assert.equal(result.candidates[0].duplicateProviderRecord, true);
+    assert.ok(result.candidates[0].manualReviewReasons.includes("duplicate_provider_record"));
+    assert.equal(result.oneClickEligible, false);
+  }
+}
+
+const invalidMachineZone = recommend([sale({ id: "invalid-machine-zone", extra: {
+  MachineAuthorizationTime: "2026-07-21T12:00:00.810",
+} })], { locationTimezone: "not/a-zone" });
+assert.equal(invalidMachineZone.candidateCount, 0);
+const nonexistentMachineClock = recommend([sale({
+  id: "nonexistent-machine-clock", at: "2026-03-08T10:30:00Z",
+  extra: { MachineAuthorizationTime: "2026-03-08T02:30:00.810" },
+})], { incidentAt: "2026-03-08T10:30:00Z" });
+assert.equal(nonexistentMachineClock.candidateCount, 0);
+
+const ambiguousMachineClock = recommend([sale({
+  id: "ambiguous-machine-clock", at: "2026-11-01T08:30:00Z",
+  extra: { MachineAuthorizationTime: "2026-11-01T01:30:00.810" },
+})], { incidentAt: "2026-11-01T08:30:00Z" });
+assert.equal(ambiguousMachineClock.candidateCount, 1);
+assert.equal(ambiguousMachineClock.candidates[0].machineTimeResolution, "ambiguous");
+assert.equal(ambiguousMachineClock.candidates[0].machineAuthorizationTimeRaw, "2026-11-01T01:30:00.810");
+assert.equal(ambiguousMachineClock.oneClickEligible, false, "an exact GMT field cannot resolve a machine DST fold");
+
+const recommendationUrl = new URL("../../supabase/functions/_shared/nayax-recommendation.mjs", import.meta.url).href;
+const clockInput = {
+  payload: [sale({ id: "host-independent-clock", extra: { MachineAuthorizationTime: "2026-07-21T11:59:58.810" } })],
+  incidentAt, expectedMachineId, locationTimezone: "America/Los_Angeles", requestAmountCents: 700,
+  requestCardLast4: "4242", cardWalletUsed: false, providerContract: "nayax_machine_last_sales_v1",
+};
+const machineClockFromHost = (hostTimezone) => execFileSync(process.execPath, ["--input-type=module", "--eval",
+  `import { buildNayaxRecommendation } from ${JSON.stringify(recommendationUrl)}; console.log(JSON.stringify(buildNayaxRecommendation(${JSON.stringify(clockInput)})));`,
+], { env: { ...process.env, TZ: hostTimezone }, encoding: "utf8" }).trim();
+assert.equal(machineClockFromHost("Pacific/Honolulu"), machineClockFromHost("Europe/London"));
+
 const ambiguousIncident = recommend([sale({ id: "ambiguous-incident" })], {
   incidentTimeResolution: "ambiguous",
 });
@@ -453,8 +523,10 @@ const publicJson = JSON.stringify(publicCandidate);
 assert.equal("transactionId" in publicCandidate, false, "raw transaction ID must not reach the browser");
 assert.equal(publicJson.includes("rankingPoints"), false, "internal points must not look like probability");
 assert.equal(publicJson.includes("providerMachineId"), false);
+assert.equal("machineAuthorizationTimeRaw" in publicCandidate, false, "raw provider identity stays private");
+assert.equal("machineTimeResolution" in publicCandidate, false);
 assert.equal(publicCandidate.matchStrength, "strong");
 assert.equal(publicCandidate.confidenceClass, "strong_card");
 assert.equal(publicCandidate.candidateToken, "opaque-token");
 
-console.log("Nayax deterministic recommendation fixtures passed (38 safety scenarios).");
+console.log("Nayax deterministic recommendation fixtures passed (38 existing scenarios plus machine-clock identity, precision, invalid-source, DST, host-timezone and privacy regressions).");

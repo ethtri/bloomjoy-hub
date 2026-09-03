@@ -7,7 +7,7 @@ import { buildNayaxCandidateContext } from "./nayax-machine-context.mjs";
 // API expose advisory words (strong evidence, compare candidates, manual review)
 // instead of presenting these points as a percentage.
 export const NAYAX_RECOMMENDATION_POLICY = Object.freeze({
-  version: "2026-08-26.v5",
+  version: "2026-09-03.v6",
   candidateLimit: 10,
   lookupWindowHours: 6,
   highConfidenceMinimumPoints: 80,
@@ -170,33 +170,46 @@ const parseDateValue = (value) => {
   return null;
 };
 
-const parseProviderAuthorizationDate = (record, locationTimezone) => {
-  const gmtValue = sanitizeText(record.AuthorizationDateTimeGMT ?? record.AuthorizationDateTimeGmt, 120);
-  if (gmtValue) {
-    const date = parseDateValue(gmtValue);
-    return date ? { date, resolution: "exact" } : null;
-  }
-
-  const machineValue = sanitizeText(record.MachineAuthorizationTime, 120);
-  if (!machineValue) return null;
-  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(machineValue)) {
-    const date = parseDateValue(machineValue);
-    return date ? { date, resolution: "exact" } : null;
-  }
-
-  const localMatch = machineValue.match(
-    /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2})?)(?:\.\d+)?$/,
+const parseProviderMachineAuthorizationDate = (record, locationTimezone) => {
+  // Retain only a bounded date-time, verbatim. The provider's machine clock is
+  // distinct from AuthorizationDateTimeGMT and is not reconstructed from it.
+  const raw = record.MachineAuthorizationTime;
+  if (typeof raw !== "string" || raw.length > 80) return null;
+  const localMatch = raw.match(
+    /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})?$/i,
   );
-  if (!localMatch || !locationTimezone) return null;
+  if (!localMatch) return null;
+  const calendar = resolveLocalDateTimeInZone({
+    localDate: localMatch[1], localTime: localMatch[2], timeZone: "UTC",
+  });
+  if (calendar.resolution !== "exact") return null;
+  if (localMatch[4]) {
+    const date = new Date(raw.replace(" ", "T"));
+    return Number.isFinite(date.getTime()) ? { date, resolution: "exact", raw } : null;
+  }
+  if (!locationTimezone) return null;
   const resolved = resolveLocalDateTimeInZone({
     localDate: localMatch[1],
     localTime: localMatch[2],
     timeZone: locationTimezone,
   });
-  const date = resolved.instant ? new Date(resolved.instant) : null;
+  if (!["exact", "ambiguous"].includes(resolved.resolution)) return null;
+  // Date stores milliseconds only. Keep all original fractional digits in raw;
+  // this derived instant is for comparison/display, not payment serialization.
+  const milliseconds = Number((localMatch[3] ?? "").padEnd(3, "0").slice(0, 3));
+  const date = resolved.instant ? new Date(Date.parse(resolved.instant) + milliseconds) : null;
   return date && !Number.isNaN(date.getTime())
-    ? { date, resolution: resolved.resolution }
+    ? { date, resolution: resolved.resolution, raw }
     : null;
+};
+
+const parseProviderAuthorizationDate = (record, machineTime) => {
+  const gmtValue = sanitizeText(record.AuthorizationDateTimeGMT ?? record.AuthorizationDateTimeGmt, 120);
+  if (gmtValue) {
+    const date = parseDateValue(gmtValue);
+    return date ? { date, resolution: "exact" } : null;
+  }
+  return machineTime;
 };
 
 const moneyToCents = (value) => {
@@ -312,6 +325,12 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     matchFactors.push(factor("provider_time", "manual", "Nayax transaction time needs manual time-zone review"));
   } else {
     addReason(reasonCodes, "provider_time_exact");
+  }
+
+  if (candidate.machineTimeResolution !== "exact") {
+    addReason(manualReviewReasons, "machine_authorization_time_unverified");
+    addReason(reasonCodes, "machine_authorization_time_unverified");
+    matchFactors.push(factor("machine_time", "manual", "Nayax machine time needs time-zone review"));
   }
 
   if (!request.expectedMachineId) {
@@ -535,6 +554,8 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
   const providerEvidenceComplete =
     candidate.siteId !== null &&
     candidate.providerTimeResolution === "exact" &&
+    candidate.machineTimeResolution === "exact" &&
+    Boolean(candidate.machineAuthorizationTimeRaw) &&
     candidate.currencyCode === "USD" &&
     candidate.paymentStatus === "approved" &&
     !candidate.duplicateProviderRecord;
@@ -656,6 +677,7 @@ export const buildNayaxRecommendation = ({
   const windowStartMs = incidentDate.getTime() - windowMs;
   const windowEndMs = incidentDate.getTime() + windowMs;
   const normalizedByTransaction = new Map();
+  const seenTransactionIds = new Set();
   let parseableRecordCount = 0;
   let windowRecordCount = 0;
 
@@ -665,13 +687,16 @@ export const buildNayaxRecommendation = ({
       record.TransactionID ?? record.TransactionId ?? record.transactionId ?? record.transaction_id,
       80,
     );
-    const providerTime = parseProviderAuthorizationDate(record, sanitizeText(locationTimezone, 80));
+    const machineTime = parseProviderMachineAuthorizationDate(record, sanitizeText(locationTimezone, 80));
+    const providerTime = parseProviderAuthorizationDate(record, machineTime);
     const authorizationDate = providerTime?.date ?? null;
     if (!transactionId || !authorizationDate || !providerTime) continue;
     parseableRecordCount += 1;
     if (authorizationDate.getTime() < windowStartMs || authorizationDate.getTime() > windowEndMs) continue;
     windowRecordCount += 1;
 
+    const duplicateProviderRecord = seenTransactionIds.has(transactionId);
+    seenTransactionIds.add(transactionId);
     if (normalizedByTransaction.has(transactionId)) {
       // A duplicated provider ID is an anomaly even when the visible fields
       // appear identical. Keep one candidate for manager review, but never let
@@ -679,14 +704,18 @@ export const buildNayaxRecommendation = ({
       normalizedByTransaction.get(transactionId).duplicateProviderRecord = true;
       continue;
     }
-    const machineAuthorizationDate = authorizationDate;
+    // Count duplicate IDs before omitting unresolvable machine evidence, so a
+    // malformed copy cannot turn an ambiguous provider result into a safe match.
+    if (!machineTime) continue;
     const paymentStatus = normalizePaymentStatus(record, providerContract);
     normalizedByTransaction.set(transactionId, {
       transactionId,
       siteId: integerValue(record.SiteID ?? record.SiteId ?? record.siteId),
       providerMachineId: sanitizeText(record.MachineID ?? record.MachineId ?? record.machineId, 120),
       authorizedAt: authorizationDate.toISOString(),
-      machineAuthorizationTime: machineAuthorizationDate.toISOString(),
+      machineAuthorizationTime: machineTime.date.toISOString(),
+      machineAuthorizationTimeRaw: machineTime.raw,
+      machineTimeResolution: machineTime.resolution,
       providerTimeResolution: providerTime.resolution,
       // Round outward so a transaction even one second beyond a safety boundary
       // cannot be admitted by display-oriented minute rounding.
@@ -714,7 +743,7 @@ export const buildNayaxRecommendation = ({
       paymentStatus: paymentStatus.status,
       paymentStatusEvidence: paymentStatus.evidence,
       providerRefundState: normalizeProviderRefundState(record),
-      duplicateProviderRecord: false,
+      duplicateProviderRecord,
       ...buildNayaxCandidateContext({
         record,
         machineContext,
