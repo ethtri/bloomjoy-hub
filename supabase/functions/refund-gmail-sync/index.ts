@@ -13,6 +13,7 @@ import {
   inspectRefundGmailParticipantSignals,
   inspectRefundGmailReplyByMessageHeader,
   listLabeledRefundThreads,
+  listNayaxScheduledReportThreads,
   redactPaymentCardNumbers,
   REFUND_GMAIL_ALLOWED_MIME_TYPES,
   REFUND_GMAIL_MAX_ATTACHMENT_BYTES,
@@ -25,6 +26,7 @@ import {
   verifyRefundGmailMailbox,
 } from "../_shared/refund-gmail.ts";
 import { ingestRefundGmailThreadBeforeFirstContact } from "../_shared/refund-gmail-orchestration.ts";
+import { ingestNayaxReportMail, isNayaxScheduledReportMessage } from "../_shared/nayax-report-mail.ts";
 import {
   extractLabeledRefundEmailFacts,
   type RefundMachineFactCandidate,
@@ -2150,16 +2152,29 @@ serve(async (request) => {
       500,
     );
     let nextPageToken: string | undefined;
-    while (counters.threadsScanned < maxThreads) {
+    let reportThreadRefs = intakeShadow ? [] : (await listNayaxScheduledReportThreads(config).catch(() => {
+      counters.messagesFailed += 1;
+      return { threads: [] };
+    })).threads ?? [];
+    const reportOnlyThreadIds = new Set<string>();
+    let customerThreadsScanned = 0;
+    while (customerThreadsScanned < maxThreads) {
       const page = intakeThreadRefs
         ? { threads: intakeThreadRefs, nextPageToken: undefined }
         : await listLabeledRefundThreads(config, nextPageToken);
-      const threadRefs = page.threads ?? [];
+      const labeledIds = new Set((page.threads ?? []).map((thread) => thread.id));
+      for (const id of labeledIds) if (id) reportOnlyThreadIds.delete(id);
+      for (const thread of reportThreadRefs) if (thread.id && !labeledIds.has(thread.id)) reportOnlyThreadIds.add(thread.id);
+      const threadRefs = [...reportThreadRefs.filter((thread) => !labeledIds.has(thread.id)), ...(page.threads ?? [])];
+      reportThreadRefs = [];
       if (threadRefs.length === 0) break;
       for (const threadRef of threadRefs) {
-        if (counters.threadsScanned >= maxThreads) break;
         const providerThreadId = sanitizeText(threadRef.id, 255);
         if (!providerThreadId) continue;
+        if (!reportOnlyThreadIds.has(providerThreadId)) {
+          if (customerThreadsScanned >= maxThreads) break;
+          customerThreadsScanned += 1;
+        }
         counters.threadsScanned += 1;
         try {
           const thread = await getRefundGmailThread(config, providerThreadId);
@@ -2199,6 +2214,22 @@ serve(async (request) => {
                 return null;
               }
               const headers = message.payload?.headers;
+              if (reportOnlyThreadIds.has(providerThreadId) && !isNayaxScheduledReportMessage(message)) return null;
+              // Vendor reports use the same scheduler/mailbox but never become
+              // customer intake, first-contact mail, or payment instructions.
+              if (!intakeShadow && isNayaxScheduledReportMessage(message)) {
+                try {
+                  const report = await ingestNayaxReportMail({ message, mailbox: config.mailbox, rpc,
+                    getAttachment: async (id, attachmentId) => (await getRefundGmailAttachment(config, id, attachmentId)).bytes });
+                  if (report.duplicate) counters.messagesDeduplicated += 1;
+                  else counters.messagesCreated += 1;
+                } catch {
+                  // One expired/invalid report must not starve newer reports or
+                  // unrelated customer messages in the same Gmail conversation.
+                  counters.messagesFailed += 1;
+                }
+                return null;
+              }
               const participantSignals = inspectRefundGmailParticipantSignals({
                 message,
                 mailboxIdentities: config.mailboxIdentities,
