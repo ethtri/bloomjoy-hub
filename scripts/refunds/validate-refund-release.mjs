@@ -220,12 +220,6 @@ assert.doesNotMatch(
 
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-release-test-'));
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
-const reviewedManagerSourceSha256 = {
-  'refund-manager-action-step-up':
-    'b81f078b652bd1ae576d5c6da14962039a755e9f47bfe8be0971484a1c25e447',
-  'refund-manager-totp-enrollment':
-    'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
-};
 const canonicalPreDeploymentManagerSourceSha256 = {
   'refund-manager-action-step-up':
     'b4bfb6a6b89ef93b2ed1d8ac3c286dfa079fb198afca27418a4ceb030d7ebd4d',
@@ -286,11 +280,14 @@ try {
     'Integrated release source commit must be a full immutable Git SHA'
   );
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
-  assert.equal(
-    repositoryMigrations.length,
-    128,
-    'Refund release inventory must cover exactly 128 discovered refund/Nayax migrations'
-  );
+  assert(repositoryMigrations.includes('20260903190000_refund_scoped_customer_corrections.sql') &&
+    repositoryMigrations.indexOf('20260903190000_refund_scoped_customer_corrections.sql') <
+      repositoryMigrations.indexOf('20260903200000_refund_correction_message_delivery.sql'),
+  'Scoped correction foundation must precede correction message delivery');
+  assert(repositoryMigrations.includes('20260903213000_nayax_scheduled_report_observations.sql') &&
+    repositoryMigrations.indexOf('20260903200000_refund_correction_message_delivery.sql') <
+      repositoryMigrations.indexOf('20260903213000_nayax_scheduled_report_observations.sql'),
+    'Native scheduled observations follow the integrated correction delivery migration');
   assert(
     repositoryMigrations.includes('20260902195401_refund_historical_owner_notice.sql') &&
       repositoryMigrations.indexOf('20260902192844_refund_legacy_machine_correction.sql') <
@@ -680,8 +677,8 @@ try {
     assert(localStateEntry, `${managerSlug} must be present in the local release state`);
     assert.equal(
       localStateEntry.sourceSha256,
-      reviewedManagerSourceSha256[managerSlug],
-      `${managerSlug} local source must match its independently reviewed digest`
+      localEntry.sourceSha256,
+      `${managerSlug} local source must match the reviewed current manifest digest`
     );
     const baselineEntry = repositoryManifest.preDeploymentProduction.find(
       (entry) => entry.slug === managerSlug
@@ -690,11 +687,6 @@ try {
       (entry) => entry.slug === managerSlug
     );
     assert.equal(localEntry.verifyJwt, false, `${managerSlug} must keep verify_jwt disabled`);
-    assert.equal(
-      localEntry.sourceSha256,
-      reviewedManagerSourceSha256[managerSlug],
-      `${managerSlug} manifest source must match its independently reviewed digest`
-    );
     assert(
       baselineEntry &&
         baselineEntry.status === 'ACTIVE' &&

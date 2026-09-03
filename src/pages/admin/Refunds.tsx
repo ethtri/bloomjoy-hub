@@ -579,6 +579,9 @@ const isMissingRefundLabel = (value: string | null | undefined) => {
 };
 
 const derivePortalRefundMissingFields = (refundCase: RefundCaseRecord): RefundMissingField[] => {
+  if (refundCase.customerCorrectionFields) {
+    return refundCase.customerCorrection?.isActive === true ? [] : refundCase.customerCorrectionFields;
+  }
   const missing: RefundMissingField[] = [];
   if (isMissingRefundLabel(refundCase.machineLabel) && isMissingRefundLabel(refundCase.locationName)) {
     missing.push('location_or_machine');
@@ -619,16 +622,22 @@ const derivePortalRefundMissingFields = (refundCase: RefundCaseRecord): RefundMi
 };
 
 const missingFieldCustomerLabel: Record<RefundMissingField, string> = {
+  payment_interaction: 'how the card or wallet was used',
+  wallet_provider: 'the mobile wallet used',
+  card_network: 'the card type',
   location_or_machine: 'the machine or Bloomjoy location',
   incident_date: 'the purchase date',
   incident_time: 'the approximate purchase time, including AM or PM',
   payment_method: 'whether payment was by card, Apple Pay, Google Pay, or cash',
   amount: 'the exact amount charged',
-  card_last4: 'only the last four digits shown on the card charge (not wallet or device-card digits)',
+  card_last4: 'only the last four digits of the card or wallet used for this purchase',
   zelle_payment_contact: 'the Zelle email address or phone number for this reimbursement',
 };
 
 const missingFieldReplyLine: Record<RefundMissingField, string> = {
+  payment_interaction: 'How you paid:',
+  wallet_provider: 'Mobile wallet:',
+  card_network: 'Card type:',
   location_or_machine: 'Machine or location:',
   incident_date: 'Purchase date (YYYY-MM-DD):',
   incident_time: 'Approximate purchase time (include AM or PM):',
@@ -642,6 +651,26 @@ const sanitizePortalMissingFields = (fields: string[]): RefundMissingField[] =>
   Object.keys(missingFieldCustomerLabel).filter(
     (field): field is RefundMissingField => fields.includes(field),
   );
+
+const CustomerCorrectionSummary = ({ refundCase }: { refundCase: RefundCaseRecord }) => {
+  const correction = refundCase.customerCorrection;
+  if (!correction) return null;
+  return <section className="border-b border-border p-4" aria-label="Customer correction">
+    <h3 className="font-semibold">{correction.state === 'submitted' ? 'Customer response received' : correction.isActive ? 'Customer correction requested' : 'Customer correction needs review'}</h3>
+    <p className="mt-2 text-sm text-muted-foreground">{correction.state === 'submitted'
+      ? 'Continue reviewing this request. The customer does not need to answer these details again.'
+      : correction.isActive ? correction.isUsable ? 'The secure link was sent. Bloomjoy is waiting for this response.' : 'Sending is still being confirmed. Keep the existing request.'
+      : 'Review the existing response or delivery record before requesting anything else.'}</p>
+    {correction.answers && <dl className="mt-3 space-y-2 text-sm">{Object.entries(correction.answers).map(([field,answer]) => <div key={field}>
+      <dt className="font-medium">{missingFieldCustomerLabel[field as RefundMissingField] ?? statusLabel(field)}</dt>
+      <dd className="text-muted-foreground">{answer.disposition === 'cannot_provide' ? 'Customer is unsure or cannot provide this.'
+        : answer.disposition === 'confirmed' ? `Confirmed: ${correction.previousValues[field] ?? 'previous detail'}`
+        : field === 'location_or_machine' ? 'Customer selected a different public location; the case now uses that selection.'
+        : `Changed from ${correction.previousValues[field] ?? 'not provided'} to ${answer.value ?? ''}`}</dd>
+    </div>)}</dl>}
+    {correction.state === 'submitted' && <p className="mt-3 text-sm">{correction.recheckState === 'completed' ? 'The purchase check completed. Review its result below.' : correction.nextAction === 'recheck' ? 'Bloomjoy is checking the updated purchase details.' : 'Bloomjoy owns the next review.'}</p>}
+  </section>;
+};
 
 const formatMessageAmount = (refundCase: RefundCaseRecord) =>
   formatCurrency(refundCase.refundAmountCents ?? refundCase.paymentAmountCents);
@@ -1797,17 +1826,22 @@ const primaryActionConfig = (
     };
   }
 
+  if (refundCase.customerCorrection?.isActive === true) return {
+    label: refundCase.customerCorrection.isUsable === true ? 'Waiting for customer response' : 'Customer request is being sent',
+    helper: 'Bloomjoy will continue this same request when the customer responds. No new request is needed.', disabled: true,
+  };
+  const staleCorrection = refundCase.customerCorrection?.state === 'pending' && !refundCase.customerCorrection.isActive;
   const matched = hasTransactionMatch(refundCase, editor);
   const noMatch = refundCase.correlationStatus === 'no_match' || (!matched && candidates.length === 0);
   const missingFields = derivePortalRefundMissingFields(refundCase);
-  const waitingOnCustomer = isWaitingCase(refundCase, false);
+  const waitingOnCustomer = !staleCorrection && isWaitingCase(refundCase, false);
   const customerAlreadyAsked =
     waitingOnCustomer &&
     latestMessage &&
     ['more_info', 'no_safe_match'].includes(latestMessage.messageType) &&
     ['sent', 'pending'].includes(latestMessage.status);
 
-  if (refundCase.lifecycle?.managerQueue.bucket === 'waiting_on_customer') {
+  if (!staleCorrection && refundCase.lifecycle?.managerQueue.bucket === 'waiting_on_customer') {
     return {
       label: 'Waiting for customer reply',
       helper: 'Wait for the customer to reply to the existing email before taking another case action.',
@@ -4374,6 +4408,7 @@ export default function AdminRefundsPage() {
     const triageSuggestion = gmailContext?.triageSuggestion;
     const usesReviewedTriageDraft =
       nextMessageType === 'more_info' &&
+      !selectedCase.customerCorrectionFields &&
       triageSuggestion?.status === 'ready_for_review' &&
       triageSuggestion.route === 'draft_reply' &&
       triageSuggestion.contentDeleted !== true;
@@ -4396,7 +4431,9 @@ export default function AdminRefundsPage() {
     }
 
     const missingFields = nextMessageType === 'more_info'
-      ? usesReviewedTriageDraft
+      ? selectedCase.customerCorrectionFields
+        ? selectedCase.customerCorrectionFields
+        : usesReviewedTriageDraft
         ? sanitizePortalMissingFields(triageSuggestion?.missingFields ?? [])
         : derivePortalRefundMissingFields(selectedCase)
       : [];
@@ -5227,17 +5264,9 @@ export default function AdminRefundsPage() {
     const canAskForCustomerDetails = derivePortalRefundMissingFields(selectedCase).length > 0;
 
     const chooseCustomerFollowUp = () => {
-      if (!canAskForCustomerDetails) return;
-      setEditor((current) =>
-        current
-          ? {
-              ...current,
-              status: 'waiting_on_customer',
-              decision: null,
-              decisionReason: '',
-            }
-          : current
-      );
+      if (!canAskForCustomerDetails || isSendingCustomerMessage) return;
+      if (selectedCase.customerCorrectionFields) { void handleSendCustomerMessage('more_info'); return; }
+      setEditor((current) => current ? { ...current, status: 'waiting_on_customer', decision: null, decisionReason: '' } : current);
       handleMessageTypeChange('more_info');
     };
 
@@ -5316,6 +5345,7 @@ export default function AdminRefundsPage() {
             </div>
           )}
 
+          <CustomerCorrectionSummary refundCase={selectedCase} />
           <div className="grid gap-px bg-border lg:grid-cols-2">
             <article data-testid="refund-request-summary" className="bg-card p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer request</p>
@@ -6028,7 +6058,7 @@ export default function AdminRefundsPage() {
               <div className="mt-3 flex flex-wrap gap-2 sm:justify-end">
                 {canAskForCustomerDetails && primaryAction?.messageType !== 'more_info' && (
                   <Button type="button" size="sm" variant="outline" disabled={isUsingDemoData} onClick={chooseCustomerFollowUp}>
-                    Ask customer for details
+                    Request customer correction
                   </Button>
                 )}
                 {primaryAction?.label !== 'Deny request' && (
@@ -6201,18 +6231,9 @@ export default function AdminRefundsPage() {
     const canAskForCustomerDetails = derivePortalRefundMissingFields(selectedCase).length > 0;
 
     const chooseCustomerFollowUp = () => {
-      if (!canAskForCustomerDetails) return;
-      setEditor((current) =>
-        current
-          ? {
-              ...current,
-              status: 'waiting_on_customer',
-              decision: null,
-              decisionReason: '',
-              cashPaymentConfirmed: false,
-            }
-          : current
-      );
+      if (!canAskForCustomerDetails || isSendingCustomerMessage) return;
+      if (selectedCase.customerCorrectionFields) { void handleSendCustomerMessage('more_info'); return; }
+      setEditor((current) => current ? { ...current, status: 'waiting_on_customer', decision: null, decisionReason: '' } : current);
       handleMessageTypeChange('more_info');
     };
 
@@ -6279,6 +6300,7 @@ export default function AdminRefundsPage() {
             </div>
           </div>
 
+          <CustomerCorrectionSummary refundCase={selectedCase} />
           <div className="grid border-t border-border lg:grid-cols-2 lg:divide-x lg:divide-border">
             <article data-testid="refund-cash-request-summary" className="p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer request</p>
@@ -6396,7 +6418,7 @@ export default function AdminRefundsPage() {
               <div className="mt-3 flex flex-wrap gap-2">
                 {canAskForCustomerDetails && primaryAction?.messageType !== 'more_info' && (
                   <Button type="button" variant="outline" size="sm" onClick={chooseCustomerFollowUp} disabled={isUsingDemoData}>
-                    Ask customer for details
+                    Request customer correction
                   </Button>
                 )}
                 {primaryAction?.targetDecision !== 'denied' && (

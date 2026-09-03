@@ -123,6 +123,7 @@ const fieldReplyLine: Record<RefundMissingField, string> = {
 export const buildNayaxCustomerCorrectionEmail = (
   input: RefundCustomerEmailInput,
 ) => {
+  if (input.correctionUrl) return buildRefundCustomerEmail(input);
   const fields = sanitizeRefundMissingFields(input.missingFields);
   if (fields.length === 0) return buildRefundCustomerEmail(input);
   if (input.cardWalletUsed && fields.includes("card_last4")) {

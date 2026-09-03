@@ -114,6 +114,28 @@ const email = {
     "<p>Thank you for contacting Bloomjoy. We are reviewing your request.</p>",
 };
 
+Deno.test("correction delivery sends no raw write capability into the actual Gmail claim ledger", async () => {
+  await withEnvironment({ ...SYNTHETIC_ENV, REFUND_GMAIL_ENABLED: "true" }, async () => {
+    const token = "x".repeat(43);
+    let claimed = false;
+    const mailboxHash = await sha256Hex(SYNTHETIC_ENV.GMAIL_SUPPORT_MAILBOX);
+    const supabase = fakeSupabase({ link: { id: "synthetic-thread", mailbox_hash: mailboxHash }, rpc: async (name, args) => {
+      assertEquals(name, "service_claim_refund_gmail_outbound_v3"); claimed = true;
+      assertStringIncludes(String(args.p_plain_body), "[Secure refund correction link included at delivery]");
+      assert(!JSON.stringify(args).includes(token));
+      return { data: { claimed: false, status: "automatic_contact_disabled" }, error: null };
+    } });
+    await withFetch(async () => { throw new Error("Synthetic claim must not send email"); }, async () => {
+      try {
+        await dispatchRefundCaseGmailReply({ supabase: supabase as never, refundCaseId: "79850000-0000-4000-8000-000000000041",
+          refundCaseMessageId: "79860000-0000-4000-8000-000000000041", recipientEmail: "customer@example.test",
+          email: { ...email, text: `Update your request: https://app.bloomjoyusa.com/refunds/correct#token=${token}` }, deliveryKind: "automatic", gmailThreadId: "synthetic-thread" });
+      } catch (error) { assert(error instanceof RefundGmailError); }
+    });
+    assert(claimed);
+  });
+});
+
 const gmailConfig: RefundGmailConfig = {
   clientId: SYNTHETIC_ENV.GMAIL_SUPPORT_CLIENT_ID,
   clientSecret: SYNTHETIC_ENV.GMAIL_SUPPORT_CLIENT_SECRET,

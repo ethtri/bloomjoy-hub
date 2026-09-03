@@ -104,7 +104,7 @@
       "continue": true
     },
     {
-      "src": "/refunds/status/?",
+      "src": "/refunds/(status|correct)/?",
       "headers": {
         "Cache-Control": "private, no-store, max-age=0",
         "Referrer-Policy": "no-referrer",

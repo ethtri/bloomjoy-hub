@@ -37,7 +37,9 @@ test('actual persisted-result sweep routes an empty no-match internally without 
 });
 
 test('actual shared send boundary rejects empty card requests and reminders before any effect', async () => {
-  const send = new Function(`${functionSource('sendDeterministicFollowUpMessage', 'sendCustomerStatusUpdate')} return sendDeterministicFollowUpMessage;`)();
+  const send = new Function('supabase', 'automaticCustomerContactAllowed', 'messageTypeForFollowUp', 'refundCorrectionLinksEnabled',
+    `${functionSource('sendDeterministicFollowUpMessage', 'sendCustomerStatusUpdate')} return sendDeterministicFollowUpMessage;`
+  )({}, async () => true, () => 'no_safe_match', async () => false);
   for (const messageClass of ['request', 'reminder']) {
     await assert.rejects(send({ payment_method: 'card' }, { reasonCode: 'no_safe_match' }, messageClass, []), /specific customer-correctable fact/);
   }

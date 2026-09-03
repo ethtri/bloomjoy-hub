@@ -99,7 +99,7 @@ const run = async () => {
   assert(
     'The status page is non-indexed, non-referring, non-cached, and excluded from analytics',
     includesAll(vercel, [
-      'src": "/refunds/status/?"',
+      'src": "/refunds/(status|correct)/?"',
       'private, no-store, max-age=0',
       'no-referrer',
       'noindex, nofollow, noarchive',

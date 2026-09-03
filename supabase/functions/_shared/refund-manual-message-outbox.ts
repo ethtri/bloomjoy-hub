@@ -11,6 +11,8 @@ import {
   markRefundTransactionalDeliveryAttempt,
 } from "./refund-transactional-delivery.ts";
 import { TransactionalEmailDeliveryUnknownError } from "./internal-email.ts";
+import { issueRefundCorrectionForMessage, STORED_CORRECTION_LINK_MARKER } from "./refund-correction-delivery.ts";
+import { renderBloomjoyRefundStoredText } from "./refund-email-brand.ts";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -255,7 +257,7 @@ export const deliverRefundManualMessageClaim = async ({
   const message = await getClaimedMessage(supabase, reference);
   const { data: currentCase, error: caseError } = await supabase
     .from("refund_cases")
-    .select("official_action_version,case_population,customer_email")
+    .select("official_action_version,case_population,customer_email,deterministic_fact_version")
     .eq("id", message.refund_case_id)
     .maybeSingle();
   if (caseError) throw caseError;
@@ -291,7 +293,7 @@ export const deliverRefundManualMessageClaim = async ({
 
   const baseBody = message.body.replaceAll(STORED_STATUS_LINK_MARKER, "")
     .trim();
-  const statusCapability = message.manual_delivery_status_link_requested
+  const statusCapability = message.manual_delivery_status_link_requested && !message.body.includes(STORED_CORRECTION_LINK_MARKER)
     ? await tryIssueRefundStatusCapabilityForMessage({
       supabase,
       refundCaseId: message.refund_case_id,
@@ -303,7 +305,7 @@ export const deliverRefundManualMessageClaim = async ({
     text: baseBody,
     statusUrl: statusCapability?.url ?? null,
   });
-  const email = {
+  let email = {
     subject: message.subject,
     text: storedEmail.text,
     html: storedEmail.html,
@@ -312,6 +314,14 @@ export const deliverRefundManualMessageClaim = async ({
   let providerAttemptStarted = false;
   let providerAccepted = false;
   try {
+    if (message.body.includes(STORED_CORRECTION_LINK_MARKER)) {
+      const correctionUrl = await issueRefundCorrectionForMessage({ supabase, messageId: message.id, factVersion: currentCase.deterministic_fact_version });
+      const correctionText = baseBody.replaceAll(STORED_CORRECTION_LINK_MARKER, correctionUrl);
+      email = { subject: message.subject, text: correctionText, html: renderBloomjoyRefundStoredText({
+        headline: message.subject, text: baseBody.replaceAll(STORED_CORRECTION_LINK_MARKER, ''),
+        primaryLink: { label: message.subject.startsWith('Actualice') ? 'Actualizar su solicitud / Update your refund request' : 'Update your refund request', url: correctionUrl },
+      }) };
+    }
     await markProviderAttempt(supabase, reference);
     providerAttemptStarted = true;
     const gmailDelivery = await dispatchRefundCaseGmailReply({

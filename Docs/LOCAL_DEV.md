@@ -32,6 +32,29 @@
 3) Run `npm run dev`
 4) Follow `Docs/QA_SMOKE_TEST_CHECKLIST.md`
 
+### Same-case refund corrections
+
+Use a disposable database and synthetic email transport. The correction form is
+`/refunds/correct#token=<issued-token>`; the token belongs in the fragment, never
+in a query string, screenshot, log, or committed fixture. Configure a random
+server-only `REFUND_CORRECTION_TOKEN_SECRET` of at least 43 characters. The one
+rollout switch is `refund_customer_contact_settings.correction_links_enabled`,
+which defaults to false. Existing automatic-contact and delivery controls still
+apply. Keep production activation under the existing release and sending authority.
+
+The messaging migration follows the purchase-correction migration. With the
+switch enabled in the disposable database, request current missing/conflicting
+details from `/admin/refunds`. Verify the stored message contains a placeholder,
+the actual synthetic delivery contains one correction link, and only the sent
+message permits the link to open. Inspect/submit remains deployed when the switch
+is disabled so already-delivered links can finish. Rotating the secret does not
+change stored token hashes or invalidate delivered links, but an unfinished
+same-message retry must retain its original secret to reconstruct the same token.
+
+Run `npm run refunds:validate-purchase-correction` and
+`node --test scripts/refunds/refund-reminder-dispatch-guard.test.mjs`, then run the
+database migration suite for actual scope, delivery, replay, and stale-write checks.
+
 ## Supabase setup (training library + memberships)
 1) Apply migration: `supabase/migrations/20260122_training_and_membership.sql`
    - Orders sync migration: `supabase/migrations/20260202_orders.sql`

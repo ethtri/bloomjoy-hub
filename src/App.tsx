@@ -66,6 +66,7 @@ const RefundRequest = lazyRoute(() => import("./pages/RefundRequest"));
 const RefundThankYou = lazyRoute(() => import("./pages/RefundThankYou"));
 const RefundStatus = lazyRoute(() => import("./pages/RefundStatus"));
 const RefundWalletCorrection = lazyRoute(() => import("./pages/RefundWalletCorrection"));
+const RefundCorrection = lazyRoute(() => import("./pages/RefundCorrection"));
 const Login = lazyRoute(() => import("./pages/Login"));
 const ResetPassword = lazyRoute(() => import("./pages/ResetPassword"));
 const PortalDashboard = lazyRoute(loadPortalDashboard);
@@ -229,6 +230,7 @@ export const AppShell = () => (
           <Route path="/refunds/thank-you" element={<RefundThankYou />} />
           <Route path="/refunds/status" element={<RefundStatus />} />
           <Route path="/refunds/correct-wallet" element={<RefundWalletCorrection />} />
+          <Route path="/refunds/correct" element={<RefundCorrection />} />
           <Route path="/login" element={<Login />} />
           <Route path="/login/operator" element={<Navigate to="/login" replace />} />
           <Route path="/reset-password" element={<ResetPassword />} />

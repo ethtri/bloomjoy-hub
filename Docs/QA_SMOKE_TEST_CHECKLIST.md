@@ -1005,3 +1005,12 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
   accounting effect; ordinary card recovery and the existing cash payout suite
   must still pass. The actual post-ingestion worker test must retain one internal
   incoming-message notice and report zero false message failures.
+
+## Same-case customer correction (`#1109`)
+
+- [ ] In a disposable environment, use the current missing/conflicting fields on `/admin/refunds` to request details once. Pending delivery must not claim the customer is waiting. The stored message and Gmail ledger contain placeholders, while actual English/Spanish delivery contains one keyboard-accessible correction link.
+- [ ] At `/refunds/correct#token=<synthetic-token>`, test confirming, changing, and explicitly being unable to provide a requested field. Keep the original case/reference; changed wallet context requires its relevant digits/provenance/provider and changed time requires confidence. Check desktop and 390px mobile rendering with no overflow or full-card input.
+- [ ] Repeat the same submission and recovery sweep: one saved response and at most one existing lookup claim, with no second mail or case. An uncertain response goes to internal review without asking that same unchanged field again. A completed card match still permits the normal manager refund decision.
+- [ ] A prepared-but-unsent, failed, bounced, expired, wrong-recipient, or stale-fact link cannot read/write the case. A definitive failure before transport permits a later newly prepared message without consuming a delivered-contact slot; an unknown delivery never permits a blind replacement.
+- [ ] Accept a synthetic provider send, then advance facts or expire the link before local SENT settlement. Record the exact immutable send once without reopening customer waiting, issuing another capability, or sending again. Current completion/delivery problems remain visible.
+- [ ] An approved cash case lacking only Zelle contact exposes only destination correction. Submission preserves the manager decision and payment identity, stops the old payout reminder, and does not execute a payment. Legacy email replies remain supported; a late reply cannot overwrite newer submitted correction facts.
