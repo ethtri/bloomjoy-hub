@@ -180,6 +180,7 @@ begin
     or not public.refund_purchase_correction_eligible(c)
     or not exists(select 1 from public.refund_case_messages m where m.id=r.correction_message_id
       and m.refund_case_id=c.id and m.recipient_email=c.customer_email and m.status='sent'
+      and coalesce(m.delivery_state,'') not in ('failed','bounced','complained')
       and not public.is_refund_message_recorded_delivery_failure(to_jsonb(m)))
     or c.deterministic_fact_version is distinct from r.correction_fact_version then
     return jsonb_build_object('state','unavailable');
@@ -207,6 +208,7 @@ begin
   if r.status<>'pending' or r.expires_at<=statement_timestamp() or not public.refund_purchase_correction_eligible(c)
     or not exists(select 1 from public.refund_case_messages m where m.id=r.correction_message_id
       and m.refund_case_id=c.id and m.recipient_email=c.customer_email and m.status='sent'
+      and coalesce(m.delivery_state,'') not in ('failed','bounced','complained')
       and not public.is_refund_message_recorded_delivery_failure(to_jsonb(m)))
     or r.correction_fact_version is distinct from p_expected_fact_version or c.deterministic_fact_version is distinct from p_expected_fact_version then
     raise exception 'Correction link is stale or unavailable';
@@ -404,9 +406,18 @@ begin
       'state',case when r.status='pending' and r.expires_at<=statement_timestamp() then 'expired' else r.status end,
       'requestedAt',r.issued_at,'respondedAt',r.consumed_at,'expiresAt',r.expires_at,
       'requestedFields',r.correction_requested_fields,'answers',r.correction_response,'previousValues',r.correction_snapshot,
-      'deliveryState',m.status,'recheckState',r.correction_recheck_state,'nextAction',r.correction_next_action
+      'isActive',r.status='pending' and r.expires_at>statement_timestamp()
+        and r.correction_fact_version=current_case.deterministic_fact_version and public.refund_purchase_correction_eligible(current_case)
+        and m.recipient_email=current_case.customer_email and m.status in ('pending','sent')
+        and coalesce(m.delivery_state,'') not in ('failed','bounced','complained') and not public.is_refund_message_recorded_delivery_failure(to_jsonb(m)),
+      'isUsable',r.status='pending' and r.expires_at>statement_timestamp()
+        and r.correction_fact_version=current_case.deterministic_fact_version and public.refund_purchase_correction_eligible(current_case)
+        and m.recipient_email=current_case.customer_email and m.status='sent'
+        and coalesce(m.delivery_state,'') not in ('failed','bounced','complained') and not public.is_refund_message_recorded_delivery_failure(to_jsonb(m)),
+      'deliveryState',m.delivery_state,'deliveryStatus',m.status,'recheckState',r.correction_recheck_state,'nextAction',r.correction_next_action
     ) end) order by item.ordinality),'[]') into enriched
   from jsonb_array_elements(coalesce(base->'cases','[]')) with ordinality item
+  join public.refund_cases current_case on current_case.id=(item.value->>'id')::uuid
   left join lateral(select * from public.refund_wallet_correction_contexts ctx where ctx.refund_case_id=(item.value->>'id')::uuid
     and ctx.correction_kind='purchase' order by ctx.issued_at desc limit 1) r on true
   left join public.refund_case_messages m on m.id=r.correction_message_id;

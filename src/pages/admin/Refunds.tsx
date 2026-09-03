@@ -580,7 +580,7 @@ const isMissingRefundLabel = (value: string | null | undefined) => {
 
 const derivePortalRefundMissingFields = (refundCase: RefundCaseRecord): RefundMissingField[] => {
   if (refundCase.customerCorrectionFields) {
-    return refundCase.customerCorrection?.state === 'pending' ? [] : refundCase.customerCorrectionFields;
+    return refundCase.customerCorrection?.isActive === true ? [] : refundCase.customerCorrectionFields;
   }
   const missing: RefundMissingField[] = [];
   if (isMissingRefundLabel(refundCase.machineLabel) && isMissingRefundLabel(refundCase.locationName)) {
@@ -656,10 +656,10 @@ const CustomerCorrectionSummary = ({ refundCase }: { refundCase: RefundCaseRecor
   const correction = refundCase.customerCorrection;
   if (!correction) return null;
   return <section className="border-b border-border p-4" aria-label="Customer correction">
-    <h3 className="font-semibold">{correction.state === 'submitted' ? 'Customer response received' : correction.state === 'pending' ? 'Customer correction requested' : 'Customer correction needs review'}</h3>
+    <h3 className="font-semibold">{correction.state === 'submitted' ? 'Customer response received' : correction.isActive ? 'Customer correction requested' : 'Customer correction needs review'}</h3>
     <p className="mt-2 text-sm text-muted-foreground">{correction.state === 'submitted'
       ? 'Continue reviewing this request. The customer does not need to answer these details again.'
-      : correction.state === 'pending' ? correction.deliveryState === 'sent' ? 'The secure link was sent. Bloomjoy is waiting for this response.' : 'Sending is still being confirmed. Keep the existing request.'
+      : correction.isActive ? correction.isUsable ? 'The secure link was sent. Bloomjoy is waiting for this response.' : 'Sending is still being confirmed. Keep the existing request.'
       : 'Review the existing response or delivery record before requesting anything else.'}</p>
     {correction.answers && <dl className="mt-3 space-y-2 text-sm">{Object.entries(correction.answers).map(([field,answer]) => <div key={field}>
       <dt className="font-medium">{missingFieldCustomerLabel[field as RefundMissingField] ?? statusLabel(field)}</dt>
@@ -1691,10 +1691,6 @@ const primaryActionConfig = (
       disabled: true,
     };
   }
-  if (refundCase.customerCorrection?.state === 'pending') return {
-    label: refundCase.customerCorrection.deliveryState === 'sent' ? 'Waiting for customer response' : 'Customer request is being sent',
-    helper: 'Bloomjoy will continue this same request when the customer responds. No new request is needed.', disabled: true,
-  };
   const latestMessage = getLatestCustomerMessage(refundCase);
   const definitiveNoRefundRetryReady = isDefinitiveNoRefundRetryReady(refundCase);
   if (refundCase.legacyStateReviewRequired) {
@@ -1830,6 +1826,13 @@ const primaryActionConfig = (
     };
   }
 
+  if (refundCase.customerCorrection?.isActive === true) return {
+    label: refundCase.customerCorrection.isUsable === true ? 'Waiting for customer response' : 'Customer request is being sent',
+    helper: 'Bloomjoy will continue this same request when the customer responds. No new request is needed.', disabled: true,
+  };
+  if (refundCase.customerCorrection?.state === 'pending') return {
+    label: 'Review customer correction', helper: 'The earlier correction link is no longer current or deliverable. Bloomjoy owns this review.', disabled: true,
+  };
   const matched = hasTransactionMatch(refundCase, editor);
   const noMatch = refundCase.correlationStatus === 'no_match' || (!matched && candidates.length === 0);
   const missingFields = derivePortalRefundMissingFields(refundCase);
@@ -4407,6 +4410,7 @@ export default function AdminRefundsPage() {
     const triageSuggestion = gmailContext?.triageSuggestion;
     const usesReviewedTriageDraft =
       nextMessageType === 'more_info' &&
+      !selectedCase.customerCorrectionFields &&
       triageSuggestion?.status === 'ready_for_review' &&
       triageSuggestion.route === 'draft_reply' &&
       triageSuggestion.contentDeleted !== true;
@@ -5263,7 +5267,9 @@ export default function AdminRefundsPage() {
 
     const chooseCustomerFollowUp = () => {
       if (!canAskForCustomerDetails || isSendingCustomerMessage) return;
-      void handleSendCustomerMessage('more_info');
+      if (selectedCase.customerCorrectionFields) { void handleSendCustomerMessage('more_info'); return; }
+      setEditor((current) => current ? { ...current, status: 'waiting_on_customer', decision: null, decisionReason: '' } : current);
+      handleMessageTypeChange('more_info');
     };
 
     const chooseDenial = () => {
@@ -6228,7 +6234,9 @@ export default function AdminRefundsPage() {
 
     const chooseCustomerFollowUp = () => {
       if (!canAskForCustomerDetails || isSendingCustomerMessage) return;
-      void handleSendCustomerMessage('more_info');
+      if (selectedCase.customerCorrectionFields) { void handleSendCustomerMessage('more_info'); return; }
+      setEditor((current) => current ? { ...current, status: 'waiting_on_customer', decision: null, decisionReason: '' } : current);
+      handleMessageTypeChange('more_info');
     };
 
     const chooseDenial = () => {
