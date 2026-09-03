@@ -759,6 +759,12 @@ const sendDeterministicFollowUpMessage = async (
   }
   const messageType = messageTypeForFollowUp(cycle, messageClass);
   const correctionEnabled = await refundCorrectionLinksEnabled(supabase!);
+  if (correctionEnabled && messageClass !== "information_received") {
+    // Bundle every currently supported gap once; historical cycle fields can
+    // be narrower than the present case. The message persists this exact list.
+    customerCorrectionFields = await getCurrentRefundCorrectionFields(supabase!, refundCase.id);
+    if (customerCorrectionFields.length === 0) return { status: "suppressed" as const, messageId: null };
+  }
   const statusCapability = correctionLinkRequested(messageType, customerCorrectionFields.length ? customerCorrectionFields : cycle.requestedFields, correctionEnabled) ? null : await tryIssueRefundStatusCapability({
     supabase: supabase!,
     refundCaseId: refundCase.id,

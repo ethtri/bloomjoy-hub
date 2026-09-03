@@ -37,10 +37,11 @@ class RefundGmailError extends Error {
   constructor(code, message) { super(message); this.code = code; }
 }
 
-function harness(transport, { bounceAfterPending = false, bounceAfterProviderAccepted = false, confirmedGmailReplay = false } = {}) {
+function harness(transport, { bounceAfterPending = false, bounceAfterProviderAccepted = false, confirmedGmailReplay = false,
+  correctionEnabled = false, correctionFields = ['incident_time', 'amount'] } = {}) {
   const state = { requestDelivery: 'delivered', pending: null, marks: 0, claims: 0,
     transactionalSenderCalls: 0, gmailProviderCalls: 0, transactionalProviderCalls: 0,
-    binds: 0, finishes: 0, updates: [], sequence: [], acceptanceBinding: null };
+    binds: 0, finishes: 0, scopes: 0, updates: [], sequence: [], acceptanceBinding: null };
   const route = { recipientResolutionStatus: 'resolved', managerCcEmails: ['manager@example.invalid'],
     managerRecipientOverlap: false, managerRecipientCount: 1 };
   const supabase = {
@@ -126,9 +127,14 @@ function harness(transport, { bounceAfterPending = false, bounceAfterProviderAcc
   const sender = execute(senderSource, {
     supabase, RefundGmailError, console: { error() {} },
     automaticCustomerContactAllowed: async () => true,
+    refundCorrectionLinksEnabled: async () => correctionEnabled,
+    correctionLinkRequested: (_type, fields, enabled) => enabled && fields.length > 0,
+    getCurrentRefundCorrectionFields: async () => correctionFields,
+    issueRefundCorrectionForMessage: async () => { state.scopes++; return 'https://app.bloomjoyusa.com/refunds/correct#token=' + 'x'.repeat(43); },
     messageTypeForFollowUp: () => 'reminder',
     tryIssueRefundStatusCapability: async () => null,
-    buildFollowUpEmailInput: () => ({}), buildRefundCustomerEmail: () => email,
+    buildFollowUpEmailInput: () => ({ correctionUrl: correctionEnabled ? '[Secure refund correction link included at delivery]' : null }),
+    buildRefundCustomerEmail: () => email, buildNayaxCustomerCorrectionEmail: () => email,
     refundFollowUpTemplateKey: () => 'synthetic-reminder-v1',
     redactRefundStatusLinksForStorage: (value) => value,
     resolveFollowUpGmailThreadId: async () => transport === 'gmail' ? 'synthetic-thread' : null,
@@ -144,11 +150,29 @@ function harness(transport, { bounceAfterPending = false, bounceAfterProviderAcc
       }
       return { delivery: acceptedReceipt };
     },
+    sendNayaxCustomerCorrectionEmail: async () => {
+      state.transactionalSenderCalls++; state.transactionalProviderCalls++;
+      return { delivery: acceptedReceipt };
+    },
     textValue: (value) => typeof value === 'string' ? value.trim() : '',
   });
   return { state, send: () => sender.send({ id: 'synthetic-case', customer_email: 'customer@example.invalid' },
-    { id: 'synthetic-cycle', requestedFields: [], reasonCode: 'missing_information', templateVersion: 'synthetic-v1' }, 'reminder') };
+    { id: 'synthetic-cycle', requestedFields: [], reasonCode: correctionEnabled ? 'no_safe_match' : 'missing_information', templateVersion: 'synthetic-v1' }, 'reminder') };
 }
+
+test('scoped no-match reminder persists all current fields despite historical empty cycle fields', async () => {
+  const { state, send } = harness('resend', { correctionEnabled: true });
+  assert.equal((await send()).status, 'sent');
+  assert.deepEqual(Array.from(state.pending.requested_fields), ['incident_time', 'amount']);
+  assert.equal(state.scopes, 1);
+  assert.equal(state.transactionalProviderCalls, 1);
+});
+
+test('scoped reminder with no remaining customer field creates no message, link or provider call', async () => {
+  const { state, send } = harness('resend', { correctionEnabled: true, correctionFields: [] });
+  assert.equal((await send()).status, 'suppressed');
+  assert.equal(state.pending, null); assert.equal(state.scopes, 0); assert.equal(state.transactionalProviderCalls, 0);
+});
 
 for (const transport of ['resend', 'gmail']) {
   test(`${transport}: original bounce after pending creation causes ZERO provider/sender calls`, async () => {
