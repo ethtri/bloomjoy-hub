@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { invokeEdgeFunction } from '@/lib/edgeFunctions';
 import { isLocalUatDemoForced } from '@/lib/refundOperations';
-import { correctionChoices, correctionFields, correctionLabels, isCorrectionToken, validateCorrectionAnswers,
+import { correctionChoices, correctionFields, correctionLabels, isCorrectionToken, requiredCorrectionFields, validateCorrectionAnswers,
   type CorrectionAnswer, type CorrectionAnswers, type CorrectionContext, type CorrectionField,
 } from '../../supabase/functions/_shared/refund-correction';
 
@@ -25,6 +25,7 @@ const demoContext = (search: string): CorrectionContext => {
   return { state: params.get('state') === 'expired' ? 'unavailable' : 'ready', publicReference: 'RF-DEMO', version: 1,
     locale: params.get('lang') === 'es' ? 'es' : 'en', timezone: 'America/Los_Angeles',
     requestedFields: cash ? ['incident_time', 'amount'] : ['card_last4'],
+    locationChoices: [{key:'demo-location',label:'Example mall'}],
     allowedFields: correctionFields.filter((field) => field !== 'zelle_payment_contact'),
     values: { location_or_machine: 'Example mall', incident_date: '2026-09-03', incident_time: '14:30', amount: '7.00',
       payment_method: cash ? 'cash' : 'card', payment_interaction: wallet ? 'phone_watch_wallet' : cash ? 'cash' : 'tap_card',
@@ -83,7 +84,7 @@ export default function RefundCorrectionPage() {
   const effective = (field: CorrectionField) => answers[field]?.disposition === 'changed' ? answers[field]?.value : values[field];
   const wallet = effective('payment_interaction') === 'phone_watch_wallet';
   const cash = effective('payment_method') === 'cash';
-  const requested = context?.requestedFields ?? [];
+  const requested = context ? requiredCorrectionFields(answers, context) : [];
   const fields = (context?.allowedFields ?? []).filter((field) => requested.includes(field) || (reviewOthers &&
     (!cash || !['card_last4', 'card_network', 'wallet_provider'].includes(field)) && (wallet || field !== 'wallet_provider')));
   const submit = async (event: FormEvent) => {
@@ -122,6 +123,7 @@ export default function RefundCorrectionPage() {
           <p className="mt-4 leading-7">{copy('Check the details below so we can review the right purchase. Confirm what is correct, change what needs fixing, or tell us you’re not sure.', 'Revise los detalles para que podamos encontrar la compra correcta. Confirme lo correcto, corrija lo necesario o indique que no está seguro.')}</p>
           <p className="mt-4 flex gap-2 text-sm leading-6 text-muted-foreground"><ShieldCheck aria-hidden className="mt-1 h-4 w-4 shrink-0" />{copy('Only the last four card digits. Never share a full card number, security code, password or screenshot.', 'Solo los últimos cuatro dígitos. Nunca comparta el número completo de tarjeta, código de seguridad, contraseña ni captura de pantalla.')}</p>
           <form onSubmit={submit} className="mt-8 space-y-7" noValidate>
+            {(answers.payment_method?.disposition === 'changed' || answers.payment_interaction?.disposition === 'changed') && <p className="text-sm leading-6 text-muted-foreground">{copy('When you change how you paid, please check the card details for that payment. Choose “I’m not sure” if you cannot confirm them.', 'Si cambia cómo pagó, revise los detalles de la tarjeta de ese pago. Elija “No estoy seguro” si no puede confirmarlos.')}</p>}
             {error && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-md border border-destructive p-4 text-sm">{error}</div>}
             {fields.map((field) => {
               const answer = answers[field];

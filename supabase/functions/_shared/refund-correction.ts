@@ -47,12 +47,24 @@ export const correctionChoices: Partial<Record<CorrectionField, Array<[string, s
   card_network: [['visa', 'Visa', 'Visa'], ['mastercard', 'Mastercard', 'Mastercard'], ['discover', 'Discover', 'Discover'], ['american_express', 'American Express', 'American Express'], ['other_unknown', 'Other / not sure', 'Otro / no sé']],
 };
 
+export function requiredCorrectionFields(answers: CorrectionAnswers, context: CorrectionContext): CorrectionField[] {
+  const required = new Set(context.requestedFields ?? []);
+  const changed = (field: CorrectionField) => answers[field]?.disposition === 'changed' && answers[field]?.value !== context.values?.[field];
+  const value = (field: CorrectionField) => answers[field]?.disposition === 'changed' ? answers[field]?.value : context.values?.[field];
+  if (changed('payment_method') && value('payment_method') === 'card') required.add('payment_interaction');
+  if ((changed('payment_method') || changed('payment_interaction')) && value('payment_method') === 'card') {
+    required.add('card_last4');
+    if (value('payment_interaction') === 'phone_watch_wallet') required.add('wallet_provider');
+  }
+  return [...required];
+}
+
 export function validateCorrectionAnswers(input: unknown, context: CorrectionContext): CorrectionAnswers {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('invalid_response');
   const answers = input as Record<string, unknown>;
   const allowed = context.allowedFields ?? [];
   const values = context.values ?? {};
-  for (const field of context.requestedFields ?? []) {
+  for (const field of requiredCorrectionFields(answers as CorrectionAnswers, context)) {
     if (!Object.hasOwn(answers, field)) throw new Error(`missing:${field}`);
   }
   const result: CorrectionAnswers = {};

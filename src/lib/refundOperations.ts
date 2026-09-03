@@ -725,6 +725,12 @@ const requireRefundGmailCaseLinkReview = (
 };
 
 export type RefundCaseRecord = {
+  customerCorrectionFields?: RefundMissingField[];
+  customerCorrection?: { state: 'pending'|'submitted'|'expired'|'revoked'; requestedFields: RefundMissingField[];
+    requestedAt: string; respondedAt: string|null; expiresAt: string; deliveryState: string; recheckState: string|null;
+    nextAction: 'review'|'recheck'|null; previousValues: Record<string,string>;
+    answers: Record<string,{disposition: 'changed'|'confirmed'|'cannot_provide';value?: string;confidence?: string}>|null;
+  }|null;
   id: string;
   machineCorrection?: RefundMachineCorrectionEvidence | null;
   publicReference: string;
@@ -844,6 +850,7 @@ export type RefundManagerAssignment = {
 };
 
 export type RefundOperationsOverview = {
+  customerCorrectionEnabled?: boolean;
   cases: RefundCaseRecord[];
   internalTestCases?: RefundCaseRecord[];
   machines: RefundAdminMachine[];
@@ -1528,6 +1535,9 @@ export type SendRefundCaseMessageInput =
     };
 
 export type RefundMissingField =
+  | 'payment_interaction'
+  | 'wallet_provider'
+  | 'card_network'
   | 'location_or_machine'
   | 'incident_date'
   | 'incident_time'
