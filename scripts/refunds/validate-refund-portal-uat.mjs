@@ -6066,7 +6066,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     });
     const bypassPage = await bypassContext.newPage();
     await signInRefundUser(bypassPage, appUrl);
-    await bypassPage.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
+    await bypassPage.getByRole('button', { name: /^Action needed \d+$/ }).click();
     await waitForQueueCount(bypassPage, 1);
     await queueCase(bypassPage, 'RF-UAT-CARD').click();
     await bypassPage.getByTestId('refund-manager-state').getByText('Transaction confirmed', { exact: true })
