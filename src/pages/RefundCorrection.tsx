@@ -87,7 +87,7 @@ export default function RefundCorrectionPage() {
   const requested = context ? requiredCorrectionFields(answers, context) : [];
   const payoutDestination = requested.length === 1 && requested[0] === 'zelle_payment_contact';
   const fields = (context?.allowedFields ?? []).filter((field) => requested.includes(field) || (reviewOthers &&
-    (!cash || !['card_last4', 'card_network', 'wallet_provider'].includes(field)) && (wallet || field !== 'wallet_provider')));
+    (!cash || !['payment_interaction','card_last4', 'card_network', 'wallet_provider'].includes(field)) && (wallet || field !== 'wallet_provider')));
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!context) return;
@@ -124,7 +124,7 @@ export default function RefundCorrectionPage() {
           <p className="mt-4 leading-7">{payoutDestination ? copy('Add the Zelle email or phone number for your approved cash reimbursement. This stays on your existing refund request.', 'Agregue el correo o teléfono de Zelle para su reembolso de efectivo aprobado. Esta información queda en su solicitud existente.') : copy('Check the details below so we can review the right purchase. Confirm what is correct, change what needs fixing, or tell us you’re not sure.', 'Revise los detalles para que podamos encontrar la compra correcta. Confirme lo correcto, corrija lo necesario o indique que no está seguro.')}</p>
           <p className="mt-4 flex gap-2 text-sm leading-6 text-muted-foreground"><ShieldCheck aria-hidden className="mt-1 h-4 w-4 shrink-0" />{(payoutDestination || cash) ? copy('Never share a bank account number, password or security code.', 'Nunca comparta un número de cuenta bancaria, contraseña ni código de seguridad.') : copy('Only the last four card digits. Never share a full card number, security code, password or screenshot.', 'Solo los últimos cuatro dígitos. Nunca comparta el número completo de tarjeta, código de seguridad, contraseña ni captura de pantalla.')}</p>
           <form onSubmit={submit} className="mt-8 space-y-7" noValidate>
-            {(answers.payment_method?.disposition === 'changed' || answers.payment_interaction?.disposition === 'changed') && <p className="text-sm leading-6 text-muted-foreground">{copy('When you change how you paid, please check the card details for that payment. Choose “Not sure / can’t provide” if you cannot confirm them.', 'Si cambia cómo pagó, revise los detalles de la tarjeta de ese pago. Elija “No lo sé / No lo tengo” si no puede confirmarlos.')}</p>}
+            {!cash && (answers.payment_method?.disposition === 'changed' || answers.payment_interaction?.disposition === 'changed') && <p className="text-sm leading-6 text-muted-foreground">{copy('When you change how you paid, please check the card details for that payment. Choose “Not sure / can’t provide” if you cannot confirm them.', 'Si cambia cómo pagó, revise los detalles de la tarjeta de ese pago. Elija “No lo sé / No lo tengo” si no puede confirmarlos.')}</p>}
             {error && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-md border border-destructive p-4 text-sm">{error}</div>}
             {fields.map((field) => {
               const answer = answers[field];

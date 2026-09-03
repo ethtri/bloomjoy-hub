@@ -51,6 +51,9 @@ export function requiredCorrectionFields(answers: CorrectionAnswers, context: Co
   const required = new Set(context.requestedFields ?? []);
   const changed = (field: CorrectionField) => answers[field]?.disposition === 'changed' && answers[field]?.value !== context.values?.[field];
   const value = (field: CorrectionField) => answers[field]?.disposition === 'changed' ? answers[field]?.value : context.values?.[field];
+  if (value('payment_method') === 'cash') {
+    for (const field of ['payment_interaction','card_last4','card_network','wallet_provider'] as const) required.delete(field);
+  } else if (changed('payment_interaction') && ['tap_card','insert_or_swipe'].includes(value('payment_interaction') ?? '')) required.delete('wallet_provider');
   if (changed('payment_method') && value('payment_method') === 'card') required.add('payment_interaction');
   if ((changed('payment_method') || changed('payment_interaction')) && value('payment_method') === 'card') {
     required.add('card_last4');
