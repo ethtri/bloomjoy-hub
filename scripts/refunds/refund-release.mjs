@@ -1228,7 +1228,7 @@ export const fetchReviewedReleaseSource = (rootDirectory, manifest, {
   assert(manifest.projectRef === 'ygbzkgxktzqsiygjlqyg', 'Reviewed source retrieval requires the exact production project');
   const origin = runGit(['remote', 'get-url', 'origin']);
   assert(!origin.error && origin.status === 0 &&
-    origin.stdout.trim() === 'https://github.com/ethtri/bloomjoy-hub.git',
+    ['https://github.com/ethtri/bloomjoy-hub.git', 'https://github.com/ethtri/bloomjoy-hub'].includes(origin.stdout.trim()),
   'Reviewed source retrieval requires the exact Bloomjoy GitHub origin');
   const exists = () => {
     const result = runGit(['cat-file', '-e', `${manifest.sourceGitCommit}^{commit}`]);

@@ -113,7 +113,7 @@ test('fresh main-only clone explicitly retrieves the pinned object then proves c
   const calls = [];
   const runGit = (args) => {
     calls.push(args);
-    if (args[0] === 'remote') return { status: 0, stdout: 'https://github.com/ethtri/bloomjoy-hub.git\n' };
+    if (args[0] === 'remote') return { status: 0, stdout: 'https://github.com/ethtri/bloomjoy-hub\n' };
     return spawnSync('git', args, { cwd: clone, encoding: 'utf8', windowsHide: true });
   };
   assert.deepEqual(fetchReviewedReleaseSource(clone, f.manifest, { runGit }),
