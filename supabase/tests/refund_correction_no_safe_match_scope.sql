@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(14);
+select plan(17);
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data) values('de000000-0000-4000-8000-000000000001','authenticated','authenticated','correction-scope@example.invalid','{}','{}');
 insert into public.customer_accounts(id,name,account_type) values('de000000-0000-4000-8000-000000000002','No-match scope fixture','customer');
 insert into public.reporting_locations(id,account_id,name,timezone,status) values('de000000-0000-4000-8000-000000000003','de000000-0000-4000-8000-000000000002','No-match fixture location','America/Los_Angeles','active');
@@ -51,10 +51,21 @@ values('de000000-0000-4000-8000-000000000007','de000000-0000-4000-8000-000000000
  statement_timestamp()-interval '2 hours',to_char((statement_timestamp()-interval '2 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
  'America/Los_Angeles','exact','card','phone_watch_wallet',700,'1234','wallet_device_token',true,'needs_review','manual_review','form');
 select is(public.refund_purchase_correction_request_fields('de000000-0000-4000-8000-000000000007'),array['wallet_provider']::text[],'Original wallet request asks only its missing provider');
-create temp table wallet_message as select public.service_enqueue_refund_manual_message_intent('de000000-0000-4000-8000-000000000007',
+create function pg_temp.queue_wallet_scope(p_body text,p_fields text[]) returns jsonb language sql as $$
+ select public.service_enqueue_refund_manual_message_intent('de000000-0000-4000-8000-000000000007',
  (select official_action_version from public.refund_cases where id='de000000-0000-4000-8000-000000000007'),gen_random_uuid(),'de000000-0000-4000-8000-000000000001',
- 'more_info','scope-customer@example.invalid','Review wallet detail','[Secure refund correction link included at delivery]',
- 'refund_more_info_editable_v1','manager_authored','missing_information',array['wallet_provider'],null,false,null) as value;
+ 'more_info','scope-customer@example.invalid','Review wallet detail',p_body,
+ 'refund_more_info_editable_v1','manager_authored','missing_information',p_fields,null,false,null);
+$$;
+select throws_like($$select pg_temp.queue_wallet_scope('Legacy unscoped question',array['wallet_provider'])$$,'%Valid refund manual-message intent%',
+ 'Unscoped legacy manual mail cannot borrow the new correction field contract');
+select throws_like($$select pg_temp.queue_wallet_scope('[Secure refund correction link included at delivery]',array['card_network'])$$,'%Valid refund manual-message intent%',
+ 'A scoped marker cannot authorize an unsupported current customer field');
+update public.refund_customer_contact_settings set correction_links_enabled=false where singleton;
+select throws_like($$select pg_temp.queue_wallet_scope('[Secure refund correction link included at delivery]',array['wallet_provider'])$$,'%Valid refund manual-message intent%',
+ 'Disabled correction rollout cannot admit new scoped fields into the outbox');
+update public.refund_customer_contact_settings set correction_links_enabled=true where singleton;
+create temp table wallet_message as select pg_temp.queue_wallet_scope('[Secure refund correction link included at delivery]',array['wallet_provider']) as value;
 select public.service_issue_refund_purchase_correction((select(value->>'messageId')::uuid from wallet_message),repeat('f',64),
  (select deterministic_fact_version from public.refund_cases where id='de000000-0000-4000-8000-000000000007'));
 create temp table wallet_claim as select * from public.service_claim_refund_manual_message_deliveries((select(value->>'messageId')::uuid from wallet_message),1);
