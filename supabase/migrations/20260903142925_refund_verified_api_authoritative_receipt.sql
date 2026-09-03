@@ -54,7 +54,9 @@ begin
   if length(body)-length(replace(body,anchor,''))<>length(anchor) then raise exception 'Exact receipt binding anchor required'; end if;
   execute replace(body,anchor,replacement);
 
-  body:=replace(pg_get_functiondef('public.admin_get_refund_authoritative_receipt_overview(uuid)'::regprocedure),E'\r\n',E'\n');
+  -- The public reader is wrapped by historical notice adoption. Extend its
+  -- retained inner reader so the wrapper's additional evidence stays intact.
+  body:=replace(pg_get_functiondef('public.admin_get_refund_receipt_overview_pre_owner_notice_v1(uuid)'::regprocedure),E'\r\n',E'\n');
   anchor:=$old$and ((a.id is null and c.lifecycle_integrity_status='hold'$old$;
   replacement:=$new$and (public.refund_receipt_verified_api_attempt(c.id,a.id)
       or (a.id is null and c.lifecycle_integrity_status='hold'$new$;
