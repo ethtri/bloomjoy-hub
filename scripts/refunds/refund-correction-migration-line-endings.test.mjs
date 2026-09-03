@@ -8,6 +8,13 @@ import { prepareCorrectionMigrationWindowsRegression } from '../validate-supabas
 const migrationName = '20260903200000_refund_correction_message_delivery.sql';
 const actualMigration = fs.readFileSync(new URL(`../../supabase/migrations/${migrationName}`, import.meta.url), 'utf8').replaceAll('\r\n', '\n');
 
+function removeFixture(root) {
+  const resolved = path.resolve(root);
+  assert.equal(path.dirname(resolved), path.resolve(os.tmpdir()));
+  assert.ok(path.basename(resolved).startsWith('refund-correction-crlf-'));
+  fs.rmSync(resolved, { recursive: true, force: true });
+}
+
 test('disposable apply receives the complete actual correction migration as CRLF from either checkout', () => {
   for (const checkoutSource of [actualMigration, actualMigration.replaceAll('\n', '\r\n')]) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'refund-correction-crlf-'));
@@ -22,7 +29,7 @@ test('disposable apply receives the complete actual correction migration as CRLF
       assert.ok(prepared.includes('$legacy_fields$'));
       assert.ok(!/(?<!\r)\n/u.test(prepared), 'the real dollar-quoted needle reaches PostgreSQL with CRLF');
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      removeFixture(root);
     }
   }
 });
@@ -32,6 +39,6 @@ test('missing actual migration fails instead of silently dropping Windows applic
   try {
     assert.throws(() => prepareCorrectionMigrationWindowsRegression(root), { code: 'ENOENT' });
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    removeFixture(root);
   }
 });
