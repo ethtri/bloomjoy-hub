@@ -109,6 +109,23 @@ Deno.test("provider, duplicate, and wallet exceptions never become customer emai
   );
 });
 
+Deno.test("accepted price and time estimates do not ask the customer to repeat facts", () => {
+  for (const recommendationState of ["high_confidence", "manual_exception"]) {
+    const fields = deriveNayaxCustomerCorrectionFields({
+      recommendationState,
+      cardWalletUsed: false,
+      candidates: [{
+        isTopRanked: true,
+        reasonCodes: ["machine_exact", "card_last4_exact", "amount_within_tolerance",
+          "incident_time_within_60m", "customer_time_within_1_hour"],
+        manualReviewReasons: [],
+        hardExclusions: [],
+      }],
+    });
+    assert(fields.length === 0, `${recommendationState} must not turn accepted estimates into customer work`);
+  }
+});
+
 Deno.test("physical-card conflict email is branded, targeted, and reply-safe", () => {
   const email = buildNayaxCustomerCorrectionEmail({
     messageType: "no_safe_match",
