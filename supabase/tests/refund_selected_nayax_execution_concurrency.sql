@@ -43,31 +43,25 @@ select set_config('request.jwt.claims','{"sub":"b8000000-0000-4000-8000-00000000
 select set_config('request.jwt.claim.sub','b8000000-0000-4000-8000-000000000001',true);
 select set_config('request.jwt.claim.role','authenticated',true);
 
-create function refund_verification_race.record_verification(n integer,changes jsonb default '{}') returns jsonb language plpgsql as $$
-declare cid uuid:=('b8400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid; v bigint; x jsonb;
-begin
-  select official_action_version into v from public.refund_cases where id=cid;
-  x:=jsonb_build_object('version',v,'original',(723456780+n)::text,'scope','VERIFICATION-ACCOUNT',
-    'machine','VERIFICATION-MACHINE','site',6,'time','2026-08-26T13:17:08.123','amount',800,'refunded',0,
-    'remaining',800,'currency','USD','reference','DTM:NAYAX-'||(723456780+n)::text,'noPending',true,'exclusive',true)||changes;
-  return public.admin_record_refund_nayax_execution_verification(cid,(x->>'version')::bigint,x->>'original',x->>'scope',
-    x->>'machine',(x->>'site')::integer,x->>'time',(x->>'amount')::integer,(x->>'refunded')::integer,
-    (x->>'remaining')::integer,x->>'currency',x->>'reference',(x->>'noPending')::boolean,(x->>'exclusive')::boolean);
-end $$;
-create function refund_verification_race.reserve_verified(n integer,verification_id uuid) returns jsonb language plpgsql as $$
+insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+  provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+select gen_random_uuid(),c.id,c.nayax_lookup_generation,'b8000000-0000-4000-8000-000000000001',c.reporting_machine_id,
+  c.matched_nayax_transaction_id,c.matched_nayax_site_id,c.matched_nayax_machine_auth_time,c.matched_nayax_amount_cents,
+  c.matched_nayax_card_last4,c.matched_nayax_currency_code,
+  '{"machine_authorization_time_raw":"2026-08-26T13:17:08.123","machine_authorization_time_source":"MachineAuthorizationTime"}'::jsonb||jsonb_build_object('lookup_account_scope',regexp_replace(upper(btrim(m.nayax_account_key)),'[^A-Z0-9_]','_','g'),'lookup_provider_machine_id',m.nayax_machine_id,'provider_machine_id',m.nayax_machine_id),now()+interval '1 hour'
+  from public.refund_cases c join public.reporting_machines m on m.id=c.reporting_machine_id where c.id::text like 'b8400000-%';
+create function refund_verification_race.reserve_verified(n integer,context_hash text) returns jsonb language plpgsql as $$
 declare cid uuid:=('b8400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid; v bigint;
 begin
   select official_action_version into v from public.refund_cases where id=cid;
   return public.service_reserve_nayax_refund_manager_action_v3('verification-executor',
     'b8000000-0000-4000-8000-000000000001',cid,v,'nayax-refund-'||repeat(n::text,64),800,null,null,'USD',
-    'nayax-production-account-contract-v2','nayax-provider-journal-v3',verification_id);
+    'nayax-production-account-contract-v2','nayax-provider-journal-v3',coalesce(context_hash,public.refund_nayax_selected_execution_context(cid)->>'contextHash'));
 end $$;
 
 
-select refund_verification_race.record_verification(1);
-select refund_verification_race.record_verification(2);
 create table refund_verification_race.first_reservation as
- select refund_verification_race.reserve_verified(1,(select id from public.refund_nayax_execution_verifications where refund_case_id='b8400000-0000-4000-8000-000000000001')) as result;
+ select refund_verification_race.reserve_verified(1,null) as result;
 create function refund_verification_race.start_request() returns jsonb language sql as $$
  select public.service_record_nayax_refund_provider_stage_v3('verification-executor',
   (select (result#>>'{attempt,attemptId}')::uuid from refund_verification_race.first_reservation),
@@ -115,8 +109,8 @@ select * from extensions.dblink_get_result('verification_a') as r(result jsonb);
 select * from extensions.dblink_get_result('verification_b') as r(result jsonb);
 begin;
 select id from public.refund_cases where id='b8400000-0000-4000-8000-000000000002' for update;
-select extensions.dblink_send_query('verification_a',$q$select refund_verification_race.reserve_verified(2,(select id from public.refund_nayax_execution_verifications where refund_case_id='b8400000-0000-4000-8000-000000000002'))$q$);
-select extensions.dblink_send_query('verification_b',$q$select refund_verification_race.reserve_verified(2,(select id from public.refund_nayax_execution_verifications where refund_case_id='b8400000-0000-4000-8000-000000000002'))$q$);
+select extensions.dblink_send_query('verification_a',$q$select refund_verification_race.reserve_verified(2,null)$q$);
+select extensions.dblink_send_query('verification_b',$q$select refund_verification_race.reserve_verified(2,null)$q$);
 commit;
 insert into verification_race_results select 'reserve-a',result from extensions.dblink_get_result('verification_a') as r(result jsonb);
 insert into verification_race_results select 'reserve-b',result from extensions.dblink_get_result('verification_b') as r(result jsonb);
@@ -131,10 +125,11 @@ begin;
 alter table public.refund_nayax_provider_stage_journal disable trigger user;
 delete from public.refund_nayax_provider_stage_journal where nayax_refund_attempt_id in (select id from public.refund_case_nayax_refund_attempts where refund_case_id::text like 'b8400000-%');
 alter table public.refund_nayax_provider_stage_journal enable trigger user;
+alter table public.refund_nayax_execution_contexts disable trigger refund_nayax_execution_context_immutable;
+delete from public.refund_nayax_execution_contexts where refund_case_id::text like 'b8400000-%';
+alter table public.refund_nayax_execution_contexts enable trigger refund_nayax_execution_context_immutable;
 delete from public.refund_case_nayax_refund_attempts where refund_case_id::text like 'b8400000-%';
-alter table public.refund_nayax_execution_verifications disable trigger refund_nayax_execution_verification_immutable;
-delete from public.refund_nayax_execution_verifications where refund_case_id::text like 'b8400000-%';
-alter table public.refund_nayax_execution_verifications enable trigger refund_nayax_execution_verification_immutable;
+delete from public.refund_nayax_lookup_candidates where refund_case_id::text like 'b8400000-%';
 delete from public.refund_case_official_action_authorizations where refund_case_id::text like 'b8400000-%';
 delete from public.refund_manager_action_step_up_intents where refund_case_id::text like 'b8400000-%';
 delete from public.refund_cases where id::text like 'b8400000-%';

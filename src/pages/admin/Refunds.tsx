@@ -20,7 +20,6 @@ import { isEdgeFunctionError } from '@/lib/edgeFunctions';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecycleProgress';
 import { RefundAuthoritativeReceiptPanel } from '@/components/refunds/RefundAuthoritativeReceiptPanel';
-import { RefundNayaxVerificationPanel } from '@/components/refunds/RefundNayaxVerificationPanel';
 import { hasConfirmedRefundReceipt } from '@/lib/refundAuthoritativeReceipt';
 import {
   AlertDialog,
@@ -1928,10 +1927,11 @@ const primaryActionConfig = (
           refundCase.reviewedNayaxPortalFallbackKind === 'legacy_manual_evidence' ||
           (
             refundCase.reviewedNayaxPortalFallbackKind === 'ordinary_exact_match' &&
-            refundReadiness?.blockReason === 'provider_remaining_value_unverified'
+            refundReadiness != null &&
+            !['unauthorized', 'duplicate_transaction', 'reconciliation_hold', 'globally_paused', 'kill_switch', 'kill_switch_active'].includes(refundReadiness.blockReason ?? '')
           )
         );
-      if (reviewedPortalFallbackAvailable && refundReadiness?.canIssueCardRefund !== true) {
+      if (reviewedPortalFallbackAvailable) {
         return {
           label: 'Approve refund for Nayax portal',
           helper: 'Approve this exact refund, then finish it in Nayax and record the confirmation. This step sends no money or customer email.',
@@ -1948,13 +1948,6 @@ const primaryActionConfig = (
         };
       }
       if (!refundReadiness.canIssueCardRefund) {
-        if (refundReadiness.blockReason === 'provider_remaining_value_unverified') {
-          return {
-            label: 'Refund Operations review required',
-            helper: 'Verify the current purchase and refundable balance in Nayax before issuing this refund. Refund Operations can also complete the refund in Nayax and record its confirmed outcome.',
-            disabled: true,
-          };
-        }
         return {
           label: 'Refund temporarily unavailable',
           helper: refundReadinessBlockMessage(refundReadiness.blockReason),
@@ -5709,12 +5702,6 @@ export default function AdminRefundsPage() {
           {nayaxExecutionNotice && (
             <div className={nayaxLookupNoticeClass(nayaxExecutionNotice.tone)}>{nayaxExecutionNotice.message}</div>
           )}
-
-          {!isUsingDemoData && selectedCase.canPerformOfficialAction === true && selectedCase.paymentMethod === 'card' &&
-            selectedCase.hasMatchedNayaxTransaction && !hasConfirmedRefundReceipt(selectedCase) && (
-              <RefundNayaxVerificationPanel key={`verification-${selectedCase.id}-${selectedCase.officialActionVersion}`}
-                caseId={selectedCase.id} onSaved={async () => { await refresh(); await queryClient.invalidateQueries({ queryKey: ['nayax-card-refund-availability', selectedCase.id] }); }} />
-            )}
 
           {refundOperationsAccess && selectedCase.paymentMethod === 'card' && selectedCase.hasMatchedNayaxTransaction && (
             <RefundAuthoritativeReceiptPanel key={selectedCase.id} caseId={selectedCase.id} demo={forceDemoData}

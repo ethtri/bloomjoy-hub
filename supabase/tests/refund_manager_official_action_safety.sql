@@ -1715,13 +1715,13 @@ select ok(
     select payload ->> 'selectionApplied' = 'true'
       and payload ->> 'transactionConfirmed' = 'true'
       and payload -> 'refundReadiness' ->> 'transactionConfirmed' = 'true'
-      and payload -> 'refundReadiness' ->> 'canIssueCardRefund' = 'false'
-      and payload -> 'refundReadiness' ->> 'blockReason' = 'provider_remaining_value_unverified'
+      and payload -> 'refundReadiness' ->> 'canIssueCardRefund' = 'true'
+      and payload -> 'refundReadiness' -> 'blockReason' = 'null'::jsonb
       and payload -> 'refundReadiness' ->> 'refundAmountCents' = '450'
       and payload -> 'refundReadiness' -> 'machineLimitCents' = 'null'::jsonb
     from pg_temp.nayax_selection_result
   ),
-  'First confirmation preserves the purchase and requires fresh balance evidence without a launch cap'
+  'First confirmation returns a ready production refund without a machine launch cap'
 );
 
 select ok(
@@ -1796,8 +1796,7 @@ select ok(
     )
     select payload ->> 'selectionApplied' = 'false'
       and payload ->> 'transactionConfirmed' = 'true'
-      and payload -> 'refundReadiness' ->> 'canIssueCardRefund' = 'false'
-      and payload -> 'refundReadiness' ->> 'blockReason' = 'provider_remaining_value_unverified'
+      and payload -> 'refundReadiness' ->> 'canIssueCardRefund' = 'true'
     from replay
   )
   and (

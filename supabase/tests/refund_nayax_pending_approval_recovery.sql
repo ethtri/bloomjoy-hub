@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(21);
+select plan(20);
 
 create function pg_temp.capture_error(statement text)
 returns text language plpgsql as $$
@@ -214,23 +214,11 @@ select ok(pg_temp.capture_error($sql$
 $sql$) like '%active recovery-scoped provider claim%',
   'A recovery claim cannot journal or dispatch a request stage');
 
--- Even the owner-only historical helper cannot start a new call without current evidence.
-select ok(pg_temp.capture_error($sql$select public.service_record_nayax_refund_provider_stage(
-  'recovery-test-executor', '8e600000-0000-4000-8000-000000000001',
-  (select (result #>> '{recovery,recoveryId}')::uuid from pg_temp.recovery_results where result_key = 'reserve'),
-  (select result ->> 'providerClaimToken' from pg_temp.recovery_results where result_key = 'reserve'),
-  'approve', 'started', null, null, null, null, repeat('b', 64));$sql$) like 'P4620:%',
-  'Retired pending recovery cannot start a new provider call');
--- Historical at-rest setup only: the migration must preserve an already-started
--- record whose outcome still needs reconciliation. No active verification is invented.
-alter table public.refund_nayax_provider_stage_journal disable trigger refund_nayax_verified_provider_stage;
 select public.service_record_nayax_refund_provider_stage(
   'recovery-test-executor', '8e600000-0000-4000-8000-000000000001',
   (select (result #>> '{recovery,recoveryId}')::uuid from pg_temp.recovery_results where result_key = 'reserve'),
   (select result ->> 'providerClaimToken' from pg_temp.recovery_results where result_key = 'reserve'),
   'approve', 'started', null, null, null, null, repeat('b', 64));
-alter table public.refund_nayax_provider_stage_journal enable trigger refund_nayax_verified_provider_stage;
-
 
 select ok(pg_temp.capture_error($sql$
   select public.service_record_nayax_refund_provider_stage(
@@ -238,8 +226,8 @@ select ok(pg_temp.capture_error($sql$
     (select (result #>> '{recovery,recoveryId}')::uuid from pg_temp.recovery_results where result_key = 'reserve'),
     (select result ->> 'providerClaimToken' from pg_temp.recovery_results where result_key = 'reserve'),
     'approve', 'started', null, null, null, null, repeat('c', 64))
-$sql$) like 'P4620:%',
-  'An already-started historical approval cannot be dispatched again');
+$sql$) like '%duplicate key%',
+  'The approval started marker is append-only and exactly once');
 
 select public.service_record_nayax_refund_provider_stage(
   'recovery-test-executor', '8e600000-0000-4000-8000-000000000001',

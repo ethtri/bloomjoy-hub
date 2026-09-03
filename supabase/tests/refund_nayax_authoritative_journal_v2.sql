@@ -106,21 +106,6 @@ select
   statement_timestamp() + interval '15 minutes', true
 from generate_series(1, 10) series;
 
-
--- Synthetic owner-only prerequisites for the journal classifier fixtures below.
--- Actual authenticated observation/reservation behavior is covered separately.
-insert into public.refund_nayax_execution_verifications(
-  id,refund_case_id,case_version,attempt_generation,reporting_machine_id,account_scope,provider_machine_id,
-  original_transaction_id,site_id,machine_auth_time_raw,original_amount_cents,refunded_amount_cents,
-  remaining_amount_cents,currency_code,evidence_reference,observed_by,no_pending_refund_reviewed,exclusive_execution_reviewed)
-select a.id,c.id,c.official_action_version,c.nayax_refund_attempt_generation,m.id,m.nayax_account_key,m.nayax_machine_id,
-  c.matched_nayax_transaction_id,c.matched_nayax_site_id,'2026-08-26T13:17:08.123',c.matched_nayax_amount_cents,0,
-  c.matched_nayax_amount_cents,c.matched_nayax_currency_code,'DTM:NAYAX-'||c.matched_nayax_transaction_id,a.actor_user_id,true,true
-from public.refund_case_nayax_refund_attempts a join public.refund_cases c on c.id=a.refund_case_id
-join public.reporting_machines m on m.id=c.reporting_machine_id
-where a.id::text like '8f6%';
-update public.refund_case_nayax_refund_attempts set execution_verification_id=id where id::text like '8f6%';
-
 insert into public.refund_nayax_provider_callers (caller_id, assertion_digest)
 values (
   'nayax-card-refund',

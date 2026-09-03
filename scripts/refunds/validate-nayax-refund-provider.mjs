@@ -1199,17 +1199,16 @@ check(
     handler.includes('db-authoritative-exact-200-json-v1') &&
     handler.includes('nayax-response-envelope-v1') &&
     handler.includes('approvalAuthorized: decision.approvalAuthorized === true') &&
-    handler.includes('productionScope: "fresh_exact_transaction_verification_required"') &&
-    handler.includes('NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED') &&
-    gates.includes('NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED && remainingValueVerified') &&
-    handler.includes('service_get_refund_nayax_execution_verification') &&
-    handler.includes('p_verification_id: refundCase.executionVerification!.id') &&
-    gates.includes('provider_remaining_value_unverified') &&
+    handler.includes('productionScope: "manager_approved_original_transaction"') &&
+    !gates.includes('remainingValueVerified') &&
+    handler.includes('service_get_refund_nayax_execution_context') &&
+    handler.includes('p_execution_context_hash: refundCase.executionContext!.contextHash') &&
+    !gates.includes('provider_remaining_value_unverified') &&
     !gates.includes('NAYAX_REFUND_BROAD_REOPEN_APPROVED') &&
     !gates.includes('NAYAX_REFUND_CANARY_CASE_ID') &&
     !handler.includes('resolveNayaxRefundCaseExecutionConfig') &&
     !handler.includes('provider: disabledNayaxProviderAdapter'),
-  'The reviewed provider contract requires fresh exact-case remaining-value evidence at the existing reservation boundary.',
+  'The reviewed provider contract binds the automatic exact selected purchase at the existing reservation boundary.',
 );
 check(
   authoritativeJournalMigration.includes('service_record_nayax_refund_provider_stage_v2') &&
@@ -1235,7 +1234,7 @@ check(
 check(
   handler.includes('NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_SUPPORTED = false') &&
     handler.includes('pending_approval_recovery_retired') &&
-    handler.includes('...caseExecutionConfig.blocks') &&
+    handler.includes('...executionConfig.blocks') &&
     handler.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
     handler.includes('NAYAX_REFUND_PRODUCTION_BASE_URL') &&
     handler.includes('provider_contract_host_invalid') &&

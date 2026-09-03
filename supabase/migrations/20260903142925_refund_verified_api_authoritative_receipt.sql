@@ -13,7 +13,9 @@ returns boolean language sql stable security definer set search_path='' as $$
     select 1 from public.refund_case_nayax_refund_attempts a
     join public.refund_cases c on c.id=a.refund_case_id
     join public.reporting_machines m on m.id=c.reporting_machine_id
-    join public.refund_nayax_execution_verifications v on v.id=a.execution_verification_id
+    join public.refund_nayax_execution_contexts saved on saved.attempt_id=a.id
+    cross join lateral jsonb_to_record(saved.context) as v("caseId" uuid,"reportingMachineId" uuid,"attemptGeneration" integer,
+      "accountScope" text,"providerMachineId" text,"transactionId" text,"siteId" integer,"originalAmountCents" integer,"currencyCode" text)
     join public.refund_case_official_action_authorizations authz on authz.id=a.official_action_authorization_id
     join public.reporting_machine_refund_managers mapping on mapping.id=authz.manager_mapping_id
     where a.id=p_attempt_id and c.id=p_case_id and a.execution_mode='request_and_approve'
@@ -22,13 +24,13 @@ returns boolean language sql stable security definer set search_path='' as $$
       and a.support_resolution_id is null and a.reporting_adjustment_id is null
       and a.case_finalization_committed_at is null
       and a.provider_claim_consumed_at is not null
-      and v.refund_case_id=c.id and v.reporting_machine_id=m.id
-      and v.attempt_generation=c.nayax_refund_attempt_generation
-      and v.account_scope=m.nayax_account_key and v.provider_machine_id=m.nayax_machine_id
-      and v.original_transaction_id=c.matched_nayax_transaction_id and v.site_id=c.matched_nayax_site_id
-      and v.original_amount_cents=c.matched_nayax_amount_cents and v.original_amount_cents=c.refund_amount_cents
-      and v.original_amount_cents=a.amount_cents and v.currency_code=c.matched_nayax_currency_code
-      and v.currency_code=a.currency_code
+      and v."caseId"=c.id and v."reportingMachineId"=m.id
+      and v."attemptGeneration"=c.nayax_refund_attempt_generation
+      and v."accountScope"=m.nayax_account_key and v."providerMachineId"=m.nayax_machine_id
+      and v."transactionId"=c.matched_nayax_transaction_id and v."siteId"=c.matched_nayax_site_id
+      and v."originalAmountCents"=c.matched_nayax_amount_cents and v."originalAmountCents"=c.refund_amount_cents
+      and v."originalAmountCents"=a.amount_cents and v."currencyCode"=c.matched_nayax_currency_code
+      and v."currencyCode"=a.currency_code
       and authz.refund_case_id=c.id and authz.action='nayax_execute' and authz.status='consumed'
       and authz.actor_user_id=a.actor_user_id and mapping.reporting_machine_id=m.id
       and a.step_up_intent_id=authz.step_up_intent_id

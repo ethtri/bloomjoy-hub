@@ -37,77 +37,57 @@ select set_config('request.jwt.claims','{"sub":"b7000000-0000-4000-8000-00000000
 select set_config('request.jwt.claim.sub','b7000000-0000-4000-8000-000000000001',true);
 select set_config('request.jwt.claim.role','authenticated',true);
 
-create function pg_temp.record_verification(n integer,changes jsonb default '{}') returns jsonb language plpgsql as $$
-declare cid uuid:=('b7400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid; v bigint; x jsonb;
-begin
-  select official_action_version into v from public.refund_cases where id=cid;
-  x:=jsonb_build_object('version',v,'original',(723456780+n)::text,'scope','VERIFICATION-ACCOUNT',
-    'machine','VERIFICATION-MACHINE','site',6,'time','2026-08-26T13:17:08.123','amount',800,'refunded',0,
-    'remaining',800,'currency','USD','reference','DTM:NAYAX-'||(723456780+n)::text,'noPending',true,'exclusive',true)||changes;
-  return public.admin_record_refund_nayax_execution_verification(cid,(x->>'version')::bigint,x->>'original',x->>'scope',
-    x->>'machine',(x->>'site')::integer,x->>'time',(x->>'amount')::integer,(x->>'refunded')::integer,
-    (x->>'remaining')::integer,x->>'currency',x->>'reference',(x->>'noPending')::boolean,(x->>'exclusive')::boolean);
-end $$;
-create function pg_temp.reserve_verified(n integer,verification_id uuid) returns jsonb language plpgsql as $$
+insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+  provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+select gen_random_uuid(),c.id,c.nayax_lookup_generation,'b7000000-0000-4000-8000-000000000001',c.reporting_machine_id,
+  c.matched_nayax_transaction_id,c.matched_nayax_site_id,c.matched_nayax_machine_auth_time,c.matched_nayax_amount_cents,
+  c.matched_nayax_card_last4,c.matched_nayax_currency_code,
+  '{"machine_authorization_time_raw":"2026-08-26T13:17:08.123","machine_authorization_time_source":"MachineAuthorizationTime"}'::jsonb||jsonb_build_object('lookup_account_scope',regexp_replace(upper(btrim(m.nayax_account_key)),'[^A-Z0-9_]','_','g'),'lookup_provider_machine_id',m.nayax_machine_id,'provider_machine_id',m.nayax_machine_id),now()+interval '1 hour'
+  from public.refund_cases c join public.reporting_machines m on m.id=c.reporting_machine_id where c.id::text like 'b7400000-%';
+
+create function pg_temp.reserve_context(n integer,context_hash text default null,amount integer default 800) returns jsonb language plpgsql as $$
 declare cid uuid:=('b7400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid; v bigint;
 begin
   select official_action_version into v from public.refund_cases where id=cid;
   return public.service_reserve_nayax_refund_manager_action_v3('verification-executor',
-    'b7000000-0000-4000-8000-000000000001',cid,v,'nayax-refund-'||repeat(n::text,64),800,null,null,'USD',
-    'nayax-production-account-contract-v2','nayax-provider-journal-v3',verification_id);
-end $$;
-
-select ok(not has_table_privilege('authenticated','public.refund_nayax_execution_verifications','select'),'Private observations have no browser table access');
-select ok(not has_table_privilege('service_role','public.refund_nayax_execution_verifications','insert'),'Service cannot manufacture portal observations');
-select ok(not has_function_privilege('service_role','public.admin_record_refund_nayax_execution_verification(uuid,bigint,text,text,text,integer,text,integer,integer,integer,text,text,boolean,boolean)','execute'),'Service cannot impersonate observing manager');
-select throws_ok($$select pg_temp.reserve_verified(1,null)$$,'P4620',null,'No reservation without fresh evidence');
-set local role authenticated;
-select throws_ok($$select pg_temp.record_verification(1,'{"refunded":100,"remaining":700}')$$,'P4620',null,'Partial refunds stay in reconciliation');
-select throws_ok($$select pg_temp.record_verification(1,'{"noPending":false}')$$,'P4620',null,'Pending refund cannot unlock another request');
-select throws_ok($$select pg_temp.record_verification(1,'{"exclusive":false}')$$,'P4620',null,'Uncoordinated portal execution cannot unlock API');
-select throws_ok($$select pg_temp.record_verification(1,'{"scope":"OTHER-ACCOUNT"}')$$,'P4620',null,'Wrong account rejected');
-select throws_ok($$select pg_temp.record_verification(1,'{"original":"723456782"}')$$,'P4620',null,'Another purchase cannot supply the evidence');
-select throws_ok($$select pg_temp.record_verification(1,'{"version":-1}')$$,'P4620',null,'Stale case review rejected');
-select throws_ok($$select pg_temp.record_verification(1,'{"time":"2026-02-30T13:17:08"}')$$,'22008',null,'Impossible machine date rejected');
-select lives_ok($$select pg_temp.record_verification(1)$$,'Current manager records exact portal observation');
-reset role;
-select is((select machine_auth_time_raw from public.refund_nayax_execution_verifications where refund_case_id='b7400000-0000-4000-8000-000000000001'),
-  '2026-08-26T13:17:08.123','Original raw machine time preserved independently of old GMT field');
-select is((select count(*) from public.refund_case_nayax_refund_attempts where refund_case_id='b7400000-0000-4000-8000-000000000001'),0::bigint,'Evidence recording creates no payment attempt');
-select is(public.refund_case_nayax_manager_readiness('b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000001')->>'canIssueCardRefund','true','Fresh full balance unlocks database readiness');
-select throws_ok($$select pg_temp.reserve_verified(2,(select id from public.refund_nayax_execution_verifications limit 1))$$,'P4620',null,'Verification cannot move to another case');
-create temporary table verified_result as select pg_temp.reserve_verified(1,(select id from public.refund_nayax_execution_verifications where refund_case_id='b7400000-0000-4000-8000-000000000001')) as result;
-select is((select result#>>'{attempt,shouldExecute}' from verified_result),'true','Existing manager confirmation reserves one attempt');
-select ok(public.can_perform_refund_official_action('b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000001'),
-  'The reserved attempt retains manager authority for its provider stages');
-select is((select count(*) from public.refund_case_nayax_refund_attempts where execution_verification_id is not null),1::bigint,'Attempt has one immutable verification binding');
-select is(pg_temp.reserve_verified(1,null)#>>'{attempt,shouldExecute}','false','Exact replay cannot send a second request');
-select is(public.service_get_refund_nayax_execution_verification('verification-executor','b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000001'),null::jsonb,'Consumed verification is not reusable');
-select throws_ok($$update public.refund_nayax_execution_verifications set remaining_amount_cents=800$$,null,null,'Saved observation cannot be rewritten');
+    'b7000000-0000-4000-8000-000000000001',cid,v,'nayax-refund-'||repeat(n::text,64),amount,null,null,'USD',
+    'nayax-production-account-contract-v2','nayax-provider-journal-v3',coalesce(context_hash,
+      public.service_get_refund_nayax_execution_context('verification-executor','b7000000-0000-4000-8000-000000000001',cid)->>'contextHash'));
+end; $$;
+select ok(not has_table_privilege('authenticated','public.refund_nayax_execution_contexts','select'),'Execution identity is private');
+select ok(not has_table_privilege('service_role','public.refund_nayax_execution_contexts','insert'),'Service cannot forge execution snapshots');
+select throws_ok($$select pg_temp.reserve_context(1,repeat('f',64))$$,'P4620',null,'Forged context cannot reserve money');
+select throws_ok($$select pg_temp.reserve_context(1,null,801)$$,'P4620',null,'Requested amount cannot exceed the selected original');
+select is(public.refund_case_nayax_manager_readiness('b7000000-0000-4000-8000-000000000001',
+  'b7400000-0000-4000-8000-000000000001')->>'canIssueCardRefund','true','Selected purchase requires no remaining-balance attestation');
+create temp table verified_result as select pg_temp.reserve_context(1) result;
+select is((select result#>>'{attempt,shouldExecute}' from verified_result),'true','Normal manager action reserves the first request');
+select is(pg_temp.reserve_context(1)#>>'{attempt,shouldExecute}','false','Exact replay never reserves another request');
+select throws_ok($$select public.service_record_nayax_refund_provider_stage_v2('verification-executor',
+  (select (result#>>'{attempt,attemptId}')::uuid from verified_result),(select result->>'providerClaimToken' from verified_result),
+  'request','started',null,null,null,null,repeat('a',64),'nayax-production-observed-2026-08-22','nayax-provider-journal-v2')$$,
+  'P4620',null,'A bound attempt cannot downgrade its provider journal');
+select is((select context->>'machineAuthorizationTime' from public.refund_nayax_execution_contexts
+  where refund_case_id='b7400000-0000-4000-8000-000000000001'),'2026-08-26T13:17:08.123','Raw machine clock remains exact');
+select throws_ok($$update public.refund_nayax_execution_contexts set context='{}'
+  where refund_case_id='b7400000-0000-4000-8000-000000000001'$$,'P4660',null,'Execution context cannot be rewritten');
+delete from public.refund_nayax_lookup_candidates where refund_case_id='b7400000-0000-4000-8000-000000000001';
 select lives_ok($$select public.service_record_nayax_refund_provider_stage_v3('verification-executor',
   (select (result#>>'{attempt,attemptId}')::uuid from verified_result),(select result->>'providerClaimToken' from verified_result),
   'request','started',null,null,null,null,repeat('a',64),'nayax-production-account-contract-v2','nayax-provider-journal-v3',
-  null,null,null,null,null,null,null,null,null,null,null,null)$$,'Bound fresh attempt may start one request');
+  null,null,null,null,null,null,null,null,null,null,null,null)$$,'Candidate cleanup does not erase the authorized request identity');
 select throws_ok($$select public.service_record_nayax_refund_provider_stage_v3('verification-executor',
   (select (result#>>'{attempt,attemptId}')::uuid from verified_result),(select result->>'providerClaimToken' from verified_result),
   'request','started',null,null,null,null,repeat('a',64),'nayax-production-account-contract-v2','nayax-provider-journal-v3',
-  null,null,null,null,null,null,null,null,null,null,null,null)$$,'23505',null,'Repeated started marker cannot dispatch a second request');
-select throws_ok($$update public.refund_case_nayax_refund_attempts set execution_verification_id=null
-  where refund_case_id='b7400000-0000-4000-8000-000000000001'$$,'P4620',null,'Attempt verification cannot be detached');
-select pg_temp.record_verification(2);
--- Move the observation into the past only in this isolated owner fixture. The
--- production roles cannot modify observations or their expiry.
-alter table public.refund_nayax_execution_verifications disable trigger refund_nayax_execution_verification_immutable;
-update public.refund_nayax_execution_verifications set observed_at=observed_at-interval '6 minutes',expires_at=expires_at-interval '6 minutes'
-  where refund_case_id='b7400000-0000-4000-8000-000000000002';
-alter table public.refund_nayax_execution_verifications enable trigger refund_nayax_execution_verification_immutable;
-select throws_ok($$select pg_temp.reserve_verified(2,(select id from public.refund_nayax_execution_verifications
-  where refund_case_id='b7400000-0000-4000-8000-000000000002'))$$,'P4620',null,'Expired verification cannot reserve money');
-select pg_temp.record_verification(3);
-update public.refund_cases set card_last4='1234' where id='b7400000-0000-4000-8000-000000000003';
-select throws_ok($$select pg_temp.reserve_verified(3,(select id from public.refund_nayax_execution_verifications
-  where refund_case_id='b7400000-0000-4000-8000-000000000003'))$$,'P4620',null,'Changed case invalidates its earlier verification');
-
+  null,null,null,null,null,null,null,null,null,null,null,null)$$,'23505',null,'Started marker is unique; no second dispatch');
+create temp table stale_context as select public.refund_nayax_selected_execution_context('b7400000-0000-4000-8000-000000000002') x;
+update public.refund_cases set card_last4='1234' where id='b7400000-0000-4000-8000-000000000002';
+select throws_ok($$select pg_temp.reserve_context(2,(select x->>'contextHash' from stale_context))$$,'P4620',null,'Edited case invalidates prior execution context');
+update public.refund_nayax_lookup_candidates set site_id=4 where refund_case_id='b7400000-0000-4000-8000-000000000003';
+select is(public.refund_nayax_selected_execution_context('b7400000-0000-4000-8000-000000000003'),null::jsonb,'Wrong site cannot supply the raw timestamp');
+update public.refund_nayax_lookup_candidates set evidence_summary=evidence_summary||'{"machine_authorization_time_source":"AuthorizationTimeGMT"}'
+  where refund_case_id='b7400000-0000-4000-8000-000000000004';
+select is(public.refund_nayax_selected_execution_context('b7400000-0000-4000-8000-000000000004'),null::jsonb,'GMT source cannot substitute for the machine clock');
 -- One actual normal reservation/start/unknown result may be independently
 -- confirmed through the existing receipt writer. No second payment or date.
 select is(public.refund_receipt_verified_api_attempt('b7400000-0000-4000-8000-000000000001',
@@ -123,6 +103,8 @@ select public.service_settle_nayax_refund_attempt('verification-executor',
   (select result->>'providerClaimToken' from verified_result),'unknown',null,null,'provider_request_semantic_mismatch');
 select ok(public.refund_receipt_verified_api_attempt('b7400000-0000-4000-8000-000000000001',
   (select (result#>>'{attempt,attemptId}')::uuid from verified_result)),'Settled uncertain API attempt has exact immutable purchase authority');
+select is(public.refund_nayax_original_portal_fallback_ready('b7400000-0000-4000-8000-000000000001'),false,
+  'Unknown API outcome cannot authorize a portal payment');
 select is(public.admin_get_refund_authoritative_receipt_overview('b7400000-0000-4000-8000-000000000001')->>'attemptBindingKind',
   'verified_authorized_api','Existing receipt view accepts verified API outcome review');
 select is(public.admin_get_refund_authoritative_receipt_overview('b7400000-0000-4000-8000-000000000001')->>'canRecord',
@@ -153,5 +135,33 @@ select throws_ok($$insert into public.refund_case_nayax_refund_attempts(refund_c
   values('b7400000-0000-4000-8000-000000000001','manual_portal','manual_review','forbidden-confirmed-retry',800)$$,
   'P4663',null,'Confirmed API refund cannot receive an invented portal retry');
 
+-- A mapping correction before the getter must not relabel old provider evidence.
+update public.reporting_machines set nayax_machine_id='DIFFERENT-MACHINE' where id='b7300000-0000-4000-8000-000000000001';
+select is(public.refund_nayax_selected_execution_context('b7400000-0000-4000-8000-000000000005'),null::jsonb,
+  'Changed provider mapping cannot stamp a new identity onto an old lookup');
+update public.reporting_machines set nayax_machine_id='VERIFICATION-MACHINE' where id='b7300000-0000-4000-8000-000000000001';
+create temp table rejected_result as select pg_temp.reserve_context(5) result;
+select public.service_record_nayax_refund_provider_stage_v3('verification-executor',
+  (select (result#>>'{attempt,attemptId}')::uuid from rejected_result),(select result->>'providerClaimToken' from rejected_result),
+  'request','started',null,null,null,null,repeat('d',64),'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  null,null,null,null,null,null,null,null,null,null,null,null);
+select public.service_record_nayax_refund_provider_stage_v3('verification-executor',
+  (select (result#>>'{attempt,attemptId}')::uuid from rejected_result),(select result->>'providerClaimToken' from rejected_result),
+  'request','result',200,'rejected',true,null,repeat('e',64),'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  true,'application_json','json_object','1_256',true,true,true,true,true,'string','string',true);
+select public.service_settle_nayax_refund_attempt('verification-executor',
+  (select (result#>>'{attempt,attemptId}')::uuid from rejected_result),
+  (select (result#>>'{managerAction,authorizationId}')::uuid from rejected_result),
+  'b7400000-0000-4000-8000-000000000005','nayax-refund-'||repeat('5',64),800,'USD',
+  (select result->>'providerClaimToken' from rejected_result),'rejected',null,null,'provider_request_rejected');
+select is((select nayax_refund_attempt_generation from public.refund_cases where id='b7400000-0000-4000-8000-000000000005'),1,
+  'Definitive rejection releases a fresh review generation');
+select ok(public.refund_nayax_original_portal_fallback_ready('b7400000-0000-4000-8000-000000000005'),
+  'Exact released rejection permits the supported portal fallback');
+select is(public.admin_begin_refund_manual_nayax_portal('b7400000-0000-4000-8000-000000000005',
+  (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000005'))->>'created','true',
+  'Rejected API purchase can enter one manager-approved portal hold');
+select is(public.refund_nayax_original_portal_fallback_ready('b7400000-0000-4000-8000-000000000005'),false,
+  'A newer held portal attempt prevents reuse of earlier rejection authority');
 select * from finish();
 rollback;

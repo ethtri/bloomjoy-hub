@@ -389,6 +389,8 @@ delete from public.refund_case_messages where id in ('af920000-0000-4000-8000-00
 delete from public.refund_follow_up_cycles where refund_case_id in
   (select id from public.refund_cases where reporting_machine_id='af300000-0000-4000-8000-000000000001');
 delete from public.refund_automation_runs where id='af940000-0000-4000-8000-000000000001';
+update public.refund_cases set lifecycle_integrity_status='hold',lifecycle_integrity_code='card_payment_state_without_attempt',
+  lifecycle_integrity_detected_at=now() where id='af400000-0000-4000-8000-000000000002';
 delete from public.refund_case_nayax_refund_attempts where refund_case_id='af400000-0000-4000-8000-000000000002';
 delete from public.refund_case_official_action_authorizations where refund_case_id='af400000-0000-4000-8000-000000000002';
 delete from public.refund_cases where reporting_machine_id='af300000-0000-4000-8000-000000000001';

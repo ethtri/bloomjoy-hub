@@ -6,7 +6,7 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 ## Live Work
 
-- Refund API completion remains tracked in #990/#971; fresh purchase verification and exact Machine AuTime binding are under review in PR #1116. Scheduled report delivery/format validation (#973) and final production outcome proof remain open.
+- Refund API completion remains tracked in #990/#971; removal of the blanket balance gate, exact Machine AuTime binding and receipt-based customer completion are under review in PR #1116. Scheduled report delivery/format validation (#973) and final production outcome proof remain open.
 - Run `npm run agent:github-hygiene` before planning sprint work, branch syncs, or broad closeout.
 - Use issue labels, project status, PR checks, and latest issue/PR comments instead of static docs for task state.
 - Keep active blockers, UAT evidence, and closeout notes on the issue or PR where the work is happening.

@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
-import { parseNayaxRefundVerification } from "../_shared/nayax-refund-verification.ts";
+import { parseNayaxRefundExecutionContext } from "../_shared/nayax-refund-context.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
   authorizeRefundOfficialAction,
@@ -9,7 +9,6 @@ import {
 } from "../_shared/refund-official-action.ts";
 import {
   buildNayaxRefundIdempotencyKey,
-  NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED,
   NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
   resolveNormalNayaxRefundAmountCents,
   resolveNayaxRefundAvailability,
@@ -146,7 +145,7 @@ const securePilotAssertion = (value: string | undefined) => {
 };
 
 type RefundCaseForExecution = {
-  executionVerification?: import('../_shared/nayax-refund-verification.ts').NayaxRefundVerification | null;
+  executionContext?: import('../_shared/nayax-refund-context.ts').NayaxRefundExecutionContext | null;
   id: string;
   case_population: string;
   nayax_refund_attempt_generation: number;
@@ -285,11 +284,12 @@ const resolveCaseRefundReadiness = async ({
       NAYAX_REFUND_PRODUCTION_BASE_URL,
     writeCredentialsReady,
     journalCompatible,
-    externalPartialGuardSupported:
-      NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED,
-    productionScope: "fresh_exact_transaction_verification_required",
+    productionScope: "manager_approved_original_transaction",
     payloadRedacted: true,
   }));
+  if (readiness.canIssueCardRefund && !refundCase.executionContext) {
+    return { ...readiness, canIssueCardRefund: false, blockReason: "transaction_not_confirmed" as const };
+  }
   return readiness;
 };
 
@@ -299,7 +299,6 @@ const safeNayaxReference = (value: string | null | undefined) =>
 const resolveRefundAmountCents = (refundCase: RefundCaseForExecution) =>
   resolveNormalNayaxRefundAmountCents({
     matchedTransactionAmountCents: refundCase.matched_nayax_amount_cents,
-    remainingRefundableAmountCents: refundCase.executionVerification?.remainingRefundableAmountCents,
   }) ?? 0;
 
 const getPreflightBlocks = ({
@@ -312,6 +311,7 @@ const getPreflightBlocks = ({
   const blocks: string[] = [];
   const machine = refundCase.reporting_machines;
   const amountCents = resolveRefundAmountCents(refundCase);
+  if (!refundCase.executionContext) blocks.push("transaction_not_confirmed");
 
   if (!actorCanManageCase) blocks.push("authorization_failed");
   if (
@@ -440,7 +440,6 @@ serve(async (req) => {
     if (!refundCase) {
       return jsonResponse({ error: "Refund case not found." }, 404);
     }
-    let caseExecutionConfig = executionConfig;
     const { data: actorCanPerformOfficialAction, error: accessError } =
       await supabase.rpc(
         "can_perform_refund_official_action",
@@ -495,29 +494,28 @@ serve(async (req) => {
 
     if (operation !== "approve_pending_request" && executionConfig.executorAssertion) {
       const { data: verificationData, error: verificationError } = await supabase.rpc(
-        "service_get_refund_nayax_execution_verification", {
+        "service_get_refund_nayax_execution_context", {
           p_executor_assertion: executionConfig.executorAssertion,
           p_actor_user_id: user.id, p_case_id: refundCase.id,
         },
       );
       if (!verificationError) {
-        refundCase.executionVerification = parseNayaxRefundVerification(verificationData, {
+        refundCase.executionContext = parseNayaxRefundExecutionContext(verificationData, {
           caseId: refundCase.id, caseVersion: refundCase.official_action_version,
           attemptGeneration: refundCase.nayax_refund_attempt_generation,
           transactionId: refundCase.matched_nayax_transaction_id,
           siteId: refundCase.matched_nayax_site_id, amountCents: refundCase.matched_nayax_amount_cents,
+          accountScope: refundCase.reporting_machines?.nayax_account_key ?? null,
+          providerMachineId: refundCase.reporting_machines?.nayax_machine_id ?? null,
         });
       }
-      caseExecutionConfig = resolveNayaxRefundExecutionConfig((name) => Deno.env.get(name), {
-        remainingValueVerified: Boolean(refundCase.executionVerification),
-      });
     }
 
     if (operation === "availability") {
       const readiness = await resolveCaseRefundReadiness({
         refundCase,
         actorUserId: user.id,
-        executionConfig: caseExecutionConfig,
+        executionConfig: executionConfig,
       });
       return jsonResponse({
         available: readiness.canIssueCardRefund,
@@ -564,7 +562,7 @@ serve(async (req) => {
         !NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED
           ? "official_actions_disabled"
           : null,
-        ...caseExecutionConfig.blocks,
+        ...executionConfig.blocks,
         Deno.env.get("NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_ENABLED")?.trim()
             .toLowerCase() !== "true"
           ? "pending_approval_recovery_disabled"
@@ -1156,7 +1154,7 @@ serve(async (req) => {
         }),
     );
     const journalCompatible = await providerJournalCompatible(
-      caseExecutionConfig.executorAssertion,
+      executionConfig.executorAssertion,
       managerContract?.contractVersion ?? null,
     );
     const preExecutionBlocks = Array.from(
@@ -1166,7 +1164,7 @@ serve(async (req) => {
           : ["official_actions_disabled"]),
         ...preflightBlocks,
         ...duplicateTransactionBlocks,
-        ...caseExecutionConfig.blocks,
+        ...executionConfig.blocks,
         ...(!normalAccountKey ? ["machine_account_key_missing"] : []),
         ...(!normalWriteCredentials.requestToken
           ? ["provider_request_credential_missing"]
@@ -1192,8 +1190,6 @@ serve(async (req) => {
         ? "authorization_failed"
         : preExecutionBlocks.includes("official_actions_disabled")
         ? "official_actions_disabled"
-        : preExecutionBlocks.includes("provider_remaining_value_unverified")
-        ? "provider_remaining_value_unverified"
         : preExecutionBlocks.includes("already_refunded")
         ? "already_refunded"
         : preExecutionBlocks.includes("duplicate_transaction")
@@ -1208,7 +1204,7 @@ serve(async (req) => {
             ].includes(block)
           )
         ? "feature_disabled"
-        : caseExecutionConfig.blocks.length > 0 ||
+        : executionConfig.blocks.length > 0 ||
             preExecutionBlocks.includes("machine_account_key_missing") ||
             preExecutionBlocks.includes("provider_request_credential_missing") ||
             preExecutionBlocks.includes("provider_approval_credential_missing") ||
@@ -1223,19 +1219,19 @@ serve(async (req) => {
           : "preflight_blocked",
         errorCode: preferredError,
         blocks: preExecutionBlocks,
-        dryRun: caseExecutionConfig.dryRun,
-        killSwitchActive: caseExecutionConfig.killSwitchActive,
+        dryRun: executionConfig.dryRun,
+        killSwitchActive: executionConfig.killSwitchActive,
       }, 409);
     }
 
     const idempotencyKey = await buildNayaxRefundIdempotencyKey(
-      caseExecutionConfig.idempotencySecret,
+      executionConfig.idempotencySecret,
       {
         caseId: refundCase.id,
         attemptGeneration: refundCase.nayax_refund_attempt_generation,
         transactionId: refundCase.matched_nayax_transaction_id!,
         siteId: refundCase.matched_nayax_site_id!,
-        machineAuthorizationTime: refundCase.executionVerification!.machineAuthorizationTime,
+        machineAuthorizationTime: refundCase.executionContext!.machineAuthorizationTime,
         amountCents: resolveRefundAmountCents(refundCase),
         currencyCode: "USD",
       },
@@ -1253,7 +1249,7 @@ serve(async (req) => {
         currencyCode: "USD",
         transactionId: refundCase.matched_nayax_transaction_id,
         siteId: refundCase.matched_nayax_site_id,
-        machineAuthorizationTime: refundCase.executionVerification!.machineAuthorizationTime,
+        machineAuthorizationTime: refundCase.executionContext!.machineAuthorizationTime,
       },
       onStageEvent: async (stageEvent) => {
         if (!isUuid(normalAttemptId) || normalProviderClaimToken.length < 43) {
@@ -1369,7 +1365,7 @@ serve(async (req) => {
           const { data, error } = await supabase.rpc(
             "service_reserve_nayax_refund_manager_action_v3",
             {
-              p_verification_id: refundCase.executionVerification!.id,
+              p_execution_context_hash: refundCase.executionContext!.contextHash,
               p_executor_assertion: executionConfig.executorAssertion,
               p_actor_user_id: user.id,
               p_case_id: request.caseId,
