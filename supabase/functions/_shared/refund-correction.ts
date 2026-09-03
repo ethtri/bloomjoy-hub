@@ -81,7 +81,7 @@ export function validateCorrectionAnswers(input: unknown, context: CorrectionCon
       result[field] = { disposition: answer.disposition };
       continue;
     }
-    if (typeof answer.value !== 'string' || !answer.value.trim() || answer.value.length > 160) throw new Error(`invalid:${field}`);
+    if (typeof answer.value !== 'string' || !answer.value.trim() || answer.value.length > (field === 'zelle_payment_contact' ? 320 : 160)) throw new Error(`invalid:${field}`);
     let value = answer.value.trim();
     if (field === 'amount') {
       value = value.replace(/^\$\s*/, '').replace(',', '.');
@@ -95,7 +95,7 @@ export function validateCorrectionAnswers(input: unknown, context: CorrectionCon
     if (field === 'incident_time' && !answer.confidence) throw new Error('time_confidence_required');
     if (field === 'location_or_machine' && !context.locationChoices?.some((choice) => choice.key === value)) throw new Error('invalid_location');
     if (correctionChoices[field] && !correctionChoices[field]!.some(([key]) => key === value)) throw new Error(`invalid:${field}`);
-    if (field === 'zelle_payment_contact' && !/^(?:[^\s@]+@[^\s@]+\.[^\s@]+|\+?[\d ()-]{10,24})$/.test(value)) throw new Error(`invalid:${field}`);
+    if (field === 'zelle_payment_contact' && !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value) && !/^\+?\d{10,15}$/.test(value.replace(/[\s().-]/g,''))) throw new Error(`invalid:${field}`);
     result[field] = field === 'incident_time' ? { disposition: 'changed', value, confidence: answer.confidence }
       : value === values[field] ? { disposition: 'confirmed' } : { disposition: 'changed', value };
   }
