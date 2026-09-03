@@ -1,3 +1,5 @@
+import { parseNayaxMachineAuthorizationTime } from './nayax-machine-authorization-time.mjs';
+
 export const NAYAX_REFUND_PRODUCTION_BASE_URL =
   "https://lynx.nayax.com/operational/v1";
 
@@ -146,10 +148,10 @@ const parsePattern = (pattern, stage, index) => {
   return Object.freeze({ result, status, outcome });
 };
 
-const parsePatterns = (patterns, stage) => {
-  if (!Array.isArray(patterns) || patterns.length === 0 || patterns.length > 30) {
+const parsePatterns = (patterns, stage, allowIncomplete = false) => {
+  if (!Array.isArray(patterns) || (!allowIncomplete && patterns.length === 0) || patterns.length > 30) {
     throw new Error(
-      `Nayax refund contract ${stage}Responses must contain 1 to 30 patterns.`,
+      `Nayax refund contract ${stage}Responses must contain ${allowIncomplete ? '0' : '1'} to 30 patterns.`,
     );
   }
 
@@ -191,6 +193,7 @@ export function parseNayaxRefundProviderContract(rawValue) {
       "writeCredentialMode",
       "sameWriteTokenContractConfirmed",
       "reconciliationMode",
+      "responseLearningMode",
       "requestResponses",
       "approveResponses",
     ]),
@@ -268,14 +271,23 @@ export function parseNayaxRefundProviderContract(rawValue) {
     );
   }
 
-  const requestResponses = parsePatterns(contract.requestResponses, "request");
-  const approveResponses = parsePatterns(contract.approveResponses, "approve");
-  if (!requestResponses.some((pattern) => pattern.outcome === "accepted")) {
+  // A reviewed operating contract may contain only independently evidenced
+  // response rules. Missing rules always mean unknown; they never authorize an
+  // approval. This avoids requiring invented success/duplicate strings merely
+  // to make the first legitimate, manager-authorized request.
+  const learningMode = contract.responseLearningMode;
+  if (learningMode !== undefined && learningMode !== "inspect_unknown") {
+    throw new Error("Nayax responseLearningMode must be inspect_unknown when supplied.");
+  }
+  const allowIncomplete = learningMode === "inspect_unknown";
+  const requestResponses = parsePatterns(contract.requestResponses, "request", allowIncomplete);
+  const approveResponses = parsePatterns(contract.approveResponses, "approve", allowIncomplete);
+  if (!allowIncomplete && !requestResponses.some((pattern) => pattern.outcome === "accepted")) {
     throw new Error(
       "Nayax refund provider contract needs an accepted request response.",
     );
   }
-  if (!approveResponses.some((pattern) => pattern.outcome === "succeeded")) {
+  if (!allowIncomplete && !approveResponses.some((pattern) => pattern.outcome === "succeeded")) {
     throw new Error(
       "Nayax refund provider contract needs a succeeded approval response.",
     );
@@ -284,12 +296,12 @@ export function parseNayaxRefundProviderContract(rawValue) {
     ["request", requestResponses],
     ["approve", approveResponses],
   ]) {
-    if (!patterns.some((pattern) => pattern.outcome === "duplicate")) {
+    if (!allowIncomplete && !patterns.some((pattern) => pattern.outcome === "duplicate")) {
       throw new Error(
         `Nayax refund provider contract needs an exact duplicate ${stage} response.`,
       );
     }
-    if (!patterns.some((pattern) => pattern.outcome === "already_refunded")) {
+    if (!allowIncomplete && !patterns.some((pattern) => pattern.outcome === "already_refunded")) {
       throw new Error(
         `Nayax refund provider contract needs an exact already-refunded ${stage} response.`,
       );
@@ -307,6 +319,7 @@ export function parseNayaxRefundProviderContract(rawValue) {
     writeCredentialMode,
     sameWriteTokenContractConfirmed,
     reconciliationMode,
+    ...(allowIncomplete ? { responseLearningMode: "inspect_unknown" } : {}),
     requestResponses,
     approveResponses,
   });
@@ -329,15 +342,7 @@ const parseProviderInteger = (value, label, maximum) => {
 };
 
 const parseMachineAuthorizationTime = (value) => {
-  const normalized = text(value, 80);
-  if (
-    !normalized ||
-    !/(?:Z|[+-]\d{2}:\d{2})$/i.test(normalized) ||
-    !Number.isFinite(Date.parse(normalized))
-  ) {
-    throw new Error("Nayax MachineAuTime must be a timezone-qualified date-time.");
-  }
-  return normalized;
+  return parseNayaxMachineAuthorizationTime(value);
 };
 
 const providerAmount = (amountCents, amountUnit) => {

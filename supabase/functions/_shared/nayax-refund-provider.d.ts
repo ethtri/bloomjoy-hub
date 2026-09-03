@@ -91,6 +91,7 @@ export type NayaxRefundProviderContract = Readonly<{
   writeCredentialMode: "separate" | "same_token_explicit";
   sameWriteTokenContractConfirmed: boolean;
   reconciliationMode: "dtm_then_structured_resolution";
+  responseLearningMode?: "inspect_unknown";
   requestResponses: ReadonlyArray<NayaxRefundResponsePattern>;
   approveResponses: ReadonlyArray<NayaxRefundResponsePattern>;
 }>;

@@ -24,7 +24,7 @@ const databaseReady = parseDatabaseRefundReadiness({
   caseVersion: 3,
 });
 
-Deno.test("confirmed database readiness cannot bypass remaining-value verification", () => {
+Deno.test("confirmed database readiness needs no additional balance attestation", () => {
   assertEquals(
     mergeRuntimeRefundReadiness({
       databaseReadiness: databaseReady,
@@ -34,8 +34,8 @@ Deno.test("confirmed database readiness cannot bypass remaining-value verificati
     }),
     {
       ...databaseReady,
-      canIssueCardRefund: false,
-      blockReason: "provider_remaining_value_unverified",
+      canIssueCardRefund: true,
+      blockReason: null,
     },
   );
 });
@@ -78,7 +78,7 @@ Deno.test("provider configuration never hides a database safety block", () => {
   assertEquals(result.transactionConfirmed, true);
 });
 
-Deno.test("a normal transaction amount has no launch cap but remains provider-readback blocked", () => {
+Deno.test("a normal transaction amount needs no balance preflight or launch cap", () => {
   const result = mergeRuntimeRefundReadiness({
     databaseReadiness: {
       ...databaseReady,
@@ -89,8 +89,8 @@ Deno.test("a normal transaction amount has no launch cap but remains provider-re
     officialActionsEnabled: true,
     providerCredentialAvailable: true,
   });
-  assertEquals(result.canIssueCardRefund, false);
-  assertEquals(result.blockReason, "provider_remaining_value_unverified");
+  assertEquals(result.canIssueCardRefund, true);
+  assertEquals(result.blockReason, null);
 });
 
 Deno.test("unknown database values fail closed without leaking internals", () => {

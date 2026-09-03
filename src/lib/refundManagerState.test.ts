@@ -549,7 +549,7 @@ Deno.test('confirmed transaction shows the exact safe reason when refunding is u
   );
 });
 
-Deno.test('remaining-value guard directs managers to the reviewed portal fallback', () => {
+Deno.test('retired remaining-value reason asks for a current availability refresh', () => {
   const result = getRefundManagerState({
     ...baseCase,
     hasMatchedNayaxTransaction: true,
@@ -563,7 +563,7 @@ Deno.test('remaining-value guard directs managers to the reviewed portal fallbac
   assertEquals(result.id, 'refund_unavailable', 'guarded confirmed state');
   assertEquals(
     result.nextStep,
-    'Direct card refunds are unavailable until Nayax remaining refundable value can be verified. Use the reviewed Nayax portal fallback.',
+    'Refresh the case to load the current refund availability.',
     'manual portal fallback guidance'
   );
 });

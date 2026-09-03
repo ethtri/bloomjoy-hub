@@ -20,6 +20,7 @@ import { isEdgeFunctionError } from '@/lib/edgeFunctions';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecycleProgress';
 import { RefundAuthoritativeReceiptPanel } from '@/components/refunds/RefundAuthoritativeReceiptPanel';
+import { RefundExternalRecoveryPanel } from '@/components/refunds/RefundExternalRecoveryPanel';
 import { hasConfirmedRefundReceipt } from '@/lib/refundAuthoritativeReceipt';
 import {
   AlertDialog,
@@ -1657,7 +1658,7 @@ const primaryActionConfig = (
   if (hasConfirmedRefundReceipt(refundCase)) {
     return {
       label: 'Refund confirmed · accounting review',
-      helper: 'Payment is confirmed. The settlement date remains unknown. Review the saved receipt and any existing sent notice below; do not retry payment or resend.',
+      helper: 'Payment is confirmed. The settlement date remains unknown. Review the saved receipt and customer notification below; do not retry payment.',
       disabled: true,
     };
   }
@@ -1927,10 +1928,11 @@ const primaryActionConfig = (
           refundCase.reviewedNayaxPortalFallbackKind === 'legacy_manual_evidence' ||
           (
             refundCase.reviewedNayaxPortalFallbackKind === 'ordinary_exact_match' &&
-            refundReadiness?.blockReason === 'provider_remaining_value_unverified'
+            refundReadiness != null &&
+            !['unauthorized', 'duplicate_transaction', 'reconciliation_hold', 'globally_paused', 'kill_switch', 'kill_switch_active'].includes(refundReadiness.blockReason ?? '')
           )
         );
-      if (reviewedPortalFallbackAvailable && refundReadiness?.canIssueCardRefund !== true) {
+      if (reviewedPortalFallbackAvailable) {
         return {
           label: 'Approve refund for Nayax portal',
           helper: 'Approve this exact refund, then finish it in Nayax and record the confirmation. This step sends no money or customer email.',
@@ -1947,13 +1949,6 @@ const primaryActionConfig = (
         };
       }
       if (!refundReadiness.canIssueCardRefund) {
-        if (refundReadiness.blockReason === 'provider_remaining_value_unverified') {
-          return {
-            label: 'Refund Operations review required',
-            helper: 'Direct card refunds are unavailable until Nayax remaining refundable value can be verified. Refund Operations can use the reviewed Nayax portal fallback; no money or customer email is sent from this screen.',
-            disabled: true,
-          };
-        }
         return {
           label: 'Refund temporarily unavailable',
           helper: refundReadinessBlockMessage(refundReadiness.blockReason),
@@ -5716,9 +5711,13 @@ export default function AdminRefundsPage() {
               machineCorrection={selectedCase.machineCorrection} onCorrectionReviewChange={setReceiptCorrectionReviewActive} />
           )}
 
+          {refundOperationsAccess && !forceDemoData && selectedCase.paymentMethod === 'card' && !selectedCase.hasMatchedNayaxTransaction && (
+            <RefundExternalRecoveryPanel key={selectedCase.id} caseId={selectedCase.id} onReviewChange={setReceiptCorrectionReviewActive} />
+          )}
+
           {hasConfirmedRefundReceipt(selectedCase) ? (
             <p data-testid="refund-receipt-accounting-only" className="mt-4 border-t border-border pt-4 text-sm text-muted-foreground">
-              Payment is confirmed. Accounting-date review is internal work. No new payment or customer message is available here.
+              Payment is confirmed. Accounting-date review is internal work. Review customer communication in the saved receipt section; no new payment is available here.
             </p>
           ) : receiptCorrectionReviewActive ? (
             <p className="mt-4 border-t border-border pt-4 text-sm text-muted-foreground">Machine correction review only. No payment or customer message is available in this review.</p>

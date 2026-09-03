@@ -898,14 +898,14 @@ const run = async () => {
     await page.screenshot({ path: path.join(args.artifactDir, 'machine-refunds-ready-desktop.png'), fullPage: true });
 
     state.globalRefundsAvailable = false;
-    state.globalRefundsBlockReason = 'provider_remaining_value_unverified';
+    state.globalRefundsBlockReason = 'configuration_missing';
     await navigateUatPageAfterDrain(page, page.url(), { waitUntil: 'networkidle' });
-    await reopenedMachineDialog.getByText('Manual portal only', { exact: true }).waitFor({ timeout: 10000 });
+    await reopenedMachineDialog.getByText('Direct API blocked', { exact: true }).waitFor({ timeout: 10000 });
     recorder.assert(
-      'Remaining-value guard separates manual portal fallback from direct API readiness',
-      await reopenedMachineDialog.getByText('Manual portal only', { exact: true }).isVisible()
-        && await reopenedMachineDialog.getByText(/Direct API blocked until Nayax remaining refundable value can be verified/i).isVisible()
-        && await reopenedMachineDialog.getByText('Blocked · remaining value unverified', { exact: true }).isVisible()
+      'Unavailable provider configuration is distinct from machine capability',
+      await reopenedMachineDialog.getByText('Direct API blocked', { exact: true }).isVisible()
+        && await reopenedMachineDialog.getByText(/Direct card refunds are unavailable/i).isVisible()
+        && await reopenedMachineDialog.getByText('Unavailable', { exact: true }).isVisible()
         && (await reopenedMachineDialog.getByText('Ready to refund', { exact: true }).count()) === 0
     );
     recorder.assert(
@@ -921,10 +921,10 @@ const run = async () => {
 
     await page.getByRole('link', { name: 'Back to machines' }).click();
     const guardedMachineRow = page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' });
-    await guardedMachineRow.getByText('Manual portal only', { exact: true }).waitFor({ timeout: 10000 });
+    await guardedMachineRow.getByText('Direct API blocked', { exact: true }).waitFor({ timeout: 10000 });
     recorder.assert(
       'Guarded Machines row is not labeled Ready',
-      await guardedMachineRow.getByText('Manual portal only', { exact: true }).isVisible()
+      await guardedMachineRow.getByText('Direct API blocked', { exact: true }).isVisible()
         && (await guardedMachineRow.getByText('Ready', { exact: true }).count()) === 0
     );
     await page.getByText('Filters', { exact: true }).click();
@@ -937,8 +937,8 @@ const run = async () => {
     directBlockedFilterUrl.searchParams.set('refund', 'direct_blocked');
     await navigateUatPageAfterDrain(page, directBlockedFilterUrl.toString(), { waitUntil: 'networkidle' });
     recorder.assert(
-      'Direct API blocked filter keeps the manual portal machine discoverable',
-      await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByText('Manual portal only', { exact: true }).isVisible()
+      'Direct API blocked filter keeps the unavailable machine discoverable',
+      await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByText('Direct API blocked', { exact: true }).isVisible()
     );
     const allRefundStatesUrl = new URL(page.url());
     allRefundStatesUrl.searchParams.delete('refund');

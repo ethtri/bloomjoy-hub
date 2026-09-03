@@ -11,10 +11,10 @@ the original payment transaction is.
 2. A manager confirms one exact settled Nayax transaction. The refund amount is
    the full amount of that selected transaction; the customer does not specify
    an execution amount, and the normal manager UI has no editable amount.
-3. Bloomjoy verifies the transaction's authoritative remaining refundable
-   value before presenting a direct money-moving action.
-4. After that provider readback is implemented and reviewed, the authorized
-   manager receives one final confirmation and Bloomjoy may submit one request
+3. Bloomjoy binds the exact selected purchase and original amount to the
+   manager's action. Nayax enforces the original transaction total; no separate
+   remaining-balance attestation or portal check is required.
+4. The authorized manager receives one final confirmation and Bloomjoy may submit one request
    and at most one approval for that attempt generation, with a
    transaction-bound idempotency key and immutable audit evidence.
 5. Bloomjoy sends success copy and creates reporting adjustments only after the
@@ -22,18 +22,16 @@ the original payment transaction is.
 
 There is no first-proof case, $10/$50 refund ceiling, daily customer-service
 quota, exact-case allowlist, pilot cohort, observer, or account-wide hold.
-Read-only search, exact evidence selection, and the reviewed manual Nayax portal
-fallback remain available. Direct API execution is currently hard-disabled in
-code by `NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED = false`; environment
-flags cannot open it. #990/#751 must ingest, bind, display, and atomically
-recheck authoritative cumulative-refunded and remaining-refundable state before
-that constant can be changed through a separate reviewed release. The global
-kill switch remains additional incident control, not a substitute for this
-guard.
+Read-only search and exact evidence selection remain available. The September 3
+owner decision on #990 supersedes the former blanket balance gate. Direct API
+execution requires configured credentials, active manager and machine authority,
+the selected original identity, duplicate protection and a durable attempt journal.
+The global kill switch remains incident control. Unknown outcomes require
+reconciliation and cannot authorize another request.
 
-While that hard guard is active, Refund Operations may approve one reviewed
-portal fallback for either the legacy manual-evidence cohort or an ordinary
-high-confidence exact match, including a wallet-backed match. That approval
+Refund Operations may approve one reviewed portal fallback for the legacy
+manual-evidence cohort or an ordinary exact match with original-bound definitive
+rejection or an audited no-refund release. That approval
 creates one provider-free unknown-result hold; it does not move money, change
 reporting, or contact the customer. The fallback is not shown for a kill
 switch, duplicate, reconciliation, authority, or other block reason. After the
@@ -71,9 +69,9 @@ time, amount, currency, and card evidence.
 
 - Exact transaction and machine/account binding.
 - Positive full provider-transaction amount and supported currency.
-- An immutable direct-API block until authoritative remaining-refundable state
-  is available. The original sale amount cannot be used to infer that no prior
-  external partial refund exists.
+- A first approved API attempt does not require independent remaining-balance
+  proof. Nayax enforces the original transaction total; a known prior partial
+  refund or an uncertain existing attempt still requires review.
 - Partial/custom or reduced-remaining-value cases stay on a reviewed hold; they
   cannot silently enter the normal direct action or be recorded as a completed
   full-transaction portal refund.

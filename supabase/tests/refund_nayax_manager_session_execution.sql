@@ -186,11 +186,11 @@ select set_config('request.jwt.claim.sub', '', true);
 select ok(
   has_function_privilege(
     'service_role',
-    'public.service_reserve_nayax_refund_manager_action(text,uuid,uuid,bigint,text,integer,integer,integer,text)',
+    'public.service_reserve_nayax_refund_manager_action_v3(text,uuid,uuid,bigint,text,integer,integer,integer,text,text,text,text)',
     'execute'
   ) and not has_function_privilege(
     'authenticated',
-    'public.service_reserve_nayax_refund_manager_action(text,uuid,uuid,bigint,text,integer,integer,integer,text)',
+    'public.service_reserve_nayax_refund_manager_action_v3(text,uuid,uuid,bigint,text,integer,integer,integer,text,text,text,text)',
     'execute'
   ),
   'Only the trusted server boundary can reserve the normal manager action'

@@ -27,6 +27,13 @@ insert into public.reporting_machines(id,account_id,location_id,machine_label,na
 values('af300000-0000-4000-8000-000000000001','af100000-0000-4000-8000-000000000001','af200000-0000-4000-8000-000000000001','Receipt race','RECEIPT-RACE-MACHINE','RECEIPT-RACE-ACCOUNT',true);
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
 values('af300000-0000-4000-8000-000000000001','af000000-0000-4000-8000-000000000001','receipt-race@example.invalid','Synthetic receipt race');
+-- Dedicated manual-only fixture keeps the receipt tests on the supported
+-- evidence/selection/authorization path; API fallback is tested separately.
+insert into public.reporting_machines(id,account_id,location_id,machine_label,nayax_refunds_enabled,
+  nayax_manual_portal_enabled,nayax_manual_account_scope,nayax_manual_portal_timezone)
+values('af300000-0000-4000-8000-000000000002','af100000-0000-4000-8000-000000000001','af200000-0000-4000-8000-000000000001','Receipt manual fixture',false,true,'receipt_race_manual','America/Los_Angeles');
+insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
+values('af300000-0000-4000-8000-000000000002','af000000-0000-4000-8000-000000000001','receipt-race@example.invalid','Synthetic manual receipt fixture');
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,issue_summary,
   incident_at,payment_method,payment_amount_cents,refund_amount_cents,card_last4,status,correlation_status,correlation_source,
   correlation_confidence,automation_state,matched_nayax_transaction_id,matched_nayax_amount_cents,matched_nayax_currency_code,
@@ -37,18 +44,27 @@ select ('af400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-RECEIPT-RACE
   (223456780+n)::text,700,'USD',now()-interval '3 days',case when n=2 then 'ok' else 'hold' end,
   case when n=2 then null else 'card_payment_state_without_attempt' end,case when n=2 then null else now() end
 from generate_series(1,2) n;
-update public.refund_cases set status='needs_review',nayax_recommendation_state='high_confidence',
-  nayax_recommendation_policy_version='2026-07-21.v1',nayax_match_execution_eligible=true,matched_nayax_site_id=97102,
-  matched_nayax_card_last4='4242',nayax_refund_execution_status='not_requested'
+update public.refund_cases set reporting_machine_id='af300000-0000-4000-8000-000000000002',status='needs_review',decision=null,
+  correlation_status='not_started',correlation_source=null,matched_nayax_transaction_id=null,matched_nayax_site_id=null,
+  matched_nayax_amount_cents=null,matched_nayax_currency_code=null,matched_nayax_machine_auth_time=null,
+  matched_nayax_card_last4=null,nayax_recommendation_state=null,nayax_recommendation_policy_version=null,
+  nayax_match_execution_eligible=false,nayax_refund_execution_status='not_requested'
 where id='af400000-0000-4000-8000-000000000002';
-insert into public.refund_case_events(refund_case_id,actor_user_id,event_type,message,metadata)
-values('af400000-0000-4000-8000-000000000002','af000000-0000-4000-8000-000000000001','nayax_match_selected','Synthetic selection','{"payload_redacted":true}');
+
 create function refund_receipt_race_test.authorize() returns void language plpgsql as $$ begin
   perform set_config('request.jwt.claim.sub','af000000-0000-4000-8000-000000000001',true);
   perform set_config('request.jwt.claim.role','authenticated',true);
   perform set_config('request.jwt.claims','{"sub":"af000000-0000-4000-8000-000000000001","role":"authenticated","session_id":"af010000-0000-4000-8000-000000000001","is_anonymous":false}',true);
 end; $$;
 select refund_receipt_race_test.authorize();
+do $$ declare candidate jsonb; c public.refund_cases%rowtype; begin
+  select * into c from public.refund_cases where id='af400000-0000-4000-8000-000000000002';
+  candidate:=public.admin_create_refund_manual_nayax_candidate(c.id,c.official_action_version,'RECEIPT-RACE-MACHINE',
+    '223456782',to_char(c.incident_at at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI:SS'),700,'4242');
+  select * into c from public.refund_cases where id=c.id;
+  perform public.service_select_refund_nayax_candidate_as_actor('af000000-0000-4000-8000-000000000001',c.id,c.official_action_version,
+    (candidate->>'candidateToken')::uuid,null);
+end $$;
 select public.admin_begin_refund_manual_nayax_portal('af400000-0000-4000-8000-000000000002',
   (select official_action_version from public.refund_cases where id='af400000-0000-4000-8000-000000000002'));
 insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,first_message_at,latest_message_at,retention_expires_at)
@@ -112,12 +128,16 @@ begin
   select * into c from public.refund_cases where id=('af400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid;
   select id into a from public.refund_case_nayax_refund_attempts where refund_case_id=c.id order by created_at desc limit 1;
   if p_action='record' then
-    return public.admin_record_refund_authoritative_receipt(c.id,a,c.official_action_version,'RECEIPT-RACE-ACCOUNT','RECEIPT-RACE-MACHINE',
+    return public.admin_record_refund_authoritative_receipt(c.id,a,c.official_action_version,case when n=2 then 'receipt_race_manual' else 'RECEIPT-RACE-ACCOUNT' end,'RECEIPT-RACE-MACHINE',
       c.matched_nayax_transaction_id,700,700,'USD',62,'DTM:NAYAX-'||c.matched_nayax_transaction_id,true);
   elsif p_action='adopt' then
     select id into r from public.refund_authoritative_receipts where refund_case_id=c.id;
     return public.admin_adopt_refund_completion_notice(c.id,r,'af800000-0000-4000-8000-000000000001',c.official_action_version,
       c.public_reference,c.matched_nayax_transaction_id,700,true);
+  elsif p_action='queue' then
+    select id into r from public.refund_authoritative_receipts where refund_case_id=c.id;
+    return public.admin_queue_refund_receipt_completion(c.id,r,c.official_action_version,gen_random_uuid(),true,
+      public.admin_get_refund_authoritative_receipt_overview(c.id)#>>'{completionNotice,reviewBinding}');
   elsif p_action='old_resolver' then
     return public.admin_resolve_refund_nayax_outcome_manager_session(c.id,a,'documented_manual_completion','documented_manual_refund',
       'MANUAL:RECEIPT-RACE',statement_timestamp(),'manual_nayax_completion',c.official_action_version);
@@ -258,11 +278,11 @@ insert into refund_receipt_race_test.results select 'adopt_b',payload from exten
 select * from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
 select is((select payload->>'status' from refund_receipt_race_test.results where lane='adopt_a'),'adopted','One adopter commits');
 select is((select payload->>'status' from refund_receipt_race_test.results where lane='adopt_b'),'already_adopted','Concurrent adopter is an idempotent replay');
-select is((select count(*)::integer from public.refund_authoritative_receipts where reporting_machine_id='af300000-0000-4000-8000-000000000001'),2,'Exactly one receipt per case');
+select is((select count(*)::integer from public.refund_authoritative_receipts where reporting_machine_id in ('af300000-0000-4000-8000-000000000001','af300000-0000-4000-8000-000000000002')),2,'Exactly one receipt per case');
 select is((select count(*)::integer from public.refund_completion_notice_adoptions where refund_case_id='af400000-0000-4000-8000-000000000001'),1,'Exactly one notice adoption');
 select is((select count(*)::integer from public.refund_case_messages where refund_case_id in ('af400000-0000-4000-8000-000000000001','af400000-0000-4000-8000-000000000002')),2,'Races preserve two historical messages and create no customer-send intent');
 select is((select count(*)::integer from public.sales_adjustment_facts where refund_case_id in ('af400000-0000-4000-8000-000000000001','af400000-0000-4000-8000-000000000002')),0,'Races create no dated accounting adjustment');
-select ok((select bool_and(refund_completed_at is null) from public.refund_cases where reporting_machine_id='af300000-0000-4000-8000-000000000001'),'Races never fabricate settlement time');
+select ok((select bool_and(refund_completed_at is null) from public.refund_cases where reporting_machine_id in ('af300000-0000-4000-8000-000000000001','af300000-0000-4000-8000-000000000002')),'Races never fabricate settlement time');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts where refund_case_id='af400000-0000-4000-8000-000000000001'),0,'No-attempt race creates no attempt');
 select is((select status from public.refund_case_nayax_refund_attempts where refund_case_id='af400000-0000-4000-8000-000000000002'),'manual_review','Old attempt stays historical rather than finalized');
 -- Candidate-page regression: stored historical rows are intentionally staged
@@ -300,6 +320,57 @@ select is((select jsonb_agg(refund_case_id order by refund_case_id)
   from public.service_list_refund_follow_up_customer_reply_candidates(25)),
   '["af400000-0000-4000-8000-000000000028"]'::jsonb,
   'Newer unresolved reply is still discovered behind a full receipt-backed page');
+-- Two independently submitted intents serialize on the same case and resolve
+-- to one durable outbox row. A worker skips the uncommitted case entirely.
+select extensions.dblink_exec('receipt_race_a','begin');
+select * from extensions.dblink('receipt_race_a',$q$select id::text from public.refund_cases where id='af400000-0000-4000-8000-000000000002' for update$q$) as x(id text);
+select extensions.dblink_send_query('receipt_race_b',$q$select refund_receipt_race_test.run('queue',2)$q$);
+select ok(refund_receipt_race_test.wait_for_blocked_b(),'Second receipt intent waits for the case lock');
+insert into refund_receipt_race_test.results select 'queue_winner',payload from extensions.dblink('receipt_race_a',
+  $q$select refund_receipt_race_test.run('queue',2)$q$) as x(payload jsonb);
+select is((select payload->>'enqueued' from refund_receipt_race_test.results where lane='queue_winner'),'true','First receipt intent queues successfully');
+select is((select n from extensions.dblink('receipt_race_c',
+  'select count(*)::integer from public.service_claim_refund_manual_message_deliveries(null,25)') as x(n integer)),0,
+  'Worker skips a case with an uncommitted receipt intent');
+select extensions.dblink_exec('receipt_race_a','commit');
+insert into refund_receipt_race_test.results select 'queue_replay',payload from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
+select * from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
+select is((select payload->>'replayed' from refund_receipt_race_test.results where lane='queue_replay'),'true','Waiting second intent replays the original');
+select is((select payload->>'messageId' from refund_receipt_race_test.results where lane='queue_winner'),
+  (select payload->>'messageId' from refund_receipt_race_test.results where lane='queue_replay'),'Concurrent intents return the same message');
+select is((select count(*)::integer from public.refund_case_messages where refund_case_id='af400000-0000-4000-8000-000000000002'
+  and template_version='refund_receipt_completion_v1'),1,'Exactly one completion message survives concurrent enqueue');
+create table refund_receipt_race_test.completion_claim as select * from public.service_claim_refund_manual_message_deliveries(
+  (select message_id from public.refund_receipt_completion_intents where refund_case_id='af400000-0000-4000-8000-000000000002'),1);
+select is((select count(*)::integer from refund_receipt_race_test.completion_claim),1,'Committed completion can be claimed once');
+select public.service_mark_refund_manual_message_provider_attempt(refund_case_message_id,claim_token) from refund_receipt_race_test.completion_claim;
+select public.service_mark_refund_transactional_delivery_attempt(refund_case_message_id) from refund_receipt_race_test.completion_claim;
+
+-- Transport binding and later delivery events wait on the case before taking
+-- the message lock. The competing case owner can still lock that message.
+select extensions.dblink_exec('receipt_race_a','begin');
+select * from extensions.dblink('receipt_race_a',$q$select id::text from public.refund_cases where id='af400000-0000-4000-8000-000000000002' for update$q$) as x(id text);
+select extensions.dblink_send_query('receipt_race_b',$q$select public.service_bind_refund_transactional_delivery(
+  (select refund_case_message_id from refund_receipt_race_test.completion_claim),'receipt_race_completion_2',now())$q$);
+select ok(refund_receipt_race_test.wait_for_blocked_b(),'Provider binding waits on the case');
+select extensions.dblink_exec('receipt_race_a','set local lock_timeout=''300ms''');
+select is((select n from extensions.dblink('receipt_race_a',$q$select count(*)::integer from (select id from public.refund_case_messages
+  where id=(select refund_case_message_id from refund_receipt_race_test.completion_claim) for update) locked$q$) as x(n integer)),1,
+  'Waiting provider binding has not acquired the message lock first');
+select extensions.dblink_exec('receipt_race_a','commit');
+select * from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
+select * from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
+select extensions.dblink_exec('receipt_race_a','begin');
+select * from extensions.dblink('receipt_race_a',$q$select id::text from public.refund_cases where id='af400000-0000-4000-8000-000000000002' for update$q$) as x(id text);
+select extensions.dblink_send_query('receipt_race_b',$q$select public.apply_refund_transactional_delivery_events('receipt_race_completion_2')$q$);
+select ok(refund_receipt_race_test.wait_for_blocked_b(),'Delivery event application waits on the case');
+select extensions.dblink_exec('receipt_race_a','set local lock_timeout=''300ms''');
+select is((select n from extensions.dblink('receipt_race_a',$q$select count(*)::integer from (select id from public.refund_case_messages
+  where id=(select refund_case_message_id from refund_receipt_race_test.completion_claim) for update) locked$q$) as x(n integer)),1,
+  'Waiting delivery event has not acquired the message lock first');
+select extensions.dblink_exec('receipt_race_a','commit');
+select * from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
+select * from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
 select extensions.dblink_disconnect('receipt_race_a');
 select extensions.dblink_disconnect('receipt_race_b');
 select extensions.dblink_disconnect('receipt_race_c');
@@ -316,22 +387,36 @@ select is((select to_jsonb(settings) from public.refund_customer_contact_setting
   'Fixture cleanup restores the complete original contact-settings row');
 alter table public.refund_completion_notice_adoptions disable trigger refund_completion_notice_adoptions_immutable;
 alter table public.refund_authoritative_receipts disable trigger refund_authoritative_receipts_immutable;
+alter table public.refund_receipt_completion_intents disable trigger refund_receipt_completion_intents_immutable;
+alter table public.refund_case_messages disable trigger aa_refund_receipt_completion_identity;
+delete from public.refund_receipt_completion_intents where refund_case_id='af400000-0000-4000-8000-000000000002';
+alter table public.refund_receipt_completion_intents enable trigger refund_receipt_completion_intents_immutable;
 delete from public.refund_completion_notice_adoptions where refund_case_id='af400000-0000-4000-8000-000000000001';
-delete from public.refund_authoritative_receipts where reporting_machine_id='af300000-0000-4000-8000-000000000001';
+delete from public.refund_authoritative_receipts where reporting_machine_id in ('af300000-0000-4000-8000-000000000001','af300000-0000-4000-8000-000000000002');
+delete from public.refund_case_messages where refund_case_id='af400000-0000-4000-8000-000000000002' and template_version='refund_receipt_completion_v1';
+set constraints all immediate;
+alter table public.refund_case_messages enable trigger aa_refund_receipt_completion_identity;
 alter table public.refund_completion_notice_adoptions enable trigger refund_completion_notice_adoptions_immutable;
 alter table public.refund_authoritative_receipts enable trigger refund_authoritative_receipts_immutable;
+-- The earlier flush was only to restore triggers. Check lifecycle constraints
+-- after the named attempt/case fixtures have both been removed at commit.
+set constraints all deferred;
 delete from public.refund_gmail_messages where gmail_thread_id='af700000-0000-4000-8000-000000000001';
 delete from public.refund_gmail_threads where id='af700000-0000-4000-8000-000000000001';
 delete from public.refund_payout_destination_follow_ups where id='af930000-0000-4000-8000-000000000001';
 delete from public.refund_case_messages where id in ('af920000-0000-4000-8000-000000000001','af920000-0000-4000-8000-000000000002');
 delete from public.refund_follow_up_cycles where refund_case_id in
-  (select id from public.refund_cases where reporting_machine_id='af300000-0000-4000-8000-000000000001');
+  (select id from public.refund_cases where reporting_machine_id in ('af300000-0000-4000-8000-000000000001','af300000-0000-4000-8000-000000000002'));
 delete from public.refund_automation_runs where id='af940000-0000-4000-8000-000000000001';
+update public.refund_cases set lifecycle_integrity_status='hold',lifecycle_integrity_code='card_payment_state_without_attempt',
+  lifecycle_integrity_detected_at=now() where id='af400000-0000-4000-8000-000000000002';
 delete from public.refund_case_nayax_refund_attempts where refund_case_id='af400000-0000-4000-8000-000000000002';
 delete from public.refund_case_official_action_authorizations where refund_case_id='af400000-0000-4000-8000-000000000002';
-delete from public.refund_cases where reporting_machine_id='af300000-0000-4000-8000-000000000001';
-delete from public.reporting_machine_refund_managers where reporting_machine_id='af300000-0000-4000-8000-000000000001';
-delete from public.reporting_machines where id='af300000-0000-4000-8000-000000000001';
+delete from public.refund_manual_nayax_evidence where refund_case_id='af400000-0000-4000-8000-000000000002';
+delete from public.refund_nayax_lookup_candidates where refund_case_id='af400000-0000-4000-8000-000000000002';
+delete from public.refund_cases where reporting_machine_id in ('af300000-0000-4000-8000-000000000001','af300000-0000-4000-8000-000000000002');
+delete from public.reporting_machine_refund_managers where reporting_machine_id in ('af300000-0000-4000-8000-000000000001','af300000-0000-4000-8000-000000000002');
+delete from public.reporting_machines where id in ('af300000-0000-4000-8000-000000000001','af300000-0000-4000-8000-000000000002');
 delete from public.reporting_locations where id='af200000-0000-4000-8000-000000000001';
 delete from public.customer_accounts where id='af100000-0000-4000-8000-000000000001';
 delete from auth.users where id='af000000-0000-4000-8000-000000000001';

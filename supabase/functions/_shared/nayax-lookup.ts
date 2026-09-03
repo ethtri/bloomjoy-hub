@@ -380,12 +380,14 @@ const persistNayaxLookupCandidates = async ({
   actorUserId,
   lookupGeneration,
   candidates,
+  lookupScopes,
 }: {
   supabase: SupabaseServiceClient;
   caseId: string;
   actorUserId: string | null;
   lookupGeneration: number;
   candidates: NayaxProviderCandidate[];
+  lookupScopes: Array<{ reportingMachineId: string; accountKey: string; nayaxMachineId: string }>;
 }): Promise<NayaxResponseCandidate[]> => {
   const nowIso = new Date().toISOString();
   const expiresAt = new Date(Date.now() + getNayaxCandidateTtlHours() * 60 * 60 * 1000).toISOString();
@@ -404,12 +406,13 @@ const persistNayaxLookupCandidates = async ({
   if (generationClearError) throw generationClearError;
   if (candidates.length === 0) return [];
 
-  const tokenizedCandidates = candidates.map((candidate) => ({
-    token: crypto.randomUUID(),
-    candidate,
-  }));
+  const tokenizedCandidates = candidates.map((candidate) => {
+    const scope = lookupScopes.find((value) => value.reportingMachineId === candidate.reportingMachineId);
+    if (!scope) throw new NayaxLookupEvidenceChangedError();
+    return { token: crypto.randomUUID(), candidate, scope };
+  });
   const { error } = await supabase.from("refund_nayax_lookup_candidates").insert(
-    tokenizedCandidates.map(({ token, candidate }) => ({
+    tokenizedCandidates.map(({ token, candidate, scope }) => ({
       token,
       refund_case_id: caseId,
       lookup_generation: lookupGeneration,
@@ -422,6 +425,9 @@ const persistNayaxLookupCandidates = async ({
       card_last4: candidate.cardLast4 || null,
       currency_code: candidate.currencyCode || null,
       evidence_summary: {
+        lookup_account_scope: scope.accountKey,
+        lookup_provider_machine_id: scope.nayaxMachineId,
+        provider_machine_id: candidate.providerMachineId,
         policy_version: candidate.policyVersion,
         ranking_points: candidate.rankingPoints,
         recommendation_rank: candidate.recommendationRank,
@@ -808,6 +814,7 @@ const lookupGroupedLivermoreCandidates = async ({
     actorUserId,
     lookupGeneration,
     candidates: globallyRanked,
+    lookupScopes: providerInputs,
   });
   const summary = selectableCandidates.length === 0
     ? "No safe transaction matched across the two reviewed outlet machines."
@@ -1170,6 +1177,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
       ...candidate,
       reportingMachineId: machineId,
     })),
+    lookupScopes: [{ reportingMachineId: machineId, accountKey, nayaxMachineId }],
   });
 
   return {

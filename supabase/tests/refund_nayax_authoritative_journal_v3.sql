@@ -230,6 +230,14 @@ select
   statement_timestamp() + interval '15 minutes', true
 from generate_series(1, 12) series;
 
+-- Owner-only identity fixtures for classifier/journal tests; actual reservation is tested below.
+insert into public.refund_nayax_execution_contexts(attempt_id,refund_case_id,context)
+select a.id,c.id,jsonb_build_object('caseId',c.id,'reportingMachineId',m.id,'attemptGeneration',c.nayax_refund_attempt_generation,
+  'accountScope',m.nayax_account_key,'providerMachineId',m.nayax_machine_id,'transactionId',c.matched_nayax_transaction_id,
+  'siteId',c.matched_nayax_site_id,'originalAmountCents',c.matched_nayax_amount_cents,'currencyCode',c.matched_nayax_currency_code)
+from public.refund_case_nayax_refund_attempts a join public.refund_cases c on c.id=a.refund_case_id
+join public.reporting_machines m on m.id=c.reporting_machine_id where a.id::text like '9f6%'
+  and a.id not in ('9f600000-0000-4000-8000-000000000011','9f600000-0000-4000-8000-000000000012');
 insert into public.refund_nayax_provider_callers (caller_id, assertion_digest)
 values (
   'nayax-card-refund',
@@ -264,7 +272,7 @@ select ok(
   )
   and has_function_privilege(
     'service_role',
-    'public.service_reserve_nayax_refund_manager_action_v3(text,uuid,uuid,bigint,text,integer,integer,integer,text,text,text)',
+    'public.service_reserve_nayax_refund_manager_action_v3(text,uuid,uuid,bigint,text,integer,integer,integer,text,text,text,text)',
     'execute'
   )
   and not has_function_privilege(
@@ -281,12 +289,12 @@ select ok(
     'public.service_record_nayax_refund_provider_stage_v2(text,uuid,text,text,text,integer,text,boolean,text,text,text,text)',
     'execute'
   )
-  and has_function_privilege(
+  and not has_function_privilege(
     'service_role',
     'public.service_reserve_nayax_refund_manager_action_v2(text,uuid,uuid,bigint,text,integer,integer,integer,text,text,text)',
     'execute'
   ),
-  'Journal v2 remains executable by service_role for Edge rollback'
+  'Historical v2 journal remains callable but cannot reserve a fresh context-free attempt'
 );
 
 select ok(
@@ -476,13 +484,20 @@ select ok(
   'The stale observed-v1 provider contract cannot negotiate journal v3'
 );
 
+insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+  provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+select gen_random_uuid(),c.id,c.nayax_lookup_generation,'9f000000-0000-4000-8000-000000000001',c.reporting_machine_id,
+  c.matched_nayax_transaction_id,c.matched_nayax_site_id,c.matched_nayax_machine_auth_time,c.matched_nayax_amount_cents,
+  c.matched_nayax_card_last4,c.matched_nayax_currency_code,
+  '{"machine_authorization_time_raw":"2026-08-26T13:17:08.123","machine_authorization_time_source":"MachineAuthorizationTime"}'::jsonb||jsonb_build_object('lookup_account_scope',regexp_replace(upper(btrim(m.nayax_account_key)),'[^A-Z0-9_]','_','g'),'lookup_provider_machine_id',m.nayax_machine_id,'provider_machine_id',m.nayax_machine_id),now()+interval '1 hour'
+  from public.refund_cases c join public.reporting_machines m on m.id=c.reporting_machine_id where c.id='9f5f0000-0000-4000-8000-000000000001';
 select ok(
   pg_temp.capture_error(format(
     $sql$select public.service_reserve_nayax_refund_manager_action_v3(
       'journal-v3-executor', '9f000000-0000-4000-8000-000000000001',
       '9f5f0000-0000-4000-8000-000000000001', %s,
       'nayax-refund-%s', 700, 100000, 100, 'USD',
-      'nayax-production-observed-2026-08-22', 'nayax-provider-journal-v3')$sql$,
+      'nayax-production-observed-2026-08-22', 'nayax-provider-journal-v3',public.refund_nayax_selected_execution_context('9f5f0000-0000-4000-8000-000000000001')->>'contextHash')$sql$,
     (select official_action_version from public.refund_cases
       where id = '9f5f0000-0000-4000-8000-000000000001'),
     repeat('d', 64)
@@ -498,7 +513,7 @@ select 'reservation', public.service_reserve_nayax_refund_manager_action_v3(
   (select official_action_version from public.refund_cases
     where id = '9f5f0000-0000-4000-8000-000000000001'),
   'nayax-refund-' || repeat('e', 64), 700, 100000, 100, 'USD',
-  'nayax-production-account-contract-v2', 'nayax-provider-journal-v3'
+  'nayax-production-account-contract-v2', 'nayax-provider-journal-v3',public.refund_nayax_selected_execution_context('9f5f0000-0000-4000-8000-000000000001')->>'contextHash'
 );
 select ok((
   select (result #>> '{attempt,shouldExecute}')::boolean

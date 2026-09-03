@@ -5943,25 +5943,23 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
   await installMockSupabaseRoutes(guardedManagerContext, {
     refundOverview: buildMockRefundOverview,
     nayaxCardRefundAvailabilityResponse: {
-      available: false,
-      status: 'unavailable',
-      blockReason: 'provider_remaining_value_unverified',
+      available: true,
+      status: 'available',
+      blockReason: null,
       payloadRedacted: true,
     },
   });
   const guardedManagerPage = await guardedManagerContext.newPage();
   await signInRefundUser(guardedManagerPage, appUrl);
-  await guardedManagerPage.getByRole('button', { name: /^Action needed \d+$/ }).click();
+  await guardedManagerPage.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
   await waitForQueueCount(guardedManagerPage, 1);
   await queueCase(guardedManagerPage, 'RF-UAT-CARD').click();
-  await guardedManagerPage.getByTestId('refund-manager-state').getByText('Transaction confirmed', { exact: true })
-    .waitFor({ timeout: 10000 });
+  await guardedManagerPage.getByRole('button', { name: /^Refund \$/i }).first().waitFor({ timeout: 10000 });
   recorder.assert(
-    'Routine manager receives the exact remaining-value handoff without a money action',
-    (await guardedManagerPage.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
+    'Configured first refund needs no balance form or portal handoff',
+    (await guardedManagerPage.getByRole('button', { name: /^Refund \$/i }).count()) > 0 &&
       (await guardedManagerPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).count()) === 0 &&
-      await guardedManagerPage.getByTestId('refund-action-status').getByText('Refund Operations review required', { exact: true }).isVisible() &&
-      await guardedManagerPage.getByText(/Direct card refunds are unavailable until Nayax remaining refundable value can be verified\. Refund Operations can use the reviewed Nayax portal fallback/).isVisible(),
+      (await guardedManagerPage.getByText('Verify refundable balance', { exact: true }).count()) === 0,
     await guardedManagerPage.getByTestId('refund-primary-action').innerText()
   );
   await closeRefundPortalContext(guardedManagerContext);
@@ -5982,9 +5980,9 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       return overview;
     },
     nayaxCardRefundAvailabilityResponse: {
-      available: false,
-      status: 'unavailable',
-      blockReason: 'provider_remaining_value_unverified',
+      available: true,
+      status: 'available',
+      blockReason: null,
       payloadRedacted: true,
     },
     functionCalls: blockedFunctionCalls,
@@ -5993,15 +5991,13 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
   });
   const blockedPage = await blockedContext.newPage();
   await signInRefundUser(blockedPage, appUrl);
-  await blockedPage.getByRole('button', { name: /^Action needed \d+$/ }).click();
+  await blockedPage.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
   await waitForQueueCount(blockedPage, 1);
   await queueCase(blockedPage, 'RF-UAT-CARD').click();
-  await blockedPage.getByTestId('refund-manager-state').getByText('Transaction confirmed', { exact: true })
-    .waitFor({ timeout: 10000 });
+  await blockedPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).waitFor({ timeout: 10000 });
   recorder.assert(
-    'Refund Operations can approve the reviewed portal fallback while direct API stays blocked',
+    'Released rejection offers portal fallback even when API retry is available',
     (await blockedPage.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
-      await blockedPage.getByText(/Direct card refunds are unavailable until Nayax remaining refundable value can be verified\. Use the reviewed Nayax portal fallback\./).first().isVisible() &&
       await blockedPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).isVisible() &&
       await blockedPage.getByText('Apple Pay on a phone or watch', { exact: true }).isVisible() &&
       (await blockedPage.getByTestId('refund-primary-action').innerText()).includes('Payment: Not issued'),
@@ -6018,7 +6014,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
   });
   await blockedPage.setViewportSize({ width: 390, height: 844 });
   recorder.assert(
-    'Confirmed remaining-value guard remains clear without mobile overflow',
+    'Reviewed portal fallback remains clear without mobile overflow',
     await blockedPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
   );
   await blockedPage.screenshot({

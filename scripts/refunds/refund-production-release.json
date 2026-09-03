@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "0819f37cba0b4b1ac0bfd12bb92921ad6d7f30c4",
+  "sourceGitCommit": "1f8d115de967655882939c3bc586f44d31a750d2",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -127,10 +127,15 @@
     "20260902192844_refund_legacy_machine_correction.sql",
     "20260902195401_refund_historical_owner_notice.sql",
     "20260902195754_refund_receipt_automation_eligibility.sql",
-    "20260902200508_refund_gmail_receipt_processing.sql"
+    "20260902200508_refund_gmail_receipt_processing.sql",
+    "20260903134847_refund_selected_nayax_execution_context.sql",
+    "20260903142925_refund_verified_api_authoritative_receipt.sql",
+    "20260903154800_refund_receipt_customer_completion.sql",
+    "20260903164524_refund_verified_south_hills_routing.sql",
+    "20260903164708_refund_external_operator_recovery.sql"
   ],
-  "migrationFilesSha256": "3d0f102197d75dfdd9fb003dfa596b71585cbd2fef25d197beb2d2b7f1ed5b9b",
-  "migrationVersionSetSha256": "dbedcff3f554adb4ecf6d64fbc4dfffb8a4ddbe89182d0875731d63e28f27f5d",
+  "migrationFilesSha256": "d5436e80b938f442d9ecc80009ee658128ed600328275ac2c218bd6f9914a9d0",
+  "migrationVersionSetSha256": "0b585afc552a2480c63d8a2e65d994a49e58a6e955dbf8e18bb75b5a36b0f370",
   "preMigrationCompatibility": {
     "releaseId": "refund-ops-2026-08-14-pre-controlled-nayax-pilot",
     "sourceGitCommit": "71eb076bc3ad95ccabd0c591b8140820bed6c393",
@@ -194,7 +199,7 @@
     {
       "slug": "refund-case-intake",
       "verifyJwt": false,
-      "sourceSha256": "11f1280b43092f45deb9c695b5889f912a901fa8ad3e54d949c0abd3c5a1b6ea",
+      "sourceSha256": "7c217f6fac30e013dbcd716bc38c20c3d0c029cfef77dcffcfa0e4e7191926bc",
       "production": {
         "version": 105,
         "ezbrSha256": "750fa3f1fe2fee8c8b0bffc406782fba05be0bc3baf3ba04d84d8af7ca7f3069",
@@ -205,7 +210,7 @@
     {
       "slug": "nayax-transaction-lookup",
       "verifyJwt": false,
-      "sourceSha256": "8e3b8faa2ac90b24308fbe7ea7bb5e2272f9f394e049d0e65202013153ac369b",
+      "sourceSha256": "ff35b776ae17c8994b1ce4c928229202af0df6493985b0311699ed7e2dce54e5",
       "production": {
         "version": 97,
         "ezbrSha256": "5253e0a30135ccf41a8b74561e066cfee518197f10f7140070f9f57b751cd5a4",
@@ -216,7 +221,7 @@
     {
       "slug": "refund-case-admin-update",
       "verifyJwt": false,
-      "sourceSha256": "683caf708bfffe5e6719ba0d5d4250f5ee9090eb2deab88055841f748cbb468a",
+      "sourceSha256": "f48ae4913ede2246652589eff23e74f41a102eedbb022b405eb236b89ac0935e",
       "production": {
         "version": 102,
         "ezbrSha256": "8d6b9259d448636470fdf4eedc70107b9e5d7fc1e789d36d9b5177bbd3d2d1df",
@@ -238,7 +243,7 @@
     {
       "slug": "refund-case-automation-sweep",
       "verifyJwt": false,
-      "sourceSha256": "a5c7eba53ecc5597f14c2bb8016467e81cedc24c9972ed6837147f0f6c72d586",
+      "sourceSha256": "de6f3d32a9d59836fa0014e8a2b0c40402f5faea9c79f26cae1fa2b38a900eac",
       "production": {
         "version": 106,
         "ezbrSha256": "932efb9bb57eb4375310aaf9a609d2124495393203b318b9569f6e579b1c515f",
@@ -249,7 +254,7 @@
     {
       "slug": "refund-gmail-sync",
       "verifyJwt": false,
-      "sourceSha256": "128fd8b7e33a4eb6870a1d909d28299943b71d41ae874723d7de64a95186b4a5",
+      "sourceSha256": "503a070f990efde3b33f5a98bc54987682fe16884ef6b22e361b0ca5cc2681b8",
       "production": {
         "version": 103,
         "ezbrSha256": "5de9bbdf832cf93dcdb1e02157fc24448317e8d71df90ce45aae1278e9a6d948",
@@ -271,7 +276,7 @@
     {
       "slug": "nayax-card-refund",
       "verifyJwt": false,
-      "sourceSha256": "37e723ae8a04fcba7685d81e9075f0a5b4d8fbe684d316e628c811488fa80539",
+      "sourceSha256": "966958e974e8b5fe5dc58e0a73004a21c4d22b284c000c4d7540fb2ffda6c9de",
       "production": {
         "version": 103,
         "ezbrSha256": "6c334fc07dbe75c7edd7e34f0c588a7f5d84d0d9b07621c1d277a4eb8e63e3e4",

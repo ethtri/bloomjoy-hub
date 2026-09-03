@@ -7,6 +7,7 @@ import { fetchRefundReceiptOverview, saveRefundReceiptEvidence } from '@/lib/ref
 import { buildReceiptAdoptionRequest, buildReceiptRecordRequest, refreshRefundReceiptViews, refundReceiptReviewSnapshot, type RefundReceiptOverview, type RefundMachineCorrectionEvidence } from '@/lib/refundAuthoritativeReceipt';
 import { RefundMachineCorrectionReview } from './RefundMachineCorrectionReview';
 import { RefundHistoricalOwnerNoticeReview, historicalOwnerNoticeRecordedLabel } from './RefundHistoricalOwnerNoticeReview';
+import { RefundReceiptCompletionNotice } from './RefundReceiptCompletionNotice';
 
 type Props = { caseId: string; demo?: boolean;
   machineContext?: { machineLabel: string; locationName: string; expectedCaseVersion?: number };
@@ -84,7 +85,7 @@ export function RefundAuthoritativeReceiptPanel({ caseId, demo = false, machineC
   return <section data-testid="refund-authoritative-receipt-panel" className="mt-4 space-y-4 border-t border-border pt-4 text-foreground" aria-label="Authoritative refund evidence">
     <div>
       <h3 className="font-semibold text-balance">{v.receipt ? 'Refund confirmed · accounting date unknown' : 'Nayax confirms a full refund, but no settlement date?'}</h3>
-      <p className="mt-1 text-sm leading-6 text-pretty">Record an observation without inventing a processing date, creating an accounting adjustment, sending money or contacting the customer.</p>
+      <p className="mt-1 text-sm leading-6 text-pretty">{v.receipt ? 'The saved observation confirms the payment. Review customer communication below while Refund Operations checks the accounting date.' : 'Record an observation without inventing a processing date, creating an accounting adjustment, sending money or contacting the customer.'}</p>
     </div>
     <dl className="grid gap-3 rounded-lg bg-muted/30 p-3 text-sm sm:grid-cols-2">
       <div><dt className="text-muted-foreground">Exact claim</dt><dd className="break-words font-medium">{v.caseReference}</dd></div>
@@ -118,11 +119,12 @@ export function RefundAuthoritativeReceiptPanel({ caseId, demo = false, machineC
     </div>) : <div className="space-y-3">
       <p className="text-sm text-pretty">Observed {new Date(v.receipt.observedAt).toLocaleString()}. This is not the settlement time. Accounting-date review stays with Refund Operations; do not retry payment.</p>
       {v.receipt.noticeAdopted || historicalSavedCaseId === v.caseId ? <div className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-950" role="status">
-        <p className="font-medium">{v.receipt.noticeSource === 'historical_owner_mailbox' || historicalSavedCaseId === v.caseId ? historicalOwnerNoticeRecordedLabel : 'Customer already updated · existing notice verified'}</p>
+        <p className="font-medium">{v.receipt.noticeSource === 'current_operator_mailbox' ? 'Customer notified · sent email reviewed in operator mailbox; managers copied'
+          : v.receipt.noticeSource === 'historical_owner_mailbox' || historicalSavedCaseId === v.caseId ? historicalOwnerNoticeRecordedLabel : 'Customer already updated · existing notice verified'}</p>
         <p className="mt-1">No second message will be sent.{v.receipt.noticeSource === 'historical_owner_mailbox' || historicalSavedCaseId === v.caseId
           ? ' The original SENT time is preserved. Provider delivery and support-thread ownership were not verified.'
           : v.receipt.managerCcVerified === false ? ' Historical manager CC was not verified; the original message remains unchanged.' : ''}</p>
-      </div> : <>
+      </div> : !demo && v.completionNotice?.messageId ? <RefundReceiptCompletionNotice overview={v} onBusyChange={setBusy} /> : <>
         <Label htmlFor="refund-receipt-notice">Review an existing sent notice for this claim</Label>
         <select id="refund-receipt-notice" value={messageId} onChange={(e) => { setMessageId(e.target.value); setReviewedNotice(false); }} disabled={busy} className="min-h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm">
           <option value="">Choose a verified sent message</option>
@@ -142,6 +144,7 @@ export function RefundAuthoritativeReceiptPanel({ caseId, demo = false, machineC
           </Button>
           {historicalNoticeOpen && <RefundHistoricalOwnerNoticeReview overview={v} onBusyChange={setBusy} onSaved={() => setHistoricalSavedCaseId(v.caseId)} />}
         </div>}
+        {!demo && v.completionNotice && <RefundReceiptCompletionNotice overview={v} onBusyChange={setBusy} />}
       </>}
     </div>}
     {feedback && <p role="status" aria-live="polite" className="text-sm text-pretty">{feedback}</p>}

@@ -9,6 +9,15 @@ create or replace function public.refund_nayax_outcome_resolution_enabled()
 returns boolean language sql immutable set search_path = public
 as $$ select false; $$;
 
+-- Test-owner delegate exercises retained historical internals without reopening
+-- the retired production endpoint. Current service entry is tested separately.
+create function pg_temp.historical_reserve_v2(text,uuid,uuid,text,integer,integer,integer,text)
+returns jsonb language sql security definer set search_path='' as $$
+  select public.service_reserve_and_consume_nayax_refund_attempt_v2($1,$2,$3,$4,$5,$6,$7,$8);
+$$;
+revoke all on function pg_temp.historical_reserve_v2(text,uuid,uuid,text,integer,integer,integer,text) from public,anon,authenticated,service_role;
+grant execute on function pg_temp.historical_reserve_v2(text,uuid,uuid,text,integer,integer,integer,text) to service_role;
+
 select plan(145);
 
 create function pg_temp.capture_error(statement text)
@@ -1725,7 +1734,7 @@ set assertion_digest = encode(
 where caller_id = 'nayax-card-refund';
 set local role service_role;
 insert into pg_temp.nayax_resolution_test_results (result_key, result)
-select 'fresh-reserve', public.service_reserve_and_consume_nayax_refund_attempt_v2(
+select 'fresh-reserve', pg_temp.historical_reserve_v2(
   'resolution-retry-executor',
   'b1a00000-0000-4000-8000-000000000002',
   'b1600000-0000-4000-8000-000000000002',

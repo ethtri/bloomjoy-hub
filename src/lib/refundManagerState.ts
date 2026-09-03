@@ -149,7 +149,7 @@ export const refundReadinessBlockMessage = (blockReason: string | null | undefin
     case 'globally_paused':
       return 'Card refunds are temporarily paused. Operations needs to resume the service.';
     case 'provider_remaining_value_unverified':
-      return 'Direct card refunds are unavailable until Nayax remaining refundable value can be verified. Use the reviewed Nayax portal fallback.';
+      return 'Refresh the case to load the current refund availability.';
     case 'provider_unavailable':
       return 'The payment connection is temporarily unavailable. Try again later or contact Operations.';
     case 'transaction_not_confirmed':
