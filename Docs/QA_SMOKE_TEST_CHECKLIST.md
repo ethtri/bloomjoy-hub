@@ -12,6 +12,13 @@ Confirmed refund with unknown settlement date (`#971`): in a synthetic mapped Re
 - With an explicit `inspect_unknown` test contract, missing request rules must produce one request and zero approval/retry calls even for HTTP 200. A learned request rule plus unknown approval response must remain held, with the identical original transaction, site and Machine AuTime.
 - For an ended, uncertain verified API attempt, record exact current full-refund evidence through the existing receipt panel. Verify one immutable receipt, no new attempt, no settlement-date guess, no accounting adjustment and no new customer message. Active provider claims, partial evidence, pending status and wrong-account evidence must fail.
 
+## Already-issued refund on a corrected machine (`#1117`)
+
+- [ ] Verify the atomic South Hills category/exclusion repair leaves one correct public choice, preserves provider IDs/managers/history, survives inventory sync and safely replays. Conflicting identity or location evidence fails.
+- [ ] With synthetic data, record a full provider refund and an existing operator-mailbox SENT notice on a previously unmatched, misrouted case. Verify original intake and reported amount remain unchanged, current machine and full provider amount are correct, managers are covered by actual CC, and no attempt, authorization, message, fake Gmail row or adjustment is created.
+- [ ] Verify current-session and both-machine authority, case/inventory freshness, full status-62 evidence, correct recipient/amount/card/time, idempotent replay, no competing delivery, and immutable original facts. A stale lookup finishing afterward cannot hide the receipt.
+- [ ] Run `node scripts/refunds/validate-refund-external-recovery-ui.mjs` against the local UAT server. At desktop/mobile widths, all three reviews are required, edits invalidate review, one save records evidence and removes the save control, and no payment/email endpoint is called.
+
 ## Card transaction estimates (`#1118`)
 
 - [ ] On a synthetic case with one sale on the correct machine, matching physical-card last four, a $0.10 tax difference and a 25-minute time difference, confirm a strong recommendation even when the customer selected “within an hour.” The provider amount and original reported amount stay distinct.

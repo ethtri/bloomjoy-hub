@@ -20,6 +20,7 @@ import { isEdgeFunctionError } from '@/lib/edgeFunctions';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecycleProgress';
 import { RefundAuthoritativeReceiptPanel } from '@/components/refunds/RefundAuthoritativeReceiptPanel';
+import { RefundExternalRecoveryPanel } from '@/components/refunds/RefundExternalRecoveryPanel';
 import { hasConfirmedRefundReceipt } from '@/lib/refundAuthoritativeReceipt';
 import {
   AlertDialog,
@@ -5708,6 +5709,10 @@ export default function AdminRefundsPage() {
               machineContext={{ machineLabel: selectedCase.machineLabel, locationName: selectedCase.locationName,
                 expectedCaseVersion: selectedCase.officialActionVersion }}
               machineCorrection={selectedCase.machineCorrection} onCorrectionReviewChange={setReceiptCorrectionReviewActive} />
+          )}
+
+          {refundOperationsAccess && !forceDemoData && selectedCase.paymentMethod === 'card' && !selectedCase.hasMatchedNayaxTransaction && (
+            <RefundExternalRecoveryPanel key={selectedCase.id} caseId={selectedCase.id} onReviewChange={setReceiptCorrectionReviewActive} />
           )}
 
           {hasConfirmedRefundReceipt(selectedCase) ? (

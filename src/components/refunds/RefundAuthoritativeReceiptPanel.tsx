@@ -119,7 +119,8 @@ export function RefundAuthoritativeReceiptPanel({ caseId, demo = false, machineC
     </div>) : <div className="space-y-3">
       <p className="text-sm text-pretty">Observed {new Date(v.receipt.observedAt).toLocaleString()}. This is not the settlement time. Accounting-date review stays with Refund Operations; do not retry payment.</p>
       {v.receipt.noticeAdopted || historicalSavedCaseId === v.caseId ? <div className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-950" role="status">
-        <p className="font-medium">{v.receipt.noticeSource === 'historical_owner_mailbox' || historicalSavedCaseId === v.caseId ? historicalOwnerNoticeRecordedLabel : 'Customer already updated · existing notice verified'}</p>
+        <p className="font-medium">{v.receipt.noticeSource === 'current_operator_mailbox' ? 'Customer notified · sent email reviewed in operator mailbox; managers copied'
+          : v.receipt.noticeSource === 'historical_owner_mailbox' || historicalSavedCaseId === v.caseId ? historicalOwnerNoticeRecordedLabel : 'Customer already updated · existing notice verified'}</p>
         <p className="mt-1">No second message will be sent.{v.receipt.noticeSource === 'historical_owner_mailbox' || historicalSavedCaseId === v.caseId
           ? ' The original SENT time is preserved. Provider delivery and support-thread ownership were not verified.'
           : v.receipt.managerCcVerified === false ? ' Historical manager CC was not verified; the original message remains unchanged.' : ''}</p>
