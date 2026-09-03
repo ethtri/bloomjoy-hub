@@ -3000,8 +3000,8 @@ const sendPayoutDestinationReminder = async (
     publicMachineLabel: refundCase.reporting_machines?.refund_public_display_label,
     machineLabel: refundCase.reporting_machines?.machine_label,
   });
-  const email = buildRefundCustomerEmail({
-    messageType: "reminder",
+  const emailInput = {
+    messageType: "reminder" as const,
     publicReference: refundCase.public_reference,
     customerName: refundCase.customer_name,
     customerEmail: refundCase.customer_email,
@@ -3011,11 +3011,13 @@ const sendPayoutDestinationReminder = async (
     paymentMethod: refundCase.payment_method,
     cardWalletUsed: refundCase.card_wallet_used,
     incidentLocalDateTime: refundCase.incident_local_datetime,
-    missingFields: ["zelle_payment_contact"],
-    followUpReason: "missing_information",
+    missingFields: ["zelle_payment_contact"] as RefundMissingField[],
+    followUpReason: "missing_information" as const,
     customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
     statusUrl: null,
-  });
+    correctionUrl: refundCorrectionLinksEnabled() ? STORED_CORRECTION_LINK_MARKER : null,
+  };
+  let email = buildRefundCustomerEmail(emailInput);
   let messageId: string | null = null;
 
   try {
@@ -3034,6 +3036,10 @@ const sendPayoutDestinationReminder = async (
     messageId = textValue(createdResult.messageId);
     if (createError || createdResult.created !== true || !messageId) {
       throw createError ?? new Error("Payout reminder ledger intent was not created.");
+    }
+    if (emailInput.correctionUrl) {
+      emailInput.correctionUrl = await issueRefundCorrectionForMessage({ supabase, messageId, factVersion: refundCase.deterministic_fact_version });
+      email = buildRefundCustomerEmail(emailInput);
     }
 
     const gmailThreadId = await getGmailThreadIdForCaseMessage(job.requestMessageId);
@@ -3058,19 +3064,7 @@ const sendPayoutDestinationReminder = async (
         refundCaseMessageId: messageId,
       });
       const sentEmail = await sendRefundCustomerEmail({
-        messageType: "reminder",
-        publicReference: refundCase.public_reference,
-        customerName: refundCase.customer_name,
-        customerEmail: refundCase.customer_email,
-        machineLabel: publicLabels.machineLabel,
-        locationName: publicLabels.locationName,
-        refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
-        paymentMethod: refundCase.payment_method,
-        cardWalletUsed: refundCase.card_wallet_used,
-        incidentLocalDateTime: refundCase.incident_local_datetime,
-        missingFields: ["zelle_payment_contact"],
-        followUpReason: "missing_information",
-        customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
+        ...emailInput,
         managerCcEmails: gmailDelivery.managerCcEmails,
         managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
         managerRecipientCount: gmailDelivery.managerRecipientCount,
