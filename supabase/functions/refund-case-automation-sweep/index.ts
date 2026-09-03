@@ -747,6 +747,14 @@ const sendDeterministicFollowUpMessage = async (
   messageClass: RefundFollowUpMessageClass,
   customerCorrectionFields: RefundMissingField[] = [],
 ) => {
+  if (
+    refundCase.payment_method === "card" &&
+    cycle.reasonCode === "no_safe_match" &&
+    messageClass !== "information_received" &&
+    customerCorrectionFields.length === 0
+  ) {
+    throw new Error("A specific customer-correctable fact is required before card follow-up.");
+  }
   if (!(await automaticCustomerContactAllowed())) {
     return { status: "suppressed" as const, messageId: null };
   }
@@ -2276,7 +2284,6 @@ const runCardNayaxLookupSweep = async (
       }
 
       if (
-        lookupResult.recommendationState !== "no_safe_match" &&
         !walletCorrectionUseful &&
         customerCorrectionFields.length === 0
       ) {
@@ -2620,18 +2627,28 @@ const runPersistedNayaxCustomerCorrectionSweep = async (
   ) {
     const refundCase = normalizeRefundSweepCase(rawRefundCase);
     const evidence = await getPersistedNayaxCorrectionEvidence(refundCase.id);
-    const customerCorrectionFields = refundCase.nayax_recommendation_state ===
-        "manual_exception"
-      ? deriveNayaxCustomerCorrectionFields({
+    const customerCorrectionFields = deriveNayaxCustomerCorrectionFields({
         recommendationState: refundCase.nayax_recommendation_state,
         cardWalletUsed: refundCase.card_wallet_used,
         candidates: evidence,
-      })
-      : [];
-    if (
-      refundCase.nayax_recommendation_state === "manual_exception" &&
-      customerCorrectionFields.length === 0
-    ) {
+      });
+    if (customerCorrectionFields.length === 0) {
+      // Zero provider candidates and internal exceptions give the customer no
+      // useful task. Reuse the internal notice ledger, including on replay.
+      const { error: stopError } = await supabase.from("refund_follow_up_cycles")
+        .update({ status: "manual_review" })
+        .eq("refund_case_id", refundCase.id)
+        .eq("case_fact_version", refundCase.deterministic_fact_version)
+        .in("status", ["claimed", "waiting"]);
+      if (stopError) throw stopError;
+      await routeFollowUpManualReview({
+        runId,
+        refundCase,
+        actionKeySuffix: `no-customer-correction:v${refundCase.deterministic_fact_version}`,
+        noticeKind: "follow_up_manual_review",
+        policyWindowStart,
+        counters,
+      });
       continue;
     }
     if (
@@ -2936,10 +2953,41 @@ const runReminderSweep = async (
     );
     if (!action.claimed) continue;
 
+    const customerCorrectionFields = cycle.reasonCode === "no_safe_match" &&
+        refundCase.payment_method === "card"
+      ? deriveNayaxCustomerCorrectionFields({
+        recommendationState: refundCase.nayax_recommendation_state,
+        cardWalletUsed: refundCase.card_wallet_used,
+        candidates: await getPersistedNayaxCorrectionEvidence(refundCase.id),
+      })
+      : [];
+    if (
+      cycle.reasonCode === "no_safe_match" &&
+      refundCase.payment_method === "card" &&
+      customerCorrectionFields.length === 0
+    ) {
+      const { error: stopError } = await supabase.from("refund_follow_up_cycles")
+        .update({ status: "manual_review" })
+        .eq("id", cycle.id)
+        .eq("status", "waiting");
+      if (stopError) throw stopError;
+      await routeFollowUpManualReview({
+        runId,
+        refundCase,
+        actionKeySuffix: `no-customer-correction:v${refundCase.deterministic_fact_version}`,
+        noticeKind: "follow_up_manual_review",
+        policyWindowStart,
+        counters,
+      });
+      await finishAction(action, "suppressed", "no_customer_correctable_fact", null, counters);
+      continue;
+    }
+
     const result = await sendDeterministicFollowUpMessage(
       refundCase,
       cycle,
       "reminder",
+      customerCorrectionFields,
     );
     if (result.status === "sent") {
       counters.remindersSent += 1;

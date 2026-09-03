@@ -49,7 +49,12 @@ export const deriveNayaxCustomerCorrectionFields = ({
   cardWalletUsed: boolean | null | undefined;
   candidates: NayaxCustomerCorrectionCandidateEvidence[];
 }): RefundMissingField[] => {
-  if (recommendationState !== "manual_exception" || cardWalletUsed) return [];
+  // A targeted conflict may have been normalized to no_safe_match by a prior
+  // sweep. The candidate evidence, not that status alone, must name a fact.
+  if (
+    !["manual_exception", "no_safe_match"].includes(recommendationState ?? "") ||
+    cardWalletUsed
+  ) return [];
 
   const topCandidate = candidates.find((candidate) => candidate.isTopRanked) ??
     candidates[0];
