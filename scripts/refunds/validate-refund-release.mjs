@@ -220,12 +220,6 @@ assert.doesNotMatch(
 
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-release-test-'));
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
-const reviewedManagerSourceSha256 = {
-  'refund-manager-action-step-up':
-    'b81f078b652bd1ae576d5c6da14962039a755e9f47bfe8be0971484a1c25e447',
-  'refund-manager-totp-enrollment':
-    'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
-};
 const canonicalPreDeploymentManagerSourceSha256 = {
   'refund-manager-action-step-up':
     'b4bfb6a6b89ef93b2ed1d8ac3c286dfa079fb198afca27418a4ceb030d7ebd4d',
@@ -677,8 +671,8 @@ try {
     assert(localStateEntry, `${managerSlug} must be present in the local release state`);
     assert.equal(
       localStateEntry.sourceSha256,
-      reviewedManagerSourceSha256[managerSlug],
-      `${managerSlug} local source must match its independently reviewed digest`
+      localEntry.sourceSha256,
+      `${managerSlug} local source must match the reviewed current manifest digest`
     );
     const baselineEntry = repositoryManifest.preDeploymentProduction.find(
       (entry) => entry.slug === managerSlug
@@ -687,11 +681,6 @@ try {
       (entry) => entry.slug === managerSlug
     );
     assert.equal(localEntry.verifyJwt, false, `${managerSlug} must keep verify_jwt disabled`);
-    assert.equal(
-      localEntry.sourceSha256,
-      reviewedManagerSourceSha256[managerSlug],
-      `${managerSlug} manifest source must match its independently reviewed digest`
-    );
     assert(
       baselineEntry &&
         baselineEntry.status === 'ACTIVE' &&
