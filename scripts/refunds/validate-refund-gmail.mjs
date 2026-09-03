@@ -805,7 +805,7 @@ assert(
     syncFunction.includes('service_claim_refund_gmail_contact_reconciliation_batch') &&
     syncFunction.includes('service_count_refund_gmail_contact_response_reconciliation') &&
     syncFunction.indexOf('await reconcileOutstandingFirstContacts') <
-      syncFunction.indexOf('while (counters.threadsScanned < maxThreads)'),
+      syncFunction.indexOf('while (customerThreadsScanned < maxThreads)'),
   'Outstanding first-contact delivery must rotate and reconcile independently of new-send mode and sender eligibility',
 );
 assert(
