@@ -4,6 +4,7 @@ import {
   type EdgeFunctionError,
 } from '@/lib/edgeFunctions';
 import { supabaseClient } from '@/lib/supabaseClient';
+import { parseRefundReportFreshness, type RefundReportFreshness } from '@/lib/refundReportFreshness';
 import { parseRefundMachineCorrectionEvidence, type RefundMachineCorrectionEvidence } from '@/lib/refundAuthoritativeReceipt';
 import {
   REFUND_LIFECYCLE_SCHEMA_VERSION,
@@ -973,6 +974,7 @@ export type RefundGmailHealthStatus =
   | 'waiting';
 
 export type RefundGmailHealth = {
+  reportFreshness?: RefundReportFreshness | null;
   status: RefundGmailHealthStatus;
   lastRunAt: string | null;
   lastSuccessAt: string | null;
@@ -2690,6 +2692,7 @@ export const fetchRefundAutomationHealth = async (): Promise<RefundAutomationHea
     status: validStatuses.includes(health.status as RefundAutomationHealthStatus)
       ? (health.status as RefundAutomationHealthStatus)
       : 'waiting',
+    reportFreshness: parseRefundReportFreshness(health.reportFreshness),
     lastRunAt: typeof health.lastRunAt === 'string' ? health.lastRunAt : null,
     lastSuccessAt: typeof health.lastSuccessAt === 'string' ? health.lastSuccessAt : null,
     lastRunStatus:
