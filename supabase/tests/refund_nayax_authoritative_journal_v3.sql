@@ -230,6 +230,21 @@ select
   statement_timestamp() + interval '15 minutes', true
 from generate_series(1, 12) series;
 
+
+-- Synthetic owner-only prerequisites for the journal classifier fixtures below.
+-- Actual authenticated observation/reservation behavior is covered separately.
+insert into public.refund_nayax_execution_verifications(
+  id,refund_case_id,case_version,attempt_generation,reporting_machine_id,account_scope,provider_machine_id,
+  original_transaction_id,site_id,machine_auth_time_raw,original_amount_cents,refunded_amount_cents,
+  remaining_amount_cents,currency_code,evidence_reference,observed_by,no_pending_refund_reviewed,exclusive_execution_reviewed)
+select a.id,c.id,c.official_action_version,c.nayax_refund_attempt_generation,m.id,m.nayax_account_key,m.nayax_machine_id,
+  c.matched_nayax_transaction_id,c.matched_nayax_site_id,'2026-08-26T13:17:08.123',c.matched_nayax_amount_cents,0,
+  c.matched_nayax_amount_cents,c.matched_nayax_currency_code,'DTM:NAYAX-'||c.matched_nayax_transaction_id,a.actor_user_id,true,true
+from public.refund_case_nayax_refund_attempts a join public.refund_cases c on c.id=a.refund_case_id
+join public.reporting_machines m on m.id=c.reporting_machine_id
+where a.id::text like '9f6%';
+update public.refund_case_nayax_refund_attempts set execution_verification_id=id where id::text like '9f6%';
+
 insert into public.refund_nayax_provider_callers (caller_id, assertion_digest)
 values (
   'nayax-card-refund',
@@ -264,7 +279,7 @@ select ok(
   )
   and has_function_privilege(
     'service_role',
-    'public.service_reserve_nayax_refund_manager_action_v3(text,uuid,uuid,bigint,text,integer,integer,integer,text,text,text)',
+    'public.service_reserve_nayax_refund_manager_action_v3(text,uuid,uuid,bigint,text,integer,integer,integer,text,text,text,uuid)',
     'execute'
   )
   and not has_function_privilege(
@@ -476,13 +491,24 @@ select ok(
   'The stale observed-v1 provider contract cannot negotiate journal v3'
 );
 
+
+insert into public.refund_nayax_execution_verifications(
+  id,refund_case_id,case_version,attempt_generation,reporting_machine_id,account_scope,provider_machine_id,
+  original_transaction_id,site_id,machine_auth_time_raw,original_amount_cents,refunded_amount_cents,
+  remaining_amount_cents,currency_code,evidence_reference,observed_by,no_pending_refund_reviewed,exclusive_execution_reviewed)
+select '9f8f0000-0000-4000-8000-000000000001',c.id,c.official_action_version,c.nayax_refund_attempt_generation,m.id,m.nayax_account_key,m.nayax_machine_id,
+  c.matched_nayax_transaction_id,c.matched_nayax_site_id,'2026-08-26T13:17:08.123',700,0,700,'USD',
+  'DTM:NAYAX-'||c.matched_nayax_transaction_id,'9f000000-0000-4000-8000-000000000001',true,true
+from public.refund_cases c join public.reporting_machines m on m.id=c.reporting_machine_id
+where c.id='9f5f0000-0000-4000-8000-000000000001';
+
 select ok(
   pg_temp.capture_error(format(
     $sql$select public.service_reserve_nayax_refund_manager_action_v3(
       'journal-v3-executor', '9f000000-0000-4000-8000-000000000001',
       '9f5f0000-0000-4000-8000-000000000001', %s,
       'nayax-refund-%s', 700, 100000, 100, 'USD',
-      'nayax-production-observed-2026-08-22', 'nayax-provider-journal-v3')$sql$,
+      'nayax-production-observed-2026-08-22', 'nayax-provider-journal-v3','9f8f0000-0000-4000-8000-000000000001')$sql$,
     (select official_action_version from public.refund_cases
       where id = '9f5f0000-0000-4000-8000-000000000001'),
     repeat('d', 64)
@@ -498,7 +524,7 @@ select 'reservation', public.service_reserve_nayax_refund_manager_action_v3(
   (select official_action_version from public.refund_cases
     where id = '9f5f0000-0000-4000-8000-000000000001'),
   'nayax-refund-' || repeat('e', 64), 700, 100000, 100, 'USD',
-  'nayax-production-account-contract-v2', 'nayax-provider-journal-v3'
+  'nayax-production-account-contract-v2', 'nayax-provider-journal-v3','9f8f0000-0000-4000-8000-000000000001'
 );
 select ok((
   select (result #>> '{attempt,shouldExecute}')::boolean

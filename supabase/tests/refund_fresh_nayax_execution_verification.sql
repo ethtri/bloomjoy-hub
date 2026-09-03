@@ -78,10 +78,35 @@ select is(public.refund_case_nayax_manager_readiness('b7000000-0000-4000-8000-00
 select throws_ok($$select pg_temp.reserve_verified(2,(select id from public.refund_nayax_execution_verifications limit 1))$$,'P4620',null,'Verification cannot move to another case');
 create temporary table verified_result as select pg_temp.reserve_verified(1,(select id from public.refund_nayax_execution_verifications where refund_case_id='b7400000-0000-4000-8000-000000000001')) as result;
 select is((select result#>>'{attempt,shouldExecute}' from verified_result),'true','Existing manager confirmation reserves one attempt');
+select ok(public.can_perform_refund_official_action('b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000001'),
+  'The reserved attempt retains manager authority for its provider stages');
 select is((select count(*) from public.refund_case_nayax_refund_attempts where execution_verification_id is not null),1::bigint,'Attempt has one immutable verification binding');
 select is(pg_temp.reserve_verified(1,null)#>>'{attempt,shouldExecute}','false','Exact replay cannot send a second request');
 select is(public.service_get_refund_nayax_execution_verification('verification-executor','b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000001'),null::jsonb,'Consumed verification is not reusable');
 select throws_ok($$update public.refund_nayax_execution_verifications set remaining_amount_cents=800$$,null,null,'Saved observation cannot be rewritten');
+select lives_ok($$select public.service_record_nayax_refund_provider_stage_v3('verification-executor',
+  (select (result#>>'{attempt,attemptId}')::uuid from verified_result),(select result->>'providerClaimToken' from verified_result),
+  'request','started',null,null,null,null,repeat('a',64),'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  null,null,null,null,null,null,null,null,null,null,null,null)$$,'Bound fresh attempt may start one request');
+select throws_ok($$select public.service_record_nayax_refund_provider_stage_v3('verification-executor',
+  (select (result#>>'{attempt,attemptId}')::uuid from verified_result),(select result->>'providerClaimToken' from verified_result),
+  'request','started',null,null,null,null,repeat('a',64),'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  null,null,null,null,null,null,null,null,null,null,null,null)$$,'23505',null,'Repeated started marker cannot dispatch a second request');
+select throws_ok($$update public.refund_case_nayax_refund_attempts set execution_verification_id=null
+  where refund_case_id='b7400000-0000-4000-8000-000000000001'$$,'P4620',null,'Attempt verification cannot be detached');
+select pg_temp.record_verification(2);
+-- Move the observation into the past only in this isolated owner fixture. The
+-- production roles cannot modify observations or their expiry.
+alter table public.refund_nayax_execution_verifications disable trigger refund_nayax_execution_verification_immutable;
+update public.refund_nayax_execution_verifications set observed_at=observed_at-interval '6 minutes',expires_at=expires_at-interval '6 minutes'
+  where refund_case_id='b7400000-0000-4000-8000-000000000002';
+alter table public.refund_nayax_execution_verifications enable trigger refund_nayax_execution_verification_immutable;
+select throws_ok($$select pg_temp.reserve_verified(2,(select id from public.refund_nayax_execution_verifications
+  where refund_case_id='b7400000-0000-4000-8000-000000000002'))$$,'P4620',null,'Expired verification cannot reserve money');
+select pg_temp.record_verification(3);
+update public.refund_cases set official_action_version=official_action_version+1 where id='b7400000-0000-4000-8000-000000000003';
+select throws_ok($$select pg_temp.reserve_verified(3,(select id from public.refund_nayax_execution_verifications
+  where refund_case_id='b7400000-0000-4000-8000-000000000003'))$$,'P4620',null,'Changed case invalidates its earlier verification');
 
 select * from finish();
 rollback;

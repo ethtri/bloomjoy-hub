@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(50);
+select plan(51);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -433,6 +433,17 @@ set
   nayax_match_execution_eligible = true
 where id = 'b4000000-0000-4000-8000-000000000002';
 
+select throws_ok($sql$select public.service_record_nayax_refund_provider_stage_v2(
+    'durable-test-executor',
+    'b6000000-0000-4000-8000-000000000002',
+    'durable-started-claim', 'request', 'started',
+    null, null, null, null, repeat('a', 64),
+    'nayax-production-observed-2026-08-22', 'nayax-provider-journal-v2'
+  )$sql$,'P4620',null,
+  'Legacy in-progress attempt cannot start a provider call without fresh evidence');
+-- Owner-only historical fixture, predating the verification migration. The
+-- recovery behavior below must still retain an already-started unknown outcome.
+alter table public.refund_nayax_provider_stage_journal disable trigger refund_nayax_verified_provider_stage;
 select is(
   public.service_record_nayax_refund_provider_stage_v2(
     'durable-test-executor',
@@ -444,6 +455,8 @@ select is(
   'request_started',
   'A provider started marker immediately persists its sanitized safe stage'
 );
+alter table public.refund_nayax_provider_stage_journal enable trigger refund_nayax_verified_provider_stage;
+
 
 insert into lookup_results values (
   'attempt_recovery',
@@ -587,6 +600,8 @@ insert into public.refund_case_nayax_refund_attempts (
     statement_timestamp() - interval '1 minute'
   );
 
+-- Owner-only historical settled evidence; no provider call is dispatched.
+alter table public.refund_nayax_provider_stage_journal disable trigger refund_nayax_verified_provider_stage;
 insert into public.refund_nayax_provider_stage_journal (
   nayax_refund_attempt_id, pending_approval_recovery_id, stage, event,
   http_status, outcome, contract_matched, failure_type,
@@ -603,6 +618,7 @@ insert into public.refund_nayax_provider_stage_journal (
     200, 'rejected', true, null, repeat('9', 64), false,
     'nayax-production-observed-2026-08-22', 'nayax-provider-journal-v2'
   );
+alter table public.refund_nayax_provider_stage_journal enable trigger refund_nayax_verified_provider_stage;
 
 select ok(
   public.refund_nayax_definitive_rejection_is_retry_safe(

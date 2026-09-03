@@ -33,9 +33,15 @@ create index refund_nayax_execution_verification_observer_idx
   on public.refund_nayax_execution_verifications(observed_by);
 alter table public.refund_nayax_execution_verifications enable row level security;
 revoke all on public.refund_nayax_execution_verifications from public, anon, authenticated, service_role;
+create function public.guard_refund_nayax_verification_immutable()
+returns trigger language plpgsql set search_path = '' as $$
+begin
+  raise exception 'Saved Nayax verification is immutable' using errcode = 'P4620';
+end $$;
+revoke all on function public.guard_refund_nayax_verification_immutable() from public,anon,authenticated,service_role;
 create trigger refund_nayax_execution_verification_immutable
   before update or delete on public.refund_nayax_execution_verifications
-  for each row execute function public.guard_refund_authoritative_receipt_immutable();
+  for each row execute function public.guard_refund_nayax_verification_immutable();
 
 alter table public.refund_case_nayax_refund_attempts
   add column execution_verification_id uuid unique

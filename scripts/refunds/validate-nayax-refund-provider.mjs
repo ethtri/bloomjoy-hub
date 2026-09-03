@@ -301,7 +301,7 @@ for (const invalid of [
   { transactionId: 'ABC', siteId: 42, machineAuthorizationTime: '2026-07-22T17:30:00Z' },
   { transactionId: '123', siteId: 0, machineAuthorizationTime: '2026-07-22T17:30:00Z' },
   { transactionId: '123', siteId: 2_147_483_648, machineAuthorizationTime: '2026-07-22T17:30:00Z' },
-  { transactionId: '123', siteId: 42, machineAuthorizationTime: '2026-07-22T17:30:00' },
+  { transactionId: '123', siteId: 42, machineAuthorizationTime: '2026-02-30T17:30:00' },
 ]) {
   throws(
     () => buildNayaxRefundApprovalBody(invalid),
@@ -1163,15 +1163,17 @@ check(
     handler.includes('db-authoritative-exact-200-json-v1') &&
     handler.includes('nayax-response-envelope-v1') &&
     handler.includes('approvalAuthorized: decision.approvalAuthorized === true') &&
-    handler.includes('productionScope: "direct_api_hard_disabled_remaining_value_unverified"') &&
+    handler.includes('productionScope: "fresh_exact_transaction_verification_required"') &&
     handler.includes('NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED') &&
-    gates.includes('NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED = false') &&
+    gates.includes('NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED && remainingValueVerified') &&
+    handler.includes('service_get_refund_nayax_execution_verification') &&
+    handler.includes('p_verification_id: refundCase.executionVerification!.id') &&
     gates.includes('provider_remaining_value_unverified') &&
     !gates.includes('NAYAX_REFUND_BROAD_REOPEN_APPROVED') &&
     !gates.includes('NAYAX_REFUND_CANARY_CASE_ID') &&
     !handler.includes('resolveNayaxRefundCaseExecutionConfig') &&
     !handler.includes('provider: disabledNayaxProviderAdapter'),
-  'The reviewed provider contract remains intact but direct execution is immutably blocked until authoritative remaining-value preflight exists.',
+  'The reviewed provider contract requires fresh exact-case remaining-value evidence at the existing reservation boundary.',
 );
 check(
   authoritativeJournalMigration.includes('service_record_nayax_refund_provider_stage_v2') &&
