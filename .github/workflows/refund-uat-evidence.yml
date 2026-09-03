@@ -2,15 +2,6 @@ name: Refund UAT Evidence
 
 on:
   pull_request:
-    paths:
-      - 'src/**'
-      - 'supabase/functions/**'
-      - 'supabase/migrations/**'
-      - 'supabase/tests/**'
-      - 'scripts/refunds/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/refund-uat-evidence.yml'
   workflow_dispatch:
 
 permissions:
@@ -21,7 +12,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      required: ${{ steps.changes.outputs.required }}
+    steps:
+      - name: Checkout complete comparison history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classify refund release inputs
+        id: changes
+        if: github.event_name == 'pull_request'
+        env:
+          REFUND_SCOPE_BASE: ${{ github.event.pull_request.base.sha }}
+          REFUND_SCOPE_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/refunds/refund-change-scope.mjs "$REFUND_SCOPE_BASE" "$REFUND_SCOPE_HEAD"
   screenshots:
+    needs: scope
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.scope.result != 'success' || needs.scope.outputs.required != 'false')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -76,6 +86,8 @@ jobs:
         run: npm run refunds:validate-portal-uat -- --artifact-dir output/refund-uat-evidence --fragment-dir output/refund-uat-fragments
       - name: Run Refund QR intake synthetic UAT
         run: npm run refunds:validate-qr-intake-uat -- --artifact-dir output/refund-uat-evidence
+      - name: Verify existing-refund recovery at desktop and mobile widths
+        run: node scripts/refunds/validate-refund-external-recovery-ui.mjs
       - name: Run Machine Manager synthetic UAT
         run: npm run refunds:validate-machine-manager-uat -- --artifact-dir output/refund-uat-evidence
       - name: Finalize strict machine-readable evidence
@@ -93,11 +105,13 @@ jobs:
           compression-level: 0
       - name: Link evidence in job summary
         run: |
+          SCREENSHOT_COUNT="$(node -e "const manifest = require('./output/refund-uat-evidence/refund-uat-evidence.json'); process.stdout.write(String(manifest.screenshotCount));")"
+          MACHINE_READABLE_COUNT="$(node -e "const manifest = require('./output/refund-uat-evidence/refund-uat-evidence.json'); process.stdout.write(String(manifest.machineReadableArtifactCount));")"
           echo "### Refund Operations synthetic UAT evidence" >> "$GITHUB_STEP_SUMMARY"
           echo "- Artifact: ${{ steps.upload.outputs.artifact-url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Digest: ${{ steps.upload.outputs.artifact-digest }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Screenshots: 43 synthetic states; no production data" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Machine-readable evidence: 5 strict, sanitized, hashed JSON artifacts" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Screenshots: ${SCREENSHOT_COUNT} synthetic states; no production data" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Machine-readable evidence: ${MACHINE_READABLE_COUNT} strict, sanitized, hashed JSON artifacts" >> "$GITHUB_STEP_SUMMARY"
       - name: Stop synthetic UAT app
         if: always()
         run: |

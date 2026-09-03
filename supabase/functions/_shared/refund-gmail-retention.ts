@@ -4,12 +4,18 @@ export const REFUND_GMAIL_QUARANTINE_BUCKET = "refund-gmail-quarantine";
 
 export type RefundGmailWorkflowTrigger =
   | "scheduled"
+  | "scheduler_primary"
+  | "scheduler_recovery"
   | "manual"
   | "failure_test"
   | "retention";
 
 const workflowRunKeyPatterns: Record<RefundGmailWorkflowTrigger, RegExp> = {
   scheduled: /^github-scheduled:[1-9][0-9]{0,19}:[1-9][0-9]{0,5}$/,
+  scheduler_primary:
+    /^supabase-primary:20[0-9]{6}T(?:[01][0-9]|2[0-3])[0-5]0Z$/,
+  scheduler_recovery:
+    /^supabase-recovery:20[0-9]{6}T(?:[01][0-9]|2[0-3])[0-5][05]Z$/,
   manual: /^github-manual:[1-9][0-9]{0,19}:[1-9][0-9]{0,5}$/,
   failure_test: /^github-failure-test:[1-9][0-9]{0,19}:[1-9][0-9]{0,5}$/,
   retention: /^github-retention:[1-9][0-9]{0,19}:[1-9][0-9]{0,5}$/,

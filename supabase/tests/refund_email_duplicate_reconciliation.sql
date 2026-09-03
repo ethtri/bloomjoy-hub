@@ -4,7 +4,7 @@ create extension if not exists pgtap with schema extensions;
 create extension if not exists dblink with schema extensions;
 set local search_path = public, extensions;
 
-select plan(36);
+select plan(48);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -99,6 +99,43 @@ select has_function(
   'public', 'admin_resolve_refund_case_reconciliation',
   array['uuid','text','uuid','text'],
   'Scoped reconciliation resolution exists'
+);
+select has_function(
+  'public', 'refund_case_user_has_active_manager_mapping',
+  array['uuid','uuid'],
+  'Evidence gathering has a manager-mapping check separate from payment authority'
+);
+select ok(
+  not has_function_privilege(
+    'service_role',
+    'public.refund_case_user_has_active_manager_mapping(uuid,uuid)',
+    'execute'
+  ),
+  'The evidence-only authority helper is private to database functions'
+);
+select ok(
+  pg_get_functiondef(
+    'public.service_begin_refund_nayax_lookup(uuid,bigint,text,uuid)'::regprocedure
+  ) not like '%refund_case_has_unresolved_reconciliation(case_row.id)%',
+  'A pending possible-duplicate review does not block read-only Nayax lookup'
+);
+select ok(
+  pg_get_functiondef(
+    'public.service_select_refund_nayax_candidate_as_actor_pre_lookup_generation_v1(uuid,uuid,bigint,uuid,text)'::regprocedure
+  ) like '%refund_case_user_has_active_manager_mapping%'
+  and pg_get_functiondef(
+    'public.service_select_refund_nayax_candidate_as_actor_pre_lookup_generation_v1(uuid,uuid,bigint,uuid,text)'::regprocedure
+  ) not like '%refund_case_has_unresolved_reconciliation(refund_case.id)%',
+  'A mapped manager can record exact provider evidence while payment remains blocked'
+);
+select ok(
+  pg_get_functiondef(
+    'public.admin_create_refund_manual_nayax_candidate_pre_ops_v1(uuid,bigint,text,text,text,integer,text)'::regprocedure
+  ) like '%refund_case_user_has_active_manager_mapping%'
+  and pg_get_functiondef(
+    'public.admin_create_refund_manual_nayax_candidate_pre_ops_v1(uuid,bigint,text,text,text,integer,text)'::regprocedure
+  ) not like '%refund_case_has_unresolved_reconciliation(case_row.id)%',
+  'Manual portal evidence can resolve a review without granting payment authority'
 );
 select ok(
   not has_table_privilege(
@@ -559,6 +596,127 @@ select ok(
     )
   $sql$) like '%Refund case access required%',
   'An unassigned manager cannot read reconciliation context'
+);
+
+insert into public.refund_cases (
+  id, reporting_machine_id, reporting_location_id, customer_email,
+  issue_summary, incident_at, payment_method, payment_amount_cents,
+  card_last4, card_wallet_used, status, correlation_status, intake_source
+) values
+  (
+    '94000000-0000-4000-8000-000000000010',
+    '93300000-0000-4000-8000-000000000001',
+    '93200000-0000-4000-8000-000000000001',
+    'two-purchases@example.test', 'First distinct purchase fixture',
+    '2026-08-06 18:00:00+00', 'card', 800, '5151', false,
+    'needs_review', 'manual_review', 'form'
+  ),
+  (
+    '94000000-0000-4000-8000-000000000011',
+    '93300000-0000-4000-8000-000000000001',
+    '93200000-0000-4000-8000-000000000001',
+    'TWO-PURCHASES@example.test', 'Second distinct purchase fixture',
+    '2026-08-06 18:06:00+00', 'card', 800, '5151', false,
+    'needs_review', 'manual_review', 'gmail'
+  );
+
+select is(
+  (
+    select status
+    from public.refund_case_reconciliation_reviews
+    where '94000000-0000-4000-8000-000000000011' in (
+      left_refund_case_id, right_refund_case_id
+    )
+  ),
+  'pending',
+  'Similar customer reports begin as one possible-duplicate review'
+);
+
+update public.refund_cases
+set matched_nayax_transaction_id = '123456789'
+where id = '94000000-0000-4000-8000-000000000010';
+
+select is(
+  (
+    select status
+    from public.refund_case_reconciliation_reviews
+    where '94000000-0000-4000-8000-000000000011' in (
+      left_refund_case_id, right_refund_case_id
+    )
+  ),
+  'pending',
+  'One exact transaction identity is not enough to clear the review'
+);
+
+update public.refund_cases
+set matched_nayax_transaction_id = '123456790'
+where id = '94000000-0000-4000-8000-000000000011';
+
+select is(
+  (
+    select status
+    from public.refund_case_reconciliation_reviews
+    where '94000000-0000-4000-8000-000000000011' in (
+      left_refund_case_id, right_refund_case_id
+    )
+  ),
+  'confirmed_distinct',
+  'Different exact Nayax transactions automatically confirm different purchases'
+);
+select ok(
+  not public.refund_case_has_unresolved_reconciliation(
+    '94000000-0000-4000-8000-000000000010'
+  )
+  and not public.refund_case_has_unresolved_reconciliation(
+    '94000000-0000-4000-8000-000000000011'
+  ),
+  'Both legitimate purchases are released from the review hold'
+);
+select is(
+  (
+    select count(*)::integer
+    from public.refund_case_events
+    where refund_case_id in (
+      '94000000-0000-4000-8000-000000000010',
+      '94000000-0000-4000-8000-000000000011'
+    )
+      and event_type = 'refund_reconciliation_auto_resolved'
+  ),
+  2,
+  'Each released case receives an immutable resolution event'
+);
+select ok(
+  not exists (
+    select 1
+    from public.refund_case_events
+    where refund_case_id in (
+      '94000000-0000-4000-8000-000000000010',
+      '94000000-0000-4000-8000-000000000011'
+    )
+      and event_type = 'refund_reconciliation_auto_resolved'
+      and (
+        metadata ->> 'payload_redacted' is distinct from 'true'
+        or metadata ->> 'provider_transaction_ids_redacted' is distinct from 'true'
+        or metadata::text like '%12345678%'
+      )
+  ),
+  'Automatic resolution evidence is redacted and stores no transaction ID'
+);
+
+update public.refund_cases
+set incident_at = '2026-08-06 18:07:00+00'
+where id = '94000000-0000-4000-8000-000000000011';
+
+select is(
+  (
+    select status
+    from public.refund_case_reconciliation_reviews
+    where '94000000-0000-4000-8000-000000000011' in (
+      left_refund_case_id, right_refund_case_id
+    )
+  ),
+  'confirmed_distinct',
+  'Later clue changes cannot revive a customer-wide block after exact transactions differ'
 );
 
 select * from finish();

@@ -141,15 +141,14 @@ check(
   'The owner-live ceremony and Edge pilot accept only the exact production Nayax host.',
 );
 check(
-  runnerConfig.includes('REFUND_NAYAX_PILOT_PROVIDER_EMAIL_CONFIRMATION') &&
-    runnerLib.includes('I_EXPECT_AND_CONSENT_TO_NAYAX_PROVIDER_EMAIL_FOR_MY_SELF_OWNED_TRANSACTION') &&
-    runnerLib.includes("fail('provider_email_consent_missing')") &&
-    runner.includes('providerEmailBehavior: result.providerEmailBehavior') &&
+  !runnerConfig.includes('REFUND_NAYAX_PILOT_PROVIDER_EMAIL_CONFIRMATION') &&
+    !runnerLib.includes('providerEmailBehavior') &&
+    !runner.includes('providerEmailBehavior') &&
     runner.includes('selectNayaxControlledPilotFailureDetails(error.details)') &&
-    runnerTests.includes('failure output retains only the fixed provider-email behavior enum') &&
-    runnerTests.includes('requires an exact observable consent confirmation') &&
-    runbook.includes('generic transaction confirmation is insufficient'),
-  'Expected Nayax-originated email requires explicit self-owner consent and a visible safe result enum.',
+    runnerTests.includes('schemaVersion: 2') &&
+    runnerTests.includes('failure output retains only fixed approved aggregate fields') &&
+    runbook.includes('schema-v2 contract'),
+  'The retired runner uses the hardened schema-v2 contract and exposes no unwired provider-email assertion.',
 );
 check(
   migration.includes("when authorization_row.status = 'consumed' then 1") &&
@@ -296,28 +295,40 @@ check(
   'The ceremony documents self-ownership, lease-aware recovery, provider-email truth, unresolved retention, and private credential teardown.',
 );
 check(
-  nayaxDocs.includes('controlled owner pilot') &&
-    nayaxDocs.includes('normal portal action remains unavailable') &&
-    nayaxDocs.includes('it has not been write-tested or confirmed broken') &&
-    nayaxDocs.includes('must never be used as a permission probe') &&
+  nayaxDocs.includes('old controlled-owner pilot') &&
+    nayaxDocs.includes('historical controlled-owner incident') &&
+    nayaxDocs.includes("does not diagnose today's token or response pair") &&
+    nayaxDocs.includes('Canonical executor') &&
+    nayaxDocs.includes('not production refund identities') &&
+    nayaxDocs.includes('must never be used as a write-permission probe') &&
     nayaxDocs.includes('existing reporting token must never be used as a write-permission probe or fallback') &&
+    !nayaxDocs.includes('normal portal action remains unavailable') &&
     !nayaxDocs.includes('whether the existing reporting token has refund request and approval permissions'),
-  'Nayax API documentation distinguishes the runner-only pilot from product execution.',
+  'Nayax API documentation distinguishes historical pilot evidence, canonical production identity, and current response-contract work.',
 );
 check(
-  productionRunbook.includes('canonical ten-function/51-migration object remains immutable') &&
+  runbook.includes('retired historical implementation') &&
+    runbook.includes('do not infer its current availability, identity, roles, or token scope') &&
+    !runbook.includes('The normal portal action remains unavailable'),
+  'Retired controlled-owner runbook cannot override current account or execution facts.',
+);
+check(
+  productionRunbook.includes('Nayax card-refund operation (current authority)') &&
+    productionRunbook.includes('eligible customer case of $10 or less') &&
+    productionRunbook.includes('One immutable generation permits at most one Nayax request and one approval') &&
     productionRunbook.includes('Docs/REFUND_NAYAX_CONTROLLED_OWNER_PILOT.md') &&
-    productionRunbook.includes('hard stop with no retry') &&
-    productionRunbook.includes('retention duration and verified purge/discharge procedure'),
-  'The production runbook points to the held ceremony and its stop contract.',
+    productionRunbook.includes('historical documentation for the retired owner-only runner') &&
+    productionRunbook.includes('There is no bulk-refund action'),
+  'The production runbook makes the real-customer path authoritative while preserving exactly-once controls.',
 );
 check(
   qaChecklist.includes('ten-function/51-migration default-off foundation') &&
     qaChecklist.includes('npm run refunds:validate-nayax-controlled-owner-pilot') &&
-    qaChecklist.includes('no reporting-token fallback') &&
-    qaChecklist.includes('no Hub customer/Gmail completion') &&
-    qaChecklist.includes('terminal worker acknowledgement'),
-  'The smoke checklist verifies the default-off controller without authorizing a live phase.',
+    qaChecklist.includes('historical regression check for the retired `#430` runner') &&
+    qaChecklist.includes('legitimate unresolved customer refund of $10 or less') &&
+    qaChecklist.includes('at most one Nayax request and one approval') &&
+    qaChecklist.includes('There is no bulk-refund action'),
+  'The smoke checklist retains historical regression coverage without reintroducing pilot ceremony.',
 );
 check(
   !read('.github/workflows/refund-automation-sweep.yml').includes('controlled_owner_pilot') &&

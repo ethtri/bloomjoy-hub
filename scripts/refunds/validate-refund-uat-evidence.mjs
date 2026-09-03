@@ -297,12 +297,101 @@ try {
   assert.match(workflowSource, /crypto\.randomBytes\(32\)/);
   assert.match(workflowSource, /::add-mask::/);
   assert.match(workflowSource, /REFUND_UAT_EVIDENCE_RUN_TOKEN/);
+  assert.match(
+    workflowSource,
+    /manifest\.screenshotCount/,
+    'The job summary must read its screenshot count from the signed evidence manifest'
+  );
+  assert.match(
+    workflowSource,
+    /manifest\.machineReadableArtifactCount/,
+    'The job summary must read its machine-readable count from the signed evidence manifest'
+  );
+  assert.doesNotMatch(
+    workflowSource,
+    /Screenshots: \d+ synthetic states/,
+    'The job summary must not drift from the manifest through a hard-coded screenshot count'
+  );
+  assert.doesNotMatch(
+    workflowSource,
+    /Machine-readable evidence: \d+ strict/,
+    'The job summary must not drift from the manifest through a hard-coded artifact count'
+  );
   assert.doesNotMatch(
     workflowSource,
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 41, 'Evidence must enumerate all 41 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 85, 'Evidence must enumerate all 85 reviewed screenshots');
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-inbound-case-link-review-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-inbound-case-link-review-mobile.png'),
+    'Evidence must include reviewed desktop and mobile inbound existing-case link states'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-transactional-delivery-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-transactional-delivery-mobile.png'),
+    'Evidence must include reviewed desktop and mobile transactional-delivery truth states'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-nayax-account-scope-mobile.png'),
+    'Evidence must include the mobile internal Nayax account-scope recovery state'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-acknowledgement-recovery-mobile.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-acknowledgement-recovery-resolved.png'),
+    'Evidence must include both reviewed acknowledgement-recovery states'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-customer-locale-correction-mobile.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-customer-locale-correction-saved.png'),
+    'Evidence must include both reviewed customer-locale correction states'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-internal-test-disposition-mobile.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-internal-test-confirmation-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-internal-test-archive-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-internal-test-archive-mobile.png'),
+    'Evidence must include the reviewed Internal/test disposition and restricted archive states'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-selected-nayax-transaction-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-selected-nayax-transaction-mobile.png'),
+    'Evidence must include the reviewed selected Nayax transaction identity on desktop and mobile'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-case-availability-error-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-case-availability-error-mobile.png'),
+    'Evidence must include the reviewed case-specific availability state on desktop and mobile'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-direct-intake-cash-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-qr-intake-cash-mobile.png'),
+    'Evidence must include reviewed desktop and mobile cash-intake states'
+  );
+  assert.equal(
+    EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-manager-')).length,
+    6,
+    'Evidence must include confirmed ready/blocked and stale-evidence manager states on desktop and mobile'
+  );
+  assert.equal(
+    EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('machine-refunds-')).length,
+    6,
+    'Evidence must include ready, ready-to-activate, setup-needed, manual-portal-only, machine-disabled, and global-pause Admin states'
+  );
+  assert.equal(
+    EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-simple-journey-')).length,
+    4,
+    'Evidence must include disabled, ready desktop/mobile, and success states for the simple journey'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-portal-uat-sanitized-simple-card-refund-journey.png'),
+    'Evidence must include the reviewed selectable-candidate state for the sanitized simple journey'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-email-pilot-source-badges-mobile.png'),
+    'Evidence must include the reviewed mobile source-badge state'
+  );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) =>
       name.startsWith('refund-nayax-support-resolution-')
@@ -323,6 +412,11 @@ try {
     EXPECTED_SCREENSHOTS.filter((name) => name.endsWith('mapped-manager-session.png')).length,
     2,
     'The evidence must show both mapped-manager session paths without a second factor'
+  );
+  assert.equal(
+    EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-portal-uat-nc-manual-')).length,
+    2,
+    'The evidence must show the temporary NC manual path on desktop and mobile'
   );
   const supportPanelAssertionIndex = portalUatSource.indexOf(
     "'Managers see exactly four structured outcomes and no arbitrary communication controls'"

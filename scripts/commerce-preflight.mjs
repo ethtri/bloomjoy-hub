@@ -4,6 +4,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import {
+  areNayaxRefundWriteCredentialsReady,
+  NAYAX_REFUND_PRODUCTION_BASE_URL,
+  parseNayaxRefundProviderContract,
+} from '../supabase/functions/_shared/nayax-refund-provider.mjs';
 
 const DEFAULTS = {
   envFiles: ['.env', '.env.local'],
@@ -14,6 +19,9 @@ const DEFAULTS = {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
+const NAYAX_REFUND_PROVIDER_CONTRACT_VERSION = 'nayax-production-account-contract-v2';
+const NAYAX_REFUND_REQUEST_TOKEN_PREFIX = 'NAYAX_REFUND_REQUEST_WRITE_TOKEN_';
+const NAYAX_REFUND_APPROVE_TOKEN_PREFIX = 'NAYAX_REFUND_APPROVE_WRITE_TOKEN_';
 
 function parseArgs(argv) {
   const parsed = { ...DEFAULTS, envFiles: [] };
@@ -149,6 +157,26 @@ function isValidUrl(value) {
   }
 }
 
+function findNayaxRefundWriteCredentialAccounts(env) {
+  const requestAccounts = new Set();
+  const approveAccounts = new Set();
+
+  for (const [key, value] of Object.entries(env)) {
+    if (!String(value || '').trim()) continue;
+    if (key.startsWith(NAYAX_REFUND_REQUEST_TOKEN_PREFIX)) {
+      requestAccounts.add(key.slice(NAYAX_REFUND_REQUEST_TOKEN_PREFIX.length));
+    }
+    if (key.startsWith(NAYAX_REFUND_APPROVE_TOKEN_PREFIX)) {
+      approveAccounts.add(key.slice(NAYAX_REFUND_APPROVE_TOKEN_PREFIX.length));
+    }
+  }
+
+  const pairedAccounts = [...requestAccounts].filter((account) =>
+    account && approveAccounts.has(account)
+  );
+  return { requestAccounts, approveAccounts, pairedAccounts };
+}
+
 function printList(title, values) {
   console.log(`\n${title}`);
   for (const value of values) {
@@ -224,10 +252,9 @@ function run() {
       'NAYAX_REFUND_EXECUTION_ENABLED',
       'NAYAX_REFUND_EXECUTION_DRY_RUN',
       'NAYAX_REFUND_EXECUTION_KILL_SWITCH',
-      'NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED',
-      'NAYAX_REFUND_MAX_AMOUNT_CENTS',
-      'NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS',
-      'NAYAX_REFUND_DAILY_COUNT_CAP',
+      'NAYAX_REFUND_MANAGER_CONTRACT_JSON',
+      'NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED',
+      'NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED',
       'NAYAX_REFUND_IDEMPOTENCY_SECRET',
       'NAYAX_REFUND_EXECUTOR_ASSERTION'
     );
@@ -259,6 +286,67 @@ function run() {
     errors.push(
       'Missing Nayax token. Set NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB or fallback NAYAX_LYNX_API_TOKEN.'
     );
+  }
+
+  if (args.includeRefunds) {
+    const credentialAccounts = findNayaxRefundWriteCredentialAccounts(env);
+    if (credentialAccounts.pairedAccounts.length === 0) {
+      errors.push(
+        'Missing a paired account-scoped Nayax refund request/approval write credential.'
+      );
+    }
+    for (const account of credentialAccounts.requestAccounts) {
+      if (!credentialAccounts.approveAccounts.has(account)) {
+        errors.push(`Missing ${NAYAX_REFUND_APPROVE_TOKEN_PREFIX}${account}.`);
+      }
+    }
+    for (const account of credentialAccounts.approveAccounts) {
+      if (!credentialAccounts.requestAccounts.has(account)) {
+        errors.push(`Missing ${NAYAX_REFUND_REQUEST_TOKEN_PREFIX}${account}.`);
+      }
+    }
+
+    if (!isRemoteSource && env.NAYAX_REFUND_MANAGER_CONTRACT_JSON) {
+      let managerContract = null;
+      try {
+        managerContract = parseNayaxRefundProviderContract(
+          String(env.NAYAX_REFUND_MANAGER_CONTRACT_JSON).trim()
+        );
+      } catch {
+        errors.push('NAYAX_REFUND_MANAGER_CONTRACT_JSON must be a valid exact schema-v2 contract.');
+      }
+      if (
+        managerContract &&
+        managerContract.contractVersion !== NAYAX_REFUND_PROVIDER_CONTRACT_VERSION
+      ) {
+        errors.push(
+          `NAYAX_REFUND_MANAGER_CONTRACT_JSON must use ${NAYAX_REFUND_PROVIDER_CONTRACT_VERSION}.`
+        );
+      }
+      if (
+        managerContract &&
+        managerContract.baseUrl !== NAYAX_REFUND_PRODUCTION_BASE_URL
+      ) {
+        errors.push(
+          `NAYAX_REFUND_MANAGER_CONTRACT_JSON must use ${NAYAX_REFUND_PRODUCTION_BASE_URL}.`
+        );
+      }
+      if (managerContract) {
+        for (const account of credentialAccounts.pairedAccounts) {
+          if (
+            !areNayaxRefundWriteCredentialsReady({
+              contract: managerContract,
+              requestToken: env[`${NAYAX_REFUND_REQUEST_TOKEN_PREFIX}${account}`],
+              approveToken: env[`${NAYAX_REFUND_APPROVE_TOKEN_PREFIX}${account}`],
+            })
+          ) {
+            errors.push(
+              `The account-scoped Nayax refund write credentials for ${account} do not match the confirmed contract.`
+            );
+          }
+        }
+      }
+    }
   }
 
   if (
@@ -293,7 +381,8 @@ function run() {
       'NAYAX_REFUND_EXECUTION_ENABLED',
       'NAYAX_REFUND_EXECUTION_DRY_RUN',
       'NAYAX_REFUND_EXECUTION_KILL_SWITCH',
-      'NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED',
+      'NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED',
+      'NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED',
     ];
     for (const key of booleanKeys) {
       if (env[key] && !['true', 'false'].includes(String(env[key]).trim().toLowerCase())) {
@@ -310,22 +399,6 @@ function run() {
       }
     }
 
-    for (const [key, maximum] of [
-      ['NAYAX_REFUND_MAX_AMOUNT_CENTS', 1_000_000],
-      ['NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS', 1_000_000],
-      ['NAYAX_REFUND_DAILY_COUNT_CAP', 100],
-    ]) {
-      const normalized = String(env[key] || '').trim();
-      const numeric = Number(normalized);
-      if (
-        normalized &&
-        (!/^[1-9][0-9]*$/.test(normalized) ||
-          !Number.isSafeInteger(numeric) ||
-          numeric > maximum)
-      ) {
-        errors.push(`${key} must be a positive bounded integer no greater than ${maximum}.`);
-      }
-    }
 
     if (String(env.NAYAX_REFUND_EXECUTION_KILL_SWITCH || '').trim().toLowerCase() !== 'true') {
       warnings.push(
@@ -391,7 +464,8 @@ function run() {
       'Public intake abuse-control salt configured',
       'Nayax Lynx base URL configured',
       'Nayax account-specific token or fallback token configured',
-      'Nayax refund execution flags, caps, and idempotency secret configured fail-closed',
+      'Exact production Nayax manager contract and account-scoped request/approval credentials configured',
+      'Nayax refund execution, manager-contract, approval-scope, and idempotency gates configured fail-closed',
       'Refund reminder/escalation scheduler secret configured',
       'Resend sender and API key configured for refund-case-intake',
       'Supabase service-role key configured for refund Edge Functions',

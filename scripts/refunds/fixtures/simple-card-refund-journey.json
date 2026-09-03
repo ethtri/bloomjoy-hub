@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 2,
+  "evidenceClass": "sanitized_synthetic",
+  "machine": {
+    "reportingMachineId": "94900000-0000-4000-8000-000000000001",
+    "customerLabel": "Tulsa Premium Outlets — Cotton Candy",
+    "locationName": "Tulsa Premium Outlets"
+  },
+  "case": {
+    "publicReference": "RF-UAT-PENDING",
+    "amountCents": 700,
+    "currencyCode": "USD",
+    "reportedCardLast4": "4242",
+    "incidentTimeConfidence": "exact"
+  },
+  "candidate": {
+    "candidateToken": "94900000-0000-4000-8000-000000000002",
+    "amountCents": 700,
+    "currencyCode": "USD",
+    "cardLast4": "4242",
+    "cardBrand": "Visa",
+    "recognitionMethod": "tap",
+    "paymentStatus": null,
+    "timeDeltaMinutes": 2,
+    "recommendationRank": 1,
+    "selectionAllowed": true
+  },
+  "activation": {
+    "disabledBlockReason": "machine_not_enabled",
+    "refundAmountSource": "exact_selected_transaction"
+  }
+}

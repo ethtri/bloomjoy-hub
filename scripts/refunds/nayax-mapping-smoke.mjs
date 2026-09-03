@@ -77,13 +77,13 @@ select
   coalesce((select sum(duplicate_count) from duplicate_rows), 0)::integer as duplicate_nayax_mapping_count,
   count(distinct nayax_account_key) filter (where nayax_account_key <> '')::integer
     as distinct_nayax_account_count,
-  count(*) filter (where manager_count between 1 and 3)::integer
+  count(*) filter (where manager_count between 1 and 4)::integer
     as machine_with_active_manager_count,
   count(*) filter (where location_timezone <> '')::integer as machine_with_timezone_count,
   count(*) filter (
     where nayax_machine_id <> ''
       and nayax_account_key <> ''
-      and manager_count between 1 and 3
+      and manager_count between 1 and 4
       and location_timezone <> ''
   )::integer as shadow_ready_mapping_count,
   count(*) filter (where nayax_refunds_enabled is true)::integer
@@ -95,6 +95,7 @@ export function parseArgs(argv) {
   const args = {
     projectRef: '',
     confirmProjectRef: '',
+    expectedLiveCount: 0,
     allowNotReady: false,
     help: false,
   };
@@ -120,6 +121,15 @@ export function parseArgs(argv) {
       continue;
     }
 
+    if (arg === '--expected-live-count' && next) {
+      if (!/^\d+$/.test(next)) {
+        throw new Error('--expected-live-count must be a non-negative integer.');
+      }
+      args.expectedLiveCount = Number.parseInt(next, 10);
+      index += 1;
+      continue;
+    }
+
     if (arg === '--allow-not-ready') {
       args.allowNotReady = true;
       continue;
@@ -136,6 +146,9 @@ function printHelp() {
 
 Run against the exact linked production project:
   npm run refunds:smoke-nayax-mapping -- --project-ref <ref> --confirm-project-ref <ref>
+
+After intentional production activation, also pass the reviewed enabled-machine count:
+  npm run refunds:smoke-nayax-mapping -- --project-ref <ref> --confirm-project-ref <ref> --expected-live-count <count>
 
 The query is SELECT-only and prints counts only. It never prints or writes machine,
 location, manager, case, customer, card, or provider identifiers. It does not call
@@ -167,7 +180,7 @@ export function validateAggregateRow(row) {
   return row;
 }
 
-export function determineReadiness(row) {
+export function determineReadiness(row, expectedLiveCount = 0) {
   const checks = {
     hasPilotMachines: row.active_refund_machine_count >= 3,
     everyMachineMapped:
@@ -181,7 +194,8 @@ export function determineReadiness(row) {
       row.machine_with_timezone_count === row.active_refund_machine_count,
     everyMappingShadowReady:
       row.shadow_ready_mapping_count === row.active_refund_machine_count,
-    liveExecutionOff: row.live_refund_enabled_machine_count === 0,
+    expectedLiveExecutionCount:
+      row.live_refund_enabled_machine_count === expectedLiveCount,
   };
 
   return {
@@ -222,8 +236,8 @@ function runLinkedQuery(query) {
   return validateAggregateRow(payload.rows[0]);
 }
 
-function printAggregate(row, projectRef) {
-  const readiness = determineReadiness(row);
+function printAggregate(row, projectRef, expectedLiveCount) {
+  const readiness = determineReadiness(row, expectedLiveCount);
   console.log('Refund Nayax production mapping smoke');
   console.log(`Project ref: ${projectRef}`);
   console.log('Read-only query: yes');
@@ -233,10 +247,11 @@ function printAggregate(row, projectRef) {
   console.log(`Mappings missing account: ${row.missing_nayax_account_count}`);
   console.log(`Duplicate Nayax mappings: ${row.duplicate_nayax_mapping_count}`);
   console.log(`Distinct Nayax accounts: ${row.distinct_nayax_account_count}`);
-  console.log(`Machines with 1-3 active managers: ${row.machine_with_active_manager_count}`);
+  console.log(`Machines with 1-4 active managers: ${row.machine_with_active_manager_count}`);
   console.log(`Machines with a location timezone: ${row.machine_with_timezone_count}`);
   console.log(`Shadow-ready mappings: ${row.shadow_ready_mapping_count}`);
   console.log(`Machines with live refund execution enabled: ${row.live_refund_enabled_machine_count}`);
+  console.log(`Expected live-enabled machines: ${expectedLiveCount}`);
   console.log(`Overall: ${readiness.ready ? 'PASS' : 'NOT READY'}`);
   console.log('No identifiers or production records were printed or written.');
   return readiness;
@@ -267,7 +282,7 @@ async function run() {
   }
 
   const row = runLinkedQuery(NAYAX_MAPPING_QUERY);
-  const readiness = printAggregate(row, args.projectRef);
+  const readiness = printAggregate(row, args.projectRef, args.expectedLiveCount);
   if (!readiness.ready && !args.allowNotReady) process.exitCode = 2;
 }
 

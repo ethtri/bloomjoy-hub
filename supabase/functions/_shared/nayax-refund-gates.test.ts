@@ -1,87 +1,30 @@
-import {
-  buildNayaxRefundIdempotencyKey,
-  readNayaxRefundAvailability,
-  resolveNayaxRefundAvailability,
-  resolveNayaxRefundExecutionConfig,
-} from "./nayax-refund-gates.ts";
-
-const assert = (condition: unknown, message: string) => {
-  if (!condition) throw new Error(message);
-};
-
-const envReader = (values: Record<string, string>) => (name: string) =>
-  values[name];
-
-const enabledConfig = {
-  NAYAX_REFUND_EXECUTION_KILL_SWITCH: "false",
-  NAYAX_REFUND_EXECUTION_ENABLED: "true",
-  NAYAX_REFUND_EXECUTION_DRY_RUN: "false",
-  NAYAX_REFUND_MAX_AMOUNT_CENTS: "1000",
-  NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS: "5000",
-  NAYAX_REFUND_DAILY_COUNT_CAP: "10",
-  NAYAX_REFUND_IDEMPOTENCY_SECRET: "i".repeat(64),
-  NAYAX_REFUND_EXECUTOR_ASSERTION: "e".repeat(64),
-};
-
-Deno.test("default or missing rollout configuration reports every fail-closed gate", () => {
-  const config = resolveNayaxRefundExecutionConfig(envReader({}));
-  for (
-    const block of [
-      "kill_switch_active",
-      "feature_disabled",
-      "dry_run_active",
-      "per_refund_cap_missing",
-      "daily_amount_cap_missing",
-      "daily_count_cap_missing",
-      "idempotency_secret_missing",
-      "executor_assertion_missing",
-    ]
-  ) {
-    assert(config.blocks.includes(block as never), `${block} must block`);
-  }
+import { buildNayaxRefundIdempotencyKey, readNayaxRefundAvailability, resolveNormalNayaxRefundAmountCents,
+  resolveNayaxRefundAvailability, resolveNayaxRefundExecutionConfig } from './nayax-refund-gates.ts';
+const assert=(condition:unknown,message:string)=>{if(!condition)throw new Error(message);};
+const envReader=(values:Record<string,string>)=>(name:string)=>values[name];
+const enabledConfig={NAYAX_REFUND_EXECUTION_KILL_SWITCH:'false',NAYAX_REFUND_EXECUTION_ENABLED:'true',
+  NAYAX_REFUND_EXECUTION_DRY_RUN:'false',NAYAX_REFUND_IDEMPOTENCY_SECRET:'i'.repeat(64),
+  NAYAX_REFUND_EXECUTOR_ASSERTION:'e'.repeat(64),NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED:'true',NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED:'true'};
+Deno.test('missing production configuration preserves runtime and credential gates',()=>{
+ const config=resolveNayaxRefundExecutionConfig(envReader({}));
+ for(const block of ['kill_switch_active','feature_disabled','dry_run_active','idempotency_secret_missing','executor_assertion_missing','manager_contract_unconfirmed','approval_scope_unconfirmed'])
+   assert(config.blocks.includes(block as never),block+' must block');
 });
-
-Deno.test("a complete bounded configuration has no rollout block", () => {
-  const config = resolveNayaxRefundExecutionConfig(envReader(enabledConfig));
-  assert(config.blocks.length === 0, "complete config should pass gates");
-  assert(config.dailyCountCap === 10, "daily count must be preserved");
-  assert(
-    config.dailyAmountCapCents === 5000,
-    "daily amount must be preserved",
-  );
+Deno.test('configured first attempts require no remaining-balance attestation',()=>{
+ const config=resolveNayaxRefundExecutionConfig(envReader(enabledConfig));
+ assert(config.blocks.length===0,'Ready configuration permits the normal provider path');
+ assert(!('maxAmountCents' in config)&&!('dailyCountCap' in config),'Retired launch caps stay retired');
 });
-
-Deno.test("weak or unbounded execution inputs fail closed", () => {
-  const config = resolveNayaxRefundExecutionConfig(envReader({
-    ...enabledConfig,
-    NAYAX_REFUND_MAX_AMOUNT_CENTS: "1000001",
-    NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS: "0",
-    NAYAX_REFUND_DAILY_COUNT_CAP: "101",
-    NAYAX_REFUND_IDEMPOTENCY_SECRET: "local-dev",
-    NAYAX_REFUND_EXECUTOR_ASSERTION: "service-role-fallback",
-  }));
-  assert(
-    config.blocks.includes("per_refund_cap_missing"),
-    "per-refund cap must be bounded",
-  );
-  assert(
-    config.blocks.includes("daily_amount_cap_missing"),
-    "daily amount cap must be bounded",
-  );
-  assert(
-    config.blocks.includes("daily_count_cap_missing"),
-    "daily count cap must be bounded",
-  );
-  assert(
-    config.blocks.includes("idempotency_secret_missing"),
-    "weak idempotency secret must fail",
-  );
-  assert(
-    config.blocks.includes("executor_assertion_missing"),
-    "weak executor assertion must fail",
-  );
+Deno.test('legacy canary and cap variables do not gate qualified transactions',()=>{
+ const config=resolveNayaxRefundExecutionConfig(envReader({...enabledConfig,NAYAX_REFUND_BROAD_REOPEN_APPROVED:'false',
+ NAYAX_REFUND_CANARY_ENABLED:'false',NAYAX_REFUND_MAX_AMOUNT_CENTS:'1',NAYAX_REFUND_DAILY_COUNT_CAP:'1'}));
+ assert(config.blocks.length===0,'Retired variables cannot recreate a blanket block');
 });
-
+Deno.test('normal amount uses the selected original purchase without inventing a remaining balance',()=>{
+ assert(resolveNormalNayaxRefundAmountCents({matchedTransactionAmountCents:1090})===1090,'Exact selected original amount');
+ for(const amount of [null,0,-1,1.5,Number.MAX_SAFE_INTEGER+1])
+   assert(resolveNormalNayaxRefundAmountCents({matchedTransactionAmountCents:amount})===null,'Invalid amount rejected');
+});
 Deno.test("idempotency is deterministic for an exact replay and changes with immutable evidence", async () => {
   const secret = "s".repeat(64);
   const evidence = {
@@ -134,79 +77,21 @@ Deno.test("idempotency never falls back to a service key or local default", asyn
   assert(failed, "missing dedicated secret must fail before HMAC");
 });
 
-Deno.test("availability returns only the redacted safe contract", () => {
-  const result = resolveNayaxRefundAvailability({
-    executionConfig: resolveNayaxRefundExecutionConfig(
-      envReader(enabledConfig),
-    ),
-    officialActionsEnabled: true,
-  });
-  assert(result.available, "complete config must be available");
-  assert(result.status === "available", "status must be available");
-  assert(result.blockReason === null, "available must have no reason");
-  assert(result.payloadRedacted === true, "payload must be redacted");
-  assert(
-    Object.keys(result).sort().join("|") ===
-      "available|blockReason|payloadRedacted|status",
-    "availability must expose only the approved fields",
-  );
-  assert(
-    !JSON.stringify(result).includes(
-      enabledConfig.NAYAX_REFUND_IDEMPOTENCY_SECRET,
-    ),
-    "availability must not expose secret values",
-  );
-});
 
-Deno.test("availability fail-closes to the bounded reason precedence", () => {
-  const defaultConfig = resolveNayaxRefundExecutionConfig(envReader({}));
-  const enabled = resolveNayaxRefundExecutionConfig(envReader(enabledConfig));
-  const cases = [
-    {
-      officialActionsEnabled: false,
-      config: defaultConfig,
-      reason: "official_actions_disabled",
-    },
-    {
-      officialActionsEnabled: true,
-      config: resolveNayaxRefundExecutionConfig(envReader({
-        ...enabledConfig,
-        NAYAX_REFUND_EXECUTION_KILL_SWITCH: "true",
-      })),
-      reason: "kill_switch_active",
-    },
-    {
-      officialActionsEnabled: true,
-      config: defaultConfig,
-      reason: "kill_switch_active",
-    },
-  ];
-  for (const fixture of cases) {
-    const result = resolveNayaxRefundAvailability({
-      executionConfig: fixture.config,
-      officialActionsEnabled: fixture.officialActionsEnabled,
-    });
-    assert(!result.available, `${fixture.reason} must be unavailable`);
-    assert(
-      result.blockReason === fixture.reason,
-      `${fixture.reason} must be the safe reason`,
-    );
-    assert(result.payloadRedacted, "every blocked result must be redacted");
-  }
+Deno.test('availability exposes configured execution without revealing credentials',()=>{
+ const result=resolveNayaxRefundAvailability({executionConfig:resolveNayaxRefundExecutionConfig(envReader(enabledConfig)),officialActionsEnabled:true});
+ assert(result.available&&result.status==='available'&&result.blockReason===null,'Configured availability');
+ assert(Object.keys(result).sort().join('|')==='available|blockReason|payloadRedacted|status','Bounded public response');
+ assert(!JSON.stringify(result).includes(enabledConfig.NAYAX_REFUND_IDEMPOTENCY_SECRET),'No credential disclosure');
 });
-
-Deno.test("availability reads gates only and performs zero execution side effects", async () => {
-  const providerCalls = 0;
-  const reservations = 0;
-  const mutations = 0;
-  const result = await readNayaxRefundAvailability({
-    readEnv: envReader(enabledConfig),
-    officialActionsEnabled: true,
-  });
-  // Provider, reservation, and mutation dependencies are intentionally absent
-  // from the read-only operation's type and therefore cannot be invoked.
-  assert(result.available, "bounded gates should report available");
-  assert(providerCalls === 0, "availability must not call a provider");
-  assert(reservations === 0, "availability must not reserve an attempt");
-  assert(mutations === 0, "availability must not mutate a case");
+Deno.test('availability preserves pause and configuration precedence',()=>{
+ for(const f of [{values:{},official:false,reason:'official_actions_disabled'},{values:{},official:true,reason:'kill_switch_active'},
+ {values:{...enabledConfig,NAYAX_REFUND_EXECUTOR_ASSERTION:''},official:true,reason:'configuration_missing'}]){
+ const result=resolveNayaxRefundAvailability({executionConfig:resolveNayaxRefundExecutionConfig(envReader(f.values)),officialActionsEnabled:f.official});
+ assert(!result.available&&result.blockReason===f.reason,'The actual pause/configuration issue remains visible');
+ }
+});
+Deno.test('availability reads gates only and performs zero execution side effects',async()=>{
+ const result=await readNayaxRefundAvailability({readEnv:envReader(enabledConfig),officialActionsEnabled:true});
+ assert(result.available,'Read-only availability has no provider or mutation dependencies');
 });

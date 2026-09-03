@@ -8,8 +8,6 @@ const SAFE_SECRET = /^[A-Za-z0-9_-]{32,256}$/u;
 const EXECUTION_SECRET = /^[A-Za-z0-9_-]{43,256}$/u;
 const PRIVATE_WRITE_TOKEN = /^[^\s\x00-\x1f]{20,500}$/u;
 const LIVE_CONFIRMATION = 'I_AUTHORIZE_ONE_SELF_OWNED_PROVIDER_ONLY_NAYAX_TRANSACTION_NO_RETRY';
-const PROVIDER_EMAIL_CONSENT_CONFIRMATION =
-  'I_EXPECT_AND_CONSENT_TO_NAYAX_PROVIDER_EMAIL_FOR_MY_SELF_OWNED_TRANSACTION';
 const PRODUCTION_NAYAX_REFUND_BASE_URL = 'https://lynx.nayax.com/operational/v1';
 const INITIALIZE_CONFIRMATION =
   'I_INITIALIZE_DEFAULT_OFF_NAYAX_PILOT_SECRETS_AND_RECONCILE_RELEASE_METADATA';
@@ -105,11 +103,6 @@ export const validateNayaxControlledPilotConfig = (config) => {
   const contract = parseNayaxRefundProviderContract(config.providerContractJson);
   if (contract.baseUrl !== PRODUCTION_NAYAX_REFUND_BASE_URL) {
     fail('provider_contract_host_invalid');
-  }
-  if (contract.providerEmailBehavior === 'owner_consented_expected' &&
-      ['initialize', 'live'].includes(config.mode) &&
-      config.providerEmailConfirmation !== PROVIDER_EMAIL_CONSENT_CONFIRMATION) {
-    fail('provider_email_consent_missing');
   }
   const contractDigest = sha256Hex(config.providerContractJson);
   if (config.writtenContractDigest !== contractDigest) {
@@ -421,18 +414,12 @@ const SAFE_FAILURE_DETAIL_KEYS = Object.freeze([
   'providerHold', 'manualReconciliationRequired',
   'customerDeliveryDelta', 'gmailOutboundDelta', 'noReplay',
 ]);
-const SAFE_PROVIDER_EMAIL_BEHAVIORS = new Set([
-  'suppressed_by_written_contract', 'owner_consented_expected',
-]);
 
 export const selectNayaxControlledPilotFailureDetails = (details = {}) => ({
   ...Object.fromEntries(SAFE_FAILURE_DETAIL_KEYS
     .filter((key) => typeof details[key] === 'number' ||
       typeof details[key] === 'boolean' || typeof details[key] === 'string')
     .map((key) => [key, details[key]])),
-  ...(SAFE_PROVIDER_EMAIL_BEHAVIORS.has(details.providerEmailBehavior)
-    ? { providerEmailBehavior: details.providerEmailBehavior }
-    : {}),
 });
 
 const emit = (logger, phase, detail = {}) => logger({
@@ -664,7 +651,6 @@ export const executeNayaxControlledPilot = async ({
     edgeConfirmed,
     gatesConclusivelyClosed: closure?.closed === true,
     gateState: closure?.closed === true ? 'closed' : 'unknown',
-    providerEmailBehavior: validated.contract.providerEmailBehavior,
     payloadRedacted: true,
   };
   if (classification.effectsClassification === 'complete_exact' && result.gatesConclusivelyClosed) {
@@ -691,7 +677,6 @@ export const executeNayaxControlledPilot = async ({
       manualReconciliationRequired: classification.manualReconciliationRequired,
       customerDeliveryDelta: classification.customerDeliveryDelta,
       gmailOutboundDelta: classification.gmailOutboundDelta,
-      providerEmailBehavior: validated.contract.providerEmailBehavior,
       noReplay: true,
     },
   );

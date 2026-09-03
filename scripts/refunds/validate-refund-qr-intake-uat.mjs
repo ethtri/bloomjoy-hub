@@ -14,6 +14,10 @@ const machineId = '83000000-0000-4000-8000-000000000001';
 const locationId = '82000000-0000-4000-8000-000000000001';
 const eastridgeMachineId = '83000000-0000-4000-8000-000000000002';
 const eastridgeLocationId = '82000000-0000-4000-8000-000000000002';
+const eastridgeSelectionKey = 'd'.repeat(64);
+const livermoreSelectionKey = 'e'.repeat(64);
+const livermoreTt20MachineId = '83000000-0000-4000-8000-000000000020';
+const livermoreTt33MachineId = '83000000-0000-4000-8000-000000000033';
 const openedAt = '2026-07-26T19:15:00.000Z';
 const validQrCode = 'refund_qr_public_uat_machine_one_000001';
 const invalidQrCode = 'refund_qr_public_uat_retired_code_00001';
@@ -115,6 +119,67 @@ const installPublicRefundRoutes = async (
   } = {}
 ) => {
   let claimCount = 0;
+
+  await context.route('**/rest/v1/rpc/public_refund_selections_v2', async (route) => {
+    await route.fulfill(
+      jsonResponse([
+        {
+          selection_key: 'c'.repeat(64),
+          display_label: 'Mall Atrium',
+          selection_kind: 'exact_machine',
+          location_timezone: 'America/Los_Angeles',
+          machine_id: machineId,
+          cash_machine_options: [],
+        },
+        {
+          selection_key: eastridgeSelectionKey,
+          display_label: 'Eastridge Center',
+          selection_kind: 'exact_machine',
+          location_timezone: 'America/Los_Angeles',
+          machine_id: eastridgeMachineId,
+          cash_machine_options: [],
+        },
+        {
+          selection_key: livermoreSelectionKey,
+          display_label: 'San Francisco Premium Outlets — Cotton candy',
+          selection_kind: 'livermore_pair',
+          location_timezone: 'America/Los_Angeles',
+          machine_id: null,
+          cash_machine_options: [
+            {
+              machineId: livermoreTt20MachineId,
+              displayLabel: 'TT20 cotton candy machine',
+            },
+            {
+              machineId: livermoreTt33MachineId,
+              displayLabel: 'TT33 cotton candy machine',
+            },
+          ],
+        },
+      ])
+    );
+  });
+
+  await context.route('**/rest/v1/rpc/public_refund_selections', async (route) => {
+    await route.fulfill(
+      jsonResponse([
+        {
+          selection_key: 'c'.repeat(64),
+          display_label: 'Mall Atrium',
+          selection_kind: 'exact_machine',
+          location_id: locationId,
+          location_timezone: 'America/Los_Angeles',
+        },
+        {
+          selection_key: eastridgeSelectionKey,
+          display_label: 'Eastridge Center',
+          selection_kind: 'exact_machine',
+          location_id: eastridgeLocationId,
+          location_timezone: 'America/Los_Angeles',
+        },
+      ])
+    );
+  });
 
   await context.route('**/rest/v1/rpc/public_refund_machine_options', async (route) => {
     await route.fulfill(
@@ -249,32 +314,31 @@ const isExpectedQrUatRequestFailure = (request) => {
   });
 };
 
-const fillRequiredRefundFields = async (page, { wallet = false } = {}) => {
+const fillOrdinaryRefundFields = async (page) => {
   assert.equal(
     await page.locator('#product-description').count(),
     0,
     'Refund intake should derive the product category from the selected machine'
   );
-  await page.getByLabel('Name', { exact: true }).fill('QR UAT Customer');
   await page.getByLabel('Email', { exact: true }).fill('qr-customer@example.test');
   await page.getByLabel('Purchase date').fill('2026-07-26');
   await page.getByLabel('Approximate purchase time').fill('12:10');
-  await page.getByLabel('How close is that time?').selectOption('within_15_minutes');
-  await page.getByLabel('Amount charged').fill('7.00');
-
-  if (wallet) {
-    await page.getByLabel('How did you pay at the machine?').selectOption('phone_watch_wallet');
-    await page.getByLabel('Which wallet did you use?').selectOption('apple_pay');
-    await page.getByLabel('Virtual last 4 shown in your wallet').fill('9876');
-  } else {
-    await page.getByLabel('How did you pay at the machine?').selectOption('tap_card');
-    await page.getByLabel('Last 4 digits on the card you used').fill('4242');
-  }
+  await page.getByLabel('Amount paid').fill('7.00');
 
   await page.getByLabel('What best describes the problem?').selectOption('charged_no_product');
-  await page
-    .getByLabel('What happened?')
-    .fill('Synthetic QR UAT report. No product or customer data is included.');
+};
+
+const fillRequiredRefundFields = async (page, { wallet = false } = {}) => {
+  await fillOrdinaryRefundFields(page);
+
+  if (wallet) {
+    await page.getByLabel('I used Apple Pay or another phone/watch wallet').check();
+    await page.getByLabel('Wallet (optional)').selectOption('apple_pay');
+    await page.getByLabel('Virtual last 4 shown in your wallet').fill('9876');
+  } else {
+    await page.getByLabel('Last 4 digits shown for this payment').fill('4242');
+  }
+
 };
 
 const runDesktopQrJourney = async ({ browser, appUrl, artifactDir }) => {
@@ -292,7 +356,7 @@ const runDesktopQrJourney = async ({ browser, appUrl, artifactDir }) => {
   assert.equal(await page.getByText('Mall Atrium - Cotton Candy 01').first().isVisible(), true);
   assert.equal(await page.getByText(/We saved the server time as/).isVisible(), true);
   assert.equal(
-    await page.getByLabel('How did you pay at the machine?').isVisible(),
+    await page.getByRole('radio', { name: /^Card/ }).isVisible(),
     true
   );
   assert.equal(await page.locator('input[type="file"]').count(), 0, 'Public refund intake must not offer attachment uploads.');
@@ -304,16 +368,19 @@ const runDesktopQrJourney = async ({ browser, appUrl, artifactDir }) => {
 
   await fillRequiredRefundFields(page);
   await page.getByRole('button', { name: 'Send refund request' }).click();
-  await page.waitForURL('**/refunds/thank-you?ref=RF-QR-UAT');
+  await page.waitForURL('**/refunds/thank-you');
+  await page.getByText('RF-QR-UAT', { exact: true }).waitFor();
 
   const submission = functionBodies.find((body) => !body.action);
   assert.ok(submission, 'QR form should submit one refund request');
   assert.equal(submission.machineId, machineId);
   assert.match(submission.qrClaimToken, /^refund_qr_claim_uat_token_/);
+  assert.equal(submission.paymentMethod, 'card');
   assert.equal(submission.cardLast4, '4242');
+  assert.equal(submission.cardNetwork, undefined);
   assert.equal(submission.cardWalletUsed, false);
-  assert.equal(submission.paymentInteraction, 'tap_card');
-  assert.equal(submission.incidentTimeConfidence, 'within_15_minutes');
+  assert.equal(submission.paymentInteraction, 'unsure');
+  assert.equal(submission.incidentTimeConfidence, 'rough');
   assert.equal(submission.issueCategory, 'charged_no_product');
   assert.equal('productDescription' in submission, false);
   assert.equal('attachments' in submission, false, 'Public refund intake must not submit attachment bytes.');
@@ -362,7 +429,7 @@ const runMobileWalletJourney = async ({ browser, appUrl, artifactDir }) => {
   assert.equal(
     await page
       .getByText(
-        'Open your wallet, select the card, and use the virtual or device card number shown there. Do not use the last 4 printed on the physical card.'
+        'Use the virtual last 4 shown for this wallet payment. Do not use the last 4 printed on the physical card.'
       )
       .isVisible(),
     true
@@ -383,9 +450,12 @@ const runMobileWalletJourney = async ({ browser, appUrl, artifactDir }) => {
   });
 
   await page.getByRole('button', { name: 'Send refund request' }).click();
-  await page.waitForURL('**/refunds/thank-you?ref=RF-QR-UAT');
+  await page.waitForURL('**/refunds/thank-you');
+  await page.getByText('RF-QR-UAT', { exact: true }).waitFor();
   const submission = functionBodies.find((body) => !body.action);
   assert.equal(submission.cardLast4, '9876');
+  assert.equal(submission.paymentMethod, 'card');
+  assert.equal(submission.cardNetwork, undefined);
   assert.equal(submission.cardWalletUsed, true);
   assert.equal(submission.paymentInteraction, 'phone_watch_wallet');
   assert.equal(submission.walletProvider, 'apple_pay');
@@ -403,11 +473,11 @@ const runDirectJourney = async ({ browser, appUrl, artifactDir }) => {
   await page.goto(`${appUrl}/refunds/request`, { waitUntil: 'networkidle' });
   const machineSelect = page.getByLabel('Machine location');
   await machineSelect.waitFor();
-  await machineSelect.selectOption(eastridgeMachineId);
+  await machineSelect.selectOption(eastridgeSelectionKey);
 
   assert.equal(await page.getByText('QR verified', { exact: true }).count(), 0);
   assert.equal(
-    await page.getByText('Selected: Eastridge Center - Cotton Candy 02').isVisible(),
+    await page.getByText('Selected: Eastridge Center').isVisible(),
     true
   );
   await page.screenshot({
@@ -416,12 +486,168 @@ const runDirectJourney = async ({ browser, appUrl, artifactDir }) => {
   });
 
   await fillRequiredRefundFields(page);
+  await page.getByLabel('Last 4 digits shown for this payment').scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-direct-intake-card-type-desktop.png'),
+    fullPage: false,
+  });
   await page.getByRole('button', { name: 'Send refund request' }).click();
-  await page.waitForURL('**/refunds/thank-you?ref=RF-QR-UAT');
+  await page.waitForURL('**/refunds/thank-you');
+  await page.getByText('RF-QR-UAT', { exact: true }).waitFor();
   const submission = functionBodies.find((body) => !body.action);
-  assert.equal(submission.machineId, eastridgeMachineId);
+  assert.equal(submission.selectionKey, eastridgeSelectionKey);
+  assert.equal(submission.paymentMethod, 'card');
+  assert.equal('machineId' in submission, false);
   assert.equal('qrClaimToken' in submission, false);
   assert.equal('productDescription' in submission, false);
+
+  await context.close();
+};
+
+const trackNayaxFunctionRequests = (page) => {
+  const requests = [];
+  page.on('request', (request) => {
+    let pathname = '';
+    try {
+      pathname = new URL(request.url()).pathname;
+    } catch {
+      return;
+    }
+    if (
+      pathname === '/functions/v1/nayax-transaction-lookup' ||
+      pathname === '/functions/v1/nayax-card-refund'
+    ) {
+      requests.push(pathname);
+    }
+  });
+  return requests;
+};
+
+const runDirectCashTransitionJourney = async ({ browser, appUrl, artifactDir }) => {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+  const functionBodies = [];
+  await installPublicRefundRoutes(context, { functionBodies });
+  const page = await context.newPage();
+  const nayaxRequests = trackNayaxFunctionRequests(page);
+
+  await page.goto(`${appUrl}/refunds/request`, { waitUntil: 'networkidle' });
+  await page.getByLabel('Machine location').selectOption(livermoreSelectionKey);
+  assert.equal(await page.getByRole('radio', { name: /^Card/ }).getAttribute('data-state'), 'checked');
+
+  await fillRequiredRefundFields(page, { wallet: true });
+  assert.equal(await page.getByLabel('Virtual last 4 shown in your wallet').inputValue(), '9876');
+
+  await page.getByRole('radio', { name: /^Cash/ }).click();
+  assert.equal(await page.getByLabel('How did you use the card? (optional)').count(), 0);
+  assert.equal(await page.getByLabel('Wallet (optional)').count(), 0);
+  assert.equal(await page.getByLabel('Card type (optional)').count(), 0);
+  assert.equal(await page.getByLabel(/last 4/i).count(), 0);
+  assert.equal(await page.getByText(/Zelle|Venmo/i).count(), 0);
+  await page.getByLabel('Which machine did you use?').selectOption(livermoreTt33MachineId);
+
+  await page.getByText('Payment', { exact: true }).scrollIntoViewIfNeeded();
+  await page.getByText('Payment', { exact: true }).evaluate((element) => {
+    window.scrollTo(0, element.getBoundingClientRect().top + window.scrollY - 80);
+  });
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-direct-intake-cash-desktop.png'),
+    fullPage: true,
+  });
+
+  await page.getByRole('radio', { name: /^Card/ }).click();
+  assert.equal(await page.getByLabel('How did you use the card? (optional)').inputValue(), '');
+  assert.equal(await page.getByLabel('Last 4 digits shown for this payment').inputValue(), '');
+  assert.equal(await page.getByLabel('Which machine did you use?').count(), 0);
+
+  await page.getByRole('radio', { name: /^Cash/ }).click();
+  assert.equal(await page.getByLabel('Which machine did you use?').inputValue(), '');
+  await page.getByLabel('Which machine did you use?').selectOption(livermoreTt33MachineId);
+  await page.getByRole('button', { name: 'Send refund request' }).click();
+  await page.waitForURL('**/refunds/thank-you');
+  await page.getByText('RF-QR-UAT', { exact: true }).waitFor();
+
+  const submissions = functionBodies.filter((body) => !body.action);
+  assert.equal(submissions.length, 1, 'Cash direct intake must create one request');
+  const submission = submissions[0];
+  assert.equal(submission.paymentMethod, 'cash');
+  assert.equal(submission.paymentInteraction, 'cash');
+  assert.equal(submission.machineId, livermoreTt33MachineId);
+  assert.equal('selectionKey' in submission, false);
+  for (const cardOnlyField of [
+    'cardLast4',
+    'cardNetwork',
+    'cardWalletUsed',
+    'walletProvider',
+    'zellePaymentContact',
+  ]) {
+    assert.equal(cardOnlyField in submission, false, `Cash payload must omit ${cardOnlyField}`);
+  }
+  assert.deepEqual(nayaxRequests, [], 'Cash intake must make no Nayax request');
+
+  await context.close();
+};
+
+const runMobileCashQrJourney = async ({ browser, appUrl, artifactDir }) => {
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  const functionBodies = [];
+  await installPublicRefundRoutes(context, { functionBodies });
+  const page = await context.newPage();
+  const nayaxRequests = trackNayaxFunctionRequests(page);
+
+  await page.goto(`${appUrl}/refunds/request?qr=${validQrCode}`, { waitUntil: 'networkidle' });
+  await page.getByText('Machine confirmed', { exact: true }).waitFor();
+  await fillOrdinaryRefundFields(page);
+  await page.getByRole('radio', { name: /^Cash/ }).click();
+
+  assert.equal(await page.getByLabel('Machine location').count(), 0);
+  assert.equal(await page.getByLabel('How did you use the card? (optional)').count(), 0);
+  assert.equal(await page.getByText(/Zelle|Venmo/i).count(), 0);
+  const layout = await page.evaluate(() => ({
+    viewportWidth: document.documentElement.clientWidth,
+    contentWidth: document.documentElement.scrollWidth,
+  }));
+  assert.ok(
+    layout.contentWidth <= layout.viewportWidth,
+    `Mobile cash QR form overflows: ${JSON.stringify(layout)}`
+  );
+
+  const paymentSection = page.getByTestId('refund-payment-section');
+  const intakeForm = paymentSection.locator('xpath=ancestor::form');
+  const formBounds = await intakeForm.boundingBox();
+  assert.ok(
+    formBounds && formBounds.width >= 320 && formBounds.height >= 240,
+    `Mobile intake evidence is unexpectedly small: ${JSON.stringify(formBounds)}`
+  );
+  const siteHeaders = page.locator('header');
+  assert.ok((await siteHeaders.count()) > 0, 'Expected the public site header');
+  // Locator screenshots taller than the viewport are stitched. Hide sticky site chrome so the
+  // evidence crop contains the complete form without duplicating the header between segments.
+  await siteHeaders.evaluateAll((headers) => {
+    for (const header of headers) {
+      header.style.setProperty('visibility', 'hidden', 'important');
+    }
+  });
+  await intakeForm.screenshot({
+    path: path.join(artifactDir, 'refund-qr-intake-cash-mobile.png'),
+  });
+
+  await page.getByRole('button', { name: 'Send refund request' }).click();
+  await page.waitForURL('**/refunds/thank-you');
+  await page.getByText('RF-QR-UAT', { exact: true }).waitFor();
+  const submissions = functionBodies.filter((body) => !body.action);
+  assert.equal(submissions.length, 1, 'Cash QR intake must create one request');
+  const submission = submissions[0];
+  assert.equal(submission.paymentMethod, 'cash');
+  assert.equal(submission.paymentInteraction, 'cash');
+  assert.equal(submission.machineId, machineId);
+  assert.match(submission.qrClaimToken, /^refund_qr_claim_uat_token_/);
+  assert.equal('cardLast4' in submission, false);
+  assert.equal('zellePaymentContact' in submission, false);
+  assert.deepEqual(nayaxRequests, [], 'Cash QR intake must make no Nayax request');
 
   await context.close();
 };
@@ -459,7 +685,10 @@ const runUnavailableJourneys = async ({ browser, appUrl, artifactDir }) => {
   await expiredPage.getByRole('button', { name: 'Send refund request' }).click();
   await expiredPage.getByText('This QR session needs to be restarted.', { exact: true }).waitFor();
 
-  assert.equal(await expiredPage.getByLabel('Name', { exact: true }).inputValue(), 'QR UAT Customer');
+  assert.equal(
+    await expiredPage.getByLabel('Email', { exact: true }).inputValue(),
+    'qr-customer@example.test'
+  );
   assert.equal(
     await expiredPage.getByRole('button', { name: 'Start new QR session' }).isVisible(),
     true
@@ -499,6 +728,8 @@ const run = async () => {
     await runRefreshJourney({ browser, ...args });
     await runMobileWalletJourney({ browser, ...args });
     await runDirectJourney({ browser, ...args });
+    await runDirectCashTransitionJourney({ browser, ...args });
+    await runMobileCashQrJourney({ browser, ...args });
     await runUnavailableJourneys({ browser, ...args });
   } finally {
     await browser.close();

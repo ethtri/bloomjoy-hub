@@ -1,6 +1,6 @@
 # Nayax Lynx API Notes
 
-Last updated: 2026-08-20
+Last updated: 2026-09-03
 
 ## Purpose
 Bloomjoy is evaluating Nayax Lynx as the server-side source for machine inventory and machine-level sales activity.
@@ -9,15 +9,27 @@ Do not call Nayax directly from the browser. Any implementation should run throu
 
 ## Current Release Status
 
-- The first normal production request created one DTM **Refund Requested** row but returned a response pair outside Bloomjoy's guessed contract. The attempt remains held; no reporting or customer completion occurred.
-- Nayax's API log records two identical approval POSTs. Both returned outer HTTP 500 because the inner service returned HTTP 400 with `refund_approve_refund_bad_request`. Nayax support has since confirmed transaction `6841061866` appears refunded and identified missing user-level approval roles as the likely cause. No further provider request or approval is allowed; only Bloomjoy's structured local reconciliation remains.
-- The audited provider-outcome resolution migration and its three reviewed functions are deployed **default-off**. They seed no operator and do not enable an official action, a provider call, a refund, or a customer message.
-- Production execution is closed: no machine/cap or active provider caller is enabled, and the execution kill switch/dry-run controls remain in their safe state.
-- Issue `#877` replaces the guessed normal response contract with an explicit reviewed environment contract, adds keyed redacted stage journaling, and adds a default-off single-use approval-only recovery. It does not authorize broad execution or finalization without DTM/support confirmation.
+- **Selected transaction execution (`#990`, September 3):** the original Last Sales response and rejected request prove that `AuthorizationDateTimeGMT` was incorrectly substituted for the distinct `MachineAuthorizationTime`. Nayax [documents them separately](https://devzone.nayax.com/reference/lynx/machines/get-last-sales-for-machine-by-machineid). The current implementation keeps GMT for matching, binds the actual queried account/machine and original purchase to one authorized attempt, and preserves the exact machine timestamp through request and approval. Missing or conflicting source evidence cannot authorize payment. The owner removed the blanket remaining-refundable gate: rely on Nayax's original-transaction cap while preserving local authority, amount, duplicate, claim and outcome controls. No balance form or report is a first-attempt prerequisite. Release and real provider acceptance remain tracked on #990; no historical attempt is rewritten.
+
+- **Historical evidence corrected (September 3):** the Eastridge `$10.90` refund was later confirmed by Nayax and reconciled, but the original request and both approval logs report provider failures. The operation or actor that completed the refund is unproved. This case does not prove successful API execution; those failure responses also do not prove zero side effects or API unavailability. The owner's API-first operating decision remains unchanged.
+- **Direct automation is not yet proved:** a confirmed historical refund is not proof of the API operation that caused it. The owner authorizes API-first handling of legitimate approved purchases after coordinated release. Explicit `inspect_unknown` response handling permits a request without invented response rules; an unfamiliar response stops before approval or retry and requires independent outcome reconciliation. See `Docs/NAYAX_REFUND_PRODUCTION_RCA.md` for the historical evidence.
+- **Canonical executor:** active Nayax user `103260239`, login `dually-app\TGpaci266`, email `ethtri@gmail.com`, under `TGpaci LLC`. Nayax Support confirmed Last Sales, refund-request, and refund-approval capabilities for this account on 2026-08-17. Separate Bloomjoy Refund Request and Bloomjoy Refund Approval production Lynx tokens created on 2026-08-25 belong to this user.
+- **Non-executors:** invited user `570755401` (`dually-app\Ethan50862`, `etrifari@bloomjoysweets.com`) and expired user `931941189` (`dually-app\911004`, `ethtri@gmail.com`) are not production refund identities. Do not activate, promote, or move credentials to either as a routine refund fix. Email alone is not a safe identity key.
+- The earlier $8 request-plus-approval attempt was authoritatively resolved as not refunded and released without replay. The newer $8 attempt made one request only; its unfamiliar `Result`/`Status` pair caused Bloomjoy to stop before approval, and Nayax's provider-owned log later proved it was a business rejection over HTTP `200`. DTM confirmed no refund, completion, reporting adjustment, customer success message, or retry. That held attempt must never be replayed.
+- Vendor clarification of literal `Result`/`Status` pairs and the historical rejection remains open. It is not a blanket first-attempt prerequisite and is not evidence that the active user lacks roles. Change roles or tokens only if Nayax evidence identifies a scope problem.
+- **Current support routing:** case `#03594386` and routing tickets `#03624855`, `#03624856`, and `#03624867` are awaiting a substantive human response. The copy sent to `integration-support@nayax.com` bounced with a recipient-address rejection; do not describe that address as delivered, send another copy there, or wait on it as a working channel. The weekday mailbox monitor is read-only and reports only a materially new response.
+- Current request and approval payloads use Nayax's published field structure, including the same `TransactionId`, `SiteId`, and `MachineAuTime` across stages and `IsRefundedExternally: false` for an ordinary Nayax-issued refund. A wrong value, amount-unit interpretation, email-list behavior, or token-specific scope remains possible but unproved; do not record one as the cause until Nayax classifies the exact provider log.
+- The earlier request-plus-approval incident exposed a lossy observability boundary: Bloomjoy retained HTTP/outcome/digest evidence but not media type or safe body-shape metadata, so its approval HTTP `500` cannot be attributed to a specific provider body, contract mismatch, identity, or permission cause from stored evidence.
+- Journal v3 and contract schema v2 repair that boundary. The new runtime requires Bearer authorization and exact HTTP `200` + `application/json` + valid object/string fields + an account-confirmed accepted pair before the database may authorize approval. An unfamiliar `2xx` no longer advances.
+- The journal persists safe response-envelope classes and a keyed digest, not raw response bodies. The v3 runtime negotiates `nayax-production-account-contract-v2`; new context-bound attempts cannot downgrade to journal v2 or enter through retired reservation paths.
+- Normal execution requires the paired account-scoped write credentials, current manager/machine authority, the exact selected original and amount, duplicate protection and a durable journal. There is no first-proof cohort or quota. Unknown outcomes require reconciliation before another payment; an exact rejection or audited no-refund release permits the reviewed portal fallback.
+- Production availability requires the coordinated database/function/frontend release and the configured execution switches. Do not infer availability from a merged PR or a successful build. SQS/SFTP readback and the invited report-only user are optional reporting work, not dependencies for ordinary refund execution.
 
 ## Current Production Credential Status
+- Canonical production user: `103260239` / `dually-app\TGpaci266` / `ethtri@gmail.com` / `Active`
 - Production Supabase project: `ygbzkgxktzqsiygjlqyg`
-- Server-only Supabase secret name: `NAYAX_LYNX_API_TOKEN`
+- Server-only reporting/lookup secret name: `NAYAX_LYNX_API_TOKEN`
+- Normal write secret names: `NAYAX_REFUND_REQUEST_WRITE_TOKEN_<ACCOUNT_KEY>` and `NAYAX_REFUND_APPROVE_WRITE_TOKEN_<ACCOUNT_KEY>`
 - Local development may use `.env` only on the agent machine. Never commit token values.
 - Never prefix this token with `VITE_`; Vite exposes `VITE_` values to the browser.
 
@@ -27,13 +39,13 @@ The secret was added to Supabase on 2026-05-11 and verified by name/digest with:
 supabase secrets list --project-ref ygbzkgxktzqsiygjlqyg
 ```
 
-Edge Functions should read the token with:
+Read-only lookup functions may read the reporting token with:
 
 ```ts
 const nayaxToken = Deno.env.get("NAYAX_LYNX_API_TOKEN");
 ```
 
-The reporting token is read-only lookup authority only. Refund writes require the two dedicated account-scoped request/approval secret slots bound by the controlled-pilot contract; there is no reporting-token or generic-token fallback. Never use the reporting token as a write-permission probe.
+The reporting token is read-only lookup authority only. Normal refund writes require both dedicated account-scoped request/approval slots; there is no reporting-token or generic-token fallback. Never use the reporting token as a write-permission probe.
 
 ## Verified Endpoint Status
 Base path that works in production:
@@ -50,9 +62,9 @@ Live API validation on 2026-05-11:
 | --- | --- | --- |
 | `GET /machines?ResultsLimit=1000` | `200` | Returned 43 machines. |
 | `GET /machines/{MachineID}/lastSales` | `200` | Returned `200` for all 43 checked machines. Some machines have no recent sales. |
-| `GET /devices?pageSize=1` | `403` | Nayax permission gap. Latest message: `You are not allowed to view this content`. |
-| `GET /dashboard/widgets?screenTypeId=1` | `403` | Reporting widget permission gap. |
-| `GET /dashboard/widgets?screenTypeId=2` | `403` | Reporting widget permission gap. |
+| `GET /devices?pageSize=1` | `403` | Optional hardware-management permission gap; not required for refund matching or execution. |
+| `GET /dashboard/widgets?screenTypeId=1` | `403` | Optional reporting-widget gap; not a refund request/approval permission. |
+| `GET /dashboard/widgets?screenTypeId=2` | `403` | Optional reporting-widget gap; not a refund request/approval permission. |
 
 Recent device failure correlation IDs captured during support testing:
 - `M7XIgFESb0Oy5GOO`
@@ -116,8 +128,8 @@ The `devices` endpoint is only needed for hardware/payment-terminal management, 
 - device transfer or disable workflows
 - payment-reader troubleshooting separate from the machine record
 
-## Bigger Permission Gap
-The next permission to request from Nayax is probably reporting widgets, not devices.
+## Optional reporting permission gap (not a refund blocker)
+If Bloomjoy expands dashboard reporting, the next permission to request from Nayax is probably reporting widgets, not devices. This has no bearing on the canonical user's confirmed Last Sales, refund-request, or refund-approval capabilities.
 
 `lastSales` is a recent/latest transaction endpoint. It is useful for polling and storing sales, but it is not the same as a clean historical reporting API with date ranges and rollups.
 
@@ -142,26 +154,21 @@ Do not build browser-side Nayax calls, and do not expose Nayax raw responses in 
 The versioned matching weights, states, timezone rules, privacy-safe evidence, fixtures, and rollback procedure are documented in [REFUND_NAYAX_MATCHING_RUNBOOK.md](./REFUND_NAYAX_MATCHING_RUNBOOK.md).
 Refund execution is separate from read-only Last Sales lookup.
 
-The deployed foundation includes `nayax-card-refund` as a backend-only, fail-closed execution surface. One exact mapped-manager acceptance temporarily opened only the authorized machine/caps and reserved one provider attempt. The provider request created a DTM pending row, but Bloomjoy's guessed response contract classified the response as unknown and correctly stopped before approval/finalization. All runtime gates were closed afterward. P0 `#877` removes the guessed contract from source and requires an explicit reviewed environment contract before any future normal reservation or provider call.
+The deployed foundation includes `nayax-card-refund` as a backend-only, fail-closed execution surface. The P0 `#961` repair makes its journaled database transition authoritative, adds an exact provider/journal compatibility handshake, separates request and approval credentials, and activates an account circuit breaker only through the new versioned reservation path. Provider success, Bloomjoy settlement, and customer delivery retain separate durable classifications so a later failure cannot invite a duplicate refund.
 
-The historical rollout values remain defense-in-depth controls and must stay in their fail-closed state while the handler is disabled:
-- sponsor go/no-go unset;
-- `NAYAX_REFUND_EXECUTION_ENABLED=false`;
-- `NAYAX_REFUND_EXECUTION_DRY_RUN=true`;
-- `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`; and
-- `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false`.
+The old controlled-owner pilot's default-off flags, TOTP ceremony, and runner-only execution surface are historical audit evidence, not current activation or permission guidance. See `Docs/REFUND_NAYAX_CONTROLLED_OWNER_PILOT.md` only when testing that retired design.
 
-Canonical source includes a real provider adapter and a forward-only atomic daily-cap wrapper around the existing receipt-bound attempt reservation. The proposed controlled owner pilot may select that adapter only through the checked-in owner-private runner, a dedicated assertion, exact account-scoped request/approve credentials, one DB authorization, and one fresh TOTP. TOTP consumption, case approval-to-pending, official receipt, worker lease, and the sole provider reservation commit in one database transaction. The global official-action gate, broad execution gate, schedules, and portal remain off. The adapter accepts only an exact versioned account contract, approved Nayax HTTPS hosts, frozen self-owned case/payment/account evidence, and the documented request-then-approve sequence. It has no internal retry and treats duplicate, already-refunded, pending, timeout, malformed, network, and unknown outcomes as reconciliation states unless the exact configured success pair is returned. It is provider-only: Hub customer/Gmail completion remains disabled. Nayax-originated email is not inferred from Hub deltas; the written contract must either prove provider suppression or record the owner's explicit expectation/consent. See `Docs/REFUND_NAYAX_CONTROLLED_OWNER_PILOT.md` for the held initialization, dry-run, live, recovery, and credential-retirement ceremonies.
+The current normal manager path uses the real provider adapter, the journaled database transition, separate account-scoped request/approval credentials, exact case and transaction binding, caps, and one immutable generation with no provider retry. It advances from request to approval only when the request returns the exact configured accepted `Result`/`Status` pair. The active account's roles are confirmed; the present hold exists because the latest pair is not yet classified in the account contract, not because the portal action or adapter is generally unavailable.
 
 ### Default-off provider-outcome resolution
 
-The audited outcome-resolution foundation is deployed. Nayax support has now confirmed that transaction `6841061866` appears refunded and that missing user-level approval roles likely caused the earlier approval error. For this held attempt, another provider request or approval is prohibited. P0 `#427` uses a paired reviewed migration window to activate only the provider-free structured resolver, provision the exact current mapped owner-manager temporarily, require a fresh refund-specific TOTP, reconcile the support-confirmed result, and then revoke that temporary authority and restore the immutable false gate.
+The audited outcome-resolution foundation is deployed. Nayax support confirmed that transaction `6841061866` appears refunded and described missing user-level approval roles only as a possible explanation for the earlier approval error; it did not establish that as the cause. For this held attempt, another provider request or approval is prohibited. P0 `#427` used the provider-free structured resolver to reconcile the support-confirmed result without creating another provider call.
 
 ### Local orchestration proof (not a live-provider path)
 
 The current orchestration proof injects a local synthetic provider adapter. Its executable evidence covers one each of success, rejection, timeout, and unknown outcome plus replay. Only token-bound confirmed success may atomically complete the case and reporting adjustment, then create one completion in the verified original Gmail thread with the full send-time set of current active mapped managers visibly CC'd. Rejection leaves the case open; timeout and unknown outcomes require reconciliation. None of these paths sends a fallback or a duplicate manager-only completion notice.
 
-The normal product path and the historical controlled-owner pilot remain independently gated. The production account token proved that it can create the exact pending request, but Nayax recorded two identical approval POSTs that both failed and the signed-in portal role exposes no Approve/Decline action. The normal portal action remains unavailable. The separate read-only reporting token was not used for this incident; it has not been write-tested or confirmed broken, and it must never be used as a permission probe. This does not prove approval authority or final refund success. The `#877` approval-only recovery is default-off and single-use: it requires the exact latest request-stage mismatch plus DTM evidence, contains no request endpoint, and is unavailable after any approval-start marker. A successful approval response still waits for DTM/support confirmation and structured resolution before reporting or customer email.
+In the historical controlled-owner incident, the production account token created the pending request, two approval POSTs failed, and the then-signed-in portal view exposed no Approve/Decline action. That incident does not override the later provider confirmation of the active account's roles and does not diagnose today's token or response pair. The separate read-only reporting token was not used and must never be used as a write-permission probe. The `#877` approval-only runtime is now retired fail-closed: journal v3 cannot authorize a standalone approval from incomplete legacy request evidence. Its single-use database records remain for audit/rollback tests only and cannot authorize a provider call.
 
 There is intentionally no automatic or ad hoc "mark successful" shortcut for timeout, pending, duplicate, already-refunded, or unknown outcomes. An attempt stays on a durable hold until exact DTM or support evidence exists. Even then, only the structured resolver may record the outcome: exact current mapping, named operator, durable TOTP enrollment, frozen evidence/version, one-use intent, and evidence-type-specific reference validation are mandatory. The resolver makes no provider call. Its bounded `#427` production window closes only after the exact completion is settled and returns the gate/operator state to off.
 
@@ -176,13 +183,17 @@ Nayax's public Lynx documentation now confirms that a card refund is a two-step 
 1. `POST /operational/v1/payment/refund-request` creates a pending refund request.
 2. `POST /operational/v1/payment/refund-approve` approves that request; the documented decline path is `POST /operational/v1/payment/refund-decline`.
 
+The current endpoint contract requires Bearer authorization and documents HTTP `200` with `application/json` for the response. Its `Result` and `Status` fields are nullable strings, but the public reference still does not enumerate the exact account outcomes Bloomjoy must recognize. Bloomjoy therefore treats HTTP, media/body schema, and semantic matching as separate evidence; HTTP success alone is never request-to-approval authority.
+
 The request body uses `RefundAmount`, optional `RefundEmailList`, optional `RefundReason`, `TransactionId`, `SiteId`, and `MachineAuTime`. The approve request must repeat the same transaction, site, and machine-authorization-time identifiers and includes `IsRefundedExternally` plus an optional `RefundDocumentUrl`. Nayax documents `TransactionID` and `SiteID` as fields returned by Last Sales, although `SiteID` was not present in Bloomjoy's previously captured production field inventory.
 
 Nayax defines `IsRefundedExternally=true` only for a refund the customer's billing provider already handled; that path requires the provider's refund document URL. Therefore, for an ordinary refund that Nayax itself should process, Bloomjoy's expected approval value is `IsRefundedExternally=false` and no external-refund document URL. This is now the documented default, but it must still be confirmed in Bloomjoy's Nayax QA/account before a production write call is enabled.
 
 Nayax also documents a manual reconciliation path: a successfully requested refund remains `Pending` and appears in **Reports > Online Reports > Dynamic Transactions Monitor** under the `Refund Requested` status; approval or decline updates that status. This gives Bloomjoy a fail-safe manual check after a timeout or uncertain response, but the public Lynx documentation still does not identify a read-only API endpoint for programmatic refund-status reconciliation.
 
-Nayax's current Dynamic Transactions Monitor guide defines Transaction Status ID `12` as **Approved** and describes the other listed IDs as cancellation reasons; it also exposes refund requester, date, and reason fields. The current MoMa guide says only **Settled** transactions are refund-eligible and a separate user with refund-approval permission must approve. These facts strengthen a human support check, but they do not identify which Bloomjoy Last Sales/API field maps to that status, name the exact Lynx write role, establish amount units, prove blank-email suppression, or supply a safe readback API after an uncertain request. They therefore do not remove the account-specific contract blocker.
+Production review also found refunds completed in Dynamic Transactions Monitor before Bloomjoy recorded an attempt, including one case with no attempt and one with a later ambiguous attempt. Neither may enter the normal refund executor or be marked retry-safe. The never-attempted case opens one provider-free `evidence_only` synthetic hold. For a later held attempt, exact DTM success between the matched sale and attempt creation is server-classified as a pre-existing provider refund; historical support/manual evidence cannot use this exception. Both paths store only a one-way reference digest, prevent one successful reference from completing multiple cases, preserve the original attempt outcome in audit metadata, reuse the exactly-once reporting/customer-completion resolver, and never call Nayax. This is the supported operational fallback for `#971` until Nayax provides an authoritative programmatic readback contract.
+
+Nayax's current Dynamic Transactions Monitor guide defines Transaction Status ID `12` as **Approved** and describes the other listed IDs as cancellation reasons; it also exposes refund requester, date, and reason fields. The current MoMa guide says only **Settled** transactions are refund-eligible and a separate user with refund-approval permission must approve. The documented machine Last Sales response intentionally has no separate status field, and Nayax directs refund clients to obtain `TransactionID` and `SiteID` from that endpoint. Bloomjoy therefore treats membership in that explicitly bound feed as sale evidence for deterministic matching only when the other machine, amount, time, card, currency, duplicate, and already-refunded checks pass. A present blank, unknown, negative, or contradictory status remains closed. This matching rule does not prove write response values or final refund outcome. The account-level roles are confirmed; the remaining execution-contract blocker is the active account/current token's exact `Result`/`Status` meaning.
 
 Primary references:
 - [Refund flow overview](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/refunds/payments)
@@ -194,17 +205,16 @@ Primary references:
 - [Dynamic Transactions Monitor overview](https://nayax-u.nayax.com/article/dynamic-transaction-monitor-dtm-in-nayax-core-overview-10787)
 - [MoMa refund eligibility and approval](https://nayax-u.nayax.com/article/how-to-use-mo-ma-on-a-route-80366)
 
-This public documentation is enough to define the expected request shape, but not enough to enable production execution safely. It uses QA host examples and does not establish all of the following for Bloomjoy's account:
-- the exact production refund hostname/path and the dedicated account-scoped request and approval write credentials; the existing reporting token must never be used as a write-permission probe or fallback;
+Public documentation defines the expected request shape but does not close every response-contract gap. Bloomjoy account evidence separately confirms the production endpoint and separate account-scoped request/approval credentials under the canonical active user; the existing reporting token must never be used as a write-permission probe or fallback. Remaining contract questions are:
 - whether `RefundAmount` is expressed in major currency units and how rounding is handled;
 - the exact `Result` and `Status` values for accepted, rejected, already-refunded, duplicate, pending, and unknown outcomes;
 - whether either step supports a provider idempotency key, how duplicate retries behave, and whether an API status/reconciliation endpoint exists after a timeout; the documented Dynamic Transactions Monitor remains the manual fallback;
-- which production response supplies `SiteID` when Last Sales omits it, and what field/value proves that the original sale is approved and refundable;
+- any Bloomjoy-account deviation from the documented Last Sales schema, including a missing `SiteID`; feed membership is matching evidence only and does not independently prove response outcome or final refundability;
 - whether `RefundEmailList` can remain empty so Bloomjoy sends the single customer confirmation only after final confirmed success.
 
-A read-only Gmail and Drive audit on 2026-07-22 found no private technical refund contract that closes these gaps. The only internal token request located was explicitly for sales reporting, and the signed commercial agreement covers commercial/clearing terms rather than refund API semantics. Do not infer write authority from that token or agreement.
+A historical read-only Gmail and Drive audit on 2026-07-22 found no private technical refund contract that closed these gaps at that time. Nayax Support later confirmed the active account's requested roles on 2026-08-17, and separate production tokens were created on 2026-08-25. Those later facts supersede the audit for permission status, but they still do not enumerate the exact response semantics.
 
-Before reopening normal execution, obtain sanitized Nayax account-owner evidence covering the unresolved response pairs and approval permission, validate them in QA, and install the exact versioned manager contract as server configuration. The backend must treat a request/approval timeout, HTTP error, malformed response, contract mismatch, or journal failure as unresolved: keep the case open, suppress Bloomjoy's success email and settlement adjustment, and route it to reconciliation. No approval-only recovery may be used for the current incident unless Nayax confirms a fresh action is safe; two rejected approval POSTs have already been recorded for this transaction.
+Before the next provider action, obtain sanitized Nayax evidence defining the unresolved `Result`/`Status` pair for active user `103260239` and the current request token, validate that meaning in QA, and install the exact versioned manager contract as server configuration. The active account's request/approval roles are already provider-confirmed; revisit roles or rotate tokens only if Nayax identifies a token-specific scope problem. The backend must treat a request/approval timeout, HTTP error, malformed response, contract mismatch, or journal failure as unresolved: keep the case open, suppress Bloomjoy's success email and settlement adjustment, and route it to reconciliation. The retired approval-only runtime cannot be enabled for the current incident or another historical mismatch; authoritative DTM/support reconciliation is provider-free.
 
 ## Retest Commands
 Use a local-only `.env` value. Do not paste tokens into chat, issues, PRs, or docs.

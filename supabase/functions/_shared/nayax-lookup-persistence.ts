@@ -1,7 +1,37 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import type { NayaxLookupResult } from "./nayax-lookup.ts";
 
-type LookupTrigger = "automatic" | "manual";
+export type LookupTrigger = "automatic" | "manual" | "wallet_correction" | "scheduled";
+
+const textValue = (value: unknown) =>
+  typeof value === "string" ? value.trim() : "";
+
+export const beginNayaxLookup = async ({
+  supabase,
+  caseId,
+  actorUserId,
+  expectedFactVersion,
+  trigger,
+}: {
+  supabase: SupabaseClient;
+  caseId: string;
+  actorUserId: string | null;
+  expectedFactVersion: number;
+  trigger: LookupTrigger;
+}) => {
+  const { data, error } = await supabase.rpc("service_begin_refund_nayax_lookup", {
+    p_refund_case_id: caseId,
+    p_expected_fact_version: expectedFactVersion,
+    p_trigger_source: trigger,
+    p_actor_user_id: actorUserId,
+  });
+  if (error) throw error;
+  const lookupGeneration = Number(data?.lookupGeneration);
+  if (!Number.isInteger(lookupGeneration) || lookupGeneration < 1) {
+    throw new Error("Nayax lookup generation claim failed.");
+  }
+  return lookupGeneration;
+};
 
 export const persistNayaxLookupResult = async ({
   supabase,
@@ -10,89 +40,90 @@ export const persistNayaxLookupResult = async ({
   result,
   trigger,
   expectedFactVersion,
+  lookupGeneration,
 }: {
   supabase: SupabaseClient;
   caseId: string;
   actorUserId: string | null;
   result: NayaxLookupResult;
   trigger: LookupTrigger;
-  expectedFactVersion?: number;
+  expectedFactVersion: number;
+  lookupGeneration: number;
 }) => {
-  const correlationStatus = !result.configured
-    ? "nayax_not_configured"
-    : result.recommendationState === "ambiguous"
-    ? "multiple_candidates"
-    : result.recommendationState === "no_safe_match"
-    ? "no_match"
-    : "manual_review";
-
-  let update = supabase.from("refund_cases")
-    .update({
-      status: "needs_review",
-      correlation_status: correlationStatus,
-      correlation_source: "nayax",
-      correlation_confidence: 0,
-      correlation_summary: result.configured
-        ? result.summary
-        : result.message || result.summary,
-      automation_state: result.configured &&
-          result.recommendationState === "no_safe_match"
-        ? "more_info_needed"
-        : "under_review",
-      nayax_recommendation_state: result.recommendationState,
-      nayax_recommendation_policy_version: result.policyVersion,
-      nayax_recommendation_evaluated_at: result.lastCheckedAt,
-      nayax_match_execution_eligible: false,
-    })
-    .eq("id", caseId);
-  if (expectedFactVersion !== undefined) {
-    update = update.eq("deterministic_fact_version", expectedFactVersion);
+  const { data, error } = await supabase.rpc("service_commit_refund_nayax_lookup", {
+    p_refund_case_id: caseId,
+    p_lookup_generation: lookupGeneration,
+    p_expected_fact_version: expectedFactVersion,
+    p_lookup_status: result.lookupStatus,
+    p_recommendation_state: result.recommendationState,
+    p_policy_version: result.policyVersion,
+    p_last_checked_at: result.lastCheckedAt,
+    p_summary: result.configured ? result.summary : result.message || result.summary,
+    p_resolved_machine_id: textValue(result.resolvedMachineId) || null,
+    p_candidate_count: result.candidateCount,
+    p_trigger_source: trigger,
+    p_actor_user_id: actorUserId,
+  });
+  if (error) throw error;
+  if (data?.applied !== true) {
+    throw new Error("Refund case matching evidence changed during Nayax lookup.");
   }
-  const { data: updatedRows, error: updateError } = await update.select("id");
-  if (updateError) throw updateError;
-  if (expectedFactVersion !== undefined && (updatedRows?.length ?? 0) !== 1) {
-    throw new Error(
-      "Refund case matching evidence changed during Nayax lookup.",
-    );
-  }
+};
 
-  const eventType = result.configured
-    ? trigger === "automatic"
-      ? "nayax_auto_recommendation_evaluated"
-      : "nayax_recommendation_evaluated"
-    : trigger === "automatic"
-    ? "nayax_auto_lookup_setup_needed"
-    : "nayax_lookup_setup_needed";
-  const { error: eventError } = await supabase.from("refund_case_events")
-    .insert({
-      refund_case_id: caseId,
-      actor_user_id: actorUserId,
-      event_type: eventType,
-      message: result.configured
-        ? `${
-          trigger === "automatic" ? "Automatic Nayax lookup" : "Nayax"
-        } evaluated sanitized card-sale evidence for manager review.`
-        : `${
-          trigger === "automatic" ? "Automatic Nayax lookup" : "Nayax lookup"
-        } could not run because setup is incomplete.`,
-      metadata: {
-        lookup_status: result.lookupStatus,
-        recommendation_state: result.recommendationState,
-        confidence_class: result.confidenceClass,
-        reason_codes: result.reasonCodes,
-        policy_version: result.policyVersion,
-        candidate_count: result.candidates.length,
-        recommended_rank: result.recommendationState === "high_confidence"
-          ? 1
-          : null,
-        one_click_base_eligible: result.oneClickEligible,
-        window_hours: result.windowHours,
-        provider_record_count: result.providerRecordCount ?? null,
-        provider_window_record_count: result.providerWindowRecordCount ?? null,
-        qr_claim_evidence_status: result.qrClaimEvidenceStatus,
-        deterministic_fact_version: expectedFactVersion ?? null,
-        payload_redacted: true,
-      },
-    });
-  if (eventError) throw eventError;
+export const classifyNayaxLookupFailure = (error: unknown) => {
+  const name = error instanceof Error ? error.name : typeof error;
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  if (name === "NayaxLookupTimeoutError" || name === "TimeoutError") {
+    return { failureClass: "timeout", safeRetryEligible: true } as const;
+  }
+  if (name === "NayaxLookupResponseLimitError") {
+    return { failureClass: "response_limit", safeRetryEligible: false } as const;
+  }
+  if (name === "NayaxLookupMalformedResponseError") {
+    return { failureClass: "malformed_response", safeRetryEligible: true } as const;
+  }
+  if (name === "NayaxLookupEvidenceChangedError" || message.includes("evidence changed")) {
+    return { failureClass: "evidence_changed", safeRetryEligible: false } as const;
+  }
+  if (name === "NayaxLookupRequestError") {
+    const status = typeof (error as { status?: unknown })?.status === "number"
+      ? (error as { status: number }).status
+      : null;
+    return {
+      failureClass: "provider_error",
+      safeRetryEligible: status === null || status >= 500,
+    } as const;
+  }
+  return { failureClass: "transport_error", safeRetryEligible: true } as const;
+};
+
+export const failNayaxLookup = async ({
+  supabase,
+  caseId,
+  actorUserId,
+  expectedFactVersion,
+  lookupGeneration,
+  trigger,
+  error: lookupError,
+}: {
+  supabase: SupabaseClient;
+  caseId: string;
+  actorUserId: string | null;
+  expectedFactVersion: number;
+  lookupGeneration: number;
+  trigger: LookupTrigger;
+  error: unknown;
+}) => {
+  const classification = classifyNayaxLookupFailure(lookupError);
+  const { data, error } = await supabase.rpc("service_fail_refund_nayax_lookup", {
+    p_refund_case_id: caseId,
+    p_lookup_generation: lookupGeneration,
+    p_expected_fact_version: expectedFactVersion,
+    p_failure_class: classification.failureClass,
+    p_safe_retry_eligible: classification.safeRetryEligible,
+    p_trigger_source: trigger,
+    p_actor_user_id: actorUserId,
+  });
+  if (error) throw error;
+  return { ...classification, applied: data?.applied === true };
 };

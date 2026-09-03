@@ -7,11 +7,12 @@ import { buildNayaxCandidateContext } from "./nayax-machine-context.mjs";
 // API expose advisory words (strong evidence, compare candidates, manual review)
 // instead of presenting these points as a percentage.
 export const NAYAX_RECOMMENDATION_POLICY = Object.freeze({
-  version: "2026-08-11.v3",
+  version: "2026-09-03.v7",
   candidateLimit: 10,
   lookupWindowHours: 6,
   highConfidenceMinimumPoints: 80,
   maximumOneClickTimeDeltaMinutes: 60,
+  maximumStrongCardAmountDeltaCents: 300,
   maximumUniqueQrLagMinutes: 30,
   maximumUniqueQrIncidentDeltaMinutes: 180,
   weights: Object.freeze({
@@ -23,6 +24,8 @@ export const NAYAX_RECOMMENDATION_POLICY = Object.freeze({
     timeWithin3Hours: 8,
     timeWithinLookupWindow: 2,
     exactCardLast4: 20,
+    exactCardNetwork: 4,
+    physicalCardNetworkMismatch: -8,
     usdCurrency: 5,
     approvedProviderStatus: 5,
   }),
@@ -33,23 +36,30 @@ const sanitizeText = (value, maxLength = 300) =>
     ? String(value).trim().slice(0, maxLength)
     : "";
 
-const normalizeCardBrand = (value) => {
+export const normalizeCardNetwork = (value) => {
   const normalized = sanitizeText(value, 80)
     .toLowerCase()
     .replace(/[^a-z0-9 ]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  if (!normalized) return "";
-  if (normalized.includes("visa")) return "Visa";
+  if (!normalized) return null;
+  if (normalized.includes("visa")) return "visa";
   if (normalized.includes("mastercard") || normalized.includes("master card") || normalized === "mc") {
-    return "Mastercard";
+    return "mastercard";
   }
-  if (normalized.includes("american express") || normalized.includes("amex")) return "American Express";
-  if (normalized.includes("discover")) return "Discover";
-  if (normalized.includes("debit")) return "Debit card";
-  if (normalized.includes("credit")) return "Credit card";
-  return "Card";
+  if (normalized.includes("american express") || normalized.includes("amex")) return "american_express";
+  if (normalized.includes("discover")) return "discover";
+  if (["other", "unknown", "not sure", "other unknown"].includes(normalized)) return "other_unknown";
+  return null;
 };
+
+const cardNetworkLabel = (network) => ({
+  visa: "Visa",
+  mastercard: "Mastercard",
+  discover: "Discover",
+  american_express: "American Express",
+  other_unknown: "Other / Not sure",
+})[network] ?? "Card";
 
 const normalizeRecognitionMethod = (value) => {
   const normalized = sanitizeText(value, 80)
@@ -65,11 +75,20 @@ const normalizeRecognitionMethod = (value) => {
   return "present";
 };
 
-const normalizePaymentStatus = (record) => {
-  const normalized = sanitizeText(
-    record.PaymentStatus ?? record.TransactionStatus ?? record.Status ?? record.status,
-    80,
-  )
+const LAST_SALES_PROVIDER_CONTRACT = "nayax_machine_last_sales_v1";
+const PAYMENT_STATUS_FIELDS = [
+  "PaymentStatus",
+  "paymentStatus",
+  "payment_status",
+  "TransactionStatus",
+  "transactionStatus",
+  "transaction_status",
+  "Status",
+  "status",
+];
+
+const normalizePaymentStatusValue = (value) => {
+  const normalized = sanitizeText(value, 80)
     .toLowerCase()
     .replace(/[^a-z0-9 ]/g, " ")
     .replace(/\s+/g, " ")
@@ -100,6 +119,31 @@ const normalizePaymentStatus = (record) => {
   return "recorded";
 };
 
+const normalizePaymentStatus = (record, providerContract) => {
+  const explicitStatuses = PAYMENT_STATUS_FIELDS
+    .filter((field) => Object.prototype.hasOwnProperty.call(record, field))
+    .map((field) => normalizePaymentStatusValue(record[field]));
+  if (explicitStatuses.length === 0) {
+    // Nayax's documented machine Last Sales response intentionally has no
+    // separate status field. The refund API tells integrators to obtain the
+    // refundable TransactionId/SiteId from this endpoint. Treat omission as
+    // sale evidence only when the caller explicitly binds this trusted
+    // contract. Every unverified payload remains closed.
+    return providerContract === LAST_SALES_PROVIDER_CONTRACT
+      ? { status: "approved", evidence: "last_sales_contract" }
+      : { status: "recorded", evidence: "unconfirmed" };
+  }
+  // Evaluate every supported alias. A negative value wins over positive
+  // evidence, while any blank/unknown value or contradiction stays closed.
+  if (explicitStatuses.includes("not approved")) {
+    return { status: "not approved", evidence: "explicit" };
+  }
+  if (explicitStatuses.some((status) => status !== "approved")) {
+    return { status: "recorded", evidence: "unconfirmed" };
+  }
+  return { status: "approved", evidence: "explicit" };
+};
+
 const normalizeProviderRefundState = (record) => {
   if (record.IsRefunded === true || record.isRefunded === true || record.Refunded === true) return "already_refunded";
   const normalized = sanitizeText(
@@ -127,33 +171,46 @@ const parseDateValue = (value) => {
   return null;
 };
 
-const parseProviderAuthorizationDate = (record, locationTimezone) => {
-  const gmtValue = sanitizeText(record.AuthorizationDateTimeGMT ?? record.AuthorizationDateTimeGmt, 120);
-  if (gmtValue) {
-    const date = parseDateValue(gmtValue);
-    return date ? { date, resolution: "exact" } : null;
-  }
-
-  const machineValue = sanitizeText(record.MachineAuthorizationTime, 120);
-  if (!machineValue) return null;
-  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(machineValue)) {
-    const date = parseDateValue(machineValue);
-    return date ? { date, resolution: "exact" } : null;
-  }
-
-  const localMatch = machineValue.match(
-    /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2})?)(?:\.\d+)?$/,
+const parseProviderMachineAuthorizationDate = (record, locationTimezone) => {
+  // Retain only a bounded date-time, verbatim. The provider's machine clock is
+  // distinct from AuthorizationDateTimeGMT and is not reconstructed from it.
+  const raw = record.MachineAuthorizationTime;
+  if (typeof raw !== "string" || raw.length > 80) return null;
+  const localMatch = raw.match(
+    /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})?$/i,
   );
-  if (!localMatch || !locationTimezone) return null;
+  if (!localMatch) return null;
+  const calendar = resolveLocalDateTimeInZone({
+    localDate: localMatch[1], localTime: localMatch[2], timeZone: "UTC",
+  });
+  if (calendar.resolution !== "exact") return null;
+  if (localMatch[4]) {
+    const date = new Date(raw.replace(" ", "T"));
+    return Number.isFinite(date.getTime()) ? { date, resolution: "exact", raw } : null;
+  }
+  if (!locationTimezone) return null;
   const resolved = resolveLocalDateTimeInZone({
     localDate: localMatch[1],
     localTime: localMatch[2],
     timeZone: locationTimezone,
   });
-  const date = resolved.instant ? new Date(resolved.instant) : null;
+  if (!["exact", "ambiguous"].includes(resolved.resolution)) return null;
+  // Date stores milliseconds only. Keep all original fractional digits in raw;
+  // this derived instant is for comparison/display, not payment serialization.
+  const milliseconds = Number((localMatch[3] ?? "").padEnd(3, "0").slice(0, 3));
+  const date = resolved.instant ? new Date(Date.parse(resolved.instant) + milliseconds) : null;
   return date && !Number.isNaN(date.getTime())
-    ? { date, resolution: resolved.resolution }
+    ? { date, resolution: resolved.resolution, raw }
     : null;
+};
+
+const parseProviderAuthorizationDate = (record, machineTime) => {
+  const gmtValue = sanitizeText(record.AuthorizationDateTimeGMT ?? record.AuthorizationDateTimeGmt, 120);
+  if (gmtValue) {
+    const date = parseDateValue(gmtValue);
+    return date ? { date, resolution: "exact" } : null;
+  }
+  return machineTime;
 };
 
 const moneyToCents = (value) => {
@@ -176,6 +233,7 @@ const extractLast4 = (value) => {
 };
 
 const asNonNegativeCents = (value) => {
+  if (value === null || value === undefined || value === "" || typeof value === "boolean") return null;
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric >= 0 ? Math.round(numeric) : null;
 };
@@ -242,15 +300,20 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     addReason(reasonCodes, "incident_time_exact");
   }
 
-  if (["within_1_hour", "rough"].includes(request.incidentTimeConfidence)) {
+  if (request.incidentTimeConfidence === "rough") {
     addReason(manualReviewReasons, `customer_time_${request.incidentTimeConfidence}`);
     addReason(reasonCodes, `customer_time_${request.incidentTimeConfidence}`);
     matchFactors.push(factor(
       "customer_time_confidence",
       "manual",
-      request.incidentTimeConfidence === "rough"
-        ? "Customer said the purchase time is only a rough estimate"
-        : "Customer said the purchase time may be off by about an hour",
+      "Customer said the purchase time is only a rough estimate",
+    ));
+  } else if (request.incidentTimeConfidence === "within_1_hour") {
+    addReason(reasonCodes, "customer_time_within_1_hour");
+    matchFactors.push(factor(
+      "customer_time_confidence",
+      "partial",
+      "Customer estimated the purchase time within about an hour",
     ));
   } else if (request.incidentTimeConfidence === "within_15_minutes") {
     addReason(reasonCodes, "customer_time_within_15_minutes");
@@ -269,6 +332,12 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     matchFactors.push(factor("provider_time", "manual", "Nayax transaction time needs manual time-zone review"));
   } else {
     addReason(reasonCodes, "provider_time_exact");
+  }
+
+  if (candidate.machineTimeResolution !== "exact") {
+    addReason(manualReviewReasons, "machine_authorization_time_unverified");
+    addReason(reasonCodes, "machine_authorization_time_unverified");
+    matchFactors.push(factor("machine_time", "manual", "Nayax machine time needs time-zone review"));
   }
 
   if (!request.expectedMachineId) {
@@ -297,11 +366,10 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     rankingPoints += weights.exactAmount;
     addReason(reasonCodes, "amount_exact");
     matchFactors.push(factor("amount", "match", "Transaction amount matches exactly"));
-  } else if (amountDeltaCents !== null && amountDeltaCents <= 50) {
+  } else if (amountDeltaCents !== null && amountDeltaCents <= policy.maximumStrongCardAmountDeltaCents) {
     rankingPoints += weights.nearAmount;
-    addReason(manualReviewReasons, "amount_uncertain");
-    addReason(reasonCodes, "amount_uncertain");
-    matchFactors.push(factor("amount", "partial", `Transaction amount differs by ${amountDeltaCents} cents`));
+    addReason(reasonCodes, "amount_within_tolerance");
+    matchFactors.push(factor("amount", "partial", `Transaction amount differs by $${(amountDeltaCents / 100).toFixed(2)}; this may reflect tax or rounding`));
   } else if (amountDeltaCents !== null) {
     addReason(manualReviewReasons, "amount_mismatch");
     addReason(reasonCodes, "amount_mismatch");
@@ -400,6 +468,35 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     matchFactors.push(factor("card", "mismatch", "Card last four does not match"));
   }
 
+  if (!request.cardNetwork || request.cardNetwork === "other_unknown") {
+    addReason(reasonCodes, "customer_card_network_unknown");
+    matchFactors.push(factor("card_network", "missing", "Customer card type is unknown"));
+  } else if (!candidate.cardNetwork) {
+    addReason(reasonCodes, "provider_card_network_unknown");
+    matchFactors.push(factor("card_network", "missing", "Nayax did not return a recognized card type"));
+  } else if (request.cardNetwork === candidate.cardNetwork) {
+    rankingPoints += weights.exactCardNetwork;
+    addReason(reasonCodes, "card_network_match");
+    matchFactors.push(factor("card_network", "match", "Card type matches"));
+  } else if (request.cardWalletUsed || candidate.recognitionMethod === "wallet") {
+    addReason(reasonCodes, "wallet_card_network_mismatch");
+    matchFactors.push(factor(
+      "card_network",
+      "manual",
+      "Card type differs; wallet card details are supporting evidence only",
+    ));
+  } else {
+    rankingPoints += weights.physicalCardNetworkMismatch;
+    hardExclusions.push("card_network_mismatch");
+    addReason(manualReviewReasons, "physical_card_network_mismatch");
+    addReason(reasonCodes, "physical_card_network_mismatch");
+    matchFactors.push(factor(
+      "card_network",
+      "mismatch",
+      "Physical card type does not match the Nayax record",
+    ));
+  }
+
   if (request.cardWalletUsed || candidate.recognitionMethod === "wallet") {
     addReason(manualReviewReasons, "wallet_payment");
     addReason(reasonCodes, "wallet_payment");
@@ -422,8 +519,17 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
 
   if (candidate.paymentStatus === "approved") {
     rankingPoints += weights.approvedProviderStatus;
-    addReason(reasonCodes, "provider_sale_approved");
-    matchFactors.push(factor("provider_status", "match", "Nayax marks the sale approved"));
+    if (candidate.paymentStatusEvidence === "last_sales_contract") {
+      addReason(reasonCodes, "provider_last_sales_record");
+      matchFactors.push(factor(
+        "provider_status",
+        "match",
+        "Nayax returned this transaction from the machine's Last Sales feed",
+      ));
+    } else {
+      addReason(reasonCodes, "provider_sale_approved");
+      matchFactors.push(factor("provider_status", "match", "Nayax marks the sale approved"));
+    }
   } else if (candidate.paymentStatus === "not approved") {
     hardExclusions.push("payment_not_approved");
     addReason(reasonCodes, "payment_not_approved");
@@ -452,27 +558,34 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
 
   const selectionAllowed = hardExclusions.length === 0;
   const providerEvidenceComplete =
+    candidate.amountCents > 0 &&
     candidate.siteId !== null &&
     candidate.providerTimeResolution === "exact" &&
+    candidate.machineTimeResolution === "exact" &&
+    Boolean(candidate.machineAuthorizationTimeRaw) &&
     candidate.currencyCode === "USD" &&
     candidate.paymentStatus === "approved" &&
     !candidate.duplicateProviderRecord;
-  const commonExactEvidence =
+  const commonProviderEvidence =
     selectionAllowed &&
-    amountDeltaCents === 0 &&
     candidate.providerMachineId === request.expectedMachineId &&
     request.incidentTimeResolution === "exact" &&
-    !["within_1_hour", "rough"].includes(request.incidentTimeConfidence) &&
+    request.incidentTimeConfidence !== "rough" &&
     providerEvidenceComplete;
   const strongCardEligible =
-    commonExactEvidence &&
+    commonProviderEvidence &&
+    request.amountCents > 0 &&
+    amountDeltaCents !== null &&
+    amountDeltaCents <= policy.maximumStrongCardAmountDeltaCents &&
     Boolean(request.cardLast4) &&
     Boolean(candidate.cardLast4) &&
     request.cardLast4 === candidate.cardLast4 &&
     candidate.timeDeltaMinutes <= policy.maximumOneClickTimeDeltaMinutes &&
     rankingPoints >= policy.highConfidenceMinimumPoints;
   const uniqueQrTimeEligible =
-    commonExactEvidence &&
+    commonProviderEvidence &&
+    amountDeltaCents === 0 &&
+    request.incidentTimeConfidence !== "within_1_hour" &&
     request.qrClaimEvidenceStatus === "verified" &&
     candidate.qrTimeDeltaMinutes !== null &&
     candidate.qrTimeDeltaMinutes >= 0 &&
@@ -518,6 +631,7 @@ export const extractNayaxRecords = (payload) => {
  *   locationTimezone: string,
  *   requestAmountCents: number | null,
  *   requestCardLast4: string,
+ *   requestCardNetwork?: string | null,
  *   cardWalletUsed: boolean,
  *   incidentTimeConfidence?: string,
  *   incidentTimeResolution?: string,
@@ -525,6 +639,7 @@ export const extractNayaxRecords = (payload) => {
  *   qrClaimOpenedAt?: string | null,
  *   qrClaimEvidenceStatus?: "verified" | "missing" | "invalid" | "replayed",
  *   transactionStates?: Map<string, string> | Record<string, string>,
+ *   providerContract?: "nayax_machine_last_sales_v1" | "unverified",
  *   windowHours?: number,
  *   policy?: typeof NAYAX_RECOMMENDATION_POLICY,
  * }} input
@@ -536,6 +651,7 @@ export const buildNayaxRecommendation = ({
   locationTimezone,
   requestAmountCents,
   requestCardLast4,
+  requestCardNetwork = null,
   cardWalletUsed,
   incidentTimeConfidence = "legacy_exact",
   incidentTimeResolution = "exact",
@@ -543,6 +659,7 @@ export const buildNayaxRecommendation = ({
   qrClaimOpenedAt = null,
   qrClaimEvidenceStatus,
   transactionStates = {},
+  providerContract = "unverified",
   windowHours = NAYAX_RECOMMENDATION_POLICY.lookupWindowHours,
   policy = NAYAX_RECOMMENDATION_POLICY,
 }) => {
@@ -559,6 +676,7 @@ export const buildNayaxRecommendation = ({
     expectedMachineId: sanitizeText(expectedMachineId, 120),
     amountCents: asNonNegativeCents(requestAmountCents),
     cardLast4: extractLast4(requestCardLast4),
+    cardNetwork: normalizeCardNetwork(requestCardNetwork),
     cardWalletUsed: Boolean(cardWalletUsed),
     incidentTimeConfidence: sanitizeText(incidentTimeConfidence, 40) || "legacy_exact",
     incidentTimeResolution: sanitizeText(incidentTimeResolution, 40) || "legacy_absolute",
@@ -570,6 +688,7 @@ export const buildNayaxRecommendation = ({
   const windowStartMs = incidentDate.getTime() - windowMs;
   const windowEndMs = incidentDate.getTime() + windowMs;
   const normalizedByTransaction = new Map();
+  const seenTransactionIds = new Set();
   let parseableRecordCount = 0;
   let windowRecordCount = 0;
 
@@ -579,13 +698,16 @@ export const buildNayaxRecommendation = ({
       record.TransactionID ?? record.TransactionId ?? record.transactionId ?? record.transaction_id,
       80,
     );
-    const providerTime = parseProviderAuthorizationDate(record, sanitizeText(locationTimezone, 80));
+    const machineTime = parseProviderMachineAuthorizationDate(record, sanitizeText(locationTimezone, 80));
+    const providerTime = parseProviderAuthorizationDate(record, machineTime);
     const authorizationDate = providerTime?.date ?? null;
     if (!transactionId || !authorizationDate || !providerTime) continue;
     parseableRecordCount += 1;
     if (authorizationDate.getTime() < windowStartMs || authorizationDate.getTime() > windowEndMs) continue;
     windowRecordCount += 1;
 
+    const duplicateProviderRecord = seenTransactionIds.has(transactionId);
+    seenTransactionIds.add(transactionId);
     if (normalizedByTransaction.has(transactionId)) {
       // A duplicated provider ID is an anomaly even when the visible fields
       // appear identical. Keep one candidate for manager review, but never let
@@ -593,13 +715,18 @@ export const buildNayaxRecommendation = ({
       normalizedByTransaction.get(transactionId).duplicateProviderRecord = true;
       continue;
     }
-    const machineAuthorizationDate = authorizationDate;
+    // Count duplicate IDs before omitting unresolvable machine evidence, so a
+    // malformed copy cannot turn an ambiguous provider result into a safe match.
+    if (!machineTime) continue;
+    const paymentStatus = normalizePaymentStatus(record, providerContract);
     normalizedByTransaction.set(transactionId, {
       transactionId,
       siteId: integerValue(record.SiteID ?? record.SiteId ?? record.siteId),
       providerMachineId: sanitizeText(record.MachineID ?? record.MachineId ?? record.machineId, 120),
       authorizedAt: authorizationDate.toISOString(),
-      machineAuthorizationTime: machineAuthorizationDate.toISOString(),
+      machineAuthorizationTime: machineTime.date.toISOString(),
+      machineAuthorizationTimeRaw: machineTime.raw,
+      machineTimeResolution: machineTime.resolution,
       providerTimeResolution: providerTime.resolution,
       // Round outward so a transaction even one second beyond a safety boundary
       // cannot be admitted by display-oriented minute rounding.
@@ -615,11 +742,19 @@ export const buildNayaxRecommendation = ({
       amountCents: moneyToCents(record.AuthorizationValue ?? record.SettlementValue),
       currencyCode: sanitizeText(record.CurrencyCode ?? record.currencyCode, 3).toUpperCase(),
       cardLast4: extractLast4(record.CardNumber ?? record.cardNumber),
-      cardBrand: normalizeCardBrand(record.CardBrand ?? record.cardBrand),
+      cardNetwork: normalizeCardNetwork(
+        record.CardBrand ?? record.cardBrand ?? record.CardType ?? record.cardType ??
+          record.CardNetwork ?? record.cardNetwork,
+      ),
+      cardBrand: cardNetworkLabel(normalizeCardNetwork(
+        record.CardBrand ?? record.cardBrand ?? record.CardType ?? record.cardType ??
+          record.CardNetwork ?? record.cardNetwork,
+      )),
       recognitionMethod: normalizeRecognitionMethod(record.RecognitionMethod ?? record.recognitionMethod),
-      paymentStatus: normalizePaymentStatus(record),
+      paymentStatus: paymentStatus.status,
+      paymentStatusEvidence: paymentStatus.evidence,
       providerRefundState: normalizeProviderRefundState(record),
-      duplicateProviderRecord: false,
+      duplicateProviderRecord,
       ...buildNayaxCandidateContext({
         record,
         machineContext,
@@ -643,7 +778,6 @@ export const buildNayaxRecommendation = ({
       left.timeDeltaMinutes - right.timeDeltaMinutes ||
       left.authorizedAt.localeCompare(right.authorizedAt) ||
       left.transactionId.localeCompare(right.transactionId))
-    .slice(0, policy.candidateLimit)
     .map((candidate, index) => ({ ...candidate, recommendationRank: index + 1, isTopRanked: index === 0 }));
 
   const topOverall = candidates[0] ?? null;
@@ -703,7 +837,13 @@ export const buildNayaxRecommendation = ({
       confidenceClass: isRecommended ? confidenceClass : "ambiguous_manual",
       matchStrength,
     };
-  });
+  })
+    // Determine uniqueness across every in-window sale before limiting display.
+    // Keep a uniquely recommended sale visible even when blocked rows score higher.
+    .sort((left, right) => Number(right.isRecommended) - Number(left.isRecommended) ||
+      Number(right.matchStrength === "compare") - Number(left.matchStrength === "compare") ||
+      left.recommendationRank - right.recommendationRank)
+    .slice(0, policy.candidateLimit);
 
   const copy = {
     high_confidence: confidenceClass === "unique_qr_time"
@@ -712,7 +852,7 @@ export const buildNayaxRecommendation = ({
           recommendedAction: "Verify the sale in Nayax and use the manual portal path. QR/time evidence does not enable one-click refund.",
         }
       : {
-          summary: "Nayax found exactly one sale with matching card, machine, amount, and reported time.",
+          summary: `Nayax found one sale with matching card digits on this machine, within ${policy.maximumOneClickTimeDeltaMinutes} minutes and $${(policy.maximumStrongCardAmountDeltaCents / 100).toFixed(2)} of the reported purchase.`,
           recommendedAction: request.cardWalletUsed
             ? "Verify the wallet sale in Nayax and use the manual portal path. One-click refund stays unavailable."
             : "Confirm the recommended sale. Only then may the separately guarded refund action become eligible.",
@@ -735,6 +875,8 @@ export const buildNayaxRecommendation = ({
 
   return {
     policyVersion: policy.version,
+    // Private lookup input for checking every original, independent of UI limits.
+    consideredTransactionIds: [...normalizedByTransaction.keys()],
     recommendationState,
     confidenceClass,
     reasonCodes: resultReasonCodes,
@@ -753,6 +895,7 @@ export const buildNayaxRecommendation = ({
 
 export const toPublicNayaxCandidate = (candidate, candidateToken) => ({
   candidateToken,
+  machineDisplayLabel: candidate.machineDisplayLabel ?? null,
   authorizedAt: candidate.authorizedAt,
   machineAuthorizationTime: candidate.machineAuthorizationTime,
   amountCents: candidate.amountCents,
@@ -762,6 +905,7 @@ export const toPublicNayaxCandidate = (candidate, candidateToken) => ({
   currencyCode: candidate.currencyCode,
   cardLast4: candidate.cardLast4,
   cardBrand: candidate.cardBrand,
+  cardNetwork: candidate.cardNetwork,
   recognitionMethod: candidate.recognitionMethod,
   paymentStatus: candidate.paymentStatus,
   productLabel: candidate.productLabel,

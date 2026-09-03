@@ -90,6 +90,60 @@ if (exists(".agents/skills/bloomjoy-agent-workflow/SKILL.md")) {
   assert(/npm run agent:context/.test(skill), "Bloomjoy workflow skill should point agents to the context command.");
 }
 
+if (exists("scripts/agent-context.mjs")) {
+  const agentContext = read("scripts/agent-context.mjs");
+  assert(
+    agentContext.includes('"Docs/CURRENT_STATUS.md"'),
+    "Agent context must always route agents through Docs/CURRENT_STATUS.md.",
+  );
+  assert(
+    /if \(isMatch\(haystack, \/refund\|nayax\/\)\) \{[\s\S]*?Docs\/NAYAX_LYNX_API\.md/.test(agentContext),
+    "Refund or Nayax context must route agents through Docs/NAYAX_LYNX_API.md.",
+  );
+  assert(
+    /if \(isMatch\(haystack, \/refund\|nayax\/\)\) \{[\s\S]*?Docs\/NAYAX_REFUND_PRODUCTION_RCA\.md/.test(agentContext),
+    "Refund or Nayax context must route agents through Docs/NAYAX_REFUND_PRODUCTION_RCA.md.",
+  );
+}
+
+if (exists("Docs/NAYAX_REFUND_PRODUCTION_RCA.md")) {
+  const nayaxRefundRca = read("Docs/NAYAX_REFUND_PRODUCTION_RCA.md");
+  assert(
+    /refund is confirmed; its attribution to Bloomjoy's API calls is unproved/i.test(nayaxRefundRca) &&
+      /provider-reported failures/i.test(nayaxRefundRca) &&
+      /do not establish that the calls had no side effects/i.test(nayaxRefundRca),
+    "Nayax refund RCA must preserve the confirmed refund, unproved API attribution, and uncertainty about failure side effects.",
+  );
+  assert(
+    /direct, fully automatic request -> approval -> finalization/i.test(nayaxRefundRca),
+    "Nayax refund RCA must distinguish a confirmed refund from direct end-to-end automation proof.",
+  );
+  assert(
+    /business rejection[^\n]*HTTP `200`/i.test(nayaxRefundRca),
+    "Nayax refund RCA must preserve that HTTP 200 is not business-success proof.",
+  );
+  assert(
+    /Provider-free reconciliation of both later `\$8` attempts is complete/i.test(nayaxRefundRca),
+    "Nayax refund RCA must not leave reconciled provider attempts described as pending.",
+  );
+  assert(
+    /no refund request or approval is currently in flight/i.test(nayaxRefundRca),
+    "Nayax refund RCA must preserve that no provider write is currently in flight.",
+  );
+  assert(
+    /integration-support@nayax\.com` bounced with a recipient-address rejection/i.test(nayaxRefundRca),
+    "Nayax refund RCA must preserve that the direct integration-support route bounced.",
+  );
+  assert(
+    /#03594386[\s\S]*#03624855[\s\S]*#03624856[\s\S]*#03624867/.test(nayaxRefundRca),
+    "Nayax refund RCA must retain the confirmed support and routing ticket chain.",
+  );
+  assert(
+    !/current attempt requires provider-free DTM\/support reconciliation/i.test(nayaxRefundRca),
+    "Nayax refund RCA must not restore the stale unresolved-attempt framing.",
+  );
+}
+
 if (exists("package.json")) {
   const pkg = JSON.parse(read("package.json"));
   assert(pkg.scripts?.["agent:preflight"], "package.json must include agent:preflight.");

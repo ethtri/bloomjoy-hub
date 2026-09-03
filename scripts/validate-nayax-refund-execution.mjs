@@ -17,6 +17,8 @@ const files = {
   providerOrchestrationMigration: 'supabase/migrations/202608040004_refund_nayax_provider_orchestration.sql',
   providerCapsMigration: 'supabase/migrations/202608110020_refund_nayax_provider_caps.sql',
   pendingApprovalRecoveryMigration: 'supabase/migrations/20260820041101_refund_nayax_pending_approval_recovery.sql',
+  dailyReadinessUsageMigration: 'supabase/migrations/20260824224813_refund_nayax_daily_readiness_usage.sql',
+  productionSimplificationMigration: 'supabase/migrations/20260830202234_refund_production_simplification.sql',
   providerOrchestration: 'supabase/functions/_shared/nayax-refund-orchestration.ts',
   providerGates: 'supabase/functions/_shared/nayax-refund-gates.ts',
   providerGatesTest: 'supabase/functions/_shared/nayax-refund-gates.test.ts',
@@ -26,6 +28,7 @@ const files = {
   providerEvidenceProducer: 'supabase/functions/_shared/nayax-refund-orchestration-evidence.ts',
   providerOrchestrationDatabaseTest: 'supabase/tests/refund_nayax_provider_orchestration.sql',
   officialActionHelper: 'supabase/functions/_shared/refund-official-action.ts',
+  refundReadiness: 'supabase/functions/_shared/refund-readiness.ts',
   function: 'supabase/functions/nayax-card-refund/index.ts',
   config: 'supabase/config.toml',
   envExample: '.env.example',
@@ -34,11 +37,16 @@ const files = {
   nayaxLookupShared: 'supabase/functions/_shared/nayax-lookup.ts',
   refundAdminUpdate: 'supabase/functions/refund-case-admin-update/index.ts',
   refundCaseMessageSend: 'supabase/functions/refund-case-message-send/index.ts',
+  refundManualMessageOutbox: 'supabase/functions/_shared/refund-manual-message-outbox.ts',
+  refundManualMessageOutboxMigration: 'supabase/migrations/20260902002716_refund_manual_message_outbox.sql',
+  refundEmailShared: 'supabase/functions/_shared/refund-email.ts',
   refundOperationsLib: 'src/lib/refundOperations.ts',
   refundOperationsUi: 'src/pages/admin/Refunds.tsx',
   refundPortalUat: 'scripts/refunds/validate-refund-portal-uat.mjs',
   nayaxCandidateTokenMigration: 'supabase/migrations/202605130001_refund_nayax_lookup_candidate_tokens.sql',
   nayaxRecommendationMigration: 'supabase/migrations/202607210003_refund_nayax_recommendation_state.sql',
+  selectedNayaxEvidenceMigration: 'supabase/migrations/20260901050000_refund_selected_nayax_transaction_evidence.sql',
+  manualPortalTest: 'supabase/tests/refund_nc_manual_nayax_portal.sql',
 };
 
 const read = (relativePath) =>
@@ -59,6 +67,9 @@ const officialActionMigration = read(files.officialActionMigration);
 const providerOrchestrationMigration = read(files.providerOrchestrationMigration);
 const providerCapsMigration = read(files.providerCapsMigration);
 const pendingApprovalRecoveryMigration = read(files.pendingApprovalRecoveryMigration);
+const dailyReadinessUsageMigration = read(files.dailyReadinessUsageMigration);
+const productionSimplificationMigration = read(files.productionSimplificationMigration);
+const executionContextMigration = read('supabase/migrations/20260903134847_refund_selected_nayax_execution_context.sql');
 const providerOrchestration = read(files.providerOrchestration);
 const providerGates = read(files.providerGates);
 const providerGatesTest = read(files.providerGatesTest);
@@ -68,14 +79,15 @@ const providerOrchestrationTest = read(files.providerOrchestrationTest);
 const providerEvidenceProducer = read(files.providerEvidenceProducer);
 const providerOrchestrationDatabaseTest = read(files.providerOrchestrationDatabaseTest);
 const officialActionHelper = read(files.officialActionHelper);
+const refundReadiness = read(files.refundReadiness);
 const fn = read(files.function);
 const normalPreflight = fn.slice(
   fn.indexOf('const getPreflightBlocks'),
   fn.indexOf('const getDuplicateTransactionBlocks'),
 );
 const availabilityBranch = fn.slice(
-  fn.indexOf('if (operation === "availability")'),
-  fn.indexOf('const caseId = sanitizeText'),
+  fn.indexOf('if (operation === "availability" && !requestedCaseId)'),
+  fn.indexOf('const caseId = requestedCaseId'),
 );
 const config = read(files.config);
 const envExample = read(files.envExample);
@@ -84,11 +96,16 @@ const nayaxLookup = read(files.nayaxLookup);
 const nayaxLookupShared = read(files.nayaxLookupShared);
 const refundAdminUpdate = read(files.refundAdminUpdate);
 const refundCaseMessageSend = read(files.refundCaseMessageSend);
+const refundManualMessageOutbox = read(files.refundManualMessageOutbox);
+const refundManualMessageOutboxMigration = read(files.refundManualMessageOutboxMigration);
+const refundEmailShared = read(files.refundEmailShared);
 const refundOperationsLib = read(files.refundOperationsLib);
 const refundOperationsUi = read(files.refundOperationsUi);
 const refundPortalUat = read(files.refundPortalUat);
 const nayaxCandidateTokenMigration = read(files.nayaxCandidateTokenMigration);
 const nayaxRecommendationMigration = read(files.nayaxRecommendationMigration);
+const selectedNayaxEvidenceMigration = read(files.selectedNayaxEvidenceMigration);
+const manualPortalTest = read(files.manualPortalTest);
 
 assert(
   migration.includes('refund_case_nayax_refund_attempts'),
@@ -101,8 +118,9 @@ assert(
 );
 assert(
   migration.includes('nayax_refunds_enabled boolean not null default false') &&
-    migration.includes('nayax_refund_max_amount_cents'),
-  'Machine-level Nayax refund allowlist and cap fields are required.'
+    migration.includes('nayax_refund_max_amount_cents') &&
+    productionSimplificationMigration.includes('set nayax_refund_max_amount_cents = null'),
+  'Machine-level Nayax enablement remains required while the historical launch-cap field is retired.'
 );
 assert(
   migration.includes('can_prepare_nayax_refund_execution') &&
@@ -144,61 +162,64 @@ assert(
     providerGates.includes('NAYAX_REFUND_EXECUTION_ENABLED') &&
     providerGates.includes('NAYAX_REFUND_EXECUTION_DRY_RUN') &&
     providerGates.includes('NAYAX_REFUND_EXECUTOR_ASSERTION') &&
-    providerGates.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET'),
-  'The HTTP boundary must retain the ordinary kill switch, enablement, dry-run, executor, and idempotency gates.'
+    providerGates.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET') &&
+    !providerGates.includes('remainingValueVerified') &&
+    fn.includes('service_get_refund_nayax_execution_context') &&
+    fn.includes('p_execution_context_hash: refundCase.executionContext!.contextHash'),
+  'The HTTP boundary retains ordinary gates and binds the automatic exact selected purchase.'
 );
 assert(
   fn.includes('can_perform_refund_official_action') &&
     fn.includes('createNayaxRefundProviderAdapter') &&
-    fn.includes('service_reserve_nayax_refund_manager_action') &&
+    fn.includes('service_reserve_nayax_refund_manager_action_v3') &&
+    fn.includes('service_record_nayax_refund_provider_stage_v3') &&
+    fn.includes('service_get_nayax_refund_provider_journal_capability_v3') &&
     fn.includes('orchestrateNayaxRefund') &&
     fn.includes('authorizeRefundOfficialAction') &&
     fn.includes('service_settle_nayax_refund_attempt') &&
     !fn.includes('service_consume_nayax_refund_official_action') &&
     !fn.includes('can_manage_refund_case') &&
     !fn.includes('actorIsSuperAdmin'),
-  'The HTTP function must use mapped-manager authorization for the normal path while retaining capped reservation/settlement and the controlled pilot path.'
+  'The HTTP function must use mapped-manager authorization for the normal path while retaining atomic reservation and settlement.'
 );
-const controlledPilotStart = fn.indexOf('if (operation === "controlled_owner_pilot")');
-const controlledPilotGate = fn.indexOf('if (pilotBlocks.length > 0)', controlledPilotStart);
-const controlledPilotAdapter = fn.indexOf('createNayaxRefundProviderAdapter({', controlledPilotStart);
-const controlledPilotIdempotency = fn.indexOf(
+const operationAllowlist = fn.slice(
+  fn.indexOf('!new Set(['),
+  fn.indexOf('const executionConfig = resolveNayaxRefundExecutionConfig'),
+);
+const normalExecutionGate = fn.indexOf('if (preExecutionBlocks.length > 0)');
+const normalIdempotency = fn.lastIndexOf(
   'const idempotencyKey = await buildNayaxRefundIdempotencyKey',
-  controlledPilotStart,
-);
-const controlledPilotReservation = fn.indexOf(
-  'const authorization = await authorizeRefundOfficialAction({',
-  controlledPilotStart,
-);
-const controlledPilotProviderCall = fn.indexOf('providerOutcome = await provider.execute({', controlledPilotStart);
-const normalExecutionGate = fn.indexOf('if (preExecutionBlocks.length > 0)', controlledPilotProviderCall);
-const normalIdempotency = fn.indexOf(
-  'const idempotencyKey = await buildNayaxRefundIdempotencyKey',
-  controlledPilotIdempotency + 1,
 );
 const normalOrchestration = fn.indexOf('await orchestrateNayaxRefund', normalIdempotency);
 assert(
   fn.includes('resolveNayaxRefundExecutionConfig') &&
     fn.indexOf('if (authError || !user)') <
       fn.indexOf('const executionConfig = resolveNayaxRefundExecutionConfig') &&
-    controlledPilotStart >= 0 && controlledPilotGate > controlledPilotStart &&
-    controlledPilotAdapter > controlledPilotGate &&
-    controlledPilotIdempotency > controlledPilotAdapter &&
-    controlledPilotReservation > controlledPilotIdempotency &&
-    controlledPilotProviderCall > controlledPilotReservation &&
-    normalExecutionGate > controlledPilotProviderCall &&
+    operationAllowlist.includes('"execute"') &&
+    operationAllowlist.includes('"availability"') &&
+    !operationAllowlist.includes('controlled_owner_pilot') &&
+    operationAllowlist.includes('approve_pending_request') &&
+    !fn.includes('NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED') &&
+    !fn.includes('preExecutionBlocks.includes("provider_remaining_value_unverified")') &&
+    fn.includes('NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_SUPPORTED = false') &&
+    fn.includes('pending_approval_recovery_retired') &&
     normalIdempotency > normalExecutionGate &&
     normalOrchestration > normalIdempotency &&
     providerGates.includes('NAYAX_REFUND_EXECUTOR_ASSERTION') &&
     providerGates.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET') &&
-    providerGates.includes('NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS') &&
-    providerGates.includes('NAYAX_REFUND_DAILY_COUNT_CAP') &&
+    !providerGates.includes('NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS') &&
+    !providerGates.includes('NAYAX_REFUND_DAILY_COUNT_CAP') &&
+    providerGatesTest.includes('legacy canary and cap variables do not gate qualified transactions') &&
+    providerGatesTest.includes('configured first attempts require no remaining-balance attestation') &&
+    providerGatesTest.includes('normal amount uses the selected original purchase without inventing a remaining balance') &&
     managerSessionMigration.includes('pg_catalog.pg_advisory_xact_lock') &&
-    providerGatesTest.includes('reports every fail-closed gate'),
-  'Each pilot and normal path must fail its own rollout/configuration boundary before idempotency, reservation, or provider orchestration.'
+    providerGatesTest.includes('preserves runtime and credential gates'),
+  'Production execute/availability and the retired forensic route retain their contracts, while normal execution retains scoped gates before idempotency and provider orchestration.'
 );
 assert(
-  fn.includes('operation === "availability"') &&
+  fn.includes('operation === "availability" && !requestedCaseId') &&
+    fn.includes('refund_case_nayax_manager_readiness') &&
+    fn.includes('resolveCaseRefundReadiness({') &&
     fn.includes('resolveNayaxRefundAvailability({') &&
     fn.includes('executionConfig,') &&
     fn.includes('NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED') &&
@@ -206,24 +227,27 @@ assert(
       fn.indexOf('const operation = sanitizeText') &&
     fn.indexOf('const operation = sanitizeText') <
       fn.indexOf('const executionConfig = resolveNayaxRefundExecutionConfig') &&
-    fn.indexOf('operation === "availability"') <
-      fn.indexOf('const caseId = sanitizeText') &&
-    fn.indexOf('operation === "availability"') <
+    fn.indexOf('operation === "availability" && !requestedCaseId') <
+      fn.indexOf('const caseId = requestedCaseId') &&
+    fn.indexOf('operation === "availability" && !requestedCaseId') <
       fn.indexOf('const refundCase = await getRefundCase') &&
-    fn.indexOf('operation === "availability"') <
-      fn.indexOf('await supabase.rpc(') &&
-    fn.indexOf('operation === "availability"') <
+    fn.lastIndexOf('if (operation === "availability")', fn.indexOf('if (operation === "approve_pending_request")')) >
+      fn.indexOf('const refundCase = await getRefundCase') &&
+    fn.lastIndexOf('if (operation === "availability")', fn.indexOf('if (operation === "approve_pending_request")')) <
+      fn.indexOf('if (operation === "approve_pending_request")') &&
+    fn.indexOf('if (operation === "availability")') <
       fn.indexOf('const idempotencyKey = await buildNayaxRefundIdempotencyKey') &&
-    fn.indexOf('operation === "availability"') <
+    fn.indexOf('if (operation === "availability")') <
       fn.indexOf('await orchestrateNayaxRefund') &&
     providerGates.includes('payloadRedacted: true') &&
     providerGates.includes('NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = true') &&
     providerGatesTest.includes('performs zero execution side effects'),
-  'Authenticated availability must use the already-resolved shared gates and return before case parsing, RPCs, HMAC, reservation, provider execution, orchestration, or mutation.'
+  'Authenticated availability must keep the legacy global check read-only and make case-specific readiness return before HMAC, reservation, provider execution, orchestration, or mutation.'
 );
 assert(
   providerGates.includes('official_actions_disabled') &&
     providerGates.includes('kill_switch_active') &&
+    !providerGates.includes('provider_remaining_value_unverified') &&
     providerGates.includes('configuration_missing') &&
     !availabilityBranch.includes('...executionConfig') &&
     !availabilityBranch.includes('executionConfig.blocks') &&
@@ -250,11 +274,42 @@ assert(
   'Nayax execution must reject stale, replayed, expired, or candidate-mutated receipts and must not expose a provider-success finalizer before attempt-bound integration.'
 );
 assert(
-  fn.includes('refundCase.refund_amount_cents ?? 0') &&
-    !fn.includes('body?.refundAmountCents') &&
-    !fn.includes('requestedRefundAmountCents') &&
-    !fn.includes('refundCase.refund_amount_cents ='),
-  'Nayax execution must use the server-stored refund amount and must not let callers override the execution amount.'
+  fn.includes('resolveNormalNayaxRefundAmountCents({') &&
+  fn.includes('matchedTransactionAmountCents: refundCase.matched_nayax_amount_cents') &&
+  !fn.includes('remainingRefundableAmountCents') &&
+  !fn.includes('body?.refundAmountCents') &&
+  !fn.includes('requestedRefundAmountCents') &&
+  !fn.includes('refundCase.refund_amount_cents ='),
+  'Nayax execution uses the selected original amount and does not accept caller amount overrides.'
+);
+assert(
+  providerGates.includes('resolveNormalNayaxRefundAmountCents') &&
+    providerGatesTest.includes('normal amount uses the selected original purchase without inventing a remaining balance') &&
+    providerGatesTest.includes('Invalid amount rejected') &&
+    manualPortalTest.includes('The same account-scope transaction cannot enter a second case') &&
+    nayaxRecommendationMigration.includes('refund_cases_unique_matched_nayax_transaction_id_idx'),
+  'Focused tests must prove original-amount selection, invalid amount rejection, and cross-case exact-transaction uniqueness.'
+);
+assert(
+  productionSimplificationMigration.includes('create or replace function public.refund_nayax_direct_api_execution_hard_disabled()') &&
+    productionSimplificationMigration.includes('create or replace function public.admin_begin_refund_manual_nayax_portal_pre_ops_v1(') &&
+    productionSimplificationMigration.includes("'reviewedNayaxPortalFallbackKind', case") &&
+    productionSimplificationMigration.includes("else 'ordinary_exact_match'") &&
+    productionSimplificationMigration.includes("refund_case.nayax_recommendation_state = 'high_confidence',\n            false") &&
+    productionSimplificationMigration.includes('then machine.nayax_manual_portal_timezone') &&
+    productionSimplificationMigration.includes('machine.nayax_manual_portal_enabled is true\n      or (') &&
+    productionSimplificationMigration.includes('case_row.card_wallet_used is true') &&
+    productionSimplificationMigration.includes('case_row.nayax_match_execution_eligible is false') &&
+    productionSimplificationMigration.includes("'provider_call_made', false") &&
+    productionSimplificationMigration.includes("'customer_message_created', false") &&
+    manualPortalTest.includes('An unattempted ordinary match cannot bypass the API') &&
+    manualPortalTest.includes('Legacy portal work is discoverable before evidence') &&
+    manualPortalTest.includes('legacy context becomes selected after the guarded evidence-selection boundary') &&
+    manualPortalTest.includes('The server enforces the same rejection requirement') &&
+    executionContextMigration.includes('refund_nayax_original_portal_fallback_ready') &&
+    refundPortalUat.includes('Ordinary portal fallback cannot bypass') &&
+    refundPortalUat.includes('Manual portal completion requires explicit verification of the full selected amount'),
+  'Reviewed portal fallback must be rejection-bound, wallet-capable, provider-free on approval, and full-amount evidenced on completion.'
 );
 assert(
   providerOrchestration.includes('provider_execution_not_yet_enabled') &&
@@ -266,10 +321,15 @@ assert(
     !fn.includes('mode: "synthetic"') &&
     !fn.includes('/payment/refund-request') &&
     !fn.includes('/payment/refund-approve'),
-  'The normal path must select the live adapter without exposing a synthetic switch or duplicating provider endpoints in the handler.'
+  'The reviewed live adapter uses automatic original identity and the existing execution gates.'
 );
 assert(
   fn.includes('operation === "approve_pending_request"') &&
+    fn.includes('NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_SUPPORTED = false') &&
+    fn.includes('pending_approval_recovery_retired') &&
+    fn.includes('...executionConfig.blocks') &&
+    fn.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
+    fn.includes('approval_contract_version_invalid') &&
     fn.includes('executeNayaxRefundApprovalOnly') &&
     fn.includes('service_reserve_nayax_pending_approval_recovery') &&
     fn.includes('service_settle_nayax_pending_approval_recovery') &&
@@ -277,7 +337,7 @@ assert(
     pendingApprovalRecoveryMigration.includes("provider_status is distinct from 'request_unknown_contract_mismatch'") &&
     pendingApprovalRecoveryMigration.includes("journal.stage = 'approve'") &&
     !pendingApprovalRecoveryMigration.includes('/payment/refund-request'),
-  'The pending-request recovery must be single-use, DTM-gated, approval-only, and blocked after any approval-start marker.'
+  'The legacy pending-request recovery must remain retired while preserving its single-use forensic boundary and full current gates.'
 );
 assert(
   providerAdapter.includes('ALLOWED_NAYAX_REFUND_HOSTS') &&
@@ -297,18 +357,21 @@ assert(
 );
 assert(
   providerCapsMigration.includes('pg_catalog.pg_advisory_xact_lock') &&
-    providerCapsMigration.includes('current_daily_count + 1 > p_daily_count_cap') &&
-    providerCapsMigration.includes(
-      'current_daily_amount_cents + p_amount_cents > p_daily_amount_cap_cents'
-    ) &&
-    providerCapsMigration.includes(
-      'service_reserve_and_consume_nayax_refund_attempt_v2'
-    ) &&
-    providerCapsMigration.includes('from service_role;') &&
-    providerAdapterTest.includes(
-      'An exact idempotent replay is returned before cap accounting'
-    ),
-  'Provider attempts must pass an advisory-locked daily count/amount cap without double-counting an exact replay.'
+    productionSimplificationMigration.includes('service_reserve_and_consume_nayax_refund_attempt(') &&
+    productionSimplificationMigration.includes("function_definition := replace(\n    function_definition,\n    daily_cap_call_anchor,\n    cap_free_call"),
+  'Production preserves the atomic reservation and exact replay controls while bypassing retired rollout caps.'
+);
+assert(
+  dailyReadinessUsageMigration.includes('create or replace function public.service_refund_nayax_daily_usage()') &&
+    !refundReadiness.includes('parseNayaxRefundDailyUsage') &&
+    !fn.includes('service_refund_nayax_daily_usage') &&
+    !refundAdminUpdate.includes('service_refund_nayax_daily_usage') &&
+    refundAdminUpdate.includes('service_get_nayax_refund_provider_journal_capability_v3') &&
+    refundAdminUpdate.includes('parseNayaxRefundProviderContract') &&
+    refundAdminUpdate.includes('providerJournalAvailable') &&
+    !fn.includes('.from("refund_case_nayax_refund_attempts")') &&
+    !refundAdminUpdate.includes('.from("refund_case_nayax_refund_attempts")'),
+  'Production readiness ignores the historical daily-usage aggregate and never directly reads the private provider-attempt ledger.'
 );
 assert(
   providerOrchestrationMigration.includes('service_reserve_and_consume_nayax_refund_attempt') &&
@@ -409,8 +472,22 @@ assert(
 );
 assert(
   preflight.includes('NAYAX_REFUND_EXECUTION_KILL_SWITCH') &&
-    preflight.includes('REFUND_AUTOMATION_SWEEP_SECRET'),
-  'Commerce preflight must validate refund automation configuration.'
+    preflight.includes('REFUND_AUTOMATION_SWEEP_SECRET') &&
+    preflight.includes("'NAYAX_REFUND_MANAGER_CONTRACT_JSON'") &&
+    preflight.includes("'NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED'") &&
+    preflight.includes("'NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED'") &&
+    preflight.includes('NAYAX_REFUND_REQUEST_WRITE_TOKEN_') &&
+    preflight.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_') &&
+    !preflight.includes("'NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED'"),
+  'Commerce preflight must validate active v3 refund configuration rather than the retired pilot assertion.'
+);
+assert(
+  fn.includes('NAYAX_REFUND_PRODUCTION_BASE_URL') &&
+    fn.includes('provider_contract_host_invalid') &&
+    fn.includes('areNayaxRefundWriteCredentialsReady') &&
+    refundAdminUpdate.includes('NAYAX_REFUND_PRODUCTION_BASE_URL') &&
+    refundAdminUpdate.includes('areNayaxRefundWriteCredentialsReady'),
+  'Normal execution and both readiness paths must require the exact production host and adapter-valid write credentials.'
 );
 assert(
   nayaxLookup.includes('lookupNayaxCandidatesForRefundCase') &&
@@ -436,21 +513,30 @@ assert(
 assert(
   refundCaseMessageSend.includes('can_manage_refund_case') &&
     refundCaseMessageSend.includes('buildEditableRefundCustomerEmail') &&
-    refundCaseMessageSend.includes('replyTo: getRefundReplyToEmail()') &&
-    refundCaseMessageSend.includes('created_by: user.id') &&
+    refundManualMessageOutbox.includes('sendRefundTransactionalEmail') &&
+    refundEmailShared.includes('replyTo: getRefundReplyToEmail()') &&
+    refundManualMessageOutboxMigration.includes('p_actor_user_id') &&
+    refundManualMessageOutboxMigration.includes('customer_message_queued') &&
     refundCaseMessageSend.includes('validateRefundCustomerMessageRequest') &&
-    refundCaseMessageSend.includes('decisionReason: null'),
-  'Portal customer messaging must be authorized, logged, editable from approved templates, reply-to the support inbox, and reject premature card approval/completion messages without exposing internal decision notes.'
+    refundCaseMessageSend.includes('decisionReason: refundCase.decision_reason') &&
+    refundEmailShared.includes('sanitizeRefundCustomerSafeDenialReason') &&
+    refundEmailShared.includes('A customer-safe denial reason is required for a denial message.'),
+  'Portal customer messaging must be authorized, logged, editable from approved templates, reply-to the support inbox, reject premature card approval/completion messages, and expose only customer-safe denial reasons.'
 );
 assert(
-  !refundOperationsLib.includes('transactionId: string') &&
-    !refundOperationsLib.includes('matchedNayaxTransactionId'),
-  'Browser refund operation types must not expose raw Nayax transaction IDs.'
+  refundOperationsLib.includes("selectedNayaxTransactionContractVersion?: 'refund_selected_nayax_transaction_v1'") &&
+    refundOperationsLib.includes('selectedNayaxTransaction?: RefundSelectedNayaxTransaction | null') &&
+    !refundOperationsLib.includes('matchedNayaxTransactionId') &&
+    selectedNayaxEvidenceMigration.includes("refund_case.matched_nayax_transaction_id is not null") &&
+    selectedNayaxEvidenceMigration.includes("'payloadRedacted', true"),
+  'Browser refund operation types may expose only the redacted, already-selected transaction evidence contract.'
 );
 assert(
   !refundOperationsUi.includes('candidate.transactionId') &&
-    !refundOperationsUi.includes('matchedNayaxTransactionId'),
-  'Browser refund UI must not store or submit raw Nayax transaction IDs.'
+    !refundOperationsUi.includes('matchedNayaxTransactionId') &&
+    refundOperationsUi.includes('selectedTransactionEvidence.transactionId') &&
+    refundOperationsUi.includes('navigator.clipboard.writeText(selectedTransactionEvidence.transactionId)'),
+  'Browser refund UI must keep candidates tokenized and may copy only the exact selected transaction reference.'
 );
 assert(
   !normalPreflight.includes('if (refundCase.card_wallet_used) blocks.push("manual_review")') &&
@@ -489,14 +575,35 @@ assert(
   'The manager UI must present transaction selection as evidence review, never as refund approval.'
 );
 assert(
-  refundOperationsUi.includes("candidateOption(leadCandidate, 'Most likely transaction')") &&
-    refundOperationsUi.includes('Other possible transactions') &&
-    refundOperationsUi.includes("candidateOption(candidate, 'Possible transaction')") &&
+  refundOperationsUi.includes('candidateOption(') &&
+    refundOperationsUi.includes('nayax-candidate-availability') &&
+    refundOperationsUi.includes('nayax-transaction-comparison') &&
+    refundOperationsUi.includes('role="radiogroup"') &&
+    refundOperationsUi.includes('type="radio"') &&
+    refundOperationsUi.includes('candidateUnavailableReason') &&
+    refundOperationsUi.includes('caseAllowsCandidateSelection') &&
     refundOperationsUi.includes('refundAmount:') &&
     refundOperationsUi.includes('(candidate.amountCents / 100).toFixed(2)') &&
+    refundOperationsUi.includes('const refundAmountCents = selectedCase.matchedNayaxAmountCents') &&
+    refundOperationsUi.includes('The full selected Nayax transaction amount is set automatically') &&
+    refundOperationsUi.includes("refundCase.reviewedNayaxPortalFallbackKind === 'ordinary_exact_match'") &&
+    !refundOperationsUi.includes("refundReadiness?.blockReason === 'provider_remaining_value_unverified'") &&
+    refundOperationsUi.includes("refundCase.reviewedNayaxPortalFallbackKind === 'legacy_manual_evidence'") &&
+    refundOperationsUi.includes('Approve refund for Nayax portal') &&
+    !refundOperationsUi.includes('data-testid="legacy-refund-amount-input"') &&
     !refundOperationsUi.includes('Match strength:') &&
     !refundOperationsUi.includes('Card details agree'),
-  'The manager UI must show all safe candidates in likely order without a confidence rating and prepare the exact selected transaction amount.'
+  'The manager UI must show safe candidates, provide no editable normal amount, and preserve the reviewed manual portal fallback while direct execution is blocked.'
+);
+assert(
+  refundOperationsUi.includes('RefundLifecycleProgress') &&
+    refundOperationsUi.includes('refreshAfterSeconds') &&
+    refundOperationsUi.includes('lookupRequestSequenceRef') &&
+    refundOperationsUi.includes('Refresh transactions') &&
+    refundOperationsUi.includes('refundOperationsAccess') &&
+    refundOperationsUi.includes('Needs Refund Operations') &&
+    refundOperationsUi.includes('60-minute SLA'),
+  'The manager UI must consume the canonical lifecycle, discard stale lookups, expose safe refresh, and keep technical reconciliation in Refund Operations.'
 );
 assert(
   nayaxRecommendationMigration.includes('nayaxLookupCandidates') &&

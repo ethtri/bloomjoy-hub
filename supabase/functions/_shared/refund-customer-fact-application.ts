@@ -1,0 +1,31 @@
+export type RefundCustomerFactApplicationResult = {
+  outcome?: "applied" | "conflict" | "already_applied" | "skipped";
+  factVersion?: number;
+  reason?: string;
+};
+
+export type RefundCustomerFactApplicationDecision =
+  | "accepted"
+  | "retryable_conflict"
+  | "invalid_response";
+
+export type RefundCustomerFactApplicationReceipt = {
+  outcome?: "not_applied" | "already_applied" | "stale" | "conflict";
+  factVersion?: number;
+  appliedFields?: string[];
+};
+
+export const classifyRefundCustomerFactApplication = (
+  result: RefundCustomerFactApplicationResult | null | undefined,
+): RefundCustomerFactApplicationDecision => {
+  if (
+    (result?.outcome === "applied" ||
+      result?.outcome === "already_applied") &&
+    Number.isSafeInteger(result.factVersion) &&
+    Number(result.factVersion) >= 1
+  ) {
+    return "accepted";
+  }
+  if (result?.outcome === "conflict") return "retryable_conflict";
+  return "invalid_response";
+};

@@ -10,6 +10,7 @@ import {
 import { automaticRefundCustomerContactEnabled } from "./refund-deterministic-follow-up.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { verifyRefundSyntheticGmailProofTransport } from "./refund-synthetic-gmail-proof.ts";
+import { redactRefundStatusLinksForStorage } from "./refund-email.ts";
 
 type RefundEmailPayload = {
   subject: string;
@@ -42,7 +43,7 @@ const parseManagerCc = (
     ...mailboxIdentities.map((email) => email.trim().toLowerCase()),
   ]);
   if (
-    normalized.length > 3 ||
+    normalized.length > 4 ||
     normalized.some((email) =>
       email.length > 320 ||
       !EMAIL_PATTERN.test(email) ||
@@ -77,10 +78,16 @@ export const requireRefundCustomerManagerCcResolution = ({
     customerEmail,
     mailboxIdentities,
   );
+  const managerRecipientOverlap = result.managerRecipientOverlap === true;
+  const managerRecipientCount = Number(result.managerRecipientCount);
 
   if (
     recipientResolutionStatus !== CUSTOMER_MANAGER_CC_ALLOWED_STATUS ||
-    managerCcEmails.length === 0
+    !Number.isSafeInteger(managerRecipientCount) ||
+    managerRecipientCount < 1 ||
+    managerRecipientCount > 4 ||
+    managerCcEmails.length + (managerRecipientOverlap ? 1 : 0) !==
+      managerRecipientCount
   ) {
     throw new RefundGmailError(
       "manager_cc_required",
@@ -91,6 +98,8 @@ export const requireRefundCustomerManagerCcResolution = ({
   return {
     managerCcEmails,
     managerCcCount: managerCcEmails.length,
+    managerRecipientOverlap,
+    managerRecipientCount,
     recipientResolutionStatus,
   };
 };
@@ -215,6 +224,8 @@ export const dispatchRefundCaseGmailReply = async ({
       resolution: {
         status: authorization.recipientResolutionStatus,
         managerCcEmails: authorization.managerCcEmails,
+        managerRecipientOverlap: authorization.managerRecipientOverlap,
+        managerRecipientCount: authorization.managerRecipientCount,
       },
       customerEmail: recipientEmail,
       mailboxIdentities,
@@ -263,7 +274,7 @@ export const dispatchRefundCaseGmailReply = async ({
       p_operation_key: operationKey,
       p_sender_email: config.mailbox,
       p_recipient_email: recipientEmail,
-      p_plain_body: email.text,
+      p_plain_body: redactRefundStatusLinksForStorage(email.text),
       p_mailbox_identities: config.mailboxIdentities,
       p_delivery_kind: deliveryKind,
       p_target_gmail_thread_id: targetGmailThreadId,
@@ -297,6 +308,8 @@ export const dispatchRefundCaseGmailReply = async ({
       resolution: {
         status: claim.recipientResolutionStatus,
         managerCcEmails: claim.managerCcEmails,
+        managerRecipientOverlap: claim.managerRecipientOverlap,
+        managerRecipientCount: claim.managerRecipientCount,
       },
       customerEmail: recipientEmail,
       mailboxIdentities: config.mailboxIdentities,
@@ -381,6 +394,8 @@ export const dispatchRefundCaseGmailReply = async ({
     resolution: {
       status: claim.recipientResolutionStatus,
       managerCcEmails: claim.managerCcEmails,
+      managerRecipientOverlap: claim.managerRecipientOverlap,
+      managerRecipientCount: claim.managerRecipientCount,
     },
     customerEmail: recipientEmail,
     mailboxIdentities: config.mailboxIdentities,
@@ -423,6 +438,8 @@ export const dispatchRefundCaseGmailReply = async ({
       operationKey,
       recipientEmail,
       ccEmails: managerCcEmails,
+      managerRecipientOverlap: managerResolution.managerRecipientOverlap,
+      managerRecipientCount: managerResolution.managerRecipientCount,
       deliveryKind,
       subject,
       text: email.text,
@@ -456,6 +473,8 @@ export const dispatchRefundCaseGmailReply = async ({
       subject,
       managerCcEmails,
       managerCcCount: managerCcEmails.length,
+      managerRecipientOverlap: managerResolution.managerRecipientOverlap,
+      managerRecipientCount: managerResolution.managerRecipientCount,
       recipientResolutionStatus: claimedResolutionStatus,
     };
   } catch (error) {

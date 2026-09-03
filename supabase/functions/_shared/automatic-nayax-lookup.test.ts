@@ -20,6 +20,7 @@ const readyCase = (version = 1): AutomaticNayaxLookupCase => ({
   payment_method: "card",
   payment_amount_cents: 750,
   card_last4: "4242",
+  card_network: "visa",
   card_wallet_used: false,
   deterministic_fact_version: version,
 });
@@ -130,6 +131,7 @@ const harness = ({
     },
     markPending: async () => {
       calls.pending += 1;
+      return calls.pending;
     },
     lookup: async () => {
       calls.lookup += 1;

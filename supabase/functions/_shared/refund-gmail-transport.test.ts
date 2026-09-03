@@ -135,6 +135,54 @@ const decodeRawMime = (raw: string) => {
   );
 };
 
+Deno.test("bounced original request RPC rejection stops actual Gmail transport before OAuth or provider access", async () => {
+  await withEnvironment(
+    { ...SYNTHETIC_ENV, REFUND_GMAIL_ENABLED: "true" },
+    async () => {
+      let claimCalls = 0;
+      let providerCalls = 0;
+      const mailboxHash = await sha256Hex(SYNTHETIC_ENV.GMAIL_SUPPORT_MAILBOX);
+      const supabase = {
+        from: () => new FakeLinkQuery({ id: "synthetic-thread", mailbox_hash: mailboxHash }),
+        rpc: async (name: string) => {
+          if (name === "service_verify_refund_synthetic_gmail_proof_transport") {
+            return { data: { required: false, allowed: true, status: "not_required" }, error: null };
+          }
+          assertEquals(name, "service_claim_refund_gmail_outbound_v3");
+          claimCalls += 1;
+          return { data: null, error: {
+            code: "23514",
+            message: "Follow-up reminder requires a non-failed original request",
+          } };
+        },
+      };
+      await withFetch(async () => {
+        providerCalls += 1;
+        throw new Error("Bounced original must never reach OAuth or Gmail");
+      }, async () => {
+        let caught: unknown;
+        try {
+          await dispatchRefundCaseGmailReply({
+            supabase: supabase as never,
+            refundCaseId: "79850000-0000-4000-8000-000000000041",
+            refundCaseMessageId: "79860000-0000-4000-8000-000000000041",
+            recipientEmail: "reminder-customer@example.test",
+            email,
+            deliveryKind: "automatic",
+            gmailThreadId: "synthetic-thread",
+          });
+        } catch (error) {
+          caught = error;
+        }
+        assert(caught instanceof RefundGmailError);
+        assertEquals(caught.code, "gmail_send_claim_failed");
+      });
+      assertEquals(claimCalls, 1);
+      assertEquals(providerCalls, 0);
+    },
+  );
+});
+
 Deno.test("Gmail kill switch blocks linked delivery before claim, OAuth, or provider access", async () => {
   await withEnvironment(
     { ...SYNTHETIC_ENV, REFUND_GMAIL_ENABLED: "false" },
@@ -243,6 +291,8 @@ Deno.test("disabled Gmail leaves the non-Gmail customer-delivery route available
                 "first-contact-manager-a@example.test",
                 "first-contact-manager-b@example.test",
               ],
+              managerRecipientOverlap: false,
+              managerRecipientCount: 2,
             },
             error: null,
           };
@@ -437,6 +487,8 @@ Deno.test("approved one-shot synthetic proof pins one original-thread send", asy
                 references: "<synthetic-proof-source@example.test>",
                 recipientResolutionStatus: "resolved",
                 managerCcEmails: ["proof-manager@example.test"],
+                managerRecipientOverlap: false,
+                managerRecipientCount: 1,
               },
               error: null,
             };
@@ -543,6 +595,8 @@ Deno.test("synthetic proof rejects a changed manager route after claim and befor
                 references: "<synthetic-proof-source@example.test>",
                 recipientResolutionStatus: "resolved",
                 managerCcEmails: ["changed-manager@example.test"],
+                managerRecipientOverlap: false,
+                managerRecipientCount: 1,
               },
               error: null,
             };
@@ -621,6 +675,8 @@ Deno.test("enabled linked delivery preserves exact thread, customer To, two mana
                   "<synthetic-prior@example.test> <synthetic-source@example.test>",
                 recipientResolutionStatus: "resolved",
                 managerCcEmails: managers,
+                managerRecipientOverlap: false,
+                managerRecipientCount: 2,
               },
               error: null,
             };
@@ -677,6 +733,8 @@ Deno.test("enabled linked delivery preserves exact thread, customer To, two mana
           });
           assertEquals(result.usedGmail, true);
           assertEquals(result.managerCcCount, 2);
+          assertEquals(result.managerRecipientOverlap, false);
+          assertEquals(result.managerRecipientCount, 2);
         },
       );
 

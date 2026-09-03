@@ -86,6 +86,7 @@ set
   reporting_machine_id = '80030000-0000-4000-8000-000000000001',
   reporting_location_id = '80020000-0000-4000-8000-000000000001',
   incident_at = now() - interval '1 day',
+  incident_time_resolution = 'exact',
   payment_method = 'card',
   payment_amount_cents = 500,
   status = 'needs_review'
@@ -181,6 +182,19 @@ select throws_ok(
   'Exact synthetic Gmail proof confirmation is required',
   'Proof preparation requires the exact owner confirmation'
 );
+
+insert into public.refund_case_messages (
+  refund_case_id, message_type, status, recipient_email, subject, body,
+  template_key, content_source, delivery_kind, reason_code,
+  requested_fields, sent_at
+)
+select
+  (result ->> 'caseId')::uuid, 'more_info', 'sent',
+  'etrifari+refundpilot-db@bloomjoysweets.com', 'Card detail needed',
+  'Please reply with the physical-card last four.',
+  'refund_more_info_editable_v1', 'manager_authored', 'manual',
+  'missing_information', array['card_last4'], statement_timestamp()
+from synthetic_proof_ingest;
 
 update public.refund_cases
 set status = 'waiting_on_customer'
@@ -361,6 +375,7 @@ select is(
     select count(*)::integer
     from public.refund_case_messages
     where refund_case_id = (select (result ->> 'caseId')::uuid from synthetic_proof_ingest)
+      and message_type = 'status_update'
   ),
   0,
   'Rejected proof requests create zero case messages'

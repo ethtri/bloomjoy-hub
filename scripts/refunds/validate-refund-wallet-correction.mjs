@@ -6,6 +6,7 @@ const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8
 const [
   tokenSource,
   migrationSource,
+  cardNetworkMigrationSource,
   intakeSource,
   automationSource,
   emailSource,
@@ -16,6 +17,7 @@ const [
 ] = await Promise.all([
   read('supabase/functions/_shared/refund-wallet-correction.ts'),
   read('supabase/migrations/202607270001_refund_wallet_correction.sql'),
+  read('supabase/migrations/20260823093000_refund_card_network_evidence.sql'),
   read('supabase/functions/refund-case-intake/index.ts'),
   read('supabase/functions/refund-case-automation-sweep/index.ts'),
   read('supabase/functions/_shared/refund-email.ts'),
@@ -81,6 +83,8 @@ expectAll(
     'action === "submitWalletCorrection"',
     'PUBLIC_REFUND_WALLET_CORRECTION_LIMITS',
     'service_apply_refund_wallet_correction',
+    'service_apply_refund_wallet_correction_v2',
+    'p_card_network: cardNetwork',
     'lookupNayaxCandidatesForRefundCase',
     'persistWalletCorrectionLookup',
     'wallet_correction_auto_match_ready',
@@ -89,6 +93,20 @@ expectAll(
     'payload_redacted: true',
   ],
   'Public correction and automatic re-match'
+);
+
+expectAll(
+  cardNetworkMigrationSource,
+  [
+    'add column if not exists card_network text',
+    'normalize_refund_card_network',
+    'service_apply_refund_wallet_correction_v2',
+    "'wallet_card_network_corrected'",
+    "'same_case', true",
+    "'lookup_rerun_requested', true",
+    'card_network is distinct from old.card_network',
+  ],
+  'Wallet card-network correction boundary'
 );
 
 expectAll(
@@ -147,6 +165,8 @@ expectAll(
   pageSource,
   [
     'Virtual card last 4',
+    'Card type',
+    'Other / Not sure',
     'Approximate purchase time',
     'I confirm the purchase amount was',
     'full card number',

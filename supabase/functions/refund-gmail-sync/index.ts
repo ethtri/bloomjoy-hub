@@ -26,9 +26,15 @@ import {
 import { ingestRefundGmailThreadBeforeFirstContact } from "../_shared/refund-gmail-orchestration.ts";
 import {
   extractLabeledRefundEmailFacts,
-  resolveExactRefundMachineFact,
   type RefundMachineFactCandidate,
+  resolveExactRefundMachineFact,
 } from "../_shared/refund-email-fact-extraction.ts";
+import {
+  classifyRefundCustomerFactApplication,
+  type RefundCustomerFactApplicationReceipt,
+  type RefundCustomerFactApplicationResult,
+} from "../_shared/refund-customer-fact-application.ts";
+import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
 import {
   buildRefundFirstContactEmail,
   isRefundFirstContactSenderAllowed,
@@ -47,6 +53,18 @@ import {
   type RefundGmailRetentionSummary,
 } from "../_shared/refund-gmail-retention.ts";
 import { sendRefundManagerActionNotice } from "../_shared/refund-manager-notification.ts";
+import {
+  buildRefundCustomerEmail,
+  sendRefundCustomerEmail,
+} from "../_shared/refund-email.ts";
+import { automaticRefundCustomerContactEnabled } from "../_shared/refund-deterministic-follow-up.ts";
+import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
+import { tryIssueRefundStatusCapabilityForMessage } from "../_shared/refund-status-capability.ts";
+import { refundCustomerLocaleFromIntakeMeta } from "../_shared/refund-language.ts";
+import {
+  bindRefundTransactionalDelivery,
+  markRefundTransactionalDeliveryAttempt,
+} from "../_shared/refund-transactional-delivery.ts";
 import { resolveLocalDateTimeInZone } from "../_shared/timezone-resolution.mjs";
 import {
   completeRefundGmailIntakeShadowFirstContact,
@@ -64,6 +82,9 @@ import {
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const syncSecret = (Deno.env.get("REFUND_GMAIL_SYNC_SECRET") ?? "").trim();
+const schedulerSecret = (
+  Deno.env.get("REFUND_GMAIL_SCHEDULER_SECRET") ?? ""
+).trim();
 const retentionRuntime = getRefundGmailRetentionRuntimeConfig((name) =>
   Deno.env.get(name)
 );
@@ -103,12 +124,16 @@ const safeEqual = (left: string, right: string) => {
   return difference === 0;
 };
 
-const authorize = (request: Request) => {
+const authorize = (request: Request, trigger: string) => {
   const authorization = request.headers.get("authorization") ?? "";
   const token = authorization.toLowerCase().startsWith("bearer ")
     ? authorization.slice(7).trim()
     : "";
-  return Boolean(syncSecret) && safeEqual(token, syncSecret);
+  const expectedSecret =
+    trigger === "scheduler_primary" || trigger === "scheduler_recovery"
+      ? schedulerSecret
+      : syncSecret;
+  return Boolean(expectedSecret) && safeEqual(token, expectedSecret);
 };
 
 type AttachmentDescriptor = {
@@ -270,11 +295,189 @@ type FirstContactCounters = {
 };
 
 type FirstContactCandidate = {
-  refundCaseId: string;
+  refundCaseId?: string;
+  contactId?: string;
   sourceMessageId: string;
+  publicReference?: string;
+  customerName: string;
+  customerEmail: string;
+};
+
+type AppealCounters = {
+  appealsReceived: number;
+  appealConfirmationsSent: number;
+  appealConfirmationsFailed: number;
+  appealConfirmationsSuppressed: number;
+};
+
+const processDenialAppealConfirmation = async ({
+  appealId,
+  publicReference,
+  customerName,
+  customerEmail,
+  counters,
+}: {
+  appealId: string;
   publicReference: string;
   customerName: string;
   customerEmail: string;
+  counters: AppealCounters;
+}) => {
+  if (!supabase || !automaticRefundCustomerContactEnabled()) {
+    counters.appealConfirmationsSuppressed += 1;
+    return { failed: false };
+  }
+
+  const { data: settings, error: settingsError } = await supabase
+    .from("refund_customer_contact_settings")
+    .select("automatic_customer_contact_enabled")
+    .eq("singleton", true)
+    .maybeSingle();
+  if (settingsError) {
+    counters.appealConfirmationsFailed += 1;
+    return { failed: true };
+  }
+  if (settings?.automatic_customer_contact_enabled !== true) {
+    counters.appealConfirmationsSuppressed += 1;
+    return { failed: false };
+  }
+
+  const { data: appealCase, error: appealCaseError } = await supabase
+    .from("refund_case_appeals")
+    .select("refund_case_id")
+    .eq("id", appealId)
+    .maybeSingle();
+  if (appealCaseError) {
+    counters.appealConfirmationsFailed += 1;
+    return { failed: true };
+  }
+  const appealRefundCaseId = sanitizeText(appealCase?.refund_case_id, 80);
+  if (!appealRefundCaseId) {
+    counters.appealConfirmationsFailed += 1;
+    return { failed: true };
+  }
+  const { data: refundCaseLocale, error: localeError } = await supabase
+    .from("refund_cases")
+    .select("intake_meta")
+    .eq("id", appealRefundCaseId)
+    .maybeSingle();
+  if (localeError) {
+    counters.appealConfirmationsFailed += 1;
+    return { failed: true };
+  }
+
+  const emailInput = {
+    messageType: "appeal_received" as const,
+    publicReference,
+    customerName,
+    customerEmail,
+    customerLocale: refundCustomerLocaleFromIntakeMeta(
+      refundCaseLocale?.intake_meta,
+    ),
+  };
+  const claimEmail = buildRefundCustomerEmail(emailInput);
+  const claim = await rpc<Record<string, unknown>>(
+    "service_claim_refund_denial_appeal_confirmation",
+    {
+      p_appeal_id: appealId,
+      p_subject: claimEmail.subject,
+      p_body: claimEmail.text,
+    },
+  );
+  if (claim?.claimed !== true) {
+    counters.appealConfirmationsSuppressed += 1;
+    return { failed: false };
+  }
+
+  const refundCaseId = sanitizeText(claim.refundCaseId, 80);
+  const refundCaseMessageId = sanitizeText(claim.refundCaseMessageId, 80);
+  const gmailThreadId = sanitizeText(claim.gmailThreadId, 80);
+  const claimedCustomerEmail = sanitizeText(
+    claim.recipientEmail,
+    320,
+  ).toLowerCase();
+  if (!refundCaseId || !refundCaseMessageId || !claimedCustomerEmail) {
+    await rpc<boolean>(
+      "service_finish_refund_denial_appeal_confirmation",
+      {
+        p_appeal_id: appealId,
+        p_refund_case_message_id: refundCaseMessageId || null,
+        p_delivery_status: "failed",
+        p_error_code: "appeal_confirmation_claim_invalid",
+      },
+    ).catch(() => false);
+    counters.appealConfirmationsFailed += 1;
+    return { failed: true };
+  }
+
+  let deliveryStatus: "sent" | "failed" | "delivery_unknown" = "sent";
+  let errorCode: string | null = null;
+  try {
+    const statusCapability = await tryIssueRefundStatusCapabilityForMessage({
+      supabase,
+      refundCaseId,
+      refundCaseMessageId,
+    });
+    const deliveryEmailInput = {
+      ...emailInput,
+      statusUrl: statusCapability?.url ?? null,
+    };
+    const deliveryEmail = buildRefundCustomerEmail(deliveryEmailInput);
+    const delivery = await dispatchRefundCaseGmailReply({
+      supabase,
+      refundCaseId,
+      refundCaseMessageId,
+      recipientEmail: claimedCustomerEmail,
+      email: deliveryEmail,
+      deliveryKind: "automatic",
+      gmailThreadId: gmailThreadId || null,
+    });
+    if (!delivery.usedGmail) {
+      await markRefundTransactionalDeliveryAttempt({
+        supabase,
+        refundCaseMessageId,
+      });
+      const sentEmail = await sendRefundCustomerEmail({
+        ...deliveryEmailInput,
+        customerEmail: claimedCustomerEmail,
+        managerCcEmails: delivery.managerCcEmails,
+        managerRecipientOverlap: delivery.managerRecipientOverlap,
+        managerRecipientCount: delivery.managerRecipientCount,
+        idempotencyKey: `refund-message-${refundCaseMessageId}`,
+      });
+      await bindRefundTransactionalDelivery({
+        supabase,
+        refundCaseMessageId,
+        receipt: sentEmail.delivery,
+      });
+    }
+  } catch (error) {
+    const uncertain = error instanceof TypeError ||
+      (error instanceof RefundGmailError && error.deliveryUncertain);
+    deliveryStatus = uncertain ? "delivery_unknown" : "failed";
+    errorCode = error instanceof RefundGmailError
+      ? error.code
+      : uncertain
+      ? "appeal_confirmation_delivery_unknown"
+      : "appeal_confirmation_send_failed";
+  }
+
+  const finished = await rpc<boolean>(
+    "service_finish_refund_denial_appeal_confirmation",
+    {
+      p_appeal_id: appealId,
+      p_refund_case_message_id: refundCaseMessageId,
+      p_delivery_status: deliveryStatus,
+      p_error_code: errorCode,
+    },
+  ).catch(() => false);
+  if (deliveryStatus === "sent" && finished) {
+    counters.appealConfirmationsSent += 1;
+    return { failed: false };
+  }
+
+  counters.appealConfirmationsFailed += 1;
+  return { failed: true };
 };
 
 const createRefundGmailIntakeContextToken = () => {
@@ -389,6 +592,83 @@ const reconcileOutstandingFirstContacts = async ({
   }
 };
 
+const reconcileOutstandingContactResponses = async ({
+  config,
+  counters,
+}: {
+  config: NonNullable<ReturnType<typeof getRefundGmailConfig>>;
+  counters: FirstContactCounters;
+}) => {
+  const outstanding = await rpc<FirstContactReconciliationRow[]>(
+    "service_claim_refund_gmail_contact_reconciliation_batch",
+    { p_limit: 100 },
+  );
+  for (const row of outstanding ?? []) {
+    const operationId = sanitizeText(row.operation_id, 80);
+    const operationKey = sanitizeText(row.operation_key, 255);
+    const providerThreadId = sanitizeText(row.provider_thread_id, 255);
+    const attemptVersion = Number(row.attempt_version);
+    if (
+      !operationId || !operationKey || !providerThreadId ||
+      !Number.isInteger(attemptVersion) || attemptVersion < 1
+    ) {
+      counters.firstContactFailed += 1;
+      continue;
+    }
+    try {
+      const providerResult = await inspectRefundGmailReplyByMessageHeader({
+        config,
+        providerThreadId,
+        operationKey,
+      });
+      if (providerResult.status === "no_match") {
+        const recorded = await rpc<boolean>(
+          "service_finish_refund_gmail_contact_response_no_match",
+          {
+            p_operation_id: operationId,
+            p_attempt_version: attemptVersion,
+          },
+        );
+        if (!recorded) counters.firstContactFailed += 1;
+        continue;
+      }
+      if (providerResult.status === "ambiguous") {
+        counters.firstContactFailed += 1;
+        continue;
+      }
+      const reconciled = await rpc<boolean>(
+        "service_finish_refund_gmail_contact_first_response",
+        {
+          p_operation_id: operationId,
+          p_status: "sent",
+          p_provider_message_id: providerResult.evidence.providerMessageId,
+          p_provider_message_header:
+            providerResult.evidence.providerMessageHeader,
+          p_error_code: null,
+          p_attempt_version: attemptVersion,
+        },
+      );
+      if (reconciled) counters.firstContactSent += 1;
+      else counters.firstContactFailed += 1;
+    } catch {
+      counters.firstContactFailed += 1;
+    }
+  }
+  try {
+    const remaining = await rpc<number>(
+      "service_count_refund_gmail_contact_response_reconciliation",
+      {},
+    );
+    counters.firstContactReconciliationOutstanding += remaining;
+  } catch {
+    counters.firstContactFailed += 1;
+    counters.firstContactReconciliationOutstanding = Math.max(
+      counters.firstContactReconciliationOutstanding,
+      1,
+    );
+  }
+};
+
 const reconcileOutstandingOutbound = async ({
   config,
   counters,
@@ -478,9 +758,10 @@ const processFirstContact = async ({
 }: {
   firstContact: RefundFirstContactConfig;
   config: NonNullable<ReturnType<typeof getRefundGmailConfig>>;
-  refundCaseId: string;
+  refundCaseId?: string;
+  contactId?: string;
   sourceMessageId: string;
-  publicReference: string;
+  publicReference?: string;
   customerName: string;
   customerEmail: string;
   threadHasOutbound: boolean;
@@ -492,6 +773,10 @@ const processFirstContact = async ({
   runId: string;
 }) => {
   if (intakeShadow) {
+    if (!refundCaseId) {
+      counters.firstContactFailed += 1;
+      return { failed: true };
+    }
     return await completeRefundGmailIntakeShadowFirstContact({
       runId,
       sourceMessageId,
@@ -523,7 +808,7 @@ const processFirstContact = async ({
   let email: ReturnType<typeof buildRefundFirstContactEmail>;
   try {
     email = buildRefundFirstContactEmail({
-      publicReference,
+      publicReference: publicReference ?? "",
       customerName,
       refundRequestUrl,
       supportUrl: firstContact.supportUrl,
@@ -545,7 +830,7 @@ const processFirstContact = async ({
   }
 
   const claimFirstContact = () => rpc<Record<string, unknown> | null>(
-    "service_claim_refund_gmail_first_contact",
+    "service_claim_refund_gmail_contact_first_response",
     {
       p_source_message_id: sourceMessageId,
       p_mode: firstContact.mode,
@@ -584,7 +869,7 @@ const processFirstContact = async ({
   let sent: Awaited<ReturnType<typeof sendRefundGmailReply>>;
   try {
     const intakeLinkRegistered = await rpc<boolean>(
-      "service_register_refund_gmail_intake_link",
+      "service_register_refund_gmail_contact_link",
       {
         p_operation_id: operationId,
         p_token_hash: await sha256Hex(intakeContextToken),
@@ -599,7 +884,7 @@ const processFirstContact = async ({
       );
     }
     const preparedDelivery = await rpc<Record<string, unknown>>(
-      "service_prepare_refund_gmail_first_contact_delivery",
+      "service_prepare_refund_gmail_contact_first_response",
       {
         p_operation_id: operationId,
         p_mailbox_identities: config.mailboxIdentities,
@@ -635,7 +920,7 @@ const processFirstContact = async ({
     const completionStatus = gmailError.deliveryUncertain
       ? "delivery_unknown"
       : "failed";
-    await rpc<boolean>("service_finish_refund_gmail_first_contact", {
+    await rpc<boolean>("service_finish_refund_gmail_contact_first_response", {
       p_operation_id: operationId,
       p_status: completionStatus,
       p_provider_message_id: null,
@@ -649,7 +934,7 @@ const processFirstContact = async ({
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const finished = await rpc<boolean>(
-        "service_finish_refund_gmail_first_contact",
+        "service_finish_refund_gmail_contact_first_response",
         {
           p_operation_id: operationId,
           p_status: "sent",
@@ -667,7 +952,7 @@ const processFirstContact = async ({
     }
   }
 
-  await rpc<boolean>("service_finish_refund_gmail_first_contact", {
+  await rpc<boolean>("service_finish_refund_gmail_contact_first_response", {
     p_operation_id: operationId,
     p_status: "delivery_unknown",
     p_provider_message_id: null,
@@ -690,6 +975,47 @@ const applyDeterministicCustomerReplyFacts = async ({
   sensitiveDataRedacted: boolean;
 }) => {
   if (!supabase) return { allowRoutineContact: false };
+  const hasAuthoritativeReceipt = async () => {
+    const lifecycle = await rpc<{ paymentState?: string; reasonCode?: string }>(
+      "refund_lifecycle_contract",
+      { p_refund_case_id: refundCaseId },
+    );
+    if (!lifecycle || typeof lifecycle.paymentState !== "string") {
+      throw new Error("refund_customer_reply_lifecycle_unavailable");
+    }
+    return lifecycle.paymentState === "confirmed" &&
+      lifecycle.reasonCode === "settlement_time_unknown";
+  };
+  // Ingestion and the internal incoming-message notice remain outside this
+  // boundary. A confirmed refund must not be reopened by old correction work.
+  if (await hasAuthoritativeReceipt()) return { allowRoutineContact: false };
+  try {
+    return await applyUnreceiptedCustomerReplyFacts({
+      refundCaseId, sourceMessageId, body, sensitiveDataRedacted,
+    });
+  } catch (error) {
+    // A receipt can commit after the initial read but before a direct routing
+    // update. Only its exact storage guard plus fresh readback is a normal skip.
+    if (
+      typeof error === "object" && error !== null && "code" in error &&
+      error.code === "P4663" && await hasAuthoritativeReceipt()
+    ) return { allowRoutineContact: false };
+    throw error;
+  }
+};
+
+const applyUnreceiptedCustomerReplyFacts = async ({
+  refundCaseId,
+  sourceMessageId,
+  body,
+  sensitiveDataRedacted,
+}: {
+  refundCaseId: string;
+  sourceMessageId: string;
+  body: string;
+  sensitiveDataRedacted: boolean;
+}) => {
+  if (!supabase) return { allowRoutineContact: false };
   const extracted = extractLabeledRefundEmailFacts(body);
   const manualReviewReason = sensitiveDataRedacted
     ? "sensitive_or_escalated_content"
@@ -701,17 +1027,18 @@ const applyDeterministicCustomerReplyFacts = async ({
       automation_follow_up_due_at: null,
     }).eq("id", refundCaseId);
     if (updateError) throw updateError;
-    const { error: eventError } = await supabase.from("refund_case_events").insert({
-      refund_case_id: refundCaseId,
-      event_type: "gmail_customer_message_routed_to_manager",
-      message:
-        "A verified customer email required manager handling instead of a routine automatic reply.",
-      metadata: {
-        source_message_id: sourceMessageId,
-        reason: manualReviewReason,
-        payload_redacted: true,
-      },
-    });
+    const { error: eventError } = await supabase.from("refund_case_events")
+      .insert({
+        refund_case_id: refundCaseId,
+        event_type: "gmail_customer_message_routed_to_manager",
+        message:
+          "A verified customer email required manager handling instead of a routine automatic reply.",
+        metadata: {
+          reason: manualReviewReason,
+          ambiguous_fields: extracted.ambiguousFields,
+          payload_redacted: true,
+        },
+      });
     if (eventError) throw eventError;
     return { allowRoutineContact: false };
   }
@@ -719,17 +1046,108 @@ const applyDeterministicCustomerReplyFacts = async ({
   const { data: current, error: caseError } = await supabase
     .from("refund_cases")
     .select(
-      "id,deterministic_fact_version,reporting_machine_id,reporting_location_id,incident_at,incident_local_datetime,incident_timezone,incident_time_resolution,payment_method,payment_amount_cents,card_last4,card_wallet_used",
+      "id,deterministic_fact_version,reporting_machine_id,reporting_location_id,incident_at,incident_local_datetime,incident_timezone,incident_time_resolution,payment_method,payment_amount_cents,card_last4,card_last4_provenance,card_network,card_wallet_used,payment_interaction,wallet_provider,zelle_payment_contact",
     )
     .eq("id", refundCaseId)
     .maybeSingle();
   if (caseError) throw caseError;
   if (!current) return { allowRoutineContact: true };
 
+  // The same reply may have committed its facts before the worker stopped.
+  // Check its private, verified receipt before recalculating a now-empty diff.
+  const receipt = await rpc<RefundCustomerFactApplicationReceipt>(
+    "service_get_refund_gmail_fact_application_v1",
+    { p_refund_case_id: refundCaseId, p_gmail_message_id: sourceMessageId },
+  );
+  if (receipt?.outcome === "stale") return { allowRoutineContact: false };
+  if (receipt?.outcome === "already_applied") {
+    if (
+      classifyRefundCustomerFactApplication({
+        outcome: "already_applied",
+        factVersion: receipt.factVersion,
+      }) !== "accepted" ||
+      !Array.isArray(receipt.appliedFields) ||
+      receipt.appliedFields.length === 0
+    ) throw new Error("refund_customer_fact_receipt_invalid");
+    if (receipt.appliedFields.some((field) => field !== "zelle_payment_contact")) {
+      await runAutomaticNayaxLookupIfReady({
+        supabase,
+        caseId: refundCaseId,
+        source: "customer_reply_recheck",
+        expectedFactVersion: receipt.factVersion,
+      });
+    }
+    return { allowRoutineContact: true };
+  }
+  if (receipt?.outcome !== "not_applied") {
+    throw new Error("refund_customer_fact_receipt_invalid");
+  }
+
+  const { data: correctionCycle, error: correctionCycleError } = await supabase
+    .from("refund_follow_up_cycles")
+    .select("reason_code,status,request_sent_at")
+    .eq("refund_case_id", refundCaseId)
+    .eq("reason_code", "no_safe_match")
+    .eq("status", "waiting")
+    .not("request_sent_at", "is", null)
+    .order("cycle_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (correctionCycleError) throw correctionCycleError;
+  const allowCustomerCorrection = Boolean(correctionCycle);
+
+  const currentPaymentMethod = String(current.payment_method ?? "")
+    .toLowerCase();
+  const resolvedReplyPaymentMethod = extracted.paymentMethod ??
+    currentPaymentMethod;
+  const hasCardOnlyReplyEvidence = Boolean(
+    extracted.cardNetwork || extracted.cardLast4 || extracted.walletProvider ||
+      ["phone_watch_wallet", "tap_card", "insert_or_swipe"].includes(
+        extracted.paymentInteraction ?? "",
+      ),
+  );
+  const storedWalletDigitsWouldBecomePhysical =
+    current.card_last4_provenance === "wallet_device_token" &&
+    ["tap_card", "insert_or_swipe"].includes(
+      extracted.paymentInteraction ?? "",
+    ) && !extracted.cardLast4;
+  const storedNonWalletDigitsWouldBecomeWallet =
+    /^\d{4}$/.test(String(current.card_last4 ?? "")) &&
+    current.card_last4_provenance !== "wallet_device_token" &&
+    extracted.paymentInteraction === "phone_watch_wallet";
+  if (
+    (hasCardOnlyReplyEvidence && resolvedReplyPaymentMethod !== "card") ||
+    storedWalletDigitsWouldBecomePhysical ||
+    storedNonWalletDigitsWouldBecomeWallet
+  ) {
+    const { error: updateError } = await supabase.from("refund_cases").update({
+      status: "needs_review",
+      automation_state: "under_review",
+      automation_follow_up_due_at: null,
+    }).eq("id", refundCaseId);
+    if (updateError) throw updateError;
+    const { error: eventError } = await supabase.from("refund_case_events")
+      .insert({
+        refund_case_id: refundCaseId,
+        event_type: "gmail_customer_message_routed_to_manager",
+        message:
+          "A verified customer email contained payment facts that conflicted with the stored card-digit provenance.",
+        metadata: {
+          reason: "conflicting_stored_payment_provenance",
+          payload_redacted: true,
+        },
+      });
+    if (eventError) throw eventError;
+    return { allowRoutineContact: false };
+  }
+
   const updates: Record<string, unknown> = {};
   const appliedFields: string[] = [];
   let resolvedMachine: RefundMachineFactCandidate | null = null;
-  if (extracted.locationOrMachine && !current.reporting_machine_id) {
+  if (
+    extracted.locationOrMachine &&
+    (!current.reporting_machine_id || allowCustomerCorrection)
+  ) {
     const { data: machines, error: machineError } = await supabase
       .from("reporting_machines")
       .select(
@@ -760,9 +1178,14 @@ const applyDeterministicCustomerReplyFacts = async ({
       candidates,
     );
     if (resolvedMachine) {
-      updates.reporting_machine_id = resolvedMachine.machineId;
-      updates.reporting_location_id = resolvedMachine.locationId;
-      appliedFields.push("location_or_machine");
+      if (
+        resolvedMachine.machineId !== current.reporting_machine_id ||
+        resolvedMachine.locationId !== current.reporting_location_id
+      ) {
+        updates.reporting_machine_id = resolvedMachine.machineId;
+        updates.reporting_location_id = resolvedMachine.locationId;
+        appliedFields.push("location_or_machine");
+      }
     }
   }
 
@@ -778,14 +1201,19 @@ const applyDeterministicCustomerReplyFacts = async ({
     const relation = Array.isArray(machine?.reporting_locations)
       ? machine?.reporting_locations[0]
       : machine?.reporting_locations;
-    if (relation?.status === "active") incidentTimezone = String(relation.timezone);
+    if (relation?.status === "active") {
+      incidentTimezone = String(relation.timezone);
+    }
   }
 
   const existingLocal = String(current.incident_local_datetime ?? "");
   const incidentDate = extracted.incidentDate || existingLocal.slice(0, 10);
   const incidentTime = extracted.incidentTime || existingLocal.slice(11, 16);
   if (
-    current.incident_time_resolution !== "exact" && incidentDate && incidentTime &&
+    (current.incident_time_resolution !== "exact" ||
+      (allowCustomerCorrection &&
+        (extracted.incidentDate || extracted.incidentTime))) && incidentDate &&
+    incidentTime &&
     incidentTimezone
   ) {
     const resolution = resolveLocalDateTimeInZone({
@@ -794,63 +1222,176 @@ const applyDeterministicCustomerReplyFacts = async ({
       timeZone: incidentTimezone,
     });
     if (resolution.instant && resolution.resolution === "exact") {
-      updates.incident_at = resolution.instant;
-      updates.incident_local_datetime = `${incidentDate}T${incidentTime}`;
-      updates.incident_timezone = incidentTimezone;
-      updates.incident_time_resolution = "exact";
-      if (extracted.incidentDate) appliedFields.push("incident_date");
-      if (extracted.incidentTime) appliedFields.push("incident_time");
+      const nextLocalDateTime = `${incidentDate}T${incidentTime}`;
+      if (
+        nextLocalDateTime !== String(current.incident_local_datetime ?? "")
+          .slice(0, 16) ||
+        incidentTimezone !== current.incident_timezone ||
+        current.incident_time_resolution !== "exact"
+      ) {
+        updates.incident_at = resolution.instant;
+        updates.incident_local_datetime = nextLocalDateTime;
+        updates.incident_timezone = incidentTimezone;
+        updates.incident_time_resolution = "exact";
+        if (extracted.incidentDate) appliedFields.push("incident_date");
+        if (extracted.incidentTime) appliedFields.push("incident_time");
+      }
     }
   }
 
-  const currentPaymentMethod = String(current.payment_method ?? "").toLowerCase();
-  if (!['card', 'cash'].includes(currentPaymentMethod) && extracted.paymentMethod) {
-    updates.payment_method = extracted.paymentMethod;
-    updates.card_wallet_used = extracted.cardWalletUsed;
+  const paymentMethodChanged = Boolean(
+    extracted.paymentMethod &&
+      extracted.paymentMethod !== currentPaymentMethod,
+  );
+  const walletStateChanged = extracted.cardWalletUsed !== null &&
+    extracted.cardWalletUsed !== current.card_wallet_used;
+  if (
+    (!["card", "cash"].includes(currentPaymentMethod) ||
+      allowCustomerCorrection) &&
+    (paymentMethodChanged || walletStateChanged)
+  ) {
+    if (extracted.paymentMethod) updates.payment_method = extracted.paymentMethod;
+    if (extracted.cardWalletUsed !== null) {
+      updates.card_wallet_used = extracted.cardWalletUsed;
+    }
     appliedFields.push("payment_method");
   }
   if (
-    (!Number.isInteger(current.payment_amount_cents) || Number(current.payment_amount_cents) <= 0) &&
-    extracted.amountCents
+    updates.payment_method === "card" &&
+    !extracted.paymentInteraction &&
+    current.payment_interaction === "cash"
+  ) {
+    updates.payment_interaction = "unsure";
+    appliedFields.push("payment_interaction");
+  }
+  if (
+    extracted.paymentInteraction &&
+    extracted.paymentInteraction !== current.payment_interaction
+  ) {
+    updates.payment_interaction = extracted.paymentInteraction;
+    if (extracted.paymentInteraction === "phone_watch_wallet") {
+      updates.payment_method = "card";
+      updates.card_wallet_used = true;
+    } else if (
+      ["tap_card", "insert_or_swipe"].includes(extracted.paymentInteraction)
+    ) {
+      updates.payment_method = "card";
+      updates.card_wallet_used = false;
+      if (current.wallet_provider) {
+        updates.wallet_provider = null;
+        appliedFields.push("wallet_provider");
+      }
+    } else if (extracted.paymentInteraction === "cash") {
+      updates.payment_method = "cash";
+      updates.card_wallet_used = false;
+      updates.card_last4 = null;
+      updates.card_last4_provenance = null;
+      if (current.wallet_provider) {
+        updates.wallet_provider = null;
+        appliedFields.push("wallet_provider");
+      }
+      if (current.card_last4) appliedFields.push("card_last4");
+      if (current.card_last4_provenance) {
+        appliedFields.push("card_last4_provenance");
+      }
+    }
+    appliedFields.push("payment_interaction");
+  }
+  if (
+    extracted.walletProvider &&
+    extracted.walletProvider !== current.wallet_provider
+  ) {
+    updates.wallet_provider = extracted.walletProvider;
+    updates.payment_method = "card";
+    updates.card_wallet_used = true;
+    updates.payment_interaction = "phone_watch_wallet";
+    appliedFields.push("wallet_provider");
+  }
+  if (
+    extracted.cardNetwork &&
+    extracted.cardNetwork !== current.card_network
+  ) {
+    updates.card_network = extracted.cardNetwork;
+    appliedFields.push("card_network");
+  }
+  if (
+    (
+      !Number.isInteger(current.payment_amount_cents) ||
+      Number(current.payment_amount_cents) <= 0 ||
+      allowCustomerCorrection
+    ) &&
+    extracted.amountCents &&
+    extracted.amountCents !== Number(current.payment_amount_cents)
   ) {
     updates.payment_amount_cents = extracted.amountCents;
     updates.refund_amount_cents = extracted.amountCents;
     appliedFields.push("amount");
   }
-  const walletUsed = updates.card_wallet_used === true || current.card_wallet_used === true;
-  const paymentMethod = String(updates.payment_method ?? current.payment_method ?? "").toLowerCase();
+  const walletUsed = updates.card_wallet_used === true ||
+    (updates.card_wallet_used === undefined && current.card_wallet_used === true);
+  const paymentMethod = String(
+    updates.payment_method ?? current.payment_method ?? "",
+  ).toLowerCase();
   if (
-    paymentMethod === "card" && !walletUsed && !/^\d{4}$/.test(String(current.card_last4 ?? "")) &&
-    extracted.cardLast4
+    paymentMethod === "card" && !walletUsed &&
+    (!/^\d{4}$/.test(String(current.card_last4 ?? "")) ||
+      allowCustomerCorrection) &&
+    extracted.cardLast4 &&
+    extracted.cardLast4 !== String(current.card_last4 ?? "")
   ) {
     updates.card_last4 = extracted.cardLast4;
     appliedFields.push("card_last4");
   }
+  if (
+    extracted.cardLast4Provenance &&
+    /^\d{4}$/.test(String(extracted.cardLast4 ?? current.card_last4 ?? "")) &&
+    extracted.cardLast4Provenance !== current.card_last4_provenance
+  ) {
+    updates.card_last4_provenance = extracted.cardLast4Provenance;
+    appliedFields.push("card_last4_provenance");
+  }
+  if (
+    paymentMethod === "cash" &&
+    !String(current.zelle_payment_contact ?? "").trim() &&
+    extracted.zellePaymentContact
+  ) {
+    updates.zelle_payment_contact = extracted.zellePaymentContact;
+    appliedFields.push("zelle_payment_contact");
+  }
 
   if (appliedFields.length === 0) return { allowRoutineContact: true };
-  updates.automation_state = "customer_replied";
-  updates.automation_follow_up_due_at = null;
-  const { data: updated, error: updateError } = await supabase.from("refund_cases")
-    .update(updates)
-    .eq("id", refundCaseId)
-    .eq("deterministic_fact_version", current.deterministic_fact_version)
-    .select("id")
-    .maybeSingle();
-  if (updateError) throw updateError;
-  if (updated) {
-    const { error: eventError } = await supabase.from("refund_case_events").insert({
-      refund_case_id: refundCaseId,
-      event_type: "gmail_customer_facts_applied",
-      message:
-        "Unambiguous labeled facts from a verified customer reply were added to the refund case.",
-      metadata: {
-        source_message_id: sourceMessageId,
-        applied_fields: appliedFields,
-        extraction_policy: "labeled_routine_facts_v1",
-        payload_redacted: true,
-      },
+  const application = await rpc<RefundCustomerFactApplicationResult>(
+    "service_apply_refund_gmail_customer_facts_v1",
+    {
+      p_refund_case_id: refundCaseId,
+      p_gmail_message_id: sourceMessageId,
+      p_expected_fact_version: current.deterministic_fact_version,
+      p_updates: updates,
+      p_applied_fields: [...new Set(appliedFields)],
+      p_extraction_policy: allowCustomerCorrection
+        ? "labeled_customer_correction_v3"
+        : "labeled_routine_facts_v1",
+    },
+  );
+  if (
+    application?.outcome === "skipped" &&
+    application.reason === "authoritative_receipt_recorded"
+  ) return { allowRoutineContact: false };
+  if (classifyRefundCustomerFactApplication(application) !== "accepted") {
+    throw new Error("refund_customer_fact_application_conflict");
+  }
+  // Concurrent application can return already_applied. Bind the recheck to
+  // that receipt's version, never to newer facts from a different correction.
+  if (!(
+    appliedFields.length === 1 &&
+    appliedFields[0] === "zelle_payment_contact"
+  )) {
+    await runAutomaticNayaxLookupIfReady({
+      supabase,
+      caseId: refundCaseId,
+      source: "customer_reply_recheck",
+      expectedFactVersion: application.factVersion,
     });
-    if (eventError) throw eventError;
   }
   return { allowRoutineContact: true };
 };
@@ -1190,6 +1731,24 @@ const runRetentionSweep = async ({
       failureCode = "cleanup_batch_incomplete";
     }
 
+    const intakePurge = await rpc(
+      "service_purge_refund_gmail_intake_contacts",
+      {
+        p_run_id: runId,
+        p_run_token: runToken,
+        p_limit: 500,
+      },
+    );
+    if (
+      (
+        intakePurge?.purged !== true ||
+        Number(intakePurge?.remainingDue ?? 0) > 0
+      ) && requestedOutcome !== "manual_review"
+    ) {
+      requestedOutcome = "retry_required";
+      failureCode = "cleanup_batch_incomplete";
+    }
+
     const settlement = await rpc("service_settle_refund_gmail_retention_run", {
       p_run_id: runId,
       p_run_token: runToken,
@@ -1271,17 +1830,18 @@ serve(async (request) => {
   if (request.method !== "POST") {
     return jsonResponse({ error: "Method not allowed." }, 405);
   }
-  if (!authorize(request)) return jsonResponse({ error: "Unauthorized." }, 401);
-  if (!supabase) {
-    return jsonResponse({ error: "Refund Gmail sync is not configured." }, 500);
-  }
-
   const body = await request.json().catch(() => ({})) as Record<
     string,
     unknown
   >;
   const requestedTrigger = sanitizeText(body.trigger, 40).toLowerCase() ||
     "scheduled";
+  if (!authorize(request, requestedTrigger)) {
+    return jsonResponse({ error: "Unauthorized." }, 401);
+  }
+  if (!supabase) {
+    return jsonResponse({ error: "Refund Gmail sync is not configured." }, 500);
+  }
   const runKey = sanitizeText(body.runKey, 255);
   const validRunKey = requestedTrigger === REFUND_GMAIL_INTAKE_SHADOW_TRIGGER
     ? isRefundGmailIntakeShadowRunKey(runKey, requestedTrigger)
@@ -1360,7 +1920,11 @@ serve(async (request) => {
       const summary = await runRetentionSweep({
         runKey: refundGmailRetentionLedgerRunKey(
           runKey,
-          triggerSource as "manual" | "scheduled",
+          triggerSource as
+            | "manual"
+            | "scheduled"
+            | "scheduler_primary"
+            | "scheduler_recovery",
         ),
         triggerSource: "pre_sync",
       });
@@ -1407,14 +1971,15 @@ serve(async (request) => {
     : await sha256Hex("not-configured");
   const enabled = triggerSource === "failure_test" ||
     (intakeShadow ? Boolean(config) : isEnabled() && Boolean(config));
-  const startDatabaseRun = () => rpc("service_start_refund_gmail_sync", {
-    p_run_key: runKey,
-    p_trigger_source: triggerSource,
-    p_started_at: new Date().toISOString(),
-    p_mailbox_hash: mailboxHash,
-    p_label_hash: labelHash,
-    p_enabled: enabled,
-  });
+  const startDatabaseRun = () =>
+    rpc("service_start_refund_gmail_sync", {
+      p_run_key: runKey,
+      p_trigger_source: triggerSource,
+      p_started_at: new Date().toISOString(),
+      p_mailbox_hash: mailboxHash,
+      p_label_hash: labelHash,
+      p_enabled: enabled,
+    });
   let start;
   if (intakeShadow) {
     try {
@@ -1491,6 +2056,10 @@ serve(async (request) => {
     mailboxAcknowledgementObserved: false,
     managerNoticeShadowed: 0,
     managerNoticeSentEvents: 0,
+    appealsReceived: 0,
+    appealConfirmationsSent: 0,
+    appealConfirmationsFailed: 0,
+    appealConfirmationsSuppressed: 0,
   };
 
   if (triggerSource === "failure_test") {
@@ -1529,6 +2098,17 @@ serve(async (request) => {
     }
     if (!intakeShadow) {
       await rpc<number>(
+        "service_mark_stale_refund_gmail_contact_responses_unknown",
+        {
+          p_stale_before: new Date(Date.now() - 15 * 60 * 1000)
+            .toISOString(),
+        },
+      ).catch(() => {
+        counters.firstContactFailed += 1;
+        counters.messagesFailed += 1;
+        return 0;
+      });
+      await rpc<number>(
         "service_mark_stale_refund_gmail_first_contacts_unknown",
         {
           p_stale_before: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
@@ -1558,6 +2138,7 @@ serve(async (request) => {
       const profile = await verifyRefundGmailMailbox(config);
       profileHistoryId = sanitizeText(profile.historyId, 255) || null;
       await reconcileOutstandingFirstContacts({ config, counters });
+      await reconcileOutstandingContactResponses({ config, counters });
       await reconcileOutstandingOutbound({ config, counters });
     }
     const maxThreads = intakeShadow ? 1 : Math.min(
@@ -1595,11 +2176,12 @@ serve(async (request) => {
             })()
           );
           if (intakeShadow) {
-            const intakeThreadShape = await validateRefundGmailIntakeShadowThread({
-              messages,
-              config,
-              intake: activeIntakeShadow!,
-            });
+            const intakeThreadShape =
+              await validateRefundGmailIntakeShadowThread({
+                messages,
+                config,
+                intake: activeIntakeShadow!,
+              });
             counters.mailboxAcknowledgementObserved =
               intakeThreadShape.mailboxAcknowledgementObserved;
           }
@@ -1655,13 +2237,19 @@ serve(async (request) => {
               const rawBody = extractPlainTextBody(message.payload);
               const redactedSubject = redactPaymentCardNumbers(rawSubject);
               const redactedBody = redactPaymentCardNumbers(rawBody);
+              const existingCaseContext = direction === "inbound" &&
+                  participantTrust === "direct_human"
+                ? extractLabeledRefundEmailFacts(redactedBody.text)
+                : null;
               const attachmentDescriptors =
                 refundEmailPilotAttachmentsEnabled &&
                   direction === "inbound" && !isBounce
                   ? collectAttachmentDescriptors(message.payload)
                   : [];
               const ingestion = await rpc(
-                "service_ingest_refund_gmail_message_v2",
+                intakeShadow
+                  ? "service_ingest_refund_gmail_message_v2"
+                  : "service_ingest_refund_gmail_contact_v2",
                 {
                   p_mailbox_hash: mailboxHash,
                   p_provider_thread_id: providerThreadId,
@@ -1695,11 +2283,26 @@ serve(async (request) => {
                   p_is_hard_bounce: isHardBounce,
                   p_failed_recipient_emails:
                     participantSignals.failedRecipientEmails,
+                  ...(!intakeShadow
+                    ? {
+                      p_contextual_facts: existingCaseContext
+                        ? {
+                          locationOrMachine:
+                            existingCaseContext.locationOrMachine,
+                          incidentDate: existingCaseContext.incidentDate,
+                          paymentMethod: existingCaseContext.paymentMethod,
+                          amountCents: existingCaseContext.amountCents,
+                          payloadRedacted: true,
+                        }
+                        : { payloadRedacted: true },
+                    }
+                    : {}),
                 },
               );
               if (ingestion?.created) counters.messagesCreated += 1;
               if (ingestion?.duplicate) counters.messagesDeduplicated += 1;
               const caseId = sanitizeText(ingestion?.caseId, 80);
+              const contactId = sanitizeText(ingestion?.contactId, 80);
               const internalMessageId = sanitizeText(ingestion?.messageId, 80);
               const publicReference =
                 sanitizeText(ingestion?.publicReference, 80) || "refund case";
@@ -1710,26 +2313,50 @@ serve(async (request) => {
               const automaticContactPaused =
                 ingestion?.automaticCustomerContactPaused === true;
               let allowRoutineContact = true;
+              const appealId = sanitizeText(ingestion?.appealId, 80);
+              const appealReceived = ingestion?.appealReceived === true &&
+                Boolean(appealId);
+              if (!intakeShadow && appealReceived) {
+                counters.appealsReceived += 1;
+                allowRoutineContact = false;
+                const appealResult = await processDenialAppealConfirmation({
+                  appealId,
+                  publicReference,
+                  customerName: from.name,
+                  customerEmail: from.email,
+                  counters,
+                });
+                if (appealResult.failed) counters.messagesFailed += 1;
+              }
               if (
-                !intakeShadow && ingestion?.created && caseId &&
+                !intakeShadow && !appealReceived &&
+                (ingestion?.created || ingestion?.duplicate) &&
+                caseId &&
                 internalMessageId && participantRole === "customer"
               ) {
                 try {
-                  const factResult = await applyDeterministicCustomerReplyFacts({
-                    refundCaseId: caseId,
-                    sourceMessageId: internalMessageId,
-                    body: redactedBody.text,
-                    sensitiveDataRedacted: redactedSubject.redacted ||
-                      redactedBody.redacted,
-                  });
+                  const factResult = await applyDeterministicCustomerReplyFacts(
+                    {
+                      refundCaseId: caseId,
+                      sourceMessageId: internalMessageId,
+                      body: redactedBody.text,
+                      sensitiveDataRedacted: redactedSubject.redacted ||
+                        redactedBody.redacted,
+                    },
+                  );
                   allowRoutineContact = factResult.allowRoutineContact;
                 } catch (error) {
                   allowRoutineContact = false;
                   counters.messagesFailed += 1;
-                  console.error("refund Gmail deterministic fact update failed", {
-                    errorType: error instanceof Error ? error.name : typeof error,
-                    payloadRedacted: true,
-                  });
+                  console.error(
+                    "refund Gmail deterministic fact update failed",
+                    {
+                      errorType: error instanceof Error
+                        ? error.name
+                        : typeof error,
+                      payloadRedacted: true,
+                    },
+                  );
                 }
               }
               if (
@@ -1760,12 +2387,16 @@ serve(async (request) => {
                 counters.attachmentsQuarantined += attachmentResult.quarantined;
                 counters.messagesFailed += attachmentResult.failed;
               }
+              const firstContactContextReady = intakeShadow
+                ? Boolean(caseId)
+                : ingestion?.contactOnly === true && Boolean(contactId);
               return participantRole === "customer" && allowRoutineContact &&
-                  caseId && internalMessageId
+                  firstContactContextReady && internalMessageId
                 ? {
-                  refundCaseId: caseId,
+                  refundCaseId: caseId || undefined,
+                  contactId: contactId || undefined,
                   sourceMessageId: internalMessageId,
-                  publicReference,
+                  publicReference: caseId ? publicReference : undefined,
                   customerName: from.name,
                   customerEmail: from.email,
                 }

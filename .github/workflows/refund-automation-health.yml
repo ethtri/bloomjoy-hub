@@ -2,8 +2,8 @@ name: Refund Automation Health
 
 on:
   schedule:
-    # Independent hourly freshness check for a missed or repeatedly failing sweep.
-    - cron: '43 * * * *'
+    # External fallback for the primary Supabase health schedule.
+    - cron: '13,43 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -38,7 +38,13 @@ jobs:
           node --input-type=module <<'NODE'
           const url = process.env.REFUND_AUTOMATION_SWEEP_URL;
           const token = process.env.REFUND_AUTOMATION_SWEEP_TOKEN;
-          const runKey = `health_check:${process.env.GITHUB_RUN_ID}`;
+          const scheduledAt = new Date(
+            Math.floor(Date.now() / (30 * 60 * 1000)) * 30 * 60 * 1000,
+          );
+          const scheduledBucketKey = `${scheduledAt.toISOString()
+            .slice(0, 16)
+            .replace(/[-:]/g, '')}Z`;
+          const runKey = `health_check:${scheduledBucketKey}`;
           const response = await fetch(url, {
             method: 'POST',
             headers: {
@@ -48,7 +54,7 @@ jobs:
             body: JSON.stringify({
               mode: 'health_check',
               runKey,
-              scheduledAt: new Date().toISOString(),
+              scheduledAt: scheduledAt.toISOString(),
             }),
           });
           const raw = await response.text();
@@ -66,6 +72,7 @@ jobs:
             healthStatus: body.healthStatus ?? null,
             lastSuccessAt: body.lastSuccessAt ?? null,
             alertStatus: body.alertStatus ?? null,
+            notificationType: body.notificationType ?? null,
             actionsAttempted: body.actionsAttempted ?? 0,
             actionsSucceeded: body.actionsSucceeded ?? 0,
             actionsFailed: body.actionsFailed ?? 0,

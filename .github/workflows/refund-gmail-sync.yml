@@ -2,7 +2,9 @@ name: Refund Gmail Sync
 
 on:
   schedule:
-    - cron: "3,13,23,33,43,53 * * * *"
+    # Preserve the ten-minute cadence while avoiding minute-zero load and
+    # re-registering the active schedule after the production cadence stalled.
+    - cron: "6,16,26,36,46,56 * * * *"
   workflow_dispatch:
     inputs:
       mode:

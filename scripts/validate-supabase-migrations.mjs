@@ -10,6 +10,8 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { createAuthenticatedEvidenceFragment } from './refunds/refund-uat-fragment-provenance.mjs';
 import { getRefundGmailIntakeShadowOwnerQuerySnapshots } from './refunds/refund-gmail-intake-shadow-runner-clients.mjs';
+import { writePopulatedDeliveryUpgradeTest, writeSettledCompletionDeliveryTest } from './refunds/refund-populated-delivery-upgrade.mjs';
+import { writeReceiptWrapperParityTest } from './refunds/refund-receipt-wrapper-parity.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -150,6 +152,16 @@ function getSqlFiles(directory) {
     .sort();
 }
 
+function normalizeSqlLineEndings(directory) {
+  for (const sqlFile of getSqlFiles(directory)) {
+    const source = fs.readFileSync(sqlFile, 'utf8');
+    const normalized = source.replaceAll('\r\n', '\n');
+    if (normalized !== source) {
+      fs.writeFileSync(sqlFile, normalized, 'utf8');
+    }
+  }
+}
+
 export function getDatabaseEvidenceExpectations() {
   return {
     migrationCount: getMigrationFiles().length,
@@ -262,6 +274,7 @@ function writeTempSupabaseProject(tempRoot, projectId, dbPort, shadowPort) {
       recursive: true,
     });
   }
+  normalizeSqlLineEndings(tempSupabaseDir);
 
   const config = `project_id = "${projectId}"
 
@@ -384,6 +397,36 @@ async function main() {
 
     run('supabase', args, { stdio: 'inherit' });
     log('\nSupabase migration apply validation passed.');
+
+    const { testPath: receiptParityPath, testRelativePath: receiptParityRelativePath } =
+      writeReceiptWrapperParityTest(repoRoot, tempRoot);
+    const runReceiptWrapperParity = () => {
+      const args = ['test', 'db', receiptParityRelativePath, '--workdir', tempRoot];
+      if (options.debug) args.push('--debug');
+      run('supabase', args, { relayOutput: true, cwd: tempRoot });
+    };
+    runReceiptWrapperParity();
+    log('Fresh receipt wrappers and current core delegates have exact source/privilege parity.');
+
+    run(process.execPath, ['--test', path.join(__dirname, 'refunds', 'refund-populated-delivery-upgrade.test.mjs')], { relayOutput: true });
+    const { testPath: populatedUpgradePath, testRelativePath: populatedUpgradeRelativePath } =
+      writePopulatedDeliveryUpgradeTest(repoRoot, tempRoot);
+    const populatedUpgradeArgs = ['test', 'db', populatedUpgradeRelativePath, '--workdir', tempRoot];
+    if (options.debug) populatedUpgradeArgs.push('--debug');
+    run('supabase', populatedUpgradeArgs, { relayOutput: true, cwd: tempRoot });
+    fs.rmSync(populatedUpgradePath);
+    log('Populated out-of-order delivery migration regression passed with all triggers enabled.');
+
+    const { testPath: settledDeliveryPath, testRelativePath: settledDeliveryRelativePath } =
+      writeSettledCompletionDeliveryTest(repoRoot, tempRoot);
+    const settledDeliveryArgs = ['test', 'db', settledDeliveryRelativePath, '--workdir', tempRoot];
+    if (options.debug) settledDeliveryArgs.push('--debug');
+    run('supabase', settledDeliveryArgs, { relayOutput: true, cwd: tempRoot });
+    fs.rmSync(settledDeliveryPath);
+    log('Settled token-bound completion delivery regression passed with all triggers enabled.');
+    runReceiptWrapperParity();
+    fs.rmSync(receiptParityPath);
+    log('Receipt wrapper/core composition remains exact after populated upgrade regressions.');
 
     const { testPath: ownerAdapterTestPath, testRelativePath: ownerAdapterTestRelativePath } =
       writeRefundGmailIntakeShadowAdapterTest(tempRoot);

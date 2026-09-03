@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
   buildNayaxRecommendation,
+  NAYAX_RECOMMENDATION_POLICY,
   toPublicNayaxCandidate,
 } from "../../supabase/functions/_shared/nayax-recommendation.mjs";
 import { resolveLocalDateTimeInZone } from "../../supabase/functions/_shared/timezone-resolution.mjs";
@@ -18,6 +19,7 @@ const sale = ({
   currency = "USD",
   status = "Approved",
   recognitionMethod = "Chip",
+  cardBrand = "Visa",
   siteId = 501,
   extra = {},
 }) => ({
@@ -25,11 +27,13 @@ const sale = ({
   MachineID: machineId,
   SiteID: siteId,
   AuthorizationDateTimeGMT: at,
+  MachineAuthorizationTime: at,
   AuthorizationValue: amount,
   CurrencyCode: currency,
   CardNumber: last4 ? `************${last4}` : "",
   PaymentStatus: status,
   RecognitionMethod: recognitionMethod,
+  CardBrand: cardBrand,
   ...extra,
 });
 
@@ -43,17 +47,68 @@ const recommend = (records, overrides = {}) =>
     requestAmountCents: 700,
     requestCardLast4: "4242",
     cardWalletUsed: false,
+    providerContract: "nayax_machine_last_sales_v1",
     ...overrides,
   });
 
 const exact = recommend([
   sale({ id: "exact" }),
-  sale({ id: "exact-distractor", at: "2026-07-21T19:02:00.000Z", amount: 8.5 }),
+  sale({ id: "exact-distractor", at: "2026-07-21T19:02:00.000Z", amount: 8.5, last4: "9999" }),
 ]);
 assert.equal(exact.recommendationState, "high_confidence");
 assert.equal(exact.confidenceClass, "strong_card");
 assert.equal(exact.candidates[0].transactionId, "exact");
 assert.equal(exact.candidates[0].oneClickEligible, true);
+
+const exactNetwork = recommend([sale({ id: "exact-network", cardBrand: "MasterCard" })], {
+  requestCardNetwork: "mastercard",
+});
+assert.equal(exactNetwork.candidates[0].cardNetwork, "mastercard");
+assert.ok(exactNetwork.candidates[0].reasonCodes.includes("card_network_match"));
+assert.equal(
+  exactNetwork.candidates[0].matchFactors.some(
+    (factor) => factor.key === "card_network" && factor.outcome === "match",
+  ),
+  true,
+);
+
+const physicalNetworkMismatch = recommend(
+  [sale({ id: "physical-network-mismatch", cardBrand: "Visa" })],
+  { requestCardNetwork: "american_express" },
+);
+assert.ok(physicalNetworkMismatch.candidates[0].reasonCodes.includes("physical_card_network_mismatch"));
+assert.equal(physicalNetworkMismatch.candidates[0].selectionAllowed, false);
+assert.equal(
+  physicalNetworkMismatch.candidates[0].hardExclusions.includes("card_network_mismatch"),
+  true,
+  "a physical card-network mismatch must keep an otherwise exact candidate unselectable",
+);
+
+const walletNetworkMismatch = recommend(
+  [sale({ id: "wallet-network-mismatch", cardBrand: "Amex", recognitionMethod: "Apple Pay" })],
+  { requestCardNetwork: "visa", cardWalletUsed: true },
+);
+assert.ok(walletNetworkMismatch.candidates[0].reasonCodes.includes("wallet_card_network_mismatch"));
+assert.equal(walletNetworkMismatch.candidates[0].oneClickEligible, false);
+
+const walletDifferentAmount = recommend(
+  [sale({ id: "wallet-different-amount", amount: 9, cardBrand: "Discover", recognitionMethod: "Apple Pay" })],
+  { requestCardNetwork: "discover", cardWalletUsed: true },
+);
+assert.equal(walletDifferentAmount.recommendationState, "high_confidence");
+assert.equal(walletDifferentAmount.candidates[0].oneClickEligible, false);
+
+const networkOnlyBaseline = recommend(
+  [sale({ id: "network-only-baseline", amount: 9, last4: "" })],
+  { requestCardLast4: "", requestCardNetwork: null },
+);
+const networkOnlyMatch = recommend(
+  [sale({ id: "network-only-match", amount: 9, last4: "", cardBrand: "Visa" })],
+  { requestCardLast4: "", requestCardNetwork: "visa" },
+);
+assert.equal(networkOnlyMatch.recommendationState, networkOnlyBaseline.recommendationState);
+assert.equal(networkOnlyMatch.candidates[0].selectionAllowed, networkOnlyBaseline.candidates[0].selectionAllowed);
+assert.equal(networkOnlyMatch.candidates[0].oneClickEligible, false);
 
 const nearTime = recommend([sale({ id: "near", at: "2026-07-21T19:45:00.000Z" })]);
 assert.equal(nearTime.recommendationState, "high_confidence");
@@ -69,8 +124,8 @@ assert.ok(customerTimeWithin15Minutes.reasonCodes.includes("customer_time_within
 const customerTimeWithinHour = recommend([sale({ id: "time-within-hour" })], {
   incidentTimeConfidence: "within_1_hour",
 });
-assert.equal(customerTimeWithinHour.recommendationState, "manual_exception");
-assert.equal(customerTimeWithinHour.oneClickEligible, false);
+assert.equal(customerTimeWithinHour.recommendationState, "high_confidence");
+assert.equal(customerTimeWithinHour.oneClickEligible, true);
 assert.ok(customerTimeWithinHour.reasonCodes.includes("customer_time_within_1_hour"));
 
 const customerTimeRough = recommend([sale({ id: "time-rough" })], {
@@ -80,7 +135,7 @@ assert.equal(customerTimeRough.recommendationState, "manual_exception");
 assert.equal(customerTimeRough.oneClickEligible, false);
 assert.ok(customerTimeRough.reasonCodes.includes("customer_time_rough"));
 
-const wrongAmount = recommend([sale({ id: "wrong-amount", amount: 9.5 })]);
+const wrongAmount = recommend([sale({ id: "wrong-amount", amount: 10.01 })]);
 assert.equal(wrongAmount.recommendationState, "manual_exception");
 assert.equal(wrongAmount.oneClickEligible, false);
 
@@ -95,6 +150,47 @@ const collision = recommend([
 assert.equal(collision.recommendationState, "ambiguous");
 assert.equal(collision.candidates.some((candidate) => candidate.oneClickEligible), false);
 assert.equal(collision.candidates.some((candidate) => candidate.isRecommended), false);
+
+// Customer estimates may omit tax or round the total. The provider amount is retained.
+for (const deltaCents of [-301, -300, -100, -10, 0, 10, 100, 300, 301]) {
+  for (const deltaMinutes of [-61, -60, -25, 25, 60, 61]) {
+    const amount = (700 + deltaCents) / 100;
+    const at = new Date(Date.parse(incidentAt) + deltaMinutes * 60_000).toISOString();
+    const result = recommend([sale({ id: "estimated-total", amount, at })], {
+      incidentTimeConfidence: "within_1_hour",
+    });
+    const eligible = Math.abs(deltaCents) <= 300 && Math.abs(deltaMinutes) <= 60;
+    assert.equal(result.recommendationState, eligible ? "high_confidence" : "manual_exception");
+    assert.equal(result.oneClickEligible, eligible);
+    assert.equal(result.candidates[0].amountCents, 700 + deltaCents);
+    assert.equal(result.candidates[0].amountDeltaCents, Math.abs(deltaCents));
+    if (eligible && deltaCents !== 0) {
+      assert.ok(result.reasonCodes.includes("amount_within_tolerance"));
+      assert.ok(!result.candidates[0].manualReviewReasons.includes("amount_uncertain"));
+      assert.match(result.candidates[0].matchReason, /may reflect tax or rounding/);
+    }
+  }
+}
+
+const similarPurchases = [
+  sale({ id: "same-card-exact" }),
+  sale({ id: "same-card-near", at: "2026-07-21T19:25:00.000Z", amount: 7.1 }),
+];
+for (const candidateLimit of [1, 10]) {
+  const result = recommend(similarPurchases, {
+    policy: { ...NAYAX_RECOMMENDATION_POLICY, candidateLimit },
+  });
+  assert.equal(result.recommendationState, "ambiguous", "display limits cannot hide a competing purchase");
+  assert.equal(result.oneClickEligible, false);
+  assert.equal(result.candidates.some((candidate) => candidate.isRecommended), false);
+}
+
+const midnightEstimate = recommend([sale({
+  id: "midnight-estimate", at: "2026-07-22T06:50:00Z", amount: 7.1,
+  extra: { MachineAuthorizationTime: "2026-07-21T23:50:00" },
+})], { incidentAt: "2026-07-22T07:15:00Z", incidentTimeConfidence: "within_1_hour" });
+assert.equal(midnightEstimate.recommendationState, "high_confidence");
+assert.equal(midnightEstimate.candidates[0].timeDeltaMinutes, 25);
 
 const walletMismatch = recommend(
   [sale({ id: "wallet", last4: "9999", recognitionMethod: "Apple Pay" })],
@@ -269,6 +365,37 @@ const unconfirmedProviderStatus = recommend([sale({ id: "unconfirmed", status: "
 assert.equal(unconfirmedProviderStatus.recommendationState, "manual_exception");
 assert.equal(unconfirmedProviderStatus.oneClickEligible, false);
 
+const documentedLastSale = sale({ id: "documented-last-sale" });
+delete documentedLastSale.PaymentStatus;
+const documentedLastSalesStatus = recommend([documentedLastSale]);
+assert.equal(documentedLastSalesStatus.recommendationState, "high_confidence");
+assert.equal(documentedLastSalesStatus.oneClickEligible, true);
+assert.equal(documentedLastSalesStatus.candidates[0].paymentStatus, "approved");
+assert.ok(documentedLastSalesStatus.candidates[0].reasonCodes.includes("provider_last_sales_record"));
+
+const unverifiedMissingStatus = recommend([documentedLastSale], { providerContract: "unverified" });
+assert.equal(unverifiedMissingStatus.recommendationState, "manual_exception");
+assert.equal(unverifiedMissingStatus.oneClickEligible, false);
+
+const declinedCamelStatus = { ...documentedLastSale, paymentStatus: "Declined" };
+const declinedCamelResult = recommend([declinedCamelStatus]);
+assert.equal(declinedCamelResult.recommendationState, "manual_exception");
+assert.equal(declinedCamelResult.candidates[0].selectionAllowed, false);
+
+const unknownSnakeStatus = { ...documentedLastSale, payment_status: "Processing" };
+const unknownSnakeResult = recommend([unknownSnakeStatus]);
+assert.equal(unknownSnakeResult.recommendationState, "manual_exception");
+assert.equal(unknownSnakeResult.oneClickEligible, false);
+
+const contradictoryStatuses = sale({
+  id: "contradictory-statuses",
+  status: "Approved",
+  extra: { TransactionStatus: "Declined" },
+});
+const contradictoryStatusResult = recommend([contradictoryStatuses]);
+assert.equal(contradictoryStatusResult.recommendationState, "manual_exception");
+assert.equal(contradictoryStatusResult.candidates[0].selectionAllowed, false);
+
 const missingProviderSite = recommend([sale({ id: "missing-site", siteId: null })]);
 assert.equal(missingProviderSite.recommendationState, "manual_exception");
 assert.equal(missingProviderSite.oneClickEligible, false);
@@ -358,6 +485,75 @@ const providerLocalDst = recommend(
 assert.equal(providerLocalDst.recommendationState, "high_confidence");
 assert.equal(providerLocalDst.candidates[0].authorizedAt, incidentAt);
 
+// Synthetic source values deliberately have different machine/GMT seconds.
+const separateMachineClock = recommend([sale({
+  id: "separate-machine-clock",
+  extra: { MachineAuthorizationTime: "2026-07-21T11:59:58.810" },
+})]);
+assert.equal(separateMachineClock.candidates[0].authorizedAt, incidentAt);
+assert.equal(separateMachineClock.candidates[0].timeDeltaMinutes, 0);
+assert.equal(separateMachineClock.candidates[0].machineAuthorizationTime, "2026-07-21T18:59:58.810Z");
+assert.equal(separateMachineClock.candidates[0].machineAuthorizationTimeRaw, "2026-07-21T11:59:58.810");
+
+for (const raw of ["2026-07-21T12:00:00.1234567", "2026-07-21T12:00:00.1234567-07:00"]) {
+  const result = recommend([sale({ id: "fractional-machine-clock", extra: {
+    AuthorizationDateTimeGMT: undefined, MachineAuthorizationTime: raw,
+  } })]);
+  assert.equal(result.candidates[0].authorizedAt, "2026-07-21T19:00:00.123Z");
+  assert.equal(result.candidates[0].machineAuthorizationTime, "2026-07-21T19:00:00.123Z");
+  assert.equal(result.candidates[0].machineAuthorizationTimeRaw, raw);
+  assert.equal(result.candidates[0].machineTimeResolution, "exact");
+}
+
+for (const raw of [undefined, null, 123, "", "2026-02-30T12:00:00Z", "2026-07-21T25:00:00", "bad identity", "x".repeat(81)]) {
+  const result = recommend([sale({ id: "missing-machine-clock", extra: { MachineAuthorizationTime: raw } })]);
+  assert.equal(result.candidateCount, 0, "GMT cannot supply a missing/malformed machine identity");
+  assert.equal(result.providerWindowRecordCount, 1, "the readable GMT record is still counted");
+  assert.equal(result.oneClickEligible, false);
+}
+
+for (const raw of [undefined, "invalid machine clock"]) {
+  const valid = sale({ id: "mixed-source-duplicate" });
+  const invalid = sale({ id: "mixed-source-duplicate", extra: { MachineAuthorizationTime: raw } });
+  for (const records of [[valid, invalid], [invalid, valid]]) {
+    const result = recommend(records);
+    assert.equal(result.candidateCount, 1);
+    assert.equal(result.candidates[0].duplicateProviderRecord, true);
+    assert.ok(result.candidates[0].manualReviewReasons.includes("duplicate_provider_record"));
+    assert.equal(result.oneClickEligible, false);
+  }
+}
+
+const invalidMachineZone = recommend([sale({ id: "invalid-machine-zone", extra: {
+  MachineAuthorizationTime: "2026-07-21T12:00:00.810",
+} })], { locationTimezone: "not/a-zone" });
+assert.equal(invalidMachineZone.candidateCount, 0);
+const nonexistentMachineClock = recommend([sale({
+  id: "nonexistent-machine-clock", at: "2026-03-08T10:30:00Z",
+  extra: { MachineAuthorizationTime: "2026-03-08T02:30:00.810" },
+})], { incidentAt: "2026-03-08T10:30:00Z" });
+assert.equal(nonexistentMachineClock.candidateCount, 0);
+
+const ambiguousMachineClock = recommend([sale({
+  id: "ambiguous-machine-clock", at: "2026-11-01T08:30:00Z",
+  extra: { MachineAuthorizationTime: "2026-11-01T01:30:00.810" },
+})], { incidentAt: "2026-11-01T08:30:00Z" });
+assert.equal(ambiguousMachineClock.candidateCount, 1);
+assert.equal(ambiguousMachineClock.candidates[0].machineTimeResolution, "ambiguous");
+assert.equal(ambiguousMachineClock.candidates[0].machineAuthorizationTimeRaw, "2026-11-01T01:30:00.810");
+assert.equal(ambiguousMachineClock.oneClickEligible, false, "an exact GMT field cannot resolve a machine DST fold");
+
+const recommendationUrl = new URL("../../supabase/functions/_shared/nayax-recommendation.mjs", import.meta.url).href;
+const clockInput = {
+  payload: [sale({ id: "host-independent-clock", extra: { MachineAuthorizationTime: "2026-07-21T11:59:58.810" } })],
+  incidentAt, expectedMachineId, locationTimezone: "America/Los_Angeles", requestAmountCents: 700,
+  requestCardLast4: "4242", cardWalletUsed: false, providerContract: "nayax_machine_last_sales_v1",
+};
+const machineClockFromHost = (hostTimezone) => execFileSync(process.execPath, ["--input-type=module", "--eval",
+  `import { buildNayaxRecommendation } from ${JSON.stringify(recommendationUrl)}; console.log(JSON.stringify(buildNayaxRecommendation(${JSON.stringify(clockInput)})));`,
+], { env: { ...process.env, TZ: hostTimezone }, encoding: "utf8" }).trim();
+assert.equal(machineClockFromHost("Pacific/Honolulu"), machineClockFromHost("Europe/London"));
+
 const ambiguousIncident = recommend([sale({ id: "ambiguous-incident" })], {
   incidentTimeResolution: "ambiguous",
 });
@@ -365,12 +561,36 @@ assert.equal(ambiguousIncident.recommendationState, "manual_exception");
 assert.equal(ambiguousIncident.oneClickEligible, false);
 
 const publicCandidate = toPublicNayaxCandidate(exact.candidates[0], "opaque-token");
+for (const missing of [null, undefined, "", false, 0]) {
+  const result = recommend([sale({ id: "small-sale", amount: 2.5 })], { requestAmountCents: missing });
+  assert.equal(result.oneClickEligible, false, "absent or zero reported amount is not a matching estimate");
+  assert.notEqual(result.recommendationState, "high_confidence");
+}
+assert.equal(recommend([sale({ id: "zero-sale", amount: 0 })], { requestAmountCents: 300 }).oneClickEligible, false);
+
+const blockedRows = Array.from({ length: 10 }, (_, i) => sale({ id: `blocked-${i}` }));
+const blockedStates = Object.fromEntries(blockedRows.map((row) => [row.TransactionID, "already_refunded"]));
+const hiddenRows = [...blockedRows, sale({ id: "hidden-original", amount: 7.1, at: "2026-07-21T19:25:00Z" })];
+const preliminary = recommend(hiddenRows);
+assert.equal(preliminary.candidates.length, 10);
+assert.equal(preliminary.consideredTransactionIds.length, 11, "private state lookup must include originals outside the display limit");
+const checkedStates = Object.fromEntries(preliminary.consideredTransactionIds.map((id) => [id, "already_refunded"]));
+assert.equal(recommend(hiddenRows, { transactionStates: checkedStates }).oneClickEligible, false,
+  "second-pass ranking cannot expose an unchecked refunded original");
+const visibleAlternatives = recommend([...hiddenRows, sale({ id: "second-alternative", amount: 7.2, at: "2026-07-21T19:26:00Z" })], {
+  transactionStates: blockedStates,
+});
+assert.equal(visibleAlternatives.recommendationState, "ambiguous");
+assert.equal(visibleAlternatives.candidates.filter((row) => row.matchStrength === "compare").length, 2,
+  "blocked higher-scoring rows cannot hide the transactions managers need to compare");
 const publicJson = JSON.stringify(publicCandidate);
 assert.equal("transactionId" in publicCandidate, false, "raw transaction ID must not reach the browser");
 assert.equal(publicJson.includes("rankingPoints"), false, "internal points must not look like probability");
 assert.equal(publicJson.includes("providerMachineId"), false);
+assert.equal("machineAuthorizationTimeRaw" in publicCandidate, false, "raw provider identity stays private");
+assert.equal("machineTimeResolution" in publicCandidate, false);
 assert.equal(publicCandidate.matchStrength, "strong");
 assert.equal(publicCandidate.confidenceClass, "strong_card");
 assert.equal(publicCandidate.candidateToken, "opaque-token");
 
-console.log("Nayax deterministic recommendation fixtures passed (33 safety scenarios).");
+console.log("Nayax recommendation fixtures passed: amount/time boundaries, full-window ambiguity and refund checks, missing amounts, machine identity, DST and privacy.");

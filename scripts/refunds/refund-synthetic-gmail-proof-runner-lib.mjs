@@ -161,7 +161,7 @@ const requirePreflight = (preflight) => {
     preflight?.managerRouteResolved !== true ||
     !Number.isInteger(preflight?.managerCount) ||
     preflight.managerCount < 1 ||
-    preflight.managerCount > 3
+    preflight.managerCount > 4
   ) {
     fail('case_not_eligible', 'The exact private case is not eligible for the proof.');
   }

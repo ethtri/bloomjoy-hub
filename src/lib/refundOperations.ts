@@ -4,6 +4,16 @@ import {
   type EdgeFunctionError,
 } from '@/lib/edgeFunctions';
 import { supabaseClient } from '@/lib/supabaseClient';
+import { parseRefundMachineCorrectionEvidence, type RefundMachineCorrectionEvidence } from '@/lib/refundAuthoritativeReceipt';
+import {
+  REFUND_LIFECYCLE_SCHEMA_VERSION,
+  requireRefundLifecycleContract,
+  type RefundLifecycleContract,
+} from '@/lib/refundLifecycle';
+import {
+  requireRefundCustomerLifecycle,
+  type RefundCustomerLifecycle,
+} from '@/lib/refundCustomerStatus';
 
 export type RefundPaymentMethod = 'card' | 'cash' | 'unknown';
 export type RefundPaymentInteraction =
@@ -13,6 +23,12 @@ export type RefundPaymentInteraction =
   | 'cash'
   | 'unsure';
 export type RefundWalletProvider = 'apple_pay' | 'google_wallet' | 'other' | 'unsure';
+export type RefundCardNetwork =
+  | 'visa'
+  | 'mastercard'
+  | 'discover'
+  | 'american_express'
+  | 'other_unknown';
 export type RefundIncidentTimeConfidence =
   | 'exact'
   | 'within_15_minutes'
@@ -54,6 +70,20 @@ export type RefundMachineOption = {
   locationTimezone: string;
 };
 
+export type RefundCashMachineOption = {
+  machineId: string;
+  displayLabel: string;
+};
+
+export type RefundPublicSelection = {
+  selectionKey: string;
+  displayLabel: string;
+  selectionKind: 'exact_machine' | 'livermore_pair' | 'legacy_exact_machine';
+  machineId?: string;
+  cashMachineOptions?: RefundCashMachineOption[];
+  locationTimezone: string;
+};
+
 export type RefundQrClaim = {
   claimToken: string;
   openedAt: string;
@@ -89,6 +119,7 @@ type InspectRefundWalletCorrectionResponse = {
 export type SubmitRefundWalletCorrectionInput = {
   token: string;
   walletType: 'apple_pay' | 'google_pay' | 'other_wallet';
+  cardNetwork: RefundCardNetwork | '';
   cardLast4: string;
   incidentDate: string;
   incidentTime: string;
@@ -101,6 +132,18 @@ type SubmitRefundWalletCorrectionResponse = {
     publicReference: string;
     resolution: RefundWalletCorrectionResolution;
   };
+};
+
+type RefundPublicSelectionRpc = {
+  selection_key: string;
+  display_label: string;
+  selection_kind: 'exact_machine' | 'livermore_pair';
+  location_timezone: string;
+};
+
+type RefundPublicSelectionV2Rpc = RefundPublicSelectionRpc & {
+  machine_id: string | null;
+  cash_machine_options: unknown;
 };
 
 type RefundMachineOptionRpc = {
@@ -119,13 +162,13 @@ export type RefundAttachmentInput = {
 };
 
 export type SubmitRefundRequestInput = {
-  machineId: string;
+  selectionKey?: string;
+  machineId?: string;
   qrClaimToken?: string;
   emailContextToken?: string;
   customerName?: string;
   customerEmail: string;
   customerPhone?: string;
-  zellePaymentContact?: string;
   issueSummary: string;
   incidentDate: string;
   incidentTime: string;
@@ -134,6 +177,7 @@ export type SubmitRefundRequestInput = {
   paymentMethod: RefundPaymentMethod;
   paymentAmount?: string;
   cardLast4?: string;
+  cardNetwork?: RefundCardNetwork;
   cardWalletUsed?: boolean;
   paymentInteraction?: RefundPaymentInteraction;
   walletProvider?: RefundWalletProvider;
@@ -144,12 +188,27 @@ export type SubmitRefundRequestInput = {
 
 export type SubmitRefundRequestResponse = {
   error?: string;
+  statusToken?: string | null;
+  statusExpiresAt?: string | null;
   refundCase?: {
     id: string;
     publicReference: string;
     status: RefundCaseStatus;
     correlationStatus: RefundCorrelationStatus;
   };
+};
+
+export type RefundSubmissionReceipt = NonNullable<SubmitRefundRequestResponse['refundCase']> & {
+  statusToken: string | null;
+  statusExpiresAt: string | null;
+};
+
+type RefundCustomerStatusResponse = {
+  error?: string;
+  errorCode?: string;
+  lifecycle?: unknown;
+  expiresAt?: string | null;
+  payloadRedacted?: boolean;
 };
 
 type StartRefundQrClaimResponse = {
@@ -187,10 +246,35 @@ export type RefundCaseMessage = {
   createdAt: string;
   contentSource?: 'deterministic_template' | 'manager_reviewed_gpt' | 'manager_authored' | null;
   deliveryKind?: 'automatic' | 'manual' | null;
-  reasonCode?: 'missing_information' | 'no_safe_match' | null;
+  reasonCode?: 'missing_information' | 'no_safe_match' | 'denial_appeal' | null;
   templateVersion?: string | null;
   requestedFields?: RefundMissingField[];
   followUpCycleId?: string | null;
+  deliveryTransport?: 'resend' | null;
+  deliveryState?: RefundTransactionalDeliveryState;
+  deliveryStateUpdatedAt?: string | null;
+  providerEvidenceAvailable?: boolean;
+};
+
+export type RefundTransactionalDeliveryState =
+  | 'unknown'
+  | 'accepted'
+  | 'deferred'
+  | 'delivered'
+  | 'failed'
+  | 'bounced'
+  | 'complained';
+
+export type RefundCustomerDeliveryException = {
+  schemaVersion: 'refund_transactional_delivery_v1';
+  state: Exclude<RefundTransactionalDeliveryState, 'accepted' | 'delivered'>;
+  messageType: string;
+  occurredAt: string;
+  recoveryOwner: 'refund_operations';
+  nextAction: 'review_delivery_no_resend';
+  customerMessageReplayAllowed: false;
+  paymentReplayAllowed: false;
+  payloadRedacted: true;
 };
 
 export type RefundCustomerCommunicationStatus =
@@ -199,6 +283,19 @@ export type RefundCustomerCommunicationStatus =
   | 'pending'
   | 'failed'
   | 'skipped';
+
+export type RefundAcknowledgementDeliveryException = {
+  schemaVersion: 'refund_acknowledgement_recovery_v1';
+  status: 'unresolved' | 'resolved_later_contact';
+  reasonCode: 'initial_acknowledgement_skipped';
+  skippedAt: string;
+  laterContactSent: boolean;
+  laterContactMessageType: string | null;
+  laterContactSentAt: string | null;
+  recoveryAction: 'record_later_contact_disposition' | 'send_safe_status_update' | 'none';
+  resolvedAt: string | null;
+  payloadRedacted: true;
+};
 
 export type RefundNayaxLookupStatus =
   | 'not_applicable'
@@ -209,7 +306,9 @@ export type RefundNayaxLookupStatus =
   | 'no_match'
   | 'manual_exception'
   | 'setup_needed'
-  | 'lookup_failed';
+  | 'lookup_failed'
+  | 'lookup_timed_out'
+  | 'response_limited';
 
 export type RefundNayaxLookupSummary = {
   lookupStatus: RefundNayaxLookupStatus;
@@ -228,6 +327,20 @@ export type RefundNayaxLookupSummary = {
   qrClaimOpenedAt?: string | null;
   qrClaimEvidenceStatus?: 'verified' | 'missing' | 'invalid' | 'replayed';
   maximumUniqueQrLagMinutes?: number;
+  safeRetryEligible?: boolean;
+  failureClass?: string | null;
+  automatic?: boolean;
+  evidenceVersion?: number;
+  lookupGeneration?: number;
+  lastUpdatedAt?: string | null;
+  setupIssueCode?:
+    | 'machine_mapping_missing'
+    | 'account_scope_missing'
+    | 'account_access_unavailable'
+    | 'grouped_mapping_incomplete';
+  responsibleOwner?: 'refund_operations';
+  requiredAccountScope?: string;
+  customerActionRequired?: false;
 };
 
 export type NayaxRecommendationState =
@@ -241,20 +354,388 @@ export type NayaxConfidenceClass =
   | 'unique_qr_time'
   | 'ambiguous_manual';
 
+export type RefundReadinessBlockReason =
+  | 'case_not_found'
+  | 'unauthorized'
+  | 'transaction_not_confirmed'
+  | 'already_refunded'
+  | 'reconciliation_hold'
+  | 'duplicate_transaction'
+  | 'case_not_refundable'
+  | 'machine_not_enabled'
+  | 'globally_paused'
+  | 'provider_remaining_value_unverified'
+  | 'provider_unavailable';
+
+export type RefundReadiness = {
+  transactionConfirmed: boolean;
+  canIssueCardRefund: boolean;
+  blockReason: RefundReadinessBlockReason | null;
+  refundAmountCents: number | null;
+  machineLimitCents: number | null;
+  caseVersion: number | null;
+};
+
+export type RefundCustomerLocale = 'en' | 'es';
+
+export type RefundCustomerLocaleCorrectionReason =
+  | 'reviewed_customer_request_language'
+  | 'customer_confirmed_language';
+
+export type RefundCustomerLocaleContract = {
+  schemaVersion: 'refund_customer_locale_v1';
+  locale: RefundCustomerLocale | null;
+  label: 'English' | 'Spanish + English' | 'Not set';
+  source: 'intake_inference' | 'manager_correction' | 'not_set';
+  sourceLabel: 'Captured at intake' | 'Manager reviewed' | 'Needs manager review';
+  version: number;
+  correctedAt: string | null;
+  payloadRedacted: true;
+};
+
+export type RefundInternalTestReason =
+  | 'employee_technician_test'
+  | 'machine_setup_commissioning'
+  | 'provider_test'
+  | 'duplicate_synthetic_record'
+  | 'other_internal_test';
+
+export type RefundInternalTestContract = {
+  schemaVersion: 'refund_internal_test_v1';
+  classification: 'internal_test_no_customer_refund';
+  reason: RefundInternalTestReason;
+  reasonLabel: string;
+  classifiedAt: string;
+  suppressesCustomerMessages: true;
+  suppressesRefunds: true;
+  suppressesReportingAdjustments: true;
+  suppressesReminders: true;
+  suppressesCustomerSla: true;
+  payloadRedacted: true;
+};
+
+const refundInternalTestReasons = new Set<RefundInternalTestReason>([
+  'employee_technician_test',
+  'machine_setup_commissioning',
+  'provider_test',
+  'duplicate_synthetic_record',
+  'other_internal_test',
+]);
+
+const requireRefundInternalTestContract = (
+  value: unknown
+): RefundInternalTestContract => {
+  const contract = value && typeof value === 'object'
+    ? value as Record<string, unknown>
+    : null;
+  if (
+    contract?.schemaVersion !== 'refund_internal_test_v1' ||
+    contract.classification !== 'internal_test_no_customer_refund' ||
+    typeof contract.reason !== 'string' ||
+    !refundInternalTestReasons.has(contract.reason as RefundInternalTestReason) ||
+    typeof contract.reasonLabel !== 'string' ||
+    contract.reasonLabel.trim().length === 0 ||
+    typeof contract.classifiedAt !== 'string' ||
+    Number.isNaN(Date.parse(contract.classifiedAt)) ||
+    contract.suppressesCustomerMessages !== true ||
+    contract.suppressesRefunds !== true ||
+    contract.suppressesReportingAdjustments !== true ||
+    contract.suppressesReminders !== true ||
+    contract.suppressesCustomerSla !== true ||
+    contract.payloadRedacted !== true
+  ) {
+    throw new Error('Unsupported Internal/test archive response.');
+  }
+  return contract as RefundInternalTestContract;
+};
+
+const refundTransactionalDeliveryStates = new Set<RefundTransactionalDeliveryState>([
+  'unknown',
+  'accepted',
+  'deferred',
+  'delivered',
+  'failed',
+  'bounced',
+  'complained',
+]);
+
+const requireRefundTransactionalDeliveryCase = (
+  refundCase: RefundCaseRecord
+): RefundCaseRecord => {
+  const messages = refundCase.messages.map((message) => {
+    if (
+      (message.deliveryTransport !== null && message.deliveryTransport !== 'resend') ||
+      typeof message.deliveryState !== 'string' ||
+      !refundTransactionalDeliveryStates.has(message.deliveryState) ||
+      (message.deliveryStateUpdatedAt !== null && (
+        typeof message.deliveryStateUpdatedAt !== 'string' ||
+        Number.isNaN(Date.parse(message.deliveryStateUpdatedAt))
+      )) ||
+      typeof message.providerEvidenceAvailable !== 'boolean'
+    ) {
+      throw new Error('Unsupported transactional delivery response.');
+    }
+    return message;
+  });
+  const value = refundCase.customerDeliveryException;
+  if (value !== null) {
+    const exception = value && typeof value === 'object'
+      ? value as Record<string, unknown>
+      : null;
+    if (
+      exception?.schemaVersion !== 'refund_transactional_delivery_v1' ||
+      !['unknown', 'deferred', 'failed', 'bounced', 'complained'].includes(
+        typeof exception.state === 'string' ? exception.state : ''
+      ) ||
+      typeof exception.messageType !== 'string' ||
+      typeof exception.occurredAt !== 'string' ||
+      Number.isNaN(Date.parse(exception.occurredAt)) ||
+      exception.recoveryOwner !== 'refund_operations' ||
+      exception.nextAction !== 'review_delivery_no_resend' ||
+      exception.customerMessageReplayAllowed !== false ||
+      exception.paymentReplayAllowed !== false ||
+      exception.payloadRedacted !== true
+    ) {
+      throw new Error('Unsupported transactional delivery response.');
+    }
+  }
+  return { ...refundCase, messages };
+};
+
 export type NayaxMatchFactor = {
   key: string;
   outcome: string;
   label: string;
 };
 
+export type RefundSelectedNayaxTransaction = {
+  schemaVersion: 'refund_selected_nayax_transaction_v1';
+  transactionId: string;
+  saleAmountCents: number;
+  currencyCode: string;
+  machineLabel: string;
+  locationName: string;
+  customerReportedAt: string;
+  providerAuthorizedAt: string;
+  machineTimezone: string;
+  providerTimeResolution: string;
+  cardLast4: string | null;
+  cardNetwork: RefundCardNetwork | null;
+  recognitionMethod: string | null;
+  paymentInteraction: RefundPaymentInteraction | null;
+  walletProvider: RefundWalletProvider | null;
+  matchExplanation: string;
+  matchFactors: NayaxMatchFactor[];
+  evidenceSource: 'nayax_last_sales' | 'manual_nayax_portal' | 'selected_case_record';
+  payloadRedacted: true;
+};
+
+const selectedNayaxEvidenceSources = new Set<RefundSelectedNayaxTransaction['evidenceSource']>([
+  'nayax_last_sales',
+  'manual_nayax_portal',
+  'selected_case_record',
+]);
+const selectedNayaxCardNetworks = new Set<RefundCardNetwork>([
+  'visa', 'mastercard', 'discover', 'american_express', 'other_unknown',
+]);
+const selectedNayaxPaymentInteractions = new Set<RefundPaymentInteraction>([
+  'phone_watch_wallet', 'tap_card', 'insert_or_swipe', 'cash', 'unsure',
+]);
+const selectedNayaxWalletProviders = new Set<RefundWalletProvider>([
+  'apple_pay', 'google_wallet', 'other', 'unsure',
+]);
+
+const requireRefundSelectedNayaxTransaction = (
+  value: unknown
+): RefundSelectedNayaxTransaction => {
+  const evidence = value && typeof value === 'object'
+    ? value as Record<string, unknown>
+    : null;
+  const matchFactors = Array.isArray(evidence?.matchFactors)
+    ? evidence.matchFactors
+    : null;
+  const evidenceSource = evidence?.evidenceSource;
+  if (
+    evidence?.schemaVersion !== 'refund_selected_nayax_transaction_v1' ||
+    typeof evidence.transactionId !== 'string' ||
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]{5,119}$/.test(evidence.transactionId) ||
+    typeof evidence.saleAmountCents !== 'number' ||
+    !Number.isInteger(evidence.saleAmountCents) ||
+    evidence.saleAmountCents < 0 ||
+    typeof evidence.currencyCode !== 'string' ||
+    !/^[A-Z]{3}$/.test(evidence.currencyCode) ||
+    typeof evidence.machineLabel !== 'string' ||
+    evidence.machineLabel.trim().length === 0 ||
+    typeof evidence.locationName !== 'string' ||
+    evidence.locationName.trim().length === 0 ||
+    typeof evidence.customerReportedAt !== 'string' ||
+    Number.isNaN(Date.parse(evidence.customerReportedAt)) ||
+    typeof evidence.providerAuthorizedAt !== 'string' ||
+    Number.isNaN(Date.parse(evidence.providerAuthorizedAt)) ||
+    typeof evidence.machineTimezone !== 'string' ||
+    evidence.machineTimezone.trim().length === 0 ||
+    typeof evidence.providerTimeResolution !== 'string' ||
+    evidence.providerTimeResolution.trim().length === 0 ||
+    (evidence.cardLast4 !== null && (
+      typeof evidence.cardLast4 !== 'string' || !/^[0-9]{4}$/.test(evidence.cardLast4)
+    )) ||
+    (evidence.cardNetwork !== null && (
+      typeof evidence.cardNetwork !== 'string' ||
+      !selectedNayaxCardNetworks.has(evidence.cardNetwork as RefundCardNetwork)
+    )) ||
+    (evidence.recognitionMethod !== null && (
+      typeof evidence.recognitionMethod !== 'string' ||
+      evidence.recognitionMethod.length > 80
+    )) ||
+    (evidence.paymentInteraction !== null && (
+      typeof evidence.paymentInteraction !== 'string' ||
+      !selectedNayaxPaymentInteractions.has(
+        evidence.paymentInteraction as RefundPaymentInteraction
+      )
+    )) ||
+    (evidence.walletProvider !== null && (
+      typeof evidence.walletProvider !== 'string' ||
+      !selectedNayaxWalletProviders.has(evidence.walletProvider as RefundWalletProvider)
+    )) ||
+    typeof evidence.matchExplanation !== 'string' ||
+    evidence.matchExplanation.trim().length === 0 ||
+    evidence.matchExplanation.length > 500 ||
+    !matchFactors ||
+    matchFactors.length > 20 ||
+    !matchFactors.every((factor) => {
+      if (!factor || typeof factor !== 'object') return false;
+      const candidate = factor as Record<string, unknown>;
+      return typeof candidate.key === 'string' && candidate.key.length <= 80 &&
+        typeof candidate.outcome === 'string' && candidate.outcome.length <= 80 &&
+        typeof candidate.label === 'string' && candidate.label.length <= 300;
+    }) ||
+    typeof evidenceSource !== 'string' ||
+    !selectedNayaxEvidenceSources.has(
+      evidenceSource as RefundSelectedNayaxTransaction['evidenceSource']
+    ) ||
+    evidence.payloadRedacted !== true
+  ) {
+    throw new Error('Unsupported selected Nayax transaction response.');
+  }
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: evidence.machineTimezone }).format();
+  } catch {
+    throw new Error('Unsupported selected Nayax transaction response.');
+  }
+  return evidence as RefundSelectedNayaxTransaction;
+};
+
+export type RefundGmailCaseLinkReviewCandidate = {
+  caseId: string;
+  publicReference: string;
+  locationName: string;
+  machineLabel: string;
+  incidentAt: string;
+  paymentAmountCents: number | null;
+  evidence: {
+    normalizedSender: true;
+    amount?: boolean;
+    paymentMethod?: boolean;
+    incidentDate?: boolean;
+    locationOrMachine?: boolean;
+    payloadRedacted: true;
+  };
+  relationship: 'primary' | 'related' | null;
+};
+
+export type RefundGmailCaseLinkReview = {
+  schemaVersion: 'refund_gmail_case_link_review_v1';
+  reviewId: string;
+  version: number;
+  status: 'pending' | 'resolved';
+  candidateCount: number;
+  receivedAt: string;
+  matchBasis:
+    | 'normalized_sender_recent_open_cases'
+    | 'existing_contact_reconciliation';
+  candidates: RefundGmailCaseLinkReviewCandidate[];
+  customerContactSuppressed: boolean;
+  caseCreated: false;
+  providerCallMade: false;
+  paymentActionTaken: false;
+  payloadRedacted: true;
+};
+
+const requireRefundGmailCaseLinkReview = (
+  value: unknown
+): RefundGmailCaseLinkReview | null => {
+  if (value === null || value === undefined) return null;
+  const review = typeof value === 'object' ? value as Record<string, unknown> : null;
+  const candidates = Array.isArray(review?.candidates) ? review.candidates : null;
+  const reviewKeys = new Set([
+    'schemaVersion', 'reviewId', 'version', 'status', 'candidateCount', 'receivedAt',
+    'matchBasis', 'candidates', 'customerContactSuppressed', 'caseCreated',
+    'providerCallMade', 'paymentActionTaken', 'payloadRedacted',
+  ]);
+  const candidateKeys = new Set([
+    'caseId', 'publicReference', 'locationName', 'machineLabel', 'incidentAt',
+    'paymentAmountCents', 'evidence', 'relationship',
+  ]);
+  const evidenceKeys = new Set([
+    'normalizedSender', 'amount', 'paymentMethod', 'incidentDate',
+    'locationOrMachine', 'payloadRedacted',
+  ]);
+  if (
+    !review || !Object.keys(review).every((key) => reviewKeys.has(key)) ||
+    review?.schemaVersion !== 'refund_gmail_case_link_review_v1' ||
+    typeof review.reviewId !== 'string' ||
+    typeof review.version !== 'number' || !Number.isInteger(review.version) ||
+    review.version < 1 ||
+    !['pending', 'resolved'].includes(String(review.status)) ||
+    typeof review.candidateCount !== 'number' ||
+    !Number.isInteger(review.candidateCount) || review.candidateCount < 1 ||
+    typeof review.receivedAt !== 'string' || Number.isNaN(Date.parse(review.receivedAt)) ||
+    !['normalized_sender_recent_open_cases', 'existing_contact_reconciliation']
+      .includes(String(review.matchBasis)) ||
+    !candidates || candidates.length !== review.candidateCount ||
+    !candidates.every((candidate) => {
+      if (!candidate || typeof candidate !== 'object') return false;
+      const row = candidate as Record<string, unknown>;
+      const evidence = row.evidence && typeof row.evidence === 'object'
+        ? row.evidence as Record<string, unknown>
+        : null;
+      return Object.keys(row).every((key) => candidateKeys.has(key)) &&
+        typeof row.caseId === 'string' &&
+        typeof row.publicReference === 'string' &&
+        typeof row.locationName === 'string' &&
+        typeof row.machineLabel === 'string' &&
+        typeof row.incidentAt === 'string' && !Number.isNaN(Date.parse(row.incidentAt)) &&
+        (row.paymentAmountCents === null || (
+          typeof row.paymentAmountCents === 'number' &&
+          Number.isInteger(row.paymentAmountCents) && row.paymentAmountCents >= 0
+        )) && evidence?.normalizedSender === true && evidence.payloadRedacted === true &&
+        Object.keys(evidence).every((key) => evidenceKeys.has(key)) &&
+        ['amount', 'paymentMethod', 'incidentDate', 'locationOrMachine'].every((key) =>
+          evidence[key] === undefined || typeof evidence[key] === 'boolean'
+        ) &&
+        (row.relationship === null || ['primary', 'related'].includes(String(row.relationship)));
+    }) ||
+    typeof review.customerContactSuppressed !== 'boolean' ||
+    review.caseCreated !== false || review.providerCallMade !== false ||
+    review.paymentActionTaken !== false || review.payloadRedacted !== true
+  ) {
+    throw new Error('Unsupported inbound email linking review response.');
+  }
+  return review as RefundGmailCaseLinkReview;
+};
+
 export type RefundCaseRecord = {
   id: string;
+  machineCorrection?: RefundMachineCorrectionEvidence | null;
   publicReference: string;
   canPerformOfficialAction?: boolean;
+  canSelectNayaxCandidate?: boolean;
   officialActionBlockReason?:
     | 'manager_mapping_required'
     | 'manager_verification_required'
+    | 'exact_machine_required'
     | 'official_actions_disabled'
+    | 'inbound_link_review_required'
     | null;
   officialActionVersion?: number;
   status: RefundCaseStatus;
@@ -277,21 +758,36 @@ export type RefundCaseRecord = {
   paymentMethod: RefundPaymentMethod;
   paymentAmountCents: number | null;
   cardLast4: string | null;
+  cardLast4Provenance?: 'physical_card' | 'wallet_device_token' | null;
+  cardNetwork?: RefundCardNetwork | null;
   cardWalletUsed: boolean;
   paymentInteraction?: RefundPaymentInteraction | null;
   walletProvider?: RefundWalletProvider | null;
+  customerFactEvidence?: {
+    source:
+      | 'initial_customer_submission'
+      | 'verified_customer_email'
+      | 'secure_wallet_correction'
+      | 'current_case_record';
+    appliedAt: string;
+    changedFields: string[];
+    factVersion: number;
+    payloadRedacted: true;
+  } | null;
   incidentTimeConfidence?: RefundIncidentTimeConfidence | null;
   issueCategory?: RefundIssueCategory | null;
   productDescription?: string | null;
   hasMatchedSalesFact: boolean;
   hasMatchedNayaxTransaction: boolean;
   nayaxMatchExecutionEligible?: boolean;
+  refundReadiness?: RefundReadiness | null;
   nayaxRecommendationState?: NayaxRecommendationState | null;
   nayaxRecommendationPolicyVersion?: string | null;
   matchedNayaxMachineAuthTime: string | null;
   matchedNayaxAmountCents: number | null;
   matchedNayaxCardLast4: string | null;
   matchedNayaxCurrencyCode: string | null;
+  selectedNayaxTransaction?: RefundSelectedNayaxTransaction | null;
   nayaxLookupCandidates: NayaxLookupCandidate[];
   assignedManagerEmail: string | null;
   decision: RefundDecision;
@@ -322,7 +818,17 @@ export type RefundCaseRecord = {
   latestCustomerMessageStatus?: string | null;
   latestCustomerMessageType?: string | null;
   latestCustomerMessageAt?: string | null;
+  acknowledgementDeliveryException?: RefundAcknowledgementDeliveryException | null;
+  customerDeliveryException?: RefundCustomerDeliveryException | null;
+  inboundLinkReview?: RefundGmailCaseLinkReview | null;
+  customerLocale?: RefundCustomerLocaleContract | null;
+  internalTest?: RefundInternalTestContract | null;
   nayaxLookupSummary?: RefundNayaxLookupSummary | null;
+  manualNayaxPortalEnabled?: boolean;
+  manualNayaxEvidenceSelected?: boolean;
+  manualNayaxLocationTimezone?: string | null;
+  reviewedNayaxPortalFallbackKind?: 'legacy_manual_evidence' | 'ordinary_exact_match';
+  lifecycle?: RefundLifecycleContract | null;
 };
 
 export type RefundAdminMachine = {
@@ -339,8 +845,19 @@ export type RefundManagerAssignment = {
 
 export type RefundOperationsOverview = {
   cases: RefundCaseRecord[];
+  internalTestCases?: RefundCaseRecord[];
   machines: RefundAdminMachine[];
   managerAssignments: RefundManagerAssignment[];
+  lifecycleContractVersion?: typeof REFUND_LIFECYCLE_SCHEMA_VERSION;
+  managerQueueContractVersion?: 'refund_manager_queue_v2';
+  acknowledgementRecoveryContractVersion?: 'refund_acknowledgement_recovery_v1';
+  customerLocaleContractVersion?: 'refund_customer_locale_v1';
+  internalTestContractVersion?: 'refund_internal_test_v1';
+  selectedNayaxTransactionContractVersion?: 'refund_selected_nayax_transaction_v1';
+  nayaxScopeRecoveryContractVersion?: 'refund_nayax_scope_recovery_v1';
+  transactionalDeliveryContractVersion?: 'refund_transactional_delivery_v1';
+  inboundLinkReviewContractVersion?: 'refund_gmail_case_link_review_v1';
+  refundOperationsAccess?: boolean;
 };
 
 export type RefundEmailQueueState = {
@@ -402,6 +919,7 @@ export type ResolveRefundCaseReconciliationInput = {
 
 export type RefundAutomationHealthStatus =
   | 'healthy'
+  | 'recovering'
   | 'stale'
   | 'failing'
   | 'paused'
@@ -421,6 +939,21 @@ export type RefundAutomationHealth = {
   actionsSuppressed: number;
   failureCategory: string | null;
   alertStatus: 'not_needed' | 'pending' | 'sent' | 'failed' | 'suppressed';
+  payloadRedacted: boolean;
+};
+
+export type RefundNayaxReliabilityHealth = {
+  status: 'healthy' | 'attention';
+  directSuccessCount: number;
+  supportResolvedSuccessCount: number;
+  unresolvedCount: number;
+  oldestUnresolvedAt: string | null;
+  journalOrSettlementFailureCount: number;
+  completionMismatchCount: number;
+  averageApprovalStartLatencyMs: number | null;
+  ownerLabel: string;
+  escalationSlaMinutes: number;
+  escalationDueAt: string | null;
   payloadRedacted: boolean;
 };
 
@@ -445,6 +978,10 @@ export type RefundGmailHealth = {
   attachmentsQuarantined: number;
   messagesFailed: number;
   errorCode: string | null;
+  schedulerEnabled: boolean;
+  schedulerStatus: string | null;
+  schedulerLastCheckAt: string | null;
+  schedulerLastDispatchAt: string | null;
   payloadRedacted: boolean;
 };
 
@@ -545,10 +1082,77 @@ export type RefundManagerSetupMachine = {
   nayaxMachineId: string | null;
   nayaxAccountKey: string | null;
   managerEmails: string[];
+  managerCount: number;
+  customerIntakeAccepting: boolean;
+  transactionMatchingEnabled: boolean;
+  transactionLookupReady: boolean;
+  managerRoutingReady: boolean;
+  nayaxRefundsEnabled: boolean;
+  nayaxRefundMaxAmountCents: number | null;
+  paymentDisabledReason:
+    | 'awaiting_reviewed_activation'
+    | 'owner_pause'
+    | 'provider_support'
+    | 'machine_maintenance'
+    | 'commercial_exception'
+    | null;
+  activationEligible: boolean;
+  readinessState: 'ready_to_refund' | 'ready_to_activate' | 'setup_needed';
+  readinessBlockReason:
+    | 'customer_intake_unavailable'
+    | 'transaction_matching_off'
+    | 'transaction_lookup_not_ready'
+    | 'manager_route_not_ready'
+    | null;
 };
 
 export type RefundManagerSetup = {
   machines: RefundManagerSetupMachine[];
+  standardLaunchLimitCents: number | null;
+  globalRefunds: {
+    available: boolean;
+    paused: boolean;
+    blockReason: 'official_actions_disabled' | 'kill_switch_active' | 'provider_remaining_value_unverified' | 'configuration_missing' | null;
+  };
+};
+
+export type RefundNayaxInventoryState = 'published' | 'needs_setup' | 'excluded';
+export type RefundNayaxInventoryCategory = 'cotton_candy' | 'snapcase' | null;
+
+export type RefundNayaxInventoryMachine = {
+  id: string;
+  accountKey: string;
+  nayaxMachineId: string;
+  machineName: string | null;
+  machineNumber: string | null;
+  providerActive: boolean;
+  category: RefundNayaxInventoryCategory;
+  reportingMachineId: string | null;
+  state: RefundNayaxInventoryState;
+  setupReason: string;
+  exclusionReason: string | null;
+  missingSuccessfulSnapshots: number;
+  lastSeenAt: string;
+  lastSuccessfulSyncAt: string;
+};
+
+export type RefundNayaxInventory = {
+  summary: {
+    active: number;
+    published: number;
+    needsSetup: number;
+    excluded: number;
+    stalePublished: number;
+  };
+  lastRun: {
+    status: 'completed' | 'failed';
+    completedAt: string;
+    errorCode: string | null;
+    activeCount: number;
+    previousActiveCount: number | null;
+    largeDrop: boolean;
+  } | null;
+  machines: RefundNayaxInventoryMachine[];
 };
 
 export type UpdateRefundCaseInput = {
@@ -599,6 +1203,7 @@ export type RefundNayaxResolutionEvidenceType =
 
 export type RefundNayaxResolutionReason =
   | 'nayax_dtm_settled'
+  | 'nayax_dtm_preexisting_settled'
   | 'nayax_support_confirmed_success'
   | 'nayax_dtm_not_refunded'
   | 'nayax_support_retry_safe'
@@ -612,15 +1217,58 @@ export type RefundNayaxResolutionReadiness = {
   available: boolean;
   blockReason?:
     | 'resolution_disabled'
+    | 'evidence_only_start_required'
     | 'exact_attempt_required'
     | 'already_resolved'
     | 'provider_hold_required'
     | 'manager_access_required'
+    | 'refund_operations_access_required'
     | null;
+  canStartEvidenceOnlyReconciliation?: boolean;
   attemptId?: string | null;
   providerOutcome?: 'rejected' | 'timeout' | 'unknown' | null;
+  manualPortalAttempt?: boolean;
+  evidenceOnlyAttempt?: boolean;
   expectedCaseVersion?: number | null;
   allowedResults?: RefundNayaxResolutionResult[];
+  payloadRedacted: true;
+};
+
+export type CreateRefundManualNayaxCandidateInput = {
+  caseId: string;
+  expectedCaseVersion: number;
+  portalMachineReference: string;
+  providerTransactionId: string;
+  machineAuthorizationLocalTime: string;
+  amountCents: number;
+  cardLast4: string;
+};
+
+export type CreateRefundManualNayaxCandidateResponse = {
+  candidateToken: string;
+  expiresAt: string;
+  providerCallMade: false;
+  customerMessageCreated: false;
+};
+
+export type BeginRefundManualNayaxPortalResponse = {
+  attemptId: string;
+  created: boolean;
+  status: 'manual_review';
+  providerOutcome: 'unknown';
+  expectedCaseVersion: number;
+  providerCallMade: false;
+  customerMessageCreated: false;
+};
+
+export type BeginRefundNayaxEvidenceOnlyResponse = {
+  attemptId: string;
+  created: boolean;
+  status: 'manual_review';
+  providerOutcome: 'unknown';
+  expectedCaseVersion: number;
+  providerCallMade: false;
+  customerMessageCreated: false;
   payloadRedacted: true;
 };
 
@@ -677,12 +1325,14 @@ export type NayaxDisagreementReason =
 
 export type NayaxLookupCandidate = {
   candidateToken: string;
+  machineDisplayLabel?: string | null;
   authorizedAt: string;
   machineAuthorizationTime: string;
   amountCents: number | null;
   cardLast4: string;
   currencyCode: string;
   cardBrand: string;
+  cardNetwork?: RefundCardNetwork | null;
   recognitionMethod: string;
   paymentStatus: string;
   productLabel?: string;
@@ -745,6 +1395,15 @@ export type NayaxLookupResponse = {
   windowHours?: number;
   summary?: string;
   recommendedAction?: string;
+  safeRetryEligible?: boolean;
+  failureClass?: string | null;
+  evidenceVersion?: number;
+  lookupGeneration?: number;
+  lastUpdatedAt?: string | null;
+  setupIssueCode?: RefundNayaxLookupSummary['setupIssueCode'];
+  responsibleOwner?: RefundNayaxLookupSummary['responsibleOwner'];
+  requiredAccountScope?: string;
+  customerActionRequired?: false;
 };
 
 export type NayaxCardRefundExecutionBlock =
@@ -755,9 +1414,6 @@ export type NayaxCardRefundExecutionBlock =
   | 'feature_disabled'
   | 'kill_switch_active'
   | 'already_refunded'
-  | 'amount_cap_exceeded'
-  | 'daily_amount_cap_exceeded'
-  | 'daily_count_cap_exceeded'
   | (string & {});
 
 export type NayaxCardRefundExecutionErrorCode =
@@ -768,7 +1424,6 @@ export type NayaxCardRefundExecutionErrorCode =
   | 'feature_disabled'
   | 'kill_switch_active'
   | 'already_refunded'
-  | 'amount_cap_exceeded'
   | 'provider_contract_unconfirmed'
   | 'provider_execution_not_yet_enabled'
   | (string & {});
@@ -816,17 +1471,25 @@ export type NayaxCardRefundExecutionResponse = {
   fallbackIssued?: boolean;
   reportingAdjustmentPresent?: boolean;
   customerCompletion?: NayaxCustomerCompletionResult | null;
+  safeRetryEligible?: boolean;
+  definitiveNoRefund?: boolean;
 };
 
 export type NayaxCardRefundAvailabilityResponse = {
   available: boolean;
   status: 'available' | 'unavailable';
   blockReason:
-    | null
+    | RefundReadinessBlockReason
     | 'official_actions_disabled'
     | 'kill_switch_active'
     | 'configuration_missing'
-    | 'contract_unconfirmed';
+    | null;
+  caseId?: string;
+  transactionConfirmed?: boolean;
+  canIssueCardRefund?: boolean;
+  refundAmountCents?: number | null;
+  machineLimitCents?: number | null;
+  caseVersion?: number | null;
   payloadRedacted: true;
 };
 
@@ -843,6 +1506,8 @@ export type RefundCustomerPortalMessageType =
 export type SendRefundCaseMessageInput =
   | {
       caseId: string;
+      expectedCaseVersion: number;
+      messageIntentId: string;
       messageType: RefundCustomerPortalMessageType;
       subject?: string;
       body?: string;
@@ -853,6 +1518,8 @@ export type SendRefundCaseMessageInput =
   | {
       caseId: string;
       nayaxCompletionMessageId: string;
+      expectedCaseVersion?: never;
+      messageIntentId?: never;
       messageType?: never;
       subject?: never;
       body?: never;
@@ -866,20 +1533,70 @@ export type RefundMissingField =
   | 'incident_time'
   | 'payment_method'
   | 'amount'
-  | 'card_last4';
+  | 'card_last4'
+  | 'zelle_payment_contact';
 
-export const fetchRefundMachineOptions = async (): Promise<RefundMachineOption[]> => {
-  const { data, error } = await supabaseClient.rpc('public_refund_machine_options');
+export const fetchRefundMachineOptions = async (): Promise<RefundPublicSelection[]> => {
+  const current = await supabaseClient.rpc('public_refund_selections_v2');
 
-  if (error) {
-    throw new Error(error.message || 'Unable to load refund locations.');
+  if (!current.error) {
+    return ((current.data as RefundPublicSelectionV2Rpc[] | null) ?? []).map((record) => ({
+      selectionKey: record.selection_key,
+      displayLabel: record.display_label,
+      selectionKind: record.selection_kind,
+      machineId: record.machine_id ?? undefined,
+      cashMachineOptions: Array.isArray(record.cash_machine_options)
+        ? record.cash_machine_options.flatMap((option) => {
+            const candidate = option as Record<string, unknown> | null;
+            if (
+              !candidate ||
+              typeof candidate.machineId !== 'string' ||
+              typeof candidate.displayLabel !== 'string'
+            ) {
+              return [];
+            }
+            return [{
+              machineId: candidate.machineId,
+              displayLabel: candidate.displayLabel,
+            }];
+          })
+        : [],
+      locationTimezone: record.location_timezone,
+    }));
   }
 
-  return ((data as RefundMachineOptionRpc[] | null) ?? []).map((record) => ({
-    machineId: record.machine_id,
-    machineLabel: record.machine_label,
-    locationId: record.location_id,
-    locationName: record.location_name,
+  const isMissingCurrentRpc = ['PGRST202', '42883'].includes(current.error.code ?? '');
+  if (!isMissingCurrentRpc) {
+    throw new Error(current.error.message || 'Unable to load refund locations.');
+  }
+
+  const { data, error } = await supabaseClient.rpc('public_refund_selections');
+
+  if (error) {
+    const isMissingSelectionRpc = ['PGRST202', '42883'].includes(error.code ?? '');
+    if (!isMissingSelectionRpc) {
+      throw new Error(error.message || 'Unable to load refund locations.');
+    }
+    const legacy = await supabaseClient.rpc('public_refund_machine_options');
+    if (legacy.error) {
+      throw new Error(error.message || 'Unable to load refund locations.');
+    }
+    return ((legacy.data as RefundMachineOptionRpc[] | null) ?? []).map((record) => ({
+      selectionKey: record.machine_id,
+      displayLabel:
+        record.location_name.trim().toLocaleLowerCase() === record.machine_label.trim().toLocaleLowerCase()
+          ? record.machine_label.trim()
+          : `${record.location_name.trim()} - ${record.machine_label.trim()}`,
+      selectionKind: 'legacy_exact_machine' as const,
+      machineId: record.machine_id,
+      locationTimezone: record.location_timezone,
+    }));
+  }
+
+  return ((data as RefundPublicSelectionRpc[] | null) ?? []).map((record) => ({
+    selectionKey: record.selection_key,
+    displayLabel: record.display_label,
+    selectionKind: record.selection_kind,
     locationTimezone: record.location_timezone,
   }));
 };
@@ -935,28 +1652,164 @@ export const submitRefundWalletCorrection = async (
 
 export const submitRefundRequest = async (
   input: SubmitRefundRequestInput
-): Promise<SubmitRefundRequestResponse['refundCase']> => {
+): Promise<RefundSubmissionReceipt> => {
   const data = await invokeEdgeFunction<SubmitRefundRequestResponse>('refund-case-intake', input);
 
   if (!data.refundCase) {
     throw new Error(data.error || 'Unable to submit refund request.');
   }
 
-  return data.refundCase;
+  return {
+    ...data.refundCase,
+    statusToken:
+      typeof data.statusToken === 'string' && /^[A-Za-z0-9_-]{43}$/.test(data.statusToken)
+        ? data.statusToken
+        : null,
+    statusExpiresAt:
+      typeof data.statusExpiresAt === 'string' ? data.statusExpiresAt : null,
+  };
+};
+
+export const fetchRefundCustomerStatus = async (
+  token: string,
+): Promise<{ lifecycle: RefundCustomerLifecycle; expiresAt: string | null }> => {
+  const data = await invokeEdgeFunction<RefundCustomerStatusResponse>('refund-case-intake', {
+    action: 'readStatus',
+    token,
+  });
+  if (data.payloadRedacted !== true || !data.lifecycle) {
+    throw new Error(data.error || 'This secure refund status link is not available.');
+  }
+  return {
+    lifecycle: requireRefundCustomerLifecycle(data.lifecycle),
+    expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : null,
+  };
 };
 
 const emptyOverview: RefundOperationsOverview = {
   cases: [],
+  internalTestCases: [],
   machines: [],
   managerAssignments: [],
 };
 
 const emptyRefundManagerSetup: RefundManagerSetup = {
   machines: [],
+  standardLaunchLimitCents: null,
+  globalRefunds: { available: false, paused: true, blockReason: 'configuration_missing' },
 };
 
 const demoIsoHoursAgo = (hours: number) =>
   new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+const demoLifecycle = (
+  stage: RefundLifecycleContract['stage'],
+  stageRank: number,
+  managerNextAction: string,
+  operationsRequired = false
+): RefundLifecycleContract => ({
+  schemaVersion: REFUND_LIFECYCLE_SCHEMA_VERSION,
+  version: 1,
+  stage,
+  stageRank,
+  reasonCode: `demo_${stage}`,
+  actor: 'system',
+  customerAction: {
+    action: stage === 'waiting_on_customer' ? 'reply_in_existing_thread' : 'none',
+    required: stage === 'waiting_on_customer',
+    requestedFields: stage === 'waiting_on_customer'
+      ? ['incident_date', 'incident_time']
+      : [],
+    payloadRedacted: true,
+  },
+  managerAction: {
+    action: managerNextAction,
+    owner: operationsRequired ? 'Refund Operations' : 'Machine Manager',
+    safeRetryEligible: managerNextAction === 'retry_read_only_lookup',
+    payloadRedacted: true,
+  },
+  paymentState: ['refund_confirmed', 'customer_notified'].includes(stage)
+    ? 'confirmed'
+    : operationsRequired
+      ? 'outcome_unknown'
+      : 'not_requested',
+  messageState: {
+    state: stage === 'customer_notified' ? 'delivered' : 'none',
+    messageType: stage === 'customer_notified' ? 'completed' : null,
+    lastUpdatedAt: stage === 'customer_notified' ? demoIsoHoursAgo(0.05) : null,
+    payloadRedacted: true,
+  },
+  classification: 'customer',
+  evidenceState: 'synthetic_demo',
+  locationEvidence: {
+    customerReported: {
+      selectionKey: 'demo-selection', selectionKind: 'exact_machine',
+      machineIds: ['00000000-0000-4000-8000-000000000003'], preserved: true,
+      payloadRedacted: true,
+    },
+    normalized: {
+      locationId: '00000000-0000-4000-8000-000000000002',
+      machineId: '00000000-0000-4000-8000-000000000003',
+      timezone: 'America/Los_Angeles', providerAccountKey: 'DEMO',
+      mappingSource: 'nayax', mappingVersion: 1, confidence: 1,
+      authoritative: true, payloadRedacted: true,
+    },
+    payloadRedacted: true,
+  },
+  lastUpdatedAt: demoIsoHoursAgo(0.05),
+  publicCopyKey: `refund_${stage}`,
+  managerNextAction,
+  terminal: ['customer_notified', 'denied', 'unable_to_complete', 'internal_test_archived'].includes(stage),
+  refreshAfterSeconds: ['customer_notified', 'denied', 'unable_to_complete', 'internal_test_archived'].includes(stage)
+    ? null
+    : 5,
+  managerQueue: {
+    schemaVersion: 'refund_manager_queue_v2',
+    bucket: stage === 'waiting_on_customer'
+      ? 'waiting_on_customer'
+      : stage === 'needs_refund_operations'
+        ? 'provider_hold'
+        : stage === 'integrity_hold'
+          ? 'integrity_hold'
+        : ['customer_notified', 'denied', 'unable_to_complete'].includes(stage)
+          ? 'completed'
+          : stage === 'internal_test_archived'
+            ? 'internal_archive'
+          : stage === 'transaction_confirmed'
+            ? 'ready_to_pay'
+            : ['refund_initiated', 'confirming_with_nayax', 'refund_confirmed'].includes(stage)
+              ? 'in_progress'
+              : 'needs_action',
+    label: 'Synthetic queue',
+    nextAction: managerNextAction,
+    safeRetryEligible: false,
+    ...(stage === 'waiting_on_customer'
+      ? { customerActionFields: ['incident_date', 'incident_time'] }
+      : {}),
+    payloadRedacted: true,
+  },
+  lookup: {
+    status: stage === 'matching' ? 'checking' : 'match_found',
+    safeRetryEligible: false,
+    failureClass: null,
+    lastUpdatedAt: demoIsoHoursAgo(0.05),
+  },
+  operations: {
+    required: operationsRequired,
+    queue: 'Refund Operations',
+    owner: 'Refund Operations',
+    slaMinutes: 60,
+    ageMinutes: operationsRequired ? 12 : null,
+    dueAt: operationsRequired ? demoIsoHoursAgo(-0.8) : null,
+    slaBreached: false,
+    safeStage: operationsRequired ? 'provider_result_uncertain' : 'not_needed',
+    failureClass: operationsRequired ? 'authoritative_confirmation_required' : null,
+    nextStep: operationsRequired
+      ? 'Confirm the authoritative Nayax result. Never retry the payment.'
+      : null,
+  },
+  payloadRedacted: true,
+});
 
 export const canUseLocalUatDemoMode = () => {
   if (typeof window === 'undefined') return false;
@@ -1000,10 +1853,86 @@ export const buildLocalRefundMachineOptions = (): RefundMachineOption[] => [
   },
 ];
 
+export const buildLocalRefundPublicSelections = (): RefundPublicSelection[] => [
+  {
+    selectionKey: 'demo-bubble-planet-atlanta',
+    displayLabel: 'Bubble Planet - Atlanta',
+    selectionKind: 'exact_machine',
+    locationTimezone: 'America/New_York',
+  },
+  {
+    selectionKey: 'demo-bubble-planet-dc',
+    displayLabel: 'Bubble Planet DC',
+    selectionKind: 'exact_machine',
+    locationTimezone: 'America/New_York',
+  },
+  {
+    selectionKey: 'demo-bubble-planet-seattle',
+    displayLabel: 'Bubble Planet Seattle',
+    selectionKind: 'exact_machine',
+    locationTimezone: 'America/Los_Angeles',
+  },
+  {
+    selectionKey: 'demo-capital-city-mall',
+    displayLabel: 'Capital City Mall',
+    selectionKind: 'exact_machine',
+    locationTimezone: 'America/New_York',
+  },
+  {
+    selectionKey: 'demo-carolina-place',
+    displayLabel: 'Carolina Place',
+    selectionKind: 'exact_machine',
+    locationTimezone: 'America/New_York',
+  },
+  {
+    selectionKey: 'demo-columbiana-centre',
+    displayLabel: 'Columbiana Centre',
+    selectionKind: 'exact_machine',
+    locationTimezone: 'America/New_York',
+  },
+  {
+    selectionKey: 'demo-livermore-pair',
+    displayLabel: 'San Francisco Premium Outlets — Cotton candy',
+    selectionKind: 'livermore_pair',
+    cashMachineOptions: [
+      {
+        machineId: '41000000-0000-4000-8000-000000000003',
+        displayLabel: 'TT20 cotton candy machine',
+      },
+      {
+        machineId: '41000000-0000-4000-8000-000000000013',
+        displayLabel: 'TT33 cotton candy machine',
+      },
+    ],
+    locationTimezone: 'America/Los_Angeles',
+  },
+  {
+    selectionKey: 'demo-south-hills-cotton',
+    displayLabel: 'South Hills Village — Cotton candy',
+    selectionKind: 'exact_machine',
+    locationTimezone: 'America/New_York',
+  },
+  {
+    selectionKey: 'demo-south-hills-snapcase',
+    displayLabel: 'South Hills Village — Phone cases (SnapCase)',
+    selectionKind: 'exact_machine',
+    locationTimezone: 'America/New_York',
+  },
+];
+
 export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
   const managerEmail = 'machine-manager@example.test';
+  const showInboundLinkReview = typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('inbound-link') === 'on';
 
   return {
+    lifecycleContractVersion: REFUND_LIFECYCLE_SCHEMA_VERSION,
+    managerQueueContractVersion: 'refund_manager_queue_v2',
+    selectedNayaxTransactionContractVersion: 'refund_selected_nayax_transaction_v1',
+    ...(showInboundLinkReview
+      ? { inboundLinkReviewContractVersion: 'refund_gmail_case_link_review_v1' as const }
+      : {}),
+    refundOperationsAccess: false,
     machines: [
       {
         id: 'demo-machine-card',
@@ -1017,6 +1946,12 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         locationName: 'Arcade Hall',
         nayaxLookupConfigured: false,
       },
+      {
+        id: 'demo-machine-nc-manual',
+        machineLabel: 'Carolina Place',
+        locationName: 'Carolina Place',
+        nayaxLookupConfigured: false,
+      },
     ],
     managerAssignments: [
       {
@@ -1027,8 +1962,145 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         reportingMachineId: 'demo-machine-cash',
         managerEmail,
       },
+      {
+        reportingMachineId: 'demo-machine-nc-manual',
+        managerEmail,
+      },
     ],
     cases: [
+      {
+        id: 'demo-nc-manual',
+        publicReference: 'RF-UAT-NC-MANUAL',
+        canPerformOfficialAction: showInboundLinkReview ? false : true,
+        officialActionBlockReason: showInboundLinkReview
+          ? 'inbound_link_review_required'
+          : null,
+        canSelectNayaxCandidate: true,
+        officialActionVersion: 1,
+        status: 'needs_review',
+        priority: 'normal',
+        correlationStatus: 'nayax_not_configured',
+        correlationSource: null,
+        correlationConfidence: 0,
+        correlationSummary: 'Use Adam’s Nayax portal to find the exact transaction.',
+        machineLabel: 'Carolina Place',
+        locationName: 'Carolina Place',
+        customerEmail: 'nc-customer@example.test',
+        customerName: 'NC Customer',
+        customerPhone: null,
+        zellePaymentContact: null,
+        issueSummary: 'Card was charged but the product did not dispense.',
+        incidentAt: demoIsoHoursAgo(2),
+        structuredIncidentAt: demoIsoHoursAgo(2),
+        incidentTimeResolution: 'exact',
+        paymentMethod: 'card',
+        paymentAmountCents: 700,
+        cardLast4: '4242',
+        cardNetwork: 'visa',
+        cardWalletUsed: false,
+        paymentInteraction: 'tap_card',
+        walletProvider: null,
+        incidentTimeConfidence: 'exact',
+        issueCategory: 'charged_no_product',
+        productDescription: 'Cotton candy',
+        hasMatchedSalesFact: false,
+        hasMatchedNayaxTransaction: false,
+        nayaxMatchExecutionEligible: false,
+        nayaxRecommendationState: 'manual_exception',
+        nayaxRecommendationPolicyVersion: null,
+        matchedNayaxMachineAuthTime: null,
+        matchedNayaxAmountCents: null,
+        matchedNayaxCardLast4: null,
+        matchedNayaxCurrencyCode: null,
+        nayaxLookupCandidates: [],
+        assignedManagerEmail: managerEmail,
+        decision: null,
+        decisionReason: null,
+        decidedAt: null,
+        refundAmountCents: 700,
+        manualRefundReference: null,
+        hasReportingAdjustment: false,
+        createdAt: demoIsoHoursAgo(3),
+        updatedAt: demoIsoHoursAgo(2),
+        attachments: [],
+        events: [],
+        messages: [],
+        intakeSource: 'gmail',
+        hasGmailThread: true,
+        intakeComplete: true,
+        providerHold: false,
+        providerOutcome: 'not_attempted',
+        reconciliationActionBlocked: false,
+        legacyStateReviewRequired: false,
+        manualNayaxPortalEnabled: true,
+        manualNayaxEvidenceSelected: false,
+        manualNayaxLocationTimezone: 'America/New_York',
+        reviewedNayaxPortalFallbackKind: 'legacy_manual_evidence',
+        inboundLinkReview: showInboundLinkReview
+          ? {
+              schemaVersion: 'refund_gmail_case_link_review_v1',
+              reviewId: 'b8990000-0000-4000-8000-000000000001',
+              version: 1,
+              status: 'pending',
+              candidateCount: 2,
+              receivedAt: demoIsoHoursAgo(0.5),
+              matchBasis: 'normalized_sender_recent_open_cases',
+              candidates: [
+                {
+                  caseId: 'demo-nc-manual',
+                  publicReference: 'RF-UAT-NC-MANUAL',
+                  locationName: 'Carolina Place',
+                  machineLabel: 'Carolina Place',
+                  incidentAt: demoIsoHoursAgo(2),
+                  paymentAmountCents: 700,
+                  evidence: {
+                    normalizedSender: true,
+                    amount: true,
+                    locationOrMachine: true,
+                    payloadRedacted: true,
+                  },
+                  relationship: null,
+                },
+                {
+                  caseId: 'demo-card-match',
+                  publicReference: 'RF-UAT-CARD',
+                  locationName: 'Mall Atrium',
+                  machineLabel: 'Cotton Candy 01',
+                  incidentAt: demoIsoHoursAgo(5),
+                  paymentAmountCents: 700,
+                  evidence: {
+                    normalizedSender: true,
+                    amount: true,
+                    payloadRedacted: true,
+                  },
+                  relationship: null,
+                },
+              ],
+              customerContactSuppressed: true,
+              caseCreated: false,
+              providerCallMade: false,
+              paymentActionTaken: false,
+              payloadRedacted: true,
+            }
+          : null,
+        nayaxLookupSummary: {
+          lookupStatus: 'setup_needed',
+          candidateCount: 0,
+          summary: 'Use Adam’s Nayax portal to find the exact transaction.',
+          recommendedAction: 'Enter the exact transaction below.',
+          recommendationState: 'manual_exception',
+          oneClickEligible: false,
+          incidentAt: demoIsoHoursAgo(2),
+        },
+        lifecycle: showInboundLinkReview
+          ? demoLifecycle('matching', 10, 'review_inbound_case_link')
+          : demoLifecycle(
+              'needs_refund_operations',
+              60,
+              'refund_operations',
+              true
+            ),
+      },
       {
         id: 'demo-card-match',
         publicReference: 'RF-UAT-CARD',
@@ -1052,6 +2124,15 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         paymentMethod: 'card',
         paymentAmountCents: 700,
         cardLast4: '4242',
+        cardLast4Provenance: 'physical_card',
+        cardNetwork: 'visa',
+        customerFactEvidence: {
+          source: 'verified_customer_email',
+          appliedAt: demoIsoHoursAgo(4.75),
+          changedFields: ['card_network', 'payment_interaction', 'card_last4_provenance'],
+          factVersion: 2,
+          payloadRedacted: true,
+        },
         cardWalletUsed: false,
         paymentInteraction: 'tap_card',
         walletProvider: null,
@@ -1061,11 +2142,44 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         hasMatchedSalesFact: false,
         hasMatchedNayaxTransaction: true,
         nayaxMatchExecutionEligible: true,
+        refundReadiness: {
+          transactionConfirmed: true,
+          canIssueCardRefund: true,
+          blockReason: null,
+          refundAmountCents: 700,
+          machineLimitCents: 1200,
+          caseVersion: 1,
+        },
         nayaxRecommendationState: 'high_confidence',
         matchedNayaxMachineAuthTime: demoIsoHoursAgo(5),
         matchedNayaxAmountCents: 700,
         matchedNayaxCardLast4: '4242',
         matchedNayaxCurrencyCode: 'USD',
+        selectedNayaxTransaction: {
+          schemaVersion: 'refund_selected_nayax_transaction_v1',
+          transactionId: 'NAYAX-UAT-4100000031',
+          saleAmountCents: 700,
+          currencyCode: 'USD',
+          machineLabel: 'Cotton Candy 01',
+          locationName: 'Mall Atrium',
+          customerReportedAt: demoIsoHoursAgo(5.05),
+          providerAuthorizedAt: demoIsoHoursAgo(5),
+          machineTimezone: 'America/Los_Angeles',
+          providerTimeResolution: 'exact',
+          cardLast4: '4242',
+          cardNetwork: 'visa',
+          recognitionMethod: 'tap',
+          paymentInteraction: 'tap_card',
+          walletProvider: null,
+          matchExplanation: 'Exact mapped machine and location; exact amount; card last four matches',
+          matchFactors: [
+            { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+            { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
+            { key: 'card', outcome: 'match', label: 'Card last four matches' },
+          ],
+          evidenceSource: 'nayax_last_sales',
+          payloadRedacted: true,
+        },
         nayaxLookupCandidates: [
           {
             candidateToken: '41000000-0000-4000-8000-000000000031',
@@ -1107,6 +2221,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
             createdAt: demoIsoHoursAgo(4.5),
           },
         ],
+        lifecycle: demoLifecycle('transaction_confirmed', 30, 'issue_refund'),
         assignedManagerEmail: managerEmail,
         decision: 'approved',
         decisionReason: 'Confirmed matching card transaction and customer report.',
@@ -1176,6 +2291,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         matchedNayaxCardLast4: null,
         matchedNayaxCurrencyCode: null,
         nayaxLookupCandidates: [],
+        lifecycle: demoLifecycle('waiting_on_customer', 15, 'wait_for_customer_reply'),
         assignedManagerEmail: managerEmail,
         decision: null,
         decisionReason: null,
@@ -1276,10 +2392,11 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
 };
 
 export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsOverview> => {
-  const [overviewResult, gmailDraftResult, queueStateResult] = await Promise.all([
+  const [overviewResult, gmailDraftResult, queueStateResult, manualNayaxResult] = await Promise.all([
     supabaseClient.rpc('admin_get_refund_operations_overview'),
     supabaseClient.rpc('admin_get_refund_gmail_draft_cases'),
     supabaseClient.rpc('admin_get_refund_email_queue_states'),
+    supabaseClient.rpc('admin_get_refund_manual_nayax_context'),
   ]);
 
   if (overviewResult.error) {
@@ -1291,13 +2408,69 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   if (queueStateResult.error) {
     throw new Error(queueStateResult.error.message || 'Unable to load refund queue state.');
   }
+  if (manualNayaxResult.error) {
+    throw new Error(manualNayaxResult.error.message || 'Unable to load manual Nayax readiness.');
+  }
 
   const overview = {
     ...emptyOverview,
     ...((overviewResult.data as Partial<RefundOperationsOverview> | null) ?? {}),
   };
+  if (
+    overview.lifecycleContractVersion !== undefined &&
+    overview.lifecycleContractVersion !== REFUND_LIFECYCLE_SCHEMA_VERSION
+  ) {
+    throw new Error('Unsupported refund lifecycle response.');
+  }
+  if (
+    overview.managerQueueContractVersion !== undefined &&
+    overview.managerQueueContractVersion !== 'refund_manager_queue_v2'
+  ) {
+    throw new Error('Unsupported refund manager queue response.');
+  }
+  if (
+    overview.internalTestContractVersion !== undefined &&
+    overview.internalTestContractVersion !== 'refund_internal_test_v1'
+  ) {
+    throw new Error('Unsupported Internal/test archive response.');
+  }
+  if (
+    overview.selectedNayaxTransactionContractVersion !== undefined &&
+    overview.selectedNayaxTransactionContractVersion !== 'refund_selected_nayax_transaction_v1'
+  ) {
+    throw new Error('Unsupported selected Nayax transaction response.');
+  }
+  if (
+    overview.nayaxScopeRecoveryContractVersion !== undefined &&
+    overview.nayaxScopeRecoveryContractVersion !== 'refund_nayax_scope_recovery_v1'
+  ) {
+    throw new Error('Unsupported Nayax scope recovery response.');
+  }
+  if (
+    overview.transactionalDeliveryContractVersion !== undefined &&
+    overview.transactionalDeliveryContractVersion !== 'refund_transactional_delivery_v1'
+  ) {
+    throw new Error('Unsupported transactional delivery response.');
+  }
+  if (
+    overview.inboundLinkReviewContractVersion !== undefined &&
+    overview.inboundLinkReviewContractVersion !== 'refund_gmail_case_link_review_v1'
+  ) {
+    throw new Error('Unsupported inbound email linking review response.');
+  }
+  const internalTestCases = Array.isArray(overview.internalTestCases)
+    ? overview.internalTestCases.map((refundCase) => ({
+        ...refundCase,
+        internalTest: requireRefundInternalTestContract(refundCase.internalTest),
+        lifecycle: refundCase.lifecycle
+          ? requireRefundLifecycleContract(refundCase.lifecycle)
+          : null,
+      }))
+    : [];
+  const internalTestCaseIds = new Set(internalTestCases.map((refundCase) => refundCase.id));
   const gmailDrafts = Array.isArray(gmailDraftResult.data)
     ? (gmailDraftResult.data as RefundCaseRecord[])
+        .filter((refundCase) => !internalTestCaseIds.has(refundCase.id))
     : [];
   const queueStates = Array.isArray(queueStateResult.data)
     ? (queueStateResult.data as RefundEmailQueueState[])
@@ -1305,28 +2478,72 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   const queueStateByCaseId = new Map(
     queueStates.map((state) => [state.caseId, state] as const)
   );
-  const cases = [...gmailDrafts, ...overview.cases].map((refundCase) => {
+  const manualNayaxContexts = Array.isArray(manualNayaxResult.data)
+    ? (manualNayaxResult.data as Array<{
+        caseId: string;
+        manualNayaxPortalEnabled: boolean;
+        manualNayaxEvidenceSelected: boolean;
+        manualNayaxLocationTimezone: string | null;
+        reviewedNayaxPortalFallbackKind?: 'legacy_manual_evidence' | 'ordinary_exact_match';
+      }>)
+    : [];
+  const manualNayaxByCaseId = new Map(
+    manualNayaxContexts.map((context) => [context.caseId, context] as const)
+  );
+  const cases = [...gmailDrafts, ...overview.cases].map((rawRefundCase) => {
+    const refundCase = overview.transactionalDeliveryContractVersion ===
+        'refund_transactional_delivery_v1' &&
+        !gmailDrafts.includes(rawRefundCase)
+      ? requireRefundTransactionalDeliveryCase(rawRefundCase)
+      : rawRefundCase;
     const state = queueStateByCaseId.get(refundCase.id);
-    if (!state) return refundCase;
+    const manualNayax = manualNayaxByCaseId.get(refundCase.id);
+    const selectedNayaxTransaction = refundCase.selectedNayaxTransaction
+      ? requireRefundSelectedNayaxTransaction(refundCase.selectedNayaxTransaction)
+      : null;
+    const lifecycle = refundCase.lifecycle
+      ? requireRefundLifecycleContract(refundCase.lifecycle)
+      : null;
+    const machineCorrection = parseRefundMachineCorrectionEvidence(refundCase.machineCorrection);
+    const inboundLinkReview = overview.inboundLinkReviewContractVersion ===
+        'refund_gmail_case_link_review_v1'
+      ? requireRefundGmailCaseLinkReview(refundCase.inboundLinkReview)
+      : null;
+    if (!state && !manualNayax) {
+      return { ...refundCase, lifecycle, selectedNayaxTransaction, inboundLinkReview, machineCorrection };
+    }
     return {
       ...refundCase,
-      intakeSource: state.intakeSource,
-      exactCasePath: state.exactCasePath,
-      missingInformation: state.missingInformation,
-      possibleDuplicate: state.possibleDuplicate,
-      confirmedDuplicate: state.confirmedDuplicate,
-      duplicateOfCaseId: state.duplicateOfCaseId,
-      aging: state.aging,
-      providerHold: state.providerHold,
-      providerOutcome: state.providerOutcome,
-      legacyStateReviewRequired: state.legacyStateReviewRequired,
-      reconciliationActionBlocked: state.actionBlocked,
+      lifecycle,
+      selectedNayaxTransaction,
+      inboundLinkReview,
+      machineCorrection,
+      ...(state ? {
+        intakeSource: state.intakeSource,
+        exactCasePath: state.exactCasePath,
+        missingInformation: state.missingInformation,
+        possibleDuplicate: state.possibleDuplicate,
+        confirmedDuplicate: state.confirmedDuplicate,
+        duplicateOfCaseId: state.duplicateOfCaseId,
+        aging: state.aging,
+        providerHold: state.providerHold,
+        providerOutcome: state.providerOutcome,
+        legacyStateReviewRequired: state.legacyStateReviewRequired,
+        reconciliationActionBlocked: state.actionBlocked,
+      } : {}),
+      ...(manualNayax ? {
+        manualNayaxPortalEnabled: manualNayax.manualNayaxPortalEnabled,
+        manualNayaxEvidenceSelected: manualNayax.manualNayaxEvidenceSelected,
+        manualNayaxLocationTimezone: manualNayax.manualNayaxLocationTimezone,
+        reviewedNayaxPortalFallbackKind: manualNayax.reviewedNayaxPortalFallbackKind,
+      } : {}),
     };
   });
 
   return {
     ...overview,
     cases,
+    internalTestCases,
   };
 };
 
@@ -1366,6 +2583,69 @@ export const resolveRefundCaseReconciliation = async (
     throw new Error(error.message || 'Unable to save the duplicate review.');
   }
   return data as RefundCaseReconciliation;
+};
+
+export const resolveRefundGmailCaseLinkReview = async (input: {
+  reviewId: string;
+  expectedVersion: number;
+  primaryRefundCaseId: string;
+}): Promise<{
+  resolved: boolean;
+  replayed: boolean;
+  primaryCaseId?: string;
+  associatedCaseCount?: number;
+  review: RefundGmailCaseLinkReview;
+  customerMessageSent: false;
+  caseCreated: false;
+  providerCallMade: false;
+  paymentActionTaken: false;
+  payloadRedacted: true;
+}> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_resolve_refund_gmail_case_link_review',
+    {
+      p_review_id: input.reviewId,
+      p_expected_version: input.expectedVersion,
+      p_primary_refund_case_id: input.primaryRefundCaseId,
+    }
+  );
+  if (error) {
+    throw new Error(error.message || 'Unable to resolve the inbound email link.');
+  }
+  const result = (data ?? {}) as Record<string, unknown>;
+  const review = requireRefundGmailCaseLinkReview(result.review);
+  const resultKeys = new Set([
+    'resolved', 'replayed', 'primaryCaseId', 'associatedCaseCount', 'review',
+    'customerMessageSent', 'caseCreated', 'providerCallMade', 'paymentActionTaken',
+    'payloadRedacted',
+  ]);
+  if (
+    !Object.keys(result).every((key) => resultKeys.has(key)) ||
+    !review || typeof result.resolved !== 'boolean' ||
+    typeof result.replayed !== 'boolean' ||
+    (result.primaryCaseId !== undefined && typeof result.primaryCaseId !== 'string') ||
+    (result.associatedCaseCount !== undefined && (
+      typeof result.associatedCaseCount !== 'number' ||
+      !Number.isInteger(result.associatedCaseCount) || result.associatedCaseCount < 1
+    )) ||
+    result.customerMessageSent !== false || result.caseCreated !== false ||
+    result.providerCallMade !== false || result.paymentActionTaken !== false ||
+    result.payloadRedacted !== true
+  ) {
+    throw new Error('Unsupported inbound email linking resolution response.');
+  }
+  return { ...result, review } as {
+    resolved: boolean;
+    replayed: boolean;
+    primaryCaseId?: string;
+    associatedCaseCount?: number;
+    review: RefundGmailCaseLinkReview;
+    customerMessageSent: false;
+    caseCreated: false;
+    providerCallMade: false;
+    paymentActionTaken: false;
+    payloadRedacted: true;
+  };
 };
 
 export const fetchRefundAutomationHealth = async (): Promise<RefundAutomationHealth> => {
@@ -1409,6 +2689,33 @@ export const fetchRefundAutomationHealth = async (): Promise<RefundAutomationHea
   };
 };
 
+export const fetchRefundNayaxReliabilityHealth = async (): Promise<RefundNayaxReliabilityHealth> => {
+  const { data, error } = await supabaseClient.rpc('get_refund_nayax_reliability_health');
+  if (error) {
+    throw new Error(error.message || 'Unable to load card refund reliability health.');
+  }
+
+  const health = (data ?? {}) as Partial<RefundNayaxReliabilityHealth>;
+  return {
+    status: health.status === 'attention' ? 'attention' : 'healthy',
+    directSuccessCount: Number(health.directSuccessCount ?? 0),
+    supportResolvedSuccessCount: Number(health.supportResolvedSuccessCount ?? 0),
+    unresolvedCount: Number(health.unresolvedCount ?? 0),
+    oldestUnresolvedAt: typeof health.oldestUnresolvedAt === 'string' ? health.oldestUnresolvedAt : null,
+    journalOrSettlementFailureCount: Number(health.journalOrSettlementFailureCount ?? 0),
+    completionMismatchCount: Number(health.completionMismatchCount ?? 0),
+    averageApprovalStartLatencyMs:
+      health.averageApprovalStartLatencyMs != null &&
+      Number.isFinite(Number(health.averageApprovalStartLatencyMs))
+        ? Number(health.averageApprovalStartLatencyMs)
+        : null,
+    ownerLabel: typeof health.ownerLabel === 'string' ? health.ownerLabel : 'Refund Operations',
+    escalationSlaMinutes: Number(health.escalationSlaMinutes ?? 60),
+    escalationDueAt: typeof health.escalationDueAt === 'string' ? health.escalationDueAt : null,
+    payloadRedacted: health.payloadRedacted === true,
+  };
+};
+
 export const fetchRefundGmailHealth = async (): Promise<RefundGmailHealth> => {
   const { data, error } = await supabaseClient.rpc('get_refund_gmail_health');
   if (error) {
@@ -1418,6 +2725,7 @@ export const fetchRefundGmailHealth = async (): Promise<RefundGmailHealth> => {
   const health = (data ?? {}) as Partial<RefundGmailHealth>;
   const validStatuses: RefundGmailHealthStatus[] = [
     'healthy',
+    'recovering',
     'stale',
     'failing',
     'paused',
@@ -1445,6 +2753,12 @@ export const fetchRefundGmailHealth = async (): Promise<RefundGmailHealth> => {
     attachmentsQuarantined: Number(health.attachmentsQuarantined ?? 0),
     messagesFailed: Number(health.messagesFailed ?? 0),
     errorCode: typeof health.errorCode === 'string' ? health.errorCode : null,
+    schedulerEnabled: health.schedulerEnabled === true,
+    schedulerStatus: typeof health.schedulerStatus === 'string' ? health.schedulerStatus : null,
+    schedulerLastCheckAt:
+      typeof health.schedulerLastCheckAt === 'string' ? health.schedulerLastCheckAt : null,
+    schedulerLastDispatchAt:
+      typeof health.schedulerLastDispatchAt === 'string' ? health.schedulerLastDispatchAt : null,
     payloadRedacted: health.payloadRedacted === true,
   };
 };
@@ -1526,20 +2840,83 @@ export const rejectRefundGptTriage = async (
 };
 
 export const fetchRefundManagerSetup = async (): Promise<RefundManagerSetup> => {
-  const { data, error } = await supabaseClient.rpc('admin_get_refund_manager_setup');
+  const [{ data, error }, globalAvailability] = await Promise.all([
+    supabaseClient.rpc('admin_get_refund_manager_setup'),
+    fetchNayaxCardRefundAvailability().catch(() => null),
+  ]);
 
   if (error) {
     throw new Error(error.message || 'Unable to load machine manager setup.');
   }
 
-  return {
+  const setup = {
     ...emptyRefundManagerSetup,
     ...((data as Partial<RefundManagerSetup> | null) ?? {}),
   };
+  const globalBlockReason = globalAvailability?.blockReason;
+  const safeGlobalBlockReason =
+    globalBlockReason === 'official_actions_disabled' ||
+    globalBlockReason === 'kill_switch_active' ||
+    globalBlockReason === 'provider_remaining_value_unverified' ||
+    globalBlockReason === 'configuration_missing'
+      ? globalBlockReason
+      : globalAvailability?.available
+        ? null
+        : 'configuration_missing';
+
+  return {
+    ...setup,
+    globalRefunds: {
+      available: globalAvailability?.available === true,
+      paused:
+        safeGlobalBlockReason === 'official_actions_disabled' ||
+        safeGlobalBlockReason === 'kill_switch_active',
+      blockReason: safeGlobalBlockReason,
+    },
+  };
+};
+
+export const fetchRefundNayaxInventory = async (): Promise<RefundNayaxInventory> => {
+  const { data, error } = await supabaseClient.rpc('admin_get_refund_nayax_inventory');
+  if (error) throw new Error(error.message || 'Unable to load the Nayax refund inventory.');
+  const inventory = data as Partial<RefundNayaxInventory> | null;
+  return {
+    summary: inventory?.summary ?? { active: 0, published: 0, needsSetup: 0, excluded: 0, stalePublished: 0 },
+    lastRun: inventory?.lastRun ?? null,
+    machines: Array.isArray(inventory?.machines) ? inventory.machines : [],
+  };
+};
+
+export const reconcileRefundNayaxMachineAdmin = async ({
+  inventoryId,
+  state,
+  category,
+  reportingMachineId,
+  exclusionReason,
+  reason,
+}: {
+  inventoryId: string;
+  state: RefundNayaxInventoryState;
+  category: RefundNayaxInventoryCategory;
+  reportingMachineId: string | null;
+  exclusionReason: string | null;
+  reason: string;
+}) => {
+  const { data, error } = await supabaseClient.rpc('admin_reconcile_refund_nayax_machine', {
+    p_inventory_id: inventoryId,
+    p_reconciliation_state: state,
+    p_refund_category: category,
+    p_reporting_machine_id: reportingMachineId,
+    p_exclusion_reason: exclusionReason,
+    p_reason: reason,
+  });
+  if (error || !data) throw new Error(error?.message || 'Unable to reconcile the Nayax machine.');
+  return data as { ok: boolean; inventoryId: string; state: RefundNayaxInventoryState };
 };
 
 export type UpdateRefundCaseResponse = {
     error?: string;
+    errorCode?: string;
     refundCase?: {
       id: string;
       publicReference: string;
@@ -1549,7 +2926,15 @@ export type UpdateRefundCaseResponse = {
     };
     customerMessage?: { type: string; status: string } | null;
     updateApplied?: boolean;
+    selectionApplied?: boolean;
+    transactionConfirmed?: boolean;
+    refundReadiness?: RefundReadiness | null;
 };
+
+export const isRefundCaseUpdateError = (
+  error: unknown
+): error is EdgeFunctionError<UpdateRefundCaseResponse> =>
+  isEdgeFunctionError<UpdateRefundCaseResponse>(error);
 
 const requireUpdatedRefundCase = (data: UpdateRefundCaseResponse) => {
   if (!data.refundCase) {
@@ -1564,6 +2949,219 @@ export const updateRefundCaseAdmin = async (input: UpdateRefundCaseInput) => {
     authErrorMessage: 'Log in to update refund cases.',
   });
   return requireUpdatedRefundCase(data);
+};
+
+export type DisposeRefundAcknowledgementExceptionResponse = {
+  recorded: boolean;
+  replayed: boolean;
+  reason: 'later_customer_contact_already_sent';
+  caseVersion: number;
+  payloadRedacted: true;
+};
+
+export const disposeRefundAcknowledgementException = async (input: {
+  caseId: string;
+  expectedCaseVersion: number;
+  reason: 'later_customer_contact_already_sent';
+}): Promise<DisposeRefundAcknowledgementExceptionResponse> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_dispose_refund_acknowledgement_exception',
+    {
+      p_case_id: input.caseId,
+      p_expected_case_version: input.expectedCaseVersion,
+      p_reason: input.reason,
+    }
+  );
+  if (error || !data || typeof data !== 'object') {
+    throw new Error(error?.message || 'Unable to record the acknowledgement recovery disposition.');
+  }
+  const response = data as Record<string, unknown>;
+  if (
+    typeof response.recorded !== 'boolean' ||
+    typeof response.replayed !== 'boolean' ||
+    response.recorded === response.replayed ||
+    response.reason !== 'later_customer_contact_already_sent' ||
+    typeof response.caseVersion !== 'number' ||
+    !Number.isInteger(response.caseVersion) ||
+    response.caseVersion <= 0 ||
+    response.payloadRedacted !== true
+  ) {
+    throw new Error('The acknowledgement recovery response was invalid. Refresh before continuing.');
+  }
+  return response as DisposeRefundAcknowledgementExceptionResponse;
+};
+
+export type CorrectRefundCustomerLocaleResponse = {
+  recorded: boolean;
+  replayed: boolean;
+  locale: RefundCustomerLocale;
+  reason: RefundCustomerLocaleCorrectionReason;
+  caseVersion: number;
+  localeVersion: number;
+  payloadRedacted: true;
+};
+
+export const correctRefundCustomerLocale = async (input: {
+  caseId: string;
+  expectedCaseVersion: number;
+  expectedLocaleVersion: number;
+  locale: RefundCustomerLocale;
+  reason: RefundCustomerLocaleCorrectionReason;
+}): Promise<CorrectRefundCustomerLocaleResponse> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_correct_refund_customer_locale',
+    {
+      p_case_id: input.caseId,
+      p_expected_case_version: input.expectedCaseVersion,
+      p_expected_locale_version: input.expectedLocaleVersion,
+      p_locale: input.locale,
+      p_reason: input.reason,
+    }
+  );
+  if (error || !data || typeof data !== 'object') {
+    throw new Error(error?.message || 'Unable to correct the customer language.');
+  }
+
+  const response = data as Record<string, unknown>;
+  if (
+    typeof response.recorded !== 'boolean' ||
+    typeof response.replayed !== 'boolean' ||
+    response.recorded === response.replayed ||
+    (response.locale !== 'en' && response.locale !== 'es') ||
+    (
+      response.reason !== 'reviewed_customer_request_language' &&
+      response.reason !== 'customer_confirmed_language'
+    ) ||
+    typeof response.caseVersion !== 'number' ||
+    !Number.isInteger(response.caseVersion) ||
+    response.caseVersion <= 0 ||
+    typeof response.localeVersion !== 'number' ||
+    !Number.isInteger(response.localeVersion) ||
+    response.localeVersion <= input.expectedLocaleVersion ||
+    response.payloadRedacted !== true
+  ) {
+    throw new Error('The customer-language response was invalid. Refresh before continuing.');
+  }
+
+  return response as CorrectRefundCustomerLocaleResponse;
+};
+
+export type ClassifyRefundCaseInternalTestResponse = {
+  classified: boolean;
+  replayed: boolean;
+  caseVersion: number;
+  classification: RefundInternalTestContract;
+  payloadRedacted: true;
+};
+
+export const classifyRefundCaseInternalTest = async (input: {
+  caseId: string;
+  expectedCaseVersion: number;
+  reason: RefundInternalTestReason;
+}): Promise<ClassifyRefundCaseInternalTestResponse> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_classify_refund_case_internal_test',
+    {
+      p_case_id: input.caseId,
+      p_expected_case_version: input.expectedCaseVersion,
+      p_reason: input.reason,
+    }
+  );
+  if (error || !data || typeof data !== 'object') {
+    throw new Error(error?.message || 'Unable to classify this Internal/test case.');
+  }
+
+  const response = data as Record<string, unknown>;
+  const classification = response.classification && typeof response.classification === 'object'
+    ? response.classification as Record<string, unknown>
+    : null;
+  if (
+    typeof response.classified !== 'boolean' ||
+    typeof response.replayed !== 'boolean' ||
+    response.classified === response.replayed ||
+    typeof response.caseVersion !== 'number' ||
+    !Number.isInteger(response.caseVersion) ||
+    (
+      response.replayed === true
+        ? response.caseVersion < input.expectedCaseVersion
+        : response.caseVersion <= input.expectedCaseVersion
+    ) ||
+    classification?.schemaVersion !== 'refund_internal_test_v1' ||
+    classification?.classification !== 'internal_test_no_customer_refund' ||
+    classification?.reason !== input.reason ||
+    typeof classification.reasonLabel !== 'string' ||
+    classification.reasonLabel.trim().length === 0 ||
+    typeof classification.classifiedAt !== 'string' ||
+    Number.isNaN(Date.parse(classification.classifiedAt)) ||
+    classification?.suppressesCustomerMessages !== true ||
+    classification?.suppressesRefunds !== true ||
+    classification?.suppressesReportingAdjustments !== true ||
+    classification?.suppressesReminders !== true ||
+    classification?.suppressesCustomerSla !== true ||
+    classification?.payloadRedacted !== true ||
+    response.payloadRedacted !== true
+  ) {
+    throw new Error('The Internal/test disposition response was invalid. Refresh before continuing.');
+  }
+
+  return response as ClassifyRefundCaseInternalTestResponse;
+};
+
+export const createRefundManualNayaxCandidate = async (
+  input: CreateRefundManualNayaxCandidateInput
+): Promise<CreateRefundManualNayaxCandidateResponse> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_create_refund_manual_nayax_candidate',
+    {
+      p_case_id: input.caseId,
+      p_expected_case_version: input.expectedCaseVersion,
+      p_portal_machine_reference: input.portalMachineReference,
+      p_provider_transaction_id: input.providerTransactionId,
+      p_machine_authorization_local_time: input.machineAuthorizationLocalTime,
+      p_amount_cents: input.amountCents,
+      p_card_last4: input.cardLast4,
+    }
+  );
+  if (error || !data || typeof data !== 'object') {
+    throw new Error(error?.message || 'Unable to save the Nayax portal transaction.');
+  }
+  return data as CreateRefundManualNayaxCandidateResponse;
+};
+
+export const beginRefundManualNayaxPortal = async (
+  caseId: string,
+  expectedCaseVersion: number
+): Promise<BeginRefundManualNayaxPortalResponse> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_begin_refund_manual_nayax_portal',
+    {
+      p_case_id: caseId,
+      p_expected_case_version: expectedCaseVersion,
+    }
+  );
+  if (error || !data || typeof data !== 'object') {
+    throw new Error(error?.message || 'Unable to approve this refund for the Nayax portal.');
+  }
+  return data as BeginRefundManualNayaxPortalResponse;
+};
+
+export const beginRefundNayaxEvidenceOnlyReconciliation = async (
+  caseId: string,
+  expectedCaseVersion: number
+): Promise<BeginRefundNayaxEvidenceOnlyResponse> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_begin_refund_nayax_evidence_only_reconciliation',
+    {
+      p_case_id: caseId,
+      p_expected_case_version: expectedCaseVersion,
+    }
+  );
+  if (error || !data || typeof data !== 'object') {
+    throw new Error(
+      error?.message || 'Unable to open the existing-refund evidence review.'
+    );
+  }
+  return data as BeginRefundNayaxEvidenceOnlyResponse;
 };
 
 export const fetchRefundNayaxResolutionReadiness = async (
@@ -1936,6 +3534,46 @@ export const setMachineRefundIntakeConfigAdmin = async ({
   return data as Record<string, unknown>;
 };
 
+export const setRefundMachineCardActivationAdmin = async ({
+  machineId,
+  enabled,
+  disabledReason,
+  reason,
+}: {
+  machineId: string;
+  enabled: boolean;
+  disabledReason?: RefundManagerSetupMachine['paymentDisabledReason'];
+  reason: string;
+}) => {
+  const { data, error } = await supabaseClient.rpc('admin_set_refund_machine_card_activation', {
+    p_machine_id: machineId,
+    p_enabled: enabled,
+    p_disabled_reason: disabledReason ?? null,
+    p_reason: reason,
+  });
+  if (error || !data) throw new Error(error?.message || 'Unable to update card refund availability.');
+  return data as {
+    ok: boolean;
+    replayed: boolean;
+    machineId: string;
+    readinessState: RefundManagerSetupMachine['readinessState'];
+    limitCents?: number | null;
+  };
+};
+
+export const activateQualifiedRefundMachinesAdmin = async (reason: string) => {
+  const { data, error } = await supabaseClient.rpc('admin_activate_qualified_refund_machines', {
+    p_reason: reason,
+  });
+  if (error || !data) throw new Error(error?.message || 'Unable to activate qualified machines.');
+  return data as {
+    ok: boolean;
+    activatedCount: number;
+    approvedExceptionCount: number;
+    standardLaunchLimitCents: number | null;
+  };
+};
+
 export const setMachineNayaxConfigAdmin = async ({
   machineId,
   nayaxMachineId,
@@ -1989,10 +3627,10 @@ export const executeNayaxCardRefund = async ({
     }
   );
 
-export const fetchNayaxCardRefundAvailability = () =>
+export const fetchNayaxCardRefundAvailability = (caseId?: string | null) =>
   invokeEdgeFunction<NayaxCardRefundAvailabilityResponse>(
     'nayax-card-refund',
-    { operation: 'availability' },
+    { operation: 'availability', ...(caseId ? { caseId } : {}) },
     {
       requireUserAuth: true,
       authErrorMessage: 'Log in to check card refund availability.',

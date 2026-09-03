@@ -1,41 +1,58 @@
-# Refund Operations Production Cutover Packet
+# Refund Operations v1 Production Cutover Packet
 
-Last updated: 2026-08-20
+> **Historical cutover record.** The 2026-08-27 operating decision in `Docs/DECISIONS.md` supersedes this packet anywhere it requires a controlled non-customer canary, staffed pilot, cohort, recruited UAT, first-ten review, or repeated approval ceremony. Current activation uses an eligible unresolved customer refund of $10 or less and follows `Docs/PRODUCTION_RUNBOOK.md` plus issues `#628`, `#990`, and `#427`.
+
+Last updated: 2026-08-24
 
 ## Outcome
 
-Use this packet to move epic `#628` from individually verified PRs to one tested production release. A green PR is necessary but is not deployment, live-payment, Gmail, GPT, or legacy-retirement approval.
+Use this packet to move epic `#628` from the fully integrated release on `main` to a simple, monitored production pilot. A green PR is necessary but is not production deployment, customer-contact activation, live-payment approval, schedule enablement, or legacy-responder retirement.
 
-**Current operational truth:** the default-off Refund Operations foundation and the pending-approval recovery are deployed at 10 functions / 59 migrations. Nayax support has confirmed the held transaction refunded, so `#427` adds two reviewed provider-free migrations for one structured resolution window and its fail-closed teardown. The one-case Gmail proof passed with exactly one case message and one Gmail outbound, zero unresolved delivery, and all gates restored off. Broad provider execution remains closed.
+**Historical release snapshot:** the reviewed repository target covered all ten manifest-tracked Refund Operations functions and all 92 required refund/Nayax migrations at the time of this packet. Its implementation inventory remains useful evidence, but its final sentence and later ceremony gates are superseded by the 2026-08-27 decision above.
+
+## Pilot scope boundary
+
+Refund Operations v1 uses the existing customer-service email and text-response population, the Bloomjoy hosted refund form, the existing Gmail assistant, the normal signed-in mapped-manager session, and the existing Nayax refund path.
+
+- Customer contact alone creates zero cases. A Bloomjoy form submission creates exactly one case.
+- A verified reply supplies missing facts to the same case and reruns matching only when material facts change.
+- The manager confirms the transaction separately from approving or denying the refund.
+- Every active Nayax machine is **Published**, **Needs setup**, or **Explicitly excluded**. Snapcase is in scope.
+- Customer messages are warm and branded. A denial supports a reply appeal that reopens the same case without payment authority.
+- Duplicate case, message, provider-attempt, reporting, and payment protections remain mandatory.
+- Refund-specific TOTP/operator ceremony, GPT, QR rollout, Kexiazhan reporting, cash fallback, and a new SMS platform are not pilot requirements.
 
 ## Evidence ledger
 
 | Gate | Required evidence | Authority to close |
 |---|---|---|
-| `#629` production alignment | Final integrated release manifest, reviewed migration dry run, deployed function parity, redacted intake/email smoke, distinct location mappings, restore source | Release and technical owners |
-| `#630` Nayax recommendation | Deterministic fixture suite, documented thresholds/exclusions, sanitized production lookup evidence, manager agreement/disagreement sample | Technical and QA owners |
-| `#631` manager workbench | Desktop/mobile/keyboard evidence for every major state plus clean manager completion without coaching | QA owner and pilot manager |
-| `#633` cash workflow | Amount cap, sensitive-reference rejection, idempotent completion, customer email ordering, reporting proof | QA and operations owners |
-| `#632` automation | One due action, replay suppression, PII-free alert, visible health, and quick disable | Operations and release owners |
-| `#430` live Nayax execution | Provider contract, machine allowlist, caps, kill switch, idempotency, success/failure/unknown proof | Executive sponsor and technical owner |
-| `#767` provider resolution | Audited payment-support resolution for rejected/unknown outcomes, with no blind retry or premature customer message | Payment-support, QA, and release owners |
-| `#692` / `#782` human step-up | Owner-only short enrollment window, private personal enrollment/recovery, fresh action-bound TOTP, and negative-path UAT | Owner-operator, auth/security, and QA owners |
-| `#435` assigned-scope persona | Aggregate-only role audit, privately selected clean manager-only identity, assigned-only visibility, and Admin denial; this is separate from official-action proof, where an exact current mapped manager may also hold Admin access | Access owner and QA owner |
-| `#634` Gmail | Approved OAuth/mailbox/retention/visible-CC and attachment-off pilot policy plus synthetic thread, replay, reply, and revocation evidence | Operations, auth, and privacy/security owners |
-| `#768` production drift | Bloomjoy-project-only Edge Functions Read credential, write-denial proof, protected-environment storage, and successful `main` run | Release and security owners |
-| `#635` GPT triage | Secure server-side key destination, sanitized evaluation metrics, strict schema, human-review proof, rollback control | Technical, support, privacy/security, and sponsor owners |
-| `#427` shadow pilot | Complete lane evidence, manager friction, timing/decision comparison, defects, and recommendation | Pilot owner and QA owner |
-| `#409` legacy cutover | All required evidence above, staffed rollback window, and explicit fallback-retirement decision | Executive sponsor |
+| Integrated release | Immutable `main` commit, 10-function/89-migration manifest, full verification, reviewed migration dry run, restore source, and clean postdeploy drift | Release and technical owners |
+| `#889` form-only intake | Contact-only zero cases, one Email-linked form case, one direct Website form case, one-time context/replay proof, missing-information reply on the same case, and matching rerun | QA and operations owners |
+| `#890` complete Nayax inventory | One controlled all-account sync; every active row explicitly published, needs setup, or excluded; zero unaccounted rows; setup rows have a specific customer-safe reason and cannot appear as mapped; cotton-candy and Snapcase mappings | Operations, release, and QA owners |
+| `#891` messages and appeals | Warm branded first contact, missing-information, denial, appeal receipt, retry, and confirmed completion in the original thread; reply appeal reopens the same case without payment | QA and operations owners |
+| `#703` duplicate protection | Source replay, concurrency, cross-source possible-duplicate review, canonical-case action blocking, and zero duplicate message/provider/reporting effects | Technical and QA owners |
+| `#706` unified queue | Email/Website source labels and the same state/next-action behavior at desktop and mobile widths without changing manager visibility | QA and pilot manager |
+| Mapped-manager refund path | Exact machine manager, selected transaction and amount, separate confirmation and approve/deny, caps, idempotency, success/failure/unknown handling, and no blind retry | Executive sponsor and technical owner |
+| `#427` monitored pilot | Controlled cotton-candy and Snapcase journeys, no-overlap responder cutover, staffed rollback, stop conditions, 72-hour observations, and final recommendation | Executive sponsor, pilot owner, and QA owner |
 
-## Merge and integrated-verification sequence
+## Current predeployment evidence
+
+The owner-authenticated read-only checks on 2026-08-21, combined with the current reviewed local target, produce this sanitized release view:
+
+- Target local release alignment: ten manifest-tracked functions and 90 required refund/Nayax migrations.
+- Production baseline: ten deployed refund functions captured to a gitignored artifact.
+- Production drift: seven changed repository functions are not yet paired with production, so the release correctly remains undeployed.
+- The integrated set includes `20260821090000_refund_form_only_case_creation.sql`, `20260821091000_refund_nayax_inventory.sql`, `20260821100000_refund_branded_appeals.sql`, `20260822190000_refund_portfolio_intake_inventory_correction.sql`, the later portfolio mapping/selection repairs, and `20260823221537_refund_nc_manual_nayax_portal.sql`. Before this change is deployed, `supabase db push --dry-run --linked` must show the exact reviewed pending set, including `20260824160609_refund_confirmation_readiness.sql` and `20260824190000_refund_machine_truthful_readiness.sql`, and no unrelated migration. A dry run must make no database write.
+
+This evidence expires if `main`, any listed migration, or any manifest-tracked function changes before deployment.
+
+## Integrated release verification
 
 1. Freeze unrelated Refund Operations changes for the release window.
-2. Review the current integrated `main` release and its canonical release metadata; do not treat the historical PR `#760` head as the active deploy source.
-3. If `main` changed after final verification, sync the release branch with current `main`, resolve overlap, run `npm run refunds:release:write-local`, review and commit any valid manifest update, and rerun the full verification profile.
-4. Confirm the reviewed target manifest covers all ten manifest-tracked Refund Operations functions and all 64 required refund/Nayax migrations, with the immutable exact canonical 51-migration predeployment bridge preserved as historical evidence.
-5. Deploy only an immutable, pushed, independently reviewed release commit. Follow the migration-before-function order in `Docs/PRODUCTION_RUNBOOK.md`; never allow the frontend to expose a workflow whose required database and Edge Function foundations are not already present.
-6. After merge, use the resulting integrated `main` commit for deployment evidence and any later deploy. Never deploy from an unreviewed or local-only commit.
-7. On that immutable release commit, require:
+2. Use the current integrated `main` commit as the only deploy source. Never deploy a historical PR head, local-only commit, or unreviewed merge.
+3. If `main` changes, refresh the manifest with `npm run refunds:release:write-local`, review and commit the manifest-only update, and rerun this entire verification profile.
+4. Confirm the manifest covers all ten manifest-tracked Refund Operations functions and all 90 required refund/Nayax migrations, with the exact canonical 51-migration predeployment bridge preserved only as historical restore evidence.
+5. Run on the immutable release commit:
 
 ```bash
 npm ci
@@ -43,11 +60,15 @@ npm run agent:preflight -- --issue 628
 npm run agent:validate-workflow
 npm run refunds:validate-release-tooling
 npm run refunds:release:check
+npm run refunds:validate-email-pilot
+npm run refunds:validate-nayax-inventory
+npm run refunds:validate-public-options-smoke
+npm run refunds:validate-machine-readiness-audit
+npm run refunds:validate-branded-appeals
 npm run refunds:validate-nayax-matching
 npm run refunds:validate-nayax-execution
-npm run refunds:validate-automation
 npm run refunds:validate-gmail
-npm run refunds:validate-gpt-triage
+npm run refunds:validate-uat-evidence
 npm run db:validate-migrations
 npm run build
 npm test --if-present
@@ -55,84 +76,93 @@ npm run lint --if-present
 git diff --check
 ```
 
-8. Review `supabase db push --dry-run`; it must list exactly the migrations in the reviewed manifest that production does not yet have and no surprise.
-9. Capture the production pre-deployment baseline and confirm the approved restore source without including secrets or downloaded bundles in Git.
-10. Attach the final commit, manifest ID, aggregate test totals, migration list, and restore-source reference to `#629` and the active release issue/PR. Generate every total from the final tree; do not copy counts from an older release.
+6. Review `supabase db push --dry-run`. It must list exactly the target-manifest migrations production lacks and no surprise.
+7. Capture the production predeployment baseline and confirm the approved restore source without committing secrets or downloaded bundles.
+8. Attach the immutable commit, manifest ID, generated test totals, migration delta, and restore-source reference to `#427` and `#628`.
 
-If any merge changes an in-scope migration or refund function after the manifest was generated, the manifest is stale and the release must repeat steps 7-10.
+If any merge changes an in-scope migration or Refund Operations function after the manifest was generated, the manifest is stale and steps 3-8 must be repeated.
 
 ### No provisional compatibility bridge
 
-The historical `#629/#716` five-migration bridge does not apply to the current release. The migration-52 release must use its own target manifest plus the exact immutable canonical 51-migration predeployment bridge, reviewed dry run, backup, migration-before-function order, source capture, and post-deployment drift proof. Until `#768` has a project-scoped read-only credential and a successful protected `main` run, execute the production comparison from the owner-controlled authenticated workstation before and after every refund deployment; never put a broad owner PAT in GitHub. Any unexpected migration, source digest, function version, switch state, or health result stops the release.
+The historical `#629/#716` five-migration bridge does not apply. The 75-migration target uses its reviewed manifest plus the exact canonical 51-migration predeployment bridge only for historical compatibility evidence. Any unexpected migration, source digest, function-version regression, switch state, or health result stops the release. A higher live function counter is acceptable only when the approved bundle/source/security pairing and canonical `supabase/functions/<slug>/index.ts` entrypoint identity remain exact; the receipt identifies that condition as a same-bundle later revision and never retains the host-specific absolute entrypoint path.
 
-## Deploy with all optional execution switches off
+## Default-off production deployment
 
-Deploy the approved migrations, functions, and frontend following `Docs/PRODUCTION_RUNBOOK.md`. During initial smoke testing, and before any separately approved optional-lane pilot:
+Production deployment requires explicit owner authority. Deploy migrations before functions and the frontend from the same immutable `main` release. Deployment authority does not authorize customer contact, a provider call, legacy-responder retirement, or schedule enablement.
+
+Keep these controls closed throughout deployment and initial smoke testing:
 
 - Nayax execution enabled: `false`
 - Nayax dry run: `true`
 - Nayax kill switch: `true`
 - Nayax provider contract confirmed: `false`
-- Nayax sponsor flag: unset
-- Refund automation GitHub switch: `false`
-- Refund automation Edge switch: `false`
-- Gmail GitHub switch: `false`
-- Gmail Edge switch: `false`
-- Automatic customer contact Edge and database switches: `false`
-- Manager-aging notice Edge switch: `false`
-- Gmail retention database policy: armed for the approved 180-day sanitized-copy period; GitHub and Edge runtime switches: `false` (recurring cleanup is dormant)
-- GPT triage GitHub switch: `false`
-- GPT triage Edge switch: `false`
-- GPT triage database switch: `false`
+- Refund Nayax inventory schedule: disabled
+- Refund Nayax inventory Edge switch: `false`
+- Refund automation schedule and Edge switch: `false`
+- Gmail schedule and shared Edge switch: `false`
+- First-contact mode: `disabled`
+- Legacy-responder cutover approval: `false`
+- Automatic customer contact and appeal acknowledgement: disabled
+- Manager-aging notices: disabled
+- Unrelated optional GPT lane: disabled; it is not a pilot gate
 
-Check switch values without printing secrets. A code deploy must not silently enable any lane.
+Check switch values without printing secrets. A deploy must not silently enable any lane.
 
-## Production smoke order
+## Exact postdeployment readiness order
 
-Use this exact post-deployment order:
-
-1. Run `npm run refunds:smoke-routes -- --project-ref <project-ref> --confirm-project-ref <project-ref>`; all eight no-auth, no-body `OPTIONS` probes must return their exact safe status and the manual/retry email route must not return `404`.
-2. Run `npm run refunds:smoke-public-options -- --project-ref <project-ref> --confirm-project-ref <project-ref>`; require zero internal labels/duplicates and at least one Atlanta, DC, and Seattle option before sharing the form.
-3. Run the aggregate-only Nayax mapping smoke and manager-readiness audit. Require one non-duplicate mapping and one to three active managers per pilot machine. Admin access alone must never grant official-action authority; a person who is also the exact current mapped manager remains valid only through that mapping. Use the separate clean manager-only persona for assigned-scope visibility UAT.
-4. Run `npm run refunds:smoke-intake-email` first in read-only preflight mode for the privately approved machine. Do not create a case or send mail yet.
-5. Capture production function metadata, update and independently review the manifest-only change, then require the standard production drift check to pass for all ten functions.
-6. With all optional execution switches still off, prove high-confidence, ambiguous, no-match, wallet/manual, failed/unknown, duplicate, completed, and communication-failure manager states using synthetic data.
-7. Preserve the completed isolated evidence: one original-thread first-contact acknowledgement, replay/later-reply suppression, private form continuation without a duplicate case, exact sole-manager assignment, and the bounded `#800`/`#810` owner-runner proof of exactly one case-specific message/outbound with the complete manager route and disabled teardown. Do not repeat that one-case proof as a required production-cutover step. Rerun it only under separate explicit authorization through the reviewed owner runner if its evidence becomes stale. The next required Gmail proof is one post-boundary synthetic first-contact after the staffed production-label/legacy-responder no-overlap handoff; this is not approval to process a real customer case or enable broad polling.
-8. Prove cash approve/deny/missing-info/completion and idempotency with a sponsor-approved test payout or a non-paying shadow fixture.
-9. Prove one reporting write-through and the negative controls.
-10. Keep automation off while preserving the completed PII-free alert, exact-key replay, and disabled-lane proofs. In one staffed synthetic-only window, prove one due reminder/escalation, manager-visible healthy state, replay, and teardown before considering scheduling.
-11. The case-specific mapped-manager-CC evidence is complete. Enable Gmail only after the production-label/legacy-responder no-overlap cutover proof passes; the legacy responder remains authoritative for normal mail until then.
-12. Start GPT human-review evaluation only after the production Supabase secret destination and the exact OpenAI project retention/data-control mode in `#635` are approved. Keep `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false` until that record exists, then set it only for the approved evaluation window. `store=false` is not zero-retention approval, and the local developer key is not production approval.
-13. Start live Nayax execution only after the separate `#430` provider-contract decision, `#767` provider-outcome resolution path, private owner TOTP enrollment/UAT, and a controlled low-value test. Use the approved cohort, allowlist, per-refund cap, and UTC daily count/amount caps.
+1. Run `npm run refunds:smoke-routes -- --project-ref <project-ref> --confirm-project-ref <project-ref>`; every no-auth, no-body `OPTIONS` probe must return its exact safe status.
+2. Capture and independently review the timestamped production function receipt. Update the manifest through a reviewed manifest-only change only for a `new_bundle_candidate`; retain the sealed manifest for a `same_bundle_later_revision`. Then require the standard production drift check to pass for all ten functions.
+3. Run one controlled inventory sync with the schedule still disabled. Confirm the run is complete and nonempty before accepting any inventory result.
+4. Reconcile every active Nayax row. Each must be **Published**, **Needs setup**, or **Explicitly excluded**. Do not launch with an unaccounted row, a stale published row, or a setup row exposed as mapped. Confirm every published cotton-candy/Snapcase machine has an exact identity, customer-safe label, active location, and one to four current managers.
+5. Run `npm run refunds:smoke-public-options -- --project-ref <project-ref> --confirm-project-ref <project-ref>`; require zero internal labels, duplicate public options, or unaccounted active machines. For this reviewed inventory, require exactly 33 Published, 2 Needs setup, 4 Excluded, 46 public choices, and 33 lookup-ready mappings.
+6. Run the aggregate mapped-manager readiness audit. Admin access alone never grants refund authority; authority comes from the exact current machine mapping.
+7. Run the aggregate machine/Tulsa/confirmed-case audit from `Docs/REFUND_SIMPLE_JOURNEY_RELEASE_RUNBOOK.md`. Before activation, record every ready-to-activate/setup/exception count. After reviewed activation, require zero unactivated eligible, unexplained-disabled, over-cap, Tulsa-unexplained, or confirmed-case-unknown rows.
+8. Run `npm run refunds:smoke-intake-email` in read-only preflight mode for the privately approved test machine and inbox. Do not create a case or send mail yet.
+9. With every external-action switch still off, prove the complete synthetic state set and the desktop/mobile manager journey from the final release evidence manifest.
+10. Under the separately approved staffed UAT window, prove these controlled journeys in order:
+   - one customer contact produces zero cases and one warm Bloomjoy form response;
+   - the Email-linked form creates exactly one Email case and direct submission creates exactly one Website case;
+   - missing information and no-safe-match replies update the same case and rerun matching only on changed facts;
+   - replay, refresh, concurrent submission, and cross-source duplicate review cannot create a competing actionable case, second message, or second provider attempt;
+   - a mapped manager confirms the exact transaction, then separately approves or denies;
+   - one cotton-candy and one Snapcase case preserve the exact amount, transaction, reporting, and provider-result boundaries;
+   - confirmed success records one reporting adjustment and sends one branded completion; denial sends one customer-safe reason; a reply appeal reopens the same case and cannot pay.
+11. Cut over responders without overlap: disable and verify the legacy Google Form response first, reconcile transition-interval mail, then enable the Bloomjoy response population. Rollback disables and verifies Bloomjoy before restoring the legacy response.
+12. Enable only the explicitly approved schedules during a staffed window. Monitor for 72 hours and stop on any missing active machine, wrong transaction or amount, duplicate case/message/provider attempt/reporting adjustment, unexplained provider result, delivery uncertainty, or responder overlap.
 
 ## Rollback and stop order
 
-For an incident, disable the affected optional lane first:
+1. Stop new customer work: disable the Bloomjoy responder and Gmail/automation schedules, then verify they are off.
+2. Stop payment execution: enable the Nayax kill switch and disable execution. Never retry an uncertain provider result.
+3. Stop inventory scheduling while retaining the last complete inventory and all reconciliation/audit records.
+4. Restore the legacy responder only after Bloomjoy is verified off for the same population.
+5. Redeploy only the approved function/frontend restore source. Use forward-only database repair; never delete audit evidence or run destructive rollback SQL during an incident.
 
-1. live Nayax: activate kill switch and disable execution
-2. automation: disable the GitHub schedule, then the Edge switch
-3. Gmail: disable the GitHub schedule, then the Edge switch
-4. GPT: disable the GitHub schedule, then the Edge switch, then the database setting; Gmail/form-created cases remain available
+## Executive decisions
 
-If the core release must be rolled back, redeploy the approved frontend and function restore source from the release manifest. Use forward-only database repair; do not delete audit evidence or run destructive rollback SQL during incident response. Keep the legacy workflow available until recovery is verified.
+Two separate decisions are required:
 
-## Final sponsor decision
+1. **Default-off deployment authority:** permits the reviewed dry run, baseline, migration-before-function deploy, drift proof, controlled inventory sync, reconciliation, and read-only/synthetic smoke. It does not permit customer contact or payment.
+2. **Pilot activation go/no-go:** after default-off readiness passes, permits only the named staffed customer-contact population, cotton-candy/Snapcase UAT, provider caps, responder cutover, schedules, and 72-hour monitor recorded below.
 
-Post this exact decision record in `#409`:
+Post this decision record in `#427`:
 
 ```markdown
-## Refund Operations production decision
+## Refund Operations v1 production decision
 - Final release commit / manifest ID:
-- Core shadow pilot: PASS / FAIL
-- Clean manager boundary: PASS / FAIL
-- Controlled Nayax execution: APPROVED / NOT APPROVED / NOT RUN
-- Automation: ENABLED / DISABLED
-- Gmail: ENABLED / DISABLED / DEFERRED
-- GPT human-review lane: ENABLED / DISABLED / DEFERRED
+- Default-off deployment and production drift: PASS / FAIL / NOT RUN
+- Active Nayax inventory: total / published / explicitly excluded / needs setup / unaccounted
+- Cotton-candy and Snapcase readiness: PASS / FAIL / NOT RUN
+- Contact-zero-case and form-one-case journeys: PASS / FAIL / NOT RUN
+- Missing-information reply and matching rerun: PASS / FAIL / NOT RUN
+- Duplicate replay and cross-source review: PASS / FAIL / NOT RUN
+- Separate transaction confirmation and approve/deny: PASS / FAIL / NOT RUN
+- Branded completion, denial, and same-case appeal: PASS / FAIL / NOT RUN
+- Bloomjoy responder / legacy responder: OFF-OFF / ON-OFF / OFF-ON / INVALID OVERLAP
+- Live Nayax execution: APPROVED / NOT APPROVED / NOT RUN
+- Staffed rollback owner and 72-hour window:
 - Open P0/P1 defects:
-- Rollback owner and staffed window:
-- Legacy Google Form/Sheet/AppSheet: KEEP / RETIRE
 - Sponsor decision and date:
 ```
 
-Do not interpret silence, a merged PR, or a successful shadow test as approval to enable live payments or retire the legacy workflow.
+Do not interpret silence, a merge, a deployment, a synthetic test, or inventory reconciliation as approval to contact customers, issue a live refund, overlap responders, or retire the fallback.

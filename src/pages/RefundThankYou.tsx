@@ -1,11 +1,19 @@
 import { CheckCircle2, Mail, Sparkles } from 'lucide-react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/button';
 
 export default function RefundThankYouPage() {
+  const location = useLocation();
   const [searchParams] = useSearchParams();
-  const reference = searchParams.get('ref')?.trim() ?? '';
+  const navigationState = location.state as {
+    reference?: string;
+    statusToken?: string | null;
+    statusExpiresAt?: string | null;
+  } | null;
+  const reference = navigationState?.reference?.trim() || searchParams.get('ref')?.trim() || '';
+  const statusToken = navigationState?.statusToken ?? null;
+  const hasStatusLink = typeof statusToken === 'string' && /^[A-Za-z0-9_-]{43}$/.test(statusToken);
   const isDemo = searchParams.get('demo') === 'on';
 
   return (
@@ -50,17 +58,22 @@ export default function RefundThankYouPage() {
                   purchase. We will compare your details with the machine's payment records.
                 </p>
                 <p>
-                  Card requests are reviewed against payment records. Approved cash refunds are
-                  sent through Zelle using the contact information provided.
+                  We will review the card payment against the machine's payment records before a
+                  manager makes a separate refund decision.
                 </p>
               </div>
             </div>
 
             <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
-              <Button asChild>
+              {hasStatusLink && (
+                <Button asChild>
+                  <Link to={`/refunds/status#token=${statusToken}`}>Check refund status</Link>
+                </Button>
+              )}
+              <Button asChild variant={hasStatusLink ? 'outline' : 'default'}>
                 <Link to="/">Back to Bloomjoy</Link>
               </Button>
-              <Button asChild variant="outline">
+              <Button asChild variant="ghost">
                 <Link to="/refunds/request">Report a different purchase</Link>
               </Button>
             </div>

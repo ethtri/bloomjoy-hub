@@ -4,10 +4,13 @@ import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
   lookupNayaxCandidatesForRefundCase,
-  NAYAX_RECOMMENDATION_POLICY,
   NayaxLookupRequestError,
 } from "../_shared/nayax-lookup.ts";
-import { persistNayaxLookupResult } from "../_shared/nayax-lookup-persistence.ts";
+import {
+  beginNayaxLookup,
+  failNayaxLookup,
+  persistNayaxLookupResult,
+} from "../_shared/nayax-lookup-persistence.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -41,6 +44,8 @@ serve(async (req) => {
 
   let caseIdForAudit = "";
   let actorUserIdForAudit = "";
+  let expectedFactVersionForAudit: number | null = null;
+  let lookupGenerationForAudit: number | null = null;
 
   try {
     if (req.method !== "POST") {
@@ -86,10 +91,32 @@ serve(async (req) => {
       return jsonResponse({ error: "Refund case access required." }, 403);
     }
 
+    const { data: lookupCase, error: lookupCaseError } = await supabase
+      .from("refund_cases")
+      .select("deterministic_fact_version")
+      .eq("id", caseId)
+      .single();
+    if (lookupCaseError) throw lookupCaseError;
+    const expectedFactVersion = Number(lookupCase.deterministic_fact_version);
+    if (!Number.isInteger(expectedFactVersion)) {
+      throw new Error("Refund case matching evidence version is unavailable.");
+    }
+    expectedFactVersionForAudit = expectedFactVersion;
+    const lookupGeneration = await beginNayaxLookup({
+      supabase,
+      caseId,
+      actorUserId: user.id,
+      expectedFactVersion,
+      trigger: "manual",
+    });
+    lookupGenerationForAudit = lookupGeneration;
+
     const result = await lookupNayaxCandidatesForRefundCase({
       supabase,
       caseId,
       actorUserId: user.id,
+      lookupGeneration,
+      expectedFactVersion,
     });
 
     await persistNayaxLookupResult({
@@ -98,6 +125,8 @@ serve(async (req) => {
       actorUserId: user.id,
       result,
       trigger: "manual",
+      expectedFactVersion,
+      lookupGeneration,
     });
 
     const { data: caseVersion, error: caseVersionError } = await supabase
@@ -129,24 +158,27 @@ serve(async (req) => {
       windowHours: result.windowHours,
       summary: result.summary,
       recommendedAction: result.recommendedAction,
+      setupIssueCode: result.setupIssueCode,
+      responsibleOwner: result.responsibleOwner,
+      requiredAccountScope: result.requiredAccountScope,
+      customerActionRequired: result.customerActionRequired,
       officialActionVersion: caseVersion.official_action_version,
     });
   } catch (error) {
-    if (supabase && isUuid(caseIdForAudit)) {
+    if (
+      supabase && isUuid(caseIdForAudit) &&
+      expectedFactVersionForAudit !== null &&
+      lookupGenerationForAudit !== null
+    ) {
       try {
-        await supabase.from("refund_case_events").insert({
-          refund_case_id: caseIdForAudit,
-          actor_user_id: actorUserIdForAudit || null,
-          event_type: "nayax_lookup_failed",
-          message:
-            "Nayax lookup failed and the case remains in manager review.",
-          metadata: {
-            error_type: error instanceof Error ? error.name : typeof error,
-            policy_version: NAYAX_RECOMMENDATION_POLICY.version,
-            confidence_class: "ambiguous_manual",
-            reason_codes: ["lookup_failed"],
-            payload_redacted: true,
-          },
+        await failNayaxLookup({
+          supabase,
+          caseId: caseIdForAudit,
+          actorUserId: actorUserIdForAudit || null,
+          expectedFactVersion: expectedFactVersionForAudit,
+          lookupGeneration: lookupGenerationForAudit,
+          trigger: "manual",
+          error,
         });
       } catch (auditError) {
         console.error("nayax-transaction-lookup audit insert failed", {

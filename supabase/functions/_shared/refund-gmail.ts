@@ -1,3 +1,5 @@
+import { formatRefundCustomerSender } from "./refund-customer-transport.ts";
+
 const GMAIL_API_ROOT = "https://gmail.googleapis.com/gmail/v1/users/me";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -814,7 +816,7 @@ export const buildRefundGmailReplyMime = ({
   const boundary = `bloomjoy_refund_${crypto.randomUUID().replaceAll("-", "")}`;
   const messageHeader = refundGmailOperationMessageHeader(operationKey);
   const headers = [
-    `From: ${sanitizeHeader(from, 320)}`,
+    `From: ${sanitizeHeader(formatRefundCustomerSender(from), 320)}`,
     `To: ${sanitizeHeader(to, 320)}`,
     `Subject: ${encodeHeader(sanitizeHeader(subject, 998))}`,
     `Date: ${new Date().toUTCString()}`,
@@ -873,6 +875,8 @@ export const sendRefundGmailReply = async ({
   operationKey,
   recipientEmail,
   ccEmails = [],
+  managerRecipientOverlap = false,
+  managerRecipientCount,
   deliveryKind = "manual",
   subject,
   text,
@@ -887,6 +891,8 @@ export const sendRefundGmailReply = async ({
   operationKey: string;
   recipientEmail: string;
   ccEmails?: string[];
+  managerRecipientOverlap?: boolean;
+  managerRecipientCount?: number;
   deliveryKind?: "manual" | "automatic";
   subject: string;
   text: string;
@@ -919,12 +925,20 @@ export const sendRefundGmailReply = async ({
   const premappingNoCcAllowed =
     recipientPolicy === "premapping_acknowledgement" &&
     effectiveDeliveryKind === "automatic" &&
-    operationKey.startsWith("refund-first-contact:") &&
+    (
+      operationKey.startsWith("refund-first-contact:") ||
+      operationKey.startsWith("refund-contact-first-response:")
+    ) &&
     normalizedCc.length === 0 &&
     ccEmails.length === 0;
   if (
-    (!premappingNoCcAllowed && normalizedCc.length === 0) ||
-    normalizedCc.length > 3 ||
+    (!premappingNoCcAllowed && (
+      !Number.isSafeInteger(managerRecipientCount) ||
+      managerRecipientCount! < 1 ||
+      managerRecipientCount! > 4 ||
+      normalizedCc.length + (managerRecipientOverlap ? 1 : 0) !==
+        managerRecipientCount
+    )) ||
     ccEmails.some((value) =>
       !isEmail(value.trim().toLowerCase()) ||
       value.trim().toLowerCase() === recipientEmail.toLowerCase() ||

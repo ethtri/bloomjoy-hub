@@ -32,25 +32,57 @@ select ok(
 );
 
 select ok(
-  pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+  (
+    pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
+  )
     like '%paymentInteraction%'
-  and pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+  and (
+    pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
+  )
     like '%incidentTimeConfidence%'
-  and pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+  and (
+    pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
+  )
     like '%issueCategory%',
   'The manager overview exposes the structured customer evidence'
 );
 
 select ok(
-  pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+  (
+    pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
+  )
     like '%productLabel%'
-  and pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+  and (
+    pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
+  )
     like '%machineStatus%'
-  and pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+  and (
+    pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_customer_correction_v1()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
+  )
     like '%nearbyMachineAlerts%'
-  and pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
-    not like '%provider_transaction_id%',
-  'The manager overview exposes sanitized context without raw provider transaction IDs'
+  and (
+    pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_nayax_scope_recovery_v1()'::regprocedure)
+  )
+    like '%selectedNayaxTransaction%'
+  and (
+    pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure)
+    || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_nayax_scope_recovery_v1()'::regprocedure)
+  )
+    like '%payloadRedacted%',
+  'The manager overview exposes sanitized context and only the exact provider transaction after selection'
 );
 
 select * from finish();

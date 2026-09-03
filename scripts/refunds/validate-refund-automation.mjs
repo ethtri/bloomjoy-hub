@@ -12,7 +12,17 @@ const checks = [];
 const check = (name, condition) => checks.push({ name, pass: Boolean(condition) });
 
 const migration = read('supabase/migrations/202607210005_refund_automation_scheduler_health.sql');
+const schedulerReliabilityMigration = read(
+  'supabase/migrations/20260830175740_refund_automation_scheduler_reliability.sql'
+);
+const schedulerCadenceMigration = read(
+  'supabase/migrations/20260830205449_refund_automation_scheduler_30_minute_cadence.sql'
+);
+const schedulerIncidentMigration = read(
+  'supabase/migrations/20260901180116_refund_scheduler_incident_1069.sql'
+);
 const followUpMigration = read('supabase/migrations/202608030005_refund_deterministic_follow_up_cycles.sql');
+const receiptEligibilityMigration = read('supabase/migrations/20260902195754_refund_receipt_automation_eligibility.sql');
 const managerAgingMigration = read('supabase/migrations/202608040001_refund_manager_aging_reminders.sql');
 const sweep = read('supabase/functions/refund-case-automation-sweep/index.ts');
 const intake = read('supabase/functions/refund-case-intake/index.ts');
@@ -98,8 +108,10 @@ check(
 check(
   'Reminder and verified-customer reply workers consume the exact database contract',
   sweep.includes('Array.isArray(claim.reminders) ? claim.reminders : []') &&
-    sweep.includes('.in("status", ["waiting", "customer_replied"])') &&
-    sweep.includes('.is("recheck_claimed_at", null)') &&
+    sweep.includes('"service_list_refund_follow_up_customer_reply_candidates"') &&
+    receiptEligibilityMigration.includes("cycle.status in ('waiting','customer_replied')") &&
+    receiptEligibilityMigration.includes('cycle.recheck_claimed_at is null') &&
+    receiptEligibilityMigration.includes('receipt.refund_case_id=cycle.refund_case_id') &&
     !sweep.includes('.is("reply_message_id", null)') &&
     followUpMigration.includes("message.participant_role = 'customer'") &&
     followUpMigration.includes("message.participant_trust = 'verified'") &&
@@ -132,6 +144,57 @@ check(
     sweep.includes('ops_alert:')
 );
 check(
+  'Supabase owns a default-off primary clock while GitHub uses the same idempotent buckets',
+  schedulerReliabilityMigration.includes('create table if not exists public.refund_automation_scheduler_settings') &&
+    schedulerReliabilityMigration.includes('enabled boolean not null default false') &&
+    schedulerReliabilityMigration.includes("'refund-automation-sweep-primary-v1'") &&
+    schedulerReliabilityMigration.includes("'refund-automation-health-primary-v1'") &&
+    schedulerReliabilityMigration.includes('service_dispatch_refund_automation_scheduler') &&
+    schedulerReliabilityMigration.includes("'refund_automation_scheduler_url'") &&
+    schedulerReliabilityMigration.includes("'refund_automation_scheduler_secret'") &&
+    schedulerReliabilityMigration.includes("'scheduled:'") &&
+    schedulerReliabilityMigration.includes("'health_check:'") &&
+    schedulerCadenceMigration.includes("default interval '30 minutes'") &&
+    schedulerCadenceMigration.includes('/ 1800) * 1800') &&
+    schedulerCadenceMigration.includes("stale_after_minutes integer := 90") &&
+    schedulerCadenceMigration.includes("'7,37 * * * *'") &&
+    schedulerCadenceMigration.includes("'13,43 * * * *'")
+);
+check(
+  'Scheduler incidents limit noise to one opening alert, daily reminders, and stable recovery',
+  schedulerReliabilityMigration.includes('create table if not exists public.refund_automation_alert_incidents') &&
+    schedulerReliabilityMigration.includes('refund_automation_alert_incidents_one_open_idx') &&
+    schedulerReliabilityMigration.includes("default interval '24 hours'") &&
+    schedulerReliabilityMigration.includes("default interval '60 minutes'") &&
+    schedulerReliabilityMigration.includes("'notificationType', 'initial'") &&
+    schedulerReliabilityMigration.includes("'notificationType', 'reminder'") &&
+    schedulerReliabilityMigration.includes("'notificationType', 'recovery'") &&
+    sweep.includes('service_claim_refund_automation_health_notification') &&
+    sweep.includes('[Recovered] Refund automation scheduler healthy')
+);
+check(
+  'Provider-delay status uses a service-only projection instead of direct protected-table access',
+  schedulerIncidentMigration.includes(
+    'service_list_due_refund_provider_delay_attempts'
+  ) &&
+    schedulerIncidentMigration.includes('security definer') &&
+    schedulerIncidentMigration.includes('to service_role') &&
+    schedulerIncidentMigration.includes('from public, anon, authenticated') &&
+    sweep.includes('service_list_due_refund_provider_delay_attempts') &&
+    !sweep.includes('.from("refund_case_nayax_refund_attempts")')
+);
+check(
+  'Outside-policy clock heartbeats cannot clear an unresolved processing failure',
+  schedulerIncidentMigration.includes("reason_counts ? 'outside_policy_window'") &&
+    schedulerIncidentMigration.includes('latest_scheduler_heartbeat') &&
+    schedulerIncidentMigration.includes('when consecutive_failures > 0 then \'failing\'') &&
+    /await finishRun\(\s*runId,\s*"suppressed",\s*counters,\s*"outside_policy_window"/.test(
+      sweep
+    ) &&
+    sweep.includes('failed_stage_${failureStage}') &&
+    sweep.includes('failureStage = "provider_delay_status"')
+);
+check(
   'The response and alert paths expose aggregate redacted fields only',
   sweep.includes('payloadRedacted: true') &&
     sweep.includes('reasonCounts') &&
@@ -145,7 +208,9 @@ check(
 );
 check(
   'The scheduled sweep is versioned, serialized, and disabled by default',
-  schedulerWorkflow.includes("cron: '7,22,37,52 * * * *'") &&
+  schedulerWorkflow.includes("cron: '7,37 * * * *'") &&
+    schedulerWorkflow.includes('30 * 60 * 1000') &&
+    sweep.includes('const intervalMs = 30 * 60 * 1000') &&
     schedulerWorkflow.includes('cancel-in-progress: false') &&
     schedulerWorkflow.includes("REFUND_AUTOMATION_SWEEP_ENABLED: ${{ vars.REFUND_AUTOMATION_SWEEP_ENABLED || 'false' }}") &&
     schedulerWorkflow.includes('REFUND_AUTOMATION_SWEEP_URL') &&
@@ -158,16 +223,23 @@ check(
     schedulerWorkflow.includes("const manualRunKey = (process.env.SWEEP_RUN_KEY || '').trim()") &&
     schedulerWorkflow.includes("/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i") &&
     schedulerWorkflow.includes("triggerSource === 'scheduled'") &&
-    schedulerWorkflow.includes('`scheduled:${process.env.GITHUB_RUN_ID}`') &&
+    schedulerWorkflow.includes('scheduledBucketKey') &&
+    schedulerWorkflow.includes('.slice(0, 16)') &&
+    schedulerWorkflow.includes('`scheduled:${scheduledBucketKey}`') &&
     schedulerWorkflow.includes("`${mode === 'failure_test' ? 'failure_test' : 'manual'}:${manualRunKey}`") &&
+    !schedulerWorkflow.includes('`scheduled:${process.env.GITHUB_RUN_ID}`') &&
     !schedulerWorkflow.includes("`${mode === 'failure_test' ? 'failure_test' : triggerSource}:${process.env.GITHUB_RUN_ID}`")
 );
 check(
-  'An independent hourly health workflow checks freshness and alerts stale runs',
-  healthWorkflow.includes("cron: '43 * * * *'") &&
+  'An independent 30-minute health workflow checks freshness and alerts stale runs',
+  healthWorkflow.includes("cron: '13,43 * * * *'") &&
+    healthWorkflow.includes('30 * 60 * 1000') &&
     healthWorkflow.includes("mode: 'health_check'") &&
-    healthWorkflow.includes('health_check:${process.env.GITHUB_RUN_ID}') &&
-    healthWorkflow.includes('lastSuccessAt')
+    healthWorkflow.includes('.slice(0, 16)') &&
+    healthWorkflow.includes('health_check:${scheduledBucketKey}') &&
+    healthWorkflow.includes('lastSuccessAt') &&
+    healthWorkflow.includes('notificationType') &&
+    !healthWorkflow.includes('health_check:${process.env.GITHUB_RUN_ID}')
 );
 check(
   'Workflow logs are restricted to aggregate, non-customer fields',

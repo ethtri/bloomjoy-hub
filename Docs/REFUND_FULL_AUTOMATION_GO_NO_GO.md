@@ -39,7 +39,7 @@ Move PR `#432` out of draft only after all of these are true:
 ## Shadow-Pilot Gates
 Do not enable public intake, ask managers to process real cases, or send sponsor proof review until all of these are true:
 - The new refund scope/readiness hardening migration is applied and post-apply dry-run is clean.
-- Machine readiness must be configured through Admin > Machines: enable selected refund-intake machines, add up to 3 Machine Managers per machine, and add Nayax machine IDs where card lookup should work.
+- Machine readiness must be configured through Admin > Machines: enable selected refund-intake machines, add up to 4 Machine Managers per machine, and add Nayax machine IDs where card lookup should work.
 - Public intake enablement must remain blocked unless the machine is Commercial/Mini, has at least one Machine Manager, has a Nayax machine ID, and has an active location.
 - Functional shadow UAT must prove real manager saves, automated customer message logging, tokenized Nayax evidence selection, access boundaries, automation sweep redaction, and reporting write-through with synthetic or approved shadow-mode cases.
 

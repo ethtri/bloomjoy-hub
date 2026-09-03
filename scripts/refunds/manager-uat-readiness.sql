@@ -98,15 +98,22 @@ current_operator_profiles as (
   where profile.status = 'active'
 ),
 shadow_ready_machines as (
-  select machine.id
+  select distinct machine.id
   from public.reporting_machines machine
   join public.reporting_locations location on location.id = machine.location_id
+  join public.refund_nayax_machine_inventory inventory
+    on inventory.reporting_machine_id = machine.id
+   and inventory.account_key = upper(coalesce(machine.nayax_account_key, 'TGPACI_USA_DB'))
+   and inventory.nayax_machine_id = trim(machine.nayax_machine_id)
   where machine.status = 'active'
-    and machine.machine_type in ('commercial', 'mini')
     and machine.refund_intake_enabled = true
     and location.status = 'active'
     and nullif(trim(machine.nayax_machine_id), '') is not null
     and coalesce(machine.nayax_refunds_enabled, false) = false
+    and inventory.provider_is_active
+    and inventory.missing_successful_snapshots < 2
+    and inventory.reconciliation_state = 'published'
+    and inventory.refund_category in ('cotton_candy', 'snapcase')
 ),
 identity_access as (
   select

@@ -30,6 +30,11 @@ jobs:
         run: npm run refunds:validate-release-tooling
       - name: Refund Release Manifest Check
         run: npm run refunds:release:check
+      - name: Verify refund change-scope evidence
+        env:
+          REFUND_SCOPE_BASE: ${{ github.event.pull_request.base.sha }}
+          REFUND_SCOPE_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/refunds/refund-change-scope.mjs "$REFUND_SCOPE_BASE" "$REFUND_SCOPE_HEAD"
       - name: Setup Deno for refund Edge Function tests
         uses: denoland/setup-deno@v2
         with:
@@ -38,6 +43,8 @@ jobs:
         run: npm run refunds:validate-location-safety
       - name: Build
         run: npm run build
+      - name: TypeScript no-emit check
+        run: npm run typecheck
       - name: SEO Regression Checks
         run: npm run seo:check
       - name: Provider Parser Regression Checks

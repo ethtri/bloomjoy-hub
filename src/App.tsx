@@ -64,6 +64,7 @@ const BillingCancellation = lazyRoute(() => import("./pages/BillingCancellation"
 const Cart = lazyRoute(() => import("./pages/Cart"));
 const RefundRequest = lazyRoute(() => import("./pages/RefundRequest"));
 const RefundThankYou = lazyRoute(() => import("./pages/RefundThankYou"));
+const RefundStatus = lazyRoute(() => import("./pages/RefundStatus"));
 const RefundWalletCorrection = lazyRoute(() => import("./pages/RefundWalletCorrection"));
 const Login = lazyRoute(() => import("./pages/Login"));
 const ResetPassword = lazyRoute(() => import("./pages/ResetPassword"));
@@ -226,6 +227,7 @@ export const AppShell = () => (
           <Route path="/cart" element={<Cart />} />
           <Route path="/refunds/request" element={<RefundRequest />} />
           <Route path="/refunds/thank-you" element={<RefundThankYou />} />
+          <Route path="/refunds/status" element={<RefundStatus />} />
           <Route path="/refunds/correct-wallet" element={<RefundWalletCorrection />} />
           <Route path="/login" element={<Login />} />
           <Route path="/login/operator" element={<Navigate to="/login" replace />} />
@@ -258,6 +260,8 @@ export const AppShell = () => (
               <Route path="/admin/access" element={<AdminAccess />} />
               <Route path="/admin/partner-records" element={<AdminPartnerRecords />} />
               <Route path="/admin/machines" element={<AdminMachines />} />
+              <Route path="/admin/machines/inventory" element={<AdminMachines />} />
+              <Route path="/admin/machines/:machineId" element={<AdminMachines />} />
               <Route path="/admin/accounts" element={<AdminAccounts />} />
               <Route path="/admin/partnerships" element={<AdminPartnerships />} />
               <Route path="/admin/reporting" element={<AdminReporting />} />

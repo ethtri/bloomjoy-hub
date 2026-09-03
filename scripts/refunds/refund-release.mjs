@@ -13,7 +13,8 @@ const scriptDirectory = path.dirname(scriptPath);
 export const repoRoot = path.resolve(scriptDirectory, '..', '..');
 export const manifestPath = path.join(scriptDirectory, 'refund-production-release.json');
 
-export const requiredFunctionSlugs = [
+// The pre-#427 evidence is immutable; additions belong only to the current inventory.
+export const historicalFunctionSlugs = [
   'refund-case-intake',
   'nayax-transaction-lookup',
   'refund-case-admin-update',
@@ -25,42 +26,20 @@ export const requiredFunctionSlugs = [
   'refund-manager-action-step-up',
   'refund-manager-totp-enrollment',
 ];
+export const additionalFunctionSlugs = ['refund-nayax-outcome-resolve'];
+export const requiredFunctionSlugs = [...historicalFunctionSlugs, ...additionalFunctionSlugs];
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const normalizeText = (value) => value.replace(/\r\n?/g, '\n');
 const normalizePath = (value) => value.split(path.sep).join('/');
-const refundReleaseProtectedExactPaths = new Set([
-  '.github/workflows/ci.yml',
-  'Docs/DECISIONS.md',
-  'Docs/PRODUCTION_RUNBOOK.md',
-  'Docs/QA_SMOKE_TEST_CHECKLIST.md',
-  'package-lock.json',
-  'package.json',
-  'postcss.config.js',
-  'scripts/check-supabase-migration-versions.mjs',
-  'scripts/validate-supabase-migrations.mjs',
-  'supabase/config.toml',
-  'tailwind.config.ts',
-  'tsconfig.app.json',
-  'tsconfig.json',
-  'vite.config.ts',
-]);
-const refundReleaseProtectedPrefixes = [
-  '.github/workflows/refund-',
-  'Docs/REFUND_',
-  'scripts/refunds/',
-  'src/',
-  'supabase/functions/',
-  'supabase/migrations/',
-  'supabase/tests/',
-];
-
+// Only prose in known documentation locations is release-neutral. Unknown paths,
+// all code (including new/renamed shared dependencies), configuration and assets
+// stay protected without relying on a list of refund filenames or import names.
 export const isRefundReleaseProtectedPath = (value) => {
-  const normalized = normalizePath(String(value));
-  return (
-    refundReleaseProtectedExactPaths.has(normalized) ||
-    refundReleaseProtectedPrefixes.some((prefix) => normalized.startsWith(prefix))
-  );
+  if (typeof value !== 'string' || !value || value.includes('\\') ||
+      value.startsWith('/') || value.split('/').some((part) => !part || part === '.' || part === '..')) return true;
+  return !(/^[\w.-]+\.md$/.test(value) ||
+    /^(?:Docs|\.agents|\.codex\/agents)\/[\w./-]+\.md$/.test(value));
 };
 const projectRefPattern = /^[a-z0-9]{20}$/;
 const digestPattern = /^[a-f0-9]{64}$/;
@@ -68,6 +47,63 @@ const gitCommitPattern = /^[a-f0-9]{40}$/;
 const refundMigrationPattern = /^\d+_[a-z0-9_]*(?:refund|nayax)[a-z0-9_]*\.sql$/;
 const unsupportedFunctionConfigKeys = new Set(['entrypoint', 'import_map', 'static_files']);
 const unsupportedFunctionConfigFiles = new Set(['deno.json', 'deno.jsonc', 'import_map.json']);
+
+export const canonicalFunctionEntrypointIdentity = (slug) =>
+  `supabase/functions/${slug}/index.ts`;
+
+export const normalizeProductionEntrypointIdentity = (rawEntrypointPath, slug) => {
+  if (!requiredFunctionSlugs.includes(slug) || typeof rawEntrypointPath !== 'string') return null;
+  if (
+    rawEntrypointPath.length === 0 ||
+    rawEntrypointPath !== rawEntrypointPath.trim() ||
+    rawEntrypointPath.includes('\\') ||
+    rawEntrypointPath.includes('?') ||
+    rawEntrypointPath.includes('#') ||
+    /[\u0000-\u001f\u007f]/.test(rawEntrypointPath)
+  ) {
+    return null;
+  }
+
+  let pathValue = rawEntrypointPath;
+  if (pathValue.startsWith('file://')) {
+    if (!pathValue.startsWith('file:///')) return null;
+    pathValue = pathValue.slice('file://'.length);
+  } else if (/^[a-z][a-z0-9+.-]*:/i.test(pathValue)) {
+    return null;
+  }
+
+  const canonicalIdentity = canonicalFunctionEntrypointIdentity(slug);
+  if (pathValue !== canonicalIdentity && !pathValue.startsWith('/')) return null;
+
+  for (const segment of pathValue.split('/')) {
+    let decodedSegment = segment;
+    try {
+      for (let decodePass = 0; decodePass < 16; decodePass += 1) {
+        const nextDecodedSegment = decodeURIComponent(decodedSegment);
+        if (nextDecodedSegment === decodedSegment) break;
+        decodedSegment = nextDecodedSegment;
+        if (decodePass === 15) return null;
+      }
+    } catch {
+      return null;
+    }
+    if (
+      decodedSegment === '.' ||
+      decodedSegment === '..' ||
+      decodedSegment.includes('/') ||
+      decodedSegment.includes('\\') ||
+      decodedSegment.includes('?') ||
+      decodedSegment.includes('#') ||
+      /[\u0000-\u001f\u007f]/.test(decodedSegment)
+    ) {
+      return null;
+    }
+  }
+
+  return pathValue === canonicalIdentity || pathValue.endsWith(`/${canonicalIdentity}`)
+    ? canonicalIdentity
+    : null;
+};
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -293,7 +329,7 @@ export const parseFunctionDeploymentConfig = (rootDirectory) => {
 };
 
 export const validateManifestShape = (manifest, { allowPending = false } = {}) => {
-  assert(manifest?.schemaVersion === 2, 'Refund production manifest schemaVersion must be 2');
+  assert(manifest?.schemaVersion === 3, 'Refund production manifest schemaVersion must be 3');
   assert(manifest?.environment === 'production', 'Refund production manifest environment must be production');
   assert(projectRefPattern.test(manifest?.projectRef ?? ''), 'Refund production manifest projectRef is invalid');
   assert(
@@ -334,6 +370,10 @@ export const validateManifestShape = (manifest, { allowPending = false } = {}) =
       );
       assert(digestPattern.test(entry.production.ezbrSha256), `Production bundle digest is invalid for ${entry.slug}`);
       assert(digestPattern.test(entry.production.sourceSha256), `Production source digest is invalid for ${entry.slug}`);
+      assert(
+        entry.production.entrypointIdentity === canonicalFunctionEntrypointIdentity(entry.slug),
+        `Production entrypoint identity is invalid for ${entry.slug}`
+      );
     }
   }
 
@@ -392,7 +432,7 @@ export const validateManifestShape = (manifest, { allowPending = false } = {}) =
   assert(Array.isArray(approvedRestoreSource.functions), 'approvedRestoreSource functions are missing');
   assert(
     JSON.stringify(approvedRestoreSource.functions.map((entry) => entry.slug)) ===
-      JSON.stringify(requiredFunctionSlugs),
+      JSON.stringify(historicalFunctionSlugs),
     'approvedRestoreSource function allowlist is invalid'
   );
   for (const entry of approvedRestoreSource.functions) {
@@ -421,7 +461,7 @@ export const validateManifestShape = (manifest, { allowPending = false } = {}) =
     assert(Array.isArray(manifest.preDeploymentProduction), 'preDeploymentProduction baseline is invalid');
     assert(
       JSON.stringify(manifest.preDeploymentProduction.map((entry) => entry.slug)) ===
-        JSON.stringify(requiredFunctionSlugs),
+        JSON.stringify(historicalFunctionSlugs),
       'preDeploymentProduction function allowlist is invalid'
     );
     for (const entry of manifest.preDeploymentProduction) {
@@ -432,8 +472,37 @@ export const validateManifestShape = (manifest, { allowPending = false } = {}) =
         assert(typeof entry.importMap === 'boolean', `preDeploymentProduction importMap is invalid for ${entry.slug}`);
         assert(digestPattern.test(entry.ezbrSha256 ?? ''), `preDeploymentProduction bundle digest is invalid for ${entry.slug}`);
         assert(digestPattern.test(entry.sourceSha256 ?? ''), `preDeploymentProduction source digest is invalid for ${entry.slug}`);
+        if (entry.entrypointIdentity !== undefined) {
+          assert(
+            entry.entrypointIdentity === canonicalFunctionEntrypointIdentity(entry.slug),
+            `preDeploymentProduction entrypoint identity is invalid for ${entry.slug}`
+          );
+        }
       }
     }
+  }
+  assert(
+    Array.isArray(manifest.additionalFunctionBaselines) &&
+      JSON.stringify(manifest.additionalFunctionBaselines.map((entry) => entry.slug)) ===
+        JSON.stringify(additionalFunctionSlugs),
+    'additionalFunctionBaselines function allowlist is invalid'
+  );
+  for (const entry of manifest.additionalFunctionBaselines) {
+    assert(Number.isFinite(Date.parse(entry.capturedAt)), `Additional baseline timestamp is invalid for ${entry.slug}`);
+    assert(entry.status === 'ACTIVE', `Additional baseline must be ACTIVE for ${entry.slug}`);
+    assert(Number.isInteger(entry.version) && entry.version > 0, `Additional baseline version is invalid for ${entry.slug}`);
+    assert(
+      entry.verifyJwt === manifest.functions.find((candidate) => candidate.slug === entry.slug).verifyJwt &&
+        entry.importMap === false,
+      `Additional baseline security pairing is invalid for ${entry.slug}`
+    );
+    assert(digestPattern.test(entry.ezbrSha256 ?? ''), `Additional baseline bundle digest is invalid for ${entry.slug}`);
+    assert(digestPattern.test(entry.sourceSha256 ?? ''), `Additional baseline source digest is invalid for ${entry.slug}`);
+    assert(
+      entry.entrypointIdentity === canonicalFunctionEntrypointIdentity(entry.slug),
+      `Additional baseline entrypoint identity is invalid for ${entry.slug}`
+    );
+    assert(gitCommitPattern.test(entry.restoreSourceGitCommit ?? ''), `Additional baseline restore commit is invalid for ${entry.slug}`);
   }
 };
 
@@ -494,6 +563,15 @@ export const validateApprovedRestoreSource = (rootDirectory, manifest) => {
       `approvedRestoreSource does not match ${entry.slug}`
     );
   }
+  for (const entry of manifest.additionalFunctionBaselines) {
+    const committedSource = calculateFunctionSourceAtGitCommit(
+      rootDirectory, entry.restoreSourceGitCommit, entry.slug, { sourceCache: committedSourceCache }
+    );
+    assert(
+      committedSource.sourceSha256 === entry.sourceSha256,
+      `Additional baseline restore source does not match ${entry.slug}`
+    );
+  }
 };
 
 export const validateHistoricalPreMigrationCompatibilityEntries = ({
@@ -508,19 +586,19 @@ export const validateHistoricalPreMigrationCompatibilityEntries = ({
   );
   assert(
     JSON.stringify(preDeploymentProduction.map((entry) => entry.slug)) ===
-      JSON.stringify(requiredFunctionSlugs),
+      JSON.stringify(historicalFunctionSlugs),
     'preMigrationCompatibility historical baseline function allowlist is invalid'
   );
   assert(
     historicalSourceBySlug instanceof Map &&
-      historicalSourceBySlug.size === requiredFunctionSlugs.length &&
-      requiredFunctionSlugs.every((slug) =>
+      historicalSourceBySlug.size === historicalFunctionSlugs.length &&
+      historicalFunctionSlugs.every((slug) =>
         digestPattern.test(historicalSourceBySlug.get(slug) ?? '')
       ),
     'preMigrationCompatibility historical source map is invalid'
   );
 
-  for (const entry of functions) {
+  for (const entry of functions.filter((candidate) => historicalFunctionSlugs.includes(candidate.slug))) {
     const historicalEntry = preDeploymentProduction.find(
       (candidate) => candidate.slug === entry.slug
     );
@@ -556,7 +634,7 @@ export const validatePreMigrationCompatibilitySource = (rootDirectory, manifest)
 
   const historicalSourceCache = new Map();
   const historicalSourceBySlug = new Map(
-    manifest.functions.map((entry) => [
+    manifest.functions.filter((entry) => historicalFunctionSlugs.includes(entry.slug)).map((entry) => [
       entry.slug,
       calculateFunctionSourceAtGitCommit(
         rootDirectory,
@@ -598,14 +676,18 @@ export const compareLocalState = (manifest, localState) => {
 
 export const sanitizeProductionMetadata = (rawFunctions) => rawFunctions
   .filter((entry) => requiredFunctionSlugs.includes(entry.slug ?? entry.name))
-  .map((entry) => ({
-    slug: entry.slug ?? entry.name,
-    status: String(entry.status ?? ''),
-    version: Number(entry.version),
-    verifyJwt: Boolean(entry.verify_jwt),
-    importMap: Boolean(entry.import_map),
-    ezbrSha256: String(entry.ezbr_sha256 ?? ''),
-  }))
+  .map((entry) => {
+    const slug = entry.slug ?? entry.name;
+    return {
+      slug,
+      status: String(entry.status ?? ''),
+      version: Number(entry.version),
+      verifyJwt: Boolean(entry.verify_jwt),
+      importMap: Boolean(entry.import_map),
+      ezbrSha256: String(entry.ezbr_sha256 ?? ''),
+      entrypointIdentity: normalizeProductionEntrypointIdentity(entry.entrypoint_path, slug),
+    };
+  })
   .sort(
     (left, right) => requiredFunctionSlugs.indexOf(left.slug) - requiredFunctionSlugs.indexOf(right.slug)
   );
@@ -641,11 +723,14 @@ export const compareProductionState = (manifest, productionFunctions) => {
     if (expected.production.sourceSha256 !== expected.sourceSha256) {
       failures.push(`${expected.slug}: approved repository source has not been paired with production`);
     }
-    if (actual.version !== expected.production.version) {
-      failures.push(`${expected.slug}: production version differs from the manifest`);
+    if (actual.version < expected.production.version) {
+      failures.push(`${expected.slug}: production version regressed below the approved bundle version`);
     }
     if (actual.ezbrSha256 !== expected.production.ezbrSha256) {
       failures.push(`${expected.slug}: production bundle digest differs from the manifest`);
+    }
+    if (actual.entrypointIdentity !== expected.production.entrypointIdentity) {
+      failures.push(`${expected.slug}: production entrypoint identity differs from the manifest`);
     }
   }
 
@@ -676,16 +761,94 @@ export const compareCaptureState = (manifest, productionFunctions, productionSou
     if (!digestPattern.test(actual.ezbrSha256)) {
       failures.push(`${expected.slug}: production bundle digest is invalid`);
     }
+    if (expected.production && actual.version < expected.production.version) {
+      failures.push(`${expected.slug}: production version regressed below the approved bundle version`);
+    }
     if (actual.verifyJwt !== expected.verifyJwt) {
       failures.push(`${expected.slug}: production verify_jwt differs from the manifest`);
     }
     if (actual.importMap) failures.push(`${expected.slug}: unexpected production import map`);
+    if (!expected.production?.entrypointIdentity) {
+      failures.push(`${expected.slug}: approved production entrypoint identity has not been recorded`);
+    } else if (actual.entrypointIdentity !== expected.production.entrypointIdentity) {
+      failures.push(`${expected.slug}: production entrypoint identity differs from the manifest`);
+    }
     if (sourceBySlug.get(expected.slug) !== expected.sourceSha256) {
       failures.push(`${expected.slug}: downloaded production source does not match the approved repository source`);
     }
   }
 
   return failures;
+};
+
+export const buildProductionCaptureReceipt = (
+  manifest,
+  productionFunctions,
+  productionSources,
+  capturedAt
+) => {
+  assert(
+    typeof capturedAt === 'string' && Number.isFinite(Date.parse(capturedAt)),
+    'Production capture timestamp is invalid'
+  );
+  const captureFailures = compareCaptureState(
+    manifest,
+    productionFunctions,
+    productionSources
+  );
+  assert(
+    captureFailures.length === 0,
+    `Production capture receipt is not aligned: ${captureFailures.join('; ')}`
+  );
+
+  const manifestBySlug = new Map(manifest.functions.map((entry) => [entry.slug, entry]));
+  const sourceBySlug = new Map(
+    productionSources.map((entry) => [entry.slug, entry.sourceSha256])
+  );
+
+  return {
+    schemaVersion: 2,
+    capturedAt,
+    projectRef: manifest.projectRef,
+    releaseId: manifest.releaseId,
+    sourceGitCommit: manifest.sourceGitCommit,
+    migrationFilesSha256: manifest.migrationFilesSha256,
+    migrationVersionSetSha256: manifest.migrationVersionSetSha256,
+    preDeploymentProduction: manifest.preDeploymentProduction,
+    approvedRestoreSource: manifest.approvedRestoreSource,
+    additionalFunctionBaselines: manifest.additionalFunctionBaselines,
+    functions: productionFunctions.map((entry) => {
+      const expected = manifestBySlug.get(entry.slug);
+      const approved = expected.production;
+      const sourceSha256 = sourceBySlug.get(entry.slug);
+      const sameApprovedBundle = Boolean(
+        approved &&
+          entry.ezbrSha256 === approved.ezbrSha256 &&
+          sourceSha256 === approved.sourceSha256 &&
+          entry.entrypointIdentity === approved.entrypointIdentity
+      );
+
+      let versionRelation = 'new_bundle_candidate';
+      if (sameApprovedBundle && entry.version === approved.version) {
+        versionRelation = 'approved_bundle_version';
+      } else if (sameApprovedBundle && entry.version > approved.version) {
+        versionRelation = 'same_bundle_later_revision';
+      }
+
+      return {
+        slug: entry.slug,
+        status: entry.status,
+        version: entry.version,
+        approvedBundleVersion: approved?.version ?? null,
+        versionRelation,
+        verifyJwt: entry.verifyJwt,
+        importMap: entry.importMap,
+        entrypointIdentity: entry.entrypointIdentity,
+        ezbrSha256: entry.ezbrSha256,
+        sourceSha256,
+      };
+    }),
+  };
 };
 
 export const comparePreMigrationCompatibilityState = (
@@ -721,6 +884,9 @@ export const comparePreMigrationCompatibilityState = (
       failures.push(`${expected.slug}: production verify_jwt differs from the manifest`);
     }
     if (actual.importMap) failures.push(`${expected.slug}: unexpected production import map`);
+    if (actual.entrypointIdentity !== expected.production.entrypointIdentity) {
+      failures.push(`${expected.slug}: production entrypoint identity differs from the approved pre-migration baseline`);
+    }
     if (actual.ezbrSha256 !== expected.production.ezbrSha256) {
       failures.push(`${expected.slug}: production bundle differs from the approved pre-migration baseline`);
     }
@@ -745,12 +911,17 @@ export const buildPreDeploymentProductionBaseline = (productionFunctions, produc
     assert(Number.isInteger(actual.version) && actual.version > 0, `${slug}: baseline production version is invalid`);
     assert(digestPattern.test(actual.ezbrSha256), `${slug}: baseline production bundle digest is invalid`);
     assert(digestPattern.test(sourceBySlug.get(slug) ?? ''), `${slug}: baseline production source digest is invalid`);
+    assert(
+      actual.entrypointIdentity === canonicalFunctionEntrypointIdentity(slug),
+      `${slug}: baseline production entrypoint identity is invalid`
+    );
     return {
       slug,
       status: actual.status,
       version: actual.version,
       verifyJwt: actual.verifyJwt,
       importMap: actual.importMap,
+      entrypointIdentity: actual.entrypointIdentity,
       ezbrSha256: actual.ezbrSha256,
       sourceSha256: sourceBySlug.get(slug),
     };
@@ -978,7 +1149,7 @@ export const validateReleaseManifestGitAnchor = (rootDirectory, manifest) => {
 
   const diffResult = spawnSync(
     'git',
-    ['diff', '--name-only', '--no-renames', `${manifest.sourceGitCommit}..${headGitCommit}`],
+    ['diff', '--name-only', '-z', '--no-renames', `${manifest.sourceGitCommit}..${headGitCommit}`],
     {
       cwd: rootDirectory,
       encoding: 'utf8',
@@ -990,8 +1161,7 @@ export const validateReleaseManifestGitAnchor = (rootDirectory, manifest) => {
     'Unable to inspect refund release anchor changed paths'
   );
   const changedPaths = diffResult.stdout
-    .split(/\r?\n/)
-    .map((entry) => entry.trim())
+    .split('\0')
     .filter(Boolean);
   const manifestRelativePath = path.relative(rootDirectory, manifestPath);
   assert(
@@ -1149,33 +1319,13 @@ const main = () => {
     const allowedOutputRoot = path.resolve(repoRoot, 'output');
     assert(outputPath.startsWith(`${allowedOutputRoot}${path.sep}`), 'Capture output must be under output/');
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-    fs.writeFileSync(
-      outputPath,
-      `${JSON.stringify(
-        {
-          projectRef,
-          releaseId: manifest.releaseId,
-          sourceGitCommit: manifest.sourceGitCommit,
-          migrationFilesSha256: manifest.migrationFilesSha256,
-          migrationVersionSetSha256: manifest.migrationVersionSetSha256,
-          preDeploymentProduction: manifest.preDeploymentProduction,
-          approvedRestoreSource: manifest.approvedRestoreSource,
-          functions: production.map((entry) => ({
-            slug: entry.slug,
-            status: entry.status,
-            version: entry.version,
-            verifyJwt: entry.verifyJwt,
-            importMap: entry.importMap,
-            ezbrSha256: entry.ezbrSha256,
-            sourceSha256:
-              manifest.functions.find((item) => item.slug === entry.slug)?.sourceSha256 ?? null,
-          })),
-        },
-        null,
-        2
-      )}\n`,
-      'utf8'
+    const receipt = buildProductionCaptureReceipt(
+      manifest,
+      production,
+      productionSources,
+      new Date().toISOString()
     );
+    fs.writeFileSync(outputPath, `${JSON.stringify(receipt, null, 2)}\n`, 'utf8');
     console.log(`Captured verified production metadata for ${production.length} refund functions.`);
     return;
   }
@@ -1184,8 +1334,17 @@ const main = () => {
   printFailures('Refund release production drift check failed:', productionFailures);
   if (productionFailures.length > 0) process.exit(1);
 
+  const approvedBySlug = new Map(
+    manifest.functions.map((entry) => [entry.slug, entry.production?.version ?? null])
+  );
   for (const entry of production) {
-    console.log(`${entry.slug}: PASS v${entry.version} ${entry.ezbrSha256.slice(0, 12)}`);
+    const approvedVersion = approvedBySlug.get(entry.slug);
+    const versionNote = entry.version === approvedVersion
+      ? 'approved bundle version'
+      : `same approved bundle; captured at v${approvedVersion}`;
+    console.log(
+      `${entry.slug}: PASS live v${entry.version} ${entry.ezbrSha256.slice(0, 12)} (${versionNote})`
+    );
   }
 };
 

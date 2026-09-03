@@ -13,11 +13,16 @@ const [
   migration,
   firstContactMigration,
   participantMigration,
+  managerRouteMigration,
   firstContactCcMigration,
   pilotLinkageMigration,
+  formOnlyMigration,
   followUpMigration,
   firstContactHelper,
   retentionMigration,
+  schedulerMigration,
+  schedulerRetentionMigration,
+  schedulerPrimaryMigration,
   attachmentOffCopyGateMigration,
   syntheticProofMigration,
   gmailHelper,
@@ -28,6 +33,7 @@ const [
   managerNotification,
   syncFunction,
   sendFunction,
+  manualMessageOutbox,
   adminUpdate,
   automationSweep,
   intakeFunction,
@@ -39,7 +45,9 @@ const [
   syntheticProofTest,
   syntheticProofDbTest,
   syntheticProofConcurrencyTest,
+  schedulerPrimaryDbTest,
   firstContactCcTest,
+  formOnlyTest,
   evidenceHarness,
   packageJson,
   envExample,
@@ -49,11 +57,16 @@ const [
     read('supabase/migrations/202607210006_refund_gmail_thread_linkage.sql'),
     read('supabase/migrations/202608030001_refund_gmail_first_contact.sql'),
     read('supabase/migrations/202608030003_refund_gmail_participant_cc.sql'),
+    read('supabase/migrations/20260825231621_refund_manager_recipient_route_v2.sql'),
     read('supabase/migrations/202608040003_refund_first_contact_manager_cc.sql'),
     read('supabase/migrations/202608050001_refund_email_pilot_linkage.sql'),
+    read('supabase/migrations/20260821090000_refund_form_only_case_creation.sql'),
     read('supabase/migrations/202608030005_refund_deterministic_follow_up_cycles.sql'),
     read('supabase/functions/_shared/refund-first-contact.ts'),
     read('supabase/migrations/202608040002_refund_gmail_retention_safety.sql'),
+    read('supabase/migrations/20260827041000_refund_gmail_scheduler_watchdog.sql'),
+    read('supabase/migrations/20260827053500_refund_gmail_scheduler_retention_run_key.sql'),
+    read('supabase/migrations/20260827082000_refund_gmail_scheduler_primary.sql'),
     read('supabase/migrations/20260812053417_refund_gmail_attachment_off_copy_gate.sql'),
     read('supabase/migrations/20260812230000_refund_synthetic_gmail_proof_authorization.sql'),
     read('supabase/functions/_shared/refund-gmail.ts'),
@@ -64,6 +77,7 @@ const [
     read('supabase/functions/_shared/refund-manager-notification.ts'),
     read('supabase/functions/refund-gmail-sync/index.ts'),
     read('supabase/functions/refund-case-message-send/index.ts'),
+    read('supabase/functions/_shared/refund-manual-message-outbox.ts'),
     read('supabase/functions/refund-case-admin-update/index.ts'),
     read('supabase/functions/refund-case-automation-sweep/index.ts'),
     read('supabase/functions/refund-case-intake/index.ts'),
@@ -75,7 +89,9 @@ const [
     read('supabase/functions/_shared/refund-synthetic-gmail-proof.test.ts'),
     read('supabase/tests/refund_synthetic_gmail_proof_authorization.sql'),
     read('supabase/tests/refund_synthetic_gmail_proof_concurrency.sql'),
+    read('supabase/tests/refund_gmail_scheduler_primary.sql'),
     read('supabase/tests/refund_gmail_first_contact_manager_cc.sql'),
+    read('supabase/tests/refund_form_only_case_creation.sql'),
     read('scripts/refunds/generate-refund-gmail-evidence.ts'),
     read('package.json'),
     read('.env.example'),
@@ -584,6 +600,98 @@ assert(
   'Server-side Gmail enable flag must use the shared default-closed parser',
 );
 assert(syncFunction.includes('REFUND_GMAIL_SYNC_SECRET'), 'Scheduled Gmail sync must authenticate independently');
+assert(
+  syncFunction.includes('REFUND_GMAIL_SCHEDULER_SECRET') &&
+    syncFunction.includes('trigger === "scheduler_primary" || trigger === "scheduler_recovery"'),
+  'Independent primary and recovery schedules must use the dedicated read-only Edge secret',
+);
+assert(
+  /scheduler_primary:\s*\/\^supabase-primary:/.test(retentionHelper) &&
+  /scheduler_recovery:\s*\/\^supabase-recovery:/.test(retentionHelper) &&
+    schedulerPrimaryMigration.includes("when 'scheduler_primary'") &&
+    schedulerMigration.includes("when 'scheduler_recovery'") &&
+    schedulerMigration.includes("'scheduler_recovery'"),
+  'Primary and recovery dispatches must use distinct trigger-bound timestamp keys',
+);
+assert(
+  schedulerMigration.includes('enabled boolean not null default false') &&
+    schedulerMigration.includes("'*/5 * * * *'") &&
+    schedulerMigration.includes("interval '20 minutes'") &&
+    schedulerMigration.includes("interval '30 minutes'"),
+  'The independent five-minute watchdog must default off and recover before the 30-minute health limit',
+);
+assert(
+  schedulerMigration.includes('vault.decrypted_secrets') &&
+    schedulerMigration.includes("name = 'refund_gmail_scheduler_url'") &&
+    schedulerMigration.includes("name = 'refund_gmail_scheduler_secret'") &&
+    schedulerMigration.includes("'payloadRedacted', true"),
+  'The watchdog must use exact named Vault secrets and return only redacted health',
+);
+assert(
+  schedulerMigration.includes('pg_try_advisory_xact_lock(628, 1009)') &&
+    schedulerMigration.includes('on conflict (bucket_at) do nothing') &&
+    schedulerMigration.includes("state_row.last_attempt_at >= clock_timestamp() - interval '10 minutes'"),
+  'Concurrent, replayed, or recently attempted recovery dispatches must suppress safely',
+);
+assert(
+  schedulerMigration.includes('revoke all on table public.refund_gmail_scheduler_settings') &&
+    schedulerMigration.includes('revoke all on table public.refund_gmail_scheduler_dispatches') &&
+    schedulerMigration.includes('revoke execute on function public.service_dispatch_refund_gmail_scheduler_watchdog()') &&
+    !schedulerMigration.includes('nayax-card-refund'),
+  'Browser roles and the recovery scheduler must have no provider/refund execution path',
+);
+assert(
+  schedulerPrimaryMigration.includes('enabled boolean not null default false') &&
+    schedulerPrimaryMigration.includes("'2-59/10 * * * *'") &&
+    schedulerPrimaryMigration.includes("interval '10 minutes'") &&
+    schedulerPrimaryMigration.includes("'trigger', 'scheduler_primary'"),
+  'The independent ten-minute primary scheduler must install default off with its exact trigger',
+);
+assert(
+  schedulerPrimaryMigration.includes('vault.decrypted_secrets') &&
+    schedulerPrimaryMigration.includes("name = 'refund_gmail_scheduler_url'") &&
+    schedulerPrimaryMigration.includes("name = 'refund_gmail_scheduler_secret'") &&
+    schedulerPrimaryMigration.includes('pg_try_advisory_xact_lock(628, 1018)') &&
+    schedulerPrimaryMigration.includes('on conflict (bucket_at) do nothing'),
+  'The primary scheduler must use exact Vault inputs and replay-safe dispatch ownership',
+);
+assert(
+  schedulerPrimaryMigration.includes(
+    'revoke all on table public.refund_gmail_primary_scheduler_settings',
+  ) &&
+    schedulerPrimaryMigration.includes(
+      'revoke all on table public.refund_gmail_primary_scheduler_dispatches',
+    ) &&
+    schedulerPrimaryMigration.includes(
+      'revoke execute on function public.service_dispatch_refund_gmail_primary_scheduler()',
+    ) &&
+    !schedulerPrimaryMigration.includes('nayax-card-refund'),
+  'Browser and service callers must have no direct primary-dispatch or provider/refund path',
+);
+assert(
+  schedulerPrimaryMigration.includes("'lastExpectedRunAt'") &&
+    schedulerPrimaryMigration.includes("'lastActualSuccessAt'") &&
+    schedulerPrimaryMigration.includes("'schedulerSource'") &&
+    schedulerPrimaryMigration.includes("'schedulerDelaySeconds'") &&
+    schedulerPrimaryMigration.includes("'schedulerRecoveryAction'") &&
+    schedulerPrimaryMigration.includes("'schedulerOwner'") &&
+    schedulerPrimaryMigration.includes("'Refund Operations'"),
+  'Redacted health must name expected/actual timing, source, delay, recovery, and owner',
+);
+assert(
+  schedulerPrimaryDbTest.includes('defaults off') &&
+    schedulerPrimaryDbTest.includes('configuration_missing') &&
+    schedulerPrimaryDbTest.includes('cannot bypass cron') &&
+    schedulerPrimaryDbTest.includes('refund-gmail-sync-primary-v1'),
+  'Database tests must prove the primary gate, privileges, configuration failure, and cron install',
+);
+assert(
+  ui.includes('Email intake catching up') &&
+    ui.includes('refetchInterval: 15_000') &&
+    client.includes("| 'recovering'") &&
+    client.includes('schedulerLastDispatchAt'),
+  'Managers must see a clear recovery state without raw scheduler evidence',
+);
 assert(syncFunction.includes('failure_test'), 'A PII-free Gmail failure test must exist');
 assert(
   syncFunction.includes('triggerSource === "failure_test" ||'),
@@ -657,14 +765,23 @@ assert(
 );
 assert(
   syncFunction.includes('processFirstContact') &&
-    syncFunction.includes('service_claim_refund_gmail_first_contact') &&
-    syncFunction.includes('service_register_refund_gmail_intake_link') &&
-    syncFunction.includes('service_prepare_refund_gmail_first_contact_delivery') &&
+    syncFunction.includes('service_claim_refund_gmail_contact_first_response') &&
+    syncFunction.includes('service_register_refund_gmail_contact_link') &&
+    syncFunction.includes('service_prepare_refund_gmail_contact_first_response') &&
     syncFunction.includes('ccEmails: []') &&
     syncFunction.includes('deliveryKind: "automatic"') &&
-    syncFunction.indexOf('service_prepare_refund_gmail_first_contact_delivery') <
+    syncFunction.indexOf('service_prepare_refund_gmail_contact_first_response') <
       syncFunction.indexOf('sent = await sendRefundGmailReply'),
-  'Gmail sync must claim one private hosted-form link and deliver the no-CC pre-mapping acknowledgement on the original thread',
+  'Gmail sync must claim one private pre-form contact link and deliver the no-CC response on the original thread',
+);
+assert(
+  formOnlyMigration.includes('create table if not exists public.refund_gmail_intake_contacts') &&
+    formOnlyMigration.includes('contact_alone_created_case') &&
+    formOnlyMigration.includes('service_create_refund_case_from_gmail_contact_form') &&
+    formOnlyMigration.includes("intake_source, intake_meta") &&
+    intakeFunction.includes('service_create_refund_case_from_gmail_contact_form') &&
+    !syncFunction.includes('"service_ingest_refund_gmail_message_v2",\n                {'),
+  'Normal Gmail contact must stay outside refund_cases until the hosted Bloomjoy form creates one case',
 );
 assert(
   pilotLinkageMigration.includes('service_prepare_refund_gmail_first_contact_delivery') &&
@@ -685,9 +802,19 @@ assert(
 assert(
   syncFunction.includes('service_claim_refund_gmail_first_contact_reconciliation_batch') &&
     syncFunction.includes('service_count_refund_gmail_first_contact_reconciliation') &&
+    syncFunction.includes('service_claim_refund_gmail_contact_reconciliation_batch') &&
+    syncFunction.includes('service_count_refund_gmail_contact_response_reconciliation') &&
     syncFunction.indexOf('await reconcileOutstandingFirstContacts') <
       syncFunction.indexOf('while (counters.threadsScanned < maxThreads)'),
   'Outstanding first-contact delivery must rotate and reconcile independently of new-send mode and sender eligibility',
+);
+assert(
+  formOnlyMigration.includes('service_purge_refund_gmail_intake_contacts') &&
+    formOnlyMigration.includes("retention_expires_at = clock_timestamp()") &&
+    syncFunction.includes('service_purge_refund_gmail_intake_contacts') &&
+    syncFunction.indexOf('service_purge_refund_gmail_intake_contacts') <
+      syncFunction.indexOf('service_settle_refund_gmail_retention_run'),
+  'Private pre-form contact copies must join the independently gated Gmail retention run',
 );
 const firstContactReconciliationSync = syncFunction.slice(
   syncFunction.indexOf('const reconcileOutstandingFirstContacts'),
@@ -723,6 +850,13 @@ assert(
       'service_finish_refund_gmail_first_contact_no_match',
     ),
   'First-contact sync may mint a versioned receipt only in the explicit no-match branch, never for ambiguity or provider errors',
+);
+assert(
+  formOnlyTest.includes('Customer contact creates zero refund cases') &&
+    formOnlyTest.includes('Submitting the hosted form creates exactly one refund case') &&
+    formOnlyTest.includes('A consumed email context cannot create a second case') &&
+    formOnlyTest.includes('The original inbound message and sent response move to the new case thread'),
+  'The form-only database fixture must prove zero cases on contact, one case on submit, replay safety, and original-thread linkage',
 );
 assert(
   syncFunction.includes('counters.firstContactReconciliationOutstanding === 0') &&
@@ -812,7 +946,7 @@ const firstContactProcess = syncFunction.slice(
 assert(
   firstContactProcess.indexOf('requireRefundGmailEnabled();') >= 0 &&
     firstContactProcess.indexOf('requireRefundGmailEnabled();') <
-      firstContactProcess.indexOf('service_claim_refund_gmail_first_contact') &&
+      firstContactProcess.indexOf('service_claim_refund_gmail_contact_first_response') &&
     firstContactProcess.includes('claimRefundGmailDeliveryWhenEnabled'),
   'First-contact send mode must obey the same Gmail switch before creating its delivery claim',
 );
@@ -1034,6 +1168,16 @@ assert(
     !retentionMigration.includes("left(btrim(coalesce(p_run_key"),
   'Edge and SQL run keys must bind numeric GitHub run/attempt values to the exact trigger',
 );
+assert(
+  schedulerRetentionMigration.includes('refund_gmail_retention_run_key_is_valid') &&
+    schedulerRetentionMigration.includes('pre-sync:supabase-recovery:') &&
+    schedulerRetentionMigration.includes('[0-5][05]Z') &&
+    schedulerRetentionMigration.includes('pre-sync:github-(scheduled|manual):') &&
+    schedulerPrimaryMigration.includes('pre-sync:supabase-primary:') &&
+    schedulerPrimaryMigration.includes('[0-5]0Z') &&
+    !schedulerRetentionMigration.includes('failure_test'),
+  'Independent primary and recovery triggers must pass only their aligned mandatory pre-sync retention keys',
+);
 const syncRunKeyConstraintBlock = retentionMigration.slice(
   retentionMigration.indexOf('drop constraint if exists refund_gmail_sync_runs_trigger_key_check'),
   retentionMigration.indexOf('create or replace function public.service_start_refund_gmail_sync'),
@@ -1138,28 +1282,29 @@ assert(
   'Manager CC and participant classification must use current active non-revoked mappings',
 );
 assert(
-  participantMigration.includes('service_resolve_refund_customer_manager_cc') &&
-    participantMigration.includes("lower(btrim(manager.manager_email)) <> normalized_customer") &&
-    participantMigration.includes('not (lower(btrim(manager.manager_email)) = any(mailbox_identities))') &&
-    participantMigration.includes('distinct_active_mapping_count > 3 or eligible_mapping_count > 3') &&
-    participantMigration.includes('distinct_active_mapping_count - eligible_mapping_count') &&
-    participantMigration.includes("when invalid_mapping_count > 0 then 'invalid_manager_mapping'") &&
-    participantMigration.includes("if resolution_status = 'invalid_manager_mapping' then") &&
-    participantMigration.includes("manager_cc_emails := '{}'::text[]"),
-  'Distinct invalid, customer, mailbox, revoked, malformed, and over-cap mappings must fail closed while exact duplicate identities may deduplicate',
+  managerRouteMigration.includes('service_resolve_refund_customer_manager_cc') &&
+    managerRouteMigration.includes('distinct_active_mapping_count not between 1 and 4') &&
+    managerRouteMigration.includes('manager_recipient_overlap') &&
+    managerRouteMigration.includes('valid_active_mapping_count <> distinct_active_mapping_count') &&
+    managerRouteMigration.includes("when mailbox_collision_count > 0 then 'invalid_manager_mapping'") &&
+    managerRouteMigration.includes("manager_cc_emails := '{}'::text[]"),
+  'The complete manager route must support four identities, count a customer-manager once, and fail closed for malformed, mailbox-colliding, or over-cap mappings',
 );
 assert(
   gmailTransport.includes('CUSTOMER_MANAGER_CC_ALLOWED_STATUS = "resolved"') &&
     gmailTransport.includes('recipientResolutionStatus !== CUSTOMER_MANAGER_CC_ALLOWED_STATUS') &&
-    gmailTransport.includes('managerCcEmails.length === 0') &&
+    gmailTransport.includes('managerRecipientOverlap') &&
+    gmailTransport.includes('managerRecipientCount') &&
     gmailTransport.includes('"manager_cc_required"') &&
     gmailTransport.includes('requireRefundCustomerManagerCcResolution'),
-  'Customer delivery must require a resolved nonempty current-manager CC set in both Gmail and transactional paths',
+  'Customer delivery must require a complete one-to-four manager recipient route in both Gmail and transactional paths',
 );
 assert(
   refundEmail.includes('requireRefundManagerCcEmailsForSend') &&
-    (refundEmail.match(/const managerCcEmails = requireRefundManagerCcEmailsForSend/g) ?? []).length === 2,
-  'Both ordinary and wallet transactional refund helpers must reject empty or invalid manager CC sets',
+    (refundEmail.match(/const managerCcEmails = requireRefundManagerCcEmailsForSend/g) ?? []).length === 2 &&
+    refundEmail.includes('managerRecipientOverlap ? 1 : 0') &&
+    refundEmail.includes('> 4'),
+  'Transactional refund helpers must reject incomplete manager recipient routes while allowing a represented customer-manager',
 );
 assert(
   !adminUpdate.includes('managerCcEmails: [] as string[]') &&
@@ -1406,17 +1551,18 @@ assert(
     qaChecklist.includes('amount, incident time, payment method, and raw confidence remain in the authenticated portal') &&
     qaChecklist.includes('whenever the complete current manager route cannot be safely resolved') &&
     qaChecklist.includes('Duplicate normalized valid rows appear once only when every distinct active identity remains covered') &&
-    qaChecklist.includes('mixed malformed, customer, or mailbox-colliding mappings make the complete route fail closed') &&
+    qaChecklist.includes('counts that address once when the customer is also a mapped manager') &&
+    qaChecklist.includes('a fifth manager, zero managers, malformed mappings, or a mailbox collision makes the complete route fail closed') &&
     !qaChecklist.includes('with reference, machine, amount, incident time, payment method, case link, and status only'),
   'QA guidance must preserve private manager-notice fields and exact complete-route fallback semantics',
 );
 assert(
-  intakeFunction.includes('dispatchRefundCaseGmailReply') &&
+    intakeFunction.includes('dispatchRefundCaseGmailReply') &&
     intakeFunction.includes('cc: gmailDelivery.managerCcEmails') &&
-    sendFunction.includes('cc: gmailDelivery.managerCcEmails') &&
+    manualMessageOutbox.includes('cc: gmailDelivery.managerCcEmails') &&
     adminUpdate.includes('managerCcEmails: gmailDelivery.managerCcEmails') &&
     automationSweep.includes('managerCcEmails: gmailDelivery.managerCcEmails'),
-  'Every transactional refund fallback must receive its nonempty manager CC set from the fail-closed send-time resolver',
+  'Every transactional refund fallback must receive its complete manager recipient route from the fail-closed send-time resolver',
 );
 assert(
   !adminUpdate.includes('sendRefundManagerActionNotice') &&
@@ -1427,26 +1573,27 @@ assert(
 const proofAuthorizationCall = sendFunction.indexOf(
   'authorizeRefundSyntheticGmailProof({',
 );
-const proofMessageInsert = sendFunction.indexOf(
-  '.from("refund_case_messages")',
+const proofMessageEnqueue = sendFunction.indexOf(
+  'service_enqueue_refund_manual_message_intent',
   proofAuthorizationCall,
 );
 const proofDatabaseBinding = sendFunction.indexOf(
-  'synthetic_gmail_proof_authorization_id:',
-  proofMessageInsert,
+  'p_synthetic_proof_authorization_id:',
+  proofMessageEnqueue,
 );
-const proofTransportCall = sendFunction.indexOf(
+const proofTransportCall = manualMessageOutbox.indexOf(
   'dispatchRefundCaseGmailReply({',
-  proofDatabaseBinding,
 );
 assert(
   proofAuthorizationCall >= 0 &&
-    proofMessageInsert > proofAuthorizationCall &&
-    proofDatabaseBinding > proofMessageInsert &&
-    proofTransportCall > proofDatabaseBinding &&
+    proofMessageEnqueue > proofAuthorizationCall &&
+    proofDatabaseBinding > proofMessageEnqueue &&
+    proofTransportCall >= 0 &&
     sendFunction.includes('runToken: body?.syntheticProofRunToken') &&
     sendFunction.includes('defaultTemplateOnly: !triageSuggestionId') &&
-    sendFunction.includes('syntheticProofAuthorizationId: syntheticProof.authorizationId'),
+    /syntheticProofAuthorizationId:\r?\n\s*message\.synthetic_gmail_proof_authorization_id/.test(
+      manualMessageOutbox,
+    ),
   'The case-message Edge path must authorize before insert, then pass its internal binding through the shared database boundary before transport',
 );
 const proofTransportVerification = gmailTransport.indexOf(

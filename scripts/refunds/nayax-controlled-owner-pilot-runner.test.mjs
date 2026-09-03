@@ -21,14 +21,13 @@ import {
 } from './nayax-controlled-owner-pilot-runner-lib.mjs';
 
 const contract = JSON.stringify({
-  schemaVersion: 1,
-  contractVersion: 'nayax-production-confirmed-v1',
+  schemaVersion: 2,
+  contractVersion: 'nayax-production-account-contract-v2',
   baseUrl: 'https://lynx.nayax.com/operational/v1',
   authorizationMode: 'bearer',
   amountUnit: 'major',
   amountRoundingMode: 'exact_cent',
   refundEmailListMode: 'omit',
-  providerEmailBehavior: 'suppressed_by_written_contract',
   writeCredentialMode: 'separate',
   sameWriteTokenContractConfirmed: false,
   reconciliationMode: 'dtm_then_structured_resolution',
@@ -73,7 +72,6 @@ const baseConfig = (mode = 'dry-run') => ({
   executorAssertionDigest: digest('7'),
   executorAssertion: '',
   providerContractJson: contract,
-  providerEmailConfirmation: '',
   writtenContractDigest: sha256Hex(contract),
   dtmOwnerOperatorProofDigest: digest('8'),
   sponsorProofDigest: digest('9'),
@@ -251,29 +249,6 @@ test('live configuration rejects the QA host even when the generic confirmation 
     }),
     (error) => error.code === 'provider_contract_host_invalid',
   );
-});
-
-test('owner-expected provider email requires an exact observable consent confirmation', () => {
-  const consentContract = JSON.stringify({
-    ...JSON.parse(contract), providerEmailBehavior: 'owner_consented_expected',
-  });
-  const configured = {
-    ...baseConfig('live'),
-    liveConfirmation:
-      'I_AUTHORIZE_ONE_SELF_OWNED_PROVIDER_ONLY_NAYAX_TRANSACTION_NO_RETRY',
-    providerContractJson: consentContract,
-    writtenContractDigest: sha256Hex(consentContract),
-  };
-  assert.throws(
-    () => validateNayaxControlledPilotConfig(configured),
-    (error) => error.code === 'provider_email_consent_missing',
-  );
-  const validated = validateNayaxControlledPilotConfig({
-    ...configured,
-    providerEmailConfirmation:
-      'I_EXPECT_AND_CONSENT_TO_NAYAX_PROVIDER_EMAIL_FOR_MY_SELF_OWNED_TRANSACTION',
-  });
-  assert.equal(validated.contract.providerEmailBehavior, 'owner_consented_expected');
 });
 
 test('initialize uses a pre-existing idempotency digest and no raw idempotency secret', () => {
@@ -872,7 +847,7 @@ test('sanitized failures never include private identifiers or provider payloads'
   assert.deepEqual(Object.keys(error).sort(), ['code', 'details', 'name']);
 });
 
-test('failure output retains only the fixed provider-email behavior enum', () => {
+test('failure output retains only fixed approved aggregate fields', () => {
   const safe = selectNayaxControlledPilotFailureDetails({
     providerEmailBehavior: 'owner_consented_expected',
     providerHold: true,
@@ -881,9 +856,6 @@ test('failure output retains only the fixed provider-email behavior enum', () =>
   });
   assert.deepEqual(safe, {
     providerHold: true,
-    providerEmailBehavior: 'owner_consented_expected',
   });
-  assert.equal(Object.hasOwn(selectNayaxControlledPilotFailureDetails({
-    providerEmailBehavior: 'private-unrecognized-value',
-  }), 'providerEmailBehavior'), false);
+  assert.equal(Object.hasOwn(safe, 'providerEmailBehavior'), false);
 });

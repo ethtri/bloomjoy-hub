@@ -1,11 +1,12 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
-import { sendTransactionalEmail } from "../_shared/internal-email.ts";
 import {
   buildRefundCustomerEmail,
-  getRefundReplyToEmail,
+  redactRefundStatusLinksForStorage,
+  sendRefundTransactionalEmail,
 } from "../_shared/refund-email.ts";
+import { inferRefundCustomerLocale } from "../_shared/refund-language.ts";
 import { automaticRefundCustomerContactEnabled } from "../_shared/refund-deterministic-follow-up.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
@@ -14,6 +15,10 @@ import {
   requireLinkedRefundEmailCase,
 } from "../_shared/refund-email-context.ts";
 import { sendRefundManagerActionNotice } from "../_shared/refund-manager-notification.ts";
+import {
+  bindRefundTransactionalDelivery,
+  markRefundTransactionalDeliveryAttempt,
+} from "../_shared/refund-transactional-delivery.ts";
 import {
   lookupNayaxCandidatesForRefundCase,
   type NayaxLookupResult,
@@ -48,6 +53,18 @@ import {
   isRefundWalletCorrectionToken,
 } from "../_shared/refund-wallet-correction.ts";
 import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
+import { validateRefundIntakePayment } from "../_shared/refund-intake-payment.ts";
+import {
+  hashRefundStatusValue,
+  issueRefundStatusCapability,
+  readRefundStatusCapability,
+  type RefundStatusCapability,
+} from "../_shared/refund-status-capability.ts";
+import {
+  beginNayaxLookup,
+  failNayaxLookup,
+  persistNayaxLookupResult,
+} from "../_shared/nayax-lookup-persistence.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -58,6 +75,13 @@ const maxRequestBytes = 18 * 1024 * 1024;
 const allowedContentTypes = new Set(["image/png", "image/jpeg", "image/webp"]);
 const automaticCustomerContactEnabled = automaticRefundCustomerContactEnabled();
 const refundEmailPilotAttachmentsEnabled = false;
+const refundStatusResponseHeaders = {
+  ...corsHeaders,
+  "Content-Type": "application/json",
+  "Cache-Control": "private, no-store, max-age=0",
+  "Referrer-Policy": "no-referrer",
+  "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
+};
 
 const supabase = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -141,6 +165,26 @@ const sanitizeText = (value: unknown, maxLength = 2000) =>
 
 const sanitizeEmail = (value: unknown) => sanitizeText(value, 320).toLowerCase();
 
+const normalizeCardNetwork = (value: unknown) => {
+  const normalized = sanitizeText(value, 80)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  if (!normalized) return null;
+  if (normalized.includes("visa")) return "visa";
+  if (normalized.includes("mastercard") || normalized.includes("master card") || normalized === "mc") {
+    return "mastercard";
+  }
+  if (normalized.includes("discover")) return "discover";
+  if (normalized.includes("american express") || normalized.includes("amex")) {
+    return "american_express";
+  }
+  if (["other", "unknown", "not sure", "other unknown"].includes(normalized)) {
+    return "other_unknown";
+  }
+  return null;
+};
+
 const centsFromAmount = (value: unknown): number | null => {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.max(0, Math.round(value * 100));
@@ -167,6 +211,72 @@ const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 const isEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+const issueStatusCapability = async (
+  refundCaseId: string,
+): Promise<RefundStatusCapability | null> => {
+  if (!supabase) return null;
+  try {
+    return await issueRefundStatusCapability({ supabase, refundCaseId });
+  } catch (error) {
+    console.error("refund status capability issuance failed", {
+      errorType: error instanceof Error ? error.name : typeof error,
+    });
+    return null;
+  }
+};
+
+const waitForStatusTimingEnvelope = async (startedAt: number) => {
+  const remaining = 150 - (Date.now() - startedAt);
+  if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+};
+
+const readCustomerRefundStatus = async (
+  req: Request,
+  body: Record<string, unknown>,
+) => {
+  const startedAt = Date.now();
+  const token = sanitizeText(body?.token, 80);
+  const clientIp = getPublicIntakeClientIp(req) || "unknown";
+  const accessKeyDigest = await hashRefundStatusValue(
+    `${getAbuseControlSalt()}|refund-status|${clientIp}`,
+  );
+  let result: Awaited<ReturnType<typeof readRefundStatusCapability>>;
+  try {
+    result = await readRefundStatusCapability({
+      supabase: supabase!,
+      token,
+      accessKeyDigest,
+    });
+  } catch {
+    result = { available: false, rateLimited: false };
+  }
+  await waitForStatusTimingEnvelope(startedAt);
+
+  if (!result.available) {
+    return new Response(
+      JSON.stringify({
+        error: result.rateLimited
+          ? "Please wait before checking this secure link again."
+          : "This secure refund status link is not available.",
+        errorCode: result.rateLimited
+          ? "refund_status_rate_limited"
+          : "refund_status_unavailable",
+        payloadRedacted: true,
+      }),
+      { status: result.rateLimited ? 429 : 404, headers: refundStatusResponseHeaders },
+    );
+  }
+
+  return new Response(
+    JSON.stringify({
+      lifecycle: result.lifecycle,
+      expiresAt: result.expiresAt,
+      payloadRedacted: true,
+    }),
+    { headers: refundStatusResponseHeaders },
+  );
+};
 
 const getAbuseControlSalt = () =>
   Deno.env.get("PUBLIC_INTAKE_ABUSE_HASH_SALT") ||
@@ -516,6 +626,14 @@ const startRefundQrClaim = async (
     return refundQrUnavailableResponse();
   }
 
+  const { data: qrMachineIsPublic, error: qrMachineEligibilityError } = await supabase.rpc(
+    "service_refund_machine_is_public",
+    { p_machine_id: qrCodeRow.reporting_machine_id },
+  );
+  if (qrMachineEligibilityError || qrMachineIsPublic !== true) {
+    return refundQrUnavailableResponse();
+  }
+
   const { data: machine, error: machineError } = await supabase
     .from("reporting_machines")
     .select(
@@ -523,7 +641,6 @@ const startRefundQrClaim = async (
     )
     .eq("id", qrCodeRow.reporting_machine_id)
     .eq("status", "active")
-    .in("machine_type", ["commercial", "mini"])
     .single();
 
   if (machineError || !machine) {
@@ -799,79 +916,55 @@ const sendWalletMatchReadyNotification = async ({
 const persistWalletCorrectionLookup = async (
   refundCaseId: string,
   result: NayaxLookupResult,
+  expectedFactVersion: number,
+  lookupGeneration: number,
 ) => {
   if (!supabase) throw new Error("Refund intake is not configured.");
 
+  await persistNayaxLookupResult({
+    supabase,
+    caseId: refundCaseId,
+    actorUserId: null,
+    result,
+    trigger: "wallet_correction",
+    expectedFactVersion,
+    lookupGeneration,
+  });
+
   if (!result.configured) {
-    const { error } = await supabase.from("refund_cases").update({
-      status: "needs_review",
-      correlation_status: "nayax_not_configured",
-      correlation_source: "nayax",
-      correlation_confidence: 0,
-      correlation_summary:
-        result.message ||
-        "Nayax setup needs attention before corrected wallet details can be checked.",
-      automation_state: "under_review",
-      nayax_recommendation_state: "manual_exception",
-      nayax_recommendation_policy_version: result.policyVersion,
-      nayax_recommendation_evaluated_at: result.lastCheckedAt,
-      nayax_match_execution_eligible: false,
-    }).eq("id", refundCaseId);
+    const { error } = await supabase.from("refund_cases")
+      .update({ automation_state: "under_review" })
+      .eq("id", refundCaseId)
+      .eq("nayax_lookup_generation", lookupGeneration);
     if (error) throw error;
     return "still_reviewing" as const;
   }
 
   if (result.recommendationState === "high_confidence") {
-    const { data: candidate, error: candidateError } = await supabase
-      .from("refund_nayax_lookup_candidates")
-      .select(
-        "provider_transaction_id, site_id, machine_authorization_time, amount_cents, card_last4, currency_code",
-      )
-      .eq("refund_case_id", refundCaseId)
-      .contains("evidence_summary", { is_recommended: true })
-      .gt("expires_at", new Date().toISOString())
-      .maybeSingle();
-    if (candidateError) throw candidateError;
+    const { error } = await supabase.from("refund_cases").update({
+      automation_state: "under_review",
+      wallet_correction_state: "received",
+    }).eq("id", refundCaseId)
+      .eq("nayax_lookup_generation", lookupGeneration);
+    if (error) throw error;
 
-    if (candidate) {
-      const { error } = await supabase.from("refund_cases").update({
-        status: "needs_review",
-        correlation_status: "matched",
-        correlation_source: "nayax",
-        correlation_confidence: 0,
-        correlation_summary: result.summary,
-        matched_nayax_transaction_id: candidate.provider_transaction_id,
-        matched_nayax_site_id: candidate.site_id,
-        matched_nayax_machine_auth_time: candidate.machine_authorization_time,
-        matched_nayax_amount_cents: candidate.amount_cents,
-        matched_nayax_card_last4: candidate.card_last4,
-        matched_nayax_currency_code: candidate.currency_code,
-        automation_state: "under_review",
-        wallet_correction_state: "received",
-        nayax_recommendation_state: result.recommendationState,
-        nayax_recommendation_policy_version: result.policyVersion,
-        nayax_recommendation_evaluated_at: result.lastCheckedAt,
-        nayax_match_execution_eligible: false,
-      }).eq("id", refundCaseId);
-      if (error) throw error;
-
-      await supabase.from("refund_case_events").insert({
-        refund_case_id: refundCaseId,
-        event_type: "wallet_correction_auto_match_ready",
-        message:
-          "Corrected wallet details produced one high-confidence Nayax recommendation for manager approval.",
-        metadata: {
-          recommendation_state: result.recommendationState,
-          confidence_class: result.confidenceClass,
-          reason_codes: result.reasonCodes,
-          policy_version: result.policyVersion,
-          candidate_count: result.candidates.length,
-          provider_payload_redacted: true,
-          payload_redacted: true,
-        },
-      });
-      return "match_ready" as const;
-    }
+    await supabase.from("refund_case_events").insert({
+      refund_case_id: refundCaseId,
+      event_type: "wallet_correction_auto_match_ready",
+      message:
+        "Corrected wallet details produced one high-confidence Nayax recommendation for manager selection and confirmation.",
+      metadata: {
+        lookup_generation: lookupGeneration,
+        recommendation_state: result.recommendationState,
+        confidence_class: result.confidenceClass,
+        reason_codes: result.reasonCodes,
+        policy_version: result.policyVersion,
+        candidate_count: result.candidates.length,
+        provider_payload_redacted: true,
+        payload_redacted: true,
+      },
+    });
+    return "match_ready" as const;
   }
 
   const { error } = await supabase.from("refund_cases").update({
@@ -891,7 +984,8 @@ const persistWalletCorrectionLookup = async (
     nayax_recommendation_policy_version: result.policyVersion,
     nayax_recommendation_evaluated_at: result.lastCheckedAt,
     nayax_match_execution_eligible: false,
-  }).eq("id", refundCaseId);
+  }).eq("id", refundCaseId)
+    .eq("nayax_lookup_generation", lookupGeneration);
   if (error) throw error;
 
   await supabase.from("refund_case_events").insert({
@@ -921,6 +1015,7 @@ const submitWalletCorrection = async (
     "action",
     "token",
     "walletType",
+    "cardNetwork",
     "cardLast4",
     "incidentDate",
     "incidentTime",
@@ -941,12 +1036,14 @@ const submitWalletCorrection = async (
 
   const token = sanitizeText(body.token, 80);
   const walletType = sanitizeText(body.walletType, 40).toLowerCase();
+  const cardNetwork = normalizeCardNetwork(body.cardNetwork);
   const cardLast4 = sanitizeText(body.cardLast4, 4);
   const incidentDate = sanitizeText(body.incidentDate, 10);
   const incidentTime = sanitizeText(body.incidentTime, 8);
   if (
     !isRefundWalletCorrectionToken(token) ||
     !["apple_pay", "google_pay", "other_wallet"].includes(walletType) ||
+    !cardNetwork ||
     !/^[0-9]{4}$/.test(cardLast4) ||
     !/^\d{4}-\d{2}-\d{2}$/.test(incidentDate) ||
     !/^\d{2}:\d{2}$/.test(incidentTime) ||
@@ -955,7 +1052,7 @@ const submitWalletCorrection = async (
     return new Response(
       JSON.stringify({
         error:
-          "Enter the mobile wallet used, its virtual card last four, the approximate purchase time, and confirm the amount.",
+          "Enter the mobile wallet used, card type, virtual card last four, approximate purchase time, and confirm the amount.",
       }),
       {
         status: 400,
@@ -1006,10 +1103,11 @@ const submitWalletCorrection = async (
 
   const tokenHash = await hashRefundWalletCorrectionToken(token);
   const { data: applied, error: applyError } = await supabase.rpc(
-    "service_apply_refund_wallet_correction",
+    "service_apply_refund_wallet_correction_v2",
     {
       p_token_hash: tokenHash,
       p_wallet_type: walletType,
+      p_card_network: cardNetwork,
       p_card_last4: cardLast4,
       p_incident_at: incidentResolution.instant,
       p_incident_local_datetime: `${incidentDate}T${incidentTime}`,
@@ -1027,39 +1125,63 @@ const submitWalletCorrection = async (
     | "fallback_eligible"
     | "still_reviewing" = "still_reviewing";
   let lookupResult: NayaxLookupResult | null = null;
+  let expectedFactVersion: number | null = null;
+  let lookupGeneration: number | null = null;
   try {
+    const { data: lookupCase, error: lookupCaseError } = await supabase
+      .from("refund_cases")
+      .select("deterministic_fact_version")
+      .eq("id", refundCaseId)
+      .single();
+    if (lookupCaseError) throw lookupCaseError;
+    expectedFactVersion = Number(lookupCase.deterministic_fact_version);
+    if (!Number.isInteger(expectedFactVersion)) {
+      throw new Error("Refund case matching evidence version is unavailable.");
+    }
+    lookupGeneration = await beginNayaxLookup({
+      supabase,
+      caseId: refundCaseId,
+      actorUserId: null,
+      expectedFactVersion,
+      trigger: "wallet_correction",
+    });
     lookupResult = await lookupNayaxCandidatesForRefundCase({
       supabase,
       caseId: refundCaseId,
       actorUserId: null,
+      lookupGeneration,
+      expectedFactVersion,
     });
     resolution = await persistWalletCorrectionLookup(
       refundCaseId,
       lookupResult,
+      expectedFactVersion,
+      lookupGeneration,
     );
   } catch (lookupError) {
     console.error("refund wallet correction automatic lookup failed", {
       errorType:
         lookupError instanceof Error ? lookupError.name : typeof lookupError,
     });
-    await supabase.from("refund_cases").update({
-      status: "needs_review",
-      automation_state: "under_review",
-      correlation_status: "needs_nayax",
-      correlation_summary:
-        "Corrected wallet details were saved, but the automatic Nayax re-match needs a retry.",
-    }).eq("id", refundCaseId);
-    await supabase.from("refund_case_events").insert({
-      refund_case_id: refundCaseId,
-      event_type: "wallet_correction_auto_match_failed",
-      message:
-        "Corrected wallet details were saved, but automatic Nayax re-match failed and needs a system retry.",
-      metadata: {
-        error_type:
-          lookupError instanceof Error ? lookupError.name : typeof lookupError,
-        payload_redacted: true,
-      },
-    });
+    if (expectedFactVersion !== null && lookupGeneration !== null) {
+      try {
+        await failNayaxLookup({
+          supabase,
+          caseId: refundCaseId,
+          actorUserId: null,
+          expectedFactVersion,
+          lookupGeneration,
+          trigger: "wallet_correction",
+          error: lookupError,
+        });
+      } catch (failureRecordingError) {
+        console.error("wallet correction lookup failure state could not be recorded", {
+          errorType: failureRecordingError instanceof Error
+            ? failureRecordingError.name
+            : typeof failureRecordingError,
+        });
+      }
+    }
   }
 
   if (
@@ -1146,20 +1268,36 @@ serve(async (req) => {
     if (action === "submitWalletCorrection") {
       return await submitWalletCorrection(req, body);
     }
+    if (action === "readStatus") {
+      return await readCustomerRefundStatus(req, body);
+    }
 
     const sourcePage = sanitizePublicIntakeSourcePage("/refunds/request");
     const requestedMachineId = sanitizeText(body?.machineId, 80);
+    const requestedSelectionKey = sanitizeText(body?.selectionKey, 80).toLowerCase();
     let machineId = requestedMachineId;
+    let intakeSelectionKey: string | null = null;
+    let intakeSelectionKind: "exact_machine" | "livermore_pair" | "machine_qr" | null = null;
+    let intakeSelectionMachineIds: string[] | null = null;
+    let intakeSelectionDisplayLabel = "";
+    let intakeSelectionLocationId = "";
+    let intakeSelectionLocationTimezone = "";
     const qrClaimToken = sanitizeText(body?.qrClaimToken, 80);
     const emailContextToken = sanitizeText(body?.emailContextToken, 80);
     const customerEmail = sanitizeEmail(body?.customerEmail);
     const customerName = sanitizeText(body?.customerName, 160);
     const customerPhone = sanitizeText(body?.customerPhone, 80);
-    const zellePaymentContact = sanitizeText(body?.zellePaymentContact, 160);
     const issueSummary = sanitizeText(body?.issueSummary, 2500);
+    const customerLocale = inferRefundCustomerLocale({
+      explicitLocale: body?.customerLocale,
+      acceptLanguage: req.headers.get("accept-language"),
+      customerText: issueSummary,
+    });
     const paymentMethod = sanitizeText(body?.paymentMethod, 40).toLowerCase();
     const amountCents = centsFromAmount(body?.paymentAmount);
     const cardLast4 = sanitizeText(body?.cardLast4, 4);
+    const submittedCardNetwork = sanitizeText(body?.cardNetwork, 80);
+    const cardNetwork = normalizeCardNetwork(submittedCardNetwork);
     const submittedPaymentInteraction = sanitizeText(body?.paymentInteraction, 40).toLowerCase();
     const paymentInteraction = [
       "phone_watch_wallet",
@@ -1235,7 +1373,14 @@ serve(async (req) => {
       );
     }
 
-    if (!qrClaimToken && !isUuid(machineId)) {
+    if (!qrClaimToken && !requestedSelectionKey && !isUuid(machineId)) {
+      return new Response(JSON.stringify({ error: "Please choose a machine location." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (requestedSelectionKey && !/^[0-9a-f]{64}$/.test(requestedSelectionKey)) {
       return new Response(JSON.stringify({ error: "Please choose a machine location." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1253,13 +1398,6 @@ serve(async (req) => {
       });
     }
 
-    if (!customerName) {
-      return new Response(JSON.stringify({ error: "Please enter your name." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     if (!hasLocalIncidentInput && !legacyIncidentAt) {
       return new Response(JSON.stringify({ error: "Please enter the incident date and time." }), {
         status: 400,
@@ -1267,55 +1405,21 @@ serve(async (req) => {
       });
     }
 
-    if (!["card", "cash"].includes(paymentMethod)) {
-      return new Response(JSON.stringify({ error: "Please choose a payment method." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (amountCents === null || amountCents <= 0) {
-      return new Response(JSON.stringify({ error: "Please enter the amount you paid." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (paymentMethod === "card" && !/^[0-9]{4}$/.test(cardLast4)) {
-      return new Response(JSON.stringify({ error: "Please enter the last 4 digits shown for the card payment." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (
-      body?.paymentInteraction !== undefined &&
-      !["phone_watch_wallet", "tap_card", "insert_or_swipe", "cash", "unsure"].includes(
-        submittedPaymentInteraction,
-      )
-    ) {
-      return new Response(JSON.stringify({ error: "Please choose how you paid at the machine." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (
-      (paymentMethod === "cash" && paymentInteraction !== "cash") ||
-      (paymentMethod !== "cash" && paymentInteraction === "cash")
-    ) {
-      return new Response(JSON.stringify({ error: "The payment method and the way you paid do not agree." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (
-      paymentInteraction === "phone_watch_wallet" &&
-      body?.walletProvider !== undefined &&
-      !walletProvider
-    ) {
-      return new Response(JSON.stringify({ error: "Please choose the phone or watch wallet you used." }), {
+    const paymentValidation = validateRefundIntakePayment({
+      paymentMethod,
+      amountCents,
+      cardLast4,
+      cardNetwork,
+      cardNetworkProvided: body?.cardNetwork !== undefined,
+      paymentInteraction,
+      submittedPaymentInteraction,
+      paymentInteractionProvided: body?.paymentInteraction !== undefined,
+      cardWalletUsed,
+      walletProvider,
+      walletProviderProvided: body?.walletProvider !== undefined,
+    });
+    if (!paymentValidation.ok) {
+      return new Response(JSON.stringify({ error: paymentValidation.error }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -1340,20 +1444,6 @@ serve(async (req) => {
       )
     ) {
       return new Response(JSON.stringify({ error: "Please choose what best describes the problem." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (paymentMethod === "cash" && !zellePaymentContact) {
-      return new Response(JSON.stringify({ error: "Please enter your Zelle phone number or email." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (!issueSummary) {
-      return new Response(JSON.stringify({ error: "Please describe what happened." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -1399,29 +1489,49 @@ serve(async (req) => {
       }
 
       machineId = verifiedQrClaim.reportingMachineId;
+      intakeSelectionKind = "machine_qr";
+      intakeSelectionMachineIds = [machineId];
+    } else if (requestedSelectionKey) {
+      const { data: resolvedSelection, error: selectionError } = await supabase.rpc(
+        "service_resolve_refund_public_selection",
+        { p_selection_key: requestedSelectionKey },
+      );
+      const selectionKind = sanitizeText(resolvedSelection?.selectionKind, 40);
+      const selectionMachineIds = Array.isArray(resolvedSelection?.machineIds)
+        ? resolvedSelection.machineIds.map((value: unknown) => sanitizeText(value, 80))
+        : [];
+      if (
+        selectionError ||
+        !["exact_machine", "livermore_pair"].includes(selectionKind) ||
+        selectionMachineIds.some((value: string) => !isUuid(value)) ||
+        (selectionKind === "exact_machine" && selectionMachineIds.length !== 1) ||
+        (selectionKind === "livermore_pair" && selectionMachineIds.length !== 2)
+      ) {
+        return new Response(JSON.stringify({ error: "That location is temporarily unavailable. Please choose another location or email info@bloomjoysweets.com." }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      intakeSelectionKey = requestedSelectionKey;
+      intakeSelectionKind = selectionKind as "exact_machine" | "livermore_pair";
+      intakeSelectionMachineIds = selectionMachineIds;
+      intakeSelectionDisplayLabel = sanitizeText(resolvedSelection?.displayLabel, 180);
+      intakeSelectionLocationId = sanitizeText(resolvedSelection?.locationId, 80);
+      intakeSelectionLocationTimezone = sanitizeText(resolvedSelection?.locationTimezone, 80);
+      machineId = selectionKind === "exact_machine" ? selectionMachineIds[0] : "";
+    } else {
+      // Compatibility for the previously deployed form while the new contract
+      // is rolled out migration-first. It remains one exact public machine.
+      intakeSelectionKind = "exact_machine";
+      intakeSelectionMachineIds = [machineId];
     }
 
     const attachments = refundEmailPilotAttachmentsEnabled
       ? prepareAttachments(rawAttachments)
       : [];
 
-    const { data: machine, error: machineError } = await supabase
-      .from("reporting_machines")
-      .select("id, machine_label, machine_type, location_id, refund_public_display_label, reporting_locations(id, name, timezone, status)")
-      .eq("id", machineId)
-      .eq("status", "active")
-      .in("machine_type", ["commercial", "mini"])
-      .single();
-
-    if (machineError || !machine) {
-      return new Response(JSON.stringify({ error: "That machine is not available for refund intake." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const machineRecord = machine as unknown as {
-      id: string;
+    let machineRecord: {
+      id: string | null;
       machine_label: string;
       machine_type: string;
       location_id: string;
@@ -1431,6 +1541,60 @@ serve(async (req) => {
         | { id: string; name: string; timezone: string; status: string }[]
         | null;
     };
+    if (intakeSelectionKind === "livermore_pair") {
+      if (paymentMethod !== "card") {
+        return new Response(JSON.stringify({ error: "This grouped location is available for card purchases. For other payment help, email info@bloomjoysweets.com." }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: groupedLocation, error: groupedLocationError } = await supabase
+        .from("reporting_locations")
+        .select("id, name, timezone, status")
+        .eq("id", intakeSelectionLocationId)
+        .eq("status", "active")
+        .single();
+      if (groupedLocationError || !groupedLocation || groupedLocation.timezone !== intakeSelectionLocationTimezone) {
+        return new Response(JSON.stringify({ error: "That location is temporarily unavailable. Please email info@bloomjoysweets.com." }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      machineRecord = {
+        id: null,
+        machine_label: intakeSelectionDisplayLabel,
+        machine_type: "commercial",
+        location_id: groupedLocation.id,
+        refund_public_display_label: intakeSelectionDisplayLabel,
+        reporting_locations: groupedLocation,
+      };
+    } else {
+      const { data: machineIsPublic, error: machineEligibilityError } = await supabase.rpc(
+        "service_refund_machine_is_public",
+        { p_machine_id: machineId },
+      );
+      if (machineEligibilityError || machineIsPublic !== true) {
+        return new Response(JSON.stringify({ error: "That machine is not available for refund intake." }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: machine, error: machineError } = await supabase
+        .from("reporting_machines")
+        .select("id, machine_label, machine_type, location_id, refund_public_display_label, reporting_locations(id, name, timezone, status)")
+        .eq("id", machineId)
+        .eq("status", "active")
+        .single();
+
+      if (machineError || !machine) {
+        return new Response(JSON.stringify({ error: "That machine is not available for refund intake." }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      machineRecord = machine as unknown as typeof machineRecord;
+    }
     const locationRecord = Array.isArray(machineRecord.reporting_locations)
       ? machineRecord.reporting_locations[0] ?? null
       : machineRecord.reporting_locations ?? null;
@@ -1494,7 +1658,7 @@ serve(async (req) => {
       let query = supabase
         .from("machine_sales_facts")
         .select("id, net_sales_cents, payment_time, source_trade_name")
-        .eq("reporting_machine_id", machineRecord.id)
+        .eq("reporting_machine_id", machineRecord.id as string)
         .eq("payment_method", "cash")
         .gte("payment_time", windowStart.toISOString())
         .lte("payment_time", windowEnd.toISOString())
@@ -1547,7 +1711,7 @@ serve(async (req) => {
       email: customerEmail,
       sourcePage,
       message: [
-        machineRecord.id,
+        intakeSelectionKey ?? machineRecord.id,
         incidentAt.toISOString(),
         paymentMethod,
         amountCents ?? "amount-not-provided",
@@ -1570,32 +1734,44 @@ serve(async (req) => {
       qr_claim_expires_at: verifiedQrClaim?.expiresAt ?? null,
       incident_time_resolution: incidentResolution.resolution,
       incident_time_confidence: incidentTimeConfidence,
-      payment_interaction: paymentInteraction,
-      wallet_provider_supplied: Boolean(walletProvider),
+      payment_interaction: paymentValidation.paymentInteraction,
+      wallet_provider_supplied: Boolean(paymentValidation.walletProvider),
+      card_network: paymentValidation.cardNetwork,
       issue_category: issueCategory,
       product_description_supplied: Boolean(productDescription),
       incident_possible_instant_count: incidentResolution.possibleInstantCount,
       candidate_sales_fact_ids: candidateIds,
+      customer_locale: customerLocale,
       user_agent: req.headers.get("user-agent")?.slice(0, 300) ?? null,
     };
     const insertValues = {
       reporting_machine_id: machineRecord.id,
       reporting_location_id: machineRecord.location_id,
+      intake_selection_key: intakeSelectionKey,
+      intake_selection_kind: intakeSelectionKind,
+      intake_selection_machine_ids: intakeSelectionMachineIds,
       customer_email: customerEmail,
       customer_name: customerName || null,
       customer_phone: customerPhone || null,
-      zelle_payment_contact: paymentMethod === "cash" ? zellePaymentContact : null,
+      zelle_payment_contact: null,
       issue_summary: issueSummary,
       incident_at: incidentAt.toISOString(),
       incident_local_datetime: hasLocalIncidentInput ? `${incidentDate}T${incidentTime}` : null,
       incident_timezone: locationRecord?.timezone ?? null,
       incident_time_resolution: incidentResolution.resolution,
-      payment_method: paymentMethod,
-      payment_amount_cents: amountCents,
-      card_last4: paymentMethod === "card" ? cardLast4 : null,
-      card_wallet_used: cardWalletUsed,
-      payment_interaction: paymentInteraction,
-      wallet_provider: walletProvider,
+      payment_method: paymentValidation.paymentMethod,
+      payment_amount_cents: paymentValidation.amountCents,
+      card_last4: paymentValidation.cardLast4,
+      card_last4_provenance: paymentValidation.paymentMethod === "card" &&
+          paymentValidation.cardLast4
+        ? paymentValidation.cardWalletUsed
+          ? "wallet_device_token"
+          : "physical_card"
+        : null,
+      card_network: paymentValidation.cardNetwork,
+      card_wallet_used: paymentValidation.cardWalletUsed,
+      payment_interaction: paymentValidation.paymentInteraction,
+      wallet_provider: paymentValidation.walletProvider,
       incident_time_confidence: incidentTimeConfidence,
       issue_category: issueCategory,
       product_description: productDescription || null,
@@ -1605,8 +1781,8 @@ serve(async (req) => {
       correlation_confidence: correlationConfidence,
       correlation_summary: correlationSummary,
       matched_sales_fact_id: matchedSalesFactId,
-      cash_match_evaluated_fact_version: paymentMethod === "cash" ? 1 : null,
-      refund_amount_cents: amountCents,
+      cash_match_evaluated_fact_version: paymentValidation.paymentMethod === "cash" ? 1 : null,
+      refund_amount_cents: paymentValidation.amountCents,
       refund_qr_claim_context_id: verifiedQrClaim?.id ?? null,
       intake_meta: intakeMeta,
       server_dedupe_key: serverDedupeKey,
@@ -1616,13 +1792,16 @@ serve(async (req) => {
     let refundCase: SubmittedRefundCase | null = null;
     if (emailContextToken) {
       const { data: linkedRefundCase, error: linkError } = await supabase.rpc(
-        "service_link_refund_gmail_draft_from_hosted_form",
+        "service_create_refund_case_from_gmail_contact_form",
         {
           p_token_hash: await hashRefundEmailContextToken(emailContextToken),
           p_customer_email: customerEmail,
           p_case_values: {
             reportingMachineId: insertValues.reporting_machine_id,
             reportingLocationId: insertValues.reporting_location_id,
+            intakeSelectionKey: insertValues.intake_selection_key,
+            intakeSelectionKind: insertValues.intake_selection_kind,
+            intakeSelectionMachineIds: insertValues.intake_selection_machine_ids,
             customerName: insertValues.customer_name,
             customerPhone: insertValues.customer_phone,
             zellePaymentContact: insertValues.zelle_payment_contact,
@@ -1634,6 +1813,7 @@ serve(async (req) => {
             paymentMethod: insertValues.payment_method,
             paymentAmountCents: insertValues.payment_amount_cents,
             cardLast4: insertValues.card_last4,
+            cardNetwork: insertValues.card_network,
             cardWalletUsed: insertValues.card_wallet_used,
             paymentInteraction: insertValues.payment_interaction,
             walletProvider: insertValues.wallet_provider,
@@ -1700,15 +1880,18 @@ serve(async (req) => {
           throw new Error("Unable to create refund case.");
         }
 
-        await runAutomaticNayaxLookupIfReady({
-          supabase,
-          caseId: dedupedRefundCase.id,
-          source: "hosted_intake",
-        }).catch((lookupError) => {
-          console.error("refund intake automatic Nayax trigger failed", {
-            errorType: lookupError instanceof Error ? lookupError.name : typeof lookupError,
+        if (paymentValidation.shouldRunNayaxLookup) {
+          await runAutomaticNayaxLookupIfReady({
+            supabase,
+            caseId: dedupedRefundCase.id,
+            source: "hosted_intake",
+          }).catch((lookupError) => {
+            console.error("refund intake automatic Nayax trigger failed", {
+              errorType: lookupError instanceof Error ? lookupError.name : typeof lookupError,
+            });
           });
-        });
+        }
+        const statusCapability = await issueStatusCapability(dedupedRefundCase.id);
         return new Response(
           JSON.stringify({
             refundCase: {
@@ -1717,6 +1900,8 @@ serve(async (req) => {
               status: dedupedRefundCase.status,
               correlationStatus: dedupedRefundCase.correlation_status,
             },
+            statusToken: statusCapability?.token ?? null,
+            statusExpiresAt: statusCapability?.expiresAt ?? null,
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
@@ -1743,22 +1928,24 @@ serve(async (req) => {
         intake_path: verifiedQrClaim ? "machine_qr" : "direct_form",
         qr_claim_present: Boolean(verifiedQrClaim),
         incident_time_confidence: incidentTimeConfidence,
-        payment_interaction: paymentInteraction,
+        payment_interaction: paymentValidation.paymentInteraction,
         issue_category: issueCategory,
         candidate_sales_fact_ids: candidateIds,
         attachment_count: uploadedAttachments.length,
       },
     });
 
-    await runAutomaticNayaxLookupIfReady({
-      supabase,
-      caseId: refundCase.id,
-      source: emailContextToken ? "linked_customer_update" : "hosted_intake",
-    }).catch((lookupError) => {
-      console.error("refund intake automatic Nayax trigger failed", {
-        errorType: lookupError instanceof Error ? lookupError.name : typeof lookupError,
+    if (paymentValidation.shouldRunNayaxLookup) {
+      await runAutomaticNayaxLookupIfReady({
+        supabase,
+        caseId: refundCase.id,
+        source: emailContextToken ? "linked_customer_update" : "hosted_intake",
+      }).catch((lookupError) => {
+        console.error("refund intake automatic Nayax trigger failed", {
+          errorType: lookupError instanceof Error ? lookupError.name : typeof lookupError,
+        });
       });
-    });
+    }
 
     await sendManagerIntakeNotification({
       refundCaseId: refundCase.id,
@@ -1769,6 +1956,8 @@ serve(async (req) => {
       status,
     });
 
+    const statusCapability = await issueStatusCapability(refundCase.id);
+
     const email = buildRefundCustomerEmail({
       messageType: "confirmation",
       publicReference: refundCase.public_reference,
@@ -1776,10 +1965,12 @@ serve(async (req) => {
       customerEmail,
       machineLabel: publicLabels.machineLabel,
       locationName: publicLabels.locationName,
-      refundAmountCents: amountCents,
-      paymentMethod,
-      cardWalletUsed,
+      refundAmountCents: paymentValidation.amountCents,
+      paymentMethod: paymentValidation.paymentMethod,
+      cardWalletUsed: paymentValidation.cardWalletUsed,
       incidentLocalDateTime: hasLocalIncidentInput ? `${incidentDate} ${incidentTime}` : null,
+      statusUrl: statusCapability?.url ?? null,
+      customerLocale,
     });
 
     const { data: messageRow } = await supabase
@@ -1790,8 +1981,10 @@ serve(async (req) => {
         status: "pending",
         recipient_email: customerEmail,
         subject: email.subject,
-        body: email.text,
+        body: redactRefundStatusLinksForStorage(email.text),
         template_key: "refund_confirmation_v1",
+        status_capability_id: statusCapability?.capabilityId ?? null,
+        status_link_included: Boolean(statusCapability),
       })
       .select("id")
       .single();
@@ -1814,6 +2007,8 @@ serve(async (req) => {
             status: refundCase.status,
             correlationStatus: refundCase.correlation_status,
           },
+          statusToken: statusCapability?.token ?? null,
+          statusExpiresAt: statusCapability?.expiresAt ?? null,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
@@ -1849,6 +2044,8 @@ serve(async (req) => {
             status: refundCase.status,
             correlationStatus: refundCase.correlation_status,
           },
+          statusToken: statusCapability?.token ?? null,
+          statusExpiresAt: statusCapability?.expiresAt ?? null,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
@@ -1873,13 +2070,22 @@ serve(async (req) => {
             "Automatic customer contact was disabled before provider delivery.",
           );
         }
-        await sendTransactionalEmail({
+        await markRefundTransactionalDeliveryAttempt({
+          supabase,
+          refundCaseMessageId: messageRow.id,
+        });
+        const receipt = await sendRefundTransactionalEmail({
           to: [customerEmail],
           cc: gmailDelivery.managerCcEmails,
           subject: email.subject,
           text: email.text,
           html: email.html,
-          replyTo: getRefundReplyToEmail(),
+          idempotencyKey: `refund-message-${messageRow.id}`,
+        });
+        await bindRefundTransactionalDelivery({
+          supabase,
+          refundCaseMessageId: messageRow.id,
+          receipt,
         });
       }
 
@@ -1916,6 +2122,8 @@ serve(async (req) => {
           status: refundCase.status,
           correlationStatus: refundCase.correlation_status,
         },
+        statusToken: statusCapability?.token ?? null,
+        statusExpiresAt: statusCapability?.expiresAt ?? null,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

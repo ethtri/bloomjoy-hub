@@ -6,6 +6,8 @@ on:
       - 'supabase/migrations/**'
       - 'supabase/tests/**'
       - 'scripts/validate-supabase-migrations.mjs'
+      - 'scripts/refunds/refund-populated-delivery-upgrade*.mjs'
+      - 'scripts/refunds/fixtures/refund-*.sql'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/supabase-migrations.yml'

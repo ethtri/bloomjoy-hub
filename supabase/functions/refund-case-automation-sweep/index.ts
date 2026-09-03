@@ -14,6 +14,7 @@ import {
 import {
   buildRefundCustomerEmail,
   buildRefundWalletCorrectionEmail,
+  redactRefundStatusLinksForStorage,
   sendRefundCustomerEmail,
   sendRefundWalletCorrectionEmail,
   type RefundCustomerMessageType,
@@ -31,12 +32,26 @@ import {
   type RefundMissingField,
 } from "../_shared/refund-deterministic-follow-up.ts";
 import {
+  buildNayaxCustomerCorrectionEmail,
+  deriveNayaxCustomerCorrectionFields,
+  sendNayaxCustomerCorrectionEmail,
+} from "../_shared/refund-nayax-customer-correction.ts";
+import {
+  tryIssueRefundStatusCapability,
+  type RefundStatusCapability,
+} from "../_shared/refund-status-capability.ts";
+import {
+  bindRefundTransactionalDelivery,
+  markRefundTransactionalDeliveryAttempt,
+} from "../_shared/refund-transactional-delivery.ts";
+import {
   buildRefundManagerAgingNotice,
   REFUND_MANAGER_AGING_TEMPLATE_VERSION,
   runRefundManagerAgingWhenEnabled,
   type RefundManagerAgingMilestone,
 } from "../_shared/refund-manager-aging.ts";
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
+import { refundCustomerLocaleFromIntakeMeta } from "../_shared/refund-language.ts";
 import {
   createRefundWalletCorrectionToken,
   getRefundWalletCorrectionExpiry,
@@ -44,7 +59,13 @@ import {
 } from "../_shared/refund-wallet-correction.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
+import { drainRefundManualMessageOutbox } from "../_shared/refund-manual-message-outbox.ts";
 import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
+import {
+  beginNayaxLookup,
+  failNayaxLookup,
+  persistNayaxLookupResult,
+} from "../_shared/nayax-lookup-persistence.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -126,19 +147,13 @@ const normalizeRunKey = (value: unknown) => {
 };
 
 const schedulerWindowStart = (value: Date) => {
-  const intervalMs = 15 * 60 * 1000;
+  const intervalMs = 30 * 60 * 1000;
   return new Date(Math.floor(value.getTime() / intervalMs) * intervalMs);
 };
 
 const buildDefaultRunKey = (triggerSource: "scheduled" | "manual", now: Date) => {
   const bucket = schedulerWindowStart(now).toISOString().replace(/[.]/g, "-");
   return `${triggerSource}:${bucket}`;
-};
-
-const keyTimestamp = (value: string | null | undefined, fallback: string) => {
-  if (!value) return fallback;
-  const parsed = new Date(value);
-  return Number.isFinite(parsed.getTime()) ? parsed.toISOString().replace(/[.]/g, "-") : fallback;
 };
 
 const getLocalHour = (date: Date, timeZone: string) => {
@@ -186,6 +201,7 @@ type RefundSweepCase = {
   automation_state: string;
   automation_follow_up_due_at: string | null;
   deterministic_fact_version: number;
+  intake_meta: Record<string, unknown> | null;
   customer_last_contacted_at: string | null;
   customer_email: string;
   customer_name: string | null;
@@ -200,6 +216,9 @@ type RefundSweepCase = {
   created_at: string;
   wallet_correction_state: string;
   wallet_correction_version: number;
+  nayax_recommendation_state: string | null;
+  nayax_recommendation_policy_version: string | null;
+  nayax_recommendation_evaluated_at: string | null;
   reporting_machines?: {
     machine_label: string | null;
     refund_public_display_label: string | null;
@@ -240,6 +259,8 @@ type SweepCounters = {
   managerRemindersSent: number;
   managerRoutingExceptionsSent: number;
   managerNoticesFailed: number;
+  customerStatusUpdatesSent: number;
+  customerStatusUpdatesFailed: number;
 };
 
 type ClaimedAction = {
@@ -253,6 +274,13 @@ type RefundAutomationHealth = {
   lastRunAt?: string | null;
   lastSuccessAt?: string | null;
   consecutiveFailures?: number;
+};
+
+type RefundAutomationHealthNotification = {
+  notificationType: "initial" | "reminder" | "recovery" | "none";
+  alertKind: "stale" | "repeated_failure" | null;
+  incidentId: string | null;
+  actionKey: string | null;
 };
 
 type RefundManagerAttentionState = {
@@ -286,6 +314,8 @@ const createCounters = (): SweepCounters => ({
   managerRemindersSent: 0,
   managerRoutingExceptionsSent: 0,
   managerNoticesFailed: 0,
+  customerStatusUpdatesSent: 0,
+  customerStatusUpdatesFailed: 0,
 });
 
 const addReason = (counters: SweepCounters, reason: string, count = 1) => {
@@ -315,8 +345,30 @@ const redactedSummary = (counters: SweepCounters) => ({
   managerRemindersSent: counters.managerRemindersSent,
   managerRoutingExceptionsSent: counters.managerRoutingExceptionsSent,
   managerNoticesFailed: counters.managerNoticesFailed,
+  customerStatusUpdatesSent: counters.customerStatusUpdatesSent,
+  customerStatusUpdatesFailed: counters.customerStatusUpdatesFailed,
   payloadRedacted: true,
 });
+
+const runManualMessageOutboxSweep = async (counters: SweepCounters) => {
+  if (!supabase) return;
+  const results = await drainRefundManualMessageOutbox({ supabase, limit: 10 });
+  for (const result of results) {
+    counters.actionsAttempted += 1;
+    if (result.outcome === "sent") {
+      counters.actionsSucceeded += 1;
+      addReason(counters, "manual_message_outbox_sent");
+      continue;
+    }
+    counters.actionsFailed += 1;
+    addReason(
+      counters,
+      result.outcome === "delivery_unknown"
+        ? "manual_message_outbox_delivery_unknown"
+        : "manual_message_outbox_failed",
+    );
+  }
+};
 
 const firstRelation = <T>(value: OneOrMany<T>) =>
   Array.isArray(value) ? value[0] ?? null : value ?? null;
@@ -339,6 +391,7 @@ const caseSelect = `
   automation_state,
   automation_follow_up_due_at,
   deterministic_fact_version,
+  intake_meta,
   customer_last_contacted_at,
   customer_email,
   customer_name,
@@ -353,6 +406,9 @@ const caseSelect = `
   created_at,
   wallet_correction_state,
   wallet_correction_version,
+  nayax_recommendation_state,
+  nayax_recommendation_policy_version,
+  nayax_recommendation_evaluated_at,
   reporting_machines(machine_label, refund_public_display_label),
   reporting_locations(name)
 `;
@@ -382,6 +438,7 @@ const claimAction = async (
     | "customer_more_info"
     | "customer_information_received"
     | "customer_reply_recheck"
+    | "customer_status_update"
     | "wallet_correction_request"
     | "wallet_correction_reminder"
     | "provider_exception"
@@ -403,12 +460,14 @@ const claimAction = async (
     p_policy_window_start: policyWindowStart,
   });
   if (error) throw error;
-  const result = data as { actionId?: string; claimed?: boolean; status?: string };
+  const result = data as { actionId?: string; claimed?: boolean; status?: string; reasonCategory?: string };
   if (result.claimed === true) {
     counters.actionsAttempted += 1;
   } else {
     counters.actionsSuppressed += 1;
-    addReason(counters, "duplicate_action");
+    addReason(counters, result.reasonCategory === "authoritative_refund_receipt"
+      ? "authoritative_refund_receipt"
+      : "duplicate_action");
   }
   return {
     actionId: typeof result.actionId === "string" ? result.actionId : null,
@@ -468,6 +527,32 @@ const getAutomationHealth = async (): Promise<RefundAutomationHealth> => {
   const { data, error } = await supabase.rpc("service_get_refund_automation_health");
   if (error) throw error;
   return (data ?? {}) as RefundAutomationHealth;
+};
+
+const claimAutomationHealthNotification = async (
+  healthStatus: string,
+): Promise<RefundAutomationHealthNotification> => {
+  if (!supabase) throw new Error("Refund automation is not configured.");
+  const { data, error } = await supabase.rpc(
+    "service_claim_refund_automation_health_notification",
+    { p_health_status: healthStatus },
+  );
+  if (error) throw error;
+  const claim = (data ?? {}) as Record<string, unknown>;
+  const notificationType = claim.notificationType === "initial" ||
+      claim.notificationType === "reminder" ||
+      claim.notificationType === "recovery"
+    ? claim.notificationType
+    : "none";
+  const alertKind = claim.alertKind === "stale" || claim.alertKind === "repeated_failure"
+    ? claim.alertKind
+    : null;
+  return {
+    notificationType,
+    alertKind,
+    incidentId: typeof claim.incidentId === "string" ? claim.incidentId : null,
+    actionKey: typeof claim.actionKey === "string" ? claim.actionKey : null,
+  };
 };
 
 type RefundFollowUpCycleContext = {
@@ -578,6 +663,7 @@ const buildFollowUpEmailInput = (
   refundCase: RefundSweepCase,
   cycle: RefundFollowUpCycleContext,
   messageClass: RefundFollowUpMessageClass,
+  customerCorrectionFields: RefundMissingField[] = [],
 ) => {
   const publicLabels = resolveRefundPublicLabels({
     locationName: refundCase.reporting_locations?.name,
@@ -595,8 +681,11 @@ const buildFollowUpEmailInput = (
     paymentMethod: refundCase.payment_method,
     cardWalletUsed: refundCase.card_wallet_used,
     incidentLocalDateTime: refundCase.incident_local_datetime,
-    missingFields: cycle.requestedFields,
+    missingFields: customerCorrectionFields.length > 0
+      ? customerCorrectionFields
+      : cycle.requestedFields,
     followUpReason: cycle.reasonCode,
+    customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
   };
 };
 
@@ -604,10 +693,22 @@ const logDeterministicFollowUpMessage = async (
   refundCase: RefundSweepCase,
   cycle: RefundFollowUpCycleContext,
   messageClass: RefundFollowUpMessageClass,
+  customerCorrectionFields: RefundMissingField[] = [],
+  statusCapability: RefundStatusCapability | null = null,
 ) => {
   if (!supabase) return null;
-  const emailInput = buildFollowUpEmailInput(refundCase, cycle, messageClass);
-  const email = buildRefundCustomerEmail(emailInput);
+  const emailInput = {
+    ...buildFollowUpEmailInput(
+      refundCase,
+      cycle,
+      messageClass,
+      customerCorrectionFields,
+    ),
+    statusUrl: statusCapability?.url ?? null,
+  };
+  const email = customerCorrectionFields.length > 0
+    ? buildNayaxCustomerCorrectionEmail(emailInput)
+    : buildRefundCustomerEmail(emailInput);
   const messageType = messageTypeForFollowUp(cycle, messageClass);
 
   const { data, error } = await supabase
@@ -618,7 +719,7 @@ const logDeterministicFollowUpMessage = async (
       status: "pending",
       recipient_email: refundCase.customer_email,
       subject: email.subject,
-      body: email.text,
+      body: redactRefundStatusLinksForStorage(email.text),
       template_key: refundFollowUpTemplateKey(
         cycle.reasonCode,
         messageClass,
@@ -630,6 +731,8 @@ const logDeterministicFollowUpMessage = async (
       template_version: cycle.templateVersion,
       follow_up_cycle_id: cycle.id,
       requested_fields: cycle.requestedFields,
+      status_capability_id: statusCapability?.capabilityId ?? null,
+      status_link_included: Boolean(statusCapability),
     })
     .select("id")
     .single();
@@ -642,13 +745,28 @@ const sendDeterministicFollowUpMessage = async (
   refundCase: RefundSweepCase,
   cycle: RefundFollowUpCycleContext,
   messageClass: RefundFollowUpMessageClass,
+  customerCorrectionFields: RefundMissingField[] = [],
 ) => {
   if (!(await automaticCustomerContactAllowed())) {
     return { status: "suppressed" as const, messageId: null };
   }
   const messageType = messageTypeForFollowUp(cycle, messageClass);
-  const emailInput = buildFollowUpEmailInput(refundCase, cycle, messageClass);
-  const email = buildRefundCustomerEmail(emailInput);
+  const statusCapability = await tryIssueRefundStatusCapability({
+    supabase: supabase!,
+    refundCaseId: refundCase.id,
+  });
+  const emailInput = {
+    ...buildFollowUpEmailInput(
+      refundCase,
+      cycle,
+      messageClass,
+      customerCorrectionFields,
+    ),
+    statusUrl: statusCapability?.url ?? null,
+  };
+  const email = customerCorrectionFields.length > 0
+    ? buildNayaxCustomerCorrectionEmail(emailInput)
+    : buildRefundCustomerEmail(emailInput);
   const gmailThreadId = await resolveFollowUpGmailThreadId(cycle, messageClass);
   let messageId: string | null = null;
 
@@ -657,6 +775,8 @@ const sendDeterministicFollowUpMessage = async (
       refundCase,
       cycle,
       messageClass,
+      customerCorrectionFields,
+      statusCapability,
     );
     if (!messageId) throw new Error("Refund customer message record is required.");
     const gmailDelivery = await dispatchRefundCaseGmailReply({
@@ -675,9 +795,24 @@ const sendDeterministicFollowUpMessage = async (
           "Automatic customer contact was disabled before provider delivery.",
         );
       }
-      await sendRefundCustomerEmail({
+      await markRefundTransactionalDeliveryAttempt({
+        supabase: supabase!,
+        refundCaseMessageId: messageId,
+      });
+      const transactionalInput = {
         ...emailInput,
         managerCcEmails: gmailDelivery.managerCcEmails,
+        managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
+        managerRecipientCount: gmailDelivery.managerRecipientCount,
+        idempotencyKey: `refund-message-${messageId}`,
+      };
+      const sentEmail = customerCorrectionFields.length > 0
+        ? await sendNayaxCustomerCorrectionEmail(transactionalInput)
+        : await sendRefundCustomerEmail(transactionalInput);
+      await bindRefundTransactionalDelivery({
+        supabase: supabase!,
+        refundCaseMessageId: messageId,
+        receipt: sentEmail.delivery,
       });
     }
 
@@ -713,6 +848,7 @@ const sendDeterministicFollowUpMessage = async (
         follow_up_reason: cycle.reasonCode,
         template_version: cycle.templateVersion,
         requested_fields: cycle.requestedFields,
+        customer_correction_fields: customerCorrectionFields,
         transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
         manager_cc_count: gmailDelivery.managerCcCount,
         recipient_resolution_status: gmailDelivery.recipientResolutionStatus,
@@ -740,6 +876,153 @@ const sendDeterministicFollowUpMessage = async (
         .eq("id", messageId);
     }
 
+    return { status: "failed" as const, messageId };
+  }
+};
+
+type RefundCustomerStatusUpdateReason = "provider_delay" | "sla_at_risk";
+
+const sendCustomerStatusUpdate = async (
+  refundCase: RefundSweepCase,
+  statusUpdateReason: RefundCustomerStatusUpdateReason,
+) => {
+  if (!supabase || !(await automaticCustomerContactAllowed())) {
+    return { status: "suppressed" as const, messageId: null };
+  }
+
+  const publicLabels = resolveRefundPublicLabels({
+    locationName: refundCase.reporting_locations?.name,
+    publicMachineLabel: refundCase.reporting_machines?.refund_public_display_label,
+    machineLabel: refundCase.reporting_machines?.machine_label,
+  });
+  const statusCapability = await tryIssueRefundStatusCapability({
+    supabase,
+    refundCaseId: refundCase.id,
+  });
+  const emailInput = {
+    messageType: "status_update" as const,
+    statusUpdateReason,
+    publicReference: refundCase.public_reference,
+    customerName: refundCase.customer_name,
+    customerEmail: refundCase.customer_email,
+    machineLabel: publicLabels.machineLabel,
+    locationName: publicLabels.locationName,
+    refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
+    paymentMethod: refundCase.payment_method,
+    cardWalletUsed: refundCase.card_wallet_used,
+    incidentLocalDateTime: refundCase.incident_local_datetime,
+    statusUrl: statusCapability?.url ?? null,
+    customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
+  };
+  const email = buildRefundCustomerEmail(emailInput);
+  let messageId: string | null = null;
+
+  try {
+    const { data: messageRow, error: messageError } = await supabase
+      .from("refund_case_messages")
+      .insert({
+        refund_case_id: refundCase.id,
+        message_type: "status_update",
+        status: "pending",
+        recipient_email: refundCase.customer_email,
+        subject: email.subject,
+        body: redactRefundStatusLinksForStorage(email.text),
+        template_key: `refund_status_update_${statusUpdateReason}_v1`,
+        content_source: "deterministic_template",
+        delivery_kind: "automatic",
+        reason_code: statusUpdateReason,
+        template_version: "refund_customer_status_v1",
+        requested_fields: [],
+        status_capability_id: statusCapability?.capabilityId ?? null,
+        status_link_included: Boolean(statusCapability),
+      })
+      .select("id")
+      .single();
+    if (messageError) throw messageError;
+    messageId = textValue(messageRow?.id) || null;
+    if (!messageId) throw new Error("Refund customer status message record is required.");
+
+    const gmailDelivery = await dispatchRefundCaseGmailReply({
+      supabase,
+      refundCaseId: refundCase.id,
+      refundCaseMessageId: messageId,
+      recipientEmail: refundCase.customer_email,
+      email,
+      deliveryKind: "automatic",
+    });
+    if (!gmailDelivery.usedGmail) {
+      if (!(await automaticCustomerContactAllowed())) {
+        throw new RefundGmailError(
+          "automatic_contact_disabled",
+          "Automatic customer contact was disabled before provider delivery.",
+        );
+      }
+      await markRefundTransactionalDeliveryAttempt({
+        supabase,
+        refundCaseMessageId: messageId,
+      });
+      const sentEmail = await sendRefundCustomerEmail({
+        ...emailInput,
+        managerCcEmails: gmailDelivery.managerCcEmails,
+        managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
+        managerRecipientCount: gmailDelivery.managerRecipientCount,
+        idempotencyKey: `refund-message-${messageId}`,
+      });
+      await bindRefundTransactionalDelivery({
+        supabase,
+        refundCaseMessageId: messageId,
+        receipt: sentEmail.delivery,
+      });
+    }
+
+    const sentAt = new Date().toISOString();
+    const { error: sentUpdateError } = await supabase
+      .from("refund_case_messages")
+      .update({
+        status: "sent",
+        sent_at: sentAt,
+        subject: gmailDelivery.usedGmail ? gmailDelivery.subject : email.subject,
+      })
+      .eq("id", messageId);
+    if (sentUpdateError) throw sentUpdateError;
+
+    const { error: eventError } = await supabase.from("refund_case_events").insert({
+      refund_case_id: refundCase.id,
+      event_type: "customer_status_update_sent",
+      message: statusUpdateReason === "provider_delay"
+        ? "Customer received a provider-neutral delay update."
+        : "Customer received a service-level status update.",
+      metadata: {
+        message_id: messageId,
+        reason_code: statusUpdateReason,
+        template_version: "refund_customer_status_v1",
+        transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
+        manager_cc_count: gmailDelivery.managerCcCount,
+        recipient_resolution_status: gmailDelivery.recipientResolutionStatus,
+        payload_redacted: true,
+      },
+    });
+    if (eventError) {
+      console.warn("refund customer status delivery event could not be recorded", {
+        errorType: "database_error",
+        statusUpdateReason,
+      });
+    }
+
+    return { status: "sent" as const, messageId };
+  } catch (error) {
+    console.error("refund-case-automation-sweep customer status update failed", {
+      errorType: error instanceof Error ? error.name : typeof error,
+      statusUpdateReason,
+    });
+    if (messageId) {
+      await supabase.from("refund_case_messages").update({
+        status: "failed",
+        error_message: error instanceof RefundGmailError
+          ? error.code
+          : "customer_email_delivery_failed",
+      }).eq("id", messageId);
+    }
     return { status: "failed" as const, messageId };
   }
 };
@@ -1045,6 +1328,7 @@ const routeFollowUpManualReview = async ({
   refundCase,
   actionKeySuffix,
   noticeKind,
+  terminalCustomerDisposition = false,
   policyWindowStart,
   counters,
 }: {
@@ -1052,9 +1336,11 @@ const routeFollowUpManualReview = async ({
   refundCase: RefundSweepCase;
   actionKeySuffix: string;
   noticeKind: "follow_up_manual_review" | "customer_reply_review";
+  terminalCustomerDisposition?: boolean;
   policyWindowStart: string;
   counters: SweepCounters;
 }) => {
+  if (!supabase) throw new Error("Refund automation is not configured.");
   const action = await claimAction(
     runId,
     refundCase.id,
@@ -1066,6 +1352,29 @@ const routeFollowUpManualReview = async ({
   );
   if (!action.claimed) return;
   try {
+    if (terminalCustomerDisposition) {
+      const { error: dispositionError } = await supabase.from("refund_cases")
+        .update({
+          status: "needs_review",
+          automation_state: "under_review",
+          automation_follow_up_due_at: null,
+        })
+        .eq("id", refundCase.id)
+        .in("status", ["draft", "waiting_on_customer", "needs_review"]);
+      if (dispositionError) throw dispositionError;
+
+      const { error: eventError } = await supabase.from("refund_case_events").insert({
+        refund_case_id: refundCase.id,
+        event_type: "automatic_customer_contact_limit_reached",
+        message: "Automatic customer contact stopped and the case returned to manager review.",
+        metadata: {
+          disposition: "needs_review",
+          automatic_customer_contact_stopped: true,
+          payload_redacted: true,
+        },
+      });
+      if (eventError) throw eventError;
+    }
     await sendFollowUpManagerNotice({ refundCase, noticeKind });
     await finishAction(action, "completed", noticeKind, null, counters);
   } catch (error) {
@@ -1200,9 +1509,21 @@ const sendWalletCorrectionMessage = async (
           "Automatic customer contact was disabled before provider delivery.",
         );
       }
-      await sendRefundWalletCorrectionEmail({
+      await markRefundTransactionalDeliveryAttempt({
+        supabase,
+        refundCaseMessageId: messageId,
+      });
+      const sentEmail = await sendRefundWalletCorrectionEmail({
         ...emailInput,
         managerCcEmails: gmailDelivery.managerCcEmails,
+        managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
+        managerRecipientCount: gmailDelivery.managerRecipientCount,
+        idempotencyKey: `refund-message-${messageId}`,
+      });
+      await bindRefundTransactionalDelivery({
+        supabase,
+        refundCaseMessageId: messageId,
+        receipt: sentEmail.delivery,
       });
     }
 
@@ -1254,16 +1575,32 @@ const sendWalletCorrectionMessage = async (
 const sendAutomationHealthAlert = async (
   alertKind: "stale" | "repeated_failure" | "failure_test",
   health: RefundAutomationHealth,
+  notificationType: "initial" | "reminder" | "recovery" = "initial",
 ) => {
   const label = alertKind === "failure_test"
     ? "failure-test alert"
     : alertKind === "stale"
       ? "stale scheduler"
       : "repeated scheduler failures";
+  const subject = alertKind === "failure_test"
+    ? `[Action needed] Refund automation ${label}`
+    : notificationType === "recovery"
+      ? "[Recovered] Refund automation scheduler healthy"
+      : notificationType === "reminder"
+        ? `[Reminder] Refund automation ${label}`
+        : `[Action needed] Refund automation ${label}`;
+  const opening = notificationType === "recovery"
+    ? "Bloomjoy Refund Operations automation has remained healthy for one hour."
+    : notificationType === "reminder"
+      ? "Bloomjoy Refund Operations automation still needs attention."
+      : "Bloomjoy Refund Operations automation needs attention.";
+  const closing = notificationType === "recovery"
+    ? "No action is needed. A future distinct scheduler incident can alert again."
+    : "The core refund case workflow remains available. Check the Refunds health banner and the primary Supabase schedule.";
   await sendInternalEmail({
-    subject: `[Action needed] Refund automation ${label}`,
+    subject,
     text: [
-      "Bloomjoy Refund Operations automation needs attention.",
+      opening,
       "",
       `Alert category: ${label}`,
       `Health state: ${health.status ?? "unknown"}`,
@@ -1272,7 +1609,7 @@ const sendAutomationHealthAlert = async (
       `Consecutive failures: ${health.consecutiveFailures ?? 0}`,
       "",
       "No customer names, email addresses, payment details, complaint text, or provider payloads are included.",
-      "The core refund case workflow remains available. Check the Refunds health banner and the scheduled GitHub workflow before re-enabling automation.",
+      closing,
     ].join("\n"),
   });
 };
@@ -1395,6 +1732,7 @@ const runMissingInformationSweep = async (
           refundCase,
           actionKeySuffix: `missing:${refundCase.deterministic_fact_version}:${cycleClaim.reason}`,
           noticeKind: "follow_up_manual_review",
+          terminalCustomerDisposition: cycleClaim.reason === "contact_limit_reached",
           policyWindowStart,
           counters,
         });
@@ -1494,6 +1832,7 @@ const runCashNoSafeMatchSweep = async (
           refundCase,
           actionKeySuffix: `cash-no-match:${refundCase.deterministic_fact_version}:${cycleClaim.reason}`,
           noticeKind: "follow_up_manual_review",
+          terminalCustomerDisposition: cycleClaim.reason === "contact_limit_reached",
           policyWindowStart,
           counters,
         });
@@ -1528,14 +1867,10 @@ const runCustomerReplyFollowUpSweep = async (
   policyWindowStart: string,
 ) => {
   if (!supabase) return;
-  const { data, error } = await supabase
-    .from("refund_follow_up_cycles")
-    .select("id,refund_case_id")
-    .in("status", ["waiting", "customer_replied"])
-    .not("request_sent_at", "is", null)
-    .is("recheck_claimed_at", null)
-    .order("request_sent_at", { ascending: true })
-    .limit(25);
+  const { data, error } = await supabase.rpc(
+    "service_list_refund_follow_up_customer_reply_candidates",
+    { p_limit: 25 },
+  );
   if (error) throw error;
 
   for (const candidate of data ?? []) {
@@ -1762,6 +2097,48 @@ const runCustomerReplyFollowUpSweep = async (
   }
 };
 
+type PersistedNayaxCorrectionEvidence = {
+  isTopRanked: boolean;
+  reasonCodes: string[];
+  manualReviewReasons: string[];
+  hardExclusions: string[];
+};
+
+const stringList = (value: unknown) =>
+  Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
+
+const getPersistedNayaxCorrectionEvidence = async (
+  refundCaseId: string,
+): Promise<PersistedNayaxCorrectionEvidence[]> => {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("refund_nayax_lookup_candidates")
+    .select("evidence_summary,created_at")
+    .eq("refund_case_id", refundCaseId)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (error) throw error;
+  const hasTopRanked = (data ?? []).some((candidate) =>
+    candidate.evidence_summary &&
+    typeof candidate.evidence_summary === "object" &&
+    (candidate.evidence_summary as Record<string, unknown>).is_top_ranked === true
+  );
+  return (data ?? []).map((row, index) => {
+    const evidence = row.evidence_summary &&
+        typeof row.evidence_summary === "object"
+      ? row.evidence_summary as Record<string, unknown>
+      : {};
+    return {
+      isTopRanked: evidence.is_top_ranked === true || (index === 0 && !hasTopRanked),
+      reasonCodes: stringList(evidence.reason_codes),
+      manualReviewReasons: stringList(evidence.manual_review_reasons),
+      hardExclusions: stringList(evidence.hard_exclusions),
+    };
+  });
+};
+
 const runCardNayaxLookupSweep = async (
   runId: string,
   counters: SweepCounters,
@@ -1792,11 +2169,30 @@ const runCardNayaxLookupSweep = async (
     );
     if (!action.claimed) continue;
 
+    let lookupGeneration: number | null = null;
     try {
+      lookupGeneration = await beginNayaxLookup({
+        supabase,
+        caseId: refundCase.id,
+        actorUserId: null,
+        expectedFactVersion: refundCase.deterministic_fact_version,
+        trigger: "scheduled",
+      });
       const lookupResult = await lookupNayaxCandidatesForRefundCase({
         supabase,
         caseId: refundCase.id,
         actorUserId: null,
+        lookupGeneration,
+        expectedFactVersion: refundCase.deterministic_fact_version,
+      });
+      await persistNayaxLookupResult({
+        supabase,
+        caseId: refundCase.id,
+        actorUserId: null,
+        result: lookupResult,
+        trigger: "scheduled",
+        expectedFactVersion: refundCase.deterministic_fact_version,
+        lookupGeneration,
       });
       counters.nayaxLookupsRun += 1;
 
@@ -1852,6 +2248,11 @@ const runCardNayaxLookupSweep = async (
             ].includes(reasonCode)
           )
         );
+      const customerCorrectionFields = deriveNayaxCustomerCorrectionFields({
+        recommendationState: lookupResult.recommendationState,
+        cardWalletUsed: refundCase.card_wallet_used,
+        candidates: lookupResult.candidates,
+      });
 
       if (walletCorrectionUseful && !refundCase.card_wallet_used) {
         const { error: walletDetectionError } = await supabase
@@ -1876,7 +2277,8 @@ const runCardNayaxLookupSweep = async (
 
       if (
         lookupResult.recommendationState !== "no_safe_match" &&
-        !walletCorrectionUseful
+        !walletCorrectionUseful &&
+        customerCorrectionFields.length === 0
       ) {
         counters.nayaxCandidatesFound += lookupResult.candidates.length;
         const correlationStatus = lookupResult.recommendationState === "ambiguous"
@@ -2061,9 +2463,11 @@ const runCardNayaxLookupSweep = async (
           correlation_status: "no_match",
           correlation_source: "nayax",
           correlation_confidence: 0,
-          correlation_summary: `${lookupResult.summary} No deterministic customer correction has been assumed.`,
+          correlation_summary: customerCorrectionFields.length > 0
+            ? `${lookupResult.summary} Bloomjoy requested the smallest customer correction needed for another safe check.`
+            : `${lookupResult.summary} No deterministic customer correction has been assumed.`,
           automation_state: "under_review",
-          nayax_recommendation_state: lookupResult.recommendationState,
+          nayax_recommendation_state: "no_safe_match",
           nayax_recommendation_policy_version: lookupResult.policyVersion,
           nayax_recommendation_evaluated_at: lookupResult.lastCheckedAt,
           nayax_match_execution_eligible: false,
@@ -2084,7 +2488,7 @@ const runCardNayaxLookupSweep = async (
         refundCase: noMatchCase,
         reasonCode: "no_safe_match",
         sourceCustomerMessageId,
-        requestedFields: [],
+        requestedFields: customerCorrectionFields,
       });
 
       if (!cycleClaim.claimed || !cycleClaim.cycle) {
@@ -2110,6 +2514,7 @@ const runCardNayaxLookupSweep = async (
         noMatchCase,
         cycleClaim.cycle,
         "request",
+        customerCorrectionFields,
       );
       if (noMatchResult.status === "sent") {
         counters.nayaxNoMatchMovedToWaiting += 1;
@@ -2117,7 +2522,7 @@ const runCardNayaxLookupSweep = async (
         const { error: eventError } = await supabase.from("refund_case_events").insert({
           refund_case_id: refundCase.id,
           event_type: "nayax_auto_lookup_no_safe_match_contacted",
-          message: "A confirmed provider no-safe-match result triggered one versioned correction-focused customer message.",
+          message: "A provider no-safe-match or customer-correctable conflict triggered one versioned customer message.",
           metadata: {
             follow_up_cycle_id: cycleClaim.cycle.id,
             template_version: cycleClaim.cycle.templateVersion,
@@ -2126,6 +2531,7 @@ const runCardNayaxLookupSweep = async (
             recommendation_state: lookupResult.recommendationState,
             confidence_class: lookupResult.confidenceClass,
             reason_codes: lookupResult.reasonCodes,
+            customer_correction_fields: customerCorrectionFields,
             policy_version: lookupResult.policyVersion,
             provider_record_count: lookupResult.providerRecordCount ?? null,
             provider_window_record_count: lookupResult.providerWindowRecordCount ?? null,
@@ -2157,15 +2563,25 @@ const runCardNayaxLookupSweep = async (
       console.error("refund-case-automation-sweep Nayax lookup failed", {
         errorType: error instanceof Error ? error.name : typeof error,
       });
-      await supabase.from("refund_case_events").insert({
-        refund_case_id: refundCase.id,
-        event_type: "nayax_auto_lookup_failed",
-        message: "Automated Nayax lookup failed and the case remains in manager review.",
-        metadata: {
-          error_type: sanitizeFailureCategory(error),
-          payload_redacted: true,
-        },
-      });
+      if (lookupGeneration !== null) {
+        try {
+          await failNayaxLookup({
+            supabase,
+            caseId: refundCase.id,
+            actorUserId: null,
+            expectedFactVersion: refundCase.deterministic_fact_version,
+            lookupGeneration,
+            trigger: "scheduled",
+            error,
+          });
+        } catch (failureRecordingError) {
+          console.error("scheduled Nayax lookup failure state could not be recorded", {
+            errorType: failureRecordingError instanceof Error
+              ? failureRecordingError.name
+              : typeof failureRecordingError,
+          });
+        }
+      }
       try {
         await routeProviderException({
           runId,
@@ -2179,6 +2595,177 @@ const runCardNayaxLookupSweep = async (
         });
       }
       await finishAction(action, "failed", sanitizeFailureCategory(error), null, counters);
+    }
+  }
+};
+
+const runPersistedNayaxCustomerCorrectionSweep = async (
+  runId: string,
+  counters: SweepCounters,
+  policyWindowStart: string,
+) => {
+  if (!supabase) return;
+  const { data: correctionCases, error: correctionCasesError } = await supabase
+    .from("refund_cases")
+    .select(caseSelect)
+    .eq("payment_method", "card")
+    .eq("card_wallet_used", false)
+    .eq("status", "needs_review")
+    .in("nayax_recommendation_state", ["no_safe_match", "manual_exception"])
+    .limit(25);
+  if (correctionCasesError) throw correctionCasesError;
+
+  for (
+    const rawRefundCase of (correctionCases ?? []) as unknown as RawRefundSweepCase[]
+  ) {
+    const refundCase = normalizeRefundSweepCase(rawRefundCase);
+    const evidence = await getPersistedNayaxCorrectionEvidence(refundCase.id);
+    const customerCorrectionFields = refundCase.nayax_recommendation_state ===
+        "manual_exception"
+      ? deriveNayaxCustomerCorrectionFields({
+        recommendationState: refundCase.nayax_recommendation_state,
+        cardWalletUsed: refundCase.card_wallet_used,
+        candidates: evidence,
+      })
+      : [];
+    if (
+      refundCase.nayax_recommendation_state === "manual_exception" &&
+      customerCorrectionFields.length === 0
+    ) {
+      continue;
+    }
+    if (
+      !refundCase.nayax_recommendation_policy_version ||
+      !refundCase.nayax_recommendation_evaluated_at
+    ) {
+      continue;
+    }
+
+    counters.evaluatedCaseIds.add(refundCase.id);
+    const evaluationKey = refundCase.nayax_recommendation_evaluated_at
+      .replace(/[^0-9]/g, "").slice(0, 20) || "unknown";
+    const action = await claimAction(
+      runId,
+      refundCase.id,
+      `nayax_customer_follow_up:${refundCase.id}:v${refundCase.deterministic_fact_version}:${evaluationKey}`,
+      "customer_more_info",
+      refundCase.status,
+      policyWindowStart,
+      counters,
+    );
+    if (!action.claimed) continue;
+
+    try {
+      if (customerCorrectionFields.length > 0) {
+        const { data: normalizedRows, error: normalizationError } = await supabase
+          .from("refund_cases")
+          .update({
+            correlation_status: "no_match",
+            correlation_source: "nayax",
+            correlation_confidence: 0,
+            correlation_summary:
+              "Nayax found nearby transactions, but customer information must be corrected or confirmed before one can be matched safely.",
+            automation_state: "under_review",
+            nayax_recommendation_state: "no_safe_match",
+            nayax_match_execution_eligible: false,
+          })
+          .eq("id", refundCase.id)
+          .eq(
+            "nayax_recommendation_evaluated_at",
+            refundCase.nayax_recommendation_evaluated_at,
+          )
+          .select("id");
+        if (normalizationError) throw normalizationError;
+        if ((normalizedRows?.length ?? 0) !== 1) {
+          throw new Error("Nayax correction evidence changed before customer contact.");
+        }
+      }
+
+      const noMatchCase = {
+        ...refundCase,
+        correlation_status: "no_match",
+        automation_state: "under_review",
+        nayax_recommendation_state: "no_safe_match",
+      };
+      const sourceCustomerMessageId = await getLatestVerifiedCustomerMessageId(
+        refundCase.id,
+      );
+      const cycleClaim = await claimFollowUpCycle({
+        refundCase: noMatchCase,
+        reasonCode: "no_safe_match",
+        sourceCustomerMessageId,
+        requestedFields: customerCorrectionFields,
+      });
+      if (!cycleClaim.claimed || !cycleClaim.cycle) {
+        await routeFollowUpManualReview({
+          runId,
+          refundCase: noMatchCase,
+          actionKeySuffix: `persisted-no-safe-match:${refundCase.deterministic_fact_version}:${cycleClaim.reason ?? "not-claimed"}`,
+          noticeKind: "follow_up_manual_review",
+          policyWindowStart,
+          counters,
+        });
+        await finishAction(
+          action,
+          "completed",
+          cycleClaim.reason ?? "no_safe_match_manual_review",
+          null,
+          counters,
+        );
+        continue;
+      }
+
+      const result = await sendDeterministicFollowUpMessage(
+        noMatchCase,
+        cycleClaim.cycle,
+        "request",
+        customerCorrectionFields,
+      );
+      if (result.status === "sent") {
+        counters.nayaxNoMatchMovedToWaiting += 1;
+        counters.noSafeMatchRequestsSent += 1;
+        const { error: eventError } = await supabase.from("refund_case_events")
+          .insert({
+            refund_case_id: refundCase.id,
+            event_type: "nayax_persisted_result_customer_contacted",
+            message:
+              "The email assistant acted on the latest completed Nayax result and requested one customer correction in the same case.",
+            metadata: {
+              follow_up_cycle_id: cycleClaim.cycle.id,
+              template_version: cycleClaim.cycle.templateVersion,
+              customer_correction_fields: customerCorrectionFields,
+              nayax_policy_version: refundCase.nayax_recommendation_policy_version,
+              nayax_evaluated_at: refundCase.nayax_recommendation_evaluated_at,
+              payload_redacted: true,
+            },
+          });
+        if (eventError) throw eventError;
+        await finishAction(
+          action,
+          "completed",
+          "nayax_customer_correction_contacted",
+          result.messageId,
+          counters,
+        );
+      } else {
+        await finishAction(
+          action,
+          "failed",
+          result.status === "suppressed"
+            ? "automatic_customer_contact_disabled"
+            : "customer_email_failed",
+          result.messageId,
+          counters,
+        );
+      }
+    } catch (error) {
+      await finishAction(
+        action,
+        "failed",
+        sanitizeFailureCategory(error),
+        null,
+        counters,
+      );
     }
   }
 };
@@ -2375,6 +2962,385 @@ const runReminderSweep = async (
         counters,
       );
     }
+  }
+};
+
+const sendPayoutDestinationReminder = async (
+  refundCase: RefundSweepCase,
+  job: {
+    followUpId: string;
+    claimToken: string;
+    requestMessageId: string;
+  },
+) => {
+  if (!supabase || !(await automaticCustomerContactAllowed())) {
+    return { status: "suppressed" as const, messageId: null };
+  }
+  const publicLabels = resolveRefundPublicLabels({
+    locationName: refundCase.reporting_locations?.name,
+    publicMachineLabel: refundCase.reporting_machines?.refund_public_display_label,
+    machineLabel: refundCase.reporting_machines?.machine_label,
+  });
+  const email = buildRefundCustomerEmail({
+    messageType: "reminder",
+    publicReference: refundCase.public_reference,
+    customerName: refundCase.customer_name,
+    customerEmail: refundCase.customer_email,
+    machineLabel: publicLabels.machineLabel,
+    locationName: publicLabels.locationName,
+    refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
+    paymentMethod: refundCase.payment_method,
+    cardWalletUsed: refundCase.card_wallet_used,
+    incidentLocalDateTime: refundCase.incident_local_datetime,
+    missingFields: ["zelle_payment_contact"],
+    followUpReason: "missing_information",
+    customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
+    statusUrl: null,
+  });
+  let messageId: string | null = null;
+
+  try {
+    const { data: created, error: createError } = await supabase.rpc(
+      "service_create_refund_payout_destination_reminder_message",
+      {
+        p_follow_up_id: job.followUpId,
+        p_claim_token: job.claimToken,
+        p_subject: email.subject,
+        p_body: redactRefundStatusLinksForStorage(email.text),
+      },
+    );
+    const createdResult = created && typeof created === "object" && !Array.isArray(created)
+      ? created as Record<string, unknown>
+      : {};
+    messageId = textValue(createdResult.messageId);
+    if (createError || createdResult.created !== true || !messageId) {
+      throw createError ?? new Error("Payout reminder ledger intent was not created.");
+    }
+
+    const gmailThreadId = await getGmailThreadIdForCaseMessage(job.requestMessageId);
+    const gmailDelivery = await dispatchRefundCaseGmailReply({
+      supabase,
+      refundCaseId: refundCase.id,
+      refundCaseMessageId: messageId,
+      recipientEmail: refundCase.customer_email,
+      email,
+      deliveryKind: "automatic",
+      gmailThreadId,
+    });
+    if (!gmailDelivery.usedGmail) {
+      if (!(await automaticCustomerContactAllowed())) {
+        throw new RefundGmailError(
+          "automatic_contact_disabled",
+          "Automatic customer contact was disabled before payout-reminder delivery.",
+        );
+      }
+      await markRefundTransactionalDeliveryAttempt({
+        supabase,
+        refundCaseMessageId: messageId,
+      });
+      const sentEmail = await sendRefundCustomerEmail({
+        messageType: "reminder",
+        publicReference: refundCase.public_reference,
+        customerName: refundCase.customer_name,
+        customerEmail: refundCase.customer_email,
+        machineLabel: publicLabels.machineLabel,
+        locationName: publicLabels.locationName,
+        refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
+        paymentMethod: refundCase.payment_method,
+        cardWalletUsed: refundCase.card_wallet_used,
+        incidentLocalDateTime: refundCase.incident_local_datetime,
+        missingFields: ["zelle_payment_contact"],
+        followUpReason: "missing_information",
+        customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
+        managerCcEmails: gmailDelivery.managerCcEmails,
+        managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
+        managerRecipientCount: gmailDelivery.managerRecipientCount,
+        idempotencyKey: `refund-message-${messageId}`,
+      });
+      await bindRefundTransactionalDelivery({
+        supabase,
+        refundCaseMessageId: messageId,
+        receipt: sentEmail.delivery,
+      });
+    }
+
+    // The immutable intent retains its reviewed subject. Gmail's canonical
+    // thread subject is already recorded in refund_gmail_messages; writing it
+    // back here would reject settlement after the provider has sent the mail.
+    const { error: updateError } = await supabase.from("refund_case_messages")
+      .update({
+        status: "sent",
+        sent_at: new Date().toISOString(),
+      })
+      .eq("id", messageId);
+    if (updateError) throw updateError;
+
+    const { error: eventError } = await supabase.from("refund_case_events").insert({
+      refund_case_id: refundCase.id,
+      event_type: "refund_payout_destination_reminder_sent",
+      message: "The single protected payout-destination reminder was sent.",
+      metadata: {
+        message_id: messageId,
+        follow_up_id: job.followUpId,
+        requested_fields: ["zelle_payment_contact"],
+        transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
+        payload_redacted: true,
+      },
+    });
+    if (eventError) throw eventError;
+    return { status: "sent" as const, messageId };
+  } catch (error) {
+    console.error("refund payout-destination reminder failed", {
+      errorType: error instanceof Error ? error.name : typeof error,
+      payloadRedacted: true,
+    });
+    if (messageId) {
+      await supabase.from("refund_case_messages").update({
+        status: "failed",
+        error_message: error instanceof RefundGmailError
+          ? error.code
+          : "payout_destination_reminder_failed",
+      }).eq("id", messageId);
+    }
+    return { status: "failed" as const, messageId };
+  }
+};
+
+const runPayoutDestinationReminderSweep = async (
+  runId: string,
+  counters: SweepCounters,
+  policyWindowStart: string,
+) => {
+  if (!supabase) return;
+  const { data, error } = await supabase.rpc(
+    "service_claim_due_refund_payout_destination_follow_ups",
+    {
+      p_limit: 25,
+      p_customer_contact_runtime_enabled: automaticCustomerContactEnabled,
+    },
+  );
+  if (error) throw error;
+  const claim = data && typeof data === "object" && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : {};
+  if (claim.enabled !== true) {
+    const returnedToReview = safeInteger(
+      Number(claim.contactDisabledToReview),
+      0,
+      0,
+      100,
+    );
+    if (returnedToReview > 0) {
+      addReason(counters, "payout_destination_contact_suppressed", returnedToReview);
+    }
+    addReason(counters, "automatic_customer_contact_disabled");
+    return;
+  }
+  const escalated = safeInteger(Number(claim.escalated), 0, 0, 100);
+  if (escalated > 0) addReason(counters, "payout_destination_contact_exhausted", escalated);
+  const pausedToReview = safeInteger(
+    Number(claim.pausedThreadToReview),
+    0,
+    0,
+    100,
+  );
+  if (pausedToReview > 0) {
+    addReason(counters, "payout_destination_contact_paused", pausedToReview);
+  }
+  const jobs = Array.isArray(claim.reminders) ? claim.reminders : [];
+
+  for (const rawJob of jobs) {
+    const job = rawJob && typeof rawJob === "object"
+      ? rawJob as Record<string, unknown>
+      : {};
+    const followUpId = textValue(job.followUpId);
+    const refundCaseId = textValue(job.refundCaseId);
+    const claimToken = textValue(job.claimToken);
+    const requestMessageId = textValue(job.requestMessageId);
+    if (!followUpId || !refundCaseId || !claimToken || !requestMessageId) {
+      counters.actionsFailed += 1;
+      addReason(counters, "payout_reminder_contract_invalid");
+      continue;
+    }
+    const refundCase = await getSweepCase(refundCaseId);
+    if (!refundCase) {
+      counters.actionsFailed += 1;
+      addReason(counters, "payout_reminder_contract_invalid");
+      continue;
+    }
+    counters.evaluatedCaseIds.add(refundCase.id);
+    const action = await claimAction(
+      runId,
+      refundCase.id,
+      `payout-reminder:${followUpId}`,
+      "customer_reminder",
+      refundCase.status,
+      policyWindowStart,
+      counters,
+    );
+    if (!action.claimed) continue;
+
+    const result = await sendPayoutDestinationReminder(refundCase, {
+      followUpId,
+      claimToken,
+      requestMessageId,
+    });
+    if (result.status === "sent") {
+      counters.remindersSent += 1;
+      await finishAction(action, "completed", "payout_destination_reminder_sent", result.messageId, counters);
+    } else if (result.status === "suppressed") {
+      await finishAction(
+        action,
+        "suppressed",
+        "automatic_customer_contact_disabled",
+        result.messageId,
+        counters,
+      );
+    } else {
+      counters.remindersFailed += 1;
+      await finishAction(
+        action,
+        "failed",
+        "customer_email_failed",
+        result.messageId,
+        counters,
+      );
+    }
+  }
+};
+
+type RefundProviderDelayAttempt = {
+  id: string;
+  refund_case_id: string;
+  status: string;
+  safe_transport_stage: string;
+  reconciliation_required: boolean;
+  refund_operations_due_at: string | null;
+  created_at: string;
+};
+
+const finishCustomerStatusUpdate = async ({
+  action,
+  refundCase,
+  reason,
+  counters,
+}: {
+  action: ClaimedAction;
+  refundCase: RefundSweepCase;
+  reason: RefundCustomerStatusUpdateReason;
+  counters: SweepCounters;
+}) => {
+  const result = await sendCustomerStatusUpdate(refundCase, reason);
+  if (result.status === "sent") {
+    counters.customerStatusUpdatesSent += 1;
+    await finishAction(action, "completed", `${reason}_sent`, result.messageId, counters);
+    return;
+  }
+  if (result.status === "suppressed") {
+    await finishAction(
+      action,
+      "suppressed",
+      "automatic_customer_contact_disabled",
+      result.messageId,
+      counters,
+    );
+    return;
+  }
+  counters.customerStatusUpdatesFailed += 1;
+  await finishAction(action, "failed", `${reason}_delivery_failed`, result.messageId, counters);
+};
+
+const runProviderDelayCustomerStatusSweep = async (
+  runId: string,
+  counters: SweepCounters,
+  policyWindowStart: string,
+  observedAt: Date,
+) => {
+  if (!supabase || !automaticCustomerContactEnabled) return;
+  const { data: dueRows, error: dueError } = await supabase.rpc(
+    "service_list_due_refund_provider_delay_attempts",
+    {
+      p_observed_at: observedAt.toISOString(),
+      p_limit: 100,
+    },
+  );
+  if (dueError) throw dueError;
+
+  const dueAttempts = (dueRows ?? []) as RefundProviderDelayAttempt[];
+
+  for (const attempt of dueAttempts) {
+    const refundCase = await getSweepCase(attempt.refund_case_id);
+    if (!refundCase || !["submitted", "needs_review", "correlated", "card_refund_pending"].includes(refundCase.status)) {
+      addReason(counters, "provider_delay_case_not_contactable");
+      continue;
+    }
+    counters.evaluatedCaseIds.add(refundCase.id);
+    const action = await claimAction(
+      runId,
+      refundCase.id,
+      `customer_status:provider_delay:${attempt.id}`,
+      "customer_status_update",
+      refundCase.status,
+      policyWindowStart,
+      counters,
+    );
+    if (!action.claimed) continue;
+    await finishCustomerStatusUpdate({
+      action,
+      refundCase,
+      reason: "provider_delay",
+      counters,
+    });
+  }
+};
+
+const runSlaAtRiskCustomerStatusSweep = async (
+  runId: string,
+  counters: SweepCounters,
+  policyWindowStart: string,
+  observedAt: Date,
+) => {
+  if (!supabase || !automaticCustomerContactEnabled) return;
+  const earliestCandidate = new Date(observedAt.getTime() - 4 * 24 * 60 * 60 * 1000);
+  const { data, error } = await supabase
+    .from("refund_cases")
+    .select(caseSelect)
+    .in("status", ["submitted", "needs_review", "correlated"])
+    .lte("created_at", earliestCandidate.toISOString())
+    .order("created_at", { ascending: true })
+    .limit(50);
+  if (error) throw error;
+
+  for (const rawCase of (data ?? []) as unknown as RawRefundSweepCase[]) {
+    const refundCase = normalizeRefundSweepCase(rawCase);
+    const { data: businessDayAge, error: ageError } = await supabase.rpc(
+      "service_refund_business_days_elapsed",
+      {
+        p_started_at: refundCase.created_at,
+        p_observed_at: observedAt.toISOString(),
+        p_timezone: automationTimezone,
+      },
+    );
+    if (ageError) throw ageError;
+    if (integerValue(businessDayAge) < 4) continue;
+
+    counters.evaluatedCaseIds.add(refundCase.id);
+    const action = await claimAction(
+      runId,
+      refundCase.id,
+      `customer_status:sla_at_risk:${refundCase.id}`,
+      "customer_status_update",
+      refundCase.status,
+      policyWindowStart,
+      counters,
+    );
+    if (!action.claimed) continue;
+    await finishCustomerStatusUpdate({
+      action,
+      refundCase,
+      reason: "sla_at_risk",
+      counters,
+    });
   }
 };
 
@@ -2622,22 +3588,28 @@ const runHealthCheck = async (
   policyWindowStart: string,
 ) => {
   const health = await getAutomationHealth();
-  const alertKind = health.status === "stale"
-    ? "stale"
-    : health.status === "failing" && (health.consecutiveFailures ?? 0) >= 2
-      ? "repeated_failure"
-      : null;
+  const notificationHealthStatus = health.status === "failing" &&
+      (health.consecutiveFailures ?? 0) < 2
+    ? "waiting"
+    : health.status ?? "waiting";
+  const notification = await claimAutomationHealthNotification(notificationHealthStatus);
 
-  if (!alertKind) {
-    await finishRun(runId, "succeeded", counters);
-    return { health, alertStatus: "not_needed" };
+  if (
+    notification.notificationType === "none" ||
+    !notification.alertKind ||
+    !notification.actionKey
+  ) {
+    const alertStatus = health.status === "stale" || health.status === "failing"
+      ? "suppressed"
+      : "not_needed";
+    await finishRun(runId, "succeeded", counters, null, alertStatus);
+    return { health, alertStatus, notificationType: "none" };
   }
 
-  const healthFingerprint = keyTimestamp(health.lastSuccessAt ?? health.lastRunAt, "never").slice(0, 19);
   const action = await claimAction(
     runId,
     null,
-    `ops_alert:${alertKind}:${healthFingerprint}`,
+    notification.actionKey,
     "ops_alert",
     null,
     policyWindowStart,
@@ -2646,14 +3618,32 @@ const runHealthCheck = async (
 
   if (!action.claimed) {
     await finishRun(runId, "succeeded", counters, null, "suppressed");
-    return { health, alertStatus: "suppressed" };
+    return { health, alertStatus: "suppressed", notificationType: "none" };
   }
 
   try {
-    await sendAutomationHealthAlert(alertKind, health);
-    await finishAction(action, "completed", `${alertKind}_alert_sent`, null, counters);
+    await sendAutomationHealthAlert(
+      notification.alertKind,
+      health,
+      notification.notificationType,
+    );
+    await finishAction(
+      action,
+      "completed",
+      notification.notificationType === "recovery"
+        ? "scheduler_recovery_alert_sent"
+        : notification.notificationType === "reminder"
+          ? `${notification.alertKind}_reminder_sent`
+          : `${notification.alertKind}_alert_sent`,
+      null,
+      counters,
+    );
     await finishRun(runId, "succeeded", counters, null, "sent");
-    return { health, alertStatus: "sent" };
+    return {
+      health,
+      alertStatus: "sent",
+      notificationType: notification.notificationType,
+    };
   } catch (error) {
     console.error("refund-case-automation-sweep health alert failed", {
       errorType: error instanceof Error ? error.name : typeof error,
@@ -2661,7 +3651,11 @@ const runHealthCheck = async (
     });
     await finishAction(action, "failed", "ops_alert_delivery_failed", null, counters);
     await finishRun(runId, "failed", counters, "ops_alert_delivery_failed", "failed");
-    return { health, alertStatus: "failed" };
+    return {
+      health,
+      alertStatus: "failed",
+      notificationType: notification.notificationType,
+    };
   }
 };
 
@@ -2708,6 +3702,7 @@ serve(async (req) => {
 
   let runId: string | null = null;
   let runKey: string | null = null;
+  let failureStage = "request_setup";
   const counters = createCounters();
 
   try {
@@ -2719,6 +3714,16 @@ serve(async (req) => {
     }
     if (!isAuthorized(req)) {
       return jsonResponse({ error: "Unauthorized." }, 401);
+    }
+
+    failureStage = "status_evidence_retention";
+    const { error: statusRetentionError } = await supabase.rpc(
+      "service_prune_refund_status_access_evidence",
+    );
+    if (statusRetentionError) {
+      console.warn("refund status access-evidence retention cleanup unavailable", {
+        errorType: "database_error",
+      });
     }
 
     const body = await req.json().catch(() => ({} as Record<string, unknown>));
@@ -2739,6 +3744,7 @@ serve(async (req) => {
       : `${triggerSource}:${schedulerWindowStart(scheduledAt).toISOString().replace(/[.]/g, "-")}`;
     runKey = suppliedRunKey ?? defaultRunKey;
 
+    failureStage = "run_claim";
     const startedRun = await startRun(runKey, triggerSource, scheduledAt.toISOString());
     runId = typeof startedRun.runId === "string" ? startedRun.runId : null;
     if (!runId) throw new Error("Refund automation run could not be started.");
@@ -2756,6 +3762,7 @@ serve(async (req) => {
     const policyWindowStart = schedulerWindowStart(scheduledAt).toISOString();
 
     if (mode === "health_check") {
+      failureStage = "health_check";
       const result = await runHealthCheck(runId, runKey, counters, policyWindowStart);
       return jsonResponse({
         status: result.alertStatus === "failed" ? "failed" : "health_checked",
@@ -2763,11 +3770,13 @@ serve(async (req) => {
         healthStatus: result.health.status ?? "unknown",
         lastSuccessAt: result.health.lastSuccessAt ?? null,
         alertStatus: result.alertStatus,
+        notificationType: result.notificationType,
         ...redactedSummary(counters),
       }, result.alertStatus === "failed" ? 502 : 200);
     }
 
     if (mode === "failure_test") {
+      failureStage = "failure_test";
       const alertStatus = await runFailureTest(runId, runKey, counters, policyWindowStart);
       return jsonResponse({
         status: alertStatus === "sent" ? "failure_test_recorded" : "failure_test_alert_failed",
@@ -2777,7 +3786,16 @@ serve(async (req) => {
       }, alertStatus === "sent" ? 200 : 502);
     }
 
+    // This exact content was already approved in the manager portal, so its
+    // durable queue does not depend on automatic-contact or policy-window gates.
+    failureStage = "manual_message_outbox";
+    await runManualMessageOutboxSweep(counters);
+    if (counters.actionsFailed > 0) {
+      throw new RefundAutomationActionFailure();
+    }
+
     if (!automationEnabled) {
+      failureStage = "automation_gate";
       counters.actionsSuppressed += 1;
       addReason(counters, "automation_disabled");
       await finishRun(runId, "suppressed", counters, "automation_disabled", "suppressed");
@@ -2789,9 +3807,16 @@ serve(async (req) => {
     }
 
     if (!policyWindowIsOpen(scheduledAt)) {
+      failureStage = "policy_window";
       counters.actionsSuppressed += 1;
       addReason(counters, "outside_policy_window");
-      await finishRun(runId, "succeeded", counters);
+      await finishRun(
+        runId,
+        "suppressed",
+        counters,
+        "outside_policy_window",
+        "suppressed",
+      );
       return jsonResponse({
         status: "outside_policy_window",
         runKey,
@@ -2803,21 +3828,52 @@ serve(async (req) => {
     if (!automaticCustomerContactEnabled) {
       addReason(counters, "automatic_customer_contact_disabled");
     }
+    failureStage = "stale_follow_up_claims";
     await settleStaleFollowUpClaims(counters);
+    failureStage = "customer_reply_follow_up";
     await runCustomerReplyFollowUpSweep(runId, counters, policyWindowStart);
+    failureStage = "missing_information";
     await runMissingInformationSweep(runId, counters, policyWindowStart);
+    failureStage = "cash_no_safe_match";
     await runCashNoSafeMatchSweep(runId, counters, policyWindowStart);
+    failureStage = "card_nayax_lookup";
     await runCardNayaxLookupSweep(runId, counters, policyWindowStart);
+    failureStage = "persisted_nayax_correction";
+    await runPersistedNayaxCustomerCorrectionSweep(
+      runId,
+      counters,
+      policyWindowStart,
+    );
+    failureStage = "wallet_correction_expiry";
     await runWalletCorrectionExpirySweep(
       runId,
       counters,
       policyWindowStart,
     );
+    failureStage = "customer_reminder";
     await runReminderSweep(runId, counters, policyWindowStart);
+    failureStage = "payout_destination_reminder";
+    await runPayoutDestinationReminderSweep(runId, counters, policyWindowStart);
+    failureStage = "provider_delay_status";
+    await runProviderDelayCustomerStatusSweep(
+      runId,
+      counters,
+      policyWindowStart,
+      scheduledAt,
+    );
+    failureStage = "sla_at_risk_status";
+    await runSlaAtRiskCustomerStatusSweep(
+      runId,
+      counters,
+      policyWindowStart,
+      scheduledAt,
+    );
+    failureStage = "manager_aging";
     await runManagerAgingSweep(runId, counters, policyWindowStart);
     if (counters.actionsFailed > 0) {
       throw new RefundAutomationActionFailure();
     }
+    failureStage = "run_finalize";
     await finishRun(runId, "succeeded", counters);
 
     return jsonResponse({
@@ -2827,9 +3883,11 @@ serve(async (req) => {
     });
   } catch (error) {
     const failureCategory = sanitizeFailureCategory(error);
+    addReason(counters, `failed_stage_${failureStage}`);
     console.error("refund-case-automation-sweep error", {
       errorType: error instanceof Error ? error.name : typeof error,
       failureCategory,
+      failureStage,
     });
 
     if (supabase && runId) {
@@ -2838,28 +3896,46 @@ serve(async (req) => {
         const priorHealth = await getAutomationHealth();
         const shouldAlert = (priorHealth.consecutiveFailures ?? 0) >= 1;
         let alertAction: ClaimedAction | null = null;
+        let notification: RefundAutomationHealthNotification | null = null;
         if (shouldAlert) {
-          alertAction = await claimAction(
-            runId,
-            null,
-            `ops_alert:repeated_failure:${keyTimestamp(priorHealth.lastSuccessAt, "never").slice(0, 19)}`,
-            "ops_alert",
-            null,
-            schedulerWindowStart(new Date()).toISOString(),
-            counters,
-          );
-          alertStatus = alertAction.claimed ? "pending" : "not_needed";
+          notification = await claimAutomationHealthNotification("failing");
+          if (notification.actionKey && notification.alertKind) {
+            alertAction = await claimAction(
+              runId,
+              null,
+              notification.actionKey,
+              "ops_alert",
+              null,
+              schedulerWindowStart(new Date()).toISOString(),
+              counters,
+            );
+            alertStatus = alertAction.claimed ? "pending" : "not_needed";
+          }
         }
 
-        if (alertAction?.claimed) {
+        if (alertAction?.claimed && notification?.alertKind) {
           try {
-            await sendAutomationHealthAlert("repeated_failure", {
-              ...priorHealth,
-              status: "failing",
-              consecutiveFailures: (priorHealth.consecutiveFailures ?? 0) + 1,
-              lastRunAt: new Date().toISOString(),
-            });
-            await finishAction(alertAction, "completed", "repeated_failure_alert_sent", null, counters);
+            await sendAutomationHealthAlert(
+              notification.alertKind,
+              {
+                ...priorHealth,
+                status: "failing",
+                consecutiveFailures: (priorHealth.consecutiveFailures ?? 0) + 1,
+                lastRunAt: new Date().toISOString(),
+              },
+              notification.notificationType === "none"
+                ? "initial"
+                : notification.notificationType,
+            );
+            await finishAction(
+              alertAction,
+              "completed",
+              notification.notificationType === "reminder"
+                ? "repeated_failure_reminder_sent"
+                : "repeated_failure_alert_sent",
+              null,
+              counters,
+            );
             alertStatus = "sent";
           } catch (alertError) {
             console.error("refund-case-automation-sweep repeated-failure alert failed", {

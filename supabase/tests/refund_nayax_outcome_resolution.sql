@@ -9,7 +9,16 @@ create or replace function public.refund_nayax_outcome_resolution_enabled()
 returns boolean language sql immutable set search_path = public
 as $$ select false; $$;
 
-select plan(95);
+-- Test-owner delegate exercises retained historical internals without reopening
+-- the retired production endpoint. Current service entry is tested separately.
+create function pg_temp.historical_reserve_v2(text,uuid,uuid,text,integer,integer,integer,text)
+returns jsonb language sql security definer set search_path='' as $$
+  select public.service_reserve_and_consume_nayax_refund_attempt_v2($1,$2,$3,$4,$5,$6,$7,$8);
+$$;
+revoke all on function pg_temp.historical_reserve_v2(text,uuid,uuid,text,integer,integer,integer,text) from public,anon,authenticated,service_role;
+grant execute on function pg_temp.historical_reserve_v2(text,uuid,uuid,text,integer,integer,integer,text) to service_role;
+
+select plan(145);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -155,6 +164,9 @@ insert into auth.users (
   ('00000000-0000-0000-0000-000000000000', 'b1000000-0000-4000-8000-000000000002',
    'authenticated', 'authenticated', 'resolution-unrelated@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now());
 
+insert into public.admin_roles (user_id, role, active)
+values ('b1000000-0000-4000-8000-000000000001', 'super_admin', true);
+
 insert into public.customer_accounts (id, name, account_type)
 values ('b1100000-0000-4000-8000-000000000001', 'Nayax resolution safety', 'customer');
 
@@ -169,22 +181,38 @@ values (
 insert into public.reporting_machines (
   id, account_id, location_id, machine_label, nayax_machine_id,
   nayax_account_key, nayax_refunds_enabled, nayax_refund_max_amount_cents
-) values (
-  'b1300000-0000-4000-8000-000000000001',
-  'b1100000-0000-4000-8000-000000000001',
-  'b1200000-0000-4000-8000-000000000001',
-  'Resolution test machine', 'RESOLUTION-MACHINE', 'RESOLUTION-ACCOUNT', true, 2500
-);
+) values
+  (
+    'b1300000-0000-4000-8000-000000000001',
+    'b1100000-0000-4000-8000-000000000001',
+    'b1200000-0000-4000-8000-000000000001',
+    'Resolution test machine', 'RESOLUTION-MACHINE', 'RESOLUTION-ACCOUNT', true, 2500
+  ),
+  (
+    'b1300000-0000-4000-8000-000000000002',
+    'b1100000-0000-4000-8000-000000000001',
+    'b1200000-0000-4000-8000-000000000001',
+    'Retry-safe release machine', 'RESOLUTION-RETRY-MACHINE',
+    'RESOLUTION-RETRY-ACCOUNT', true, 2500
+  );
 
 insert into public.reporting_machine_refund_managers (
   id, reporting_machine_id, manager_user_id, manager_email, grant_reason
-) values (
-  'b1400000-0000-4000-8000-000000000001',
-  'b1300000-0000-4000-8000-000000000001',
-  'b1000000-0000-4000-8000-000000000001',
-  'resolution-manager@example.test',
-  'Nayax resolution safety'
-);
+) values
+  (
+    'b1400000-0000-4000-8000-000000000001',
+    'b1300000-0000-4000-8000-000000000001',
+    'b1000000-0000-4000-8000-000000000001',
+    'resolution-manager@example.test',
+    'Nayax resolution safety'
+  ),
+  (
+    'b1400000-0000-4000-8000-000000000002',
+    'b1300000-0000-4000-8000-000000000002',
+    'b1000000-0000-4000-8000-000000000001',
+    'resolution-manager@example.test',
+    'Retry-safe release safety'
+  );
 
 insert into public.refund_manager_totp_enrollments (
   actor_user_id, approved_factor_binding_hash, owner_approved_by_user_id,
@@ -222,7 +250,10 @@ insert into public.refund_cases (
 select
   ('b1600000-0000-4000-8000-' || lpad(series::text, 12, '0'))::uuid,
   'RF-RESOLUTION-' || series,
-  'b1300000-0000-4000-8000-000000000001'::uuid,
+  case when series = 11
+    then 'b1300000-0000-4000-8000-000000000002'::uuid
+    else 'b1300000-0000-4000-8000-000000000001'::uuid
+  end,
   'b1200000-0000-4000-8000-000000000001'::uuid,
   case when series in (6, 7) then 'resolution-manager@example.test'
     else 'resolution-customer-' || series || '@example.test' end,
@@ -243,9 +274,19 @@ select
     when 3 then 'failed'
     when 6 then 'ambiguous'
     when 7 then 'ambiguous'
+    when 11 then 'ambiguous'
     else 'declined'
   end
-from generate_series(1, 7) series;
+from unnest(array[1, 2, 3, 4, 5, 6, 7, 11]) series;
+
+insert into public.refund_case_events (
+  refund_case_id, actor_user_id, event_type, message, metadata
+) values (
+  'b1600000-0000-4000-8000-000000000011',
+  'b1000000-0000-4000-8000-000000000001',
+  'nayax_match_selected', 'Manager selected the transaction.',
+  '{"selected_recommended":true,"payload_redacted":true}'::jsonb
+);
 
 insert into public.refund_gmail_threads (
   id, refund_case_id, mailbox_hash, provider_thread_id, thread_subject,
@@ -307,16 +348,20 @@ select
     when 3 then 'failed'
     when 6 then 'ambiguous'
     when 7 then 'ambiguous'
+    when 11 then 'ambiguous'
     else 'declined'
   end,
   'resolution-idempotency-' || series,
-  700 + series, true, true, true, repeat(series::text, 64), 'USD',
+  700 + series, true, true, true,
+  case when series = 11 then repeat('b', 64) else repeat(series::text, 64) end,
+  'USD',
   case series
     when 1 then 'unknown'
     when 2 then 'rejected'
     when 3 then 'timeout'
     when 6 then 'unknown'
     when 7 then 'unknown'
+    when 11 then 'unknown'
     else 'rejected'
   end,
   statement_timestamp() - interval '10 minutes',
@@ -324,7 +369,7 @@ select
   jsonb_build_object('payload_redacted', true),
   jsonb_build_object('payload_redacted', true),
   statement_timestamp() - interval '20 minutes'
-from generate_series(1, 7) series;
+from unnest(array[1, 2, 3, 4, 5, 6, 7, 11]) series;
 
 select ok(not public.refund_nayax_outcome_resolution_enabled(),
   'Payment-support resolution is hard disabled by default');
@@ -694,6 +739,12 @@ select ok(public.refund_nayax_resolution_reference_is_safe(
 select ok(public.refund_nayax_resolution_reference_is_safe(
   'DTM:NAYAX-123456789', 'nayax_dtm_transaction'
 ), 'The documented nine-digit Nayax DTM transaction shape remains usable');
+select ok(public.refund_nayax_resolution_reference_is_safe(
+  'DTM:NAYAX-1234567890', 'nayax_dtm_transaction'
+), 'The provider-emitted ten-digit Nayax DTM transaction shape is usable');
+select ok(not public.refund_nayax_resolution_reference_is_safe(
+  'DTM:NAYAX-12345678901', 'nayax_dtm_transaction'
+), 'An undocumented eleven-digit DTM shape remains blocked');
 set local role authenticated;
 select pg_temp.set_auth_claims(
   'b1000000-0000-4000-8000-000000000001', 'aal1',
@@ -931,6 +982,192 @@ select ok(
   and (select count(*) = 0 from public.sales_adjustment_facts where refund_case_id = 'b1600000-0000-4000-8000-000000000002'),
   'Retry-safe proves no provider call, customer message, or completion adjustment');
 
+set local role authenticated;
+select pg_temp.set_auth_claims(
+  'b1000000-0000-4000-8000-000000000001', 'aal1',
+  jsonb_build_array(jsonb_build_object(
+    'method', 'password',
+    'timestamp', extract(epoch from statement_timestamp())
+  ))
+);
+insert into pg_temp.nayax_resolution_test_results (result_key, result)
+select 'manager-session-retry-safe',
+  public.admin_resolve_refund_nayax_outcome_manager_session(
+    'b1600000-0000-4000-8000-000000000011',
+    'b1700000-0000-4000-8000-000000000011',
+    'provider_confirmed_retry_safe', 'nayax_dtm_transaction',
+    'DTM:MANAGER-RETRY-SAFE-0011', null, 'nayax_dtm_not_refunded',
+    (select official_action_version from public.refund_cases
+      where id = 'b1600000-0000-4000-8000-000000000011')
+  );
+reset role;
+
+select ok((
+  select (result ->> 'retryReadyForFreshReview')::boolean
+    and not (result ->> 'providerCallMade')::boolean
+    and not (result ->> 'customerMessageCreated')::boolean
+  from pg_temp.nayax_resolution_test_results
+  where result_key = 'manager-session-retry-safe'
+), 'Manager-session evidence releases the exact case without a provider call or customer message');
+select ok((
+  select attempt.status = 'ambiguous'
+    and attempt.provider_outcome = 'unknown'
+    and attempt.reconciliation_required is false
+    and attempt.support_resolution_result = 'provider_confirmed_retry_safe'
+  from public.refund_case_nayax_refund_attempts attempt
+  where attempt.id = 'b1700000-0000-4000-8000-000000000011'
+), 'The release preserves the immutable ambiguous provider facts and records the authoritative resolution separately');
+select ok(
+  public.refund_nayax_retry_safe_resolution_is_current(
+    'b1700000-0000-4000-8000-000000000011'
+  )
+  and public.refund_nayax_retry_safe_resolution_is_historical(
+    'b1700000-0000-4000-8000-000000000011'
+  )
+  and not public.refund_nayax_retry_safe_resolution_is_current(
+    '00000000-0000-4000-8000-000000000000'
+  ),
+  'The exact linked current-generation resolution is both active and historical');
+select ok(
+  not (public.refund_nayax_account_execution_hold(
+    'RESOLUTION-RETRY-ACCOUNT'
+  ) ->> 'blocked')::boolean
+  and not (public.refund_nayax_account_execution_hold(
+    'RESOLUTION-ACCOUNT'
+  ) ->> 'blocked')::boolean,
+  'An unresolved transaction never pauses unrelated refunds on its account');
+select ok((
+  select lifecycle ->> 'stage' = 'transaction_confirmed'
+    and (lifecycle ->> 'safeRetryEligible')::boolean
+    and not (lifecycle #>> '{operations,required}')::boolean
+  from (select public.refund_lifecycle_contract(
+    'b1600000-0000-4000-8000-000000000011'
+  ) lifecycle) checked
+), 'The manager lifecycle returns the resolved case to one Refund action');
+select ok((
+  select (readiness ->> 'canIssueCardRefund')::boolean
+    and not (readiness ->> 'accountCircuitBreakerActive')::boolean
+  from (select public.refund_case_nayax_manager_readiness(
+    'b1000000-0000-4000-8000-000000000001',
+    'b1600000-0000-4000-8000-000000000011'
+  ) readiness) checked
+), 'Database readiness reopens only the exact resolved manager case');
+
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'public.refund_nayax_retry_safe_resolution_is_historical(uuid)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'public.refund_nayax_retry_safe_resolution_is_historical(uuid)',
+    'execute'
+  ),
+  'The historical resolution predicate remains private to trusted database functions');
+
+-- Projection-only fixtures model later immutable generations without invoking
+-- provider or customer-delivery code. The generation guard is bypassed only
+-- inside this rolled-back pgTAP transaction; production generation changes
+-- still require the exact retry-safe resolver.
+set local session_replication_role = replica;
+update public.refund_cases
+set nayax_refund_attempt_generation = 2
+where id = 'b1600000-0000-4000-8000-000000000011';
+set local session_replication_role = origin;
+
+select ok(
+  not public.refund_nayax_retry_safe_resolution_is_current(
+    'b1700000-0000-4000-8000-000000000011'
+  )
+  and public.refund_nayax_retry_safe_resolution_is_historical(
+    'b1700000-0000-4000-8000-000000000011'
+  ),
+  'A generation 0 to 1 resolution stays historical after generation 2 while no longer driving the active lifecycle');
+
+select ok((
+  select not (hold ->> 'blocked')::boolean
+    and (hold ->> 'unresolvedCount')::integer = 0
+    and hold -> 'oldestUnresolvedAt' = 'null'::jsonb
+  from (select public.refund_nayax_account_execution_hold(
+    'RESOLUTION-RETRY-ACCOUNT'
+  ) hold) checked
+), 'A superseded resolved generation cannot re-enter the account breaker');
+
+select ok(
+  (select count(*) = 1
+    from public.refund_case_nayax_refund_attempts
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000011')
+  and (select count(*) = 1
+    from public.refund_nayax_outcome_resolutions
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000011')
+  and (select count(*) = 0
+    from public.refund_case_messages
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000011')
+  and (select count(*) = 0
+    from public.sales_adjustment_facts
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000011'),
+  'The projection repair preserves append-only evidence and creates no attempt, message, or reporting side effect');
+
+insert into public.refund_case_nayax_refund_attempts (
+  id, refund_case_id, actor_user_id, execution_mode, status, idempotency_key,
+  amount_cents, transaction_id_present, site_id_present,
+  machine_auth_time_present, request_fingerprint, currency_code,
+  provider_outcome, provider_outcome_recorded_at, reconciliation_required,
+  sanitized_request, sanitized_response, created_at
+) values (
+  'b1700000-0000-4000-8000-000000000012',
+  'b1600000-0000-4000-8000-000000000011',
+  'b1000000-0000-4000-8000-000000000001',
+  'request_and_approve', 'ambiguous', 'resolution-generation-2-current',
+  711, true, true, true, repeat('c', 64), 'USD', 'unknown',
+  statement_timestamp() - interval '1 minute', true,
+  '{"payload_redacted":true}'::jsonb,
+  '{"payload_redacted":true}'::jsonb,
+  statement_timestamp() - interval '2 minutes'
+);
+
+select ok((
+  select not (hold ->> 'blocked')::boolean
+    and (hold ->> 'unresolvedCount')::integer = 1
+    and (hold ->> 'legacyHoldRetired')::boolean
+  from (select public.refund_nayax_account_execution_hold(
+    'RESOLUTION-RETRY-ACCOUNT'
+  ) hold) checked
+), 'An unresolved current transaction remains visible without blocking its account');
+
+select ok(
+  not public.refund_nayax_retry_safe_resolution_is_historical(
+    'b1700000-0000-4000-8000-000000000012'
+  ),
+  'An unresolved attempt cannot borrow a retry-safe resolution from an older generation');
+
+-- Advance once more and model a terminal newer attempt. The account projection
+-- must remain replay-stable even though the first resolution is now two
+-- generations behind and the case no longer has a current no-refund shape.
+set local session_replication_role = replica;
+update public.refund_case_nayax_refund_attempts
+set
+  status = 'succeeded',
+  provider_outcome = 'success',
+  reconciliation_required = false
+where id = 'b1700000-0000-4000-8000-000000000012';
+update public.refund_cases
+set
+  nayax_refund_attempt_generation = 3,
+  nayax_refund_execution_status = 'approved'
+where id = 'b1600000-0000-4000-8000-000000000011';
+set local session_replication_role = origin;
+
+select ok(
+  public.refund_nayax_retry_safe_resolution_is_historical(
+    'b1700000-0000-4000-8000-000000000011'
+  )
+  and not (public.refund_nayax_account_execution_hold(
+    'RESOLUTION-RETRY-ACCOUNT'
+  ) ->> 'blocked')::boolean,
+  'Three-generation and newer-terminal replay cannot revive the oldest resolved attempt');
+
 select ok((
   with simulated_clock as (
     select '2026-08-14 00:05:00+00'::timestamptz as now_at
@@ -1064,6 +1301,7 @@ insert into public.refund_gmail_messages (
   gmail_thread_id, refund_case_id, refund_case_message_id, operation_key,
   provider_message_id, direction, message_kind, status, sender_email,
   recipient_email, recipient_cc_emails, recipient_cc_count,
+  recipient_manager_overlap, recipient_manager_count,
   recipient_resolution_status, delivery_kind, participant_role,
   participant_trust, subject, plain_body, sent_at, received_at,
   retention_expires_at
@@ -1075,7 +1313,8 @@ select
   'refund-case-message:' || attempt.completion_message_id::text,
   'nayax-completion-sent-evidence',
   'outbound', 'message', 'sent', 'info@bloomjoysweets.com',
-  message.recipient_email, array['resolution-manager@example.test'], 1, 'resolved',
+  message.recipient_email, array['resolution-manager@example.test'], 1,
+  false, 1, 'resolved',
   'manual', 'mailbox', 'verified', message.subject, message.body,
   statement_timestamp() - interval '6 minutes',
   statement_timestamp() - interval '6 minutes',
@@ -1109,6 +1348,7 @@ insert into public.refund_gmail_messages (
   gmail_thread_id, refund_case_id, refund_case_message_id, operation_key,
   provider_message_id, direction, message_kind, status, sender_email,
   recipient_email, recipient_cc_emails, recipient_cc_count,
+  recipient_manager_overlap, recipient_manager_count,
   recipient_resolution_status, delivery_kind, participant_role,
   participant_trust, subject, plain_body, sent_at, received_at,
   retention_expires_at
@@ -1121,6 +1361,7 @@ select
   'nayax-completion-mapping-drift-evidence',
   'outbound', 'message', 'sent', 'info@bloomjoysweets.com',
   message.recipient_email, array['resolution-manager@example.test'], 1,
+  false, 1,
   'resolved', 'manual', 'mailbox', 'verified', message.subject, message.body,
   statement_timestamp() - interval '6 minutes',
   statement_timestamp() - interval '6 minutes',
@@ -1493,7 +1734,7 @@ set assertion_digest = encode(
 where caller_id = 'nayax-card-refund';
 set local role service_role;
 insert into pg_temp.nayax_resolution_test_results (result_key, result)
-select 'fresh-reserve', public.service_reserve_and_consume_nayax_refund_attempt_v2(
+select 'fresh-reserve', pg_temp.historical_reserve_v2(
   'resolution-retry-executor',
   'b1a00000-0000-4000-8000-000000000002',
   'b1600000-0000-4000-8000-000000000002',
@@ -1539,6 +1780,674 @@ select ok(pg_temp.capture_error($sql$
   )
 $sql$) is not null, 'Authenticated callers cannot directly insert immutable resolution evidence');
 reset role;
+
+-- A matched card refund can predate Bloomjoy's attempt journal (for example,
+-- an operator completed it directly in Nayax). The evidence-only boundary
+-- must reconcile that exact transaction without exposing a provider write.
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, payment_method,
+  payment_amount_cents, refund_amount_cents, status, decision,
+  card_last4, card_wallet_used, correlation_status, correlation_source,
+  correlation_confidence, matched_nayax_transaction_id,
+  matched_nayax_site_id, matched_nayax_machine_auth_time,
+  matched_nayax_amount_cents, matched_nayax_card_last4,
+  matched_nayax_currency_code, nayax_recommendation_state,
+  nayax_recommendation_policy_version, nayax_recommendation_evaluated_at,
+  nayax_match_execution_eligible, nayax_refund_execution_status
+) values (
+  'b1600000-0000-4000-8000-000000000008', 'RF-RESOLUTION-8',
+  'b1300000-0000-4000-8000-000000000001',
+  'b1200000-0000-4000-8000-000000000001',
+  'resolution-customer-8@example.test',
+  'Synthetic refund completed in Nayax before Bloomjoy recorded an attempt',
+  statement_timestamp() - interval '4 days', 'card', 708, 708,
+  'needs_review', null, '4208', false, 'matched', 'nayax', 1,
+  'RESOLUTION-TX-008', 708,
+  statement_timestamp() - interval '4 days', 708, '4208', 'USD',
+  'high_confidence', 'resolution-test-v1', statement_timestamp(), true,
+  'not_requested'
+);
+
+update public.refund_cases
+set intake_source = 'gmail'
+where id = 'b1600000-0000-4000-8000-000000000008';
+
+select ok(
+  not public.refund_nayax_evidence_only_start_is_safe(
+    'b1600000-0000-4000-8000-000000000008'
+  ),
+  'A Gmail case without its original thread cannot open evidence-only review'
+);
+
+insert into public.refund_gmail_threads (
+  id, refund_case_id, mailbox_hash, provider_thread_id, thread_subject,
+  first_message_at, latest_message_at, retention_expires_at
+) values (
+  'b1800000-0000-4000-8000-000000000008',
+  'b1600000-0000-4000-8000-000000000008', repeat('8', 64),
+  'resolution-original-thread-8', 'Original refund conversation 8',
+  statement_timestamp() - interval '5 days',
+  statement_timestamp() - interval '4 days',
+  statement_timestamp() + interval '180 days'
+);
+
+select ok(
+  pg_temp.capture_error($sql$
+    update public.refund_cases
+    set matched_nayax_transaction_id = 'RESOLUTION-TX-008'
+    where id = 'b1600000-0000-4000-8000-000000000007'
+  $sql$) like '%duplicate key value%',
+  'The database rejects a Nayax transaction matched to another case'
+);
+
+select ok(
+  has_function_privilege(
+    'authenticated',
+    'public.admin_begin_refund_nayax_evidence_only_reconciliation(uuid,bigint)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'public.admin_begin_refund_nayax_evidence_only_reconciliation(uuid,bigint)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'authenticated',
+    'public.refund_nayax_evidence_only_start_is_safe(uuid)',
+    'execute'
+  ),
+  'Only an authenticated mapped-manager session can open evidence-only review'
+);
+
+set local role authenticated;
+select pg_temp.set_auth_claims(
+  'b1000000-0000-4000-8000-000000000001', 'aal1', '[]'::jsonb
+);
+select ok((
+  select (readiness ->> 'visible')::boolean
+    and not (readiness ->> 'available')::boolean
+    and readiness ->> 'blockReason' = 'evidence_only_start_required'
+    and (readiness ->> 'canStartEvidenceOnlyReconciliation')::boolean
+    and readiness ->> 'attemptId' is null
+  from (select public.admin_get_refund_nayax_resolution_readiness(
+    'b1600000-0000-4000-8000-000000000008') readiness) checked
+), 'A matched never-attempted case exposes only the evidence-only start action');
+reset role;
+
+set local role authenticated;
+select pg_temp.set_auth_claims(
+  'b1000000-0000-4000-8000-000000000002', 'aal1', '[]'::jsonb
+);
+select ok(pg_temp.capture_error($sql$
+  select public.admin_begin_refund_nayax_evidence_only_reconciliation(
+    'b1600000-0000-4000-8000-000000000008',
+    (select official_action_version from public.refund_cases
+      where id = 'b1600000-0000-4000-8000-000000000008')
+  )
+$sql$) like '%Refund Operations administrator required%',
+  'A routine authenticated user cannot open evidence-only review');
+reset role;
+
+set local role authenticated;
+select pg_temp.set_auth_claims(
+  'b1000000-0000-4000-8000-000000000001', 'aal1', '[]'::jsonb
+);
+insert into pg_temp.nayax_resolution_test_results (result_key, result)
+select 'evidence-only-start',
+  public.admin_begin_refund_nayax_evidence_only_reconciliation(
+    'b1600000-0000-4000-8000-000000000008',
+    (select official_action_version from public.refund_cases
+      where id = 'b1600000-0000-4000-8000-000000000008')
+  );
+reset role;
+
+select ok((
+  select (result ->> 'created')::boolean
+    and result ->> 'status' = 'manual_review'
+    and result ->> 'providerOutcome' = 'unknown'
+    and not (result ->> 'providerCallMade')::boolean
+    and not (result ->> 'customerMessageCreated')::boolean
+    and (result ->> 'payloadRedacted')::boolean
+  from pg_temp.nayax_resolution_test_results
+  where result_key = 'evidence-only-start'
+), 'Opening evidence-only review reports no provider or customer action');
+
+select ok(
+  (select count(*) = 1
+    from public.refund_case_nayax_refund_attempts attempt
+    where attempt.refund_case_id = 'b1600000-0000-4000-8000-000000000008'
+      and attempt.execution_mode = 'evidence_only'
+      and attempt.status = 'manual_review'
+      and attempt.provider_outcome = 'unknown'
+      and attempt.reconciliation_required
+      and attempt.step_up_intent_id is null
+      and attempt.provider_claim_digest is null)
+  and (select count(*) = 0 from public.sales_adjustment_facts
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000008')
+  and (select count(*) = 0 from public.refund_case_messages
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000008'),
+  'The synthetic attempt is held and creates no reporting or customer side effect'
+);
+
+set local role authenticated;
+select pg_temp.set_auth_claims(
+  'b1000000-0000-4000-8000-000000000001', 'aal1', '[]'::jsonb
+);
+insert into pg_temp.nayax_resolution_test_results (result_key, result)
+select 'evidence-only-replay',
+  public.admin_begin_refund_nayax_evidence_only_reconciliation(
+    'b1600000-0000-4000-8000-000000000008', 0
+  );
+reset role;
+select ok((
+  select not (replayed.result ->> 'created')::boolean
+    and (replayed.result ->> 'attemptId')::uuid =
+      (started.result ->> 'attemptId')::uuid
+    and (select count(*) = 1
+      from public.refund_case_nayax_refund_attempts attempt
+      where attempt.refund_case_id = 'b1600000-0000-4000-8000-000000000008')
+  from pg_temp.nayax_resolution_test_results replayed
+  join pg_temp.nayax_resolution_test_results started
+    on started.result_key = 'evidence-only-start'
+  where replayed.result_key = 'evidence-only-replay'
+), 'Opening evidence-only review is idempotent after the case version changes');
+
+set local role authenticated;
+select pg_temp.set_auth_claims(
+  'b1000000-0000-4000-8000-000000000001', 'aal1', '[]'::jsonb
+);
+
+select ok((
+  select (readiness ->> 'available')::boolean
+    and (readiness ->> 'evidenceOnlyAttempt')::boolean
+    and not (readiness ->> 'manualPortalAttempt')::boolean
+    and jsonb_array_length(readiness -> 'allowedResults') = 2
+    and readiness -> 'allowedResults' ? 'provider_confirmed_success'
+    and readiness -> 'allowedResults' ? 'remain_on_hold'
+  from (select public.admin_get_refund_nayax_resolution_readiness(
+    'b1600000-0000-4000-8000-000000000008') readiness) checked
+), 'Evidence-only readiness permits success or hold, never a fresh refund path');
+
+select ok(pg_temp.capture_error($sql$
+  select public.admin_resolve_refund_nayax_outcome_manager_session(
+    'b1600000-0000-4000-8000-000000000008',
+    (select (result ->> 'attemptId')::uuid
+      from pg_temp.nayax_resolution_test_results
+      where result_key = 'evidence-only-start'),
+    'provider_confirmed_retry_safe', 'nayax_dtm_transaction',
+    'DTM:NAYAX-6001143932', null, 'nayax_dtm_not_refunded',
+    (select official_action_version from public.refund_cases
+      where id = 'b1600000-0000-4000-8000-000000000008')
+  )
+$sql$) like '%can only record success or preserve the hold%',
+  'Evidence-only review cannot release the case to any refund retry path');
+
+select ok(pg_temp.capture_error($sql$
+  select public.admin_resolve_refund_nayax_outcome_manager_session(
+    'b1600000-0000-4000-8000-000000000008',
+    (select (result ->> 'attemptId')::uuid
+      from pg_temp.nayax_resolution_test_results
+      where result_key = 'evidence-only-start'),
+    'documented_manual_completion', 'documented_manual_refund',
+    'MANUAL:NAYAX-0008', statement_timestamp() - interval '2 days',
+    'manual_nayax_completion',
+    (select official_action_version from public.refund_cases
+      where id = 'b1600000-0000-4000-8000-000000000008')
+  )
+$sql$) like '%can only record success or preserve the hold%',
+  'Evidence-only review requires authoritative DTM or support evidence');
+
+select ok(pg_temp.capture_error($sql$
+  select public.admin_resolve_refund_nayax_outcome_manager_session(
+    'b1600000-0000-4000-8000-000000000008',
+    (select (result ->> 'attemptId')::uuid
+      from pg_temp.nayax_resolution_test_results
+      where result_key = 'evidence-only-start'),
+    'provider_confirmed_success', 'nayax_dtm_transaction',
+    'DTM:NAYAX-6001143932', statement_timestamp() - interval '5 days',
+    'nayax_dtm_settled',
+    (select official_action_version from public.refund_cases
+      where id = 'b1600000-0000-4000-8000-000000000008')
+  )
+$sql$) like '%reviewed payment attempt window%',
+  'Evidence-only review rejects a refund timestamp before the matched sale');
+
+insert into pg_temp.nayax_resolution_test_results (result_key, result)
+select 'evidence-only-success',
+  public.admin_resolve_refund_nayax_outcome_manager_session(
+    'b1600000-0000-4000-8000-000000000008',
+    (select (result ->> 'attemptId')::uuid
+      from pg_temp.nayax_resolution_test_results
+      where result_key = 'evidence-only-start'),
+    'provider_confirmed_success', 'nayax_dtm_transaction',
+    'DTM:NAYAX-6001143932', statement_timestamp() - interval '2 days',
+    'nayax_dtm_settled',
+    (select official_action_version from public.refund_cases
+      where id = 'b1600000-0000-4000-8000-000000000008')
+  );
+reset role;
+
+select ok((
+  select (result ->> 'caseCompleted')::boolean
+    and not (result ->> 'providerCallMade')::boolean
+    and (result ->> 'customerMessageCreated')::boolean
+    and result ->> 'authorizationMethod' = 'manager_session'
+  from pg_temp.nayax_resolution_test_results
+  where result_key = 'evidence-only-success'
+), 'Authoritative historical evidence completes the case without a provider call');
+
+select ok((
+  select refund_case.status = 'completed'
+    and refund_case.decision = 'approved'
+    and refund_case.reporting_adjustment_id is not null
+    and attempt.execution_mode = 'evidence_only'
+    and attempt.status = 'succeeded'
+    and attempt.provider_outcome = 'success'
+    and not attempt.reconciliation_required
+    and attempt.case_finalization_committed_at is not null
+  from public.refund_cases refund_case
+  join public.refund_case_nayax_refund_attempts attempt
+    on attempt.refund_case_id = refund_case.id
+  where refund_case.id = 'b1600000-0000-4000-8000-000000000008'
+), 'Evidence-only success atomically settles the case, journal, and reporting');
+
+select ok(
+  (select count(*) = 1 from public.sales_adjustment_facts
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000008')
+  and (select count(*) = 1 from public.refund_case_messages
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000008'
+      and template_version = 'refund_nayax_completion_v2')
+  and (select evidence_reference_digest ~ '^[a-f0-9]{64}$'
+      and evidence_reference_digest <> 'DTM:NAYAX-6001143932'
+    from public.refund_nayax_outcome_resolutions
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000008'),
+  'Completion is exactly once and stores only a one-way evidence digest'
+);
+
+set local role authenticated;
+select pg_temp.set_auth_claims(
+  'b1000000-0000-4000-8000-000000000001', 'aal1', '[]'::jsonb
+);
+insert into pg_temp.nayax_resolution_test_proofs (intent_key, proof)
+select 'evidence-only-replay-error', pg_temp.capture_error($sql$
+  select public.admin_resolve_refund_nayax_outcome_manager_session(
+    'b1600000-0000-4000-8000-000000000008',
+    (select (result ->> 'attemptId')::uuid
+      from pg_temp.nayax_resolution_test_results
+      where result_key = 'evidence-only-start'),
+    'provider_confirmed_success', 'nayax_dtm_transaction',
+    'DTM:NAYAX-6001143932', statement_timestamp() - interval '2 days',
+    'nayax_dtm_settled',
+    (select official_action_version from public.refund_cases
+      where id = 'b1600000-0000-4000-8000-000000000008')
+  )
+$sql$);
+reset role;
+select ok(
+  (select proof is not null
+    from pg_temp.nayax_resolution_test_proofs
+    where intent_key = 'evidence-only-replay-error')
+  and (select count(*) = 1 from public.sales_adjustment_facts
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000008')
+  and (select count(*) = 1 from public.refund_case_messages
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000008'),
+  'A completed evidence-only result cannot be replayed into duplicate effects');
+
+select ok(
+  not public.refund_nayax_evidence_only_start_is_safe(
+    'b1600000-0000-4000-8000-000000000008'
+  )
+  and exists (
+    select 1 from public.refund_case_events event
+    where event.refund_case_id = 'b1600000-0000-4000-8000-000000000008'
+      and event.event_type = 'nayax_evidence_only_reconciliation_started'
+      and not (event.metadata ->> 'provider_call_made')::boolean
+      and not (event.metadata ->> 'customer_message_created')::boolean
+  ), 'The start gate closes permanently and audit evidence proves no provider action');
+
+-- A normal Bloomjoy attempt may be created after an operator already completed
+-- the exact refund in Nayax. The resolver must accept only authoritative DTM
+-- evidence after the matched sale, classify the causal timing honestly, and
+-- retain every exactly-once and fail-closed boundary.
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, payment_method,
+  payment_amount_cents, refund_amount_cents, status, decision,
+  decided_by, decided_at, card_last4, card_wallet_used,
+  correlation_status, correlation_source, correlation_confidence,
+  matched_nayax_transaction_id, matched_nayax_site_id,
+  matched_nayax_machine_auth_time, matched_nayax_amount_cents,
+  matched_nayax_card_last4, matched_nayax_currency_code,
+  nayax_recommendation_state, nayax_recommendation_policy_version,
+  nayax_recommendation_evaluated_at, nayax_match_execution_eligible,
+  nayax_refund_execution_status, intake_source
+) values
+  (
+    'b1600000-0000-4000-8000-000000000009', 'RF-RESOLUTION-9',
+    'b1300000-0000-4000-8000-000000000001',
+    'b1200000-0000-4000-8000-000000000001',
+    'resolution-customer-9@example.test',
+    'Synthetic refund completed before a later ambiguous Bloomjoy attempt',
+    statement_timestamp() - interval '4 hours', 'card', 709, 709,
+    'card_refund_pending', 'approved',
+    'b1000000-0000-4000-8000-000000000001',
+    statement_timestamp() - interval '25 minutes', '4209', false,
+    'matched', 'nayax', 1, 'RESOLUTION-TX-009', 709,
+    statement_timestamp() - interval '4 hours', 709, '4209', 'USD',
+    'high_confidence', 'resolution-test-v1', statement_timestamp(), false,
+    'ambiguous', 'form'
+  ),
+  (
+    'b1600000-0000-4000-8000-000000000010', 'RF-RESOLUTION-10',
+    'b1300000-0000-4000-8000-000000000001',
+    'b1200000-0000-4000-8000-000000000001',
+    'resolution-customer-10@example.test',
+    'Synthetic second case cannot reuse the first provider evidence reference',
+    statement_timestamp() - interval '3 hours', 'card', 710, 710,
+    'card_refund_pending', 'approved',
+    'b1000000-0000-4000-8000-000000000001',
+    statement_timestamp() - interval '25 minutes', '4210', false,
+    'matched', 'nayax', 1, 'RESOLUTION-TX-010', 710,
+    statement_timestamp() - interval '3 hours', 710, '4210', 'USD',
+    'high_confidence', 'resolution-test-v1', statement_timestamp(), false,
+    'ambiguous', 'form'
+  );
+
+insert into public.refund_case_nayax_refund_attempts (
+  id, refund_case_id, actor_user_id, execution_mode, status, idempotency_key,
+  amount_cents, transaction_id_present, site_id_present,
+  machine_auth_time_present, request_fingerprint, currency_code,
+  provider_outcome, provider_outcome_recorded_at, reconciliation_required,
+  sanitized_request, sanitized_response, created_at
+) values
+  (
+    'b1700000-0000-4000-8000-000000000009',
+    'b1600000-0000-4000-8000-000000000009',
+    'b1000000-0000-4000-8000-000000000001',
+    'request_and_approve', 'ambiguous', 'resolution-idempotency-9',
+    709, true, true, true, repeat('9', 64), 'USD', 'unknown',
+    statement_timestamp() - interval '10 minutes', true,
+    jsonb_build_object('payload_redacted', true),
+    jsonb_build_object('payload_redacted', true),
+    statement_timestamp() - interval '20 minutes'
+  ),
+  (
+    'b1700000-0000-4000-8000-000000000010',
+    'b1600000-0000-4000-8000-000000000010',
+    'b1000000-0000-4000-8000-000000000001',
+    'request_and_approve', 'ambiguous', 'resolution-idempotency-10',
+    710, true, true, true, repeat('c', 64), 'USD', 'unknown',
+    statement_timestamp() - interval '10 minutes', true,
+    jsonb_build_object('payload_redacted', true),
+    jsonb_build_object('payload_redacted', true),
+    statement_timestamp() - interval '20 minutes'
+  );
+
+select ok(
+  exists (
+    select 1
+    from pg_indexes
+    where schemaname = 'public'
+      and tablename = 'refund_nayax_outcome_resolutions'
+      and indexname = 'refund_nayax_resolution_one_success_evidence_idx'
+      and indexdef like 'CREATE UNIQUE INDEX%'
+  ),
+  'Confirmed provider evidence has a concurrency-safe one-case unique index'
+);
+
+set local role authenticated;
+select pg_temp.set_auth_claims(
+  'b1000000-0000-4000-8000-000000000001', 'aal1', '[]'::jsonb
+);
+select ok(pg_temp.capture_error($sql$
+  select public.admin_resolve_refund_nayax_outcome_manager_session(
+    'b1600000-0000-4000-8000-000000000009',
+    'b1700000-0000-4000-8000-000000000009',
+    'provider_confirmed_success', 'nayax_dtm_transaction',
+    'DTM:NAYAX-60011439X2', statement_timestamp() - interval '2 hours',
+    'nayax_dtm_settled',
+    (select official_action_version from public.refund_cases
+      where id = 'b1600000-0000-4000-8000-000000000009')
+  )
+$sql$) like '%safe authoritative evidence reference is required%',
+  'A malformed DTM reference fails before any reconciliation write');
+
+select ok(pg_temp.capture_error($sql$
+  select public.admin_resolve_refund_nayax_outcome_manager_session(
+    'b1600000-0000-4000-8000-000000000009',
+    'b1700000-0000-4000-8000-000000000009',
+    'provider_confirmed_success', 'nayax_dtm_transaction',
+    'DTM:NAYAX-6001143999', statement_timestamp() - interval '5 hours',
+    'nayax_dtm_settled',
+    (select official_action_version from public.refund_cases
+      where id = 'b1600000-0000-4000-8000-000000000009')
+  )
+$sql$) like '%reviewed payment attempt window%',
+  'DTM evidence before the matched sale remains blocked');
+
+select ok(pg_temp.capture_error($sql$
+  select public.admin_resolve_refund_nayax_outcome_manager_session(
+    'b1600000-0000-4000-8000-000000000009',
+    'b1700000-0000-4000-8000-000000000009',
+    'provider_confirmed_success', 'nayax_support_ticket',
+    'SUPPORT:NAYAX-CS1500699', statement_timestamp() - interval '2 hours',
+    'nayax_support_confirmed_success',
+    (select official_action_version from public.refund_cases
+      where id = 'b1600000-0000-4000-8000-000000000009')
+  )
+$sql$) like '%reviewed payment attempt window%',
+  'Historical support evidence cannot bypass the DTM-only pre-existing-refund rule');
+
+select ok(pg_temp.capture_error($sql$
+  select public.admin_resolve_refund_nayax_outcome_manager_session(
+    'b1600000-0000-4000-8000-000000000009',
+    'b1700000-0000-4000-8000-000000000009',
+    'provider_confirmed_success', 'nayax_dtm_transaction',
+    'DTM:NAYAX-6001143999', statement_timestamp() + interval '2 minutes',
+    'nayax_dtm_settled',
+    (select official_action_version from public.refund_cases
+      where id = 'b1600000-0000-4000-8000-000000000009')
+  )
+$sql$) like '%reviewed payment attempt window%',
+  'Future DTM evidence remains blocked');
+
+select ok(pg_temp.capture_error($sql$
+  select public.admin_resolve_refund_nayax_outcome_manager_session(
+    'b1600000-0000-4000-8000-000000000009',
+    'b1700000-0000-4000-8000-000000000009',
+    'provider_confirmed_success', 'nayax_dtm_transaction',
+    'DTM:NAYAX-6001143999', statement_timestamp() - interval '2 hours',
+    'nayax_dtm_preexisting_settled',
+    (select official_action_version from public.refund_cases
+      where id = 'b1600000-0000-4000-8000-000000000009')
+  )
+$sql$) like '%do not form an approved payment outcome%',
+  'The operator cannot self-assert the derived pre-existing timing classification');
+
+select ok(pg_temp.capture_error($sql$
+  select public.admin_resolve_refund_nayax_outcome_manager_session(
+    'b1600000-0000-4000-8000-000000000009',
+    'b1700000-0000-4000-8000-000000000009',
+    'provider_confirmed_success', 'nayax_dtm_transaction',
+    'DTM:NAYAX-6001143999', statement_timestamp() - interval '2 hours',
+    'nayax_dtm_settled', 999
+  )
+$sql$) like '%changed; reload%',
+  'A stale case version cannot reconcile historical provider evidence');
+reset role;
+
+set local role authenticated;
+select pg_temp.set_auth_claims(
+  'b1000000-0000-4000-8000-000000000002', 'aal1', '[]'::jsonb
+);
+select ok(pg_temp.capture_error($sql$
+  select public.admin_resolve_refund_nayax_outcome_manager_session(
+    'b1600000-0000-4000-8000-000000000009',
+    'b1700000-0000-4000-8000-000000000009',
+    'provider_confirmed_success', 'nayax_dtm_transaction',
+    'DTM:NAYAX-6001143999', statement_timestamp() - interval '2 hours',
+    'nayax_dtm_settled', 1
+  )
+$sql$) like '%Refund Operations administrator required%',
+  'A routine authenticated user cannot reconcile historical provider evidence');
+reset role;
+
+select ok(
+  (select count(*) = 0 from public.refund_nayax_outcome_resolutions
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000009')
+  and (select count(*) = 0 from public.sales_adjustment_facts
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000009')
+  and (select count(*) = 0 from public.refund_case_messages
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000009'),
+  'Every rejected historical-evidence variant is atomic and side-effect free'
+);
+
+set local role authenticated;
+select pg_temp.set_auth_claims(
+  'b1000000-0000-4000-8000-000000000001', 'aal1', '[]'::jsonb
+);
+insert into pg_temp.nayax_resolution_test_results (result_key, result)
+select 'preexisting-attempt-success',
+  public.admin_resolve_refund_nayax_outcome_manager_session(
+    'b1600000-0000-4000-8000-000000000009',
+    'b1700000-0000-4000-8000-000000000009',
+    'provider_confirmed_success', 'nayax_dtm_transaction',
+    'DTM:NAYAX-6001143999', statement_timestamp() - interval '2 hours',
+    'nayax_dtm_settled',
+    (select official_action_version from public.refund_cases
+      where id = 'b1600000-0000-4000-8000-000000000009')
+  );
+reset role;
+
+select ok((
+  select (result ->> 'caseCompleted')::boolean
+    and not (result ->> 'providerCallMade')::boolean
+    and (result ->> 'customerMessageCreated')::boolean
+    and result ->> 'authorizationMethod' = 'manager_session'
+  from pg_temp.nayax_resolution_test_results
+  where result_key = 'preexisting-attempt-success'
+), 'Pre-existing DTM success completes the held case without a provider call');
+
+select ok((
+  select resolution.reason_code = 'nayax_dtm_preexisting_settled'
+    and resolution.evidence_type = 'nayax_dtm_transaction'
+    and resolution.resolution_result = 'provider_confirmed_success'
+    and resolution.prior_provider_outcome = 'unknown'
+    and resolution.evidence_occurred_at < attempt.created_at
+    and resolution.evidence_reference_digest ~ '^[a-f0-9]{64}$'
+    and resolution.evidence_reference_digest <> 'DTM:NAYAX-6001143999'
+  from public.refund_nayax_outcome_resolutions resolution
+  join public.refund_case_nayax_refund_attempts attempt
+    on attempt.id = resolution.nayax_refund_attempt_id
+  where resolution.refund_case_id = 'b1600000-0000-4000-8000-000000000009'
+), 'The immutable resolution distinguishes provider success that predates the Bloomjoy attempt');
+
+select ok((
+  select attempt.status = 'succeeded'
+    and attempt.provider_outcome = 'success'
+    and not attempt.reconciliation_required
+    and attempt.support_resolution_result = 'provider_confirmed_success'
+    and attempt.sanitized_response ->> 'initial_provider_outcome' = 'unknown'
+    and (attempt.sanitized_response ->> 'evidence_predated_bloomjoy_attempt')::boolean
+    and attempt.sanitized_response ->> 'support_resolution_reason_code' =
+      'nayax_dtm_preexisting_settled'
+    and not (attempt.sanitized_response ->> 'provider_call_made')::boolean
+  from public.refund_case_nayax_refund_attempts attempt
+  where attempt.id = 'b1700000-0000-4000-8000-000000000009'
+), 'The attempt keeps its original unknown outcome and records provider-free historical reconciliation');
+
+select ok(
+  (select status = 'completed'
+      and decision = 'approved'
+      and reporting_adjustment_id is not null
+    from public.refund_cases
+    where id = 'b1600000-0000-4000-8000-000000000009')
+  and (select count(*) = 1 from public.sales_adjustment_facts
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000009')
+  and (select count(*) = 1 from public.refund_case_messages
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000009'
+      and message_type = 'completed'
+      and body like '%Your $7.09 refund to the card ending in 4209 was completed on%'
+      and body not like '%We issued your%'),
+  'Reporting and truthful customer completion are committed exactly once'
+);
+
+select ok(
+  exists (
+    select 1
+    from public.refund_case_events event
+    where event.refund_case_id = 'b1600000-0000-4000-8000-000000000009'
+      and event.event_type = 'nayax_preexisting_refund_reconciled'
+      and event.metadata ->> 'reason_code' = 'nayax_dtm_preexisting_settled'
+      and not (event.metadata ->> 'provider_call_made')::boolean
+      and (event.metadata ->> 'customer_message_created')::boolean
+  ),
+  'The official event states that Nayax completed the refund before the later attempt'
+);
+
+set local role authenticated;
+select pg_temp.set_auth_claims(
+  'b1000000-0000-4000-8000-000000000001', 'aal1', '[]'::jsonb
+);
+select ok(pg_temp.capture_error($sql$
+  select public.admin_resolve_refund_nayax_outcome_manager_session(
+    'b1600000-0000-4000-8000-000000000010',
+    'b1700000-0000-4000-8000-000000000010',
+    'provider_confirmed_success', 'nayax_dtm_transaction',
+    'DTM:NAYAX-6001143999', statement_timestamp() - interval '90 minutes',
+    'nayax_dtm_settled',
+    (select official_action_version from public.refund_cases
+      where id = 'b1600000-0000-4000-8000-000000000010')
+  )
+$sql$) like '%already completed another refund case%',
+  'One DTM success reference cannot complete a second refund case');
+reset role;
+
+select ok(
+  (select status = 'card_refund_pending'
+      and decision = 'approved'
+      and reporting_adjustment_id is null
+      and refund_completed_at is null
+    from public.refund_cases
+    where id = 'b1600000-0000-4000-8000-000000000010')
+  and (select count(*) = 0 from public.refund_nayax_outcome_resolutions
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000010')
+  and (select count(*) = 0 from public.sales_adjustment_facts
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000010')
+  and (select count(*) = 0 from public.refund_case_messages
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000010'),
+  'Duplicate provider evidence leaves the second case held with zero side effects'
+);
+
+set local role authenticated;
+select pg_temp.set_auth_claims(
+  'b1000000-0000-4000-8000-000000000001', 'aal1', '[]'::jsonb
+);
+select ok(pg_temp.capture_error($sql$
+  select public.admin_resolve_refund_nayax_outcome_manager_session(
+    'b1600000-0000-4000-8000-000000000009',
+    'b1700000-0000-4000-8000-000000000009',
+    'provider_confirmed_success', 'nayax_dtm_transaction',
+    'DTM:NAYAX-6001143999', statement_timestamp() - interval '2 hours',
+    'nayax_dtm_settled',
+    (select official_action_version from public.refund_cases
+      where id = 'b1600000-0000-4000-8000-000000000009')
+  )
+$sql$) is not null,
+  'A completed pre-existing result cannot be replayed');
+reset role;
+
+select ok(
+  (select count(*) = 1 from public.refund_nayax_outcome_resolutions
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000009')
+  and (select count(*) = 1 from public.sales_adjustment_facts
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000009')
+  and (select count(*) = 1 from public.refund_case_messages
+    where refund_case_id = 'b1600000-0000-4000-8000-000000000009'
+      and message_type = 'completed'),
+  'Replay leaves the resolution, reporting, and customer completion exactly once'
+);
 
 select * from finish();
 rollback;

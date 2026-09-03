@@ -6,7 +6,7 @@ import {
 import { getRefundGmailMailboxIdentities } from "./refund-gmail.ts";
 
 const EMAIL_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
-const MAX_MANAGER_CC_RECIPIENTS = 3;
+const MAX_MANAGER_CC_RECIPIENTS = 4;
 const MAX_OPS_FALLBACK_RECIPIENTS = 5;
 const ROUTE_STATUS_PATTERN = /^[a-z0-9_]{1,80}$/;
 const MAPPING_FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/;

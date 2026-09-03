@@ -31,7 +31,10 @@ const sources = (source = coveredSource) => Object.fromEntries(
     : filename === 'validate-refund-portal-uat.mjs'
       ? `${source}
         labelFixtureOwnedPortalRpc(route, 'public_refund_machine_options');
-        labelFixtureOwnedPortalRpc(route, 'public_refund_machine_options');
+        labelFixtureOwnedPortalRpc(route, 'public_refund_selections');
+        labelFixtureOwnedPortalRpc(route, 'public_refund_selections_v2');
+        labelFixtureOwnedPortalRpc(route, 'public_refund_selections_v2');
+        labelFixtureOwnedPortalRpc(route, 'public_refund_selections_v2');
       `
       : `${source}
         await page.goto(appUrl);
@@ -145,12 +148,12 @@ test('a global public-font failure exception fails completeness', () => {
   );
 });
 
-test('both direct public-options RPC fixtures require ownership labels', () => {
+test('all direct public-options RPC fixtures require ownership labels', () => {
   const unsafe = sources();
   unsafe['validate-refund-portal-uat.mjs'] = unsafe['validate-refund-portal-uat.mjs']
-    .replace("labelFixtureOwnedPortalRpc(route, 'public_refund_machine_options');", '');
+    .replace("labelFixtureOwnedPortalRpc(route, 'public_refund_selections_v2');", '');
   assert.match(
     validateRefundBrowserUatNetworkCoverage(unsafe).join(' | '),
-    /direct public-options RPC fixtures are not both ownership-labelled/
+    /direct public-options RPC fixtures are not all ownership-labelled/
   );
 });

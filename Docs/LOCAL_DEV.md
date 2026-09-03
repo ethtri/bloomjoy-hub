@@ -60,9 +60,12 @@
    - Live refund sheet ingestion source marker: `supabase/migrations/202604270002_live_refund_sheet_ingestion.sql`
    - Audited, idempotent cash refund completion: `supabase/migrations/202607210004_refund_cash_completion_audit.sql`
    - Refund automation run/action ledger and manager health: `supabase/migrations/202607210005_refund_automation_scheduler_health.sql`
+   - Refund automation Supabase primary schedule and incident-level alert cooldown: `supabase/migrations/20260830175740_refund_automation_scheduler_reliability.sql`
+   - Refund automation 30-minute sweep/health cadence and 90-minute stale threshold: `supabase/migrations/20260830205449_refund_automation_scheduler_30_minute_cadence.sql`
    - Gmail refund draft/thread linkage, quarantine metadata, health, and retention: `supabase/migrations/202607210006_refund_gmail_thread_linkage.sql`
    - Machine QR identifiers and short-lived server-timestamped refund claim contexts: `supabase/migrations/202607260001_refund_qr_claim_context.sql`
    - Scoped Admin entitlements: `supabase/migrations/202604270004_scoped_admin_entitlements.sql`
+   - Scoped Admin invitation-first activation: `supabase/migrations/20260830024616_scoped_admin_invitation_first.sql`
    - Technician entitlement resolver production repair: `supabase/migrations/202604270006_restore_technician_entitlement_resolution_rpc.sql`
    - Scoped Admin reporting visibility repair: `supabase/migrations/202604280008_scoped_admin_reporting_visibility.sql`
    - Scoped Admin training/partner-dashboard repair: `supabase/migrations/202604280009_scoped_admin_training_partner_dashboard.sql`
@@ -136,7 +139,7 @@ Notes:
 - Never prefix Sunze, Google, service-role, or scheduler secrets with `VITE_`.
 
 ## Nayax Lynx API notes
-Use `Docs/NAYAX_LYNX_API.md` as the current agent-facing source for Nayax status, endpoint coverage, and permission gaps.
+For Nayax work, read the Refund Operations snapshot in `Docs/CURRENT_STATUS.md` and the newest entries in `Docs/DECISIONS.md` first. Use `Docs/NAYAX_LYNX_API.md` for endpoint and historical technical evidence; its **Current Release Status** section governs over older incident narratives in that file.
 
 Current server-only secret:
 - Supabase production project `ygbzkgxktzqsiygjlqyg`: `NAYAX_LYNX_API_TOKEN`
@@ -271,11 +274,11 @@ Steps:
 4) Review the synthetic queue cases:
    - `RF-UAT-CARD`: matched card review path with transaction evidence; it is not live-refund completion evidence.
    - `RF-UAT-WAIT`: waiting-on-customer path with confirmation and more-info message history.
-   - `RF-UAT-CASH`: correlated cash/Zelle path marked completed with reporting write-through evidence.
+   - `RF-UAT-CASH`: channel-neutral externally paid cash refund marked complete with reporting write-through evidence.
 5) Open `/refunds/request?demo=on` separately to review the public customer intake form against synthetic location/machine options without creating a real case.
    - Open `/refunds/request?demo=on&qr=synthetic_refund_qr_code_000000001` to review the locked-machine QR treatment and server-opened-time copy without creating a claim or case.
    - Run `npm run refunds:validate-qr-claim` and `npm run db:validate-migrations` for token, RLS, expiry, tamper, rotation, single-use, duplicate, and direct-intake safety checks.
-   - Run `npm run refunds:validate-qr-intake-uat -- --app-url http://127.0.0.1:8081` for mocked desktop/mobile QR, refresh, wallet, manual, unavailable, expired/tampered-submit, and network-failure browser evidence.
+   - Run `npm run refunds:validate-cash-intake` for the server/client cash contract, then run `npm run refunds:validate-qr-intake-uat -- --app-url http://127.0.0.1:8081` for mocked desktop/mobile Card and Cash intake, Card → Cash → Card field clearing, QR/direct exact-machine routing, refresh, wallet, unavailable, expired/tampered-submit, and network-failure browser evidence.
    - Open `/refunds/correct-wallet?demo=on` for the synthetic wallet-correction form. Add `&result=fallback` or `&result=review` to inspect the non-match result copy without calling Supabase or Nayax.
    - Run `npm run refunds:validate-wallet-correction` and `npm run db:validate-migrations` for token hashing, strict accepted fields, RLS, expiry, single use, replay rejection, locked machine/QR evidence, redacted audit records, and automatic re-match wiring.
 6) Run the mocked refund-only portal QA harness against the running app:
@@ -297,13 +300,13 @@ Steps:
    - `npm run refunds:validate-portal-uat -- --app-url http://127.0.0.1:8081 --artifact-dir output/refund-uat-evidence --fragment-dir output/refund-uat-fragments`
    - The integrated candidate command uses synthetic mocked Auth/RPC responses, writes screenshots separately from authenticated JSON fragments, and does not touch Supabase data. It writes the portal fragment and invokes the dependency-injected local provider-outcome producer once into the same fragment directory; do not run that producer a second time against the same directory. Neither path can call the production HTTP handler or Nayax.
    - Run `npm run refunds:validate-nayax-provider-orchestration` and `npm run refunds:validate-nayax-execution` alongside the evidence workflow. The former proves the local state machine; the latter proves the production HTTP boundary remains statically hard-off.
-   - The `RF-UAT-CASH-REVIEW` journey proves approval, missing-information and denial previews, required amount/time/reference/payment confirmation, sensitive-reference rejection, one idempotent completion payload, post-save email behavior, and desktop/mobile layout.
+   - The cash journeys prove matched and unmatched one-action completion, missing-amount recovery, legacy-pending compatibility, one confirmation, double-click suppression, omission of client-authored payout fields, zero Nayax calls, channel-neutral receipt/email copy, and desktop/mobile layout.
    - After every producer and finalizer for that evidence run finishes, remove the token from the current shell:
 
      ```powershell
      Remove-Item Env:REFUND_UAT_EVIDENCE_RUN_TOKEN -ErrorAction SilentlyContinue
      ```
-7) When cash-completion SQL changes, run `npm run db:validate-migrations`. The `refund_cash_completion_safety.sql` pgTAP suite proves service-role-only access, required evidence, idempotency, one redacted audit event, and no duplicate completion on a repeated request.
+7) When cash-completion SQL changes, run `npm run db:validate-migrations`. The `refund_cash_completion_safety.sql` and `refund_cash_completion_concurrency.sql` pgTAP suites prove narrow service-only execution, server-derived amount/actor/time, unmatched and legacy-state compatibility, terminal/card rejection, one redacted event and adjustment, idempotent replay, concurrent single application, and zero Nayax side effects.
 8) When scheduler/health code changes, run `npm run refunds:validate-automation`, `npm run agent:validate-workflow`, and `npm run db:validate-migrations`. The database suite proves same-window and same-action replay suppression; the portal UAT harness proves the concise manager health signal. Do not point a local scheduler test at production customer data.
 9) When GPT runner code changes, run `npm run refunds:validate-gpt-triage`, `deno check supabase/functions/refund-gpt-triage/index.ts`, `npm run db:validate-migrations`, and the Refund portal UAT harness. These checks use mocks/synthetic data and must pass without a live OpenAI API call.
 
@@ -314,19 +317,21 @@ Three validation modes:
 
 Admin > Machines Machine Manager UAT:
 - For visual review without remote data, open `/admin/machines?demo=on`; use the listed `example.test` demo users only. Demo assignments save in the browser and do not write to Supabase.
-- For functional UAT, open `/admin/machines`, edit a machine, and use the Machine Managers people lookup to search/add an authenticated user email.
+- For functional UAT, open `/admin/machines`, choose `Manage` on a machine, open the `Managers` tab, and use the people lookup to search/add an authenticated user email.
 - The target person must have signed in to Bloomjoy at least once before assignment can save. If the person is not an authenticated user yet, the UI should explain that they need to sign in once first.
-- Machine Manager changes autosave immediately. There is no separate `Save Machine Managers` button.
-- After adding or removing a manager, confirm the status changes to `Saved`, close the sheet, and confirm the manager email is visible in the machine row.
-- The bottom `Save machine changes` button saves machine identity plus customer-refund setup fields. Machine Manager assignment autosaves separately when a person is added or removed.
+- Machine Manager changes remain pending until `Save Machine Managers` is selected. This explicit save prevents an accidental Add or Remove from changing access immediately.
+- After saving, confirm the status changes to `Saved`, return to the list, and confirm the machine no longer reports missing manager coverage.
+- Machine identity, refund setup, Machine Managers, reporting, and activity are separated into focused tabs. Each editable tab has its own save action.
+- Super Admin Nayax reconciliation is at `/admin/machines/inventory`; its default `Needs review` view hides already-published and excluded records.
 - Active Commercial/Mini machines with active customer-safe locations appear on the public refund form automatically. The refund automation switch controls manager/Nayax readiness only; turning it off must not remove the machine from public intake.
 
-Partner Technician Access UAT:
+Admin Access invitation UAT:
 - Start the app with `npm run dev:uat`.
+- Run `npm run scoped-admin-invites:validate` for the pending-access, exact-email activation, RPC security, and stable-login-link contract.
 - Run `npm run admin-access:validate-invite-uat -- --app-url http://127.0.0.1:8081`.
 - Run `npm run partner-technicians:validate-uat -- --app-url http://127.0.0.1:8081`.
 - Run `npm run scoped-admin-technicians:validate-uat -- --app-url http://127.0.0.1:8081`.
-- The scripts mock Supabase Auth, RPC, REST, and `access-invite`, verify Admin Access Corporate Partner grants, Super Admin Technician fallback sponsorship, Scoped Admin machine-scoped Technician grants, and new Technician saves call the invite function immediately, write screenshots to `output/playwright`, and do not send email or write data.
+- The scripts mock Supabase Auth, RPC, REST, and `access-invite`, verify Admin Access Corporate Partner grants, Super Admin Technician fallback sponsorship, Scoped Admin machine-scoped Technician grants, and new-email Scoped Admin pending invite/resend/revoke behavior. They write screenshots to `output/playwright` and do not send email or write data.
 - Use `Docs/PARTNER_TECHNICIAN_ACCESS_UAT.md` for live staging invite email checks before partner handoff.
 
 Privacy guardrails:
@@ -499,7 +504,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
 ### Refund Gmail local configuration
 Keep Gmail credentials and recipient settings server-only; never use a `VITE_` variable. The Gmail functions require `GMAIL_SUPPORT_CLIENT_ID`, `GMAIL_SUPPORT_CLIENT_SECRET`, `GMAIL_SUPPORT_REFRESH_TOKEN`, `GMAIL_SUPPORT_MAILBOX`, `GMAIL_REFUND_LABEL_ID`, and a dedicated `REFUND_GMAIL_SYNC_SECRET`. In production, `GMAIL_SUPPORT_MAILBOX` is the directly connected customer-service mailbox, `info@bloomjoysweets.com`. List every approved send-as address in comma-separated `GMAIL_SUPPORT_SEND_AS_ALIASES`; the verified Info/Support/Refunds send-as identities remain identities of that mailbox, and an address match alone is not trusted as Bloomjoy mailbox-origin unless the Gmail API also returns the provider `SENT` label and every existing delivery gate passes. `REFUND_GMAIL_ENABLED` defaults to `false`. Optional `GMAIL_REFUND_START_AT` limits the first import to messages received on or after an ISO timestamp.
 
-Use a test mailbox and synthetic messages only for local work. The connected account must exactly match the environment's `GMAIL_SUPPORT_MAILBOX`, and its OAuth grant must contain only Gmail read-only and send permissions. `etrifari@bloomjoysweets.com` or its plus-addresses may be an owner-controlled synthetic customer/test sender or recipient, or a vendor/account correspondence identity; they must never substitute for the production refund-assistant mailbox. Use synthetic manager addresses that are active portal mappings for the test machine; never put real recipient addresses in terminal output, screenshots, issues, or PR evidence. After machine resolution, every Gmail-linked customer-facing refund reply must originate through the designated support mailbox in the original Gmail thread. Every Gmail or transactional case-specific customer message requires the exact send-time `resolved` route covering the complete distinct current active manager identity set. Duplicate normalized addresses may deduplicate only when that complete set remains represented. Zero-manager, unresolved-machine, partially invalid, customer/mailbox-colliding, and over-cap routes intentionally send nothing to the customer until ownership is repaired, even when the next desired message would ask which machine was used; internal action notices use only the capped operations fallback for those routing exceptions. Run `npm run refunds:validate-gmail` and the database validation before serving or deploying the sync function. The attachment path is quarantine-only until a malware scanner marks an object clean.
+Use a test mailbox and synthetic messages only for local work. The connected account must exactly match the environment's `GMAIL_SUPPORT_MAILBOX`, and its OAuth grant must contain only Gmail read-only and send permissions. `etrifari@bloomjoysweets.com` or its plus-addresses may be an owner-controlled synthetic customer/test sender or recipient, or a vendor/account correspondence identity; they must never substitute for the production refund-assistant mailbox. Use synthetic manager addresses that are active portal mappings for the test machine; never put real recipient addresses in terminal output, screenshots, issues, or PR evidence. After machine resolution, every Gmail-linked customer-facing refund reply must originate through the designated support mailbox in the original Gmail thread. Every Gmail or transactional case-specific customer message requires the exact send-time `resolved` route covering one to four distinct current active manager identities. A manager who is also the customer is represented once by the customer To address, and every other manager is visibly copied. Duplicate normalized addresses may deduplicate only when the complete set remains represented. Zero-manager, unresolved-machine, partially invalid, mailbox-colliding, and fifth-manager routes intentionally send nothing to the customer until ownership is repaired; internal action notices use only the capped operations fallback for those routing exceptions. Run `npm run refunds:validate-gmail` and the database validation before serving or deploying the sync function. The attachment path is quarantine-only until a malware scanner marks an object clean.
 
 ## Stripe order backfill helper
 Use this when a paid Stripe checkout must be imported into `public.orders` because webhook replay is unavailable or the webhook failed before persistence.

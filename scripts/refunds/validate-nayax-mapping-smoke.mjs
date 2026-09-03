@@ -32,10 +32,30 @@ const readyRow = {
 assert.deepEqual(parseArgs(['--project-ref', 'abc', '--confirm-project-ref', 'abc']), {
   projectRef: 'abc',
   confirmProjectRef: 'abc',
+  expectedLiveCount: 0,
   allowNotReady: false,
   help: false,
 });
 assert.equal(determineReadiness(validateAggregateRow(readyRow)).ready, true);
+assert.deepEqual(
+  parseArgs([
+    '--project-ref', 'abc',
+    '--confirm-project-ref', 'abc',
+    '--expected-live-count', '6',
+  ]).expectedLiveCount,
+  6
+);
+assert.equal(
+  determineReadiness(
+    { ...readyRow, live_refund_enabled_machine_count: 6 },
+    6
+  ).ready,
+  true
+);
+assert.throws(
+  () => parseArgs(['--expected-live-count', '-1']),
+  /non-negative integer/
+);
 
 for (const [field, value] of [
   ['active_refund_machine_count', 2],
@@ -75,6 +95,16 @@ for (const forbidden of [' insert ', ' update ', ' delete ', ' merge ', ' trunca
 }
 assert.match(normalizedQuery, /^with /);
 assert.match(normalizedQuery, /select true as read_only/);
+assert.match(normalizedQuery, /manager_count between 1 and 4/);
+assert.ok(
+  smokeSource.includes('Machines with 1-4 active managers'),
+  'aggregate output must describe the supported one-to-four manager route'
+);
+assert.equal(
+  smokeSource.includes('Machines with 1-3 active managers'),
+  false,
+  'aggregate output must not report the retired three-manager ceiling'
+);
 
 for (const required of [
   '--project-ref and --confirm-project-ref are both required',
@@ -101,4 +131,5 @@ console.log('Refund Nayax mapping smoke validation passed.');
 console.log('- exact linked-project confirmation');
 console.log('- SELECT-only aggregate query and strict result allowlist');
 console.log('- mapping, manager, timezone, duplicate, and live-execution gates');
+console.log('- explicit expected live-enabled count for pre-launch or activated monitoring');
 console.log('- no identifier or production-record output');

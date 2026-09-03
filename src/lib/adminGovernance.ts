@@ -60,6 +60,33 @@ export type ScopedAdminGrantRecord = {
   scopes: ScopedAdminScopeRecord[];
 };
 
+export type ScopedAdminInviteStatus = 'pending' | 'activated' | 'revoked' | 'expired';
+
+export type ScopedAdminInviteRecord = {
+  id: string;
+  targetEmail: string;
+  status: ScopedAdminInviteStatus;
+  grantReason: string;
+  createdBy: string | null;
+  createdAt: string;
+  expiresAt: string;
+  activatedUserId: string | null;
+  activatedGrantId: string | null;
+  activatedAt: string | null;
+  revokedBy: string | null;
+  revokedAt: string | null;
+  revokeReason: string | null;
+  machineIds: string[];
+  machineLabels: string[];
+};
+
+export type ScopedAdminInviteResolution = {
+  targetEmail: string | null;
+  resolvedInviteCount: number;
+  grantId: string | null;
+  machineCount: number;
+};
+
 type AuditLogFilterInput = {
   action?: string;
   entityType?: string;
@@ -80,6 +107,35 @@ type ScopedAdminGrantRpc = Partial<ScopedAdminGrantRecord> & {
   revokeReason?: string | null;
   scopes?: Array<Partial<ScopedAdminScopeRecord>>;
 };
+
+type ScopedAdminInviteRpc = Partial<ScopedAdminInviteRecord>;
+
+const asNullableString = (value: unknown): string | null =>
+  typeof value === 'string' && value.length > 0 ? value : null;
+
+const asStringArray = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+
+const mapScopedAdminInvite = (record: ScopedAdminInviteRpc): ScopedAdminInviteRecord => ({
+  id: String(record.id ?? ''),
+  targetEmail: String(record.targetEmail ?? ''),
+  status:
+    record.status === 'activated' || record.status === 'revoked' || record.status === 'expired'
+      ? record.status
+      : 'pending',
+  grantReason: String(record.grantReason ?? ''),
+  createdBy: asNullableString(record.createdBy),
+  createdAt: String(record.createdAt ?? ''),
+  expiresAt: String(record.expiresAt ?? ''),
+  activatedUserId: asNullableString(record.activatedUserId),
+  activatedGrantId: asNullableString(record.activatedGrantId),
+  activatedAt: asNullableString(record.activatedAt),
+  revokedBy: asNullableString(record.revokedBy),
+  revokedAt: asNullableString(record.revokedAt),
+  revokeReason: asNullableString(record.revokeReason),
+  machineIds: asStringArray(record.machineIds),
+  machineLabels: asStringArray(record.machineLabels),
+});
 
 export const fetchAdminRoles = async (): Promise<AdminRoleRecord[]> => {
   const { data, error } = await supabaseClient.rpc('admin_list_super_admin_roles');
@@ -162,6 +218,76 @@ export const fetchScopedAdminGrants = async (): Promise<ScopedAdminGrantRecord[]
   }
 
   return ((data as ScopedAdminGrantRpc[] | null) ?? []).map(mapScopedAdminGrant);
+};
+
+export const fetchScopedAdminInvites = async (): Promise<ScopedAdminInviteRecord[]> => {
+  const { data, error } = await supabaseClient.rpc('admin_list_scoped_admin_invites');
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to load Scoped Admin invites.');
+  }
+
+  return ((data as ScopedAdminInviteRpc[] | null) ?? [])
+    .map(mapScopedAdminInvite)
+    .filter((invite) => invite.id && invite.targetEmail);
+};
+
+export const createScopedAdminInvite = async ({
+  targetEmail,
+  machineIds,
+  reason,
+}: {
+  targetEmail: string;
+  machineIds: string[];
+  reason: string;
+}): Promise<ScopedAdminInviteRecord> => {
+  const { data, error } = await supabaseClient.rpc('admin_create_scoped_admin_invite', {
+    p_target_email: targetEmail,
+    p_machine_ids: machineIds,
+    p_reason: reason,
+    p_expires_at: null,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to create Scoped Admin invite.');
+  }
+
+  return mapScopedAdminInvite(data as ScopedAdminInviteRpc);
+};
+
+export const revokeScopedAdminInvite = async ({
+  inviteId,
+  reason,
+}: {
+  inviteId: string;
+  reason: string;
+}): Promise<void> => {
+  const { error } = await supabaseClient.rpc('admin_revoke_scoped_admin_invite', {
+    p_invite_id: inviteId,
+    p_reason: reason,
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Unable to revoke Scoped Admin invite.');
+  }
+};
+
+export const resolveMyScopedAdminInvites = async (): Promise<ScopedAdminInviteResolution> => {
+  const { data, error } = await supabaseClient.rpc('resolve_my_scoped_admin_invites', {
+    p_reason: 'Scoped Admin invite accepted',
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to resolve Scoped Admin invite.');
+  }
+
+  const record = data as Partial<ScopedAdminInviteResolution>;
+  return {
+    targetEmail: asNullableString(record.targetEmail),
+    resolvedInviteCount: Number(record.resolvedInviteCount ?? 0),
+    grantId: asNullableString(record.grantId),
+    machineCount: Number(record.machineCount ?? 0),
+  };
 };
 
 export const grantScopedAdminByEmail = async ({

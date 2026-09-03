@@ -2,22 +2,20 @@ export type NayaxRefundConfigBlock =
   | "kill_switch_active"
   | "feature_disabled"
   | "dry_run_active"
-  | "per_refund_cap_missing"
-  | "daily_amount_cap_missing"
-  | "daily_count_cap_missing"
   | "idempotency_secret_missing"
-  | "executor_assertion_missing";
+  | "executor_assertion_missing"
+  | "manager_contract_unconfirmed"
+  | "approval_scope_unconfirmed";
 
 export type NayaxRefundExecutionConfig = {
   blocks: NayaxRefundConfigBlock[];
   killSwitchActive: boolean;
   executionEnabled: boolean;
   dryRun: boolean;
-  maxAmountCents: number | null;
-  dailyAmountCapCents: number | null;
-  dailyCountCap: number | null;
   idempotencySecret: string | null;
   executorAssertion: string | null;
+  managerContractConfirmed: boolean;
+  approvalScopeConfirmed: boolean;
 };
 
 export type NayaxRefundAvailabilityBlockReason =
@@ -32,9 +30,8 @@ export type NayaxRefundAvailability = {
   payloadRedacted: true;
 };
 
-// The normal card-refund function may reach the existing provider adapter, but
-// only after the authenticated mapped-manager, immutable evidence, per-machine
-// enablement, caps, kill-switch, dry-run, and idempotency checks all pass.
+// Nayax enforces the original transaction total. Local authority, original
+// identity, amount, duplicate, claim and outcome checks remain mandatory.
 export const NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = true;
 
 export type NayaxRefundIdempotencyEvidence = {
@@ -47,19 +44,23 @@ export type NayaxRefundIdempotencyEvidence = {
   currencyCode: "USD";
 };
 
+export const resolveNormalNayaxRefundAmountCents = ({
+  matchedTransactionAmountCents,
+}: {
+  matchedTransactionAmountCents: number | null;
+}) => {
+  if (
+    !Number.isSafeInteger(matchedTransactionAmountCents) ||
+    Number(matchedTransactionAmountCents) <= 0
+  ) {
+    return null;
+  }
+  return Number(matchedTransactionAmountCents);
+};
+
 const secureSecret = (value: string | undefined) => {
   const normalized = value?.trim() ?? "";
   return /^[A-Za-z0-9_-]{43,256}$/.test(normalized) ? normalized : null;
-};
-
-const boundedInteger = (
-  value: string | undefined,
-  maximum: number,
-) => {
-  const normalized = value?.trim() ?? "";
-  if (!/^[1-9][0-9]*$/.test(normalized)) return null;
-  const parsed = Number(normalized);
-  return Number.isSafeInteger(parsed) && parsed <= maximum ? parsed : null;
 };
 
 const exactFlag = (value: string | undefined, expected: string) =>
@@ -80,34 +81,29 @@ export const resolveNayaxRefundExecutionConfig = (
     readEnv("NAYAX_REFUND_EXECUTION_DRY_RUN"),
     "false",
   );
-  const maxAmountCents = boundedInteger(
-    readEnv("NAYAX_REFUND_MAX_AMOUNT_CENTS"),
-    1_000_000,
-  );
-  const dailyAmountCapCents = boundedInteger(
-    readEnv("NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS"),
-    1_000_000,
-  );
-  const dailyCountCap = boundedInteger(
-    readEnv("NAYAX_REFUND_DAILY_COUNT_CAP"),
-    100,
-  );
   const idempotencySecret = secureSecret(
     readEnv("NAYAX_REFUND_IDEMPOTENCY_SECRET"),
   );
   const executorAssertion = secureSecret(
     readEnv("NAYAX_REFUND_EXECUTOR_ASSERTION"),
   );
+  const managerContractConfirmed = exactFlag(
+    readEnv("NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED"),
+    "true",
+  );
+  const approvalScopeConfirmed = exactFlag(
+    readEnv("NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED"),
+    "true",
+  );
 
   const blocks = [
     killSwitchActive ? "kill_switch_active" : null,
     executionEnabled ? null : "feature_disabled",
     dryRun ? "dry_run_active" : null,
-    maxAmountCents === null ? "per_refund_cap_missing" : null,
-    dailyAmountCapCents === null ? "daily_amount_cap_missing" : null,
-    dailyCountCap === null ? "daily_count_cap_missing" : null,
     idempotencySecret === null ? "idempotency_secret_missing" : null,
     executorAssertion === null ? "executor_assertion_missing" : null,
+    managerContractConfirmed ? null : "manager_contract_unconfirmed",
+    approvalScopeConfirmed ? null : "approval_scope_unconfirmed",
   ].filter((block): block is NayaxRefundConfigBlock => block !== null);
 
   return {
@@ -115,11 +111,10 @@ export const resolveNayaxRefundExecutionConfig = (
     killSwitchActive,
     executionEnabled,
     dryRun,
-    maxAmountCents,
-    dailyAmountCapCents,
-    dailyCountCap,
     idempotencySecret,
     executorAssertion,
+    managerContractConfirmed,
+    approvalScopeConfirmed,
   };
 };
 
