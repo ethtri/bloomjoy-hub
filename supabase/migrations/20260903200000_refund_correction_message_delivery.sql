@@ -139,6 +139,29 @@ $sync$;
   source := replace(source,needle,needle || ' and public.refund_scoped_correction_message_current(message_row)');
   begin execute source; exception when others then raise exception 'Scoped payout settlement installation: %',sqlerrm; end;
 
+  -- Existing manual intent validation predates wallet/payment-context fields.
+  -- Admit them only for this marked, enabled, current scoped request; keep the
+  -- original allowlist and all actor/recipient/version checks for legacy mail.
+  select pg_get_functiondef('public.service_enqueue_refund_manual_message_intent_pre_payout_recovery(uuid,bigint,uuid,uuid,text,text,text,text,text,text,text,text[],uuid,boolean,uuid)'::regprocedure) into source;
+  source := replace(source,E'\r\n',E'\n');
+  needle := $legacy_fields$    or not coalesce(p_requested_fields, '{}'::text[]) <@ array[
+      'location_or_machine', 'incident_date', 'incident_time',
+      'payment_method', 'amount', 'card_last4', 'zelle_payment_contact'
+    ]::text[]$legacy_fields$;
+  replacement := $scoped_fields$    or not (
+      coalesce(p_requested_fields, '{}'::text[]) <@ array[
+        'location_or_machine', 'incident_date', 'incident_time',
+        'payment_method', 'amount', 'card_last4', 'zelle_payment_contact'
+      ]::text[]
+      or (p_message_type='more_info'
+        and position('[Secure refund correction link included at delivery]' in normalized_body)>0
+        and public.refund_purchase_correction_links_enabled()
+        and p_requested_fields <@ public.refund_purchase_correction_request_fields(p_refund_case_id))
+    )$scoped_fields$;
+  if position(needle in source)=0 then raise exception 'Manual intent field validation changed'; end if;
+  source := replace(source,needle,replacement);
+  begin execute source; exception when others then raise exception 'Scoped manual intent installation: %',sqlerrm; end;
+
   select pg_get_constraintdef(oid) into shape from pg_constraint
     where conrelid='public.refund_case_messages'::regclass and conname='refund_case_messages_safe_evidence_shape';
   if shape is null or left(shape,6)<>'CHECK ' then raise exception 'Message evidence shape missing'; end if;
