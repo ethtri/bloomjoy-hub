@@ -38,7 +38,7 @@ class RefundGmailError extends Error {
 }
 
 function harness(transport, { bounceAfterPending = false, bounceAfterProviderAccepted = false, confirmedGmailReplay = false,
-  correctionEnabled = false, correctionFields = ['incident_time', 'amount'] } = {}) {
+  correctionEnabled = false, correctionFields = ['incident_time', 'amount'], gmailSubject = email.subject } = {}) {
   const state = { requestDelivery: 'delivered', pending: null, marks: 0, claims: 0,
     transactionalSenderCalls: 0, gmailProviderCalls: 0, transactionalProviderCalls: 0,
     binds: 0, finishes: 0, scopes: 0, updates: [], sequence: [], acceptanceBinding: null };
@@ -103,13 +103,13 @@ function harness(transport, { bounceAfterPending = false, bounceAfterProviderAcc
       // Database eligibility is proved by the disposable SQL RPC tests. This
       // seam supplies their exact rejection and proves actual sender behavior.
       if (confirmedGmailReplay && name === 'service_claim_refund_gmail_outbound_v3') {
-        return { data: { linked: true, claimed: false, reconciled: true, status: 'sent', subject: email.subject, ...route }, error: null };
+        return { data: { linked: true, claimed: false, reconciled: true, status: 'sent', subject: gmailSubject, ...route }, error: null };
       }
       if (state.requestDelivery === 'bounced') return { data: null,
         error: { code: '23514', message: 'Follow-up reminder requires a non-failed original request' } };
       if (name === 'service_mark_refund_transactional_delivery_attempt') return { data: { marked: true, payloadRedacted: true }, error: null };
       return { data: { linked: true, claimed: true, transportMessageId: 'synthetic-outbound',
-        providerThreadId: 'synthetic-provider-thread', subject: email.subject, ...route }, error: null };
+        providerThreadId: 'synthetic-provider-thread', subject: gmailSubject, ...route }, error: null };
     },
   };
   const gmail = execute(read('supabase/functions/_shared/refund-gmail-transport.ts'), {}, {
@@ -166,6 +166,14 @@ test('scoped no-match reminder persists all current fields despite historical em
   assert.deepEqual(Array.from(state.pending.requested_fields), ['incident_time', 'amount']);
   assert.equal(state.scopes, 1);
   assert.equal(state.transactionalProviderCalls, 1);
+});
+
+test('scoped Gmail correction retains its immutable intent subject when the actual thread subject differs', async () => {
+  const { state, send } = harness('gmail', { correctionEnabled: true, gmailSubject: 'Re: Original customer question' });
+  assert.equal((await send()).status, 'sent');
+  assert.equal(state.gmailProviderCalls, 1);
+  assert.equal(state.pending.subject, email.subject);
+  assert.equal(state.updates.some((update) => Object.hasOwn(update, 'subject')), false);
 });
 
 test('scoped reminder with no remaining customer field creates no message, link or provider call', async () => {

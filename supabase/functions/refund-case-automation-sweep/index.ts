@@ -759,7 +759,7 @@ const sendDeterministicFollowUpMessage = async (
   }
   const messageType = messageTypeForFollowUp(cycle, messageClass);
   const correctionEnabled = messageClass !== "information_received" && await refundCorrectionLinksEnabled(supabase!);
-  if (correctionEnabled && messageClass !== "information_received") {
+  if (correctionEnabled) {
     // Bundle every currently supported gap once; historical cycle fields can
     // be narrower than the present case. The message persists this exact list.
     customerCorrectionFields = await getCurrentRefundCorrectionFields(supabase!, refundCase.id);
@@ -842,7 +842,8 @@ const sendDeterministicFollowUpMessage = async (
         .update({
           status: "sent",
           sent_at: new Date().toISOString(),
-          subject: gmailDelivery.usedGmail ? gmailDelivery.subject : email.subject,
+          // Preserve the prepared scoped intent; Gmail stores its actual thread subject.
+          ...(emailInput.correctionUrl ? {} : { subject: gmailDelivery.usedGmail ? gmailDelivery.subject : email.subject }),
         })
         .eq("id", messageId) ?? { error: null };
       if (messageUpdateError) throw messageUpdateError;
@@ -1564,7 +1565,7 @@ const sendWalletCorrectionMessage = async (
         .update({
           status: "sent",
           sent_at: new Date().toISOString(),
-          subject: gmailDelivery.usedGmail ? gmailDelivery.subject : email.subject,
+          ...(unifiedCorrection ? {} : { subject: gmailDelivery.usedGmail ? gmailDelivery.subject : email.subject }),
         })
         .eq("id", messageId);
       if (messageUpdateError) throw messageUpdateError;
