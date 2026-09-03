@@ -5951,7 +5951,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
   });
   const guardedManagerPage = await guardedManagerContext.newPage();
   await signInRefundUser(guardedManagerPage, appUrl);
-  await guardedManagerPage.getByRole('button', { name: /^Action needed \d+$/ }).click();
+  await guardedManagerPage.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
   await waitForQueueCount(guardedManagerPage, 1);
   await queueCase(guardedManagerPage, 'RF-UAT-CARD').click();
   await guardedManagerPage.getByRole('button', { name: /^Refund \$/i }).first().waitFor({ timeout: 10000 });
@@ -5991,7 +5991,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
   });
   const blockedPage = await blockedContext.newPage();
   await signInRefundUser(blockedPage, appUrl);
-  await blockedPage.getByRole('button', { name: /^Action needed \d+$/ }).click();
+  await blockedPage.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
   await waitForQueueCount(blockedPage, 1);
   await queueCase(blockedPage, 'RF-UAT-CARD').click();
   await blockedPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).waitFor({ timeout: 10000 });
@@ -6014,7 +6014,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
   });
   await blockedPage.setViewportSize({ width: 390, height: 844 });
   recorder.assert(
-    'Confirmed remaining-value guard remains clear without mobile overflow',
+    'Reviewed portal fallback remains clear without mobile overflow',
     await blockedPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
   );
   await blockedPage.screenshot({
@@ -6066,7 +6066,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     });
     const bypassPage = await bypassContext.newPage();
     await signInRefundUser(bypassPage, appUrl);
-    await bypassPage.getByRole('button', { name: /^Action needed \d+$/ }).click();
+    await bypassPage.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
     await waitForQueueCount(bypassPage, 1);
     await queueCase(bypassPage, 'RF-UAT-CARD').click();
     await bypassPage.getByTestId('refund-manager-state').getByText('Transaction confirmed', { exact: true })
