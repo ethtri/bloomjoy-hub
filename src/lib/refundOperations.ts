@@ -727,7 +727,7 @@ const requireRefundGmailCaseLinkReview = (
 export type RefundCaseRecord = {
   customerCorrectionFields?: RefundMissingField[];
   customerCorrection?: { state: 'pending'|'submitted'|'expired'|'revoked'; requestedFields: RefundMissingField[];
-    requestedAt: string; respondedAt: string|null; expiresAt: string; deliveryState: string; recheckState: string|null;
+    requestedAt: string; respondedAt: string|null; expiresAt: string; isActive?: boolean; isUsable?: boolean; deliveryStatus: string; deliveryState: string; recheckState: string|null;
     nextAction: 'review'|'recheck'|null; previousValues: Record<string,string>;
     answers: Record<string,{disposition: 'changed'|'confirmed'|'cannot_provide';value?: string;confidence?: string}>|null;
   }|null;
