@@ -870,7 +870,7 @@ assert(
     syncFunction.includes('service_finish_refund_gmail_outbound_reconciliation') &&
     syncFunction.includes('service_count_refund_gmail_outbound_reconciliation') &&
     syncFunction.indexOf('await reconcileOutstandingOutbound') <
-      syncFunction.indexOf('while (counters.threadsScanned < maxThreads)'),
+      syncFunction.indexOf('while (customerThreadsScanned < maxThreads)'),
   'Gmail sync must reconcile generic manager replies before scanning for new customer work',
 );
 const outboundNoMatchBranch = outboundReconciliationSync.indexOf(
