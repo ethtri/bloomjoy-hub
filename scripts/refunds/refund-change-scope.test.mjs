@@ -52,3 +52,21 @@ test('real Git comparison protects deletions and code renamed into a prose locat
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('actual workflow condition skips only successful explicit neutral scope', () => {
+  const workflow = fs.readFileSync(new URL('../../.github/workflows/refund-uat-evidence.yml', import.meta.url), 'utf8');
+  const expression = workflow.split('  screenshots:')[1].match(/^    if: (.+)$/m)?.[1];
+  assert(expression, 'Screenshots must have an explicit scope condition');
+  const evaluate = new Function('always', 'github', 'needs', `return ${expression};`);
+  for (const [event, result, output, expected] of [
+    ['pull_request', 'success', 'false', false],
+    ['pull_request', 'success', 'true', true],
+    ['pull_request', 'success', '', true],
+    ['pull_request', 'failure', 'false', true],
+    ['pull_request', 'cancelled', undefined, true],
+    ['workflow_dispatch', 'success', 'false', true],
+  ]) assert.equal(evaluate(() => true, { event_name: event }, { scope: { result, outputs: { required: output } } }), expected);
+  const ci = fs.readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  assert(ci.includes('run: node scripts/refunds/refund-change-scope.mjs "$REFUND_SCOPE_BASE" "$REFUND_SCOPE_HEAD"'),
+    'Required verify check must reject failed or missing scope evidence');
+});
