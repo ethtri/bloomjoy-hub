@@ -32,12 +32,10 @@ export type NayaxRefundAvailability = {
   payloadRedacted: true;
 };
 
-// The ordinary official-action boundary remains part of the reviewed contract,
-// but direct provider execution is hard-disabled until #990 can supply and
-// atomically verify authoritative remaining-refundable value for the selected
-// transaction. This is intentionally not configurable through the environment.
+// Runtime flags cannot establish a balance. Only a fresh, exact-case database
+// verification may satisfy this guard; reservation and both stages recheck it.
 export const NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = true;
-export const NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED = false;
+export const NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED = true;
 
 export type NayaxRefundIdempotencyEvidence = {
   caseId: string;
@@ -84,6 +82,7 @@ const exactFlag = (value: string | undefined, expected: string) =>
 
 export const resolveNayaxRefundExecutionConfig = (
   readEnv: (name: string) => string | undefined,
+  { remainingValueVerified = false }: { remainingValueVerified?: boolean } = {},
 ): NayaxRefundExecutionConfig => {
   const killSwitchActive = !exactFlag(
     readEnv("NAYAX_REFUND_EXECUTION_KILL_SWITCH"),
@@ -120,7 +119,7 @@ export const resolveNayaxRefundExecutionConfig = (
     executorAssertion === null ? "executor_assertion_missing" : null,
     managerContractConfirmed ? null : "manager_contract_unconfirmed",
     approvalScopeConfirmed ? null : "approval_scope_unconfirmed",
-    NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED
+    NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED && remainingValueVerified
       ? null
       : "provider_remaining_value_unverified",
   ].filter((block): block is NayaxRefundConfigBlock => block !== null);

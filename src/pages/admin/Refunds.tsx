@@ -20,6 +20,7 @@ import { isEdgeFunctionError } from '@/lib/edgeFunctions';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecycleProgress';
 import { RefundAuthoritativeReceiptPanel } from '@/components/refunds/RefundAuthoritativeReceiptPanel';
+import { RefundNayaxVerificationPanel } from '@/components/refunds/RefundNayaxVerificationPanel';
 import { hasConfirmedRefundReceipt } from '@/lib/refundAuthoritativeReceipt';
 import {
   AlertDialog,
@@ -5708,6 +5709,12 @@ export default function AdminRefundsPage() {
           {nayaxExecutionNotice && (
             <div className={nayaxLookupNoticeClass(nayaxExecutionNotice.tone)}>{nayaxExecutionNotice.message}</div>
           )}
+
+          {!isUsingDemoData && selectedCase.canPerformOfficialAction === true && selectedCase.paymentMethod === 'card' &&
+            selectedCase.hasMatchedNayaxTransaction && !hasConfirmedRefundReceipt(selectedCase) && (
+              <RefundNayaxVerificationPanel key={`verification-${selectedCase.id}-${selectedCase.officialActionVersion}`}
+                caseId={selectedCase.id} onSaved={async () => { await refresh(); await queryClient.invalidateQueries({ queryKey: ['nayax-card-refund-availability', selectedCase.id] }); }} />
+            )}
 
           {refundOperationsAccess && selectedCase.paymentMethod === 'card' && selectedCase.hasMatchedNayaxTransaction && (
             <RefundAuthoritativeReceiptPanel key={selectedCase.id} caseId={selectedCase.id} demo={forceDemoData}

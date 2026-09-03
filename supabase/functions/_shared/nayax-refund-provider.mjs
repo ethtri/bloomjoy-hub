@@ -1,3 +1,5 @@
+import { parseNayaxMachineAuthorizationTime } from './nayax-machine-authorization-time.mjs';
+
 export const NAYAX_REFUND_PRODUCTION_BASE_URL =
   "https://lynx.nayax.com/operational/v1";
 
@@ -329,15 +331,7 @@ const parseProviderInteger = (value, label, maximum) => {
 };
 
 const parseMachineAuthorizationTime = (value) => {
-  const normalized = text(value, 80);
-  if (
-    !normalized ||
-    !/(?:Z|[+-]\d{2}:\d{2})$/i.test(normalized) ||
-    !Number.isFinite(Date.parse(normalized))
-  ) {
-    throw new Error("Nayax MachineAuTime must be a timezone-qualified date-time.");
-  }
-  return normalized;
+  return parseNayaxMachineAuthorizationTime(value);
 };
 
 const providerAmount = (amountCents, amountUnit) => {

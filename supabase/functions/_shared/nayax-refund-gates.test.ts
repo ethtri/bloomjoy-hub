@@ -42,18 +42,18 @@ Deno.test("missing production configuration reports every genuine safety gate", 
   }
 });
 
-Deno.test("all environment gates open cannot bypass the immutable remaining-value guard", () => {
+Deno.test("all environment gates open still require exact-case remaining-value evidence", () => {
   const config = resolveNayaxRefundExecutionConfig(envReader(enabledConfig));
   let providerCalls = 0;
   if (config.blocks.length === 0) providerCalls += 1;
   assert(
-    NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED === false,
-    "remaining-value support must be an immutable reviewed code decision",
+    NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED === true,
+    "remaining-value support requires the reviewed per-case verification boundary",
   );
   assert(
     config.blocks.length === 1 &&
       config.blocks[0] === "provider_remaining_value_unverified",
-    "the normal direct API path must stay hard-disabled with every env gate open",
+    "the normal direct API path must remain blocked without transaction evidence",
   );
   assert(providerCalls === 0, "the provider boundary must remain unreachable");
   assert(
