@@ -398,6 +398,9 @@ set constraints all immediate;
 alter table public.refund_case_messages enable trigger aa_refund_receipt_completion_identity;
 alter table public.refund_completion_notice_adoptions enable trigger refund_completion_notice_adoptions_immutable;
 alter table public.refund_authoritative_receipts enable trigger refund_authoritative_receipts_immutable;
+-- The earlier flush was only to restore triggers. Check lifecycle constraints
+-- after the named attempt/case fixtures have both been removed at commit.
+set constraints all deferred;
 delete from public.refund_gmail_messages where gmail_thread_id='af700000-0000-4000-8000-000000000001';
 delete from public.refund_gmail_threads where id='af700000-0000-4000-8000-000000000001';
 delete from public.refund_payout_destination_follow_ups where id='af930000-0000-4000-8000-000000000001';
