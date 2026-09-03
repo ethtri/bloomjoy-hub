@@ -1,4 +1,4 @@
-import { hashCorrectionToken, validateCorrectionAnswers, type CorrectionContext } from './refund-correction.ts';
+import { hashCorrectionToken, updateCorrectionAnswer, validateCorrectionAnswers, type CorrectionAnswers, type CorrectionContext } from './refund-correction.ts';
 const context: CorrectionContext = { state: 'ready', requestedFields: ['card_last4'], allowedFields: ['card_last4','amount','incident_date','incident_time','payment_method','payment_interaction'], values: { card_last4: '1234' } };
 const assert = (value: unknown) => { if (!value) throw new Error('Assertion failed'); };
 const rejects = (input: unknown, ctx = context) => { let threw = false; try { validateCorrectionAnswers(input,ctx); } catch { threw = true; } assert(threw); };
@@ -53,4 +53,23 @@ Deno.test('changing payment context drops inapplicable requested questions', () 
   const physical=validateCorrectionAnswers({payment_interaction:{disposition:'changed',value:'tap_card'},card_last4:{disposition:'confirmed'}},
     {...cardContext,requestedFields:['wallet_provider'],values:{payment_method:'card',payment_interaction:'phone_watch_wallet',card_last4:'1234'}});
   assert(physical.payment_interaction?.value==='tap_card' && !physical.wallet_provider);
+});
+
+Deno.test('unchanged payment confirmations preserve entered dependent answers; real changes clear them', () => {
+  const ctx: CorrectionContext={state:'ready',values:{payment_method:'card',payment_interaction:'phone_watch_wallet'}};
+  const prior: CorrectionAnswers={card_last4:{disposition:'changed',value:'5678'},wallet_provider:{disposition:'changed',value:'apple_pay'},card_network:{disposition:'confirmed'}};
+  for(const field of ['payment_method','payment_interaction'] as const) {
+    for(const answer of [{disposition:'confirmed' as const},{disposition:'changed' as const,value:ctx.values![field]}]) {
+      const next=updateCorrectionAnswer(prior,field,answer,ctx);
+      assert(next.card_last4===prior.card_last4 && next.wallet_provider===prior.wallet_provider && next.card_network===prior.card_network);
+    }
+  }
+  const cash=updateCorrectionAnswer(prior,'payment_method',{disposition:'changed',value:'cash'},ctx);
+  assert(!cash.card_last4 && !cash.wallet_provider && !cash.card_network && !cash.payment_interaction);
+  const physical=updateCorrectionAnswer(prior,'payment_interaction',{disposition:'changed',value:'tap_card'},ctx);
+  assert(!physical.card_last4 && !physical.wallet_provider && !physical.card_network);
+  const repeated=updateCorrectionAnswer({...physical,card_last4:prior.card_last4},'payment_interaction',{disposition:'changed',value:'tap_card'},ctx);
+  assert(repeated.card_last4===prior.card_last4);
+  const reverted=updateCorrectionAnswer(repeated,'payment_interaction',{disposition:'confirmed'},ctx);
+  assert(!reverted.card_last4);
 });
