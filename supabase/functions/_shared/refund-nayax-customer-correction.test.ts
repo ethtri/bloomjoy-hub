@@ -126,6 +126,28 @@ Deno.test("accepted price and time estimates do not ask the customer to repeat f
   }
 });
 
+Deno.test("an empty production lookup gives the customer no correction task", () => {
+  assert(deriveNayaxCustomerCorrectionFields({
+    recommendationState: "no_safe_match",
+    cardWalletUsed: false,
+    candidates: [],
+  }).length === 0, "no provider results are internal work, not evidence that customer facts are wrong");
+});
+
+Deno.test("persisted targeted conflicts retain the same field after status normalization", () => {
+  const fields = deriveNayaxCustomerCorrectionFields({
+    recommendationState: "no_safe_match",
+    cardWalletUsed: false,
+    candidates: [{ isTopRanked: true, reasonCodes: ["card_last4_mismatch"], hardExclusions: ["card_last4_mismatch"] }],
+  });
+  assert(JSON.stringify(fields) === JSON.stringify(["card_last4"]), "a reminder must retain the actual supported correction");
+  assert(deriveNayaxCustomerCorrectionFields({
+    recommendationState: "no_safe_match",
+    cardWalletUsed: false,
+    candidates: [{ isTopRanked: true, reasonCodes: ["card_last4_mismatch", "missing_canonical_machine_mapping"] }],
+  }).length === 0, "provider mapping remains internal after status normalization");
+});
+
 Deno.test("physical-card conflict email is branded, targeted, and reply-safe", () => {
   const email = buildNayaxCustomerCorrectionEmail({
     messageType: "no_safe_match",

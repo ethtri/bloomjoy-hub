@@ -163,6 +163,44 @@ Deno.test('manager state surfaces a direct-email bounce without changing payment
   );
 });
 
+Deno.test('confirmed receipt stays explicit alongside historical and current message exceptions', () => {
+  for (const messageType of ['status_update', 'completed']) {
+    for (const deliveryState of ['unknown', 'deferred', 'failed', 'bounced', 'complained'] as const) {
+      const confirmed = lifecycle('refund_confirmed', 70, 'review_accounting_date');
+      confirmed.paymentState = 'confirmed';
+      confirmed.reasonCode = 'settlement_time_unknown';
+      const result = getRefundManagerState({
+        ...baseCase,
+        status: 'card_refund_pending',
+        providerOutcome: 'unconfirmed',
+        lifecycle: confirmed,
+        customerDeliveryException: {
+          state: deliveryState, messageType, recoveryOwner: 'refund_operations',
+          nextAction: 'review_delivery_no_resend', customerMessageReplayAllowed: false,
+          paymentReplayAllowed: false,
+        },
+      });
+      assertEquals(result.label, 'Refund confirmed · delivery review', `${messageType}/${deliveryState} label`);
+      assertEquals(result.explanation.startsWith('The payment provider confirmed the full refund.'), true, 'Payment evidence stays first');
+      assertEquals(result.nextStep.includes('message-delivery and accounting-date review'), true, 'Both internal reviews remain visible');
+      assertEquals(result.nextStep.includes('Do not retry payment or resend'), true, 'No new financial or message action');
+      assertEquals(result.tone, 'warning', 'Delivery exception is not hidden');
+    }
+  }
+});
+
+Deno.test('a completion delivery failure after customer notification retains confirmed payment', () => {
+  const notified = lifecycle('customer_notified', 80);
+  notified.paymentState = 'confirmed';
+  const result = getRefundManagerState({ ...baseCase, lifecycle: notified,
+    customerDeliveryException: { state: 'bounced', messageType: 'completed',
+      recoveryOwner: 'refund_operations', nextAction: 'review_delivery_no_resend',
+      customerMessageReplayAllowed: false, paymentReplayAllowed: false } });
+  assertEquals(result.label, 'Refund confirmed · delivery review', 'Confirmed payment remains explicit');
+  assertEquals(result.explanation.includes('The customer address bounced.'), true, 'Current completion failure remains explicit');
+  assertEquals(result.nextStep.includes('accounting-date'), false, 'No invented accounting exception');
+});
+
 Deno.test('an active money action remains more urgent than an earlier delivery exception', () => {
   const result = getRefundManagerState(
     {

@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "1805533f77974f726381cfe1a5c254e2dc256b5e",
+  "sourceGitCommit": "8834c6c34851129c8e23417c83fc03269147559e",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -243,7 +243,7 @@
     {
       "slug": "refund-case-automation-sweep",
       "verifyJwt": false,
-      "sourceSha256": "de6f3d32a9d59836fa0014e8a2b0c40402f5faea9c79f26cae1fa2b38a900eac",
+      "sourceSha256": "bbfcf6a8cd9ee1e5d4671b3e9927dcdfb2202316d95349be2bd5f7603d80d192",
       "production": {
         "version": 108,
         "ezbrSha256": "e6f05bf8104e1eab5d617a2abd424827672b63b9f38ff6e95ad8210c7b5ae8bb",
