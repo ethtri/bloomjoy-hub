@@ -335,7 +335,7 @@ values
     '79600000-0000-4000-8000-000000000009', 'RF-OFFICIAL-CANDIDATE',
     '79300000-0000-4000-8000-000000000001', '79200000-0000-4000-8000-000000000001',
     'candidate-customer@example.test', null, 'Candidate immutability safety fixture',
-    now() - interval '90 minutes', 'card', 450, '4242', 'needs_review', 'needs_nayax', null, 0,
+    now() - interval '90 minutes', 'card', 440, '4242', 'needs_review', 'needs_nayax', null, 0,
     null, null, null, null, null, 450,
     null, null, null, null, null, null, null, null, null, false
   ),
@@ -1729,6 +1729,7 @@ select ok(
     select status = 'needs_review'
       and decision is null
       and refund_amount_cents = 450
+      and payment_amount_cents = 440
       and matched_nayax_transaction_id = 'SAFE-TXN-79600009-ALTERED'
       and matched_nayax_amount_cents = 450
       and matched_nayax_currency_code = 'USD'
@@ -1747,7 +1748,7 @@ select ok(
       and actor_user_id = '79000000-0000-4000-8000-000000000001'
       and metadata ->> 'payload_redacted' = 'true'
   ),
-  'Manager-confirmed manual-exception evidence remains auditable without controlling refund readiness'
+  'Selection preserves the reported estimate and uses the full provider total without approving a refund'
 );
 
 select ok(

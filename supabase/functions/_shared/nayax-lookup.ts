@@ -181,6 +181,7 @@ const parseIncidentAt = (value: unknown) => {
 };
 
 const sanitizeInputCents = (value: unknown) => {
+  if (value === null || value === undefined || value === "" || typeof value === "boolean") return null;
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric >= 0 ? Math.round(numeric) : null;
 };
@@ -749,7 +750,7 @@ const lookupGroupedLivermoreCandidates = async ({
       windowHours,
     };
     const preliminary = buildNayaxRecommendation(recommendationInput) as {
-      candidates: NayaxProviderCandidate[];
+      consideredTransactionIds: string[];
     };
     return { input, payload, recommendationInput, preliminary };
   }));
@@ -761,7 +762,7 @@ const lookupGroupedLivermoreCandidates = async ({
     supabase,
     caseId: refundCase.id,
     transactionIds: providerResults.flatMap((result) =>
-      result.preliminary.candidates.map((candidate: NayaxProviderCandidate) => candidate.transactionId)
+      result.preliminary.consideredTransactionIds
     ),
   });
   const localRecommendations = providerResults.map((result) => ({
@@ -1125,12 +1126,12 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     windowHours,
   };
   const preliminary = buildNayaxRecommendation(commonRecommendationInput) as {
-    candidates: NayaxProviderCandidate[];
+    consideredTransactionIds: string[];
   };
   const transactionStates = await loadNayaxTransactionStates({
     supabase,
     caseId,
-    transactionIds: preliminary.candidates.map((candidate) => candidate.transactionId),
+    transactionIds: preliminary.consideredTransactionIds,
   });
   const recommendation = buildNayaxRecommendation({
     ...commonRecommendationInput,

@@ -77,7 +77,6 @@ export const deriveNayaxCustomerCorrectionFields = ({
   }
   if (
     reasons.has("incident_time_too_far") ||
-    reasons.has("customer_time_within_1_hour") ||
     reasons.has("customer_time_rough")
   ) {
     return ["incident_time"];

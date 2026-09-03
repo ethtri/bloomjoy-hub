@@ -7,11 +7,12 @@ import { buildNayaxCandidateContext } from "./nayax-machine-context.mjs";
 // API expose advisory words (strong evidence, compare candidates, manual review)
 // instead of presenting these points as a percentage.
 export const NAYAX_RECOMMENDATION_POLICY = Object.freeze({
-  version: "2026-09-03.v6",
+  version: "2026-09-03.v7",
   candidateLimit: 10,
   lookupWindowHours: 6,
   highConfidenceMinimumPoints: 80,
   maximumOneClickTimeDeltaMinutes: 60,
+  maximumStrongCardAmountDeltaCents: 300,
   maximumUniqueQrLagMinutes: 30,
   maximumUniqueQrIncidentDeltaMinutes: 180,
   weights: Object.freeze({
@@ -232,6 +233,7 @@ const extractLast4 = (value) => {
 };
 
 const asNonNegativeCents = (value) => {
+  if (value === null || value === undefined || value === "" || typeof value === "boolean") return null;
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric >= 0 ? Math.round(numeric) : null;
 };
@@ -298,15 +300,20 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     addReason(reasonCodes, "incident_time_exact");
   }
 
-  if (["within_1_hour", "rough"].includes(request.incidentTimeConfidence)) {
+  if (request.incidentTimeConfidence === "rough") {
     addReason(manualReviewReasons, `customer_time_${request.incidentTimeConfidence}`);
     addReason(reasonCodes, `customer_time_${request.incidentTimeConfidence}`);
     matchFactors.push(factor(
       "customer_time_confidence",
       "manual",
-      request.incidentTimeConfidence === "rough"
-        ? "Customer said the purchase time is only a rough estimate"
-        : "Customer said the purchase time may be off by about an hour",
+      "Customer said the purchase time is only a rough estimate",
+    ));
+  } else if (request.incidentTimeConfidence === "within_1_hour") {
+    addReason(reasonCodes, "customer_time_within_1_hour");
+    matchFactors.push(factor(
+      "customer_time_confidence",
+      "partial",
+      "Customer estimated the purchase time within about an hour",
     ));
   } else if (request.incidentTimeConfidence === "within_15_minutes") {
     addReason(reasonCodes, "customer_time_within_15_minutes");
@@ -359,11 +366,10 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     rankingPoints += weights.exactAmount;
     addReason(reasonCodes, "amount_exact");
     matchFactors.push(factor("amount", "match", "Transaction amount matches exactly"));
-  } else if (amountDeltaCents !== null && amountDeltaCents <= 50) {
+  } else if (amountDeltaCents !== null && amountDeltaCents <= policy.maximumStrongCardAmountDeltaCents) {
     rankingPoints += weights.nearAmount;
-    addReason(manualReviewReasons, "amount_uncertain");
-    addReason(reasonCodes, "amount_uncertain");
-    matchFactors.push(factor("amount", "partial", `Transaction amount differs by ${amountDeltaCents} cents`));
+    addReason(reasonCodes, "amount_within_tolerance");
+    matchFactors.push(factor("amount", "partial", `Transaction amount differs by $${(amountDeltaCents / 100).toFixed(2)}; this may reflect tax or rounding`));
   } else if (amountDeltaCents !== null) {
     addReason(manualReviewReasons, "amount_mismatch");
     addReason(reasonCodes, "amount_mismatch");
@@ -552,6 +558,7 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
 
   const selectionAllowed = hardExclusions.length === 0;
   const providerEvidenceComplete =
+    candidate.amountCents > 0 &&
     candidate.siteId !== null &&
     candidate.providerTimeResolution === "exact" &&
     candidate.machineTimeResolution === "exact" &&
@@ -559,22 +566,26 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     candidate.currencyCode === "USD" &&
     candidate.paymentStatus === "approved" &&
     !candidate.duplicateProviderRecord;
-  const commonExactEvidence =
+  const commonProviderEvidence =
     selectionAllowed &&
-    amountDeltaCents === 0 &&
     candidate.providerMachineId === request.expectedMachineId &&
     request.incidentTimeResolution === "exact" &&
-    !["within_1_hour", "rough"].includes(request.incidentTimeConfidence) &&
+    request.incidentTimeConfidence !== "rough" &&
     providerEvidenceComplete;
   const strongCardEligible =
-    commonExactEvidence &&
+    commonProviderEvidence &&
+    request.amountCents > 0 &&
+    amountDeltaCents !== null &&
+    amountDeltaCents <= policy.maximumStrongCardAmountDeltaCents &&
     Boolean(request.cardLast4) &&
     Boolean(candidate.cardLast4) &&
     request.cardLast4 === candidate.cardLast4 &&
     candidate.timeDeltaMinutes <= policy.maximumOneClickTimeDeltaMinutes &&
     rankingPoints >= policy.highConfidenceMinimumPoints;
   const uniqueQrTimeEligible =
-    commonExactEvidence &&
+    commonProviderEvidence &&
+    amountDeltaCents === 0 &&
+    request.incidentTimeConfidence !== "within_1_hour" &&
     request.qrClaimEvidenceStatus === "verified" &&
     candidate.qrTimeDeltaMinutes !== null &&
     candidate.qrTimeDeltaMinutes >= 0 &&
@@ -767,7 +778,6 @@ export const buildNayaxRecommendation = ({
       left.timeDeltaMinutes - right.timeDeltaMinutes ||
       left.authorizedAt.localeCompare(right.authorizedAt) ||
       left.transactionId.localeCompare(right.transactionId))
-    .slice(0, policy.candidateLimit)
     .map((candidate, index) => ({ ...candidate, recommendationRank: index + 1, isTopRanked: index === 0 }));
 
   const topOverall = candidates[0] ?? null;
@@ -827,7 +837,13 @@ export const buildNayaxRecommendation = ({
       confidenceClass: isRecommended ? confidenceClass : "ambiguous_manual",
       matchStrength,
     };
-  });
+  })
+    // Determine uniqueness across every in-window sale before limiting display.
+    // Keep a uniquely recommended sale visible even when blocked rows score higher.
+    .sort((left, right) => Number(right.isRecommended) - Number(left.isRecommended) ||
+      Number(right.matchStrength === "compare") - Number(left.matchStrength === "compare") ||
+      left.recommendationRank - right.recommendationRank)
+    .slice(0, policy.candidateLimit);
 
   const copy = {
     high_confidence: confidenceClass === "unique_qr_time"
@@ -836,7 +852,7 @@ export const buildNayaxRecommendation = ({
           recommendedAction: "Verify the sale in Nayax and use the manual portal path. QR/time evidence does not enable one-click refund.",
         }
       : {
-          summary: "Nayax found exactly one sale with matching card, machine, amount, and reported time.",
+          summary: `Nayax found one sale with matching card digits on this machine, within ${policy.maximumOneClickTimeDeltaMinutes} minutes and $${(policy.maximumStrongCardAmountDeltaCents / 100).toFixed(2)} of the reported purchase.`,
           recommendedAction: request.cardWalletUsed
             ? "Verify the wallet sale in Nayax and use the manual portal path. One-click refund stays unavailable."
             : "Confirm the recommended sale. Only then may the separately guarded refund action become eligible.",
@@ -859,6 +875,8 @@ export const buildNayaxRecommendation = ({
 
   return {
     policyVersion: policy.version,
+    // Private lookup input for checking every original, independent of UI limits.
+    consideredTransactionIds: [...normalizedByTransaction.keys()],
     recommendationState,
     confidenceClass,
     reasonCodes: resultReasonCodes,

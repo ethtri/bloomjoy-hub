@@ -14,6 +14,13 @@ const assert = (condition, message) => {
   if (!condition) throw new Error(message);
 };
 
+assert(
+  lookup.includes("result.preliminary.consideredTransactionIds") &&
+    lookup.includes("transactionIds: preliminary.consideredTransactionIds") &&
+    !lookup.includes("preliminary.candidates.map"),
+  "both single and grouped lookups must check local refund state for all considered originals before display limits",
+);
+
 assert(automatic.includes("deriveRefundMissingFields"), "automatic trigger must reuse the canonical readiness helper");
 assert(automatic.includes("lookupNayaxCandidatesForRefundCase"), "automatic trigger must reuse the existing Nayax lookup");
 assert(!automatic.includes("nayax-card-refund"), "automatic lookup must not invoke the refund adapter");
