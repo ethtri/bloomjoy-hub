@@ -47,7 +47,16 @@ exception when others then return jsonb_build_object('ok',false,'sqlstate',sqlst
 create function refund_external_recovery_race_test.wait_blocked(app text) returns boolean
 language plpgsql as $$ declare deadline timestamptz:=clock_timestamp()+interval '5 seconds'; begin
  loop
+   perform pg_stat_clear_snapshot();
    if exists(select 1 from pg_stat_activity where application_name=app and cardinality(pg_blocking_pids(pid))>0) then return true; end if;
+   exit when clock_timestamp()>=deadline; perform pg_sleep(0.01);
+ end loop; return false;
+end; $$;
+create function refund_external_recovery_race_test.wait_held(app text) returns boolean
+language plpgsql as $$ declare deadline timestamptz:=clock_timestamp()+interval '5 seconds'; begin
+ loop
+   perform pg_stat_clear_snapshot();
+   if exists(select 1 from pg_stat_activity where application_name=app and wait_event='PgSleep') then return true; end if;
    exit when clock_timestamp()>=deadline; perform pg_sleep(0.01);
  end loop; return false;
 end; $$;
@@ -74,6 +83,9 @@ where reporting_machine_id='bf300000-0000-4000-8000-000000000002'
 commit;
 select is((select result->>'sqlstate' from extensions.dblink_get_result('external_recovery_b') result(result jsonb)),
  '42501','A committed concurrent revocation wins and recovery fails closed');
+-- libpq requires the terminating empty result before this connection can run
+-- another asynchronous query.
+select count(*) from extensions.dblink_get_result('external_recovery_b') result(result jsonb);
 select ok(not exists(select 1 from public.refund_external_operator_recoveries
  where refund_case_id='bf400000-0000-4000-8000-000000000002'),
  'Revocation loser creates no recovery record');
@@ -85,7 +97,8 @@ where reporting_machine_id='bf300000-0000-4000-8000-000000000002'
 -- update must visibly wait for that row and then fail against the intake guard.
 select extensions.dblink_send_query('external_recovery_a',
  'select refund_external_recovery_race_test.recover(3,4)');
-select pg_sleep(0.1);
+select ok(refund_external_recovery_race_test.wait_held('external_recovery_a'),
+ 'The recovery has written its receipt and still holds the transaction open');
 select extensions.dblink_send_query('external_recovery_b',
  'select refund_external_recovery_race_test.stale_sweep(3)');
 select ok(refund_external_recovery_race_test.wait_blocked('external_recovery_b'),
@@ -94,6 +107,8 @@ select ok((select (result->>'ok')::boolean from extensions.dblink_get_result('ex
  'Recovery commits while the stale lookup is waiting');
 select is((select result->>'sqlstate' from extensions.dblink_get_result('external_recovery_b') result(result jsonb)),
  'P4667','The stale lookup loses after rechecking the recovered case');
+select count(*) from extensions.dblink_get_result('external_recovery_a') result(result jsonb);
+select count(*) from extensions.dblink_get_result('external_recovery_b') result(result jsonb);
 select is(public.refund_lifecycle_contract('bf400000-0000-4000-8000-000000000003')->>'stage',
  'customer_notified','The recovered receipt and notice remain visible after the stale race');
 
@@ -101,7 +116,8 @@ select is(public.refund_lifecycle_contract('bf400000-0000-4000-8000-000000000003
 -- immutable request digest and returns the idempotent already-recorded result.
 select extensions.dblink_send_query('external_recovery_a',
  'select refund_external_recovery_race_test.recover(1,4)');
-select pg_sleep(0.1);
+select ok(refund_external_recovery_race_test.wait_held('external_recovery_a'),
+ 'The first identical submission holds its uncommitted receipt');
 select extensions.dblink_send_query('external_recovery_b',
  'select refund_external_recovery_race_test.recover(1)');
 select ok(refund_external_recovery_race_test.wait_blocked('external_recovery_b'),
