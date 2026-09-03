@@ -233,7 +233,7 @@ begin
   sent_at:=(mail->>'sentAt')::timestamptz;
   if mail->>'senderEmail' is distinct from 'info@bloomjoysweets.com' or mail->>'replyToEmail' is distinct from 'info@bloomjoysweets.com'
     or mail->>'recipientEmail' is distinct from lower(btrim(c.customer_email))
-    or managers is null or cardinality(managers) not between 1 and 3 or cc is null or not(managers<@cc)
+    or managers is null or cardinality(managers) not between 1 and 4 or cc is null or not(managers<@cc)
     or exists(select 1 from unnest(cc) address where address !~ '^[^[:space:]@<>]+@[^[:space:]@<>]+\.[^[:space:]@<>]+$')
     or mail->>'providerMessageId' is null or mail->>'providerMessageId' !~ '^[a-f0-9]{8,64}$'
     or mail->>'providerThreadId' is null or mail->>'providerThreadId' !~ '^[a-f0-9]{8,64}$'
