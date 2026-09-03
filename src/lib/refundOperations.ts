@@ -2692,7 +2692,6 @@ export const fetchRefundAutomationHealth = async (): Promise<RefundAutomationHea
     status: validStatuses.includes(health.status as RefundAutomationHealthStatus)
       ? (health.status as RefundAutomationHealthStatus)
       : 'waiting',
-    reportFreshness: parseRefundReportFreshness(health.reportFreshness),
     lastRunAt: typeof health.lastRunAt === 'string' ? health.lastRunAt : null,
     lastSuccessAt: typeof health.lastSuccessAt === 'string' ? health.lastSuccessAt : null,
     lastRunStatus:
@@ -2768,6 +2767,7 @@ export const fetchRefundGmailHealth = async (): Promise<RefundGmailHealth> => {
     status: validStatuses.includes(health.status as RefundGmailHealthStatus)
       ? (health.status as RefundGmailHealthStatus)
       : 'waiting',
+    reportFreshness: parseRefundReportFreshness(health.reportFreshness),
     lastRunAt: typeof health.lastRunAt === 'string' ? health.lastRunAt : null,
     lastSuccessAt: typeof health.lastSuccessAt === 'string' ? health.lastSuccessAt : null,
     lastRunStatus:
