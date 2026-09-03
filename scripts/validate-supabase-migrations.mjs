@@ -162,6 +162,15 @@ function normalizeSqlLineEndings(directory) {
   }
 }
 
+export function prepareCorrectionMigrationWindowsRegression(tempSupabaseDir) {
+  // Apply the actual migration with Windows checkout bytes in every disposable
+  // validation, including Linux CI. Do not let general LF normalization mask a
+  // dollar-quoted source-match failure seen by the production Windows deploy.
+  const migrationPath = path.join(tempSupabaseDir, 'migrations', '20260903200000_refund_correction_message_delivery.sql');
+  const source = fs.readFileSync(migrationPath, 'utf8');
+  fs.writeFileSync(migrationPath, source.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n'), 'utf8');
+}
+
 export function getDatabaseEvidenceExpectations() {
   return {
     migrationCount: getMigrationFiles().length,
@@ -275,6 +284,7 @@ function writeTempSupabaseProject(tempRoot, projectId, dbPort, shadowPort) {
     });
   }
   normalizeSqlLineEndings(tempSupabaseDir);
+  prepareCorrectionMigrationWindowsRegression(tempSupabaseDir);
 
   const config = `project_id = "${projectId}"
 
