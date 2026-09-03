@@ -378,6 +378,7 @@ alter table public.refund_receipt_completion_intents enable trigger refund_recei
 delete from public.refund_completion_notice_adoptions where refund_case_id='af400000-0000-4000-8000-000000000001';
 delete from public.refund_authoritative_receipts where reporting_machine_id='af300000-0000-4000-8000-000000000001';
 delete from public.refund_case_messages where refund_case_id='af400000-0000-4000-8000-000000000002' and template_version='refund_receipt_completion_v1';
+set constraints all immediate;
 alter table public.refund_case_messages enable trigger aa_refund_receipt_completion_identity;
 alter table public.refund_completion_notice_adoptions enable trigger refund_completion_notice_adoptions_immutable;
 alter table public.refund_authoritative_receipts enable trigger refund_authoritative_receipts_immutable;

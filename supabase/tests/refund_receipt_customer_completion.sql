@@ -115,8 +115,8 @@ select is(pg_temp.capture_error($$insert into public.refund_case_messages(refund
   manual_delivery_expected_case_version) values('cf400000-0000-4000-8000-000000000003','completed','pending',
   'receipt-customer@example.invalid','Forged','Forged','refund_receipt_completed','refund_receipt_completion_v1',
   'deterministic_template','manual',gen_random_uuid(),'queued',1)$$),'42501','Knowing a receipt template cannot forge send authority');
-select lives_ok($$insert into public.refund_case_messages(refund_case_id,message_type,status,subject,body)
-  values('cf400000-0000-4000-8000-000000000003','manual_note','sent','Internal note','Synthetic note')$$,
+select lives_ok($$insert into public.refund_case_messages(refund_case_id,message_type,status,recipient_email,subject,body)
+  values('cf400000-0000-4000-8000-000000000003','manual_note','sent','receipt-customer@example.invalid','Internal note','Synthetic note')$$,
   'Unrelated supported service message writes keep their original privileges');
 reset role;
 select pg_temp.queue_completion(3);
