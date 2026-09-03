@@ -150,7 +150,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "preview": "vite preview",
-    "refunds:validate-scheduled-reports": "deno test --no-lock --allow-env --allow-read supabase/functions/_shared/nayax-scheduled-report.test.ts"
+    "refunds:validate-scheduled-reports": "deno test --no-lock --allow-env --allow-read supabase/functions/_shared/nayax-scheduled-report.test.ts && node --test scripts/refunds/refund-report-freshness.test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

@@ -19,6 +19,7 @@ import { toast } from 'sonner';
 import { isEdgeFunctionError } from '@/lib/edgeFunctions';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecycleProgress';
+import { RefundReportFreshnessAdvisory } from '@/components/refunds/RefundReportFreshnessAdvisory';
 import { RefundAuthoritativeReceiptPanel } from '@/components/refunds/RefundAuthoritativeReceiptPanel';
 import { RefundExternalRecoveryPanel } from '@/components/refunds/RefundExternalRecoveryPanel';
 import { hasConfirmedRefundReceipt } from '@/lib/refundAuthoritativeReceipt';
@@ -6530,6 +6531,10 @@ export default function AdminRefundsPage() {
               </Button>
             </div>
           </div>
+
+          {refundOperationsAccess && !isUsingDemoData && (
+            <RefundReportFreshnessAdvisory freshness={gmailHealth?.reportFreshness} />
+          )}
 
           {error && !isUsingDemoData && (
             <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
