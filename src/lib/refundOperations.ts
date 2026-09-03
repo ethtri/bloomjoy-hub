@@ -1932,6 +1932,7 @@ export const buildLocalRefundPublicSelections = (): RefundPublicSelection[] => [
 
 export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
   const managerEmail = 'machine-manager@example.test';
+  const correctionDemo = isLocalUatDemoForced() ? new URLSearchParams(window.location.search).get('correction') : null;
   const showInboundLinkReview = typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).get('inbound-link') === 'on';
 
@@ -1981,6 +1982,15 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
       {
         id: 'demo-nc-manual',
         publicReference: 'RF-UAT-NC-MANUAL',
+        ...(correctionDemo ? {
+          customerCorrectionFields: [] as RefundMissingField[],
+          customerCorrection: {state: correctionDemo==='waiting' ? 'pending' as const : 'submitted' as const,
+            requestedFields: ['card_last4'] as RefundMissingField[], requestedAt:'2026-09-03T18:00:00Z',respondedAt: correctionDemo==='waiting' ? null : '2026-09-03T19:00:00Z',
+            expiresAt:'2026-09-05T18:00:00Z',isActive:correctionDemo==='waiting',isUsable:correctionDemo==='waiting',deliveryStatus:'sent',deliveryState:'delivered',
+            recheckState:null,nextAction:'review' as const,previousValues:{card_last4:'1234'},
+            answers:correctionDemo==='waiting' ? null : {card_last4:{disposition:'cannot_provide' as const}},
+          },
+        } : {}),
         canPerformOfficialAction: showInboundLinkReview ? false : true,
         officialActionBlockReason: showInboundLinkReview
           ? 'inbound_link_review_required'
@@ -2059,6 +2069,15 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
                 {
                   caseId: 'demo-nc-manual',
                   publicReference: 'RF-UAT-NC-MANUAL',
+        ...(correctionDemo ? {
+          customerCorrectionFields: [] as RefundMissingField[],
+          customerCorrection: {state: correctionDemo==='waiting' ? 'pending' as const : 'submitted' as const,
+            requestedFields: ['card_last4'] as RefundMissingField[], requestedAt:'2026-09-03T18:00:00Z',respondedAt: correctionDemo==='waiting' ? null : '2026-09-03T19:00:00Z',
+            expiresAt:'2026-09-05T18:00:00Z',isActive:correctionDemo==='waiting',isUsable:correctionDemo==='waiting',deliveryStatus:'sent',deliveryState:'delivered',
+            recheckState:null,nextAction:'review' as const,previousValues:{card_last4:'1234'},
+            answers:correctionDemo==='waiting' ? null : {card_last4:{disposition:'cannot_provide' as const}},
+          },
+        } : {}),
                   locationName: 'Carolina Place',
                   machineLabel: 'Carolina Place',
                   incidentAt: demoIsoHoursAgo(2),
