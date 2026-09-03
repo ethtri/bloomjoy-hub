@@ -33,12 +33,17 @@ select lives_ok($$select public.service_issue_refund_purchase_correction('de0000
 select is((select requested_fields from public.refund_follow_up_cycles where id=(select(value#>>'{cycle,id}')::uuid from scope_cycle)),'{}'::text[],'Issuance preserves the original immutable cycle[]');
 select lives_ok($$update public.refund_case_messages set status='sent',sent_at=statement_timestamp() where id='de000000-0000-4000-8000-000000000006'$$,'Tracked sent state accepts the matching current capability');
 select is(public.service_get_refund_purchase_correction(repeat('e',64))->>'state','ready','Only sent scoped message opens its correction page');
-update public.refund_nayax_lookup_candidates set expires_at=statement_timestamp()-interval '1 second' where refund_case_id='de000000-0000-4000-8000-000000000005';
-select is(public.refund_purchase_correction_request_fields('de000000-0000-4000-8000-000000000005'),'{}'::text[],'Expired candidate evidence cannot authorize another question');
-update public.refund_nayax_lookup_candidates set expires_at=statement_timestamp()+interval '30 minutes' where refund_case_id='de000000-0000-4000-8000-000000000005';
 update public.refund_cases set nayax_lookup_generation=2 where id='de000000-0000-4000-8000-000000000005';
+insert into public.refund_nayax_lookup_candidates(refund_case_id,actor_user_id,reporting_machine_id,lookup_generation,provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+select refund_case_id,actor_user_id,reporting_machine_id,2,'provider-scope-expired',site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,statement_timestamp()-interval '1 second'
+from public.refund_nayax_lookup_candidates where refund_case_id='de000000-0000-4000-8000-000000000005' and lookup_generation=1;
+select is(public.refund_purchase_correction_request_fields('de000000-0000-4000-8000-000000000005'),'{}'::text[],'Expired candidate evidence cannot authorize another question');
+update public.refund_cases set nayax_lookup_generation=3 where id='de000000-0000-4000-8000-000000000005';
 select is(public.refund_purchase_correction_request_fields('de000000-0000-4000-8000-000000000005'),'{}'::text[],'Older generation cannot supply a fresh no-match question');
-update public.refund_nayax_lookup_candidates set lookup_generation=2,evidence_summary='{"is_top_ranked":true,"reason_codes":["amount_mismatch"],"hard_exclusions":["missing_canonical_machine_mapping"]}' where refund_case_id='de000000-0000-4000-8000-000000000005';
+insert into public.refund_nayax_lookup_candidates(refund_case_id,actor_user_id,reporting_machine_id,lookup_generation,provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+select refund_case_id,actor_user_id,reporting_machine_id,3,'provider-scope-internal',site_id,machine_authorization_time,amount_cents,card_last4,currency_code,
+ '{"is_top_ranked":true,"reason_codes":["amount_mismatch"],"hard_exclusions":["missing_canonical_machine_mapping"]}',statement_timestamp()+interval '30 minutes'
+from public.refund_nayax_lookup_candidates where refund_case_id='de000000-0000-4000-8000-000000000005' and lookup_generation=1;
 select is(public.refund_purchase_correction_request_fields('de000000-0000-4000-8000-000000000005'),'{}'::text[],'Internal machine mapping failures never become customer homework');
 insert into public.refund_cases(id,reporting_machine_id,reporting_location_id,customer_email,issue_summary,incident_at,incident_local_datetime,incident_timezone,incident_time_resolution,
  payment_method,payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_wallet_used,status,correlation_status,intake_source)
