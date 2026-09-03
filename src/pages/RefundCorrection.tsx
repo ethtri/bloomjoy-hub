@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { invokeEdgeFunction } from '@/lib/edgeFunctions';
 import { isLocalUatDemoForced } from '@/lib/refundOperations';
-import { correctionChoices, correctionFields, correctionLabels, isCorrectionToken, requiredCorrectionFields, validateCorrectionAnswers,
+import { correctionChoices, correctionFields, correctionLabels, isCorrectionToken, requiredCorrectionFields, updateCorrectionAnswer, validateCorrectionAnswers,
   type CorrectionAnswer, type CorrectionAnswers, type CorrectionContext, type CorrectionField,
 } from '../../supabase/functions/_shared/refund-correction';
 
@@ -62,21 +62,14 @@ export default function RefundCorrectionPage() {
     return () => meta.remove();
   }, [token]);
   useEffect(() => {
-    const openLink = () => { setToken(initialToken()); setAnswers({}); setReceived(false); setError(''); };
+    const openLink = () => { setToken(initialToken()); setAnswers({}); setReviewOthers(false); setReceived(false); setError(''); };
     window.addEventListener('hashchange', openLink);
     return () => window.removeEventListener('hashchange', openLink);
   }, []);
   useEffect(() => { if (received) resultRef.current?.focus(); }, [received]);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const update = (field: CorrectionField, answer: CorrectionAnswer) => {
-    setAnswers((prior) => {
-      const next = { ...prior, [field]: answer };
-      if (field === 'payment_method' || field === 'payment_interaction') {
-        for (const dependent of ['card_last4','wallet_provider','card_network'] as const) delete next[dependent];
-        if (field === 'payment_method') delete next.payment_interaction;
-      }
-      return next;
-    });
+    if (context) setAnswers((prior) => updateCorrectionAnswer(prior, field, answer, context));
     if (field === 'payment_method' || field === 'payment_interaction') setReviewOthers(true);
     setError('');
   };

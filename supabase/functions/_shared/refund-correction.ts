@@ -47,6 +47,16 @@ export const correctionChoices: Partial<Record<CorrectionField, Array<[string, s
   card_network: [['visa', 'Visa', 'Visa'], ['mastercard', 'Mastercard', 'Mastercard'], ['discover', 'Discover', 'Discover'], ['american_express', 'American Express', 'American Express'], ['other_unknown', 'Other / not sure', 'Otro / no sé']],
 };
 
+export function updateCorrectionAnswer(prior: CorrectionAnswers, field: CorrectionField, answer: CorrectionAnswer, context: CorrectionContext): CorrectionAnswers {
+  const next = { ...prior, [field]: answer };
+  const value = (answers: CorrectionAnswers) => answers[field]?.disposition === 'changed' ? answers[field]?.value : context.values?.[field];
+  if ((field === 'payment_method' || field === 'payment_interaction') && value(prior) !== value(next)) {
+    for (const dependent of ['card_last4','wallet_provider','card_network'] as const) delete next[dependent];
+    if (field === 'payment_method') delete next.payment_interaction;
+  }
+  return next;
+}
+
 export function requiredCorrectionFields(answers: CorrectionAnswers, context: CorrectionContext): CorrectionField[] {
   const required = new Set(context.requestedFields ?? []);
   const changed = (field: CorrectionField) => answers[field]?.disposition === 'changed' && answers[field]?.value !== context.values?.[field];
