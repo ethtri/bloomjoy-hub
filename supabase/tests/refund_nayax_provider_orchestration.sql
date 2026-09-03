@@ -3,6 +3,15 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
+-- Test-owner delegate exercises retained historical internals without reopening
+-- the retired production endpoint. Current service entry is tested separately.
+create function pg_temp.historical_reserve_v2(text,uuid,uuid,text,integer,integer,integer,text)
+returns jsonb language sql security definer set search_path='' as $$
+  select public.service_reserve_and_consume_nayax_refund_attempt_v2($1,$2,$3,$4,$5,$6,$7,$8);
+$$;
+revoke all on function pg_temp.historical_reserve_v2(text,uuid,uuid,text,integer,integer,integer,text) from public,anon,authenticated,service_role;
+grant execute on function pg_temp.historical_reserve_v2(text,uuid,uuid,text,integer,integer,integer,text) to service_role;
+
 select plan(61);
 
 create function pg_temp.capture_error(statement text)
@@ -258,13 +267,13 @@ select ok(
 select ok(
   not has_function_privilege('service_role',
     'public.service_reserve_and_consume_nayax_refund_attempt(text,uuid,uuid,text,integer,text)', 'execute')
-  and has_function_privilege('service_role',
+  and not has_function_privilege('service_role',
     'public.service_reserve_and_consume_nayax_refund_attempt_v2(text,uuid,uuid,text,integer,integer,integer,text)', 'execute')
   and has_function_privilege('service_role',
     'public.service_settle_nayax_refund_attempt(text,uuid,uuid,uuid,text,integer,text,text,text,text,text,text)', 'execute')
   and not has_function_privilege('authenticated',
     'public.service_reserve_and_consume_nayax_refund_attempt_v2(text,uuid,uuid,text,integer,integer,integer,text)', 'execute'),
-  'Only service role can enter the capped assertion-protected orchestration RPCs'
+  'Historical reservation is private; service retains only the protected settlement boundary'
 );
 select ok(
   not has_function_privilege(
@@ -330,7 +339,7 @@ select ok(
 
 set local role service_role;
 select ok(pg_temp.capture_error($sql$
-  select public.service_reserve_and_consume_nayax_refund_attempt_v2(
+  select pg_temp.historical_reserve_v2(
     null, '9a800000-0000-4000-8000-000000000001',
     '9a600000-0000-4000-8000-000000000001',
     'nayax-refund-' || repeat('1',64), 700, 100000, 100, 'USD')
@@ -343,14 +352,14 @@ select is((select status from public.refund_case_official_action_authorizations
 
 set local role service_role;
 select ok(pg_temp.capture_error($sql$
-  select public.service_reserve_and_consume_nayax_refund_attempt_v2(
+  select pg_temp.historical_reserve_v2(
     'gmail-gpt-scheduler', '9a800000-0000-4000-8000-000000000001',
     '9a600000-0000-4000-8000-000000000001',
     'nayax-refund-' || repeat('1',64), 700, 100000, 100, 'USD')
 $sql$) like '%executor identity required%',
   'Gmail, GPT, or scheduler-shaped assertion cannot obtain a provider claim');
 select ok(pg_temp.capture_error($sql$
-  select public.service_reserve_and_consume_nayax_refund_attempt_v2(
+  select pg_temp.historical_reserve_v2(
     'provider-test-executor', '9a800000-0000-4000-8000-000000000006',
     '9a600000-0000-4000-8000-000000000006',
     'nayax-refund-' || repeat('6',64), 700, 100000, 100, 'USD')
@@ -363,7 +372,7 @@ select is((select status from public.refund_case_official_action_authorizations
 
 set local role service_role;
 insert into pg_temp.nayax_provider_results (result_key, result)
-select 'success-reserve', public.service_reserve_and_consume_nayax_refund_attempt_v2(
+select 'success-reserve', pg_temp.historical_reserve_v2(
   'provider-test-executor', '9a800000-0000-4000-8000-000000000001',
   '9a600000-0000-4000-8000-000000000001',
   'nayax-refund-' || repeat('1',64), 700, 100000, 100, 'USD');
@@ -387,21 +396,21 @@ select is((select status from public.refund_case_official_action_authorizations
   'Attempt reservation and manager authorization consumption commit together');
 set local role service_role;
 select ok(pg_temp.capture_error($sql$
-  select public.service_reserve_and_consume_nayax_refund_attempt_v2(
+  select pg_temp.historical_reserve_v2(
     'provider-test-executor', '9a800000-0000-4000-8000-000000000002',
     '9a600000-0000-4000-8000-000000000002',
     'nayax-refund-' || repeat('2',64), 700, 0, 0, 'USD')
 $sql$) like '%Valid bounded Nayax daily caps are required%',
   'Missing or unbounded daily caps fail before receipt consumption');
 select ok(pg_temp.capture_error($sql$
-  select public.service_reserve_and_consume_nayax_refund_attempt_v2(
+  select pg_temp.historical_reserve_v2(
     'provider-test-executor', '9a800000-0000-4000-8000-000000000002',
     '9a600000-0000-4000-8000-000000000002',
     'nayax-refund-' || repeat('2',64), 700, 100000, 1, 'USD')
 $sql$) like '%daily refund count cap exceeded%',
   'The UTC-day count cap blocks a new provider attempt');
 select ok(pg_temp.capture_error($sql$
-  select public.service_reserve_and_consume_nayax_refund_attempt_v2(
+  select pg_temp.historical_reserve_v2(
     'provider-test-executor', '9a800000-0000-4000-8000-000000000002',
     '9a600000-0000-4000-8000-000000000002',
     'nayax-refund-' || repeat('2',64), 700, 700, 100, 'USD')
@@ -507,7 +516,7 @@ select ok(
 
 set local role service_role;
 insert into pg_temp.nayax_provider_results (result_key, result)
-select 'success-reserve-replay', public.service_reserve_and_consume_nayax_refund_attempt_v2(
+select 'success-reserve-replay', pg_temp.historical_reserve_v2(
   'provider-test-executor', '9a800000-0000-4000-8000-000000000001',
   '9a600000-0000-4000-8000-000000000001',
   'nayax-refund-' || repeat('1',64), 700, 100000, 100, 'USD');
@@ -756,7 +765,7 @@ select ok(
 -- Inject and settle rejection, timeout, and unknown through the same real RPCs.
 set local role service_role;
 insert into pg_temp.nayax_provider_results (result_key, result)
-select 'reserve-' || outcome, public.service_reserve_and_consume_nayax_refund_attempt_v2(
+select 'reserve-' || outcome, pg_temp.historical_reserve_v2(
   'provider-test-executor',
   ('9a800000-0000-4000-8000-' || lpad(series::text,12,'0'))::uuid,
   ('9a600000-0000-4000-8000-' || lpad(series::text,12,'0'))::uuid,
@@ -918,7 +927,7 @@ select ok(
 
 set local role service_role;
 insert into pg_temp.nayax_provider_results (result_key, result)
-select 'rejected-replay', public.service_reserve_and_consume_nayax_refund_attempt_v2(
+select 'rejected-replay', pg_temp.historical_reserve_v2(
   'provider-test-executor', '9a800000-0000-4000-8000-000000000002',
   '9a600000-0000-4000-8000-000000000002',
   'nayax-refund-' || repeat('2',64), 700, 100000, 100, 'USD');
@@ -943,7 +952,7 @@ insert into public.refund_case_nayax_refund_attempts (
 );
 set local role service_role;
 select ok(pg_temp.capture_error($sql$
-  select public.service_reserve_and_consume_nayax_refund_attempt_v2(
+  select pg_temp.historical_reserve_v2(
     'provider-test-executor', '9a800000-0000-4000-8000-000000000005',
     '9a600000-0000-4000-8000-000000000005',
     'nayax-refund-' || repeat('5',64), 700, 100000, 100, 'USD')

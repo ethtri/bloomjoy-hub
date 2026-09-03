@@ -56,11 +56,29 @@ begin
 end; $$;
 select ok(not has_table_privilege('authenticated','public.refund_nayax_execution_contexts','select'),'Execution identity is private');
 select ok(not has_table_privilege('service_role','public.refund_nayax_execution_contexts','insert'),'Service cannot forge execution snapshots');
+select ok(not exists(select 1 from (values
+  ('service_role','public.service_reserve_nayax_refund_manager_action(text,uuid,uuid,bigint,text,integer,integer,integer,text)'),
+  ('service_role','public.service_reserve_nayax_refund_manager_action_v2(text,uuid,uuid,bigint,text,integer,integer,integer,text,text,text)'),
+  ('service_role','public.service_reserve_and_consume_nayax_refund_attempt_v2(text,uuid,uuid,text,integer,integer,integer,text)'),
+  ('service_role','public.service_reserve_and_consume_nayax_controlled_pilot_attempt(text,uuid,text,text,uuid,uuid,text,integer,text,uuid)'),
+  ('authenticated','public.admin_consume_refund_nayax_controlled_pilot_intent(uuid,uuid,uuid,bigint,integer,text,text,text,text,text,uuid)')
+) retired(role_name,signature) where has_function_privilege(role_name,signature,'execute')),
+  'Every retired fresh-attempt entrypoint denies its former caller');
 select throws_ok($$select pg_temp.reserve_context(1,repeat('f',64))$$,'P4620',null,'Forged context cannot reserve money');
 select throws_ok($$select pg_temp.reserve_context(1,null,801)$$,'P4620',null,'Requested amount cannot exceed the selected original');
 select is(public.refund_case_nayax_manager_readiness('b7000000-0000-4000-8000-000000000001',
   'b7400000-0000-4000-8000-000000000001')->>'canIssueCardRefund','true','Selected purchase requires no remaining-balance attestation');
-create temp table verified_result as select pg_temp.reserve_context(1) result;
+create temp table current_execution_input as select public.service_get_refund_nayax_execution_context(
+  'verification-executor','b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000001') context;
+grant select on current_execution_input to service_role;
+create temp table verified_result(result jsonb);
+grant select,insert on verified_result to service_role;
+set local role service_role;
+insert into verified_result select public.service_reserve_nayax_refund_manager_action_v3(
+  'verification-executor','b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000001',
+  (context->>'caseVersion')::bigint,'nayax-refund-'||repeat('1',64),800,null,null,'USD',
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3',context->>'contextHash') from current_execution_input;
+reset role;
 select is((select result#>>'{attempt,shouldExecute}' from verified_result),'true','Normal manager action reserves the first request');
 select is(pg_temp.reserve_context(1)#>>'{attempt,shouldExecute}','false','Exact replay never reserves another request');
 select throws_ok($$select public.service_record_nayax_refund_provider_stage_v2('verification-executor',

@@ -289,12 +289,12 @@ select ok(
     'public.service_record_nayax_refund_provider_stage_v2(text,uuid,text,text,text,integer,text,boolean,text,text,text,text)',
     'execute'
   )
-  and has_function_privilege(
+  and not has_function_privilege(
     'service_role',
     'public.service_reserve_nayax_refund_manager_action_v2(text,uuid,uuid,bigint,text,integer,integer,integer,text,text,text)',
     'execute'
   ),
-  'Journal v2 remains executable by service_role for Edge rollback'
+  'Historical v2 journal remains callable but cannot reserve a fresh context-free attempt'
 );
 
 select ok(
