@@ -6,7 +6,7 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 ## Live Work
 
-- Refund API completion remains tracked in #990/#971; removal of the blanket balance gate, exact Machine AuTime binding and receipt-based customer completion are under review in PR #1116. Scheduled report delivery/format validation (#973) and final production outcome proof remain open.
+- Refund outcomes remain tracked in #628/#990/#971. The deployed release supports exact Machine AuTime binding, ordinary manager approval without a blanket balance prerequisite, authoritative receipt reconciliation, and suppression of empty customer correction requests. The live scheduled sweep retires unusable empty follow-ups without another customer email, and the manager header keeps confirmed payment separate from delivery review. The existing Colorado Mills pending request was completed through its supported portal continuation and independently confirmed; this is not API execution proof. The first native scheduled report arrived September 3 (#973), but its blank refund-status fields do not establish terminal confirmation. Reliable ingestion, a confirmed real API outcome, and the same-case correction flow (#1109) remain open. Use `Docs/REFUND_AGENT_OPERATIONS.md` and the latest issue bodies for current operating authority; dated launch/candidate snapshots below are historical.
 - Run `npm run agent:github-hygiene` before planning sprint work, branch syncs, or broad closeout.
 - Use issue labels, project status, PR checks, and latest issue/PR comments instead of static docs for task state.
 - Keep active blockers, UAT evidence, and closeout notes on the issue or PR where the work is happening.
