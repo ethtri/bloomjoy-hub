@@ -2,15 +2,6 @@ name: Refund UAT Evidence
 
 on:
   pull_request:
-    paths:
-      - 'src/**'
-      - 'supabase/functions/**'
-      - 'supabase/migrations/**'
-      - 'supabase/tests/**'
-      - 'scripts/refunds/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/refund-uat-evidence.yml'
   workflow_dispatch:
 
 permissions:
@@ -21,7 +12,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      required: ${{ steps.changes.outputs.required }}
+    steps:
+      - name: Checkout complete comparison history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classify refund release inputs
+        id: changes
+        if: github.event_name == 'pull_request'
+        env:
+          REFUND_SCOPE_BASE: ${{ github.event.pull_request.base.sha }}
+          REFUND_SCOPE_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/refunds/refund-change-scope.mjs "$REFUND_SCOPE_BASE" "$REFUND_SCOPE_HEAD"
   screenshots:
+    needs: scope
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.scope.result != 'success' || needs.scope.outputs.required != 'false')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:

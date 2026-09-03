@@ -32,6 +32,15 @@ export const requiredFunctionSlugs = [...historicalFunctionSlugs, ...additionalF
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const normalizeText = (value) => value.replace(/\r\n?/g, '\n');
 const normalizePath = (value) => value.split(path.sep).join('/');
+// Only prose in known documentation locations is release-neutral. Unknown paths,
+// all code (including new/renamed shared dependencies), configuration and assets
+// stay protected without relying on a list of refund filenames or import names.
+export const isRefundReleaseProtectedPath = (value) => {
+  if (typeof value !== 'string' || !value || value.includes('\\') ||
+      value.startsWith('/') || value.split('/').some((part) => !part || part === '.' || part === '..')) return true;
+  return !(/^[\w.-]+\.md$/.test(value) ||
+    /^(?:Docs|\.agents|\.codex\/agents)\/[\w./-]+\.md$/.test(value));
+};
 const projectRefPattern = /^[a-z0-9]{20}$/;
 const digestPattern = /^[a-f0-9]{64}$/;
 const gitCommitPattern = /^[a-f0-9]{40}$/;
@@ -1015,6 +1024,7 @@ export const validateReleaseManifestGitAnchorState = ({
   headGitCommit,
   sourceCommitExists,
   sourceIsAncestor,
+  squashEquivalentAnchor = null,
   worktreeIsClean,
   changedPaths,
   manifestRelativePath = 'scripts/refunds/refund-production-release.json',
@@ -1029,8 +1039,8 @@ export const validateReleaseManifestGitAnchorState = ({
     'Refund production sourceGitCommit does not exist as a Git commit'
   );
   assert(
-    sourceIsAncestor,
-    'Refund production sourceGitCommit is not an ancestor of the current release anchor'
+    sourceIsAncestor || gitCommitPattern.test(squashEquivalentAnchor ?? ''),
+    'Refund production sourceGitCommit is not an ancestor and has no verified squash-equivalent anchor'
   );
   assert(
     worktreeIsClean,
@@ -1041,16 +1051,52 @@ export const validateReleaseManifestGitAnchorState = ({
   const normalizedManifestPath = normalizePath(manifestRelativePath);
   const normalizedChangedPaths = changedPaths.map((entry) => normalizePath(String(entry)));
   assert(
-    normalizedChangedPaths.length === 1 &&
-      normalizedChangedPaths[0] === normalizedManifestPath,
-    'Only the refund production release manifest may differ between sourceGitCommit and the current release anchor'
+    normalizedChangedPaths.includes(normalizedManifestPath),
+    'Refund production release manifest must anchor sourceGitCommit before later release-neutral changes'
+  );
+  const unanchoredProtectedPaths = normalizedChangedPaths.filter(
+    (changedPath) =>
+      changedPath !== normalizedManifestPath && isRefundReleaseProtectedPath(changedPath)
+  );
+  assert(
+    unanchoredProtectedPaths.length === 0,
+    `Protected refund release paths changed after sourceGitCommit: ${unanchoredProtectedPaths.join(', ')}`
   );
 
   return {
     sourceGitCommit: manifest.sourceGitCommit,
     anchorGitCommit: headGitCommit,
     changedPaths: normalizedChangedPaths,
+    ...(squashEquivalentAnchor ? { squashEquivalentAnchor } : {}),
   };
+};
+
+// sourceGitCommit precedes its manifest-only commit, so that one manifest blob
+// necessarily differs after a squash. Require equality of the entire remaining
+// Git tree (including file modes), not only the function digests or path scope.
+// Search only the current first-parent history; detached branch refs are not
+// canonical evidence and need not survive branch deletion after a squash.
+const findSquashEquivalentAnchor = (rootDirectory, manifest, headGitCommit, manifestRelativePath) => {
+  const history = spawnSync('git', [
+    'log', '--first-parent', '--format=%H', headGitCommit, '--', manifestRelativePath,
+  ], { cwd: rootDirectory, encoding: 'utf8', windowsHide: true });
+  assert(!history.error && history.status === 0, 'Unable to inspect canonical refund manifest history');
+  for (const candidate of history.stdout.trim().split(/\r?\n/).filter(Boolean)) {
+    assert(gitCommitPattern.test(candidate), 'Invalid canonical refund manifest history');
+    const candidateSource = readGitFileAtCommit(rootDirectory, candidate, manifestRelativePath);
+    let candidateManifest;
+    try { candidateManifest = JSON.parse(candidateSource); } catch { return null; }
+    // Once this release's source pointer changes, older releases cannot prove it.
+    if (candidateManifest?.sourceGitCommit !== manifest.sourceGitCommit) return null;
+    const diff = spawnSync('git', [
+      'diff', '--name-only', '-z', '--no-renames', '--no-ext-diff', '--ignore-submodules=none',
+      manifest.sourceGitCommit, candidate,
+    ], { cwd: rootDirectory, encoding: 'utf8', windowsHide: true });
+    assert(!diff.error && diff.status === 0, 'Unable to verify squash-equivalent refund source');
+    const changedPaths = diff.stdout.split('\0').filter(Boolean);
+    if (changedPaths.length === 1 && changedPaths[0] === manifestRelativePath) return candidate;
+  }
+  return null;
 };
 
 export const assertReleaseGitWorktreeClean = (rootDirectory) => {
@@ -1133,7 +1179,7 @@ export const validateReleaseManifestGitAnchor = (rootDirectory, manifest) => {
 
   const diffResult = spawnSync(
     'git',
-    ['diff', '--name-only', '--no-renames', `${manifest.sourceGitCommit}..${headGitCommit}`],
+    ['diff', '--name-only', '-z', '--no-renames', `${manifest.sourceGitCommit}..${headGitCommit}`],
     {
       cwd: rootDirectory,
       encoding: 'utf8',
@@ -1145,10 +1191,9 @@ export const validateReleaseManifestGitAnchor = (rootDirectory, manifest) => {
     'Unable to inspect refund release anchor changed paths'
   );
   const changedPaths = diffResult.stdout
-    .split(/\r?\n/)
-    .map((entry) => entry.trim())
+    .split('\0')
     .filter(Boolean);
-  const manifestRelativePath = path.relative(rootDirectory, manifestPath);
+  const manifestRelativePath = normalizePath(path.relative(repoRoot, manifestPath));
   assert(
     manifestRelativePath &&
       !manifestRelativePath.startsWith('..') &&
@@ -1161,10 +1206,40 @@ export const validateReleaseManifestGitAnchor = (rootDirectory, manifest) => {
     headGitCommit,
     sourceCommitExists,
     sourceIsAncestor: ancestorResult.status === 0,
+    squashEquivalentAnchor: ancestorResult.status === 0 ? null : findSquashEquivalentAnchor(
+      rootDirectory, manifest, headGitCommit, manifestRelativePath
+    ),
     worktreeIsClean: assertReleaseGitWorktreeClean(rootDirectory),
     changedPaths,
     manifestRelativePath,
   });
+};
+
+// Opt-in retrieval for fresh canonical checkouts after GitHub deletes a squash
+// source branch. Retrieval never proves approval: all provenance and digest
+// validation still runs afterwards, and the manifest is never rewritten.
+export const fetchReviewedReleaseSource = (rootDirectory, manifest, {
+  runGit = (args) => spawnSync('git', args, {
+    cwd: rootDirectory, encoding: 'utf8', windowsHide: true,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+  }),
+} = {}) => {
+  validateManifestShape(manifest);
+  assert(manifest.projectRef === 'ygbzkgxktzqsiygjlqyg', 'Reviewed source retrieval requires the exact production project');
+  const origin = runGit(['remote', 'get-url', 'origin']);
+  assert(!origin.error && origin.status === 0 &&
+    ['https://github.com/ethtri/bloomjoy-hub.git', 'https://github.com/ethtri/bloomjoy-hub'].includes(origin.stdout.trim()),
+  'Reviewed source retrieval requires the exact Bloomjoy GitHub origin');
+  const exists = () => {
+    const result = runGit(['cat-file', '-e', `${manifest.sourceGitCommit}^{commit}`]);
+    assert(!result.error, 'Unable to inspect the pinned reviewed source');
+    return result.status === 0;
+  };
+  if (exists()) return { fetched: false, sourceGitCommit: manifest.sourceGitCommit };
+  const result = runGit(['fetch', '--no-tags', '--no-write-fetch-head', 'origin', manifest.sourceGitCommit]);
+  assert(!result.error && result.status === 0 && exists(),
+    'Unable to retrieve the exact pinned reviewed source from the Bloomjoy GitHub origin');
+  return { fetched: true, sourceGitCommit: manifest.sourceGitCommit };
 };
 
 const readCurrentGitCommit = () => {
@@ -1192,6 +1267,7 @@ const parseArguments = (argv) => {
     confirmProjectRef: '',
     output: '',
     writeLocal: false,
+    fetchReviewedSource: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -1202,6 +1278,7 @@ const parseArguments = (argv) => {
     else if (argument === '--capture-production') options.mode = 'capture';
     else if (argument === '--capture-predeployment') options.mode = 'baseline';
     else if (argument === '--write-local') options.writeLocal = true;
+    else if (argument === '--fetch-reviewed-source') options.fetchReviewedSource = true;
     else if (argument === '--project-ref') options.projectRef = argv[++index] ?? '';
     else if (argument === '--confirm-project-ref') options.confirmProjectRef = argv[++index] ?? '';
     else if (argument === '--output') options.output = argv[++index] ?? '';
@@ -1214,6 +1291,11 @@ const parseArguments = (argv) => {
 const main = () => {
   const options = parseArguments(process.argv.slice(2));
   let manifest = readJson(manifestPath);
+  if (options.fetchReviewedSource) {
+    assert(!options.writeLocal && options.mode !== 'baseline',
+      '--fetch-reviewed-source is only valid with normal release verification');
+    fetchReviewedReleaseSource(repoRoot, manifest);
+  }
 
   if (options.mode === 'baseline') {
     validateManifestShape(manifest, { allowPending: true });
