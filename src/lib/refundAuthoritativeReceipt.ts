@@ -1,4 +1,11 @@
 export type ReceiptNoticeChoice = { id: string; sentAt: string; subject: string; plainBody: string };
+export type ReceiptCompletionNotice = {
+  schemaVersion: 'refund_receipt_completion_v1'; receiptId: string; canQueue: boolean;
+  messageId: string | null; state: 'not_queued' | 'queued' | 'claimed' | 'sent' | 'failed' | 'delivery_unknown';
+  subject: string; body: string; recipientEmail: string; reviewBinding: string;
+  deliveryState: 'unknown' | 'sent' | 'accepted' | 'deferred' | 'delivered' | 'failed' | 'bounced' | 'complained';
+  payloadRedacted: true;
+};
 export const hasConfirmedRefundReceipt = (value: { lifecycle?: { reasonCode?: string; paymentState?: string; stage?: string } | null }) =>
   value.lifecycle?.reasonCode === 'settlement_time_unknown' && value.lifecycle.paymentState === 'confirmed' &&
   ['refund_confirmed', 'customer_notified'].includes(value.lifecycle.stage ?? '');
@@ -31,6 +38,7 @@ export type RefundReceiptOverview = {
     noticeVerification?: 'support_gmail_sent' | 'operator_observed' | null; supportThread?: boolean | null };
   historicalOwnerNoticeAvailable?: boolean; historicalOwnerNoticeCutoff?: string; historicalOwnerReviewBinding?: string | null;
   noticeChoices: ReceiptNoticeChoice[];
+  completionNotice?: ReceiptCompletionNotice;
 };
 
 // Review is bound to the exact rendered evidence, including current case version
@@ -56,6 +64,26 @@ export function parseRefundReceiptOverview(value: unknown): RefundReceiptOvervie
   if (v.receipt !== null && (!uuid(receipt.id) || !date(receipt.observedAt) || receipt.settlementTimePrecision !== 'unknown' ||
     typeof receipt.noticeAdopted !== 'boolean' || (receipt.noticeSentAt !== null && !date(receipt.noticeSentAt)) ||
     (receipt.managerCcVerified !== null && typeof receipt.managerCcVerified !== 'boolean'))) throw new Error('Reload the saved receipt evidence.');
+  let completionNotice: ReceiptCompletionNotice | undefined;
+  if (Object.hasOwn(v, 'completionNotice')) {
+    const completion = record(v.completionNotice);
+    if (v.receipt === null || completion.schemaVersion !== 'refund_receipt_completion_v1' || completion.receiptId !== receipt.id ||
+      typeof completion.canQueue !== 'boolean' || (completion.messageId !== null && !uuid(completion.messageId)) ||
+      !['not_queued', 'queued', 'claimed', 'sent', 'failed', 'delivery_unknown'].includes(String(completion.state)) ||
+      (completion.messageId === null) !== (completion.state === 'not_queued') ||
+      (completion.canQueue && (completion.messageId !== null || receipt.noticeAdopted)) ||
+      (completion.messageId !== null && receipt.noticeAdopted) ||
+      !bounded(completion.subject, 180) || !bounded(completion.body, 4000) || !bounded(completion.recipientEmail, 320) ||
+      !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(String(completion.recipientEmail)) ||
+      typeof completion.reviewBinding !== 'string' || !/^[a-f0-9]{64}$/.test(completion.reviewBinding) ||
+      !['unknown', 'sent', 'accepted', 'deferred', 'delivered', 'failed', 'bounced', 'complained'].includes(String(completion.deliveryState)) ||
+      completion.payloadRedacted !== true) throw new Error('Reload the confirmed-refund message.');
+    completionNotice = { schemaVersion: 'refund_receipt_completion_v1', receiptId: completion.receiptId as string,
+      canQueue: completion.canQueue, messageId: completion.messageId as string | null,
+      state: completion.state as ReceiptCompletionNotice['state'], subject: completion.subject as string,
+      body: completion.body as string, recipientEmail: completion.recipientEmail as string, reviewBinding: completion.reviewBinding,
+      deliveryState: completion.deliveryState as ReceiptCompletionNotice['deliveryState'], payloadRedacted: true };
+  }
   const choices = v.noticeChoices.map((item) => {
     const n = record(item);
     if (!uuid(n.id) || !date(n.sentAt) || typeof n.subject !== 'string' || !bounded(n.plainBody, 100000)) throw new Error('Reload the original thread evidence.');
@@ -88,9 +116,17 @@ export function parseRefundReceiptOverview(value: unknown): RefundReceiptOvervie
         noticeVerification: receipt.noticeVerification as 'support_gmail_sent' | 'operator_observed' | null,
         supportThread: receipt.supportThread as boolean | null } : {}) },
     noticeChoices: choices,
+    ...(completionNotice ? { completionNotice } : {}),
     ...(hasHistoricalOption ? { historicalOwnerNoticeAvailable: v.historicalOwnerNoticeAvailable as boolean,
       historicalOwnerNoticeCutoff: v.historicalOwnerNoticeCutoff as string, historicalOwnerReviewBinding: v.historicalOwnerReviewBinding as string | null } : {}),
   };
+}
+
+export function buildReceiptCompletionRequest(v: RefundReceiptOverview, intentId: string, reviewed: boolean) {
+  if (!v.receipt || v.receipt.noticeAdopted || !v.completionNotice?.canQueue || v.completionNotice.messageId ||
+    !uuid(intentId) || !reviewed) throw new Error('Review this exact refund and its existing sent notices before sending.');
+  return { p_case_id: v.caseId, p_receipt_id: v.receipt.id, p_expected_case_version: v.expectedCaseVersion,
+    p_intent_id: intentId, p_reviewed_no_existing_notice: true, p_expected_review_binding: v.completionNotice.reviewBinding };
 }
 
 export function buildReceiptRecordRequest(v: RefundReceiptOverview, evidenceReference: string, reviewed: boolean) {
@@ -103,7 +139,7 @@ export function buildReceiptRecordRequest(v: RefundReceiptOverview, evidenceRefe
 }
 
 export function buildReceiptAdoptionRequest(v: RefundReceiptOverview, messageId: string, reviewed: boolean) {
-  if (!v.receipt || v.receipt.noticeAdopted || !reviewed || !v.noticeChoices.some((n) => n.id === messageId)) throw new Error('Review this exact case’s existing sent notice first.');
+  if (!v.receipt || v.receipt.noticeAdopted || v.completionNotice?.messageId || !reviewed || !v.noticeChoices.some((n) => n.id === messageId)) throw new Error('Review this exact case’s existing sent notice first.');
   return { mode: 'adopt_completion_notice', caseId: v.caseId, receiptId: v.receipt.id, gmailMessageId: messageId,
     expectedCaseVersion: v.expectedCaseVersion, completionCaseReference: v.caseReference,
     completionOriginalTransactionId: v.originalTransactionId, completionAmountCents: v.originalAmountCents,

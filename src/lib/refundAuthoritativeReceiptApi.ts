@@ -30,3 +30,13 @@ export async function fetchRefundMachineCorrectionOptions(caseId: string) {
   if (error) throw new Error('Machine review requires current Super Admin access and active manager assignments.');
   return parseRefundMachineCorrectionOptions(data);
 }
+
+export async function queueRefundReceiptCompletion(input: ReturnType<typeof import('./refundAuthoritativeReceipt').buildReceiptCompletionRequest>) {
+  const { data, error } = await supabaseClient.rpc('admin_queue_refund_receipt_completion', input);
+  if (error || !data || data.enqueued !== true || data.payloadRedacted !== true ||
+    typeof data.messageId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(data.messageId) ||
+    !['queued', 'claimed', 'sent', 'failed', 'delivery_unknown'].includes(String(data.outboxState))) {
+    throw new Error('Reload the existing completion message before another action.');
+  }
+  return data;
+}

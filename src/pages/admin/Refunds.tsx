@@ -1658,7 +1658,7 @@ const primaryActionConfig = (
   if (hasConfirmedRefundReceipt(refundCase)) {
     return {
       label: 'Refund confirmed · accounting review',
-      helper: 'Payment is confirmed. The settlement date remains unknown. Review the saved receipt and any existing sent notice below; do not retry payment or resend.',
+      helper: 'Payment is confirmed. The settlement date remains unknown. Review the saved receipt and customer notification below; do not retry payment.',
       disabled: true,
     };
   }
@@ -5725,7 +5725,7 @@ export default function AdminRefundsPage() {
 
           {hasConfirmedRefundReceipt(selectedCase) ? (
             <p data-testid="refund-receipt-accounting-only" className="mt-4 border-t border-border pt-4 text-sm text-muted-foreground">
-              Payment is confirmed. Accounting-date review is internal work. No new payment or customer message is available here.
+              Payment is confirmed. Accounting-date review is internal work. Review customer communication in the saved receipt section; no new payment is available here.
             </p>
           ) : receiptCorrectionReviewActive ? (
             <p className="mt-4 border-t border-border pt-4 text-sm text-muted-foreground">Machine correction review only. No payment or customer message is available in this review.</p>

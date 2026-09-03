@@ -1,13 +1,51 @@
 /// <reference lib="deno.ns" />
 import { assertEquals, assertThrows } from 'jsr:@std/assert@1';
 import { QueryClient, QueryObserver } from 'npm:@tanstack/query-core@5.83.0';
-import { buildReceiptAdoptionRequest, buildReceiptRecordRequest, parseRefundReceiptOverview, refreshRefundReceiptViews, refundReceiptReviewSnapshot,
+import { buildReceiptAdoptionRequest, buildReceiptRecordRequest, buildReceiptCompletionRequest, parseRefundReceiptOverview, refreshRefundReceiptViews, refundReceiptReviewSnapshot,
   buildRefundMachineCorrectionRequest, parseRefundMachineCorrectionOptions, parseRefundMachineCorrectionEvidence, refundMachineCorrectionReviewSnapshot } from './refundAuthoritativeReceipt.ts';
 
 const overview = () => ({ schemaVersion: 'refund_receipt_overview_v1', visible: true,
   caseId: 'ad400000-0000-4000-8000-000000000001', caseReference: 'RF-RECEIPT-TEST', expectedCaseVersion: 4,
   canRecord: true, attemptId: null, attemptBindingKind: 'no_attempt_integrity_hold', accountScope: 'SYNTHETIC', providerMachineId: 'SYNTHETIC-MACHINE',
   originalTransactionId: '123456781', originalAmountCents: 700, currencyCode: 'USD', receipt: null, noticeChoices: [] });
+
+const completionOverview = () => ({ ...overview(), canRecord: false,
+  receipt: { id: 'ad900000-0000-4000-8000-000000000001', observedAt: '2026-09-03T15:00:00Z',
+    settlementTimePrecision: 'unknown', noticeAdopted: false, noticeSentAt: null, managerCcVerified: null },
+  completionNotice: { schemaVersion: 'refund_receipt_completion_v1', receiptId: 'ad900000-0000-4000-8000-000000000001',
+    canQueue: true, messageId: null, state: 'not_queued', subject: 'Your refund is confirmed',
+    body: 'Your $7.00 USD refund for RF-RECEIPT-TEST is confirmed.', recipientEmail: 'synthetic@example.invalid',
+    reviewBinding: 'a'.repeat(64), deliveryState: 'unknown', payloadRedacted: true },
+});
+Deno.test('receipt completion binds reviewed preview and cannot specify payment or accounting values', () => {
+  const v = parseRefundReceiptOverview(completionOverview())!;
+  const intent = 'ad700000-0000-4000-8000-000000000001';
+  assertThrows(() => buildReceiptCompletionRequest(v, intent, false));
+  const request = buildReceiptCompletionRequest(v, intent, true);
+  assertEquals(request, { p_case_id: v.caseId, p_receipt_id: v.receipt!.id, p_expected_case_version: v.expectedCaseVersion,
+    p_intent_id: intent, p_reviewed_no_existing_notice: true, p_expected_review_binding: 'a'.repeat(64) });
+  assertEquals(Object.hasOwn(request, 'body'), false);
+  assertEquals(Object.hasOwn(request, 'settledAt'), false);
+  assertEquals(refundReceiptReviewSnapshot(v) === refundReceiptReviewSnapshot({ ...v,
+    completionNotice: { ...v.completionNotice!, body: 'Changed preview', reviewBinding: 'b'.repeat(64) } }), false);
+});
+Deno.test('receipt completion parser rejects mismatched identity and strips private fields', () => {
+  const base = completionOverview();
+  assertThrows(() => parseRefundReceiptOverview({ ...base, completionNotice: { ...base.completionNotice, receiptId: 'another-receipt' } }));
+  assertThrows(() => parseRefundReceiptOverview({ ...base, completionNotice: { ...base.completionNotice, reviewBinding: '' } }));
+  assertThrows(() => parseRefundReceiptOverview({ ...base, completionNotice: { ...base.completionNotice, state: 'sent' } }));
+  const v = parseRefundReceiptOverview({ ...base, completionNotice: { ...base.completionNotice, providerMessageId: 'private' } })!;
+  assertEquals(Object.hasOwn(v.completionNotice!, 'providerMessageId'), false);
+});
+Deno.test('queued, sent and unknown completion states cannot authorize another message or adoption', () => {
+  const base = completionOverview();
+  for (const state of ['queued', 'claimed', 'sent', 'failed', 'delivery_unknown']) {
+    const v = parseRefundReceiptOverview({ ...base, completionNotice: { ...base.completionNotice,
+      canQueue: false, messageId: 'ad700000-0000-4000-8000-000000000001', state } })!;
+    assertThrows(() => buildReceiptCompletionRequest(v, 'ad700000-0000-4000-8000-000000000002', true));
+    assertThrows(() => buildReceiptAdoptionRequest(v, 'ad800000-0000-4000-8000-000000000001', true));
+  }
+});
 
 Deno.test('authorized overview is explicit and strips unrelated private fields', () => {
   const v = parseRefundReceiptOverview({ ...overview(), providerMessageId: 'not-visible', secret: 'not-visible' });

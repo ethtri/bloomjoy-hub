@@ -1,5 +1,7 @@
 # QA Smoke Test Checklist
 
+Confirmed refund with unknown settlement date (`#971`): in a synthetic mapped Refund Operations case, record a full-refund observation and verify no message is queued by that save. Review the existing correspondence, inspect the fixed completion preview, and select **Send refund confirmation**. Double-click/reload must retain one message. A changed preview invalidates review. Queued, sent, provider-accepted, failed and unknown delivery remain distinct after reload; none creates another payment or dated adjustment. Verify an adopted prior notice suppresses the new-send action, and an existing queued message suppresses adoption. Repeat at desktop and mobile widths.
+
 ## Current Nayax purchase verification (`#990`)
 
 - On `/admin/refunds`, use a mapped test manager and a selected card purchase. Saving the current purchase check must create no payment attempt or customer message. The existing Refund confirmation remains the money action.
