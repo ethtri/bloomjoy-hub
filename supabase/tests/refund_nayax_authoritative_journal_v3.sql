@@ -237,7 +237,7 @@ select a.id,c.id,jsonb_build_object('caseId',c.id,'reportingMachineId',m.id,'att
   'siteId',c.matched_nayax_site_id,'originalAmountCents',c.matched_nayax_amount_cents,'currencyCode',c.matched_nayax_currency_code)
 from public.refund_case_nayax_refund_attempts a join public.refund_cases c on c.id=a.refund_case_id
 join public.reporting_machines m on m.id=c.reporting_machine_id where a.id::text like '9f6%'
-  and a.id<>'9f600000-0000-4000-8000-000000000011';
+  and a.id not in ('9f600000-0000-4000-8000-000000000011','9f600000-0000-4000-8000-000000000012');
 insert into public.refund_nayax_provider_callers (caller_id, assertion_digest)
 values (
   'nayax-card-refund',

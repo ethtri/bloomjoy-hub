@@ -20,6 +20,13 @@ values('ad300000-0000-4000-8000-000000000001','ad100000-0000-4000-8000-000000000
   'ad200000-0000-4000-8000-000000000001','Receipt fixture','RECEIPT-MACHINE','RECEIPT-ACCOUNT');
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
 values('ad300000-0000-4000-8000-000000000001','ad000000-0000-4000-8000-000000000001','receipt-ops@example.invalid','Receipt fixture');
+-- Dedicated manual-only fixture keeps the receipt tests on the supported
+-- evidence/selection/authorization path; API fallback is tested separately.
+insert into public.reporting_machines(id,account_id,location_id,machine_label,nayax_refunds_enabled,
+  nayax_manual_portal_enabled,nayax_manual_account_scope,nayax_manual_portal_timezone)
+values('ad300000-0000-4000-8000-000000000002','ad100000-0000-4000-8000-000000000001','ad200000-0000-4000-8000-000000000001','Receipt manual fixture',false,true,'receipt_manual','America/Los_Angeles');
+insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
+values('ad300000-0000-4000-8000-000000000002','ad000000-0000-4000-8000-000000000001','receipt-ops@example.invalid','Synthetic manual receipt fixture');
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,issue_summary,
   incident_at,payment_method,payment_amount_cents,refund_amount_cents,card_last4,status,correlation_status,correlation_source,
   correlation_confidence,automation_state,matched_nayax_transaction_id,matched_nayax_amount_cents,matched_nayax_currency_code,
@@ -31,16 +38,12 @@ select ('ad400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-RECEIPT-'||n
   case when n=2 then 'ok' else 'hold' end,
   case when n=2 then null else 'card_payment_state_without_attempt' end,
   case when n=2 then null else now()-interval '1 day' end from generate_series(1,5) n;
--- Exercise the supported portal registration, not a hand-invented money attempt.
-update public.reporting_machines set nayax_refunds_enabled=true where id='ad300000-0000-4000-8000-000000000001';
-update public.refund_cases set status='needs_review',
-  nayax_recommendation_state='high_confidence',nayax_recommendation_policy_version='2026-07-21.v1',
-  nayax_match_execution_eligible=true,matched_nayax_site_id=97102,
-  matched_nayax_card_last4='4242',nayax_refund_execution_status='not_requested'
-  where id='ad400000-0000-4000-8000-000000000002';
-insert into public.refund_case_events(refund_case_id,actor_user_id,event_type,message,metadata)
-values('ad400000-0000-4000-8000-000000000002','ad000000-0000-4000-8000-000000000001',
-  'nayax_match_selected','Synthetic exact selection','{"payload_redacted":true}');
+update public.refund_cases set reporting_machine_id='ad300000-0000-4000-8000-000000000002',status='needs_review',decision=null,
+  correlation_status='not_started',correlation_source=null,matched_nayax_transaction_id=null,matched_nayax_site_id=null,
+  matched_nayax_amount_cents=null,matched_nayax_currency_code=null,matched_nayax_machine_auth_time=null,
+  matched_nayax_card_last4=null,nayax_recommendation_state=null,nayax_recommendation_policy_version=null,
+  nayax_match_execution_eligible=false,nayax_refund_execution_status='not_requested'
+where id='ad400000-0000-4000-8000-000000000002';
 
 create function pg_temp.set_receipt_auth(p_user_id uuid,p_session_id uuid)
 returns void language plpgsql as $$ begin
@@ -49,6 +52,14 @@ returns void language plpgsql as $$ begin
   perform set_config('request.jwt.claims',jsonb_build_object('sub',p_user_id,'role','authenticated','session_id',p_session_id,'is_anonymous',false)::text,true);
 end; $$;
 select pg_temp.set_receipt_auth('ad000000-0000-4000-8000-000000000001','ad010000-0000-4000-8000-000000000001');
+do $$ declare candidate jsonb; c public.refund_cases%rowtype; begin
+  select * into c from public.refund_cases where id='ad400000-0000-4000-8000-000000000002';
+  candidate:=public.admin_create_refund_manual_nayax_candidate(c.id,c.official_action_version,'RECEIPT-MACHINE',
+    '123456782',to_char(c.incident_at at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI:SS'),700,'4242');
+  select * into c from public.refund_cases where id=c.id;
+  perform public.service_select_refund_nayax_candidate_as_actor('ad000000-0000-4000-8000-000000000001',c.id,c.official_action_version,
+    (candidate->>'candidateToken')::uuid,null);
+end $$;
 set local role authenticated;
 select lives_ok($$select public.admin_begin_refund_manual_nayax_portal(
   'ad400000-0000-4000-8000-000000000002',
@@ -63,7 +74,7 @@ returns jsonb language plpgsql as $$ declare
 begin
   select official_action_version into v from public.refund_cases where id=case_id;
   select id into a from public.refund_case_nayax_refund_attempts where refund_case_id=case_id order by created_at desc limit 1;
-  x:=jsonb_build_object('attemptId',a,'version',v,'scope','RECEIPT-ACCOUNT','machine','RECEIPT-MACHINE',
+  x:=jsonb_build_object('attemptId',a,'version',v,'scope',case when n=2 then 'receipt_manual' else 'RECEIPT-ACCOUNT' end,'machine','RECEIPT-MACHINE',
     'original',(123456780+n)::text,'amount',700,'refunded',700,'currency','USD','status',62,
     'reference','DTM:NAYAX-'||(123456780+n)::text,'reviewedCurrent',true)||changes;
   return public.admin_record_refund_authoritative_receipt(case_id,(x->>'attemptId')::uuid,(x->>'version')::bigint,

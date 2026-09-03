@@ -101,10 +101,16 @@ select throws_ok($$select public.service_record_nayax_refund_provider_stage_v3('
 create temp table stale_context as select public.refund_nayax_selected_execution_context('b7400000-0000-4000-8000-000000000002') x;
 update public.refund_cases set card_last4='1234' where id='b7400000-0000-4000-8000-000000000002';
 select throws_ok($$select pg_temp.reserve_context(2,(select x->>'contextHash' from stale_context))$$,'P4620',null,'Edited case invalidates prior execution context');
-update public.refund_nayax_lookup_candidates set site_id=4 where refund_case_id='b7400000-0000-4000-8000-000000000003';
-select is(public.refund_nayax_selected_execution_context('b7400000-0000-4000-8000-000000000003'),null::jsonb,'Wrong site cannot supply the raw timestamp');
-update public.refund_nayax_lookup_candidates set evidence_summary=evidence_summary||'{"machine_authorization_time_source":"AuthorizationTimeGMT"}'
+create temp table changed_candidate_fixtures as select * from public.refund_nayax_lookup_candidates
+  where refund_case_id in ('b7400000-0000-4000-8000-000000000003','b7400000-0000-4000-8000-000000000004');
+delete from public.refund_nayax_lookup_candidates
+  where refund_case_id in ('b7400000-0000-4000-8000-000000000003','b7400000-0000-4000-8000-000000000004');
+update changed_candidate_fixtures set token=gen_random_uuid();
+update changed_candidate_fixtures set site_id=4 where refund_case_id='b7400000-0000-4000-8000-000000000003';
+update changed_candidate_fixtures set evidence_summary=evidence_summary||'{"machine_authorization_time_source":"AuthorizationTimeGMT"}'
   where refund_case_id='b7400000-0000-4000-8000-000000000004';
+insert into public.refund_nayax_lookup_candidates select * from changed_candidate_fixtures;
+select is(public.refund_nayax_selected_execution_context('b7400000-0000-4000-8000-000000000003'),null::jsonb,'Wrong site cannot supply the raw timestamp');
 select is(public.refund_nayax_selected_execution_context('b7400000-0000-4000-8000-000000000004'),null::jsonb,'GMT source cannot substitute for the machine clock');
 -- One actual normal reservation/start/unknown result may be independently
 -- confirmed through the existing receipt writer. No second payment or date.
