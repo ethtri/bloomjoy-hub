@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(34);
+select plan(37);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data) values('dd000000-0000-4000-8000-000000000004','authenticated','authenticated','correction-manager@example.invalid','{}','{}');
 insert into public.customer_accounts(id,name,account_type) values('dd000000-0000-4000-8000-000000000001','Scoped correction fixture','customer');
@@ -18,11 +18,11 @@ begin
     incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_network,status,correlation_status,intake_source)
   values(cid,'dd000000-0000-4000-8000-000000000003','dd000000-0000-4000-8000-000000000002','scope-customer@example.invalid','Scoped correction test',
     statement_timestamp()-interval '2 hours',to_char((statement_timestamp()-interval '2 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
-    'America/Los_Angeles','exact','exact','card','tap_card',null,'1234','physical_card','visa','needs_review','manual_review','form');
+    'America/Los_Angeles','exact','exact','card','tap_card',case when n=12 then 700 else null end,case when n=12 then null else '1234' end,case when n=12 then null else 'physical_card' end,'visa','needs_review','manual_review','form');
   cycle:=public.service_claim_refund_follow_up_cycle(cid,'missing_information','refund_follow_up_v2',md5(n::text)||md5(n::text),null);
   if not coalesce((cycle->>'claimed')::boolean,false) then raise exception 'Fixture cycle rejected: %',cycle; end if;
   insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,content_source,delivery_kind,reason_code,template_version,follow_up_cycle_id,requested_fields)
-  values(mid,cid,'more_info','pending','scope-customer@example.invalid','Please review your purchase','Scoped correction fixture','deterministic_template','automatic','missing_information','refund_follow_up_v2',(cycle#>>'{cycle,id}')::uuid,array['amount']);
+  values(mid,cid,'more_info','pending','scope-customer@example.invalid','Please review your purchase','Scoped correction fixture','deterministic_template','automatic','missing_information','refund_follow_up_v2',(cycle#>>'{cycle,id}')::uuid,public.refund_missing_follow_up_fields(cid));
   select * into c from public.refund_cases where id=cid;
   perform public.service_issue_refund_purchase_correction(mid,lpad(to_hex(n),64,'0'),c.deterministic_fact_version);
   if deliver then update public.refund_case_messages set status='sent',sent_at=statement_timestamp() where id=mid; end if;
@@ -106,5 +106,9 @@ select lives_ok($$select pg_temp.submit(11,'{"zelle_payment_contact":{"dispositi
 select ok((select decision='approved' and refund_amount_cents=700 and zelle_payment_contact='refund@example.invalid' from public.refund_cases where id='dd000000-0000-4000-8001-000000000011')
  and (select status='manual_review' and reminder_claim_token is null from public.refund_payout_destination_follow_ups where refund_case_id='dd000000-0000-4000-8001-000000000011'),
  'Destination response preserves approval and stops the existing payout reminder without paying');
+select pg_temp.make_scope(12,true);
+select is((select correction_requested_fields from public.refund_wallet_correction_contexts where token_hash=lpad('c',64,'0')),array['card_last4']::text[],'Fixture requests missing card digits before payment context changes');
+select lives_ok($$select pg_temp.submit(12,'{"payment_method":{"disposition":"changed","value":"cash"}}')$$,'Customer can correct card purchase to cash without answering inapplicable card question');
+select ok((select payment_method='cash' and card_last4 is null and card_last4_provenance is null and card_wallet_used=false and wallet_provider is null and payment_amount_cents=700 and decision is null from public.refund_cases where id='dd000000-0000-4000-8001-000000000012'),'Cash context clears incompatible card facts while preserving amount and decision ownership');
 select * from finish();
 rollback;

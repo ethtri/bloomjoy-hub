@@ -204,7 +204,7 @@ create function public.service_submit_refund_purchase_correction(p_token_hash te
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare c public.refund_cases; r public.refund_wallet_correction_contexts; next_case public.refund_cases;
   field text; answer jsonb; disposition text; value text; vals jsonb; unknown_fields text[] := '{}'; changed_fields text[] := '{}';
-  needs_human boolean := false; local_date text; local_time text; local_stamp timestamp; instant timestamptz; selection jsonb; payout_only boolean;
+  needs_human boolean := false; local_date text; local_time text; local_stamp timestamp; instant timestamptz; selection jsonb; payout_only boolean; required_fields text[];
 begin
   -- Lock the case before the capability consistently with issuance.
   select c0.* into c from public.refund_cases c0 join public.refund_wallet_correction_contexts r0 on r0.refund_case_id=c0.id
@@ -220,7 +220,14 @@ begin
     or r.correction_fact_version is distinct from p_expected_fact_version or c.deterministic_fact_version is distinct from p_expected_fact_version then
     raise exception 'Correction link is stale or unavailable';
   end if;
-  if jsonb_typeof(p_answers) is distinct from 'object' or not p_answers ?& r.correction_requested_fields then raise exception 'Requested answers required'; end if;
+  if jsonb_typeof(p_answers) is distinct from 'object' then raise exception 'Requested answers required'; end if;
+  required_fields:=r.correction_requested_fields;
+  if (p_answers->'payment_method'->>'disposition'='changed' and p_answers->'payment_method'->>'value'='cash') or c.payment_method='cash' then
+    required_fields:=array(select unnest(required_fields) except select unnest(array['payment_interaction','card_last4','card_network','wallet_provider']::text[]));
+  elsif p_answers->'payment_interaction'->>'disposition'='changed' and p_answers->'payment_interaction'->>'value' in ('tap_card','insert_or_swipe') then
+    required_fields:=array_remove(required_fields,'wallet_provider');
+  end if;
+  if not p_answers ?& required_fields then raise exception 'Requested answers required'; end if;
   payout_only := r.correction_requested_fields=array['zelle_payment_contact']::text[];
   vals := r.correction_snapshot;
   for field,answer in select * from jsonb_each(p_answers) loop

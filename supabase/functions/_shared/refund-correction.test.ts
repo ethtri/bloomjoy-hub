@@ -45,3 +45,12 @@ Deno.test('new payment context requires explicit dependent answers without guess
   const result=validateCorrectionAnswers({...answers,wallet_provider:{disposition:'cannot_provide'}},paymentContext);
   assert(result.card_last4?.disposition === 'confirmed' && result.wallet_provider?.disposition === 'cannot_provide');
 });
+
+Deno.test('changing payment context drops inapplicable requested questions', () => {
+  const cardContext: CorrectionContext={state:'ready',requestedFields:['card_last4'],allowedFields:['payment_method','payment_interaction','card_last4','wallet_provider'],values:{payment_method:'card',payment_interaction:'tap_card'}};
+  const cash=validateCorrectionAnswers({payment_method:{disposition:'changed',value:'cash'}},cardContext);
+  assert(cash.payment_method?.value==='cash' && !cash.card_last4);
+  const physical=validateCorrectionAnswers({payment_interaction:{disposition:'changed',value:'tap_card'},card_last4:{disposition:'confirmed'}},
+    {...cardContext,requestedFields:['wallet_provider'],values:{payment_method:'card',payment_interaction:'phone_watch_wallet',card_last4:'1234'}});
+  assert(physical.payment_interaction?.value==='tap_card' && !physical.wallet_provider);
+});
