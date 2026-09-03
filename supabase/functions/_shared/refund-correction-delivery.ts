@@ -2,10 +2,12 @@ import { hashCorrectionToken, isCorrectionToken } from './refund-correction.ts';
 import { sanitizeRefundMissingFields } from './refund-deterministic-follow-up.ts';
 
 export const STORED_CORRECTION_LINK_MARKER = '[Secure refund correction link included at delivery]';
-export const refundCorrectionLinksEnabled = () =>
-  Deno.env.get('REFUND_CORRECTION_LINKS_ENABLED')?.trim().toLowerCase() === 'true';
-
 type RpcClient = { rpc: (name: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }> };
+export async function refundCorrectionLinksEnabled(supabase: RpcClient) {
+  const { data, error } = await supabase.rpc('refund_purchase_correction_links_enabled', {});
+  if (error || typeof data !== 'boolean') throw new Error('Correction rollout state unavailable.');
+  return data;
+}
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // One message always produces the same capability and provider payload on retry.
@@ -30,7 +32,7 @@ export function requireRefundCorrectionUrl(value: string) {
 export async function issueRefundCorrectionForMessage({ supabase, messageId, factVersion }: {
   supabase: RpcClient; messageId: string; factVersion: number;
 }) {
-  if (!refundCorrectionLinksEnabled()) throw new Error('Correction delivery is not active.');
+  if (!(await refundCorrectionLinksEnabled(supabase))) throw new Error('Correction delivery is not active.');
   if (!Number.isSafeInteger(factVersion) || factVersion < 1) throw new Error('Correction facts unavailable.');
   const token = await correctionTokenForMessage(messageId);
   const { data, error } = await supabase.rpc('service_issue_refund_purchase_correction', {
@@ -52,6 +54,6 @@ export async function getCurrentRefundCorrectionFields(supabase: RpcClient, case
   return fields;
 }
 
-export const correctionLinkRequested = (messageType: string, fields: unknown) =>
-  refundCorrectionLinksEnabled() && ['more_info', 'no_safe_match', 'reminder', 'wallet_correction', 'wallet_correction_reminder'].includes(messageType) &&
+export const correctionLinkRequested = (messageType: string, fields: unknown, enabled: boolean) =>
+  enabled && ['more_info', 'no_safe_match', 'reminder', 'wallet_correction', 'wallet_correction_reminder'].includes(messageType) &&
   sanitizeRefundMissingFields(fields).length > 0;

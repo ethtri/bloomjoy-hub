@@ -474,6 +474,7 @@ const logCustomerMessage = async ({
   errorMessage,
   missingFields,
   statusCapability,
+  correctionEnabled = false,
 }: {
   refundCase: RefundCaseRow;
   messageType: RefundCustomerMessageType;
@@ -481,6 +482,7 @@ const logCustomerMessage = async ({
   errorMessage?: string | null;
   missingFields: RefundMissingField[];
   statusCapability?: RefundStatusCapability | null;
+  correctionEnabled?: boolean;
 }) => {
   if (!supabase) return null;
 
@@ -504,7 +506,7 @@ const logCustomerMessage = async ({
     decisionReason: refundCase.decision_reason,
     missingFields,
     cardWalletUsed: refundCase.card_wallet_used,
-    correctionUrl: correctionLinkRequested(messageType, missingFields) ? STORED_CORRECTION_LINK_MARKER : null,
+    correctionUrl: correctionLinkRequested(messageType, missingFields, correctionEnabled) ? STORED_CORRECTION_LINK_MARKER : null,
     statusUrl: statusCapability?.url ?? null,
     customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
   });
@@ -569,7 +571,8 @@ const sendAndLogCustomerMessage = async (
     return { type: messageType, status: "skipped" };
   }
 
-  const statusCapability = correctionLinkRequested(messageType, missingFields) ? null : await tryIssueRefundStatusCapability({
+  const correctionEnabled = await refundCorrectionLinksEnabled(supabase);
+  const statusCapability = correctionLinkRequested(messageType, missingFields, correctionEnabled) ? null : await tryIssueRefundStatusCapability({
     supabase,
     refundCaseId: refundCase.id,
   });
@@ -580,6 +583,7 @@ const sendAndLogCustomerMessage = async (
     status: "pending",
     missingFields,
     statusCapability,
+    correctionEnabled,
   });
 
   try {
@@ -596,7 +600,7 @@ const sendAndLogCustomerMessage = async (
       decisionReason: refundCase.decision_reason,
       missingFields,
       cardWalletUsed: refundCase.card_wallet_used,
-      correctionUrl: correctionLinkRequested(messageType, missingFields) ? await issueRefundCorrectionForMessage({
+      correctionUrl: correctionLinkRequested(messageType, missingFields, correctionEnabled) ? await issueRefundCorrectionForMessage({
         supabase, messageId: messageId ?? '', factVersion: refundCase.deterministic_fact_version,
       }) : null,
       statusUrl: statusCapability?.url ?? null,
@@ -1020,8 +1024,9 @@ serve(async (req) => {
           beforeRow.payment_method === "cash" &&
           beforeRow.decision === "approved",
       });
-      const currentFields = refundCorrectionLinksEnabled() ? await getCurrentRefundCorrectionFields(supabase, caseId) : derived.missingFields;
-      if (derived.requiresSecureWalletCorrection && !refundCorrectionLinksEnabled()) {
+      const correctionEnabled = await refundCorrectionLinksEnabled(supabase);
+      const currentFields = correctionEnabled ? await getCurrentRefundCorrectionFields(supabase, caseId) : derived.missingFields;
+      if (derived.requiresSecureWalletCorrection && !correctionEnabled) {
         return jsonResponse({
           error:
             "Use the secure mobile-wallet correction link instead of requesting wallet information by email.",

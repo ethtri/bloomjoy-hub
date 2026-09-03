@@ -257,9 +257,11 @@ const sanitizeRefundStatusUrl = (value: unknown) => {
 };
 
 const storedStatusUrlPattern = /https?:\/\/(?:(?:app|www)\.bloomjoyusa\.com|localhost(?::\d+)?|127\.0\.0\.1(?::\d+)?)\/refunds\/status#token=[A-Za-z0-9_-]{43}/gu;
+const storedCorrectionUrlPattern = /https?:\/\/(?:(?:app|www)\.bloomjoyusa\.com|localhost(?::\d+)?|127\.0\.0\.1(?::\d+)?)\/refunds\/correct#token=[A-Za-z0-9_-]{43}/gu;
 
 export const redactRefundStatusLinksForStorage = (value: string) =>
-  value.replace(storedStatusUrlPattern, "[Secure refund status link included at delivery]");
+  value.replace(storedStatusUrlPattern, "[Secure refund status link included at delivery]")
+    .replace(storedCorrectionUrlPattern, STORED_CORRECTION_LINK_MARKER);
 
 export const buildRefundStoredTextWithStatus = ({
   headline,

@@ -674,9 +674,10 @@ serve(async (req) => {
       ? sanitizeRefundMissingFields(triageSuggestion.missing_fields)
       : suppliedMissingFields;
     let missingFields: RefundMissingField[] = [];
+    const correctionEnabled = await refundCorrectionLinksEnabled(supabase);
     if (messageType === "more_info") {
-      const currentFields = refundCorrectionLinksEnabled() ? await getCurrentRefundCorrectionFields(supabase, caseId) : derived.missingFields;
-      if (derived.requiresSecureWalletCorrection && !refundCorrectionLinksEnabled()) {
+      const currentFields = correctionEnabled ? await getCurrentRefundCorrectionFields(supabase, caseId) : derived.missingFields;
+      if (derived.requiresSecureWalletCorrection && !correctionEnabled) {
         return jsonResponse({
           error:
             "Use the secure mobile-wallet correction link instead of requesting wallet information by email.",
@@ -727,7 +728,7 @@ serve(async (req) => {
       missingFields,
       cardWalletUsed: refundCase.card_wallet_used,
       statusUrl: null,
-      correctionUrl: correctionLinkRequested(messageType, missingFields) ? STORED_CORRECTION_LINK_MARKER : null,
+      correctionUrl: correctionLinkRequested(messageType, missingFields, correctionEnabled) ? STORED_CORRECTION_LINK_MARKER : null,
       customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
     };
     const defaultEmailWithoutStatus = buildRefundCustomerEmail(templateInputWithoutStatus);

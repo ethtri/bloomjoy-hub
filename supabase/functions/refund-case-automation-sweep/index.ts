@@ -666,6 +666,7 @@ const buildFollowUpEmailInput = (
   cycle: RefundFollowUpCycleContext,
   messageClass: RefundFollowUpMessageClass,
   customerCorrectionFields: RefundMissingField[] = [],
+  correctionEnabled = false,
 ) => {
   const publicLabels = resolveRefundPublicLabels({
     locationName: refundCase.reporting_locations?.name,
@@ -687,7 +688,7 @@ const buildFollowUpEmailInput = (
       ? customerCorrectionFields
       : cycle.requestedFields,
     followUpReason: cycle.reasonCode,
-    correctionUrl: correctionLinkRequested(messageTypeForFollowUp(cycle, messageClass), customerCorrectionFields.length ? customerCorrectionFields : cycle.requestedFields)
+    correctionUrl: correctionLinkRequested(messageTypeForFollowUp(cycle, messageClass), customerCorrectionFields.length ? customerCorrectionFields : cycle.requestedFields, correctionEnabled)
       ? STORED_CORRECTION_LINK_MARKER : null,
     customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
   };
@@ -699,6 +700,7 @@ const logDeterministicFollowUpMessage = async (
   messageClass: RefundFollowUpMessageClass,
   customerCorrectionFields: RefundMissingField[] = [],
   statusCapability: RefundStatusCapability | null = null,
+  correctionEnabled = false,
 ) => {
   if (!supabase) return null;
   const emailInput = {
@@ -707,6 +709,7 @@ const logDeterministicFollowUpMessage = async (
       cycle,
       messageClass,
       customerCorrectionFields,
+      correctionEnabled,
     ),
     statusUrl: statusCapability?.url ?? null,
   };
@@ -734,7 +737,7 @@ const logDeterministicFollowUpMessage = async (
       reason_code: cycle.reasonCode,
       template_version: cycle.templateVersion,
       follow_up_cycle_id: cycle.id,
-      requested_fields: refundCorrectionLinksEnabled() && customerCorrectionFields.length > 0 ? customerCorrectionFields : cycle.requestedFields,
+      requested_fields: correctionEnabled && customerCorrectionFields.length > 0 ? customerCorrectionFields : cycle.requestedFields,
       status_capability_id: statusCapability?.capabilityId ?? null,
       status_link_included: Boolean(statusCapability),
     })
@@ -755,7 +758,8 @@ const sendDeterministicFollowUpMessage = async (
     return { status: "suppressed" as const, messageId: null };
   }
   const messageType = messageTypeForFollowUp(cycle, messageClass);
-  const statusCapability = correctionLinkRequested(messageType, customerCorrectionFields.length ? customerCorrectionFields : cycle.requestedFields) ? null : await tryIssueRefundStatusCapability({
+  const correctionEnabled = await refundCorrectionLinksEnabled(supabase!);
+  const statusCapability = correctionLinkRequested(messageType, customerCorrectionFields.length ? customerCorrectionFields : cycle.requestedFields, correctionEnabled) ? null : await tryIssueRefundStatusCapability({
     supabase: supabase!,
     refundCaseId: refundCase.id,
   });
@@ -765,6 +769,7 @@ const sendDeterministicFollowUpMessage = async (
       cycle,
       messageClass,
       customerCorrectionFields,
+      correctionEnabled,
     ),
     statusUrl: statusCapability?.url ?? null,
   };
@@ -781,6 +786,7 @@ const sendDeterministicFollowUpMessage = async (
       messageClass,
       customerCorrectionFields,
       statusCapability,
+      correctionEnabled,
     );
     if (!messageId) throw new Error("Refund customer message record is required.");
     if (emailInput.correctionUrl) {
@@ -1430,7 +1436,7 @@ const sendWalletCorrectionMessage = async (
     return { status: "suppressed" as const, messageId: null };
   }
 
-  const unifiedCorrection = refundCorrectionLinksEnabled();
+  const unifiedCorrection = await refundCorrectionLinksEnabled(supabase);
   const correctionFields = unifiedCorrection ? await getCurrentRefundCorrectionFields(supabase, refundCase.id) : [];
   if (unifiedCorrection && correctionFields.length === 0) return { status: "suppressed" as const, messageId: null };
   const token = createRefundWalletCorrectionToken();
@@ -3015,7 +3021,7 @@ const sendPayoutDestinationReminder = async (
     followUpReason: "missing_information" as const,
     customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
     statusUrl: null,
-    correctionUrl: refundCorrectionLinksEnabled() ? STORED_CORRECTION_LINK_MARKER : null,
+    correctionUrl: await refundCorrectionLinksEnabled(supabase) ? STORED_CORRECTION_LINK_MARKER : null,
   };
   let email = buildRefundCustomerEmail(emailInput);
   let messageId: string | null = null;
@@ -3846,7 +3852,7 @@ serve(async (req) => {
     failureStage = "customer_reply_follow_up";
     await runCustomerReplyFollowUpSweep(runId, counters, policyWindowStart);
     failureStage = "saved_purchase_corrections";
-    if (refundCorrectionLinksEnabled()) {
+    {
       const { data: corrections, error } = await supabase.from("refund_wallet_correction_contexts")
         .select("id,refund_case_id,correction_resulting_fact_version")
         .eq("correction_kind", "purchase").eq("status", "submitted").eq("correction_next_action", "recheck").limit(25);

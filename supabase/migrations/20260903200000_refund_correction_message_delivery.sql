@@ -1,5 +1,22 @@
 -- Preserve existing immutable history, contact policy and transport bookkeeping.
 -- Only new messages carrying the delivery placeholder use the scoped contract.
+alter table public.refund_customer_contact_settings add column correction_links_enabled boolean not null default false;
+create function public.refund_purchase_correction_links_enabled() returns boolean
+language sql stable security definer set search_path='' as $$
+  select coalesce((select correction_links_enabled from public.refund_customer_contact_settings where singleton),false);
+$$;
+revoke all on function public.refund_purchase_correction_links_enabled() from public,anon,authenticated;
+grant execute on function public.refund_purchase_correction_links_enabled() to service_role;
+create function public.refund_scoped_correction_message_current(p_message public.refund_case_messages) returns boolean
+language sql stable security definer set search_path='' as $$
+  select position('[Secure refund correction link included at delivery]' in p_message.body)=0 or exists (
+    select 1 from public.refund_wallet_correction_contexts r join public.refund_cases c on c.id=r.refund_case_id
+    where r.correction_message_id=p_message.id and r.correction_kind='purchase' and r.status='pending'
+      and r.expires_at>statement_timestamp() and r.correction_fact_version=c.deterministic_fact_version
+      and public.refund_purchase_correction_eligible(c));
+$$;
+revoke all on function public.refund_scoped_correction_message_current(public.refund_case_messages) from public,anon,authenticated;
+
 do $migration$
 declare source text; original text; needle text; replacement text; shape text;
 begin
@@ -8,10 +25,23 @@ begin
   original := source;
   needle := '  reconciling_known_transactional_delivery boolean := false;';
   if position(needle in source)=0 then raise exception 'Follow-up guard declaration changed'; end if;
-  source := replace(source,needle,needle || E'\n  scoped_correction boolean := position(''[Secure refund correction link included at delivery]'' in new.body)>0;');
+  source := replace(source,needle,needle || E'\n  scoped_correction boolean := position(''[Secure refund correction link included at delivery]'' in new.body)>0;\n  recorded_scope_delivery boolean := false;');
   needle := '  if tg_op = ''UPDATE'' and old.delivery_kind = ''automatic'' then';
   replacement := $guard$
-  if scoped_correction and (tg_op='INSERT' or (old.status='pending' and new.status='sent')) then
+  if scoped_correction and tg_op='UPDATE' and old.status='pending' and new.status='sent'
+    and (to_jsonb(new)-array['status','sent_at']::text[]) is not distinct from (to_jsonb(old)-array['status','sent_at']::text[]) then
+    recorded_scope_delivery := exists (
+      select 1 from public.refund_gmail_messages g where g.refund_case_message_id=new.id
+        and g.refund_case_id=new.refund_case_id and g.direction='outbound' and g.status='sent' and g.sent_at is not null
+    ) or (old.delivery_transport='resend' and nullif(btrim(old.provider_message_id),'') is not null
+      and old.delivery_state in ('accepted','deferred','delivered') and old.delivery_state_updated_at is not null);
+    if recorded_scope_delivery and not exists (
+      select 1 from public.refund_wallet_correction_contexts r where r.correction_message_id=new.id
+        and r.refund_case_id=new.refund_case_id and r.correction_kind='purchase'
+        and r.correction_requested_fields=new.requested_fields
+    ) then raise exception 'Recorded correction delivery requires its original scope'; end if;
+  end if;
+  if scoped_correction and not recorded_scope_delivery and (tg_op='INSERT' or (old.status='pending' and new.status='sent')) then
     select * into case_row from public.refund_cases where id=new.refund_case_id for share;
     expected_missing := public.refund_purchase_correction_request_fields(new.refund_case_id);
     if not public.refund_purchase_correction_eligible(case_row)
@@ -32,6 +62,12 @@ begin
 $guard$;
   if position(needle in source)=0 then raise exception 'Follow-up guard entry changed'; end if;
   source := replace(source,needle,replacement || E'\n' || needle);
+  needle := '(tg_op = ''UPDATE'' and old.status = ''pending'' and new.status = ''sent'')';
+  if position(needle in source)=0 then raise exception 'Manual delivery transition guard changed'; end if;
+  source := replace(source,needle,'(tg_op = ''UPDATE'' and old.status = ''pending'' and new.status = ''sent'' and not recorded_scope_delivery)');
+  needle := '      and not reconciling_known_transactional_delivery;';
+  if position(needle in source)=0 then raise exception 'Recorded delivery guard changed'; end if;
+  source := replace(source,needle,'      and not reconciling_known_transactional_delivery and not recorded_scope_delivery;');
   needle := '      or case_row.card_wallet_used is true';
   if position(needle in source)=0 then raise exception 'Manual wallet guard changed'; end if;
   source := replace(source,needle,'      or (case_row.card_wallet_used is true and not scoped_correction)');
@@ -63,6 +99,37 @@ $wallet$;
   if source=original then raise exception 'Scoped delivery guard was not installed'; end if;
   execute source;
 
+  select pg_get_functiondef('public.sync_refund_follow_up_cycle_from_message()'::regprocedure) into source;
+  source := replace(source,E'\r\n',E'\n');
+  needle := E'begin\n';
+  if position(needle in source)=0 then raise exception 'Cycle delivery synchronization changed'; end if;
+  replacement := $sync$
+begin
+  -- A recorded provider send may settle after the customer/case advanced. Keep
+  -- that message fact without putting the case or old cycle back in waiting.
+  if tg_op='UPDATE' and old.status='pending' and new.status='sent'
+    and position('[Secure refund correction link included at delivery]' in new.body)>0
+    and not exists (
+      select 1 from public.refund_wallet_correction_contexts r join public.refund_cases c on c.id=r.refund_case_id
+      where r.correction_message_id=new.id and r.correction_kind='purchase' and r.status='pending'
+        and r.expires_at>statement_timestamp() and r.correction_fact_version=c.deterministic_fact_version
+        and public.refund_purchase_correction_eligible(c)
+    ) then return new; end if;
+$sync$;
+  source := replace(source,needle,replacement);
+  execute source;
+
+  select pg_get_functiondef('public.service_finish_refund_manual_message_delivery_pre_payout_follow_up(uuid,uuid,text,text,text,integer,text)'::regprocedure) into source;
+  needle := '  if p_outcome = ''sent''';
+  if position(needle in source)=0 then raise exception 'Manual result settlement changed'; end if;
+  source := replace(source,needle,needle || ' and public.refund_scoped_correction_message_current(message_row)');
+  execute source;
+  select pg_get_functiondef('public.service_finish_refund_manual_message_delivery(uuid,uuid,text,text,text,integer,text)'::regprocedure) into source;
+  needle := '  if result ->> ''outcome'' = ''sent''';
+  if position(needle in source)=0 then raise exception 'Payout result settlement changed'; end if;
+  source := replace(source,needle,needle || ' and public.refund_scoped_correction_message_current(message_row)');
+  execute source;
+
   select pg_get_constraintdef(oid) into shape from pg_constraint
     where conrelid='public.refund_case_messages'::regclass and conname='refund_case_messages_safe_evidence_shape';
   if shape is null or left(shape,6)<>'CHECK ' then raise exception 'Message evidence shape missing'; end if;
@@ -90,7 +157,9 @@ begin
       update public.refund_cases set status='waiting_on_customer', automation_state='wallet_correction_needed',
         wallet_correction_state='sent', wallet_correction_version=r.version,
         customer_last_contacted_at=new.sent_at,last_customer_message_type=new.message_type,automation_follow_up_due_at=r.expires_at
-      where id=new.refund_case_id and public.refund_purchase_correction_eligible(refund_cases);
+      where id=new.refund_case_id and public.refund_purchase_correction_eligible(refund_cases)
+        and r.status='pending' and r.expires_at>statement_timestamp()
+        and r.correction_fact_version=deterministic_fact_version;
     end if;
   end if;
   return new;

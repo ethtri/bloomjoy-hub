@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { redactRefundStatusLinksForStorage } from "../_shared/refund-email.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import {
   claimRefundGmailDeliveryWhenEnabled,
@@ -837,7 +838,7 @@ const processFirstContact = async ({
       p_cutover_at: firstContact.cutoverAt,
       p_template_key: REFUND_FIRST_CONTACT_TEMPLATE_KEY,
       p_sender_email: config.mailbox,
-      p_plain_body: email.text,
+      p_plain_body: redactRefundStatusLinksForStorage(email.text),
       p_thread_has_outbound: threadHasOutbound,
     },
   );
@@ -2237,6 +2238,7 @@ serve(async (request) => {
               const rawBody = extractPlainTextBody(message.payload);
               const redactedSubject = redactPaymentCardNumbers(rawSubject);
               const redactedBody = redactPaymentCardNumbers(rawBody);
+              redactedBody.text = redactRefundStatusLinksForStorage(redactedBody.text);
               const existingCaseContext = direction === "inbound" &&
                   participantTrust === "direct_human"
                 ? extractLabeledRefundEmailFacts(redactedBody.text)
