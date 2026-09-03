@@ -237,7 +237,7 @@ begin
       if answer ? 'value' then raise exception 'Unknown answers cannot contain values'; end if;
       unknown_fields := array_append(unknown_fields,field); needs_human := true;
     else
-      if jsonb_typeof(answer->'value') is distinct from 'string' or coalesce(value,'')='' or length(value)>160 then raise exception 'Invalid correction value'; end if;
+      if jsonb_typeof(answer->'value') is distinct from 'string' or coalesce(value,'')='' or length(value)>(case when field='zelle_payment_contact' then 320 else 160 end) then raise exception 'Invalid correction value'; end if;
       if field='zelle_payment_contact' and not (value ~ '^[^[:space:]@<>]+@[^[:space:]@<>]+\.[^[:space:]@<>]+$' or regexp_replace(value,'[[:space:]().-]','','g') ~ '^\+?[0-9]{10,15}$') then raise exception 'Invalid payout contact'; end if;
       if field='card_last4' and value !~ '^[0-9]{4}$'
         or field='amount' and (value !~ '^[0-9]{1,5}(\.[0-9]{1,2})?$' or value::numeric<=0)
