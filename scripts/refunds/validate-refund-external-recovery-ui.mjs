@@ -34,6 +34,8 @@ try {
       noticeAdopted: true, customerMessageSent: false, providerCallMade: false, payloadRedacted: true } });
    }
    if (url.origin === new URL(appUrl).origin) return route.continue();
+   if (url.hostname === 'fonts.googleapis.com' && url.pathname === '/css2')
+    return route.fulfill({ status: 200, contentType: 'text/css', body: '' });
    unexpected.push(url.pathname); return route.abort();
   });
   const page = await context.newPage(); const errors = []; page.on('pageerror', error => errors.push(error.message));
