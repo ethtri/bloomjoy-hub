@@ -1374,6 +1374,7 @@ const routeFollowUpManualReview = async ({
           automation_follow_up_due_at: null,
         })
         .eq("id", refundCase.id)
+        .eq("deterministic_fact_version", refundCase.deterministic_fact_version)
         .in("status", ["draft", "waiting_on_customer", "needs_review"]);
       if (dispositionError) throw dispositionError;
 
