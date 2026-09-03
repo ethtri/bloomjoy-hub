@@ -14,11 +14,11 @@ values('de000000-0000-4000-8000-000000000004','de000000-0000-4000-8000-000000000
   to_char((statement_timestamp()-interval '2 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
   'America/Los_Angeles','exact','exact','card','tap_card',null,'1234','physical_card','visa','needs_review','manual_review','form');
 do $$ declare cycle jsonb; begin
-  cycle:=public.service_claim_refund_follow_up_cycle('de000000-0000-4000-8000-000000000004','missing_information','refund_follow_up_v1',repeat('e',64),null);
+  cycle:=public.service_claim_refund_follow_up_cycle('de000000-0000-4000-8000-000000000004','missing_information','refund_follow_up_v2',repeat('e',64),null);
   if not coalesce((cycle->>'claimed')::boolean,false) then raise exception 'Fixture cycle rejected: %',cycle; end if;
   insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,content_source,delivery_kind,reason_code,template_version,follow_up_cycle_id,requested_fields)
   values('de000000-0000-4000-8000-000000000005','de000000-0000-4000-8000-000000000004','more_info','pending','delivery-customer@example.invalid',
-    'Update your request','[Secure refund correction link included at delivery]','deterministic_template','automatic','missing_information','refund_follow_up_v1',(cycle#>>'{cycle,id}')::uuid,array['amount']);
+    'Update your request','[Secure refund correction link included at delivery]','deterministic_template','automatic','missing_information','refund_follow_up_v2',(cycle#>>'{cycle,id}')::uuid,array['amount']);
 end; $$;
 select public.service_issue_refund_purchase_correction('de000000-0000-4000-8000-000000000005',repeat('e',64),
  (select deterministic_fact_version from public.refund_cases where id='de000000-0000-4000-8000-000000000004'));
@@ -36,3 +36,4 @@ select is(public.service_get_refund_purchase_correction(repeat('e',64))->>'state
 select is((select count(*)::integer from public.refund_wallet_correction_contexts where refund_case_id='de000000-0000-4000-8000-000000000004'),1,'Settlement issues no replacement capability');
 select * from finish();
 rollback;
+
