@@ -73,3 +73,17 @@ Deno.test('unchanged payment confirmations preserve entered dependent answers; r
   const reverted=updateCorrectionAnswer(repeated,'payment_interaction',{disposition:'confirmed'},ctx);
   assert(!reverted.card_last4);
 });
+
+Deno.test('location changes surface local date/time confirmation without clearing or inventing answers', () => {
+  const ctx: CorrectionContext = { state: 'ready', requestedFields: ['location_or_machine'],
+    allowedFields: ['location_or_machine','incident_date','incident_time'], locationChoices: [{key:'new-place',label:'New place'}],
+    values: {location_or_machine:'Old place',incident_date:'2026-09-03',incident_time:'14:30'} };
+  const location = {disposition:'changed' as const,value:'new-place'};
+  rejects({location_or_machine:location},ctx);
+  const prior: CorrectionAnswers = {incident_date:{disposition:'confirmed'},incident_time:{disposition:'cannot_provide'}};
+  const next = updateCorrectionAnswer(prior,'location_or_machine',location,ctx);
+  const result = validateCorrectionAnswers(next,ctx);
+  assert(result.incident_date?.disposition === 'confirmed' && result.incident_time?.disposition === 'cannot_provide');
+  assert(next.incident_date === prior.incident_date && next.incident_time === prior.incident_time);
+  assert(validateCorrectionAnswers({location_or_machine:{disposition:'confirmed'}},ctx).location_or_machine);
+});
