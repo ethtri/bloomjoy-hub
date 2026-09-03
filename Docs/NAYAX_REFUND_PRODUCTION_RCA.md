@@ -1,10 +1,10 @@
 # Nayax Refund Production Root Cause Analysis
 
-Last updated: 2026-08-28
+Last updated: 2026-09-03
 
 ## Executive finding
 
-**Nayax's Lynx refund API can issue real refunds. Bloomjoy has proved that fact in production.** At least one historical Tulsa `$7` customer refund that began through Bloomjoy's Nayax API path was later confirmed by authoritative Nayax evidence as a real provider refund.
+**The historical Tulsa `$10.90` refund is confirmed; its attribution to Bloomjoy's API calls is unproved.** September 3 review of the original request and both approval logs found provider-reported failures. Later Nayax Support and DTM confirmation establishes that the transaction was refunded, but does not establish which operation or actor completed it. The earlier claim that this case proved API write capability was too strong.
 
 The unresolved problem is narrower and more technical:
 
@@ -13,7 +13,7 @@ The unresolved problem is narrower and more technical:
 3. An outer HTTP `200` is not proof of business acceptance. Nayax's provider-owned log for the later held `$8` request proves an HTTP-`200` business rejection.
 4. Nayax's public Lynx documentation does not identify a read-only refund-status endpoint. DTM or a Nayax Support confirmation is therefore the authoritative fallback when the write response is ambiguous.
 
-Do not summarize the incident as “the API cannot refund.” The correct summary is: **the write capability works, while deterministic response interpretation and automatic final-outcome confirmation remain incomplete.**
+These failures also do not establish that the calls had no side effects or that the API cannot refund. The owner's September 2 API-first operating decision remains unchanged; safe execution and its end-to-end proof remain implementation work in `#990`.
 
 ## What each kind of proof means
 
@@ -23,23 +23,23 @@ These states must not be collapsed into one “success” label:
 | --- | --- | --- |
 | HTTP success | Nayax's HTTP surface returned a `2xx` response | The refund request was accepted, approved, or paid |
 | Request accepted | Nayax created a pending refund request | The separate approval completed or money was returned |
-| Provider refund confirmed | Nayax/DTM shows the refund as completed | Bloomjoy classified both write responses automatically |
+| Provider refund confirmed | Nayax/DTM shows the refund as completed | Which call or actor caused it, or whether Bloomjoy classified both write responses automatically |
 | Bloomjoy settled | The case, reporting adjustment, audit, and customer completion were committed exactly once | The provider call itself was successful unless linked to authoritative provider evidence |
 | Direct end-to-end success | One manager action produced one accepted request, at most one accepted approval, authoritative provider success, and exactly-once Bloomjoy settlement without manual provider reconciliation | Nothing further for that case; this is the required launch proof |
 
-The Tulsa success reached **provider refund confirmed** and was safely reconciled into Bloomjoy. It did not reach **direct end-to-end success** through immediate response classification alone.
+The historical Tulsa case reached **provider refund confirmed** and was reconciled into Bloomjoy. Its final refund cannot be attributed to the reviewed API calls from the retained evidence, and it does not establish **direct end-to-end success**.
 
 ## Production evidence timeline
 
-### 1. Historical Tulsa API refund: provider capability proved (`#877`)
+### 1. Historical Tulsa refund: outcome confirmed, API attribution unproved (`#877`)
 
-- A legitimate Tulsa refund entered Nayax through Bloomjoy's normal manager/API path.
-- The request produced a provider-side **Refund Requested** record, but Bloomjoy classified the returned `Result`/`Status` pair as unknown and did not complete the ordinary approval path.
+- Bloomjoy attempted a legitimate Tulsa `$10.90` refund through its normal manager/API path.
+- The original August 20 request returned HTTP `200` with business `Status: failed` and a combined access-or-transaction-credentials rejection. It did not report acceptance. A later **Refund Requested** observation does not by itself link that state to this request.
 - The then-current normal-manager implementation lacked the controlled pilot's complete stage journal, so Bloomjoy could not reconstruct the safe response envelope afterward.
-- One application recovery reservation was used. Nayax API logs for the overall incident later showed two identical approval POST entries, both as outer HTTP `500` / inner HTTP `400` with a bad-request class. The historical Bloomjoy journal is not complete enough to map both provider entries to one definitive application cause. DTM initially remained **Refund Requested**, and no further blind retry was permitted.
+- One application recovery reservation was used. Both original approval logs return outer HTTP `500` / inner HTTP `400`, the same combined access-or-transaction-credentials error, and the same transaction/site/authorization-time identity as the request. The historical Bloomjoy journal cannot map both provider entries to one definitive application cause. These are provider-reported failures, not proof of zero side effects. DTM initially remained **Refund Requested**, and no further blind retry was permitted.
 - Nayax Support later confirmed that the payment appeared refunded. DTM/production reconciliation agreed, and Bloomjoy committed one case completion, one reporting adjustment, and one customer completion without another refund request.
 
-**Conclusion:** this is positive production evidence that the Nayax API path can cause a real refund. The response and approval history was too ambiguous to prove that Bloomjoy's automatic two-stage classifier was correct.
+**Conclusion:** the later refund and its reconciliation are confirmed. The initiating operation and actor remain unproved; this case cannot substantiate the prior claim of successful API execution. Preserve the historical attempt records rather than rewriting them to fit either conclusion.
 
 ### 2. Second Tulsa incident: cross-layer contract drift exposed (`#961`)
 
