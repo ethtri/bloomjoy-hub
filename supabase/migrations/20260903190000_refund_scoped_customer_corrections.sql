@@ -84,9 +84,15 @@ begin
   end if;
   -- One answered request ends that customer task. An unchanged/unknown answer
   -- or an unsuccessful bounded recheck is internal work, not the same question.
-  fields := array(select unnest(fields) except select jsonb_object_keys(r.correction_response)
-    from public.refund_wallet_correction_contexts r where r.refund_case_id=c.id and r.status='submitted'
-      and r.correction_resulting_fact_version=c.deterministic_fact_version);
+  fields := array(select unnest(fields) except select answer.key
+    from public.refund_wallet_correction_contexts r cross join lateral jsonb_each(r.correction_response) answer
+    where r.refund_case_id=c.id and r.status='submitted' and r.correction_kind='purchase'
+      -- An unrelated Operations correction must not reopen an answered question.
+      and public.refund_purchase_correction_values(c)->>answer.key is not distinct from
+        coalesce(answer.value->>'value',r.correction_snapshot->>answer.key)
+      and (answer.key not in ('card_last4','wallet_provider','card_network') or (
+        public.refund_purchase_correction_values(c)->>'payment_method' is not distinct from r.correction_snapshot->>'payment_method'
+        and public.refund_purchase_correction_values(c)->>'payment_interaction' is not distinct from r.correction_snapshot->>'payment_interaction')));
   return public.canonical_refund_follow_up_fields(fields);
 end;
 $$;

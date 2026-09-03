@@ -1830,20 +1830,18 @@ const primaryActionConfig = (
     label: refundCase.customerCorrection.isUsable === true ? 'Waiting for customer response' : 'Customer request is being sent',
     helper: 'Bloomjoy will continue this same request when the customer responds. No new request is needed.', disabled: true,
   };
-  if (refundCase.customerCorrection?.state === 'pending') return {
-    label: 'Review customer correction', helper: 'The earlier correction link is no longer current or deliverable. Bloomjoy owns this review.', disabled: true,
-  };
+  const staleCorrection = refundCase.customerCorrection?.state === 'pending' && !refundCase.customerCorrection.isActive;
   const matched = hasTransactionMatch(refundCase, editor);
   const noMatch = refundCase.correlationStatus === 'no_match' || (!matched && candidates.length === 0);
   const missingFields = derivePortalRefundMissingFields(refundCase);
-  const waitingOnCustomer = isWaitingCase(refundCase, false);
+  const waitingOnCustomer = !staleCorrection && isWaitingCase(refundCase, false);
   const customerAlreadyAsked =
     waitingOnCustomer &&
     latestMessage &&
     ['more_info', 'no_safe_match'].includes(latestMessage.messageType) &&
     ['sent', 'pending'].includes(latestMessage.status);
 
-  if (refundCase.lifecycle?.managerQueue.bucket === 'waiting_on_customer') {
+  if (!staleCorrection && refundCase.lifecycle?.managerQueue.bucket === 'waiting_on_customer') {
     return {
       label: 'Waiting for customer reply',
       helper: 'Wait for the customer to reply to the existing email before taking another case action.',

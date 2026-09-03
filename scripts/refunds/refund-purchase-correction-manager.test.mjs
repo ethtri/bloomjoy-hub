@@ -11,13 +11,14 @@ function load(name,dependencies){
  const code=ts.transpile(`const handler=${initializer.getText(source)};globalThis.handler=handler;`,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None});
  const context=vm.createContext({...dependencies,console,crypto:webcrypto});vm.runInContext(code,context);return context.handler;
 }
-const dependencies={hasConfirmedRefundReceipt:c=>c.receipt===true,getLatestCustomerMessage:()=>null,isDefinitiveNoRefundRetryReady:()=>false,transactionalDeliveryLabel:state=>state};
+const dependencies={hasConfirmedRefundReceipt:c=>c.receipt===true,getLatestCustomerMessage:()=>null,isDefinitiveNoRefundRetryReady:()=>false,transactionalDeliveryLabel:state=>state,hasTransactionMatch:c=>Boolean(c.matched),derivePortalRefundMissingFields:()=>[],isWaitingCase:()=>true,activeNayaxCandidate:()=>null,hasSelectedCardEvidence:()=>true,formatCurrency:amount=>`$${(amount/100).toFixed(2)}`};
 test('actual manager action respects current scope, delivery holds and terminal truth',()=>{
  const action=load('primaryActionConfig',dependencies);
  const base={status:'needs_review',paymentMethod:'card',customerCorrection:{state:'pending',isActive:true,isUsable:true}};
- const editor={status:'needs_review',decision:null};
+ const editor={status:'needs_review',decision:null,matchedNayaxCandidateToken:''};
  assert.equal(action(base,editor,[],null).label,'Waiting for customer response');
- assert.equal(action({...base,customerCorrection:{...base.customerCorrection,isActive:false,isUsable:false}},editor,[],null).label,'Review customer correction');
+ assert.equal(action({...base,customerCorrection:{...base.customerCorrection,isActive:false,isUsable:false}},editor,[],null).label,'Manager review required');
+ assert.equal(action({...base,matched:true,customerCorrection:{state:'pending',isActive:false,isUsable:false},lifecycle:{managerQueue:{bucket:'waiting_on_customer'}}},editor,[],{canIssueCardRefund:true,refundAmountCents:700}).mode,'nayax_refund_execution');
  assert.equal(action({...base,customerDeliveryException:{state:'bounced'}},editor,[],null).label,'Delivery needs review');
  assert.equal(action({...base,providerHold:true},editor,[],null).label,'Refund status not confirmed');
  assert.equal(action({...base,status:'completed'},editor,[],null).label,'Case complete');

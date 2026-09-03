@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(23);
+select plan(25);
 
 insert into public.customer_accounts(id,name,account_type) values('dd000000-0000-4000-8000-000000000001','Scoped correction fixture','customer');
 insert into public.reporting_locations(id,account_id,name,timezone,status) values('dd000000-0000-4000-8000-000000000002','dd000000-0000-4000-8000-000000000001','Correction fixture location','America/Los_Angeles','active');
@@ -59,5 +59,10 @@ select throws_like($$select pg_temp.submit(5,'{"amount":{"disposition":"changed"
 update public.refund_wallet_correction_contexts set issued_at=statement_timestamp()-interval '49 hours',expires_at=statement_timestamp()-interval '1 hour' where token_hash=lpad('6',64,'0');
 select is(public.service_get_refund_purchase_correction(lpad('6',64,'0'))->>'state','unavailable','Expired link has no active read/write scope');
 select ok((select status='manual_review' from public.refund_follow_up_cycles where refund_case_id='dd000000-0000-4000-8001-000000000003'),'Customer response stops the existing reminder cycle');
+update public.refund_cases set incident_timezone='America/New_York' where id='dd000000-0000-4000-8001-000000000003';
+select is(public.refund_purchase_correction_request_fields('dd000000-0000-4000-8001-000000000003'),'{}'::text[],'Unrelated Operations timezone correction does not repeat an unanswered customer amount');
+create temporary table before_confidence as select deterministic_fact_version as version from public.refund_cases where id='dd000000-0000-4000-8001-000000000008';
+update public.refund_cases set incident_time_confidence='rough' where id='dd000000-0000-4000-8001-000000000008';
+select is((select deterministic_fact_version from public.refund_cases where id='dd000000-0000-4000-8001-000000000008'),(select version+1 from before_confidence),'Confidence-only change invalidates old matching version exactly once');
 select * from finish();
 rollback;
