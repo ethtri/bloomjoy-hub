@@ -55,6 +55,7 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'admin_get_refund_gmail_draft_cases',
   'admin_get_refund_operations_overview',
   'admin_get_refund_manual_nayax_context',
+  'admin_get_refund_nayax_execution_verification',
 ]);
 
 const isReadOnlyNavigationActivity = ({ functionCalls, rpcCalls }) =>
@@ -5961,7 +5962,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     (await guardedManagerPage.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
       (await guardedManagerPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).count()) === 0 &&
       await guardedManagerPage.getByTestId('refund-action-status').getByText('Refund Operations review required', { exact: true }).isVisible() &&
-      await guardedManagerPage.getByText(/Direct card refunds are unavailable until Nayax remaining refundable value can be verified\. Refund Operations can use the reviewed Nayax portal fallback/).isVisible(),
+      await guardedManagerPage.getByText(/Verify the current purchase and refundable balance in Nayax before issuing this refund\. Refund Operations can also complete the refund in Nayax and record its confirmed outcome\./).isVisible(),
     await guardedManagerPage.getByTestId('refund-primary-action').innerText()
   );
   await closeRefundPortalContext(guardedManagerContext);

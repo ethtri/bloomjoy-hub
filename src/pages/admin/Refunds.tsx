@@ -1951,7 +1951,7 @@ const primaryActionConfig = (
         if (refundReadiness.blockReason === 'provider_remaining_value_unverified') {
           return {
             label: 'Refund Operations review required',
-            helper: 'Complete the current purchase check below to make the card refund available. Refund Operations can also complete the refund in Nayax and record its confirmed outcome.',
+            helper: 'Verify the current purchase and refundable balance in Nayax before issuing this refund. Refund Operations can also complete the refund in Nayax and record its confirmed outcome.',
             disabled: true,
           };
         }
