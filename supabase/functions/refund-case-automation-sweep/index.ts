@@ -219,6 +219,9 @@ type RefundSweepCase = {
   nayax_recommendation_state: string | null;
   nayax_recommendation_policy_version: string | null;
   nayax_recommendation_evaluated_at: string | null;
+  nayax_lookup_generation: number;
+  nayax_lookup_status: string;
+  deterministic_facts_updated_at: string;
   reporting_machines?: {
     machine_label: string | null;
     refund_public_display_label: string | null;
@@ -409,6 +412,9 @@ const caseSelect = `
   nayax_recommendation_state,
   nayax_recommendation_policy_version,
   nayax_recommendation_evaluated_at,
+  nayax_lookup_generation,
+  nayax_lookup_status,
+  deterministic_facts_updated_at,
   reporting_machines(machine_label, refund_public_display_label),
   reporting_locations(name)
 `;
@@ -2118,13 +2124,25 @@ const stringList = (value: unknown) =>
     : [];
 
 const getPersistedNayaxCorrectionEvidence = async (
-  refundCaseId: string,
+  refundCase: RefundSweepCase,
 ): Promise<PersistedNayaxCorrectionEvidence[]> => {
   if (!supabase) return [];
+  if (
+    !["no_match", "manual_exception"].includes(refundCase.nayax_lookup_status) ||
+    !Number.isSafeInteger(refundCase.nayax_lookup_generation) ||
+    refundCase.nayax_lookup_generation < 1 ||
+    !refundCase.nayax_recommendation_evaluated_at ||
+    !Number.isFinite(Date.parse(refundCase.nayax_recommendation_evaluated_at)) ||
+    !Number.isFinite(Date.parse(refundCase.deterministic_facts_updated_at)) ||
+    Date.parse(refundCase.nayax_recommendation_evaluated_at) <
+      Date.parse(refundCase.deterministic_facts_updated_at)
+  ) return [];
   const { data, error } = await supabase
     .from("refund_nayax_lookup_candidates")
     .select("evidence_summary,created_at")
-    .eq("refund_case_id", refundCaseId)
+    .eq("refund_case_id", refundCase.id)
+    .eq("lookup_generation", refundCase.nayax_lookup_generation)
+    .gt("expires_at", new Date().toISOString())
     .order("created_at", { ascending: false })
     .limit(10);
   if (error) throw error;
@@ -2626,7 +2644,7 @@ const runPersistedNayaxCustomerCorrectionSweep = async (
     const rawRefundCase of (correctionCases ?? []) as unknown as RawRefundSweepCase[]
   ) {
     const refundCase = normalizeRefundSweepCase(rawRefundCase);
-    const evidence = await getPersistedNayaxCorrectionEvidence(refundCase.id);
+    const evidence = await getPersistedNayaxCorrectionEvidence(refundCase);
     const customerCorrectionFields = deriveNayaxCustomerCorrectionFields({
         recommendationState: refundCase.nayax_recommendation_state,
         cardWalletUsed: refundCase.card_wallet_used,
@@ -2687,6 +2705,8 @@ const runPersistedNayaxCustomerCorrectionSweep = async (
             nayax_match_execution_eligible: false,
           })
           .eq("id", refundCase.id)
+          .eq("deterministic_fact_version", refundCase.deterministic_fact_version)
+          .eq("nayax_lookup_generation", refundCase.nayax_lookup_generation)
           .eq(
             "nayax_recommendation_evaluated_at",
             refundCase.nayax_recommendation_evaluated_at,
@@ -2958,7 +2978,7 @@ const runReminderSweep = async (
       ? deriveNayaxCustomerCorrectionFields({
         recommendationState: refundCase.nayax_recommendation_state,
         cardWalletUsed: refundCase.card_wallet_used,
-        candidates: await getPersistedNayaxCorrectionEvidence(refundCase.id),
+        candidates: await getPersistedNayaxCorrectionEvidence(refundCase),
       })
       : [];
     if (
@@ -2976,6 +2996,7 @@ const runReminderSweep = async (
         refundCase,
         actionKeySuffix: `no-customer-correction:v${refundCase.deterministic_fact_version}`,
         noticeKind: "follow_up_manual_review",
+        terminalCustomerDisposition: true,
         policyWindowStart,
         counters,
       });
