@@ -8,7 +8,8 @@ alter table public.refund_wallet_correction_contexts
   add column correction_snapshot jsonb,
   add column correction_response jsonb,
   add column correction_resulting_fact_version bigint,
-  add column correction_next_action text check (correction_next_action in ('review','recheck'));
+  add column correction_next_action text check (correction_next_action in ('review','recheck')),
+  add column correction_recheck_state text check (correction_recheck_state in ('pending','completed','failed','not_ready','stale','in_progress'));
 create unique index refund_correction_message_unique
   on public.refund_wallet_correction_contexts(correction_message_id)
   where correction_message_id is not null;
@@ -21,8 +22,50 @@ returns boolean language sql stable security definer set search_path = '' as $$
     and p_case.nayax_refund_execution_status in ('not_requested','ready','disabled','failed','declined')
     and not exists (select 1 from public.refund_authoritative_receipts r where r.refund_case_id=p_case.id)
     and not exists (select 1 from public.refund_case_nayax_refund_attempts a
-      where a.refund_case_id=p_case.id and a.reconciliation_required);
+      where a.refund_case_id=p_case.id and (a.reconciliation_required or a.status in ('in_progress','requested','approved','ambiguous','manual_review')));
 $$;
+
+-- Shared request eligibility for the manager action and existing send ledger.
+-- Candidate values never become customer-visible; only names of disputed facts.
+create function public.refund_purchase_correction_request_fields(p_case_id uuid)
+returns text[] language plpgsql stable security definer set search_path = '' as $$
+declare c public.refund_cases; fields text[]; evidence jsonb; reasons text[]; exclusions text[];
+begin
+  select * into c from public.refund_cases where id=p_case_id;
+  if c.id is null or not public.refund_purchase_correction_eligible(c) then return '{}'::text[]; end if;
+  fields := public.refund_missing_follow_up_fields(c.id);
+  -- A mapped public selection with an unresolved internal binding belongs to
+  -- Operations. Do not ask the customer to supply machine/account identifiers.
+  if c.intake_selection_key is not null then fields := array_remove(fields,'location_or_machine'); end if;
+  if c.payment_method='card' and c.card_wallet_used then
+    if c.card_last4 is null or c.card_last4_provenance is distinct from 'wallet_device_token' then fields := array_append(fields,'card_last4'); end if;
+    if c.payment_interaction is distinct from 'phone_watch_wallet' then fields := array_append(fields,'payment_interaction'); end if;
+    if c.wallet_provider is null or c.wallet_provider='unsure' then fields := array_append(fields,'wallet_provider'); end if;
+  end if;
+  if c.nayax_recommendation_state in ('manual_exception','no_safe_match')
+    and c.nayax_lookup_status in ('manual_exception','no_match')
+    and c.nayax_recommendation_evaluated_at>=c.deterministic_facts_updated_at then
+    select candidate.evidence_summary into evidence from public.refund_nayax_lookup_candidates candidate
+      where candidate.refund_case_id=c.id and candidate.lookup_generation=c.nayax_lookup_generation
+        and candidate.expires_at>statement_timestamp()
+      order by (candidate.evidence_summary->>'is_top_ranked'='true') desc nulls last,candidate.created_at desc limit 1;
+    select coalesce(array_agg(value),'{}') into reasons from jsonb_array_elements_text(
+      coalesce(evidence->'reason_codes','[]') || coalesce(evidence->'manual_review_reasons','[]') || coalesce(evidence->'hard_exclusions','[]'));
+    select coalesce(array_agg(value),'{}') into exclusions from jsonb_array_elements_text(coalesce(evidence->'hard_exclusions','[]'));
+    if not reasons && array['already_refunded','currency_not_usd','duplicate_provider_record','duplicate_transaction','missing_amount_evidence',
+      'missing_canonical_machine_mapping','missing_currency_evidence','missing_provider_card_last4','missing_provider_machine_id',
+      'missing_provider_site_id','payment_not_approved','provider_machine_mismatch','provider_status_unconfirmed']::text[]
+      and array_remove(exclusions,'card_last4_mismatch')='{}'::text[] then
+      if 'card_last4_mismatch'=any(reasons) then fields:=array_append(fields,'card_last4'); end if;
+      if reasons && array['amount_mismatch','amount_uncertain']::text[] then fields:=array_append(fields,'amount'); end if;
+      if reasons && array['incident_time_too_far','customer_time_rough']::text[] then fields:=array_append(fields,'incident_time'); end if;
+    end if;
+  end if;
+  return public.canonical_refund_follow_up_fields(fields);
+end;
+$$;
+revoke all on function public.refund_purchase_correction_request_fields(uuid) from public,anon,authenticated;
+grant execute on function public.refund_purchase_correction_request_fields(uuid) to service_role;
 
 create function public.refund_purchase_correction_values(p_case public.refund_cases)
 returns jsonb language sql stable security definer set search_path = '' as $$
@@ -59,11 +102,16 @@ begin
   if cardinality(fields)=0 or 'zelle_payment_contact'=any(fields) then
     raise exception 'Specific purchase fields are required';
   end if;
+  if not fields <@ public.refund_purchase_correction_request_fields(c.id) then
+    raise exception 'The requested customer fields are no longer supported by current evidence';
+  end if;
   select * into r from public.refund_wallet_correction_contexts where correction_message_id=m.id;
   if r.id is not null then
     if r.token_hash is distinct from p_token_hash then raise exception 'Request capability changed'; end if;
     return jsonb_build_object('requestId',r.id,'state',r.status,'expiresAt',r.expires_at);
   end if;
+  update public.refund_wallet_correction_contexts set status='expired',updated_at=statement_timestamp()
+    where refund_case_id=c.id and status='pending' and expires_at<=statement_timestamp();
   if exists(select 1 from public.refund_wallet_correction_contexts where refund_case_id=c.id and status='pending') then
     raise exception 'A correction request is already active';
   end if;
@@ -170,16 +218,19 @@ begin
     next_case.card_wallet_used := next_case.payment_interaction='phone_watch_wallet';
     next_case.card_last4 := null; next_case.card_last4_provenance := null; next_case.wallet_provider := null;
   end if;
-  if 'wallet_provider'=any(changed_fields) then
+  if 'wallet_provider'=any(changed_fields) or
+    ('payment_interaction'=any(changed_fields) and p_answers->'wallet_provider'->>'disposition'='confirmed') then
     if next_case.card_wallet_used is not true then raise exception 'Wallet details require a wallet purchase'; end if;
     next_case.wallet_provider := vals->>'wallet_provider';
   end if;
-  if 'card_last4'=any(changed_fields) then
+  if 'card_last4'=any(changed_fields) or
+    (changed_fields && array['payment_method','payment_interaction']::text[] and p_answers->'card_last4'->>'disposition'='confirmed') then
     if next_case.payment_method<>'card' or next_case.payment_interaction not in ('tap_card','insert_or_swipe','phone_watch_wallet') then raise exception 'Confirm how the card was used before changing its digits'; end if;
     next_case.card_last4 := vals->>'card_last4';
     next_case.card_last4_provenance := case when next_case.card_wallet_used then 'wallet_device_token' else 'physical_card' end;
   end if;
-  if 'card_network'=any(changed_fields) then
+  if 'card_network'=any(changed_fields) or
+    ('payment_method'=any(changed_fields) and p_answers->'card_network'->>'disposition'='confirmed') then
     if next_case.payment_method<>'card' then raise exception 'Card details require a card purchase'; end if;
     next_case.card_network := vals->>'card_network';
   end if;
@@ -222,6 +273,7 @@ begin
     where refund_case_id=c.id and status in ('claimed','waiting','customer_replied');
   update public.refund_wallet_correction_contexts set status='submitted',consumed_at=statement_timestamp(),updated_at=statement_timestamp(),
     correction_response=p_answers,correction_resulting_fact_version=next_case.deterministic_fact_version,
+    correction_recheck_state=case when needs_human then null else 'pending' end,
     correction_next_action=case when needs_human then 'review' else 'recheck' end where id=r.id;
   insert into public.refund_case_events(refund_case_id,event_type,message,metadata)
   values(c.id,'purchase_correction_received','Customer response saved on the same request; Bloomjoy owns the next review.',
