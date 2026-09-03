@@ -10,6 +10,12 @@
 
 Production execution remains held until configuration and operational acceptance are verified. This decision implements the September 2 API-first operating direction; it supplies no new payment or messaging authority.
 
+## 2026-09-03 - Strong card matches allow estimated purchase totals and times (`#1118`)
+
+- One sale on the verified machine is high confidence when the physical-card last four match, the resolved purchase time is within 60 minutes, and the provider total differs from the reported total by at most $3. Both boundaries are inclusive; a customer choosing “within an hour” does not disqualify this evidence. Small price differences may reflect tax or rounding.
+- Uniqueness is checked across every sale returned within the lookup window before the display limit is applied. Multiple eligible sales remain ambiguous. Existing provider-identity, account, currency, approval, duplicate/refund, card-network, wallet-provenance and timezone checks continue to apply. The separate QR-only path keeps its exact-amount rule.
+- The original customer report remains unchanged. Selection and any separately approved refund use the provider's full sale amount. Re-ranking is advisory: it does not select a transaction, authorize money, or send a message. Internal routing errors and accepted estimates must not ask the customer to repeat settled facts.
+
 ## 2026-09-02 - Localized refund reply instructions are a parser contract (`#891`, `#923`)
 
 - Every copyable Spanish field label emitted by the customer email must be recognized by the deterministic reply extractor; translation alone does not complete the customer workflow. Supported payment answers use a fixed translation dictionary, not free-form inference.

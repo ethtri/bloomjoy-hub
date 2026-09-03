@@ -12,6 +12,12 @@ Confirmed refund with unknown settlement date (`#971`): in a synthetic mapped Re
 - With an explicit `inspect_unknown` test contract, missing request rules must produce one request and zero approval/retry calls even for HTTP 200. A learned request rule plus unknown approval response must remain held, with the identical original transaction, site and Machine AuTime.
 - For an ended, uncertain verified API attempt, record exact current full-refund evidence through the existing receipt panel. Verify one immutable receipt, no new attempt, no settlement-date guess, no accounting adjustment and no new customer message. Active provider claims, partial evidence, pending status and wrong-account evidence must fail.
 
+## Card transaction estimates (`#1118`)
+
+- [ ] On a synthetic case with one sale on the correct machine, matching physical-card last four, a $0.10 tax difference and a 25-minute time difference, confirm a strong recommendation even when the customer selected “within an hour.” The provider amount and original reported amount stay distinct.
+- [ ] Verify the inclusive $3/60-minute boundaries, rejection beyond either boundary, and ambiguity when two sales qualify even if the display limit is one. Wrong card/network, declined/refunded sales, duplicate originals, unresolved DST and wallet provenance retain their existing restrictions.
+- [ ] Rechecking a case changes only lookup evidence; it sends no customer message and issues no refund. Accepted amount/time estimates do not request repeat details. A subsequent, separately approved refund uses the full selected provider amount.
+
 ## Historical owner-mailbox refund notice
 
 - With a synthetic confirmed receipt and current verified mapped Super Admin, open the historical notice review in `/admin/refunds`. Fill exact lowercase API IDs, pre-cutoff UTC sent time, sole customer and fingerprint; all three reviews are required.
