@@ -234,6 +234,8 @@ export type NayaxProviderCandidate = {
   providerMachineId: string;
   authorizedAt: string;
   machineAuthorizationTime: string;
+  machineAuthorizationTimeRaw: string;
+  machineTimeResolution: string;
   providerTimeResolution: string;
   timeDeltaMinutes: number;
   qrTimeDeltaMinutes: number | null;
@@ -276,7 +278,8 @@ export type NayaxProviderCandidate = {
 
 export type NayaxResponseCandidate = Omit<
   NayaxProviderCandidate,
-  "transactionId" | "siteId" | "providerMachineId" | "providerRefundState" | "rankingPoints"
+  "transactionId" | "siteId" | "providerMachineId" | "providerRefundState" | "rankingPoints" |
+  "machineAuthorizationTimeRaw" | "machineTimeResolution"
 > & {
   candidateToken: string;
 };
@@ -437,6 +440,9 @@ const persistNayaxLookupCandidates = async ({
         qr_time_delta_minutes: candidate.qrTimeDeltaMinutes,
         amount_delta_cents: candidate.amountDeltaCents,
         provider_time_resolution: candidate.providerTimeResolution,
+        machine_authorization_time_raw: candidate.machineAuthorizationTimeRaw,
+        machine_authorization_time_source: "MachineAuthorizationTime",
+        machine_time_resolution: candidate.machineTimeResolution,
         card_brand: candidate.cardBrand || null,
         card_network: candidate.cardNetwork || null,
         recognition_method: candidate.recognitionMethod || null,
