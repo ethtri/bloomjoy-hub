@@ -167,16 +167,17 @@ returns boolean language sql stable security definer set search_path='' as $$
     join public.refund_nayax_execution_contexts x on x.attempt_id=a.id
     where c.id=p_case_id and a.execution_mode='request_and_approve'
       and c.nayax_refund_execution_status='not_requested'
+      and c.refund_completed_at is null and c.reporting_adjustment_id is null
       and x.context->>'transactionId'=c.matched_nayax_transaction_id
       and x.context->>'accountScope'=m.nayax_account_key and x.context->>'providerMachineId'=m.nayax_machine_id
       and (x.context->>'siteId')::integer=c.matched_nayax_site_id
       and (x.context->>'originalAmountCents')::integer=c.matched_nayax_amount_cents
       and x.context->>'currencyCode'=c.matched_nayax_currency_code
-      and not exists(select 1 from public.refund_case_nayax_refund_attempts later
-        where later.refund_case_id=c.id and (later.created_at,later.id)>(a.created_at,a.id))
       and not exists(select 1 from public.refund_case_nayax_refund_attempts competing
         where competing.refund_case_id=c.id and competing.id<>a.id
+          and not public.refund_nayax_retry_safe_resolution_is_historical(competing.id)
           and (competing.reconciliation_required
+            or competing.provider_outcome in ('unknown','timeout','success')
             or competing.status in ('in_progress','requested','approved','manual_review','ambiguous','succeeded')))
       and ((public.refund_nayax_definitive_rejection_is_retry_safe(a.id)
           and a.safe_transport_stage='released_no_refund'
