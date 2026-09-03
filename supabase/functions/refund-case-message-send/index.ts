@@ -179,9 +179,8 @@ const handleTransactionalDeliveryWebhook = async (req: Request) => {
     return jsonResponse({ error: "Invalid delivery webhook." }, 400);
   }
 
-  let verified: unknown;
   try {
-    verified = new Webhook(secret).verify(rawBody, {
+    new Webhook(secret).verify(rawBody, {
       "svix-id": eventId,
       "svix-timestamp": timestamp,
       "svix-signature": signature,
@@ -192,7 +191,8 @@ const handleTransactionalDeliveryWebhook = async (req: Request) => {
 
   let event;
   try {
-    event = parseRefundTransactionalDeliveryWebhook(verified);
+    // Svix 2.2 verifies the raw bytes and returns undefined, not parsed JSON.
+    event = parseRefundTransactionalDeliveryWebhook(JSON.parse(rawBody));
   } catch {
     return jsonResponse({ error: "Invalid delivery webhook evidence." }, 400);
   }
