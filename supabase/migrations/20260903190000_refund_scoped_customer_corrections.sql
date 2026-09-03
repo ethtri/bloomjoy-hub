@@ -123,16 +123,18 @@ begin
   update public.refund_wallet_correction_contexts ctx set status='revoked',revoked_at=statement_timestamp(),updated_at=statement_timestamp()
     where ctx.refund_case_id=c.id and ctx.status='pending' and ctx.correction_kind='purchase' and exists(
       select 1 from public.refund_case_messages failed where failed.id=ctx.correction_message_id and failed.status='failed'
-        and (public.is_refund_message_recorded_delivery_failure(to_jsonb(failed)) or (failed.sent_at is null
+        and (failed.sent_at is null
           and failed.provider_message_id is null and failed.manual_delivery_provider_attempted_at is null and failed.delivery_transport is null
-          and not exists(select 1 from public.refund_gmail_messages outbound where outbound.refund_case_message_id=failed.id))));;
+          and not exists(select 1 from public.refund_gmail_messages outbound where outbound.refund_case_message_id=failed.id)));
   if exists(select 1 from public.refund_wallet_correction_contexts where refund_case_id=c.id and status='pending') then
     raise exception 'A correction request is already active';
   end if;
   -- Infrastructure failure before transport does not spend a customer contact.
   select count(*)+1 into next_version from public.refund_wallet_correction_contexts ctx
-    where ctx.refund_case_id=c.id and (ctx.correction_kind='wallet' or exists(
-      select 1 from public.refund_case_messages sent where sent.id=ctx.correction_message_id and sent.status='sent'));
+    where ctx.refund_case_id=c.id and not exists(
+      select 1 from public.refund_case_messages failed where failed.id=ctx.correction_message_id and failed.status='failed'
+        and failed.sent_at is null and failed.provider_message_id is null and failed.manual_delivery_provider_attempted_at is null
+        and failed.delivery_transport is null and not exists(select 1 from public.refund_gmail_messages outbound where outbound.refund_case_message_id=failed.id));
   if next_version>2 then raise exception 'Correction link limit reached'; end if;
   insert into public.refund_wallet_correction_contexts(refund_case_id,token_hash,version,expires_at,
     correction_kind,correction_message_id,correction_fact_version,correction_requested_fields,correction_snapshot)
@@ -367,7 +369,7 @@ declare base jsonb; enriched jsonb;
 begin
   base := public.admin_get_refund_operations_overview_pre_purchase_correction();
   select coalesce(jsonb_agg(item.value||jsonb_build_object(
-    'customerCorrectionFields',public.refund_purchase_correction_request_fields((item.value->>'id')::uuid),
+    'customerCorrectionFields',case when exists(select 1 from public.refund_customer_contact_settings settings where settings.singleton and coalesce((to_jsonb(settings)->>'correction_links_enabled')::boolean,false)) then public.refund_purchase_correction_request_fields((item.value->>'id')::uuid) end,
     'customerCorrection', case when r.id is null then null else jsonb_build_object(
       'state',case when r.status='pending' and r.expires_at<=statement_timestamp() then 'expired' else r.status end,
       'requestedAt',r.issued_at,'respondedAt',r.consumed_at,'expiresAt',r.expires_at,
