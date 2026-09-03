@@ -53,6 +53,7 @@ import {
   isRefundWalletCorrectionToken,
 } from "../_shared/refund-wallet-correction.ts";
 import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
+import { handlePurchaseCorrection } from "../_shared/refund-purchase-correction-handler.ts";
 import { validateRefundIntakePayment } from "../_shared/refund-intake-payment.ts";
 import {
   hashRefundStatusValue,
@@ -1264,6 +1265,14 @@ serve(async (req) => {
     }
     if (action === "inspectWalletCorrection") {
       return await inspectWalletCorrection(req, body);
+    }
+    if (action === "inspectPurchaseCorrection" || action === "submitPurchaseCorrection") {
+      if (!(await checkWalletCorrectionRateLimit(req))) {
+        return new Response(JSON.stringify({ errorCode: "correction_rate_limited" }), {
+          status: 429, headers: { ...refundStatusResponseHeaders },
+        });
+      }
+      return await handlePurchaseCorrection(body, supabase);
     }
     if (action === "submitWalletCorrection") {
       return await submitWalletCorrection(req, body);
