@@ -53,8 +53,8 @@ declare c public.refund_cases; fields text[]; evidence jsonb; reasons text[]; ex
 begin
   select * into c from public.refund_cases where id=p_case_id;
   if c.id is null or not public.refund_purchase_correction_eligible(c) then return '{}'::text[]; end if;
-  if c.decision='approved' then return array['zelle_payment_contact']::text[]; end if;
-  fields := public.refund_missing_follow_up_fields(c.id);
+  fields := case when c.decision='approved' then array['zelle_payment_contact']::text[] else public.refund_missing_follow_up_fields(c.id) end;
+  if c.decision is null then
   -- A mapped public selection with an unresolved internal binding belongs to
   -- Operations. Do not ask the customer to supply machine/account identifiers.
   if c.intake_selection_key is not null then fields := array_remove(fields,'location_or_machine'); end if;
@@ -81,6 +81,7 @@ begin
       if reasons && array['amount_mismatch','amount_uncertain']::text[] then fields:=array_append(fields,'amount'); end if;
       if reasons && array['incident_time_too_far','customer_time_rough']::text[] then fields:=array_append(fields,'incident_time'); end if;
     end if;
+  end if;
   end if;
   -- One answered request ends that customer task. An unchanged/unknown answer
   -- or an unsuccessful bounded recheck is internal work, not the same question.
