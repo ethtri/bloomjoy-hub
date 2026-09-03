@@ -87,7 +87,7 @@
     "refunds:release:capture-predeployment": "node scripts/refunds/refund-release.mjs --capture-predeployment",
     "refunds:deploy:functions": "node scripts/refunds/refund-function-deploy.mjs",
     "refunds:validate-function-deploy": "node --test scripts/refunds/refund-function-deploy.test.mjs",
-    "refunds:validate-release-tooling": "node --test scripts/refunds/refund-function-deploy.test.mjs && node scripts/refunds/validate-refund-release.mjs && node scripts/refunds/validate-refund-drift-credential.mjs",
+    "refunds:validate-release-tooling": "node --test scripts/refunds/refund-function-deploy.test.mjs scripts/refunds/refund-change-scope.test.mjs scripts/refunds/refund-release-provenance.test.mjs && node scripts/refunds/validate-refund-release.mjs && node scripts/refunds/validate-refund-drift-credential.mjs",
     "refunds:validate-drift-credential": "node scripts/refunds/refund-drift-credential.mjs",
     "refunds:smoke-routes": "node scripts/refunds/refund-route-smoke.mjs",
     "refunds:validate-route-smoke": "node scripts/refunds/validate-refund-route-smoke.mjs",
