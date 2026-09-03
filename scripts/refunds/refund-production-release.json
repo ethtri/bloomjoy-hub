@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "de63a2387e70585f2a292386a5c6184c89902579",
+  "sourceGitCommit": "73ee0e542c1c9b6c051b074f43ad4d3eb3fb4344",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -197,7 +197,7 @@
     {
       "slug": "refund-case-intake",
       "verifyJwt": false,
-      "sourceSha256": "777f16200e86b4ad3008907be859656cea61a17711e3a8b3f357262829d2c2f7",
+      "sourceSha256": "7c217f6fac30e013dbcd716bc38c20c3d0c029cfef77dcffcfa0e4e7191926bc",
       "production": {
         "version": 105,
         "ezbrSha256": "750fa3f1fe2fee8c8b0bffc406782fba05be0bc3baf3ba04d84d8af7ca7f3069",
@@ -208,7 +208,7 @@
     {
       "slug": "nayax-transaction-lookup",
       "verifyJwt": false,
-      "sourceSha256": "260496e9996f0cd21107deba9074d1a565aa869e9d418d6c730f97f738ad7d13",
+      "sourceSha256": "ff35b776ae17c8994b1ce4c928229202af0df6493985b0311699ed7e2dce54e5",
       "production": {
         "version": 97,
         "ezbrSha256": "5253e0a30135ccf41a8b74561e066cfee518197f10f7140070f9f57b751cd5a4",
@@ -241,7 +241,7 @@
     {
       "slug": "refund-case-automation-sweep",
       "verifyJwt": false,
-      "sourceSha256": "b47603798a916c3996e51714c6524a4db0f6535b1e39fc130d0fefcba7120b97",
+      "sourceSha256": "de6f3d32a9d59836fa0014e8a2b0c40402f5faea9c79f26cae1fa2b38a900eac",
       "production": {
         "version": 106,
         "ezbrSha256": "932efb9bb57eb4375310aaf9a609d2124495393203b318b9569f6e579b1c515f",
@@ -252,7 +252,7 @@
     {
       "slug": "refund-gmail-sync",
       "verifyJwt": false,
-      "sourceSha256": "1ff8e54d99d526849d4dbb2dc2f07f7682285f16bde764ff233a3e92d2f3f0c3",
+      "sourceSha256": "503a070f990efde3b33f5a98bc54987682fe16884ef6b22e361b0ca5cc2681b8",
       "production": {
         "version": 103,
         "ezbrSha256": "5de9bbdf832cf93dcdb1e02157fc24448317e8d71df90ce45aae1278e9a6d948",
