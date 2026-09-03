@@ -4,7 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { CheckCircle2, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { invokeEdgeFunction } from '@/lib/edgeFunctions';
+import { invokeEdgeFunction, isEdgeFunctionError } from '@/lib/edgeFunctions';
 import { isLocalUatDemoForced } from '@/lib/refundOperations';
 import { correctionChoices, correctionFields, correctionLabels, isCorrectionToken, requiredCorrectionFields, updateCorrectionAnswer, validateCorrectionAnswers,
   type CorrectionAnswer, type CorrectionAnswers, type CorrectionContext, type CorrectionField,
@@ -41,7 +41,8 @@ export default function RefundCorrectionPage() {
   const [reviewOthers, setReviewOthers] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [received, setReceived] = useState(false);
+  const [received, setReceived] = useState<CorrectionContext | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
   const resultRef = useRef<HTMLHeadingElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const query = useQuery({
@@ -53,7 +54,7 @@ export default function RefundCorrectionPage() {
     },
   });
   const context = demo ? demoContext(location.search) : query.data;
-  const es = context?.locale === 'es';
+  const es = (received?.locale ?? context?.locale) === 'es';
   const copy = (english: string, spanish: string) => es ? spanish : english;
   useEffect(() => {
     if (token) sessionStorage.setItem(tokenKey, token);
@@ -62,7 +63,7 @@ export default function RefundCorrectionPage() {
     return () => meta.remove();
   }, [token]);
   useEffect(() => {
-    const openLink = () => { setToken(initialToken()); setAnswers({}); setReviewOthers(false); setReceived(false); setError(''); };
+    const openLink = () => { setToken(initialToken()); setAnswers({}); setReviewOthers(false); setReceived(null); setUnavailable(false); setError(''); };
     window.addEventListener('hashchange', openLink);
     return () => window.removeEventListener('hashchange', openLink);
   }, []);
@@ -77,7 +78,11 @@ export default function RefundCorrectionPage() {
   const effective = (field: CorrectionField) => answers[field]?.disposition === 'changed' ? answers[field]?.value : values[field];
   const wallet = effective('payment_interaction') === 'phone_watch_wallet';
   const cash = effective('payment_method') === 'cash';
+  const locationChanged = answers.location_or_machine?.disposition === 'changed' && Boolean(answers.location_or_machine.value);
   const requested = context ? requiredCorrectionFields(answers, context) : [];
+  const savedContext = received ?? (context?.state === 'received' ? context : null);
+  const openingUnavailable = isEdgeFunctionError(query.error) && query.error.data?.errorCode === 'correction_unavailable';
+  const openingFailed = !context && !openingUnavailable && (query.isError || query.fetchStatus === 'paused');
   const payoutDestination = requested.length === 1 && requested[0] === 'zelle_payment_contact';
   const fields = (context?.allowedFields ?? []).filter((field) => requested.includes(field) || (reviewOthers &&
     (!cash || !['payment_interaction','card_last4', 'card_network', 'wallet_provider'].includes(field)) && (wallet || field !== 'wallet_provider')));
@@ -90,9 +95,12 @@ export default function RefundCorrectionPage() {
     catch { setError(copy('Choose an answer for each requested detail. You can choose “Not sure / can’t provide” without guessing.', 'Elija una respuesta para cada detalle solicitado. Puede elegir “No lo sé / No lo tengo” sin adivinar.')); return; }
     setSaving(true);
     try {
-      if (!demo) await invokeEdgeFunction('refund-case-intake', { action: 'submitPurchaseCorrection', token, version: context.version, answers: validated }, { includeUserAuth: false });
-      setReceived(true);
-    } catch {
+      const result = demo ? { correction: { state: 'received' as const, nextAction: 'review' as const } }
+        : await invokeEdgeFunction<{ correction: CorrectionContext }>('refund-case-intake', { action: 'submitPurchaseCorrection', token, version: context.version, answers: validated }, { includeUserAuth: false });
+      if (result?.correction?.state !== 'received') throw new Error('Response not confirmed');
+      setReceived({ publicReference: context.publicReference, locale: context.locale, ...result.correction });
+    } catch (failure) {
+      if (isEdgeFunctionError(failure) && failure.data?.errorCode === 'correction_unavailable') { setUnavailable(true); return; }
       setError(copy('We couldn’t save this response. Your answers are still here. Try again, or reply to your Bloomjoy email for help with this same request.', 'No pudimos guardar la respuesta. Sus respuestas siguen aquí. Inténtelo de nuevo o responda al correo de Bloomjoy para obtener ayuda con esta misma solicitud.'));
     } finally { setSaving(false); }
   };
@@ -100,23 +108,35 @@ export default function RefundCorrectionPage() {
   return <main className="min-h-screen bg-background px-4 py-8 text-foreground sm:py-12" lang={es ? 'es' : 'en'}>
     <div className="mx-auto max-w-xl">
       <p className="mb-8 font-display text-2xl font-bold">Bloomjoy</p>
-      {query.isFetching && !context ? <p role="status">Opening your secure refund request…</p>
-        : received || context?.state === 'received' ? <section aria-live="polite">
+      {query.isFetching && !context ? <p role="status">Opening your secure refund request… <span lang="es">Abriendo su solicitud segura…</span></p>
+        : savedContext ? <section aria-live="polite">
           <CheckCircle2 aria-hidden className="mb-5 h-9 w-9 text-emerald-700" />
           <h1 ref={resultRef} tabIndex={-1} className="text-2xl font-semibold">{copy('Your response is saved.', 'Su respuesta se guardó.')}</h1>
-          <p className="mt-4 leading-7">{copy('Bloomjoy will review your response and continue handling this refund request. You do not need to submit another one.', 'Bloomjoy revisará su respuesta y continuará con esta solicitud de reembolso. No necesita enviar otra.')}</p>
+          <p className="mt-4 leading-7">{savedContext.nextAction === 'recheck'
+            ? copy('Bloomjoy is rechecking the purchase using your response. You do not need to submit another request.', 'Bloomjoy está volviendo a comprobar la compra con su respuesta. No necesita enviar otra solicitud.')
+            : savedContext.nextAction === 'review'
+              ? copy('Someone at Bloomjoy will review your response and continue handling this request. You do not need to submit another one.', 'Una persona de Bloomjoy revisará su respuesta y continuará con esta solicitud. No necesita enviar otra.')
+              : copy('Bloomjoy has your response and will continue handling this request. You do not need to submit another one.', 'Bloomjoy recibió su respuesta y continuará con esta solicitud. No necesita enviar otra.')}</p>
+          {!savedContext.locale && <p className="mt-4 leading-7" lang="es">{savedContext.nextAction === 'recheck' ? 'Su respuesta se guardó. Bloomjoy está volviendo a comprobar la compra. No necesita enviar otra solicitud.' : savedContext.nextAction === 'review' ? 'Su respuesta se guardó. Una persona de Bloomjoy la revisará. No necesita enviar otra solicitud.' : 'Bloomjoy recibió su respuesta y continuará con esta solicitud. No necesita enviar otra.'}</p>}
           <p className="mt-4 text-sm text-muted-foreground">{copy('We’ll email you about the next step. Saving these details does not send or confirm a payment.', 'Le enviaremos un correo sobre el siguiente paso. Guardar estos detalles no envía ni confirma un pago.')}</p>
-          <p className="mt-6 font-medium">{context?.publicReference}</p>
-        </section> : !context || context.state !== 'ready' || (!token && !demo) ? <section>
+          <p className="mt-6 font-medium">{savedContext.publicReference}</p>
+        </section> : openingFailed ? <section aria-live="polite">
+          <h1 className="text-2xl font-semibold">We couldn’t open your request.</h1>
+          <p className="mt-4 leading-7">Check your connection and try again. You can also reply to your Bloomjoy email for help with this same request.</p>
+          <p className="mt-4 leading-7" lang="es">No pudimos abrir su solicitud. Revise su conexión e inténtelo de nuevo, o responda al correo de Bloomjoy para recibir ayuda con esta misma solicitud.</p>
+          <Button className="mt-6 min-h-12 whitespace-normal" onClick={() => void query.refetch()}>Try again / Intentar de nuevo</Button>
+        </section> : unavailable || !context || context.state !== 'ready' || (!token && !demo) ? <section>
           <h1 className="text-2xl font-semibold">This link is no longer available.</h1>
           <p className="mt-4 leading-7">Reply to your Bloomjoy refund email for help with your existing request. You do not need to start again.</p>
           <p className="mt-4 leading-7" lang="es">Este enlace ya no está disponible. Responda al correo de reembolso de Bloomjoy para obtener ayuda con su solicitud. No necesita comenzar de nuevo.</p>
+          {context?.publicReference && <p className="mt-6 font-medium">{context.publicReference}</p>}
         </section> : <>
           <p className="text-sm font-medium text-muted-foreground">{context.publicReference}</p>
           <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">{payoutDestination ? copy('Add your payout destination', 'Agregue el destino de su reembolso') : copy('Update your refund request', 'Actualice su solicitud de reembolso')}</h1>
           <p className="mt-4 leading-7">{payoutDestination ? copy('Add the Zelle email or phone number for your approved cash reimbursement. This stays on your existing refund request.', 'Agregue el correo o teléfono de Zelle para su reembolso de efectivo aprobado. Esta información queda en su solicitud existente.') : copy('Check the details below so we can review the right purchase. Confirm what is correct, change what needs fixing, or tell us you’re not sure.', 'Revise los detalles para que podamos encontrar la compra correcta. Confirme lo correcto, corrija lo necesario o indique que no está seguro.')}</p>
           <p className="mt-4 flex gap-2 text-sm leading-6 text-muted-foreground"><ShieldCheck aria-hidden className="mt-1 h-4 w-4 shrink-0" />{(payoutDestination || cash) ? copy('Never share a bank account number, password or security code.', 'Nunca comparta un número de cuenta bancaria, contraseña ni código de seguridad.') : copy('Only the last four card digits. Never share a full card number, security code, password or screenshot.', 'Solo los últimos cuatro dígitos. Nunca comparta el número completo de tarjeta, código de seguridad, contraseña ni captura de pantalla.')}</p>
           <form onSubmit={submit} className="mt-8 space-y-7" noValidate>
+            {locationChanged && <p role="status" className="text-sm leading-6 text-muted-foreground">{copy('Please check the saved date and time for this location. Use the local time where you bought the item; you do not need to work out a time zone. You can tell us if you’re not sure.', 'Revise la fecha y la hora guardadas para esta ubicación. Use la hora local del lugar de compra; no necesita calcular la zona horaria. Puede indicar que no está seguro.')}</p>}
             {!cash && (answers.payment_method?.disposition === 'changed' || answers.payment_interaction?.disposition === 'changed') && <p className="text-sm leading-6 text-muted-foreground">{copy('When you change how you paid, please check the card details for that payment. Choose “Not sure / can’t provide” if you cannot confirm them.', 'Si cambia cómo pagó, revise los detalles de la tarjeta de ese pago. Elija “No lo sé / No lo tengo” si no puede confirmarlos.')}</p>}
             {error && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-md border border-destructive p-4 text-sm">{error}</div>}
             {fields.map((field) => {
