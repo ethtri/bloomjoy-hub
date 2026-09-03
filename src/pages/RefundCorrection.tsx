@@ -12,7 +12,9 @@ import { correctionChoices, correctionFields, correctionLabels, isCorrectionToke
 
 const tokenKey = 'bloomjoy-refund-correction-v1';
 const initialToken = () => {
-  const token = new URLSearchParams(window.location.hash.slice(1)).get('token') ?? sessionStorage.getItem(tokenKey) ?? '';
+  const fragment = window.location.hash;
+  const token = fragment ? new URLSearchParams(fragment.slice(1)).get('token') ?? '' : sessionStorage.getItem(tokenKey) ?? '';
+  if (fragment && !isCorrectionToken(token)) sessionStorage.removeItem(tokenKey);
   return isCorrectionToken(token) ? token : '';
 };
 const controlClass = 'min-h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -32,7 +34,7 @@ const demoContext = (search: string): CorrectionContext => {
 
 export default function RefundCorrectionPage() {
   const location = useLocation();
-  const [token] = useState(initialToken);
+  const [token, setToken] = useState(initialToken);
   const demo = isLocalUatDemoForced();
   const [answers, setAnswers] = useState<CorrectionAnswers>({});
   const [reviewOthers, setReviewOthers] = useState(false);
@@ -51,16 +53,32 @@ export default function RefundCorrectionPage() {
   });
   const context = demo ? demoContext(location.search) : query.data;
   const es = context?.locale === 'es';
-  const copy = (english: string, spanish: string) => es ? `${spanish} / ${english}` : english;
+  const copy = (english: string, spanish: string) => es ? spanish : english;
   useEffect(() => {
     if (token) sessionStorage.setItem(tokenKey, token);
     if (window.location.hash) window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
     const meta = document.createElement('meta'); meta.name = 'referrer'; meta.content = 'no-referrer'; document.head.append(meta);
     return () => meta.remove();
   }, [token]);
+  useEffect(() => {
+    const openLink = () => { setToken(initialToken()); setAnswers({}); setReceived(false); setError(''); };
+    window.addEventListener('hashchange', openLink);
+    return () => window.removeEventListener('hashchange', openLink);
+  }, []);
   useEffect(() => { if (received) resultRef.current?.focus(); }, [received]);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
-  const update = (field: CorrectionField, answer: CorrectionAnswer) => { setAnswers((prior) => ({ ...prior, [field]: answer })); setError(''); };
+  const update = (field: CorrectionField, answer: CorrectionAnswer) => {
+    setAnswers((prior) => {
+      const next = { ...prior, [field]: answer };
+      if (field === 'payment_method' || field === 'payment_interaction') {
+        for (const dependent of ['card_last4','wallet_provider','card_network'] as const) delete next[dependent];
+        if (field === 'payment_method') delete next.payment_interaction;
+      }
+      return next;
+    });
+    if (field === 'payment_method' || field === 'payment_interaction') setReviewOthers(true);
+    setError('');
+  };
   const values = context?.values ?? {};
   const effective = (field: CorrectionField) => answers[field]?.disposition === 'changed' ? answers[field]?.value : values[field];
   const wallet = effective('payment_interaction') === 'phone_watch_wallet';
@@ -109,7 +127,7 @@ export default function RefundCorrectionPage() {
               const answer = answers[field];
               const isRequested = requested.includes(field);
               const label = correctionLabels[field];
-              const choices = correctionChoices[field];
+              const choices = field === 'location_or_machine' ? context.locationChoices?.map(({key,label}) => [key,label,label] as [string,string,string]) : correctionChoices[field];
               const fieldValue = answer?.disposition === 'changed' ? answer.value ?? '' : values[field] ?? '';
               const inputId = `correction-${field}`;
               return <fieldset key={field} className="space-y-3 border-t border-border pt-5">
@@ -118,7 +136,7 @@ export default function RefundCorrectionPage() {
                 {field === 'incident_time' && <p id={`${inputId}-help`} className="text-sm text-muted-foreground">{copy('Use the local time at the purchase location. An estimate is okay.', 'Use la hora local del lugar de compra. Una estimación está bien.')}</p>}
                 <label htmlFor={`${inputId}-answer`} className="sr-only">{copy('Your answer', 'Su respuesta')}: {copy(...label)}</label>
                 <select id={`${inputId}-answer`} className={controlClass} value={answer?.disposition ?? ''}
-                  onChange={(event) => update(field, event.target.value === 'changed' ? { disposition: 'changed', value: values[field] ?? '' } : { disposition: event.target.value as CorrectionAnswer['disposition'] })}>
+                  onChange={(event) => update(field, event.target.value === 'changed' ? { disposition: 'changed', value: field === 'location_or_machine' ? '' : values[field] ?? '', ...(field === 'incident_time' ? { confidence: 'rough' as const } : {}) } : { disposition: event.target.value as CorrectionAnswer['disposition'] })}>
                   <option value="">{copy('Choose an answer', 'Elija una respuesta')}</option>
                   <option value="changed">{copy(values[field] ? 'Change this detail' : 'Add this detail', values[field] ? 'Corregir este detalle' : 'Agregar este detalle')}</option>
                   {values[field] && <option value="confirmed">{copy('This is correct', 'Esto es correcto')}</option>}
@@ -133,7 +151,16 @@ export default function RefundCorrectionPage() {
                     type={field === 'incident_date' ? 'date' : field === 'incident_time' ? 'time' : 'text'}
                     inputMode={field === 'card_last4' ? 'numeric' : field === 'amount' ? 'decimal' : undefined}
                     maxLength={field === 'card_last4' ? 4 : 160} autoComplete="off" value={fieldValue}
-                    onChange={(event) => update(field, { disposition: 'changed', value: event.target.value })} />}
+                    onChange={(event) => update(field, { disposition: 'changed', value: event.target.value, ...(field === 'incident_time' ? { confidence: answer.confidence ?? 'rough' } : {}) })} />}
+                  {field === 'incident_time' && <>
+                    <label htmlFor={`${inputId}-confidence`} className="block text-sm font-medium">{copy('How close is that time?', '¿Qué tan precisa es esa hora?')}</label>
+                    <select id={`${inputId}-confidence`} className={controlClass} value={answer.confidence ?? 'rough'} onChange={(event) => update(field, { ...answer, confidence: event.target.value as CorrectionAnswer['confidence'] })}>
+                      <option value="rough">{copy('A rough estimate', 'Una estimación aproximada')}</option>
+                      <option value="within_1_hour">{copy('Within about an hour', 'Dentro de una hora aproximadamente')}</option>
+                      <option value="within_15_minutes">{copy('Within about 15 minutes', 'Dentro de unos 15 minutos')}</option>
+                      <option value="exact">{copy('Exact time from the purchase record', 'Hora exacta del registro de compra')}</option>
+                    </select>
+                  </>}
                 </> : values[field] && <p className="text-sm">{copy('You previously shared', 'Antes indicó')}: <strong>{choices?.find(([key]) => key === values[field])?.[es ? 2 : 1] ?? values[field]}</strong></p>}
               </fieldset>;
             })}
