@@ -9,12 +9,23 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 } });
 const unavailable = () => json({ errorCode: 'correction_unavailable', correction: { state: 'unavailable' } }, 409);
 
-export async function recheckSavedPurchaseCorrection(supabase: SupabaseClient, requestId: string, caseId: string, factVersion: number) {
+export async function recheckSavedPurchaseCorrection(supabase: SupabaseClient, requestId: string, caseId: string, factVersion: number,
+  lookup = runAutomaticNayaxLookupIfReady) {
   try {
     // Reuse the current fact-version action claim and stale-result protection.
     // A retry/replayed worker cannot issue a second lookup for this version.
-    await runAutomaticNayaxLookupIfReady({ supabase, caseId, source: 'customer_reply_recheck', expectedFactVersion: factVersion });
-    const { error } = await supabase.from('refund_wallet_correction_contexts').update({ correction_next_action: 'review' })
+    const result = await lookup({ supabase, caseId, source: 'customer_reply_recheck', expectedFactVersion: factVersion });
+    let state: 'pending' | 'completed' | 'failed' | 'not_ready' | 'stale' | 'in_progress';
+    if (result.status === 'deduplicated') {
+      const { data: action, error } = await supabase.from('refund_automation_actions').select('status')
+        .eq('action_key', `nayax_lookup:${caseId}:v${factVersion}`).maybeSingle();
+      if (error) throw error;
+      state = action?.status === 'completed' ? 'completed' : action?.status === 'failed' ? 'failed' : 'in_progress';
+    } else state = result.status;
+    const { error } = await supabase.from('refund_wallet_correction_contexts').update({
+      correction_next_action: state === 'in_progress' ? 'recheck' : 'review',
+      correction_recheck_state: state,
+    })
       .eq('id', requestId).eq('correction_resulting_fact_version', factVersion).eq('status', 'submitted');
     if (error) throw error;
   } catch {
@@ -22,6 +33,14 @@ export async function recheckSavedPurchaseCorrection(supabase: SupabaseClient, r
     // convert a lookup outage into a failed customer submission or payment.
     console.error('saved purchase correction needs internal recheck recovery');
   }
+}
+
+async function resumeSavedResponse(supabase: SupabaseClient, tokenHash: string) {
+  const { data: request, error } = await supabase.from('refund_wallet_correction_contexts')
+    .select('id,refund_case_id,correction_resulting_fact_version').eq('token_hash',tokenHash)
+    .eq('correction_kind','purchase').eq('status','submitted').eq('correction_next_action','recheck').maybeSingle();
+  if (error) return;
+  if (request) await recheckSavedPurchaseCorrection(supabase,request.id,request.refund_case_id,request.correction_resulting_fact_version);
 }
 
 export async function handlePurchaseCorrection(body: Record<string, unknown>, supabase: SupabaseClient) {
@@ -33,7 +52,10 @@ export async function handlePurchaseCorrection(body: Record<string, unknown>, su
   if (error) return json({ errorCode: 'correction_temporarily_unavailable' }, 503);
   const context = data as CorrectionContext;
   if (!submitting) return json({ correction: context });
-  if (context?.state === 'received') return json({ correction: context });
+  if (context?.state === 'received') {
+    await resumeSavedResponse(supabase,hash);
+    return json({ correction: context });
+  }
   if (context?.state !== 'ready' || !Number.isSafeInteger(body.version) || body.version !== context.version) return unavailable();
   let answers;
   try { answers = validateCorrectionAnswers(body.answers, context); }
