@@ -1951,7 +1951,7 @@ const primaryActionConfig = (
         if (refundReadiness.blockReason === 'provider_remaining_value_unverified') {
           return {
             label: 'Refund Operations review required',
-            helper: 'Direct card refunds are unavailable until Nayax remaining refundable value can be verified. Refund Operations can use the reviewed Nayax portal fallback; no money or customer email is sent from this screen.',
+            helper: 'Complete the current purchase check below to make the card refund available. Refund Operations can also complete the refund in Nayax and record its confirmed outcome.',
             disabled: true,
           };
         }

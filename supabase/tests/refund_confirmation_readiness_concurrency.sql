@@ -200,7 +200,8 @@ select ok(
     select 1
     from refund_confirmation_race_test.results
     where payload ->> 'transactionConfirmed' <> 'true'
-      or payload -> 'refundReadiness' ->> 'canIssueCardRefund' <> 'true'
+      or payload -> 'refundReadiness' ->> 'canIssueCardRefund' <> 'false'
+      or payload -> 'refundReadiness' ->> 'blockReason' <> 'provider_remaining_value_unverified'
   ),
   'Two simultaneous exact confirmations return one write and one successful replay'
 );

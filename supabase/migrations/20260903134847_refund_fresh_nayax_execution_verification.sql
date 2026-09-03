@@ -241,6 +241,9 @@ begin
     and manager_user_id = v.observed_by and status = 'active' and revoked_at is null for share;
   if not found then raise exception 'Verification operator access changed' using errcode = 'P4620'; end if;
   perform 1 from public.reporting_machines where id = v.reporting_machine_id for share;
+  if v.id is distinct from (public.refund_nayax_current_execution_verification(p_case_id)).id then
+    raise exception 'Purchase verification changed while acquiring execution locks' using errcode = 'P4620';
+  end if;
   result := public.service_reserve_nayax_refund_manager_action_pre_verification_v1(
     p_executor_assertion,p_actor_user_id,p_case_id,p_expected_case_version,p_idempotency_key,p_amount_cents,
     p_daily_amount_cap_cents,p_daily_count_cap,p_currency_code,p_provider_contract_version,p_journal_contract_version);

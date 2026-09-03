@@ -162,8 +162,10 @@ assert(
     providerGates.includes('NAYAX_REFUND_EXECUTION_DRY_RUN') &&
     providerGates.includes('NAYAX_REFUND_EXECUTOR_ASSERTION') &&
     providerGates.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET') &&
-    providerGates.includes('NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED = false'),
-  'The HTTP boundary must retain the ordinary gates and the immutable external-partial readback guard.'
+    providerGates.includes('NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED && remainingValueVerified') &&
+    fn.includes('service_get_refund_nayax_execution_verification') &&
+    fn.includes('p_verification_id: refundCase.executionVerification!.id'),
+  'The HTTP boundary retains ordinary gates and requires exact fresh remaining-value verification.'
 );
 assert(
   fn.includes('can_perform_refund_official_action') &&
@@ -207,7 +209,7 @@ assert(
     !providerGates.includes('NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS') &&
     !providerGates.includes('NAYAX_REFUND_DAILY_COUNT_CAP') &&
     providerGatesTest.includes('legacy canary and cap variables do not gate qualified transactions') &&
-    providerGatesTest.includes('all environment gates open cannot bypass the immutable remaining-value guard') &&
+    providerGatesTest.includes('all environment gates open still require exact-case remaining-value evidence') &&
     providerGatesTest.includes('the provider boundary must remain unreachable') &&
     providerGatesTest.includes('normal execution cannot infer remaining value from the original sale') &&
     managerSessionMigration.includes('pg_catalog.pg_advisory_xact_lock') &&
@@ -274,7 +276,7 @@ assert(
 assert(
   fn.includes('resolveNormalNayaxRefundAmountCents({') &&
   fn.includes('matchedTransactionAmountCents: refundCase.matched_nayax_amount_cents') &&
-  !fn.includes('remainingRefundableAmountCents:') &&
+  fn.includes('remainingRefundableAmountCents: refundCase.executionVerification?.remainingRefundableAmountCents') &&
   !fn.includes('body?.refundAmountCents') &&
   !fn.includes('requestedRefundAmountCents') &&
   !fn.includes('refundCase.refund_amount_cents ='),

@@ -104,7 +104,7 @@ alter table public.refund_nayax_execution_verifications enable trigger refund_na
 select throws_ok($$select pg_temp.reserve_verified(2,(select id from public.refund_nayax_execution_verifications
   where refund_case_id='b7400000-0000-4000-8000-000000000002'))$$,'P4620',null,'Expired verification cannot reserve money');
 select pg_temp.record_verification(3);
-update public.refund_cases set official_action_version=official_action_version+1 where id='b7400000-0000-4000-8000-000000000003';
+update public.refund_cases set card_last4='1234' where id='b7400000-0000-4000-8000-000000000003';
 select throws_ok($$select pg_temp.reserve_verified(3,(select id from public.refund_nayax_execution_verifications
   where refund_case_id='b7400000-0000-4000-8000-000000000003'))$$,'P4620',null,'Changed case invalidates its earlier verification');
 

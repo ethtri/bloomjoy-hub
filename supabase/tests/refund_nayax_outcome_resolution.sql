@@ -1036,13 +1036,14 @@ select ok((
   ) lifecycle) checked
 ), 'The manager lifecycle returns the resolved case to one Refund action');
 select ok((
-  select (readiness ->> 'canIssueCardRefund')::boolean
+  select not (readiness ->> 'canIssueCardRefund')::boolean
+    and readiness ->> 'blockReason' = 'provider_remaining_value_unverified'
     and not (readiness ->> 'accountCircuitBreakerActive')::boolean
   from (select public.refund_case_nayax_manager_readiness(
     'b1000000-0000-4000-8000-000000000001',
     'b1600000-0000-4000-8000-000000000011'
   ) readiness) checked
-), 'Database readiness reopens only the exact resolved manager case');
+), 'Resolved manager case requires fresh balance evidence before another refund');
 
 select ok(
   not has_function_privilege(

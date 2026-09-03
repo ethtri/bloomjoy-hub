@@ -136,7 +136,7 @@ values (
 );
 
 select ok(
-  public.can_offer_nayax_refund_manager_action(
+  not public.can_offer_nayax_refund_manager_action(
     'b1000000-0000-4000-8000-000000000001',
     'b1600000-0000-4000-8000-000000000003'
   )
@@ -144,7 +144,7 @@ select ok(
     'b1000000-0000-4000-8000-000000000002',
     'b1600000-0000-4000-8000-000000000003'
   ),
-  'Only the exact mapped manager can be offered the selected-wallet Nayax action'
+  'Selected-wallet payment remains unavailable without current balance evidence'
 );
 
 select set_config(
@@ -186,11 +186,11 @@ select set_config('request.jwt.claim.sub', '', true);
 select ok(
   has_function_privilege(
     'service_role',
-    'public.service_reserve_nayax_refund_manager_action(text,uuid,uuid,bigint,text,integer,integer,integer,text)',
+    'public.service_reserve_nayax_refund_manager_action_v3(text,uuid,uuid,bigint,text,integer,integer,integer,text,text,text,uuid)',
     'execute'
   ) and not has_function_privilege(
     'authenticated',
-    'public.service_reserve_nayax_refund_manager_action(text,uuid,uuid,bigint,text,integer,integer,integer,text)',
+    'public.service_reserve_nayax_refund_manager_action_v3(text,uuid,uuid,bigint,text,integer,integer,integer,text,text,text,uuid)',
     'execute'
   ),
   'Only the trusted server boundary can reserve the normal manager action'

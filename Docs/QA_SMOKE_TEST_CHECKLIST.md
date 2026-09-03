@@ -1,5 +1,13 @@
 # QA Smoke Test Checklist
 
+## Current Nayax purchase verification (`#990`)
+
+- On `/admin/refunds`, use a mapped test manager and a selected card purchase. Saving the current purchase check must create no payment attempt or customer message. The existing Refund confirmation remains the money action.
+- Verify the exact account, machine, original purchase, site, original amount, cumulative refunds and pending requests in the current Nayax portal. Copy Machine AuTime exactly, including fractional seconds. An hourly report or Authorization Time (GMT) cannot substitute for this check.
+- A partial balance, pending refund, changed purchase/version, revoked mapping, or expired five-minute check must prevent a new request. Coordinate direct portal actions during execution; Bloomjoy cannot lock another operator's Nayax session.
+- Run `refund_fresh_nayax_execution_verification.sql` and `refund_fresh_nayax_execution_concurrency.sql` only in the disposable database. Two simultaneous confirmations must produce one attempt/claim, and a concurrent replay must not deadlock request-start journaling. Request and approval must preserve identical original transaction, site and raw Machine AuTime.
+- Unknown provider outcomes stay held for the existing portal/outcome resolution flow. Do not retry a request or infer success from HTTP status. Production activation requires current source/migration checks and no unresolved old live provider claims.
+
 ## Historical owner-mailbox refund notice
 
 - With a synthetic confirmed receipt and current verified mapped Super Admin, open the historical notice review in `/admin/refunds`. Fill exact lowercase API IDs, pre-cutoff UTC sent time, sole customer and fingerprint; all three reviews are required.
