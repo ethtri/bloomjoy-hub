@@ -237,7 +237,8 @@ begin
     or exists(select 1 from unnest(cc) address where address !~ '^[^[:space:]@<>]+@[^[:space:]@<>]+\.[^[:space:]@<>]+$')
     or mail->>'providerMessageId' is null or mail->>'providerMessageId' !~ '^[a-f0-9]{8,64}$'
     or mail->>'providerThreadId' is null or mail->>'providerThreadId' !~ '^[a-f0-9]{8,64}$'
-    or mail->>'rfcMessageId' is null or mail->>'rfcMessageId' !~ '^<[^<>[:space:]]{3,996}>$'
+    or mail->>'rfcMessageId' is null or length(mail->>'rfcMessageId') not between 5 and 998
+    or mail->>'rfcMessageId' !~ '^<[^<>[:space:]]+>$'
     or mail->>'subject' is null or length(mail->>'subject')>998
     or mail->>'plainBody' is null or length(mail->>'plainBody') not between 20 and 60000
     or position(c.public_reference in mail->>'plainBody')=0
