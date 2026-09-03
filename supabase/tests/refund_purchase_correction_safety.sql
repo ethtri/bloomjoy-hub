@@ -16,10 +16,10 @@ begin
   values(cid,'dd000000-0000-4000-8000-000000000003','dd000000-0000-4000-8000-000000000002','scope-customer@example.invalid','Scoped correction test',
     statement_timestamp()-interval '2 hours',to_char((statement_timestamp()-interval '2 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
     'America/Los_Angeles','exact','exact','card','tap_card',null,'1234','physical_card','visa','needs_review','manual_review','form');
-  cycle:=public.service_claim_refund_follow_up_cycle(cid,'missing_information','refund_follow_up_v1',md5(n::text)||md5(n::text),null);
+  cycle:=public.service_claim_refund_follow_up_cycle(cid,'missing_information','refund_follow_up_v2',md5(n::text)||md5(n::text),null);
   if not coalesce((cycle->>'claimed')::boolean,false) then raise exception 'Fixture cycle rejected: %',cycle; end if;
   insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,content_source,delivery_kind,reason_code,template_version,follow_up_cycle_id,requested_fields)
-  values(mid,cid,'more_info','pending','scope-customer@example.invalid','Please review your purchase','Scoped correction fixture','deterministic_template','automatic','missing_information','refund_follow_up_v1',(cycle#>>'{cycle,id}')::uuid,array['amount']);
+  values(mid,cid,'more_info','pending','scope-customer@example.invalid','Please review your purchase','Scoped correction fixture','deterministic_template','automatic','missing_information','refund_follow_up_v2',(cycle#>>'{cycle,id}')::uuid,array['amount']);
   select * into c from public.refund_cases where id=cid;
   perform public.service_issue_refund_purchase_correction(mid,lpad(to_hex(n),64,'0'),c.deterministic_fact_version);
   if deliver then update public.refund_case_messages set status='sent',sent_at=statement_timestamp() where id=mid; end if;
