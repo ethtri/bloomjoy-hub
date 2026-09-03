@@ -3,12 +3,13 @@ import path from 'node:path';
 
 export const RECEIPT_MIGRATION = '20260902191832_refund_authoritative_reconciliation_receipt.sql';
 export const CORE_DISPATCH_MIGRATION = '20260902182311_refund_all_message_delivery_bookkeeping.sql';
+export const COMPLETION_MIGRATION = '20260903154800_refund_receipt_customer_completion.sql';
 const TEST_FILE = 'refund_receipt_wrapper_parity.sql';
 const gmailArgs = 'uuid,uuid,text,text,text,text,text[],text,uuid';
 const definitions = [
-  [RECEIPT_MIGRATION, 'service_claim_refund_gmail_outbound_v3', 'service_claim_refund_gmail_outbound_v3', gmailArgs, true],
+  [COMPLETION_MIGRATION, 'service_claim_refund_gmail_outbound_v3', 'service_claim_refund_gmail_outbound_v3', gmailArgs, true],
   [CORE_DISPATCH_MIGRATION, 'service_claim_refund_gmail_outbound_v3', 'service_claim_refund_gmail_outbound_pre_receipt_v1', gmailArgs, false],
-  [RECEIPT_MIGRATION, 'service_mark_refund_transactional_delivery_attempt', 'service_mark_refund_transactional_delivery_attempt', 'uuid', true],
+  [COMPLETION_MIGRATION, 'service_mark_refund_transactional_delivery_attempt', 'service_mark_refund_transactional_delivery_attempt', 'uuid', true],
   [CORE_DISPATCH_MIGRATION, 'service_mark_refund_transactional_delivery_attempt', 'service_mark_refund_delivery_pre_receipt_v1', 'uuid', false],
 ];
 
@@ -26,15 +27,15 @@ export function extractReceiptParityBody(source, name) {
 export function buildReceiptWrapperParityTest(repoRoot) {
   const migrationsDir = path.join(repoRoot, 'supabase', 'migrations');
   const files = fs.readdirSync(migrationsDir).filter((name) => name.endsWith('.sql')).sort();
-  if (!files.includes(RECEIPT_MIGRATION) || !files.includes(CORE_DISPATCH_MIGRATION) ||
-    RECEIPT_MIGRATION <= CORE_DISPATCH_MIGRATION) throw new Error('Receipt must follow the current core dispatch migration');
+  if (!files.includes(RECEIPT_MIGRATION) || !files.includes(CORE_DISPATCH_MIGRATION) || !files.includes(COMPLETION_MIGRATION) ||
+    COMPLETION_MIGRATION <= RECEIPT_MIGRATION || RECEIPT_MIGRATION <= CORE_DISPATCH_MIGRATION) throw new Error('Receipt must follow the current core dispatch migration');
   // A later public replacement would silently remove the outer receipt gate on
   // fresh replay even when an out-of-order production installation looked safe.
   for (const name of ['service_claim_refund_gmail_outbound_v3', 'service_mark_refund_transactional_delivery_attempt']) {
     const definingFiles = files.filter((file) => new RegExp(`^create(?: or replace)? function public\\.${name}\\(`, 'm')
       .test(fs.readFileSync(path.join(migrationsDir, file), 'utf8')));
-    if (definingFiles.at(-1) !== RECEIPT_MIGRATION) throw new Error(`Receipt wrapper overwritten later: ${name}`);
-    if (definingFiles.at(-2) !== CORE_DISPATCH_MIGRATION) throw new Error(`Receipt delegate is not the current core: ${name}`);
+    if (definingFiles.at(-1) !== COMPLETION_MIGRATION) throw new Error(`Receipt wrapper overwritten later: ${name}`);
+    if (definingFiles.at(-2) !== RECEIPT_MIGRATION || definingFiles.at(-3) !== CORE_DISPATCH_MIGRATION) throw new Error(`Receipt delegate is not the current core: ${name}`);
   }
   const checks = definitions.flatMap(([file, sourceName, runtimeName, args, serviceAllowed]) => {
     const body = extractReceiptParityBody(fs.readFileSync(path.join(migrationsDir, file), 'utf8'), sourceName);

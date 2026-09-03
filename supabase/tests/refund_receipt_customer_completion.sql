@@ -26,7 +26,7 @@ select ('cf400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-RC-'||n,
   'cf300000-0000-4000-8000-000000000001','cf200000-0000-4000-8000-000000000001',
   'receipt-customer@example.invalid','Synthetic receipt completion',now()-interval '3 days','card',700,700,'4242',
   'card_refund_pending','matched','nayax',1,'approved',(823456780+n)::text,700,'USD',now()-interval '3 days',
-  'hold','card_payment_state_without_attempt',now()-interval '1 day' from generate_series(1,5) n;
+  'hold','card_payment_state_without_attempt',now()-interval '1 day' from generate_series(1,8) n;
 select set_config('request.jwt.claim.sub','cf000000-0000-4000-8000-000000000001',true);
 select set_config('request.jwt.claim.role','authenticated',true);
 select set_config('request.jwt.claims','{"sub":"cf000000-0000-4000-8000-000000000001","role":"authenticated","session_id":"cf010000-0000-4000-8000-000000000001","is_anonymous":false}',true);
@@ -119,6 +119,87 @@ select lives_ok($$insert into public.refund_case_messages(refund_case_id,message
   values('cf400000-0000-4000-8000-000000000003','manual_note','sent','Internal note','Synthetic note')$$,
   'Unrelated supported service message writes keep their original privileges');
 reset role;
+select pg_temp.queue_completion(3);
+create temp table rc_accepted_claim as select * from public.service_claim_refund_manual_message_deliveries(
+  (select message_id from public.refund_receipt_completion_intents where refund_case_id='cf400000-0000-4000-8000-000000000003'),1);
+select public.service_mark_refund_manual_message_provider_attempt(refund_case_message_id,claim_token) from rc_accepted_claim;
+select public.service_mark_refund_transactional_delivery_attempt(refund_case_message_id) from rc_accepted_claim;
+select public.service_bind_refund_transactional_delivery(refund_case_message_id,'synthetic_receipt_accepted_3',now()) from rc_accepted_claim;
+update public.refund_case_messages set manual_delivery_claimed_at=now()-interval '11 minutes'
+  where id=(select refund_case_message_id from rc_accepted_claim);
+select is((select count(*)::integer from public.service_claim_refund_manual_message_deliveries(
+  (select refund_case_message_id from rc_accepted_claim),1)),0,'Interrupted accepted delivery is reconciled without another transport claim');
+select is(pg_temp.queue_completion(3)->>'outboxState','sent','Durable provider acceptance finishes the same message');
+select is(public.refund_lifecycle_contract('cf400000-0000-4000-8000-000000000003')#>>'{messageState,state}',
+  'delivery_unconfirmed','Provider acceptance is not labeled customer delivery');
+select is(public.admin_get_refund_authoritative_receipt_overview('cf400000-0000-4000-8000-000000000003')->'completionNotice'->>'deliveryState',
+  'accepted','Private view preserves the exact accepted state');
+
+insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,first_message_at,latest_message_at,retention_expires_at)
+select ('cf700000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,('cf400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
+  repeat('a',64),'receipt-completion-thread-'||n,'Synthetic completion thread',now()-interval '1 day',now(),now()+interval '30 days'
+  from generate_series(4,5) n;
+select pg_temp.queue_completion(4);
+create temp table rc_gmail_claim as select * from public.service_claim_refund_manual_message_deliveries(
+  (select message_id from public.refund_receipt_completion_intents where refund_case_id='cf400000-0000-4000-8000-000000000004'),1);
+select public.service_mark_refund_manual_message_provider_attempt(refund_case_message_id,claim_token) from rc_gmail_claim;
+create function pg_temp.changed_gmail_claim(field text) returns jsonb language plpgsql as $$ declare m public.refund_case_messages%rowtype; begin
+  select * into m from public.refund_case_messages where id=(select refund_case_message_id from rc_gmail_claim);
+  return public.service_claim_refund_gmail_outbound_v3(m.refund_case_id,m.id,
+    case when field='key' then 'changed-key' else 'refund-case-message:'||m.id::text end,
+    'info@bloomjoysweets.com',case when field='recipient' then 'other@example.invalid' else m.recipient_email end,
+    case when field='body' then 'Changed body' else m.body end,array['info@bloomjoysweets.com'],'manual',null);
+end; $$;
+select is(pg_temp.capture_error('select pg_temp.changed_gmail_claim(''key'')'),'P4664','A new Gmail key cannot claim the same receipt message');
+select is(pg_temp.capture_error('select pg_temp.changed_gmail_claim(''body'')'),'P4664','Gmail cannot claim altered completion content');
+select is(pg_temp.capture_error('select pg_temp.changed_gmail_claim(''recipient'')'),'P4664','Gmail cannot claim a different customer');
+insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,refund_case_message_id,provider_message_id,operation_key,
+  direction,message_kind,status,sender_email,recipient_email,subject,plain_body,sent_at,retention_expires_at,recipient_cc_emails,recipient_cc_count,received_at)
+select 'cf800000-0000-4000-8000-000000000004','cf700000-0000-4000-8000-000000000004',m.refund_case_id,m.id,
+  'receipt-completion-sent-4','refund-case-message:'||m.id::text,'outbound','message','sent','info@bloomjoysweets.com',
+  m.recipient_email,m.subject,m.body,now(),now()+interval '30 days','{}',0,now()
+  from public.refund_case_messages m where m.id=(select refund_case_message_id from rc_gmail_claim);
+update public.refund_case_messages set manual_delivery_claimed_at=now()-interval '11 minutes'
+  where id=(select refund_case_message_id from rc_gmail_claim);
+select is((select count(*)::integer from public.service_claim_refund_manual_message_deliveries(
+  (select refund_case_message_id from rc_gmail_claim),1)),0,'Interrupted Gmail SENT delivery is reconciled without another claim');
+select is(pg_temp.queue_completion(4)->>'outboxState','sent','Exact durable Gmail SENT evidence finishes the original message');
+
+insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,provider_message_id,operation_key,direction,message_kind,status,
+  sender_email,recipient_email,subject,plain_body,sent_at,retention_expires_at,recipient_cc_emails,recipient_cc_count,received_at)
+values('cf800000-0000-4000-8000-000000000005','cf700000-0000-4000-8000-000000000005','cf400000-0000-4000-8000-000000000005',
+  'receipt-completion-sent-5','imported:receipt-completion-5','outbound','message','sent','info@bloomjoysweets.com',
+  'receipt-customer@example.invalid','Your refund is confirmed','Confirmed $7.00 refund for RF-RC-5.',
+  now()-interval '1 hour',now()+interval '30 days','{}',0,now()-interval '1 hour');
+create function pg_temp.adopt_support(n integer) returns jsonb language plpgsql as $$ declare c public.refund_cases%rowtype; r uuid; begin
+  select * into c from public.refund_cases where id=('cf400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid;
+  select id into r from public.refund_authoritative_receipts where refund_case_id=c.id;
+  return public.admin_adopt_refund_completion_notice(c.id,r,('cf800000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
+    c.official_action_version,c.public_reference,c.matched_nayax_transaction_id,700,true);
+end; $$;
+select is(pg_temp.adopt_support(5)->>'status','adopted','An earlier support notice can still be adopted');
+select is(pg_temp.capture_error('select pg_temp.queue_completion(5)'),'P4664','Adoption prevents a second completion message');
+select is(pg_temp.capture_error('select pg_temp.adopt_support(4)'),'P4664','A bound canonical message prevents a second notice adoption');
+create function pg_temp.adopt_owner(n integer) returns jsonb language plpgsql as $$ declare c public.refund_cases%rowtype; r uuid; begin
+  select * into c from public.refund_cases where id=('cf400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid;
+  select id into r from public.refund_authoritative_receipts where refund_case_id=c.id;
+  return public.admin_record_refund_historical_owner_notice(c.id,r,c.official_action_version,c.public_reference,
+    c.matched_nayax_transaction_id,700,'USD','cafe'||lpad(n::text,12,'0'),'cafe000000000099','2026-09-02T16:07:00Z',
+    c.customer_email,repeat('b',64),'GMAIL-SENT:cafe'||lpad(n::text,12,'0'),true,true,true,public.refund_owner_notice_review_binding());
+end; $$;
+select is(pg_temp.adopt_owner(6)->>'status','adopted','An earlier owner-mailbox notice can still be adopted');
+select is(pg_temp.capture_error('select pg_temp.queue_completion(6)'),'P4664','Owner-notice adoption also prevents a second completion');
+select is(pg_temp.capture_error('select pg_temp.adopt_owner(4)'),'P4664','A bound message prevents a competing owner-notice adoption');
+
+select pg_temp.queue_completion(7);
+select pg_temp.queue_completion(8);
+update public.refund_cases set issue_summary='Updated internal summary' where id='cf400000-0000-4000-8000-000000000007';
+create temp table rc_stale_cleanup as select * from public.service_claim_refund_manual_message_deliveries(null,25);
+select is((select manual_delivery_state from public.refund_case_messages where
+  refund_case_id='cf400000-0000-4000-8000-000000000007' and template_version='refund_receipt_completion_v1'),'failed',
+  'Stale queued receipt completion is cancelled without violating payment guards');
+select ok(exists(select 1 from rc_stale_cleanup x join public.refund_case_messages m on m.id=x.refund_case_message_id
+  where m.refund_case_id='cf400000-0000-4000-8000-000000000008'),'Stale receipt cleanup does not block another customer message');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts where refund_case_id::text like 'cf400000-%'),0,
   'No receipt notification manufactures a payment attempt');
 select is((select count(*)::integer from public.refund_cases where id::text like 'cf400000-%'

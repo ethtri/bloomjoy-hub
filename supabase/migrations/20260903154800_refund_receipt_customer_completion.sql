@@ -208,18 +208,6 @@ begin
   if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Unexpected receipt effect guard'; end if;
   execute replace(definition,anchor,replacement);
 
-  -- Bind the transport claim to the exact stored body and its stable Gmail key.
-  target:='public.service_claim_refund_gmail_outbound_v3(uuid,uuid,text,text,text,text,text[],text,uuid)'::regprocedure;
-  definition:=replace(pg_get_functiondef(target),E'\r\n',E'\n');
-  anchor:='  return public.service_claim_refund_gmail_outbound_pre_receipt_v1';
-  replacement:=E'  if exists(select 1 from public.refund_receipt_completion_intents where message_id=p_refund_case_message_id)\n'
-    ||E'    and not exists(select 1 from public.refund_case_messages m where m.id=p_refund_case_message_id\n'
-    ||E'      and p_operation_key=''refund-case-message:''||m.id::text and p_plain_body=m.body\n'
-    ||E'      and p_recipient_email=m.recipient_email and p_delivery_kind=''manual'') then\n'
-    ||E'    raise exception ''Receipt completion transport identity changed'' using errcode=''P4664'';\n  end if;\n'
-    ||anchor;
-  if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Unexpected receipt Gmail transport source'; end if;
-  execute replace(definition,anchor,replacement);
   foreach target in array array[
     'public.guard_nayax_attempt_completion_message()'::regprocedure,
     'public.guard_refund_provider_hold_customer_message()'::regprocedure,
@@ -231,26 +219,6 @@ begin
     replacement:=E'  if tg_op <> ''DELETE'' and current_user not in (''anon'',''authenticated'',''service_role'') then\n    if public.is_refund_receipt_completion_message(to_jsonb(new)) then return new; end if;\n  end if;\n';
     execute overlay(definition placing replacement from start_at+length(anchor) for 0);
   end loop;
-
-  target:='public.service_claim_refund_gmail_outbound_v3(uuid,uuid,text,text,text,text,text[],text,uuid)'::regprocedure;
-  definition:=replace(pg_get_functiondef(target),E'\r\n',E'\n');
-  anchor:='if exists(select 1 from public.refund_authoritative_receipts where refund_case_id=p_refund_case_id) then';
-  replacement:='if exists(select 1 from public.refund_authoritative_receipts where refund_case_id=p_refund_case_id)'
-    ||E'\n    and not exists(select 1 from public.refund_case_messages m where m.id=p_refund_case_message_id'
-    ||E'\n      and m.refund_case_id=p_refund_case_id and public.is_refund_receipt_completion_message(to_jsonb(m))'
-    ||E'\n      and m.manual_delivery_expected_case_version=(select official_action_version from public.refund_cases where id=p_refund_case_id)) then';
-  if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Unexpected receipt Gmail guard'; end if;
-  execute replace(definition,anchor,replacement);
-
-  target:='public.service_mark_refund_transactional_delivery_attempt(uuid)'::regprocedure;
-  definition:=replace(pg_get_functiondef(target),E'\r\n',E'\n');
-  anchor:='if exists(select 1 from public.refund_authoritative_receipts where refund_case_id=case_id) then';
-  replacement:='if exists(select 1 from public.refund_authoritative_receipts where refund_case_id=case_id)'
-    ||E'\n    and not exists(select 1 from public.refund_case_messages m where m.id=p_refund_case_message_id'
-    ||E'\n      and m.refund_case_id=case_id and public.is_refund_receipt_completion_message(to_jsonb(m))'
-    ||E'\n      and m.manual_delivery_expected_case_version=(select official_action_version from public.refund_cases where id=case_id)) then';
-  if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Unexpected receipt transactional guard'; end if;
-  execute replace(definition,anchor,replacement);
 
   target:='public.service_bind_refund_transactional_delivery(uuid,text,timestamptz)'::regprocedure;
   definition:=replace(pg_get_functiondef(target),E'\r\n',E'\n');
@@ -267,6 +235,52 @@ begin
   execute replace(definition,anchor,replacement);
 end;
 $migration$;
+
+create or replace function public.service_claim_refund_gmail_outbound_v3(
+  p_refund_case_id uuid,p_refund_case_message_id uuid,p_operation_key text,p_sender_email text,
+  p_recipient_email text,p_plain_body text,p_mailbox_identities text[],p_delivery_kind text,p_target_gmail_thread_id uuid default null
+)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare m public.refund_case_messages%rowtype; case_version bigint;
+begin
+  select official_action_version into case_version from public.refund_cases where id=p_refund_case_id for update;
+  if exists(select 1 from public.refund_authoritative_receipts where refund_case_id=p_refund_case_id) then
+    select * into m from public.refund_case_messages where id=p_refund_case_message_id and refund_case_id=p_refund_case_id;
+    if m.id is null or not public.is_refund_receipt_completion_message(to_jsonb(m))
+      or m.manual_delivery_expected_case_version is distinct from case_version then
+      raise exception 'Authoritative receipt forbids customer resend; adopt existing sent evidence' using errcode='P4663';
+    end if;
+    if p_operation_key is distinct from 'refund-case-message:'||m.id::text or p_plain_body is distinct from m.body
+      or p_recipient_email is distinct from m.recipient_email or p_delivery_kind is distinct from 'manual' then
+      raise exception 'Receipt completion transport identity changed' using errcode='P4664';
+    end if;
+  end if;
+  return public.service_claim_refund_gmail_outbound_pre_receipt_v1(p_refund_case_id,p_refund_case_message_id,
+    p_operation_key,p_sender_email,p_recipient_email,p_plain_body,p_mailbox_identities,p_delivery_kind,p_target_gmail_thread_id);
+end;
+$$;
+revoke all on function public.service_claim_refund_gmail_outbound_v3(uuid,uuid,text,text,text,text,text[],text,uuid)
+  from public,anon,authenticated,service_role;
+grant execute on function public.service_claim_refund_gmail_outbound_v3(uuid,uuid,text,text,text,text,text[],text,uuid) to service_role;
+
+create or replace function public.service_mark_refund_transactional_delivery_attempt(p_refund_case_message_id uuid)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare case_id uuid; case_version bigint; m public.refund_case_messages%rowtype;
+begin
+  select refund_case_id into case_id from public.refund_case_messages where id=p_refund_case_message_id;
+  select official_action_version into case_version from public.refund_cases where id=case_id for update;
+  if exists(select 1 from public.refund_authoritative_receipts where refund_case_id=case_id) then
+    select * into m from public.refund_case_messages where id=p_refund_case_message_id;
+    if not public.is_refund_receipt_completion_message(to_jsonb(m))
+      or m.manual_delivery_expected_case_version is distinct from case_version then
+      raise exception 'Authoritative receipt forbids customer resend; adopt existing sent evidence' using errcode='P4663';
+    end if;
+  end if;
+  return public.service_mark_refund_delivery_pre_receipt_v1(p_refund_case_message_id);
+end;
+$$;
+revoke all on function public.service_mark_refund_transactional_delivery_attempt(uuid) from public,anon,authenticated,service_role;
+grant execute on function public.service_mark_refund_transactional_delivery_attempt(uuid) to service_role;
 
 create function public.guard_refund_receipt_notice_adoption()
 returns trigger language plpgsql security definer set search_path='' as $$
@@ -320,6 +334,8 @@ begin
             and g.operation_key='refund-case-message:'||message_row.id::text
             and g.direction='outbound' and g.message_kind='message' and g.status='sent' and g.sent_at is not null
             and nullif(g.provider_message_id,'') is not null and g.recipient_email=message_row.recipient_email
+            and lower(btrim(g.sender_email))='info@bloomjoysweets.com'
+            and exists(select 1 from public.refund_gmail_threads t where t.id=g.gmail_thread_id and nullif(t.provider_thread_id,'') is not null)
             and g.plain_body=message_row.body;
         if message_row.status='pending' and (gmail_sent.id is not null
           or (message_row.delivery_transport='resend' and message_row.provider_message_id is not null

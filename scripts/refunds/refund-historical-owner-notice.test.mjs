@@ -127,7 +127,7 @@ test('actual parent render retains owner-source saved latch before overview refr
       '@tanstack/react-query': { useQuery: () => ({ data: v }), useQueryClient: () => ({}) },
       '@/components/ui/button': { Button: 'button' }, '@/components/ui/input': { Input: 'input' }, '@/components/ui/label': { Label: 'label' },
       '@/lib/refundAuthoritativeReceiptApi': {}, '@/lib/refundAuthoritativeReceipt': { refundReceiptReviewSnapshot: JSON.stringify },
-      './RefundMachineCorrectionReview': {}, './RefundHistoricalOwnerNoticeReview': {
+      './RefundReceiptCompletionNotice': {}, './RefundMachineCorrectionReview': {}, './RefundHistoricalOwnerNoticeReview': {
         historicalOwnerNoticeRecordedLabel: 'Historical owner-mailbox notice recorded — operator reviewed; no manager CC' },
     }, { React: reactTree });
     const tree = panel.RefundAuthoritativeReceiptPanel({ caseId: v.caseId });

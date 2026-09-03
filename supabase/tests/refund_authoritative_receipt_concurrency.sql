@@ -118,6 +118,10 @@ begin
     select id into r from public.refund_authoritative_receipts where refund_case_id=c.id;
     return public.admin_adopt_refund_completion_notice(c.id,r,'af800000-0000-4000-8000-000000000001',c.official_action_version,
       c.public_reference,c.matched_nayax_transaction_id,700,true);
+  elsif p_action='queue' then
+    select id into r from public.refund_authoritative_receipts where refund_case_id=c.id;
+    return public.admin_queue_refund_receipt_completion(c.id,r,c.official_action_version,gen_random_uuid(),true,
+      public.admin_get_refund_authoritative_receipt_overview(c.id)#>>'{completionNotice,reviewBinding}');
   elsif p_action='old_resolver' then
     return public.admin_resolve_refund_nayax_outcome_manager_session(c.id,a,'documented_manual_completion','documented_manual_refund',
       'MANUAL:RECEIPT-RACE',statement_timestamp(),'manual_nayax_completion',c.official_action_version);
@@ -300,6 +304,57 @@ select is((select jsonb_agg(refund_case_id order by refund_case_id)
   from public.service_list_refund_follow_up_customer_reply_candidates(25)),
   '["af400000-0000-4000-8000-000000000028"]'::jsonb,
   'Newer unresolved reply is still discovered behind a full receipt-backed page');
+-- Two independently submitted intents serialize on the same case and resolve
+-- to one durable outbox row. A worker skips the uncommitted case entirely.
+select extensions.dblink_exec('receipt_race_a','begin');
+select * from extensions.dblink('receipt_race_a',$q$select id::text from public.refund_cases where id='af400000-0000-4000-8000-000000000002' for update$q$) as x(id text);
+select extensions.dblink_send_query('receipt_race_b',$q$select refund_receipt_race_test.run('queue',2)$q$);
+select ok(refund_receipt_race_test.wait_for_blocked_b(),'Second receipt intent waits for the case lock');
+insert into refund_receipt_race_test.results select 'queue_winner',payload from extensions.dblink('receipt_race_a',
+  $q$select refund_receipt_race_test.run('queue',2)$q$) as x(payload jsonb);
+select is((select payload->>'enqueued' from refund_receipt_race_test.results where lane='queue_winner'),'true','First receipt intent queues successfully');
+select is((select n from extensions.dblink('receipt_race_c',
+  'select count(*)::integer from public.service_claim_refund_manual_message_deliveries(null,25)') as x(n integer)),0,
+  'Worker skips a case with an uncommitted receipt intent');
+select extensions.dblink_exec('receipt_race_a','commit');
+insert into refund_receipt_race_test.results select 'queue_replay',payload from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
+select * from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
+select is((select payload->>'replayed' from refund_receipt_race_test.results where lane='queue_replay'),'true','Waiting second intent replays the original');
+select is((select payload->>'messageId' from refund_receipt_race_test.results where lane='queue_winner'),
+  (select payload->>'messageId' from refund_receipt_race_test.results where lane='queue_replay'),'Concurrent intents return the same message');
+select is((select count(*)::integer from public.refund_case_messages where refund_case_id='af400000-0000-4000-8000-000000000002'
+  and template_version='refund_receipt_completion_v1'),1,'Exactly one completion message survives concurrent enqueue');
+create table refund_receipt_race_test.completion_claim as select * from public.service_claim_refund_manual_message_deliveries(
+  (select message_id from public.refund_receipt_completion_intents where refund_case_id='af400000-0000-4000-8000-000000000002'),1);
+select is((select count(*)::integer from refund_receipt_race_test.completion_claim),1,'Committed completion can be claimed once');
+select public.service_mark_refund_manual_message_provider_attempt(refund_case_message_id,claim_token) from refund_receipt_race_test.completion_claim;
+select public.service_mark_refund_transactional_delivery_attempt(refund_case_message_id) from refund_receipt_race_test.completion_claim;
+
+-- Transport binding and later delivery events wait on the case before taking
+-- the message lock. The competing case owner can still lock that message.
+select extensions.dblink_exec('receipt_race_a','begin');
+select * from extensions.dblink('receipt_race_a',$q$select id::text from public.refund_cases where id='af400000-0000-4000-8000-000000000002' for update$q$) as x(id text);
+select extensions.dblink_send_query('receipt_race_b',$q$select public.service_bind_refund_transactional_delivery(
+  (select refund_case_message_id from refund_receipt_race_test.completion_claim),'receipt_race_completion_2',now())$q$);
+select ok(refund_receipt_race_test.wait_for_blocked_b(),'Provider binding waits on the case');
+select extensions.dblink_exec('receipt_race_a','set local lock_timeout=''300ms''');
+select is((select n from extensions.dblink('receipt_race_a',$q$select count(*)::integer from (select id from public.refund_case_messages
+  where id=(select refund_case_message_id from refund_receipt_race_test.completion_claim) for update) locked$q$) as x(n integer)),1,
+  'Waiting provider binding has not acquired the message lock first');
+select extensions.dblink_exec('receipt_race_a','commit');
+select * from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
+select * from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
+select extensions.dblink_exec('receipt_race_a','begin');
+select * from extensions.dblink('receipt_race_a',$q$select id::text from public.refund_cases where id='af400000-0000-4000-8000-000000000002' for update$q$) as x(id text);
+select extensions.dblink_send_query('receipt_race_b',$q$select public.apply_refund_transactional_delivery_events('receipt_race_completion_2')$q$);
+select ok(refund_receipt_race_test.wait_for_blocked_b(),'Delivery event application waits on the case');
+select extensions.dblink_exec('receipt_race_a','set local lock_timeout=''300ms''');
+select is((select n from extensions.dblink('receipt_race_a',$q$select count(*)::integer from (select id from public.refund_case_messages
+  where id=(select refund_case_message_id from refund_receipt_race_test.completion_claim) for update) locked$q$) as x(n integer)),1,
+  'Waiting delivery event has not acquired the message lock first');
+select extensions.dblink_exec('receipt_race_a','commit');
+select * from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
+select * from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
 select extensions.dblink_disconnect('receipt_race_a');
 select extensions.dblink_disconnect('receipt_race_b');
 select extensions.dblink_disconnect('receipt_race_c');
@@ -316,8 +371,14 @@ select is((select to_jsonb(settings) from public.refund_customer_contact_setting
   'Fixture cleanup restores the complete original contact-settings row');
 alter table public.refund_completion_notice_adoptions disable trigger refund_completion_notice_adoptions_immutable;
 alter table public.refund_authoritative_receipts disable trigger refund_authoritative_receipts_immutable;
+alter table public.refund_receipt_completion_intents disable trigger refund_receipt_completion_intents_immutable;
+alter table public.refund_case_messages disable trigger aa_refund_receipt_completion_identity;
+delete from public.refund_receipt_completion_intents where refund_case_id='af400000-0000-4000-8000-000000000002';
+alter table public.refund_receipt_completion_intents enable trigger refund_receipt_completion_intents_immutable;
 delete from public.refund_completion_notice_adoptions where refund_case_id='af400000-0000-4000-8000-000000000001';
 delete from public.refund_authoritative_receipts where reporting_machine_id='af300000-0000-4000-8000-000000000001';
+delete from public.refund_case_messages where refund_case_id='af400000-0000-4000-8000-000000000002' and template_version='refund_receipt_completion_v1';
+alter table public.refund_case_messages enable trigger aa_refund_receipt_completion_identity;
 alter table public.refund_completion_notice_adoptions enable trigger refund_completion_notice_adoptions_immutable;
 alter table public.refund_authoritative_receipts enable trigger refund_authoritative_receipts_immutable;
 delete from public.refund_gmail_messages where gmail_thread_id='af700000-0000-4000-8000-000000000001';
