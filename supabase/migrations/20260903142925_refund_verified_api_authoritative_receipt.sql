@@ -54,6 +54,13 @@ begin
   elsif public.refund_receipt_verified_api_attempt(c.id,a.id) then
     binding_kind:='verified_authorized_api';$new$;
   if length(body)-length(replace(body,anchor,''))<>length(anchor) then raise exception 'Exact receipt binding anchor required'; end if;
+  body:=replace(body,anchor,replacement);
+  -- Manual-only authorization hashes the reviewed scope exactly as stored;
+  -- ordinary API-backed portal authorization normalizes its account to uppercase.
+  anchor:=$old$convert_to(c.id::text||'|'||upper(btrim(scope_value))||'|'||p_original_transaction_id,'UTF8')$old$;
+  replacement:=$new$convert_to(c.id::text||'|'||(case when m.nayax_manual_portal_enabled
+        then scope_value else upper(btrim(scope_value)) end)||'|'||p_original_transaction_id,'UTF8')$new$;
+  if length(body)-length(replace(body,anchor,''))<>length(anchor) then raise exception 'Exact manual receipt scope anchor required'; end if;
   execute replace(body,anchor,replacement);
 
   -- The public reader is wrapped by historical notice adoption. Extend its
