@@ -183,6 +183,19 @@ export const getRefundManagerState = (
       bounced: 'The customer address bounced',
       complained: 'The provider recorded a complaint',
     }[refundCase.customerDeliveryException.state];
+    if (refundCase.lifecycle?.paymentState === 'confirmed' &&
+        ['refund_confirmed', 'customer_notified'].includes(refundCase.lifecycle.stage)) {
+      const accountingReview = refundCase.lifecycle.reasonCode === 'settlement_time_unknown';
+      return state(
+        'refund_confirmed',
+        'Refund confirmed · delivery review',
+        `The payment provider confirmed the full refund. ${deliveryLabel}.`,
+        accountingReview
+          ? 'Refund Operations owns the message-delivery and accounting-date review. Do not retry payment or resend the message blindly.'
+          : 'Refund Operations owns the message-delivery review. Do not retry payment or resend the message blindly.',
+        'warning'
+      );
+    }
     return state(
       'needs_refund_operations',
       'Delivery needs review',
