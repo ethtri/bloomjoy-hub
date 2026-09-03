@@ -1717,7 +1717,6 @@ select ok(
       and payload -> 'refundReadiness' ->> 'transactionConfirmed' = 'true'
       and payload -> 'refundReadiness' ->> 'canIssueCardRefund' = 'false'
       and payload -> 'refundReadiness' ->> 'blockReason' = 'provider_remaining_value_unverified'
-      and payload -> 'refundReadiness' -> 'blockReason' = 'null'::jsonb
       and payload -> 'refundReadiness' ->> 'refundAmountCents' = '450'
       and payload -> 'refundReadiness' -> 'machineLimitCents' = 'null'::jsonb
     from pg_temp.nayax_selection_result
