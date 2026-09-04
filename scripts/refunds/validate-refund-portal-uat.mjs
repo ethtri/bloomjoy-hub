@@ -1057,7 +1057,7 @@ const buildFailedCommsRefundOverview = () => {
   const overview = buildMockRefundOverview();
   overview.cases[0] = {
     ...overview.cases[0],
-    status: 'card_refund_pending',
+    status: 'needs_review',
     latestCustomerMessageStatus: 'failed',
     latestCustomerMessageType: 'approved',
     latestCustomerMessageAt: isoHoursAgo(0.5),
@@ -6272,10 +6272,11 @@ const runCustomerCommsFailureChecks = async ({ browser, appUrl, recorder }) => {
     !failedCommsBodyText.includes('Customer: Email needs attention')
   );
   recorder.assert(
-    'Premature card approval email cannot be retried',
-    await page.getByTestId('refund-action-status').getByText('Approval email blocked', { exact: true }).isVisible() &&
-      (await page.getByRole('button', { name: 'Approval email blocked' }).count()) === 0 &&
-      (await page.getByTestId('refund-run-nayax-refund').count()) === 0
+    'Premature approval email is not retried while the unpaid refund retains current server readiness',
+    await page.getByTestId('refund-run-nayax-refund').isEnabled() &&
+      await page.getByTestId('refund-secondary-delivery-review').isVisible() &&
+      (await page.getByTestId('refund-secondary-delivery-review').innerText()).includes('Do not resend it blindly') &&
+      (await page.getByRole('button', { name: 'Approval email blocked' }).count()) === 0
   );
   recorder.assert(
     'Blocked approval email performs no customer-message request',
@@ -6801,9 +6802,10 @@ const runTransactionalDeliveryTruthChecks = async ({
   else recorder.assert(
     'A provider bounce is manager-owned without changing successful payment truth',
     await page.getByTestId('refund-terminal-primary-action')
-      .getByText('Delivery needs review', { exact: true }).isVisible() &&
+      .getByText('Refund confirmed · delivery review', { exact: true }).isVisible() &&
       (await page.getByTestId('refund-terminal-primary-helper').innerText())
-        .includes('do not resend the message or retry a payment blindly')
+        .includes('Do not retry payment or resend the message blindly') &&
+      (await page.getByTestId('refund-run-nayax-refund').count()) === 0
   );
   const messageHistory = page.getByText('Customer messages (1)', { exact: true });
   await messageHistory.click();
