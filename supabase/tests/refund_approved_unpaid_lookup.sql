@@ -101,8 +101,8 @@ select is((select count(*)::integer from public.refund_case_events where refund_
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts where refund_case_id=pg_temp.case_id(1)),0,'Lookup creates no payment attempt');
 select is((select count(*)::integer from public.refund_case_messages where refund_case_id=pg_temp.case_id(1)),0,'Lookup sends and queues no customer message');
 
--- Actual current candidate writer and selection wrapper, including a legitimate
--- partial refund. A fresh purchase binding must not discard ordinary approval.
+-- Actual current candidate writer and selection wrapper. Existing readiness
+-- supports full refunds, so another amount must not silently replace approval.
 create function pg_temp.prepare_candidate(n integer, original_amount integer) returns uuid language plpgsql as $$
 declare token_id uuid:=gen_random_uuid(); generation bigint;
 begin
@@ -121,7 +121,7 @@ create temp table selection_tokens as select 12 n,pg_temp.prepare_candidate(12,9
   union all select 13,pg_temp.prepare_candidate(13,1200)
   union all select 14,pg_temp.prepare_candidate(14,800);
 create temp table selection_approvals_before as select id,decision,decision_reason,decided_by,decided_at,refund_amount_cents
-  from public.refund_cases where id in (pg_temp.case_id(12),pg_temp.case_id(13));
+  from public.refund_cases where id in (pg_temp.case_id(12),pg_temp.case_id(13),pg_temp.case_id(14));
 grant select on selection_tokens to service_role;
 create function pg_temp.select_candidate(p_n integer) returns jsonb language sql as $$
   select public.service_select_refund_nayax_candidate_as_actor('fa410000-0000-4000-8000-000000000001',c.id,
@@ -130,14 +130,14 @@ create function pg_temp.select_candidate(p_n integer) returns jsonb language sql
 $$;
 set local role service_role;
 select is(pg_temp.select_candidate(12)->>'selectionApplied','true','Exact original selection preserves existing full approval');
-select is(pg_temp.select_candidate(13)->>'selectionApplied','true','A larger original supports the already approved partial refund');
-select is(pg_temp.select_candidate(13)->>'selectionApplied','false','Exact selection replay creates no second confirmation');
+select throws_ok($$select pg_temp.select_candidate(13)$$,'P4604',null,'A larger original cannot silently expand the existing full-refund contract');
+select is(pg_temp.select_candidate(12)->>'selectionApplied','false','Exact selection replay creates no second confirmation');
 select throws_ok($$select pg_temp.select_candidate(14)$$,'P4604',null,'A smaller original cannot silently change or exceed the approved amount');
 reset role;
 select ok(not exists(select 1 from selection_approvals_before b join public.refund_cases c using(id)
   where row(c.decision,c.decision_reason,c.decided_by,c.decided_at,c.refund_amount_cents)
   is distinct from row(b.decision,b.decision_reason,b.decided_by,b.decided_at,b.refund_amount_cents)),
-  'Exact selection keeps approved decision, reason, actor, date and full or partial amount');
+  'Successful selection and rejected amount changes keep approved decision, reason, actor, date and amount');
 select is(public.refund_case_nayax_manager_readiness('fa410000-0000-4000-8000-000000000001',pg_temp.case_id(12))->>'canIssueCardRefund',
   'true','Selected approved purchase reaches the existing manager refund path without reapproval');
 
@@ -165,7 +165,9 @@ reset role;
 select ok(not exists(select 1 from late_cases_before b join public.refund_cases c using(id) where b.snapshot is distinct from to_jsonb(c)),
   'Late rejected results preserve all current decision, payment and matching state');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts where refund_case_id in(pg_temp.case_id(12),pg_temp.case_id(13))),0,
-  'Successful full and partial selection still performs no payment');
+  'Selection and amount rejection perform no payment');
+select ok(not exists(select 1 from public.refund_cases where id in(pg_temp.case_id(13),pg_temp.case_id(14))
+  and matched_nayax_transaction_id is not null),'Different amounts remain unbound for internal review');
 
 select * from finish();
 rollback;

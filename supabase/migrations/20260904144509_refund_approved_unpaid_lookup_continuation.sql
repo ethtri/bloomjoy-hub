@@ -51,7 +51,7 @@ revoke all on function public.service_begin_refund_nayax_lookup_pre_scope_recove
   from public, anon, authenticated, service_role;
 
 -- Confirmation binds evidence, not a second business decision. Keep the
--- existing supported partial-refund contract: approved amount <= original.
+-- existing full-refund readiness contract: approved amount equals original.
 do $migration$
 declare
   definition text;
@@ -66,7 +66,7 @@ declare
         or refund_case.manual_refund_reference is not null
         or refund_case.refund_amount_cents is null
         or refund_case.refund_amount_cents <= 0
-        or refund_case.refund_amount_cents > candidate.amount_cents
+        or refund_case.refund_amount_cents is distinct from candidate.amount_cents
         or exists (select 1 from public.refund_authoritative_receipts receipt where receipt.refund_case_id = refund_case.id)
         or exists (select 1 from public.refund_case_nayax_refund_attempts attempt where attempt.refund_case_id = refund_case.id)
       )
