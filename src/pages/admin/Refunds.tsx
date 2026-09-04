@@ -6653,7 +6653,7 @@ export default function AdminRefundsPage() {
           )}
 
           <div data-testid="refund-overview-read-status" role="status" aria-live="polite" aria-atomic="true"
-            className={overviewReadMessage ? error
+            className={overviewReadMessage ? overviewReadMessage === refundOverviewReadMessage('', 'error')
               ? 'mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive'
               : 'mt-4 text-sm text-muted-foreground' : 'sr-only'}>
             {overviewReadMessage}
