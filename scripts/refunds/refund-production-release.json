@@ -136,7 +136,9 @@
     "20260903190000_refund_scoped_customer_corrections.sql",
     "20260903200000_refund_correction_message_delivery.sql",
     "20260903213000_nayax_scheduled_report_observations.sql",
-    "20260903230000_refund_scheduled_report_freshness.sql"
+    "20260903230000_refund_scheduled_report_freshness.sql",
+    "20260903235132_refund_scoped_correction_reply_continuity.sql",
+    "20260903235452_refund_correction_manager_revision.sql"
   ],
   "migrationFilesSha256": "0b519d3a945a91ccbf50b737fd201079e92df701048892b39f477918c6716636",
   "migrationVersionSetSha256": "a9b756fe1932232e370099126a47b2056fb0f69696c68f203ba5213a898fddcb",
