@@ -7,7 +7,7 @@ async (page) => {
   const ready = { state:'ready', publicReference:'RF-RECOVERY-TEST',version:3,locale:'en',requestedFields:['card_last4'],allowedFields,
     locationChoices:[{key:'new-location',label:'Example second location'}],
     values:{location_or_machine:'Example original location',incident_date:'2026-09-03',incident_time:'14:30',payment_method:'card',payment_interaction:'tap_card',card_last4:'1234'} };
-  let context=ready, inspectFailure=false, submitFailure=false, submitUnavailable=false, nextAction='review', inspectGate=null;
+  let context=ready, inspectFailure=false, submitFailure=false, submitUnavailable=false, submitOperational=false, nextAction='review', inspectGate=null;
   const submissions=[]; const evidence=[]; let inspectCount=0;
   const check=(value,message)=>{if(!value)throw new Error(message);};
   await page.route('http://127.0.0.1:54321/**',async route=>{
@@ -22,6 +22,7 @@ async (page) => {
     }
     check(body.action==='submitPurchaseCorrection','Only correction actions allowed');
     if(submitFailure)return route.abort('failed');
+    if(submitOperational)return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({errorCode:'correction_temporarily_unavailable'})});
     if(submitUnavailable)return route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({errorCode:'correction_unavailable'})});
     submissions.push(body);
     return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({correction:{state:'received',publicReference:ready.publicReference,nextAction}})});
@@ -51,6 +52,12 @@ async (page) => {
     await page.screenshot({path:`output/playwright/correction-retry-${width}.png`,fullPage:true});
     await page.context().setOffline(false);
     submitFailure=false;nextAction='recheck';
+    submitOperational=true;
+    await page.getByRole('button',{name:'Save my response',exact:true}).click();
+    await page.getByRole('alert').filter({hasText:'Your answers are still here'}).waitFor();
+    check(await page.locator('#correction-card_last4').inputValue()==='5678','Database503 preserves entered answer');
+    check(await page.getByText('This link is no longer available.',{exact:true}).count()===0,'Database503 is not expiry');
+    submitOperational=false;
     await page.getByRole('button',{name:'Save my response',exact:true}).click();
     await page.getByText('Bloomjoy is rechecking the purchase using your response.',{exact:false}).waitFor();
     check(await page.getByRole('heading',{name:'Your response is saved.'}).evaluate(el=>el===document.activeElement),'Saved heading receives focus');

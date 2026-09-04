@@ -56,3 +56,30 @@ Deno.test('thrown post-save read failure never turns a committed response into a
   const body=await response.json();
   assert(response.status===200 && body.correction.state==='received' && body.correction.nextAction===undefined);
 });
+
+Deno.test('actual submit handler distinguishes exact stale SQL failures from validation and transient failures', async () => {
+  for (const [code,message,status,errorCode] of [
+    ['P0001','Correction link unavailable',409,'correction_unavailable'],
+    ['P0001','Correction link is stale or unavailable',409,'correction_unavailable'],
+    ['P0001','Purchase time outside supported range',400,'correction_invalid_answers'],
+    ['57014','canceling statement due to statement timeout',503,'correction_temporarily_unavailable'],
+    ['40P01','deadlock detected',503,'correction_temporarily_unavailable'],
+    ['08006','connection failure',503,'correction_temporarily_unavailable'],
+    ['P0001','Unexpected internal guard failure',503,'correction_temporarily_unavailable'],
+    ['57014','Correction link is stale or unavailable',503,'correction_temporarily_unavailable'],
+    ['THROW','connection lost',503,'correction_temporarily_unavailable'],
+  ] as const) {
+    let attempts=0;
+    const client={rpc:async(name:string)=>{
+      if(name==='service_submit_refund_purchase_correction') {
+        attempts++; if(code==='THROW')throw new Error(message);
+        return {data:null,error:{code,message,details:'restricted database details'}};
+      }
+      return {data:{state:'ready',version:1,requestedFields:['card_last4'],allowedFields:['card_last4'],values:{card_last4:'1234'}},error:null};
+    }};
+    const response=await handlePurchaseCorrection({action:'submitPurchaseCorrection',token:'a'.repeat(43),version:1,answers:{card_last4:{disposition:'confirmed'}}},client as never);
+    const text=await response.text();
+    assert(response.status===status && JSON.parse(text).errorCode===errorCode && attempts===1);
+    assert(!text.includes(message) && !text.includes('restricted database details'));
+  }
+});

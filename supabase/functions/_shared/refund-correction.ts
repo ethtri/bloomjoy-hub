@@ -22,6 +22,12 @@ export type CorrectionContext = {
   locationChoices?: Array<{ key: string; label: string }>;
 };
 
+export function correctionRefreshInterval(current: CorrectionContext | undefined, received: CorrectionContext | null, fetchFailureCount: number): number | false {
+  if (current?.state === 'unavailable') return false;
+  const saved = current?.state === 'received' ? current : received;
+  return saved?.nextAction === 'recheck' ? Math.min(30000, 5000 * 2 ** Math.min(fetchFailureCount, 3)) : false;
+}
+
 export const isCorrectionToken = (value: string) => /^[A-Za-z0-9_-]{43}$/.test(value);
 export const hashCorrectionToken = async (value: string) => {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`refund-correction-v1:${value}`));

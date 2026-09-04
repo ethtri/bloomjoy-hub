@@ -8,6 +8,17 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
   'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex, nofollow, noarchive',
 } });
 const unavailable = () => json({ errorCode: 'correction_unavailable', correction: { state: 'unavailable' } }, 409);
+const temporarilyUnavailable = () => json({ errorCode: 'correction_temporarily_unavailable' }, 503);
+// Exact P0001 messages raised by the scoped submit RPC. Other database failures
+// are operational: never mislabel a timeout or an internal constraint as expiry.
+const staleSaveMessages = new Set(['Correction link unavailable', 'Correction link is stale or unavailable']);
+const invalidSaveMessages = new Set([
+  'Requested answers required', 'Unsupported correction answer', 'Invalid time confidence',
+  'Missing values cannot be confirmed', 'Unknown answers cannot contain values',
+  'Invalid correction value', 'Invalid payout contact', 'Payment method and interaction conflict',
+  'Wallet details require a wallet purchase', 'Confirm how the card was used before changing its digits',
+  'Card details require a card purchase', 'Purchase time outside supported range',
+]);
 
 export async function recheckSavedPurchaseCorrection(supabase: SupabaseClient, requestId: string, caseId: string, factVersion: number,
   lookup = runAutomaticNayaxLookupIfReady) {
@@ -70,10 +81,19 @@ export async function handlePurchaseCorrection(body: Record<string, unknown>, su
   let answers;
   try { answers = validateCorrectionAnswers(body.answers, context); }
   catch { return json({ errorCode: 'correction_invalid_answers' }, 400); }
-  const { data: saved, error: saveError } = await supabase.rpc('service_submit_refund_purchase_correction', {
-    p_token_hash: hash, p_expected_fact_version: body.version, p_answers: answers,
-  });
-  if (saveError) return unavailable();
+  let saveResult: Awaited<ReturnType<typeof supabase.rpc>>;
+  try {
+    saveResult = await supabase.rpc('service_submit_refund_purchase_correction', {
+      p_token_hash: hash, p_expected_fact_version: body.version, p_answers: answers,
+    });
+  } catch { return temporarilyUnavailable(); }
+  const { data: saved, error: saveError } = saveResult;
+  if (saveError) {
+    if (saveError.code === 'P0001' && staleSaveMessages.has(saveError.message)) return unavailable();
+    if (saveError.code === 'P0001' && invalidSaveMessages.has(saveError.message)) return json({ errorCode: 'correction_invalid_answers' }, 400);
+    return temporarilyUnavailable();
+  }
+  if (!saved) return temporarilyUnavailable();
   if (saved?.nextAction === 'recheck' && saved?.refundCaseId && saved?.requestId) {
     await recheckSavedPurchaseCorrection(supabase, saved.requestId, saved.refundCaseId, saved.factVersion);
   }
