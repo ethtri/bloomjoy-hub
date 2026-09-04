@@ -1033,5 +1033,6 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 ### Manager read polling (#992)
 
 - With an active case, consecutive read failures back off to 10/20/40/60 seconds while preserving the last known lifecycle; no payment action or customer message is inferred from failure. Success restores the lifecycle's normal interval (at most 15 seconds).
+- The persistent polite read-status region changes once for failure and once for recovery, without raw errors or repeated announcements on unchanged failed polls. A pending retry keeps the failure text and styling; a healthy first load stays silent.
 - Changing selected case resets read backoff without applying an old case's late result. A genuinely terminal lifecycle stops automatic availability checks; explicit Refresh remains available. Overview/focus recovery to an active lifecycle resumes availability checks; offline pauses and reconnect resumes reads.
 - Run `node --test scripts/refunds/refund-read-polling.test.mjs`; verify the same read transitions in the isolated manager browser fixture, without a real send or provider action.
