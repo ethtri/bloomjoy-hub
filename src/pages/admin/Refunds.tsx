@@ -1,3 +1,4 @@
+import { createRefundReadPolling, refundOverviewPollingInterval, refundAvailabilityIsTerminal, refundOverviewReadMessage } from '@/lib/refundReadPolling';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { collectCorrectionResponseNotices, type CorrectionNoticeState } from '@/lib/refundCorrectionContinuity';
 import {
@@ -2447,31 +2448,29 @@ export default function AdminRefundsPage() {
     typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).get('legacy-cash') === 'on';
 
+  const [overviewReadMessage, setOverviewReadMessage] = useState('');
+  const overviewPolling = useMemo(createRefundReadPolling, [selectedId]);
+  const availabilityPolling = useMemo(createRefundReadPolling, [selectedId]);
   const {
     data: liveOverview = { cases: [], machines: [], managerAssignments: [] },
     isLoading: liveIsLoading,
     isFetching: liveIsFetching,
     error,
+    status: overviewReadStatus,
   } = useQuery({
     queryKey: ['admin-refund-operations-overview'],
-    queryFn: fetchRefundOperationsOverview,
+    queryFn: () => overviewPolling.read(fetchRefundOperationsOverview),
+    retry: false,
     enabled: !forceDemoData,
     staleTime: 1000 * 30,
-    refetchInterval: (query) => {
-      const data = query.state.data as RefundOperationsOverview | undefined;
-      const activeRefreshIntervals = (data?.cases ?? [])
-        .map((refundCase) => refundCase.lifecycle)
-        .filter((lifecycle): lifecycle is NonNullable<typeof lifecycle> =>
-          Boolean(lifecycle && !lifecycle.terminal && lifecycle.refreshAfterSeconds)
-        )
-        .map((lifecycle) =>
-          Math.min(15_000, Math.max(1_000, (lifecycle.refreshAfterSeconds ?? 5) * 1_000))
-        );
-      return activeRefreshIntervals.length > 0 ? Math.min(...activeRefreshIntervals) : false;
-    },
+    refetchInterval: (query) => overviewPolling.interval(refundOverviewPollingInterval(
+      (query.state.data as RefundOperationsOverview | undefined)?.cases,
+    )),
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
+
+  const availabilityCaseIsTerminal = refundAvailabilityIsTerminal(liveOverview, selectedId);
 
   const {
     data: nayaxCardRefundAvailability,
@@ -2480,13 +2479,14 @@ export default function AdminRefundsPage() {
     error: nayaxCardRefundAvailabilityError,
   } = useQuery({
     queryKey: ['nayax-card-refund-availability', selectedId],
-    queryFn: () => fetchNayaxCardRefundAvailability(selectedId),
+    queryFn: () => availabilityPolling.read(() => fetchNayaxCardRefundAvailability(selectedId)),
     enabled: !forceDemoData && Boolean(selectedId),
     staleTime: 1000 * 30,
     retry: false,
-    refetchInterval: selectedId ? 5_000 : false,
+    refetchInterval: () => availabilityPolling.interval(selectedId && !availabilityCaseIsTerminal ? 5_000 : false),
     refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: !availabilityCaseIsTerminal,
+    refetchOnReconnect: !availabilityCaseIsTerminal,
   });
   const { data: gmailHealth } = useQuery({
     queryKey: ['refund-gmail-health'],
@@ -2521,6 +2521,9 @@ export default function AdminRefundsPage() {
     ]);
   };
   const isUsingDemoData = canUseLocalRefundDemoData();
+  useEffect(() => {
+    setOverviewReadMessage((previous) => isUsingDemoData ? '' : refundOverviewReadMessage(previous, overviewReadStatus));
+  }, [overviewReadStatus, isUsingDemoData]);
   const pageIsLoading = isUsingDemoData ? false : liveIsLoading;
   const pageIsFetching = isUsingDemoData ? false : liveIsFetching;
   const demoOverview = useMemo(() => buildLocalRefundDemoOverview(), []);
@@ -6649,11 +6652,12 @@ export default function AdminRefundsPage() {
             <RefundReportFreshnessAdvisory freshness={gmailHealth?.reportFreshness} />
           )}
 
-          {error && !isUsingDemoData && (
-            <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-              Failed to load refund operations.
-            </div>
-          )}
+          <div data-testid="refund-overview-read-status" role="status" aria-live="polite" aria-atomic="true"
+            className={overviewReadMessage ? overviewReadMessage === refundOverviewReadMessage('', 'error')
+              ? 'mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive'
+              : 'mt-4 text-sm text-muted-foreground' : 'sr-only'}>
+            {overviewReadMessage}
+          </div>
 
           {isUsingDemoData && (
             <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
