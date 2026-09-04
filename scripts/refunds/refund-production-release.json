@@ -138,7 +138,8 @@
     "20260903213000_nayax_scheduled_report_observations.sql",
     "20260903230000_refund_scheduled_report_freshness.sql",
     "20260903235132_refund_scoped_correction_reply_continuity.sql",
-    "20260903235452_refund_correction_manager_revision.sql"
+    "20260903235452_refund_correction_manager_revision.sql",
+    "20260904144509_refund_approved_unpaid_lookup_continuation.sql"
   ],
   "migrationFilesSha256": "48cba1a15b9b55c8bc3a78f3cb329fd88a2ff1feff4dbd899ff83a03f888a8b6",
   "migrationVersionSetSha256": "d06ab634ab40179a189207a470b875162c91dfe3c06f96a4e45f6da0daed5b70",
