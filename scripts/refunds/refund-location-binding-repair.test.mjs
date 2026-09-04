@@ -9,6 +9,13 @@ const migration = fs.readFileSync(
   ),
   'utf8'
 );
+const publicLabelHotfix = fs.readFileSync(
+  new URL(
+    '../../supabase/migrations/20260904210000_refund_location_binding_public_label_hotfix.sql',
+    import.meta.url
+  ),
+  'utf8'
+);
 const fixture = fs.readFileSync(
   new URL(
     '../../supabase/tests/refund_mall_of_louisiana_location_repair.sql',
@@ -17,11 +24,62 @@ const fixture = fs.readFileSync(
   'utf8'
 );
 
+function extractFunction(source, name) {
+  const start = source.search(
+    new RegExp(`create(?: or replace)? function public\\.${name}\\(`, 'u')
+  );
+  assert.notEqual(start, -1, `${name} definition must exist`);
+  const end = source.indexOf('\n$$;', start);
+  assert.notEqual(end, -1, `${name} definition must terminate`);
+  return source.slice(start, end + 4);
+}
+
 test('production case and source identifiers stay out of repository artifacts', () => {
-  for (const source of [migration, fixture]) {
+  for (const source of [migration, publicLabelHotfix, fixture]) {
     assert.doesNotMatch(source, /RF-[A-F0-9]{8}\b/u);
     assert.doesNotMatch(source, /customer_[a-z0-9.+-]*@bloomjoy/u);
   }
+});
+
+test('forward hotfix binds source eligibility to the reviewed public label', () => {
+  assert.match(
+    publicLabelHotfix,
+    /source_machine\.refund_public_display_label = 'Gonzales Tanger Outlet'/u
+  );
+  assert.match(
+    publicLabelHotfix,
+    /source_machine\.refund_public_display_label is distinct from 'Gonzales Tanger Outlet'/u
+  );
+  assert.doesNotMatch(
+    publicLabelHotfix,
+    /source_machine\.machine_label (?:=|is distinct from) 'Gonzales Tanger Outlet'/u
+  );
+  assert.match(
+    publicLabelHotfix,
+    /create or replace function public\.service_refund_location_binding_correction_context/u
+  );
+  assert.match(
+    publicLabelHotfix,
+    /create or replace function public\.service_correct_refund_location_binding/u
+  );
+
+  const contextName = 'service_refund_location_binding_correction_context';
+  const expectedContext = extractFunction(migration, contextName)
+    .replace('create function', 'create or replace function')
+    .replace(
+      "source_machine.machine_label = 'Gonzales Tanger Outlet'",
+      "source_machine.refund_public_display_label = 'Gonzales Tanger Outlet'"
+    );
+  assert.equal(extractFunction(publicLabelHotfix, contextName), expectedContext);
+
+  const correctionName = 'service_correct_refund_location_binding';
+  const expectedCorrection = extractFunction(migration, correctionName)
+    .replace('create function', 'create or replace function')
+    .replace(
+      "source_machine.machine_label is distinct from 'Gonzales Tanger Outlet'",
+      "source_machine.refund_public_display_label is distinct from 'Gonzales Tanger Outlet'"
+    );
+  assert.equal(extractFunction(publicLabelHotfix, correctionName), expectedCorrection);
 });
 
 test('catalog repair keeps provider and source identities absent', () => {
@@ -66,7 +124,10 @@ test('case mutation is private, digest-bound, same-case, and side-effect checked
 test('database fixture covers catalog visibility, stale guards, lookup invalidation, and replay', () => {
   for (const phrase of [
     'The customer selector exposes one unique exact Mall of Louisiana choice',
+    'Private context accepts the exact reviewed public label when its internal operational label differs',
     'A stale or unrelated case digest fails before mutation',
+    'A wrong expected source machine ID still fails before mutation',
+    'A wrong public display label still fails before mutation',
     'Existing fact-version recovery increments once and invalidates the stale lookup',
     'No message, candidate, attempt, receipt, adjustment, decision, completion, or payment is created',
     'An exact replay returns the original safe outcome without a second mutation',
