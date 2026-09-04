@@ -5383,6 +5383,18 @@ export default function AdminRefundsPage() {
           tone: 'info',
         }
       : !hasSelectedMatch &&
+          !waitingOnCustomer &&
+          selectedCase.lifecycle?.stage === 'needs_transaction_selection' &&
+          effectiveCandidates.length > 0 &&
+          !hasSelectableCandidate
+        ? {
+            id: 'match_attention',
+            label: 'Internal review needed',
+            explanation: 'None of the returned transactions is safe to select.',
+            nextStep: 'Review the existing case details and transaction conflicts internally.',
+            tone: 'warning',
+          }
+      : !hasSelectedMatch &&
           effectiveCandidates.length > 0 &&
           selectedNayaxSummary?.recommendationState === 'high_confidence'
         ? {
