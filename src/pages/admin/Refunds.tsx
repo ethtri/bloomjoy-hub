@@ -6632,9 +6632,9 @@ export default function AdminRefundsPage() {
                 <span
                   data-testid="refund-payment-health"
                   className="text-sm font-medium text-amber-800"
-                  title={`Card refunds are paused for affected Nayax accounts. ${nayaxReliabilityHealth.ownerLabel} owns reconciliation within ${nayaxReliabilityHealth.escalationSlaMinutes} minutes.`}
+                  title={`Some card refunds need reconciliation. ${nayaxReliabilityHealth.ownerLabel} owns follow-up; other eligible refunds remain available.`}
                 >
-                  Card refunds need attention
+                  Some card refunds need attention
                 </span>
               )}
               <Button variant="outline" onClick={() => void refresh()} disabled={pageIsFetching || isUsingDemoData}>

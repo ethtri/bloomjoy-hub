@@ -1227,9 +1227,9 @@ check(
 check(
   refundOperations.includes("supabaseClient.rpc('get_refund_nayax_reliability_health')") &&
     refundsUi.includes('refund-payment-health') &&
-    refundsUi.includes('Card refunds need attention') &&
-    refundsUi.includes('escalationSlaMinutes'),
-  'Managers receive a privacy-safe card-refund reliability alert with an explicit owner SLA.',
+    refundsUi.includes('Some card refunds need attention') &&
+    refundsUi.includes('${nayaxReliabilityHealth.ownerLabel} owns follow-up; other eligible refunds remain available.'),
+  'Managers receive a privacy-safe reconciliation alert with a follow-up owner and no pause on other eligible refunds.',
 );
 check(
   handler.includes('NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_SUPPORTED = false') &&
