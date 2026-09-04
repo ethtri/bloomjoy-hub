@@ -48,7 +48,9 @@ test('actual ingestion preserves In-Reply-To for exact current-request continuit
   });
   assert.equal(evaluate({ 'In-Reply-To': '<current-request@example.invalid>' }), '<current-request@example.invalid>');
   assert.equal(evaluate({ References: '<older@example.invalid>', 'In-Reply-To': '<current-request@example.invalid>' }),
-    '<older@example.invalid> <current-request@example.invalid>');
+    '<current-request@example.invalid> <older@example.invalid>');
+  assert.ok(evaluate({ References: '<older@example.invalid> '.repeat(250), 'In-Reply-To': '<current-request@example.invalid>' })
+    .startsWith('<current-request@example.invalid>'), 'Long thread history cannot truncate the direct reply target');
   assert.equal(evaluate({}), null, 'No request identity is invented for headerless mail');
 });
 

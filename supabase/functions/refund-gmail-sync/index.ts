@@ -2293,8 +2293,8 @@ serve(async (request) => {
                     null,
                   p_references_header:
                     sanitizeText([
-                      getGmailHeader(headers, "References"),
                       getGmailHeader(headers, "In-Reply-To"),
+                      getGmailHeader(headers, "References"),
                     ].filter(Boolean).join(" "), 4000) ||
                     null,
                   p_direction: direction,
