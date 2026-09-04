@@ -2692,14 +2692,26 @@ const runPersistedNayaxCustomerCorrectionSweep = async (
         .eq("case_fact_version", refundCase.deterministic_fact_version)
         .in("status", ["claimed", "waiting"]);
       if (stopError) throw stopError;
-      await routeFollowUpManualReview({
-        runId,
-        refundCase,
-        actionKeySuffix: `no-customer-correction:v${refundCase.deterministic_fact_version}`,
-        noticeKind: "follow_up_manual_review",
-        policyWindowStart,
-        counters,
-      });
+      if (refundCase.correlation_status === "nayax_not_configured") {
+        // The lookup sweep already routes this exact case/fact version through
+        // the provider-setup action. Reuse that durable action key so the
+        // persisted-result pass cannot create a second manager touch.
+        await routeProviderException({
+          runId,
+          refundCase,
+          reasonCategory: "provider_setup",
+          counters,
+        });
+      } else {
+        await routeFollowUpManualReview({
+          runId,
+          refundCase,
+          actionKeySuffix: `no-customer-correction:v${refundCase.deterministic_fact_version}`,
+          noticeKind: "follow_up_manual_review",
+          policyWindowStart,
+          counters,
+        });
+      }
       continue;
     }
     if (
