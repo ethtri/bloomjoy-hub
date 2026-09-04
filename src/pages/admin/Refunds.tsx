@@ -99,6 +99,8 @@ import {
 } from '@/lib/refundOperations';
 import {
   getRefundManagerState,
+  hasUnpaidRefundReview,
+  hasProtectedRefundLifecycle,
   isDefinitiveNoRefundRetryReady,
   refundReadinessBlockMessage,
   type RefundManagerState,
@@ -1714,20 +1716,29 @@ const primaryActionConfig = (
       disabled: true,
     };
   }
-  if (refundCase.customerDeliveryException) {
+  if (refundCase.providerHold) {
+    return {
+      label: 'Refund status not confirmed',
+      helper: 'The refund result is unclear. Do not try again until payment support confirms what happened.',
+      disabled: true,
+    };
+  }
+  if (hasProtectedRefundLifecycle(refundCase)) {
+    const current = getRefundManagerState(refundCase);
+    return { label: current.label, helper: current.nextStep, disabled: true };
+  }
+  if (refundCase.lifecycle?.stage === 'waiting_on_customer') return {
+    label: 'Waiting for customer reply',
+    helper: 'Wait for the customer to reply to the existing request. No new request is needed.', disabled: true,
+  };
+  const canContinueReview = hasUnpaidRefundReview(refundCase) && derivePortalRefundMissingFields(refundCase).length === 0;
+  if (refundCase.customerDeliveryException && !canContinueReview) {
     const stateLabel = transactionalDeliveryLabel(
       refundCase.customerDeliveryException.state
     );
     return {
       label: 'Delivery needs review',
-      helper: `${stateLabel}. Refund Operations must review provider evidence. The successful payment state is unchanged; do not resend the message or retry a payment blindly.`,
-      disabled: true,
-    };
-  }
-  if (refundCase.providerHold) {
-    return {
-      label: 'Refund status not confirmed',
-      helper: 'The refund result is unclear. Do not try again until payment support confirms what happened.',
+      helper: `${stateLabel}. Refund Operations must review provider evidence. Delivery evidence does not establish a refund result; do not resend the message or retry a payment blindly.`,
       disabled: true,
     };
   }
@@ -1742,7 +1753,7 @@ const primaryActionConfig = (
       disabled: true,
     };
   }
-  if (latestMessage?.status === 'skipped') {
+  if (latestMessage?.status === 'skipped' && !canContinueReview) {
     return {
       label: 'Send a safe customer acknowledgement',
       helper: 'The automated message was skipped, so the customer has not been notified. Review and send one status update before treating this case as contacted.',
@@ -1750,7 +1761,7 @@ const primaryActionConfig = (
       mode: 'retry_message',
     };
   }
-  if (latestMessage?.status === 'failed') {
+  if (latestMessage?.status === 'failed' && !canContinueReview) {
     if (refundCase.paymentMethod === 'card' && latestMessage.messageType === 'approved') {
       return {
         label: 'Approval email blocked',
@@ -5332,7 +5343,8 @@ export default function AdminRefundsPage() {
     const hasUnsavedTransactionChoice =
       !selectedCase.hasMatchedNayaxTransaction &&
       Boolean(editor.matchedNayaxCandidateToken.trim());
-    const managerState: RefundManagerState = hasConfirmedRefundReceipt(selectedCase) || selectedCase.customerDeliveryException
+    const managerState: RefundManagerState = hasConfirmedRefundReceipt(selectedCase) || hasProtectedRefundLifecycle(selectedCase) ||
+      (selectedCase.customerDeliveryException && !hasUnpaidRefundReview(selectedCase))
       ? baseManagerState
       : paymentActionNeedsOperations
       ? {
@@ -5461,6 +5473,12 @@ export default function AdminRefundsPage() {
             </div>
           )}
 
+          {(selectedCase.customerDeliveryException || ['failed', 'skipped'].includes(getLatestCustomerMessage(selectedCase)?.status ?? '')) && (
+            <div data-testid="refund-secondary-delivery-review" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+              <p className="font-semibold">Customer message needs review</p>
+              <p className="mt-1">{selectedCase.customerDeliveryException ? transactionalDeliveryLabel(selectedCase.customerDeliveryException.state) : 'The latest customer message was not sent'}. Refund Operations owns delivery review. Do not resend it blindly. The refund status and next step are shown above.</p>
+            </div>
+          )}
           <CustomerCorrectionSummary refundCase={selectedCase} onReview={(trigger) => { correctionDialogTriggerRef.current={caseId:selectedCase.id,element:trigger}; setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false}); }} />
           {revisionDeliveryReview}
           <div className="grid gap-px bg-border lg:grid-cols-2">

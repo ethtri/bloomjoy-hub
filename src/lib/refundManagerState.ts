@@ -104,8 +104,27 @@ export const isDefinitiveNoRefundRetryReady = (
   refundCase.lifecycle?.stage === 'transaction_confirmed' &&
   refundCase.lifecycle.definitiveNoRefund === true &&
   refundCase.lifecycle.safeRetryEligible === true &&
-  refundCase.lifecycle.operations.required === false &&
+  (refundCase.lifecycle.operations.required === false ||
+    refundCase.lifecycle.operations.failureClass === 'customer_delivery_exception') &&
   refundCase.lifecycle.operations.safeStage === 'released_no_refund';
+
+/** Known unpaid review can continue independently of a historical customer notice. */
+export const hasUnpaidRefundReview = (refundCase: RefundManagerCaseFacts) =>
+  refundCase.paymentMethod === 'card' &&
+  refundCase.providerHold !== true &&
+  !['unconfirmed', 'succeeded'].includes(refundCase.providerOutcome ?? '') &&
+  (refundCase.providerOutcome !== 'rejected' || isDefinitiveNoRefundRetryReady(refundCase)) &&
+  ['not_requested', 'not_issued'].includes(refundCase.lifecycle?.paymentState ?? '') &&
+  ['matching', 'needs_transaction_selection', 'transaction_confirmed'].includes(refundCase.lifecycle?.stage ?? '') &&
+  refundCase.lifecycle?.terminal === false;
+
+/** Existing payment/terminal truth must never be replaced by an email task. */
+export const hasProtectedRefundLifecycle = (refundCase: RefundManagerCaseFacts) =>
+  refundCase.paymentMethod === 'card' && Boolean(refundCase.lifecycle) && (
+    refundCase.lifecycle?.terminal === true ||
+    ['refund_initiated', 'confirming_with_nayax', 'needs_refund_operations', 'integrity_hold',
+      'refund_confirmed', 'customer_notified'].includes(refundCase.lifecycle?.stage ?? '')
+  );
 
 const state = (
   id: RefundManagerStateId,
@@ -175,7 +194,10 @@ export const getRefundManagerState = (
     );
   }
 
-  if (refundCase.customerDeliveryException) {
+  if (refundCase.customerDeliveryException && (
+    refundCase.paymentMethod !== 'card' || !refundCase.lifecycle ||
+    (refundCase.lifecycle.paymentState === 'confirmed' && ['refund_confirmed', 'customer_notified'].includes(refundCase.lifecycle.stage))
+  )) {
     const deliveryLabel = {
       unknown: 'Delivery is unconfirmed',
       deferred: 'The provider delayed delivery',
