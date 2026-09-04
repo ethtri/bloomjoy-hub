@@ -1,4 +1,4 @@
-import { hashCorrectionToken, updateCorrectionAnswer, validateCorrectionAnswers, type CorrectionAnswers, type CorrectionContext } from './refund-correction.ts';
+import { correctionRefreshInterval, hashCorrectionToken, updateCorrectionAnswer, validateCorrectionAnswers, type CorrectionAnswers, type CorrectionContext } from './refund-correction.ts';
 const context: CorrectionContext = { state: 'ready', requestedFields: ['card_last4'], allowedFields: ['card_last4','amount','incident_date','incident_time','payment_method','payment_interaction'], values: { card_last4: '1234' } };
 const assert = (value: unknown) => { if (!value) throw new Error('Assertion failed'); };
 const rejects = (input: unknown, ctx = context) => { let threw = false; try { validateCorrectionAnswers(input,ctx); } catch { threw = true; } assert(threw); };
@@ -72,4 +72,29 @@ Deno.test('unchanged payment confirmations preserve entered dependent answers; r
   assert(repeated.card_last4===prior.card_last4);
   const reverted=updateCorrectionAnswer(repeated,'payment_interaction',{disposition:'confirmed'},ctx);
   assert(!reverted.card_last4);
+});
+
+Deno.test('location changes surface local date/time confirmation without clearing or inventing answers', () => {
+  const ctx: CorrectionContext = { state: 'ready', requestedFields: ['location_or_machine'],
+    allowedFields: ['location_or_machine','incident_date','incident_time'], locationChoices: [{key:'new-place',label:'New place'}],
+    values: {location_or_machine:'Old place',incident_date:'2026-09-03',incident_time:'14:30'} };
+  const location = {disposition:'changed' as const,value:'new-place'};
+  rejects({location_or_machine:location},ctx);
+  const prior: CorrectionAnswers = {incident_date:{disposition:'confirmed'},incident_time:{disposition:'cannot_provide'}};
+  const next = updateCorrectionAnswer(prior,'location_or_machine',location,ctx);
+  const result = validateCorrectionAnswers(next,ctx);
+  assert(result.incident_date?.disposition === 'confirmed' && result.incident_time?.disposition === 'cannot_provide');
+  assert(next.incident_date === prior.incident_date && next.incident_time === prior.incident_time);
+  assert(validateCorrectionAnswers({location_or_machine:{disposition:'confirmed'}},ctx).location_or_machine);
+});
+
+Deno.test('received rechecks back off on read failures and stop for review or unavailable scope', () => {
+  const received: CorrectionContext = {state:'received',nextAction:'recheck'};
+  assert(correctionRefreshInterval(undefined,null,0)===false);
+  for(const [failures,delay] of [[0,5000],[1,10000],[2,20000],[3,30000],[10,30000]]) {
+    assert(correctionRefreshInterval(undefined,received,failures)===delay);
+    assert(correctionRefreshInterval(received,null,failures)===delay);
+  }
+  assert(correctionRefreshInterval({state:'received',nextAction:'review'},received,2)===false);
+  assert(correctionRefreshInterval({state:'unavailable'},received,2)===false);
 });

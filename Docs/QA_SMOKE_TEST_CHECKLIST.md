@@ -1,5 +1,20 @@
 # QA Smoke Test Checklist
 
+- Correction explanation (#1113): with synthetic scoped fields, compare the short
+  reason in the manager's canonical preview, captured email, and `/refunds/correct`.
+  Check English/Spanish at 390px/1440px for purchase, payment, combined, and approved
+  Zelle-only requests. The same purpose must appear without claiming a wrong
+  customer value or a verified match; changing fields must not repeat the reason.
+
+- Same-case correction recovery (#1111): on localhost with a synthetic backend,
+  run `playwright-cli run-code --filename scripts/refunds/refund-correction-recovery-browser.mjs`
+  after opening `http://127.0.0.1:8095/refunds/correct`. Verify 390px/1440px loading,
+  validation focus, network retry without lost answers, stale/unavailable links,
+  already-saved response, automatic read-only recheck-to-review progress (within
+  15 seconds, no second submit, polling stops), and Spanish location
+  changes with existing date/local-time confirmation or uncertainty. This fixture
+  intercepts every backend request; it does not prove real delivery or response latency.
+
 Confirmed refund with unknown settlement date (`#971`): in a synthetic mapped Refund Operations case, record a full-refund observation and verify no message is queued by that save. Review the existing correspondence, inspect the fixed completion preview, and select **Send refund confirmation**. Double-click/reload must retain one message. A changed preview invalidates review. Queued, sent, provider-accepted, failed and unknown delivery remain distinct after reload; none creates another payment or dated adjustment. Verify an adopted prior notice suppresses the new-send action, and an existing queued message suppresses adoption. Repeat at desktop and mobile widths.
 
 ## Normal Nayax API execution (`#990`)

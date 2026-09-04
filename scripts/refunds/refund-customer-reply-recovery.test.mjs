@@ -31,6 +31,29 @@ const end = sync.indexOf('const sendGmailCaseActionNotice =', start);
 assert(start >= 0 && end > start, 'Actual Gmail handler must be present');
 const handlerSource = sync.slice(start, end) + '\nexports.apply = applyDeterministicCustomerReplyFacts;';
 
+test('actual ingestion preserves In-Reply-To for exact current-request continuity when References is absent', () => {
+  const sourceFile = ts.createSourceFile('gmail-sync.ts', sync, ts.ScriptTarget.Latest, true);
+  const matches = [];
+  const visit = (node) => {
+    if (ts.isPropertyAssignment(node) && node.name.getText(sourceFile) === 'p_references_header') matches.push(node.initializer);
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  assert.equal(matches.length, 1, 'Exercise the actual Gmail ingestion payload');
+  const expression = matches[0].getText(sourceFile);
+  const evaluate = (headers) => vm.runInNewContext(expression, {
+    headers,
+    getGmailHeader: (values, name) => values[name] ?? '',
+    sanitizeText: (value, length) => String(value ?? '').trim().slice(0, length),
+  });
+  assert.equal(evaluate({ 'In-Reply-To': '<current-request@example.invalid>' }), '<current-request@example.invalid>');
+  assert.equal(evaluate({ References: '<older@example.invalid>', 'In-Reply-To': '<current-request@example.invalid>' }),
+    '<current-request@example.invalid> <older@example.invalid>');
+  assert.ok(evaluate({ References: '<older@example.invalid> '.repeat(250), 'In-Reply-To': '<current-request@example.invalid>' })
+    .startsWith('<current-request@example.invalid>'), 'Long thread history cannot truncate the direct reply target');
+  assert.equal(evaluate({}), null, 'No request identity is invented for headerless mail');
+});
+
 function harness() {
   const state = {
     current: {

@@ -152,7 +152,7 @@ Set the following values before launch.
 Security rule:
 - Never place secrets in `VITE_` variables.
 - Leave `BLOOMJOY_ALLOWED_VERCEL_PREVIEW_ORIGINS` unset in production. For temporary preview/UAT invite testing only, set it to comma-separated exact `https://<preview>.vercel.app` origins that should be allowed in invite login links.
-- Environment switches alone are insufficient for deterministic customer contact, retention, or GPT. Their database settings must also be explicitly enabled for the same approved window. Official actions have no mutable production toggle in the candidate: `refund_official_actions_enabled()` remains immutable `false` until a later reviewed migration.
+- Environment switches alone are insufficient for deterministic customer contact, retention, or GPT. Their database settings must also be explicitly enabled under the existing authority. Refund operations are live; preserve the current enabled state and use the latest #628/#990 decisions and production evidence rather than the historical all-switches-off candidate.
 
 ## 3) Pre-launch checklist (T-24h)
 - [ ] Launch freeze announced (no unrelated merges to `main` during launch window).
@@ -170,10 +170,10 @@ Security rule:
 - [ ] If Gmail enablement is approved for this release, `npm run refunds:preflight-gmail -- --project-ref <project-ref>` passes secret-name presence checks without printing values. If Gmail is deferred, record that the OAuth/mailbox secrets are intentionally absent and keep both Gmail switches off; missing optional Gmail credentials do not block the all-switches-off core deployment.
 - [ ] Before any automatic refund-email class or mapped-manager CC is enabled, the gates in `Docs/REFUND_EMAIL_ASSISTANT_RUNBOOK.md` pass: deterministic template/version review, original-thread Gmail transport, participant classification, visible-recipient privacy review, canonical manager case links, exactly-once first contact, legacy-responder cutover/rollback, hard-bounce hold, and proof that email identities cannot perform a Nayax action.
 - [ ] Keep the separate manager-aging lane off until `#685` proves one deterministic manager-only notice at two business days and one escalation at five business days per attention version, current mapped-manager resolution at send time, routing-exception fallback, pause/terminal suppression, exact authenticated case links, and delivery-uncertainty handling.
-- [ ] Official refund actions remain hard-off during deployment. Before reopening normal operation, prove current mapped-manager-only authority, exact selected transaction and provider amount, one explicit financial confirmation, single-use server authorization, replay/concurrency rejection, exact-transaction uniqueness, and settlement handling. No manufactured purchase, amount cap, canary, staffing, observer, recruited UAT, or refund-specific TOTP/operator ceremony is required.
+- [ ] Preserve normal refund operation during compatible deployments. Any temporary execution pause must address a demonstrated release-specific incompatibility or actual incident. Verify current mapped-manager authority, exact selected purchase and approved amount, durable authorization, replay/concurrency rejection, exact-transaction uniqueness, and outcome handling. Reuse valid unchanged evidence; no repeat manager decision, manufactured purchase, amount cap, canary, staffing, observer, recruited UAT, or refund-specific TOTP/operator ceremony is required.
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds` passes
 - [ ] `npm run refunds:validate-release-tooling` passes.
-- [ ] `npm run refunds:release:check` confirms that the ten candidate Refund Operations functions, required migrations, source commit, and `verify_jwt` settings match the approved release manifest. Do not substitute the separate eight-route `OPTIONS` smoke count for the manifest count.
+- [ ] `npm run refunds:release:check` confirms that all protected Refund Operations functions, required migrations, source commit, and `verify_jwt` settings match the current approved release manifest. Use its function count; do not substitute a historical route-smoke count.
 - [ ] The same fresh `Refund UAT Evidence` run contains exactly 85 reviewed synthetic screenshots and the five sanitized JSON artifacts named below; the final manifest hashes every artifact and binds to the reviewed PR head. The evidence covers form-only and QR intake, card-network evidence, Nayax inventory/Snapcase, the manual-portal-only machine state, branded messages and same-case appeals, duplicate decisions, the source-aware manager queue, routine-manager isolation, the Internal/test disposition/archive, inbound existing-case linking review, provider-free existing-refund reconciliation, and transactional delivery truth without production data or provider identifiers. Final migration/test-file counts and SHA are generated from that tree, not copied from an earlier branch or written by hand.
 - [ ] In the owner's private shell, `npm run refunds:production-auth-closed -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --phase predeploy` passes with the short-lived `SUPABASE_AUTH_CONFIG_READ_TOKEN`. This is the final read-only barrier before the first refund production database/function write.
 - [ ] Before deployment, `supabase db push --dry-run` reports exactly the reviewed pending migration set and no unexpected migration. Save the sanitized command result; the Edge Function drift check does not prove remote migration parity.
@@ -222,6 +222,8 @@ supabase secrets set NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/v1
 supabase secrets set NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB=...
 # Fallback only if account-specific token names are not used:
 supabase secrets set NAYAX_LYNX_API_TOKEN=...
+# Initial isolated setup only: do not run these disabled defaults against live
+# production. Preserve its existing controls under the current #628/#990 decision.
 supabase secrets set NAYAX_REFUND_EXECUTION_ENABLED=false
 supabase secrets set NAYAX_REFUND_EXECUTION_DRY_RUN=true
 supabase secrets set NAYAX_REFUND_EXECUTION_KILL_SWITCH=true
@@ -230,6 +232,8 @@ supabase secrets set NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED=false
 supabase secrets set NAYAX_REFUND_IDEMPOTENCY_SECRET=...
 supabase secrets set NAYAX_REFUND_EXECUTOR_ASSERTION=...
 supabase secrets set REFUND_AUTOMATION_SWEEP_SECRET=...
+# Initial isolated setup only. Preserve production's existing contact, Gmail,
+# retention, attachment, and GPT controls; do not reset them during deployment.
 supabase secrets set REFUND_AUTOMATIC_CUSTOMER_CONTACT_ENABLED=false
 supabase secrets set REFUND_MANAGER_AGING_NOTICES_ENABLED=false
 supabase secrets set REFUND_GMAIL_ENABLED=false
@@ -240,7 +244,7 @@ supabase secrets set REFUND_GPT_TRIAGE_ENABLED=false
 
 Generate the idempotency secret and executor assertion independently; neither may reuse the Supabase service-role key. Register the executor assertion only after the vendor request/approval contract and dedicated credentials are verified. The raw assertion belongs only in the Edge Function secret; the database stores its SHA-256 digest. The retired sponsor, canary, broad-reopen, and amount-cap secrets do not govern production and should not be configured.
 
-Gmail and GPT credentials were enablement-time secrets rather than prerequisites for the historical all-switches-off core deployment. The production Gmail OAuth/mailbox connection is now configured and proved under `#634`, while Gmail schedules, broad customer contact, and the legacy-responder cutover remain off. Do not configure the production OpenAI key before the privacy/data-control approval in `#635`. Both functions remain fail-closed unless their dedicated scheduler secret and enablement gates are configured.
+Gmail and GPT credentials were enablement-time secrets rather than prerequisites for the historical all-switches-off core deployment. The production Gmail OAuth/mailbox connection, scheduled intake, and approved automatic customer contact are now live. Preserve their current settings and sending authority; this deployment procedure grants no new email class or recipient scope. The optional GPT lane remains governed separately by `#635` and its existing privacy/data-control authority.
 
 Before continuing, run:
 
@@ -250,9 +254,9 @@ npm run commerce:preflight -- --project-ref <project-ref> --include-refunds
 npm run refunds:preflight-gmail -- --project-ref <project-ref>
 ```
 
-Remote preflight validates secret presence by name, including the active manager contract/confirmation, approval-scope confirmation, and at least one matching `NAYAX_REFUND_REQUEST_WRITE_TOKEN_<ACCOUNT_KEY>` / `NAYAX_REFUND_APPROVE_WRITE_TOKEN_<ACCOUNT_KEY>` pair; it no longer treats the historical controlled-pilot assertion as release readiness. Local preflight additionally parses the schema-v2 contract, requires the exact production endpoint, and applies the adapter's credential-shape and separate/shared-token rules. Before deploying, separately verify the remote fail-closed values are set as intended: `NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`, `NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED=false`, and `NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED=false`. The production adapter exists but cannot reserve or call Nayax while any independent gate is closed; the synthetic adapter is available only through dependency injection in tests.
+Remote preflight validates secret presence by name, including the active manager contract/confirmation, approval-scope confirmation, and at least one matching `NAYAX_REFUND_REQUEST_WRITE_TOKEN_<ACCOUNT_KEY>` / `NAYAX_REFUND_APPROVE_WRITE_TOKEN_<ACCOUNT_KEY>` pair; it no longer treats the historical controlled-pilot assertion as release readiness. Local preflight additionally parses the schema-v2 contract, requires the exact production endpoint, and applies the adapter's credential-shape and separate/shared-token rules. Before deploying, inspect the effective remote controls against the current #628/#990 decision and preserve the enabled production state. A compatible release must not reset execution, dry-run, kill-switch, manager-contract, or approval-scope settings to their historical disabled defaults. The production adapter exists but cannot reserve or call Nayax while any independent gate is closed; the synthetic adapter is available only through dependency injection in tests.
 
-For the deployed `#644` baseline, use `Docs/REFUND_PRODUCTION_CUTOVER_PACKET.md` as the historical merge, deployment, smoke, rollback, pilot, and sponsor-decision record. The current strict release is governed by the exact reviewed canonical-main manifest and evidence. Issue `#409` tracks the remaining staffed shadow and production-label/legacy-responder no-overlap cutover; it is not an unmerged integration release candidate and does not require a separate release manifest. `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` remains historical and must not be used as current deployment authority.
+For the deployed `#644` baseline, use `Docs/REFUND_PRODUCTION_CUTOVER_PACKET.md` as the historical merge, deployment, smoke, rollback, pilot, and sponsor-decision record. The current strict release is governed by the exact reviewed canonical-main manifest and evidence. Closed issue `#409` records historical shadow and cutover work; its pilot, staffing, TOTP, and all-switches-off conditions are superseded by the current #628/#990 decisions and do not govern this live release. `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` remains historical and must not be used as current deployment authority.
 
 #### Refund Auth closed-state barrier (required before Step B)
 

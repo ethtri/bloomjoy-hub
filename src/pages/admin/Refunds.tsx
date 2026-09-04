@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { collectCorrectionResponseNotices, type CorrectionNoticeState } from '@/lib/refundCorrectionContinuity';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -656,10 +657,10 @@ const sanitizePortalMissingFields = (fields: string[]): RefundMissingField[] =>
     (field): field is RefundMissingField => fields.includes(field),
   );
 
-const CustomerCorrectionSummary = ({ refundCase }: { refundCase: RefundCaseRecord }) => {
+const CustomerCorrectionSummary = ({ refundCase, onReview }: { refundCase: RefundCaseRecord; onReview?: (trigger: HTMLButtonElement) => void }) => {
   const correction = refundCase.customerCorrection;
   if (!correction) return null;
-  return <section className="border-b border-border p-4" aria-label="Customer correction">
+  return <section id={`refund-correction-${refundCase.id}`} tabIndex={-1} className="border-b border-border p-4" aria-label="Customer correction">
     <h3 className="font-semibold">{correction.state === 'submitted' ? 'Customer response received' : correction.isActive ? 'Customer correction requested' : 'Customer correction needs review'}</h3>
     <p className="mt-2 text-sm text-muted-foreground">{correction.state === 'submitted'
       ? 'Continue reviewing this request. The customer does not need to answer these details again.'
@@ -673,6 +674,7 @@ const CustomerCorrectionSummary = ({ refundCase }: { refundCase: RefundCaseRecor
         : `Changed from ${correction.previousValues[field] ?? 'not provided'} to ${answer.value ?? ''}`}</dd>
     </div>)}</dl>}
     {correction.state === 'submitted' && <p className="mt-3 text-sm">{correction.recheckState === 'completed' ? 'The purchase check completed. Review its result below.' : correction.nextAction === 'recheck' ? 'Bloomjoy is checking the updated purchase details.' : 'Bloomjoy owns the next review.'}</p>}
+    {correction.state === 'pending' && onReview && <Button className="mt-3" variant="outline" onClick={(event) => onReview(event.currentTarget)}>Review current request</Button>}
   </section>;
 };
 
@@ -1834,7 +1836,7 @@ const primaryActionConfig = (
     label: refundCase.customerCorrection.isUsable === true ? 'Waiting for customer response' : 'Customer request is being sent',
     helper: 'Bloomjoy will continue this same request when the customer responds. No new request is needed.', disabled: true,
   };
-  const staleCorrection = refundCase.customerCorrection?.state === 'pending' && !refundCase.customerCorrection.isActive;
+  const staleCorrection = ['pending','revoked'].includes(refundCase.customerCorrection?.state ?? '') && !refundCase.customerCorrection?.isActive;
   const matched = hasTransactionMatch(refundCase, editor);
   const noMatch = refundCase.correlationStatus === 'no_match' || (!matched && candidates.length === 0);
   const missingFields = derivePortalRefundMissingFields(refundCase);
@@ -2396,7 +2398,10 @@ export default function AdminRefundsPage() {
     () => new Set()
   );
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
-  const [correctionSelection, setCorrectionSelection] = useState<{ caseId: string; version: number; fields: RefundMissingField[] } | null>(null);
+  const [correctionSelection, setCorrectionSelection] = useState<{ caseId: string; version: number; fields: RefundMissingField[]; requestId?: string; editing?: boolean } | null>(null);
+  const correctionNoticeState = useRef<CorrectionNoticeState>({initialized:false,seen:new Set()});
+  const correctionDialogTriggerRef = useRef<{caseId:string; element:HTMLElement|null}|null>(null);
+  const [pendingRevisions, setPendingRevisions] = useState<Record<string,{caseId:string;expectedCaseVersion:number;messageIntentId:string;currentCorrectionRequestId:string;messageType:'more_info';missingFields:RefundMissingField[]}>>({});
   const [isDisposingAcknowledgementException, setIsDisposingAcknowledgementException] =
     useState(false);
   const [customerLocaleDraft, setCustomerLocaleDraft] = useState<RefundCustomerLocale | ''>('');
@@ -2520,6 +2525,17 @@ export default function AdminRefundsPage() {
   const pageIsFetching = isUsingDemoData ? false : liveIsFetching;
   const demoOverview = useMemo(() => buildLocalRefundDemoOverview(), []);
   const overview = isUsingDemoData ? demoOverview : liveOverview;
+  useEffect(() => {
+    if (pageIsLoading || error || isUsingDemoData) return;
+    const notices = collectCorrectionResponseNotices(correctionNoticeState.current,
+      overview.cases.filter((item) => !hasConfirmedRefundReceipt(item)));
+    if (!notices.length) return;
+    const first = notices[0];
+    toast.info(notices.length === 1 ? `${first.publicReference}: customer response ready for review.` : `${notices.length} customer responses are ready for review.`, {
+      id:'refund-correction-responses',
+      action:{label:'Review response',onClick:() => setSelectedId(first.id)},
+    });
+  }, [overview.cases,pageIsLoading,error,isUsingDemoData]);
   const refundOperationsAccess = overview.refundOperationsAccess === true;
   const internalTestCases = useMemo(
     () => refundOperationsAccess ? overview.internalTestCases ?? [] : [],
@@ -2658,16 +2674,28 @@ export default function AdminRefundsPage() {
 
   const selectedCase = [...overview.cases, ...internalTestCases]
     .find((refundCase) => refundCase.id === selectedId) ?? null;
+  const pendingRevision = selectedCase ? pendingRevisions[selectedCase.id] ?? null : null;
+  const setPendingRevision = (value: typeof pendingRevision) => {
+    const caseId = value?.caseId ?? selectedCase?.id;
+    if (!caseId) return;
+    setPendingRevisions((current) => {
+      const next={...current};
+      if(value) next[caseId]=value; else delete next[caseId];
+      return next;
+    });
+  };
   const currentCorrectionFields = selectedCase?.customerCorrectionFields;
   const currentCorrectionCaseId = selectedCase?.id;
+  const currentCorrectionRequestId = selectedCase?.customerCorrection?.requestId;
   useEffect(() => {
     setCorrectionSelection((current) => {
       if (!current || current.caseId !== currentCorrectionCaseId || !currentCorrectionFields) return null;
-      const fields = current.fields.filter((field) => currentCorrectionFields.includes(field));
+      if (current.requestId && current.requestId !== currentCorrectionRequestId) return null;
+      const fields = current.requestId && !current.editing ? current.fields : current.fields.filter((field) => currentCorrectionFields.includes(field));
       if (current.version === officialActionVersion && fields.length === current.fields.length) return current;
       return { ...current, version: officialActionVersion, fields };
     });
-  }, [currentCorrectionCaseId, currentCorrectionFields, officialActionVersion]);
+  }, [currentCorrectionCaseId, currentCorrectionFields, currentCorrectionRequestId, officialActionVersion]);
   const selectedCaseIsInternalTest = selectedCase?.internalTest?.classification ===
     'internal_test_no_customer_refund';
   const selectedAcknowledgementException = selectedCase?.acknowledgementDeliveryException ?? null;
@@ -4412,8 +4440,48 @@ export default function AdminRefundsPage() {
     );
   };
 
+  const handleCorrectionDialogCloseAutoFocus = (event: Event) => {
+    const opener=correctionDialogTriggerRef.current;
+    if (!opener || opener.caseId !== selectedCase?.id) return;
+    const target=opener.element?.isConnected && !opener.element.matches(':disabled')
+      ? opener.element : document.getElementById(`refund-correction-${opener.caseId}`);
+    if (target) { event.preventDefault(); target.focus(); }
+  };
+
+  const handleInspectRevisionDelivery = async () => {
+    if (!pendingRevision || pendingRevision.caseId !== selectedCase?.id || isUsingDemoData) return;
+    setIsSendingCustomerMessage(true);
+    try {
+      await sendRefundCaseMessage({...pendingRevision,inspectRevisionOnly:true});
+      setPendingRevision(null);
+      manualMessageIntentRef.current=null;
+      setCorrectionSelection(null);
+      toast.success('The existing revision was sent. No additional email was created.');
+      await refresh();
+      document.getElementById(`refund-correction-${pendingRevision.caseId}`)?.focus();
+    } catch (inspectionError) {
+      if (isEdgeFunctionError(inspectionError) && ['revision_intent_not_found','revision_intent_proven_unsent'].includes(String(inspectionError.data?.errorCode))) {
+        setPendingRevision(null);
+        manualMessageIntentRef.current=null;
+        setCorrectionSelection(null);
+        await refresh();
+        document.getElementById(`refund-correction-${pendingRevision.caseId}`)?.focus();
+      }
+      toast.error(inspectionError instanceof Error ? inspectionError.message : 'The existing revision delivery still needs review.');
+    } finally { setIsSendingCustomerMessage(false); }
+  };
+
+  const revisionDeliveryReview = pendingRevision?.caseId === selectedCase?.id && <div role="status" className="border-b border-border p-4 text-sm">
+    <p>The revision result has not been confirmed. Check its existing delivery before sending another request.</p>
+    <Button variant="outline" className="mt-3" disabled={isSendingCustomerMessage} onClick={() => void handleInspectRevisionDelivery()}>Check revision delivery</Button>
+  </div>;
+
   const handleSendCustomerMessage = async (messageTypeOverride?: RefundCustomerPortalMessageType | null, selectedCorrectionFields?: RefundMissingField[]) => {
     if (!selectedCase) return;
+    if (pendingRevision?.caseId === selectedCase.id) {
+      toast.error('Check the existing revision delivery before sending another request.');
+      return;
+    }
     if (customerDeliveryNeedsReconciliation) {
       toast.error('Gmail delivery is uncertain. Check the original Gmail thread before sending anything else.');
       return;
@@ -4425,11 +4493,13 @@ export default function AdminRefundsPage() {
 
     const nextMessageType = messageTypeOverride ?? messageType;
     if (nextMessageType === 'more_info' && selectedCase.customerCorrectionFields) {
-      if (selectedCase.customerCorrection?.isActive || !selectedCase.customerCorrectionFields.length) {
+      const revising = correctionSelection?.requestId === selectedCase.customerCorrection?.requestId && correctionSelection?.editing === true;
+      if ((selectedCase.customerCorrection?.isActive && !revising) || (revising && !selectedCase.customerCorrection?.canRevise) || !selectedCase.customerCorrectionFields.length) {
         toast.error('This request is already active or needs internal review. Refresh the case for its next action.');
         return;
       }
       if (!selectedCorrectionFields) {
+        correctionDialogTriggerRef.current = {caseId:selectedCase.id,element:document.activeElement instanceof HTMLElement ? document.activeElement : null};
         setCorrectionSelection({ caseId: selectedCase.id, version: officialActionVersion, fields: [...selectedCase.customerCorrectionFields] });
         return;
       }
@@ -4479,6 +4549,7 @@ export default function AdminRefundsPage() {
       body: usesDefaultLocalizedTemplate ? null : body.trim(),
       triageSuggestionId: usesReviewedTriageDraft ? triageSuggestion?.id ?? null : null,
       missingFields,
+      currentCorrectionRequestId: correctionSelection?.editing ? correctionSelection.requestId : undefined,
     });
     if (manualMessageIntentRef.current?.fingerprint !== messageFingerprint) {
       manualMessageIntentRef.current = {
@@ -4489,10 +4560,15 @@ export default function AdminRefundsPage() {
 
     setIsSendingCustomerMessage(true);
     try {
+      if (correctionSelection?.editing && correctionSelection.requestId) setPendingRevision({
+        caseId:selectedCase.id,expectedCaseVersion:officialActionVersion,messageIntentId:manualMessageIntentRef.current.id,
+        currentCorrectionRequestId:correctionSelection.requestId,messageType:'more_info',missingFields:[...missingFields],
+      });
       const sentMessage = await sendRefundCaseMessage({
         caseId: selectedCase.id,
         expectedCaseVersion: officialActionVersion,
         messageIntentId: manualMessageIntentRef.current.id,
+        currentCorrectionRequestId: correctionSelection?.editing ? correctionSelection.requestId : undefined,
         messageType: nextMessageType,
         ...(usesDefaultLocalizedTemplate
           ? {}
@@ -4501,6 +4577,7 @@ export default function AdminRefundsPage() {
         missingFields,
       });
       manualMessageIntentRef.current = null;
+      setPendingRevision(null);
       setCorrectionSelection(null);
       toast.success(
         sentMessage.transport === 'gmail_thread'
@@ -5380,7 +5457,8 @@ export default function AdminRefundsPage() {
             </div>
           )}
 
-          <CustomerCorrectionSummary refundCase={selectedCase} />
+          <CustomerCorrectionSummary refundCase={selectedCase} onReview={(trigger) => { correctionDialogTriggerRef.current={caseId:selectedCase.id,element:trigger}; setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false}); }} />
+          {revisionDeliveryReview}
           <div className="grid gap-px bg-border lg:grid-cols-2">
             <article data-testid="refund-request-summary" className="bg-card p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer request</p>
@@ -6335,7 +6413,8 @@ export default function AdminRefundsPage() {
             </div>
           </div>
 
-          <CustomerCorrectionSummary refundCase={selectedCase} />
+          <CustomerCorrectionSummary refundCase={selectedCase} onReview={(trigger) => { correctionDialogTriggerRef.current={caseId:selectedCase.id,element:trigger}; setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false}); }} />
+          {revisionDeliveryReview}
           <div className="grid border-t border-border lg:grid-cols-2 lg:divide-x lg:divide-border">
             <article data-testid="refund-cash-request-summary" className="p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer request</p>
@@ -8379,15 +8458,15 @@ export default function AdminRefundsPage() {
       </AlertDialog>
 
       <Dialog open={Boolean(correctionSelection)} onOpenChange={(open) => { if (!open && !isSendingCustomerMessage) setCorrectionSelection(null); }}>
-        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg" onCloseAutoFocus={handleCorrectionDialogCloseAutoFocus}>
           <DialogHeader>
-            <DialogTitle>Request customer correction</DialogTitle>
-            <DialogDescription>Select the details that need checking. Bloomjoy will send one secure link for this existing request.</DialogDescription>
+            <DialogTitle>{correctionSelection?.requestId ? correctionSelection.editing ? 'Revise customer request' : 'Current customer request' : 'Request customer correction'}</DialogTitle>
+            <DialogDescription>{correctionSelection?.requestId ? correctionSelection.editing ? 'This sends one additional email and replaces the old secure link. Choose a different set of details only when the request needs correcting.' : 'Review the details already requested. The existing link stays active unless you explicitly revise and send.' : 'Select the details that need checking. Bloomjoy will send one secure link for this existing request.'}</DialogDescription>
           </DialogHeader>
           <fieldset className="space-y-1">
             <legend className="mb-2 text-sm font-medium">Details to check</legend>
-            {(selectedCase?.customerCorrectionFields ?? []).map((field) => <label key={field} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 hover:bg-muted">
-              <Checkbox checked={correctionSelection?.fields.includes(field) ?? false} disabled={isSendingCustomerMessage || selectedCase?.customerCorrection?.isActive === true}
+            {(correctionSelection?.requestId && !correctionSelection.editing ? selectedCase?.customerCorrection?.requestedFields ?? [] : selectedCase?.customerCorrectionFields ?? []).map((field) => <label key={field} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 hover:bg-muted">
+              <Checkbox checked={correctionSelection?.fields.includes(field) ?? false} disabled={isSendingCustomerMessage || Boolean(correctionSelection?.requestId && !correctionSelection.editing)}
                 onCheckedChange={(checked) => setCorrectionSelection((current) => current ? { ...current, fields: checked ? [...current.fields.filter((item) => item !== field), field] : current.fields.filter((item) => item !== field) } : current)} />
               <span className="text-sm">{correctionLabels[field][0]}</span>
             </label>)}
@@ -8404,9 +8483,10 @@ export default function AdminRefundsPage() {
           {!correctionSelection?.fields.length && <p role="status" className="text-sm text-muted-foreground">Choose at least one detail to send a correction request.</p>}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={isSendingCustomerMessage} onClick={() => setCorrectionSelection(null)}>Cancel</Button>
-            <Button type="button" disabled={isSendingCustomerMessage || !correctionSelection?.fields.length || correctionSelection.caseId !== selectedCase?.id || correctionSelection.version !== officialActionVersion || selectedCase?.customerCorrection?.isActive === true}
-              onClick={() => void handleSendCustomerMessage('more_info', correctionSelection?.fields)}>{isSendingCustomerMessage ? 'Sending…' : 'Send correction request'}</Button>
+            {correctionSelection?.requestId && !correctionSelection.editing ? <Button disabled={!selectedCase?.customerCorrection?.canRevise} onClick={() => setCorrectionSelection((current) => current ? {...current,editing:true,fields:current.fields.filter((field) => selectedCase?.customerCorrectionFields?.includes(field))} : current)}>Revise details</Button> : <Button type="button" disabled={isSendingCustomerMessage || !correctionSelection?.fields.length || correctionSelection.caseId !== selectedCase?.id || correctionSelection.version !== officialActionVersion || Boolean(correctionSelection.requestId && (!selectedCase?.customerCorrection?.canRevise || correctionSelection.requestId !== selectedCase.customerCorrection.requestId || [...correctionSelection.fields].sort().join('|') === [...selectedCase.customerCorrection.requestedFields].sort().join('|')))}
+              onClick={() => void handleSendCustomerMessage('more_info', correctionSelection?.fields)}>{isSendingCustomerMessage ? 'Sending…' : correctionSelection?.requestId ? 'Revise and send' : 'Send correction request'}</Button>}
           </DialogFooter>
+          {correctionSelection?.requestId && !selectedCase?.customerCorrection?.canRevise && <p role="status" className="text-sm text-muted-foreground">{selectedCase?.customerCorrection?.revisionReason ?? 'This request cannot be revised now.'}</p>}
         </DialogContent>
       </Dialog>
     </AppLayout>

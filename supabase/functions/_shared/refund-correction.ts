@@ -22,6 +22,12 @@ export type CorrectionContext = {
   locationChoices?: Array<{ key: string; label: string }>;
 };
 
+export function correctionRefreshInterval(current: CorrectionContext | undefined, received: CorrectionContext | null, fetchFailureCount: number): number | false {
+  if (current?.state === 'unavailable') return false;
+  const saved = current?.state === 'received' ? current : received;
+  return saved?.nextAction === 'recheck' ? Math.min(30000, 5000 * 2 ** Math.min(fetchFailureCount, 3)) : false;
+}
+
 export const isCorrectionToken = (value: string) => /^[A-Za-z0-9_-]{43}$/.test(value);
 export const hashCorrectionToken = async (value: string) => {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`refund-correction-v1:${value}`));
@@ -61,6 +67,11 @@ export function requiredCorrectionFields(answers: CorrectionAnswers, context: Co
   const required = new Set(context.requestedFields ?? []);
   const changed = (field: CorrectionField) => answers[field]?.disposition === 'changed' && answers[field]?.value !== context.values?.[field];
   const value = (field: CorrectionField) => answers[field]?.disposition === 'changed' ? answers[field]?.value : context.values?.[field];
+  if (changed('location_or_machine') && value('location_or_machine')) {
+    for (const field of ['incident_date', 'incident_time'] as const) {
+      if (context.allowedFields?.includes(field)) required.add(field);
+    }
+  }
   if (value('payment_method') === 'cash') {
     for (const field of ['payment_interaction','card_last4','card_network','wallet_provider'] as const) required.delete(field);
   } else if (changed('payment_interaction') && ['tap_card','insert_or_swipe'].includes(value('payment_interaction') ?? '')) required.delete('wallet_provider');

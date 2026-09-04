@@ -589,6 +589,13 @@ serve(async (req) => {
       }, 400);
     }
     const messageIntentId = sanitizeText(body?.messageIntentId, 80);
+    const currentCorrectionRequestId = sanitizeText(body?.currentCorrectionRequestId, 80);
+    if (body?.inspectRevisionOnly !== undefined && (body.inspectRevisionOnly !== true || !currentCorrectionRequestId)) {
+      return jsonResponse({error:"Choose an existing revision to inspect."},400);
+    }
+    if (body?.currentCorrectionRequestId !== undefined && (!isUuid(currentCorrectionRequestId) || messageType !== "more_info")) {
+      return jsonResponse({ error: "Choose the current correction request to revise." }, 400);
+    }
     const expectedCaseVersion = body?.expectedCaseVersion;
     if (
       !isUuid(messageIntentId) || !Number.isSafeInteger(expectedCaseVersion) ||
@@ -603,6 +610,51 @@ serve(async (req) => {
     const suppliedMissingFields = sanitizeRefundMissingFields(
       body?.missingFields,
     );
+    // Exact revision retries inspect the existing immutable intent before current
+    // facts/template changes. They never construct a replacement request again.
+    if (currentCorrectionRequestId) {
+      if (!Array.isArray(body?.missingFields) || !suppliedMissingFields.length ||
+        suppliedMissingFields.length !== body.missingFields.length || body?.subject !== undefined ||
+        body?.body !== undefined || body?.triageSuggestionId !== undefined) {
+        return jsonResponse({error:"Revision requests use the approved message and selected details."},400);
+      }
+      const {data: previous, error: previousError} = await supabase.from("refund_case_messages")
+        .select("id,recipient_email,subject,body,status,manual_delivery_state,delivery_transport,sent_at,provider_message_id,manual_delivery_provider_attempted_at")
+        .eq("manual_delivery_intent_id",messageIntentId).maybeSingle();
+      if (previousError) throw previousError;
+      if (previous) {
+        const {data: replay, error: replayError} = await supabase.rpc("service_revise_refund_purchase_correction",{
+          p_refund_case_id:caseId,p_expected_case_version:expectedCaseVersion,p_intent_id:messageIntentId,
+          p_actor_user_id:user.id,p_current_request_id:currentCorrectionRequestId,
+          p_recipient_email:previous.recipient_email,p_subject:previous.subject,p_body:previous.body,
+          p_requested_fields:suppliedMissingFields,
+        });
+        if (replayError || replay?.replayed !== true || replay.messageId !== previous.id) {
+          return jsonResponse({error:"This revision intent is already bound. Refresh before sending."},409);
+        }
+        if (previous.status === "sent" && previous.manual_delivery_state === "sent") return jsonResponse({message:{
+          id:previous.id,type:"more_info",status:"sent",subject:previous.subject,transport:previous.delivery_transport,
+        }});
+        if (body?.inspectRevisionOnly === true && previous.status === "failed" && previous.manual_delivery_state === "failed" &&
+          previous.sent_at == null && previous.provider_message_id == null && previous.manual_delivery_provider_attempted_at == null && previous.delivery_transport == null) {
+          const {data: providerEvidence,error: providerEvidenceError} = await supabase.from("refund_gmail_messages")
+            .select("id").eq("refund_case_message_id",previous.id).limit(1);
+          if (providerEvidenceError) throw providerEvidenceError;
+          if (Array.isArray(providerEvidence) && providerEvidence.length === 0) return jsonResponse({
+            error:"The revision failed before delivery was attempted. Review the current request before sending again.",
+            errorCode:"revision_intent_proven_unsent",
+          },409);
+        }
+        const results = body?.inspectRevisionOnly !== true && ["queued","claimed"].includes(previous.manual_delivery_state)
+          ? await drainRefundManualMessageOutbox({supabase,messageId:previous.id,limit:1}) : [];
+        if (results[0]?.outcome === "sent") return jsonResponse({message:{
+          id:previous.id,type:"more_info",status:"sent",subject:previous.subject,transport:results[0].transport,
+        }});
+        return jsonResponse({error:"The existing revision delivery needs review; no new request was created.",
+          errorCode:previous.manual_delivery_state === "delivery_unknown" ? "customer_email_delivery_unknown" : "customer_email_delivery_pending"},409);
+      }
+      if (body?.inspectRevisionOnly === true) return jsonResponse({error:"No existing revision delivery was found. Review the current request before sending.",errorCode:"revision_intent_not_found"},409);
+    }
     let triageSuggestion: RefundGptTriageRow | null = null;
     if (triageSuggestionId) {
       if (!isUuid(triageSuggestionId) || messageType !== "more_info") {
@@ -675,6 +727,7 @@ serve(async (req) => {
       : suppliedMissingFields;
     let missingFields: RefundMissingField[] = [];
     const correctionEnabled = messageType === "more_info" && await refundCorrectionLinksEnabled(supabase);
+    if (currentCorrectionRequestId && !correctionEnabled) return jsonResponse({ error: "Correction revisions are not enabled." }, 409);
     if (messageType === "more_info") {
       const currentFields = correctionEnabled ? await getCurrentRefundCorrectionFields(supabase, caseId) : derived.missingFields;
       if (derived.requiresSecureWalletCorrection && !correctionEnabled) {
@@ -777,8 +830,18 @@ serve(async (req) => {
     });
 
     const { data: enqueued, error: enqueueError } = await supabase.rpc(
-      "service_enqueue_refund_manual_message_intent",
-      {
+      currentCorrectionRequestId ? "service_revise_refund_purchase_correction" : "service_enqueue_refund_manual_message_intent",
+      currentCorrectionRequestId ? {
+        p_refund_case_id: refundCase.id,
+        p_expected_case_version: expectedCaseVersion,
+        p_intent_id: messageIntentId,
+        p_actor_user_id: user.id,
+        p_current_request_id: currentCorrectionRequestId,
+        p_recipient_email: refundCase.customer_email,
+        p_subject: emailWithoutStatus.subject,
+        p_body: emailWithoutStatus.text,
+        p_requested_fields: missingFields,
+      } : {
         p_refund_case_id: refundCase.id,
         p_expected_case_version: expectedCaseVersion,
         p_intent_id: messageIntentId,

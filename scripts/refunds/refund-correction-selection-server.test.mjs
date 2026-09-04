@@ -11,15 +11,15 @@ for(const statement of source.statements){
 }
 const caseId='11111111-1111-4111-8111-111111111111';
 const intentId='22222222-2222-4222-8222-222222222222';
-function harness({fields=['amount','card_last4'],allowed=true}={}){
+function harness({fields=['amount','card_last4'],allowed=true,previous=null,providerEvidence=[]}={}){
  const enqueues=[];let delivered=0;
  const context=vm.createContext({Request,Response,console,Set,Number,
   resolveSupabaseAccessToken:()=> 'session',allowedPortalMessageTypes:new Set(['more_info']),
-  supabase:{auth:{getUser:async()=>({data:{user:{id:'manager'}}})},rpc:async(name,input)=>{
+  supabase:{from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:previous}),limit:async()=>({data:providerEvidence})})})}),auth:{getUser:async()=>({data:{user:{id:'manager'}}})},rpc:async(name,input)=>{
    if(name==='can_manage_refund_case')return {data:allowed};
    if(name==='service_refund_nayax_completion_message_lane_open')return {data:true};
-   if(name==='service_enqueue_refund_manual_message_intent'){
-    enqueues.push(input);return input.p_expected_case_version!==12?{error:{code:'P4609'}}:{data:{enqueued:true,messageId:intentId,payloadRedacted:true}};
+   if(name==='service_enqueue_refund_manual_message_intent'||name==='service_revise_refund_purchase_correction'){
+    enqueues.push(input);if(previous)return {data:{replayed:true,messageId:previous.id}};return input.p_expected_case_version!==12?{error:{code:'P4609'}}:{data:{enqueued:true,messageId:intentId,payloadRedacted:true}};
    }throw Error('Unexpected RPC '+name);
   }},
   getRefundCase:async()=>({id:caseId,official_action_version:12,case_population:'customer',customer_email:'fixture@example.invalid',public_reference:'RF-FIXTURE',status:'needs_review',payment_method:'card'}),
@@ -52,4 +52,35 @@ test('actual server handler rejects empty, unsupported, duplicate, stale field a
 test('actual server handler retains manager authorization and stale-version refusal before transport',async()=>{
  const denied=harness({allowed:false});assert.equal((await denied.request()).status,403);assert.equal(denied.enqueues.length,0);
  const stale=harness();assert.equal((await stale.request({expectedCaseVersion:11})).status,409);assert.equal(stale.delivered(),0);
+});
+
+test('actual revision handler binds the current request and canonical fields to its narrow RPC',async()=>{
+ const h=harness();const requestId='33333333-3333-4333-8333-333333333333';
+ assert.equal((await h.request({currentCorrectionRequestId:requestId})).status,200);
+ assert.equal(h.enqueues[0].p_current_request_id,requestId);
+ assert.equal(h.enqueues[0].p_actor_user_id,'manager');
+ assert.deepEqual(Array.from(h.enqueues[0].p_requested_fields),['amount']);
+ for(const value of [null,'bad-id',false]){const bad=harness();assert.equal((await bad.request({currentCorrectionRequestId:value})).status,400);assert.equal(bad.delivered(),0);}
+});
+
+test('actual revision replay reaches immutable intent after fields change without new transport',async()=>{
+ const previous={id:intentId,recipient_email:'fixture@example.invalid',subject:'Original subject',body:'Original body',status:'sent',manual_delivery_state:'sent',delivery_transport:'gmail_thread'};
+ const h=harness({fields:[],previous});
+ assert.equal((await h.request({currentCorrectionRequestId:'33333333-3333-4333-8333-333333333333'})).status,200);
+ assert.equal(h.enqueues.length,1);assert.equal(h.enqueues[0].p_subject,'Original subject');assert.equal(h.delivered(),0);
+});
+test('inspection of queued revision never drains, and absent intent cannot create a request',async()=>{
+ const previous={id:intentId,recipient_email:'fixture@example.invalid',subject:'Original',body:'Original',status:'pending',manual_delivery_state:'queued'};
+ const pending=harness({fields:[],previous});assert.equal((await pending.request({currentCorrectionRequestId:'33333333-3333-4333-8333-333333333333',inspectRevisionOnly:true})).status,409);assert.equal(pending.delivered(),0);
+ const absent=harness();const response=await absent.request({currentCorrectionRequestId:'33333333-3333-4333-8333-333333333333',inspectRevisionOnly:true});
+ assert.equal(response.status,409);assert.equal((await response.json()).errorCode,'revision_intent_not_found');assert.equal(absent.enqueues.length,0);assert.equal(absent.delivered(),0);
+});
+
+test('exact proven-unsent inspection permits review, while provider evidence and uncertainty keep hold',async()=>{
+ const previous={id:intentId,recipient_email:'fixture@example.invalid',subject:'Original',body:'Original',status:'failed',manual_delivery_state:'failed',sent_at:null,provider_message_id:null,manual_delivery_provider_attempted_at:null,delivery_transport:null};
+ const request={currentCorrectionRequestId:'33333333-3333-4333-8333-333333333333',inspectRevisionOnly:true};
+ const safe=harness({previous});assert.equal((await (await safe.request(request)).json()).errorCode,'revision_intent_proven_unsent');assert.equal(safe.delivered(),0);
+ for(const options of [{previous:{...previous,manual_delivery_state:'delivery_unknown'}},{previous:{...previous,manual_delivery_provider_attempted_at:'now'}},{previous,providerEvidence:[{id:'provider'}]}]){
+  const held=harness(options);assert.notEqual((await (await held.request(request)).json()).errorCode,'revision_intent_proven_unsent');assert.equal(held.delivered(),0);
+ }
 });

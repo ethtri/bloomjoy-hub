@@ -9,7 +9,7 @@ function load(name,dependencies){
  let initializer;function visit(node){if(ts.isVariableDeclaration(node)&&node.name.getText(source)===name)initializer=node.initializer;ts.forEachChild(node,visit);}visit(source);
  assert.ok(initializer,`Actual handler ${name} exists`);
  const code=ts.transpile(`const handler=${initializer.getText(source)};globalThis.handler=handler;`,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None});
- const context=vm.createContext({...dependencies,console,crypto:webcrypto});vm.runInContext(code,context);return context.handler;
+ const context=vm.createContext({document:{activeElement:null,getElementById:()=>null},HTMLElement:class {},correctionDialogTriggerRef:{current:null},...dependencies,console,crypto:webcrypto});vm.runInContext(code,context);return context.handler;
 }
 const dependencies={hasConfirmedRefundReceipt:c=>c.receipt===true,getLatestCustomerMessage:()=>null,isDefinitiveNoRefundRetryReady:()=>false,transactionalDeliveryLabel:state=>state,hasTransactionMatch:c=>Boolean(c.matched),derivePortalRefundMissingFields:()=>[],isWaitingCase:()=>true,activeNayaxCandidate:()=>null,hasSelectedCardEvidence:()=>true,formatCurrency:amount=>`$${(amount/100).toFixed(2)}`};
 test('actual manager action respects current scope, delivery holds and terminal truth',()=>{
@@ -28,7 +28,7 @@ test('actual manager action respects current scope, delivery holds and terminal 
 test('actual one-action correction sends canonical fields without unreviewed triage/editor content',async()=>{
  let sent;let refreshed=0;const errors=[];
  const handler=load('handleSendCustomerMessage',{
-  selectedCase:{id:'case-1',customerCorrectionFields:['card_last4','amount']},customerDeliveryNeedsReconciliation:false,isUsingDemoData:false,
+  selectedCase:{id:'case-1',customerCorrectionFields:['card_last4','amount']},customerDeliveryNeedsReconciliation:false,isUsingDemoData:false,pendingRevision:null,setPendingRevision:()=>{},
   correctionSelection:{caseId:'case-1',version:12,fields:['amount']},setCorrectionSelection:()=>{},
   messageType:'denied',messageSubject:'Old denial subject',messageBody:'Old denial draft',
   gmailContext:{triageSuggestion:{id:'unreviewed',status:'ready_for_review',route:'draft_reply',missingFields:['incident_time']}},
@@ -44,7 +44,7 @@ test('actual one-action correction sends canonical fields without unreviewed tri
 
 test('actual correction action opens preselected fields, rejects empty, stale and unsupported selections before send',async()=>{
  let selection;let sends=0;const errors=[];
- const base={selectedCase:{id:'case-1',customerCorrectionFields:['amount','card_last4']},officialActionVersion:12,customerDeliveryNeedsReconciliation:false,isUsingDemoData:false,
+ const base={selectedCase:{id:'case-1',customerCorrectionFields:['amount','card_last4']},correctionSelection:null,officialActionVersion:12,customerDeliveryNeedsReconciliation:false,isUsingDemoData:false,pendingRevision:null,setPendingRevision:()=>{},
   setCorrectionSelection:value=>{selection=value;},toast:{error:value=>errors.push(value)},sendRefundCaseMessage:()=>{sends++;}};
  await load('handleSendCustomerMessage',base)('more_info');
  assert.deepEqual(Array.from(selection.fields),['amount','card_last4']);assert.equal(sends,0);
@@ -52,4 +52,62 @@ test('actual correction action opens preselected fields, rejects empty, stale an
   await load('handleSendCustomerMessage',{...base,correctionSelection:{caseId:'case-1',version,fields}})('more_info',fields);
  }
  assert.equal(errors.length,3);assert.equal(sends,0);
+});
+
+test('uncertain revision retains exact payload for read-only inspection after polling advances case',async()=>{
+ let saved;let calls=0;const sent=[];const intent={current:null};
+ const selectedCase={id:'case',customerCorrectionFields:['amount','card_last4'],customerCorrection:{state:'pending',isActive:true,requestId:'old-request',canRevise:true}};
+ const base={selectedCase,pendingRevision:null,setPendingRevision:value=>{saved=value;},correctionSelection:{caseId:'case',version:12,fields:['card_last4'],requestId:'old-request',editing:true},
+ customerDeliveryNeedsReconciliation:false,isUsingDemoData:false,messageType:'more_info',gmailContext:{},officialActionVersion:12,
+ getCustomerMessageDraft:()=>({subject:'canonical',body:'canonical'}),manualMessageIntentRef:intent,setIsSendingCustomerMessage:()=>{},
+ sendRefundCaseMessage:async input=>{sent.push(input);calls++;throw Error('Lost response after commit');},setCorrectionSelection:()=>{},refresh:async()=>{},
+ toast:{error:()=>{},success:()=>{},info:()=>{}},isEdgeFunctionError:()=>false};
+ await load('handleSendCustomerMessage',base)('more_info',['card_last4']);assert.equal(calls,1);assert.equal(saved.expectedCaseVersion,12);
+ selectedCase.customerCorrection={state:'revoked',isActive:false,requestId:'replacement',canRevise:false};
+ const retained=saved;
+ await load('handleInspectRevisionDelivery',{...base,pendingRevision:retained,officialActionVersion:19,sendRefundCaseMessage:async input=>{sent.push(input);return {status:'sent'};}})();
+ assert.equal(sent.length,2);assert.equal(sent[1].inspectRevisionOnly,true);assert.equal(sent[1].expectedCaseVersion,12);
+ assert.equal(sent[1].messageIntentId,sent[0].messageIntentId);assert.equal(sent[1].currentCorrectionRequestId,'old-request');assert.equal(saved,null);
+});
+test('pending revision storage is per case and unrelated success cannot erase exact recovery payload',()=>{
+ let stored={first:{caseId:'first',messageIntentId:'original'}};
+ const set=load('setPendingRevision',{selectedCase:{id:'second'},setPendingRevisions:updater=>{stored=updater(stored);}});
+ set({caseId:'second',messageIntentId:'other'});assert.equal(stored.first.messageIntentId,'original');
+ set(null);assert.equal(stored.first.messageIntentId,'original');assert.equal(stored.second,undefined);
+});
+test('proven-unsent inspection clears only current case recovery; unknown remains retained',async()=>{
+ for(const code of ['revision_intent_proven_unsent','customer_email_delivery_unknown']){
+  let cleared=false;const handler=load('handleInspectRevisionDelivery',{pendingRevision:{caseId:'case'},selectedCase:{id:'case'},isUsingDemoData:false,setIsSendingCustomerMessage:()=>{},
+   sendRefundCaseMessage:async()=>{throw {data:{errorCode:code}};},isEdgeFunctionError:()=>true,setPendingRevision:()=>{cleared=true;},manualMessageIntentRef:{current:{}},setCorrectionSelection:()=>{},refresh:async()=>{},toast:{error:()=>{}}});
+  await handler();assert.equal(cleared,code==='revision_intent_proven_unsent');
+ }
+});
+test('actual correction close restores enabled opener, or current summary when opener is gone',()=>{
+ for(const enabled of [true,false]){
+  let openerFocus=0;let summaryFocus=0;let prevented=0;
+  const handler=load('handleCorrectionDialogCloseAutoFocus',{selectedCase:{id:'current-case'},correctionDialogTriggerRef:{current:{caseId:'current-case',element:{isConnected:enabled,matches:()=>false,focus:()=>openerFocus++}}},
+    document:{getElementById:id=>{assert.equal(id,'refund-correction-current-case');return {focus:()=>summaryFocus++};}}});
+  handler({preventDefault:()=>prevented++});assert.equal(prevented,1);assert.equal(openerFocus,enabled?1:0);assert.equal(summaryFocus,enabled?0:1);
+ }
+});
+test('successful inspect restores focus to the same case summary without creating another send',async()=>{
+ let requested;let focusId;const handler=load('handleInspectRevisionDelivery',{pendingRevision:{caseId:'original'},selectedCase:{id:'original'},isUsingDemoData:false,setIsSendingCustomerMessage:()=>{},
+  sendRefundCaseMessage:async value=>{requested=value;return {status:'sent'};},setPendingRevision:()=>{},manualMessageIntentRef:{current:{}},setCorrectionSelection:()=>{},refresh:async()=>{},toast:{success:()=>{}},
+  document:{getElementById:id=>({focus:()=>{focusId=id;}})}});
+ await handler();assert.equal(requested.inspectRevisionOnly,true);assert.equal(focusId,'refund-correction-original');
+});
+
+test('case switch and missing custom targets preserve normal close without focusing reused opener',()=>{
+ for (const switched of [true,false]) {
+  let prevented=0;let focused=0;
+  const handler=load('handleCorrectionDialogCloseAutoFocus',{selectedCase:{id:switched?'next-case':'original'},
+   correctionDialogTriggerRef:{current:{caseId:'original',element:{isConnected:switched,matches:()=>false,focus:()=>focused++}}},document:{getElementById:()=>null}});
+  handler({preventDefault:()=>prevented++});assert.equal(prevented,0);assert.equal(focused,0);
+ }
+});
+test('inspection finishing after case switch cannot focus a different case',async()=>{
+ let requestedId;const handler=load('handleInspectRevisionDelivery',{pendingRevision:{caseId:'original'},selectedCase:{id:'original'},isUsingDemoData:false,setIsSendingCustomerMessage:()=>{},
+  sendRefundCaseMessage:async()=>({status:'sent'}),setPendingRevision:()=>{},manualMessageIntentRef:{current:{}},setCorrectionSelection:()=>{},refresh:async()=>{},toast:{success:()=>{}},
+  document:{getElementById:id=>{requestedId=id;return null;}}});
+ await handler();assert.equal(requestedId,'refund-correction-original');
 });
