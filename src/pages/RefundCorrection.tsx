@@ -60,6 +60,7 @@ export default function RefundCorrectionPage() {
   });
   const context = demo ? demoContext(location.search) : query.data;
   const es = (received?.locale ?? context?.locale) === 'es';
+  const hasReceived = received !== null;
   const copy = (english: string, spanish: string) => es ? spanish : english;
   useEffect(() => {
     if (token) sessionStorage.setItem(tokenKey, token);
@@ -72,7 +73,11 @@ export default function RefundCorrectionPage() {
     window.addEventListener('hashchange', openLink);
     return () => window.removeEventListener('hashchange', openLink);
   }, []);
-  useEffect(() => { if (received) resultRef.current?.focus(); }, [received]);
+  useEffect(() => {
+    const current = query.data;
+    if (current?.state === 'received') setReceived((prior) => ({ ...prior, ...current, locale: current.locale ?? prior?.locale }));
+  }, [query.data]);
+  useEffect(() => { if (hasReceived) resultRef.current?.focus(); }, [hasReceived]);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const update = (field: CorrectionField, answer: CorrectionAnswer) => {
     if (context) setAnswers((prior) => updateCorrectionAnswer(prior, field, answer, context));
