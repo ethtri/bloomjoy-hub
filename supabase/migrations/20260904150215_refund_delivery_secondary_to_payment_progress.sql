@@ -4,7 +4,7 @@
 begin;
 do $migration$
 declare
-  definition text := pg_get_functiondef('public.refund_lifecycle_contract_pre_authoritative_receipt_v1(uuid)'::regprocedure);
+  definition text := replace(pg_get_functiondef('public.refund_lifecycle_contract_pre_authoritative_receipt_v1(uuid)'::regprocedure), E'\r\n', E'\n');
   old_fragment text;
   new_fragment text;
 begin
@@ -19,7 +19,9 @@ begin
     and not terminal then
     manager_action := 'review_delivery_no_resend';
   end if;$new$;
-  if position(old_fragment in definition) = 0 then raise exception 'Expected lifecycle delivery-action projection was not found'; end if;
+  old_fragment := replace(old_fragment, E'\r\n', E'\n');
+  new_fragment := replace(new_fragment, E'\r\n', E'\n');
+  if (length(definition) - length(replace(definition, old_fragment, ''))) <> length(old_fragment) then raise exception 'Expected lifecycle delivery-action projection was not found'; end if;
   definition := replace(definition, old_fragment, new_fragment);
   old_fragment := $old$      'failureClass', case
         when delivery_review_required then 'customer_delivery_exception'
@@ -31,7 +33,9 @@ begin
         when delivery_review_required then 'customer_delivery_exception'
         else attempt_row.safe_failure_class
       end,$new$;
-  if position(old_fragment in definition) = 0 then raise exception 'Expected lifecycle operations-failure projection was not found'; end if;
+  old_fragment := replace(old_fragment, E'\r\n', E'\n');
+  new_fragment := replace(new_fragment, E'\r\n', E'\n');
+  if (length(definition) - length(replace(definition, old_fragment, ''))) <> length(old_fragment) then raise exception 'Expected lifecycle operations-failure projection was not found'; end if;
   definition := replace(definition, old_fragment, new_fragment);
   old_fragment := $old$        when delivery_review_required
           then 'Review customer delivery evidence. Do not replay the message or payment.'
@@ -41,7 +45,9 @@ begin
           then 'Confirm the authoritative Nayax result. Do not retry.'
         when delivery_review_required
           then 'Review customer delivery evidence. Do not resend the message blindly. Follow the current refund step separately.'$new$;
-  if position(old_fragment in definition) = 0 then raise exception 'Expected lifecycle operations-next-step projection was not found'; end if;
+  old_fragment := replace(old_fragment, E'\r\n', E'\n');
+  new_fragment := replace(new_fragment, E'\r\n', E'\n');
+  if (length(definition) - length(replace(definition, old_fragment, ''))) <> length(old_fragment) then raise exception 'Expected lifecycle operations-next-step projection was not found'; end if;
   definition := replace(definition, old_fragment, new_fragment);
   execute definition;
 end;
