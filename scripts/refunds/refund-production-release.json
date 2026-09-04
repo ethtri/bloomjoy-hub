@@ -139,7 +139,8 @@
     "20260903230000_refund_scheduled_report_freshness.sql",
     "20260903235132_refund_scoped_correction_reply_continuity.sql",
     "20260903235452_refund_correction_manager_revision.sql",
-    "20260904144509_refund_approved_unpaid_lookup_continuation.sql"
+    "20260904144509_refund_approved_unpaid_lookup_continuation.sql",
+    "20260904150215_refund_delivery_secondary_to_payment_progress.sql"
   ],
   "migrationFilesSha256": "8fc1067cf767b08f4fe217d93b24f332ad648e9508746819d77f7bf0260f44e6",
   "migrationVersionSetSha256": "931225d9b51a79fa188fbdf2b80f6dde0441148bef882e12daf0e59b22d6458c",
