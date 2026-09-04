@@ -19,12 +19,13 @@ $$;
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
  issue_summary,incident_at,incident_timezone,payment_method,payment_amount_cents,refund_amount_cents,card_last4,
  status,decision,decision_reason,decided_by,decided_at,correlation_status,correlation_source,deterministic_fact_version,
- nayax_refund_execution_status)
+ nayax_refund_execution_status,incident_time_confidence)
 select pg_temp.case_id(n),'RF-DIAGNOSTIC-'||n,'fb440000-0000-4000-8000-000000000001',
  'fb430000-0000-4000-8000-000000000001','diagnostics-customer@example.invalid','Synthetic diagnostics',
  '2026-08-29T20:10:00Z','America/New_York','card',963,963,'4242','needs_review','approved','Ordinary decision',
- 'fb410000-0000-4000-8000-000000000001',now()-interval '1 day','no_match','nayax',1,'not_requested'
-from generate_series(1,4) n;
+ 'fb410000-0000-4000-8000-000000000001',now()-interval '1 day','no_match','nayax',1,'not_requested',
+ case n when 5 then 'within_15_minutes' when 6 then 'within_1_hour' else 'rough' end
+from generate_series(1,6) n;
 create temp table approval_before as select id,decision,decision_reason,decided_by,decided_at,refund_amount_cents,
  deterministic_fact_version from public.refund_cases where id=pg_temp.case_id(1);
 create function pg_temp.diagnostic() returns jsonb language sql immutable as $$
@@ -42,7 +43,7 @@ returns jsonb language sql as $$
  'fb410000-0000-4000-8000-000000000001',diagnostics);
 $$;
 select public.service_begin_refund_nayax_lookup(pg_temp.case_id(n),1,'manual','fb410000-0000-4000-8000-000000000001')
-from generate_series(1,4) n;
+from generate_series(1,6) n;
 select is(pg_temp.commit_result(1)->>'applied','true','Actual existing commit accepts approved unpaid result with diagnostics');
 select is((select metadata->'diagnostics' from public.refund_case_events where refund_case_id=pg_temp.case_id(1)
  and event_type='nayax_lookup_diagnostics'),pg_temp.diagnostic(),'Exact counts/window/provenance stored in existing event stream');
@@ -67,6 +68,14 @@ select throws_ok($$select pg_temp.commit_result(2,jsonb_set(pg_temp.diagnostic()
  'P4623','Invalid lookup window','Window boundaries must match effective duration');
 select throws_ok($$select pg_temp.commit_result(2,jsonb_set(pg_temp.diagnostic(),'{incidentTimeConfidence}','null'))$$,
  'P4623','Invalid lookup time provenance','Null confidence cannot evade enum checks');
+select throws_ok($$select pg_temp.commit_result(2,jsonb_set(pg_temp.diagnostic(),'{incidentTimeConfidence}','"within_2_hours"'))$$,
+ 'P4623','Invalid lookup time provenance','Unsupported confidence remains rejected');
+select is(pg_temp.commit_result(5,jsonb_set(pg_temp.diagnostic(),'{incidentTimeConfidence}',
+ (select to_jsonb(incident_time_confidence) from public.refund_cases where id=pg_temp.case_id(5))))->>'applied',
+ 'true','Actual persisted within-15-minute confidence accepts ordinary lookup result');
+select is(pg_temp.commit_result(6,jsonb_set(pg_temp.diagnostic(),'{incidentTimeConfidence}',
+ (select to_jsonb(incident_time_confidence) from public.refund_cases where id=pg_temp.case_id(6))))->>'applied',
+ 'true','Actual persisted within-one-hour confidence accepts ordinary lookup result');
 select throws_ok($$select pg_temp.commit_result(2,jsonb_set(pg_temp.diagnostic(),'{historicalCoverage}','"complete"'))$$,
  'P4623','Invalid bounded lookup diagnostics','Latest-sales observation cannot claim complete history');
 select is(pg_temp.commit_result(2,pg_temp.diagnostic(),2)->>'applied','false','Wrong generation remains stale');
@@ -87,7 +96,7 @@ select ok(not has_function_privilege('anon','public.service_commit_refund_nayax_
  and not has_function_privilege('authenticated','public.service_commit_refund_nayax_lookup_with_diagnostics(uuid,bigint,bigint,text,text,text,timestamptz,text,uuid,integer,text,uuid,jsonb)','execute')
  and has_function_privilege('service_role','public.service_commit_refund_nayax_lookup_with_diagnostics(uuid,bigint,bigint,text,text,text,timestamptz,text,uuid,integer,text,uuid,jsonb)','execute'),
  'Only existing service execution role can call diagnostic commit');
-select is((select count(*) from public.refund_case_messages where refund_case_id in(select pg_temp.case_id(n) from generate_series(1,4)n)),0::bigint,'No customer messages');
-select is((select count(*) from public.refund_case_nayax_refund_attempts where refund_case_id in(select pg_temp.case_id(n) from generate_series(1,4)n)),0::bigint,'No payment attempts');
+select is((select count(*) from public.refund_case_messages where refund_case_id in(select pg_temp.case_id(n) from generate_series(1,6)n)),0::bigint,'No customer messages');
+select is((select count(*) from public.refund_case_nayax_refund_attempts where refund_case_id in(select pg_temp.case_id(n) from generate_series(1,6)n)),0::bigint,'No payment attempts');
 select * from finish();
 rollback;

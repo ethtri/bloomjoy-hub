@@ -66,7 +66,7 @@ begin
       or jsonb_typeof(p_diagnostics->'incidentTimeResolution') <> 'string'
       or jsonb_typeof(p_diagnostics->'incidentTimeConfidence') <> 'string'
       or p_diagnostics->>'incidentTimeResolution' not in ('exact','ambiguous','nonexistent','invalid_local_time','invalid_timezone','legacy_absolute','missing','unknown')
-      or p_diagnostics->>'incidentTimeConfidence' not in ('exact','rough','unknown')
+      or p_diagnostics->>'incidentTimeConfidence' not in ('exact','within_15_minutes','within_1_hour','rough','unknown')
       or (p_diagnostics->'locationTimezone' <> 'null'::jsonb and not exists (
         select 1 from pg_catalog.pg_timezone_names zone where zone.name = p_diagnostics->>'locationTimezone'
       )) then

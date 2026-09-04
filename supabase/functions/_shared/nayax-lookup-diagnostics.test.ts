@@ -31,6 +31,10 @@ Deno.test("existing response counts distinguish no local-window rows from provid
     assertEquals(buildNayaxLookupDiagnostics({ ...result,
       refundCase: { ...result.refundCase!, incidentTimeResolution: resolution } })?.incidentTimeResolution, resolution);
   }
+  for (const confidence of ["exact", "within_15_minutes", "within_1_hour", "rough"]) {
+    assertEquals(buildNayaxLookupDiagnostics({ ...result,
+      refundCase: { ...result.refundCase!, incidentTimeConfidence: confidence } })?.incidentTimeConfidence, confidence);
+  }
 });
 
 Deno.test("actual persistence sends one existing result through scoped diagnostic wrapper; stale result is not success", async () => {
