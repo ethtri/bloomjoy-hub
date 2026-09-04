@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { invokeEdgeFunction, isEdgeFunctionError } from '@/lib/edgeFunctions';
 import { isLocalUatDemoForced } from '@/lib/refundOperations';
-import { correctionChoices, correctionFields, correctionLabels, isCorrectionToken, requiredCorrectionFields, updateCorrectionAnswer, validateCorrectionAnswers,
+import { correctionChoices, correctionFields, correctionLabels, correctionRefreshInterval, isCorrectionToken, requiredCorrectionFields, updateCorrectionAnswer, validateCorrectionAnswers,
   type CorrectionAnswer, type CorrectionAnswers, type CorrectionContext, type CorrectionField,
 } from '../../supabase/functions/_shared/refund-correction';
 
@@ -48,11 +48,7 @@ export default function RefundCorrectionPage() {
   const query = useQuery({
     queryKey: ['refund-correction', token],
     enabled: !demo && Boolean(token), retry: false, refetchOnWindowFocus: false,
-    refetchInterval: (current) => {
-      if (current.state.data?.state === 'unavailable') return false;
-      const saved = current.state.data?.state === 'received' ? current.state.data : received;
-      return saved?.nextAction === 'recheck' ? 5000 : false;
-    },
+    refetchInterval: (current) => correctionRefreshInterval(current.state.data, received, current.state.fetchFailureCount),
     queryFn: async () => {
       const response = await invokeEdgeFunction<{ correction: CorrectionContext }>('refund-case-intake', { action: 'inspectPurchaseCorrection', token }, { includeUserAuth: false });
       return response.correction;
