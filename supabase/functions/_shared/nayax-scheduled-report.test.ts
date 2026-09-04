@@ -12,10 +12,14 @@ import {
   reportTimestamp,
   requireNayaxReportDownloadUrl,
 } from "./nayax-scheduled-report.ts";
-import { ingestNayaxReportMail } from "./nayax-report-mail.ts";
+import {
+  ingestNayaxReportMail,
+  nayaxReportFailureCode,
+} from "./nayax-report-mail.ts";
 import {
   type GmailMessage,
   nayaxScheduledReportThreadQuery,
+  RefundGmailError,
 } from "./refund-gmail.ts";
 const fixture = await Deno.readFile(
   new URL("./fixtures/nayax-scheduled-first-delivery.csv", import.meta.url),
@@ -271,4 +275,234 @@ Deno.test("CSV attachments share normalization, sender failures and ambiguous li
       })
     );
   }
+});
+
+Deno.test("report diagnostics retain only fixed stage/code for download, parser and database failures", async () => {
+  const privateText = `${signed} customer@example.test bearer-secret-123`;
+  const cases = [
+    {
+      stage: "deduplicate",
+      failRpc: "service_get_nayax_report_message",
+      error: new Error(privateText),
+      code: "unknown",
+    },
+    { stage: "download", error: new Error(privateText), code: "unknown" },
+    {
+      stage: "download",
+      error: new Error("nayax_report_download_unavailable"),
+      code: "nayax_report_download_unavailable",
+    },
+    {
+      stage: "download",
+      error: new RefundGmailError("gmail_rate_limited", privateText),
+      code: "gmail_rate_limited",
+    },
+    {
+      stage: "download",
+      error: new RefundGmailError(privateText, "gmail_rate_limited"),
+      code: "unknown",
+    },
+    {
+      stage: "normalize",
+      invalidFile: true,
+      code: "nayax_report_contract_invalid",
+    },
+    {
+      stage: "record",
+      failRpc: "service_record_nayax_scheduled_report",
+      error: { message: privateText, code: "P0001" },
+      code: "unknown",
+    },
+  ];
+  for (const test of cases) {
+    let recordCalls = 0;
+    const error = await assertRejects(() =>
+      ingestNayaxReportMail({
+        message: message(),
+        mailbox: "info@bloomjoysweets.com",
+        getAttachment: async () => {
+          throw new Error(privateText);
+        },
+        download: async () => {
+          if (test.stage === "download") throw test.error;
+          return test.invalidFile
+            ? new TextEncoder().encode(privateText)
+            : fixture;
+        },
+        rpc: async (name) => {
+          if (name === "service_record_nayax_scheduled_report") recordCalls++;
+          if (name === test.failRpc) throw test.error;
+          return { recorded: false };
+        },
+      })
+    );
+    assert(error instanceof Error);
+    const safeCode = nayaxReportFailureCode(error);
+    assertEquals(safeCode, `nayax_report:${test.stage}:${test.code}`);
+    for (
+      const value of [
+        safeCode,
+        error.message,
+        error.stack ?? "",
+        JSON.stringify(error),
+      ]
+    ) {
+      assert(!value.includes(privateText));
+      assert(!value.includes("synthetic_reference"));
+      assert(!value.includes("customer@example.test"));
+      assert(!value.includes("bearer-secret-123"));
+    }
+    assertEquals(recordCalls, test.stage === "record" ? 1 : 0);
+  }
+  assertEquals(
+    nayaxReportFailureCode(new Error(privateText)),
+    "nayax_report:unknown",
+  );
+  assertEquals(
+    nayaxReportFailureCode({ message: "nayax_report:download:unknown" }),
+    "nayax_report:unknown",
+  );
+});
+Deno.test("report diagnostic codes identify validation stages without loosening sender or receipt guards", async () => {
+  for (
+    const stage of ["authenticate", "receipt_time", "select_file"] as const
+  ) {
+    const m = message();
+    if (stage === "authenticate") {
+      m.payload!.headers![3].value =
+        "attacker.test; dmarc=pass header.from=nayax.com";
+    }
+    if (stage === "receipt_time") delete m.internalDate;
+    if (stage === "select_file") delete m.payload!.body;
+    let downloadCalls = 0, recordCalls = 0;
+    const error = await assertRejects(() =>
+      ingestNayaxReportMail({
+        message: m,
+        mailbox: "info@bloomjoysweets.com",
+        getAttachment: async () => fixture,
+        download: async () => {
+          downloadCalls++;
+          return fixture;
+        },
+        rpc: async (name) => {
+          if (name === "service_record_nayax_scheduled_report") recordCalls++;
+          return { recorded: false };
+        },
+      })
+    );
+    assert(nayaxReportFailureCode(error).startsWith(`nayax_report:${stage}:`));
+    assertEquals([downloadCalls, recordCalls], [0, 0]);
+  }
+});
+Deno.test("a failed report leaves the next report eligible and an existing message immutable on replay", async () => {
+  const codes: string[] = [];
+  const stored = new Map<string, string>();
+  let downloads = 0;
+  const rpc = async (name: string, args: Record<string, unknown>) => {
+    const id = String(args.p_message_id);
+    if (name === "service_get_nayax_report_message") {
+      return { recorded: stored.has(id) };
+    }
+    stored.set(id, String(args.p_received_at));
+    return { recorded: true, duplicate: false };
+  };
+  for (const id of ["bad1", "aabb22"]) {
+    try {
+      await ingestNayaxReportMail({
+        message: { ...message(), id },
+        mailbox: "info@bloomjoysweets.com",
+        rpc,
+        getAttachment: async () => fixture,
+        download: async () => {
+          downloads++;
+          if (id === "bad1") throw new Error("private signed URL");
+          return fixture;
+        },
+      });
+    } catch (error) {
+      codes.push(nayaxReportFailureCode(error));
+    }
+  }
+  assertEquals(codes, ["nayax_report:download:unknown"]);
+  assertEquals(stored.size, 1);
+  const originalReceivedAt = stored.get("aabb22");
+  assertEquals(
+    await ingestNayaxReportMail({
+      message: { ...message(), id: "aabb22", internalDate: "0" },
+      mailbox: "info@bloomjoysweets.com",
+      rpc,
+      getAttachment: async () => {
+        throw new Error("must not fetch replay");
+      },
+      download: async () => {
+        throw new Error("must not download replay");
+      },
+    }),
+    { handled: true, duplicate: true },
+  );
+  assertEquals(downloads, 2);
+  assertEquals(stored.get("aabb22"), originalReceivedAt);
+});
+
+Deno.test("actual Gmail run error selection preserves delivery priorities above a safe report failure", async () => {
+  const source = await Deno.readTextFile(
+    new URL("../refund-gmail-sync/index.ts", import.meta.url),
+  );
+  const expression = source.match(
+    /const errorCode = (fatalError\?\.code[\s\S]*?);\s*await rpc\("service_finish_refund_gmail_sync"/,
+  )!;
+  assert(
+    expression,
+    "test executes the actual scheduler error selection expression",
+  );
+  const select = new Function(
+    "fatalError",
+    "succeeded",
+    "counters",
+    "firstContact",
+    "firstReportFailureCode",
+    `return ${expression[1]};`,
+  );
+  const safe = "nayax_report:download:unknown";
+  const base = {
+    outboundReconciliationOutstanding: 0,
+    firstContactReconciliationOutstanding: 0,
+    outboundReconciliationFailed: 0,
+    firstContactFailed: 0,
+  };
+  assertEquals(select(null, true, base, {}, safe), null);
+  assertEquals(
+    select(null, false, base, {}, null),
+    "gmail_message_processing_failed",
+  );
+  assertEquals(select(null, false, base, {}, safe), safe);
+  assertEquals(
+    select({ code: "authorization_revoked" }, false, base, {}, safe),
+    "authorization_revoked",
+  );
+  for (
+    const [field, expected] of [
+      [
+        "outboundReconciliationOutstanding",
+        "gmail_outbound_delivery_reconciliation_required",
+      ],
+      [
+        "firstContactReconciliationOutstanding",
+        "gmail_first_contact_reconciliation_required",
+      ],
+      ["outboundReconciliationFailed", "gmail_outbound_reconciliation_failed"],
+      ["firstContactFailed", "gmail_first_contact_processing_failed"],
+    ]
+  ) {
+    assertEquals(
+      select(null, false, { ...base, [field]: 1 }, {}, safe),
+      expected,
+    );
+  }
+  assertEquals(
+    select(null, false, { ...base, firstContactFailed: 1 }, {
+      errorCode: "existing_specific_delivery_failure",
+    }, safe),
+    "existing_specific_delivery_failure",
+  );
 });
