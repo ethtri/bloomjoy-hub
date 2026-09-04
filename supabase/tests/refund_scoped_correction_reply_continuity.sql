@@ -52,7 +52,7 @@ create function pg_temp.apply_reply(n integer) returns jsonb language sql as $$
     (select deterministic_fact_version from public.refund_cases where id=pg_temp.cid(n)),
     '{"payment_amount_cents":700,"refund_amount_cents":700}',array['amount'],'labeled_routine_facts_v1');
 $$;
-select pg_temp.make_scope(n) from generate_series(1,15) n;
+select pg_temp.make_scope(n) from generate_series(1,16) n;
 select is(pg_temp.apply_reply(1)->>'outcome','applied','Current scoped reply uses the original supported fact writer');
 select is((select status from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(1)),'submitted','Email settles the same current correction request');
 select is(public.service_get_refund_purchase_correction(lpad('1',64,'0'))->>'state','received','Old correction link shows received, not stale or a second task');
@@ -131,6 +131,9 @@ select is(pg_temp.apply_reply(15)->>'reason','scoped_reply_superseded','Headerle
 select ok((select payment_amount_cents is null from public.refund_cases where id=pg_temp.cid(15))
  and (select count(*)=0 from public.refund_customer_fact_applications where refund_case_id=pg_temp.cid(15)),'Revoked Resend gap preserves facts and application ledger');
 select is((select count(*)::integer from public.refund_case_messages where refund_case_id=pg_temp.cid(15) and status='pending'),1,'Existing replacement intent remains the single queued message');
+update public.refund_wallet_correction_contexts set status='revoked',revoked_at=now() where refund_case_id=pg_temp.cid(16);
+update public.refund_gmail_messages set sent_at=null where refund_case_id=pg_temp.cid(16) and direction='outbound';
+select is(pg_temp.apply_reply(16)->>'reason','scoped_reply_superseded','Historical sent Gmail record retains received-at fallback and cannot reopen revoked scope');
 select is((select count(*)::integer from public.refund_customer_fact_applications where refund_case_id=any(array[pg_temp.cid(2),pg_temp.cid(3),pg_temp.cid(4),pg_temp.cid(5),pg_temp.cid(6),pg_temp.cid(7),pg_temp.cid(9),pg_temp.cid(10),pg_temp.cid(12),pg_temp.cid(13)])),0,'Rejected replies produce no fact application');
 select ok(not has_function_privilege('anon','public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)','execute')
  and not has_function_privilege('authenticated','public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)','execute'),'Existing service-only boundary remains');

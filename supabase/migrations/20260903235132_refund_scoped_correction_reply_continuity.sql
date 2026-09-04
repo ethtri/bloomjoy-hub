@@ -42,7 +42,8 @@ begin
       and sent_request.status='sent' and sent_request.sent_at is not null
       and (exists(select 1 from public.refund_gmail_messages outbound
         where outbound.refund_case_message_id=sent_request.id and outbound.refund_case_id=c.id
-          and outbound.direction='outbound' and outbound.status='sent' and outbound.sent_at is not null)
+          and outbound.direction='outbound' and outbound.message_kind='message' and outbound.status='sent'
+          and coalesce(outbound.sent_at,outbound.received_at) is not null)
         or (sent_request.delivery_transport='resend' and nullif(btrim(sent_request.provider_message_id),'') is not null
           and sent_request.delivery_state_updated_at is not null))) then
     return jsonb_build_object('outcome','conflict','reason','scoped_reply_superseded','factVersion',c.deterministic_fact_version);
