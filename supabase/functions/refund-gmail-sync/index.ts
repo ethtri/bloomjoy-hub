@@ -26,7 +26,7 @@ import {
   verifyRefundGmailMailbox,
 } from "../_shared/refund-gmail.ts";
 import { ingestRefundGmailThreadBeforeFirstContact } from "../_shared/refund-gmail-orchestration.ts";
-import { ingestNayaxReportMail, isNayaxScheduledReportMessage } from "../_shared/nayax-report-mail.ts";
+import { ingestNayaxReportMail, isNayaxScheduledReportMessage, nayaxReportFailureCode } from "../_shared/nayax-report-mail.ts";
 import {
   extractLabeledRefundEmailFacts,
   type RefundMachineFactCandidate,
@@ -2039,6 +2039,7 @@ serve(async (request) => {
   if (!runId) {
     return jsonResponse({ error: "Refund Gmail sync claim was invalid." }, 500);
   }
+  let firstReportFailureCode: string | null = null;
   const counters = {
     threadsScanned: 0,
     messagesSeen: 0,
@@ -2223,7 +2224,8 @@ serve(async (request) => {
                     getAttachment: async (id, attachmentId) => (await getRefundGmailAttachment(config, id, attachmentId)).bytes });
                   if (report.duplicate) counters.messagesDeduplicated += 1;
                   else counters.messagesCreated += 1;
-                } catch {
+                } catch (error) {
+                  firstReportFailureCode ??= nayaxReportFailureCode(error);
                   // One expired/invalid report must not starve newer reports or
                   // unrelated customer messages in the same Gmail conversation.
                   counters.messagesFailed += 1;
@@ -2502,7 +2504,7 @@ serve(async (request) => {
       ? "gmail_outbound_reconciliation_failed"
       : counters.firstContactFailed > 0
       ? firstContact.errorCode ?? "gmail_first_contact_processing_failed"
-      : "gmail_message_processing_failed");
+      : firstReportFailureCode ?? "gmail_message_processing_failed");
   await rpc("service_finish_refund_gmail_sync", {
     p_run_id: runId,
     p_status: succeeded ? "succeeded" : "failed",
