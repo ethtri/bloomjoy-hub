@@ -5909,7 +5909,7 @@ export default function AdminRefundsPage() {
           )}
 
           {refundOperationsAccess && !forceDemoData && selectedCase.paymentMethod === 'card' && !selectedCase.decision && (
-            <RefundOwnerNonrefundResolution key={selectedCase.id} caseId={selectedCase.id}
+            <RefundOwnerNonrefundResolution key={`owner-nonrefund-${selectedCase.id}`} caseId={selectedCase.id}
               onSaved={() => void queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] })} />
           )}
 
