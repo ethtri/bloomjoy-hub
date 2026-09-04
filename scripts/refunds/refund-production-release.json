@@ -143,7 +143,8 @@
     "20260904150215_refund_delivery_secondary_to_payment_progress.sql",
     "20260904154300_refund_lookup_diagnostics.sql",
     "20260904163551_refund_verified_provider_clock.sql",
-    "20260904172349_nayax_report_original_refund_site_binding.sql"
+    "20260904172349_nayax_report_original_refund_site_binding.sql",
+    "20260904182000_refund_owner_nonrefund_adoption.sql"
   ],
   "migrationFilesSha256": "d82dfb072b3b670f286ac5fe38a7267d0a143b4e99057fc7e346b356e9614209",
   "migrationVersionSetSha256": "0a143f05f8941821db8370916a1df0a95ab6f547dc34540f89bd833285451065",
