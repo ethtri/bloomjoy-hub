@@ -90,6 +90,10 @@ set case_population = 'internal_test',
   refund_completed_at = null
 where id = 'd9140000-0000-4000-8000-000000000002';
 
+create temporary table delivery_case_before as
+select public.refund_lifecycle_contract('d9140000-0000-4000-8000-000000000001') as contract;
+grant select on delivery_case_before to authenticated;
+
 select ok(
   has_function_privilege('service_role', 'public.service_mark_refund_transactional_delivery_attempt(uuid)', 'execute')
   and has_function_privilege('service_role', 'public.service_bind_refund_transactional_delivery(uuid,text,timestamptz)', 'execute')
@@ -209,11 +213,12 @@ select ok(
       and item -> 'customerDeliveryException' ->> 'nextAction' = 'review_delivery_no_resend'
       and (item -> 'customerDeliveryException' ->> 'customerMessageReplayAllowed')::boolean is false
       and (item -> 'customerDeliveryException' ->> 'paymentReplayAllowed')::boolean is false
-      and item -> 'lifecycle' -> 'managerQueue' ->> 'bucket' = 'needs_action'
-      and item -> 'lifecycle' ->> 'managerNextAction' = 'review_delivery_no_resend'
+      and item -> 'lifecycle' ->> 'stage' = (select contract ->> 'stage' from delivery_case_before)
+      and item -> 'lifecycle' ->> 'paymentState' = (select contract ->> 'paymentState' from delivery_case_before)
+      and item -> 'lifecycle' ->> 'managerNextAction' = (select contract ->> 'managerNextAction' from delivery_case_before)
    from jsonb_array_elements(public.admin_get_refund_operations_overview() -> 'cases') item
    where item ->> 'id' = 'd9140000-0000-4000-8000-000000000001'),
-  'Queue, case detail, and next action share the no-replay delivery contract'
+  'Case detail retains no-replay delivery review without replacing unpaid canonical progress'
 );
 select pg_temp.set_auth_claims('d9100000-0000-4000-8000-000000000002');
 select is(
