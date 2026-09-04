@@ -59,6 +59,22 @@ select is(public.service_get_refund_purchase_correction(repeat('e',64))->>'state
 select ok((pg_temp.revise(array['card_last4'])->>'replayed')::boolean,'Same intent replays without another queued message');
 select is((select count(*)::integer from public.refund_purchase_correction_revisions),1,'Only one replacement binding exists');
 select throws_like($$select public.service_issue_refund_wallet_correction('de000000-0000-4000-8000-000000000005',repeat('a',64),statement_timestamp()+interval '48 hours')$$,'%owns customer follow-up%','Legacy wallet issuer cannot race queued manager replacement');
+-- The exception rolls back this whole probe: real claim/finish functions run,
+-- while the primary happy-path fixture remains unchanged afterward.
+create function pg_temp.reservation_failure_probe(p_attempted boolean) returns text language plpgsql as $$
+declare claim record; next_message jsonb;
+begin
+ select * into claim from public.service_claim_refund_manual_message_deliveries((select(value->>'messageId')::uuid from revision_result),1);
+ if p_attempted then perform public.service_mark_refund_manual_message_provider_attempt(claim.refund_case_message_id,claim.claim_token); end if;
+ perform public.service_finish_refund_manual_message_delivery(claim.refund_case_message_id,claim.claim_token,
+   case when p_attempted then 'delivery_unknown' else 'failed' end,null,'fixture_delivery_failure',0,'none');
+ next_message:=public.service_enqueue_refund_manual_message_intent('de000000-0000-4000-8000-000000000005',(select case_version from revision_identity),gen_random_uuid(),'de000000-0000-4000-8000-000000000001',
+   'more_info','scope-customer@example.invalid','Fresh reviewed correction','[Secure refund correction link included at delivery]','refund_more_info_editable_v1','manager_authored','missing_information',array['card_last4'],null,false,null);
+ perform public.service_issue_refund_purchase_correction((next_message->>'messageId')::uuid,repeat('c',64),(select deterministic_fact_version from public.refund_cases where id='de000000-0000-4000-8000-000000000005'));
+ raise exception 'fresh_scope_allowed';
+exception when others then return sqlerrm; end; $$;
+select is(pg_temp.reservation_failure_probe(false),'fresh_scope_allowed','Proven pretransport failed replacement releases reservation for a newly reviewed message');
+select is(pg_temp.reservation_failure_probe(true),'A manager replacement owns the next correction scope','Provider-attempted unknown replacement keeps reservation and cannot create a new scope');
 select lives_ok($$select public.service_issue_refund_purchase_correction((select(value->>'messageId')::uuid from revision_result),repeat('b',64),(select deterministic_fact_version from public.refund_cases where id='de000000-0000-4000-8000-000000000005'))$$,'Replacement obtains existing second-contact scope');
 create temp table replacement_claim as select * from public.service_claim_refund_manual_message_deliveries((select(value->>'messageId')::uuid from revision_result),1);
 select is((select count(*)::integer from replacement_claim),1,'Existing outbox can claim replacement');
@@ -71,5 +87,7 @@ select ok((pg_temp.revise(array['card_last4'])->>'replayed')::boolean,'Exact ori
 select throws_like($$select pg_temp.revise(array['amount','card_last4'])$$,'%already bound%','Changed payload cannot replay existing revision intent');
 select * from finish();
 rollback;
+
+
 
 

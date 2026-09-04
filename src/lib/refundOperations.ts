@@ -1519,6 +1519,7 @@ export type SendRefundCaseMessageInput =
       expectedCaseVersion: number;
       messageIntentId: string;
       currentCorrectionRequestId?: string;
+      inspectRevisionOnly?: boolean;
       messageType: RefundCustomerPortalMessageType;
       subject?: string;
       body?: string;

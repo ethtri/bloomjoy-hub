@@ -69,3 +69,9 @@ test('actual revision replay reaches immutable intent after fields change withou
  assert.equal((await h.request({currentCorrectionRequestId:'33333333-3333-4333-8333-333333333333'})).status,200);
  assert.equal(h.enqueues.length,1);assert.equal(h.enqueues[0].p_subject,'Original subject');assert.equal(h.delivered(),0);
 });
+test('inspection of queued revision never drains, and absent intent cannot create a request',async()=>{
+ const previous={id:intentId,recipient_email:'fixture@example.invalid',subject:'Original',body:'Original',status:'pending',manual_delivery_state:'queued'};
+ const pending=harness({fields:[],previous});assert.equal((await pending.request({currentCorrectionRequestId:'33333333-3333-4333-8333-333333333333',inspectRevisionOnly:true})).status,409);assert.equal(pending.delivered(),0);
+ const absent=harness();const response=await absent.request({currentCorrectionRequestId:'33333333-3333-4333-8333-333333333333',inspectRevisionOnly:true});
+ assert.equal(response.status,409);assert.equal((await response.json()).errorCode,'revision_intent_not_found');assert.equal(absent.enqueues.length,0);assert.equal(absent.delivered(),0);
+});

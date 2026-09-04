@@ -101,6 +101,9 @@ begin
   if exists(select 1 from public.refund_purchase_correction_revisions revision
     join public.refund_case_messages replacement on replacement.id=revision.replacement_message_id
     where replacement.refund_case_id=c.id and replacement.id<>m.id
+      and not (replacement.status='failed' and replacement.sent_at is null and replacement.provider_message_id is null
+        and replacement.manual_delivery_provider_attempted_at is null and replacement.delivery_transport is null
+        and not exists(select 1 from public.refund_gmail_messages g where g.refund_case_message_id=replacement.id))
       and not exists(select 1 from public.refund_wallet_correction_contexts issued where issued.correction_message_id=replacement.id)) then
     raise exception 'A manager replacement owns the next correction scope'; end if;
   return public.service_issue_refund_purchase_correction_pre_revision(p_message_id,p_token_hash,p_expected_fact_version);
@@ -117,7 +120,10 @@ begin
   perform 1 from public.refund_cases where id=p_refund_case_id for update;
   if exists(select 1 from public.refund_purchase_correction_revisions revision
     join public.refund_case_messages replacement on replacement.id=revision.replacement_message_id
-    where replacement.refund_case_id=p_refund_case_id) then
+    where replacement.refund_case_id=p_refund_case_id
+      and not (replacement.status='failed' and replacement.sent_at is null and replacement.provider_message_id is null
+        and replacement.manual_delivery_provider_attempted_at is null and replacement.delivery_transport is null
+        and not exists(select 1 from public.refund_gmail_messages g where g.refund_case_message_id=replacement.id))) then
     raise exception 'Manager correction owns customer follow-up'; end if;
   return public.service_issue_refund_wallet_correction_pre_revision(p_refund_case_id,p_token_hash,p_expires_at);
 end;

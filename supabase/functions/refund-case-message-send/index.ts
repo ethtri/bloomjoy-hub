@@ -590,6 +590,9 @@ serve(async (req) => {
     }
     const messageIntentId = sanitizeText(body?.messageIntentId, 80);
     const currentCorrectionRequestId = sanitizeText(body?.currentCorrectionRequestId, 80);
+    if (body?.inspectRevisionOnly !== undefined && (body.inspectRevisionOnly !== true || !currentCorrectionRequestId)) {
+      return jsonResponse({error:"Choose an existing revision to inspect."},400);
+    }
     if (body?.currentCorrectionRequestId !== undefined && (!isUuid(currentCorrectionRequestId) || messageType !== "more_info")) {
       return jsonResponse({ error: "Choose the current correction request to revise." }, 400);
     }
@@ -632,7 +635,7 @@ serve(async (req) => {
         if (previous.status === "sent" && previous.manual_delivery_state === "sent") return jsonResponse({message:{
           id:previous.id,type:"more_info",status:"sent",subject:previous.subject,transport:previous.delivery_transport,
         }});
-        const results = ["queued","claimed"].includes(previous.manual_delivery_state)
+        const results = body?.inspectRevisionOnly !== true && ["queued","claimed"].includes(previous.manual_delivery_state)
           ? await drainRefundManualMessageOutbox({supabase,messageId:previous.id,limit:1}) : [];
         if (results[0]?.outcome === "sent") return jsonResponse({message:{
           id:previous.id,type:"more_info",status:"sent",subject:previous.subject,transport:results[0].transport,
@@ -640,6 +643,7 @@ serve(async (req) => {
         return jsonResponse({error:"The existing revision delivery needs review; no new request was created.",
           errorCode:previous.manual_delivery_state === "delivery_unknown" ? "customer_email_delivery_unknown" : "customer_email_delivery_pending"},409);
       }
+      if (body?.inspectRevisionOnly === true) return jsonResponse({error:"No existing revision delivery was found. Review the current request before sending.",errorCode:"revision_intent_not_found"},409);
     }
     let triageSuggestion: RefundGptTriageRow | null = null;
     if (triageSuggestionId) {
