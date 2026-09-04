@@ -10,9 +10,9 @@ insert into public.customer_accounts(id,name,account_type)
 values ('fa420000-0000-4000-8000-000000000001','Approved lookup fixture','internal');
 insert into public.reporting_locations(id,account_id,name,timezone)
 values ('fa430000-0000-4000-8000-000000000001','fa420000-0000-4000-8000-000000000001','Lookup fixture','America/New_York');
-insert into public.reporting_machines(id,account_id,location_id,machine_label,status,nayax_machine_id,nayax_account_key)
+insert into public.reporting_machines(id,account_id,location_id,machine_label,status,nayax_machine_id,nayax_account_key,nayax_refunds_enabled)
 values ('fa440000-0000-4000-8000-000000000001','fa420000-0000-4000-8000-000000000001',
-  'fa430000-0000-4000-8000-000000000001','Lookup fixture','active','APPROVED-LOOKUP-MACHINE','APPROVED-LOOKUP-ACCOUNT');
+  'fa430000-0000-4000-8000-000000000001','Lookup fixture','active','APPROVED-LOOKUP-MACHINE','APPROVED-LOOKUP-ACCOUNT',true);
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
 values ('fa440000-0000-4000-8000-000000000001','fa410000-0000-4000-8000-000000000001','lookup-manager@example.invalid','Lookup fixture');
 
@@ -33,7 +33,7 @@ select pg_temp.case_id(n),'RF-APPROVED-LOOKUP-'||n,'fa440000-0000-4000-8000-0000
   case when n=7 then 'EXISTING-ORIGINAL-0007' else null end,
   case when n=6 then pg_temp.case_id(1) else null end,
   case when n=11 then now()-interval '1 hour' else null end
-from generate_series(1,11) n;
+from generate_series(1,18) n;
 
 -- Active triggers remain enabled. These retained historical records distinguish
 -- an unattempted approved case from a payment whose outcome requires inspection.
@@ -100,6 +100,72 @@ select is((select count(*)::integer from public.refund_case_events where refund_
   and event_type='nayax_lookup_started'),1,'Rejected and duplicate begins create no additional dispatch record');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts where refund_case_id=pg_temp.case_id(1)),0,'Lookup creates no payment attempt');
 select is((select count(*)::integer from public.refund_case_messages where refund_case_id=pg_temp.case_id(1)),0,'Lookup sends and queues no customer message');
+
+-- Actual current candidate writer and selection wrapper, including a legitimate
+-- partial refund. A fresh purchase binding must not discard ordinary approval.
+create function pg_temp.prepare_candidate(n integer, original_amount integer) returns uuid language plpgsql as $$
+declare token_id uuid:=gen_random_uuid(); generation bigint;
+begin
+  generation := (pg_temp.begin_lookup(n)->>'lookupGeneration')::bigint;
+  insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+    provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+  values(token_id,pg_temp.case_id(n),generation,'fa410000-0000-4000-8000-000000000001','fa440000-0000-4000-8000-000000000001',
+    (823456780+n)::text,6,now()-interval '2 days',original_amount,'4242','USD',
+    '{"selection_allowed":true,"is_recommended":true,"one_click_eligible":true,"recommendation_state":"high_confidence","policy_version":"2026-08-26.v5","lookup_account_scope":"APPROVED_LOOKUP_ACCOUNT","lookup_provider_machine_id":"APPROVED-LOOKUP-MACHINE","provider_machine_id":"APPROVED-LOOKUP-MACHINE","machine_authorization_time_raw":"2026-09-02T10:10:00","machine_authorization_time_source":"MachineAuthorizationTime"}',now()+interval '1 hour');
+  perform public.service_commit_refund_nayax_lookup(pg_temp.case_id(n),generation,1,'match_found','high_confidence',
+    '2026-08-26.v5',now(),'Synthetic exact candidate',null,1,'manual','fa410000-0000-4000-8000-000000000001');
+  return token_id;
+end;
+$$;
+create temp table selection_tokens as select 12 n,pg_temp.prepare_candidate(12,963) token
+  union all select 13,pg_temp.prepare_candidate(13,1200)
+  union all select 14,pg_temp.prepare_candidate(14,800);
+create temp table selection_approvals_before as select id,decision,decision_reason,decided_by,decided_at,refund_amount_cents
+  from public.refund_cases where id in (pg_temp.case_id(12),pg_temp.case_id(13));
+grant select on selection_tokens to service_role;
+create function pg_temp.select_candidate(p_n integer) returns jsonb language sql as $$
+  select public.service_select_refund_nayax_candidate_as_actor('fa410000-0000-4000-8000-000000000001',c.id,
+    c.official_action_version,t.token,null)
+  from public.refund_cases c join selection_tokens t on t.n=p_n where c.id=pg_temp.case_id(p_n);
+$$;
+set local role service_role;
+select is(pg_temp.select_candidate(12)->>'selectionApplied','true','Exact original selection preserves existing full approval');
+select is(pg_temp.select_candidate(13)->>'selectionApplied','true','A larger original supports the already approved partial refund');
+select is(pg_temp.select_candidate(13)->>'selectionApplied','false','Exact selection replay creates no second confirmation');
+select throws_ok($$select pg_temp.select_candidate(14)$$,'P4604',null,'A smaller original cannot silently change or exceed the approved amount');
+reset role;
+select ok(not exists(select 1 from selection_approvals_before b join public.refund_cases c using(id)
+  where row(c.decision,c.decision_reason,c.decided_by,c.decided_at,c.refund_amount_cents)
+  is distinct from row(b.decision,b.decision_reason,b.decided_by,b.decided_at,b.refund_amount_cents)),
+  'Exact selection keeps approved decision, reason, actor, date and full or partial amount');
+select is(public.refund_case_nayax_manager_readiness('fa410000-0000-4000-8000-000000000001',pg_temp.case_id(12))->>'canIssueCardRefund',
+  'true','Selected approved purchase reaches the existing manager refund path without reapproval');
+
+-- Decisions/outcomes can progress while a provider read is in flight without
+-- changing deterministic matching facts. Their authority wins over late reads.
+select pg_temp.begin_lookup(n) from generate_series(15,18) n;
+update public.refund_cases set decision='denied',status='denied' where id=pg_temp.case_id(15);
+insert into public.refund_authoritative_receipts(refund_case_id,reporting_machine_id,account_scope,provider_machine_id,
+  original_transaction_id,original_amount_cents,refunded_amount_cents,currency_code,provider_status,
+  evidence_reference_digest,recorded_by,attempt_binding_kind,current_provider_observation_reviewed)
+values(pg_temp.case_id(16),'fa440000-0000-4000-8000-000000000001','APPROVED-LOOKUP-ACCOUNT','APPROVED-LOOKUP-MACHINE',
+  'RECEIPT-ORIGINAL-0016',963,963,'USD',62,repeat('b',64),'fa410000-0000-4000-8000-000000000001','no_attempt_integrity_hold',true);
+insert into public.refund_case_nayax_refund_attempts(refund_case_id,execution_mode,status,idempotency_key,amount_cents,
+  provider_outcome,provider_outcome_recorded_at,reconciliation_required)
+values(pg_temp.case_id(17),'preflight','manual_review','approved-lookup-late-unknown',963,'unknown',now(),true);
+update public.refund_cases set card_last4='1234' where id=pg_temp.case_id(18);
+create temp table late_cases_before as select id,to_jsonb(c) snapshot from public.refund_cases c
+  where id in (pg_temp.case_id(15),pg_temp.case_id(16),pg_temp.case_id(17),pg_temp.case_id(18));
+set local role service_role;
+select is(pg_temp.commit_lookup(15,1)->>'stale','true','A late read cannot reopen a subsequently denied case');
+select is(pg_temp.commit_lookup(16,1)->>'stale','true','A receipt arriving during lookup prevents any late read mutation');
+select is(pg_temp.commit_lookup(17,1)->>'stale','true','An uncertain attempt arriving during lookup keeps its reconciliation ownership');
+select is(pg_temp.commit_lookup(18,1)->>'stale','true','New matching facts reject a late approved lookup result');
+reset role;
+select ok(not exists(select 1 from late_cases_before b join public.refund_cases c using(id) where b.snapshot is distinct from to_jsonb(c)),
+  'Late rejected results preserve all current decision, payment and matching state');
+select is((select count(*)::integer from public.refund_case_nayax_refund_attempts where refund_case_id in(pg_temp.case_id(12),pg_temp.case_id(13))),0,
+  'Successful full and partial selection still performs no payment');
 
 select * from finish();
 rollback;
