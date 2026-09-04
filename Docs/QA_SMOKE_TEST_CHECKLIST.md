@@ -4,7 +4,8 @@
   run `playwright-cli run-code --filename scripts/refunds/refund-correction-recovery-browser.mjs`
   after opening `http://127.0.0.1:8095/refunds/correct`. Verify 390px/1440px loading,
   validation focus, network retry without lost answers, stale/unavailable links,
-  already-saved response, recheck versus human-review copy, and Spanish location
+  already-saved response, automatic read-only recheck-to-review progress (within
+  15 seconds, no second submit, polling stops), and Spanish location
   changes with existing date/local-time confirmation or uncertainty. This fixture
   intercepts every backend request; it does not prove real delivery or response latency.
 

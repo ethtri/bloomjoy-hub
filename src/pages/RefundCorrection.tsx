@@ -47,7 +47,12 @@ export default function RefundCorrectionPage() {
   const errorRef = useRef<HTMLDivElement>(null);
   const query = useQuery({
     queryKey: ['refund-correction', token],
-    enabled: !demo && Boolean(token), retry: false,
+    enabled: !demo && Boolean(token), retry: false, refetchOnWindowFocus: false,
+    refetchInterval: (current) => {
+      if (current.state.data?.state === 'unavailable') return false;
+      const saved = current.state.data?.state === 'received' ? current.state.data : received;
+      return saved?.nextAction === 'recheck' ? 5000 : false;
+    },
     queryFn: async () => {
       const response = await invokeEdgeFunction<{ correction: CorrectionContext }>('refund-case-intake', { action: 'inspectPurchaseCorrection', token }, { includeUserAuth: false });
       return response.correction;
@@ -78,9 +83,10 @@ export default function RefundCorrectionPage() {
   const effective = (field: CorrectionField) => answers[field]?.disposition === 'changed' ? answers[field]?.value : values[field];
   const wallet = effective('payment_interaction') === 'phone_watch_wallet';
   const cash = effective('payment_method') === 'cash';
-  const locationChanged = answers.location_or_machine?.disposition === 'changed' && Boolean(answers.location_or_machine.value);
+  const locationChanged = answers.location_or_machine?.disposition === 'changed' && Boolean(answers.location_or_machine.value) && answers.location_or_machine.value !== values.location_or_machine;
   const requested = context ? requiredCorrectionFields(answers, context) : [];
-  const savedContext = received ?? (context?.state === 'received' ? context : null);
+  const savedContext = context?.state === 'received' ? { ...context, locale: context.locale ?? received?.locale }
+    : received && context?.state === 'unavailable' ? { ...received, nextAction: undefined } : received;
   const openingUnavailable = isEdgeFunctionError(query.error) && query.error.data?.errorCode === 'correction_unavailable';
   const openingFailed = !context && !openingUnavailable && (query.isError || query.fetchStatus === 'paused');
   const payoutDestination = requested.length === 1 && requested[0] === 'zelle_payment_contact';
