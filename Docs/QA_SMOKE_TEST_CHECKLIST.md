@@ -1,5 +1,12 @@
 # QA Smoke Test Checklist
 
+- Saved approval and transaction-review guidance (#992): on a synthetic card case,
+  open an unchanged approved `needs_review` state. Verify the saved amount and
+  recorded reason appear without a false final-decision warning; edited decisions
+  retain validation. With ten disabled candidates, expect **Internal review needed**
+  and an internal next step. With one selectable candidate, retain normal review
+  and **Confirm transaction** after selection. Check 390px/1440px without submitting.
+
 - Correction explanation (#1113): with synthetic scoped fields, compare the short
   reason in the manager's canonical preview, captured email, and `/refunds/correct`.
   Check English/Spanish at 390px/1440px for purchase, payment, combined, and approved

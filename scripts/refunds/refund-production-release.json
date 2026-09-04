@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "a6252493d29a313c6f9372acecc92a0758881ff6",
+  "sourceGitCommit": "f73e5a08b35c68697f956036138ad78b63665cdb",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -210,9 +210,9 @@
       "verifyJwt": false,
       "sourceSha256": "80587ca4461c777c48bd98773f4860898e908e23857567c0ab939f966c4ea6c9",
       "production": {
-        "version": 111,
-        "ezbrSha256": "15eb91c1cf1eb9f145b508e07dd082499e99def06b0553b5bc978c064542b21a",
-        "sourceSha256": "dd57b35f0fda1791cec9c6ff68513b741ba3cbdf8f72aba825cb29bba1f67618",
+        "version": 112,
+        "ezbrSha256": "dd283950c1ef08a4d89436d6be0c9a11238c9404b512f76f15e9006f13040acc",
+        "sourceSha256": "80587ca4461c777c48bd98773f4860898e908e23857567c0ab939f966c4ea6c9",
         "entrypointIdentity": "supabase/functions/refund-case-intake/index.ts"
       }
     },
@@ -221,9 +221,9 @@
       "verifyJwt": false,
       "sourceSha256": "fe820dab3fd949318c9395121ce07ab559b27161335bd41ce08fbc813c80a4eb",
       "production": {
-        "version": 103,
-        "ezbrSha256": "95255d314a9772fec5e8f886f4c89a664487fa6767852a75b35b7e9a3c7e646c",
-        "sourceSha256": "ff35b776ae17c8994b1ce4c928229202af0df6493985b0311699ed7e2dce54e5",
+        "version": 104,
+        "ezbrSha256": "725e5e9f979605654aa465d2d8e60bf98dbe79fb7785072736d3016c4ef8e576",
+        "sourceSha256": "fe820dab3fd949318c9395121ce07ab559b27161335bd41ce08fbc813c80a4eb",
         "entrypointIdentity": "supabase/functions/nayax-transaction-lookup/index.ts"
       }
     },
@@ -254,9 +254,9 @@
       "verifyJwt": false,
       "sourceSha256": "27b4eab9a81a9635f54287a01df7400a0bf2c9e6f68386e81438e1c8bc7d4082",
       "production": {
-        "version": 113,
-        "ezbrSha256": "9a27c06876b7e7d7a26d2b6caf9e91c4b2da0625ab5790e9beaf16108a084c9d",
-        "sourceSha256": "59c25bf78d179798f32429ab5b6c5e265f81132e805403518584a6ed956d3137",
+        "version": 114,
+        "ezbrSha256": "c20c62dc05aa4360834d96065fb24f6dfcae8c174b44444f3088db6a7ddbbaef",
+        "sourceSha256": "27b4eab9a81a9635f54287a01df7400a0bf2c9e6f68386e81438e1c8bc7d4082",
         "entrypointIdentity": "supabase/functions/refund-case-automation-sweep/index.ts"
       }
     },
@@ -265,9 +265,9 @@
       "verifyJwt": false,
       "sourceSha256": "aa3baaa88236f2a92dc2e6231747f7fd36871f7789b4377d7a62642b110d0eef",
       "production": {
-        "version": 110,
-        "ezbrSha256": "2adc87578eebcfdd8c72a02f79afd8dd44eeb8636f7df2d099aaa526e500f65e",
-        "sourceSha256": "8fcd5c6dc60dfc6d17d35ddb000a92ad83687982b81280a34552ecae11164185",
+        "version": 111,
+        "ezbrSha256": "d47119072e5892470dc491118f5bbbda9ad574841a7673bb965f5d95627bba82",
+        "sourceSha256": "aa3baaa88236f2a92dc2e6231747f7fd36871f7789b4377d7a62642b110d0eef",
         "entrypointIdentity": "supabase/functions/refund-gmail-sync/index.ts"
       }
     },
