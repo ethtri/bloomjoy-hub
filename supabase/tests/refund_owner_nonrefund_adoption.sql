@@ -59,7 +59,11 @@ select is(pg_temp.change_and_adopt($$update public.admin_roles set active=false 
 select is(pg_temp.change_and_adopt($$update public.reporting_machine_refund_managers set status='revoked',revoked_at=now(),revoke_reason='Synthetic' where manager_user_id=auth.uid()$$,1),'42501','Revoked mapping rejected');
 select is(pg_temp.change_and_adopt($$update auth.users set email_confirmed_at=null where id=auth.uid()$$,1),'42501','Unverified mailbox rejected');
 select is(pg_temp.change_and_adopt($$update public.refund_cases set decision='approved' where id='ef400000-0000-4000-8000-000000000001'$$,1),'P4671','Existing approval cannot be overwritten');
-select is(pg_temp.change_and_adopt($$update public.refund_cases set case_population='internal_test' where id='ef400000-0000-4000-8000-000000000001'$$,1),'P4671','Internal test is outside adoption scope');
+select is(pg_temp.change_and_adopt($$update public.refund_cases set case_population='internal_test',
+  internal_test_reason='provider_test',internal_test_classified_at=statement_timestamp(),internal_test_classified_by=auth.uid(),
+  status='closed',automation_state='closed_incomplete',automation_follow_up_due_at=null,decision=null,decided_by=null,decided_at=null,
+  reporting_adjustment_id=null,refund_completed_by=null,refund_completed_at=null
+  where id='ef400000-0000-4000-8000-000000000001'$$,1),'P4671','A valid internal-test classification is outside adoption scope');
 create temporary table before_facts as select c.id,jsonb_build_array(c.customer_email,c.payment_method,c.payment_amount_cents,
  c.card_last4,c.incident_at,c.reporting_machine_id,c.reporting_location_id,c.deterministic_fact_version,
  c.refund_amount_cents,c.matched_nayax_transaction_id,c.refund_completed_at,c.reporting_adjustment_id) value
