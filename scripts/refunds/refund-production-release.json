@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "24909ccf1a17585fc67e1a767a075ab09ece11e9",
+  "sourceGitCommit": "6b9ee2a817261dc889e8abc74db62b80c1f63d3a",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -142,8 +142,8 @@
     "20260904144509_refund_approved_unpaid_lookup_continuation.sql",
     "20260904150215_refund_delivery_secondary_to_payment_progress.sql"
   ],
-  "migrationFilesSha256": "8fc1067cf767b08f4fe217d93b24f332ad648e9508746819d77f7bf0260f44e6",
-  "migrationVersionSetSha256": "931225d9b51a79fa188fbdf2b80f6dde0441148bef882e12daf0e59b22d6458c",
+  "migrationFilesSha256": "56f4d72264aaeaa4b88e72b36ca6ce34dab176d2f63df3ca11b2a3546b7f17c5",
+  "migrationVersionSetSha256": "ec92c8e8300bac249c86fa6698dc4e54c17ad36d07f0a0feba4413b8f85da116",
   "preMigrationCompatibility": {
     "releaseId": "refund-ops-2026-08-14-pre-controlled-nayax-pilot",
     "sourceGitCommit": "71eb076bc3ad95ccabd0c591b8140820bed6c393",
