@@ -33,9 +33,9 @@ begin
       'originalTransactionId',case when n=1 and lane='b' then '730000001' else (739999990+n)::text end,
       'siteId','6','actorId','2001508696','providerMachineId','630000001','currencyCode','USD',
       'authorizationAmountCents',-1090,'settlementAmountCents',-1090,'paidAmountCents',-1090,'providerStatus',null,'providerStatusName',null);
-    rows:=rows||jsonb_build_array(row_data||jsonb_build_object('observationDigest',encode(digest(row_data::text,'sha256'),'hex')));
+    rows:=rows||jsonb_build_array(row_data||jsonb_build_object('observationDigest',encode(extensions.digest(row_data::text,'sha256'),'hex')));
   end loop;
-  return jsonb_build_object('fileDigest',encode(digest(rows::text,'sha256'),'hex'),'byteCount',1000,'rowCount',2,
+  return jsonb_build_object('fileDigest',encode(extensions.digest(rows::text,'sha256'),'hex'),'byteCount',1000,'rowCount',2,
     'actorCounts',jsonb_build_object('2001508696',2),'terminalEvidenceProven',false,'reportingPeriod',null,'settlementTimePrecision','unknown','observations',rows);
 end; $$;
 create function report_site_race.run(lane text) returns jsonb language plpgsql as $$
