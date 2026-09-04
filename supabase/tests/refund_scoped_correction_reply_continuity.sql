@@ -22,7 +22,7 @@ begin
     incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_network,status,correlation_status,intake_source)
   values(cid,'df000000-0000-4000-8000-000000000003','df000000-0000-4000-8000-000000000002','reply-customer@example.invalid','Scoped reply test',
     now()-interval '2 hours',to_char((now()-interval '2 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
-    'America/Los_Angeles','exact','exact','card','tap_card',null,case when n=8 then null else '1234' end,case when n=8 then null else 'physical_card' end,'visa','needs_review','manual_review','form');
+    'America/Los_Angeles','exact','exact','card','tap_card',null,case when n in (8,15) then null else '1234' end,case when n in (8,15) then null else 'physical_card' end,'visa','needs_review','manual_review','form');
   cycle:=public.service_claim_refund_follow_up_cycle(cid,'missing_information','refund_follow_up_v2',md5(n::text)||md5(n::text),null);
   if not coalesce((cycle->>'claimed')::boolean,false) then raise exception 'Fixture cycle rejected: %',cycle; end if;
   fields:=public.refund_missing_follow_up_fields(cid);
@@ -32,10 +32,15 @@ begin
   perform public.service_issue_refund_purchase_correction(mid,lpad(to_hex(n),64,'0'),(select deterministic_fact_version from public.refund_cases where id=cid));
   insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,first_message_at,latest_message_at,retention_expires_at)
   values(tid,cid,repeat('f',64),'scoped-reply-thread-'||n,'Scoped reply test',now(),now(),now()+interval '30 days');
+  if n=15 then
+    perform public.service_mark_refund_transactional_delivery_attempt(mid);
+    perform public.service_bind_refund_transactional_delivery(mid,'scoped-resend-request-'||n,statement_timestamp());
+  else
   insert into public.refund_gmail_messages(gmail_thread_id,refund_case_id,refund_case_message_id,provider_message_id,provider_message_header,
     direction,message_kind,status,sender_email,recipient_email,subject,plain_body,received_at,sent_at,retention_expires_at)
   values(tid,cid,mid,'scoped-request-'||n,'<scoped-request-'||n||'@example.invalid>','outbound','message','sent',
     'info@bloomjoysweets.com','reply-customer@example.invalid','Update your request','Scoped request',now(),now(),now()+interval '30 days');
+  end if;
   update public.refund_case_messages set status='sent',sent_at=now() where id=mid;
   insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,provider_message_id,references_header,direction,message_kind,status,
     sender_email,recipient_email,participant_role,participant_trust,subject,plain_body,received_at,retention_expires_at)
@@ -47,7 +52,7 @@ create function pg_temp.apply_reply(n integer) returns jsonb language sql as $$
     (select deterministic_fact_version from public.refund_cases where id=pg_temp.cid(n)),
     '{"payment_amount_cents":700,"refund_amount_cents":700}',array['amount'],'labeled_routine_facts_v1');
 $$;
-select pg_temp.make_scope(n) from generate_series(1,14) n;
+select pg_temp.make_scope(n) from generate_series(1,15) n;
 select is(pg_temp.apply_reply(1)->>'outcome','applied','Current scoped reply uses the original supported fact writer');
 select is((select status from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(1)),'submitted','Email settles the same current correction request');
 select is(public.service_get_refund_purchase_correction(lpad('1',64,'0'))->>'state','received','Old correction link shows received, not stale or a second task');
@@ -112,6 +117,20 @@ select is(pg_temp.apply_reply(13)->>'outcome','conflict','Missing request header
 update public.refund_wallet_correction_contexts set status='revoked',revoked_at=now() where refund_case_id=pg_temp.cid(14);
 select is(pg_temp.apply_reply(14)->>'reason','scoped_reply_superseded','Revoked request reply cannot slip into legacy facts before replacement capability is issued');
 select is((select payment_amount_cents from public.refund_cases where id=pg_temp.cid(14)),null::integer,'Superseded queued-replacement gap preserves original facts');
+-- Reproduce the cross-transport replacement gap through real outbox enqueue.
+-- The manager revision migration runs later; its atomic revoke/enqueue state
+-- must be safe even before a new capability exists, without a Gmail send row.
+update public.refund_wallet_correction_contexts set status='revoked',revoked_at=now() where refund_case_id=pg_temp.cid(15);
+select public.service_enqueue_refund_manual_message_intent(pg_temp.cid(15),(select official_action_version from public.refund_cases where id=pg_temp.cid(15)),
+  gen_random_uuid(),'df000000-0000-4000-8000-000000000004','more_info','reply-customer@example.invalid','Revised amount request',
+  '[Secure refund correction link included at delivery]','refund_more_info_editable_v1','manager_authored','missing_information',array['amount'],null,false,null);
+update public.refund_gmail_messages set references_header=null,
+  subject=(select public_reference from public.refund_cases where id=pg_temp.cid(15)) where id=pg_temp.gid(15);
+select is((select count(*)::integer from public.refund_gmail_messages where refund_case_id=pg_temp.cid(15) and direction='outbound'),0,'Resend fixture has no Gmail outbound header to bind');
+select is(pg_temp.apply_reply(15)->>'reason','scoped_reply_superseded','Headerless old Resend reply cannot enter legacy facts while replacement is queued');
+select ok((select payment_amount_cents is null from public.refund_cases where id=pg_temp.cid(15))
+ and (select count(*)=0 from public.refund_customer_fact_applications where refund_case_id=pg_temp.cid(15)),'Revoked Resend gap preserves facts and application ledger');
+select is((select count(*)::integer from public.refund_case_messages where refund_case_id=pg_temp.cid(15) and status='pending'),1,'Existing replacement intent remains the single queued message');
 select is((select count(*)::integer from public.refund_customer_fact_applications where refund_case_id=any(array[pg_temp.cid(2),pg_temp.cid(3),pg_temp.cid(4),pg_temp.cid(5),pg_temp.cid(6),pg_temp.cid(7),pg_temp.cid(9),pg_temp.cid(10),pg_temp.cid(12),pg_temp.cid(13)])),0,'Rejected replies produce no fact application');
 select ok(not has_function_privilege('anon','public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)','execute')
  and not has_function_privilege('authenticated','public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)','execute'),'Existing service-only boundary remains');
