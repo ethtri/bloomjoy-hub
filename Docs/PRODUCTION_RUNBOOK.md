@@ -90,8 +90,8 @@ Set the following values before launch.
 | `NAYAX_LOOKUP_WINDOW_HOURS` | Server-only | `nayax-transaction-lookup`, `refund-case-automation-sweep` | Default `6`; conservative card lookup window around reported incident time | Release owner |
 | `REFUND_NAYAX_CANDIDATE_TTL_HOURS` | Server-only | `nayax-transaction-lookup`, `refund-case-automation-sweep` | Default `24`; tokenized evidence review window | Release owner |
 | `REFUND_REPLY_TO_EMAIL` | Server-only | Refund customer email functions | Default `info@bloomjoysweets.com`; customer replies during pilot | Release owner |
-| `NAYAX_REFUND_EXECUTION_ENABLED` | Server-only | `nayax-card-refund` | `true` for the qualified operating lane after the automated preflight; `false` during deploy or rollback | Release owner |
-| `NAYAX_REFUND_EXECUTION_DRY_RUN` | Server-only | `nayax-card-refund` | `false` for the qualified operating lane; `true` during deployment validation | Release owner |
+| `NAYAX_REFUND_EXECUTION_ENABLED` | Server-only | `nayax-card-refund` | Preserve `true` for normal qualified operations through compatible deployments; disable only for a demonstrated release incompatibility, incident or rollback | Release owner |
+| `NAYAX_REFUND_EXECUTION_DRY_RUN` | Server-only | `nayax-card-refund` | Preserve `false` for normal qualified operations through compatible deployments; use `true` only for explicitly isolated validation or a justified incident/release pause | Release owner |
 | `NAYAX_REFUND_EXECUTION_KILL_SWITCH` | Server-only | `nayax-card-refund` | `false` during healthy operation; set `true` first for rollback or a systemic stop condition | Release owner |
 | `NAYAX_REFUND_IDEMPOTENCY_SECRET` | Server-only | `nayax-card-refund` | Generated HMAC secret for execution idempotency | Technical owner |
 | `NAYAX_REFUND_EXECUTOR_ASSERTION` | Server-only | `nayax-card-refund` | Separate generated function identity; only its SHA-256 digest is registered in the database during an approved gate-on change | Technical owner |
