@@ -5488,9 +5488,10 @@ export default function AdminRefundsPage() {
           </div>
 
           {hasUnchangedSavedApproval(selectedCase, editor) && hasUnpaidRefundReview(selectedCase) && (
-            <p data-testid="refund-existing-approval" className="border-b border-border px-4 py-3 text-sm text-muted-foreground">
-              Refund approved for {formatCurrency(selectedCase.refundAmountCents)}. No new approval is needed.
-            </p>
+            <div data-testid="refund-existing-approval" className="border-b border-border px-4 py-3 text-sm text-muted-foreground">
+              <p>Existing approval: {formatCurrency(selectedCase.refundAmountCents)}</p>
+              {selectedCase.decisionReason?.trim() && <p className="mt-1">Recorded reason: {selectedCase.decisionReason}</p>}
+            </div>
           )}
 
           {selectedCase.lifecycle && (
