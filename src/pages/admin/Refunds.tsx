@@ -1,4 +1,4 @@
-import { createRefundReadPolling, refundOverviewPollingInterval } from '@/lib/refundReadPolling';
+import { createRefundReadPolling, refundOverviewPollingInterval, refundAvailabilityIsTerminal } from '@/lib/refundReadPolling';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { collectCorrectionResponseNotices, type CorrectionNoticeState } from '@/lib/refundCorrectionContinuity';
 import {
@@ -2468,7 +2468,7 @@ export default function AdminRefundsPage() {
     refetchOnWindowFocus: true,
   });
 
-  const availabilityCaseIsTerminal = liveOverview.cases.find((row) => row.id === selectedId)?.lifecycle?.terminal === true;
+  const availabilityCaseIsTerminal = refundAvailabilityIsTerminal(liveOverview, selectedId);
 
   const {
     data: nayaxCardRefundAvailability,

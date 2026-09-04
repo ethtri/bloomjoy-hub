@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import ts from 'typescript';
 const source=fs.readFileSync(new URL('../../src/lib/refundReadPolling.ts',import.meta.url),'utf8');
 const compiled=ts.transpile(source,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022});
-const {createRefundReadPolling,refundOverviewPollingInterval}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const {createRefundReadPolling,refundOverviewPollingInterval,refundAvailabilityIsTerminal}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 // QueryObserver only schedules browser intervals when a window exists at import.
 globalThis.window={};
 const {QueryClient,QueryObserver,focusManager,onlineManager}=await import('@tanstack/query-core');
@@ -55,4 +55,13 @@ test('overview cadence recovers missing reads without declaring terminal and res
  assert.equal(refundOverviewPollingInterval([{lifecycle:{terminal:true,refreshAfterSeconds:5}}]),false);
  assert.equal(refundOverviewPollingInterval([{lifecycle:{terminal:false,refreshAfterSeconds:5}}]),5000);
  assert.equal(refundOverviewPollingInterval([{lifecycle:{terminal:false,refreshAfterSeconds:60}}]),15000);
+});
+
+test('terminal availability includes only the same authorized internal-case scope as the workbench',()=>{
+ const overview={cases:[{id:'ordinary',lifecycle:{terminal:true}}],internalTestCases:[{id:'archived',lifecycle:{terminal:true}}],refundOperationsAccess:true};
+ assert.equal(refundAvailabilityIsTerminal(overview,'ordinary'),true);
+ assert.equal(refundAvailabilityIsTerminal(overview,'archived'),true);
+ assert.equal(refundAvailabilityIsTerminal({...overview,refundOperationsAccess:false},'archived'),false);
+ assert.equal(refundAvailabilityIsTerminal(overview,'unknown'),false);
+ assert.equal(refundAvailabilityIsTerminal({...overview,cases:[{id:'ordinary',lifecycle:{terminal:false}}]},'ordinary'),false);
 });

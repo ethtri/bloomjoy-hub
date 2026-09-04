@@ -22,3 +22,11 @@ export const refundOverviewPollingInterval = (cases: Array<{lifecycle?: {termina
     .map((lifecycle) => Math.min(15_000, Math.max(1_000, lifecycle!.refreshAfterSeconds! * 1_000)));
   return active.length ? Math.min(...active) : false;
 };
+
+export const refundAvailabilityIsTerminal = (
+  overview: {cases: Array<{id: string; lifecycle?: {terminal: boolean} | null}>;
+    internalTestCases?: Array<{id: string; lifecycle?: {terminal: boolean} | null}>;
+    refundOperationsAccess?: boolean},
+  selectedId: string | null,
+) => [...overview.cases, ...(overview.refundOperationsAccess === true ? overview.internalTestCases ?? [] : [])]
+  .find((row) => row.id === selectedId)?.lifecycle?.terminal === true;
