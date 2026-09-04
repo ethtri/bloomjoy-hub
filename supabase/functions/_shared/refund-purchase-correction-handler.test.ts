@@ -1,5 +1,57 @@
 import { handlePurchaseCorrection, recheckSavedPurchaseCorrection } from './refund-purchase-correction-handler.ts';
+import { hashCorrectionToken } from './refund-correction.ts';
+import { createRefundStatusToken, hashRefundStatusValue } from './refund-status-capability.ts';
 const assert = (value:unknown) => { if (!value) throw new Error('Assertion failed'); };
+
+Deno.test('actual public handler rejects guessed case IDs before reading or writing any case', async () => {
+  for (const action of ['inspectPurchaseCorrection','submitPurchaseCorrection']) {
+    let calls=0;
+    const client={rpc:()=>{calls++;throw new Error('Case ID must be rejected before RPC');}};
+    const response=await handlePurchaseCorrection({action,token:'a'.repeat(43),caseId:'dd000000-0000-4000-8001-000000000099',
+      ...(action==='submitPurchaseCorrection'?{version:1,answers:{amount:{disposition:'changed',value:'7.00'}}}:{})},client as never);
+    const body=await response.json();
+    assert(response.status===409 && body.errorCode==='correction_unavailable' && calls===0);
+  }
+});
+
+Deno.test('actual public handler cannot target case B with case A capability in body or answers', async () => {
+  const token='a'.repeat(43); const digest=await hashCorrectionToken(token);
+  const caseB='dd000000-0000-4000-8001-000000000002';
+  for (const target of ['caseId','refundCaseId','answers']) {
+    let reads=0;let writes=0;
+    const client={rpc:async(name:string,args:Record<string,unknown>)=>{
+      if(name!=='service_get_refund_purchase_correction'){writes++;throw new Error('Cross-case write');}
+      reads++;assert(args.p_token_hash===digest && Object.keys(args).length===1);
+      return {data:{state:'ready',publicReference:'RF-CASE-A',version:1,requestedFields:['amount'],allowedFields:['amount'],values:{}},error:null};
+    }};
+    const answers={amount:{disposition:'changed',value:'7.00'},...(target==='answers'?{caseId:caseB}:{})};
+    const response=await handlePurchaseCorrection({action:'submitPurchaseCorrection',token,version:1,answers,
+      ...(target!=='answers'?{[target]:caseB}:{})},client as never);
+    const body=await response.json();
+    assert(response.status===(target==='answers'?400:409) && writes===0 && reads===(target==='answers'?1:0));
+    assert(body.errorCode===(target==='answers'?'correction_invalid_answers':'correction_unavailable'));
+    assert(!JSON.stringify(body).includes('RF-CASE-A') && !JSON.stringify(body).includes(caseB));
+  }
+});
+
+Deno.test('actual public handler hashes a real status token in the correction domain and rejects it without a write', async () => {
+  const statusToken=createRefundStatusToken();
+  const statusDigest=await hashRefundStatusValue(statusToken);
+  const correctionDigest=await hashCorrectionToken(statusToken);
+  assert(statusDigest!==correctionDigest);
+  // This fixture represents a valid status capability but no purchase scope for it.
+  // The database fixture independently proves the same boundary with an issued record.
+  const statusCapabilities=new Set([statusDigest]);let reads=0;let writes=0;
+  const client={rpc:async(name:string,args:Record<string,unknown>)=>{
+    if(name!=='service_get_refund_purchase_correction'){writes++;throw new Error('Status token cannot submit');}
+    reads++;assert(args.p_token_hash===correctionDigest && !statusCapabilities.has(String(args.p_token_hash)));
+    return {data:{state:'unavailable'},error:null};
+  }};
+  const inspected=await handlePurchaseCorrection({action:'inspectPurchaseCorrection',token:statusToken},client as never);
+  assert((await inspected.json()).correction.state==='unavailable');
+  const submitted=await handlePurchaseCorrection({action:'submitPurchaseCorrection',token:statusToken,version:1,answers:{amount:{disposition:'changed',value:'7.00'}}},client as never);
+  assert(submitted.status===409 && (await submitted.json()).errorCode==='correction_unavailable' && reads===2 && writes===0);
+});
 Deno.test('saved response records lookup failure truthfully rather than success', async () => {
   let written:Record<string,unknown>|undefined;
   const query={eq(){return this;},then(resolve:(v:unknown)=>unknown){return Promise.resolve({error:null}).then(resolve);}};

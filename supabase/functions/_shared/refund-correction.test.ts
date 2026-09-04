@@ -1,4 +1,5 @@
 import { correctionRefreshInterval, hashCorrectionToken, updateCorrectionAnswer, validateCorrectionAnswers, type CorrectionAnswers, type CorrectionContext } from './refund-correction.ts';
+import { hashRefundStatusValue } from './refund-status-capability.ts';
 const context: CorrectionContext = { state: 'ready', requestedFields: ['card_last4'], allowedFields: ['card_last4','amount','incident_date','incident_time','payment_method','payment_interaction'], values: { card_last4: '1234' } };
 const assert = (value: unknown) => { if (!value) throw new Error('Assertion failed'); };
 const rejects = (input: unknown, ctx = context) => { let threw = false; try { validateCorrectionAnswers(input,ctx); } catch { threw = true; } assert(threw); };
@@ -29,7 +30,8 @@ Deno.test('purchase correction tokens have a distinct domain from wallet/status 
   const digest = await hashCorrectionToken(token);
   const raw = await crypto.subtle.digest('SHA-256',new TextEncoder().encode(`refund-wallet-correction:${token}`));
   const legacyDigest = Array.from(new Uint8Array(raw),(byte)=>byte.toString(16).padStart(2,'0')).join('');
-  assert(digest.length === 64 && digest !== legacyDigest && digest === await hashCorrectionToken(token));
+  const statusDigest = await hashRefundStatusValue(token);
+  assert(digest.length === 64 && digest !== legacyDigest && digest !== statusDigest && digest === await hashCorrectionToken(token));
 });
 
 Deno.test('changed time has explicit confidence even when the clock value stays the same', () => {
