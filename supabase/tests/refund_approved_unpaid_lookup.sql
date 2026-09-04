@@ -161,6 +161,14 @@ select is(pg_temp.commit_lookup(15,1)->>'stale','true','A late read cannot reope
 select is(pg_temp.commit_lookup(16,1)->>'stale','true','A receipt arriving during lookup prevents any late read mutation');
 select is(pg_temp.commit_lookup(17,1)->>'stale','true','An uncertain attempt arriving during lookup keeps its reconciliation ownership');
 select is(pg_temp.commit_lookup(18,1)->>'stale','true','New matching facts reject a late approved lookup result');
+select is(public.service_fail_refund_nayax_lookup(pg_temp.case_id(15),1,1,'timeout',true,'manual','fa410000-0000-4000-8000-000000000001')->>'stale',
+  'true','A late timeout cannot reopen a subsequently denied case');
+select is(public.service_fail_refund_nayax_lookup(pg_temp.case_id(16),1,1,'timeout',true,'manual','fa410000-0000-4000-8000-000000000001')->>'stale',
+  'true','A late timeout cannot mutate a case with a new authoritative receipt');
+select is(public.service_fail_refund_nayax_lookup(pg_temp.case_id(17),1,1,'timeout',true,'manual','fa410000-0000-4000-8000-000000000001')->>'stale',
+  'true','A late timeout cannot mutate a case with a new uncertain attempt');
+select is(public.service_fail_refund_nayax_lookup(pg_temp.case_id(18),1,1,'timeout',true,'manual','fa410000-0000-4000-8000-000000000001')->>'stale',
+  'true','A late timeout cannot overwrite newer matching facts');
 reset role;
 select ok(not exists(select 1 from late_cases_before b join public.refund_cases c using(id) where b.snapshot is distinct from to_jsonb(c)),
   'Late rejected results preserve all current decision, payment and matching state');

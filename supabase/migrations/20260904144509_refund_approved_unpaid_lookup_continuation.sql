@@ -101,8 +101,9 @@ revoke all on function public.service_select_refund_nayax_candidate_as_actor_pre
 do $migration$
 declare
   definition text;
-  anchor text := '  select count(*)::integer into actual_candidate_count';
-  replacement text := $replacement$  if case_row.status not in ('submitted', 'needs_review', 'correlated', 'approved')
+  anchor text;
+  target jsonb;
+  guard text := $replacement$  if case_row.status not in ('submitted', 'needs_review', 'correlated', 'approved')
     or case_row.decision = 'denied'
     or case_row.nayax_refund_execution_status <> 'not_requested'
     or case_row.refund_completed_at is not null
@@ -114,15 +115,21 @@ declare
     return jsonb_build_object('applied', false, 'stale', true, 'payloadRedacted', true);
   end if;
 
-  select count(*)::integer into actual_candidate_count$replacement$;
+$replacement$;
 begin
-  definition := replace(pg_catalog.pg_get_functiondef(
-    'public.service_commit_refund_nayax_lookup(uuid,bigint,bigint,text,text,text,timestamptz,text,uuid,integer,text,uuid)'::regprocedure
-  ), E'\r\n', E'\n');
-  replacement := replace(replacement, E'\r\n', E'\n');
-  if length(definition) - length(replace(definition, anchor, '')) <> length(anchor) then
-    raise exception 'Exact lookup commit safety anchor is required';
-  end if;
-  execute replace(definition, anchor, replacement);
+  guard := replace(guard, E'\r\n', E'\n');
+  for target in select value from jsonb_array_elements(jsonb_build_array(
+    jsonb_build_array('public.service_commit_refund_nayax_lookup(uuid,bigint,bigint,text,text,text,timestamptz,text,uuid,integer,text,uuid)',
+      '  select count(*)::integer into actual_candidate_count'),
+    jsonb_build_array('public.service_fail_refund_nayax_lookup_pre_scope_recovery_v1(uuid,bigint,bigint,text,boolean,text,uuid)',
+      '  result_status := case')
+  )) loop
+    definition := replace(pg_catalog.pg_get_functiondef((target->>0)::regprocedure), E'\r\n', E'\n');
+    anchor := target->>1;
+    if length(definition) - length(replace(definition, anchor, '')) <> length(anchor) then
+      raise exception 'Exact lookup result safety anchor is required';
+    end if;
+    execute replace(definition, anchor, guard || anchor);
+  end loop;
 end;
 $migration$;
