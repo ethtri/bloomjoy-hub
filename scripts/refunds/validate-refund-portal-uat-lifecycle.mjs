@@ -207,7 +207,7 @@ assert.doesNotMatch(
 );
 assert.match(
   refundsSource,
-  /const selectedCaseStillExists = filteredCases\.some\([\s\S]*?setSelectedId\(null\)/
+  /const selectedCaseStillExists = \[\.\.\.overview\.cases, \.\.\.internalTestCases\]\.some\([\s\S]*?setSelectedId\(null\)/
 );
 assert.match(
   refundsSource,
