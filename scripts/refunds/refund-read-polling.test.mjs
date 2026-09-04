@@ -10,8 +10,41 @@ globalThis.window={};
 const {QueryClient,QueryObserver,focusManager,onlineManager}=await import('@tanstack/query-core');
 const flush=async()=>{for(let i=0;i<20;i++)await Promise.resolve();};
 
+// Node20's experimental MockTimers can resurrect an interval cleared/replaced
+// inside its own callback. Use browser-style cancellation for the real observer.
+const installClock=(t)=>{
+ let now=1000;let nextId=1;const timers=new Map();
+ const schedule=(callback,delay,repeat,args)=>{
+  const id=nextId++;const interval=Math.max(1,Number(delay)||0);
+  timers.set(id,{callback,args,due:now+interval,repeat:repeat?interval:0});return id;
+ };
+ t.mock.method(Date,'now',()=>now);
+ t.mock.method(globalThis,'setTimeout',(callback,delay,...args)=>schedule(callback,delay,false,args));
+ t.mock.method(globalThis,'setInterval',(callback,delay,...args)=>schedule(callback,delay,true,args));
+ t.mock.method(globalThis,'clearTimeout',(id)=>timers.delete(id));
+ t.mock.method(globalThis,'clearInterval',(id)=>timers.delete(id));
+ return {async tick(ms){
+  const target=now+ms;let steps=0;
+  for(;;){
+   const next=[...timers].filter(([,timer])=>timer.due<=target).sort((a,b)=>a[1].due-b[1].due||a[0]-b[0])[0];
+   if(!next)break;
+   assert.ok(++steps<10000,'Clock must not loop indefinitely');
+   const [id,timer]=next;now=timer.due;
+   if(timer.repeat)timer.due+=timer.repeat;else timers.delete(id);
+   timer.callback(...timer.args);await flush();
+  }
+  now=target;await flush();
+ }};
+};
+
+test('test clock cancels an interval replaced inside its callback',async(t)=>{
+ const clock=installClock(t);let calls=0;
+ let id=setInterval(()=>{calls++;clearInterval(id);id=setInterval(()=>calls++,5000);},5000);
+ await clock.tick(5000);clearInterval(id);await clock.tick(60000);assert.equal(calls,1);
+});
+
 test('real QueryObserver backs off across failed polls, preserves cached truth, recovers and stops at terminal',async(t)=>{
- t.mock.timers.enable({apis:['setTimeout','setInterval','Date'],now:1000});
+ const clock=installClock(t);
  focusManager.setFocused(true);onlineManager.setOnline(true);
  const client=new QueryClient();client.mount();
  const polling=createRefundReadPolling();let fail=false;let terminal=false;const at=[];
@@ -21,19 +54,19 @@ test('real QueryObserver backs off across failed polls, preserves cached truth, 
  const observer=new QueryObserver(client,options());const unsubscribe=observer.subscribe(()=>{});
  try{
   await flush();assert.deepEqual(at,[1000]);fail=true;
-  for(const ms of [5000,10000,20000,40000,60000]){t.mock.timers.tick(ms);await flush();}
+  for(const ms of [5000,10000,20000,40000,60000])await clock.tick(ms);
   assert.deepEqual(at,[1000,6000,16000,36000,76000,136000]);
   assert.deepEqual(observer.getCurrentResult().data,{available:false,case:'a'});
-  fail=false;t.mock.timers.tick(60000);await flush();t.mock.timers.tick(5000);await flush();
+  fail=false;await clock.tick(60000);await clock.tick(5000);
   assert.deepEqual(at.slice(-2),[196000,201000]);
-  terminal=true;observer.setOptions(options());t.mock.timers.tick(60000);await flush();assert.equal(at.length,8);
+  terminal=true;observer.setOptions(options());await clock.tick(60000);assert.equal(at.length,8);
   await observer.refetch();await flush();assert.equal(at.length,9,'Explicit refresh remains available after terminal');
-  terminal=false;observer.setOptions(options());t.mock.timers.tick(5000);await flush();assert.equal(at.at(-1),266000);
-  onlineManager.setOnline(false);t.mock.timers.tick(5000);await flush();assert.equal(at.length,10);
+  terminal=false;observer.setOptions(options());await clock.tick(5000);assert.equal(at.at(-1),266000);
+  onlineManager.setOnline(false);await clock.tick(5000);assert.equal(at.length,10);
   onlineManager.setOnline(true);await flush();assert.equal(at.length,11);
-  focusManager.setFocused(false);t.mock.timers.tick(60000);await flush();assert.equal(at.length,11);
+  focusManager.setFocused(false);await clock.tick(60000);assert.equal(at.length,11);
   focusManager.setFocused(true);await flush();assert.equal(at.length,12);
- }finally{unsubscribe();client.unmount();client.clear();focusManager.setFocused(undefined);onlineManager.setOnline(true);t.mock.timers.reset();}
+ }finally{unsubscribe();client.unmount();client.clear();focusManager.setFocused(undefined);onlineManager.setOnline(true);}
 });
 
 test('real observer case switch isolates a late old failure and resets the new read cadence',async()=>{
