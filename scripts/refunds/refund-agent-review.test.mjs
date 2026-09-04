@@ -132,6 +132,19 @@ test('receipt amount and currency must match the selected purchase before refund
   assert.deepEqual(pickAction(p), { action: 'reconcile_approval_and_purchase_evidence', blocked: true });
 });
 
+test('reconciliation block and actor-scoped queue action dominate lower-level refund action', async () => {
+  const c = row(1);
+  c.lifecycle.managerAction.action = 'refund';
+  c.lifecycle.managerQueue = { ...c.lifecycle.managerQueue, bucket: 'needs_action', nextAction: 'resolve_duplicate_review' };
+  const f = fixture([c]);
+  f.responses.admin_get_refund_case_reconciliation = { caseId: id(1), actionBlocked: true, reviews: [] };
+  const p = await packet(f);
+  assert.deepEqual(pickAction(p), { action: 'resolve_duplicate_review', blocked: true });
+  assert.equal(p.reconciliation.actionBlocked, true);
+  assert.equal(p.lifecycle.managerAction.action, 'refund');
+  assert.equal(p.lifecycle.managerQueue.nextAction, 'resolve_duplicate_review');
+});
+
 test('case-evidence identity mismatch fails; wrong account mapping is explicit', async () => {
   const f = fixture();
   f.responses.admin_get_refund_authoritative_receipt_overview = { visible: true, caseId: id(2) };
@@ -166,6 +179,7 @@ test('required reconciliation and Gmail failures stop review; only receipt priva
 test('pending without attempt remains unknown and never implies a new approval/payment', async () => {
   const c = row(1); c.lifecycle = lifecycle('integrity_hold'); c.lifecycle.paymentState = 'integrity_unknown';
   c.lifecycle.managerAction.action = 'reconcile_lifecycle_integrity'; c.lifecycle.operations.required = true;
+  c.lifecycle.managerQueue = { ...c.lifecycle.managerQueue, bucket: 'integrity_hold', nextAction: 'reconcile_lifecycle_integrity' };
   const p = await packet(fixture([c]));
   assert.equal(p.nextAction.action, 'reconcile_lifecycle_integrity'); assert.equal(p.approval.decision, 'approved');
   assert(p.unsupported.includes('all_attempt_generations')); assert.equal(p.receipt.reason, 'not_visible_or_applicable');
@@ -229,6 +243,7 @@ test('waiting requires actual sent question and usable current request; internal
 test('previously adopted completion stays paid, with unknown accounting date separate', async () => {
   const c = row(1); c.lifecycle = lifecycle('customer_notified'); c.lifecycle.paymentState = 'confirmed';
   c.lifecycle.managerAction.action = 'none';
+  c.lifecycle.managerQueue = { ...c.lifecycle.managerQueue, bucket: 'completed', nextAction: 'none' };
   const f = fixture([c]); f.responses.admin_get_refund_authoritative_receipt_overview = {
     visible: true, caseId: id(1), accountScope: 'TEST_ACCOUNT', providerMachineId: '123456', originalTransactionId: c.selectedNayaxTransaction.transactionId,
     originalAmountCents: 963, currencyCode: 'USD',
@@ -244,6 +259,7 @@ test('previously adopted completion stays paid, with unknown accounting date sep
 test('confirmed payment models customer notice as false or unknown and keeps closeout incomplete', async () => {
   const c = row(1); c.lifecycle = lifecycle('customer_notified'); c.lifecycle.paymentState = 'confirmed';
   c.lifecycle.managerAction.action = 'none'; c.lifecycle.terminal = true;
+  c.lifecycle.managerQueue = { ...c.lifecycle.managerQueue, bucket: 'completed', nextAction: 'none' };
   const unknownFixture = fixture([c]);
   unknownFixture.responses.admin_get_refund_authoritative_receipt_overview = new ReviewError('read_not_authorized');
   const unknown = await packet(unknownFixture);

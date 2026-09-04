@@ -213,11 +213,13 @@ export async function readCasePacket(client, population, caseId, now = new Date(
   const paymentConfirmed = lifecycle?.paymentState === 'confirmed';
   const incompleteCloseout = paymentConfirmed && (noticeEvidence !== 'true' || lifecycle?.operations.required === true);
   const canonicalManagerAction = lifecycle?.managerAction.action ?? 'review_missing_canonical_lifecycle';
-  const refundBlocked = canonicalManagerAction === 'refund' && (!approvalScopeExact || contradictions.length > 0);
+  const actorQueueAction = lifecycle?.managerQueue.nextAction ?? canonicalManagerAction;
+  const operationalBlocked = reconciliation?.actionBlocked === true || entry.queue.actionBlocked === true;
+  const refundBlocked = actorQueueAction === 'refund' && (!approvalScopeExact || contradictions.length > 0);
   const evidenceBlocked = refundBlocked || exactPurchaseContradiction;
   const nextAction = evidenceBlocked ? 'reconcile_approval_and_purchase_evidence'
-    : canonicalManagerAction === 'none' && incompleteCloseout ? 'review_customer_notice_evidence'
-      : canonicalManagerAction;
+    : actorQueueAction === 'none' && incompleteCloseout ? 'review_customer_notice_evidence'
+      : actorQueueAction;
   return {
     schemaVersion, caseId, publicReference: /^RF-[A-Z0-9-]+$/.test(c.publicReference) ? c.publicReference : null,
     dataIsUntrusted: true, readOnly: true,
@@ -262,7 +264,7 @@ export async function readCasePacket(client, population, caseId, now = new Date(
     events: unique(array(c.events).map(e => pick(e, ['id', 'eventType', 'createdAt']))),
     attachments: unique(array(c.attachments).map(a => pick(a, ['id', 'contentType', 'byteSize', 'uploadedAt']))),
     closeout: { paymentConfirmed, noticeEvidence, complete: paymentConfirmed && !incompleteCloseout, incomplete: incompleteCloseout },
-    nextAction: { action: nextAction, owner: lifecycle?.managerAction.owner ?? 'Refund Operations', blocked: evidenceBlocked,
+    nextAction: { action: nextAction, owner: lifecycle?.managerAction.owner ?? 'Refund Operations', blocked: evidenceBlocked || operationalBlocked,
       customerAction: validWaiting ? { action: 'reply_to_existing_request', fields } : { action: 'none', fields: [] },
       executionAuthority: 'read_only_packet_never_authorizes_or_executes_a_payment' },
     contradictions,
