@@ -20,12 +20,13 @@ test('actual persisted-result sweep routes an empty no-match internally without 
     for (const key of ['select', 'eq', 'in', 'limit', 'update']) chain[key] = (...args) => { calls.push([table, key, ...args]); return chain; };
     return chain;
   };
-  const run = new Function('supabase', 'normalizeRefundSweepCase', 'getPersistedNayaxCorrectionEvidence', 'deriveNayaxCustomerCorrectionFields', 'routeFollowUpManualReview', 'claimAction', 'claimFollowUpCycle', 'sendDeterministicFollowUpMessage', `
+  const run = new Function('supabase', 'normalizeRefundSweepCase', 'getPersistedNayaxCorrectionEvidence', 'deriveNayaxCustomerCorrectionFields', 'routeProviderException', 'routeFollowUpManualReview', 'claimAction', 'claimFollowUpCycle', 'sendDeterministicFollowUpMessage', `
     const caseSelect = 'fixture-columns';
     ${functionSource('runPersistedNayaxCustomerCorrectionSweep', 'runWalletCorrectionExpirySweep')}
     return runPersistedNayaxCustomerCorrectionSweep;
   `)(
     { from: query }, (value) => value, async () => [], () => [],
+    async () => { throw new Error('configured no-match must not route a provider setup notice'); },
     async (input) => { calls.push(['internal-review', input.actionKeySuffix]); },
     async () => { throw new Error('must not claim a customer action'); },
     async () => { throw new Error('must not create a follow-up cycle'); },
@@ -34,6 +35,70 @@ test('actual persisted-result sweep routes an empty no-match internally without 
   await run('run-fixture', {}, 'window-fixture');
   assert(calls.some(([table, op, value]) => table === 'refund_follow_up_cycles' && op === 'update' && value.status === 'manual_review'));
   assert.deepEqual(calls.filter(([kind]) => kind === 'internal-review'), [['internal-review', 'no-customer-correction:v1']]);
+});
+
+test('a persisted setup-needed result reuses the provider exception route instead of sending a generic manager notice', async () => {
+  const calls = [];
+  const fixture = {
+    id: 'case-fixture', payment_method: 'card', card_wallet_used: false,
+    status: 'needs_review', correlation_status: 'nayax_not_configured',
+    nayax_recommendation_state: 'manual_exception', deterministic_fact_version: 7,
+  };
+  const query = (table) => {
+    const chain = { then: (resolve) => resolve({ data: table === 'refund_cases' ? [fixture] : null, error: null }) };
+    for (const key of ['select', 'eq', 'in', 'limit', 'update']) chain[key] = (...args) => { calls.push([table, key, ...args]); return chain; };
+    return chain;
+  };
+  const run = new Function('supabase', 'normalizeRefundSweepCase', 'getPersistedNayaxCorrectionEvidence', 'deriveNayaxCustomerCorrectionFields', 'routeProviderException', 'routeFollowUpManualReview', 'claimAction', 'claimFollowUpCycle', 'sendDeterministicFollowUpMessage', `
+    const caseSelect = 'fixture-columns';
+    ${functionSource('runPersistedNayaxCustomerCorrectionSweep', 'runWalletCorrectionExpirySweep')}
+    return runPersistedNayaxCustomerCorrectionSweep;
+  `)(
+    { from: query }, (value) => value, async () => [], () => [],
+    async (input) => { calls.push(['provider-exception', input.reasonCategory, input.refundCase.deterministic_fact_version]); },
+    async () => { throw new Error('setup-needed must not send a generic manager notice'); },
+    async () => { throw new Error('must not claim a customer action'); },
+    async () => { throw new Error('must not create a follow-up cycle'); },
+    async () => { throw new Error('must not send a customer message'); },
+  );
+  await run('run-fixture', {}, 'window-fixture');
+  assert.deepEqual(calls.filter(([kind]) => kind === 'provider-exception'), [['provider-exception', 'provider_setup', 7]]);
+  assert.equal(calls.some(([kind]) => kind === 'internal-review'), false);
+});
+
+test('the actual provider route reserves one manager delivery for an unchanged setup-needed fact version', async () => {
+  const actionKeys = [];
+  const sends = [];
+  let claimed = false;
+  const supabase = {
+    rpc: async (name, input) => {
+      assert.equal(name, 'service_claim_refund_provider_exception_action');
+      actionKeys.push(input.p_action_key);
+      if (claimed) return { data: { actionId: 'action-fixture', claimed: false, status: 'completed' }, error: null };
+      claimed = true;
+      return { data: { actionId: 'action-fixture', claimed: true, status: 'claimed' }, error: null };
+    },
+  };
+  const route = new Function('supabase', 'textValue', 'addReason', 'sendFollowUpManagerNotice', 'finishAction', `
+    ${functionSource('routeProviderException', 'routeFollowUpManualReview')}
+    return routeProviderException;
+  `)(
+    supabase,
+    (value) => typeof value === 'string' ? value : '',
+    () => {},
+    async (input) => { sends.push(input.noticeKind); },
+    async () => {},
+  );
+  const refundCase = { id: 'case-fixture', deterministic_fact_version: 7 };
+  const counters = { actionsAttempted: 0, actionsSuppressed: 0, providerExceptionsSent: 0 };
+  await route({ runId: 'run-1', refundCase, reasonCategory: 'provider_setup', counters });
+  await route({ runId: 'run-2', refundCase, reasonCategory: 'provider_setup', counters });
+  assert.deepEqual(actionKeys, [
+    'provider_exception:case-fixture:provider_setup:7',
+    'provider_exception:case-fixture:provider_setup:7',
+  ]);
+  assert.deepEqual(sends, ['provider_setup']);
+  assert.equal(counters.providerExceptionsSent, 1);
 });
 
 test('actual shared send boundary rejects empty card requests and reminders before any effect', async () => {
