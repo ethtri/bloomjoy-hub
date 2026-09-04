@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocation } from 'react-router-dom';
 import { CheckCircle2, ShieldCheck } from 'lucide-react';
@@ -45,13 +45,22 @@ export default function RefundCorrectionPage() {
   const [unavailable, setUnavailable] = useState(false);
   const resultRef = useRef<HTMLHeadingElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
+  // Query fetchFailureCount resets for every poll. This token-scoped counter
+  // survives those fetches; an old link's in-flight result cannot affect a new one.
+  const inspection = useMemo(() => ({ token, consecutiveFailures: 0 }), [token]);
   const query = useQuery({
     queryKey: ['refund-correction', token],
     enabled: !demo && Boolean(token), retry: false, refetchOnWindowFocus: false,
-    refetchInterval: (current) => correctionRefreshInterval(current.state.data, received, current.state.fetchFailureCount),
+    refetchInterval: (current) => correctionRefreshInterval(current.state.data, received, inspection.consecutiveFailures),
     queryFn: async () => {
-      const response = await invokeEdgeFunction<{ correction: CorrectionContext }>('refund-case-intake', { action: 'inspectPurchaseCorrection', token }, { includeUserAuth: false });
-      return response.correction;
+      try {
+        const response = await invokeEdgeFunction<{ correction: CorrectionContext }>('refund-case-intake', { action: 'inspectPurchaseCorrection', token }, { includeUserAuth: false });
+        inspection.consecutiveFailures = 0;
+        return response.correction;
+      } catch (failure) {
+        inspection.consecutiveFailures++;
+        throw failure;
+      }
     },
   });
   const context = demo ? demoContext(location.search) : query.data;
