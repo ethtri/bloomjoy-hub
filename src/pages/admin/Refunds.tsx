@@ -25,6 +25,7 @@ import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecyclePro
 import { RefundReportFreshnessAdvisory } from '@/components/refunds/RefundReportFreshnessAdvisory';
 import { RefundAuthoritativeReceiptPanel } from '@/components/refunds/RefundAuthoritativeReceiptPanel';
 import { RefundExternalRecoveryPanel } from '@/components/refunds/RefundExternalRecoveryPanel';
+import { RefundOwnerNonrefundResolution } from '@/components/refunds/RefundOwnerNonrefundResolution';
 import { hasConfirmedRefundReceipt } from '@/lib/refundAuthoritativeReceipt';
 import {
   AlertDialog,
@@ -5905,6 +5906,11 @@ export default function AdminRefundsPage() {
 
           {nayaxExecutionNotice && (
             <div className={nayaxLookupNoticeClass(nayaxExecutionNotice.tone)}>{nayaxExecutionNotice.message}</div>
+          )}
+
+          {refundOperationsAccess && !forceDemoData && selectedCase.paymentMethod === 'card' && !selectedCase.decision && (
+            <RefundOwnerNonrefundResolution key={selectedCase.id} caseId={selectedCase.id}
+              onSaved={() => void queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] })} />
           )}
 
           {refundOperationsAccess && selectedCase.paymentMethod === 'card' && selectedCase.hasMatchedNayaxTransaction && (

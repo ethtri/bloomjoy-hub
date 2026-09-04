@@ -20,6 +20,17 @@ where event_type='owner_nonrefund_resolution_adopted';
 create unique index refund_owner_nonrefund_intent_unique on public.refund_case_events((metadata->>'intent_id'))
 where event_type='owner_nonrefund_resolution_adopted';
 
+create function public.refund_owner_nonrefund_eligible(c public.refund_cases) returns boolean
+language sql stable security definer set search_path='' as $$
+  select c.case_population='customer' and c.payment_method='card' and c.decision is null
+    and c.status in ('submitted','needs_review','waiting_on_customer','correlated')
+    and c.duplicate_of_refund_case_id is null and c.refund_completed_at is null and c.reporting_adjustment_id is null
+    and c.lifecycle_integrity_status<>'hold' and c.nayax_refund_execution_status in ('not_requested','ready','disabled')
+    and not exists(select 1 from public.refund_case_nayax_refund_attempts where refund_case_id=c.id)
+    and not exists(select 1 from public.refund_authoritative_receipts where refund_case_id=c.id);
+$$;
+revoke all on function public.refund_owner_nonrefund_eligible(public.refund_cases) from public,anon,authenticated,service_role;
+
 -- Reuse the mapped, verified owner-session boundary. This read exposes no source
 -- email body or provider credential and does not imply eligibility to pay.
 create function public.admin_get_refund_owner_resolution_context(p_case_id uuid) returns jsonb
@@ -30,7 +41,8 @@ begin
   select * into c from public.refund_cases where id=p_case_id;
   return jsonb_build_object('caseId',c.id,'caseReference',c.public_reference,
     'caseVersion',c.official_action_version,'factVersion',c.deterministic_fact_version,
-    'ownerReviewBinding',public.refund_owner_notice_review_binding(),'payloadRedacted',true);
+    'ownerReviewBinding',public.refund_owner_notice_review_binding(),'canAdopt',coalesce(public.refund_owner_nonrefund_eligible(c),false),
+    'recipientEmail',lower(btrim(c.customer_email)),'ownerMailboxEmail',(select lower(btrim(email)) from auth.users where id=auth.uid()),'payloadRedacted',true);
 end;
 $$;
 revoke all on function public.admin_get_refund_owner_resolution_context(uuid) from public,anon,authenticated,service_role;
@@ -87,17 +99,12 @@ begin
     -- returns the original result without denying the case a second time.
     return prior.metadata->'result';
   end if;
-  if c.case_population is distinct from 'customer' or c.payment_method is distinct from 'card'
-    or c.decision is not null or c.status not in ('submitted','needs_review','waiting_on_customer','correlated')
+  if not coalesce(public.refund_owner_nonrefund_eligible(c),false)
     or c.official_action_version is distinct from p_expected_case_version
     or c.deterministic_fact_version is distinct from p_expected_fact_version
     or c.public_reference is distinct from p_case_reference
     or p_recipient_email is distinct from lower(btrim(c.customer_email)) or nullif(p_recipient_email,'') is null
-    or p_original_sent_at<c.created_at or c.duplicate_of_refund_case_id is not null
-    or c.refund_completed_at is not null or c.reporting_adjustment_id is not null
-    or c.lifecycle_integrity_status='hold' or c.nayax_refund_execution_status not in ('not_requested','ready','disabled')
-    or exists(select 1 from public.refund_case_nayax_refund_attempts where refund_case_id=c.id)
-    or exists(select 1 from public.refund_authoritative_receipts where refund_case_id=c.id)
+    or p_original_sent_at<c.created_at
     or exists(select 1 from public.refund_completion_notice_adoptions where provider_message_digest=source_digest) then
     raise exception 'Review the exact current undecided case and owner resolution' using errcode='P4671';
   end if;
@@ -149,7 +156,7 @@ end;
 $$;
 revoke all on function public.assert_no_active_refund_owner_resolution(uuid) from public,anon,authenticated,service_role;
 do $migration$
-declare definition text; anchor text; target regprocedure; spec text[];
+declare definition text; anchor text; replacement text; target regprocedure; spec text[];
 begin
   foreach spec slice 1 in array array[
     array['public.service_mark_refund_manual_message_provider_attempt(uuid,uuid)',
@@ -173,14 +180,16 @@ begin
   definition:=replace(pg_get_functiondef(target),E'\r\n',E'\n');
   anchor:=$needle$        and denial_message.sent_at <= source_row.received_at
     ) then$needle$;
+  anchor:=replace(anchor,E'\r\n',E'\n');
   if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Owner resolution appeal boundary changed'; end if;
-  execute replace(definition,anchor,$replacement$        and denial_message.sent_at <= source_row.received_at
+  replacement:=$replacement$        and denial_message.sent_at <= source_row.received_at
       union all
       select 1 from public.refund_case_events resolution
       where resolution.refund_case_id=case_row.id and resolution.event_type='owner_nonrefund_resolution_adopted'
         and (resolution.metadata->>'original_sent_at')::timestamptz=case_row.decided_at
         and (resolution.metadata->>'original_sent_at')::timestamptz<=source_row.received_at
-    ) then$replacement$);
+    ) then$replacement$;
+  execute replace(definition,anchor,replace(replacement,E'\r\n',E'\n'));
 end;
 $migration$;
 notify pgrst,'reload schema';

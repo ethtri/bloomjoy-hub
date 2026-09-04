@@ -22,8 +22,12 @@ test('disposable apply receives the complete actual correction migration as CRLF
       fs.mkdirSync(path.join(root, 'migrations'));
       const target = path.join(root, 'migrations', migrationName);
       fs.writeFileSync(target, checkoutSource);
+      const adoptionName = '20260904182000_refund_owner_nonrefund_adoption.sql';
+      const adoptionSource = fs.readFileSync(new URL(`../../supabase/migrations/${adoptionName}`, import.meta.url), 'utf8').replaceAll('\r\n', '\n');
+      fs.writeFileSync(path.join(root, 'migrations', adoptionName), adoptionSource);
       prepareCorrectionMigrationWindowsRegression(root);
       const prepared = fs.readFileSync(target, 'utf8');
+      assert.equal(fs.readFileSync(path.join(root, 'migrations', adoptionName), 'utf8'), adoptionSource.replaceAll('\n', '\r\n'));
       assert.equal(prepared, actualMigration.replaceAll('\n', '\r\n'));
       assert.equal(prepared.replaceAll('\r\n', '\n'), actualMigration, 'all SQL and exact-match guards remain unchanged');
       assert.ok(prepared.includes('$legacy_fields$'));
