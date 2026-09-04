@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir, lstat, rename } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { schemaVersion, createReadClient, readPopulation, readCasePacket, readReportHealth, compareReview, paginate, ReviewError, digest } from './refund-agent-review.mjs';
+import { schemaVersion, createReadClient, readPopulation, readCasePacket, readReportHealth, compareReview, paginate, summarizeCasePacket, ReviewError, digest } from './refund-agent-review.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const directory = path.join(root, '.local', 'refund-agent-review');
@@ -69,13 +69,7 @@ async function main() {
     await save(packetFile, packets.find(packet => packet.caseId === caseId));
   }
   await save(snapshotFile, review.snapshot);
-  const summaries = review.changed.map(packet => ({
-    caseId: packet.caseId, publicReference: packet.publicReference,
-    stage: packet.lifecycle?.stage ?? 'unknown', paymentState: packet.lifecycle?.paymentState ?? 'unknown',
-    nextAction: packet.nextAction, contradictions: packet.contradictions,
-    approval: packet.approval.decision, approvalContinuity: packet.approval.continuity,
-    incompleteCloseout: packet.lifecycle?.paymentState === 'confirmed' && (packet.lifecycle?.operations.required || packet.receipt?.receipt?.noticeAdopted === false),
-  }));
+  const summaries = review.changed.map(summarizeCasePacket);
   const pages = Array.from({ length: Math.ceil(summaries.length / pageSize) }, (_, i) => paginate(summaries, i + 1, pageSize));
   console.log(JSON.stringify({ schemaVersion, status: summaries.length || review.removedCount || reportChanged ? 'changed' : 'unchanged',
     population: population.population, changedCount: summaries.length, unchangedCount: review.unchangedCount,

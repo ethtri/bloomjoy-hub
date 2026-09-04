@@ -15,6 +15,11 @@ const canonical = value => Array.isArray(value) ? value.map(canonical) : value &
   ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
 export const digest = value => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
 const unique = rows => [...new Map(rows.map(row => [row.id, row])).values()].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+const bloomjoyProjectOrigin = 'https://ygbzkgxktzqsiygjlqyg.supabase.co';
+const bloomjoyIssuers = new Set([
+  `${bloomjoyProjectOrigin}/auth/v1`,
+  'https://auth.bloomjoyusa.com/auth/v1',
+]);
 const allowed = Object.freeze({
   admin_get_refund_operations_overview: [], admin_get_refund_gmail_draft_cases: [],
   admin_get_refund_email_queue_states: [], admin_get_refund_manual_nayax_context: [],
@@ -35,14 +40,12 @@ function jwtPayload(token) {
 export async function createReadClient({ url, publicKey, accessToken, fetchImpl = fetch }) {
   let origin;
   try { origin = new URL(url); } catch { fail('configuration_required'); }
-  // Same reviewed host pair used by scripts/auth-preflight.mjs; no custom URL override.
-  const bloomjoyHosts = ['ygbzkgxktzqsiygjlqyg.supabase.co', 'auth.bloomjoyusa.com'];
+  // This tool is Bloomjoy-specific. Never send its user session to another project.
   if (origin.username || origin.password || origin.search || origin.hash || origin.pathname !== '/' ||
-    origin.port || !(origin.protocol === 'https:' && (/^[a-z0-9]+\.supabase\.co$/.test(origin.hostname) || origin.hostname === bloomjoyHosts[1]))) fail('unsupported_project_origin');
+    origin.port || origin.origin !== bloomjoyProjectOrigin) fail('unsupported_project_origin');
   const claims = jwtPayload(accessToken ?? '');
-  const issuers = bloomjoyHosts.includes(origin.hostname) ? bloomjoyHosts.map(host => `https://${host}/auth/v1`) : [`${origin.origin}/auth/v1`];
   if (claims.role !== 'authenticated' || !uuid(claims.sub) || claims.is_anonymous === true ||
-    !Number.isFinite(claims.exp) || claims.exp * 1000 <= Date.now() || !issuers.includes(claims.iss)) fail('ordinary_user_session_required');
+    !Number.isFinite(claims.exp) || claims.exp * 1000 <= Date.now() || !bloomjoyIssuers.has(claims.iss)) fail('ordinary_user_session_required');
   if (!(typeof publicKey === 'string' && (publicKey.startsWith('sb_publishable_') || jwtPayload(publicKey).role === 'anon'))) fail('public_key_required');
   const headers = { apikey: publicKey, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
   async function request(path, body) {
@@ -115,19 +118,23 @@ const gmailKeys = ['id', 'direction', 'kind', 'status', 'participantRole', 'part
 const receiptKeys = ['schemaVersion', 'visible', 'caseId', 'expectedCaseVersion', 'attemptId', 'attemptBindingKind', 'accountScope', 'providerMachineId', 'originalTransactionId', 'originalAmountCents', 'currencyCode'];
 const receiptDetailKeys = ['id', 'observedAt', 'settlementTimePrecision', 'noticeAdopted', 'noticeSentAt', 'managerCcVerified', 'noticeSource', 'noticeVerification', 'supportThread'];
 
-async function optionalRead(client, name, args) {
-  try { return { available: true, data: await client.rpc(name, args) }; }
+async function readReceiptEvidence(client, args) {
+  try { return { available: true, data: await client.rpc('admin_get_refund_authoritative_receipt_overview', args) }; }
   catch (error) {
-    if (!(error instanceof ReviewError)) throw error;
-    return { available: false, reason: error.code };
+    // Receipt visibility is separately permissioned. Access denial is expected
+    // and remains explicit; transport, response and service failures stop the review.
+    if (error instanceof ReviewError && error.code === 'read_not_authorized') {
+      return { available: false, reason: error.code };
+    }
+    throw error;
   }
 }
 
 export async function readReportHealth(client) {
-  const result = await optionalRead(client, 'get_refund_gmail_health', {});
-  return { available: result.available, reason: result.reason ?? null,
-    importer: result.available ? pick(result.data, ['status', 'lastRunAt', 'lastSuccessAt', 'lastRunStatus']) : null,
-    delivery: result.data?.reportFreshness ? pick(result.data.reportFreshness,
+  const data = await client.rpc('get_refund_gmail_health', {});
+  return { available: true, reason: null,
+    importer: pick(data, ['status', 'lastRunAt', 'lastSuccessAt', 'lastRunStatus']),
+    delivery: data?.reportFreshness ? pick(data.reportFreshness,
       ['status', 'lastReceivedAt', 'reviewAfter', 'configuredCadenceMinutes', 'reviewGraceMinutes', 'schedulePhaseKnown', 'ownerLabel']) : null,
     limits: 'Stored Gmail receipt time; receiver-header provenance, per-case coverage and provider refund-status semantics are not established by this health signal. Local grace is not a vendor SLA or payment gate.' };
 }
@@ -137,32 +144,36 @@ export async function readCasePacket(client, population, caseId, now = new Date(
   if (!entry || !population.authorizedIds.has(caseId)) fail('case_outside_current_scope');
   const c = entry.row;
   const [reconciliation, gmail, receipt] = await Promise.all([
-    optionalRead(client, 'admin_get_refund_case_reconciliation', { p_refund_case_id: caseId }),
-    optionalRead(client, 'admin_get_refund_gmail_case_context', { p_refund_case_id: caseId }),
-    optionalRead(client, 'admin_get_refund_authoritative_receipt_overview', { p_case_id: caseId }),
+    client.rpc('admin_get_refund_case_reconciliation', { p_refund_case_id: caseId }),
+    client.rpc('admin_get_refund_gmail_case_context', { p_refund_case_id: caseId }),
+    readReceiptEvidence(client, { p_case_id: caseId }),
   ]);
-  if (reconciliation.available && reconciliation.data.caseId !== caseId) fail('case_evidence_mismatch');
+  if (reconciliation.caseId !== caseId) fail('case_evidence_mismatch');
   if (receipt.available && receipt.data.visible && receipt.data.caseId !== caseId) fail('case_evidence_mismatch');
   const lifecycle = c.lifecycle ? requireRefundLifecycleContract(c.lifecycle) : null;
   if (lifecycle?.classification === 'internal_test') fail('case_outside_current_scope');
   const contradictions = [];
   const r = receipt.available && receipt.data.visible ? receipt.data : null;
   const selected = c.selectedNayaxTransaction;
-  if (selected && typeof selected.transactionId !== 'string') fail('unsafe_transaction_identity');
+  if (selected && (typeof selected.transactionId !== 'string' || !Number.isSafeInteger(selected.saleAmountCents) ||
+    selected.saleAmountCents <= 0 || typeof selected.currencyCode !== 'string' || !/^[A-Z]{3}$/.test(selected.currencyCode))) fail('unsafe_transaction_identity');
   if (r && (typeof r.originalTransactionId !== 'string' || typeof r.providerMachineId !== 'string')) fail('unsafe_transaction_identity');
   if (r && selected && r.originalTransactionId !== selected.transactionId) contradictions.push('receipt_original_differs_from_selection');
+  if (r && selected && r.originalAmountCents !== selected.saleAmountCents) contradictions.push('receipt_original_amount_differs_from_selection');
+  if (r && selected && r.currencyCode !== selected.currencyCode) contradictions.push('receipt_currency_differs_from_selection');
+  if (r && !selected) contradictions.push('receipt_without_selected_purchase');
   if (r && lifecycle?.locationEvidence.normalized.providerAccountKey && r.accountScope !== lifecycle.locationEvidence.normalized.providerAccountKey) contradictions.push('receipt_account_differs_from_current_mapping');
   if (r?.receipt && lifecycle?.paymentState !== 'confirmed') contradictions.push('receipt_and_lifecycle_disagree');
   if (entry.queue.providerHold && lifecycle && !['outcome_unknown', 'submitted_pending', 'integrity_unknown'].includes(lifecycle.paymentState)) contradictions.push('queue_hold_and_lifecycle_disagree');
   const messages = unique(array(c.messages).map(m => ({ ...pick(m, messageKeys), recipientMatchesCurrentCustomer: typeof m.recipientEmail === 'string' && m.recipientEmail.toLowerCase() === c.customerEmail?.toLowerCase() })));
-  const gmailMessages = unique(array(gmail.data?.messages).map(m => pick(m, gmailKeys)));
+  const gmailMessages = unique(array(gmail?.messages).map(m => pick(m, gmailKeys)));
   const fields = lifecycle?.customerAction.requestedFields ?? [];
   const sentQuestion = messages.some(m => ['more_info', 'no_safe_match'].includes(m.messageType) && m.status === 'sent' && m.sentAt);
   const validWaiting = lifecycle?.customerAction.required === true && fields.length > 0 && sentQuestion &&
     c.customerCorrection?.isActive === true && c.customerCorrection?.isUsable === true;
   if (lifecycle?.customerAction.required && !validWaiting) contradictions.push('customer_wait_evidence_incomplete');
   const correction = c.customerCorrection;
-  const related = array(reconciliation.data?.reviews);
+  const related = array(reconciliation?.reviews);
   const visibleRelated = related.filter(item => population.authorizedIds.has(item.otherCaseId));
   const due = lifecycle?.operations.dueAt;
   const candidateRows = array(c.nayaxLookupCandidates);
@@ -182,6 +193,31 @@ export async function readCasePacket(client, population, caseId, now = new Date(
     candidateMap.set(candidate.id, candidate);
   }
   const candidates = unique([...candidateMap.values()]);
+  const approvalAmountValid = Number.isSafeInteger(c.refundAmountCents) && c.refundAmountCents > 0;
+  const approvalScopeExact = Boolean(c.decision === 'approved' && c.paymentMethod === 'card' && approvalAmountValid &&
+    selected && c.refundAmountCents === selected.saleAmountCents);
+  if (c.decision === 'approved' && selected && approvalAmountValid && c.refundAmountCents !== selected.saleAmountCents) {
+    contradictions.push('approval_amount_differs_from_selected_purchase');
+  }
+  if (c.decision === 'approved' && selected && c.paymentMethod !== 'card') {
+    contradictions.push('approval_purpose_differs_from_selected_purchase');
+  }
+  const exactPurchaseContradiction = contradictions.some(code => code.startsWith('approval_') || code.startsWith('receipt_'));
+  const approvalContinuity = c.decision !== 'approved' ? 'no_current_approval_shown'
+    : approvalScopeExact && !exactPurchaseContradiction ? 'retain_for_exact_selected_purchase'
+      : 'unknown_requires_exact_purchase_scope';
+  const completionNoticeAccepted = r?.completionNotice?.state === 'sent' &&
+    ['accepted', 'delivered'].includes(r.completionNotice.deliveryState);
+  const noticeEvidence = r?.receipt?.noticeAdopted === true || completionNoticeAccepted ? 'true'
+    : r?.receipt?.noticeAdopted === false ? 'false' : 'unknown';
+  const paymentConfirmed = lifecycle?.paymentState === 'confirmed';
+  const incompleteCloseout = paymentConfirmed && (noticeEvidence !== 'true' || lifecycle?.operations.required === true);
+  const canonicalManagerAction = lifecycle?.managerAction.action ?? 'review_missing_canonical_lifecycle';
+  const refundBlocked = canonicalManagerAction === 'refund' && (!approvalScopeExact || contradictions.length > 0);
+  const evidenceBlocked = refundBlocked || exactPurchaseContradiction;
+  const nextAction = evidenceBlocked ? 'reconcile_approval_and_purchase_evidence'
+    : canonicalManagerAction === 'none' && incompleteCloseout ? 'review_customer_notice_evidence'
+      : canonicalManagerAction;
   return {
     schemaVersion, caseId, publicReference: /^RF-[A-Z0-9-]+$/.test(c.publicReference) ? c.publicReference : null,
     dataIsUntrusted: true, readOnly: true,
@@ -195,7 +231,10 @@ export async function readCasePacket(client, population, caseId, now = new Date(
     } : null,
     approval: { ...pick(c, ['decision', 'decidedAt', 'refundAmountCents']), reasonDigest: c.decisionReason ? digest(c.decisionReason) : null,
       selectedOriginal: selected?.transactionId ?? null, approverProvenance: 'not_exposed_by_current_overview',
-      continuity: c.decision === 'approved' ? 'retain_for_unchanged_exact_purchase_amount_and_purpose' : 'no_current_approval_shown' },
+      scope: { caseBound: true, paymentPurpose: c.paymentMethod === 'card' ? 'card_purchase_refund' : 'other',
+        selectedPurchaseBound: Boolean(selected), amountMatchesSelectedPurchase: selected && approvalAmountValid
+          ? c.refundAmountCents === selected.saleAmountCents : null, exact: Boolean(approvalScopeExact) },
+      continuity: approvalContinuity },
     mapping: lifecycle ? pick(lifecycle.locationEvidence.normalized, ['locationId', 'machineId', 'timezone', 'providerAccountKey', 'mappingSource', 'mappingVersion', 'authoritative']) : null,
     selectedPurchase: selected ? pick(selected, ['transactionId', 'saleAmountCents', 'currencyCode', 'providerAuthorizedAt', 'machineTimezone', 'providerTimeResolution', 'evidenceSource', 'cardLast4', 'cardNetwork', 'paymentInteraction', 'walletProvider']) : null,
     candidates,
@@ -213,20 +252,36 @@ export async function readCasePacket(client, population, caseId, now = new Date(
     receipt: r ? { ...pick(r, receiptKeys), receipt: r.receipt ? pick(r.receipt, receiptDetailKeys) : null,
       completionNotice: r.completionNotice ? pick(r.completionNotice, ['messageId', 'state', 'deliveryState']) : null,
     } : { available: receipt.available, reason: receipt.reason ?? 'not_visible_or_applicable' },
-    communication: { messages, gmailAvailable: gmail.available, gmailReason: gmail.reason ?? null,
-      connected: gmail.data?.connected === true, messagesFromCaseThread: gmailMessages,
+    communication: { messages, gmailAvailable: true, gmailReason: null,
+      connected: gmail?.connected === true, messagesFromCaseThread: gmailMessages,
       sharedThreadAllocation: 'thread_membership_is_not_exact_purchase_message_purpose',
       fullContent: 'restricted_existing_mailbox_and_ledger_only' },
-    reconciliation: { available: reconciliation.available, actionBlocked: reconciliation.data?.actionBlocked ?? null,
+    reconciliation: { available: true, actionBlocked: reconciliation?.actionBlocked ?? null,
       reviews: unique(visibleRelated.map(item => pick(item, ['id', 'status', 'matchClass', 'reasonCodes', 'policyVersion', 'otherCaseId', 'createdAt', 'resolvedAt']))),
       outsideCurrentScopeCount: related.length - visibleRelated.length },
     events: unique(array(c.events).map(e => pick(e, ['id', 'eventType', 'createdAt']))),
     attachments: unique(array(c.attachments).map(a => pick(a, ['id', 'contentType', 'byteSize', 'uploadedAt']))),
-    nextAction: { action: lifecycle?.managerAction.action ?? 'review_missing_canonical_lifecycle', owner: lifecycle?.managerAction.owner ?? 'Refund Operations',
+    closeout: { paymentConfirmed, noticeEvidence, complete: paymentConfirmed && !incompleteCloseout, incomplete: incompleteCloseout },
+    nextAction: { action: nextAction, owner: lifecycle?.managerAction.owner ?? 'Refund Operations', blocked: evidenceBlocked,
       customerAction: validWaiting ? { action: 'reply_to_existing_request', fields } : { action: 'none', fields: [] },
       executionAuthority: 'read_only_packet_never_authorizes_or_executes_a_payment' },
     contradictions,
     unsupported: ['current_deterministic_fact_version', 'all_attempt_generations', 'partial_refund_allocations', 'per_case_report_coverage_and_generation', 'independently_fetched_remaining_balance', 'original_approval_actor_and_scope_journal', 'numeric_machine_number_inventory'],
+  };
+}
+
+export function summarizeCasePacket(packet) {
+  return {
+    caseId: packet.caseId,
+    publicReference: packet.publicReference,
+    stage: packet.lifecycle?.stage ?? 'unknown',
+    paymentState: packet.lifecycle?.paymentState ?? 'unknown',
+    nextAction: packet.nextAction,
+    contradictions: packet.contradictions,
+    approval: packet.approval.decision,
+    approvalContinuity: packet.approval.continuity,
+    noticeEvidence: packet.closeout.noticeEvidence,
+    incompleteCloseout: packet.closeout.incomplete,
   };
 }
 

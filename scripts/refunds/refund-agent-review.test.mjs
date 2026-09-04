@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createReadClient, readPopulation, readCasePacket, readReportHealth, compareReview, paginate, ReviewError } from './refund-agent-review.mjs';
+import { createReadClient, readPopulation, readCasePacket, readReportHealth, compareReview, paginate, summarizeCasePacket, ReviewError } from './refund-agent-review.mjs';
 
 const id = n => `a1111111-1111-4111-8111-${String(n).padStart(12, '0')}`;
 const now = new Date('2026-09-04T12:00:00Z');
@@ -47,6 +47,7 @@ function fixture(rows = [row(1)]) {
   return { client, responses, calls };
 }
 async function packet(f, n = 1) { return readCasePacket(f.client, await readPopulation(f.client), id(n), now); }
+const pickAction = packetValue => ({ action: packetValue.nextAction.action, blocked: packetValue.nextAction.blocked });
 
 test('complete scoped JSON population reconciles and output pagination loses no cases', async () => {
   const f = fixture(Array.from({ length: 57 }, (_, n) => row(n + 1)));
@@ -93,20 +94,73 @@ test('packet preserves canonical lifecycle and existing approval while stripping
   const p = await packet(fixture());
   assert.equal(p.lifecycle.stage, 'transaction_confirmed'); assert.equal(p.nextAction.action, 'refund');
   assert.equal(p.approval.decision, 'approved'); assert.equal(p.approval.refundAmountCents, 963);
+  assert.equal(p.approval.continuity, 'retain_for_exact_selected_purchase'); assert.equal(p.approval.scope.exact, true);
   assert.equal(p.selectedPurchase.transactionId, '9223372036854775807');
   assert.equal(p.versions.currentDeterministicFactVersion, null, 'Last customer fact evidence is not necessarily current fact version');
   assert.equal(p.versions.lastAppliedCustomerFactVersion, 2);
   assert.doesNotMatch(JSON.stringify(p), /SECRET_|private@example|Do not export|Private approved purpose/);
 });
 
+test('approval continuity requires the exact selected purchase amount and card purpose', async () => {
+  const c = row(1);
+  c.selectedNayaxTransaction.saleAmountCents = 1200;
+  const mismatch = await packet(fixture([c]));
+  assert.equal(mismatch.approval.scope.amountMatchesSelectedPurchase, false);
+  assert.equal(mismatch.approval.scope.exact, false);
+  assert.equal(mismatch.approval.continuity, 'unknown_requires_exact_purchase_scope');
+  assert(mismatch.contradictions.includes('approval_amount_differs_from_selected_purchase'));
+  assert.deepEqual(pickAction(mismatch), { action: 'reconcile_approval_and_purchase_evidence', blocked: true });
+
+  c.selectedNayaxTransaction = null;
+  const unproven = await packet(fixture([c]));
+  assert.equal(unproven.approval.scope.selectedPurchaseBound, false);
+  assert.equal(unproven.approval.continuity, 'unknown_requires_exact_purchase_scope');
+  assert.deepEqual(pickAction(unproven), { action: 'reconcile_approval_and_purchase_evidence', blocked: true });
+});
+
+test('receipt amount and currency must match the selected purchase before refund remains recommended', async () => {
+  const f = fixture();
+  f.responses.admin_get_refund_authoritative_receipt_overview = {
+    schemaVersion: 'refund_receipt_overview_v1', visible: true, caseId: id(1), accountScope: 'TEST_ACCOUNT',
+    providerMachineId: '123456', originalTransactionId: row(1).selectedNayaxTransaction.transactionId,
+    originalAmountCents: 1300, currencyCode: 'EUR', receipt: null,
+  };
+  const p = await packet(f);
+  assert(p.contradictions.includes('receipt_original_amount_differs_from_selection'));
+  assert(p.contradictions.includes('receipt_currency_differs_from_selection'));
+  assert.equal(p.approval.continuity, 'unknown_requires_exact_purchase_scope');
+  assert.deepEqual(pickAction(p), { action: 'reconcile_approval_and_purchase_evidence', blocked: true });
+});
+
 test('case-evidence identity mismatch fails; wrong account mapping is explicit', async () => {
   const f = fixture();
   f.responses.admin_get_refund_authoritative_receipt_overview = { visible: true, caseId: id(2) };
   await assert.rejects(packet(f), /case_evidence_mismatch/);
-  f.responses.admin_get_refund_authoritative_receipt_overview = { visible: true, caseId: id(1), accountScope: 'WRONG_ACCOUNT', providerMachineId: '999', originalTransactionId: 'other', receipt: null };
+  f.responses.admin_get_refund_authoritative_receipt_overview = { visible: true, caseId: id(1), accountScope: 'WRONG_ACCOUNT', providerMachineId: '999', originalTransactionId: 'other', originalAmountCents: 963, currencyCode: 'USD', receipt: null };
   const p = await packet(f);
   assert.deepEqual(p.contradictions, ['receipt_original_differs_from_selection', 'receipt_account_differs_from_current_mapping']);
   assert(p.unsupported.includes('numeric_machine_number_inventory'), 'No fake full machine inventory proof');
+});
+
+test('required reconciliation and Gmail failures stop review; only receipt privacy is optional', async () => {
+  for (const [name, code] of [
+    ['admin_get_refund_case_reconciliation', 'read_not_authorized'],
+    ['admin_get_refund_gmail_case_context', 'read_transport_failed'],
+  ]) {
+    const f = fixture(); f.responses[name] = new ReviewError(code);
+    await assert.rejects(packet(f), new RegExp(code));
+  }
+  const privateReceipt = fixture();
+  privateReceipt.responses.admin_get_refund_authoritative_receipt_overview = new ReviewError('read_not_authorized');
+  const p = await packet(privateReceipt);
+  assert.deepEqual(p.receipt, { available: false, reason: 'read_not_authorized' });
+  assert.equal(p.nextAction.action, 'refund');
+
+  const transientReceipt = fixture();
+  transientReceipt.responses.admin_get_refund_authoritative_receipt_overview = new ReviewError('read_unavailable');
+  await assert.rejects(packet(transientReceipt), /read_unavailable/);
+  const reportFailure = fixture(); reportFailure.responses.get_refund_gmail_health = new ReviewError('read_transport_failed');
+  await assert.rejects(readReportHealth(reportFailure.client), /read_transport_failed/);
 });
 
 test('pending without attempt remains unknown and never implies a new approval/payment', async () => {
@@ -177,12 +231,37 @@ test('previously adopted completion stays paid, with unknown accounting date sep
   c.lifecycle.managerAction.action = 'none';
   const f = fixture([c]); f.responses.admin_get_refund_authoritative_receipt_overview = {
     visible: true, caseId: id(1), accountScope: 'TEST_ACCOUNT', providerMachineId: '123456', originalTransactionId: c.selectedNayaxTransaction.transactionId,
+    originalAmountCents: 963, currencyCode: 'USD',
     receipt: { id: id(700), settlementTimePrecision: 'unknown', noticeAdopted: true, noticeSource: 'support_gmail', managerCcVerified: true },
     completionNotice: { body: 'SECRET_COMPLETION', reviewBinding: 'SECRET_BINDING', state: 'sent', messageId: id(701), deliveryState: 'accepted' },
   };
   const p = await packet(f); assert.equal(p.lifecycle.paymentState, 'confirmed'); assert.equal(p.nextAction.action, 'none');
   assert.equal(p.receipt.receipt.noticeAdopted, true); assert.equal(p.receipt.completionNotice.deliveryState, 'accepted');
+  assert.deepEqual(p.closeout, { paymentConfirmed: true, noticeEvidence: 'true', complete: true, incomplete: false });
   assert.doesNotMatch(JSON.stringify(p), /SECRET_COMPLETION|SECRET_BINDING/);
+});
+
+test('confirmed payment models customer notice as false or unknown and keeps closeout incomplete', async () => {
+  const c = row(1); c.lifecycle = lifecycle('customer_notified'); c.lifecycle.paymentState = 'confirmed';
+  c.lifecycle.managerAction.action = 'none'; c.lifecycle.terminal = true;
+  const unknownFixture = fixture([c]);
+  unknownFixture.responses.admin_get_refund_authoritative_receipt_overview = new ReviewError('read_not_authorized');
+  const unknown = await packet(unknownFixture);
+  assert.deepEqual(unknown.closeout, { paymentConfirmed: true, noticeEvidence: 'unknown', complete: false, incomplete: true });
+  assert.equal(unknown.nextAction.action, 'review_customer_notice_evidence');
+  assert.equal(summarizeCasePacket(unknown).incompleteCloseout, true);
+  assert.equal(summarizeCasePacket(unknown).noticeEvidence, 'unknown');
+
+  const falseFixture = fixture([c]);
+  falseFixture.responses.admin_get_refund_authoritative_receipt_overview = {
+    schemaVersion: 'refund_receipt_overview_v1', visible: true, caseId: id(1), accountScope: 'TEST_ACCOUNT',
+    providerMachineId: '123456', originalTransactionId: c.selectedNayaxTransaction.transactionId,
+    originalAmountCents: 963, currencyCode: 'USD',
+    receipt: { id: id(700), settlementTimePrecision: 'unknown', noticeAdopted: false }, completionNotice: null,
+  };
+  const explicitFalse = await packet(falseFixture);
+  assert.deepEqual(explicitFalse.closeout, { paymentConfirmed: true, noticeEvidence: 'false', complete: false, incomplete: true });
+  assert.equal(explicitFalse.nextAction.action, 'review_customer_notice_evidence');
 });
 
 test('missing/stale report health remains distinct from refund status and no-refund', async () => {
@@ -193,20 +272,21 @@ test('missing/stale report health remains distinct from refund status and no-ref
 });
 
 const token = claims => `header.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.signature`;
-test('actual read client rejects broad credentials, wrong origin and unauthenticated server response before RPC', async () => {
-  const url = 'https://testproject.supabase.co'; const base = { role: 'authenticated', sub: id(800), iss: `${url}/auth/v1`, exp: Date.now() / 1000 + 3600 };
+test('actual read client rejects broad credentials, foreign projects and unauthenticated server response before RPC', async () => {
+  const url = 'https://ygbzkgxktzqsiygjlqyg.supabase.co'; const base = { role: 'authenticated', sub: id(800), iss: `${url}/auth/v1`, exp: Date.now() / 1000 + 3600 };
   const options = { url, publicKey: 'sb_publishable_test', accessToken: token(base), fetchImpl: async () => new Response(JSON.stringify({ id: id(800) })) };
   await assert.rejects(createReadClient({ ...options, accessToken: token({ ...base, role: 'service_role' }) }), /ordinary_user_session_required/);
   await assert.rejects(createReadClient({ ...options, publicKey: 'sb_secret_rejected' }), /public_key_required/);
-  await assert.rejects(createReadClient({ ...options, url: 'https://otherproject.supabase.co' }), /ordinary_user_session_required/);
+  const foreignUrl = 'https://foreignproject.supabase.co';
+  await assert.rejects(createReadClient({ ...options, url: foreignUrl,
+    accessToken: token({ ...base, iss: `${foreignUrl}/auth/v1` }) }), /unsupported_project_origin/);
   await assert.rejects(createReadClient({ ...options, fetchImpl: async () => new Response('{}', { status: 401 }) }), /read_not_authorized/);
   const calls = []; const client = await createReadClient({ ...options, fetchImpl: async (url, init) => { calls.push({ url, init }); return new Response(JSON.stringify(url.endsWith('/user') ? { id: id(800) } : [])); } });
   await client.rpc('admin_get_refund_email_queue_states');
   await assert.rejects(client.rpc('admin_queue_refund_receipt_completion'), /read_rpc_not_allowed/);
   await assert.rejects(client.rpc('admin_get_refund_gmail_case_context', { p_refund_case_id: '../other' }), /read_rpc_not_allowed/);
   assert.equal(calls.length, 2); assert(calls.every(c => c.init.redirect === 'error'));
-  await createReadClient({ ...options, url: 'https://ygbzkgxktzqsiygjlqyg.supabase.co',
-    accessToken: token({ ...base, iss: 'https://auth.bloomjoyusa.com/auth/v1' }) });
+  await createReadClient({ ...options, accessToken: token({ ...base, iss: 'https://auth.bloomjoyusa.com/auth/v1' }) });
   await assert.rejects(createReadClient({ ...options, url: 'https://attacker.example',
     accessToken: token({ ...base, iss: 'https://attacker.example/auth/v1' }) }), /unsupported_project_origin/);
 });
