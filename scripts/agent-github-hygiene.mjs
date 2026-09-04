@@ -188,6 +188,8 @@ const issues = runJson("gh", [
   "1000",
   "--json",
   "number,title,url,labels,createdAt,updatedAt,comments,projectItems",
+  "--jq",
+  "map(.comments |= map({createdAt}))",
 ]);
 
 const prs = runJson("gh", [
@@ -213,6 +215,8 @@ const project = runJson("gh", [
   "1000",
   "--format",
   "json",
+  "--jq",
+  ".items |= map(del(.content.body))",
 ]);
 
 const issuesByNumber = new Map(issues.map((issue) => [Number(issue.number), issue]));
