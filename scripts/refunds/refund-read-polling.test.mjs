@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import ts from 'typescript';
 const source=fs.readFileSync(new URL('../../src/lib/refundReadPolling.ts',import.meta.url),'utf8');
 const compiled=ts.transpile(source,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022});
-const {createRefundReadPolling,refundOverviewPollingInterval,refundAvailabilityIsTerminal}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const {createRefundReadPolling,refundOverviewPollingInterval,refundAvailabilityIsTerminal,refundOverviewReadMessage}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 // QueryObserver only schedules browser intervals when a window exists at import.
 globalThis.window={};
 const {QueryClient,QueryObserver,focusManager,onlineManager}=await import('@tanstack/query-core');
@@ -64,4 +64,14 @@ test('terminal availability includes only the same authorized internal-case scop
  assert.equal(refundAvailabilityIsTerminal({...overview,refundOperationsAccess:false},'archived'),false);
  assert.equal(refundAvailabilityIsTerminal(overview,'unknown'),false);
  assert.equal(refundAvailabilityIsTerminal({...overview,cases:[{id:'ordinary',lifecycle:{terminal:false}}]},'ordinary'),false);
+});
+
+test('read announcements change only on settled error/recovery, with a silent healthy baseline',()=>{
+ assert.equal(refundOverviewReadMessage('', 'success'),'');
+ const failed=refundOverviewReadMessage('', 'error');assert.match(failed,/could not be loaded/);
+ assert.equal(refundOverviewReadMessage(failed,'error'),failed);
+ assert.equal(refundOverviewReadMessage(failed,'pending'),failed);
+ const recovered=refundOverviewReadMessage(failed,'success');assert.equal(recovered,'Refund information is up to date.');
+ assert.equal(refundOverviewReadMessage(recovered,'success'),recovered);
+ assert.equal(refundOverviewReadMessage(recovered,'error'),failed);
 });

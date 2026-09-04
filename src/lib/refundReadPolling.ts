@@ -30,3 +30,9 @@ export const refundAvailabilityIsTerminal = (
   selectedId: string | null,
 ) => [...overview.cases, ...(overview.refundOperationsAccess === true ? overview.internalTestCases ?? [] : [])]
   .find((row) => row.id === selectedId)?.lifecycle?.terminal === true;
+
+export const refundOverviewReadMessage = (previous: string, status: 'pending' | 'error' | 'success') => {
+  if (status === 'error') return 'The latest refund information could not be loaded. Bloomjoy will keep trying.';
+  if (status === 'success' && previous) return 'Refund information is up to date.';
+  return previous;
+};
