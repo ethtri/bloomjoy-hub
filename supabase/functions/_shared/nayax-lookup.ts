@@ -5,6 +5,7 @@ import {
   toPublicNayaxCandidate,
 } from "./nayax-recommendation.mjs";
 import { buildNayaxMachineContext } from "./nayax-machine-context.mjs";
+import { loadNayaxProviderClockContext } from "./nayax-provider-clock.mjs";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 
 export { extractNayaxRecords, NAYAX_RECOMMENDATION_POLICY };
@@ -237,6 +238,7 @@ export type NayaxProviderCandidate = {
   machineAuthorizationTime: string;
   machineAuthorizationTimeRaw: string;
   machineTimeResolution: string;
+  machineClockContext?: NayaxProviderClockContext | null;
   providerTimeResolution: string;
   timeDeltaMinutes: number;
   qrTimeDeltaMinutes: number | null;
@@ -277,10 +279,17 @@ export type NayaxProviderCandidate = {
   policyVersion: string;
 };
 
+export type NayaxProviderClockContext = {
+  reportingMachineId: string;
+  timezone: string | null;
+  source: string;
+  observedAt: string | null;
+};
+
 export type NayaxResponseCandidate = Omit<
   NayaxProviderCandidate,
   "transactionId" | "siteId" | "providerMachineId" | "providerRefundState" | "rankingPoints" |
-  "machineAuthorizationTimeRaw" | "machineTimeResolution"
+  "machineAuthorizationTimeRaw" | "machineTimeResolution" | "machineClockContext"
 > & {
   candidateToken: string;
 };
@@ -307,6 +316,7 @@ export type NayaxLookupResult = {
   providerRecordCount?: number;
   providerParseableRecordCount?: number;
   providerWindowRecordCount?: number;
+  providerClockContexts?: NayaxProviderClockContext[];
   candidateCount: number;
   candidates: NayaxResponseCandidate[];
   windowHours: number;
@@ -453,6 +463,7 @@ const persistNayaxLookupCandidates = async ({
         machine_authorization_time_raw: candidate.machineAuthorizationTimeRaw,
         machine_authorization_time_source: "MachineAuthorizationTime",
         machine_time_resolution: candidate.machineTimeResolution,
+        machine_clock_context: candidate.machineClockContext ?? null,
         card_brand: candidate.cardBrand || null,
         card_network: candidate.cardNetwork || null,
         recognition_method: candidate.recognitionMethod || null,
@@ -706,6 +717,7 @@ const lookupGroupedLivermoreCandidates = async ({
   }
 
   const providerResults = await Promise.all(providerInputs.map(async (input: typeof providerInputs[number]) => {
+    const providerClockContext = await loadNayaxProviderClockContext(supabase, input);
     const headers = {
       Authorization: `Bearer ${input.token}`,
       "Content-Type": "application/json",
@@ -745,6 +757,7 @@ const lookupGroupedLivermoreCandidates = async ({
       incidentTimeResolution: sanitizeText(refundCase.incident_time_resolution, 40) || "legacy_absolute",
       expectedMachineId: input.nayaxMachineId,
       locationTimezone: sanitizeText(location.timezone, 80),
+      providerClockContext,
       requestAmountCents: sanitizeInputCents(refundCase.payment_amount_cents),
       requestCardLast4: extractLast4(refundCase.card_last4),
       requestCardNetwork: sanitizeText(refundCase.card_network, 40),
@@ -842,6 +855,7 @@ const lookupGroupedLivermoreCandidates = async ({
     maximumUniqueQrLagMinutes: NAYAX_RECOMMENDATION_POLICY.maximumUniqueQrLagMinutes,
     lastCheckedAt,
     providerRecordCount,
+    providerClockContexts: providerResults.map((result) => result.recommendationInput.providerClockContext),
     providerParseableRecordCount: localRecommendations.reduce(
       (count, result) => count + result.recommendation.providerParseableRecordCount,
       0,
@@ -1070,6 +1084,9 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     );
   }
 
+  const providerClockContext = await loadNayaxProviderClockContext(supabase, {
+    reportingMachineId: machineId, accountKey, nayaxMachineId,
+  });
   const providerHeaders = {
     Authorization: `Bearer ${nayaxApiToken}`,
     "Content-Type": "application/json",
@@ -1130,6 +1147,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     incidentTimeResolution: sanitizeText(refundCase?.incident_time_resolution, 40) || "legacy_absolute",
     expectedMachineId: nayaxMachineId,
     locationTimezone: sanitizeText(location?.timezone, 80),
+    providerClockContext,
     requestAmountCents: sanitizeInputCents(refundCase?.payment_amount_cents),
     requestCardLast4: extractLast4(refundCase?.card_last4),
     requestCardNetwork: sanitizeText(refundCase?.card_network, 40),
@@ -1204,6 +1222,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     providerRecordCount,
     providerParseableRecordCount: recommendation.providerParseableRecordCount,
     providerWindowRecordCount: recommendation.providerWindowRecordCount,
+    providerClockContexts: [commonRecommendationInput.providerClockContext],
     candidateCount: recommendation.candidateCount,
     candidates,
     windowHours,
