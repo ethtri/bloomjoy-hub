@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(37);
+select plan(46);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data) values('dd000000-0000-4000-8000-000000000004','authenticated','authenticated','correction-manager@example.invalid','{}','{}');
 insert into public.customer_accounts(id,name,account_type) values('dd000000-0000-4000-8000-000000000001','Scoped correction fixture','customer');
@@ -61,6 +61,21 @@ select is(public.service_get_refund_purchase_correction(lpad('5',64,'0'))->>'sta
 select throws_like($$select pg_temp.submit(5,'{"amount":{"disposition":"changed","value":"7.00"}}')$$,'%stale or unavailable%','Stale submission cannot overwrite newer facts');
 update public.refund_wallet_correction_contexts set issued_at=statement_timestamp()-interval '49 hours',expires_at=statement_timestamp()-interval '1 hour' where token_hash=lpad('6',64,'0');
 select is(public.service_get_refund_purchase_correction(lpad('6',64,'0'))->>'state','unavailable','Expired link has no active read/write scope');
+select throws_like($$select pg_temp.submit(6,'{"amount":{"disposition":"changed","value":"7.00"}}')$$,'%stale or unavailable%','Expired capability cannot submit directly to the actual write RPC');
+select ok((select payment_amount_cents is null from public.refund_cases where id='dd000000-0000-4000-8001-000000000006')
+ and not exists(select 1 from public.refund_case_events where refund_case_id='dd000000-0000-4000-8001-000000000006' and event_type='purchase_correction_received'),'Rejected expired submission changes no fact or response event');
+select pg_temp.make_scope(13,true);
+update public.refund_wallet_correction_contexts set status='revoked' where token_hash=lpad(to_hex(13),64,'0');
+select is(public.service_get_refund_purchase_correction(lpad(to_hex(13),64,'0'))->>'state','unavailable','Revoked delivered capability has no active read scope');
+select throws_like($$select pg_temp.submit(13,'{"amount":{"disposition":"changed","value":"7.00"}}')$$,'%stale or unavailable%','Revoked capability cannot submit directly to the actual write RPC');
+select ok((select payment_amount_cents is null from public.refund_cases where id='dd000000-0000-4000-8001-000000000013')
+ and not exists(select 1 from public.refund_case_events where refund_case_id='dd000000-0000-4000-8001-000000000013' and event_type='purchase_correction_received'),'Rejected revoked submission changes no fact or response event');
+select pg_temp.make_scope(14,true);
+select lives_ok($$select public.service_issue_refund_status_capability('dd000000-0000-4000-8001-000000000014',encode(extensions.digest(repeat('s',43),'sha256'),'hex'),statement_timestamp()+interval '1 day')$$,'Fixture issues a real status capability for a case with a separate purchase scope');
+select is(public.service_get_refund_purchase_correction(encode(extensions.digest('refund-correction-v1:'||repeat('s',43),'sha256'),'hex'))->>'state','unavailable','Status bearer hashed in purchase domain cannot inspect a purchase scope');
+select throws_like($$select public.service_submit_refund_purchase_correction(encode(extensions.digest('refund-correction-v1:'||repeat('s',43),'sha256'),'hex'),1,'{"amount":{"disposition":"changed","value":"7.00"}}')$$,'%unavailable%','Actual status capability cannot authorize a purchase correction write');
+select ok((select payment_amount_cents is null from public.refund_cases where id='dd000000-0000-4000-8001-000000000014')
+ and (select status='pending' from public.refund_wallet_correction_contexts where token_hash=lpad(to_hex(14),64,'0')),'Status-token rejection preserves facts and the unrelated purchase capability');
 select ok((select status='manual_review' from public.refund_follow_up_cycles where refund_case_id='dd000000-0000-4000-8001-000000000003'),'Customer response stops the existing reminder cycle');
 update public.refund_cases set incident_timezone='America/New_York' where id='dd000000-0000-4000-8001-000000000003';
 select is(public.refund_purchase_correction_request_fields('dd000000-0000-4000-8001-000000000003'),'{}'::text[],'Unrelated Operations timezone correction does not repeat an unanswered customer amount');

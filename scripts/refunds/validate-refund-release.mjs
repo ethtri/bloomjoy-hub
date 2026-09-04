@@ -116,7 +116,7 @@ for (const slug of requiredFunctionSlugs) {
   );
 }
 
-for (const requiredFailClosedControl of [
+for (const requiredIsolatedDefault of [
   'NAYAX_REFUND_EXECUTION_ENABLED=false',
   'NAYAX_REFUND_EXECUTION_DRY_RUN=true',
   'NAYAX_REFUND_EXECUTION_KILL_SWITCH=true',
@@ -124,12 +124,22 @@ for (const requiredFailClosedControl of [
   'REFUND_GMAIL_ENABLED=false',
   'REFUND_GPT_TRIAGE_ENABLED=false',
   'OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false',
-  'Keep the runtime Nayax execution gates off during deployment',
 ]) {
   assert(
-    productionRunbook.includes(requiredFailClosedControl),
-    `Release runbook is missing fail-closed control: ${requiredFailClosedControl}`
+    productionRunbook.includes(requiredIsolatedDefault),
+    `Release runbook is missing isolated setup default: ${requiredIsolatedDefault}`
   );
+}
+
+for (const currentReleaseControl of [
+  'Initial isolated setup only',
+  'Preserve the current runtime Nayax execution, dry-run, and kill-switch settings during compatible deployments',
+  'A temporary execution pause must address a demonstrated release-specific incompatibility or incident, with its reason and restoration recorded',
+  'Reuse valid unchanged evidence',
+  'deploy and independently verify its backward-compatible replacement first',
+]) {
+  assert(productionRunbook.includes(currentReleaseControl),
+    `Release runbook is missing current operating control: ${currentReleaseControl}`);
 }
 
 assert.match(cutoverPacket, /all 90 required refund\/Nayax migrations/);
