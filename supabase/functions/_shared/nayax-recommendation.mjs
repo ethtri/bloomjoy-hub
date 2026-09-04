@@ -868,8 +868,10 @@ export const buildNayaxRecommendation = ({
     no_safe_match: {
       summary: windowRecordCount > 0
         ? "Nayax found sales in the time window, but none met the safe recommendation rules."
-        : "Nayax found no card sales in the configured incident window.",
-      recommendedAction: "Ask the customer for another detail or continue with manual review. One-click refund stays unavailable.",
+        : "The returned recent sales contain no usable transactions in the purchase time window. Historical coverage is unknown.",
+      recommendedAction: windowRecordCount > 0
+        ? "Compare the existing purchase details and transaction evidence before choosing the next step."
+        : "Refund Operations should review transaction coverage and machine/time evidence. Do not ask the customer to repeat details already provided.",
     },
   }[recommendationState];
 
