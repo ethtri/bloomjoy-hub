@@ -153,3 +153,47 @@ test('actual action keeps explicit no-refund release independent of delivery-onl
  assert.equal(action(current,editor,[],{canIssueCardRefund:false,blockReason:'reconciliation_hold'}).disabled,true);
  assert.equal(action({...current,lifecycle:{...lifecycle,operations:{...lifecycle.operations,failureClass:'provider_outcome_unknown'}}},editor,[],{canIssueCardRefund:true}).disabled,true);
 });
+
+const approvalValidationDependencies={
+ centsFromCurrency:value=>/^\d+(?:\.\d{1,2})?$/.test(value)?Math.round(Number(value)*100):null,
+ statusDecisionMap:{completed:'approved',denied:'denied'},
+ noDecisionStatuses:new Set(['needs_review','waiting_on_customer']),
+ statusLabel:status=>status,
+ customerSafeDenialReasonSet:new Set(['Unable to verify the purchase']),
+ hasConfirmedRefundReceipt:()=>false,
+};
+const unchangedApproval=load('hasUnchangedSavedApproval',approvalValidationDependencies);
+const saveIssues=load('getCaseSaveIssues',approvalValidationDependencies);
+const displayIssues=load('getPrimaryActionIssues',{...approvalValidationDependencies,hasUnchangedSavedApproval:unchangedApproval,getCaseSaveIssues:saveIssues});
+const approvedCase={paymentMethod:'card',status:'needs_review',decision:'approved',decisionReason:'Ordinary manager approval',refundAmountCents:963};
+const approvedEditor={status:'needs_review',decision:'approved',decisionReason:'Ordinary manager approval',refundAmount:'9.63',clearNayaxMatch:false,matchedNayaxCandidateToken:'',matchedNayaxAmount:'',matchedNayaxCardLast4:'',matchedNayaxCurrencyCode:'',matchedNayaxMachineAuthTime:''};
+
+test('opening unchanged approved review suppresses only the false read-only decision warning',()=>{
+ const action={label:'Manager review required',disabled:true};
+ assert.equal(saveIssues(approvedCase,approvedEditor).length,1,'generic save validation stays intact');
+ assert.equal(displayIssues(approvedCase,approvedEditor,action).length,0);
+ const invalidCard={...approvedEditor,matchedNayaxCardLast4:'bad'};
+ assert.equal(displayIssues(approvedCase,invalidCard,action).length,1,'unrelated input errors remain visible');
+ assert.match(displayIssues(approvedCase,invalidCard,action)[0],/exactly 4 digits/);
+});
+
+test('changed approvals and real mutation modes retain original save validation',()=>{
+ for(const change of [{refundAmount:'9.64'},{decisionReason:'Changed'},{decision:null},{status:'waiting_on_customer'},{clearNayaxMatch:true}]) {
+  const next={...approvedEditor,...change};
+  assert.equal(unchangedApproval(approvedCase,next),false);
+  assert.equal(JSON.stringify(displayIssues(approvedCase,next,{disabled:true})),JSON.stringify(saveIssues(approvedCase,next)));
+ }
+ for(const mode of ['case_update','nayax_evidence_selection','nayax_refund_execution','manual_nayax_approval']) {
+  assert.equal(JSON.stringify(displayIssues(approvedCase,approvedEditor,{disabled:true,mode})),JSON.stringify(saveIssues(approvedCase,approvedEditor)));
+ }
+ for(const change of [{decision:null},{decision:'denied'},{refundAmountCents:null},{refundAmountCents:0},{paymentMethod:'cash'}]) {
+  assert.equal(unchangedApproval({...approvedCase,...change},approvedEditor),false);
+ }
+});
+
+test('existing approval does not waive exact full-refund completion checks',()=>{
+ const completed={...approvedEditor,status:'completed',matchedNayaxAmount:'9.64'};
+ const issues=displayIssues(approvedCase,completed,{mode:'nayax_refund_execution'});
+ assert.ok(issues.some(issue=>issue.includes('must match the selected machine transaction')));
+ assert.ok(issues.some(issue=>issue.includes('before completing this refund')));
+});
