@@ -657,10 +657,10 @@ const sanitizePortalMissingFields = (fields: string[]): RefundMissingField[] =>
     (field): field is RefundMissingField => fields.includes(field),
   );
 
-const CustomerCorrectionSummary = ({ refundCase, onReview }: { refundCase: RefundCaseRecord; onReview?: () => void }) => {
+const CustomerCorrectionSummary = ({ refundCase, onReview }: { refundCase: RefundCaseRecord; onReview?: (trigger: HTMLButtonElement) => void }) => {
   const correction = refundCase.customerCorrection;
   if (!correction) return null;
-  return <section className="border-b border-border p-4" aria-label="Customer correction">
+  return <section id={`refund-correction-${refundCase.id}`} tabIndex={-1} className="border-b border-border p-4" aria-label="Customer correction">
     <h3 className="font-semibold">{correction.state === 'submitted' ? 'Customer response received' : correction.isActive ? 'Customer correction requested' : 'Customer correction needs review'}</h3>
     <p className="mt-2 text-sm text-muted-foreground">{correction.state === 'submitted'
       ? 'Continue reviewing this request. The customer does not need to answer these details again.'
@@ -674,7 +674,7 @@ const CustomerCorrectionSummary = ({ refundCase, onReview }: { refundCase: Refun
         : `Changed from ${correction.previousValues[field] ?? 'not provided'} to ${answer.value ?? ''}`}</dd>
     </div>)}</dl>}
     {correction.state === 'submitted' && <p className="mt-3 text-sm">{correction.recheckState === 'completed' ? 'The purchase check completed. Review its result below.' : correction.nextAction === 'recheck' ? 'Bloomjoy is checking the updated purchase details.' : 'Bloomjoy owns the next review.'}</p>}
-    {correction.state === 'pending' && onReview && <Button className="mt-3" variant="outline" onClick={onReview}>Review current request</Button>}
+    {correction.state === 'pending' && onReview && <Button className="mt-3" variant="outline" onClick={(event) => onReview(event.currentTarget)}>Review current request</Button>}
   </section>;
 };
 
@@ -2400,6 +2400,7 @@ export default function AdminRefundsPage() {
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
   const [correctionSelection, setCorrectionSelection] = useState<{ caseId: string; version: number; fields: RefundMissingField[]; requestId?: string; editing?: boolean } | null>(null);
   const correctionNoticeState = useRef<CorrectionNoticeState>({initialized:false,seen:new Set()});
+  const correctionDialogTriggerRef = useRef<{caseId:string; element:HTMLElement|null}|null>(null);
   const [pendingRevisions, setPendingRevisions] = useState<Record<string,{caseId:string;expectedCaseVersion:number;messageIntentId:string;currentCorrectionRequestId:string;messageType:'more_info';missingFields:RefundMissingField[]}>>({});
   const [isDisposingAcknowledgementException, setIsDisposingAcknowledgementException] =
     useState(false);
@@ -4439,6 +4440,14 @@ export default function AdminRefundsPage() {
     );
   };
 
+  const handleCorrectionDialogCloseAutoFocus = (event: Event) => {
+    const opener=correctionDialogTriggerRef.current;
+    if (!opener || opener.caseId !== selectedCase?.id) return;
+    const target=opener.element?.isConnected && !opener.element.matches(':disabled')
+      ? opener.element : document.getElementById(`refund-correction-${opener.caseId}`);
+    if (target) { event.preventDefault(); target.focus(); }
+  };
+
   const handleInspectRevisionDelivery = async () => {
     if (!pendingRevision || pendingRevision.caseId !== selectedCase?.id || isUsingDemoData) return;
     setIsSendingCustomerMessage(true);
@@ -4449,12 +4458,14 @@ export default function AdminRefundsPage() {
       setCorrectionSelection(null);
       toast.success('The existing revision was sent. No additional email was created.');
       await refresh();
+      document.getElementById(`refund-correction-${pendingRevision.caseId}`)?.focus();
     } catch (inspectionError) {
       if (isEdgeFunctionError(inspectionError) && ['revision_intent_not_found','revision_intent_proven_unsent'].includes(String(inspectionError.data?.errorCode))) {
         setPendingRevision(null);
         manualMessageIntentRef.current=null;
         setCorrectionSelection(null);
         await refresh();
+        document.getElementById(`refund-correction-${pendingRevision.caseId}`)?.focus();
       }
       toast.error(inspectionError instanceof Error ? inspectionError.message : 'The existing revision delivery still needs review.');
     } finally { setIsSendingCustomerMessage(false); }
@@ -4488,6 +4499,7 @@ export default function AdminRefundsPage() {
         return;
       }
       if (!selectedCorrectionFields) {
+        correctionDialogTriggerRef.current = {caseId:selectedCase.id,element:document.activeElement instanceof HTMLElement ? document.activeElement : null};
         setCorrectionSelection({ caseId: selectedCase.id, version: officialActionVersion, fields: [...selectedCase.customerCorrectionFields] });
         return;
       }
@@ -5445,7 +5457,7 @@ export default function AdminRefundsPage() {
             </div>
           )}
 
-          <CustomerCorrectionSummary refundCase={selectedCase} onReview={() => setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false})} />
+          <CustomerCorrectionSummary refundCase={selectedCase} onReview={(trigger) => { correctionDialogTriggerRef.current={caseId:selectedCase.id,element:trigger}; setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false}); }} />
           {revisionDeliveryReview}
           <div className="grid gap-px bg-border lg:grid-cols-2">
             <article data-testid="refund-request-summary" className="bg-card p-4">
@@ -6401,7 +6413,7 @@ export default function AdminRefundsPage() {
             </div>
           </div>
 
-          <CustomerCorrectionSummary refundCase={selectedCase} onReview={() => setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false})} />
+          <CustomerCorrectionSummary refundCase={selectedCase} onReview={(trigger) => { correctionDialogTriggerRef.current={caseId:selectedCase.id,element:trigger}; setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false}); }} />
           {revisionDeliveryReview}
           <div className="grid border-t border-border lg:grid-cols-2 lg:divide-x lg:divide-border">
             <article data-testid="refund-cash-request-summary" className="p-4">
@@ -8446,7 +8458,7 @@ export default function AdminRefundsPage() {
       </AlertDialog>
 
       <Dialog open={Boolean(correctionSelection)} onOpenChange={(open) => { if (!open && !isSendingCustomerMessage) setCorrectionSelection(null); }}>
-        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg" onCloseAutoFocus={handleCorrectionDialogCloseAutoFocus}>
           <DialogHeader>
             <DialogTitle>{correctionSelection?.requestId ? correctionSelection.editing ? 'Revise customer request' : 'Current customer request' : 'Request customer correction'}</DialogTitle>
             <DialogDescription>{correctionSelection?.requestId ? correctionSelection.editing ? 'This sends one additional email and replaces the old secure link. Choose a different set of details only when the request needs correcting.' : 'Review the details already requested. The existing link stays active unless you explicitly revise and send.' : 'Select the details that need checking. Bloomjoy will send one secure link for this existing request.'}</DialogDescription>
