@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "bed0e3c0b8a7452be293e0fb6be5ff203d173c5d",
+  "sourceGitCommit": "d81233709c0a1745ee02a0ed194c3a5a41a19775",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -145,10 +145,11 @@
     "20260904163551_refund_verified_provider_clock.sql",
     "20260904172349_nayax_report_original_refund_site_binding.sql",
     "20260904182000_refund_owner_nonrefund_adoption.sql",
-    "20260904203000_refund_mall_of_louisiana_location_repair.sql"
+    "20260904203000_refund_mall_of_louisiana_location_repair.sql",
+    "20260904210000_refund_location_binding_public_label_hotfix.sql"
   ],
-  "migrationFilesSha256": "02a981cd95c786a03c1ede810bc7f2d40b7cba9f50115460d6485f850f1f436e",
-  "migrationVersionSetSha256": "aea7e5b7277d5136b0e7df1af078dedcd6914513276b96efa065af2fe1f63c09",
+  "migrationFilesSha256": "c7def4c363f3604baf72e1a8d4e5f7955dc5a6612699dbfcde521dd8cf106928",
+  "migrationVersionSetSha256": "11a362f25e8d8696a6d097cf2259e7aa198e07de552d2dcd18ece1bbc6d8d4b6",
   "preMigrationCompatibility": {
     "releaseId": "refund-ops-2026-08-14-pre-controlled-nayax-pilot",
     "sourceGitCommit": "71eb076bc3ad95ccabd0c591b8140820bed6c393",

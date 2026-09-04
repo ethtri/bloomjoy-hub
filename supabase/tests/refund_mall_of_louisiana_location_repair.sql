@@ -167,6 +167,11 @@ select ok(
   'Catalog creation neither binds nor promotes an unrelated pending sales source'
 );
 
+update public.reporting_machines
+set machine_label = 'Opaque Gonzales operations fixture'
+where account_id = '89010000-0000-4000-8000-000000000890'
+  and refund_public_display_label = 'Gonzales Tanger Outlet';
+
 create temporary table repair_fixture as
 select
   source_machine.id as source_machine_id,
@@ -176,7 +181,8 @@ select
 from public.reporting_machines source_machine
 join public.reporting_machines target_machine
   on target_machine.account_id = source_machine.account_id
-where source_machine.machine_label = 'Gonzales Tanger Outlet'
+where source_machine.machine_label = 'Opaque Gonzales operations fixture'
+  and source_machine.refund_public_display_label = 'Gonzales Tanger Outlet'
   and target_machine.machine_label = 'Mall of Louisiana';
 
 insert into public.refund_cases (
@@ -237,7 +243,7 @@ select ok(
       and (value ->> 'providerCallMade')::boolean is false
       and (value ->> 'customerMessageCreated')::boolean is false
    from repair_context),
-  'Private context returns only reviewed readiness and aggregate no-side-effect evidence'
+  'Private context accepts the exact reviewed public label when its internal operational label differs'
 );
 select ok(
   has_function_privilege(
@@ -276,6 +282,19 @@ select ok(
   )) like 'P4681:Exact unresolved customer-reported location correction required%',
   'A stale or unrelated case digest fails before mutation'
 );
+select ok(
+  pg_temp.capture_error(format(
+    $$select public.service_correct_refund_location_binding(
+      '89040000-0000-4000-8000-000000000890', %L, %s, %s,
+      '89050000-0000-4000-8000-000000000890', %L, true
+    )$$,
+    (select value ->> 'caseDigest' from repair_context),
+    (select value ->> 'expectedCaseVersion' from repair_context),
+    (select value ->> 'expectedFactVersion' from repair_context),
+    (select value ->> 'expectedSourceLocationId' from repair_context)
+  )) like 'P4681:Exact unresolved customer-reported location correction required%',
+  'A wrong expected source machine ID still fails before mutation'
+);
 reset role;
 select ok(
   (select refund_case.reporting_machine_id = fixture.source_machine_id
@@ -285,6 +304,30 @@ select ok(
    where refund_case.id = '89040000-0000-4000-8000-000000000890'),
   'A rejected invocation leaves the case binding unchanged'
 );
+
+update public.reporting_machines machine
+set refund_public_display_label = 'Wrong public location fixture'
+from repair_fixture fixture
+where machine.id = fixture.source_machine_id;
+set local role service_role;
+select ok(
+  pg_temp.capture_error(format(
+    $$select public.service_correct_refund_location_binding(
+      '89040000-0000-4000-8000-000000000890', %L, %s, %s, %L, %L, true
+    )$$,
+    (select value ->> 'caseDigest' from repair_context),
+    (select value ->> 'expectedCaseVersion' from repair_context),
+    (select value ->> 'expectedFactVersion' from repair_context),
+    (select value ->> 'expectedSourceMachineId' from repair_context),
+    (select value ->> 'expectedSourceLocationId' from repair_context)
+  )) like 'P4681:Exact unresolved customer-reported location correction required%',
+  'A wrong public display label still fails before mutation'
+);
+reset role;
+update public.reporting_machines machine
+set refund_public_display_label = 'Gonzales Tanger Outlet'
+from repair_fixture fixture
+where machine.id = fixture.source_machine_id;
 
 set local role service_role;
 create temporary table repair_result as
