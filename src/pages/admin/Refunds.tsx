@@ -2384,6 +2384,28 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
   return issues;
 };
 
+const hasUnchangedSavedApproval = (refundCase: RefundCaseRecord, editor: EditorState): boolean =>
+  refundCase.paymentMethod === 'card' && refundCase.status === 'needs_review' &&
+  refundCase.decision === 'approved' && editor.status === refundCase.status &&
+  editor.decision === refundCase.decision && !editor.clearNayaxMatch &&
+  editor.decisionReason.trim() === (refundCase.decisionReason ?? '').trim() &&
+  typeof refundCase.refundAmountCents === 'number' && refundCase.refundAmountCents > 0 &&
+  centsFromCurrency(editor.refundAmount) === refundCase.refundAmountCents;
+
+const getPrimaryActionIssues = (
+  refundCase: RefundCaseRecord,
+  editor: EditorState,
+  action: PrimaryActionConfig | null
+): string[] => {
+  if (hasConfirmedRefundReceipt(refundCase) || action?.mode === 'retry_message') return [];
+  const issues = getCaseSaveIssues(refundCase, editor);
+  if (action?.disabled === true && !action.mode && hasUnchangedSavedApproval(refundCase, editor)) {
+    // A read-only next step does not propose saving another approval.
+    return issues.filter((issue) => issue !== `${statusLabel(editor.status)} is a review/follow-up status and cannot carry a final decision.`);
+  }
+  return issues;
+};
+
 export default function AdminRefundsPage() {
   const queryClient = useQueryClient();
   const detailPanelRef = useRef<HTMLDivElement>(null);
@@ -3045,11 +3067,9 @@ export default function AdminRefundsPage() {
   );
   const primaryActionIssues = useMemo(
     () =>
-      (selectedCase && hasConfirmedRefundReceipt(selectedCase)) || primaryAction?.mode === 'retry_message'
-        ? []
-        : selectedCase && primaryActionEditor
-          ? getCaseSaveIssues(selectedCase, primaryActionEditor)
-          : [],
+      selectedCase && primaryActionEditor
+        ? getPrimaryActionIssues(selectedCase, primaryActionEditor, primaryAction)
+        : [],
     [primaryAction, primaryActionEditor, selectedCase]
   );
   const selectedNayaxSummary = useMemo(
@@ -5362,6 +5382,18 @@ export default function AdminRefundsPage() {
           tone: 'info',
         }
       : !hasSelectedMatch &&
+          !waitingOnCustomer &&
+          selectedCase.lifecycle?.stage === 'needs_transaction_selection' &&
+          effectiveCandidates.length > 0 &&
+          !hasSelectableCandidate
+        ? {
+            id: 'match_attention',
+            label: 'Internal review needed',
+            explanation: 'None of the returned transactions is safe to select.',
+            nextStep: 'Review the existing case details and transaction conflicts internally.',
+            tone: 'warning',
+          }
+      : !hasSelectedMatch &&
           effectiveCandidates.length > 0 &&
           selectedNayaxSummary?.recommendationState === 'high_confidence'
         ? {
@@ -5465,6 +5497,13 @@ export default function AdminRefundsPage() {
               ) : null}
             </div>
           </div>
+
+          {hasUnchangedSavedApproval(selectedCase, editor) && hasUnpaidRefundReview(selectedCase) && (
+            <div data-testid="refund-existing-approval" className="border-b border-border px-4 py-3 text-sm text-muted-foreground">
+              <p>Existing approval: {formatCurrency(selectedCase.refundAmountCents)}</p>
+              {selectedCase.decisionReason?.trim() && <p className="mt-1">Recorded reason: {selectedCase.decisionReason}</p>}
+            </div>
+          )}
 
           {selectedCase.lifecycle && (
             <div className="border-b border-border px-4 py-4">
@@ -6204,7 +6243,7 @@ export default function AdminRefundsPage() {
                     disabled={isUsingDemoData || selectedCaseIsReviewOnly}
                     onClick={chooseDenial}
                   >
-                    Deny request
+                    {selectedCase.decision === 'approved' ? 'Change to denial' : 'Deny request'}
                   </Button>
                 )}
               </div>

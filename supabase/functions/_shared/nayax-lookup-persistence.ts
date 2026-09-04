@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import type { NayaxLookupResult } from "./nayax-lookup.ts";
+import { withNayaxProviderClockDiagnostics } from "./nayax-provider-clock.mjs";
 
 export type LookupTrigger = "automatic" | "manual" | "wallet_correction" | "scheduled";
 
@@ -15,7 +16,7 @@ export const buildNayaxLookupDiagnostics = (result: NayaxLookupResult) => {
     return null;
   }
   const count = (value: unknown) => Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : null;
-  return {
+  return withNayaxProviderClockDiagnostics({
     schemaVersion: "nayax_lookup_diagnostics_v1",
     endpoint: "machine_last_sales",
     historicalCoverage: "unknown",
@@ -32,7 +33,7 @@ export const buildNayaxLookupDiagnostics = (result: NayaxLookupResult) => {
     providerTimePolicy: "authorization_gmt_else_mapped_machine_clock",
     machineTimezoneSource: "configured_location_not_verified_provider_clock",
     providerPayloadRedacted: true,
-  };
+  }, result.providerClockContexts);
 };
 
 export const beginNayaxLookup = async ({

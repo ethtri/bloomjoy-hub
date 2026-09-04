@@ -67,3 +67,28 @@ Deno.test("empty and outside-window recent payloads preserve matching outcome an
     assertEquals(recommendation.summary.includes("Historical coverage is unknown"), true);
   }
 });
+
+Deno.test("actual persistence emits bounded v2 clock contexts without changing the customer window or retrying", async () => {
+  const contexts = [{ reportingMachineId: "fc440000-0000-4000-8000-000000000001",
+    timezone: "America/Los_Angeles", source: "native_machine_configuration",
+    observedAt: "2026-09-04T15:44:13.963271+00:00", rawPayload: "must-not-persist" },
+  { reportingMachineId: "fc440000-0000-4000-8000-000000000002",
+    timezone: null, source: "unknown", observedAt: null }];
+  const calls: { name: string; args: Record<string, unknown> }[] = [];
+  const supabase = { rpc(name: string, args: Record<string, unknown>) {
+    calls.push({ name, args }); return Promise.resolve({ data: { applied: true }, error: null });
+  } } as unknown as Parameters<typeof persistNayaxLookupResult>[0]["supabase"];
+  await persistNayaxLookupResult({ supabase, caseId: "case-fixture", actorUserId: "actor-fixture",
+    result: { ...result, providerClockContexts: contexts }, trigger: "manual", expectedFactVersion: 1, lookupGeneration: 3 });
+  assertEquals(calls.length, 1);
+  assertEquals(calls[0].name, "service_commit_refund_nayax_lookup_with_diagnostics");
+  const diagnostic = calls[0].args.p_diagnostics as Record<string, unknown>;
+  assertEquals(Object.keys(diagnostic).length, 17);
+  assertEquals(diagnostic.schemaVersion, "nayax_lookup_diagnostics_v2");
+  assertEquals(diagnostic.providerClockContexts, contexts.map(({ rawPayload: _raw, ...context }) => context));
+  assertEquals(diagnostic.locationTimezone, "America/New_York");
+  assertEquals(diagnostic.windowStart, "2026-08-29T14:10:00.000Z");
+  assertEquals(diagnostic.historicalCoverage, "unknown");
+  assertEquals(JSON.stringify(diagnostic).includes("must-not-persist"), false);
+  assertEquals(buildNayaxLookupDiagnostics(result)?.schemaVersion, "nayax_lookup_diagnostics_v1");
+});
