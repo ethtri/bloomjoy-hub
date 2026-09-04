@@ -70,8 +70,12 @@ select throws_ok($$select pg_temp.commit_result(2,jsonb_set(pg_temp.diagnostic()
 select throws_ok($$select pg_temp.commit_result(2,jsonb_set(pg_temp.diagnostic(),'{historicalCoverage}','"complete"'))$$,
  'P4623','Invalid bounded lookup diagnostics','Latest-sales observation cannot claim complete history');
 select is(pg_temp.commit_result(2,pg_temp.diagnostic(),2)->>'applied','false','Wrong generation remains stale');
+select is(pg_temp.commit_result(2,jsonb_set(pg_temp.diagnostic(),'{incidentTimeResolution}','"invalid_local_time"'))->>'applied',
+ 'true','Existing invalid-local-time provenance is accepted without a new matching gate');
+select is(pg_temp.commit_result(3,jsonb_set(pg_temp.diagnostic(),'{incidentTimeResolution}','"invalid_timezone"'))->>'applied',
+ 'true','Existing invalid-timezone provenance is accepted without a new matching gate');
 select is((select count(*) from public.refund_case_events where refund_case_id=pg_temp.case_id(2)
- and event_type='nayax_lookup_diagnostics'),0::bigint,'Stale result adds no diagnostics');
+ and event_type='nayax_lookup_diagnostics' and metadata->>'lookup_generation'='2'),0::bigint,'Stale result adds no diagnostics');
 update public.refund_cases set refund_completed_at=now() where id=pg_temp.case_id(4);
 select is(pg_temp.commit_result(4)->>'applied','false','Late result cannot rewind completed payment marker');
 select is((select count(*) from public.refund_case_events where refund_case_id=pg_temp.case_id(4)

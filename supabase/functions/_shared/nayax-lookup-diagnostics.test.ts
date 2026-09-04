@@ -27,6 +27,10 @@ Deno.test("existing response counts distinguish no local-window rows from provid
   assertEquals(JSON.stringify(diagnostic).includes("@"), false);
   assertEquals(diagnostic.machineTimezoneSource, "configured_location_not_verified_provider_clock");
   assertEquals(buildNayaxLookupDiagnostics({ ...result, windowHours: 0 }), null);
+  for (const resolution of ["invalid_local_time", "invalid_timezone"]) {
+    assertEquals(buildNayaxLookupDiagnostics({ ...result,
+      refundCase: { ...result.refundCase!, incidentTimeResolution: resolution } })?.incidentTimeResolution, resolution);
+  }
 });
 
 Deno.test("actual persistence sends one existing result through scoped diagnostic wrapper; stale result is not success", async () => {
