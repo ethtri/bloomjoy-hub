@@ -24,6 +24,10 @@ begin
     return public.service_apply_refund_gmail_customer_facts_pre_purchase_correction(
       p_refund_case_id,p_gmail_message_id,p_expected_fact_version,p_updates,p_applied_fields,p_extraction_policy);
   end if;
+  if exists(select 1 from public.refund_authoritative_receipts receipt where receipt.refund_case_id=c.id) then
+    return public.service_apply_refund_gmail_customer_facts_pre_purchase_correction(
+      p_refund_case_id,p_gmail_message_id,p_expected_fact_version,p_updates,p_applied_fields,p_extraction_policy);
+  end if;
   select * into r from public.refund_wallet_correction_contexts ctx
     where ctx.refund_case_id=c.id and ctx.correction_kind='purchase' and ctx.status='pending'
     order by ctx.version desc limit 1 for update;
