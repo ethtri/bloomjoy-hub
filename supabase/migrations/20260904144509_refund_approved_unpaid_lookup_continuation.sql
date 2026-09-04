@@ -45,6 +45,35 @@ begin
 end;
 $migration$;
 
+-- Interrupted reads use the same current-authority boundary as a returned
+-- success/failure. SKIP LOCKED and the existing bounded batch remain intact.
+do $migration$
+declare
+  definition text;
+  anchor text := '    where refund_case.nayax_lookup_status = ''checking''';
+  replacement text := $replacement$    where refund_case.nayax_lookup_status = 'checking'
+      and refund_case.status in ('submitted', 'needs_review', 'correlated', 'approved')
+      and refund_case.decision is distinct from 'denied'
+      and refund_case.nayax_refund_execution_status = 'not_requested'
+      and refund_case.refund_completed_at is null
+      and refund_case.reporting_adjustment_id is null
+      and refund_case.manual_refund_reference is null
+      and refund_case.matched_nayax_transaction_id is null
+      and refund_case.deterministic_fact_version = refund_case.nayax_lookup_retry_fact_version
+      and not exists (select 1 from public.refund_authoritative_receipts receipt where receipt.refund_case_id = refund_case.id)
+      and not exists (select 1 from public.refund_case_nayax_refund_attempts attempt where attempt.refund_case_id = refund_case.id)$replacement$;
+begin
+  definition := replace(pg_catalog.pg_get_functiondef(
+    'public.service_recover_stale_refund_nayax_lookups()'::regprocedure
+  ), E'\r\n', E'\n');
+  replacement := replace(replacement, E'\r\n', E'\n');
+  if length(definition) - length(replace(definition, anchor, '')) <> length(anchor) then
+    raise exception 'Exact interrupted lookup recovery anchor is required';
+  end if;
+  execute replace(definition, anchor, replacement);
+end;
+$migration$;
+
 -- CREATE OR REPLACE retains ownership and existing grants; assert the private
 -- helper remains inaccessible and the existing wrapper is service-only.
 revoke all on function public.service_begin_refund_nayax_lookup_pre_scope_recovery_v1(uuid,bigint,text,uuid)

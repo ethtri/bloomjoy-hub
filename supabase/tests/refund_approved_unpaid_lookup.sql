@@ -29,11 +29,11 @@ select pg_temp.case_id(n),'RF-APPROVED-LOOKUP-'||n,'fa440000-0000-4000-8000-0000
   case when n=3 then 'denied' when n=4 then 'completed' when n=10 then 'approved' else 'needs_review' end,
   case when n=3 then 'denied' when n=9 then null else 'approved' end,'Ordinary manager decision',
   'fa410000-0000-4000-8000-000000000001',now()-interval '1 day','no_match','nayax',1,
-  case when n=4 then 'succeeded' else 'not_requested' end,
+  'not_requested',
   case when n=7 then 'EXISTING-ORIGINAL-0007' else null end,
   case when n=6 then pg_temp.case_id(1) else null end,
-  case when n=11 then now()-interval '1 hour' else null end
-from generate_series(1,18) n;
+  case when n in(4,11) then now()-interval '1 hour' else null end
+from generate_series(1,19) n;
 
 -- Active triggers remain enabled. These retained historical records distinguish
 -- an unattempted approved case from a payment whose outcome requires inspection.
@@ -143,7 +143,9 @@ select is(public.refund_case_nayax_manager_readiness('fa410000-0000-4000-8000-00
 
 -- Decisions/outcomes can progress while a provider read is in flight without
 -- changing deterministic matching facts. Their authority wins over late reads.
-select pg_temp.begin_lookup(n) from generate_series(15,18) n;
+select pg_temp.begin_lookup(n) from generate_series(15,19) n;
+update public.refund_cases set nayax_lookup_started_at=statement_timestamp()-interval '2 minutes'
+  where id in(pg_temp.case_id(15),pg_temp.case_id(16),pg_temp.case_id(17),pg_temp.case_id(18),pg_temp.case_id(19));
 update public.refund_cases set decision='denied',status='denied' where id=pg_temp.case_id(15);
 insert into public.refund_authoritative_receipts(refund_case_id,reporting_machine_id,account_scope,provider_machine_id,
   original_transaction_id,original_amount_cents,refunded_amount_cents,currency_code,provider_status,
@@ -169,9 +171,14 @@ select is(public.service_fail_refund_nayax_lookup(pg_temp.case_id(17),1,1,'timeo
   'true','A late timeout cannot mutate a case with a new uncertain attempt');
 select is(public.service_fail_refund_nayax_lookup(pg_temp.case_id(18),1,1,'timeout',true,'manual','fa410000-0000-4000-8000-000000000001')->>'stale',
   'true','A late timeout cannot overwrite newer matching facts');
+select is(public.service_recover_stale_refund_nayax_lookups()->>'recoveredCount','1',
+  'Interrupted-read recovery touches only the still-eligible stale lookup');
 reset role;
 select ok(not exists(select 1 from late_cases_before b join public.refund_cases c using(id) where b.snapshot is distinct from to_jsonb(c)),
   'Late rejected results preserve all current decision, payment and matching state');
+select ok((select nayax_lookup_status='lookup_failed' and nayax_lookup_failure_class='worker_interrupted'
+  and nayax_lookup_safe_retry_eligible and decision='approved' from public.refund_cases where id=pg_temp.case_id(19)),
+  'Eligible interrupted lookup retains approval and the existing safe read retry');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts where refund_case_id in(pg_temp.case_id(12),pg_temp.case_id(13))),0,
   'Selection and amount rejection perform no payment');
 select ok(not exists(select 1 from public.refund_cases where id in(pg_temp.case_id(13),pg_temp.case_id(14))
