@@ -100,7 +100,7 @@
     "refunds:finalize-uat-evidence": "node scripts/refunds/finalize-refund-uat-evidence.mjs",
     "refunds:validate-uat-evidence": "node scripts/refunds/validate-refund-uat-evidence.mjs",
     "refunds:validate-nayax-matching": "node scripts/refunds/validate-nayax-recommendation.mjs && node scripts/refunds/validate-nayax-machine-context.mjs && npm run refunds:validate-automatic-nayax-lookup",
-    "refunds:validate-durable-lifecycle": "deno test --no-lock supabase/functions/_shared/nayax-lookup-bounds.test.ts supabase/functions/_shared/nayax-provider-clock.test.ts src/lib/refundLifecycle.test.ts",
+    "refunds:validate-durable-lifecycle": "deno test --no-lock supabase/functions/_shared/nayax-lookup-bounds.test.ts supabase/functions/_shared/nayax-provider-clock.test.ts supabase/functions/_shared/nayax-lookup-diagnostics.test.ts src/lib/refundLifecycle.test.ts",
     "refunds:validate-lifecycle-v2": "node scripts/refunds/validate-refund-lifecycle-v2.mjs",
     "refunds:validate-automatic-nayax-lookup": "deno test --no-lock supabase/functions/_shared/automatic-nayax-lookup.test.ts supabase/functions/_shared/nayax-grouped-ranking.test.ts supabase/functions/_shared/nayax-account-scope.test.ts && node scripts/refunds/validate-automatic-nayax-lookup.mjs",
     "refunds:validate-manager-workbench": "node --test scripts/refunds/refund-read-polling.test.mjs && deno test --no-lock src/lib/refundManagerState.test.ts src/lib/refundQueue.test.ts",

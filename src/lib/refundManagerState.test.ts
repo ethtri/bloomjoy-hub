@@ -1,6 +1,6 @@
 /// <reference lib="deno.ns" />
 
-import { getRefundManagerState, getRefundPaymentStateLabel } from './refundManagerState.ts';
+import { getRefundManagerState, getRefundPaymentStateLabel, hasUnpaidRefundReview } from './refundManagerState.ts';
 import type { RefundLifecycleContract, RefundLifecycleStage } from './refundLifecycle.ts';
 
 const assertEquals = (actual: unknown, expected: unknown, message: string) => {
@@ -650,4 +650,38 @@ Deno.test('cash cases without an amount route to customer follow-up', () => {
 
   assertEquals(result.id, 'needs_information', 'missing cash amount state');
   assertEquals(result.label, 'Needs payment amount', 'missing cash amount label');
+});
+
+
+Deno.test('historical delivery failures do not replace current unpaid matching, selection or refund readiness', () => {
+  for (const deliveryState of ['unknown','deferred','failed','bounced','complained'] as const) {
+    for (const stage of ['matching','needs_transaction_selection','transaction_confirmed','waiting_on_customer'] as const) {
+      const contract=lifecycle(stage,20);
+      const current={...baseCase,lifecycle:contract};
+      const result=getRefundManagerState({...current,customerDeliveryException:{state:deliveryState,messageType:'confirmation',recoveryOwner:'refund_operations',nextAction:'review_delivery_no_resend',customerMessageReplayAllowed:false,paymentReplayAllowed:false}});
+      assertEquals(result.label,getRefundManagerState(current).label,`${deliveryState}/${stage}`);
+      assertEquals(result.nextStep,getRefundManagerState(current).nextStep,`${deliveryState}/${stage} next step`);
+    }
+  }
+});
+Deno.test('canonical pending and uncertain payment truth stays ahead of unrelated delivery review',()=>{
+ for(const stage of ['refund_initiated','confirming_with_nayax','needs_refund_operations','integrity_hold','denied'] as const){
+  const current={...baseCase,lifecycle:lifecycle(stage,60)};
+  const result=getRefundManagerState({...current,customerDeliveryException:{state:'bounced',messageType:'status_update',recoveryOwner:'refund_operations',nextAction:'review_delivery_no_resend',customerMessageReplayAllowed:false,paymentReplayAllowed:false}});
+  assertEquals(result.id,getRefundManagerState(current).id,stage);
+  assertEquals(result.nextStep,getRefundManagerState(current).nextStep,`${stage} next step`);
+ }
+});
+
+Deno.test('explicit released-no-refund evidence permits review with delivery-only operations, never a payment hold',()=>{
+ const contract=lifecycle('transaction_confirmed',30,'refund');
+ contract.definitiveNoRefund=true;contract.safeRetryEligible=true;
+ contract.operations={...contract.operations,required:true,safeStage:'released_no_refund',failureClass:'customer_delivery_exception'};
+ const released={...baseCase,providerOutcome:'rejected' as const,lifecycle:contract};
+ assertEquals(hasUnpaidRefundReview(released),true,'Delivery-only review does not revoke an explicit safe release');
+ for(const failureClass of ['provider_outcome_unknown','integrity_hold',null]) {
+  assertEquals(hasUnpaidRefundReview({...released,lifecycle:{...contract,operations:{...contract.operations,failureClass}}}),false,'A payment review is not a delivery-only release');
+ }
+ assertEquals(hasUnpaidRefundReview({...released,providerHold:true}),false,'Explicit current provider hold wins');
+ assertEquals(hasUnpaidRefundReview({...released,lifecycle:{...contract,safeRetryEligible:false}}),false,'No safe retry means no review continuation');
 });
