@@ -1,3 +1,4 @@
+import { searchRefundCases } from '@/lib/refundCaseSearch';
 import { createRefundReadPolling, refundOverviewPollingInterval, refundAvailabilityIsTerminal, refundOverviewReadMessage } from '@/lib/refundReadPolling';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { collectCorrectionResponseNotices, type CorrectionNoticeState } from '@/lib/refundCorrectionContinuity';
@@ -98,6 +99,8 @@ import {
 } from '@/lib/refundOperations';
 import {
   getRefundManagerState,
+  hasUnpaidRefundReview,
+  hasProtectedRefundLifecycle,
   isDefinitiveNoRefundRetryReady,
   refundReadinessBlockMessage,
   type RefundManagerState,
@@ -110,6 +113,12 @@ import {
   type RefundQueueFilter as QueueFilter,
 } from '@/lib/refundQueue';
 import { cn } from '@/lib/utils';
+
+const refundSearchViewLabel = (refundCase: RefundCaseRecord) => ({
+  needs_action: 'Action needed', ready_to_pay: 'Ready to refund', in_progress: 'In progress',
+  waiting_on_customer: 'Waiting', provider_hold: 'Needs Refund Operations',
+  integrity_hold: 'Needs Refund Operations', completed: 'Done', internal_archive: 'Internal/test archive',
+})[getRefundManagerQueueBucket(refundCase)];
 
 const statusDecisionMap: Partial<Record<RefundCaseStatus, Exclude<RefundDecision, null>>> = {
   approved: 'approved',
@@ -1709,20 +1718,29 @@ const primaryActionConfig = (
       disabled: true,
     };
   }
-  if (refundCase.customerDeliveryException) {
+  if (refundCase.providerHold) {
+    return {
+      label: 'Refund status not confirmed',
+      helper: 'The refund result is unclear. Do not try again until payment support confirms what happened.',
+      disabled: true,
+    };
+  }
+  if (hasProtectedRefundLifecycle(refundCase)) {
+    const current = getRefundManagerState(refundCase);
+    return { label: current.label, helper: current.nextStep, disabled: true };
+  }
+  if (refundCase.lifecycle?.stage === 'waiting_on_customer') return {
+    label: 'Waiting for customer reply',
+    helper: 'Wait for the customer to reply to the existing request. No new request is needed.', disabled: true,
+  };
+  const canContinueReview = hasUnpaidRefundReview(refundCase) && derivePortalRefundMissingFields(refundCase).length === 0;
+  if (refundCase.customerDeliveryException && !canContinueReview) {
     const stateLabel = transactionalDeliveryLabel(
       refundCase.customerDeliveryException.state
     );
     return {
       label: 'Delivery needs review',
-      helper: `${stateLabel}. Refund Operations must review provider evidence. The successful payment state is unchanged; do not resend the message or retry a payment blindly.`,
-      disabled: true,
-    };
-  }
-  if (refundCase.providerHold) {
-    return {
-      label: 'Refund status not confirmed',
-      helper: 'The refund result is unclear. Do not try again until payment support confirms what happened.',
+      helper: `${stateLabel}. Refund Operations must review provider evidence. Delivery evidence does not establish a refund result; do not resend the message or retry a payment blindly.`,
       disabled: true,
     };
   }
@@ -1737,7 +1755,7 @@ const primaryActionConfig = (
       disabled: true,
     };
   }
-  if (latestMessage?.status === 'skipped') {
+  if (latestMessage?.status === 'skipped' && !canContinueReview) {
     return {
       label: 'Send a safe customer acknowledgement',
       helper: 'The automated message was skipped, so the customer has not been notified. Review and send one status update before treating this case as contacted.',
@@ -1745,7 +1763,7 @@ const primaryActionConfig = (
       mode: 'retry_message',
     };
   }
-  if (latestMessage?.status === 'failed') {
+  if (latestMessage?.status === 'failed' && !canContinueReview) {
     if (refundCase.paymentMethod === 'card' && latestMessage.messageType === 'approved') {
       return {
         label: 'Approval email blocked',
@@ -2548,45 +2566,35 @@ export default function AdminRefundsPage() {
   );
 
   const filteredCases = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
-    const sourceCases = statusFilter === 'internal_test' ? internalTestCases : overview.cases;
+    return searchRefundCases({
+      customerCases: overview.cases, internalCases: internalTestCases,
+      canViewInternal: refundOperationsAccess, internalView: statusFilter === 'internal_test',
+      query: search, matchesCurrentView: (refundCase) => {
+        const readyToRefund = isReadyToPayCase(refundCase);
+        const inProgress = isRefundInProgressCase(refundCase);
+        const needsRefundOperations = isRefundOperationsCase(refundCase);
+        const waiting = isWaitingCase(refundCase, refundOperationsAccess);
+        const done = isDoneCase(refundCase);
+        if (
+          statusFilter !== 'internal_test' &&
+          statusFilter === 'needs_action' &&
+          !isNeedsActionCase(refundCase)
+        ) return false;
+        if (statusFilter === 'missing_information' && !refundCase.missingInformation) return false;
+        if (statusFilter === 'possible_duplicate' && !refundCase.possibleDuplicate && !refundCase.confirmedDuplicate) return false;
+        if (statusFilter === 'aging' && !refundCase.aging) return false;
+        if (statusFilter === 'provider_hold' && (!refundOperationsAccess || !needsRefundOperations)) return false;
+        if (statusFilter === 'waiting_on_customer' && !waiting) return false;
+        if (
+          statusFilter === 'ready_to_pay' &&
+          !readyToRefund
+        ) return false;
+        if (statusFilter === 'in_progress' && !inProgress) return false;
+        if (statusFilter === 'blocked' && !isBlockedCase(refundCase)) return false;
+        if (statusFilter === 'completed' && !done) return false;
 
-    return sourceCases.filter((refundCase) => {
-      const readyToRefund = isReadyToPayCase(refundCase);
-      const inProgress = isRefundInProgressCase(refundCase);
-      const needsRefundOperations = isRefundOperationsCase(refundCase);
-      const waiting = isWaitingCase(refundCase, refundOperationsAccess);
-      const done = isDoneCase(refundCase);
-      if (
-        statusFilter !== 'internal_test' &&
-        statusFilter === 'needs_action' &&
-        !isNeedsActionCase(refundCase)
-      ) return false;
-      if (statusFilter === 'missing_information' && !refundCase.missingInformation) return false;
-      if (statusFilter === 'possible_duplicate' && !refundCase.possibleDuplicate && !refundCase.confirmedDuplicate) return false;
-      if (statusFilter === 'aging' && !refundCase.aging) return false;
-      if (statusFilter === 'provider_hold' && (!refundOperationsAccess || !needsRefundOperations)) return false;
-      if (statusFilter === 'waiting_on_customer' && !waiting) return false;
-      if (
-        statusFilter === 'ready_to_pay' &&
-        !readyToRefund
-      ) return false;
-      if (statusFilter === 'in_progress' && !inProgress) return false;
-      if (statusFilter === 'blocked' && !isBlockedCase(refundCase)) return false;
-      if (statusFilter === 'completed' && !done) return false;
-
-      if (!normalizedSearch) return true;
-      return [
-        refundCase.publicReference,
-        refundCase.customerEmail,
-        refundCase.customerName ?? '',
-        refundCase.machineLabel,
-        refundCase.locationName,
-        refundCase.issueSummary,
-      ]
-        .join(' ')
-        .toLowerCase()
-        .includes(normalizedSearch);
+        return true;
+      },
     }).sort((left, right) => {
       const rankDelta = caseUrgencyRank(left) - caseUrgencyRank(right);
       if (rankDelta !== 0) return rankDelta;
@@ -2615,15 +2623,19 @@ export default function AdminRefundsPage() {
   }), [internalTestCases, overview.cases, refundOperationsAccess]);
 
   const hasAnyCases = overview.cases.length + internalTestCases.length > 0;
-  const emptyQueueTitle = hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
-  const emptyQueueDescription = hasAnyCases
+  const isSearching = search.trim().length > 0;
+  const searchScope = statusFilter === 'internal_test' ? 'the internal/test archive' : 'all your customer case views';
+  const emptyQueueTitle = isSearching ? 'No matching cases.' : hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
+  const emptyQueueDescription = isSearching
+    ? `No results in ${searchScope}. Check the reference or try a customer, machine, or location.`
+    : hasAnyCases
     ? 'Try another status filter or search term.'
     : 'New assigned refund requests will appear here.';
 
   useEffect(() => {
     if (!selectedId) return;
 
-    const selectedCaseStillExists = filteredCases.some((refundCase) => refundCase.id === selectedId);
+    const selectedCaseStillExists = [...overview.cases, ...internalTestCases].some((refundCase) => refundCase.id === selectedId);
     if (selectedCaseStillExists) return;
 
     setSelectedId(null);
@@ -2637,7 +2649,7 @@ export default function AdminRefundsPage() {
     setIsCashConfirmationOpen(false);
     setMessageSubject('');
     setMessageBody('');
-  }, [filteredCases, selectedId]);
+  }, [overview.cases, internalTestCases, selectedId]);
 
   useLayoutEffect(() => {
     if (!selectedId || typeof window === 'undefined' || !window.matchMedia('(max-width: 1023px)').matches) {
@@ -5330,7 +5342,8 @@ export default function AdminRefundsPage() {
     const hasUnsavedTransactionChoice =
       !selectedCase.hasMatchedNayaxTransaction &&
       Boolean(editor.matchedNayaxCandidateToken.trim());
-    const managerState: RefundManagerState = hasConfirmedRefundReceipt(selectedCase) || selectedCase.customerDeliveryException
+    const managerState: RefundManagerState = hasConfirmedRefundReceipt(selectedCase) || hasProtectedRefundLifecycle(selectedCase) ||
+      (selectedCase.customerDeliveryException && !hasUnpaidRefundReview(selectedCase))
       ? baseManagerState
       : paymentActionNeedsOperations
       ? {
@@ -5459,6 +5472,12 @@ export default function AdminRefundsPage() {
             </div>
           )}
 
+          {(selectedCase.customerDeliveryException || ['failed', 'skipped'].includes(getLatestCustomerMessage(selectedCase)?.status ?? '')) && (
+            <div data-testid="refund-secondary-delivery-review" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+              <p className="font-semibold">Customer message needs review</p>
+              <p className="mt-1">{selectedCase.customerDeliveryException ? transactionalDeliveryLabel(selectedCase.customerDeliveryException.state) : 'The latest customer message was not sent'}. Refund Operations owns delivery review. Do not resend it blindly. The refund status and next step are shown above.</p>
+            </div>
+          )}
           <CustomerCorrectionSummary refundCase={selectedCase} onReview={(trigger) => { correctionDialogTriggerRef.current={caseId:selectedCase.id,element:trigger}; setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false}); }} />
           {revisionDeliveryReview}
           <div className="grid gap-px bg-border lg:grid-cols-2">
@@ -6726,25 +6745,32 @@ export default function AdminRefundsPage() {
           </div>
 
           <div className="mt-4">
-            <div className="relative">
+            <Label htmlFor="refund-case-search">Search {searchScope}</Label>
+            <div className="relative mt-2">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
                 id="refund-case-search"
                 aria-label="Search refund cases"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search cases"
+                placeholder="Reference, customer, machine, or location"
+                aria-describedby="refund-search-scope"
                 className="pl-9"
               />
             </div>
+          </div>
+
+          <div id="refund-search-scope" className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+            <p>{isSearching ? `Searching ${searchScope}, regardless of status.` : 'Search across statuses. Clear the search to return to your selected queue.'}</p>
+            {isSearching && <Button type="button" variant="outline" className="min-h-11" onClick={() => { setSearch(''); document.getElementById('refund-case-search')?.focus(); }}>Clear search</Button>}
           </div>
 
           <div className="mt-6 grid min-w-0 gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
             <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
               <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-3">
                 <div>
-                  <h2 className="text-sm font-semibold text-foreground">Queue</h2>
-                  <p data-testid="refund-queue-count" className="mt-1 text-xs text-muted-foreground">
+                  <h2 className="text-sm font-semibold text-foreground">{isSearching ? 'Search results' : 'Queue'}</h2>
+                  <p data-testid="refund-queue-count" role="status" aria-live="polite" aria-atomic="true" className="mt-1 text-xs text-muted-foreground">
                     {filteredCases.length} {filteredCases.length === 1 ? 'case' : 'cases'}
                   </p>
                 </div>
@@ -6807,7 +6833,8 @@ export default function AdminRefundsPage() {
                       <div className="mt-2 text-xs text-muted-foreground">
                         {formatRefundMachineLocation(refundCase.locationName, refundCase.machineLabel)}
                       </div>
-                      <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+                      {isSearching && <p className="mt-2 text-xs text-muted-foreground">Current view: {refundSearchViewLabel(refundCase)}</p>}
+                    <div className="mt-3 flex items-center justify-between gap-3 text-xs">
                         <span className="font-medium text-foreground">
                           {formatCurrency(refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}
                         </span>
@@ -6865,6 +6892,7 @@ export default function AdminRefundsPage() {
                         {managerTaskLabel(refundCase)}
                       </Badge>
                     </div>
+                    {isSearching && <p className="mt-2 text-xs text-muted-foreground">Current view: {refundSearchViewLabel(refundCase)}</p>}
                     <div className="mt-3 flex items-center justify-between gap-3 text-xs">
                       <span className="font-medium text-foreground">
                         {formatCurrency(refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}

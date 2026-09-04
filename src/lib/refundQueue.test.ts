@@ -308,3 +308,41 @@ Deno.test(
     }
   },
 );
+
+
+// Search uses the same authorized population, independently of the selected queue.
+import { searchRefundCases } from "./refundCaseSearch.ts";
+const searchCase = (id: string, bucket: string) => ({
+  id, bucket, publicReference: `RF-${id}`, customerEmail: `${id}@example.test`,
+  customerName: `Customer ${id}`, machineLabel: 'Synthetic machine',
+  locationName: 'Test location', issueSummary: 'Synthetic purchase',
+});
+const searchCases = [searchCase('ACTION', 'needs_action'), searchCase('WAIT', 'waiting'), searchCase('DONE', 'completed')];
+const searchOptions = {
+  customerCases: searchCases, internalCases: [searchCase('INTERNAL', 'internal_archive')],
+  canViewInternal: false, internalView: false,
+  matchesCurrentView: (item: typeof searchCases[number]) => item.bucket === 'needs_action',
+};
+Deno.test('cross-view search finds exact Waiting/Done references without changing cases or queue', () => {
+  const before = JSON.stringify(searchCases);
+  for (const id of ['WAIT', 'DONE']) assertEquals(searchRefundCases({ ...searchOptions, query: `  rf-${id.toLowerCase()}  ` }).map(c => c.id), [id]);
+  assertEquals(searchRefundCases({ ...searchOptions, query: '' }).map(c => c.id), ['ACTION']);
+  assertEquals(searchRefundCases({ ...searchOptions, query: '   ' }).map(c => c.id), ['ACTION']);
+  assertEquals(JSON.stringify(searchCases), before);
+});
+Deno.test('customer, machine, location and no-result searches use the authorized population', () => {
+  assertEquals(searchRefundCases({ ...searchOptions, query: 'wait@example.test' }).map(c => c.id), ['WAIT']);
+  assertEquals(searchRefundCases({ ...searchOptions, query: 'Customer Done' }).map(c => c.id), ['DONE']);
+  for (const query of ['Synthetic machine', 'TEST LOCATION']) assertEquals(searchRefundCases({ ...searchOptions, query }).length, 3);
+  assertEquals(searchRefundCases({ ...searchOptions, query: 'unknown' }), []);
+});
+Deno.test('archive requires both explicit scope and current operations access; ordinary results never include it', () => {
+  assertEquals(searchRefundCases({ ...searchOptions, query: 'INTERNAL' }), []);
+  assertEquals(searchRefundCases({ ...searchOptions, canViewInternal: true, query: 'INTERNAL' }), []);
+  assertEquals(searchRefundCases({ ...searchOptions, internalView: true, query: 'INTERNAL' }), []);
+  assertEquals(searchRefundCases({ ...searchOptions, canViewInternal: true, internalView: true, query: 'INTERNAL' }).map(c => c.id), ['INTERNAL']);
+});
+Deno.test('access removal immediately removes prior matches; search has no cached population', () => {
+  assertEquals(searchRefundCases({ ...searchOptions, customerCases: [], query: 'RF-WAIT' }), []);
+  assertEquals(searchRefundCases({ ...searchOptions, canViewInternal: false, internalView: true, query: '' }), []);
+});
