@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "d296f6fff02e1497225ba13419608c9714f42423",
+  "sourceGitCommit": "e75b8216fa20b53ca00d90e23ac08d06ed4b83d5",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -235,9 +235,9 @@
       "verifyJwt": false,
       "sourceSha256": "eca6ccaa91064948a04e41a6647f570d2f95dd945bfdef2033712d6a57ed34b9",
       "production": {
-        "version": 114,
-        "ezbrSha256": "76264b08dbc7277435d9e0af214993232df8cc5bfb04240d16f28229954fdf21",
-        "sourceSha256": "19a7267a9f9c7974fe9db7813cd8b490a7d5d41534cc8e740055aa00ea355b85",
+        "version": 115,
+        "ezbrSha256": "04ac44216c2a99d9021983f9ec0f4b90225ae31d205d2acf08d6637c127987a6",
+        "sourceSha256": "eca6ccaa91064948a04e41a6647f570d2f95dd945bfdef2033712d6a57ed34b9",
         "entrypointIdentity": "supabase/functions/refund-case-admin-update/index.ts"
       }
     },
