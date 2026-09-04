@@ -619,7 +619,7 @@ serve(async (req) => {
         return jsonResponse({error:"Revision requests use the approved message and selected details."},400);
       }
       const {data: previous, error: previousError} = await supabase.from("refund_case_messages")
-        .select("id,recipient_email,subject,body,status,manual_delivery_state,delivery_transport")
+        .select("id,recipient_email,subject,body,status,manual_delivery_state,delivery_transport,sent_at,provider_message_id,manual_delivery_provider_attempted_at")
         .eq("manual_delivery_intent_id",messageIntentId).maybeSingle();
       if (previousError) throw previousError;
       if (previous) {
@@ -635,6 +635,16 @@ serve(async (req) => {
         if (previous.status === "sent" && previous.manual_delivery_state === "sent") return jsonResponse({message:{
           id:previous.id,type:"more_info",status:"sent",subject:previous.subject,transport:previous.delivery_transport,
         }});
+        if (body?.inspectRevisionOnly === true && previous.status === "failed" && previous.manual_delivery_state === "failed" &&
+          previous.sent_at == null && previous.provider_message_id == null && previous.manual_delivery_provider_attempted_at == null && previous.delivery_transport == null) {
+          const {data: providerEvidence,error: providerEvidenceError} = await supabase.from("refund_gmail_messages")
+            .select("id").eq("refund_case_message_id",previous.id).limit(1);
+          if (providerEvidenceError) throw providerEvidenceError;
+          if (Array.isArray(providerEvidence) && providerEvidence.length === 0) return jsonResponse({
+            error:"The revision failed before delivery was attempted. Review the current request before sending again.",
+            errorCode:"revision_intent_proven_unsent",
+          },409);
+        }
         const results = body?.inspectRevisionOnly !== true && ["queued","claimed"].includes(previous.manual_delivery_state)
           ? await drainRefundManualMessageOutbox({supabase,messageId:previous.id,limit:1}) : [];
         if (results[0]?.outcome === "sent") return jsonResponse({message:{

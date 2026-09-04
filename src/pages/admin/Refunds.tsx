@@ -2400,7 +2400,7 @@ export default function AdminRefundsPage() {
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
   const [correctionSelection, setCorrectionSelection] = useState<{ caseId: string; version: number; fields: RefundMissingField[]; requestId?: string; editing?: boolean } | null>(null);
   const correctionNoticeState = useRef<CorrectionNoticeState>({initialized:false,seen:new Set()});
-  const [pendingRevision, setPendingRevision] = useState<{caseId:string;expectedCaseVersion:number;messageIntentId:string;currentCorrectionRequestId:string;messageType:'more_info';missingFields:RefundMissingField[]}|null>(null);
+  const [pendingRevisions, setPendingRevisions] = useState<Record<string,{caseId:string;expectedCaseVersion:number;messageIntentId:string;currentCorrectionRequestId:string;messageType:'more_info';missingFields:RefundMissingField[]}>>({});
   const [isDisposingAcknowledgementException, setIsDisposingAcknowledgementException] =
     useState(false);
   const [customerLocaleDraft, setCustomerLocaleDraft] = useState<RefundCustomerLocale | ''>('');
@@ -2673,6 +2673,16 @@ export default function AdminRefundsPage() {
 
   const selectedCase = [...overview.cases, ...internalTestCases]
     .find((refundCase) => refundCase.id === selectedId) ?? null;
+  const pendingRevision = selectedCase ? pendingRevisions[selectedCase.id] ?? null : null;
+  const setPendingRevision = (value: typeof pendingRevision) => {
+    const caseId = value?.caseId ?? selectedCase?.id;
+    if (!caseId) return;
+    setPendingRevisions((current) => {
+      const next={...current};
+      if(value) next[caseId]=value; else delete next[caseId];
+      return next;
+    });
+  };
   const currentCorrectionFields = selectedCase?.customerCorrectionFields;
   const currentCorrectionCaseId = selectedCase?.id;
   const currentCorrectionRequestId = selectedCase?.customerCorrection?.requestId;
@@ -4440,7 +4450,7 @@ export default function AdminRefundsPage() {
       toast.success('The existing revision was sent. No additional email was created.');
       await refresh();
     } catch (inspectionError) {
-      if (isEdgeFunctionError(inspectionError) && inspectionError.data?.errorCode === 'revision_intent_not_found') {
+      if (isEdgeFunctionError(inspectionError) && ['revision_intent_not_found','revision_intent_proven_unsent'].includes(String(inspectionError.data?.errorCode))) {
         setPendingRevision(null);
         manualMessageIntentRef.current=null;
         setCorrectionSelection(null);

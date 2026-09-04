@@ -69,3 +69,16 @@ test('uncertain revision retains exact payload for read-only inspection after po
  assert.equal(sent.length,2);assert.equal(sent[1].inspectRevisionOnly,true);assert.equal(sent[1].expectedCaseVersion,12);
  assert.equal(sent[1].messageIntentId,sent[0].messageIntentId);assert.equal(sent[1].currentCorrectionRequestId,'old-request');assert.equal(saved,null);
 });
+test('pending revision storage is per case and unrelated success cannot erase exact recovery payload',()=>{
+ let stored={first:{caseId:'first',messageIntentId:'original'}};
+ const set=load('setPendingRevision',{selectedCase:{id:'second'},setPendingRevisions:updater=>{stored=updater(stored);}});
+ set({caseId:'second',messageIntentId:'other'});assert.equal(stored.first.messageIntentId,'original');
+ set(null);assert.equal(stored.first.messageIntentId,'original');assert.equal(stored.second,undefined);
+});
+test('proven-unsent inspection clears only current case recovery; unknown remains retained',async()=>{
+ for(const code of ['revision_intent_proven_unsent','customer_email_delivery_unknown']){
+  let cleared=false;const handler=load('handleInspectRevisionDelivery',{pendingRevision:{caseId:'case'},selectedCase:{id:'case'},isUsingDemoData:false,setIsSendingCustomerMessage:()=>{},
+   sendRefundCaseMessage:async()=>{throw {data:{errorCode:code}};},isEdgeFunctionError:()=>true,setPendingRevision:()=>{cleared=true;},manualMessageIntentRef:{current:{}},setCorrectionSelection:()=>{},refresh:async()=>{},toast:{error:()=>{}}});
+  await handler();assert.equal(cleared,code==='revision_intent_proven_unsent');
+ }
+});
