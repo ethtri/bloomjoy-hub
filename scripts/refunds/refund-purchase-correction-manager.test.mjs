@@ -9,7 +9,7 @@ function load(name,dependencies){
  let initializer;function visit(node){if(ts.isVariableDeclaration(node)&&node.name.getText(source)===name)initializer=node.initializer;ts.forEachChild(node,visit);}visit(source);
  assert.ok(initializer,`Actual handler ${name} exists`);
  const code=ts.transpile(`const handler=${initializer.getText(source)};globalThis.handler=handler;`,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None});
- const context=vm.createContext({...dependencies,console,crypto:webcrypto});vm.runInContext(code,context);return context.handler;
+ const context=vm.createContext({document:{activeElement:null,getElementById:()=>null},HTMLElement:class {},correctionDialogTriggerRef:{current:null},...dependencies,console,crypto:webcrypto});vm.runInContext(code,context);return context.handler;
 }
 const dependencies={hasConfirmedRefundReceipt:c=>c.receipt===true,getLatestCustomerMessage:()=>null,isDefinitiveNoRefundRetryReady:()=>false,transactionalDeliveryLabel:state=>state,hasTransactionMatch:c=>Boolean(c.matched),derivePortalRefundMissingFields:()=>[],isWaitingCase:()=>true,activeNayaxCandidate:()=>null,hasSelectedCardEvidence:()=>true,formatCurrency:amount=>`$${(amount/100).toFixed(2)}`};
 test('actual manager action respects current scope, delivery holds and terminal truth',()=>{
@@ -81,4 +81,33 @@ test('proven-unsent inspection clears only current case recovery; unknown remain
    sendRefundCaseMessage:async()=>{throw {data:{errorCode:code}};},isEdgeFunctionError:()=>true,setPendingRevision:()=>{cleared=true;},manualMessageIntentRef:{current:{}},setCorrectionSelection:()=>{},refresh:async()=>{},toast:{error:()=>{}}});
   await handler();assert.equal(cleared,code==='revision_intent_proven_unsent');
  }
+});
+test('actual correction close restores enabled opener, or current summary when opener is gone',()=>{
+ for(const enabled of [true,false]){
+  let openerFocus=0;let summaryFocus=0;let prevented=0;
+  const handler=load('handleCorrectionDialogCloseAutoFocus',{selectedCase:{id:'current-case'},correctionDialogTriggerRef:{current:{caseId:'current-case',element:{isConnected:enabled,matches:()=>false,focus:()=>openerFocus++}}},
+    document:{getElementById:id=>{assert.equal(id,'refund-correction-current-case');return {focus:()=>summaryFocus++};}}});
+  handler({preventDefault:()=>prevented++});assert.equal(prevented,1);assert.equal(openerFocus,enabled?1:0);assert.equal(summaryFocus,enabled?0:1);
+ }
+});
+test('successful inspect restores focus to the same case summary without creating another send',async()=>{
+ let requested;let focusId;const handler=load('handleInspectRevisionDelivery',{pendingRevision:{caseId:'original'},selectedCase:{id:'original'},isUsingDemoData:false,setIsSendingCustomerMessage:()=>{},
+  sendRefundCaseMessage:async value=>{requested=value;return {status:'sent'};},setPendingRevision:()=>{},manualMessageIntentRef:{current:{}},setCorrectionSelection:()=>{},refresh:async()=>{},toast:{success:()=>{}},
+  document:{getElementById:id=>({focus:()=>{focusId=id;}})}});
+ await handler();assert.equal(requested.inspectRevisionOnly,true);assert.equal(focusId,'refund-correction-original');
+});
+
+test('case switch and missing custom targets preserve normal close without focusing reused opener',()=>{
+ for (const switched of [true,false]) {
+  let prevented=0;let focused=0;
+  const handler=load('handleCorrectionDialogCloseAutoFocus',{selectedCase:{id:switched?'next-case':'original'},
+   correctionDialogTriggerRef:{current:{caseId:'original',element:{isConnected:switched,matches:()=>false,focus:()=>focused++}}},document:{getElementById:()=>null}});
+  handler({preventDefault:()=>prevented++});assert.equal(prevented,0);assert.equal(focused,0);
+ }
+});
+test('inspection finishing after case switch cannot focus a different case',async()=>{
+ let requestedId;const handler=load('handleInspectRevisionDelivery',{pendingRevision:{caseId:'original'},selectedCase:{id:'original'},isUsingDemoData:false,setIsSendingCustomerMessage:()=>{},
+  sendRefundCaseMessage:async()=>({status:'sent'}),setPendingRevision:()=>{},manualMessageIntentRef:{current:{}},setCorrectionSelection:()=>{},refresh:async()=>{},toast:{success:()=>{}},
+  document:{getElementById:id=>{requestedId=id;return null;}}});
+ await handler();assert.equal(requestedId,'refund-correction-original');
 });
