@@ -42,6 +42,7 @@ const files = {
   refundEmailShared: 'supabase/functions/_shared/refund-email.ts',
   refundOperationsLib: 'src/lib/refundOperations.ts',
   refundOperationsUi: 'src/pages/admin/Refunds.tsx',
+  refundReadPolling: 'src/lib/refundReadPolling.ts',
   refundPortalUat: 'scripts/refunds/validate-refund-portal-uat.mjs',
   nayaxCandidateTokenMigration: 'supabase/migrations/202605130001_refund_nayax_lookup_candidate_tokens.sql',
   nayaxRecommendationMigration: 'supabase/migrations/202607210003_refund_nayax_recommendation_state.sql',
@@ -101,6 +102,7 @@ const refundManualMessageOutboxMigration = read(files.refundManualMessageOutboxM
 const refundEmailShared = read(files.refundEmailShared);
 const refundOperationsLib = read(files.refundOperationsLib);
 const refundOperationsUi = read(files.refundOperationsUi);
+const refundReadPolling = read(files.refundReadPolling);
 const refundPortalUat = read(files.refundPortalUat);
 const nayaxCandidateTokenMigration = read(files.nayaxCandidateTokenMigration);
 const nayaxRecommendationMigration = read(files.nayaxRecommendationMigration);
@@ -597,7 +599,9 @@ assert(
 );
 assert(
   refundOperationsUi.includes('RefundLifecycleProgress') &&
-    refundOperationsUi.includes('refreshAfterSeconds') &&
+    refundOperationsUi.includes('overviewPolling.interval(refundOverviewPollingInterval(') &&
+    refundReadPolling.includes('lifecycle.refreshAfterSeconds') &&
+    refundReadPolling.includes('!lifecycle.terminal') &&
     refundOperationsUi.includes('lookupRequestSequenceRef') &&
     refundOperationsUi.includes('Refresh transactions') &&
     refundOperationsUi.includes('refundOperationsAccess') &&
