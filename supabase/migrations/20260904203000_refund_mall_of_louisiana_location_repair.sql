@@ -346,14 +346,16 @@ begin
   select * into source_machine
   from public.reporting_machines machine
   where machine.id = case_row.reporting_machine_id;
-  select machine, location
-  into target_machine, target_location
+  select machine.*
+  into target_machine
   from public.reporting_machines machine
-  join public.reporting_locations location on location.id = machine.location_id
   where machine.account_id = source_machine.account_id
     and machine.machine_label = 'Mall of Louisiana'
     and machine.refund_public_display_label = 'Mall of Louisiana'
   limit 1;
+  select * into target_location
+  from public.reporting_locations location
+  where location.id = target_machine.location_id;
 
   select count(*)::integer into message_count
   from public.refund_case_messages message where message.refund_case_id = case_row.id;
@@ -541,14 +543,16 @@ begin
   select * into source_machine
   from public.reporting_machines machine
   where machine.id = case_row.reporting_machine_id;
-  select machine, location
-  into target_machine, target_location
+  select machine.*
+  into target_machine
   from public.reporting_machines machine
-  join public.reporting_locations location on location.id = machine.location_id
   where machine.account_id = source_machine.account_id
     and machine.machine_label = 'Mall of Louisiana'
     and machine.refund_public_display_label = 'Mall of Louisiana'
   limit 1;
+  select * into target_location
+  from public.reporting_locations location
+  where location.id = target_machine.location_id;
 
   select count(*)::integer into message_count
   from public.refund_case_messages message where message.refund_case_id = case_row.id;
