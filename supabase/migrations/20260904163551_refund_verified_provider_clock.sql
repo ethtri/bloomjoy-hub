@@ -173,16 +173,16 @@ declare
 begin
   if p_diagnostics is not null then
     if jsonb_typeof(p_diagnostics) is distinct from 'object'
-      or (select count(*) from jsonb_object_keys(p_diagnostics)) <> case when is_v2 then 17 else 16 end
+      or (select count(*) from jsonb_object_keys(p_diagnostics)) <> (case when is_v2 then 17 else 16 end)
       or not p_diagnostics ?& array['schemaVersion','endpoint','historicalCoverage',
         'providerRecordCount','providerParseableRecordCount','providerWindowRecordCount',
         'windowHours','incidentAt','windowStart','windowEnd','incidentTimeResolution',
         'incidentTimeConfidence','locationTimezone','providerTimePolicy','machineTimezoneSource','providerPayloadRedacted']
-      or p_diagnostics->>'schemaVersion' is distinct from case when is_v2 then 'nayax_lookup_diagnostics_v2' else 'nayax_lookup_diagnostics_v1' end
+      or p_diagnostics->>'schemaVersion' is distinct from (case when is_v2 then 'nayax_lookup_diagnostics_v2' else 'nayax_lookup_diagnostics_v1' end)
       or p_diagnostics->>'endpoint' is distinct from 'machine_last_sales'
       or p_diagnostics->>'historicalCoverage' is distinct from 'unknown'
-      or p_diagnostics->>'providerTimePolicy' is distinct from case when is_v2 then 'authorization_gmt_else_provider_clock_else_unverified_location' else 'authorization_gmt_else_mapped_machine_clock' end
-      or p_diagnostics->>'machineTimezoneSource' is distinct from case when is_v2 then 'per_machine_provider_clock_contexts' else 'configured_location_not_verified_provider_clock' end
+      or p_diagnostics->>'providerTimePolicy' is distinct from (case when is_v2 then 'authorization_gmt_else_provider_clock_else_unverified_location' else 'authorization_gmt_else_mapped_machine_clock' end)
+      or p_diagnostics->>'machineTimezoneSource' is distinct from (case when is_v2 then 'per_machine_provider_clock_contexts' else 'configured_location_not_verified_provider_clock' end)
       or p_diagnostics->'providerPayloadRedacted' is distinct from 'true'::jsonb then
       raise exception 'Invalid bounded lookup diagnostics' using errcode = 'P4623';
     end if;
