@@ -4096,11 +4096,11 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
   const paymentHealth = page.getByTestId('refund-payment-health');
   recorder.assert(
-    'Card refund reliability attention is visible with owner and SLA but no case detail',
+    'Card refund reconciliation attention preserves other eligible refunds and names the owner without case detail',
     await paymentHealth.isVisible() &&
-      (await paymentHealth.innerText()) === 'Card refunds need attention' &&
+      (await paymentHealth.innerText()) === 'Some card refunds need attention' &&
       (await paymentHealth.getAttribute('title')) ===
-        'Card refunds are paused for affected Nayax accounts. Refund Operations owns reconciliation within 60 minutes.'
+        'Some card refunds need reconciliation. Refund Operations owns follow-up; other eligible refunds remain available.'
   );
   recorder.assert(
     'Incomplete Gmail draft presents one dominant reply action',
