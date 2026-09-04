@@ -11,15 +11,15 @@ for(const statement of source.statements){
 }
 const caseId='11111111-1111-4111-8111-111111111111';
 const intentId='22222222-2222-4222-8222-222222222222';
-function harness({fields=['amount','card_last4'],allowed=true}={}){
+function harness({fields=['amount','card_last4'],allowed=true,previous=null}={}){
  const enqueues=[];let delivered=0;
  const context=vm.createContext({Request,Response,console,Set,Number,
   resolveSupabaseAccessToken:()=> 'session',allowedPortalMessageTypes:new Set(['more_info']),
-  supabase:{auth:{getUser:async()=>({data:{user:{id:'manager'}}})},rpc:async(name,input)=>{
+  supabase:{from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:previous})})})}),auth:{getUser:async()=>({data:{user:{id:'manager'}}})},rpc:async(name,input)=>{
    if(name==='can_manage_refund_case')return {data:allowed};
    if(name==='service_refund_nayax_completion_message_lane_open')return {data:true};
    if(name==='service_enqueue_refund_manual_message_intent'||name==='service_revise_refund_purchase_correction'){
-    enqueues.push(input);return input.p_expected_case_version!==12?{error:{code:'P4609'}}:{data:{enqueued:true,messageId:intentId,payloadRedacted:true}};
+    enqueues.push(input);if(previous)return {data:{replayed:true,messageId:previous.id}};return input.p_expected_case_version!==12?{error:{code:'P4609'}}:{data:{enqueued:true,messageId:intentId,payloadRedacted:true}};
    }throw Error('Unexpected RPC '+name);
   }},
   getRefundCase:async()=>({id:caseId,official_action_version:12,case_population:'customer',customer_email:'fixture@example.invalid',public_reference:'RF-FIXTURE',status:'needs_review',payment_method:'card'}),
@@ -61,4 +61,11 @@ test('actual revision handler binds the current request and canonical fields to 
  assert.equal(h.enqueues[0].p_actor_user_id,'manager');
  assert.deepEqual(Array.from(h.enqueues[0].p_requested_fields),['amount']);
  for(const value of [null,'bad-id',false]){const bad=harness();assert.equal((await bad.request({currentCorrectionRequestId:value})).status,400);assert.equal(bad.delivered(),0);}
+});
+
+test('actual revision replay reaches immutable intent after fields change without new transport',async()=>{
+ const previous={id:intentId,recipient_email:'fixture@example.invalid',subject:'Original subject',body:'Original body',status:'sent',manual_delivery_state:'sent',delivery_transport:'gmail_thread'};
+ const h=harness({fields:[],previous});
+ assert.equal((await h.request({currentCorrectionRequestId:'33333333-3333-4333-8333-333333333333'})).status,200);
+ assert.equal(h.enqueues.length,1);assert.equal(h.enqueues[0].p_subject,'Original subject');assert.equal(h.delivered(),0);
 });
