@@ -18,7 +18,7 @@ function harness({fields=['amount','card_last4'],allowed=true}={}){
   supabase:{auth:{getUser:async()=>({data:{user:{id:'manager'}}})},rpc:async(name,input)=>{
    if(name==='can_manage_refund_case')return {data:allowed};
    if(name==='service_refund_nayax_completion_message_lane_open')return {data:true};
-   if(name==='service_enqueue_refund_manual_message_intent'){
+   if(name==='service_enqueue_refund_manual_message_intent'||name==='service_revise_refund_purchase_correction'){
     enqueues.push(input);return input.p_expected_case_version!==12?{error:{code:'P4609'}}:{data:{enqueued:true,messageId:intentId,payloadRedacted:true}};
    }throw Error('Unexpected RPC '+name);
   }},
@@ -52,4 +52,13 @@ test('actual server handler rejects empty, unsupported, duplicate, stale field a
 test('actual server handler retains manager authorization and stale-version refusal before transport',async()=>{
  const denied=harness({allowed:false});assert.equal((await denied.request()).status,403);assert.equal(denied.enqueues.length,0);
  const stale=harness();assert.equal((await stale.request({expectedCaseVersion:11})).status,409);assert.equal(stale.delivered(),0);
+});
+
+test('actual revision handler binds the current request and canonical fields to its narrow RPC',async()=>{
+ const h=harness();const requestId='33333333-3333-4333-8333-333333333333';
+ assert.equal((await h.request({currentCorrectionRequestId:requestId})).status,200);
+ assert.equal(h.enqueues[0].p_current_request_id,requestId);
+ assert.equal(h.enqueues[0].p_actor_user_id,'manager');
+ assert.deepEqual(Array.from(h.enqueues[0].p_requested_fields),['amount']);
+ for(const value of [null,'bad-id',false]){const bad=harness();assert.equal((await bad.request({currentCorrectionRequestId:value})).status,400);assert.equal(bad.delivered(),0);}
 });

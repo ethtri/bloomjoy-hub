@@ -589,6 +589,10 @@ serve(async (req) => {
       }, 400);
     }
     const messageIntentId = sanitizeText(body?.messageIntentId, 80);
+    const currentCorrectionRequestId = sanitizeText(body?.currentCorrectionRequestId, 80);
+    if (body?.currentCorrectionRequestId !== undefined && (!isUuid(currentCorrectionRequestId) || messageType !== "more_info")) {
+      return jsonResponse({ error: "Choose the current correction request to revise." }, 400);
+    }
     const expectedCaseVersion = body?.expectedCaseVersion;
     if (
       !isUuid(messageIntentId) || !Number.isSafeInteger(expectedCaseVersion) ||
@@ -675,6 +679,7 @@ serve(async (req) => {
       : suppliedMissingFields;
     let missingFields: RefundMissingField[] = [];
     const correctionEnabled = messageType === "more_info" && await refundCorrectionLinksEnabled(supabase);
+    if (currentCorrectionRequestId && !correctionEnabled) return jsonResponse({ error: "Correction revisions are not enabled." }, 409);
     if (messageType === "more_info") {
       const currentFields = correctionEnabled ? await getCurrentRefundCorrectionFields(supabase, caseId) : derived.missingFields;
       if (derived.requiresSecureWalletCorrection && !correctionEnabled) {
@@ -777,8 +782,18 @@ serve(async (req) => {
     });
 
     const { data: enqueued, error: enqueueError } = await supabase.rpc(
-      "service_enqueue_refund_manual_message_intent",
-      {
+      currentCorrectionRequestId ? "service_revise_refund_purchase_correction" : "service_enqueue_refund_manual_message_intent",
+      currentCorrectionRequestId ? {
+        p_refund_case_id: refundCase.id,
+        p_expected_case_version: expectedCaseVersion,
+        p_intent_id: messageIntentId,
+        p_actor_user_id: user.id,
+        p_current_request_id: currentCorrectionRequestId,
+        p_recipient_email: refundCase.customer_email,
+        p_subject: emailWithoutStatus.subject,
+        p_body: emailWithoutStatus.text,
+        p_requested_fields: missingFields,
+      } : {
         p_refund_case_id: refundCase.id,
         p_expected_case_version: expectedCaseVersion,
         p_intent_id: messageIntentId,

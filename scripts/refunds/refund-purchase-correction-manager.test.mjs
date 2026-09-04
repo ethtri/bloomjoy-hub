@@ -44,7 +44,7 @@ test('actual one-action correction sends canonical fields without unreviewed tri
 
 test('actual correction action opens preselected fields, rejects empty, stale and unsupported selections before send',async()=>{
  let selection;let sends=0;const errors=[];
- const base={selectedCase:{id:'case-1',customerCorrectionFields:['amount','card_last4']},officialActionVersion:12,customerDeliveryNeedsReconciliation:false,isUsingDemoData:false,
+ const base={selectedCase:{id:'case-1',customerCorrectionFields:['amount','card_last4']},correctionSelection:null,officialActionVersion:12,customerDeliveryNeedsReconciliation:false,isUsingDemoData:false,
   setCorrectionSelection:value=>{selection=value;},toast:{error:value=>errors.push(value)},sendRefundCaseMessage:()=>{sends++;}};
  await load('handleSendCustomerMessage',base)('more_info');
  assert.deepEqual(Array.from(selection.fields),['amount','card_last4']);assert.equal(sends,0);
