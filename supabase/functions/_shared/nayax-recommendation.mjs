@@ -171,7 +171,7 @@ const parseDateValue = (value) => {
   return null;
 };
 
-const parseProviderMachineAuthorizationDate = (record, locationTimezone) => {
+const parseProviderMachineAuthorizationDate = (record, machineTimezone) => {
   // Retain only a bounded date-time, verbatim. The provider's machine clock is
   // distinct from AuthorizationDateTimeGMT and is not reconstructed from it.
   const raw = record.MachineAuthorizationTime;
@@ -188,11 +188,11 @@ const parseProviderMachineAuthorizationDate = (record, locationTimezone) => {
     const date = new Date(raw.replace(" ", "T"));
     return Number.isFinite(date.getTime()) ? { date, resolution: "exact", raw } : null;
   }
-  if (!locationTimezone) return null;
+  if (!machineTimezone) return null;
   const resolved = resolveLocalDateTimeInZone({
     localDate: localMatch[1],
     localTime: localMatch[2],
-    timeZone: locationTimezone,
+    timeZone: machineTimezone,
   });
   if (!["exact", "ambiguous"].includes(resolved.resolution)) return null;
   // Date stores milliseconds only. Keep all original fractional digits in raw;
@@ -629,6 +629,7 @@ export const extractNayaxRecords = (payload) => {
  *   incidentAt: string,
  *   expectedMachineId: string,
  *   locationTimezone: string,
+ *   providerClockContext?: { reportingMachineId: string, timezone: string | null, source: string, observedAt: string | null } | null,
  *   requestAmountCents: number | null,
  *   requestCardLast4: string,
  *   requestCardNetwork?: string | null,
@@ -649,6 +650,7 @@ export const buildNayaxRecommendation = ({
   incidentAt,
   expectedMachineId,
   locationTimezone,
+  providerClockContext = null,
   requestAmountCents,
   requestCardLast4,
   requestCardNetwork = null,
@@ -698,7 +700,13 @@ export const buildNayaxRecommendation = ({
       record.TransactionID ?? record.TransactionId ?? record.transactionId ?? record.transaction_id,
       80,
     );
-    const machineTime = parseProviderMachineAuthorizationDate(record, sanitizeText(locationTimezone, 80));
+    // Known native provider clock governs only an offsetless machine timestamp.
+    // Explicit GMT/offsets and the raw request-binding value remain unchanged.
+    // Unknown clocks retain the legacy location fallback, labelled as unknown.
+    const machineTimezone = providerClockContext?.source === "native_machine_configuration"
+      ? sanitizeText(providerClockContext.timezone, 80)
+      : sanitizeText(locationTimezone, 80);
+    const machineTime = parseProviderMachineAuthorizationDate(record, machineTimezone);
     const providerTime = parseProviderAuthorizationDate(record, machineTime);
     const authorizationDate = providerTime?.date ?? null;
     if (!transactionId || !authorizationDate || !providerTime) continue;
@@ -727,6 +735,7 @@ export const buildNayaxRecommendation = ({
       machineAuthorizationTime: machineTime.date.toISOString(),
       machineAuthorizationTimeRaw: machineTime.raw,
       machineTimeResolution: machineTime.resolution,
+      machineClockContext: providerClockContext,
       providerTimeResolution: providerTime.resolution,
       // Round outward so a transaction even one second beyond a safety boundary
       // cannot be admitted by display-oriented minute rounding.
