@@ -33,12 +33,18 @@ begin
     order by ctx.version desc limit 1 for update;
   -- A manager can revoke the old capability and queue its replacement before
   -- the new sender issues a capability. Do not treat that gap as legacy mail.
-  if r.id is null and exists(select 1 from public.refund_wallet_correction_contexts old_scope
-    join public.refund_gmail_messages outbound on outbound.refund_case_message_id=old_scope.correction_message_id
-    where old_scope.refund_case_id=c.id and old_scope.correction_kind='purchase' and old_scope.status='revoked'
-      and outbound.direction='outbound' and outbound.status='sent'
-      and outbound.gmail_thread_id=source.gmail_thread_id
-      and outbound.provider_message_header=any(regexp_split_to_array(coalesce(source.references_header,''),'[[:space:]]+'))) then
+  if r.id is null and exists(select 1 from (
+      select ctx.* from public.refund_wallet_correction_contexts ctx
+      where ctx.refund_case_id=c.id and ctx.correction_kind='purchase'
+      order by ctx.version desc,ctx.issued_at desc,ctx.id desc limit 1
+    ) old_scope join public.refund_case_messages sent_request on sent_request.id=old_scope.correction_message_id
+    where old_scope.status='revoked' and sent_request.refund_case_id=c.id
+      and sent_request.status='sent' and sent_request.sent_at is not null
+      and (exists(select 1 from public.refund_gmail_messages outbound
+        where outbound.refund_case_message_id=sent_request.id and outbound.refund_case_id=c.id
+          and outbound.direction='outbound' and outbound.status='sent' and outbound.sent_at is not null)
+        or (sent_request.delivery_transport='resend' and nullif(btrim(sent_request.provider_message_id),'') is not null
+          and sent_request.delivery_state_updated_at is not null))) then
     return jsonb_build_object('outcome','conflict','reason','scoped_reply_superseded','factVersion',c.deterministic_fact_version);
   end if;
   if r.id is not null then
