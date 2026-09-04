@@ -2400,6 +2400,7 @@ export default function AdminRefundsPage() {
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
   const [correctionSelection, setCorrectionSelection] = useState<{ caseId: string; version: number; fields: RefundMissingField[]; requestId?: string; editing?: boolean } | null>(null);
   const correctionNoticeState = useRef<CorrectionNoticeState>({initialized:false,seen:new Set()});
+  const [pendingRevision, setPendingRevision] = useState<{caseId:string;expectedCaseVersion:number;messageIntentId:string;currentCorrectionRequestId:string;messageType:'more_info';missingFields:RefundMissingField[]}|null>(null);
   const [isDisposingAcknowledgementException, setIsDisposingAcknowledgementException] =
     useState(false);
   const [customerLocaleDraft, setCustomerLocaleDraft] = useState<RefundCustomerLocale | ''>('');
@@ -2674,14 +2675,16 @@ export default function AdminRefundsPage() {
     .find((refundCase) => refundCase.id === selectedId) ?? null;
   const currentCorrectionFields = selectedCase?.customerCorrectionFields;
   const currentCorrectionCaseId = selectedCase?.id;
+  const currentCorrectionRequestId = selectedCase?.customerCorrection?.requestId;
   useEffect(() => {
     setCorrectionSelection((current) => {
       if (!current || current.caseId !== currentCorrectionCaseId || !currentCorrectionFields) return null;
+      if (current.requestId && current.requestId !== currentCorrectionRequestId) return null;
       const fields = current.requestId && !current.editing ? current.fields : current.fields.filter((field) => currentCorrectionFields.includes(field));
       if (current.version === officialActionVersion && fields.length === current.fields.length) return current;
       return { ...current, version: officialActionVersion, fields };
     });
-  }, [currentCorrectionCaseId, currentCorrectionFields, officialActionVersion]);
+  }, [currentCorrectionCaseId, currentCorrectionFields, currentCorrectionRequestId, officialActionVersion]);
   const selectedCaseIsInternalTest = selectedCase?.internalTest?.classification ===
     'internal_test_no_customer_refund';
   const selectedAcknowledgementException = selectedCase?.acknowledgementDeliveryException ?? null;
@@ -4426,8 +4429,38 @@ export default function AdminRefundsPage() {
     );
   };
 
+  const handleInspectRevisionDelivery = async () => {
+    if (!pendingRevision || pendingRevision.caseId !== selectedCase?.id || isUsingDemoData) return;
+    setIsSendingCustomerMessage(true);
+    try {
+      await sendRefundCaseMessage({...pendingRevision,inspectRevisionOnly:true});
+      setPendingRevision(null);
+      manualMessageIntentRef.current=null;
+      setCorrectionSelection(null);
+      toast.success('The existing revision was sent. No additional email was created.');
+      await refresh();
+    } catch (inspectionError) {
+      if (isEdgeFunctionError(inspectionError) && inspectionError.data?.errorCode === 'revision_intent_not_found') {
+        setPendingRevision(null);
+        manualMessageIntentRef.current=null;
+        setCorrectionSelection(null);
+        await refresh();
+      }
+      toast.error(inspectionError instanceof Error ? inspectionError.message : 'The existing revision delivery still needs review.');
+    } finally { setIsSendingCustomerMessage(false); }
+  };
+
+  const revisionDeliveryReview = pendingRevision?.caseId === selectedCase?.id && <div role="status" className="border-b border-border p-4 text-sm">
+    <p>The revision result has not been confirmed. Check its existing delivery before sending another request.</p>
+    <Button variant="outline" className="mt-3" disabled={isSendingCustomerMessage} onClick={() => void handleInspectRevisionDelivery()}>Check revision delivery</Button>
+  </div>;
+
   const handleSendCustomerMessage = async (messageTypeOverride?: RefundCustomerPortalMessageType | null, selectedCorrectionFields?: RefundMissingField[]) => {
     if (!selectedCase) return;
+    if (pendingRevision?.caseId === selectedCase.id) {
+      toast.error('Check the existing revision delivery before sending another request.');
+      return;
+    }
     if (customerDeliveryNeedsReconciliation) {
       toast.error('Gmail delivery is uncertain. Check the original Gmail thread before sending anything else.');
       return;
@@ -4505,6 +4538,10 @@ export default function AdminRefundsPage() {
 
     setIsSendingCustomerMessage(true);
     try {
+      if (correctionSelection?.editing && correctionSelection.requestId) setPendingRevision({
+        caseId:selectedCase.id,expectedCaseVersion:officialActionVersion,messageIntentId:manualMessageIntentRef.current.id,
+        currentCorrectionRequestId:correctionSelection.requestId,messageType:'more_info',missingFields:[...missingFields],
+      });
       const sentMessage = await sendRefundCaseMessage({
         caseId: selectedCase.id,
         expectedCaseVersion: officialActionVersion,
@@ -4518,6 +4555,7 @@ export default function AdminRefundsPage() {
         missingFields,
       });
       manualMessageIntentRef.current = null;
+      setPendingRevision(null);
       setCorrectionSelection(null);
       toast.success(
         sentMessage.transport === 'gmail_thread'
@@ -5398,6 +5436,7 @@ export default function AdminRefundsPage() {
           )}
 
           <CustomerCorrectionSummary refundCase={selectedCase} onReview={() => setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false})} />
+          {revisionDeliveryReview}
           <div className="grid gap-px bg-border lg:grid-cols-2">
             <article data-testid="refund-request-summary" className="bg-card p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer request</p>
@@ -6353,6 +6392,7 @@ export default function AdminRefundsPage() {
           </div>
 
           <CustomerCorrectionSummary refundCase={selectedCase} onReview={() => setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false})} />
+          {revisionDeliveryReview}
           <div className="grid border-t border-border lg:grid-cols-2 lg:divide-x lg:divide-border">
             <article data-testid="refund-cash-request-summary" className="p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer request</p>

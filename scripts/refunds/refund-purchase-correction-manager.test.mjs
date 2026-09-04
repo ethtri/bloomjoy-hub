@@ -28,7 +28,7 @@ test('actual manager action respects current scope, delivery holds and terminal 
 test('actual one-action correction sends canonical fields without unreviewed triage/editor content',async()=>{
  let sent;let refreshed=0;const errors=[];
  const handler=load('handleSendCustomerMessage',{
-  selectedCase:{id:'case-1',customerCorrectionFields:['card_last4','amount']},customerDeliveryNeedsReconciliation:false,isUsingDemoData:false,
+  selectedCase:{id:'case-1',customerCorrectionFields:['card_last4','amount']},customerDeliveryNeedsReconciliation:false,isUsingDemoData:false,pendingRevision:null,setPendingRevision:()=>{},
   correctionSelection:{caseId:'case-1',version:12,fields:['amount']},setCorrectionSelection:()=>{},
   messageType:'denied',messageSubject:'Old denial subject',messageBody:'Old denial draft',
   gmailContext:{triageSuggestion:{id:'unreviewed',status:'ready_for_review',route:'draft_reply',missingFields:['incident_time']}},
@@ -44,7 +44,7 @@ test('actual one-action correction sends canonical fields without unreviewed tri
 
 test('actual correction action opens preselected fields, rejects empty, stale and unsupported selections before send',async()=>{
  let selection;let sends=0;const errors=[];
- const base={selectedCase:{id:'case-1',customerCorrectionFields:['amount','card_last4']},correctionSelection:null,officialActionVersion:12,customerDeliveryNeedsReconciliation:false,isUsingDemoData:false,
+ const base={selectedCase:{id:'case-1',customerCorrectionFields:['amount','card_last4']},correctionSelection:null,officialActionVersion:12,customerDeliveryNeedsReconciliation:false,isUsingDemoData:false,pendingRevision:null,setPendingRevision:()=>{},
   setCorrectionSelection:value=>{selection=value;},toast:{error:value=>errors.push(value)},sendRefundCaseMessage:()=>{sends++;}};
  await load('handleSendCustomerMessage',base)('more_info');
  assert.deepEqual(Array.from(selection.fields),['amount','card_last4']);assert.equal(sends,0);
@@ -52,4 +52,20 @@ test('actual correction action opens preselected fields, rejects empty, stale an
   await load('handleSendCustomerMessage',{...base,correctionSelection:{caseId:'case-1',version,fields}})('more_info',fields);
  }
  assert.equal(errors.length,3);assert.equal(sends,0);
+});
+
+test('uncertain revision retains exact payload for read-only inspection after polling advances case',async()=>{
+ let saved;let calls=0;const sent=[];const intent={current:null};
+ const selectedCase={id:'case',customerCorrectionFields:['amount','card_last4'],customerCorrection:{state:'pending',isActive:true,requestId:'old-request',canRevise:true}};
+ const base={selectedCase,pendingRevision:null,setPendingRevision:value=>{saved=value;},correctionSelection:{caseId:'case',version:12,fields:['card_last4'],requestId:'old-request',editing:true},
+ customerDeliveryNeedsReconciliation:false,isUsingDemoData:false,messageType:'more_info',gmailContext:{},officialActionVersion:12,
+ getCustomerMessageDraft:()=>({subject:'canonical',body:'canonical'}),manualMessageIntentRef:intent,setIsSendingCustomerMessage:()=>{},
+ sendRefundCaseMessage:async input=>{sent.push(input);calls++;throw Error('Lost response after commit');},setCorrectionSelection:()=>{},refresh:async()=>{},
+ toast:{error:()=>{},success:()=>{},info:()=>{}},isEdgeFunctionError:()=>false};
+ await load('handleSendCustomerMessage',base)('more_info',['card_last4']);assert.equal(calls,1);assert.equal(saved.expectedCaseVersion,12);
+ selectedCase.customerCorrection={state:'revoked',isActive:false,requestId:'replacement',canRevise:false};
+ const retained=saved;
+ await load('handleInspectRevisionDelivery',{...base,pendingRevision:retained,officialActionVersion:19,sendRefundCaseMessage:async input=>{sent.push(input);return {status:'sent'};}})();
+ assert.equal(sent.length,2);assert.equal(sent[1].inspectRevisionOnly,true);assert.equal(sent[1].expectedCaseVersion,12);
+ assert.equal(sent[1].messageIntentId,sent[0].messageIntentId);assert.equal(sent[1].currentCorrectionRequestId,'old-request');assert.equal(saved,null);
 });
