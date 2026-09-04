@@ -607,6 +607,40 @@ serve(async (req) => {
     const suppliedMissingFields = sanitizeRefundMissingFields(
       body?.missingFields,
     );
+    // Exact revision retries inspect the existing immutable intent before current
+    // facts/template changes. They never construct a replacement request again.
+    if (currentCorrectionRequestId) {
+      if (!Array.isArray(body?.missingFields) || !suppliedMissingFields.length ||
+        suppliedMissingFields.length !== body.missingFields.length || body?.subject !== undefined ||
+        body?.body !== undefined || body?.triageSuggestionId !== undefined) {
+        return jsonResponse({error:"Revision requests use the approved message and selected details."},400);
+      }
+      const {data: previous, error: previousError} = await supabase.from("refund_case_messages")
+        .select("id,recipient_email,subject,body,status,manual_delivery_state,delivery_transport")
+        .eq("manual_delivery_intent_id",messageIntentId).maybeSingle();
+      if (previousError) throw previousError;
+      if (previous) {
+        const {data: replay, error: replayError} = await supabase.rpc("service_revise_refund_purchase_correction",{
+          p_refund_case_id:caseId,p_expected_case_version:expectedCaseVersion,p_intent_id:messageIntentId,
+          p_actor_user_id:user.id,p_current_request_id:currentCorrectionRequestId,
+          p_recipient_email:previous.recipient_email,p_subject:previous.subject,p_body:previous.body,
+          p_requested_fields:suppliedMissingFields,
+        });
+        if (replayError || replay?.replayed !== true || replay.messageId !== previous.id) {
+          return jsonResponse({error:"This revision intent is already bound. Refresh before sending."},409);
+        }
+        if (previous.status === "sent" && previous.manual_delivery_state === "sent") return jsonResponse({message:{
+          id:previous.id,type:"more_info",status:"sent",subject:previous.subject,transport:previous.delivery_transport,
+        }});
+        const results = ["queued","claimed"].includes(previous.manual_delivery_state)
+          ? await drainRefundManualMessageOutbox({supabase,messageId:previous.id,limit:1}) : [];
+        if (results[0]?.outcome === "sent") return jsonResponse({message:{
+          id:previous.id,type:"more_info",status:"sent",subject:previous.subject,transport:results[0].transport,
+        }});
+        return jsonResponse({error:"The existing revision delivery needs review; no new request was created.",
+          errorCode:previous.manual_delivery_state === "delivery_unknown" ? "customer_email_delivery_unknown" : "customer_email_delivery_pending"},409);
+      }
+    }
     let triageSuggestion: RefundGptTriageRow | null = null;
     if (triageSuggestionId) {
       if (!isUuid(triageSuggestionId) || messageType !== "more_info") {
