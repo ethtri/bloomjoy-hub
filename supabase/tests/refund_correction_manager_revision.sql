@@ -47,7 +47,7 @@ create function pg_temp.claimed_reminder_race() returns text language plpgsql as
  update public.refund_follow_up_cycles set reminder_claimed_at=reminder_due_at where refund_case_id='de000000-0000-4000-8000-000000000005';
  perform pg_temp.revise(array['card_last4']); return 'unexpected success';
  exception when others then return sqlerrm; end; $$;
-select like(pg_temp.claimed_reminder_race(),'%already being prepared%','Already-claimed reminder interleaving blocks revision before revocation');
+select ok(pg_temp.claimed_reminder_race() like '%already being prepared%','Already-claimed reminder interleaving blocks revision before revocation');
 select is((select status from public.refund_wallet_correction_contexts where id=(select request_id from revision_identity)),'pending','Failed revision leaves original capability active');
 
 create temp table revision_result as select pg_temp.revise(array['card_last4']) as value;
@@ -81,12 +81,13 @@ select is((select count(*)::integer from replacement_claim),1,'Existing outbox c
 select public.service_mark_refund_manual_message_provider_attempt((select refund_case_message_id from replacement_claim),(select claim_token from replacement_claim));
 select public.service_finish_refund_manual_message_delivery((select refund_case_message_id from replacement_claim),(select claim_token from replacement_claim),'sent','gmail_thread',null,1,'mapped_manager');
 select is(public.service_get_refund_purchase_correction(repeat('b',64))->>'state','ready','Replacement becomes usable only after actual sender settlement');
-select like(public.refund_correction_revision_reason('de000000-0000-4000-8000-000000000005',(select id from public.refund_wallet_correction_contexts where token_hash=repeat('b',64)),'de000000-0000-4000-8000-000000000001'),'%two-contact limit%','Second delivered request cannot be revoked for a forbidden third contact');
+select ok(public.refund_correction_revision_reason('de000000-0000-4000-8000-000000000005',(select id from public.refund_wallet_correction_contexts where token_hash=repeat('b',64)),'de000000-0000-4000-8000-000000000001') like '%two-contact limit%','Second delivered request cannot be revoked for a forbidden third contact');
 update public.refund_cases set issue_summary='Later manager progress' where id='de000000-0000-4000-8000-000000000005';
 select ok((pg_temp.revise(array['card_last4'])->>'replayed')::boolean,'Exact original intent replay survives later official version progress');
 select throws_like($$select pg_temp.revise(array['amount','card_last4'])$$,'%already bound%','Changed payload cannot replay existing revision intent');
 select * from finish();
 rollback;
+
 
 
 
