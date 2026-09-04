@@ -31,8 +31,13 @@ select lives_ok($$insert into public.refund_case_messages(id,refund_case_id,mess
 select lives_ok($$select public.service_issue_refund_purchase_correction('de000000-0000-4000-8000-000000000006',repeat('e',64),
  (select deterministic_fact_version from public.refund_cases where id='de000000-0000-4000-8000-000000000005'))$$,'Message fields issue the exact same-case capability');
 select is((select requested_fields from public.refund_follow_up_cycles where id=(select(value#>>'{cycle,id}')::uuid from scope_cycle)),'{}'::text[],'Issuance preserves the original immutable cycle[]');
+-- SENT bookkeeping alone leaves delivery_state='unknown'. Establish the exact
+-- accepted transport receipt through the same RPCs as the real sender first.
+select public.service_mark_refund_transactional_delivery_attempt('de000000-0000-4000-8000-000000000006');
+select public.service_bind_refund_transactional_delivery('de000000-0000-4000-8000-000000000006','synthetic-original-revision-accepted',statement_timestamp());
 select lives_ok($$update public.refund_case_messages set status='sent',sent_at=statement_timestamp() where id='de000000-0000-4000-8000-000000000006'$$,'Tracked sent state accepts the matching current capability');
 select is(public.service_get_refund_purchase_correction(repeat('e',64))->>'state','ready','Only sent scoped message opens its correction page');
+select is((select delivery_state from public.refund_case_messages where id='de000000-0000-4000-8000-000000000006'),'accepted','Revision fixture has known provider acceptance, not default unknown delivery');
 
 create temp table revision_identity as select id as request_id,(select official_action_version from public.refund_cases where id=refund_case_id) as case_version from public.refund_wallet_correction_contexts where token_hash=repeat('e',64);
 create function pg_temp.revise(fields text[], intent uuid default 'de000000-0000-4000-8000-000000000008', actor uuid default 'de000000-0000-4000-8000-000000000001') returns jsonb language sql as $$
@@ -79,7 +84,9 @@ select lives_ok($$select public.service_issue_refund_purchase_correction((select
 create temp table replacement_claim as select * from public.service_claim_refund_manual_message_deliveries((select(value->>'messageId')::uuid from revision_result),1);
 select is((select count(*)::integer from replacement_claim),1,'Existing outbox can claim replacement');
 select public.service_mark_refund_manual_message_provider_attempt((select refund_case_message_id from replacement_claim),(select claim_token from replacement_claim));
-select public.service_finish_refund_manual_message_delivery((select refund_case_message_id from replacement_claim),(select claim_token from replacement_claim),'sent','gmail_thread',null,1,'mapped_manager');
+select public.service_mark_refund_transactional_delivery_attempt((select refund_case_message_id from replacement_claim));
+select public.service_bind_refund_transactional_delivery((select refund_case_message_id from replacement_claim),'synthetic-replacement-revision-accepted',statement_timestamp());
+select public.service_finish_refund_manual_message_delivery((select refund_case_message_id from replacement_claim),(select claim_token from replacement_claim),'sent','transactional_email',null,1,'mapped_manager');
 select is(public.service_get_refund_purchase_correction(repeat('b',64))->>'state','ready','Replacement becomes usable only after actual sender settlement');
 select ok(public.refund_correction_revision_reason('de000000-0000-4000-8000-000000000005',(select id from public.refund_wallet_correction_contexts where token_hash=repeat('b',64)),'de000000-0000-4000-8000-000000000001') like '%two-contact limit%','Second delivered request cannot be revoked for a forbidden third contact');
 update public.refund_cases set issue_summary='Later manager progress' where id='de000000-0000-4000-8000-000000000005';
