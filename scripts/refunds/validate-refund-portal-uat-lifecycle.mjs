@@ -9,6 +9,9 @@ const refundsSource = await readFile(
   new URL('../../src/pages/admin/Refunds.tsx', import.meta.url),
   'utf8'
 );
+const pollingSource = await readFile(
+  new URL('../../src/lib/refundReadPolling.ts', import.meta.url), 'utf8'
+);
 const queueSource = await readFile(
   new URL('../../src/lib/refundQueue.ts', import.meta.url),
   'utf8'
@@ -183,10 +186,9 @@ assert.match(
   queueSource,
   /if \(refundCase\.lifecycle\) return refundCase\.lifecycle\.managerQueue\.bucket;/
 );
-assert.match(
-  refundsSource,
-  /const activeRefreshIntervals = \(data\?\.cases \?\? \[\]\)[\s\S]*?Math\.min\(15_000[\s\S]*?Math\.min\(\.\.\.activeRefreshIntervals\)/
-);
+assert.match(refundsSource, /overviewPolling\.interval\(refundOverviewPollingInterval\(/);
+assert.match(pollingSource, /!lifecycle\.terminal && lifecycle\.refreshAfterSeconds/);
+assert.match(pollingSource, /Math\.min\(15_000[\s\S]*?Math\.min\(\.\.\.active\)/);
 assert.match(
   refundsSource,
   /ready_to_pay: overview\.cases\.filter\(isReadyToPayCase\)\.length[\s\S]*?waiting_on_customer: overview\.cases\.filter/
