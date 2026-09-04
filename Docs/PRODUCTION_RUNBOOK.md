@@ -222,6 +222,8 @@ supabase secrets set NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/v1
 supabase secrets set NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB=...
 # Fallback only if account-specific token names are not used:
 supabase secrets set NAYAX_LYNX_API_TOKEN=...
+# Initial isolated setup only: do not run these disabled defaults against live
+# production. Preserve its existing controls under the current #628/#990 decision.
 supabase secrets set NAYAX_REFUND_EXECUTION_ENABLED=false
 supabase secrets set NAYAX_REFUND_EXECUTION_DRY_RUN=true
 supabase secrets set NAYAX_REFUND_EXECUTION_KILL_SWITCH=true
@@ -230,6 +232,8 @@ supabase secrets set NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED=false
 supabase secrets set NAYAX_REFUND_IDEMPOTENCY_SECRET=...
 supabase secrets set NAYAX_REFUND_EXECUTOR_ASSERTION=...
 supabase secrets set REFUND_AUTOMATION_SWEEP_SECRET=...
+# Initial isolated setup only. Preserve production's existing contact, Gmail,
+# retention, attachment, and GPT controls; do not reset them during deployment.
 supabase secrets set REFUND_AUTOMATIC_CUSTOMER_CONTACT_ENABLED=false
 supabase secrets set REFUND_MANAGER_AGING_NOTICES_ENABLED=false
 supabase secrets set REFUND_GMAIL_ENABLED=false
@@ -250,9 +254,9 @@ npm run commerce:preflight -- --project-ref <project-ref> --include-refunds
 npm run refunds:preflight-gmail -- --project-ref <project-ref>
 ```
 
-Remote preflight validates secret presence by name, including the active manager contract/confirmation, approval-scope confirmation, and at least one matching `NAYAX_REFUND_REQUEST_WRITE_TOKEN_<ACCOUNT_KEY>` / `NAYAX_REFUND_APPROVE_WRITE_TOKEN_<ACCOUNT_KEY>` pair; it no longer treats the historical controlled-pilot assertion as release readiness. Local preflight additionally parses the schema-v2 contract, requires the exact production endpoint, and applies the adapter's credential-shape and separate/shared-token rules. Before deploying, separately verify the remote fail-closed values are set as intended: `NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`, `NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED=false`, and `NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED=false`. The production adapter exists but cannot reserve or call Nayax while any independent gate is closed; the synthetic adapter is available only through dependency injection in tests.
+Remote preflight validates secret presence by name, including the active manager contract/confirmation, approval-scope confirmation, and at least one matching `NAYAX_REFUND_REQUEST_WRITE_TOKEN_<ACCOUNT_KEY>` / `NAYAX_REFUND_APPROVE_WRITE_TOKEN_<ACCOUNT_KEY>` pair; it no longer treats the historical controlled-pilot assertion as release readiness. Local preflight additionally parses the schema-v2 contract, requires the exact production endpoint, and applies the adapter's credential-shape and separate/shared-token rules. Before deploying, inspect the effective remote controls against the current #628/#990 decision and preserve the enabled production state. A compatible release must not reset execution, dry-run, kill-switch, manager-contract, or approval-scope settings to their historical disabled defaults. The production adapter exists but cannot reserve or call Nayax while any independent gate is closed; the synthetic adapter is available only through dependency injection in tests.
 
-For the deployed `#644` baseline, use `Docs/REFUND_PRODUCTION_CUTOVER_PACKET.md` as the historical merge, deployment, smoke, rollback, pilot, and sponsor-decision record. The current strict release is governed by the exact reviewed canonical-main manifest and evidence. Issue `#409` tracks the remaining staffed shadow and production-label/legacy-responder no-overlap cutover; it is not an unmerged integration release candidate and does not require a separate release manifest. `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` remains historical and must not be used as current deployment authority.
+For the deployed `#644` baseline, use `Docs/REFUND_PRODUCTION_CUTOVER_PACKET.md` as the historical merge, deployment, smoke, rollback, pilot, and sponsor-decision record. The current strict release is governed by the exact reviewed canonical-main manifest and evidence. Closed issue `#409` records historical shadow and cutover work; its pilot, staffing, TOTP, and all-switches-off conditions are superseded by the current #628/#990 decisions and do not govern this live release. `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` remains historical and must not be used as current deployment authority.
 
 #### Refund Auth closed-state barrier (required before Step B)
 

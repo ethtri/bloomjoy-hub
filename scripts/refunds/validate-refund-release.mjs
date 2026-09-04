@@ -75,16 +75,19 @@ assert(
     productionRunbook.includes(
       'Deploy only the eleven functions listed in the release manifest from the exact immutable, reviewed canonical-main commit'
     ) &&
-    productionRunbook.includes('production Gmail OAuth/mailbox connection is now configured and proved under `#634`') &&
+    productionRunbook.includes('production Gmail OAuth/mailbox connection, scheduled intake, and approved automatic customer contact are now live') &&
+    productionRunbook.includes('Preserve normal refund operation during compatible deployments') &&
+    productionRunbook.includes('preserve the enabled production state') &&
+    !productionRunbook.includes('Official refund actions remain hard-off during deployment') &&
     productionRunbook.includes('production adapter exists but cannot reserve or call Nayax') &&
-    productionRunbook.includes('Issue `#409` tracks the remaining staffed shadow and production-label/legacy-responder no-overlap cutover') &&
+    productionRunbook.includes('Closed issue `#409` records historical shadow and cutover work') &&
     !productionRunbook.includes('For the unmerged candidate') &&
     !productionRunbook.includes('The later `#767` outcome-resolution migration and function deployment') &&
     !productionRunbook.includes('Do not configure Gmail OAuth/mailbox secrets before') &&
     !productionRunbook.includes('candidate handler') &&
     !productionRunbook.includes('unmerged `#409` integration candidate') &&
     !productionRunbook.includes('The candidate requires its own reviewed final manifest/evidence'),
-  'The runbook must bind the immutable canonical 10/51 bridge and current default-off release'
+  'The runbook must preserve the immutable historical bridge and current live release authority'
 );
 
 const refundDeployStart = productionRunbook.indexOf('Before deploying Refund Operations functions');
