@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { buildReceiptWrapperParityTest, extractReceiptParityBody, COMPLETION_MIGRATION, CORE_DISPATCH_MIGRATION } from './refund-receipt-wrapper-parity.mjs';
+import { applyOwnerResolutionBoundary, buildReceiptWrapperParityTest, extractReceiptParityBody, COMPLETION_MIGRATION,
+  CORE_DISPATCH_MIGRATION, OWNER_RESOLUTION_MIGRATION } from './refund-receipt-wrapper-parity.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const read = (name) => fs.readFileSync(path.join(root, 'supabase/migrations', name), 'utf8');
@@ -12,7 +13,8 @@ test('source-derived runtime proof includes exact current core delegates and rec
   assert(sql.includes('select plan(20)'));
   for (const name of ['service_claim_refund_gmail_outbound_v3', 'service_mark_refund_transactional_delivery_attempt']) {
     const core = extractReceiptParityBody(read(CORE_DISPATCH_MIGRATION), name);
-    const receipt = extractReceiptParityBody(read(COMPLETION_MIGRATION), name);
+    const receipt = applyOwnerResolutionBoundary(extractReceiptParityBody(read(COMPLETION_MIGRATION), name), name,
+      read(OWNER_RESOLUTION_MIGRATION));
     assert(sql.includes(`$receipt_parity$${core}$receipt_parity$`));
     assert(sql.includes(`$receipt_parity$${receipt}$receipt_parity$`));
     assert(core.includes('Follow-up reminder requires a non-failed original request'));

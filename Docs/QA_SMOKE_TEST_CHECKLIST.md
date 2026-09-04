@@ -1040,6 +1040,13 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] A prepared-but-unsent, failed, bounced, expired, wrong-recipient, or stale-fact link cannot read/write the case. A definitive failure before transport permits a later newly prepared message without consuming a delivered-contact slot; an unknown delivery never permits a blind replacement.
 - [ ] Accept a synthetic provider send, then advance facts or expire the link before local SENT settlement. Record the exact immutable send once without reopening customer waiting, issuing another capability, or sending again. Current completion/delivery problems remain visible.
 - [ ] An approved cash case lacking only Zelle contact exposes only destination correction. Submission preserves the manager decision and payment identity, stops the old payout reminder, and does not execute a payment. Legacy email replies remain supported; a late reply cannot overwrite newer submitted correction facts.
+
+### Already-sent owner non-refund resolution (`#891`, `#991`)
+
+- [ ] As the currently mapped Refund Operations owner, open an eligible undecided card case and record one exact retained Sent message reference, conversation reference, original UTC sent time, and full sent response stating that Bloomjoy does not operate the machine. Confirm the full response is fingerprinted in the browser and is absent from the request, event, logs, and displayed saved evidence.
+- [ ] Confirm the same case becomes denied with the fixed reason, one immutable operator-observed event, its original sent time distinct from the adoption time, and no new message, payment, receipt, provider attempt, or case. A pending provably unstarted notice is stopped; any provider-started or uncertain delivery record is retained.
+- [ ] Simulate a committed save whose response is lost, advance the case through its existing appeal path, then use **Check the same saved resolution**. Confirm the byte-identical original request returns the original result without another denial or effect. Editing any evidence discards that retry. Verify the panel at desktop and 390px without horizontal overflow.
+
 ### Manager read polling (#992)
 
 - With an active case, consecutive read failures back off to 10/20/40/60 seconds while preserving the last known lifecycle; no payment action or customer message is inferred from failure. Success restores the lifecycle's normal interval (at most 15 seconds).

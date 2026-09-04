@@ -4,6 +4,7 @@ import path from 'node:path';
 export const RECEIPT_MIGRATION = '20260902191832_refund_authoritative_reconciliation_receipt.sql';
 export const CORE_DISPATCH_MIGRATION = '20260902182311_refund_all_message_delivery_bookkeeping.sql';
 export const COMPLETION_MIGRATION = '20260903154800_refund_receipt_customer_completion.sql';
+export const OWNER_RESOLUTION_MIGRATION = '20260904182000_refund_owner_nonrefund_adoption.sql';
 const TEST_FILE = 'refund_receipt_wrapper_parity.sql';
 const gmailArgs = 'uuid,uuid,text,text,text,text,text[],text,uuid';
 const definitions = [
@@ -12,6 +13,10 @@ const definitions = [
   [COMPLETION_MIGRATION, 'service_mark_refund_transactional_delivery_attempt', 'service_mark_refund_transactional_delivery_attempt', 'uuid', true],
   [CORE_DISPATCH_MIGRATION, 'service_mark_refund_transactional_delivery_attempt', 'service_mark_refund_delivery_pre_receipt_v1', 'uuid', false],
 ];
+const guardByRuntimeName = new Map([
+  ['service_claim_refund_gmail_outbound_v3', ['  select official_action_version into case_version from public.refund_cases where id=p_refund_case_id for update;', '  perform public.assert_no_active_refund_owner_resolution(p_refund_case_id);']],
+  ['service_mark_refund_transactional_delivery_attempt', ['  select official_action_version into case_version from public.refund_cases where id=case_id for update;', '  perform public.assert_no_active_refund_owner_resolution(case_id);']],
+]);
 
 export function extractReceiptParityBody(source, name) {
   const normalized = source.replaceAll('\r\n', '\n');
@@ -22,6 +27,16 @@ export function extractReceiptParityBody(source, name) {
   const body = normalized.slice(bodyStart + 'as $$'.length, bodyEnd + 1);
   if (body.includes('$receipt_parity$')) throw new Error('Unsafe receipt parity delimiter');
   return body;
+}
+
+export function applyOwnerResolutionBoundary(body, runtimeName, ownerResolutionSource) {
+  const guard = guardByRuntimeName.get(runtimeName);
+  if (!guard) return body;
+  const [anchor, statement] = guard;
+  if (!ownerResolutionSource.replaceAll('\r\n', '\n').includes(`array['public.${runtimeName}(`) || body.split(anchor).length !== 2) {
+    throw new Error(`Owner resolution boundary is not exact: ${runtimeName}`);
+  }
+  return body.replace(anchor, `${anchor}\n${statement}`);
 }
 
 export function buildReceiptWrapperParityTest(repoRoot) {
@@ -37,8 +52,10 @@ export function buildReceiptWrapperParityTest(repoRoot) {
     if (definingFiles.at(-1) !== COMPLETION_MIGRATION) throw new Error(`Receipt wrapper overwritten later: ${name}`);
     if (definingFiles.at(-2) !== RECEIPT_MIGRATION || definingFiles.at(-3) !== CORE_DISPATCH_MIGRATION) throw new Error(`Receipt delegate is not the current core: ${name}`);
   }
+  const ownerResolutionSource = fs.readFileSync(path.join(migrationsDir, OWNER_RESOLUTION_MIGRATION), 'utf8').replaceAll('\r\n', '\n');
   const checks = definitions.flatMap(([file, sourceName, runtimeName, args, serviceAllowed]) => {
-    const body = extractReceiptParityBody(fs.readFileSync(path.join(migrationsDir, file), 'utf8'), sourceName);
+    let body = extractReceiptParityBody(fs.readFileSync(path.join(migrationsDir, file), 'utf8'), sourceName);
+    body = applyOwnerResolutionBoundary(body, runtimeName, ownerResolutionSource);
     const signature = `public.${runtimeName}(${args})`;
     return [
       `select is((select prosrc from pg_proc where oid='${signature}'::regprocedure), $receipt_parity$${body}$receipt_parity$, '${runtimeName} has the complete exact current source body');`,
