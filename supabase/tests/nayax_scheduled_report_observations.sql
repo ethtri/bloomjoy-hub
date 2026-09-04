@@ -17,7 +17,7 @@ values('e1500000-0000-4000-8000-000000000001','e1400000-0000-4000-8000-000000000
 create function pg_temp.report(p_digest text,p_original text default '700000001',p_machine text default '600000001',p_amount integer default -3210) returns jsonb language sql as $$
 select jsonb_build_object('fileDigest',repeat(p_digest,64),'byteCount',100,'rowCount',1,'actorCounts',jsonb_build_object('2003563806',1),
 'terminalEvidenceProven',false,'reportingPeriod',null,'settlementTimePrecision','unknown','observations',jsonb_build_array(jsonb_build_object(
-'transactionId','800000001','originalTransactionId',p_original,'siteId','4','actorId','2003563806','providerMachineId',p_machine,'currencyCode','USD',
+'transactionId','80000000'||ascii(p_digest)::text,'originalTransactionId',p_original,'siteId','4','actorId','2003563806','providerMachineId',p_machine,'currencyCode','USD',
 'authorizationAmountCents',p_amount,'settlementAmountCents',p_amount,'paidAmountCents',p_amount,'providerStatus',null,'providerStatusName',null,'observationDigest',repeat(p_digest,64))));
 $$;
 select set_config('request.jwt.claim.role','service_role',true);
@@ -33,8 +33,8 @@ select lives_ok($$select public.service_record_nayax_scheduled_report('aa4',now(
 select is((select disposition from public.nayax_scheduled_refund_observations where observation_digest=repeat('d',64)),'identity_conflict','Original ID alone cannot reuse receipt');
 select lives_ok($$select public.service_record_nayax_scheduled_report('aa5',now(),'linked_download',pg_temp.report('e','700000001','600000001',-1000))$$,'Partial amount stays distinct');
 select is((select disposition from public.nayax_scheduled_refund_observations where observation_digest=repeat('e',64)),'identity_conflict','Partial row cannot replace full receipt');
-select lives_ok($$select public.service_record_nayax_scheduled_report('aa6',now(),'linked_download',jsonb_set(pg_temp.report('f'),'{observations,0,siteId}','"6"'))$$,'Wrong-site report stays separate from exact receipt');
-select is((select disposition from public.nayax_scheduled_refund_observations where observation_digest=repeat('f',64)),'identity_conflict','Same original/machine with wrong site cannot reuse receipt');
+select lives_ok($$select public.service_record_nayax_scheduled_report('aa6',now(),'linked_download',jsonb_set(pg_temp.report('f'),'{observations,0,siteId}','"6"'))$$,'Explicitly linked refund may have a different site from its original sale');
+select is((select disposition from public.nayax_scheduled_refund_observations where observation_digest=repeat('f',64)),'existing_receipt_confirmed','Different refund site corroborates exact existing receipt without rewriting original site');
 select throws_ok($$select public.service_record_nayax_scheduled_report('aa1',now(),'linked_download',pg_temp.report('f'))$$,'P0001','Report message content changed','Same message cannot change content');
 select is((select count(*) from public.refund_authoritative_receipts where refund_case_id::text like 'e1400000%'),1::bigint,'No new receipt');
 select is((select count(*) from public.refund_case_nayax_refund_attempts where refund_case_id::text like 'e1400000%'),0::bigint,'No payment attempt');
