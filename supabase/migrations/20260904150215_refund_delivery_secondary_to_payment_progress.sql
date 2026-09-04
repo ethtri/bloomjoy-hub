@@ -15,7 +15,7 @@ begin
   end if;$old$;
   new_fragment := $new$  if delivery_review_required
     and integrity_code is null
-    and stage in ('refund_confirmed', 'customer_notified')
+    and (case_row.payment_method <> 'card' or stage in ('refund_confirmed', 'customer_notified'))
     and not terminal then
     manager_action := 'review_delivery_no_resend';
   end if;$new$;

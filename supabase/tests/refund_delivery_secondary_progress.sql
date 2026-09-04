@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(16);
+select plan(17);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -56,11 +56,11 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
  lifecycle_integrity_status,lifecycle_integrity_code,lifecycle_integrity_detected_at)
 select ('e4000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-DELIVERY-PROJECTION-'||n,
  'e3000000-0000-4000-8000-000000000001','e2000000-0000-4000-8000-000000000001',
- 'synthetic@example.invalid','Delivery projection fixture',now()-interval '1 hour','America/Los_Angeles','card',700,700,
+ 'synthetic@example.invalid','Delivery projection fixture',now()-interval '1 hour','America/Los_Angeles',case when n=7 then 'cash' else 'card' end,700,700,
  '4242',case when n=5 then 'denied' when n in(4,6) then 'card_refund_pending' else 'needs_review' end,
  'matched','nayax',case when n=5 then 'denied' else 'approved' end,'Existing synthetic decision','under_review',
  case when n=6 then 'hold' else 'ok' end,case when n=6 then 'card_payment_state_without_attempt' end,
- case when n=6 then now() end from generate_series(1,6) n;
+ case when n=6 then now() end from generate_series(1,7) n;
 update public.refund_cases set matched_nayax_transaction_id='synthetic-original',matched_nayax_amount_cents=700,
  matched_nayax_machine_auth_time=now()-interval '1 hour',matched_nayax_card_last4='4242'
 where id='e4000000-0000-4000-8000-000000000002';
@@ -79,7 +79,7 @@ select id,'status_update','failed','synthetic@example.invalid','Synthetic messag
 select is(jsonb_build_array(after_value->'stage',after_value->'paymentState',after_value->'managerAction',after_value->'managerQueue'),
  jsonb_build_array(contract->'stage',contract->'paymentState',contract->'managerAction',contract->'managerQueue'),
  'Failed message preserves canonical action/payment/queue for '||id)
-from delivery_before cross join lateral (select public.refund_lifecycle_contract(id) after_value) a order by id;
+from delivery_before cross join lateral (select public.refund_lifecycle_contract(id) after_value) a where id <> 'e4000000-0000-4000-8000-000000000007' order by id;
 select is(public.refund_lifecycle_contract('e4000000-0000-4000-8000-000000000002')#>>'{messageState,state}','failed','Delivery failure remains visible');
 select is(public.refund_lifecycle_contract('e4000000-0000-4000-8000-000000000002')#>>'{operations,required}','true','Delivery operations work remains recorded');
 select is(public.refund_lifecycle_contract('e4000000-0000-4000-8000-000000000002')#>>'{operations,failureClass}','customer_delivery_exception','Delivery has its own safe reason');
@@ -87,7 +87,8 @@ select is(public.refund_lifecycle_contract('e4000000-0000-4000-8000-000000000003
 select is(public.refund_lifecycle_contract('e4000000-0000-4000-8000-000000000006')#>>'{operations,failureClass}','card_payment_state_without_attempt','Integrity reason is not masked by delivery failure');
 select is((select decision from public.refund_cases where id='e4000000-0000-4000-8000-000000000002'),'approved','Existing manager approval is preserved');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts where refund_case_id in(select id from delivery_before)),2,'Projection creates no payment attempts');
-select is((select count(*)::integer from public.refund_case_messages where refund_case_id in(select id from delivery_before)),6,'Projection creates no messages');
+select is((select count(*)::integer from public.refund_case_messages where refund_case_id in(select id from delivery_before)),7,'Projection creates no messages');
 select ok(not has_function_privilege('authenticated','public.refund_lifecycle_contract_pre_authoritative_receipt_v1(uuid)','EXECUTE'),'Internal projection execute permission is unchanged');
+select is(public.refund_lifecycle_contract('e4000000-0000-4000-8000-000000000007')#>>'{managerQueue,nextAction}','review_delivery_no_resend','Existing cash delivery precedence is unchanged by the card-progress repair');
 select * from finish();
 rollback;
