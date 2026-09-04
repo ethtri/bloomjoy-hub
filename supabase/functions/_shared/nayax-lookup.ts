@@ -333,6 +333,9 @@ export type NayaxLookupResult = {
     machineLabel: string | null;
     locationName: string | null;
     incidentAt: string;
+    incidentTimeResolution?: string;
+    incidentTimeConfidence?: string;
+    locationTimezone?: string;
     qrClaimOpenedAt: string | null;
   };
 };
@@ -643,6 +646,9 @@ const lookupGroupedLivermoreCandidates = async ({
     machineLabel: "San Francisco Premium Outlets — Cotton candy",
     locationName: sanitizeText(location.name, 180) || null,
     incidentAt: incidentAt.toISOString(),
+    incidentTimeResolution: sanitizeText(refundCase.incident_time_resolution, 40) || "legacy_absolute",
+    incidentTimeConfidence: sanitizeText(refundCase.incident_time_confidence, 40) || "rough",
+    locationTimezone: sanitizeText(location.timezone, 80),
     qrClaimOpenedAt: null,
   };
   const requiredAccountScope = `${sanitizeText(location.name, 140) || "Selected location"} Nayax account scope`;
@@ -1003,6 +1009,9 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     machineLabel: sanitizeText(machine?.machine_label, 180) || null,
     locationName: sanitizeText(location?.name, 180) || null,
     incidentAt: incidentAt.toISOString(),
+    incidentTimeResolution: sanitizeText(refundCase.incident_time_resolution, 40) || "legacy_absolute",
+    incidentTimeConfidence: sanitizeText(refundCase.incident_time_confidence, 40) || "rough",
+    locationTimezone: sanitizeText(location?.timezone, 80),
     qrClaimOpenedAt,
   };
 

@@ -1287,7 +1287,9 @@ const transactionSearchDescription = (summary: RefundNayaxLookupSummary | null) 
     case 'no_match':
       return summary.providerWindowRecordCount && summary.providerWindowRecordCount > 0
         ? `${summary.providerWindowRecordCount} transaction${summary.providerWindowRecordCount === 1 ? ' was' : 's were'} checked, but none matched enough customer details.`
-        : 'No transaction matched enough customer details.';
+        : summary.providerWindowRecordCount === 0
+          ? 'The returned recent sales contain no usable transactions in the purchase time window. Historical coverage is unknown.'
+          : 'No usable transaction was found. Coverage of the purchase time is not recorded.';
     case 'multiple_matches':
       return `${summary.candidateCount || 'Several'} possible transactions were found. Compare them below.`;
     case 'not_started':
@@ -4048,14 +4050,11 @@ export default function AdminRefundsPage() {
           toast.info('Transaction search is not connected for this machine.');
         }
       } else if (result.recommendationState === 'no_safe_match' || !result.candidates.length) {
-        const providerRecordCount = result.providerRecordCount ?? 0;
         const providerWindowRecordCount = result.providerWindowRecordCount ?? 0;
         const noMatchMessage =
           providerWindowRecordCount > 0
             ? `${providerWindowRecordCount} transactions were checked, but none matched the customer details closely enough. Keep the case open and do not choose a transaction unless it is clear.`
-            : providerRecordCount > 0
-              ? `${providerRecordCount} recent transactions were checked, but none were close enough to the reported time. Keep the case open and do not choose a transaction unless it is clear.`
-              : 'No matching transaction was found. Keep the case open and do not choose one unless it is clear.';
+            : `${transactionSearchDescription(nextSummary)} Keep the case open for Refund Operations review.`;
         setNayaxLookupNotice({
           tone: 'info',
           message: noMatchMessage,
