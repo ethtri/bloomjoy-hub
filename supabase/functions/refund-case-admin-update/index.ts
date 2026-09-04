@@ -4,6 +4,7 @@ import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { correctionLinkRequested, getCurrentRefundCorrectionFields, issueRefundCorrectionForMessage, refundCorrectionLinksEnabled, STORED_CORRECTION_LINK_MARKER } from "../_shared/refund-correction-delivery.ts";
 import { handleAuthoritativeReceipt, isAuthoritativeReceiptMode } from "../_shared/refund-authoritative-receipt.ts";
+import { handleOwnerNonrefundAdoption, isOwnerNonrefundAdoptionMode } from "../_shared/refund-owner-nonrefund-adoption.ts";
 import {
   buildRefundCustomerEmail,
   redactRefundStatusLinksForStorage,
@@ -781,6 +782,18 @@ serve(async (req) => {
     }
 
     const body = await req.json();
+    if (isOwnerNonrefundAdoptionMode(body?.mode)) {
+      const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+      if (!supabaseUrl || !anonKey || user.is_anonymous) {
+        return jsonResponse({ errorCode: "owner_resolution_unavailable", error: "Current Refund Operations access is required." }, 403);
+      }
+      const authenticatedClient = createClient(supabaseUrl, anonKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+        global: { headers: { Authorization: `Bearer ${accessToken}` } },
+      });
+      const result = await handleOwnerNonrefundAdoption(body, (name, args) => authenticatedClient.rpc(name, args));
+      return jsonResponse(result.body, result.status);
+    }
     if (isAuthoritativeReceiptMode(body?.mode)) {
       const receiptAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
       if (!supabaseUrl || !receiptAnonKey || user.is_anonymous) {
