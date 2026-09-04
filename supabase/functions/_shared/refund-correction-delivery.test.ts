@@ -3,10 +3,28 @@ import { correctionTokenForMessage, issueRefundCorrectionForMessage, requireRefu
 import { buildRefundCustomerEmail, redactRefundStatusLinksForStorage } from './refund-email.ts';
 import { buildNayaxCustomerCorrectionEmail } from './refund-nayax-customer-correction.ts';
 import { deliverRefundManualMessageClaim } from './refund-manual-message-outbox.ts';
+import { refundCorrectionCopy, refundCorrectionReason } from './refund-correction-copy.ts';
+import { correctionFields, type CorrectionField } from './refund-correction.ts';
 
 const messageId = 'b2000000-0000-4000-8000-000000000001';
 const secret = 'synthetic-correction-test-secret-01234567890123456789';
 const input = { messageType: 'more_info' as const, publicReference: 'RF-SYNTHETIC', customerEmail: 'customer@example.com', missingFields: ['amount', 'incident_time'] as const };
+Deno.test('scoped email and manager preview share the form reason for each supported field and combined request', () => {
+  for (const fields of [...correctionFields.map((field) => [field]), ['amount', 'card_last4'] as CorrectionField[]]) {
+    for (const locale of ['en', 'es']) {
+      const reason = refundCorrectionReason(fields, locale === 'es');
+      const preview = refundCorrectionCopy(fields, input.publicReference, locale === 'es');
+      const email = buildRefundCustomerEmail({...input, missingFields: fields, customerLocale: locale, correctionUrl: STORED_CORRECTION_LINK_MARKER});
+      assert(reason.length > 0 && preview.paragraphs.includes(reason));
+      assert(email.text.includes(reason) && email.html.includes(reason));
+      assertEquals(email.subject, preview.subject);
+      assertEquals(preview.paragraphs.filter((paragraph) => paragraph === reason).length, 1);
+    }
+  }
+  assertEquals(refundCorrectionReason(['amount', 'incident_time', 'location_or_machine'], false), refundCorrectionReason(['amount'], false));
+  assertEquals(refundCorrectionReason([], false), '');
+  assert(!refundCorrectionReason(['amount', 'card_last4'], false).includes('approved'));
+});
 const withConfig = async (run: () => Promise<void>) => {
   const prior = Deno.env.get('REFUND_CORRECTION_TOKEN_SECRET');
   Deno.env.set('REFUND_CORRECTION_TOKEN_SECRET',secret);

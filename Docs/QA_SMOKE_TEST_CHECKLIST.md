@@ -1,5 +1,11 @@
 # QA Smoke Test Checklist
 
+- Correction explanation (#1113): with synthetic scoped fields, compare the short
+  reason in the manager's canonical preview, captured email, and `/refunds/correct`.
+  Check English/Spanish at 390px/1440px for purchase, payment, combined, and approved
+  Zelle-only requests. The same purpose must appear without claiming a wrong
+  customer value or a verified match; changing fields must not repeat the reason.
+
 - Same-case correction recovery (#1111): on localhost with a synthetic backend,
   run `playwright-cli run-code --filename scripts/refunds/refund-correction-recovery-browser.mjs`
   after opening `http://127.0.0.1:8095/refunds/correct`. Verify 390px/1440px loading,

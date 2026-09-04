@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { invokeEdgeFunction, isEdgeFunctionError } from '@/lib/edgeFunctions';
 import { isLocalUatDemoForced } from '@/lib/refundOperations';
+import { refundCorrectionReason } from '../../supabase/functions/_shared/refund-correction-copy';
 import { correctionChoices, correctionFields, correctionLabels, correctionRefreshInterval, isCorrectionToken, requiredCorrectionFields, updateCorrectionAnswer, validateCorrectionAnswers,
   type CorrectionAnswer, type CorrectionAnswers, type CorrectionContext, type CorrectionField,
 } from '../../supabase/functions/_shared/refund-correction';
@@ -150,6 +151,7 @@ export default function RefundCorrectionPage() {
           <p className="text-sm font-medium text-muted-foreground">{context.publicReference}</p>
           <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">{payoutDestination ? copy('Add your payout destination', 'Agregue el destino de su reembolso') : copy('Update your refund request', 'Actualice su solicitud de reembolso')}</h1>
           <p className="mt-4 leading-7">{payoutDestination ? copy('Add the Zelle email or phone number for your approved cash reimbursement. This stays on your existing refund request.', 'Agregue el correo o teléfono de Zelle para su reembolso de efectivo aprobado. Esta información queda en su solicitud existente.') : copy('Check the details below so we can review the right purchase. Confirm what is correct, change what needs fixing, or tell us you’re not sure.', 'Revise los detalles para que podamos encontrar la compra correcta. Confirme lo correcto, corrija lo necesario o indique que no está seguro.')}</p>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground" data-testid="correction-reason">{refundCorrectionReason(context.requestedFields ?? [], es)}</p>
           <p className="mt-4 flex gap-2 text-sm leading-6 text-muted-foreground"><ShieldCheck aria-hidden className="mt-1 h-4 w-4 shrink-0" />{(payoutDestination || cash) ? copy('Never share a bank account number, password or security code.', 'Nunca comparta un número de cuenta bancaria, contraseña ni código de seguridad.') : copy('Only the last four card digits. Never share a full card number, security code, password or screenshot.', 'Solo los últimos cuatro dígitos. Nunca comparta el número completo de tarjeta, código de seguridad, contraseña ni captura de pantalla.')}</p>
           <form onSubmit={submit} className="mt-8 space-y-7" noValidate>
             {locationChanged && <p role="status" className="text-sm leading-6 text-muted-foreground">{copy('Please check the saved date and time for this location. Use the local time where you bought the item; you do not need to work out a time zone. You can tell us if you’re not sure.', 'Revise la fecha y la hora guardadas para esta ubicación. Use la hora local del lugar de compra; no necesita calcular la zona horaria. Puede indicar que no está seguro.')}</p>}
