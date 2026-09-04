@@ -1,6 +1,6 @@
 /// <reference lib="deno.ns" />
 
-import { getRefundManagerState, getRefundPaymentStateLabel } from './refundManagerState.ts';
+import { getRefundManagerState, getRefundPaymentStateLabel, hasUnpaidRefundReview } from './refundManagerState.ts';
 import type { RefundLifecycleContract, RefundLifecycleStage } from './refundLifecycle.ts';
 
 const assertEquals = (actual: unknown, expected: unknown, message: string) => {
@@ -671,4 +671,17 @@ Deno.test('canonical pending and uncertain payment truth stays ahead of unrelate
   assertEquals(result.id,getRefundManagerState(current).id,stage);
   assertEquals(result.nextStep,getRefundManagerState(current).nextStep,`${stage} next step`);
  }
+});
+
+Deno.test('explicit released-no-refund evidence permits review with delivery-only operations, never a payment hold',()=>{
+ const contract=lifecycle('transaction_confirmed',30,'refund');
+ contract.definitiveNoRefund=true;contract.safeRetryEligible=true;
+ contract.operations={...contract.operations,required:true,safeStage:'released_no_refund',failureClass:'customer_delivery_exception'};
+ const released={...baseCase,providerOutcome:'rejected' as const,lifecycle:contract};
+ assertEquals(hasUnpaidRefundReview(released),true,'Delivery-only review does not revoke an explicit safe release');
+ for(const failureClass of ['provider_outcome_unknown','integrity_hold',null]) {
+  assertEquals(hasUnpaidRefundReview({...released,lifecycle:{...contract,operations:{...contract.operations,failureClass}}}),false,'A payment review is not a delivery-only release');
+ }
+ assertEquals(hasUnpaidRefundReview({...released,providerHold:true}),false,'Explicit current provider hold wins');
+ assertEquals(hasUnpaidRefundReview({...released,lifecycle:{...contract,safeRetryEligible:false}}),false,'No safe retry means no review continuation');
 });

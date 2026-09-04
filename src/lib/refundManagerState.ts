@@ -104,7 +104,8 @@ export const isDefinitiveNoRefundRetryReady = (
   refundCase.lifecycle?.stage === 'transaction_confirmed' &&
   refundCase.lifecycle.definitiveNoRefund === true &&
   refundCase.lifecycle.safeRetryEligible === true &&
-  refundCase.lifecycle.operations.required === false &&
+  (refundCase.lifecycle.operations.required === false ||
+    refundCase.lifecycle.operations.failureClass === 'customer_delivery_exception') &&
   refundCase.lifecycle.operations.safeStage === 'released_no_refund';
 
 /** Known unpaid review can continue independently of a historical customer notice. */
