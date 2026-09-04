@@ -173,8 +173,8 @@ insert into public.reporting_locations(id,account_id,name,city,state,timezone,st
 values('fc430000-0000-4000-8000-000000000002','fc420000-0000-4000-8000-000000000001','San Francisco Premium Outlets','Livermore','CA','America/Los_Angeles','active');
 insert into public.reporting_machines(id,account_id,location_id,machine_label,machine_type,status,nayax_machine_id,nayax_account_key,nayax_refunds_enabled,refund_intake_enabled,refund_public_display_label)
 values
- ('91bae5ac-4ba6-4378-91f0-ef266bdd4d7a','fc420000-0000-4000-8000-000000000001','fc430000-0000-4000-8000-000000000002','TT20 Cotton Candy','commercial','active','921900001','TGPACI_USA_DB',false,true,'San Francisco Premium Outlets — TT20 Cotton Candy'),
- ('8eda5a29-1718-4c70-9993-7c7e2fd6c65a','fc420000-0000-4000-8000-000000000001','fc430000-0000-4000-8000-000000000002','TT33 Cotton Candy','commercial','active','921900002','TGPACI_USA_DB',false,true,'San Francisco Premium Outlets — TT33 Cotton Candy');
+ ('91bae5ac-4ba6-4378-91f0-ef266bdd4d7a','fc420000-0000-4000-8000-000000000001','fc430000-0000-4000-8000-000000000002','TT20 Cotton Candy','commercial','active','921900001','TGPACI_USA_DB',false,true,'San Francisco Premium Outlets â€” TT20 Cotton Candy'),
+ ('8eda5a29-1718-4c70-9993-7c7e2fd6c65a','fc420000-0000-4000-8000-000000000001','fc430000-0000-4000-8000-000000000002','TT33 Cotton Candy','commercial','active','921900002','TGPACI_USA_DB',false,true,'San Francisco Premium Outlets â€” TT33 Cotton Candy');
 insert into public.refund_nayax_machine_inventory(account_key,nayax_machine_id,machine_name,machine_number,provider_is_active,refund_category,reporting_machine_id,reconciliation_state,setup_reason)
 values
  ('TGPACI_USA_DB','921900001','Livermore A','fixture-a',true,'cotton_candy','91bae5ac-4ba6-4378-91f0-ef266bdd4d7a','published','reviewed_exact_mapping'),
