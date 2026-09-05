@@ -29,6 +29,7 @@ export type RefundWalletProvider = 'apple_pay' | 'google_wallet' | 'other' | 'un
 export type RefundCardLast4Source = 'physical_card' | 'wallet_device' | 'bank_record' | 'unknown';
 export type RefundWalletDeviceKind = 'phone' | 'watch' | 'unknown';
 export type RefundIncidentTimeSource = 'transaction_alert_or_receipt' | 'memory' | 'unknown';
+export type RefundNearbyAttemptCount = 'one' | 'multiple' | 'unknown';
 export type RefundCardNetwork =
   | 'visa'
   | 'mastercard'
@@ -363,6 +364,7 @@ export type NayaxRecommendationState =
 export type NayaxConfidenceClass =
   | 'strong_card'
   | 'unique_qr_time'
+  | 'evidence_aware_review'
   | 'ambiguous_manual';
 
 export type RefundReadinessBlockReason =
@@ -550,7 +552,7 @@ const selectedNayaxCardNetworks = new Set<RefundCardNetwork>([
   'visa', 'mastercard', 'discover', 'american_express', 'other_unknown',
 ]);
 const selectedNayaxPaymentInteractions = new Set<RefundPaymentInteraction>([
-  'phone_watch_wallet', 'tap_card', 'insert_or_swipe', 'cash', 'unsure',
+  'phone_watch_wallet', 'tap_card', 'insert_card', 'swipe_card', 'insert_or_swipe', 'cash', 'unsure',
 ]);
 const selectedNayaxWalletProviders = new Set<RefundWalletProvider>([
   'apple_pay', 'google_wallet', 'other', 'unsure',
@@ -777,10 +779,14 @@ export type RefundCaseRecord = {
   paymentAmountCents: number | null;
   cardLast4: string | null;
   cardLast4Provenance?: 'physical_card' | 'wallet_device_token' | null;
+  cardLast4Source?: RefundCardLast4Source | null;
   cardNetwork?: RefundCardNetwork | null;
   cardWalletUsed: boolean;
   paymentInteraction?: RefundPaymentInteraction | null;
   walletProvider?: RefundWalletProvider | null;
+  walletDeviceKind?: RefundWalletDeviceKind | null;
+  incidentTimeSource?: RefundIncidentTimeSource | null;
+  nearbyAttemptCount?: RefundNearbyAttemptCount | null;
   customerFactEvidence?: {
     source:
       | 'initial_customer_submission'
@@ -1384,6 +1390,16 @@ export type NayaxLookupCandidate = {
   manualReviewReasons?: string[];
   hardExclusions?: string[];
   policyVersion?: string;
+  identifierPolicyVersion?: string;
+  customerFactVersion?: number | null;
+  customerCredentialClass?: string;
+  providerIdentifierClass?: string;
+  cardLast4Comparison?: string;
+  cardNetworkComparison?: string;
+  paymentInteractionComparison?: string;
+  sameIdentifierEquivalenceProven?: boolean;
+  identifierReviewState?: 'exact_support' | 'reviewable_uncertainty' | 'needs_corroboration' | 'blocked_safety' | string;
+  customerCorrectionFields?: RefundMissingField[];
   /** @deprecated Uncalibrated legacy value; do not display as a probability. */
   matchConfidence?: number;
   matchReason: string;

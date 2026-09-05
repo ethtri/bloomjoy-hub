@@ -37,7 +37,7 @@ Deno.test("last-four conflicts bundle unresolved payment context and nearby atte
     }],
   });
   assert(
-    JSON.stringify(fields) === JSON.stringify(["payment_interaction", "card_last4", "card_last4_source", "card_network", "nearby_attempt_count"]),
+    JSON.stringify(fields) === JSON.stringify(["payment_interaction", "card_last4_source", "card_network", "nearby_attempt_count"]),
     "a mismatch must not ask for digits alone when their source and interaction are unknown",
   );
   const knownContext = deriveNayaxCustomerCorrectionFields({
@@ -45,7 +45,7 @@ Deno.test("last-four conflicts bundle unresolved payment context and nearby atte
     cardLast4Source: "physical_card", cardNetwork: "visa",
     candidates: [{isTopRanked:true,reasonCodes:["card_last4_mismatch"],hardExclusions:["card_last4_mismatch"]}],
   });
-  assert(JSON.stringify(knownContext) === JSON.stringify(["card_last4"]), "settled context should not be requested again");
+  assert(knownContext.length === 0, "settled context should become one manager review, not repeated customer work");
 });
 
 Deno.test("amount and time conflicts each request only their disputed fact", () => {
@@ -146,12 +146,28 @@ Deno.test("persisted targeted conflicts retain the same field after status norma
     paymentInteraction: "tap_card", cardLast4Source: "physical_card", cardNetwork: "visa",
     candidates: [{ isTopRanked: true, reasonCodes: ["card_last4_mismatch"], hardExclusions: ["card_last4_mismatch"] }],
   });
-  assert(JSON.stringify(fields) === JSON.stringify(["card_last4"]), "a reminder must retain the actual supported correction without repeating settled context");
+  assert(fields.length === 0, "a reminder must not ask for card digits the customer already supplied");
   assert(deriveNayaxCustomerCorrectionFields({
     recommendationState: "no_safe_match",
     cardWalletUsed: false,
     candidates: [{ isTopRanked: true, reasonCodes: ["card_last4_mismatch", "missing_canonical_machine_mapping"] }],
   }).length === 0, "provider mapping remains internal after status normalization");
+});
+
+Deno.test("evidence-aware mismatch routes one manager review or exact missing facts", () => {
+  assert(deriveNayaxCustomerCorrectionFields({
+    recommendationState: "manual_exception",
+    candidates: [{ isTopRanked: true, identifierReviewState: "reviewable_uncertainty",
+      reasonCodes: ["card_last4_mismatch"], customerCorrectionFields: [] }],
+  }).length === 0, "a reviewable sale is manager work");
+  const fields = deriveNayaxCustomerCorrectionFields({
+    recommendationState: "no_safe_match",
+    candidates: [{ isTopRanked: true, identifierReviewState: "needs_corroboration",
+      reasonCodes: ["card_last4_mismatch"],
+      customerCorrectionFields: ["card_last4_source", "nearby_attempt_count"] }],
+  });
+  assert(JSON.stringify(fields) === JSON.stringify(["card_last4_source", "nearby_attempt_count"]),
+    "only matcher-proven missing facts should be requested on the same case");
 });
 
 Deno.test("correction fallback email stays on the same case and accepts structured context", () => {

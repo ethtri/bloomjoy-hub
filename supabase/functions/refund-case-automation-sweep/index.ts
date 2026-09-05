@@ -2161,6 +2161,8 @@ type PersistedNayaxCorrectionEvidence = {
   reasonCodes: string[];
   manualReviewReasons: string[];
   hardExclusions: string[];
+  identifierReviewState: string | null;
+  customerCorrectionFields: string[];
 };
 
 const stringList = (value: unknown) =>
@@ -2206,6 +2208,8 @@ const getPersistedNayaxCorrectionEvidence = async (
       reasonCodes: stringList(evidence.reason_codes),
       manualReviewReasons: stringList(evidence.manual_review_reasons),
       hardExclusions: stringList(evidence.hard_exclusions),
+      identifierReviewState: textValue(evidence.identifier_review_state) || null,
+      customerCorrectionFields: stringList(evidence.customer_correction_fields),
     };
   });
 };

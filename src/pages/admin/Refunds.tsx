@@ -1107,9 +1107,10 @@ const cardNetworkComparisonLabel = (
   if (!customerNetwork || customerNetwork === 'other_unknown') return 'Customer was not sure';
   if (!nayaxNetwork) return 'Nayax card type unavailable';
   if (customerNetwork === nayaxNetwork) return 'Same card type';
-  return refundCase.paymentInteraction === 'phone_watch_wallet' || refundCase.cardWalletUsed
-    ? 'Different; wallet evidence is supportive only'
-    : 'Different; transaction cannot be selected';
+  if (candidate.cardNetworkComparison === 'mismatch_negative_unproven_equivalence') {
+    return 'Different; this weighs against the match, but Nayax has not proved the fields are equivalent';
+  }
+  return 'Different; wallet, contactless, or source differences may explain it';
 };
 
 const paymentInteractionLabel = (refundCase: RefundCaseRecord) => {
@@ -1124,6 +1125,10 @@ const paymentInteractionLabel = (refundCase: RefundCaseRecord) => {
       return 'Tapped a physical card';
     case 'insert_or_swipe':
       return 'Inserted or swiped a physical card';
+    case 'insert_card':
+      return 'Inserted a physical card';
+    case 'swipe_card':
+      return 'Swiped a physical card';
     case 'cash':
       return 'Cash';
     default:
@@ -1154,6 +1159,21 @@ const cardLast4ProvenanceLabel = (refundCase: RefundCaseRecord) => {
       return 'digit source not yet confirmed';
   }
 };
+
+const cardLast4SourceLabel = (refundCase: RefundCaseRecord) => ({
+  physical_card: 'physical card', wallet_device: 'wallet or device',
+  bank_record: 'bank record or alert', unknown: 'source not sure',
+}[refundCase.cardLast4Source ?? ''] ?? 'source not provided');
+
+const incidentTimeSourceLabel = (refundCase: RefundCaseRecord) => ({
+  transaction_alert_or_receipt: 'time from alert or receipt', memory: 'time from memory',
+  unknown: 'time source not sure',
+}[refundCase.incidentTimeSource ?? ''] ?? 'time source not provided');
+
+const nearbyAttemptCountLabel = (refundCase: RefundCaseRecord) => ({
+  one: 'one nearby attempt or charge', multiple: 'more than one nearby attempt or charge',
+  unknown: 'nearby attempts not sure',
+}[refundCase.nearbyAttemptCount ?? ''] ?? 'nearby attempts not provided');
 
 const incidentTimeConfidenceLabel = (refundCase: RefundCaseRecord) => {
   switch (refundCase.incidentTimeConfidence) {
@@ -1202,9 +1222,9 @@ const matchFactorDisplayLabel = (
     case 'card':
       if (!refundCase.cardLast4 || !candidate.cardLast4) return factor.label;
       if (refundCase.cardLast4 === candidate.cardLast4) return 'Card ending matches';
-      return refundCase.paymentInteraction === 'phone_watch_wallet' || refundCase.cardWalletUsed
-        ? 'Card ending differs; phone or watch wallets may use a different device number'
-        : 'Card ending does not match';
+      return candidate.cardLast4Comparison === 'mismatch_negative_unproven_equivalence'
+        ? 'Card ending differs and weighs against this match; Nayax has not proved the fields are equivalent'
+        : 'Card ending differs; wallet, contactless, or source differences may explain it';
     case 'card_network':
       return cardNetworkComparisonLabel(refundCase, candidate);
     case 'incident_time':
@@ -1226,11 +1246,7 @@ const candidateUnavailableReason = (
   refundCase: RefundCaseRecord
 ) => {
   const exclusions = new Set(candidate.hardExclusions ?? []);
-  if (exclusions.has('card_last4_mismatch')) {
-    return refundCase.paymentInteraction === 'phone_watch_wallet' || refundCase.cardWalletUsed
-      ? 'The card ending needs customer confirmation.'
-      : 'The card ending does not match the physical card reported by the customer.';
-  }
+  const reasonCodes = new Set(candidate.reasonCodes ?? []);
   if (exclusions.has('duplicate_transaction')) {
     return 'This transaction is already linked to another refund case.';
   }
@@ -1245,6 +1261,17 @@ const candidateUnavailableReason = (
   }
   if (exclusions.has('payment_not_approved')) {
     return 'Nayax does not show this as an approved sale.';
+  }
+  if (reasonCodes.has('missing_provider_site_id')) {
+    return 'Nayax did not return the provider site needed to bind this transaction.';
+  }
+  if (reasonCodes.has('provider_status_unconfirmed')) {
+    return 'Nayax has not confirmed this as an approved sale.';
+  }
+  if (candidate.identifierReviewState === 'needs_corroboration') {
+    return candidate.customerCorrectionFields?.length
+      ? 'More customer context is needed on this same case before a manager can select it.'
+      : 'The machine, amount, or time evidence is not strong enough to select this sale.';
   }
 
   const blockingFactor = candidate.matchFactors?.find((factor) =>
@@ -1274,6 +1301,7 @@ const nayaxDecisionHeading = (
   if (summary?.recommendationState === 'no_safe_match' || summary?.lookupStatus === 'no_match') {
     return 'No clear transaction was found';
   }
+  if (candidate?.identifierReviewState === 'reviewable_uncertainty') return 'One transaction needs manager review';
   if (candidate?.isRecommended) return 'One likely transaction was found';
   if (candidate) return 'A possible transaction needs comparison';
   return 'Waiting for transaction search';
@@ -1524,7 +1552,11 @@ const nayaxResultTitle = (
   editor: EditorState
 ) => {
   if (hasSelectedCardEvidence(refundCase, editor)) return 'Card transaction found';
-  if (summary.lookupStatus === 'match_found' || summary.lookupStatus === 'multiple_matches') {
+  if (
+    summary.lookupStatus === 'match_found' ||
+    summary.lookupStatus === 'multiple_matches' ||
+    summary.lookupStatus === 'manual_exception'
+  ) {
     return 'Review possible transaction';
   }
   if (summary.lookupStatus === 'no_match') return 'No matching transaction';
@@ -1566,8 +1598,11 @@ const nayaxNextActionText = (
         ? 'Next: Compare the customer, amount, and time. Select the transaction only if it is clearly correct.'
         : 'Next: Compare the transaction with the customer details before selecting it.';
     case 'multiple_matches':
-    case 'manual_exception':
       return 'Next: Compare the possible transactions. Select one only if it is clearly the customer\'s purchase.';
+    case 'manual_exception':
+      return summary.confidenceClass === 'evidence_aware_review'
+        ? 'Next: Review this transaction once. Select it only if the machine, amount, time, and customer details identify the same purchase.'
+        : 'Next: Compare the possible transactions. Select one only if it is clearly the customer\'s purchase.';
     case 'no_match':
       return 'Next: Keep the case open. Do not choose a transaction unless you can clearly identify it.';
     case 'setup_needed':
@@ -4953,7 +4988,7 @@ export default function AdminRefundsPage() {
               <span>{label}</span>
               {candidate.isRecommended && (
                 <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] text-sky-950">
-                  Recommended
+                  {candidate.identifierReviewState === 'reviewable_uncertainty' ? 'Review this' : 'Recommended'}
                 </span>
               )}
               {candidate.selectionAllowed === false && (
@@ -5181,6 +5216,8 @@ export default function AdminRefundsPage() {
                   ? '0 transactions available to select'
                   : waitingOnCustomer
                     ? `${selectableCandidateCount} possible transaction${selectableCandidateCount === 1 ? '' : 's'} found`
+                    : selectableCandidateCount === 1 && leadCandidate?.identifierReviewState === 'reviewable_uncertainty'
+                      ? '1 transaction available to select'
                     : `${selectableCandidateCount} transaction${selectableCandidateCount === 1 ? '' : 's'} available to compare`}
               </p>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -5417,6 +5454,17 @@ export default function AdminRefundsPage() {
             tone: 'warning',
           }
       : !hasSelectedMatch &&
+          effectiveCandidates.some((candidate) =>
+            candidate.isRecommended && candidate.identifierReviewState === 'reviewable_uncertainty'
+          )
+        ? {
+            id: 'match_attention',
+            label: 'Review transaction',
+            explanation: 'Bloomjoy found one close transaction. Its card identifier differs, and Nayax has not proved the compared fields are equivalent.',
+            nextStep: 'Review this transaction once. Select it only if the machine, amount, time, and customer details identify the same purchase.',
+            tone: 'info',
+          }
+      : !hasSelectedMatch &&
           effectiveCandidates.length > 0 &&
           selectedNayaxSummary?.recommendationState === 'high_confidence'
         ? {
@@ -5581,6 +5629,20 @@ export default function AdminRefundsPage() {
                 </Badge>
                 <Badge className="border-border bg-muted text-foreground">
                   {paymentInteractionLabel(selectedCase)}
+                </Badge>
+                <Badge className="border-border bg-muted text-foreground">
+                  Last four from {cardLast4SourceLabel(selectedCase)}
+                </Badge>
+                {selectedCase.walletDeviceKind && (
+                  <Badge className="border-border bg-muted text-foreground">
+                    Wallet device {selectedCase.walletDeviceKind}
+                  </Badge>
+                )}
+                <Badge className="border-border bg-muted text-foreground">
+                  {incidentTimeSourceLabel(selectedCase)}
+                </Badge>
+                <Badge className="border-border bg-muted text-foreground">
+                  {nearbyAttemptCountLabel(selectedCase)}
                 </Badge>
               </div>
               {selectedCase.customerFactEvidence && (
@@ -5844,6 +5906,8 @@ export default function AdminRefundsPage() {
                       <p className="text-xs font-semibold text-foreground">
                         {comparisonCandidate.selectionAllowed === false
                           ? 'Why this transaction cannot be selected'
+                          : comparisonCandidate.identifierReviewState === 'reviewable_uncertainty'
+                            ? 'What supports this match and what is uncertain'
                           : waitingOnCustomer
                             ? 'What matches and what still needs confirmation'
                             : 'Why this looks like a match'}

@@ -15,6 +15,8 @@ export type NayaxCustomerCorrectionCandidateEvidence = {
   reasonCodes?: string[] | null;
   manualReviewReasons?: string[] | null;
   hardExclusions?: string[] | null;
+  identifierReviewState?: string | null;
+  customerCorrectionFields?: string[] | null;
 };
 
 const nayaxProviderOrSafetyReasons = new Set([
@@ -80,6 +82,11 @@ export const deriveNayaxCustomerCorrectionFields = ({
     return [];
   }
 
+  if (topCandidate.identifierReviewState === "reviewable_uncertainty") return [];
+  if (Array.isArray(topCandidate.customerCorrectionFields)) {
+    return sanitizeRefundMissingFields(topCandidate.customerCorrectionFields);
+  }
+
   const nonCustomerHardExclusions = (topCandidate.hardExclusions ?? [])
     .map((reason) => reason.trim().toLowerCase())
     .filter((reason) => reason && reason !== "card_last4_mismatch");
@@ -87,7 +94,6 @@ export const deriveNayaxCustomerCorrectionFields = ({
 
   const fields: RefundMissingField[] = [];
   if (reasons.has("card_last4_mismatch")) {
-    fields.push("card_last4");
     const interaction = (paymentInteraction ?? (cardWalletUsed ? "phone_watch_wallet" : "")).trim().toLowerCase();
     const source = (cardLast4Source ?? "").trim().toLowerCase();
     const wallet = interaction === "phone_watch_wallet";
