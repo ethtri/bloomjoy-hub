@@ -28,37 +28,23 @@ begin
   select * into c from public.refund_cases where id=cid;
   perform public.service_issue_refund_purchase_correction(mid,lpad(to_hex(n),64,'0'),c.deterministic_fact_version);
   if deliver then update public.refund_case_messages set status='sent',sent_at=statement_timestamp() where id=mid; end if;
+  if n=8 then
+    -- Reproduce a legacy wallet-token assumption after the generic request was
+    -- delivered, then rebind only this test capability to the current fact
+    -- version. The production claim path correctly keeps wallet outreach on
+    -- its dedicated secure flow.
+    update public.refund_cases set payment_interaction='phone_watch_wallet',card_wallet_used=true,
+      card_last4_provenance='wallet_device_token' where id=cid returning * into c;
+    update public.refund_wallet_correction_contexts set correction_fact_version=c.deterministic_fact_version,
+      correction_snapshot=public.refund_purchase_correction_values(c) where correction_message_id=mid;
+  end if;
   return cid;
 end; $$;
 create function pg_temp.submit(n integer,answers jsonb) returns jsonb language sql as $$
  select public.service_submit_refund_purchase_correction(lpad(to_hex(n),64,'0'),
   (select correction_fact_version from public.refund_wallet_correction_contexts where token_hash=lpad(to_hex(n),64,'0')),answers);
 $$;
-select pg_temp.make_scope(n,n not in (2,7,8)) from generate_series(1,8) n;
-
--- Build the artificial legacy state only after the ordinary physical-card
--- request is bound to the exact fact version and accepted by the delivery
--- guard. Production correctly routes a wallet case to its dedicated secure
--- flow, so this test must not ask that production claim path to manufacture
--- an intentionally inconsistent legacy record.
-update public.refund_follow_up_cycles cycle
-set case_fact_version=refund_case.deterministic_fact_version
-from public.refund_cases refund_case
-where cycle.refund_case_id=refund_case.id
-  and refund_case.id='dd000000-0000-4000-8001-000000000008';
-update public.refund_case_messages
-set status='sent',sent_at=statement_timestamp()
-where refund_case_id='dd000000-0000-4000-8001-000000000008';
-update public.refund_cases
-set payment_interaction='phone_watch_wallet',card_wallet_used=true,
-  card_last4_provenance='wallet_device_token'
-where id='dd000000-0000-4000-8001-000000000008';
-update public.refund_wallet_correction_contexts context
-set correction_fact_version=refund_case.deterministic_fact_version,
-  correction_snapshot=public.refund_purchase_correction_values(refund_case)
-from public.refund_cases refund_case
-where context.refund_case_id=refund_case.id
-  and refund_case.id='dd000000-0000-4000-8001-000000000008';
+select pg_temp.make_scope(n,n not in (2,7)) from generate_series(1,8) n;
 
 select ok(not has_function_privilege('anon','public.service_submit_refund_purchase_correction(text,bigint,jsonb)','execute')
  and not has_function_privilege('authenticated','public.service_get_refund_purchase_correction(text)','execute'),'Public roles cannot invoke correction service RPCs');
@@ -69,7 +55,7 @@ select throws_like($$select pg_temp.submit(2,'{"amount":{"disposition":"changed"
 select is(public.service_get_refund_purchase_correction(lpad('1',64,'0'))->>'state','ready','Sent current scope opens');
 select ok(not (public.service_get_refund_purchase_correction(lpad('1',64,'0')) ?| array['customerEmail','refundCaseId','reportingMachineId']),'Inspection does not reveal recipient or internal identifiers');
 select throws_like($$select pg_temp.submit(1,'{"amount":{"disposition":"changed","value":"7.00"},"decision":{"disposition":"changed","value":"approved"}}')$$,'%Unsupported correction answer%','Client cannot approve or write arbitrary fields');
-select throws_like($$select pg_temp.submit(1,'{"amount":{"disposition":"changed","value":"7.00"},"card_last4":{"disposition":"changed","value":"1234567890123456"}}')$$,'%Invalid correction value%','Full card values are rejected atomically');
+select throws_like($$select pg_temp.submit(1,'{"amount":{"disposition":"changed","value":"7.00"},"card_last4":{"disposition":"changed","value":"1234567890123456"},"card_last4_source":{"disposition":"changed","value":"physical_card"}}')$$,'%Invalid correction value%','Full card values are rejected atomically');
 select lives_ok($$select pg_temp.submit(1,'{"amount":{"disposition":"changed","value":"7.00"},"payment_interaction":{"disposition":"changed","value":"phone_watch_wallet"},"card_last4":{"disposition":"changed","value":"1234"},"card_last4_source":{"disposition":"changed","value":"wallet_device"},"wallet_provider":{"disposition":"changed","value":"apple_pay"},"wallet_device_kind":{"disposition":"changed","value":"phone"}}')$$,'Same digits explicitly re-entered for wallet preserve new provenance');
 select ok((select card_last4='1234' and card_last4_provenance='wallet_device_token' and wallet_provider='apple_pay' and decision is null and refund_amount_cents is null
  from public.refund_cases where id='dd000000-0000-4000-8001-000000000001'),'Wallet context changes without approval or payment amount side effects');
