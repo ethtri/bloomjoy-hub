@@ -27,6 +27,7 @@ begin
   values(mid,cid,'more_info','pending','scope-customer@example.invalid','Please review your purchase','Scoped correction fixture','deterministic_template','automatic','missing_information','refund_follow_up_v2',(cycle#>>'{cycle,id}')::uuid,public.refund_missing_follow_up_fields(cid));
   select * into c from public.refund_cases where id=cid;
   perform public.service_issue_refund_purchase_correction(mid,lpad(to_hex(n),64,'0'),c.deterministic_fact_version);
+  if deliver then update public.refund_case_messages set status='sent',sent_at=statement_timestamp() where id=mid; end if;
   if n=8 then
     -- Reproduce a legacy wallet-token assumption after the generic request was
     -- prepared, then rebind only this test capability to the current fact
@@ -37,7 +38,6 @@ begin
     update public.refund_wallet_correction_contexts set correction_fact_version=c.deterministic_fact_version,
       correction_snapshot=public.refund_purchase_correction_values(c) where correction_message_id=mid;
   end if;
-  if deliver then update public.refund_case_messages set status='sent',sent_at=statement_timestamp() where id=mid; end if;
   return cid;
 end; $$;
 create function pg_temp.submit(n integer,answers jsonb) returns jsonb language sql as $$
