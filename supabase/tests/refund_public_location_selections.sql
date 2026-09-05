@@ -311,7 +311,7 @@ values (
       select deterministic_fact_version from public.refund_cases
       where id = '92150000-0000-4000-8000-000000000001'
     ),
-    'customer_credential_class', 'customer_identifier_unknown',
+    'customer_credential_class', 'customer_physical_contactless_pan',
     'provider_identifier_class', 'last_sales_contactless_identifier_unverified',
     'card_last4_comparison', 'exact_support',
     'card_network_comparison', 'exact_support',
