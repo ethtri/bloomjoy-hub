@@ -55,6 +55,7 @@ import {
 import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
 import { handlePurchaseCorrection } from "../_shared/refund-purchase-correction-handler.ts";
 import { validateRefundIntakePayment } from "../_shared/refund-intake-payment.ts";
+import { incidentTimeIsMateriallyFuture } from "../_shared/refund-request-time-boundary.mjs";
 import {
   hashRefundStatusValue,
   issueRefundStatusCapability,
@@ -1281,6 +1282,7 @@ serve(async (req) => {
       return await readCustomerRefundStatus(req, body);
     }
 
+    const customerRequestReceivedAt = new Date().toISOString();
     const sourcePage = sanitizePublicIntakeSourcePage("/refunds/request");
     const requestedMachineId = sanitizeText(body?.machineId, 80);
     const requestedSelectionKey = sanitizeText(body?.selectionKey, 80).toLowerCase();
@@ -1678,6 +1680,17 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    if (incidentTimeIsMateriallyFuture({
+      incidentAt: incidentAt.toISOString(),
+      customerRequestReceivedAt,
+    })) {
+      return new Response(JSON.stringify({
+        error: "The purchase time cannot be after this refund request. Check the date, time, and location, then try again.",
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     let status = "submitted";
     let correlationStatus = "not_started";
@@ -1839,6 +1852,8 @@ serve(async (req) => {
       cash_match_evaluated_fact_version: paymentValidation.paymentMethod === "cash" ? 1 : null,
       refund_amount_cents: paymentValidation.amountCents,
       refund_qr_claim_context_id: verifiedQrClaim?.id ?? null,
+      customer_request_received_at: customerRequestReceivedAt,
+      customer_request_received_source: "hosted_refund_intake",
       intake_meta: intakeMeta,
       server_dedupe_key: serverDedupeKey,
       server_dedupe_window_started_at: serverDedupeWindowStartedAt.toISOString(),

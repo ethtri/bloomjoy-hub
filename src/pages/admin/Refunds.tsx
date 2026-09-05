@@ -647,6 +647,10 @@ const missingFieldCustomerLabel: Record<RefundMissingField, string> = {
   payment_method: 'whether payment was by card, Apple Pay, Google Pay, or cash',
   amount: 'the exact amount charged',
   card_last4: 'only the last four digits of the card or wallet used for this purchase',
+  card_last4_source: 'where the customer found the last four digits',
+  wallet_device_kind: 'whether the customer used a phone or watch',
+  incident_time_source: 'how the customer found the purchase time',
+  nearby_attempt_count: 'how many nearby attempts or charges the customer remembers',
   zelle_payment_contact: 'the Zelle email address or phone number for this reimbursement',
 };
 
@@ -660,6 +664,10 @@ const missingFieldReplyLine: Record<RefundMissingField, string> = {
   payment_method: 'Payment method:',
   amount: 'Amount:',
   card_last4: 'Card last four:',
+  card_last4_source: 'Last-four source (physical card, wallet/device, bank record or alert, or not sure):',
+  wallet_device_kind: 'Wallet device (phone, watch, or not sure):',
+  incident_time_source: 'Time source (alert or receipt, memory, or not sure):',
+  nearby_attempt_count: 'Nearby attempts or charges (one, more than one, or not sure):',
   zelle_payment_contact: 'Zelle email or phone number:',
 };
 
@@ -4014,6 +4022,8 @@ export default function AdminRefundsPage() {
         lastCheckedAt: result.lastCheckedAt ?? new Date().toISOString(),
         windowHours: result.windowHours ?? 6,
         providerWindowRecordCount: result.providerWindowRecordCount ?? null,
+        excludedAfterRequestCount: result.excludedAfterRequestCount ?? 0,
+        uncertainRequestTimeCandidateCount: result.uncertainRequestTimeCandidateCount ?? 0,
         candidateCount: result.candidateCount ?? result.candidates?.length ?? 0,
         summary: result.summary || result.message || 'Transaction search finished.',
         recommendedAction:
@@ -4053,7 +4063,9 @@ export default function AdminRefundsPage() {
       } else if (result.recommendationState === 'no_safe_match' || !result.candidates.length) {
         const providerWindowRecordCount = result.providerWindowRecordCount ?? 0;
         const noMatchMessage =
-          providerWindowRecordCount > 0
+          (result.excludedAfterRequestCount ?? 0) > 0
+            ? nextSummary.summary
+            : providerWindowRecordCount > 0
             ? `${providerWindowRecordCount} transactions were checked, but none matched the customer details closely enough. Keep the case open and do not choose a transaction unless it is clear.`
             : `${transactionSearchDescription(nextSummary)} Keep the case open for Refund Operations review.`;
         setNayaxLookupNotice({
@@ -4898,7 +4910,7 @@ export default function AdminRefundsPage() {
     ) => {
       const selectionDisabled =
         isUsingDemoData || !caseAllowsCandidateSelection || candidate.selectionAllowed === false;
-      const visibleFactors = ['amount', 'card', 'incident_time']
+      const visibleFactors = ['amount', 'card', 'incident_time', 'request_time']
         .map((key) => candidate.matchFactors?.find((factor) => factor.key === key))
         .filter((factor): factor is NonNullable<typeof factor> => Boolean(factor));
       const selectionMessage = candidate.selectionAllowed === false
@@ -5122,6 +5134,16 @@ export default function AdminRefundsPage() {
                 Refresh transactions
               </Button>
             )}
+          </div>
+        )}
+        {!nayaxLookupNotice &&
+          !selectedCase.hasMatchedNayaxTransaction &&
+          selectedNayaxSummary?.summary &&
+          (effectiveCandidates.length === 0 ||
+            (selectedNayaxSummary.excludedAfterRequestCount ?? 0) > 0 ||
+            (selectedNayaxSummary.uncertainRequestTimeCandidateCount ?? 0) > 0) && (
+          <div data-testid="nayax-request-time-explanation" className={nayaxLookupNoticeClass('info')}>
+            {selectedNayaxSummary.summary}
           </div>
         )}
         {showVisibleLookupRetry && !nayaxLookupNotice && (

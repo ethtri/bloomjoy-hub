@@ -324,6 +324,8 @@ export type RefundNayaxLookupSummary = {
   lastCheckedAt: string | null;
   windowHours: number | null;
   providerWindowRecordCount: number | null;
+  excludedAfterRequestCount?: number;
+  uncertainRequestTimeCandidateCount?: number;
   candidateCount: number;
   summary: string;
   recommendedAction: string;
@@ -1407,6 +1409,8 @@ export type NayaxLookupResponse = {
   providerRecordCount?: number;
   providerParseableRecordCount?: number;
   providerWindowRecordCount?: number;
+  excludedAfterRequestCount?: number;
+  uncertainRequestTimeCandidateCount?: number;
   candidateCount?: number;
   candidates: NayaxLookupCandidate[];
   message?: string;
