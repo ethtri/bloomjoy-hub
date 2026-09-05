@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "aa7b9a25edc8eb3beb2e1eee90ae92ea171cb355",
+  "sourceGitCommit": "863b911be8eec4420c1dd61d4a3c45070d19dc13",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -215,7 +215,7 @@
     {
       "slug": "refund-case-intake",
       "verifyJwt": false,
-      "sourceSha256": "a67b2e3cd1d522a2a57fd05f31594d51028e3f8d70f53fbe8e80267a165eee97",
+      "sourceSha256": "a57b5e9a396be1e9f6a652b24a1063ba058d7c3959381768f184dca89723fcf6",
       "production": {
         "version": 113,
         "ezbrSha256": "5ae9d1bcf0ab305f5ad235e357c7e3b36dbe4dc1cf1af63770927bdac21f3857",
@@ -226,7 +226,7 @@
     {
       "slug": "nayax-transaction-lookup",
       "verifyJwt": false,
-      "sourceSha256": "bb6515646fb082988f3fc6d71a52c774b573c260f82f979c0635ee0f59e8be31",
+      "sourceSha256": "519b71b40a1914bb095049b79dec1455ab82150898922e171f38f7de46a8e3bf",
       "production": {
         "version": 105,
         "ezbrSha256": "0e77e1645a0a475a51bbea5a1eac437de4bd86c2d03f7855ed45e70ae02014a5",
@@ -259,7 +259,7 @@
     {
       "slug": "refund-case-automation-sweep",
       "verifyJwt": false,
-      "sourceSha256": "78132de8b1fcd653d7324e1efe8f0abfc0b5fe511edab17ebd2fe7a72c698add",
+      "sourceSha256": "5633ccc2f4c476521d9774e41cdf61f845853f3758323823293c95f831227ae1",
       "production": {
         "version": 116,
         "ezbrSha256": "8db765713a4fefd29a832b2254f83a040edc4a0490d236b2549036d0e7ada0c5",
@@ -270,7 +270,7 @@
     {
       "slug": "refund-gmail-sync",
       "verifyJwt": false,
-      "sourceSha256": "4b15a42292016fef39c4f399a83fb950fbc79224667cf8fd5b7fb9aa355848cb",
+      "sourceSha256": "25d68b5f3914060449cad890d0f0179842991b45ef0e23065c725523c94a2efe",
       "production": {
         "version": 112,
         "ezbrSha256": "6aecc8d4ae0458155284304636ddb6ae593ffbd51fe1e4bdf6afa4b70a264cb8",
