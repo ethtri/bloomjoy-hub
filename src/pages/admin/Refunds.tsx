@@ -1247,7 +1247,7 @@ const candidateUnavailableReason = (
   }
 
   if (candidate.selectionBlockReason === 'exact_core_evidence_required') {
-    return 'Exact machine, amount, approved-sale, currency, and nearby verified time are required.';
+    return 'A mapped machine, positive compatible amount, approved USD sale, and transaction within 60 minutes are required.';
   }
   if (candidate.selectionBlockReason === 'independent_corroboration_required') {
     return 'One more independent clue is required: matching digits, matching card type, verified QR timing, or one uniquely reported nearby attempt.';
