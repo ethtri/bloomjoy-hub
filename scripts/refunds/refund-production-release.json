@@ -259,9 +259,9 @@
       "verifyJwt": false,
       "sourceSha256": "ed54a5ed91ccf336ab00dfbac6d1d9ff2d2b6d4220cd6a05205977441d308a23",
       "production": {
-        "version": 115,
-        "ezbrSha256": "118e72536eed280e94bfa76ee9f5b81b0f7e90e730a99005241018b591b1156c",
-        "sourceSha256": "3c1885a0722308554652a6e58480af6ce921025d6609940c1eb87f322a8248fe",
+        "version": 116,
+        "ezbrSha256": "8db765713a4fefd29a832b2254f83a040edc4a0490d236b2549036d0e7ada0c5",
+        "sourceSha256": "ed54a5ed91ccf336ab00dfbac6d1d9ff2d2b6d4220cd6a05205977441d308a23",
         "entrypointIdentity": "supabase/functions/refund-case-automation-sweep/index.ts"
       }
     },
