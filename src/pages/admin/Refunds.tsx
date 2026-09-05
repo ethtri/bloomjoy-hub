@@ -647,6 +647,10 @@ const missingFieldCustomerLabel: Record<RefundMissingField, string> = {
   payment_method: 'whether payment was by card, Apple Pay, Google Pay, or cash',
   amount: 'the exact amount charged',
   card_last4: 'only the last four digits of the card or wallet used for this purchase',
+  card_last4_source: 'where the customer found the last four digits',
+  wallet_device_kind: 'whether the customer used a phone or watch',
+  incident_time_source: 'how the customer found the purchase time',
+  nearby_attempt_count: 'how many nearby attempts or charges the customer remembers',
   zelle_payment_contact: 'the Zelle email address or phone number for this reimbursement',
 };
 
@@ -660,6 +664,10 @@ const missingFieldReplyLine: Record<RefundMissingField, string> = {
   payment_method: 'Payment method:',
   amount: 'Amount:',
   card_last4: 'Card last four:',
+  card_last4_source: 'Last-four source (physical card, wallet/device, bank record or alert, or not sure):',
+  wallet_device_kind: 'Wallet device (phone, watch, or not sure):',
+  incident_time_source: 'Time source (alert or receipt, memory, or not sure):',
+  nearby_attempt_count: 'Nearby attempts or charges (one, more than one, or not sure):',
   zelle_payment_contact: 'Zelle email or phone number:',
 };
 
