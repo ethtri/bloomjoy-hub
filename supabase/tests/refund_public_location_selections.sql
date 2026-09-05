@@ -188,7 +188,8 @@ insert into public.refund_cases (
   customer_name, issue_summary, incident_at, incident_local_datetime,
   incident_timezone, incident_time_resolution, payment_method,
   payment_amount_cents, card_last4, card_network, payment_interaction,
-  incident_time_confidence, issue_category, status, correlation_status
+  incident_time_confidence, issue_category, status, correlation_status,
+  customer_request_received_at, customer_request_received_source
 )
 values (
   '92150000-0000-4000-8000-000000000001', null,
@@ -197,7 +198,8 @@ values (
   'pair-customer@example.test', 'Pair Customer', 'Synthetic grouped lookup',
   now() - interval '30 minutes', to_char(now() - interval '30 minutes', 'YYYY-MM-DD"T"HH24:MI'),
   'America/Los_Angeles', 'exact', 'card', 550, '4242', 'visa',
-  'tap_card', 'exact', 'charged_no_product', 'needs_review', 'multiple_candidates'
+  'tap_card', 'exact', 'charged_no_product', 'needs_review', 'multiple_candidates',
+  now() - interval '5 minutes', 'hosted_refund_intake'
 );
 
 select ok(
@@ -334,9 +336,9 @@ values (
     'provider_time_resolution', 'exact',
     'provider_time_source', 'authorization_gmt',
     'authorized_at', now() - interval '30 minutes',
-    'customer_request_received_at', null,
-    'customer_request_received_source', null,
-    'request_time_boundary', 'request_time_unknown',
+    'customer_request_received_at', now() - interval '5 minutes',
+    'customer_request_received_source', 'hosted_refund_intake',
+    'request_time_boundary', 'before_or_at_request',
     'transaction_occurrence_comparable', true,
     'payment_status', 'approved',
     'payment_status_evidence', 'last_sales_contract',
