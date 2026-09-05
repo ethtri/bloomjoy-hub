@@ -138,6 +138,19 @@ begin
       and manager.revoked_at is null
     group by manager.manager_user_id, lower(pg_catalog.btrim(manager.manager_email))
     having count(distinct manager.reporting_machine_id) <> 3
+  ) or exists (
+    select 1
+    from public.reporting_machine_refund_managers manager
+    left join auth.users manager_user on manager_user.id = manager.manager_user_id
+    where manager.reporting_machine_id = any(array[
+        '9433f09f-9874-4904-b511-2fa55723e0d7'::uuid,
+        '20d475a0-ab75-4a0e-8fa7-14306b63fe29'::uuid,
+        '7ae1695c-1394-4a11-843e-3bc594547fed'::uuid
+      ])
+      and manager.status = 'active'
+      and manager.revoked_at is null
+      and lower(pg_catalog.btrim(manager.manager_email)) is distinct from
+        lower(pg_catalog.btrim(manager_user.email))
   ) then
     raise exception 'Reviewed Bubble Planet manager route has changed'
       using errcode = 'P4680';
@@ -307,4 +320,3 @@ revoke all on function public.reconcile_refund_bubble_planet_locations()
   from public, anon, authenticated, service_role;
 
 select public.reconcile_refund_bubble_planet_locations();
-
