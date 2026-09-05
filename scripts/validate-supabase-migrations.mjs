@@ -177,7 +177,7 @@ export function prepareRefundRequestBoundaryReceiptRegression(tempSupabaseDir) {
   const fixturePath = path.join(
     tempSupabaseDir,
     'migrations',
-    '20260905173538_refund_request_boundary_receipt_fixture.sql',
+    '202609051903115_refund_request_boundary_receipt_fixture.sql',
   );
   fs.writeFileSync(fixturePath, `
 -- Disposable production-shape fixture: the next migration must preserve the
