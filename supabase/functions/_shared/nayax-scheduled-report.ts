@@ -144,7 +144,12 @@ export async function normalizeNayaxScheduledReport(bytes: Uint8Array) {
       currencyCode: row.currency,
       authorizationAmountCents: reportMoneyCents(row.auValue),
       settlementAmountCents: reportMoneyCents(row.seValue),
-      paidAmountCents: reportMoneyCents(row.payed_value),
+      // Nayax leaves payed_value blank on some rows without a current refund
+      // signal. Keep it unknown rather than inventing a zero amount.
+      // Refund-like rows still fail closed below.
+      paidAmountCents: row.payed_value
+        ? reportMoneyCents(row.payed_value)
+        : null,
       machineAuthorizedAt: reportTimestamp(row.machineAuTime, false),
       machineSettledAt: reportTimestamp(row.machineSeTime, false),
       authorizedAt: reportTimestamp(row.auTime, true),
@@ -162,6 +167,13 @@ export async function normalizeNayaxScheduledReport(bytes: Uint8Array) {
       !/^[A-Z]{3}$/.test(normalized.currencyCode) ||
       row.tran_status_name.length > 100
     ) throw bad();
+    if (
+      normalized.paidAmountCents === null &&
+      (normalized.originalTransactionId !== null ||
+        normalized.authorizationAmountCents < 0 ||
+        normalized.settlementAmountCents < 0 ||
+        [62, 63].includes(normalized.providerStatus ?? 0))
+    ) throw bad();
     const identity =
       `${actorId}:${normalized.siteId}:${normalized.transactionId}`;
     const digest = await reportDigest(JSON.stringify(normalized));
@@ -170,7 +182,9 @@ export async function normalizeNayaxScheduledReport(bytes: Uint8Array) {
     }
     identities.set(identity, digest);
     if (
-      normalized.originalTransactionId || normalized.paidAmountCents < 0 ||
+      normalized.originalTransactionId ||
+      (normalized.paidAmountCents !== null &&
+        normalized.paidAmountCents < 0) ||
       [62, 63].includes(normalized.providerStatus ?? 0)
     ) {
       if (!observations.some((o) => o.observationDigest === digest)) {
