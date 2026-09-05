@@ -162,7 +162,7 @@ select is(
 );
 select is(
   (select count(*)::integer from public.public_refund_selections()),
-  10,
+  9,
   'The fixture exposes every ordinary choice and compresses only the reviewed Livermore pair'
 );
 select is(

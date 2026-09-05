@@ -1867,7 +1867,7 @@ values
     '79000000-0000-4000-8000-000000000001',
     'SAFE-TXN-BLOCKED-79600009', 17, now() - interval '80 minutes', 450,
     '4242', 'USD',
-    '{"selection_allowed":false,"is_recommended":false,"recommendation_state":"blocked","policy_version":"official-action-test.v1"}'::jsonb,
+    '{"selection_allowed":false,"is_recommended":false,"one_click_eligible":false,"recommendation_state":"blocked","policy_version":"2026-09-05.v8","customer_request_received_at":null,"customer_request_received_source":null,"request_time_boundary":"request_time_unknown"}'::jsonb,
     now() + interval '1 hour'
   ),
   (
@@ -1876,7 +1876,7 @@ values
     '79000000-0000-4000-8000-000000000001',
     'SAFE-TXN-EXPIRED-79600009', 17, now() - interval '70 minutes', 450,
     '4242', 'USD',
-    '{"selection_allowed":true,"is_recommended":true,"recommendation_state":"high_confidence","policy_version":"official-action-test.v1"}'::jsonb,
+    '{"selection_allowed":true,"is_recommended":true,"one_click_eligible":false,"recommendation_state":"high_confidence","policy_version":"2026-09-05.v8","customer_request_received_at":null,"customer_request_received_source":null,"request_time_boundary":"request_time_unknown"}'::jsonb,
     now() - interval '1 minute'
   );
 

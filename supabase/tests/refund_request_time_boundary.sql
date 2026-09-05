@@ -58,7 +58,8 @@ create function pg_temp.boundary_evidence(
   policy text default '2026-09-05.v9'
 ) returns jsonb language sql stable as $$
   select jsonb_build_object(
-    'selection_allowed',true,'is_recommended',true,'one_click_eligible',one_click,
+    'selection_allowed',(comparable and boundary = 'before_or_at_request'),
+    'is_recommended',true,'one_click_eligible',one_click,
     'recommendation_state','high_confidence','policy_version',policy,
     'identifier_policy_version','2026-09-05.identifier.v1',
     'customer_fact_version',c.deterministic_fact_version,
