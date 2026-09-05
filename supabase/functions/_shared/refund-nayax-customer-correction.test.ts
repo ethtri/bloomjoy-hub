@@ -10,7 +10,7 @@ const assert = (condition: unknown, message: string) => {
 const assertIncludes = (value: string, expected: string, label: string) =>
   assert(value.includes(expected), `${label} must include ${expected}`);
 
-Deno.test("physical-card conflicts request the smallest customer-correctable facts", () => {
+Deno.test("last-four conflicts bundle unresolved payment context and nearby attempts", () => {
   const fields = deriveNayaxCustomerCorrectionFields({
     recommendationState: "manual_exception",
     cardWalletUsed: false,
@@ -37,9 +37,15 @@ Deno.test("physical-card conflicts request the smallest customer-correctable fac
     }],
   });
   assert(
-    JSON.stringify(fields) === JSON.stringify(["card_last4"]),
-    "a physical-card mismatch should ask only for the disputed physical-card last four",
+    JSON.stringify(fields) === JSON.stringify(["payment_interaction", "card_last4", "card_last4_source", "card_network", "nearby_attempt_count"]),
+    "a mismatch must not ask for digits alone when their source and interaction are unknown",
   );
+  const knownContext = deriveNayaxCustomerCorrectionFields({
+    recommendationState: "manual_exception", paymentInteraction: "tap_card",
+    cardLast4Source: "physical_card", cardNetwork: "visa",
+    candidates: [{isTopRanked:true,reasonCodes:["card_last4_mismatch"],hardExclusions:["card_last4_mismatch"]}],
+  });
+  assert(JSON.stringify(knownContext) === JSON.stringify(["card_last4"]), "settled context should not be requested again");
 });
 
 Deno.test("amount and time conflicts each request only their disputed fact", () => {
@@ -69,8 +75,8 @@ Deno.test("amount and time conflicts each request only their disputed fact", () 
     }],
   });
   assert(
-    JSON.stringify(timeFields) === JSON.stringify(["incident_time"]),
-    "a time conflict should ask only for the reported purchase time",
+    JSON.stringify(timeFields) === JSON.stringify(["incident_time", "incident_time_source"]),
+    "a time conflict should include how the customer found the time",
   );
 });
 
@@ -137,10 +143,10 @@ Deno.test("an empty production lookup gives the customer no correction task", ()
 Deno.test("persisted targeted conflicts retain the same field after status normalization", () => {
   const fields = deriveNayaxCustomerCorrectionFields({
     recommendationState: "no_safe_match",
-    cardWalletUsed: false,
+    paymentInteraction: "tap_card", cardLast4Source: "physical_card", cardNetwork: "visa",
     candidates: [{ isTopRanked: true, reasonCodes: ["card_last4_mismatch"], hardExclusions: ["card_last4_mismatch"] }],
   });
-  assert(JSON.stringify(fields) === JSON.stringify(["card_last4"]), "a reminder must retain the actual supported correction");
+  assert(JSON.stringify(fields) === JSON.stringify(["card_last4"]), "a reminder must retain the actual supported correction without repeating settled context");
   assert(deriveNayaxCustomerCorrectionFields({
     recommendationState: "no_safe_match",
     cardWalletUsed: false,
@@ -148,7 +154,7 @@ Deno.test("persisted targeted conflicts retain the same field after status norma
   }).length === 0, "provider mapping remains internal after status normalization");
 });
 
-Deno.test("physical-card conflict email is branded, targeted, and reply-safe", () => {
+Deno.test("correction fallback email stays on the same case and accepts structured context", () => {
   const email = buildNayaxCustomerCorrectionEmail({
     messageType: "no_safe_match",
     followUpReason: "no_safe_match",
@@ -158,30 +164,29 @@ Deno.test("physical-card conflict email is branded, targeted, and reply-safe", (
     locationName: "Example venue",
     paymentMethod: "card",
     refundAmountCents: 1090,
-    missingFields: ["card_last4"],
+    missingFields: ["card_last4", "card_last4_source", "payment_interaction"],
   });
 
   assertIncludes(email.text, "Card last four:", "reply parser label");
   assertIncludes(
     email.text,
-    "Card last four source",
+    "Last-four source",
     "last-four provenance label",
   );
   assertIncludes(
     email.text,
     "add only the requested detail",
-    "single-detail instruction",
+    "requested-details instruction",
   );
   assertIncludes(
     email.text,
-    "exact physical card you tapped",
-    "physical card safety",
+    "full card number",
+    "card safety",
   );
   for (
     const repeatedField of [
       "Approximate purchase time",
       "Payment method",
-      "Payment interaction",
       "Wallet provider",
       "Amount (for example",
       "Card type (Visa",
@@ -194,13 +199,13 @@ Deno.test("physical-card conflict email is branded, targeted, and reply-safe", (
   }
   assertIncludes(
     email.text,
-    "do not need to submit another form",
+    "do not need to submit another request",
     "same-case guidance",
   );
   assertIncludes(
     email.text,
-    "recheck this same request",
-    "automatic recheck guidance",
+    "keep working on this same one",
+    "same-case guidance",
   );
   assert(
     !email.text.toLowerCase().includes("nayax"),

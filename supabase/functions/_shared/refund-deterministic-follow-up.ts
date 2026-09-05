@@ -20,7 +20,11 @@ export type RefundMissingField =
   | "incident_time"
   | "payment_method"
   | "payment_interaction"
+  | "card_last4_source"
   | "wallet_provider"
+  | "wallet_device_kind"
+  | "incident_time_source"
+  | "nearby_attempt_count"
   | "amount"
   | "card_last4"
   | "card_network"
@@ -43,12 +47,16 @@ const missingFieldOrder: RefundMissingField[] = [
   "location_or_machine",
   "incident_date",
   "incident_time",
+  "incident_time_source",
   "payment_method",
   "payment_interaction",
-  "wallet_provider",
-  "amount",
   "card_last4",
+  "card_last4_source",
   "card_network",
+  "wallet_provider",
+  "wallet_device_kind",
+  "nearby_attempt_count",
+  "amount",
   "zelle_payment_contact",
 ];
 

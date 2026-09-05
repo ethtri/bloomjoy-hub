@@ -1305,12 +1305,18 @@ serve(async (req) => {
     const paymentMethod = sanitizeText(body?.paymentMethod, 40).toLowerCase();
     const amountCents = centsFromAmount(body?.paymentAmount);
     const cardLast4 = sanitizeText(body?.cardLast4, 4);
+    const submittedCardLast4Source = sanitizeText(body?.cardLast4Source, 40).toLowerCase();
+    const cardLast4Source = ["physical_card", "wallet_device", "bank_record", "unknown"].includes(submittedCardLast4Source)
+      ? submittedCardLast4Source
+      : null;
     const submittedCardNetwork = sanitizeText(body?.cardNetwork, 80);
     const cardNetwork = normalizeCardNetwork(submittedCardNetwork);
     const submittedPaymentInteraction = sanitizeText(body?.paymentInteraction, 40).toLowerCase();
     const paymentInteraction = [
       "phone_watch_wallet",
       "tap_card",
+      "insert_card",
+      "swipe_card",
       "insert_or_swipe",
       "cash",
       "unsure",
@@ -1333,6 +1339,10 @@ serve(async (req) => {
     ].includes(submittedWalletProvider)
       ? submittedWalletProvider
       : null;
+    const submittedWalletDeviceKind = sanitizeText(body?.walletDeviceKind, 40).toLowerCase();
+    const walletDeviceKind = paymentInteraction === "phone_watch_wallet" && ["phone", "watch", "unknown"].includes(submittedWalletDeviceKind)
+      ? submittedWalletDeviceKind
+      : null;
     const submittedTimeConfidence = sanitizeText(body?.incidentTimeConfidence, 40).toLowerCase();
     const incidentTimeConfidence = [
       "exact",
@@ -1342,6 +1352,10 @@ serve(async (req) => {
     ].includes(submittedTimeConfidence)
       ? submittedTimeConfidence
       : "rough";
+    const submittedIncidentTimeSource = sanitizeText(body?.incidentTimeSource, 40).toLowerCase();
+    const incidentTimeSource = ["transaction_alert_or_receipt", "memory", "unknown"].includes(submittedIncidentTimeSource)
+      ? submittedIncidentTimeSource
+      : null;
     const submittedIssueCategory = sanitizeText(body?.issueCategory, 60).toLowerCase();
     const issueCategory = [
       "charged_no_product",
@@ -1443,6 +1457,22 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Please choose how closely you remember the purchase time." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (body?.cardLast4Source !== undefined && !cardLast4Source) {
+      return new Response(JSON.stringify({ error: "Please choose where you found the last four digits." }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (body?.walletDeviceKind !== undefined && !walletDeviceKind) {
+      return new Response(JSON.stringify({ error: "Please choose whether you used a phone or watch." }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (body?.incidentTimeSource !== undefined && !incidentTimeSource) {
+      return new Response(JSON.stringify({ error: "Please choose how you found the purchase time." }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -1726,7 +1756,10 @@ serve(async (req) => {
         amountCents ?? "amount-not-provided",
         paymentMethod === "card" ? cardLast4 : "no-card-last4",
         paymentInteraction,
+        cardLast4Source ?? "source-not-provided",
+        walletDeviceKind ?? "device-not-provided",
         incidentTimeConfidence,
+        incidentTimeSource ?? "time-source-not-provided",
         issueCategory,
         productDescription,
         issueSummary,
@@ -1743,8 +1776,11 @@ serve(async (req) => {
       qr_claim_expires_at: verifiedQrClaim?.expiresAt ?? null,
       incident_time_resolution: incidentResolution.resolution,
       incident_time_confidence: incidentTimeConfidence,
+      incident_time_source: incidentTimeSource,
       payment_interaction: paymentValidation.paymentInteraction,
+      card_last4_source: cardLast4Source,
       wallet_provider_supplied: Boolean(paymentValidation.walletProvider),
+      wallet_device_kind: walletDeviceKind,
       card_network: paymentValidation.cardNetwork,
       issue_category: issueCategory,
       product_description_supplied: Boolean(productDescription),
@@ -1771,9 +1807,16 @@ serve(async (req) => {
       payment_method: paymentValidation.paymentMethod,
       payment_amount_cents: paymentValidation.amountCents,
       card_last4: paymentValidation.cardLast4,
+      card_last4_source: paymentValidation.paymentMethod === "card" ? cardLast4Source : null,
       card_last4_provenance: paymentValidation.paymentMethod === "card" &&
           paymentValidation.cardLast4
-        ? paymentValidation.cardWalletUsed
+        ? cardLast4Source === "physical_card"
+          ? "physical_card"
+          : cardLast4Source === "wallet_device" && paymentValidation.cardWalletUsed
+          ? "wallet_device_token"
+          : cardLast4Source
+          ? null
+          : paymentValidation.cardWalletUsed
           ? "wallet_device_token"
           : "physical_card"
         : null,
@@ -1781,7 +1824,10 @@ serve(async (req) => {
       card_wallet_used: paymentValidation.cardWalletUsed,
       payment_interaction: paymentValidation.paymentInteraction,
       wallet_provider: paymentValidation.walletProvider,
+      wallet_device_kind: paymentValidation.paymentMethod === "card" ? walletDeviceKind : null,
       incident_time_confidence: incidentTimeConfidence,
+      incident_time_source: incidentTimeSource,
+      nearby_attempt_count: null,
       issue_category: issueCategory,
       product_description: productDescription || null,
       status,
@@ -1822,11 +1868,15 @@ serve(async (req) => {
             paymentMethod: insertValues.payment_method,
             paymentAmountCents: insertValues.payment_amount_cents,
             cardLast4: insertValues.card_last4,
+            cardLast4Source: insertValues.card_last4_source,
             cardNetwork: insertValues.card_network,
             cardWalletUsed: insertValues.card_wallet_used,
             paymentInteraction: insertValues.payment_interaction,
             walletProvider: insertValues.wallet_provider,
+            walletDeviceKind: insertValues.wallet_device_kind,
             incidentTimeConfidence: insertValues.incident_time_confidence,
+            incidentTimeSource: insertValues.incident_time_source,
+            nearbyAttemptCount: insertValues.nearby_attempt_count,
             issueCategory: insertValues.issue_category,
             productDescription: insertValues.product_description,
             status: insertValues.status,
@@ -1845,10 +1895,12 @@ serve(async (req) => {
       if (linkError) {
         throw new RefundEmailContextUnavailableError();
       }
-      refundCase = requireLinkedRefundEmailCase(
+      const linkedCase = requireLinkedRefundEmailCase(
         emailContextToken,
         linkedRefundCase as SubmittedRefundCase | null,
       );
+      if (!linkedCase) throw new RefundEmailContextUnavailableError();
+      refundCase = linkedCase;
     }
 
     if (!refundCase) {

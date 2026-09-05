@@ -20,10 +20,15 @@ export type RefundPaymentMethod = 'card' | 'cash' | 'unknown';
 export type RefundPaymentInteraction =
   | 'phone_watch_wallet'
   | 'tap_card'
+  | 'insert_card'
+  | 'swipe_card'
   | 'insert_or_swipe'
   | 'cash'
   | 'unsure';
 export type RefundWalletProvider = 'apple_pay' | 'google_wallet' | 'other' | 'unsure';
+export type RefundCardLast4Source = 'physical_card' | 'wallet_device' | 'bank_record' | 'unknown';
+export type RefundWalletDeviceKind = 'phone' | 'watch' | 'unknown';
+export type RefundIncidentTimeSource = 'transaction_alert_or_receipt' | 'memory' | 'unknown';
 export type RefundCardNetwork =
   | 'visa'
   | 'mastercard'
@@ -178,11 +183,14 @@ export type SubmitRefundRequestInput = {
   paymentMethod: RefundPaymentMethod;
   paymentAmount?: string;
   cardLast4?: string;
+  cardLast4Source?: RefundCardLast4Source;
   cardNetwork?: RefundCardNetwork;
   cardWalletUsed?: boolean;
   paymentInteraction?: RefundPaymentInteraction;
   walletProvider?: RefundWalletProvider;
+  walletDeviceKind?: RefundWalletDeviceKind;
   incidentTimeConfidence?: RefundIncidentTimeConfidence;
+  incidentTimeSource?: RefundIncidentTimeSource;
   issueCategory?: RefundIssueCategory;
   attachments?: RefundAttachmentInput[];
 };

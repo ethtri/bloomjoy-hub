@@ -6,8 +6,8 @@ export function refundCorrectionReason(fields: readonly CorrectionField[], spani
   if (fields.length === 1 && fields[0] === 'zelle_payment_contact') return spanish
     ? 'Necesitamos este correo o teléfono para enviar su reembolso de efectivo aprobado por Zelle.'
     : 'We need this email or phone number to send your approved cash reimbursement through Zelle.';
-  const purchase = fields.some((field) => ['location_or_machine', 'incident_date', 'incident_time', 'amount'].includes(field));
-  const payment = fields.some((field) => ['payment_method', 'payment_interaction', 'wallet_provider', 'card_last4', 'card_network'].includes(field));
+  const purchase = fields.some((field) => ['location_or_machine', 'incident_date', 'incident_time', 'incident_time_source', 'nearby_attempt_count', 'amount'].includes(field));
+  const payment = fields.some((field) => ['payment_method', 'payment_interaction', 'wallet_provider', 'wallet_device_kind', 'card_last4', 'card_last4_source', 'card_network'].includes(field));
   if (purchase && payment) return spanish
     ? 'Estos datos nos ayudan a encontrar la compra correcta e identificar cómo pagó.'
     : 'These details help us find the right purchase and identify how you paid.';

@@ -30,7 +30,7 @@ select is(
     'card_last4',
     'card_network'
   ]),
-  array['payment_interaction', 'wallet_provider', 'card_last4', 'card_network']::text[],
+  array['payment_interaction', 'card_last4', 'card_network', 'wallet_provider']::text[],
   'Correction fields are canonical, ordered, and deduplicated'
 );
 

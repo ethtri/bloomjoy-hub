@@ -210,6 +210,12 @@ type RefundSweepCase = {
   payment_method: string | null;
   card_wallet_used: boolean;
   card_last4: string | null;
+  card_last4_source: string | null;
+  card_network: string | null;
+  payment_interaction: string | null;
+  wallet_provider: string | null;
+  wallet_device_kind: string | null;
+  incident_time_source: string | null;
   payment_amount_cents: number | null;
   refund_amount_cents: number | null;
   incident_at: string | null;
@@ -403,6 +409,12 @@ const caseSelect = `
   payment_method,
   card_wallet_used,
   card_last4,
+  card_last4_source,
+  card_network,
+  payment_interaction,
+  wallet_provider,
+  wallet_device_kind,
+  incident_time_source,
   payment_amount_cents,
   refund_amount_cents,
   incident_at,
@@ -2309,7 +2321,12 @@ const runCardNayaxLookupSweep = async (
         );
       const customerCorrectionFields = deriveNayaxCustomerCorrectionFields({
         recommendationState: lookupResult.recommendationState,
-        cardWalletUsed: refundCase.card_wallet_used,
+        paymentInteraction: refundCase.payment_interaction,
+        cardLast4Source: refundCase.card_last4_source,
+        cardNetwork: refundCase.card_network,
+        walletProvider: refundCase.wallet_provider,
+        walletDeviceKind: refundCase.wallet_device_kind,
+        incidentTimeSource: refundCase.incident_time_source,
         candidates: lookupResult.candidates,
       });
 
@@ -2680,7 +2697,12 @@ const runPersistedNayaxCustomerCorrectionSweep = async (
     const evidence = await getPersistedNayaxCorrectionEvidence(refundCase);
     const customerCorrectionFields = deriveNayaxCustomerCorrectionFields({
         recommendationState: refundCase.nayax_recommendation_state,
-        cardWalletUsed: refundCase.card_wallet_used,
+        paymentInteraction: refundCase.payment_interaction,
+        cardLast4Source: refundCase.card_last4_source,
+        cardNetwork: refundCase.card_network,
+        walletProvider: refundCase.wallet_provider,
+        walletDeviceKind: refundCase.wallet_device_kind,
+        incidentTimeSource: refundCase.incident_time_source,
         candidates: evidence,
       });
     if (customerCorrectionFields.length === 0) {
@@ -3022,7 +3044,12 @@ const runReminderSweep = async (
         refundCase.payment_method === "card"
       ? deriveNayaxCustomerCorrectionFields({
         recommendationState: refundCase.nayax_recommendation_state,
-        cardWalletUsed: refundCase.card_wallet_used,
+        paymentInteraction: refundCase.payment_interaction,
+        cardLast4Source: refundCase.card_last4_source,
+        cardNetwork: refundCase.card_network,
+        walletProvider: refundCase.wallet_provider,
+        walletDeviceKind: refundCase.wallet_device_kind,
+        incidentTimeSource: refundCase.incident_time_source,
         candidates: await getPersistedNayaxCorrectionEvidence(refundCase),
       })
       : [];

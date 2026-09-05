@@ -3,6 +3,8 @@ export type RefundIntakePaymentMethod = "card" | "cash";
 export type RefundIntakePaymentInteraction =
   | "phone_watch_wallet"
   | "tap_card"
+  | "insert_card"
+  | "swipe_card"
   | "insert_or_swipe"
   | "cash"
   | "unsure";
@@ -38,6 +40,8 @@ export type RefundIntakePaymentResult =
 const PAYMENT_INTERACTIONS = new Set<RefundIntakePaymentInteraction>([
   "phone_watch_wallet",
   "tap_card",
+  "insert_card",
+  "swipe_card",
   "insert_or_swipe",
   "cash",
   "unsure",

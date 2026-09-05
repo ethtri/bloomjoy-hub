@@ -39,21 +39,24 @@ Deno.test('changed time has explicit confidence even when the clock value stays 
   rejects({ card_last4: { disposition: 'confirmed' }, incident_time: { disposition: 'changed', value: '12:30' } },timeContext);
   const result = validateCorrectionAnswers({ card_last4: { disposition: 'confirmed' }, incident_time: { disposition: 'changed', value: '12:30', confidence: 'rough' } },timeContext);
   assert(result.incident_time?.disposition === 'changed' && result.incident_time.confidence === 'rough');
+  rejects({ card_last4: { disposition: 'confirmed' }, incident_time: { disposition: 'confirmed' } },timeContext);
+  const confirmed = validateCorrectionAnswers({ card_last4: { disposition: 'confirmed' }, incident_time: { disposition: 'confirmed', confidence: 'within_15_minutes' } },timeContext);
+  assert(confirmed.incident_time?.disposition === 'confirmed' && confirmed.incident_time.confidence === 'within_15_minutes');
 });
 Deno.test('new payment context requires explicit dependent answers without guessing', () => {
-  const paymentContext: CorrectionContext = { ...context, allowedFields: [...context.allowedFields!, 'wallet_provider'], values: { card_last4: '1234',payment_method:'card',payment_interaction:'tap_card' } };
+  const paymentContext: CorrectionContext = { ...context, allowedFields: [...context.allowedFields!, 'card_last4_source','wallet_provider','wallet_device_kind'], values: { card_last4: '1234',card_last4_source:'physical_card',payment_method:'card',payment_interaction:'tap_card' } };
   const answers = { card_last4: { disposition:'changed',value:'1234' }, payment_interaction:{disposition:'changed',value:'phone_watch_wallet'} };
   rejects(answers,paymentContext);
-  const result=validateCorrectionAnswers({...answers,wallet_provider:{disposition:'cannot_provide'}},paymentContext);
-  assert(result.card_last4?.disposition === 'confirmed' && result.wallet_provider?.disposition === 'cannot_provide');
+  const result=validateCorrectionAnswers({...answers,card_last4_source:{disposition:'changed',value:'wallet_device'},wallet_provider:{disposition:'cannot_provide'},wallet_device_kind:{disposition:'changed',value:'phone'}},paymentContext);
+  assert(result.card_last4?.disposition === 'confirmed' && result.wallet_provider?.disposition === 'cannot_provide' && result.wallet_device_kind?.value === 'phone');
 });
 
 Deno.test('changing payment context drops inapplicable requested questions', () => {
-  const cardContext: CorrectionContext={state:'ready',requestedFields:['card_last4'],allowedFields:['payment_method','payment_interaction','card_last4','wallet_provider'],values:{payment_method:'card',payment_interaction:'tap_card'}};
+  const cardContext: CorrectionContext={state:'ready',requestedFields:['card_last4'],allowedFields:['payment_method','payment_interaction','card_last4','card_last4_source','wallet_provider','wallet_device_kind'],values:{payment_method:'card',payment_interaction:'tap_card',card_last4_source:'physical_card'}};
   const cash=validateCorrectionAnswers({payment_method:{disposition:'changed',value:'cash'}},cardContext);
   assert(cash.payment_method?.value==='cash' && !cash.card_last4);
-  const physical=validateCorrectionAnswers({payment_interaction:{disposition:'changed',value:'tap_card'},card_last4:{disposition:'confirmed'}},
-    {...cardContext,requestedFields:['wallet_provider'],values:{payment_method:'card',payment_interaction:'phone_watch_wallet',card_last4:'1234'}});
+  const physical=validateCorrectionAnswers({payment_interaction:{disposition:'changed',value:'tap_card'},card_last4:{disposition:'confirmed'},card_last4_source:{disposition:'changed',value:'physical_card'}},
+    {...cardContext,requestedFields:['wallet_provider','wallet_device_kind'],values:{payment_method:'card',payment_interaction:'phone_watch_wallet',card_last4:'1234',card_last4_source:'wallet_device',wallet_device_kind:'phone'}});
   assert(physical.payment_interaction?.value==='tap_card' && !physical.wallet_provider);
 });
 

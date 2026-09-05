@@ -21,7 +21,7 @@ insert into public.refund_nayax_lookup_candidates(refund_case_id,actor_user_id,r
  card_last4,currency_code,evidence_summary,expires_at)
 values('de000000-0000-4000-8000-000000000005','de000000-0000-4000-8000-000000000001','de000000-0000-4000-8000-000000000004',1,'provider-scope-fixture',1,
  statement_timestamp()-interval '2 hours',900,'5678','USD','{"is_top_ranked":true,"reason_codes":["amount_mismatch","card_last4_mismatch"],"hard_exclusions":[]}',statement_timestamp()+interval '30 minutes');
-select is(public.refund_purchase_correction_request_fields('de000000-0000-4000-8000-000000000005'),array['amount','card_last4']::text[],'Fresh candidate conflicts supply two eligible fields for a manager-selected subset');
+select is(public.refund_purchase_correction_request_fields('de000000-0000-4000-8000-000000000005'),array['card_last4','card_last4_source','card_network','amount']::text[],'Fresh candidate conflicts include the useful missing last-four context in one eligible set');
 create temp table scope_cycle as select public.service_claim_refund_follow_up_cycle('de000000-0000-4000-8000-000000000005','no_safe_match','refund_follow_up_v2',repeat('e',64),null) as value;
 select is((select value#>'{cycle,requestedFields}' from scope_cycle),'[]'::jsonb,'Existing no-safe-match cycle retains historical empty requested fields');
 select lives_ok($$insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,content_source,delivery_kind,reason_code,template_version,follow_up_cycle_id,requested_fields)
