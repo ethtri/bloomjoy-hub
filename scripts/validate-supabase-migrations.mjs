@@ -338,7 +338,8 @@ function writeTempSupabaseProject(tempRoot, projectId, dbPort, shadowPort) {
   }
   normalizeSqlLineEndings(tempSupabaseDir);
   prepareCorrectionMigrationWindowsRegression(tempSupabaseDir);
-  prepareRefundRequestBoundaryReceiptRegression(tempSupabaseDir);
+  const requestBoundaryReceiptFixturePath =
+    prepareRefundRequestBoundaryReceiptRegression(tempSupabaseDir);
 
   const config = `project_id = "${projectId}"
 
@@ -350,6 +351,7 @@ major_version = 15
 
   fs.writeFileSync(path.join(tempSupabaseDir, 'config.toml'), config, 'utf8');
   fs.writeFileSync(path.join(tempSupabaseDir, 'seed.sql'), '', 'utf8');
+  return { requestBoundaryReceiptFixturePath };
 }
 
 function writeRefundGmailIntakeShadowAdapterTest(tempRoot) {
@@ -486,7 +488,12 @@ async function main() {
   let validationError;
 
   try {
-    writeTempSupabaseProject(tempRoot, projectId, dbPort, shadowPort);
+    const { requestBoundaryReceiptFixturePath } = writeTempSupabaseProject(
+      tempRoot,
+      projectId,
+      dbPort,
+      shadowPort,
+    );
 
     const args = ['db', 'start', '--workdir', tempRoot];
     if (options.debug) {
@@ -507,6 +514,15 @@ async function main() {
     run('supabase', requestBoundaryReceiptArgs, { relayOutput: true, cwd: tempRoot });
     fs.rmSync(requestBoundaryReceiptPath);
     log('Request-boundary migration preserves confirmed receipts and clears only unconfirmed legacy claims.');
+
+    // The production-shape rows must not change global counts in the repository's
+    // ordinary persona tests. Remove only the temporary migration, then rebuild
+    // the same disposable database from the unmodified repository migration set.
+    fs.rmSync(requestBoundaryReceiptFixturePath);
+    const resetArgs = ['db', 'reset', '--local', '--workdir', tempRoot];
+    if (options.debug) resetArgs.push('--debug');
+    run('supabase', resetArgs, { stdio: 'inherit' });
+    log('Disposable database reset without the request-boundary production-shape fixture.');
 
     const { testPath: receiptParityPath, testRelativePath: receiptParityRelativePath } =
       writeReceiptWrapperParityTest(repoRoot, tempRoot);
