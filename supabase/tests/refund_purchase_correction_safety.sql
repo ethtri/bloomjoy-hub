@@ -18,15 +18,25 @@ begin
     incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_wallet_used,card_network,status,correlation_status,intake_source)
   values(cid,'dd000000-0000-4000-8000-000000000003','dd000000-0000-4000-8000-000000000002','scope-customer@example.invalid','Scoped correction test',
     statement_timestamp()-interval '2 hours',to_char((statement_timestamp()-interval '2 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
-    'America/Los_Angeles','exact','exact','card',case when n=8 then 'phone_watch_wallet' else 'tap_card' end,
+    'America/Los_Angeles','exact','exact','card','tap_card',
     case when n=12 then 700 else null end,case when n=12 then null else '1234' end,
-    case when n=12 then null when n=8 then 'wallet_device_token' else 'physical_card' end,n=8,'visa','needs_review','manual_review','form');
+    case when n=12 then null else 'physical_card' end,false,'visa','needs_review','manual_review','form');
   cycle:=public.service_claim_refund_follow_up_cycle(cid,'missing_information','refund_follow_up_v2',md5(n::text)||md5(n::text),null);
   if not coalesce((cycle->>'claimed')::boolean,false) then raise exception 'Fixture cycle rejected: %',cycle; end if;
   insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,content_source,delivery_kind,reason_code,template_version,follow_up_cycle_id,requested_fields)
   values(mid,cid,'more_info','pending','scope-customer@example.invalid','Please review your purchase','Scoped correction fixture','deterministic_template','automatic','missing_information','refund_follow_up_v2',(cycle#>>'{cycle,id}')::uuid,public.refund_missing_follow_up_fields(cid));
   select * into c from public.refund_cases where id=cid;
   perform public.service_issue_refund_purchase_correction(mid,lpad(to_hex(n),64,'0'),c.deterministic_fact_version);
+  if n=8 then
+    -- Reproduce a legacy wallet-token assumption after the generic request was
+    -- prepared, then rebind only this test capability to the current fact
+    -- version. The production claim path correctly keeps wallet outreach on
+    -- its dedicated secure flow.
+    update public.refund_cases set payment_interaction='phone_watch_wallet',card_wallet_used=true,
+      card_last4_provenance='wallet_device_token' where id=cid returning * into c;
+    update public.refund_wallet_correction_contexts set correction_fact_version=c.deterministic_fact_version,
+      correction_snapshot=public.refund_purchase_correction_values(c) where correction_message_id=mid;
+  end if;
   if deliver then update public.refund_case_messages set status='sent',sent_at=statement_timestamp() where id=mid; end if;
   return cid;
 end; $$;
