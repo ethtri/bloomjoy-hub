@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(46);
+select plan(48);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data) values('dd000000-0000-4000-8000-000000000004','authenticated','authenticated','correction-manager@example.invalid','{}','{}');
 insert into public.customer_accounts(id,name,account_type) values('dd000000-0000-4000-8000-000000000001','Scoped correction fixture','customer');
@@ -15,10 +15,12 @@ create function pg_temp.make_scope(n integer, deliver boolean default true) retu
 declare cid uuid:=('dd000000-0000-4000-8001-'||lpad(n::text,12,'0'))::uuid; mid uuid:=gen_random_uuid(); cycle jsonb; c public.refund_cases;
 begin
   insert into public.refund_cases(id,reporting_machine_id,reporting_location_id,customer_email,issue_summary,incident_at,incident_local_datetime,
-    incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_network,status,correlation_status,intake_source)
+    incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_wallet_used,card_network,status,correlation_status,intake_source)
   values(cid,'dd000000-0000-4000-8000-000000000003','dd000000-0000-4000-8000-000000000002','scope-customer@example.invalid','Scoped correction test',
     statement_timestamp()-interval '2 hours',to_char((statement_timestamp()-interval '2 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
-    'America/Los_Angeles','exact','exact','card','tap_card',case when n=12 then 700 else null end,case when n=12 then null else '1234' end,case when n=12 then null else 'physical_card' end,'visa','needs_review','manual_review','form');
+    'America/Los_Angeles','exact','exact','card',case when n=8 then 'phone_watch_wallet' else 'tap_card' end,
+    case when n=12 then 700 else null end,case when n=12 then null else '1234' end,
+    case when n=12 then null when n=8 then 'wallet_device_token' else 'physical_card' end,n=8,'visa','needs_review','manual_review','form');
   cycle:=public.service_claim_refund_follow_up_cycle(cid,'missing_information','refund_follow_up_v2',md5(n::text)||md5(n::text),null);
   if not coalesce((cycle->>'claimed')::boolean,false) then raise exception 'Fixture cycle rejected: %',cycle; end if;
   insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,content_source,delivery_kind,reason_code,template_version,follow_up_cycle_id,requested_fields)
@@ -44,7 +46,7 @@ select is(public.service_get_refund_purchase_correction(lpad('1',64,'0'))->>'sta
 select ok(not (public.service_get_refund_purchase_correction(lpad('1',64,'0')) ?| array['customerEmail','refundCaseId','reportingMachineId']),'Inspection does not reveal recipient or internal identifiers');
 select throws_like($$select pg_temp.submit(1,'{"amount":{"disposition":"changed","value":"7.00"},"decision":{"disposition":"changed","value":"approved"}}')$$,'%Unsupported correction answer%','Client cannot approve or write arbitrary fields');
 select throws_like($$select pg_temp.submit(1,'{"amount":{"disposition":"changed","value":"7.00"},"card_last4":{"disposition":"changed","value":"1234567890123456"}}')$$,'%Invalid correction value%','Full card values are rejected atomically');
-select lives_ok($$select pg_temp.submit(1,'{"amount":{"disposition":"changed","value":"7.00"},"payment_interaction":{"disposition":"changed","value":"phone_watch_wallet"},"card_last4":{"disposition":"changed","value":"1234"},"wallet_provider":{"disposition":"changed","value":"apple_pay"}}')$$,'Same digits explicitly re-entered for wallet preserve new provenance');
+select lives_ok($$select pg_temp.submit(1,'{"amount":{"disposition":"changed","value":"7.00"},"payment_interaction":{"disposition":"changed","value":"phone_watch_wallet"},"card_last4":{"disposition":"changed","value":"1234"},"card_last4_source":{"disposition":"changed","value":"wallet_device"},"wallet_provider":{"disposition":"changed","value":"apple_pay"},"wallet_device_kind":{"disposition":"changed","value":"phone"}}')$$,'Same digits explicitly re-entered for wallet preserve new provenance');
 select ok((select card_last4='1234' and card_last4_provenance='wallet_device_token' and wallet_provider='apple_pay' and decision is null and refund_amount_cents is null
  from public.refund_cases where id='dd000000-0000-4000-8001-000000000001'),'Wallet context changes without approval or payment amount side effects');
 select is(public.service_get_refund_purchase_correction(lpad('1',64,'0'))->>'state','received','Submission consumes write scope');
@@ -52,8 +54,10 @@ select is(pg_temp.submit(1,'{}')->>'state','received','Replay returns the saved 
 select is((select count(*)::integer from public.refund_case_events where refund_case_id='dd000000-0000-4000-8001-000000000001' and event_type='purchase_correction_received'),1,'Replay creates one durable response event');
 select lives_ok($$select pg_temp.submit(3,'{"amount":{"disposition":"cannot_provide"}}')$$,'Uncertainty is a valid same-case response');
 select ok((select correction_next_action='review' and correction_recheck_state is null from public.refund_wallet_correction_contexts where token_hash=lpad('3',64,'0')),'Unknown answer remains human-owned without automatic lookup');
+select lives_ok($$select pg_temp.submit(8,'{"amount":{"disposition":"cannot_provide"},"card_last4_source":{"disposition":"changed","value":"physical_card"}}')$$,'A source-only answer is accepted on the existing same-case correction');
+select ok((select card_last4_source='physical_card' and card_last4_provenance='physical_card' and payment_interaction='phone_watch_wallet' from public.refund_cases where id='dd000000-0000-4000-8001-000000000008'),'Source-only correction replaces the legacy wallet-token assumption');
 select is(public.refund_purchase_correction_request_fields('dd000000-0000-4000-8001-000000000003'),'{}'::text[],'Do not ask answered uncertain field again');
-select lives_ok($$select pg_temp.submit(4,jsonb_build_object('amount',jsonb_build_object('disposition','changed','value','7.00'),'incident_time',jsonb_build_object('disposition','changed','value',to_char((statement_timestamp()-interval '2 hours') at time zone 'America/Los_Angeles','HH24:MI'),'confidence','rough')))$$,'A rough corrected time is accepted as uncertainty');
+select lives_ok($$select pg_temp.submit(4,jsonb_build_object('amount',jsonb_build_object('disposition','changed','value','7.00'),'incident_time',jsonb_build_object('disposition','changed','value',to_char((statement_timestamp()-interval '2 hours') at time zone 'America/Los_Angeles','HH24:MI'),'confidence','rough'),'incident_time_source',jsonb_build_object('disposition','changed','value','memory')))$$,'A rough corrected time is accepted with its source');
 select ok((select incident_time_confidence='rough' and decision is null from public.refund_cases where id='dd000000-0000-4000-8001-000000000004')
  and (select correction_next_action='review' from public.refund_wallet_correction_contexts where token_hash=lpad('4',64,'0')),'New rough time never inherits precise matching confidence');
 update public.refund_cases set payment_amount_cents=900 where id='dd000000-0000-4000-8001-000000000005';

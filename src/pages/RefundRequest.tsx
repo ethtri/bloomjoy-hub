@@ -18,12 +18,15 @@ import {
   startRefundQrClaim,
   submitRefundRequest,
   type RefundCardNetwork,
+  type RefundCardLast4Source,
   type RefundIncidentTimeConfidence,
+  type RefundIncidentTimeSource,
   type RefundIssueCategory,
   type RefundPaymentInteraction,
   type RefundPaymentMethod,
   type RefundQrClaim,
   type RefundWalletProvider,
+  type RefundWalletDeviceKind,
 } from '@/lib/refundOperations';
 
 const emptyForm = {
@@ -37,11 +40,14 @@ const emptyForm = {
   paymentAmount: '',
   paymentMethod: 'card' as RefundPaymentMethod,
   cardLast4: '',
+  cardLast4Source: '' as RefundCardLast4Source | '',
   cardNetwork: '' as RefundCardNetwork | '',
   cardWalletUsed: false,
   paymentInteraction: '' as RefundPaymentInteraction | '',
   walletProvider: '' as RefundWalletProvider | '',
+  walletDeviceKind: '' as RefundWalletDeviceKind | '',
   incidentTimeConfidence: '' as RefundIncidentTimeConfidence | '',
+  incidentTimeSource: '' as RefundIncidentTimeSource | '',
   issueCategory: '' as RefundIssueCategory | '',
   issueSummary: '',
 };
@@ -227,10 +233,12 @@ export default function RefundRequestPage() {
       paymentMethod,
       cashMachineId: '',
       cardLast4: '',
+      cardLast4Source: '',
       cardNetwork: '',
       cardWalletUsed: false,
       paymentInteraction: paymentMethod === 'cash' ? 'cash' : '',
       walletProvider: '',
+      walletDeviceKind: '',
     }));
   };
 
@@ -333,6 +341,8 @@ export default function RefundRequestPage() {
         paymentMethod: form.paymentMethod,
         paymentAmount: form.paymentAmount.trim(),
         cardLast4: form.paymentMethod === 'card' ? form.cardLast4.trim() : undefined,
+        cardLast4Source:
+          form.paymentMethod === 'card' && form.cardLast4Source ? form.cardLast4Source : undefined,
         cardNetwork:
           form.paymentMethod === 'card' && form.cardNetwork ? form.cardNetwork : undefined,
         cardWalletUsed: form.paymentMethod === 'card' ? form.cardWalletUsed : undefined,
@@ -344,7 +354,14 @@ export default function RefundRequestPage() {
           form.walletProvider
             ? form.walletProvider
             : undefined,
+        walletDeviceKind:
+          form.paymentMethod === 'card' &&
+          form.paymentInteraction === 'phone_watch_wallet' &&
+          form.walletDeviceKind
+            ? form.walletDeviceKind
+            : undefined,
         incidentTimeConfidence: form.incidentTimeConfidence || 'rough',
+        incidentTimeSource: form.incidentTimeSource || undefined,
         issueCategory: form.issueCategory || 'other',
       });
 
@@ -769,7 +786,7 @@ export default function RefundRequestPage() {
                       )}
                       <p id="card-last4-guidance" className="mt-2 leading-6 text-pink-900">
                         {form.cardWalletUsed
-                          ? 'Use the virtual last 4 shown for this wallet payment. Do not use the last 4 printed on the physical card.'
+                          ? 'Open the card details in Apple Pay or your wallet on the exact phone or watch you used. A phone and watch can show different last 4 digits for the same physical card. Use the virtual last 4 shown for this wallet payment. Do not use the last 4 printed on the physical card.'
                           : 'Enter only 4 digits—never a full card number, security code, or screenshot.'}
                       </p>
                     </div>
@@ -784,6 +801,7 @@ export default function RefundRequestPage() {
                             cardWalletUsed: usedWallet,
                             paymentInteraction: usedWallet ? 'phone_watch_wallet' : '',
                             walletProvider: usedWallet ? current.walletProvider : '',
+                            walletDeviceKind: usedWallet ? current.walletDeviceKind : '',
                           }));
                         }}
                         className="h-4 w-4 rounded border-input accent-pink-600"
@@ -791,7 +809,8 @@ export default function RefundRequestPage() {
                       <span>I used Apple Pay or another phone/watch wallet</span>
                     </label>
                     {form.cardWalletUsed && (
-                      <div className="mt-4">
+                      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                        <div>
                         <Label htmlFor="wallet-provider">Wallet (optional)</Label>
                         <select
                           id="wallet-provider"
@@ -807,6 +826,23 @@ export default function RefundRequestPage() {
                           <option value="other">Another wallet</option>
                           <option value="unsure">I am not sure</option>
                         </select>
+                        </div>
+                        <div>
+                          <Label htmlFor="wallet-device-kind">Device used (optional)</Label>
+                          <select
+                            id="wallet-device-kind"
+                            value={form.walletDeviceKind}
+                            onChange={(event) =>
+                              updateForm('walletDeviceKind', event.target.value as RefundWalletDeviceKind)
+                            }
+                            className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
+                          >
+                            <option value="">Choose if known</option>
+                            <option value="phone">Phone</option>
+                            <option value="watch">Watch</option>
+                            <option value="unknown">I am not sure</option>
+                          </select>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -905,6 +941,26 @@ export default function RefundRequestPage() {
                       </select>
                     </div>
 
+                    <div>
+                      <Label htmlFor="incident-time-source">How did you find the time? (optional)</Label>
+                      <select
+                        id="incident-time-source"
+                        value={form.incidentTimeSource}
+                        onChange={(event) =>
+                          updateForm('incidentTimeSource', event.target.value as RefundIncidentTimeSource)
+                        }
+                        className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
+                      >
+                        <option value="">Choose if known</option>
+                        <option value="transaction_alert_or_receipt">Purchase alert or receipt</option>
+                        <option value="memory">From memory</option>
+                        <option value="unknown">I am not sure</option>
+                      </select>
+                      <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                        A bank posting time can differ from when you used the machine.
+                      </p>
+                    </div>
+
                     {form.paymentMethod === 'card' && (
                       <div className="grid gap-4 sm:grid-cols-2">
                         {!form.cardWalletUsed && (
@@ -920,7 +976,9 @@ export default function RefundRequestPage() {
                             >
                               <option value="">Not sure</option>
                               <option value="tap_card">Tapped the card</option>
-                              <option value="insert_or_swipe">Inserted or swiped the card</option>
+                              <option value="insert_card">Inserted the card</option>
+                              <option value="swipe_card">Swiped the card</option>
+                              <option value="insert_or_swipe">Inserted or swiped — not sure which</option>
                               <option value="unsure">I am not sure</option>
                             </select>
                           </div>
@@ -941,6 +999,23 @@ export default function RefundRequestPage() {
                             <option value="discover">Discover</option>
                             <option value="american_express">American Express</option>
                             <option value="other_unknown">Other / Not sure</option>
+                          </select>
+                        </div>
+                        <div>
+                          <Label htmlFor="card-last4-source">Where did you find the last 4? (optional)</Label>
+                          <select
+                            id="card-last4-source"
+                            value={form.cardLast4Source}
+                            onChange={(event) =>
+                              updateForm('cardLast4Source', event.target.value as RefundCardLast4Source)
+                            }
+                            className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
+                          >
+                            <option value="">Choose if known</option>
+                            <option value="physical_card">Physical card</option>
+                            <option value="wallet_device">Card shown for the wallet or device</option>
+                            <option value="bank_record">Bank record or purchase alert</option>
+                            <option value="unknown">I am not sure</option>
                           </select>
                         </div>
                       </div>

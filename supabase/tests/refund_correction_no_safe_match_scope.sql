@@ -21,7 +21,7 @@ insert into public.refund_nayax_lookup_candidates(refund_case_id,actor_user_id,r
  card_last4,currency_code,evidence_summary,expires_at)
 values('de000000-0000-4000-8000-000000000005','de000000-0000-4000-8000-000000000001','de000000-0000-4000-8000-000000000004',1,'provider-scope-fixture',1,
  statement_timestamp()-interval '2 hours',900,'5678','USD','{"is_top_ranked":true,"reason_codes":["amount_mismatch","card_last4_mismatch"],"hard_exclusions":[]}',statement_timestamp()+interval '30 minutes');
-select is(public.refund_purchase_correction_request_fields('de000000-0000-4000-8000-000000000005'),array['amount','card_last4']::text[],'Fresh candidate conflicts supply two eligible fields for a manager-selected subset');
+select is(public.refund_purchase_correction_request_fields('de000000-0000-4000-8000-000000000005'),array['card_last4','card_last4_source','card_network','amount']::text[],'Fresh candidate conflicts include the useful missing last-four context in one eligible set');
 create temp table scope_cycle as select public.service_claim_refund_follow_up_cycle('de000000-0000-4000-8000-000000000005','no_safe_match','refund_follow_up_v2',repeat('e',64),null) as value;
 select is((select value#>'{cycle,requestedFields}' from scope_cycle),'[]'::jsonb,'Existing no-safe-match cycle retains historical empty requested fields');
 select lives_ok($$insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,content_source,delivery_kind,reason_code,template_version,follow_up_cycle_id,requested_fields)
@@ -50,7 +50,7 @@ insert into public.refund_cases(id,reporting_machine_id,reporting_location_id,cu
 values('de000000-0000-4000-8000-000000000007','de000000-0000-4000-8000-000000000004','de000000-0000-4000-8000-000000000003','scope-customer@example.invalid','Wallet context correction fixture',
  statement_timestamp()-interval '2 hours',to_char((statement_timestamp()-interval '2 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
  'America/Los_Angeles','exact','card','phone_watch_wallet',700,'1234','wallet_device_token',true,'needs_review','manual_review','form');
-select is(public.refund_purchase_correction_request_fields('de000000-0000-4000-8000-000000000007'),array['wallet_provider']::text[],'Original wallet request asks only its missing provider');
+select is(public.refund_purchase_correction_request_fields('de000000-0000-4000-8000-000000000007'),array['card_last4_source','wallet_provider','wallet_device_kind']::text[],'Wallet request includes source, provider, and phone-or-watch context');
 create function pg_temp.queue_wallet_scope(p_body text,p_fields text[]) returns jsonb language sql as $$
  select public.service_enqueue_refund_manual_message_intent('de000000-0000-4000-8000-000000000007',
  (select official_action_version from public.refund_cases where id='de000000-0000-4000-8000-000000000007'),gen_random_uuid(),'de000000-0000-4000-8000-000000000001',
@@ -72,7 +72,7 @@ create temp table wallet_claim as select * from public.service_claim_refund_manu
 select public.service_mark_refund_manual_message_provider_attempt((select refund_case_message_id from wallet_claim),(select claim_token from wallet_claim));
 select public.service_finish_refund_manual_message_delivery((select refund_case_message_id from wallet_claim),(select claim_token from wallet_claim),'sent','gmail_thread',null,1,'mapped_manager');
 select lives_ok($$select public.service_submit_refund_purchase_correction(repeat('f',64),(select correction_fact_version from public.refund_wallet_correction_contexts where token_hash=repeat('f',64)),
- '{"payment_interaction":{"disposition":"changed","value":"tap_card"},"card_last4":{"disposition":"confirmed"}}')$$,
+ '{"payment_interaction":{"disposition":"changed","value":"tap_card"},"card_last4":{"disposition":"confirmed"},"card_last4_source":{"disposition":"changed","value":"physical_card"}}')$$,
  'Changing wallet to physical card drops wallet question and explicitly reconfirms same digits');
 select ok((select payment_interaction='tap_card' and card_wallet_used=false and wallet_provider is null and card_last4='1234' and card_last4_provenance='physical_card' and decision is null from public.refund_cases where id='de000000-0000-4000-8000-000000000007'),
  'New physical payment provenance is explicit without inventing wallet provider or approval');

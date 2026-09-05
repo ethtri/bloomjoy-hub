@@ -3,6 +3,7 @@
 export const correctionFields = [
   'location_or_machine', 'incident_date', 'incident_time', 'payment_method',
   'payment_interaction', 'wallet_provider', 'amount', 'card_last4', 'card_network',
+  'card_last4_source', 'wallet_device_kind', 'incident_time_source', 'nearby_attempt_count',
   'zelle_payment_contact',
 ] as const;
 export type CorrectionField = typeof correctionFields[number];
@@ -17,6 +18,7 @@ export type CorrectionContext = {
   allowedFields?: CorrectionField[];
   values?: Partial<Record<CorrectionField, string>>;
   timezone?: string;
+  incidentTimeConfidence?: CorrectionAnswer['confidence'];
   expiresAt?: string;
   nextAction?: 'review' | 'recheck';
   locationChoices?: Array<{ key: string; label: string }>;
@@ -40,7 +42,11 @@ export const correctionLabels: Record<CorrectionField, [string, string]> = {
   incident_time: ['Approximate purchase time', 'Hora aproximada de compra'],
   payment_method: ['Payment method', 'Método de pago'],
   payment_interaction: ['How you paid', 'Cómo pagó'],
+  card_last4_source: ['Where the last four came from', 'De dónde salieron los últimos cuatro'],
   wallet_provider: ['Mobile wallet', 'Billetera digital'],
+  wallet_device_kind: ['Wallet device', 'Dispositivo de la billetera'],
+  incident_time_source: ['How you found the time', 'Cómo encontró la hora'],
+  nearby_attempt_count: ['Nearby attempts or charges', 'Intentos o cargos cercanos'],
   amount: ['Amount charged (USD)', 'Monto cobrado (USD)'],
   card_last4: ['Card last four digits', 'Últimos cuatro dígitos de la tarjeta'],
   card_network: ['Card type', 'Tipo de tarjeta'],
@@ -48,8 +54,12 @@ export const correctionLabels: Record<CorrectionField, [string, string]> = {
 };
 export const correctionChoices: Partial<Record<CorrectionField, Array<[string, string, string]>>> = {
   payment_method: [['card', 'Card or mobile wallet', 'Tarjeta o billetera digital'], ['cash', 'Cash', 'Efectivo']],
-  payment_interaction: [['tap_card', 'Tapped a physical card', 'Acerqué la tarjeta física'], ['insert_or_swipe', 'Inserted or swiped a card', 'Inserté o deslicé la tarjeta'], ['phone_watch_wallet', 'Phone or watch wallet', 'Billetera del teléfono o reloj'], ['cash', 'Cash', 'Efectivo']],
+  payment_interaction: [['tap_card', 'Tapped a physical card', 'Acerqué la tarjeta física'], ['insert_card', 'Inserted a physical card', 'Inserté la tarjeta física'], ['swipe_card', 'Swiped a physical card', 'Deslicé la tarjeta física'], ['insert_or_swipe', 'Inserted or swiped a card (not sure which)', 'Inserté o deslicé la tarjeta (no sé cuál)'], ['phone_watch_wallet', 'Phone or watch wallet', 'Billetera del teléfono o reloj'], ['cash', 'Cash', 'Efectivo']],
+  card_last4_source: [['physical_card', 'Physical card', 'Tarjeta física'], ['wallet_device', 'Card shown for the wallet or device', 'Tarjeta mostrada para la billetera o dispositivo'], ['bank_record', 'Bank record or purchase alert', 'Registro bancario o alerta de compra'], ['unknown', 'Not sure', 'No sé']],
   wallet_provider: [['apple_pay', 'Apple Pay', 'Apple Pay'], ['google_wallet', 'Google Wallet', 'Google Wallet'], ['other', 'Another wallet', 'Otra billetera']],
+  wallet_device_kind: [['phone', 'Phone', 'Teléfono'], ['watch', 'Watch', 'Reloj'], ['unknown', 'Not sure', 'No sé']],
+  incident_time_source: [['transaction_alert_or_receipt', 'Purchase alert or receipt', 'Alerta de compra o recibo'], ['memory', 'From memory', 'De memoria'], ['unknown', 'Not sure', 'No sé']],
+  nearby_attempt_count: [['one', 'One attempt or charge', 'Un intento o cargo'], ['multiple', 'More than one attempt or charge', 'Más de un intento o cargo'], ['unknown', 'Not sure', 'No sé']],
   card_network: [['visa', 'Visa', 'Visa'], ['mastercard', 'Mastercard', 'Mastercard'], ['discover', 'Discover', 'Discover'], ['american_express', 'American Express', 'American Express'], ['other_unknown', 'Other / not sure', 'Otro / no sé']],
 };
 
@@ -57,7 +67,7 @@ export function updateCorrectionAnswer(prior: CorrectionAnswers, field: Correcti
   const next = { ...prior, [field]: answer };
   const value = (answers: CorrectionAnswers) => answers[field]?.disposition === 'changed' ? answers[field]?.value : context.values?.[field];
   if ((field === 'payment_method' || field === 'payment_interaction') && value(prior) !== value(next)) {
-    for (const dependent of ['card_last4','wallet_provider','card_network'] as const) delete next[dependent];
+    for (const dependent of ['card_last4','card_last4_source','wallet_provider','wallet_device_kind','card_network'] as const) delete next[dependent];
     if (field === 'payment_method') delete next.payment_interaction;
   }
   return next;
@@ -73,13 +83,22 @@ export function requiredCorrectionFields(answers: CorrectionAnswers, context: Co
     }
   }
   if (value('payment_method') === 'cash') {
-    for (const field of ['payment_interaction','card_last4','card_network','wallet_provider'] as const) required.delete(field);
-  } else if (changed('payment_interaction') && ['tap_card','insert_or_swipe'].includes(value('payment_interaction') ?? '')) required.delete('wallet_provider');
+    for (const field of ['payment_interaction','card_last4','card_last4_source','card_network','wallet_provider','wallet_device_kind'] as const) required.delete(field);
+  } else if (changed('payment_interaction') && ['tap_card','insert_card','swipe_card','insert_or_swipe'].includes(value('payment_interaction') ?? '')) {
+    required.delete('wallet_provider');
+    required.delete('wallet_device_kind');
+  }
   if (changed('payment_method') && value('payment_method') === 'card') required.add('payment_interaction');
   if ((changed('payment_method') || changed('payment_interaction')) && value('payment_method') === 'card') {
     required.add('card_last4');
-    if (value('payment_interaction') === 'phone_watch_wallet') required.add('wallet_provider');
+    required.add('card_last4_source');
+    if (value('payment_interaction') === 'phone_watch_wallet') {
+      required.add('wallet_provider');
+      required.add('wallet_device_kind');
+    }
   }
+  if (changed('card_last4') && value('payment_method') === 'card' && context.allowedFields?.includes('card_last4_source')) required.add('card_last4_source');
+  if (changed('incident_time') && context.allowedFields?.includes('incident_time_source')) required.add('incident_time_source');
   return [...required];
 }
 
@@ -98,11 +117,14 @@ export function validateCorrectionAnswers(input: unknown, context: CorrectionCon
     const answer = raw as CorrectionAnswer;
     if (Object.keys(answer).some((key) => !['disposition', 'value', 'confidence'].includes(key)) ||
         !['changed', 'confirmed', 'cannot_provide'].includes(answer.disposition)) throw new Error('invalid_response');
-    if (answer.confidence !== undefined && (field !== 'incident_time' || answer.disposition !== 'changed' ||
+    if (answer.confidence !== undefined && (field !== 'incident_time' || !['changed','confirmed'].includes(answer.disposition) ||
       !['exact','within_15_minutes','within_1_hour','rough'].includes(answer.confidence))) throw new Error('invalid_time_confidence');
     if (answer.disposition !== 'changed') {
       if (answer.value !== undefined || (answer.disposition === 'confirmed' && !values[field])) throw new Error(`invalid:${field}`);
-      result[field] = { disposition: answer.disposition };
+      if (field === 'incident_time' && answer.disposition === 'confirmed' && !answer.confidence) throw new Error('time_confidence_required');
+      result[field] = field === 'incident_time' && answer.disposition === 'confirmed'
+        ? { disposition: 'confirmed', confidence: answer.confidence }
+        : { disposition: answer.disposition };
       continue;
     }
     if (typeof answer.value !== 'string' || !answer.value.trim() || answer.value.length > (field === 'zelle_payment_contact' ? 320 : 160)) throw new Error(`invalid:${field}`);

@@ -23,14 +23,20 @@ const demoContext = (search: string): CorrectionContext => {
   const params = new URLSearchParams(search);
   const wallet = params.get('payment') === 'wallet';
   const cash = params.get('payment') === 'cash';
+  const ambiguous = params.get('context') === 'ambiguous';
+  const timeAmbiguous = params.get('context') === 'time';
   return { state: params.get('state') === 'expired' ? 'unavailable' : 'ready', publicReference: 'RF-DEMO', version: 1,
-    locale: params.get('lang') === 'es' ? 'es' : 'en', timezone: 'America/Los_Angeles',
-    requestedFields: cash ? ['incident_time', 'amount'] : ['card_last4'],
+    locale: params.get('lang') === 'es' ? 'es' : 'en', timezone: 'America/Los_Angeles', incidentTimeConfidence: 'within_15_minutes',
+    requestedFields: cash ? ['incident_time', 'amount'] : timeAmbiguous
+      ? ['incident_time', 'incident_time_source']
+      : ambiguous
+      ? ['card_last4', 'card_last4_source', 'payment_interaction', 'card_network', 'nearby_attempt_count']
+      : wallet ? ['card_last4', 'card_last4_source', 'wallet_provider', 'wallet_device_kind'] : ['card_last4'],
     locationChoices: [{key:'demo-location',label:'Example mall'}],
     allowedFields: correctionFields.filter((field) => field !== 'zelle_payment_contact'),
     values: { location_or_machine: 'Example mall', incident_date: '2026-09-03', incident_time: '14:30', amount: '7.00',
       payment_method: cash ? 'cash' : 'card', payment_interaction: wallet ? 'phone_watch_wallet' : cash ? 'cash' : 'tap_card',
-      ...(wallet ? { wallet_provider: 'apple_pay' } : {}), ...(!cash ? { card_last4: '1234', card_network: 'visa' } : {}) },
+      ...(wallet ? { wallet_provider: 'apple_pay', wallet_device_kind: 'phone', card_last4_source: 'wallet_device' } : {}), ...(!cash ? { card_last4: '1234', card_network: 'visa' } : {}) },
   };
 };
 
@@ -87,7 +93,6 @@ export default function RefundCorrectionPage() {
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const update = (field: CorrectionField, answer: CorrectionAnswer) => {
     if (context) setAnswers((prior) => updateCorrectionAnswer(prior, field, answer, context));
-    if (field === 'payment_method' || field === 'payment_interaction') setReviewOthers(true);
     setError('');
   };
   const values = context?.values ?? {};
@@ -102,7 +107,8 @@ export default function RefundCorrectionPage() {
   const openingFailed = !context && !openingUnavailable && (query.isError || query.fetchStatus === 'paused');
   const payoutDestination = requested.length === 1 && requested[0] === 'zelle_payment_contact';
   const fields = (context?.allowedFields ?? []).filter((field) => requested.includes(field) || (reviewOthers &&
-    (!cash || !['payment_interaction','card_last4', 'card_network', 'wallet_provider'].includes(field)) && (wallet || field !== 'wallet_provider')));
+    (!cash || !['payment_interaction','card_last4','card_last4_source','card_network','wallet_provider','wallet_device_kind'].includes(field)) &&
+    (wallet || !['wallet_provider','wallet_device_kind'].includes(field))));
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!context) return;
@@ -166,11 +172,20 @@ export default function RefundCorrectionPage() {
               const inputId = `correction-${field}`;
               return <fieldset key={field} className="space-y-3 border-t border-border pt-5">
                 <legend className="pr-3 text-base font-semibold">{copy(...label)} {isRequested && <span className="text-sm font-normal text-muted-foreground">({copy('Please check', 'Por favor revise')})</span>}</legend>
-                {field === 'card_last4' && <p id={`${inputId}-help`} className="text-sm leading-6 text-muted-foreground">{wallet ? copy('Use the last four digits of the wallet or device card used for this purchase. They may differ from your physical card.', 'Use los últimos cuatro dígitos de la tarjeta de su billetera o dispositivo. Pueden ser distintos de la tarjeta física.') : copy('Use the last four digits of the physical card you used.', 'Use los últimos cuatro dígitos de la tarjeta física que usó.')}</p>}
+                {field === 'card_last4' && <p id={`${inputId}-help`} className="text-sm leading-6 text-muted-foreground">{wallet ? copy('Open the card details in Apple Pay or the wallet on the exact phone or watch you used. A phone and watch can show different last four digits for the same physical card.', 'Abra los detalles de la tarjeta en Apple Pay o la billetera del teléfono o reloj exacto que usó. El teléfono y el reloj pueden mostrar últimos cuatro dígitos distintos para la misma tarjeta física.') : copy('Use the last four digits of the physical card you used.', 'Use los últimos cuatro dígitos de la tarjeta física que usó.')}</p>}
                 {field === 'incident_time' && <p id={`${inputId}-help`} className="text-sm text-muted-foreground">{copy('Use the local time at the purchase location. An estimate is okay.', 'Use la hora local del lugar de compra. Una estimación está bien.')}</p>}
+                {field === 'card_last4_source' && <p id={`${inputId}-help`} className="text-sm leading-6 text-muted-foreground">{copy('Choose exactly where you saw those digits. A wallet or device card can show different digits from the physical card.', 'Elija exactamente dónde vio esos dígitos. Una tarjeta de billetera o dispositivo puede mostrar dígitos distintos de la tarjeta física.')}</p>}
+                {field === 'wallet_device_kind' && <p id={`${inputId}-help`} className="text-sm leading-6 text-muted-foreground">{copy('Choose the exact device you held near the reader. A phone and watch can show different card digits; we do not need a device number.', 'Elija el dispositivo exacto que acercó al lector. El teléfono y el reloj pueden mostrar dígitos distintos; no necesitamos el número del dispositivo.')}</p>}
+                {field === 'incident_time_source' && <p id={`${inputId}-help`} className="text-sm leading-6 text-muted-foreground">{copy('A bank posting time can differ from when you used the machine. Choose the source you used for the time above.', 'La hora de registro bancario puede ser distinta de la hora en que usó la máquina. Elija la fuente de la hora indicada arriba.')}</p>}
+                {field === 'nearby_attempt_count' && <p id={`${inputId}-help`} className="text-sm leading-6 text-muted-foreground">{copy('Count attempts or charges close to this purchase, including a second try at the machine.', 'Cuente los intentos o cargos cercanos a esta compra, incluido un segundo intento en la máquina.')}</p>}
                 <label htmlFor={`${inputId}-answer`} className="sr-only">{copy('Your answer', 'Su respuesta')}: {copy(...label)}</label>
                 <select id={`${inputId}-answer`} className={controlClass} value={answer?.disposition ?? ''}
-                  onChange={(event) => update(field, event.target.value === 'changed' ? { disposition: 'changed', value: field === 'location_or_machine' ? '' : values[field] ?? '', ...(field === 'incident_time' ? { confidence: 'rough' as const } : {}) } : { disposition: event.target.value as CorrectionAnswer['disposition'] })}>
+                  onChange={(event) => {
+                    const disposition = event.target.value as CorrectionAnswer['disposition'];
+                    update(field, disposition === 'changed'
+                      ? { disposition: 'changed', value: field === 'location_or_machine' ? '' : values[field] ?? '', ...(field === 'incident_time' ? { confidence: context.incidentTimeConfidence ?? 'rough' } : {}) }
+                      : { disposition, ...(field === 'incident_time' && disposition === 'confirmed' ? { confidence: context.incidentTimeConfidence ?? 'rough' } : {}) });
+                  }}>
                   <option value="">{copy('Choose an answer', 'Elija una respuesta')}</option>
                   <option value="changed">{copy(values[field] ? 'Change this detail' : 'Add this detail', values[field] ? 'Corregir este detalle' : 'Agregar este detalle')}</option>
                   {values[field] && <option value="confirmed">{copy('This is correct', 'Esto es correcto')}</option>}
@@ -178,7 +193,7 @@ export default function RefundCorrectionPage() {
                 </select>
                 {answer?.disposition === 'changed' ? <>
                   <label htmlFor={inputId} className="sr-only">{copy(...label)}</label>
-                  {choices ? <select id={inputId} className={controlClass} value={fieldValue} onChange={(event) => update(field, { disposition: 'changed', value: event.target.value })}>
+                  {choices ? <select id={inputId} className={controlClass} aria-describedby={['card_last4_source','wallet_device_kind','incident_time_source','nearby_attempt_count'].includes(field) ? `${inputId}-help` : undefined} value={fieldValue} onChange={(event) => update(field, { disposition: 'changed', value: event.target.value })}>
                     <option value="">{copy('Choose one', 'Elija una opción')}</option>
                     {choices.map(([key, en, sp]) => <option key={key} value={key}>{copy(en, sp)}</option>)}
                   </select> : <Input id={inputId} className="min-h-11" aria-describedby={['card_last4','incident_time'].includes(field) ? `${inputId}-help` : undefined}
@@ -188,7 +203,7 @@ export default function RefundCorrectionPage() {
                     onChange={(event) => update(field, { disposition: 'changed', value: event.target.value, ...(field === 'incident_time' ? { confidence: answer.confidence ?? 'rough' } : {}) })} />}
                   {field === 'incident_time' && <>
                     <label htmlFor={`${inputId}-confidence`} className="block text-sm font-medium">{copy('How close is that time?', '¿Qué tan precisa es esa hora?')}</label>
-                    <select id={`${inputId}-confidence`} className={controlClass} value={answer.confidence ?? 'rough'} onChange={(event) => update(field, { ...answer, confidence: event.target.value as CorrectionAnswer['confidence'] })}>
+                    <select id={`${inputId}-confidence`} className={controlClass} value={answer.confidence ?? context.incidentTimeConfidence ?? 'rough'} onChange={(event) => update(field, { ...answer, confidence: event.target.value as CorrectionAnswer['confidence'] })}>
                       <option value="rough">{copy('A rough estimate', 'Una estimación aproximada')}</option>
                       <option value="within_1_hour">{copy('Within about an hour', 'Dentro de una hora aproximadamente')}</option>
                       <option value="within_15_minutes">{copy('Within about 15 minutes', 'Dentro de unos 15 minutos')}</option>
@@ -196,6 +211,15 @@ export default function RefundCorrectionPage() {
                     </select>
                   </>}
                 </> : values[field] && <p className="text-sm">{copy('You previously shared', 'Antes indicó')}: <strong>{choices?.find(([key]) => key === values[field])?.[es ? 2 : 1] ?? values[field]}</strong></p>}
+                {field === 'incident_time' && answer?.disposition === 'confirmed' && <>
+                  <label htmlFor={`${inputId}-confidence`} className="block text-sm font-medium">{copy('How close is that time?', '¿Qué tan precisa es esa hora?')}</label>
+                  <select id={`${inputId}-confidence`} className={controlClass} value={answer.confidence ?? context.incidentTimeConfidence ?? 'rough'} onChange={(event) => update(field, { ...answer, confidence: event.target.value as CorrectionAnswer['confidence'] })}>
+                    <option value="rough">{copy('A rough estimate', 'Una estimación aproximada')}</option>
+                    <option value="within_1_hour">{copy('Within about an hour', 'Dentro de una hora aproximadamente')}</option>
+                    <option value="within_15_minutes">{copy('Within about 15 minutes', 'Dentro de unos 15 minutos')}</option>
+                    <option value="exact">{copy('Exact time from the purchase record', 'Hora exacta del registro de compra')}</option>
+                  </select>
+                </>}
               </fieldset>;
             })}
             {context.allowedFields?.some((field) => !requested.includes(field)) && <Button type="button" variant="ghost" className="h-auto whitespace-normal px-0 text-left" onClick={() => setReviewOthers(!reviewOthers)} aria-expanded={reviewOthers}>{copy(reviewOthers ? 'Show only requested details' : 'Review other purchase details', reviewOthers ? 'Mostrar solo los detalles solicitados' : 'Revisar otros detalles de compra')}</Button>}

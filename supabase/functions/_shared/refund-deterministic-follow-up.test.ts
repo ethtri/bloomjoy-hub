@@ -33,8 +33,8 @@ Deno.test("missing fields are exact, ordered, and never request wallet digits by
       "location_or_machine",
       "incident_date",
       "incident_time",
-      "amount",
       "card_last4",
+      "amount",
     ]),
     "only absent required fields should be requested",
   );
