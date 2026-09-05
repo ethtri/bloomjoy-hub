@@ -244,7 +244,7 @@ select 'fe160000-0000-4000-8000-000000000014','fe150000-0000-4000-8000-000000000
      'reason_codes','["machine_exact","amount_exact","card_last4_mismatch","customer_occurrence_evidence_needed","nearby_attempt_count_needed"]'::jsonb),
  statement_timestamp()+interval '1 hour' from correction_claim;
 select is((public.service_commit_refund_nayax_lookup('fe150000-0000-4000-8000-000000000005',
-  (select generation from correction_claim),4,'no_match','no_safe_match','2026-09-05.v9',
+  (select generation from correction_claim),4,'manual_exception','manual_exception','2026-09-05.v9',
   statement_timestamp(),'Two customer facts can resolve the same case',null,1,'manual',
   'fe110000-0000-4000-8000-000000000001')->>'applied'),'true',
   'The structured v9 correction lookup commits through the generation guard');
