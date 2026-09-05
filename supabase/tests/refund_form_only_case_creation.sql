@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(23);
+select plan(28);
 
 insert into public.customer_accounts (id, name, account_type)
 values (
@@ -257,6 +257,18 @@ select ok(
 
 select ok(
   (
+    select refund_case.customer_request_received_source = 'gmail_contact_ingested'
+      and refund_case.customer_request_received_at = contact.created_at
+    from public.refund_cases refund_case
+    join public.refund_gmail_intake_contacts contact
+      on contact.linked_refund_case_id = refund_case.id
+    where refund_case.id = (select (result ->> 'id')::uuid from linked_form_case)
+  ),
+  'Email-linked intake keeps the first server-observed customer contact receipt'
+);
+
+select ok(
+  (
     select refund_case_id = (select (result ->> 'id')::uuid from linked_form_case)
       and provider_thread_id = 'form-only-thread-one'
     from public.refund_gmail_threads
@@ -287,6 +299,17 @@ select is(
   'Context replay preserves exactly-one case creation'
 );
 
+select ok(
+  (
+    select refund_case.customer_request_received_at = contact.created_at
+    from public.refund_cases refund_case
+    join public.refund_gmail_intake_contacts contact
+      on contact.linked_refund_case_id = refund_case.id
+    where refund_case.id = (select (result ->> 'id')::uuid from linked_form_case)
+  ),
+  'Consumed-link replay cannot move the original request receipt'
+);
+
 insert into public.refund_cases (
   id, reporting_machine_id, reporting_location_id, customer_email,
   issue_summary, incident_at, payment_method, payment_amount_cents,
@@ -313,6 +336,32 @@ select is(
   (select count(*)::integer from public.refund_cases),
   (select count + 2 from case_baseline),
   'A separate direct website submission remains a separate reviewable case'
+);
+
+select ok(
+  (
+    select customer_request_received_at is not null
+      and customer_request_received_source = 'hosted_refund_intake'
+    from public.refund_cases
+    where id = '88950000-0000-4000-8000-000000000001'
+  ),
+  'Direct hosted intake receives an immutable database receipt time'
+);
+
+select throws_ok(
+  $$update public.refund_cases set customer_request_received_at = customer_request_received_at + interval '1 minute'
+    where id = '88950000-0000-4000-8000-000000000001'$$,
+  'P4625',
+  'The original customer request receipt is immutable',
+  'Corrections and refreshes cannot move the request boundary'
+);
+
+select throws_ok(
+  $$update public.refund_cases set incident_at = customer_request_received_at + interval '2 minutes'
+    where id = '88950000-0000-4000-8000-000000000001'$$,
+  'P4625',
+  'The reported purchase time cannot be after Bloomjoy received the request',
+  'Materially future customer purchase times are rejected by the database'
 );
 
 select is(

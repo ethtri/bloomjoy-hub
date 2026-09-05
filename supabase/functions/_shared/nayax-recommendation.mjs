@@ -1,5 +1,6 @@
 import { resolveLocalDateTimeInZone } from "./timezone-resolution.mjs";
 import { buildNayaxCandidateContext } from "./nayax-machine-context.mjs";
+import { classifyRefundRequestTimeBoundary } from "./refund-request-time-boundary.mjs";
 
 // Deterministic Nayax recommendation policy for Refund Operations.
 //
@@ -7,7 +8,7 @@ import { buildNayaxCandidateContext } from "./nayax-machine-context.mjs";
 // API expose advisory words (strong evidence, compare candidates, manual review)
 // instead of presenting these points as a percentage.
 export const NAYAX_RECOMMENDATION_POLICY = Object.freeze({
-  version: "2026-09-03.v7",
+  version: "2026-09-05.v8",
   candidateLimit: 10,
   lookupWindowHours: 6,
   highConfidenceMinimumPoints: 80,
@@ -171,7 +172,7 @@ const parseDateValue = (value) => {
   return null;
 };
 
-const parseProviderMachineAuthorizationDate = (record, machineTimezone) => {
+const parseProviderMachineAuthorizationDate = (record, machineTimezone, machineClockVerified) => {
   // Retain only a bounded date-time, verbatim. The provider's machine clock is
   // distinct from AuthorizationDateTimeGMT and is not reconstructed from it.
   const raw = record.MachineAuthorizationTime;
@@ -186,7 +187,9 @@ const parseProviderMachineAuthorizationDate = (record, machineTimezone) => {
   if (calendar.resolution !== "exact") return null;
   if (localMatch[4]) {
     const date = new Date(raw.replace(" ", "T"));
-    return Number.isFinite(date.getTime()) ? { date, resolution: "exact", raw } : null;
+    return Number.isFinite(date.getTime())
+      ? { date, resolution: "exact", raw, source: "machine_authorization_offset" }
+      : null;
   }
   if (!machineTimezone) return null;
   const resolved = resolveLocalDateTimeInZone({
@@ -200,7 +203,12 @@ const parseProviderMachineAuthorizationDate = (record, machineTimezone) => {
   const milliseconds = Number((localMatch[3] ?? "").padEnd(3, "0").slice(0, 3));
   const date = resolved.instant ? new Date(Date.parse(resolved.instant) + milliseconds) : null;
   return date && !Number.isNaN(date.getTime())
-    ? { date, resolution: resolved.resolution, raw }
+    ? {
+        date,
+        resolution: resolved.resolution,
+        raw,
+        source: machineClockVerified ? "verified_machine_clock" : "unverified_location_clock",
+      }
     : null;
 };
 
@@ -208,7 +216,7 @@ const parseProviderAuthorizationDate = (record, machineTime) => {
   const gmtValue = sanitizeText(record.AuthorizationDateTimeGMT ?? record.AuthorizationDateTimeGmt, 120);
   if (gmtValue) {
     const date = parseDateValue(gmtValue);
-    return date ? { date, resolution: "exact" } : null;
+    return date ? { date, resolution: "exact", source: "authorization_gmt" } : null;
   }
   return machineTime;
 };
@@ -340,6 +348,31 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     matchFactors.push(factor("machine_time", "manual", "Nayax machine time needs time-zone review"));
   }
 
+  if (candidate.requestTimeBoundaryState === "request_time_unknown") {
+    addReason(manualReviewReasons, "customer_request_time_unknown");
+    addReason(reasonCodes, "customer_request_time_unknown");
+    matchFactors.push(factor(
+      "request_time",
+      "manual",
+      "Bloomjoy does not have a reliable original request receipt time for this case; compare the transaction manually",
+    ));
+  } else if (candidate.requestTimeBoundaryState === "occurrence_time_uncertain") {
+    addReason(manualReviewReasons, "transaction_occurrence_time_uncertain");
+    addReason(reasonCodes, "transaction_occurrence_time_uncertain");
+    matchFactors.push(factor(
+      "request_time",
+      "manual",
+      "Nayax transaction time cannot be reliably compared with the customer request receipt; compare the transaction manually",
+    ));
+  } else {
+    addReason(reasonCodes, "transaction_before_or_at_customer_request");
+    matchFactors.push(factor(
+      "request_time",
+      "match",
+      "Transaction occurred before Bloomjoy received the customer request",
+    ));
+  }
+
   if (!request.expectedMachineId) {
     addReason(manualReviewReasons, "missing_canonical_machine_mapping");
     addReason(reasonCodes, "missing_canonical_machine_mapping");
@@ -450,7 +483,21 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     rankingPoints += weights.exactCardLast4;
     addReason(reasonCodes, "card_last4_match");
     matchFactors.push(factor("card", "match", "Card last four matches"));
+    if (!request.cardLast4Provenance) {
+      addReason(manualReviewReasons, "customer_card_last4_source_unknown");
+      addReason(reasonCodes, "customer_card_last4_source_unknown");
+      matchFactors.push(factor("card_source", "manual", "Where the customer found the last four digits is not known"));
+    }
+  } else if (!request.cardLast4Provenance) {
+    addReason(manualReviewReasons, "customer_card_last4_source_unknown");
+    addReason(reasonCodes, "customer_card_last4_source_unknown");
+    matchFactors.push(factor(
+      "card",
+      "manual",
+      "Card last four differs, but where the customer found those digits is not known",
+    ));
   } else if (
+    request.cardLast4Provenance !== "physical_card" ||
     request.cardWalletUsed ||
     candidate.recognitionMethod === "wallet" ||
     candidate.recognitionMethod === "contactless"
@@ -478,7 +525,20 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     rankingPoints += weights.exactCardNetwork;
     addReason(reasonCodes, "card_network_match");
     matchFactors.push(factor("card_network", "match", "Card type matches"));
-  } else if (request.cardWalletUsed || candidate.recognitionMethod === "wallet") {
+  } else if (!request.cardLast4Provenance) {
+    addReason(manualReviewReasons, "customer_card_last4_source_unknown");
+    addReason(reasonCodes, "customer_card_last4_source_unknown");
+    matchFactors.push(factor(
+      "card_network",
+      "manual",
+      "Card type differs, but the customer card-detail source is not known",
+    ));
+  } else if (
+    request.cardLast4Provenance !== "physical_card" ||
+    request.cardWalletUsed ||
+    candidate.recognitionMethod === "wallet" ||
+    candidate.recognitionMethod === "contactless"
+  ) {
     addReason(reasonCodes, "wallet_card_network_mismatch");
     matchFactors.push(factor(
       "card_network",
@@ -562,6 +622,7 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     candidate.siteId !== null &&
     candidate.providerTimeResolution === "exact" &&
     candidate.machineTimeResolution === "exact" &&
+    candidate.requestTimeBoundaryState === "before_or_at_request" &&
     Boolean(candidate.machineAuthorizationTimeRaw) &&
     candidate.currencyCode === "USD" &&
     candidate.paymentStatus === "approved" &&
@@ -578,6 +639,7 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     amountDeltaCents !== null &&
     amountDeltaCents <= policy.maximumStrongCardAmountDeltaCents &&
     Boolean(request.cardLast4) &&
+    Boolean(request.cardLast4Provenance) &&
     Boolean(candidate.cardLast4) &&
     request.cardLast4 === candidate.cardLast4 &&
     candidate.timeDeltaMinutes <= policy.maximumOneClickTimeDeltaMinutes &&
@@ -627,11 +689,14 @@ export const extractNayaxRecords = (payload) => {
  * @param {{
  *   payload: unknown,
  *   incidentAt: string,
+ *   customerRequestReceivedAt?: string | null,
+ *   customerRequestReceivedSource?: string | null,
  *   expectedMachineId: string,
  *   locationTimezone: string,
  *   providerClockContext?: { reportingMachineId: string, timezone: string | null, source: string, observedAt: string | null } | null,
  *   requestAmountCents: number | null,
  *   requestCardLast4: string,
+ *   requestCardLast4Provenance?: string | null,
  *   requestCardNetwork?: string | null,
  *   cardWalletUsed: boolean,
  *   incidentTimeConfidence?: string,
@@ -648,11 +713,14 @@ export const extractNayaxRecords = (payload) => {
 export const buildNayaxRecommendation = ({
   payload,
   incidentAt,
+  customerRequestReceivedAt = null,
+  customerRequestReceivedSource = null,
   expectedMachineId,
   locationTimezone,
   providerClockContext = null,
   requestAmountCents,
   requestCardLast4,
+  requestCardLast4Provenance = null,
   requestCardNetwork = null,
   cardWalletUsed,
   incidentTimeConfidence = "legacy_exact",
@@ -678,10 +746,15 @@ export const buildNayaxRecommendation = ({
     expectedMachineId: sanitizeText(expectedMachineId, 120),
     amountCents: asNonNegativeCents(requestAmountCents),
     cardLast4: extractLast4(requestCardLast4),
+    cardLast4Provenance: ["physical_card", "wallet_device_token"].includes(requestCardLast4Provenance)
+      ? requestCardLast4Provenance
+      : null,
     cardNetwork: normalizeCardNetwork(requestCardNetwork),
     cardWalletUsed: Boolean(cardWalletUsed),
     incidentTimeConfidence: sanitizeText(incidentTimeConfidence, 40) || "legacy_exact",
     incidentTimeResolution: sanitizeText(incidentTimeResolution, 40) || "legacy_absolute",
+    customerRequestReceivedAt: sanitizeText(customerRequestReceivedAt, 80) || null,
+    customerRequestReceivedSource: sanitizeText(customerRequestReceivedSource, 80) || null,
     qrClaimEvidenceStatus: normalizedQrClaimStatus === "verified" && !qrClaimOpenedDate
       ? "invalid"
       : normalizedQrClaimStatus,
@@ -693,6 +766,7 @@ export const buildNayaxRecommendation = ({
   const seenTransactionIds = new Set();
   let parseableRecordCount = 0;
   let windowRecordCount = 0;
+  let excludedAfterRequestCount = 0;
 
   for (const item of extractNayaxRecords(payload)) {
     const record = typeof item === "object" && item !== null ? item : {};
@@ -706,7 +780,11 @@ export const buildNayaxRecommendation = ({
     const machineTimezone = providerClockContext?.source === "native_machine_configuration"
       ? sanitizeText(providerClockContext.timezone, 80)
       : sanitizeText(locationTimezone, 80);
-    const machineTime = parseProviderMachineAuthorizationDate(record, machineTimezone);
+    const machineTime = parseProviderMachineAuthorizationDate(
+      record,
+      machineTimezone,
+      providerClockContext?.source === "native_machine_configuration",
+    );
     const providerTime = parseProviderAuthorizationDate(record, machineTime);
     const authorizationDate = providerTime?.date ?? null;
     if (!transactionId || !authorizationDate || !providerTime) continue;
@@ -716,6 +794,22 @@ export const buildNayaxRecommendation = ({
 
     const duplicateProviderRecord = seenTransactionIds.has(transactionId);
     seenTransactionIds.add(transactionId);
+
+    const requestTimeBoundary = classifyRefundRequestTimeBoundary({
+      customerRequestReceivedAt: request.customerRequestReceivedAt,
+      customerRequestReceivedSource: request.customerRequestReceivedSource,
+      transactionOccurredAt: authorizationDate.toISOString(),
+      transactionOccurrenceSource: providerTime.source,
+      transactionTimeResolution: providerTime.resolution,
+    });
+    if (requestTimeBoundary.transactionAfterRequest) {
+      excludedAfterRequestCount += 1;
+      if (normalizedByTransaction.has(transactionId)) {
+        normalizedByTransaction.get(transactionId).duplicateProviderRecord = true;
+      }
+      continue;
+    }
+
     if (normalizedByTransaction.has(transactionId)) {
       // A duplicated provider ID is an anomaly even when the visible fields
       // appear identical. Keep one candidate for manager review, but never let
@@ -737,6 +831,11 @@ export const buildNayaxRecommendation = ({
       machineTimeResolution: machineTime.resolution,
       machineClockContext: providerClockContext,
       providerTimeResolution: providerTime.resolution,
+      providerTimeSource: providerTime.source,
+      customerRequestReceivedAt: request.customerRequestReceivedAt,
+      customerRequestReceivedSource: request.customerRequestReceivedSource,
+      requestTimeBoundaryState: requestTimeBoundary.state,
+      transactionOccurrenceComparable: requestTimeBoundary.occurrenceComparable,
       // Round outward so a transaction even one second beyond a safety boundary
       // cannot be admitted by display-oriented minute rounding.
       timeDeltaMinutes: Math.ceil(Math.abs(authorizationDate.getTime() - incidentDate.getTime()) / 60000),
@@ -819,7 +918,12 @@ export const buildNayaxRecommendation = ({
       ? topOverall.reasonCodes
       : ["insufficient_evidence"];
   } else {
-    resultReasonCodes = ["no_candidate_in_lookup_window"];
+    resultReasonCodes = excludedAfterRequestCount > 0
+      ? ["transaction_after_customer_request"]
+      : ["no_candidate_in_lookup_window"];
+  }
+  if (excludedAfterRequestCount > 0 && !resultReasonCodes.includes("transaction_after_customer_request")) {
+    resultReasonCodes.push("transaction_after_customer_request");
   }
 
   const finalizedCandidates = candidates.map((candidate) => {
@@ -836,7 +940,8 @@ export const buildNayaxRecommendation = ({
       recommendationState === "high_confidence" &&
       confidenceClass === "strong_card" &&
       !request.cardWalletUsed &&
-      candidate.recognitionMethod !== "wallet";
+      candidate.recognitionMethod !== "wallet" &&
+      candidate.recognitionMethod !== "contactless";
     return {
       ...candidate,
       policyVersion: policy.version,
@@ -883,6 +988,9 @@ export const buildNayaxRecommendation = ({
         : "Refund Operations should review transaction coverage and machine/time evidence. Do not ask the customer to repeat details already provided.",
     },
   }[recommendationState];
+  const requestBoundaryNote = excludedAfterRequestCount > 0
+    ? `${excludedAfterRequestCount} later transaction${excludedAfterRequestCount === 1 ? " was" : "s were"} excluded because ${excludedAfterRequestCount === 1 ? "it" : "they"} occurred after Bloomjoy received the customer request.`
+    : "";
 
   return {
     policyVersion: policy.version,
@@ -899,7 +1007,11 @@ export const buildNayaxRecommendation = ({
     candidateCount: finalizedCandidates.length,
     providerParseableRecordCount: parseableRecordCount,
     providerWindowRecordCount: windowRecordCount,
-    summary: copy.summary,
+    excludedAfterRequestCount,
+    uncertainRequestTimeCandidateCount: candidates.filter((candidate) =>
+      candidate.requestTimeBoundaryState !== "before_or_at_request"
+    ).length,
+    summary: [requestBoundaryNote, copy.summary].filter(Boolean).join(" "),
     recommendedAction: copy.recommendedAction,
   };
 };

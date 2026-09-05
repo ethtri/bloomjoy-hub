@@ -4014,6 +4014,8 @@ export default function AdminRefundsPage() {
         lastCheckedAt: result.lastCheckedAt ?? new Date().toISOString(),
         windowHours: result.windowHours ?? 6,
         providerWindowRecordCount: result.providerWindowRecordCount ?? null,
+        excludedAfterRequestCount: result.excludedAfterRequestCount ?? 0,
+        uncertainRequestTimeCandidateCount: result.uncertainRequestTimeCandidateCount ?? 0,
         candidateCount: result.candidateCount ?? result.candidates?.length ?? 0,
         summary: result.summary || result.message || 'Transaction search finished.',
         recommendedAction:
@@ -4053,7 +4055,9 @@ export default function AdminRefundsPage() {
       } else if (result.recommendationState === 'no_safe_match' || !result.candidates.length) {
         const providerWindowRecordCount = result.providerWindowRecordCount ?? 0;
         const noMatchMessage =
-          providerWindowRecordCount > 0
+          (result.excludedAfterRequestCount ?? 0) > 0
+            ? nextSummary.summary
+            : providerWindowRecordCount > 0
             ? `${providerWindowRecordCount} transactions were checked, but none matched the customer details closely enough. Keep the case open and do not choose a transaction unless it is clear.`
             : `${transactionSearchDescription(nextSummary)} Keep the case open for Refund Operations review.`;
         setNayaxLookupNotice({
@@ -4898,7 +4902,7 @@ export default function AdminRefundsPage() {
     ) => {
       const selectionDisabled =
         isUsingDemoData || !caseAllowsCandidateSelection || candidate.selectionAllowed === false;
-      const visibleFactors = ['amount', 'card', 'incident_time']
+      const visibleFactors = ['amount', 'card', 'incident_time', 'request_time']
         .map((key) => candidate.matchFactors?.find((factor) => factor.key === key))
         .filter((factor): factor is NonNullable<typeof factor> => Boolean(factor));
       const selectionMessage = candidate.selectionAllowed === false
@@ -5122,6 +5126,16 @@ export default function AdminRefundsPage() {
                 Refresh transactions
               </Button>
             )}
+          </div>
+        )}
+        {!nayaxLookupNotice &&
+          !selectedCase.hasMatchedNayaxTransaction &&
+          selectedNayaxSummary?.summary &&
+          (effectiveCandidates.length === 0 ||
+            (selectedNayaxSummary.excludedAfterRequestCount ?? 0) > 0 ||
+            (selectedNayaxSummary.uncertainRequestTimeCandidateCount ?? 0) > 0) && (
+          <div data-testid="nayax-request-time-explanation" className={nayaxLookupNoticeClass('info')}>
+            {selectedNayaxSummary.summary}
           </div>
         )}
         {showVisibleLookupRetry && !nayaxLookupNotice && (

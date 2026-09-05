@@ -240,6 +240,11 @@ export type NayaxProviderCandidate = {
   machineTimeResolution: string;
   machineClockContext?: NayaxProviderClockContext | null;
   providerTimeResolution: string;
+  providerTimeSource: string;
+  customerRequestReceivedAt: string | null;
+  customerRequestReceivedSource: string | null;
+  requestTimeBoundaryState: string;
+  transactionOccurrenceComparable: boolean;
   timeDeltaMinutes: number;
   qrTimeDeltaMinutes: number | null;
   amountCents: number | null;
@@ -289,7 +294,9 @@ export type NayaxProviderClockContext = {
 export type NayaxResponseCandidate = Omit<
   NayaxProviderCandidate,
   "transactionId" | "siteId" | "providerMachineId" | "providerRefundState" | "rankingPoints" |
-  "machineAuthorizationTimeRaw" | "machineTimeResolution" | "machineClockContext"
+  "machineAuthorizationTimeRaw" | "machineTimeResolution" | "machineClockContext" |
+  "providerTimeSource" | "customerRequestReceivedAt" | "customerRequestReceivedSource" |
+  "requestTimeBoundaryState" | "transactionOccurrenceComparable"
 > & {
   candidateToken: string;
 };
@@ -316,6 +323,8 @@ export type NayaxLookupResult = {
   providerRecordCount?: number;
   providerParseableRecordCount?: number;
   providerWindowRecordCount?: number;
+  excludedAfterRequestCount?: number;
+  uncertainRequestTimeCandidateCount?: number;
   providerClockContexts?: NayaxProviderClockContext[];
   candidateCount: number;
   candidates: NayaxResponseCandidate[];
@@ -343,6 +352,8 @@ export type NayaxLookupResult = {
     machineLabel: string | null;
     locationName: string | null;
     incidentAt: string;
+    customerRequestReceivedAt?: string | null;
+    customerRequestReceivedSource?: string | null;
     incidentTimeResolution?: string;
     incidentTimeConfidence?: string;
     locationTimezone?: string;
@@ -460,6 +471,12 @@ const persistNayaxLookupCandidates = async ({
         qr_time_delta_minutes: candidate.qrTimeDeltaMinutes,
         amount_delta_cents: candidate.amountDeltaCents,
         provider_time_resolution: candidate.providerTimeResolution,
+        provider_time_source: candidate.providerTimeSource,
+        authorized_at: candidate.authorizedAt,
+        customer_request_received_at: candidate.customerRequestReceivedAt,
+        customer_request_received_source: candidate.customerRequestReceivedSource,
+        request_time_boundary: candidate.requestTimeBoundaryState,
+        transaction_occurrence_comparable: candidate.transactionOccurrenceComparable,
         machine_authorization_time_raw: candidate.machineAuthorizationTimeRaw,
         machine_authorization_time_source: "MachineAuthorizationTime",
         machine_time_resolution: candidate.machineTimeResolution,
@@ -554,12 +571,15 @@ type GroupedRefundCase = {
   intake_selection_kind: string;
   intake_selection_machine_ids: string[];
   incident_at: string;
+  customer_request_received_at: string | null;
+  customer_request_received_source: string | null;
   incident_time_resolution: string | null;
   incident_time_confidence: string | null;
   payment_method: string;
   payment_amount_cents: number | null;
   refund_amount_cents: number | null;
   card_last4: string | null;
+  card_last4_provenance: string | null;
   card_network: string | null;
   card_wallet_used: boolean | null;
   customer_email: string;
@@ -657,6 +677,8 @@ const lookupGroupedLivermoreCandidates = async ({
     machineLabel: "San Francisco Premium Outlets — Cotton candy",
     locationName: sanitizeText(location.name, 180) || null,
     incidentAt: incidentAt.toISOString(),
+    customerRequestReceivedAt: refundCase.customer_request_received_at,
+    customerRequestReceivedSource: refundCase.customer_request_received_source,
     incidentTimeResolution: sanitizeText(refundCase.incident_time_resolution, 40) || "legacy_absolute",
     incidentTimeConfidence: sanitizeText(refundCase.incident_time_confidence, 40) || "rough",
     locationTimezone: sanitizeText(location.timezone, 80),
@@ -754,12 +776,15 @@ const lookupGroupedLivermoreCandidates = async ({
     const recommendationInput = {
       payload,
       incidentAt: incidentAt.toISOString(),
+      customerRequestReceivedAt: refundCase.customer_request_received_at,
+      customerRequestReceivedSource: refundCase.customer_request_received_source,
       incidentTimeResolution: sanitizeText(refundCase.incident_time_resolution, 40) || "legacy_absolute",
       expectedMachineId: input.nayaxMachineId,
       locationTimezone: sanitizeText(location.timezone, 80),
       providerClockContext,
       requestAmountCents: sanitizeInputCents(refundCase.payment_amount_cents),
       requestCardLast4: extractLast4(refundCase.card_last4),
+      requestCardLast4Provenance: sanitizeText(refundCase.card_last4_provenance, 40),
       requestCardNetwork: sanitizeText(refundCase.card_network, 40),
       cardWalletUsed: Boolean(refundCase.card_wallet_used),
       incidentTimeConfidence: sanitizeText(refundCase.incident_time_confidence, 40) || "rough",
@@ -799,6 +824,8 @@ const lookupGroupedLivermoreCandidates = async ({
       candidates: NayaxProviderCandidate[];
       providerParseableRecordCount: number;
       providerWindowRecordCount: number;
+      excludedAfterRequestCount: number;
+      uncertainRequestTimeCandidateCount: number;
     },
   }));
   const {
@@ -840,6 +867,16 @@ const lookupGroupedLivermoreCandidates = async ({
     : selectableCandidates.length === 1
     ? "One safe transaction matched across the two reviewed outlet machines. Confirm it before any refund decision."
     : "More than one plausible transaction matched across the two reviewed outlet machines. A manager must choose the exact transaction.";
+  const excludedAfterRequestCount = localRecommendations.reduce(
+    (count, result) => count + result.recommendation.excludedAfterRequestCount,
+    0,
+  );
+  const uncertainRequestTimeCandidateCount = globallyRanked.filter((candidate) =>
+    candidate.requestTimeBoundaryState !== "before_or_at_request"
+  ).length;
+  const requestBoundaryNote = excludedAfterRequestCount > 0
+    ? `${excludedAfterRequestCount} later transaction${excludedAfterRequestCount === 1 ? " was" : "s were"} excluded because ${excludedAfterRequestCount === 1 ? "it" : "they"} occurred after Bloomjoy received the customer request. `
+    : "";
   return {
     configured: true,
     lookupStatus: recommendationToLookupStatus(recommendationState),
@@ -847,7 +884,10 @@ const lookupGroupedLivermoreCandidates = async ({
     confidenceClass: recommendationState === "high_confidence"
       ? uniqueCandidate?.confidenceClass ?? "strong_card"
       : "ambiguous_manual",
-    reasonCodes: [...new Set(globallyRanked.flatMap((candidate) => candidate.reasonCodes))],
+    reasonCodes: [...new Set([
+      ...globallyRanked.flatMap((candidate) => candidate.reasonCodes),
+      ...(excludedAfterRequestCount > 0 ? ["transaction_after_customer_request"] : []),
+    ])],
     policyVersion: NAYAX_RECOMMENDATION_POLICY.version,
     oneClickEligible,
     qrClaimEvidenceStatus: "missing",
@@ -864,10 +904,12 @@ const lookupGroupedLivermoreCandidates = async ({
       (count, result) => count + result.recommendation.providerWindowRecordCount,
       0,
     ),
+    excludedAfterRequestCount,
+    uncertainRequestTimeCandidateCount,
     candidateCount: globallyRanked.length,
     candidates,
     windowHours,
-    summary,
+    summary: `${requestBoundaryNote}${summary}`,
     recommendedAction: selectableCandidates.length === 1
       ? "Confirm the exact transaction, then review the refund separately."
       : "Review the bounded results and never guess or attempt both machines.",
@@ -907,12 +949,15 @@ export const lookupNayaxCandidatesForRefundCase = async ({
       intake_selection_machine_ids,
       refund_qr_claim_context_id,
       incident_at,
+      customer_request_received_at,
+      customer_request_received_source,
       incident_time_resolution,
       incident_time_confidence,
       payment_method,
       payment_amount_cents,
       refund_amount_cents,
       card_last4,
+      card_last4_provenance,
       card_network,
       card_wallet_used,
       customer_email,
@@ -1023,6 +1068,8 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     machineLabel: sanitizeText(machine?.machine_label, 180) || null,
     locationName: sanitizeText(location?.name, 180) || null,
     incidentAt: incidentAt.toISOString(),
+    customerRequestReceivedAt: refundCase?.customer_request_received_at ?? null,
+    customerRequestReceivedSource: refundCase?.customer_request_received_source ?? null,
     incidentTimeResolution: sanitizeText(refundCase.incident_time_resolution, 40) || "legacy_absolute",
     incidentTimeConfidence: sanitizeText(refundCase.incident_time_confidence, 40) || "rough",
     locationTimezone: sanitizeText(location?.timezone, 80),
@@ -1144,12 +1191,15 @@ export const lookupNayaxCandidatesForRefundCase = async ({
   const commonRecommendationInput = {
     payload: nayaxPayload,
     incidentAt: incidentAt.toISOString(),
+    customerRequestReceivedAt: refundCase?.customer_request_received_at ?? null,
+    customerRequestReceivedSource: refundCase?.customer_request_received_source ?? null,
     incidentTimeResolution: sanitizeText(refundCase?.incident_time_resolution, 40) || "legacy_absolute",
     expectedMachineId: nayaxMachineId,
     locationTimezone: sanitizeText(location?.timezone, 80),
     providerClockContext,
     requestAmountCents: sanitizeInputCents(refundCase?.payment_amount_cents),
     requestCardLast4: extractLast4(refundCase?.card_last4),
+    requestCardLast4Provenance: sanitizeText(refundCase?.card_last4_provenance, 40),
     requestCardNetwork: sanitizeText(refundCase?.card_network, 40),
     cardWalletUsed: Boolean(refundCase?.card_wallet_used),
     incidentTimeConfidence: sanitizeText(refundCase?.incident_time_confidence, 40) || "rough",
@@ -1183,6 +1233,8 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     candidateCount: number;
     providerParseableRecordCount: number;
     providerWindowRecordCount: number;
+    excludedAfterRequestCount: number;
+    uncertainRequestTimeCandidateCount: number;
     summary: string;
     recommendedAction: string;
   };
@@ -1222,6 +1274,8 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     providerRecordCount,
     providerParseableRecordCount: recommendation.providerParseableRecordCount,
     providerWindowRecordCount: recommendation.providerWindowRecordCount,
+    excludedAfterRequestCount: recommendation.excludedAfterRequestCount,
+    uncertainRequestTimeCandidateCount: recommendation.uncertainRequestTimeCandidateCount,
     providerClockContexts: [commonRecommendationInput.providerClockContext],
     candidateCount: recommendation.candidateCount,
     candidates,

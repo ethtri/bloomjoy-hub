@@ -16,7 +16,7 @@ export const buildNayaxLookupDiagnostics = (result: NayaxLookupResult) => {
     return null;
   }
   const count = (value: unknown) => Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : null;
-  return withNayaxProviderClockDiagnostics({
+  const providerClockDiagnostic = withNayaxProviderClockDiagnostics({
     schemaVersion: "nayax_lookup_diagnostics_v1",
     endpoint: "machine_last_sales",
     historicalCoverage: "unknown",
@@ -34,6 +34,18 @@ export const buildNayaxLookupDiagnostics = (result: NayaxLookupResult) => {
     machineTimezoneSource: "configured_location_not_verified_provider_clock",
     providerPayloadRedacted: true,
   }, result.providerClockContexts);
+  const requestReceivedAt = Date.parse(result.refundCase?.customerRequestReceivedAt ?? "");
+  return {
+    ...providerClockDiagnostic,
+    schemaVersion: "nayax_lookup_diagnostics_v3",
+    providerClockContexts: providerClockDiagnostic.providerClockContexts ?? [],
+    customerRequestReceivedAt: Number.isFinite(requestReceivedAt)
+      ? new Date(requestReceivedAt).toISOString()
+      : null,
+    customerRequestReceivedSource: textValue(result.refundCase?.customerRequestReceivedSource) || null,
+    excludedAfterRequestCount: count(result.excludedAfterRequestCount),
+    uncertainRequestTimeCandidateCount: count(result.uncertainRequestTimeCandidateCount),
+  };
 };
 
 export const beginNayaxLookup = async ({

@@ -37,19 +37,25 @@ const sale = ({
   ...extra,
 });
 
-const recommend = (records, overrides = {}) =>
-  buildNayaxRecommendation({
+const recommend = (records, overrides = {}) => {
+  const effectiveIncidentAt = overrides.incidentAt ?? incidentAt;
+  const defaultRequestReceivedAt = new Date(Date.parse(effectiveIncidentAt) + 24 * 60 * 60 * 1000).toISOString();
+  return buildNayaxRecommendation({
     payload: records,
-    incidentAt,
+    incidentAt: effectiveIncidentAt,
     incidentTimeResolution: "exact",
     expectedMachineId,
     locationTimezone: "America/Los_Angeles",
     requestAmountCents: 700,
     requestCardLast4: "4242",
+    requestCardLast4Provenance: "physical_card",
     cardWalletUsed: false,
+    customerRequestReceivedAt: defaultRequestReceivedAt,
+    customerRequestReceivedSource: "hosted_refund_intake",
     providerContract: "nayax_machine_last_sales_v1",
     ...overrides,
   });
+};
 
 const exact = recommend([
   sale({ id: "exact" }),
@@ -150,6 +156,51 @@ const collision = recommend([
 assert.equal(collision.recommendationState, "ambiguous");
 assert.equal(collision.candidates.some((candidate) => candidate.oneClickEligible), false);
 assert.equal(collision.candidates.some((candidate) => candidate.isRecommended), false);
+
+const requestBoundary = recommend([
+  sale({ id: "before-request", at: "2026-07-21T19:00:00.000Z" }),
+  sale({ id: "after-request", at: "2026-07-21T19:05:00.000Z" }),
+], {
+  customerRequestReceivedAt: "2026-07-21T19:03:00.000Z",
+});
+assert.equal(requestBoundary.recommendationState, "high_confidence");
+assert.deepEqual(requestBoundary.consideredTransactionIds, ["before-request"]);
+assert.equal(requestBoundary.excludedAfterRequestCount, 1);
+assert.ok(requestBoundary.reasonCodes.includes("transaction_after_customer_request"));
+
+const equalRequestBoundary = recommend([sale({ id: "equal-request" })], {
+  customerRequestReceivedAt: incidentAt,
+});
+assert.equal(equalRequestBoundary.candidates[0].requestTimeBoundaryState, "before_or_at_request");
+
+const unknownRequestBoundary = recommend([sale({ id: "unknown-request" })], {
+  customerRequestReceivedAt: null,
+  customerRequestReceivedSource: null,
+});
+assert.equal(unknownRequestBoundary.candidates[0].selectionAllowed, true);
+assert.equal(unknownRequestBoundary.oneClickEligible, false);
+assert.ok(unknownRequestBoundary.candidates[0].manualReviewReasons.includes("customer_request_time_unknown"));
+
+const uncertainOccurrenceBoundary = recommend([sale({
+  id: "uncertain-occurrence",
+  extra: { AuthorizationDateTimeGMT: undefined, MachineAuthorizationTime: "2026-07-21T12:00:00" },
+})], {
+  customerRequestReceivedAt: "2026-07-21T20:00:00.000Z",
+  providerClockContext: { source: "unknown", timezone: null },
+});
+assert.equal(uncertainOccurrenceBoundary.candidates[0].selectionAllowed, true);
+assert.equal(uncertainOccurrenceBoundary.oneClickEligible, false);
+assert.ok(uncertainOccurrenceBoundary.candidates[0].manualReviewReasons.includes("transaction_occurrence_time_uncertain"));
+
+const delayedEarlierAuthorization = recommend([sale({
+  id: "delayed-earlier-authorization",
+  at: "2026-07-21T18:59:59.000Z",
+  extra: { ProviderRecordArrivedAt: "2026-07-23T12:00:00.000Z" },
+})], {
+  customerRequestReceivedAt: "2026-07-21T19:00:00.000Z",
+});
+assert.equal(delayedEarlierAuthorization.candidateCount, 1);
+assert.equal(delayedEarlierAuthorization.excludedAfterRequestCount, 0);
 
 // Customer estimates may omit tax or round the total. The provider amount is retained.
 for (const deltaCents of [-301, -300, -100, -10, 0, 10, 100, 300, 301]) {
@@ -481,7 +532,30 @@ const providerLocalDst = recommend(
       },
     }),
   ],
+  {
+    providerClockContext: {
+      timezone: "America/Los_Angeles",
+      source: "native_machine_configuration",
+      observedAt: "2026-09-04T15:44:13.963271Z",
+    },
+  },
 );
+
+const unknownLast4SourceMismatch = recommend(
+  [sale({ id: "unknown-source-mismatch", last4: "9999", cardBrand: "MasterCard" })],
+  { requestCardLast4Provenance: null, requestCardNetwork: "visa" },
+);
+assert.equal(unknownLast4SourceMismatch.candidates[0].selectionAllowed, true);
+assert.equal(unknownLast4SourceMismatch.oneClickEligible, false);
+assert.ok(unknownLast4SourceMismatch.candidates[0].manualReviewReasons.includes("customer_card_last4_source_unknown"));
+
+const unknownLast4SourceExact = recommend([sale({ id: "unknown-source-exact" })], {
+  requestCardLast4Provenance: null,
+});
+assert.equal(unknownLast4SourceExact.recommendationState, "manual_exception");
+assert.equal(unknownLast4SourceExact.candidates[0].selectionAllowed, true);
+assert.equal(unknownLast4SourceExact.oneClickEligible, false);
+assert.ok(unknownLast4SourceExact.candidates[0].manualReviewReasons.includes("customer_card_last4_source_unknown"));
 assert.equal(providerLocalDst.recommendationState, "high_confidence");
 assert.equal(providerLocalDst.candidates[0].authorizedAt, incidentAt);
 
