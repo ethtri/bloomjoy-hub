@@ -451,5 +451,3 @@ grant execute on function public.refund_purchase_correction_request_fields(uuid)
   to service_role;
 
 select pg_notify('pgrst','reload schema');
-
-
