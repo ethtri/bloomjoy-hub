@@ -6,7 +6,7 @@ import test from 'node:test';
 import { prepareRefundRequestBoundaryReceiptRegression } from '../validate-supabase-migrations.mjs';
 
 const migration = fs.readFileSync(
-  new URL('../../supabase/migrations/20260905173539_refund_request_time_boundary.sql', import.meta.url),
+  new URL('../../supabase/migrations/20260905190312_refund_request_time_boundary.sql', import.meta.url),
   'utf8',
 );
 
@@ -28,7 +28,7 @@ test('disposable migration validation seeds both sides of the receipt boundary b
     const fixturePath = prepareRefundRequestBoundaryReceiptRegression(root);
     assert.equal(
       path.basename(fixturePath),
-      '20260905173538_refund_request_boundary_receipt_fixture.sql',
+      '202609051903115_refund_request_boundary_receipt_fixture.sql',
     );
     const fixture = fs.readFileSync(fixturePath, 'utf8');
     assert.match(fixture, /RF-BOUNDARY-RECEIPT/u);
