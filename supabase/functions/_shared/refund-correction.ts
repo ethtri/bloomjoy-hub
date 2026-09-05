@@ -1,10 +1,10 @@
 // Shared customer-field contract. Provider, recipient, approval and payout
 // execution fields are deliberately absent.
 export const correctionFields = [
-  'location_or_machine', 'incident_date', 'incident_time', 'payment_method',
-  'payment_interaction', 'wallet_provider', 'amount', 'card_last4', 'card_network',
-  'card_last4_source', 'wallet_device_kind', 'incident_time_source', 'nearby_attempt_count',
-  'zelle_payment_contact',
+  'location_or_machine', 'incident_date', 'incident_time', 'incident_time_source',
+  'payment_method', 'payment_interaction', 'card_last4', 'card_last4_source',
+  'card_network', 'wallet_provider', 'wallet_device_kind', 'nearby_attempt_count',
+  'amount', 'zelle_payment_contact',
 ] as const;
 export type CorrectionField = typeof correctionFields[number];
 export type CorrectionAnswer = { disposition: 'changed' | 'confirmed' | 'cannot_provide'; value?: string; confidence?: 'exact' | 'within_15_minutes' | 'within_1_hour' | 'rough' };
