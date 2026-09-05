@@ -5,6 +5,7 @@ import { collectCorrectionResponseNotices, type CorrectionNoticeState } from '@/
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   Clock3,
   Copy,
   ExternalLink,
@@ -4895,9 +4896,16 @@ export default function AdminRefundsPage() {
       : hasSelectedCardEvidence(selectedCase, editor);
     const recommendedCandidate = effectiveCandidates.find((candidate) => candidate.isRecommended === true) ?? null;
     const leadCandidate = recommendedCandidate ?? effectiveCandidates[0] ?? null;
-    const selectableCandidateCount = effectiveCandidates.filter(
+    const selectableCandidates = effectiveCandidates.filter(
       (candidate) => candidate.selectionAllowed !== false
-    ).length;
+    );
+    const unavailableCandidates = effectiveCandidates.filter(
+      (candidate) => candidate.selectionAllowed === false
+    );
+    const selectableCandidateCount = selectableCandidates.length;
+    const unavailableCandidateSummary = unavailableCandidates.length === 1
+      ? candidateUnavailableReason(unavailableCandidates[0], selectedCase)
+      : 'Provider evidence or purchase details do not meet the selection safeguards.';
     const waitingOnCustomer = isWaitingCase(selectedCase, refundOperationsAccess);
     const caseAllowsCandidateSelection =
       selectedCase.status === 'needs_review' &&
@@ -5228,16 +5236,46 @@ export default function AdminRefundsPage() {
                     : 'Choose one only when the customer, amount, time, and payment details clearly agree.'}
               </p>
             </div>
-            <div
-              data-testid="nayax-transaction-comparison"
-              role="radiogroup"
-              aria-label="Customer and transaction comparison"
-              className="space-y-2"
-            >
-              {effectiveCandidates.map((candidate, index) =>
-                candidateOption(candidate, `Transaction ${index + 1}`)
-              )}
-            </div>
+            {selectableCandidates.length > 0 && (
+              <div
+                data-testid="nayax-transaction-comparison"
+                role="radiogroup"
+                aria-label="Customer and transaction comparison"
+                className="space-y-2"
+              >
+                {selectableCandidates.map((candidate, index) =>
+                  candidateOption(candidate, `Transaction ${index + 1}`)
+                )}
+              </div>
+            )}
+            {unavailableCandidates.length > 0 && (
+              <details
+                data-testid="nayax-unavailable-candidates"
+                className="group mt-3 rounded-lg border border-border bg-muted/15"
+              >
+                <summary className="flex min-h-11 cursor-pointer list-none flex-col justify-center gap-1 rounded-lg px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:flex-row sm:items-center sm:justify-between">
+                  <span className="text-sm font-semibold text-foreground">
+                    {unavailableCandidates.length} unavailable transaction{unavailableCandidates.length === 1 ? '' : 's'}
+                  </span>
+                  <span className="flex items-center gap-2 text-xs leading-5 text-muted-foreground sm:max-w-[65%] sm:text-right">
+                    <span>{unavailableCandidateSummary}</span>
+                    <ChevronDown
+                      className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180"
+                      aria-hidden="true"
+                    />
+                  </span>
+                </summary>
+                <div
+                  role="group"
+                  aria-label="Unavailable transactions and reasons"
+                  className="space-y-2 border-t border-border p-3"
+                >
+                  {unavailableCandidates.map((candidate, index) =>
+                    candidateOption(candidate, `Unavailable transaction ${index + 1}`)
+                  )}
+                </div>
+              </details>
+            )}
             {needsDisagreementReason && (
               <div className="mt-3 space-y-1.5">
                 <Label htmlFor="nayax-disagreement-reason">Why is this the right transaction?</Label>
@@ -5362,9 +5400,16 @@ export default function AdminRefundsPage() {
 
     const effectiveCandidates = selectedCase.legacyStateReviewRequired ? [] : nayaxCandidates;
     const activeCandidate = activeNayaxCandidate(selectedCase, editor, effectiveCandidates);
+    const selectableComparisonCandidate =
+      effectiveCandidates.find(
+        (candidate) => candidate.isRecommended === true && candidate.selectionAllowed !== false
+      ) ??
+      effectiveCandidates.find((candidate) => candidate.selectionAllowed !== false) ??
+      null;
     const comparisonCandidate = selectedCase.legacyStateReviewRequired
       ? null
       : activeCandidate ??
+        selectableComparisonCandidate ??
         effectiveCandidates.find((candidate) => candidate.isRecommended === true) ??
         effectiveCandidates[0] ??
         null;
@@ -7165,129 +7210,6 @@ export default function AdminRefundsPage() {
                       </section>
                     )}
 
-                    {refundOperationsAccess && !selectedCaseIsInternalTest && (
-                      <section
-                        data-testid="refund-internal-test-disposition"
-                        className="rounded-xl border border-border bg-muted/20 p-4"
-                      >
-                        <div className="space-y-3">
-                          <div>
-                            <p className="text-sm font-semibold text-foreground">Internal or test submission</p>
-                            <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
-                              Use only for employee, technician, setup, provider, or synthetic test records. This is not a denial and sends no customer message.
-                            </p>
-                          </div>
-                          <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,320px)_auto] sm:items-end">
-                            <div className="min-w-0 space-y-1.5">
-                              <Label htmlFor="refund-internal-test-reason">Required reason</Label>
-                              <select
-                                id="refund-internal-test-reason"
-                                data-testid="refund-internal-test-reason"
-                                value={internalTestReason}
-                                onChange={(event) => setInternalTestReason(
-                                  event.target.value as RefundInternalTestReason | ''
-                                )}
-                                className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              >
-                                <option value="">Select reason</option>
-                                {internalTestReasonOptions.map((option) => (
-                                  <option key={option.value} value={option.value}>{option.label}</option>
-                                ))}
-                              </select>
-                            </div>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              data-testid="refund-open-internal-test-confirmation"
-                              className="h-10 w-full sm:w-auto"
-                              onClick={() => setIsInternalTestConfirmationOpen(true)}
-                              disabled={
-                                isUsingDemoData ||
-                                isClassifyingInternalTest ||
-                                officialActionVersion <= 0 ||
-                                !internalTestReason
-                              }
-                            >
-                              Move to Internal/test archive
-                            </Button>
-                          </div>
-                        </div>
-                      </section>
-                    )}
-
-                    {!selectedCaseIsInternalTest && <section
-                      data-testid="refund-customer-locale"
-                      className="rounded-xl border border-border bg-muted/20 p-4"
-                    >
-                      <div className="space-y-4">
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-foreground">Customer message language</p>
-                          <p data-testid="refund-customer-locale-current" className="mt-1 text-sm text-muted-foreground">
-                            {selectedCustomerLocale?.locale
-                              ? selectedCustomerLocale.label
-                              : 'Not set — English fallback'}
-                            {' · '}
-                            {selectedCustomerLocale?.sourceLabel ?? 'Needs manager review'}
-                          </p>
-                          <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
-                            This setting applies only to future approved refund templates. Existing message history is unchanged. Spanish uses the approved Spanish + English template.
-                          </p>
-                        </div>
-                        <div className="grid w-full min-w-0 gap-3 sm:grid-cols-2">
-                          <div className="min-w-0 space-y-1.5">
-                            <Label htmlFor="refund-customer-locale-select">Language</Label>
-                            <select
-                              id="refund-customer-locale-select"
-                              data-testid="refund-customer-locale-select"
-                              value={customerLocaleDraft}
-                              onChange={(event) => setCustomerLocaleDraft(event.target.value as RefundCustomerLocale | '')}
-                              className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            >
-                              <option value="">Select language</option>
-                              <option value="en">English</option>
-                              <option value="es">Spanish + English</option>
-                            </select>
-                          </div>
-                          <div className="min-w-0 space-y-1.5">
-                            <Label htmlFor="refund-customer-locale-reason">Reviewed reason</Label>
-                            <select
-                              id="refund-customer-locale-reason"
-                              data-testid="refund-customer-locale-reason"
-                              value={customerLocaleReason}
-                              onChange={(event) => setCustomerLocaleReason(
-                                event.target.value as RefundCustomerLocaleCorrectionReason | ''
-                              )}
-                              className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            >
-                              <option value="">Select reason</option>
-                              <option value="reviewed_customer_request_language">Reviewed customer request language</option>
-                              <option value="customer_confirmed_language">Customer confirmed language</option>
-                            </select>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            data-testid="refund-save-customer-locale"
-                            className="h-10 w-full sm:col-span-2 sm:w-auto sm:justify-self-start"
-                            onClick={() => void handleCorrectCustomerLocale()}
-                            disabled={
-                              isUsingDemoData ||
-                              isCorrectingCustomerLocale ||
-                              officialActionVersion <= 0 ||
-                              !selectedCustomerLocale ||
-                              !customerLocaleDraft ||
-                              !customerLocaleReason
-                            }
-                          >
-                            {isCorrectingCustomerLocale && (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
-                            )}
-                            Save language
-                          </Button>
-                        </div>
-                      </div>
-                    </section>}
-
                     {!selectedCaseIsInternalTest && selectedCaseIsReviewOnly && !selectedCaseIsTerminal && !selectedCase.providerHold && (
                       <div
                         data-testid={
@@ -8253,6 +8175,148 @@ export default function AdminRefundsPage() {
 
                     </div>
                     </div>
+                    )}
+
+                    {!selectedCaseIsInternalTest && (
+                      <details
+                        data-testid="refund-case-administration"
+                        className="group rounded-xl border border-border bg-muted/10"
+                      >
+                        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+                          <span>Case administration</span>
+                          <span className="flex items-center gap-2 text-xs font-normal text-muted-foreground">
+                            <span>Language{refundOperationsAccess ? ' and internal/test tools' : ''}</span>
+                            <ChevronDown
+                              className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180"
+                              aria-hidden="true"
+                            />
+                          </span>
+                        </summary>
+                        <div className="space-y-3 border-t border-border p-3 sm:p-4">
+                          {refundOperationsAccess && (
+                            <section
+                              data-testid="refund-internal-test-disposition"
+                              className="rounded-xl border border-border bg-muted/20 p-4"
+                            >
+                              <div className="space-y-3">
+                                <div>
+                                  <p className="text-sm font-semibold text-foreground">Internal or test submission</p>
+                                  <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
+                                    Use only for employee, technician, setup, provider, or synthetic test records. This is not a denial and sends no customer message.
+                                  </p>
+                                </div>
+                                <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,320px)_auto] sm:items-end">
+                                  <div className="min-w-0 space-y-1.5">
+                                    <Label htmlFor="refund-internal-test-reason">Required reason</Label>
+                                    <select
+                                      id="refund-internal-test-reason"
+                                      data-testid="refund-internal-test-reason"
+                                      value={internalTestReason}
+                                      onChange={(event) => setInternalTestReason(
+                                        event.target.value as RefundInternalTestReason | ''
+                                      )}
+                                      className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    >
+                                      <option value="">Select reason</option>
+                                      {internalTestReasonOptions.map((option) => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    data-testid="refund-open-internal-test-confirmation"
+                                    className="h-10 w-full sm:w-auto"
+                                    onClick={() => setIsInternalTestConfirmationOpen(true)}
+                                    disabled={
+                                      isUsingDemoData ||
+                                      isClassifyingInternalTest ||
+                                      officialActionVersion <= 0 ||
+                                      !internalTestReason
+                                    }
+                                  >
+                                    Move to Internal/test archive
+                                  </Button>
+                                </div>
+                              </div>
+                            </section>
+                          )}
+
+                          <section
+                            data-testid="refund-customer-locale"
+                            className="rounded-xl border border-border bg-muted/20 p-4"
+                          >
+                            <div className="space-y-4">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-foreground">Customer message language</p>
+                                <p data-testid="refund-customer-locale-current" className="mt-1 text-sm text-muted-foreground">
+                                  {selectedCustomerLocale?.locale
+                                    ? selectedCustomerLocale.label
+                                    : 'Not set — English fallback'}
+                                  {' · '}
+                                  {selectedCustomerLocale?.sourceLabel ?? 'Needs manager review'}
+                                </p>
+                                <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
+                                  This setting applies only to future approved refund templates. Existing message history is unchanged. Spanish uses the approved Spanish + English template.
+                                </p>
+                              </div>
+                              <div className="grid w-full min-w-0 gap-3 sm:grid-cols-2">
+                                <div className="min-w-0 space-y-1.5">
+                                  <Label htmlFor="refund-customer-locale-select">Language</Label>
+                                  <select
+                                    id="refund-customer-locale-select"
+                                    data-testid="refund-customer-locale-select"
+                                    value={customerLocaleDraft}
+                                    onChange={(event) => setCustomerLocaleDraft(event.target.value as RefundCustomerLocale | '')}
+                                    className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  >
+                                    <option value="">Select language</option>
+                                    <option value="en">English</option>
+                                    <option value="es">Spanish + English</option>
+                                  </select>
+                                </div>
+                                <div className="min-w-0 space-y-1.5">
+                                  <Label htmlFor="refund-customer-locale-reason">Reviewed reason</Label>
+                                  <select
+                                    id="refund-customer-locale-reason"
+                                    data-testid="refund-customer-locale-reason"
+                                    value={customerLocaleReason}
+                                    onChange={(event) => setCustomerLocaleReason(
+                                      event.target.value as RefundCustomerLocaleCorrectionReason | ''
+                                    )}
+                                    className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  >
+                                    <option value="">Select reason</option>
+                                    <option value="reviewed_customer_request_language">Reviewed customer request language</option>
+                                    <option value="customer_confirmed_language">Customer confirmed language</option>
+                                  </select>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  data-testid="refund-save-customer-locale"
+                                  className="h-10 w-full sm:col-span-2 sm:w-auto sm:justify-self-start"
+                                  onClick={() => void handleCorrectCustomerLocale()}
+                                  disabled={
+                                    isUsingDemoData ||
+                                    isCorrectingCustomerLocale ||
+                                    officialActionVersion <= 0 ||
+                                    !selectedCustomerLocale ||
+                                    !customerLocaleDraft ||
+                                    !customerLocaleReason
+                                  }
+                                >
+                                  {isCorrectingCustomerLocale && (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                                  )}
+                                  Save language
+                                </Button>
+                              </div>
+                            </div>
+                          </section>
+                        </div>
+                      </details>
                     )}
 
                     <div className="space-y-3 rounded-lg border border-border bg-background p-4">

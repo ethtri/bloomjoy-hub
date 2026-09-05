@@ -5693,19 +5693,36 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         );
       }
       if (scenario.expectedSafetyMatrix) {
-        const candidateOptions = page.getByTestId('nayax-candidate-option');
+        const selectableOptions = page.getByTestId('nayax-transaction-comparison')
+          .getByTestId('nayax-candidate-option');
+        const unavailableDetails = page.getByTestId('nayax-unavailable-candidates');
+        const unavailableOptions = unavailableDetails.getByTestId('nayax-candidate-option');
+        const collapsedResultText = await page.getByTestId('nayax-result-card').innerText();
+        recorder.assert(
+          'Unavailable provider results are summarized and collapsed by default',
+          !(await unavailableDetails.evaluate((element) => element.open)) &&
+            await unavailableDetails.getByText('3 unavailable transactions', { exact: true }).isVisible() &&
+            (await selectableOptions.count()) === 1 &&
+            !(await selectableOptions.first().locator('input[type="radio"]').isDisabled()) &&
+            !(await unavailableOptions.first().isVisible()) &&
+            collapsedResultText.includes('Amount differs by $2.99') &&
+            !collapsedResultText.includes('Nayax did not return the provider site needed') &&
+            !collapsedResultText.includes('Nayax has not confirmed this as an approved sale') &&
+            !collapsedResultText.includes('Amount differs by $3.01')
+        );
+        await unavailableDetails.locator('summary').click();
         recorder.assert(
           'Provider evidence gaps remain visible while only the corroborated exact-card candidate is selectable',
           await page.getByTestId('nayax-candidate-availability')
             .getByText('1 transaction available to compare', { exact: true }).isVisible() &&
-            await candidateOptions.nth(0).locator('input[type="radio"]').isDisabled() &&
-            await candidateOptions.nth(1).locator('input[type="radio"]').isDisabled() &&
-            !(await candidateOptions.nth(2).locator('input[type="radio"]').isDisabled()) &&
-            await candidateOptions.nth(3).locator('input[type="radio"]').isDisabled() &&
-            await candidateOptions.nth(0).getByText(/provider site needed to bind this transaction/i).isVisible() &&
-            await candidateOptions.nth(1).getByText(/not confirmed this as an approved sale/i).isVisible() &&
-            await candidateOptions.nth(2).getByText('Amount differs by $2.99', { exact: true }).isVisible() &&
-            await candidateOptions.nth(3).getByText('Amount differs by $3.01', { exact: true }).isVisible()
+            (await unavailableOptions.count()) === 3 &&
+            await unavailableOptions.locator('input[type="radio"]').evaluateAll(
+              (inputs) => inputs.every((input) => input.disabled)
+            ) &&
+            await unavailableDetails.getByText(/provider site needed to bind this transaction/i).isVisible() &&
+            await unavailableDetails.getByText(/not confirmed this as an approved sale/i).isVisible() &&
+            await selectableOptions.getByText('Amount differs by $2.99', { exact: true }).isVisible() &&
+            await unavailableDetails.getByText('Amount differs by $3.01', { exact: true }).isVisible()
         );
       }
       if (scenario.expectedNoSelectableTransactions) {
@@ -6527,7 +6544,23 @@ const runCustomerLocaleCorrectionChecks = async ({ browser, appUrl, artifactDir,
   await waitForQueueCount(page, 1);
   await queueCase(page, 'RF-UAT-CARD').click();
 
+  const administration = page.getByTestId('refund-case-administration');
   const localeSection = page.getByTestId('refund-customer-locale');
+  recorder.assert(
+    'Decision content stays ahead of optional case administration',
+    !(await administration.evaluate((element) => element.open)) &&
+      !(await localeSection.isVisible()) &&
+      await page.getByText('Current state', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-request-summary').isVisible() &&
+      await administration.evaluate((element) => {
+        const requestSummary = document.querySelector('[data-testid="refund-request-summary"]');
+        return Boolean(
+          requestSummary &&
+          (requestSummary.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING)
+        );
+      })
+  );
+  await administration.locator('summary').click();
   recorder.assert(
     'An existing case without persisted locale is visibly manager-owned',
     await localeSection.isVisible() &&
@@ -6635,7 +6668,15 @@ const runInternalTestDispositionChecks = async ({ browser, appUrl, artifactDir, 
   await waitForQueueCount(page, 1);
   await queueCase(page, 'RF-UAT-CARD').click();
 
+  const administration = page.getByTestId('refund-case-administration');
   const disposition = page.getByTestId('refund-internal-test-disposition');
+  recorder.assert(
+    'Internal/test controls stay on demand behind the case decision',
+    !(await administration.evaluate((element) => element.open)) &&
+      !(await disposition.isVisible()) &&
+      await page.getByText('Current state', { exact: true }).isVisible()
+  );
+  await administration.locator('summary').click();
   recorder.assert(
     'Refund Operations sees a non-denial Internal/test disposition with a required reason',
     await disposition.isVisible() &&
