@@ -119,6 +119,8 @@ Observed coverage:
 - `MachineAuthorizationTime`
 - `SettlementDateTimeGMT`
 
+The public Last Sales schema also documents `CardNumber`, `CardBrand`, and `SiteID`, but those fields were absent from this earlier captured production inventory. Presence does not establish what a masked card value represents for swipe, chip, physical tap, or wallet use. The current sanitized field dictionary, mode matrix, and explicit unknowns are in [NAYAX_PAYMENT_IDENTIFIER_SEMANTICS.md](./NAYAX_PAYMENT_IDENTIFIER_SEMANTICS.md).
+
 Observed sales validation:
 - 43 of 43 machine last-sales calls returned `200`.
 - 29 of 43 machines returned at least one recent sale in the tested response.
