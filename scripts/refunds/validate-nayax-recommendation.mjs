@@ -49,7 +49,10 @@ const recommend = (records, overrides = {}) => {
     requestAmountCents: 700,
     requestCardLast4: "4242",
     requestCardLast4Provenance: "physical_card",
+    requestCardLast4Source: "physical_card",
     cardWalletUsed: false,
+    paymentInteraction: "insert_card",
+    nearbyAttemptCount: "unknown",
     customerRequestReceivedAt: defaultRequestReceivedAt,
     customerRequestReceivedSource: "hosted_refund_intake",
     providerContract: "nayax_machine_last_sales_v1",
@@ -82,20 +85,118 @@ const physicalNetworkMismatch = recommend(
   [sale({ id: "physical-network-mismatch", cardBrand: "Visa" })],
   { requestCardNetwork: "american_express" },
 );
-assert.ok(physicalNetworkMismatch.candidates[0].reasonCodes.includes("physical_card_network_mismatch"));
-assert.equal(physicalNetworkMismatch.candidates[0].selectionAllowed, false);
+assert.ok(physicalNetworkMismatch.candidates[0].reasonCodes.includes("card_network_mismatch_negative"));
+assert.equal(physicalNetworkMismatch.candidates[0].selectionAllowed, true);
 assert.equal(
   physicalNetworkMismatch.candidates[0].hardExclusions.includes("card_network_mismatch"),
-  true,
-  "a physical card-network mismatch must keep an otherwise exact candidate unselectable",
+  false,
+  "an unproved card-network comparison must not become a hard exclusion",
 );
 
 const walletNetworkMismatch = recommend(
   [sale({ id: "wallet-network-mismatch", cardBrand: "Amex", recognitionMethod: "Apple Pay" })],
   { requestCardNetwork: "visa", cardWalletUsed: true },
 );
-assert.ok(walletNetworkMismatch.candidates[0].reasonCodes.includes("wallet_card_network_mismatch"));
+assert.ok(walletNetworkMismatch.candidates[0].reasonCodes.includes("card_network_mismatch_neutral"));
 assert.equal(walletNetworkMismatch.candidates[0].oneClickEligible, false);
+
+const identifierMatrix = [
+  {
+    id: "swipe-mismatch",
+    recognitionMethod: "Swipe",
+    overrides: { paymentInteraction: "swipe_card", requestCardLast4Source: "physical_card" },
+    semantic: "swipe_pan_unproven",
+    comparison: "negative",
+  },
+  {
+    id: "chip-mismatch",
+    recognitionMethod: "Chip",
+    overrides: { paymentInteraction: "insert_card", requestCardLast4Source: "physical_card" },
+    semantic: "chip_application_pan_unproven",
+    comparison: "negative",
+  },
+  {
+    id: "contactless-card-mismatch",
+    recognitionMethod: "Contactless",
+    overrides: { paymentInteraction: "tap_card", requestCardLast4Source: "physical_card" },
+    semantic: "contactless_chip_application_pan_unproven",
+    comparison: "negative",
+  },
+  {
+    id: "wallet-mismatch",
+    recognitionMethod: "Apple Pay",
+    overrides: {
+      paymentInteraction: "phone_watch_wallet",
+      requestCardLast4Source: "wallet_device",
+      requestCardLast4Provenance: "wallet_device_token",
+      walletDeviceKind: "phone",
+      cardWalletUsed: true,
+    },
+    semantic: "wallet_device_token_unproven",
+    comparison: "negative",
+  },
+  {
+    id: "provider-token-mismatch",
+    recognitionMethod: "Chip",
+    extra: { ProviderToken: "opaque-provider-value" },
+    overrides: { paymentInteraction: "insert_card", requestCardLast4Source: "physical_card" },
+    semantic: "provider_token_unproven",
+    comparison: "internal_review",
+  },
+  {
+    id: "unknown-identifier-mismatch",
+    recognitionMethod: "Card present",
+    overrides: { paymentInteraction: "unsure", requestCardLast4Source: "unknown" },
+    semantic: "provider_identifier_unknown",
+    comparison: "internal_review",
+  },
+];
+for (const fixture of identifierMatrix) {
+  const result = recommend([
+    sale({
+      id: fixture.id,
+      last4: "9999",
+      cardBrand: "Visa",
+      recognitionMethod: fixture.recognitionMethod,
+      extra: fixture.extra,
+    }),
+  ], { requestCardNetwork: "visa", ...fixture.overrides });
+  const candidate = result.candidates[0];
+  assert.equal(candidate.providerIdentifierSemantics, fixture.semantic);
+  assert.equal(candidate.identifierComparisonClass, fixture.comparison);
+  assert.equal(candidate.sameIdentifierInvariant, false);
+  assert.equal(candidate.hardExclusions.includes("card_last4_mismatch"), false);
+  assert.equal(candidate.selectionAllowed, true, `${fixture.id} should reach informed manager selection`);
+  assert.equal(candidate.oneClickEligible, false);
+  assert.equal(candidate.identifierPolicyVersion, "2026-09-05.identifier.v1");
+}
+
+const mismatchWithoutCorroboration = recommend(
+  [sale({ id: "mismatch-without-corroboration", last4: "9999", cardBrand: "" })],
+  { requestCardNetwork: null, paymentInteraction: "insert_card", requestCardLast4Source: "physical_card" },
+);
+assert.equal(mismatchWithoutCorroboration.candidates[0].hardExclusions.length, 0);
+assert.equal(mismatchWithoutCorroboration.candidates[0].selectionAllowed, false);
+assert.equal(
+  mismatchWithoutCorroboration.candidates[0].selectionBlockReason,
+  "independent_corroboration_required",
+);
+
+const customerSingleAttemptCorroboration = recommend(
+  [sale({ id: "single-attempt-corroboration", last4: "9999", cardBrand: "" })],
+  {
+    requestCardNetwork: null,
+    paymentInteraction: "tap_card",
+    requestCardLast4Source: "physical_card",
+    nearbyAttemptCount: "one",
+  },
+);
+assert.equal(customerSingleAttemptCorroboration.candidates[0].selectionAllowed, true);
+assert.ok(
+  customerSingleAttemptCorroboration.candidates[0].managerCorroborationCodes.includes(
+    "customer_reports_one_nearby_attempt",
+  ),
+);
 
 const walletDifferentAmount = recommend(
   [sale({ id: "wallet-different-amount", amount: 9, cardBrand: "Discover", recognitionMethod: "Apple Pay" })],
@@ -312,7 +413,7 @@ const uniqueQrContactlessCard = recommend(
 assert.equal(uniqueQrContactlessCard.recommendationState, "high_confidence");
 assert.equal(uniqueQrContactlessCard.confidenceClass, "unique_qr_time");
 assert.equal(uniqueQrContactlessCard.oneClickEligible, false);
-assert.ok(uniqueQrContactlessCard.reasonCodes.includes("tokenized_last4_noncorrelating"));
+assert.ok(uniqueQrContactlessCard.reasonCodes.includes("card_last4_mismatch_internal_review"));
 
 const uniqueQrWithoutLast4 = recommend(
   [sale({ id: "unique-qr-no-last4", at: "2026-07-21T19:04:00.000Z", last4: "" })],
@@ -562,14 +663,19 @@ const providerLocalDst = recommend(
 
 const unknownLast4SourceMismatch = recommend(
   [sale({ id: "unknown-source-mismatch", last4: "9999", cardBrand: "MasterCard" })],
-  { requestCardLast4Provenance: null, requestCardNetwork: "visa" },
+  { requestCardLast4Provenance: null, requestCardLast4Source: "unknown", requestCardNetwork: "visa" },
 );
-assert.equal(unknownLast4SourceMismatch.candidates[0].selectionAllowed, true);
+assert.equal(unknownLast4SourceMismatch.candidates[0].selectionAllowed, false);
+assert.equal(
+  unknownLast4SourceMismatch.candidates[0].selectionBlockReason,
+  "independent_corroboration_required",
+);
 assert.equal(unknownLast4SourceMismatch.oneClickEligible, false);
 assert.ok(unknownLast4SourceMismatch.candidates[0].manualReviewReasons.includes("customer_card_last4_source_unknown"));
 
 const unknownLast4SourceExact = recommend([sale({ id: "unknown-source-exact" })], {
   requestCardLast4Provenance: null,
+  requestCardLast4Source: "unknown",
 });
 assert.equal(unknownLast4SourceExact.recommendationState, "manual_exception");
 assert.equal(unknownLast4SourceExact.candidates[0].selectionAllowed, true);

@@ -1589,6 +1589,7 @@ const buildPhysicalCardMismatchRefundOverview = () => {
   overview.cases[0].cardLast4 = '6768';
   overview.cases[0].paymentAmountCents = 1090;
   overview.cases[0].paymentInteraction = 'tap_card';
+  overview.cases[0].cardNetwork = 'visa';
   return overview;
 };
 
@@ -5277,23 +5278,27 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     },
     {
       name: 'physical card mismatch',
+      confirmCandidate: true,
       refundOverview: buildPhysicalCardMismatchRefundOverview,
       response: {
         configured: true,
         lookupStatus: 'match_found',
         recommendationState: 'manual_exception',
         confidenceClass: 'ambiguous_manual',
-        reasonCodes: ['card_last4_mismatch'],
-        policyVersion: '2026-07-26.v2',
+        reasonCodes: [
+          'machine_exact', 'amount_exact', 'transaction_time_near',
+          'card_last4_mismatch_negative', 'card_network_match',
+        ],
+        policyVersion: '2026-09-05.v9',
         oneClickEligible: false,
         lastCheckedAt: now.toISOString(),
-        providerRecordCount: 10,
-        providerParseableRecordCount: 10,
-        providerWindowRecordCount: 10,
-        candidateCount: 2,
+        providerRecordCount: 1,
+        providerParseableRecordCount: 1,
+        providerWindowRecordCount: 1,
+        candidateCount: 1,
         windowHours: 6,
-        summary: 'Nearby transactions were found, but none matched the reported physical card.',
-        recommendedAction: 'Keep the case in manager review until the card information can be confirmed.',
+        summary: 'One exact-machine transaction has exact amount and nearby time, plus matching card type. The unproved Nayax identifier differs.',
+        recommendedAction: 'Compare the exact transaction. The differing suffix is evidence, not a transaction veto.',
         candidates: [
           {
             candidateToken: '41000000-0000-4000-8000-000000000205',
@@ -5303,69 +5308,58 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
             currencyCode: 'USD',
             cardLast4: '3760',
             cardBrand: 'Visa',
-            recognitionMethod: 'insert',
+            cardNetwork: 'visa',
+            recognitionMethod: 'tap',
             paymentStatus: 'approved',
             amountDeltaCents: 0,
             timeDeltaMinutes: 15,
             recommendationRank: 1,
             isTopRanked: true,
-            isRecommended: false,
+            isRecommended: true,
             recommendationState: 'manual_exception',
             confidenceClass: 'ambiguous_manual',
-            reasonCodes: ['card_last4_mismatch'],
+            reasonCodes: [
+              'machine_exact', 'amount_exact', 'transaction_time_near',
+              'card_last4_mismatch_negative', 'card_network_match',
+            ],
             oneClickEligible: false,
-            selectionAllowed: false,
-            matchStrength: 'insufficient',
-            policyVersion: '2026-07-26.v2',
-            hardExclusions: ['card_last4_mismatch'],
+            selectionAllowed: true,
+            selectionBlockReason: null,
+            managerReviewCoreEligible: true,
+            managerCorroborationCodes: ['card_network_match'],
+            customerCredentialClass: 'physical_contactless_chip',
+            customerPaymentInteraction: 'tap_card',
+            customerCardLast4Source: 'physical_card',
+            customerCardLast4Provenance: 'physical_card',
+            customerWalletDeviceKind: null,
+            customerNearbyAttemptCount: 'one',
+            identifierPolicyVersion: '2026-09-05.identifier.v1',
+            providerIdentifierSemantics: 'contactless_chip_application_pan_unproven',
+            providerTokenFieldPresent: false,
+            identifierComparisonClass: 'negative',
+            sameIdentifierInvariant: false,
+            matchStrength: 'compare',
+            policyVersion: '2026-09-05.v9',
+            hardExclusions: [],
+            manualReviewReasons: ['card_last4_mismatch_negative'],
             matchFactors: [
               { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
               { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
               { key: 'incident_time', outcome: 'match', label: 'Transaction is 15 minutes from the reported time' },
-              { key: 'card', outcome: 'mismatch', label: 'Card last four does not match' },
+              { key: 'card', outcome: 'negative', label: 'Card last four differs; the identifier equivalence is not proved' },
+              { key: 'card_network', outcome: 'match', label: 'Card type matches' },
             ],
-            matchReason: 'The amount and time are close, but the physical card ending does not match.',
-          },
-          {
-            candidateToken: '41000000-0000-4000-8000-000000000206',
-            authorizedAt: isoHoursAgo(2.6),
-            machineAuthorizationTime: isoHoursAgo(2.6),
-            amountCents: 1090,
-            currencyCode: 'USD',
-            cardLast4: '1111',
-            cardBrand: 'Mastercard',
-            recognitionMethod: 'insert',
-            paymentStatus: 'approved',
-            amountDeltaCents: 0,
-            timeDeltaMinutes: 24,
-            recommendationRank: 2,
-            isTopRanked: false,
-            isRecommended: false,
-            recommendationState: 'manual_exception',
-            confidenceClass: 'ambiguous_manual',
-            reasonCodes: ['card_last4_mismatch'],
-            oneClickEligible: false,
-            selectionAllowed: false,
-            matchStrength: 'insufficient',
-            policyVersion: '2026-07-26.v2',
-            hardExclusions: ['card_last4_mismatch'],
-            matchFactors: [
-              { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
-              { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
-              { key: 'incident_time', outcome: 'match', label: 'Transaction is 24 minutes from the reported time' },
-              { key: 'card', outcome: 'mismatch', label: 'Card last four does not match' },
-            ],
-            matchReason: 'The amount and time are close, but the physical card ending does not match.',
+            matchReason: 'Exact machine, amount, and nearby time with matching card type; the unproved Nayax contactless identifier differs.',
           },
         ],
       },
-      expectedHeading: 'No transaction is safe to select',
-      expectedStatus: 'No selectable transaction',
+      expectedHeading: 'One likely transaction was found',
+      expectedStatus: 'Likely match',
       expectedManagerNotice: 'Transaction results updated.',
-      expectedBadge: 'Candidate found',
-      expectedAction: 'Review the case details before choosing the next step.',
-      expectedCandidateCount: 2,
-      expectedNoSelectableTransactions: true,
+      expectedBadge: 'Needs comparison',
+      expectedAction: /Select the exact transaction, then confirm it/i,
+      expectedCandidateCount: 1,
+      expectedIdentifierEvidence: true,
     },
     {
       name: 'lookup failed',
@@ -5646,6 +5640,22 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
             await page.getByText(/selection stays paused until the customer replies/i).isVisible()
         );
       }
+      if (scenario.expectedIdentifierEvidence) {
+        recorder.assert(
+          'A production-shaped contactless suffix mismatch stays selectable as evidence, not a veto',
+          await page.getByTestId('nayax-candidate-availability')
+            .getByText('1 transaction available to compare', { exact: true }).isVisible() &&
+            await page.getByText(
+              'Nayax contactless-card identifier — physical-card equivalence not yet proved.',
+              { exact: true }
+            ).first().isVisible() &&
+            await page.getByText(
+              'Card ending differs; this is negative evidence, not a transaction veto',
+              { exact: true }
+            ).first().isVisible() &&
+            !(await page.getByTestId('nayax-candidate-option').first().isDisabled())
+        );
+      }
       if (scenario.expectedNoSelectableTransactions || scenario.expectedSelectionPaused) {
         await page.setViewportSize({ width: 390, height: 844 });
         await page.getByTestId('nayax-candidate-availability').scrollIntoViewIfNeeded();
@@ -5857,6 +5867,16 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
           await page.getByTestId('refund-manager-state').getByText('Ready to refund', { exact: true }).isVisible() &&
           functionCalls.filter((name) => name === 'refund-case-admin-update').length === 1,
         JSON.stringify({ functionCalls, managerState: await page.getByTestId('refund-manager-state').innerText() })
+      );
+    } else if (scenario.confirmCandidate) {
+      recorder.assert(
+        `Nayax ${scenario.name} selection binds evidence without issuing a refund or sending a message`,
+        await page.getByTestId('refund-run-nayax-refund').isVisible() &&
+          !(await page.getByTestId('refund-run-nayax-refund').isDisabled()) &&
+          functionCalls.filter((name) => name === 'refund-case-admin-update').length === 1 &&
+          !functionCalls.includes('nayax-card-refund') &&
+          !functionCalls.includes('refund-case-message-send'),
+        JSON.stringify({ functionCalls, functionBodies })
       );
     } else {
       recorder.assert(

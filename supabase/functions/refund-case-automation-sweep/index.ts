@@ -2158,6 +2158,9 @@ const runCustomerReplyFollowUpSweep = async (
 
 type PersistedNayaxCorrectionEvidence = {
   isTopRanked: boolean;
+  selectionAllowed: boolean;
+  selectionBlockReason: string | null;
+  customerNearbyAttemptCount: string | null;
   reasonCodes: string[];
   manualReviewReasons: string[];
   hardExclusions: string[];
@@ -2203,6 +2206,9 @@ const getPersistedNayaxCorrectionEvidence = async (
       : {};
     return {
       isTopRanked: evidence.is_top_ranked === true || (index === 0 && !hasTopRanked),
+      selectionAllowed: evidence.selection_allowed === true,
+      selectionBlockReason: textValue(evidence.selection_block_reason) || null,
+      customerNearbyAttemptCount: textValue(evidence.customer_nearby_attempt_count) || null,
       reasonCodes: stringList(evidence.reason_codes),
       manualReviewReasons: stringList(evidence.manual_review_reasons),
       hardExclusions: stringList(evidence.hard_exclusions),

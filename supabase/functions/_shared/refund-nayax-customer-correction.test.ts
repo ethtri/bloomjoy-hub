@@ -48,6 +48,57 @@ Deno.test("last-four conflicts bundle unresolved payment context and nearby atte
   assert(JSON.stringify(knownContext) === JSON.stringify(["card_last4"]), "settled context should not be requested again");
 });
 
+Deno.test("v9 mismatch evidence chooses manager review or one targeted same-case correction", () => {
+  const selectable = deriveNayaxCustomerCorrectionFields({
+    recommendationState: "manual_exception",
+    paymentInteraction: "tap_card",
+    cardLast4Source: "physical_card",
+    cardNetwork: "visa",
+    candidates: [{
+      isTopRanked: true,
+      selectionAllowed: true,
+      selectionBlockReason: null,
+      customerNearbyAttemptCount: "one",
+      reasonCodes: ["card_last4_mismatch_negative", "card_network_match"],
+      hardExclusions: [],
+    }],
+  });
+  assert(selectable.length === 0, "a selectable exact transaction must remain manager review, not customer outreach");
+
+  const needsCorroboration = deriveNayaxCustomerCorrectionFields({
+    recommendationState: "manual_exception",
+    paymentInteraction: "tap_card",
+    cardLast4Source: "physical_card",
+    cardNetwork: "visa",
+    candidates: [{
+      isTopRanked: true,
+      selectionAllowed: false,
+      selectionBlockReason: "independent_corroboration_required",
+      customerNearbyAttemptCount: "unknown",
+      reasonCodes: ["card_last4_mismatch_negative"],
+      hardExclusions: [],
+    }],
+  });
+  assert(
+    JSON.stringify(needsCorroboration) === JSON.stringify(["card_last4", "nearby_attempt_count"]),
+    "a disabled v9 mismatch must request only the disputed digits and useful attempt-count corroboration",
+  );
+
+  const networkConflict = deriveNayaxCustomerCorrectionFields({
+    recommendationState: "manual_exception",
+    paymentInteraction: "tap_card",
+    cardLast4Source: "physical_card",
+    cardNetwork: "visa",
+    candidates: [{
+      isTopRanked: true,
+      selectionAllowed: false,
+      reasonCodes: ["card_network_mismatch_negative"],
+      hardExclusions: [],
+    }],
+  });
+  assert(JSON.stringify(networkConflict) === JSON.stringify(["card_network"]), "a network conflict requests only card type");
+});
+
 Deno.test("amount and time conflicts each request only their disputed fact", () => {
   const amountFields = deriveNayaxCustomerCorrectionFields({
     recommendationState: "manual_exception",

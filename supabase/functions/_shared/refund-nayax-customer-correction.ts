@@ -12,6 +12,9 @@ import {
 
 export type NayaxCustomerCorrectionCandidateEvidence = {
   isTopRanked?: boolean | null;
+  selectionAllowed?: boolean | null;
+  selectionBlockReason?: string | null;
+  customerNearbyAttemptCount?: string | null;
   reasonCodes?: string[] | null;
   manualReviewReasons?: string[] | null;
   hardExclusions?: string[] | null;
@@ -39,6 +42,18 @@ const asReasonSet = (values: Array<string[] | null | undefined>) =>
       .map((value) => value.trim().toLowerCase())
       .filter(Boolean),
   );
+
+const last4MismatchReasons = new Set([
+  "card_last4_mismatch",
+  "card_last4_mismatch_negative",
+  "card_last4_mismatch_neutral",
+  "card_last4_mismatch_internal_review",
+]);
+
+const networkMismatchReasons = new Set([
+  "card_network_mismatch_negative",
+  "card_network_mismatch_neutral",
+]);
 
 export const deriveNayaxCustomerCorrectionFields = ({
   recommendationState,
@@ -84,9 +99,10 @@ export const deriveNayaxCustomerCorrectionFields = ({
     .map((reason) => reason.trim().toLowerCase())
     .filter((reason) => reason && reason !== "card_last4_mismatch");
   if (nonCustomerHardExclusions.length > 0) return [];
+  if (topCandidate.selectionAllowed === true) return [];
 
   const fields: RefundMissingField[] = [];
-  if (reasons.has("card_last4_mismatch")) {
+  if ([...last4MismatchReasons].some((reason) => reasons.has(reason))) {
     fields.push("card_last4");
     const interaction = (paymentInteraction ?? (cardWalletUsed ? "phone_watch_wallet" : "")).trim().toLowerCase();
     const source = (cardLast4Source ?? "").trim().toLowerCase();
@@ -99,6 +115,15 @@ export const deriveNayaxCustomerCorrectionFields = ({
       if (!walletDeviceKind || walletDeviceKind === "unknown") fields.push("wallet_device_kind");
     }
     if (candidates.length > 1) fields.push("nearby_attempt_count");
+  }
+  if ([...networkMismatchReasons].some((reason) => reasons.has(reason))) {
+    fields.push("card_network");
+  }
+  if (
+    topCandidate.selectionBlockReason === "independent_corroboration_required" &&
+    !["one", "multiple"].includes((topCandidate.customerNearbyAttemptCount ?? "").trim().toLowerCase())
+  ) {
+    fields.push("nearby_attempt_count");
   }
   if (reasons.has("amount_mismatch") || reasons.has("amount_uncertain")) {
     fields.push("amount");

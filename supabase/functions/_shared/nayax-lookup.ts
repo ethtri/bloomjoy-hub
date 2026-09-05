@@ -276,6 +276,20 @@ export type NayaxProviderCandidate = {
   reasonCodes: string[];
   oneClickEligible: boolean;
   selectionAllowed: boolean;
+  selectionBlockReason: string | null;
+  managerReviewCoreEligible: boolean;
+  managerCorroborationCodes: string[];
+  customerCredentialClass: string;
+  customerPaymentInteraction: string;
+  customerCardLast4Source: string;
+  customerCardLast4Provenance: string | null;
+  customerWalletDeviceKind: string | null;
+  customerNearbyAttemptCount: string;
+  identifierPolicyVersion: string;
+  providerIdentifierSemantics: string;
+  providerTokenFieldPresent: boolean;
+  identifierComparisonClass: string;
+  sameIdentifierInvariant: boolean;
   matchStrength: string;
   matchFactors: NayaxMatchFactor[];
   manualReviewReasons: string[];
@@ -403,6 +417,7 @@ const persistNayaxLookupCandidates = async ({
   caseId,
   actorUserId,
   lookupGeneration,
+  deterministicFactVersion,
   candidates,
   lookupScopes,
 }: {
@@ -410,6 +425,7 @@ const persistNayaxLookupCandidates = async ({
   caseId: string;
   actorUserId: string | null;
   lookupGeneration: number;
+  deterministicFactVersion: number;
   candidates: NayaxProviderCandidate[];
   lookupScopes: Array<{ reportingMachineId: string; accountKey: string; nayaxMachineId: string }>;
 }): Promise<NayaxResponseCandidate[]> => {
@@ -453,6 +469,8 @@ const persistNayaxLookupCandidates = async ({
         lookup_provider_machine_id: scope.nayaxMachineId,
         provider_machine_id: candidate.providerMachineId,
         policy_version: candidate.policyVersion,
+        identifier_policy_version: candidate.identifierPolicyVersion,
+        deterministic_fact_version: deterministicFactVersion,
         ranking_points: candidate.rankingPoints,
         recommendation_rank: candidate.recommendationRank,
         recommendation_state: candidate.recommendationState,
@@ -462,6 +480,19 @@ const persistNayaxLookupCandidates = async ({
         is_recommended: candidate.isRecommended,
         one_click_eligible: candidate.oneClickEligible,
         selection_allowed: candidate.selectionAllowed,
+        selection_block_reason: candidate.selectionBlockReason,
+        manager_review_core_eligible: candidate.managerReviewCoreEligible,
+        manager_corroboration_codes: candidate.managerCorroborationCodes,
+        customer_credential_class: candidate.customerCredentialClass,
+        customer_payment_interaction: candidate.customerPaymentInteraction,
+        customer_card_last4_source: candidate.customerCardLast4Source,
+        customer_card_last4_provenance: candidate.customerCardLast4Provenance,
+        customer_wallet_device_kind: candidate.customerWalletDeviceKind,
+        customer_nearby_attempt_count: candidate.customerNearbyAttemptCount,
+        provider_identifier_semantics: candidate.providerIdentifierSemantics,
+        provider_token_field_present: candidate.providerTokenFieldPresent,
+        identifier_comparison_class: candidate.identifierComparisonClass,
+        same_identifier_invariant: candidate.sameIdentifierInvariant,
         match_strength: candidate.matchStrength,
         match_reason: candidate.matchReason,
         match_factors: candidate.matchFactors,
@@ -580,8 +611,12 @@ type GroupedRefundCase = {
   refund_amount_cents: number | null;
   card_last4: string | null;
   card_last4_provenance: string | null;
+  card_last4_source: string | null;
   card_network: string | null;
   card_wallet_used: boolean | null;
+  payment_interaction: string | null;
+  wallet_device_kind: string | null;
+  nearby_attempt_count: string | null;
   customer_email: string;
   customer_name: string | null;
   deterministic_fact_version: number;
@@ -785,8 +820,12 @@ const lookupGroupedLivermoreCandidates = async ({
       requestAmountCents: sanitizeInputCents(refundCase.payment_amount_cents),
       requestCardLast4: extractLast4(refundCase.card_last4),
       requestCardLast4Provenance: sanitizeText(refundCase.card_last4_provenance, 40),
+      requestCardLast4Source: sanitizeText(refundCase.card_last4_source, 40),
       requestCardNetwork: sanitizeText(refundCase.card_network, 40),
       cardWalletUsed: Boolean(refundCase.card_wallet_used),
+      paymentInteraction: sanitizeText(refundCase.payment_interaction, 40),
+      walletDeviceKind: sanitizeText(refundCase.wallet_device_kind, 40),
+      nearbyAttemptCount: sanitizeText(refundCase.nearby_attempt_count, 40),
       incidentTimeConfidence: sanitizeText(refundCase.incident_time_confidence, 40) || "rough",
       machineContext: buildNayaxMachineContext({
         productsPayload,
@@ -859,6 +898,7 @@ const lookupGroupedLivermoreCandidates = async ({
     caseId: refundCase.id,
     actorUserId,
     lookupGeneration,
+    deterministicFactVersion: initialFactVersion,
     candidates: globallyRanked,
     lookupScopes: providerInputs,
   });
@@ -958,8 +998,12 @@ export const lookupNayaxCandidatesForRefundCase = async ({
       refund_amount_cents,
       card_last4,
       card_last4_provenance,
+      card_last4_source,
       card_network,
       card_wallet_used,
+      payment_interaction,
+      wallet_device_kind,
+      nearby_attempt_count,
       customer_email,
       customer_name,
       deterministic_fact_version
@@ -1200,8 +1244,12 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     requestAmountCents: sanitizeInputCents(refundCase?.payment_amount_cents),
     requestCardLast4: extractLast4(refundCase?.card_last4),
     requestCardLast4Provenance: sanitizeText(refundCase?.card_last4_provenance, 40),
+    requestCardLast4Source: sanitizeText(refundCase?.card_last4_source, 40),
     requestCardNetwork: sanitizeText(refundCase?.card_network, 40),
     cardWalletUsed: Boolean(refundCase?.card_wallet_used),
+    paymentInteraction: sanitizeText(refundCase?.payment_interaction, 40),
+    walletDeviceKind: sanitizeText(refundCase?.wallet_device_kind, 40),
+    nearbyAttemptCount: sanitizeText(refundCase?.nearby_attempt_count, 40),
     incidentTimeConfidence: sanitizeText(refundCase?.incident_time_confidence, 40) || "rough",
     machineContext,
     qrClaimOpenedAt,
@@ -1252,6 +1300,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     caseId,
     actorUserId,
     lookupGeneration,
+    deterministicFactVersion: initialFactVersion,
     candidates: recommendation.candidates.map((candidate) => ({
       ...candidate,
       reportingMachineId: machineId,

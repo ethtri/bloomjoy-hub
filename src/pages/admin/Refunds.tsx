@@ -1202,9 +1202,13 @@ const matchFactorDisplayLabel = (
     case 'card':
       if (!refundCase.cardLast4 || !candidate.cardLast4) return factor.label;
       if (refundCase.cardLast4 === candidate.cardLast4) return 'Card ending matches';
-      return refundCase.paymentInteraction === 'phone_watch_wallet' || refundCase.cardWalletUsed
-        ? 'Card ending differs; phone or watch wallets may use a different device number'
-        : 'Card ending does not match';
+      return candidate.identifierComparisonClass === 'negative'
+        ? 'Card ending differs; this is negative evidence, not a transaction veto'
+        : candidate.identifierComparisonClass === 'neutral'
+          ? 'Card ending is from a different or unproved identifier scope'
+          : refundCase.cardWalletUsed || ['wallet', 'mobile', 'phone', 'watch'].includes(candidate.recognitionMethod?.toLowerCase() || '')
+            ? 'Card ending differs; phone or watch wallets may use a different device number'
+          : 'Card ending differs; Nayax identifier meaning is not yet proved';
     case 'card_network':
       return cardNetworkComparisonLabel(refundCase, candidate);
     case 'incident_time':
@@ -1226,11 +1230,6 @@ const candidateUnavailableReason = (
   refundCase: RefundCaseRecord
 ) => {
   const exclusions = new Set(candidate.hardExclusions ?? []);
-  if (exclusions.has('card_last4_mismatch')) {
-    return refundCase.paymentInteraction === 'phone_watch_wallet' || refundCase.cardWalletUsed
-      ? 'The card ending needs customer confirmation.'
-      : 'The card ending does not match the physical card reported by the customer.';
-  }
   if (exclusions.has('duplicate_transaction')) {
     return 'This transaction is already linked to another refund case.';
   }
@@ -1247,12 +1246,36 @@ const candidateUnavailableReason = (
     return 'Nayax does not show this as an approved sale.';
   }
 
+  if (candidate.selectionBlockReason === 'exact_core_evidence_required') {
+    return 'Exact machine, amount, approved-sale, currency, and nearby verified time are required.';
+  }
+  if (candidate.selectionBlockReason === 'independent_corroboration_required') {
+    return 'One more independent clue is required: matching digits, matching card type, verified QR timing, or one uniquely reported nearby attempt.';
+  }
+
   const blockingFactor = candidate.matchFactors?.find((factor) =>
     ['blocked', 'mismatch'].includes(factor.outcome)
   );
   return blockingFactor
     ? matchFactorDisplayLabel(blockingFactor, candidate, refundCase)
     : 'This transaction conflicts with a required detail or is already in use.';
+};
+
+const providerIdentifierSemanticsLabel = (candidate: NayaxLookupCandidate) => {
+  switch (candidate.providerIdentifierSemantics) {
+    case 'swipe_pan_unproven':
+      return 'Nayax swipe identifier — PAN equivalence not yet proved';
+    case 'chip_application_pan_unproven':
+      return 'Nayax chip-application identifier — physical-card equivalence not yet proved';
+    case 'contactless_chip_application_pan_unproven':
+      return 'Nayax contactless-card identifier — physical-card equivalence not yet proved';
+    case 'wallet_device_token_unproven':
+      return 'Nayax wallet/device identifier — customer-device equivalence not yet proved';
+    case 'provider_token_unproven':
+      return 'Nayax provider token — not treated as a card or wallet number';
+    default:
+      return 'Nayax payment identifier meaning is unknown';
+  }
 };
 
 const nayaxDecisionHeading = (
@@ -4968,6 +4991,11 @@ export default function AdminRefundsPage() {
               </span>
             )}
             <span className="mt-1 block leading-5 text-foreground">{formatCandidateSummary(candidate)}</span>
+            {candidate.providerIdentifierSemantics && (
+              <span className="mt-1 block leading-5 text-muted-foreground">
+                {providerIdentifierSemanticsLabel(candidate)}.
+              </span>
+            )}
           </span>
           <span className="col-start-2 min-w-0 sm:col-start-auto">
             {showFactorHighlights && visibleFactors.length > 0 && (
@@ -5811,6 +5839,11 @@ export default function AdminRefundsPage() {
                             ? ' (same)'
                             : ' (different)'
                           : ''}
+                        {comparisonCandidate.providerIdentifierSemantics && (
+                          <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                            {providerIdentifierSemanticsLabel(comparisonCandidate)}.
+                          </span>
+                        )}
                       </span>
                     </div>
                     <div className="grid grid-cols-[74px_minmax(0,1fr)_minmax(0,1fr)] gap-x-2 border-t border-border px-3 py-3">

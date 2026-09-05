@@ -8,7 +8,8 @@ import { classifyRefundRequestTimeBoundary } from "./refund-request-time-boundar
 // API expose advisory words (strong evidence, compare candidates, manual review)
 // instead of presenting these points as a percentage.
 export const NAYAX_RECOMMENDATION_POLICY = Object.freeze({
-  version: "2026-09-05.v8",
+  version: "2026-09-05.v9",
+  identifierPolicyVersion: "2026-09-05.identifier.v1",
   candidateLimit: 10,
   lookupWindowHours: 6,
   highConfidenceMinimumPoints: 80,
@@ -74,6 +75,78 @@ const normalizeRecognitionMethod = (value) => {
   if (normalized.includes("chip") || normalized.includes("emv")) return "chip";
   if (normalized.includes("swipe") || normalized.includes("mag")) return "swipe";
   return "present";
+};
+
+const normalizePaymentInteraction = (value) => {
+  const normalized = sanitizeText(value, 40);
+  return [
+    "swipe_card",
+    "insert_card",
+    "tap_card",
+    "phone_watch_wallet",
+    "insert_or_swipe",
+    "unsure",
+  ].includes(normalized) ? normalized : "unsure";
+};
+
+const normalizeCardLast4Source = (value, legacyProvenance) => {
+  const normalized = sanitizeText(value, 40);
+  if (["physical_card", "wallet_device", "bank_record", "unknown"].includes(normalized)) {
+    return normalized;
+  }
+  if (legacyProvenance === "physical_card") return "physical_card";
+  if (legacyProvenance === "wallet_device_token") return "wallet_device";
+  return "unknown";
+};
+
+const classifyCustomerCredential = ({ paymentInteraction, cardLast4Source, walletDeviceKind }) => {
+  if (paymentInteraction === "phone_watch_wallet" || cardLast4Source === "wallet_device") {
+    if (walletDeviceKind === "phone") return "phone_wallet";
+    if (walletDeviceKind === "watch") return "watch_wallet";
+    return "wallet_device_unknown";
+  }
+  if (cardLast4Source !== "physical_card") return "identifier_source_unknown";
+  if (paymentInteraction === "swipe_card") return "physical_swipe";
+  if (paymentInteraction === "insert_card") return "physical_contact_chip";
+  if (paymentInteraction === "tap_card") return "physical_contactless_chip";
+  return "physical_interaction_unknown";
+};
+
+const classifyProviderIdentifierSemantics = ({ recognitionMethod, customerCredentialClass, providerTokenPresent }) => {
+  if (providerTokenPresent) return "provider_token_unproven";
+  if (recognitionMethod === "swipe") return "swipe_pan_unproven";
+  if (recognitionMethod === "chip") return "chip_application_pan_unproven";
+  if (recognitionMethod === "wallet") return "wallet_device_token_unproven";
+  if (recognitionMethod === "contactless") {
+    if (["phone_wallet", "watch_wallet", "wallet_device_unknown"].includes(customerCredentialClass)) {
+      return "wallet_device_token_unproven";
+    }
+    if (customerCredentialClass === "physical_contactless_chip") {
+      return "contactless_chip_application_pan_unproven";
+    }
+    return "contactless_identifier_unknown";
+  }
+  return "provider_identifier_unknown";
+};
+
+const classifyIdentifierMismatch = ({ customerCredentialClass, providerIdentifierSemantics }) => {
+  const likelyComparable = new Set([
+    "physical_swipe|swipe_pan_unproven",
+    "physical_contact_chip|chip_application_pan_unproven",
+    "physical_contactless_chip|contactless_chip_application_pan_unproven",
+    "phone_wallet|wallet_device_token_unproven",
+    "watch_wallet|wallet_device_token_unproven",
+    "wallet_device_unknown|wallet_device_token_unproven",
+  ]);
+  if (likelyComparable.has(`${customerCredentialClass}|${providerIdentifierSemantics}`)) return "negative";
+  if (
+    customerCredentialClass === "identifier_source_unknown" ||
+    customerCredentialClass === "physical_interaction_unknown" ||
+    providerIdentifierSemantics === "provider_identifier_unknown" ||
+    providerIdentifierSemantics === "contactless_identifier_unknown" ||
+    providerIdentifierSemantics === "provider_token_unproven"
+  ) return "internal_review";
+  return "neutral";
 };
 
 const LAST_SALES_PROVIDER_CONTRACT = "nayax_machine_last_sales_v1";
@@ -471,6 +544,12 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     ));
   }
 
+  const identifierMismatchClass = classifyIdentifierMismatch({
+    customerCredentialClass: request.customerCredentialClass,
+    providerIdentifierSemantics: candidate.providerIdentifierSemantics,
+  });
+  const identifierCorroborationCodes = [];
+
   if (!request.cardLast4) {
     addReason(manualReviewReasons, "missing_customer_card_last4");
     addReason(reasonCodes, "missing_customer_card_last4");
@@ -482,37 +561,34 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
   } else if (request.cardLast4 === candidate.cardLast4) {
     rankingPoints += weights.exactCardLast4;
     addReason(reasonCodes, "card_last4_match");
+    identifierCorroborationCodes.push("card_last4_match");
     matchFactors.push(factor("card", "match", "Card last four matches"));
-    if (!request.cardLast4Provenance) {
+    if (request.cardLast4Source === "unknown") {
       addReason(manualReviewReasons, "customer_card_last4_source_unknown");
       addReason(reasonCodes, "customer_card_last4_source_unknown");
       matchFactors.push(factor("card_source", "manual", "Where the customer found the last four digits is not known"));
     }
-  } else if (!request.cardLast4Provenance) {
-    addReason(manualReviewReasons, "customer_card_last4_source_unknown");
-    addReason(reasonCodes, "customer_card_last4_source_unknown");
-    matchFactors.push(factor(
-      "card",
-      "manual",
-      "Card last four differs, but where the customer found those digits is not known",
-    ));
-  } else if (
-    request.cardLast4Provenance !== "physical_card" ||
-    request.cardWalletUsed ||
-    candidate.recognitionMethod === "wallet" ||
-    candidate.recognitionMethod === "contactless"
-  ) {
-    addReason(manualReviewReasons, "tokenized_last4_mismatch");
-    addReason(reasonCodes, "tokenized_last4_noncorrelating");
-    matchFactors.push(factor(
-      "card",
-      "manual",
-      "Contactless or wallet last four did not correlate; it is treated as a clue, not proof",
-    ));
   } else {
-    hardExclusions.push("card_last4_mismatch");
-    addReason(reasonCodes, "card_last4_mismatch");
-    matchFactors.push(factor("card", "mismatch", "Card last four does not match"));
+    const mismatchReason = identifierMismatchClass === "negative"
+      ? "card_last4_mismatch_negative"
+      : identifierMismatchClass === "neutral"
+      ? "card_last4_mismatch_neutral"
+      : "card_last4_mismatch_internal_review";
+    addReason(manualReviewReasons, mismatchReason);
+    addReason(reasonCodes, mismatchReason);
+    if (request.cardLast4Source === "unknown") {
+      addReason(manualReviewReasons, "customer_card_last4_source_unknown");
+      addReason(reasonCodes, "customer_card_last4_source_unknown");
+    }
+    matchFactors.push(factor(
+      "card",
+      identifierMismatchClass === "neutral" ? "neutral" : "manual",
+      identifierMismatchClass === "negative"
+        ? "Card last four differs; the provider identifier is not proved equivalent, so this is negative evidence rather than a veto"
+        : identifierMismatchClass === "neutral"
+        ? "Card last four comes from a different or unproved identifier scope and is not used against this transaction"
+        : "Card last four differs, but the provider identifier meaning is unknown; compare the remaining evidence",
+    ));
   }
 
   if (!request.cardNetwork || request.cardNetwork === "other_unknown") {
@@ -524,36 +600,23 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
   } else if (request.cardNetwork === candidate.cardNetwork) {
     rankingPoints += weights.exactCardNetwork;
     addReason(reasonCodes, "card_network_match");
+    if (request.cardLast4 && candidate.cardLast4) {
+      identifierCorroborationCodes.push("card_network_match");
+    }
     matchFactors.push(factor("card_network", "match", "Card type matches"));
-  } else if (!request.cardLast4Provenance) {
-    addReason(manualReviewReasons, "customer_card_last4_source_unknown");
-    addReason(reasonCodes, "customer_card_last4_source_unknown");
-    matchFactors.push(factor(
-      "card_network",
-      "manual",
-      "Card type differs, but the customer card-detail source is not known",
-    ));
-  } else if (
-    request.cardLast4Provenance !== "physical_card" ||
-    request.cardWalletUsed ||
-    candidate.recognitionMethod === "wallet" ||
-    candidate.recognitionMethod === "contactless"
-  ) {
-    addReason(reasonCodes, "wallet_card_network_mismatch");
-    matchFactors.push(factor(
-      "card_network",
-      "manual",
-      "Card type differs; wallet card details are supporting evidence only",
-    ));
   } else {
     rankingPoints += weights.physicalCardNetworkMismatch;
-    hardExclusions.push("card_network_mismatch");
-    addReason(manualReviewReasons, "physical_card_network_mismatch");
-    addReason(reasonCodes, "physical_card_network_mismatch");
+    const mismatchReason = identifierMismatchClass === "neutral"
+      ? "card_network_mismatch_neutral"
+      : "card_network_mismatch_negative";
+    addReason(manualReviewReasons, mismatchReason);
+    addReason(reasonCodes, mismatchReason);
     matchFactors.push(factor(
       "card_network",
-      "mismatch",
-      "Physical card type does not match the Nayax record",
+      identifierMismatchClass === "neutral" ? "neutral" : "manual",
+      identifierMismatchClass === "neutral"
+        ? "Card type comes from a different or unproved identifier scope and is not used as a veto"
+        : "Card type differs; treat it as negative evidence, not a universal transaction veto",
     ));
   }
 
@@ -616,7 +679,7 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     matchFactors.push(factor("one_click_window", "outside", "Transaction is outside the one-click time range"));
   }
 
-  const selectionAllowed = hardExclusions.length === 0;
+  const selectionSafetyClear = hardExclusions.length === 0;
   const providerEvidenceComplete =
     candidate.amountCents > 0 &&
     candidate.siteId !== null &&
@@ -628,7 +691,7 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     candidate.paymentStatus === "approved" &&
     !candidate.duplicateProviderRecord;
   const commonProviderEvidence =
-    selectionAllowed &&
+    selectionSafetyClear &&
     candidate.providerMachineId === request.expectedMachineId &&
     request.incidentTimeResolution === "exact" &&
     request.incidentTimeConfidence !== "rough" &&
@@ -653,7 +716,30 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     candidate.qrTimeDeltaMinutes >= 0 &&
     candidate.qrTimeDeltaMinutes <= policy.maximumUniqueQrLagMinutes &&
     candidate.timeDeltaMinutes <= policy.maximumUniqueQrIncidentDeltaMinutes &&
-    !hardExclusions.includes("card_last4_mismatch");
+    selectionSafetyClear;
+
+  if (
+    request.qrClaimEvidenceStatus === "verified" &&
+    candidate.qrTimeDeltaMinutes !== null &&
+    candidate.qrTimeDeltaMinutes >= 0 &&
+    candidate.qrTimeDeltaMinutes <= policy.maximumUniqueQrLagMinutes
+  ) {
+    identifierCorroborationCodes.push("verified_qr_time");
+  }
+  const managerReviewCoreEligible =
+    selectionSafetyClear &&
+    candidate.providerMachineId === request.expectedMachineId &&
+    request.amountCents > 0 &&
+    candidate.amountCents > 0 &&
+    amountDeltaCents !== null &&
+    amountDeltaCents <= policy.maximumStrongCardAmountDeltaCents &&
+    candidate.siteId !== null &&
+    candidate.timeDeltaMinutes <= policy.maximumOneClickTimeDeltaMinutes &&
+    request.incidentTimeResolution === "exact" &&
+    request.incidentTimeConfidence !== "rough" &&
+    candidate.currencyCode === "USD" &&
+    candidate.paymentStatus === "approved" &&
+    !candidate.duplicateProviderRecord;
 
   return {
     ...candidate,
@@ -663,7 +749,25 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     manualReviewReasons,
     hardExclusions,
     reasonCodes,
-    selectionAllowed,
+    selectionAllowed: false,
+    selectionBlockReason: selectionSafetyClear ? "corroboration_pending" : "hard_safety_stop",
+    managerReviewCoreEligible,
+    managerCorroborationCodes: identifierCorroborationCodes,
+    customerCredentialClass: request.customerCredentialClass,
+    customerPaymentInteraction: request.paymentInteraction,
+    customerCardLast4Source: request.cardLast4Source,
+    customerCardLast4Provenance: request.cardLast4Provenance,
+    customerWalletDeviceKind: request.walletDeviceKind,
+    customerNearbyAttemptCount: request.nearbyAttemptCount,
+    identifierPolicyVersion: policy.identifierPolicyVersion,
+    providerIdentifierSemantics: candidate.providerIdentifierSemantics,
+    providerTokenFieldPresent: candidate.providerTokenFieldPresent,
+    identifierComparisonClass: request.cardLast4 && candidate.cardLast4 && request.cardLast4 !== candidate.cardLast4
+      ? identifierMismatchClass
+      : request.cardLast4 && candidate.cardLast4
+      ? "match"
+      : "unavailable",
+    sameIdentifierInvariant: false,
     strongCardEligible,
     uniqueQrTimeEligible,
     oneClickEligible: false,
@@ -697,8 +801,12 @@ export const extractNayaxRecords = (payload) => {
  *   requestAmountCents: number | null,
  *   requestCardLast4: string,
  *   requestCardLast4Provenance?: string | null,
+ *   requestCardLast4Source?: string | null,
  *   requestCardNetwork?: string | null,
  *   cardWalletUsed: boolean,
+ *   paymentInteraction?: string | null,
+ *   walletDeviceKind?: string | null,
+ *   nearbyAttemptCount?: string | null,
  *   incidentTimeConfidence?: string,
  *   incidentTimeResolution?: string,
  *   machineContext?: unknown,
@@ -721,8 +829,12 @@ export const buildNayaxRecommendation = ({
   requestAmountCents,
   requestCardLast4,
   requestCardLast4Provenance = null,
+  requestCardLast4Source = null,
   requestCardNetwork = null,
   cardWalletUsed,
+  paymentInteraction = null,
+  walletDeviceKind = null,
+  nearbyAttemptCount = null,
   incidentTimeConfidence = "legacy_exact",
   incidentTimeResolution = "exact",
   machineContext = null,
@@ -742,15 +854,32 @@ export const buildNayaxRecommendation = ({
     ? "verified"
     : "missing";
 
+  const normalizedPaymentInteraction = normalizePaymentInteraction(paymentInteraction);
+  const normalizedLast4Provenance = ["physical_card", "wallet_device_token"].includes(requestCardLast4Provenance)
+    ? requestCardLast4Provenance
+    : null;
+  const normalizedLast4Source = normalizeCardLast4Source(requestCardLast4Source, normalizedLast4Provenance);
+  const normalizedWalletDeviceKind = ["phone", "watch", "unknown"].includes(walletDeviceKind)
+    ? walletDeviceKind
+    : null;
   const request = {
     expectedMachineId: sanitizeText(expectedMachineId, 120),
     amountCents: asNonNegativeCents(requestAmountCents),
     cardLast4: extractLast4(requestCardLast4),
-    cardLast4Provenance: ["physical_card", "wallet_device_token"].includes(requestCardLast4Provenance)
-      ? requestCardLast4Provenance
-      : null,
+    cardLast4Provenance: normalizedLast4Provenance,
+    cardLast4Source: normalizedLast4Source,
     cardNetwork: normalizeCardNetwork(requestCardNetwork),
     cardWalletUsed: Boolean(cardWalletUsed),
+    paymentInteraction: normalizedPaymentInteraction,
+    walletDeviceKind: normalizedWalletDeviceKind,
+    nearbyAttemptCount: ["one", "multiple", "unknown"].includes(nearbyAttemptCount)
+      ? nearbyAttemptCount
+      : "unknown",
+    customerCredentialClass: classifyCustomerCredential({
+      paymentInteraction: normalizedPaymentInteraction,
+      cardLast4Source: normalizedLast4Source,
+      walletDeviceKind: normalizedWalletDeviceKind,
+    }),
     incidentTimeConfidence: sanitizeText(incidentTimeConfidence, 40) || "legacy_exact",
     incidentTimeResolution: sanitizeText(incidentTimeResolution, 40) || "legacy_absolute",
     customerRequestReceivedAt: sanitizeText(customerRequestReceivedAt, 80) || null,
@@ -821,6 +950,9 @@ export const buildNayaxRecommendation = ({
     // malformed copy cannot turn an ambiguous provider result into a safe match.
     if (!machineTime) continue;
     const paymentStatus = normalizePaymentStatus(record, providerContract);
+    const recognitionMethod = normalizeRecognitionMethod(record.RecognitionMethod ?? record.recognitionMethod);
+    const providerTokenFieldPresent = ["Token", "token", "ProviderToken", "providerToken"]
+      .some((field) => sanitizeText(record[field], 80).length > 0);
     normalizedByTransaction.set(transactionId, {
       transactionId,
       siteId: integerValue(record.SiteID ?? record.SiteId ?? record.siteId),
@@ -858,7 +990,13 @@ export const buildNayaxRecommendation = ({
         record.CardBrand ?? record.cardBrand ?? record.CardType ?? record.cardType ??
           record.CardNetwork ?? record.cardNetwork,
       )),
-      recognitionMethod: normalizeRecognitionMethod(record.RecognitionMethod ?? record.recognitionMethod),
+      recognitionMethod,
+      providerTokenFieldPresent,
+      providerIdentifierSemantics: classifyProviderIdentifierSemantics({
+        recognitionMethod,
+        customerCredentialClass: request.customerCredentialClass,
+        providerTokenPresent: providerTokenFieldPresent,
+      }),
       paymentStatus: paymentStatus.status,
       paymentStatusEvidence: paymentStatus.evidence,
       providerRefundState: normalizeProviderRefundState(record),
@@ -927,6 +1065,36 @@ export const buildNayaxRecommendation = ({
   }
 
   const finalizedCandidates = candidates.map((candidate) => {
+    const managerCorroborationCodes = [...candidate.managerCorroborationCodes];
+    if (candidates.length === 1 && request.nearbyAttemptCount === "one") {
+      managerCorroborationCodes.push("customer_reports_one_nearby_attempt");
+    }
+    const selectionAllowed =
+      candidate.hardExclusions.length === 0 &&
+      candidate.managerReviewCoreEligible &&
+      managerCorroborationCodes.length > 0;
+    const selectionBlockReason = candidate.hardExclusions.length > 0
+      ? "hard_safety_stop"
+      : !candidate.managerReviewCoreEligible
+      ? "exact_core_evidence_required"
+      : managerCorroborationCodes.length === 0
+      ? "independent_corroboration_required"
+      : null;
+    const selectionFactor = selectionAllowed
+      ? factor(
+          "selection_threshold",
+          "match",
+          "Exact machine, compatible amount, nearby time, approved sale, and independent corroboration support manager review",
+        )
+      : factor(
+          "selection_threshold",
+          "manual",
+          selectionBlockReason === "hard_safety_stop"
+            ? "A payment-safety invariant blocks this transaction"
+            : selectionBlockReason === "exact_core_evidence_required"
+            ? "Exact machine, compatible positive amount, approved-sale, currency, and nearby time are required before selection"
+            : "One independent corroborator is still required: matching digits, matching card type, verified QR timing, or one uniquely reported nearby attempt",
+        );
     const isRecommended = Boolean(recommendedTransactionId && candidate.transactionId === recommendedTransactionId);
     const matchStrength = isRecommended
       ? "strong"
@@ -937,6 +1105,7 @@ export const buildNayaxRecommendation = ({
           : "insufficient";
     const oneClickEligible =
       isRecommended &&
+      selectionAllowed &&
       recommendationState === "high_confidence" &&
       confidenceClass === "strong_card" &&
       !request.cardWalletUsed &&
@@ -944,6 +1113,11 @@ export const buildNayaxRecommendation = ({
       candidate.recognitionMethod !== "contactless";
     return {
       ...candidate,
+      selectionAllowed,
+      selectionBlockReason,
+      managerCorroborationCodes,
+      matchFactors: [...candidate.matchFactors, selectionFactor],
+      matchReason: [...candidate.matchFactors, selectionFactor].map((item) => item.label).join("; "),
       policyVersion: policy.version,
       recommendationState,
       isRecommended,
@@ -1045,6 +1219,20 @@ export const toPublicNayaxCandidate = (candidate, candidateToken) => ({
   reasonCodes: candidate.reasonCodes,
   oneClickEligible: candidate.oneClickEligible,
   selectionAllowed: candidate.selectionAllowed,
+  selectionBlockReason: candidate.selectionBlockReason,
+  managerReviewCoreEligible: candidate.managerReviewCoreEligible,
+  managerCorroborationCodes: candidate.managerCorroborationCodes,
+  customerCredentialClass: candidate.customerCredentialClass,
+  customerPaymentInteraction: candidate.customerPaymentInteraction,
+  customerCardLast4Source: candidate.customerCardLast4Source,
+  customerCardLast4Provenance: candidate.customerCardLast4Provenance,
+  customerWalletDeviceKind: candidate.customerWalletDeviceKind,
+  customerNearbyAttemptCount: candidate.customerNearbyAttemptCount,
+  identifierPolicyVersion: candidate.identifierPolicyVersion,
+  providerIdentifierSemantics: candidate.providerIdentifierSemantics,
+  providerTokenFieldPresent: candidate.providerTokenFieldPresent,
+  identifierComparisonClass: candidate.identifierComparisonClass,
+  sameIdentifierInvariant: candidate.sameIdentifierInvariant,
   matchStrength: candidate.matchStrength,
   matchFactors: candidate.matchFactors,
   manualReviewReasons: candidate.manualReviewReasons,
