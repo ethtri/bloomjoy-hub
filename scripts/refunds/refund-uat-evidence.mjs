@@ -76,6 +76,7 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-selected-nayax-transaction-mobile.png',
   'refund-portal-uat-sanitized-simple-card-refund-journey.png',
   'refund-portal-uat-physical-card-mismatch.png',
+  'refund-portal-uat-provider-evidence-safety-matrix.png',
   'refund-portal-uat-setup-needed.png',
   'refund-nayax-account-scope-mobile.png',
   'refund-simple-journey-machine-disabled-desktop.png',

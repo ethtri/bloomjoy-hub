@@ -187,8 +187,10 @@ insert into public.refund_cases (
   intake_selection_kind, intake_selection_machine_ids, customer_email,
   customer_name, issue_summary, incident_at, incident_local_datetime,
   incident_timezone, incident_time_resolution, payment_method,
-  payment_amount_cents, card_last4, card_network, payment_interaction,
-  incident_time_confidence, issue_category, status, correlation_status
+  payment_amount_cents, card_last4, card_last4_source, card_last4_provenance,
+  card_network, payment_interaction,
+  incident_time_confidence, issue_category, status, correlation_status,
+  customer_request_received_at, customer_request_received_source
 )
 values (
   '92150000-0000-4000-8000-000000000001', null,
@@ -196,8 +198,9 @@ values (
   'livermore_pair', public.refund_livermore_selection_machine_ids(),
   'pair-customer@example.test', 'Pair Customer', 'Synthetic grouped lookup',
   now() - interval '30 minutes', to_char(now() - interval '30 minutes', 'YYYY-MM-DD"T"HH24:MI'),
-  'America/Los_Angeles', 'exact', 'card', 550, '4242', 'visa',
-  'tap_card', 'exact', 'charged_no_product', 'needs_review', 'multiple_candidates'
+  'America/Los_Angeles', 'exact', 'card', 550, '4242', 'physical_card', 'physical_card', 'visa',
+  'tap_card', 'exact', 'charged_no_product', 'needs_review', 'multiple_candidates',
+  now() - interval '5 minutes', 'hosted_refund_intake'
 );
 
 select ok(
@@ -299,7 +302,52 @@ values (
   '8eda5a29-1718-4c70-9993-7c7e2fd6c65a',
   'SAFE-TXN-921-LIVERMORE-B', 21, now() - interval '30 minutes',
   550, '4242', 'USD',
-  '{"selection_allowed":true,"is_recommended":true,"recommendation_state":"high_confidence","confidence_class":"strong_card","one_click_eligible":true,"policy_version":"refund-nayax-recommendation.v4"}'::jsonb,
+  jsonb_build_object(
+    'selection_allowed', true,
+    'is_recommended', true,
+    'recommendation_state', 'high_confidence',
+    'confidence_class', 'strong_card',
+    'one_click_eligible', false,
+    'policy_version', '2026-09-05.v9',
+    'identifier_policy_version', '2026-09-05.identifier.v1',
+    'customer_fact_version', (
+      select deterministic_fact_version from public.refund_cases
+      where id = '92150000-0000-4000-8000-000000000001'
+    ),
+    'customer_credential_class', 'customer_physical_contactless_pan',
+    'provider_identifier_class', 'last_sales_contactless_identifier_unverified',
+    'card_last4_comparison', 'exact_support',
+    'card_network_comparison', 'exact_support',
+    'payment_interaction_comparison', 'supporting',
+    'same_identifier_equivalence_proven', false,
+    'identifier_review_state', 'exact_support',
+    'customer_correction_fields', '[]'::jsonb,
+    'hard_exclusions', '[]'::jsonb,
+    'manual_review_reasons', '[]'::jsonb,
+    'reason_codes', '["machine_exact","amount_exact","provider_sale_approved"]'::jsonb,
+    'match_factors', '[]'::jsonb,
+    'match_reason', 'Exact grouped machine, amount, card and occurrence time',
+    'recommendation_rank', 1,
+    'lookup_account_scope', 'TGPACI_USA_DB',
+    'lookup_provider_machine_id', '921900002',
+    'provider_machine_id', '921900002',
+    'machine_authorization_time_raw', to_char(now() - interval '30 minutes', 'YYYY-MM-DD"T"HH24:MI:SS'),
+    'machine_authorization_time_source', 'MachineAuthorizationTime',
+    'machine_time_resolution', 'exact',
+    'provider_time_resolution', 'exact',
+    'provider_time_source', 'authorization_gmt',
+    'authorized_at', now() - interval '30 minutes',
+    'customer_request_received_at', now() - interval '5 minutes',
+    'customer_request_received_source', 'hosted_refund_intake',
+    'request_time_boundary', 'before_or_at_request',
+    'transaction_occurrence_comparable', true,
+    'payment_status', 'approved',
+    'payment_status_evidence', 'last_sales_contract',
+    'provider_refund_state', 'clear',
+    'duplicate_provider_record', false,
+    'amount_delta_cents', 0,
+    'time_delta_minutes', 0
+  ),
   now() + interval '1 hour'
 );
 

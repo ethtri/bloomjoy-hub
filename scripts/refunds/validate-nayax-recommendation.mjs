@@ -49,6 +49,12 @@ const recommend = (records, overrides = {}) => {
     requestAmountCents: 700,
     requestCardLast4: "4242",
     requestCardLast4Provenance: "physical_card",
+    requestCardLast4Source: "physical_card",
+    paymentInteraction: "insert_card",
+    incidentTimeSource: "transaction_alert_or_receipt",
+    nearbyAttemptCount: "one",
+    incidentTimeConfidence: "within_15_minutes",
+    customerFactVersion: 4,
     cardWalletUsed: false,
     customerRequestReceivedAt: defaultRequestReceivedAt,
     customerRequestReceivedSource: "hosted_refund_intake",
@@ -82,19 +88,77 @@ const physicalNetworkMismatch = recommend(
   [sale({ id: "physical-network-mismatch", cardBrand: "Visa" })],
   { requestCardNetwork: "american_express" },
 );
-assert.ok(physicalNetworkMismatch.candidates[0].reasonCodes.includes("physical_card_network_mismatch"));
-assert.equal(physicalNetworkMismatch.candidates[0].selectionAllowed, false);
-assert.equal(
-  physicalNetworkMismatch.candidates[0].hardExclusions.includes("card_network_mismatch"),
-  true,
-  "a physical card-network mismatch must keep an otherwise exact candidate unselectable",
-);
+assert.ok(physicalNetworkMismatch.candidates[0].reasonCodes.includes("card_network_mismatch"));
+assert.equal(physicalNetworkMismatch.recommendationState, "manual_exception");
+assert.equal(physicalNetworkMismatch.confidenceClass, "evidence_aware_review");
+assert.equal(physicalNetworkMismatch.candidates[0].selectionAllowed, true);
+assert.equal(physicalNetworkMismatch.candidates[0].oneClickEligible, false);
+assert.equal(physicalNetworkMismatch.candidates[0].hardExclusions.length, 0);
+
+const productionShapedTapMismatch = recommend([
+  sale({ id: "great-mall-tap-mismatch", at: "2026-07-21T19:15:00.000Z", amount: 10.9,
+    last4: "3760", recognitionMethod: "Contactless" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "tap_card", requestCardLast4Source: "physical_card" });
+assert.equal(productionShapedTapMismatch.recommendationState, "manual_exception");
+assert.equal(productionShapedTapMismatch.confidenceClass, "evidence_aware_review");
+assert.equal(productionShapedTapMismatch.candidates[0].selectionAllowed, true);
+assert.equal(productionShapedTapMismatch.candidates[0].isRecommended, true);
+assert.equal(productionShapedTapMismatch.candidates[0].oneClickEligible, false);
+assert.equal(productionShapedTapMismatch.candidates[0].identifierReviewState, "reviewable_uncertainty");
+assert.equal(productionShapedTapMismatch.candidates[0].cardLast4Comparison, "mismatch_neutral_unproven_scope");
+assert.deepEqual(productionShapedTapMismatch.candidates[0].hardExclusions, []);
+
+const ambiguousTapMismatches = recommend([
+  sale({ id: "great-mall-tap-a", at: "2026-07-21T19:14:00.000Z", amount: 10.9,
+    last4: "3760", recognitionMethod: "Contactless" }),
+  sale({ id: "great-mall-tap-b", at: "2026-07-21T19:16:00.000Z", amount: 10.9,
+    last4: "4488", recognitionMethod: "Contactless" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "tap_card", requestCardLast4Source: "physical_card", nearbyAttemptCount: "one" });
+assert.equal(ambiguousTapMismatches.recommendationState, "ambiguous");
+assert.equal(ambiguousTapMismatches.candidates.every((candidate) => candidate.selectionAllowed), true);
+assert.equal(ambiguousTapMismatches.candidates.some((candidate) => candidate.isRecommended), false);
+assert.equal(ambiguousTapMismatches.oneClickEligible, false);
+
+const missingOccurrenceContext = recommend([
+  sale({ id: "missing-occurrence-context", at: "2026-07-21T19:15:00.000Z", amount: 10.9,
+    last4: "3760", recognitionMethod: "Contactless" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "tap_card", requestCardLast4Source: "physical_card",
+  incidentTimeSource: null, nearbyAttemptCount: null, incidentTimeConfidence: "unknown" });
+assert.equal(missingOccurrenceContext.recommendationState, "manual_exception");
+assert.equal(missingOccurrenceContext.candidates[0].selectionAllowed, false);
+assert.equal(missingOccurrenceContext.candidates[0].identifierReviewState, "needs_corroboration");
+assert.ok(missingOccurrenceContext.candidates[0].customerCorrectionFields.includes("incident_time_source"));
+assert.ok(missingOccurrenceContext.candidates[0].customerCorrectionFields.includes("nearby_attempt_count"));
+
+const rememberedMultipleAttempts = recommend([
+  sale({ id: "remembered-multiple-attempts", at: "2026-07-21T19:15:00.000Z", amount: 10.9,
+    last4: "3760", recognitionMethod: "Contactless" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "tap_card", requestCardLast4Source: "physical_card",
+  incidentTimeSource: "memory", nearbyAttemptCount: "multiple", incidentTimeConfidence: "within_1_hour" });
+assert.equal(rememberedMultipleAttempts.recommendationState, "manual_exception");
+assert.equal(rememberedMultipleAttempts.candidates[0].selectionAllowed, false);
+assert.equal(rememberedMultipleAttempts.candidates[0].identifierReviewState, "needs_corroboration");
+assert.ok(rememberedMultipleAttempts.candidates[0].customerCorrectionFields.includes("incident_time"));
+assert.ok(rememberedMultipleAttempts.candidates[0].customerCorrectionFields.includes("incident_time_source"));
+assert.ok(rememberedMultipleAttempts.candidates[0].customerCorrectionFields.includes("nearby_attempt_count"));
+
+const distantMismatch = recommend([
+  sale({ id: "distant-mismatch", at: "2026-07-21T20:01:00.000Z", amount: 10.9, last4: "3760" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "tap_card", requestCardLast4Source: "physical_card" });
+assert.equal(distantMismatch.candidates[0].selectionAllowed, false);
+assert.equal(distantMismatch.candidates[0].identifierReviewState, "needs_corroboration");
+assert.ok(distantMismatch.candidates[0].customerCorrectionFields.includes("incident_time"));
 
 const walletNetworkMismatch = recommend(
   [sale({ id: "wallet-network-mismatch", cardBrand: "Amex", recognitionMethod: "Apple Pay" })],
   { requestCardNetwork: "visa", cardWalletUsed: true },
 );
-assert.ok(walletNetworkMismatch.candidates[0].reasonCodes.includes("wallet_card_network_mismatch"));
+assert.ok(walletNetworkMismatch.candidates[0].reasonCodes.includes("card_network_mismatch"));
 assert.equal(walletNetworkMismatch.candidates[0].oneClickEligible, false);
 
 const walletDifferentAmount = recommend(
@@ -144,6 +208,12 @@ assert.ok(customerTimeRough.reasonCodes.includes("customer_time_rough"));
 const wrongAmount = recommend([sale({ id: "wrong-amount", amount: 10.01 })]);
 assert.equal(wrongAmount.recommendationState, "manual_exception");
 assert.equal(wrongAmount.oneClickEligible, false);
+assert.equal(wrongAmount.candidates[0].selectionAllowed, false);
+assert.equal(wrongAmount.candidates.length, 1);
+
+const nearAmount = recommend([sale({ id: "near-amount", amount: 9.99 })]);
+assert.equal(nearAmount.candidates[0].amountDeltaCents, 299);
+assert.equal(nearAmount.candidates[0].selectionAllowed, true);
 
 const wrongMachine = recommend([sale({ id: "wrong-machine", machineId: "machine-999" })]);
 assert.equal(wrongMachine.recommendationState, "manual_exception");
@@ -196,8 +266,9 @@ const unknownRequestBoundary = recommend([sale({ id: "unknown-request" })], {
   customerRequestReceivedAt: null,
   customerRequestReceivedSource: null,
 });
-assert.equal(unknownRequestBoundary.candidates[0].selectionAllowed, true);
+assert.equal(unknownRequestBoundary.candidates[0].selectionAllowed, false);
 assert.equal(unknownRequestBoundary.oneClickEligible, false);
+assert.equal(unknownRequestBoundary.candidates.length, 1);
 assert.ok(unknownRequestBoundary.candidates[0].manualReviewReasons.includes("customer_request_time_unknown"));
 
 const uncertainOccurrenceBoundary = recommend([sale({
@@ -207,8 +278,9 @@ const uncertainOccurrenceBoundary = recommend([sale({
   customerRequestReceivedAt: "2026-07-21T20:00:00.000Z",
   providerClockContext: { source: "unknown", timezone: null },
 });
-assert.equal(uncertainOccurrenceBoundary.candidates[0].selectionAllowed, true);
+assert.equal(uncertainOccurrenceBoundary.candidates[0].selectionAllowed, false);
 assert.equal(uncertainOccurrenceBoundary.oneClickEligible, false);
+assert.equal(uncertainOccurrenceBoundary.candidates.length, 1);
 assert.ok(uncertainOccurrenceBoundary.candidates[0].manualReviewReasons.includes("transaction_occurrence_time_uncertain"));
 
 const delayedEarlierAuthorization = recommend([sale({
@@ -312,7 +384,7 @@ const uniqueQrContactlessCard = recommend(
 assert.equal(uniqueQrContactlessCard.recommendationState, "high_confidence");
 assert.equal(uniqueQrContactlessCard.confidenceClass, "unique_qr_time");
 assert.equal(uniqueQrContactlessCard.oneClickEligible, false);
-assert.ok(uniqueQrContactlessCard.reasonCodes.includes("tokenized_last4_noncorrelating"));
+assert.ok(uniqueQrContactlessCard.reasonCodes.includes("card_last4_mismatch"));
 
 const uniqueQrWithoutLast4 = recommend(
   [sale({ id: "unique-qr-no-last4", at: "2026-07-21T19:04:00.000Z", last4: "" })],
@@ -446,6 +518,8 @@ assert.ok(documentedLastSalesStatus.candidates[0].reasonCodes.includes("provider
 const unverifiedMissingStatus = recommend([documentedLastSale], { providerContract: "unverified" });
 assert.equal(unverifiedMissingStatus.recommendationState, "manual_exception");
 assert.equal(unverifiedMissingStatus.oneClickEligible, false);
+assert.equal(unverifiedMissingStatus.candidates[0].selectionAllowed, false);
+assert.equal(unverifiedMissingStatus.candidates.length, 1);
 
 const declinedCamelStatus = { ...documentedLastSale, paymentStatus: "Declined" };
 const declinedCamelResult = recommend([declinedCamelStatus]);
@@ -469,6 +543,8 @@ assert.equal(contradictoryStatusResult.candidates[0].selectionAllowed, false);
 const missingProviderSite = recommend([sale({ id: "missing-site", siteId: null })]);
 assert.equal(missingProviderSite.recommendationState, "manual_exception");
 assert.equal(missingProviderSite.oneClickEligible, false);
+assert.equal(missingProviderSite.candidates[0].selectionAllowed, false);
+assert.equal(missingProviderSite.candidates.length, 1);
 
 const duplicateProviderRecord = recommend([
   sale({ id: "provider-duplicate" }),
@@ -562,7 +638,7 @@ const providerLocalDst = recommend(
 
 const unknownLast4SourceMismatch = recommend(
   [sale({ id: "unknown-source-mismatch", last4: "9999", cardBrand: "MasterCard" })],
-  { requestCardLast4Provenance: null, requestCardNetwork: "visa" },
+  { requestCardLast4Provenance: null, requestCardLast4Source: null, requestCardNetwork: "visa" },
 );
 assert.equal(unknownLast4SourceMismatch.candidates[0].selectionAllowed, true);
 assert.equal(unknownLast4SourceMismatch.oneClickEligible, false);
@@ -570,6 +646,7 @@ assert.ok(unknownLast4SourceMismatch.candidates[0].manualReviewReasons.includes(
 
 const unknownLast4SourceExact = recommend([sale({ id: "unknown-source-exact" })], {
   requestCardLast4Provenance: null,
+  requestCardLast4Source: null,
 });
 assert.equal(unknownLast4SourceExact.recommendationState, "manual_exception");
 assert.equal(unknownLast4SourceExact.candidates[0].selectionAllowed, true);
