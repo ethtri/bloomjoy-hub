@@ -148,7 +148,8 @@
     "20260904203000_refund_mall_of_louisiana_location_repair.sql",
     "20260904210000_refund_location_binding_public_label_hotfix.sql",
     "20260905190311_refund_structured_payment_context.sql",
-    "20260905190312_refund_request_time_boundary.sql"
+    "20260905190312_refund_request_time_boundary.sql",
+    "20260905200000_refund_identifier_evidence_selection.sql"
   ],
   "migrationFilesSha256": "b436d3d1653ce6442e1ae3130ea5ec1b98a462177c33a8fc610542e7fdc1a0d9",
   "migrationVersionSetSha256": "05c558a6f30adc21c184912668e9a0946bf832f9a5bbdb6bfd8d77d76f21c5eb",
