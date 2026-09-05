@@ -129,6 +129,44 @@ Deno.test("money conversion rejects rounding, invalid dates and timezone guessin
     "2026-09-03T12:07:30",
   );
 });
+Deno.test("blank paid value is accepted only for rows with no refund signal", async () => {
+  const text = new TextDecoder().decode(fixture);
+  const rows = parseNayaxReportCsv(text);
+  const sale = rows.find((row) => !row.original_transaction_id)!;
+  const headers = Object.keys(sale);
+  const csv = (row: Record<string, string>) =>
+    [headers, headers.map((header) => row[header])].map((values) =>
+      values.map((value) => `"${value.replaceAll('"', '""')}"`).join(",")
+    ).join("\r\n");
+  const nonRefund = {
+    ...sale,
+    payed_value: "",
+    seValue: "0.0000",
+    tran_status_id: "1",
+    tran_status_name: "Synthetic status",
+  };
+  const normalized = await normalizeNayaxScheduledReport(
+    new TextEncoder().encode(csv(nonRefund)),
+  );
+  assertEquals(normalized.rowCount, 1);
+  assertEquals(normalized.observations, []);
+
+  for (
+    const refundSignal of <Record<string, string>[]> [
+      { original_transaction_id: "7000000001" },
+      { auValue: "-8.8000" },
+      { seValue: "-8.8000" },
+      { tran_status_id: "62" },
+      { tran_status_id: "63" },
+    ]
+  ) {
+    await assertRejects(() =>
+      normalizeNayaxScheduledReport(
+        new TextEncoder().encode(csv({ ...nonRefund, ...refundSignal })),
+      )
+    );
+  }
+});
 Deno.test("duplicate rows deduplicate, conflicting same identities and unknown actors fail closed", async () => {
   const text = new TextDecoder().decode(fixture);
   const lines = text.trim().split(/\r?\n/);
