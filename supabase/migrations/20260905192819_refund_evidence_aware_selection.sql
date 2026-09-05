@@ -73,6 +73,7 @@ declare
   network_comparison text := p_evidence ->> 'card_network_comparison';
   interaction_comparison text := p_evidence ->> 'payment_interaction_comparison';
   review_state text := p_evidence ->> 'identifier_review_state';
+  reason_codes jsonb := coalesce(p_evidence -> 'reason_codes', '[]'::jsonb);
   selection_allowed boolean;
   one_click boolean;
 begin
@@ -128,6 +129,7 @@ begin
     )
     or p_evidence ->> 'same_identifier_equivalence_proven' is distinct from 'false'
     or jsonb_typeof(hard_exclusions) is distinct from 'array'
+    or jsonb_typeof(reason_codes) is distinct from 'array'
     or jsonb_typeof(coalesce(p_evidence -> 'customer_correction_fields', '[]'::jsonb)) is distinct from 'array' then
     return 'invalid';
   end if;
@@ -157,7 +159,8 @@ begin
     and last4_comparison not like 'mismatch_%'
     and network_comparison not like 'mismatch_%' then return 'invalid'; end if;
   if review_state = 'needs_corroboration'
-    and jsonb_array_length(coalesce(p_evidence -> 'customer_correction_fields', '[]'::jsonb)) = 0 then
+    and jsonb_array_length(coalesce(p_evidence -> 'customer_correction_fields', '[]'::jsonb)) = 0
+    and not (reason_codes ?| array['missing_provider_site_id','provider_status_unconfirmed']) then
     return 'invalid';
   end if;
   if (last4_comparison like 'mismatch_%' or network_comparison like 'mismatch_%') and one_click then
@@ -201,6 +204,7 @@ declare
   duplicate_provider_record boolean;
   expected_customer_credential text;
   mismatch_present boolean;
+  expected_machine_in_scope boolean;
   expected_selection_allowed boolean;
 begin
   select c.* into case_row from public.refund_cases c where c.id = p_case_id;
@@ -278,9 +282,29 @@ begin
   );
   mismatch_present := p_evidence ->> 'card_last4_comparison' like 'mismatch_%'
     or p_evidence ->> 'card_network_comparison' like 'mismatch_%';
+  expected_machine_in_scope :=
+    (case_row.reporting_machine_id is not null
+      and p_reporting_machine_id is not distinct from case_row.reporting_machine_id)
+    or (
+      case_row.reporting_machine_id is null
+      and case_row.intake_selection_kind = 'livermore_pair'
+      and case_row.intake_selection_key = public.refund_livermore_selection_key()
+      and case_row.intake_selection_machine_ids = public.refund_livermore_selection_machine_ids()
+      and p_reporting_machine_id = any(case_row.intake_selection_machine_ids)
+      and public.refund_livermore_selection_is_valid()
+    );
+  if p_evidence ->> 'identifier_review_state' = 'needs_corroboration'
+    and jsonb_array_length(coalesce(p_evidence -> 'customer_correction_fields', '[]'::jsonb)) = 0
+    and not (
+      (p_site_id is null and coalesce(p_evidence -> 'reason_codes', '[]'::jsonb) ? 'missing_provider_site_id')
+      or (
+        p_evidence ->> 'payment_status' is distinct from 'approved'
+        and coalesce(p_evidence -> 'reason_codes', '[]'::jsonb) ? 'provider_status_unconfirmed'
+      )
+    ) then return 'invalid'; end if;
   expected_selection_allowed :=
     jsonb_array_length(coalesce(p_evidence -> 'hard_exclusions','[]'::jsonb)) = 0
-    and p_reporting_machine_id is not distinct from case_row.reporting_machine_id
+    and expected_machine_in_scope
     and case_row.incident_time_resolution is not distinct from 'exact'
     and case_row.incident_time_confidence is distinct from 'rough'
     and case_row.payment_amount_cents > 0

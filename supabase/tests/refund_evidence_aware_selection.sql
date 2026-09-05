@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(29);
+select plan(31);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('fe110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -172,8 +172,8 @@ select lives_ok($$insert into public.refund_nayax_lookup_candidates(token,refund
  amount_cents,card_last4,currency_code,evidence_summary,expires_at)
 select 'fe160000-0000-4000-8000-000000000009','fe150000-0000-4000-8000-000000000004',generation,
  'fe110000-0000-4000-8000-000000000001','fe140000-0000-4000-8000-000000000001',
- 'IDENTIFIER-NEAR-AMOUNT',12,'2026-09-05T18:15:00Z',1380,'6768','USD',
- pg_temp.exact_identifier_evidence('fe150000-0000-4000-8000-000000000004','2026-09-05T18:15:00Z',290,true),
+ 'IDENTIFIER-NEAR-AMOUNT',12,'2026-09-05T18:15:00Z',1389,'6768','USD',
+ pg_temp.exact_identifier_evidence('fe150000-0000-4000-8000-000000000004','2026-09-05T18:15:00Z',299,true),
  statement_timestamp()+interval '1 hour' from parity_claim$$,
  'Exact-suffix amount within the established tolerance remains selectable');
 select lives_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
@@ -181,8 +181,8 @@ select lives_ok($$insert into public.refund_nayax_lookup_candidates(token,refund
  amount_cents,card_last4,currency_code,evidence_summary,expires_at)
 select 'fe160000-0000-4000-8000-000000000010','fe150000-0000-4000-8000-000000000004',generation,
  'fe110000-0000-4000-8000-000000000001','fe140000-0000-4000-8000-000000000001',
- 'IDENTIFIER-OUTSIDE-AMOUNT',13,'2026-09-05T18:15:00Z',1400,'6768','USD',
- pg_temp.exact_identifier_evidence('fe150000-0000-4000-8000-000000000004','2026-09-05T18:15:00Z',310,false),
+ 'IDENTIFIER-OUTSIDE-AMOUNT',13,'2026-09-05T18:15:00Z',1391,'6768','USD',
+ pg_temp.exact_identifier_evidence('fe150000-0000-4000-8000-000000000004','2026-09-05T18:15:00Z',301,false),
  statement_timestamp()+interval '1 hour' from parity_claim$$,
  'Exact-suffix amount outside the tolerance persists read-only');
 select throws_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
@@ -195,6 +195,32 @@ select 'fe160000-0000-4000-8000-000000000011','fe150000-0000-4000-8000-000000000
  statement_timestamp()+interval '1 hour' from parity_claim$$,
  'P4626','Invalid Nayax identifier evidence',
  'The database rejects a scorer claim that missing-site evidence is selectable');
+select lives_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
+ actor_user_id,reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,
+ amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+select 'fe160000-0000-4000-8000-000000000012','fe150000-0000-4000-8000-000000000004',generation,
+ 'fe110000-0000-4000-8000-000000000001','fe140000-0000-4000-8000-000000000001',
+ 'IDENTIFIER-MISMATCH-MISSING-SITE',null,'2026-09-05T18:15:00Z',1090,'3760','USD',
+ pg_temp.identifier_evidence('fe150000-0000-4000-8000-000000000004','2026-09-05T18:15:00Z',false)
+   || jsonb_build_object('selection_allowed',false,'identifier_review_state','needs_corroboration',
+     'customer_correction_fields','[]'::jsonb,
+     'manual_review_reasons','["card_last4_mismatch_reviewable","missing_provider_site_id"]'::jsonb,
+     'reason_codes','["machine_exact","amount_exact","card_last4_mismatch","missing_provider_site_id"]'::jsonb),
+ statement_timestamp()+interval '1 hour' from parity_claim$$,
+ 'A suffix mismatch with missing provider site persists read-only for internal follow-up');
+select lives_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
+ actor_user_id,reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,
+ amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+select 'fe160000-0000-4000-8000-000000000013','fe150000-0000-4000-8000-000000000004',generation,
+ 'fe110000-0000-4000-8000-000000000001','fe140000-0000-4000-8000-000000000001',
+ 'IDENTIFIER-MISMATCH-UNKNOWN-STATUS',14,'2026-09-05T18:15:00Z',1090,'3760','USD',
+ pg_temp.identifier_evidence('fe150000-0000-4000-8000-000000000004','2026-09-05T18:15:00Z',false)
+   || jsonb_build_object('selection_allowed',false,'identifier_review_state','needs_corroboration',
+     'customer_correction_fields','[]'::jsonb,'payment_status',null,'payment_status_evidence',null,
+     'manual_review_reasons','["card_last4_mismatch_reviewable","provider_status_unconfirmed"]'::jsonb,
+     'reason_codes','["machine_exact","amount_exact","card_last4_mismatch","provider_status_unconfirmed"]'::jsonb),
+ statement_timestamp()+interval '1 hour' from parity_claim$$,
+ 'A suffix mismatch with unconfirmed provider status persists read-only for internal follow-up');
 
 create temp table review_claim as
 select (public.service_begin_refund_nayax_lookup('fe150000-0000-4000-8000-000000000001',4,'manual',

@@ -5361,6 +5361,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     },
     {
       name: 'evidence-aware physical tap mismatch',
+      artifactSlug: 'physical-card-mismatch',
       refundOverview: buildPhysicalCardMismatchRefundOverview,
       response: {
         configured: true,
@@ -5984,7 +5985,10 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         (await page.getByText(/transaction evidence, not a refund decision/i).count()) === 0
     );
     await page.screenshot({
-      path: path.join(artifactDir, `refund-portal-uat-${scenario.name.toLowerCase().replace(/\s+/g, '-')}.png`),
+      path: path.join(
+        artifactDir,
+        `refund-portal-uat-${scenario.artifactSlug ?? scenario.name.toLowerCase().replace(/\s+/g, '-')}.png`,
+      ),
       fullPage: false,
     });
 
