@@ -64,11 +64,28 @@ select is(pg_temp.ingest(pg_temp.cross_report(1,'820000008','{"providerMachineId
 select is(pg_temp.ingest(pg_temp.cross_report(2,'820000009')),'identity_conflict','Missing original sale site cannot use receipt exception');
 select is(pg_temp.ingest(pg_temp.cross_report(3,'820000010')),'identity_conflict','Stale case original binding cannot use receipt exception');
 select is(pg_temp.ingest(pg_temp.cross_report(4,'820000011')),'identity_conflict','Case reporting machine must remain bound to receipt');
-select is(pg_temp.ingest(pg_temp.cross_report(5,'820000012')),'unmatched','Cross-site row without receipt remains unmatched');
+select is(pg_temp.ingest(pg_temp.cross_report(5,'820000012')),'needs_provider_review','Cross-site explicit original links the exact unresolved purchase for review');
+select is((select refund_case_id from public.nayax_scheduled_refund_observations where provider_transaction_id='820000012'),
+  'e2500000-0000-4000-8000-000000000005'::uuid,'Cross-site review retains the exact case binding');
+select is((select metadata->>'original_sale_site_id' from public.refund_case_events
+  where refund_case_id='e2500000-0000-4000-8000-000000000005' and event_type='nayax_scheduled_report_observed'
+  order by created_at,id limit 1),'2','Cross-site review audit preserves the original sale site');
+select is((select metadata->>'refund_row_site_id' from public.refund_case_events
+  where refund_case_id='e2500000-0000-4000-8000-000000000005' and event_type='nayax_scheduled_report_observed'
+  order by created_at,id limit 1),'6','Cross-site review audit preserves the separate refund-row site');
+select is((select metadata->>'terminal_evidence_proven' from public.refund_case_events
+  where refund_case_id='e2500000-0000-4000-8000-000000000005' and event_type='nayax_scheduled_report_observed'
+  order by created_at,id limit 1),'false','Review linkage remains explicitly nonterminal');
 select is(pg_temp.ingest(pg_temp.cross_report(5,'820000013','{"siteId":"2"}')),'needs_provider_review','Existing same-site nonreceipt review is unchanged');
+select is(pg_temp.ingest(pg_temp.cross_report(5,'820000017','{"authorizationAmountCents":-500,"settlementAmountCents":-500,"paidAmountCents":-500}')),
+  'unmatched','Wrong no-receipt amount cannot bind by original transaction alone');
+select is(pg_temp.ingest(pg_temp.cross_report(5,'820000018','{"currencyCode":"CAD"}')),
+  'unmatched','Wrong no-receipt currency cannot bind by original transaction alone');
+select is(pg_temp.ingest(pg_temp.cross_report(5,'820000019','{"providerMachineId":"620000002"}')),
+  'unmatched','Wrong no-receipt machine cannot bind by original transaction alone');
 select is(pg_temp.ingest(pg_temp.cross_report(6,'820000014')),'unmatched','Other account receipt cannot corroborate TGpaci report');
 select is(pg_temp.ingest(pg_temp.cross_report(7,'820000016')),'existing_receipt_confirmed','Canonical original site0 remains a valid nonempty identity');
-select is(pg_temp.ingest(pg_temp.cross_report(5,'820000012','{"siteId":"2"}')),'needs_provider_review','Prior report conflict does not broaden or change the nonreceipt review path');
+select is(pg_temp.ingest(pg_temp.cross_report(5,'820000012','{"siteId":"2"}')),'identity_conflict','Prior refund identity cannot be rebound to a different refund-row site');
 select is(pg_temp.ingest(pg_temp.cross_report(1,'820000015','{"originalTransactionId":"799999998"}')),'unmatched','Wrong original is not assigned by amount');
 select is(pg_temp.ingest(pg_temp.cross_report(1,'820000015')),'identity_conflict','Prior conflicting refund ID original link cannot be reassigned');
 select is(pg_temp.ingest(pg_temp.cross_report(1,'820000001','{"siteId":"4"}')),'identity_conflict','Changed refund-row site cannot overwrite existing link');
