@@ -18,25 +18,32 @@ insert into public.refund_nayax_machine_inventory(account_key,nayax_machine_id,r
 values('BOUNDARY_ACCOUNT','BOUNDARY-MACHINE','fd140000-0000-4000-8000-000000000001');
 
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
- issue_summary,incident_at,incident_timezone,payment_method,payment_amount_cents,refund_amount_cents,card_last4,
+ issue_summary,incident_at,incident_timezone,incident_time_resolution,incident_time_confidence,
+ payment_method,payment_amount_cents,refund_amount_cents,card_last4,card_last4_provenance,card_last4_source,
+ payment_interaction,
  status,correlation_status,deterministic_fact_version,intake_source,intake_meta)
 values
  ('fd150000-0000-4000-8000-000000000001','RF-BOUNDARY-1','fd140000-0000-4000-8000-000000000001',
   'fd130000-0000-4000-8000-000000000001','boundary-customer@example.invalid','Hosted request boundary',
-  statement_timestamp()-interval '1 hour','America/Los_Angeles','card',963,963,'4242','needs_review','needs_nayax',1,
+  statement_timestamp()-interval '1 hour','America/Los_Angeles','exact','exact','card',963,963,'4242',
+  'physical_card','physical_card','insert_card','needs_review','needs_nayax',1,
   'form','{"source":"hosted_refund_intake"}'),
  ('fd150000-0000-4000-8000-000000000002','RF-BOUNDARY-2','fd140000-0000-4000-8000-000000000001',
   'fd130000-0000-4000-8000-000000000001','legacy-customer@example.invalid','Legacy unknown request boundary',
-  statement_timestamp()-interval '2 hours','America/Los_Angeles','card',963,963,'4242','needs_review','needs_nayax',1,
+  statement_timestamp()-interval '2 hours','America/Los_Angeles','exact','exact','card',963,963,'4242',
+  'physical_card','physical_card','insert_card','needs_review','needs_nayax',1,
  'form','{}');
 
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
- issue_summary,incident_at,incident_timezone,payment_method,payment_amount_cents,refund_amount_cents,card_last4,
+ issue_summary,incident_at,incident_timezone,incident_time_resolution,incident_time_confidence,
+ payment_method,payment_amount_cents,refund_amount_cents,card_last4,card_last4_provenance,card_last4_source,
+ payment_interaction,
  status,correlation_status,deterministic_fact_version,intake_source,intake_meta,
  customer_request_received_at,customer_request_received_source)
 values('fd150000-0000-4000-8000-000000000003','RF-BOUNDARY-3','fd140000-0000-4000-8000-000000000001',
  'fd130000-0000-4000-8000-000000000001','diagnostic-customer@example.invalid','Diagnostic request boundary',
- '2026-09-05T11:00:00Z','America/Los_Angeles','card',963,963,'4242','needs_review','needs_nayax',1,
+ '2026-09-05T11:00:00Z','America/Los_Angeles','exact','exact','card',963,963,'4242',
+ 'physical_card','physical_card','insert_card','needs_review','needs_nayax',1,
  'form','{}','2026-09-05T12:00:00Z','hosted_refund_intake');
 
 select ok((select customer_request_received_at is not null and customer_request_received_source='hosted_refund_intake'

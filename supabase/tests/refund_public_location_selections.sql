@@ -162,7 +162,7 @@ select is(
 );
 select is(
   (select count(*)::integer from public.public_refund_selections()),
-  9,
+  10,
   'The fixture exposes every ordinary choice and compresses only the reviewed Livermore pair'
 );
 select is(
@@ -299,7 +299,7 @@ values (
   '8eda5a29-1718-4c70-9993-7c7e2fd6c65a',
   'SAFE-TXN-921-LIVERMORE-B', 21, now() - interval '30 minutes',
   550, '4242', 'USD',
-  '{"selection_allowed":true,"is_recommended":true,"recommendation_state":"high_confidence","confidence_class":"strong_card","one_click_eligible":true,"policy_version":"refund-nayax-recommendation.v4"}'::jsonb,
+  '{"selection_allowed":true,"is_recommended":true,"recommendation_state":"high_confidence","confidence_class":"strong_card","one_click_eligible":false,"policy_version":"2026-09-05.v8","customer_request_received_at":null,"customer_request_received_source":null,"request_time_boundary":"request_time_unknown"}'::jsonb,
   now() + interval '1 hour'
 );
 

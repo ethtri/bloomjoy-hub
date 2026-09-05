@@ -44,7 +44,7 @@ values
   'fe130000-0000-4000-8000-000000000001','multiple-customer@example.invalid','Multiple nearby attempts',
   '2026-09-05T18:00:00Z','America/Los_Angeles','exact','within_15_minutes','transaction_alert_or_receipt',
   'card',1090,1090,'6768','physical_card','physical_card',null,false,'tap_card','multiple',
-  'needs_review','needs_nayax',4,'form','{}','2026-09-05T20:00:00Z','hosted_refund_intake'),
+  'needs_review','needs_nayax',4,'form','{}',null,null),
  ('fe150000-0000-4000-8000-000000000004','RF-IDENTIFIER-READONLY','fe140000-0000-4000-8000-000000000001',
   'fe130000-0000-4000-8000-000000000001','readonly-customer@example.invalid','Read-only provider evidence',
   '2026-09-05T18:00:00Z','America/Los_Angeles','exact','within_15_minutes','transaction_alert_or_receipt',

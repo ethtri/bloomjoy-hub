@@ -112,7 +112,10 @@ values (
     'is_recommended', false,
     'one_click_eligible', false,
     'recommendation_state', 'manual_exception',
-    'policy_version', 'confirmation-race.v1',
+    'policy_version', '2026-09-05.v8',
+    'customer_request_received_at', null,
+    'customer_request_received_source', null,
+    'request_time_boundary', 'request_time_unknown',
     'provider_payload_redacted', true
   ),
   now() + interval '1 hour'
