@@ -129,7 +129,7 @@ Deno.test("money conversion rejects rounding, invalid dates and timezone guessin
     "2026-09-03T12:07:30",
   );
 });
-Deno.test("blank paid value is accepted only for rows with no refund signal", async () => {
+Deno.test("blank paid value is accepted only for rows without refund signals", async () => {
   const text = new TextDecoder().decode(fixture);
   const rows = parseNayaxReportCsv(text);
   const sale = rows.find((row) => !row.original_transaction_id)!;

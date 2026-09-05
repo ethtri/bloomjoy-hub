@@ -144,9 +144,9 @@ export async function normalizeNayaxScheduledReport(bytes: Uint8Array) {
       currencyCode: row.currency,
       authorizationAmountCents: reportMoneyCents(row.auValue),
       settlementAmountCents: reportMoneyCents(row.seValue),
-      // Nayax leaves payed_value blank on some non-refund rows (observed on
-      // six natural Transactions Reports). Keep it unknown rather than
-      // inventing a zero amount. Refund-like rows still fail closed below.
+      // Nayax leaves payed_value blank on some rows without a current refund
+      // signal. Keep it unknown rather than inventing a zero amount.
+      // Refund-like rows still fail closed below.
       paidAmountCents: row.payed_value
         ? reportMoneyCents(row.payed_value)
         : null,
