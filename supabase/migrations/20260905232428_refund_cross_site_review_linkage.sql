@@ -126,7 +126,7 @@ begin
         and c.status in ('needs_review','correlated','approved','card_refund_pending')
         and m.nayax_machine_id=row_data->>'providerMachineId'
         and m.nayax_account_key='TGPACI_USA_DB'
-        and not exists(select 1 from public.refund_authoritative_receipts prior where prior.refund_case_id=c.id);
+        and not exists(select 1 from public.refund_authoritative_receipts existing_receipt where existing_receipt.refund_case_id=c.id);
       matches:=coalesce(cardinality(candidate_ids),0);
       if linkage_conflict or matches>1 then
         disposition:='identity_conflict';case_id:=null;
@@ -151,7 +151,7 @@ begin
           and c.status in ('needs_review','correlated','approved','card_refund_pending')
           and m.nayax_machine_id=row_data->>'providerMachineId'
           and m.nayax_account_key='TGPACI_USA_DB'
-          and not exists(select 1 from public.refund_authoritative_receipts prior where prior.refund_case_id=c.id)
+          and not exists(select 1 from public.refund_authoritative_receipts existing_receipt where existing_receipt.refund_case_id=c.id)
         for share of c,m;
         if original_case.id is null then
           disposition:='identity_conflict';case_id:=null;
