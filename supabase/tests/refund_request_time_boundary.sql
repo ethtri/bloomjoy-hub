@@ -48,11 +48,19 @@ select ok((select customer_request_received_at is null and customer_request_rece
 
 create function pg_temp.boundary_evidence(
   case_id uuid, authorized_at timestamptz, boundary text, comparable boolean, one_click boolean,
-  policy text default '2026-09-05.v8'
+  policy text default '2026-09-05.v9'
 ) returns jsonb language sql stable as $$
   select jsonb_build_object(
     'selection_allowed',true,'is_recommended',true,'one_click_eligible',one_click,
     'recommendation_state','high_confidence','policy_version',policy,
+    'identifier_policy_version','2026-09-05.identifier.v1',
+    'customer_fact_version',c.deterministic_fact_version,
+    'customer_credential_class','customer_physical_contact_chip_pan',
+    'provider_identifier_class','last_sales_chip_identifier_unverified',
+    'card_last4_comparison','exact_support','card_network_comparison','missing',
+    'payment_interaction_comparison','supporting','same_identifier_equivalence_proven',false,
+    'identifier_review_state','exact_support','customer_correction_fields','[]'::jsonb,
+    'hard_exclusions','[]'::jsonb,
     'lookup_account_scope','BOUNDARY_ACCOUNT','lookup_provider_machine_id','BOUNDARY-MACHINE',
     'provider_machine_id','BOUNDARY-MACHINE','machine_authorization_time_raw','2026-09-05T10:00:00',
     'machine_authorization_time_source','MachineAuthorizationTime','machine_time_resolution','exact',
@@ -60,7 +68,11 @@ create function pg_temp.boundary_evidence(
     'provider_time_source',case when comparable then 'authorization_gmt' else 'unverified_location_clock' end,
     'authorized_at',authorized_at,'customer_request_received_at',c.customer_request_received_at,
     'customer_request_received_source',c.customer_request_received_source,
-    'request_time_boundary',boundary,'transaction_occurrence_comparable',comparable
+    'request_time_boundary',boundary,'transaction_occurrence_comparable',comparable,
+    'amount_delta_cents',0,'time_delta_minutes',
+      ceil(abs(extract(epoch from (authorized_at-c.incident_at)))/60.0)::integer,
+    'payment_status','approved','payment_status_evidence','last_sales_contract',
+    'provider_refund_state','clear','duplicate_provider_record',false
   ) from public.refund_cases c where c.id=case_id;
 $$;
 
@@ -130,7 +142,7 @@ from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4
  'Exact manual portal occurrence after the request is never persisted');
 
 select is((public.service_commit_refund_nayax_lookup('fd150000-0000-4000-8000-000000000001',
- (select generation from lookup_claim),1,'match_found','high_confidence','2026-09-05.v8',statement_timestamp(),
+ (select generation from lookup_claim),1,'match_found','high_confidence','2026-09-05.v9',statement_timestamp(),
  'Synthetic request-bound candidate',null,2,'manual','fd110000-0000-4000-8000-000000000001')->>'applied'),'true',
  'Current request-bound candidates commit through the existing generation guard');
 
@@ -149,18 +161,22 @@ select ok((select matched_nayax_transaction_id='SAFE-BOUNDARY-1' and nayax_match
 create temp table legacy_claim as
 select (public.service_begin_refund_nayax_lookup('fd150000-0000-4000-8000-000000000002',1,'manual',
  'fd110000-0000-4000-8000-000000000001')->>'lookupGeneration')::bigint generation;
+-- Simulate a v8 row persisted before the additive identifier-policy migration.
+alter table public.refund_nayax_lookup_candidates disable trigger zzz_refund_nayax_candidate_identifier_evidence;
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
  provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
 select 'fd160000-0000-4000-8000-000000000005','fd150000-0000-4000-8000-000000000002',generation,
  'fd110000-0000-4000-8000-000000000001','fd140000-0000-4000-8000-000000000001','STALE-LEGACY-5',7,
  statement_timestamp()-interval '1 hour',963,'4242','USD',
- '{"selection_allowed":true,"is_recommended":true,"one_click_eligible":true,"recommendation_state":"high_confidence","policy_version":"2026-09-03.v7","lookup_account_scope":"BOUNDARY_ACCOUNT","lookup_provider_machine_id":"BOUNDARY-MACHINE","provider_machine_id":"BOUNDARY-MACHINE","machine_authorization_time_raw":"2026-09-05T10:00:00","machine_authorization_time_source":"MachineAuthorizationTime","machine_time_resolution":"exact","provider_time_resolution":"exact"}',
+ pg_temp.boundary_evidence('fd150000-0000-4000-8000-000000000002',statement_timestamp()-interval '1 hour',
+   'request_time_unknown',false,false,'2026-09-05.v8'),
  statement_timestamp()+interval '1 hour' from legacy_claim;
+alter table public.refund_nayax_lookup_candidates enable trigger zzz_refund_nayax_candidate_identifier_evidence;
 select is((select evidence_summary->>'one_click_eligible' from public.refund_nayax_lookup_candidates
  where token='fd160000-0000-4000-8000-000000000005'),'false',
  'Unknown-anchor legacy evidence stays reviewable without a stale one-click claim');
 select is((public.service_commit_refund_nayax_lookup('fd150000-0000-4000-8000-000000000002',
- (select generation from legacy_claim),1,'match_found','high_confidence','2026-09-03.v7',statement_timestamp(),
+ (select generation from legacy_claim),1,'match_found','high_confidence','2026-09-05.v8',statement_timestamp(),
  'Synthetic stale candidate',null,1,'manual','fd110000-0000-4000-8000-000000000001')->>'applied'),'true',
  'Legacy evidence remains readable until refreshed');
 update public.refund_cases set customer_request_received_at=statement_timestamp(),
@@ -169,7 +185,7 @@ set local role service_role;
 select throws_ok(format($$select public.service_select_refund_nayax_candidate_as_actor('fd110000-0000-4000-8000-000000000001',
  'fd150000-0000-4000-8000-000000000002',%s,'fd160000-0000-4000-8000-000000000005',null)$$,
  (select official_action_version from public.refund_cases where id='fd150000-0000-4000-8000-000000000002')),
- 'P4625','Refresh Nayax transactions to bind the customer request time','Stale selection cannot bypass the request-time binding');
+ 'P4626','Refresh Nayax transactions to use current identifier evidence','Stale selection cannot bypass the current identifier policy');
 reset role;
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
  where refund_case_id in ('fd150000-0000-4000-8000-000000000001','fd150000-0000-4000-8000-000000000002')),0,
@@ -198,7 +214,7 @@ create function pg_temp.request_diagnostic() returns jsonb language sql stable a
 $$;
 select is((public.service_commit_refund_nayax_lookup_with_diagnostics(
  'fd150000-0000-4000-8000-000000000003',(select generation from diagnostic_claim),1,'no_match','no_safe_match',
- '2026-09-05.v8',statement_timestamp(),'One later transaction was excluded',null,0,'manual',
+ '2026-09-05.v9',statement_timestamp(),'One later transaction was excluded',null,0,'manual',
  'fd110000-0000-4000-8000-000000000001',pg_temp.request_diagnostic())->>'applied'),'true',
  'Bounded v3 diagnostics commit the exact request anchor and exclusion count');
 select is((select metadata->'diagnostics'->>'excludedAfterRequestCount' from public.refund_case_events

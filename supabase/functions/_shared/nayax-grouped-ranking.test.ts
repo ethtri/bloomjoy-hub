@@ -52,6 +52,16 @@ const candidate = (
   hardExclusions: [],
   matchReason: "Exact deterministic card match",
   policyVersion: "refund-nayax-recommendation.v4",
+  identifierPolicyVersion: "2026-09-05.identifier.v1",
+  customerFactVersion: 1,
+  customerCredentialClass: "customer_physical_contact_chip_pan",
+  providerIdentifierClass: "last_sales_chip_identifier_unverified",
+  cardLast4Comparison: "exact_support",
+  cardNetworkComparison: "exact_support",
+  paymentInteractionComparison: "supporting",
+  sameIdentifierEquivalenceProven: false,
+  identifierReviewState: "exact_support",
+  customerCorrectionFields: [],
   ...options,
 });
 

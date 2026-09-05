@@ -220,6 +220,7 @@ export type NayaxRecommendationState =
 export type NayaxConfidenceClass =
   | "strong_card"
   | "unique_qr_time"
+  | "evidence_aware_review"
   | "ambiguous_manual";
 
 export type NayaxMatchFactor = {
@@ -257,6 +258,7 @@ export type NayaxProviderCandidate = {
   paymentStatus: string;
   paymentStatusEvidence?: string;
   providerRefundState: string;
+  duplicateProviderRecord?: boolean;
   productLabel: string;
   productCode: string;
   standardPriceCents: number | null;
@@ -282,6 +284,16 @@ export type NayaxProviderCandidate = {
   hardExclusions: string[];
   matchReason: string;
   policyVersion: string;
+  identifierPolicyVersion: string;
+  customerFactVersion: number | null;
+  customerCredentialClass: string;
+  providerIdentifierClass: string;
+  cardLast4Comparison: string;
+  cardNetworkComparison: string;
+  paymentInteractionComparison: string;
+  sameIdentifierEquivalenceProven: boolean;
+  identifierReviewState: string;
+  customerCorrectionFields: string[];
 };
 
 export type NayaxProviderClockContext = {
@@ -294,6 +306,7 @@ export type NayaxProviderClockContext = {
 export type NayaxResponseCandidate = Omit<
   NayaxProviderCandidate,
   "transactionId" | "siteId" | "providerMachineId" | "providerRefundState" | "rankingPoints" |
+  "duplicateProviderRecord" |
   "machineAuthorizationTimeRaw" | "machineTimeResolution" | "machineClockContext" |
   "providerTimeSource" | "customerRequestReceivedAt" | "customerRequestReceivedSource" |
   "requestTimeBoundaryState" | "transactionOccurrenceComparable"
@@ -453,6 +466,16 @@ const persistNayaxLookupCandidates = async ({
         lookup_provider_machine_id: scope.nayaxMachineId,
         provider_machine_id: candidate.providerMachineId,
         policy_version: candidate.policyVersion,
+        identifier_policy_version: candidate.identifierPolicyVersion,
+        customer_fact_version: candidate.customerFactVersion,
+        customer_credential_class: candidate.customerCredentialClass,
+        provider_identifier_class: candidate.providerIdentifierClass,
+        card_last4_comparison: candidate.cardLast4Comparison,
+        card_network_comparison: candidate.cardNetworkComparison,
+        payment_interaction_comparison: candidate.paymentInteractionComparison,
+        same_identifier_equivalence_proven: candidate.sameIdentifierEquivalenceProven,
+        identifier_review_state: candidate.identifierReviewState,
+        customer_correction_fields: candidate.customerCorrectionFields,
         ranking_points: candidate.rankingPoints,
         recommendation_rank: candidate.recommendationRank,
         recommendation_state: candidate.recommendationState,
@@ -486,6 +509,8 @@ const persistNayaxLookupCandidates = async ({
         recognition_method: candidate.recognitionMethod || null,
         payment_status: candidate.paymentStatus || null,
         payment_status_evidence: candidate.paymentStatusEvidence || null,
+        provider_refund_state: candidate.providerRefundState || null,
+        duplicate_provider_record: Boolean(candidate.duplicateProviderRecord),
         product_label: candidate.productLabel || null,
         product_code: candidate.productCode || null,
         standard_price_cents: candidate.standardPriceCents,
@@ -533,7 +558,7 @@ export const rankGroupedNayaxCandidates = (groups: Array<{
   const recommendationState: NayaxRecommendationState = uniqueCandidate
     ? uniqueCandidate.recommendationState === "high_confidence"
       ? "high_confidence"
-      : "ambiguous"
+      : "manual_exception"
     : selectableCandidates.length > 1
     ? "ambiguous"
     : "no_safe_match";
@@ -545,8 +570,8 @@ export const rankGroupedNayaxCandidates = (groups: Array<{
     isTopRanked: index === 0,
     isRecommended: Boolean(uniqueCandidate && candidate.transactionId === uniqueCandidate.transactionId),
     recommendationState,
-    confidenceClass: recommendationState === "high_confidence"
-      ? uniqueCandidate?.confidenceClass ?? "strong_card"
+    confidenceClass: uniqueCandidate
+      ? uniqueCandidate.confidenceClass
       : "ambiguous_manual" as NayaxConfidenceClass,
     oneClickEligible: Boolean(
       oneClickEligible && uniqueCandidate && candidate.transactionId === uniqueCandidate.transactionId
@@ -580,8 +605,13 @@ type GroupedRefundCase = {
   refund_amount_cents: number | null;
   card_last4: string | null;
   card_last4_provenance: string | null;
+  card_last4_source: string | null;
   card_network: string | null;
   card_wallet_used: boolean | null;
+  payment_interaction: string | null;
+  wallet_device_kind: string | null;
+  incident_time_source: string | null;
+  nearby_attempt_count: string | null;
   customer_email: string;
   customer_name: string | null;
   deterministic_fact_version: number;
@@ -785,8 +815,14 @@ const lookupGroupedLivermoreCandidates = async ({
       requestAmountCents: sanitizeInputCents(refundCase.payment_amount_cents),
       requestCardLast4: extractLast4(refundCase.card_last4),
       requestCardLast4Provenance: sanitizeText(refundCase.card_last4_provenance, 40),
+      requestCardLast4Source: sanitizeText(refundCase.card_last4_source, 40),
       requestCardNetwork: sanitizeText(refundCase.card_network, 40),
       cardWalletUsed: Boolean(refundCase.card_wallet_used),
+      paymentInteraction: sanitizeText(refundCase.payment_interaction, 40),
+      walletDeviceKind: sanitizeText(refundCase.wallet_device_kind, 40),
+      incidentTimeSource: sanitizeText(refundCase.incident_time_source, 40),
+      nearbyAttemptCount: sanitizeText(refundCase.nearby_attempt_count, 40),
+      customerFactVersion: initialFactVersion,
       incidentTimeConfidence: sanitizeText(refundCase.incident_time_confidence, 40) || "rough",
       machineContext: buildNayaxMachineContext({
         productsPayload,
@@ -958,8 +994,13 @@ export const lookupNayaxCandidatesForRefundCase = async ({
       refund_amount_cents,
       card_last4,
       card_last4_provenance,
+      card_last4_source,
       card_network,
       card_wallet_used,
+      payment_interaction,
+      wallet_device_kind,
+      incident_time_source,
+      nearby_attempt_count,
       customer_email,
       customer_name,
       deterministic_fact_version
@@ -1200,8 +1241,14 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     requestAmountCents: sanitizeInputCents(refundCase?.payment_amount_cents),
     requestCardLast4: extractLast4(refundCase?.card_last4),
     requestCardLast4Provenance: sanitizeText(refundCase?.card_last4_provenance, 40),
+    requestCardLast4Source: sanitizeText(refundCase?.card_last4_source, 40),
     requestCardNetwork: sanitizeText(refundCase?.card_network, 40),
     cardWalletUsed: Boolean(refundCase?.card_wallet_used),
+    paymentInteraction: sanitizeText(refundCase?.payment_interaction, 40),
+    walletDeviceKind: sanitizeText(refundCase?.wallet_device_kind, 40),
+    incidentTimeSource: sanitizeText(refundCase?.incident_time_source, 40),
+    nearbyAttemptCount: sanitizeText(refundCase?.nearby_attempt_count, 40),
+    customerFactVersion: initialFactVersion,
     incidentTimeConfidence: sanitizeText(refundCase?.incident_time_confidence, 40) || "rough",
     machineContext,
     qrClaimOpenedAt,
