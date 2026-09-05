@@ -3,7 +3,6 @@ const exactInstant = (value) => {
   const parsed = new Date(value);
   return Number.isFinite(parsed.getTime()) ? parsed : null;
 };
-
 const requestSources = new Set([
   "hosted_refund_intake",
   "gmail_contact_ingested",
