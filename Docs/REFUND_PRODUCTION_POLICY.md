@@ -4,6 +4,8 @@ Bloomjoy is in production. Refund handling should make the customer whole with
 the fewest safe steps. Customer identity is not a duplicate-control boundary;
 the original payment transaction is.
 
+The [MVP delivery plan](./REFUND_MVP_PLAN.md) defines the simple manager/customer experience and the remaining API/report/completion work. Current progress belongs to #628 and its linked issues.
+
 Start with [the agent operating procedure](./REFUND_AGENT_OPERATIONS.md) and the
 current #628/#990 issue bodies. The September 3 API release is deployed and
 enabled; one attributable request → approval → independently confirmed real
@@ -24,6 +26,8 @@ refund remains to be proved through ordinary approved customer operations.
    transaction-bound idempotency key and immutable audit evidence.
 5. Bloomjoy sends success copy and creates reporting adjustments only after the
    provider result is confirmed.
+
+Confirmed payment, customer-message delivery and accounting metadata are separate facts. The MVP target is automatic receipt-backed completion and one standard notice using existing authority. An unknown accounting date must not require another manager payment action or block the customer update; preserve it as internal follow-up without inventing settlement time. Current manual receipt tools remain usable while #971 finishes this automation.
 
 There is no first-proof case, $10/$50 refund ceiling, daily customer-service
 quota, exact-case allowlist, pilot cohort, observer, or account-wide hold.
