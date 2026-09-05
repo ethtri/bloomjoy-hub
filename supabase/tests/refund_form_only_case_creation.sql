@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(28);
+select plan(29);
 
 insert into public.customer_accounts (id, name, account_type)
 values (
@@ -221,6 +221,10 @@ select public.service_create_refund_case_from_gmail_contact_form(
     'cardLast4', '4242',
     'cardWalletUsed', false,
     'paymentInteraction', 'tap_card',
+    'cardLast4Source', 'physical_card',
+    'walletDeviceKind', '',
+    'incidentTimeSource', 'transaction_alert_or_receipt',
+    'nearbyAttemptCount', 'one',
     'walletProvider', '',
     'incidentTimeConfidence', 'exact',
     'issueCategory', 'charged_no_product',
@@ -253,6 +257,19 @@ select ok(
     where id = (select (result ->> 'id')::uuid from linked_form_case)
   ),
   'The form-created case preserves its Email source and linked context truthfully'
+);
+
+select ok(
+  (
+    select card_last4_source = 'physical_card'
+      and card_last4_provenance = 'physical_card'
+      and wallet_device_kind is null
+      and incident_time_source = 'transaction_alert_or_receipt'
+      and nearby_attempt_count = 'one'
+    from public.refund_cases
+    where id = (select (result ->> 'id')::uuid from linked_form_case)
+  ),
+  'Email-linked intake keeps the structured payment context added by the preceding migration'
 );
 
 select ok(

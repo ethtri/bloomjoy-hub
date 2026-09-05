@@ -168,6 +168,25 @@ assert.deepEqual(requestBoundary.consideredTransactionIds, ["before-request"]);
 assert.equal(requestBoundary.excludedAfterRequestCount, 1);
 assert.ok(requestBoundary.reasonCodes.includes("transaction_after_customer_request"));
 
+for (const records of [
+  [
+    sale({ id: "request-boundary-duplicate", at: "2026-07-21T19:05:00.000Z" }),
+    sale({ id: "request-boundary-duplicate", at: "2026-07-21T19:00:00.000Z" }),
+  ],
+  [
+    sale({ id: "request-boundary-duplicate", at: "2026-07-21T19:00:00.000Z" }),
+    sale({ id: "request-boundary-duplicate", at: "2026-07-21T19:05:00.000Z" }),
+  ],
+]) {
+  const result = recommend(records, {
+    customerRequestReceivedAt: "2026-07-21T19:03:00.000Z",
+  });
+  assert.equal(result.candidateCount, 1);
+  assert.equal(result.excludedAfterRequestCount, 1);
+  assert.equal(result.candidates[0].duplicateProviderRecord, false);
+  assert.equal(result.candidates[0].oneClickEligible, true);
+}
+
 const equalRequestBoundary = recommend([sale({ id: "equal-request" })], {
   customerRequestReceivedAt: incidentAt,
 });

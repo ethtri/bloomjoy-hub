@@ -49,7 +49,7 @@ select ('be400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-CORRECTION-'
   'be300000-0000-4000-8000-000000000001','be200000-0000-4000-8000-000000000001','correction-customer@example.invalid',
   'Synthetic correction fixture',now()-interval '3 days','America/Los_Angeles','card',700,700,'4242',
   'card_refund_pending','matched','nayax',1,'approved',(323456780+n)::text,700,'USD',now()-interval '3 days',
-  '{"qr_claim_present":false,"source":"hosted_refund_intake","sentinel":"preserve"}'::jsonb,'approved','not_requested'
+  '{"qr_claim_present":false,"source":"historical_hosted_refund_intake","sentinel":"preserve"}'::jsonb,'approved','not_requested'
 from generate_series(1,5) n;
 -- A legitimate pre-existing send intent is queued before provider hold, not
 -- inserted through the hold's independent new-customer-message guard.

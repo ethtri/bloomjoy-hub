@@ -104,6 +104,20 @@ begin
     intake_selection_key = selection_key,
     intake_selection_kind = selection_kind,
     intake_selection_machine_ids = nullif(selection_machine_ids, '{}'::uuid[]),
+    card_last4_source = nullif(btrim(p_case_values ->> 'cardLast4Source'), ''),
+    card_last4_provenance = case nullif(btrim(p_case_values ->> 'cardLast4Source'), '')
+      when 'physical_card' then 'physical_card'
+      when 'wallet_device' then case
+        when p_case_values ->> 'paymentInteraction' = 'phone_watch_wallet'
+          then 'wallet_device_token'
+      end
+      when 'bank_record' then null
+      when 'unknown' then null
+      else card_last4_provenance
+    end,
+    wallet_device_kind = nullif(btrim(p_case_values ->> 'walletDeviceKind'), ''),
+    incident_time_source = nullif(btrim(p_case_values ->> 'incidentTimeSource'), ''),
+    nearby_attempt_count = nullif(btrim(p_case_values ->> 'nearbyAttemptCount'), ''),
     customer_request_received_at = coalesce(customer_request_received_at, contact_received_at),
     customer_request_received_source = case
       when customer_request_received_at is not null then customer_request_received_source
@@ -163,7 +177,7 @@ begin
     return 'invalid';
   end if;
   if p_evidence ->> 'provider_time_resolution' is distinct from 'exact'
-    or p_evidence ->> 'provider_time_source' not in (
+    or coalesce(p_evidence ->> 'provider_time_source', '') not in (
       'authorization_gmt', 'machine_authorization_offset', 'verified_machine_clock'
     )
     or jsonb_typeof(p_evidence -> 'authorized_at') is distinct from 'string' then
@@ -182,6 +196,13 @@ $$;
 revoke all on function public.refund_nayax_request_boundary_evidence_state(timestamptz,text,jsonb)
   from public, anon, authenticated;
 
+-- Existing cases predate the dedicated receipt anchor. Preserve their selected
+-- transaction and manager-review path, but remove any stale execution claim.
+update public.refund_cases
+set nayax_match_execution_eligible = false
+where customer_request_received_at is null
+  and nayax_match_execution_eligible = true;
+
 create function public.guard_refund_nayax_candidate_request_boundary()
 returns trigger language plpgsql security definer set search_path = '' as $$
 declare
@@ -195,6 +216,19 @@ begin
   evidence_state := public.refund_nayax_request_boundary_evidence_state(
     case_row.customer_request_received_at, case_row.customer_request_received_source, new.evidence_summary
   );
+  if new.evidence_summary ->> 'source' = 'manual_nayax_portal'
+    and case_row.customer_request_received_at is not null
+    and new.machine_authorization_time > case_row.customer_request_received_at then
+    raise exception 'Transaction occurred after Bloomjoy received the customer request'
+      using errcode = 'P4625';
+  end if;
+  if evidence_state = 'legacy' then
+    -- During a migration/function rollout, keep older unknown-anchor candidates
+    -- selectable for review while removing their stale execution claim.
+    new.evidence_summary := jsonb_set(
+      new.evidence_summary, '{one_click_eligible}', 'false'::jsonb, true
+    );
+  end if;
   if evidence_state in ('refresh', 'invalid', 'after_request') then
     raise exception '%', case evidence_state
       when 'after_request' then 'Transaction occurred after Bloomjoy received the customer request'
@@ -246,6 +280,17 @@ begin
     case_row.customer_request_received_at, case_row.customer_request_received_source,
     candidate_row.evidence_summary
   );
+  if manual_portal_candidate
+    and case_row.customer_request_received_at is not null
+    and candidate_row.machine_authorization_time > case_row.customer_request_received_at then
+    raise exception 'Transaction occurred after Bloomjoy received the customer request'
+      using errcode = 'P4625';
+  end if;
+  if evidence_state = 'legacy'
+    and candidate_row.evidence_summary ->> 'one_click_eligible' = 'true' then
+    raise exception 'Refresh Nayax transactions to bind the customer request time'
+      using errcode = 'P4625';
+  end if;
   if evidence_state in ('refresh', 'invalid', 'after_request') then
     raise exception '%', case evidence_state
       when 'after_request' then 'Transaction occurred after Bloomjoy received the customer request'
@@ -265,14 +310,15 @@ grant execute on function public.service_select_refund_nayax_candidate_as_actor(
 
 create function public.guard_refund_nayax_selected_request_boundary()
 returns trigger language plpgsql security definer set search_path = '' as $$
-declare evidence jsonb; evidence_state text;
+declare evidence jsonb; evidence_state text; candidate_time timestamptz;
 begin
   if new.matched_nayax_transaction_id is not null
     and row(new.reporting_machine_id,new.matched_nayax_transaction_id,new.matched_nayax_site_id,
       new.matched_nayax_machine_auth_time,new.matched_nayax_amount_cents,new.matched_nayax_card_last4,new.matched_nayax_currency_code)
     is distinct from row(old.reporting_machine_id,old.matched_nayax_transaction_id,old.matched_nayax_site_id,
       old.matched_nayax_machine_auth_time,old.matched_nayax_amount_cents,old.matched_nayax_card_last4,old.matched_nayax_currency_code) then
-    select c.evidence_summary into evidence from public.refund_nayax_lookup_candidates c
+    select c.evidence_summary,c.machine_authorization_time into evidence,candidate_time
+    from public.refund_nayax_lookup_candidates c
     where c.refund_case_id = new.id and c.provider_transaction_id = new.matched_nayax_transaction_id
       and c.reporting_machine_id = new.reporting_machine_id
     order by (c.lookup_generation = new.nayax_lookup_generation) desc, c.created_at desc limit 1;
@@ -283,8 +329,17 @@ begin
       evidence_state := public.refund_nayax_request_boundary_evidence_state(
         new.customer_request_received_at, new.customer_request_received_source, evidence
       );
+      if evidence ->> 'source' = 'manual_nayax_portal'
+        and new.customer_request_received_at is not null
+        and candidate_time > new.customer_request_received_at then
+        raise exception 'Nayax request-time evidence is not safe; refresh current evidence'
+          using errcode = 'P4625';
+      end if;
       if evidence_state in ('refresh', 'invalid', 'after_request') then
         raise exception 'Nayax request-time evidence is not safe; refresh current evidence' using errcode = 'P4625';
+      end if;
+      if evidence_state = 'legacy' or evidence ->> 'one_click_eligible' = 'false' then
+        new.nayax_match_execution_eligible := false;
       end if;
     end if;
   end if;

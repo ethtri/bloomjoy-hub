@@ -792,9 +792,6 @@ export const buildNayaxRecommendation = ({
     if (authorizationDate.getTime() < windowStartMs || authorizationDate.getTime() > windowEndMs) continue;
     windowRecordCount += 1;
 
-    const duplicateProviderRecord = seenTransactionIds.has(transactionId);
-    seenTransactionIds.add(transactionId);
-
     const requestTimeBoundary = classifyRefundRequestTimeBoundary({
       customerRequestReceivedAt: request.customerRequestReceivedAt,
       customerRequestReceivedSource: request.customerRequestReceivedSource,
@@ -804,11 +801,14 @@ export const buildNayaxRecommendation = ({
     });
     if (requestTimeBoundary.transactionAfterRequest) {
       excludedAfterRequestCount += 1;
-      if (normalizedByTransaction.has(transactionId)) {
-        normalizedByTransaction.get(transactionId).duplicateProviderRecord = true;
-      }
       continue;
     }
+
+    // Exclude a provably later event before duplicate bookkeeping. A later
+    // provider copy cannot make an otherwise valid earlier occurrence
+    // ambiguous, regardless of the provider's record order.
+    const duplicateProviderRecord = seenTransactionIds.has(transactionId);
+    seenTransactionIds.add(transactionId);
 
     if (normalizedByTransaction.has(transactionId)) {
       // A duplicated provider ID is an anomaly even when the visible fields

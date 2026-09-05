@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(15);
+select plan(18);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('fd110000-0000-4000-8000-000000000001','authenticated','authenticated','request-boundary-manager@example.invalid','{}','{}');
@@ -108,6 +108,27 @@ select 'fd160000-0000-4000-8000-000000000004',c.id,l.generation,'fd110000-0000-4
 from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4000-8000-000000000001'$$,
  'P4625','Invalid customer request time evidence','Uncertain timing cannot become one-click evidence');
 
+select throws_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+ provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+select 'fd160000-0000-4000-8000-000000000006',c.id,l.generation,'fd110000-0000-4000-8000-000000000001',
+ 'fd140000-0000-4000-8000-000000000001','MISSING-SOURCE-6',7,c.customer_request_received_at-interval '1 minute',963,'4242','USD',
+ pg_temp.boundary_evidence(c.id,c.customer_request_received_at-interval '1 minute','before_or_at_request',true,false)
+   - 'provider_time_source',
+ statement_timestamp()+interval '1 hour'
+from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4000-8000-000000000001'$$,
+ 'P4625','Invalid customer request time evidence',
+ 'Comparable occurrence evidence must name an established provider time source');
+
+select throws_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+ provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+select 'fd160000-0000-4000-8000-000000000007',c.id,l.generation,'fd110000-0000-4000-8000-000000000001',
+ 'fd140000-0000-4000-8000-000000000001','MANUAL-LATER-7',null,c.customer_request_received_at+interval '1 second',963,'4242','USD',
+ '{"source":"manual_nayax_portal","selection_allowed":true,"is_recommended":true,"one_click_eligible":false,"policy_version":"manual-nayax-portal-v1"}',
+ statement_timestamp()+interval '1 hour'
+from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4000-8000-000000000001'$$,
+ 'P4625','Transaction occurred after Bloomjoy received the customer request',
+ 'Exact manual portal occurrence after the request is never persisted');
+
 select is((public.service_commit_refund_nayax_lookup('fd150000-0000-4000-8000-000000000001',
  (select generation from lookup_claim),1,'match_found','high_confidence','2026-09-05.v8',statement_timestamp(),
  'Synthetic request-bound candidate',null,2,'manual','fd110000-0000-4000-8000-000000000001')->>'applied'),'true',
@@ -115,7 +136,9 @@ select is((public.service_commit_refund_nayax_lookup('fd150000-0000-4000-8000-00
 
 set local role service_role;
 select is((public.service_select_refund_nayax_candidate_as_actor('fd110000-0000-4000-8000-000000000001',
- 'fd150000-0000-4000-8000-000000000001',1,'fd160000-0000-4000-8000-000000000001',null)->>'selectionApplied'),'true',
+ 'fd150000-0000-4000-8000-000000000001',
+ (select official_action_version from public.refund_cases where id='fd150000-0000-4000-8000-000000000001'),
+ 'fd160000-0000-4000-8000-000000000001',null)->>'selectionApplied'),'true',
  'A proved earlier transaction remains selectable through the normal manager path');
 reset role;
 
@@ -133,6 +156,9 @@ select 'fd160000-0000-4000-8000-000000000005','fd150000-0000-4000-8000-000000000
  statement_timestamp()-interval '1 hour',963,'4242','USD',
  '{"selection_allowed":true,"is_recommended":true,"one_click_eligible":true,"recommendation_state":"high_confidence","policy_version":"2026-09-03.v7","lookup_account_scope":"BOUNDARY_ACCOUNT","lookup_provider_machine_id":"BOUNDARY-MACHINE","provider_machine_id":"BOUNDARY-MACHINE","machine_authorization_time_raw":"2026-09-05T10:00:00","machine_authorization_time_source":"MachineAuthorizationTime","machine_time_resolution":"exact","provider_time_resolution":"exact"}',
  statement_timestamp()+interval '1 hour' from legacy_claim;
+select is((select evidence_summary->>'one_click_eligible' from public.refund_nayax_lookup_candidates
+ where token='fd160000-0000-4000-8000-000000000005'),'false',
+ 'Unknown-anchor legacy evidence stays reviewable without a stale one-click claim');
 select is((public.service_commit_refund_nayax_lookup('fd150000-0000-4000-8000-000000000002',
  (select generation from legacy_claim),1,'match_found','high_confidence','2026-09-03.v7',statement_timestamp(),
  'Synthetic stale candidate',null,1,'manual','fd110000-0000-4000-8000-000000000001')->>'applied'),'true',
@@ -140,8 +166,9 @@ select is((public.service_commit_refund_nayax_lookup('fd150000-0000-4000-8000-00
 update public.refund_cases set customer_request_received_at=statement_timestamp(),
  customer_request_received_source='hosted_refund_intake' where id='fd150000-0000-4000-8000-000000000002';
 set local role service_role;
-select throws_ok($$select public.service_select_refund_nayax_candidate_as_actor('fd110000-0000-4000-8000-000000000001',
- 'fd150000-0000-4000-8000-000000000002',1,'fd160000-0000-4000-8000-000000000005',null)$$,
+select throws_ok(format($$select public.service_select_refund_nayax_candidate_as_actor('fd110000-0000-4000-8000-000000000001',
+ 'fd150000-0000-4000-8000-000000000002',%s,'fd160000-0000-4000-8000-000000000005',null)$$,
+ (select official_action_version from public.refund_cases where id='fd150000-0000-4000-8000-000000000002')),
  'P4625','Refresh Nayax transactions to bind the customer request time','Stale selection cannot bypass the request-time binding');
 reset role;
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
