@@ -41,7 +41,7 @@
     "commerce:uat:local": "node scripts/commerce/local-payment-uat.mjs",
     "commerce:validate-payment-first": "node scripts/validate-payment-first-storefront.mjs && deno test --no-lock src/lib/membership.test.ts supabase/functions/_shared/customer-order-email.test.ts supabase/functions/_shared/local-notification-sink.test.ts supabase/functions/_shared/plus-billing.test.ts",
     "edge-url-allowlists:check": "node scripts/validate-edge-url-allowlists.mjs",
-    "db:validate-migrations": "node --test scripts/refunds/refund-correction-migration-line-endings.test.mjs && node scripts/validate-supabase-migrations.mjs",
+    "db:validate-migrations": "node --test scripts/refunds/refund-correction-migration-line-endings.test.mjs scripts/refunds/refund-request-boundary-receipt-migration.test.mjs && node scripts/validate-supabase-migrations.mjs",
     "db:validate-rpc-surface": "node scripts/validate-rpc-execute-surface.mjs",
     "orders:backfill": "node scripts/backfill-stripe-orders.mjs",
     "reporting:import-sales": "node scripts/import-sales-reporting-csv.mjs",

@@ -173,6 +173,57 @@ export function prepareCorrectionMigrationWindowsRegression(tempSupabaseDir) {
   }
 }
 
+export function prepareRefundRequestBoundaryReceiptRegression(tempSupabaseDir) {
+  const fixturePath = path.join(
+    tempSupabaseDir,
+    'migrations',
+    '20260905173538_refund_request_boundary_receipt_fixture.sql',
+  );
+  fs.writeFileSync(fixturePath, `
+-- Disposable production-shape fixture: the next migration must preserve the
+-- confirmed receipt case while clearing the unconfirmed legacy execution claim.
+insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
+values('fb110000-0000-4000-8000-000000000001','authenticated','authenticated',
+  'request-boundary-receipt@example.invalid','{}','{}');
+insert into public.customer_accounts(id,name,account_type)
+values('fb120000-0000-4000-8000-000000000001','Request boundary receipt fixture','internal');
+insert into public.reporting_locations(id,account_id,name,timezone)
+values('fb130000-0000-4000-8000-000000000001','fb120000-0000-4000-8000-000000000001',
+  'Request boundary receipt fixture','America/Los_Angeles');
+insert into public.reporting_machines(id,account_id,location_id,machine_label,nayax_machine_id,nayax_account_key)
+values('fb140000-0000-4000-8000-000000000001','fb120000-0000-4000-8000-000000000001',
+  'fb130000-0000-4000-8000-000000000001','Request boundary receipt fixture',
+  'BOUNDARY-RECEIPT-MACHINE','BOUNDARY-RECEIPT-ACCOUNT');
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+  customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,
+  card_last4,status,correlation_status,correlation_source,correlation_confidence,
+  matched_nayax_transaction_id,matched_nayax_site_id,matched_nayax_machine_auth_time,
+  matched_nayax_amount_cents,matched_nayax_card_last4,matched_nayax_currency_code,
+  nayax_recommendation_state,nayax_recommendation_policy_version,nayax_recommendation_evaluated_at,
+  nayax_match_execution_eligible,nayax_refund_execution_status)
+values
+ ('fb150000-0000-4000-8000-000000000001','RF-BOUNDARY-RECEIPT','fb140000-0000-4000-8000-000000000001',
+  'fb130000-0000-4000-8000-000000000001','confirmed-boundary@example.invalid',
+  'Confirmed receipt boundary migration fixture',statement_timestamp()-interval '3 days','card',963,963,
+  '4242','needs_review','matched','nayax',1,'BOUNDARY-RECEIPT-TX',7,
+  statement_timestamp()-interval '3 days',963,'4242','USD','high_confidence','fixture-v1',
+  statement_timestamp(),true,'not_requested'),
+ ('fb150000-0000-4000-8000-000000000002','RF-BOUNDARY-UNCONFIRMED','fb140000-0000-4000-8000-000000000001',
+  'fb130000-0000-4000-8000-000000000001','unconfirmed-boundary@example.invalid',
+  'Unconfirmed boundary migration fixture',statement_timestamp()-interval '3 days','card',963,963,
+  '4242','needs_review','matched','nayax',1,'BOUNDARY-UNCONFIRMED-TX',8,
+  statement_timestamp()-interval '3 days',963,'4242','USD','high_confidence','fixture-v1',
+  statement_timestamp(),true,'not_requested');
+insert into public.refund_authoritative_receipts(refund_case_id,reporting_machine_id,account_scope,
+  provider_machine_id,original_transaction_id,original_amount_cents,refunded_amount_cents,currency_code,
+  provider_status,evidence_reference_digest,recorded_by,attempt_binding_kind,current_provider_observation_reviewed)
+values('fb150000-0000-4000-8000-000000000001','fb140000-0000-4000-8000-000000000001',
+  'BOUNDARY-RECEIPT-ACCOUNT','BOUNDARY-RECEIPT-MACHINE','BOUNDARY-RECEIPT-TX',963,963,'USD',62,
+  '${'a'.repeat(64)}','fb110000-0000-4000-8000-000000000001','no_attempt_integrity_hold',true);
+`, 'utf8');
+  return fixturePath;
+}
+
 export function getDatabaseEvidenceExpectations() {
   return {
     migrationCount: getMigrationFiles().length,
@@ -287,6 +338,7 @@ function writeTempSupabaseProject(tempRoot, projectId, dbPort, shadowPort) {
   }
   normalizeSqlLineEndings(tempSupabaseDir);
   prepareCorrectionMigrationWindowsRegression(tempSupabaseDir);
+  prepareRefundRequestBoundaryReceiptRegression(tempSupabaseDir);
 
   const config = `project_id = "${projectId}"
 
@@ -333,6 +385,40 @@ ${renderedQuery}
   ) as exact_owner_adapter_query),
   1::bigint,
   'Exact Gmail intake-shadow owner postflight adapter query executes on PostgreSQL'
+);
+select * from finish();
+rollback;
+`, 'utf8');
+  return { testPath, testRelativePath };
+}
+
+function writeRefundRequestBoundaryReceiptRegressionTest(tempRoot) {
+  const testRelativePath = path.posix.join(
+    'supabase',
+    'tests',
+    'refund_request_boundary_receipt_migration.sql',
+  );
+  const testPath = path.join(tempRoot, ...testRelativePath.split('/'));
+  fs.writeFileSync(testPath, `
+begin;
+select plan(3);
+select is(
+  (select nayax_match_execution_eligible from public.refund_cases
+    where id='fb150000-0000-4000-8000-000000000001'),
+  true,
+  'Request-boundary migration preserves a confirmed receipt case exactly'
+);
+select is(
+  (select nayax_match_execution_eligible from public.refund_cases
+    where id='fb150000-0000-4000-8000-000000000002'),
+  false,
+  'Request-boundary migration clears an unconfirmed legacy execution claim'
+);
+select is(
+  (select count(*)::integer from public.refund_authoritative_receipts
+    where refund_case_id='fb150000-0000-4000-8000-000000000001'),
+  1,
+  'The confirmed authoritative receipt remains durable'
 );
 select * from finish();
 rollback;
@@ -409,6 +495,18 @@ async function main() {
 
     run('supabase', args, { stdio: 'inherit' });
     log('\nSupabase migration apply validation passed.');
+
+    const {
+      testPath: requestBoundaryReceiptPath,
+      testRelativePath: requestBoundaryReceiptRelativePath,
+    } = writeRefundRequestBoundaryReceiptRegressionTest(tempRoot);
+    const requestBoundaryReceiptArgs = [
+      'test', 'db', requestBoundaryReceiptRelativePath, '--workdir', tempRoot,
+    ];
+    if (options.debug) requestBoundaryReceiptArgs.push('--debug');
+    run('supabase', requestBoundaryReceiptArgs, { relayOutput: true, cwd: tempRoot });
+    fs.rmSync(requestBoundaryReceiptPath);
+    log('Request-boundary migration preserves confirmed receipts and clears only unconfirmed legacy claims.');
 
     const { testPath: receiptParityPath, testRelativePath: receiptParityRelativePath } =
       writeReceiptWrapperParityTest(repoRoot, tempRoot);

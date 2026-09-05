@@ -198,10 +198,18 @@ revoke all on function public.refund_nayax_request_boundary_evidence_state(times
 
 -- Existing cases predate the dedicated receipt anchor. Preserve their selected
 -- transaction and manager-review path, but remove any stale execution claim.
-update public.refund_cases
+update public.refund_cases as case_row
 set nayax_match_execution_eligible = false
-where customer_request_received_at is null
-  and nayax_match_execution_eligible = true;
+where case_row.customer_request_received_at is null
+  and case_row.nayax_match_execution_eligible = true
+  -- An authoritative receipt is the durable boundary for a confirmed refund.
+  -- Its accounting-review state is immutable and must not be rewritten by a
+  -- later matching migration, even if the older case has no request anchor.
+  and not exists (
+    select 1
+    from public.refund_authoritative_receipts receipt
+    where receipt.refund_case_id = case_row.id
+  );
 
 create function public.guard_refund_nayax_candidate_request_boundary()
 returns trigger language plpgsql security definer set search_path = '' as $$
