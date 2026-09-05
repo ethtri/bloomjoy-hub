@@ -146,7 +146,8 @@
     "20260904172349_nayax_report_original_refund_site_binding.sql",
     "20260904182000_refund_owner_nonrefund_adoption.sql",
     "20260904203000_refund_mall_of_louisiana_location_repair.sql",
-    "20260904210000_refund_location_binding_public_label_hotfix.sql"
+    "20260904210000_refund_location_binding_public_label_hotfix.sql",
+    "20260905173408_refund_structured_payment_context.sql"
   ],
   "migrationFilesSha256": "c7def4c363f3604baf72e1a8d4e5f7955dc5a6612699dbfcde521dd8cf106928",
   "migrationVersionSetSha256": "11a362f25e8d8696a6d097cf2259e7aa198e07de552d2dcd18ece1bbc6d8d4b6",
