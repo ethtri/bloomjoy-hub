@@ -149,6 +149,7 @@
     "20260904210000_refund_location_binding_public_label_hotfix.sql",
     "20260905190311_refund_structured_payment_context.sql",
     "20260905190312_refund_request_time_boundary.sql",
+    "20260905192819_refund_evidence_aware_selection.sql",
     "20260905210000_refund_bubble_planet_location_mapping.sql"
   ],
   "migrationFilesSha256": "67afa8d9e09d0e29a840ae96f0e7ca2f06105f1e807596e94f2d532693b4a136",
