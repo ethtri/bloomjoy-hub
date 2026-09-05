@@ -1,4 +1,6 @@
 -- #1165: bind matching to the first reliable server-observed customer request.
+-- Ordered immediately after the production-recorded structured-context migration
+-- (20260905190311), whose canonical source was recovered read-only.
 -- Provider record delivery/import time is deliberately absent from this contract.
 
 alter table public.refund_cases
