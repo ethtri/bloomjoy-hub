@@ -344,7 +344,7 @@ begin
       or schema_version is null
       or schema_version not in ('nayax_lookup_diagnostics_v1','nayax_lookup_diagnostics_v2','nayax_lookup_diagnostics_v3')
       or (select count(*) from jsonb_object_keys(p_diagnostics)) <>
-        case when is_v3 then 21 when is_v2 then 17 else 16 end
+        (case when is_v3 then 21 when is_v2 then 17 else 16 end)
       or not p_diagnostics ?& array['schemaVersion','endpoint','historicalCoverage',
         'providerRecordCount','providerParseableRecordCount','providerWindowRecordCount',
         'windowHours','incidentAt','windowStart','windowEnd','incidentTimeResolution',
