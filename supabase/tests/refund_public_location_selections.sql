@@ -187,7 +187,8 @@ insert into public.refund_cases (
   intake_selection_kind, intake_selection_machine_ids, customer_email,
   customer_name, issue_summary, incident_at, incident_local_datetime,
   incident_timezone, incident_time_resolution, payment_method,
-  payment_amount_cents, card_last4, card_network, payment_interaction,
+  payment_amount_cents, card_last4, card_last4_source, card_last4_provenance,
+  card_network, payment_interaction,
   incident_time_confidence, issue_category, status, correlation_status,
   customer_request_received_at, customer_request_received_source
 )
@@ -197,7 +198,7 @@ values (
   'livermore_pair', public.refund_livermore_selection_machine_ids(),
   'pair-customer@example.test', 'Pair Customer', 'Synthetic grouped lookup',
   now() - interval '30 minutes', to_char(now() - interval '30 minutes', 'YYYY-MM-DD"T"HH24:MI'),
-  'America/Los_Angeles', 'exact', 'card', 550, '4242', 'visa',
+  'America/Los_Angeles', 'exact', 'card', 550, '4242', 'physical_card', 'physical_card', 'visa',
   'tap_card', 'exact', 'charged_no_product', 'needs_review', 'multiple_candidates',
   now() - interval '5 minutes', 'hosted_refund_intake'
 );
