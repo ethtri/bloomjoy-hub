@@ -411,7 +411,7 @@ const loadNayaxTransactionStates = async ({
   return states;
 };
 
-const persistNayaxLookupCandidates = async ({
+export const persistNayaxLookupCandidates = async ({
   supabase,
   caseId,
   actorUserId,
@@ -530,10 +530,17 @@ const persistNayaxLookupCandidates = async ({
   );
 };
 
-const recommendationToLookupStatus = (state: NayaxRecommendationState): NayaxLookupResult["lookupStatus"] => {
+export const recommendationToLookupStatus = (
+  state: NayaxRecommendationState,
+  candidateCount: number,
+): NayaxLookupResult["lookupStatus"] => {
   if (state === "high_confidence") return "match_found";
   if (state === "ambiguous") return "multiple_matches";
   if (state === "manual_exception") return "manual_exception";
+  // Retained read-only candidates still represent reviewable evidence. Committing
+  // them as no_match would contradict the durable candidate-count invariant and
+  // discard the same-case correction path.
+  if (candidateCount > 0) return "manual_exception";
   return "no_match";
 };
 
@@ -915,7 +922,7 @@ const lookupGroupedLivermoreCandidates = async ({
     : "";
   return {
     configured: true,
-    lookupStatus: recommendationToLookupStatus(recommendationState),
+    lookupStatus: recommendationToLookupStatus(recommendationState, globallyRanked.length),
     recommendationState,
     confidenceClass: recommendationState === "high_confidence"
       ? uniqueCandidate?.confidenceClass ?? "strong_card"
@@ -1308,7 +1315,10 @@ export const lookupNayaxCandidatesForRefundCase = async ({
 
   return {
     configured: true,
-    lookupStatus: recommendationToLookupStatus(recommendation.recommendationState),
+    lookupStatus: recommendationToLookupStatus(
+      recommendation.recommendationState,
+      recommendation.candidateCount,
+    ),
     recommendationState: recommendation.recommendationState,
     confidenceClass: recommendation.confidenceClass,
     reasonCodes: recommendation.reasonCodes,

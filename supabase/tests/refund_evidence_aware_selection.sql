@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(31);
+select plan(34);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('fe110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -49,7 +49,12 @@ values
   'fe130000-0000-4000-8000-000000000001','readonly-customer@example.invalid','Read-only provider evidence',
   '2026-09-05T18:00:00Z','America/Los_Angeles','exact','within_15_minutes','transaction_alert_or_receipt',
   'card',1090,1090,'6768','physical_card','physical_card',null,false,'tap_card','one',
-  'needs_review','needs_nayax',4,'form','{}','2026-09-05T20:00:00Z','hosted_refund_intake');
+  'needs_review','needs_nayax',4,'form','{}','2026-09-05T20:00:00Z','hosted_refund_intake'),
+ ('fe150000-0000-4000-8000-000000000005','RF-IDENTIFIER-CORRECTION','fe140000-0000-4000-8000-000000000001',
+   'fe130000-0000-4000-8000-000000000001','correction-customer@example.invalid','One useful customer correction',
+   '2026-09-05T18:00:00Z','America/Los_Angeles','exact','within_15_minutes',null,
+   'card',1090,1090,'6768','physical_card','physical_card',null,false,'tap_card',null,
+   'needs_review','needs_nayax',4,'form','{}','2026-09-05T20:00:00Z','hosted_refund_intake');
 
 create function pg_temp.identifier_evidence(
   case_id uuid,
@@ -222,6 +227,31 @@ select 'fe160000-0000-4000-8000-000000000013','fe150000-0000-4000-8000-000000000
  statement_timestamp()+interval '1 hour' from parity_claim$$,
  'A suffix mismatch with unconfirmed provider status persists read-only for internal follow-up');
 
+create temp table correction_claim as
+select (public.service_begin_refund_nayax_lookup('fe150000-0000-4000-8000-000000000005',4,'manual',
+  'fe110000-0000-4000-8000-000000000001')->>'lookupGeneration')::bigint generation;
+insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
+ actor_user_id,reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,
+ amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+select 'fe160000-0000-4000-8000-000000000014','fe150000-0000-4000-8000-000000000005',generation,
+ 'fe110000-0000-4000-8000-000000000001','fe140000-0000-4000-8000-000000000001',
+ 'IDENTIFIER-CORRECTION-TX',15,'2026-09-05T18:15:00Z',1090,'3760','USD',
+ pg_temp.identifier_evidence('fe150000-0000-4000-8000-000000000005','2026-09-05T18:15:00Z',false)
+   || jsonb_build_object('selection_allowed',false,'is_top_ranked',true,
+     'identifier_review_state','needs_corroboration',
+     'customer_correction_fields','["incident_time_source","nearby_attempt_count"]'::jsonb,
+     'manual_review_reasons','["customer_occurrence_evidence_needed","nearby_attempt_count_needed"]'::jsonb,
+     'reason_codes','["machine_exact","amount_exact","card_last4_mismatch","customer_occurrence_evidence_needed","nearby_attempt_count_needed"]'::jsonb),
+ statement_timestamp()+interval '1 hour' from correction_claim;
+select is((public.service_commit_refund_nayax_lookup('fe150000-0000-4000-8000-000000000005',
+  (select generation from correction_claim),4,'manual_exception','manual_exception','2026-09-05.v9',
+  statement_timestamp(),'Two customer facts can resolve the same case',null,1,'manual',
+  'fe110000-0000-4000-8000-000000000001')->>'applied'),'true',
+  'The structured v9 correction lookup commits through the generation guard');
+select is(public.refund_purchase_correction_request_fields('fe150000-0000-4000-8000-000000000005'),
+  array['incident_time_source','nearby_attempt_count']::text[],
+  'Same-case correction asks only for the validated missing facts and does not repeat the supplied last four');
+
 create temp table review_claim as
 select (public.service_begin_refund_nayax_lookup('fe150000-0000-4000-8000-000000000001',4,'manual',
   'fe110000-0000-4000-8000-000000000001')->>'lookupGeneration')::bigint generation;
@@ -301,6 +331,9 @@ select is((public.service_commit_refund_nayax_lookup('fe150000-0000-4000-8000-00
   statement_timestamp(),'One transaction needs manager review',null,1,'manual',
   'fe110000-0000-4000-8000-000000000001')->>'applied'),'true',
   'The reviewable lookup commits through the generation guard');
+select is(public.refund_purchase_correction_request_fields('fe150000-0000-4000-8000-000000000001'),
+  '{}'::text[],
+  'Manager-reviewable identifier uncertainty does not create repeated customer homework');
 set local role service_role;
 select is((public.service_select_refund_nayax_candidate_as_actor(
   'fe110000-0000-4000-8000-000000000001','fe150000-0000-4000-8000-000000000001',
