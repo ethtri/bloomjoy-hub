@@ -164,7 +164,8 @@
     "20260906190727_refund_correction_production_parity.sql",
     "20260906202500_refund_correction_overview_parity.sql",
     "20260906202952_refund_attempt_continuation_outcomes.sql",
-    "20260906222000_refund_attempt_continuation_readiness.sql"
+    "20260906222000_refund_attempt_continuation_readiness.sql",
+    "20260906225234_refund_attempt_handoff_continuation.sql"
   ],
   "migrationFilesSha256": "1e3f62f432f5547f58d49abea1bac33b1f691cd139c17cc51ddb84f9cf0b4f13",
   "migrationVersionSetSha256": "ccb6f19d65dd5a9a7ab666c9531a15f6d24535e64094f09e2c4ae0bfe4b52a4d",

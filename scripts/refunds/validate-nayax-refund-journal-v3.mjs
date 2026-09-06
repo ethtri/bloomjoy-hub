@@ -25,18 +25,23 @@ const continuationReadinessMigrationUrl = new URL(
   '../../supabase/migrations/20260906222000_refund_attempt_continuation_readiness.sql',
   import.meta.url,
 );
+const continuationHandoffMigrationUrl = new URL(
+  '../../supabase/migrations/20260906225234_refund_attempt_handoff_continuation.sql',
+  import.meta.url,
+);
 const continuationTestUrl = new URL(
   '../../supabase/tests/refund_attempt_continuation_outcomes.sql',
   import.meta.url,
 );
 
-const [migration, test, legacyRecoveryTest, productionSimplification, continuationMigration, continuationReadinessMigration, continuationTest] = await Promise.all([
+const [migration, test, legacyRecoveryTest, productionSimplification, continuationMigration, continuationReadinessMigration, continuationHandoffMigration, continuationTest] = await Promise.all([
   readFile(migrationUrl, 'utf8'),
   readFile(testUrl, 'utf8'),
   readFile(legacyRecoveryTestUrl, 'utf8'),
   readFile(productionSimplificationUrl, 'utf8'),
   readFile(continuationMigrationUrl, 'utf8'),
   readFile(continuationReadinessMigrationUrl, 'utf8'),
+  readFile(continuationHandoffMigrationUrl, 'utf8'),
   readFile(continuationTestUrl, 'utf8'),
 ]);
 
@@ -226,13 +231,31 @@ for (const scenario of [
   'Request-not-proved',
   'Stale expected version',
   'Revoked manager authority',
+  'current mapped manager',
+  'original approver',
+  'Changed-case rejection',
   'Settlement-after-effect recovery',
   'Old Edge plus new database',
   'alphabetic names and secrets',
 ]) {
   assert.match(continuationTest, new RegExp(scenario), `continuation pgTAP must cover ${scenario}`);
 }
-assert.match(continuationTest, /select plan\(38\)/u);
+assert.match(continuationTest, /select plan\(44\)/u);
+assert.match(
+  continuationHandoffMigration,
+  /attempt\.actor_user_id = action_authorization\.actor_user_id[\s\S]*public\.can_perform_refund_official_action\(p_user_id, refund_case\.id\)/u,
+  'readiness must preserve original attribution and require current executor authority',
+);
+assert.match(
+  continuationHandoffMigration,
+  /attempt_row\.id, case_row\.id, p_actor_user_id, authorization_row\.id/u,
+  'continuation insert must audit the current executor without replacing the original authorization',
+);
+assert.doesNotMatch(
+  continuationHandoffMigration,
+  /attempt_row\.actor_user_id is distinct from p_actor_user_id|authorization_row\.actor_user_id is distinct from p_actor_user_id/u,
+  'handoff continuation must not require the original approver to remain the executor',
+);
 assert.match(
   continuationReadinessMigration,
   /'approvalContinuationReady', approval_continuation_ready/u,

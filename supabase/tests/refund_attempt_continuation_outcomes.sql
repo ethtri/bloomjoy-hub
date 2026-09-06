@@ -1,12 +1,16 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(38);
+select plan(44);
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
 values('00000000-0000-0000-0000-000000000000','ca000000-0000-4000-8000-000000000001',
   'authenticated','authenticated','continuation-manager@example.test','',now(),'{}','{}',now(),now());
+insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
+  raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
+values('00000000-0000-0000-0000-000000000000','ca000000-0000-4000-8000-000000000002',
+  'authenticated','authenticated','handoff-manager@example.test','',now(),'{}','{}',now(),now());
 insert into public.customer_accounts(id,name,account_type)
 values('ca100000-0000-4000-8000-000000000001','Continuation fixture','internal');
 insert into public.reporting_locations(id,account_id,name,timezone)
@@ -93,10 +97,11 @@ begin
   set provider_claim_expires_at=statement_timestamp()-interval '1 second' where id=aid;
 end $$;
 
-create function pg_temp.continue_attempt(p_n integer,version_offset integer default 2)
+create function pg_temp.continue_attempt(p_n integer,version_offset integer default 2,
+  p_actor_user_id uuid default 'ca000000-0000-4000-8000-000000000001')
 returns jsonb language sql as $$
   select public.service_reserve_nayax_refund_approval_continuation_v1('continuation-executor',
-    'ca000000-0000-4000-8000-000000000001',
+    p_actor_user_id,
     ('ca500000-0000-4000-8000-'||lpad(p_n::text,12,'0'))::uuid,
     expected_version+version_offset,'nayax-refund-'||repeat(p_n::text,64),800,'USD',
     'nayax-production-account-contract-v2','nayax-provider-journal-v3')
@@ -165,8 +170,9 @@ select ok(public.refund_case_nayax_manager_readiness(
     'caseVersion',(select expected_version+2 from continuation_reservations where n=1)
   ),'Reloaded readiness exposes only the proved current-version approval continuation');
 select is(public.refund_case_nayax_manager_readiness(
-  null,'ca500000-0000-4000-8000-000000000001')#>>'{approvalContinuationReady}',
-  'false','A different or absent manager cannot obtain continuation readiness');
+  'ca000000-0000-4000-8000-000000000002',
+  'ca500000-0000-4000-8000-000000000001')#>>'{approvalContinuationReady}',
+  'false','A different user without current machine authority cannot obtain continuation readiness');
 create temp table issued_continuation as select pg_temp.continue_attempt(1) result;
 select is((select result#>>'{attempt,shouldExecute}' from issued_continuation),'true',
   'Crash after proved request acceptance reloads current version and receives one same-attempt approval continuation');
@@ -207,8 +213,14 @@ where id=(select (result#>>'{attempt,attemptId}')::uuid from continuation_reserv
 select is(pg_temp.continue_attempt(2)#>>'{attempt,shouldExecute}','false',
   'Request-not-proved cannot continue');
 select pg_temp.record_request(4,'accepted',true,true,'True','Pending Approval');
-select throws_ok($$select pg_temp.continue_attempt(4,0)$$,'P4628',null,
-  'Stale expected version cannot claim continuation');
+update public.refund_cases
+set official_action_version=official_action_version+1
+where id='ca500000-0000-4000-8000-000000000004';
+select throws_ok($$select pg_temp.continue_attempt(4)$$,'P4628',null,
+  'Stale expected version after a case change cannot claim continuation');
+select is((select count(*) from public.refund_nayax_attempt_approval_continuations c
+  join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=c.nayax_refund_attempt_id where r.n=4),
+  0::bigint,'Changed-case rejection creates no continuation claim');
 select pg_temp.record_request(6,'accepted',true,true,'FixtureResult','FixtureStatus');
 select throws_ok($$update public.refund_cases set refund_amount_cents=700
   where id='ca500000-0000-4000-8000-000000000006'$$,'P0001',null,
@@ -263,6 +275,39 @@ select is(public.refund_case_nayax_manager_readiness(
 select is((select count(*) from public.refund_nayax_attempt_approval_continuations c
   join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=c.nayax_refund_attempt_id where r.n=5),
   0::bigint,'Revoked manager creates no continuation claim');
+
+insert into public.reporting_machine_refund_managers(id,reporting_machine_id,manager_user_id,
+  manager_email,grant_reason)
+values('ca400000-0000-4000-8000-000000000002','ca300000-0000-4000-8000-000000000001',
+  'ca000000-0000-4000-8000-000000000002','handoff-manager@example.test',
+  'Synthetic unchanged-machine handoff');
+select is(public.refund_case_nayax_manager_readiness(
+  'ca000000-0000-4000-8000-000000000002',
+  'ca500000-0000-4000-8000-000000000005')#>>'{approvalContinuationReady}',
+  'true','The current mapped manager can continue the unchanged originally approved attempt');
+create temp table handoff_continuation as
+select pg_temp.continue_attempt(5,2,'ca000000-0000-4000-8000-000000000002') result;
+select is((select result#>>'{attempt,shouldExecute}' from handoff_continuation),'true',
+  'A different current manager receives one approval-only continuation claim');
+select ok((select a.actor_user_id='ca000000-0000-4000-8000-000000000001'
+    and z.actor_user_id='ca000000-0000-4000-8000-000000000001'
+    and c.actor_user_id='ca000000-0000-4000-8000-000000000002'
+    and c.official_action_authorization_id=z.id
+  from continuation_reservations r
+  join public.refund_case_nayax_refund_attempts a
+    on a.id=(r.result#>>'{attempt,attemptId}')::uuid
+  join public.refund_case_official_action_authorizations z
+    on z.id=a.official_action_authorization_id
+  join public.refund_nayax_attempt_approval_continuations c
+    on c.nayax_refund_attempt_id=a.id
+  where r.n=5),
+  'The attempt and authorization retain the original approver while the continuation audits the current executor');
+select is((select count(*) from public.refund_nayax_provider_stage_journal j
+  join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=j.nayax_refund_attempt_id
+  where r.n=5 and j.stage='request'),2::bigint,
+  'Manager handoff creates no second request journal event');
+select is(pg_temp.continue_attempt(5,2,'ca000000-0000-4000-8000-000000000002')#>>'{attempt,shouldExecute}',
+  'false','A handoff replay cannot obtain a second continuation claim');
 
 select throws_ok($$update public.refund_nayax_provider_business_outcomes set business_status='Changed'$$,
   'P0001',null,'Business outcomes are immutable');
