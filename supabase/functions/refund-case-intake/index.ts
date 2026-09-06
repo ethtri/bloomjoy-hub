@@ -13,6 +13,7 @@ import { RefundGmailError } from "../_shared/refund-gmail.ts";
 import {
   RefundEmailContextUnavailableError,
   requireLinkedRefundEmailCase,
+  requireLinkedRefundEmailThreadId,
 } from "../_shared/refund-email-context.ts";
 import { sendRefundManagerActionNotice } from "../_shared/refund-manager-notification.ts";
 import {
@@ -125,6 +126,7 @@ type SubmittedRefundCase = {
   public_reference: string;
   status: string;
   correlation_status: string;
+  gmail_thread_id?: string;
 };
 
 type VerifiedRefundQrClaim = {
@@ -1860,6 +1862,7 @@ serve(async (req) => {
     };
 
     let refundCase: SubmittedRefundCase | null = null;
+    let linkedGmailThreadId: string | null = null;
     if (emailContextToken) {
       const { data: linkedRefundCase, error: linkError } = await supabase.rpc(
         "service_create_refund_case_from_gmail_contact_form",
@@ -1915,6 +1918,10 @@ serve(async (req) => {
         linkedRefundCase as SubmittedRefundCase | null,
       );
       if (!linkedCase) throw new RefundEmailContextUnavailableError();
+      linkedGmailThreadId = requireLinkedRefundEmailThreadId(
+        emailContextToken,
+        linkedCase,
+      );
       refundCase = linkedCase;
     }
 
@@ -2138,6 +2145,7 @@ serve(async (req) => {
         recipientEmail: customerEmail,
         email,
         deliveryKind: "automatic",
+        gmailThreadId: linkedGmailThreadId,
       });
       if (!gmailDelivery.usedGmail) {
         if (!(await automaticCustomerContactAllowed())) {
