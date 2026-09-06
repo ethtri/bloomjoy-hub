@@ -182,6 +182,13 @@ select ok((select refund_amount_cents=1200 and matched_nayax_amount_cents=1200
   'Approved continuations use each selected provider transaction full amount');
 select is(public.refund_case_nayax_manager_readiness('fa410000-0000-4000-8000-000000000001',pg_temp.case_id(12))->>'canIssueCardRefund',
   'true','Selected approved purchase reaches the existing manager refund path without reapproval');
+select ok((select (metadata ->> 'one_click_eligible')::boolean = true
+    and (metadata ->> 'execution_eligible_after_manager_selection')::boolean = true
+    and not (metadata ? 'recognition_method')
+  from public.refund_case_events
+  where refund_case_id=pg_temp.case_id(12)
+    and event_type='nayax_identifier_evidence_selected' order by created_at desc limit 1),
+  'High-confidence v2 evidence without a recognition label records truthful one-click and execution eligibility');
 
 -- Decisions/outcomes can progress while a provider read is in flight without
 -- changing deterministic matching facts. Their authority wins over late reads.

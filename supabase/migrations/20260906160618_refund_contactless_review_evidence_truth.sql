@@ -721,6 +721,10 @@ begin
         'customer_reported_amount_cents',case_row.payment_amount_cents,
         'selected_provider_amount_cents',candidate_row.amount_cents,
         'amount_delta_cents',abs(candidate_row.amount_cents - case_row.payment_amount_cents),
+        'one_click_eligible',
+          (candidate_row.evidence_summary ->> 'one_click_eligible')::boolean,
+        'execution_eligible_after_manager_selection',
+          coalesce((result ->> 'nayax_match_execution_eligible')::boolean,false),
         'provider_call_made',false,'customer_message_created',false,'payload_redacted',true
       ));
   end if;

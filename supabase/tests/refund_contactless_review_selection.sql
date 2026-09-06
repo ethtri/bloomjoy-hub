@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(25);
+select plan(26);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('fc110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -200,6 +200,12 @@ select is((select metadata ->> 'amount_delta_cents' from public.refund_case_even
   where refund_case_id='fc150000-0000-4000-8000-000000000001'
     and event_type='nayax_identifier_evidence_selected' order by created_at desc limit 1),
   '1500','Selection event records the exact customer/provider amount difference');
+select ok((select (metadata ->> 'one_click_eligible')::boolean = false
+    and (metadata ->> 'execution_eligible_after_manager_selection')::boolean = true
+  from public.refund_case_events
+  where refund_case_id='fc150000-0000-4000-8000-000000000001'
+    and event_type='nayax_identifier_evidence_selected' order by created_at desc limit 1),
+  'Contactless event distinguishes one-click ineligibility from manager-selected execution eligibility');
 select is((select metadata -> 'uncertainty_codes' from public.refund_case_events
   where refund_case_id='fc150000-0000-4000-8000-000000000001'
     and event_type='nayax_identifier_evidence_selected' order by created_at desc limit 1),
