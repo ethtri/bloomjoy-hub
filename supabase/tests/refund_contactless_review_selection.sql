@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(14);
+select plan(21);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('fc110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -97,6 +97,26 @@ select is(public.refund_nayax_identifier_evidence_state(2,
   jsonb_set(pg_temp.contactless_evidence(),'{one_click_eligible}','true'::jsonb)
 ), 'invalid','A suffix difference can never become one-click evidence');
 
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fc150000-0000-4000-8000-000000000001','fc140000-0000-4000-8000-000000000001',101,
+  '2026-08-22T20:15:00Z',1091,'3760','USD',
+  jsonb_set(pg_temp.contactless_evidence(),'{amount_delta_cents}','1'::jsonb)
+), 'invalid','A one-cent amount difference cannot use the neutral contactless exception');
+
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fc150000-0000-4000-8000-000000000001','fc140000-0000-4000-8000-000000000001',101,
+  '2026-08-22T20:15:00Z',1090,'3760','USD',
+  jsonb_set(pg_temp.contactless_evidence(),'{payment_interaction_comparison}',
+    '"conflict_unverified_provider_semantics"'::jsonb)
+), 'valid','An unverified provider interaction label does not override the settled customer tap fact');
+
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fc150000-0000-4000-8000-000000000001','fc140000-0000-4000-8000-000000000001',101,
+  '2026-08-22T20:15:00Z',1090,'3760','USD',
+  jsonb_set(jsonb_set(pg_temp.contactless_evidence(),'{authorized_at}',
+    '"2026-08-22T23:30:00Z"'::jsonb),'{provider_processing_time_delta_minutes}','210'::jsonb)
+), 'valid','A delayed provider authorization timestamp is not treated as proved purchase occurrence time');
+
 create temp table lookup_claim as
 select (public.service_begin_refund_nayax_lookup('fc150000-0000-4000-8000-000000000001',2,'manual',
   'fc110000-0000-4000-8000-000000000001')->>'lookupGeneration')::bigint generation;
@@ -135,6 +155,25 @@ select is((select count(*)::integer from public.refund_case_nayax_refund_attempt
 select is((select count(*)::integer from public.refund_authoritative_receipts
   where refund_case_id='fc150000-0000-4000-8000-000000000001'),0,
   'Manual transaction selection creates no refund receipt');
+select is((select metadata -> 'corroboration_codes' from public.refund_case_events
+  where refund_case_id='fc150000-0000-4000-8000-000000000001'
+    and event_type='nayax_identifier_evidence_selected' order by created_at desc limit 1),
+  '["machine_exact","amount_exact","provider_sale_approved","customer_physical_contactless_fact"]'::jsonb,
+  'Selection event records only corroboration that the candidate actually established');
+select is((select metadata -> 'uncertainty_codes' from public.refund_case_events
+  where refund_case_id='fc150000-0000-4000-8000-000000000001'
+    and event_type='nayax_identifier_evidence_selected' order by created_at desc limit 1),
+  '["customer_request_time_unknown","transaction_occurrence_time_uncertain","card_last4_mismatch_reviewable"]'::jsonb,
+  'Selection event preserves the actual unknown timing and identifier uncertainty');
+select is((select metadata ->> 'customer_payment_interaction' from public.refund_case_events
+  where refund_case_id='fc150000-0000-4000-8000-000000000001'
+    and event_type='nayax_identifier_evidence_selected' order by created_at desc limit 1),
+  'tap_card','Selection event preserves the settled customer tap fact');
+select matches((select message from public.refund_case_events
+  where refund_case_id='fc150000-0000-4000-8000-000000000001'
+    and event_type='nayax_identifier_evidence_selected' order by created_at desc limit 1),
+  'provider identifier scope and purchase timing remain unproved',
+  'Manager event copy names the unresolved identifier and timing evidence');
 
 update public.refund_cases set payment_interaction='swipe_card'
 where id='fc150000-0000-4000-8000-000000000001';

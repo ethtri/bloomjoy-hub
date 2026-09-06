@@ -124,6 +124,43 @@ assert.equal(productionShapedTapMismatch.candidates[0].sameIdentifierEquivalence
 assert.equal(productionShapedTapMismatch.candidates[0].customerCorrectionFields.includes("card_last4_source"), false);
 assert.deepEqual(productionShapedTapMismatch.candidates[0].hardExclusions, []);
 
+const delayedProviderTapMismatch = recommend([
+  sale({ id: "delayed-provider-tap-mismatch", at: "2026-07-21T22:15:00.000Z", amount: 10.9,
+    last4: "3760", recognitionMethod: "Swipe" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "tap_card", requestCardLast4Source: "physical_card",
+  incidentTimeSource: null, nearbyAttemptCount: null, incidentTimeConfidence: "exact",
+  customerRequestReceivedAt: null, customerRequestReceivedSource: null,
+  purchaseOccurrenceProof: null });
+assert.equal(delayedProviderTapMismatch.candidates[0].timeDeltaMinutes, null);
+assert.equal(delayedProviderTapMismatch.candidates[0].providerProcessingTimeDeltaMinutes, 195);
+assert.equal(delayedProviderTapMismatch.candidates[0].selectionAllowed, true);
+assert.equal(delayedProviderTapMismatch.candidates[0].identifierReviewState, "reviewable_uncertainty");
+assert.equal(
+  delayedProviderTapMismatch.candidates[0].paymentInteractionComparison,
+  "conflict_unverified_provider_semantics",
+);
+assert.equal(delayedProviderTapMismatch.candidates[0].customerCorrectionFields.includes("payment_interaction"), false);
+assert.equal(delayedProviderTapMismatch.candidates[0].oneClickEligible, false);
+assert.match(delayedProviderTapMismatch.summary, /exact amount/);
+assert.match(delayedProviderTapMismatch.summary, /timing is shown separately and may be unproved/i);
+assert.doesNotMatch(delayedProviderTapMismatch.summary, /close timing/i);
+assert.doesNotMatch(delayedProviderTapMismatch.recommendedAction, /amount, time/i);
+
+const oneCentDifferentTapMismatch = recommend([
+  sale({ id: "one-cent-different-tap-mismatch", at: "2026-07-21T19:15:00.000Z", amount: 10.91,
+    last4: "3760", recognitionMethod: "Contactless" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "tap_card", requestCardLast4Source: "physical_card",
+  incidentTimeSource: null, nearbyAttemptCount: null, incidentTimeConfidence: "exact",
+  customerRequestReceivedAt: null, customerRequestReceivedSource: null,
+  purchaseOccurrenceProof: null });
+assert.equal(oneCentDifferentTapMismatch.candidates[0].amountDeltaCents, 1);
+assert.equal(oneCentDifferentTapMismatch.candidates[0].selectionAllowed, false);
+assert.equal(oneCentDifferentTapMismatch.candidates[0].identifierReviewState, "needs_corroboration");
+assert.ok(oneCentDifferentTapMismatch.candidates[0].customerCorrectionFields.includes("amount"));
+assert.equal(oneCentDifferentTapMismatch.candidates[0].oneClickEligible, false);
+
 const ambiguousTapMismatches = recommend([
   sale({ id: "great-mall-tap-a", at: "2026-07-21T19:14:00.000Z", amount: 10.9,
     last4: "3760", recognitionMethod: "Contactless" }),

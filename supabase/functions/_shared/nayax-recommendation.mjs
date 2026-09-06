@@ -689,7 +689,9 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     identifierEvidence.cardNetworkComparison !== "mismatch_negative_unproven_equivalence";
   const evidenceAwareReviewEligible =
     corroboratedMismatchReviewEligible ||
-    (managerSelectionCore && neutralPhysicalContactlessMismatch);
+    (managerSelectionCore &&
+      neutralPhysicalContactlessMismatch &&
+      amountDeltaCents === 0);
   const identifierReviewState = hardExclusions.length > 0
     ? "blocked_safety"
     : evidenceAwareReviewEligible
@@ -1189,10 +1191,10 @@ export const buildNayaxRecommendation = ({
     },
     manual_exception: {
       summary: confidenceClass === "evidence_aware_review"
-        ? "Nayax found one sale with matching machine, amount, and close timing. The card details differ, but Nayax has not proved those fields use the same identifier for this payment interaction."
+        ? "Nayax found one sale on the matching machine for the exact amount. The card details differ, and Nayax has not proved those fields use the same identifier for this payment interaction. Transaction timing is shown separately and may be unproved."
         : "Nayax found a possible sale, but one or more details still need a manager to compare them.",
       recommendedAction: confidenceClass === "evidence_aware_review"
-        ? "Review this sale once and confirm it only if the machine, amount, time, and customer details identify the same purchase. One-click refund stays unavailable."
+        ? "Review this sale once and confirm it only if the exact amount, machine, and available customer and payment evidence identify the same purchase. One-click refund stays unavailable."
         : "Compare the customer details with the possible sale before choosing the next step.",
     },
     no_safe_match: {
