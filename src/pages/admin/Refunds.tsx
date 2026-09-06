@@ -4736,7 +4736,7 @@ export default function AdminRefundsPage() {
       manualMessageIntentRef.current = null;
       setPendingRevision(null);
       setCorrectionSelection(null);
-      setIsCustomerDraftDirty(false);
+      if (!usesDefaultLocalizedTemplate) setIsCustomerDraftDirty(false);
       toast.success(
         sentMessage.transport === 'gmail_thread'
           ? 'Reply sent in the Gmail thread.'

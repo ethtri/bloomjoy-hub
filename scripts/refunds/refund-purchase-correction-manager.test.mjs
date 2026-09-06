@@ -28,20 +28,36 @@ test('actual manager action respects current scope, delivery holds and terminal 
  assert.notEqual(action({...base,receipt:true},editor,[],null).label,'Waiting for customer response');
 });
 test('actual one-action correction sends canonical fields without unreviewed triage/editor content',async()=>{
- let sent;let refreshed=0;const errors=[];
+ let sent;let refreshed=0;const errors=[];const customerDraftDirtyUpdates=[];
  const handler=load('handleSendCustomerMessage',{
   selectedCase:{id:'case-1',customerCorrectionFields:['card_last4','amount']},customerDeliveryNeedsReconciliation:false,isUsingDemoData:false,pendingRevision:null,setPendingRevision:()=>{},
   correctionSelection:{caseId:'case-1',version:12,fields:['amount']},setCorrectionSelection:()=>{},
   messageType:'denied',messageSubject:'Old denial subject',messageBody:'Old denial draft',
   gmailContext:{triageSuggestion:{id:'unreviewed',status:'ready_for_review',route:'draft_reply',missingFields:['incident_time']}},
   officialActionVersion:12,getCustomerMessageDraft:()=>({subject:'Canonical',body:'Canonical'}),manualMessageIntentRef:{current:null},
-  setIsSendingCustomerMessage:()=>{},setIsCustomerDraftDirty:()=>{},sendRefundCaseMessage:async input=>{sent=input;return {transport:'gmail_thread'};},refresh:async()=>{refreshed++;},
+  setIsSendingCustomerMessage:()=>{},setIsCustomerDraftDirty:value=>customerDraftDirtyUpdates.push(value),sendRefundCaseMessage:async input=>{sent=input;return {transport:'gmail_thread'};},refresh:async()=>{refreshed++;},
   toast:{error:value=>errors.push(value),success:()=>{},info:()=>{}},isEdgeFunctionError:()=>false,
  });
  await handler('more_info',['amount']);
  assert.equal(errors.length,0);assert.equal(refreshed,1);assert.equal(sent.messageType,'more_info');
  assert.deepEqual(Array.from(sent.missingFields),['amount']);
  assert.equal(sent.subject,undefined);assert.equal(sent.body,undefined);assert.equal(sent.triageSuggestionId,undefined);
+ assert.deepEqual(customerDraftDirtyUpdates,[],'canonical override must preserve a different unsent editor draft');
+});
+
+test('successful editable send clears only customer-draft dirtiness',async()=>{
+ const customerDraftDirtyUpdates=[];let internalDraftDirtyUpdates=0;
+ const handler=load('handleSendCustomerMessage',{
+  selectedCase:{id:'case-1'},customerDeliveryNeedsReconciliation:false,isUsingDemoData:false,pendingRevision:null,setPendingRevision:()=>{},
+  correctionSelection:null,setCorrectionSelection:()=>{},messageType:'denied',messageSubject:'Reviewed subject',messageBody:'Reviewed body',
+  gmailContext:{},officialActionVersion:12,getCustomerMessageDraft:()=>({subject:'Canonical',body:'Canonical'}),manualMessageIntentRef:{current:null},
+  setIsSendingCustomerMessage:()=>{},setIsCustomerDraftDirty:value=>customerDraftDirtyUpdates.push(value),
+  setIsInternalNoteDirty:()=>{internalDraftDirtyUpdates++;},sendRefundCaseMessage:async()=>({transport:'gmail_thread'}),refresh:async()=>{},
+  toast:{error:()=>{},success:()=>{},info:()=>{}},isEdgeFunctionError:()=>false,
+ });
+ await handler();
+ assert.deepEqual(customerDraftDirtyUpdates,[false]);
+ assert.equal(internalDraftDirtyUpdates,0,'email success must not clear an unsaved internal note');
 });
 
 test('actual correction action opens preselected fields, rejects empty, stale and unsupported selections before send',async()=>{

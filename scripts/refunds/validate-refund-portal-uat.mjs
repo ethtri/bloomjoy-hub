@@ -4382,7 +4382,7 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   await queueCase(page, 'RF-UAT-ALT-DRAFT').click();
   await page.getByRole('heading', { name: 'RF-UAT-ALT-DRAFT', exact: true }).waitFor({ timeout: 10000 });
   recorder.assert(
-    'Successful send clears only the customer-draft navigation guard',
+    'Successful reviewed-draft send clears the customer-draft navigation guard',
     (await page.getByTestId('refund-unsaved-text-dialog').count()) === 0 &&
       functionCalls.filter((name) => name === 'refund-case-message-send').length === 1
   );
