@@ -96,6 +96,42 @@ const run = async () => {
     ])
   );
   assert(
+    'Delivery exceptions expose one read-only path to the saved same-case evidence',
+    includesAll(portalPage, [
+      'handleReviewDeliveryRecord',
+      'refund-review-delivery-record',
+      'Review delivery record',
+      'Saved delivery outcome:',
+      'Payment remains confirmed.',
+      'customerMessagesDetailsRef',
+      'customerMessagesSummaryRef',
+      'customerDeliveryEvidenceRef',
+      'getRefundDeliveryEvidenceMessageId',
+      'message.messageType === exception.messageType',
+      'messageOccurredAt === occurredAt',
+      'exactMatches.length === 1',
+      'data-refund-message-id',
+      'refund-focused-delivery-record',
+      'details.open = true',
+      'focusTarget.focus({ preventScroll: true })',
+      'key={selectedCase.id}',
+    ]) && !/data-testid="refund-customer-messages-summary"[\s\S]{0,160}tabIndex=/.test(portalPage) && includesAll(portalUat, [
+      "'unknown'",
+      "'deferred'",
+      "'failed'",
+      "'bounced'",
+      "'complained'",
+      'delivery-message-competing',
+      'Competing same-state evidence must not receive focus.',
+      'Ordinary-case Customer messages stays in the shared-shell Tab order and Enter opens it',
+      'Exact Gmail uncertainty resolution remains available alongside delivery-record review',
+      'exact delivery tuple matches fail closed to the Customer messages summary',
+      '[aria-label^="Saved delivery record:"]',
+      'refund-review-delivery-record',
+      'performs no message, refund, lookup, selection, payment, or mutation call',
+    ])
+  );
+  assert(
     'Portal primary customer requests use the durable message outbox',
     includesAll(portalPage, ["mode: 'retry_message'", 'handleSendCustomerMessage(primaryAction.messageType)']) &&
       includesAll(messageSend, ['service_enqueue_refund_manual_message_intent', 'drainRefundManualMessageOutbox'])

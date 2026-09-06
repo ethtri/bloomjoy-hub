@@ -1641,12 +1641,20 @@ const buildWalletMismatchWaitingRefundOverview = () => {
   return overview;
 };
 
-const buildTransactionalDeliveryTruthOverview = (historicalNotice = false) => {
+const buildTransactionalDeliveryTruthOverview = ({
+  deliveryState = 'bounced',
+  confirmedPayment = true,
+  accountingReview = false,
+  gmailUncertain = false,
+  exactEvidenceCardinality = 'one',
+} = {}) => {
   const overview = buildMockRefundOverview();
   const refundCase = overview.cases[0];
-  const lifecycle = buildLifecycleFixture(historicalNotice ? 'refund_confirmed' : 'customer_notified', historicalNotice ? 70 : 80, 'none');
-  lifecycle.paymentState = 'confirmed';
-  if (historicalNotice) {
+  const lifecycle = confirmedPayment
+    ? buildLifecycleFixture(accountingReview ? 'refund_confirmed' : 'customer_notified', accountingReview ? 70 : 80, 'none')
+    : buildLifecycleFixture('needs_refund_operations', 60, 'refund_operations');
+  lifecycle.paymentState = confirmedPayment ? 'confirmed' : 'not_requested';
+  if (accountingReview) {
     lifecycle.reasonCode = 'settlement_time_unknown';
     lifecycle.messageState = { state: 'none', messageType: null, lastUpdatedAt: null, payloadRedacted: true };
   }
@@ -1658,41 +1666,128 @@ const buildTransactionalDeliveryTruthOverview = (historicalNotice = false) => {
     nextAction: 'review_customer_delivery',
     safeRetryEligible: false,
   };
+  const exceptionOccurredAt = isoHoursAgo(0.5);
   overview.transactionalDeliveryContractVersion =
     'refund_transactional_delivery_v1';
   overview.cases = [{
     ...refundCase,
-    publicReference: 'RF-UAT-DELIVERY',
-    status: historicalNotice ? 'card_refund_pending' : 'completed',
-    providerOutcome: historicalNotice ? 'unconfirmed' : 'succeeded',
-    hasReportingAdjustment: !historicalNotice,
+    publicReference: `RF-UAT-DELIVERY-${deliveryState.toUpperCase()}`,
+    paymentMethod: confirmedPayment ? 'card' : 'cash',
+    status: confirmedPayment ? (accountingReview ? 'card_refund_pending' : 'completed') : 'needs_review',
+    providerOutcome: confirmedPayment ? (accountingReview ? 'unconfirmed' : 'succeeded') : 'not_attempted',
+    hasReportingAdjustment: confirmedPayment && !accountingReview,
     lifecycle,
     customerDeliveryException: {
       schemaVersion: 'refund_transactional_delivery_v1',
-      state: historicalNotice ? 'unknown' : 'bounced',
-      messageType: historicalNotice ? 'status_update' : 'completed',
-      occurredAt: isoHoursAgo(0.5),
+      state: deliveryState,
+      messageType: confirmedPayment ? 'completed' : 'status_update',
+      occurredAt: exceptionOccurredAt,
       recoveryOwner: 'refund_operations',
       nextAction: 'review_delivery_no_resend',
       customerMessageReplayAllowed: false,
       paymentReplayAllowed: false,
       payloadRedacted: true,
     },
+    messages: [
+      ...(gmailUncertain ? [{
+        id: 'gmail-message-uncertain',
+        messageType: 'status_update',
+        status: 'failed',
+        recipientEmail: 'delivery-customer@example.test',
+        subject: 'Earlier Gmail status update requiring reconciliation',
+        body: 'Synthetic Gmail uncertainty evidence.',
+        sentAt: null,
+        errorMessage: 'gmail_send_unconfirmed',
+        createdAt: isoHoursAgo(0.25),
+        deliveryKind: 'manual',
+        deliveryTransport: null,
+        deliveryState: 'unknown',
+        deliveryStateUpdatedAt: null,
+        providerEvidenceAvailable: false,
+      }] : []),
+      {
+        id: 'delivery-message-1',
+        messageType: confirmedPayment ? 'completed' : 'status_update',
+        status: deliveryState === 'unknown' || deliveryState === 'deferred' ? 'sent' : 'failed',
+        recipientEmail: 'delivery-customer@example.test',
+        subject: confirmedPayment ? 'Your Bloomjoy refund is on its way' : 'Your refund request was submitted',
+        body: confirmedPayment ? 'Synthetic completion message for visual verification.' : 'The request was submitted and confirmation is pending.',
+        sentAt: isoHoursAgo(1),
+        errorMessage: `transactional_delivery_${deliveryState}`,
+        createdAt: isoHoursAgo(1),
+        deliveryKind: 'automatic',
+        deliveryTransport: 'resend',
+        deliveryState,
+        deliveryStateUpdatedAt: exactEvidenceCardinality === 'zero'
+          ? isoHoursAgo(1.5)
+          : exceptionOccurredAt,
+        providerEvidenceAvailable: true,
+      },
+      ...(exactEvidenceCardinality === 'multiple' ? [{
+        id: 'delivery-message-duplicate',
+        messageType: confirmedPayment ? 'completed' : 'status_update',
+        status: 'failed',
+        recipientEmail: 'delivery-customer@example.test',
+        subject: 'Duplicate exact delivery evidence',
+        body: 'Ambiguous exact evidence must fail closed to the history summary.',
+        sentAt: isoHoursAgo(1),
+        errorMessage: `transactional_delivery_${deliveryState}`,
+        createdAt: isoHoursAgo(1),
+        deliveryKind: 'automatic',
+        deliveryTransport: 'resend',
+        deliveryState,
+        deliveryStateUpdatedAt: exceptionOccurredAt,
+        providerEvidenceAvailable: true,
+      }] : []),
+      {
+        id: 'delivery-message-competing',
+        messageType: confirmedPayment ? 'completed' : 'status_update',
+        status: 'failed',
+        recipientEmail: 'delivery-customer@example.test',
+        subject: 'Earlier saved message with the same delivery outcome',
+        body: 'Competing same-state evidence must not receive focus.',
+        sentAt: isoHoursAgo(3),
+        errorMessage: `transactional_delivery_${deliveryState}`,
+        createdAt: isoHoursAgo(3),
+        deliveryKind: 'automatic',
+        deliveryTransport: 'resend',
+        deliveryState,
+        deliveryStateUpdatedAt: isoHoursAgo(2),
+        providerEvidenceAvailable: true,
+      },
+    ],
+  }];
+  return overview;
+};
+
+const buildGmailUncertaintyPrecedenceOverview = ({ providerRejected = false } = {}) => {
+  const overview = buildMockRefundOverview();
+  const refundCase = overview.cases[0];
+  const lifecycle = buildLifecycleFixture('matching', 10, 'review_customer_contact');
+  lifecycle.paymentState = 'not_requested';
+  overview.cases = [{
+    ...refundCase,
+    publicReference: providerRejected ? 'RF-UAT-GMAIL-REJECTED' : 'RF-UAT-GMAIL-UNCERTAIN',
+    status: 'needs_review',
+    providerHold: false,
+    providerOutcome: providerRejected ? 'rejected' : 'unconfirmed',
+    lifecycle,
+    customerDeliveryException: null,
     messages: [{
-      id: 'delivery-message-1',
-      messageType: historicalNotice ? 'status_update' : 'completed',
-      status: historicalNotice ? 'sent' : 'failed',
-      recipientEmail: 'delivery-customer@example.test',
-      subject: historicalNotice ? 'Your refund request was submitted' : 'Your Bloomjoy refund is on its way',
-      body: historicalNotice ? 'The request was submitted and confirmation is pending.' : 'Synthetic completion message for visual verification.',
-      sentAt: isoHoursAgo(1),
-      errorMessage: 'transactional_delivery_bounced',
-      createdAt: isoHoursAgo(1),
-      deliveryKind: 'automatic',
-      deliveryTransport: 'resend',
-      deliveryState: historicalNotice ? 'unknown' : 'bounced',
-      deliveryStateUpdatedAt: isoHoursAgo(0.5),
-      providerEvidenceAvailable: true,
+      id: 'gmail-message-uncertain',
+      messageType: 'confirmation',
+      status: 'failed',
+      recipientEmail: 'gmail-customer@example.test',
+      subject: 'We received your Bloomjoy refund request',
+      body: 'Synthetic Gmail uncertainty evidence.',
+      sentAt: null,
+      errorMessage: 'gmail_send_unconfirmed',
+      createdAt: isoHoursAgo(0.25),
+      deliveryKind: 'manual',
+      deliveryTransport: null,
+      deliveryState: 'unknown',
+      deliveryStateUpdatedAt: null,
+      providerEvidenceAvailable: false,
     }],
   }];
   return overview;
@@ -3706,6 +3801,22 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     await page.getByText(/Event timeline \(2\)/).isVisible() &&
       await page.getByText(/Customer messages \(1\)/).isVisible()
   );
+  const ordinaryMessageHistory = page.getByTestId('refund-customer-messages');
+  const ordinaryMessageHistorySummary = page.getByTestId('refund-customer-messages-summary');
+  await ordinaryMessageHistorySummary.focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  const ordinaryMessageSummaryIsTabbed = await ordinaryMessageHistorySummary.evaluate(
+    (element) => document.activeElement === element && element.tabIndex >= 0
+  );
+  await page.keyboard.press('Enter');
+  recorder.assert(
+    'Ordinary-case Customer messages stays in the shared-shell Tab order and Enter opens it',
+    ordinaryMessageSummaryIsTabbed &&
+      await ordinaryMessageHistory.evaluate((element) => element.open === true) &&
+      await ordinaryMessageHistorySummary.evaluate((element) => document.activeElement === element)
+  );
+  await page.keyboard.press('Enter');
   recorder.assert(
     'Unselected provider transaction IDs remain absent from the workflow body',
     !(await page.locator('body').innerText()).includes('hidden-provider-id-for-selection-only') &&
@@ -7581,12 +7692,29 @@ const runTransactionalDeliveryTruthChecks = async ({
   artifactDir,
   recorder,
 }) => {
-  for (const historicalNotice of [false, true]) {
+  const scenarios = [
+    { state: 'unknown', label: 'Delivery unknown', confirmedPayment: true, accountingReview: true },
+    { state: 'deferred', label: 'Delivery delayed', confirmedPayment: false, accountingReview: false },
+    { state: 'failed', label: 'Delivery failed', confirmedPayment: false, accountingReview: false },
+    { state: 'bounced', label: 'Bounced', confirmedPayment: true, accountingReview: false },
+    { state: 'complained', label: 'Complaint reported', confirmedPayment: true, accountingReview: false },
+    { state: 'failed', label: 'Delivery failed', name: 'Gmail uncertainty plus delivery record', confirmedPayment: false, accountingReview: false, gmailUncertain: true },
+  ];
+  for (const scenario of scenarios) {
+  const scenarioName = scenario.name ?? scenario.label;
+  const expectedDeliverySubject = scenario.confirmedPayment
+    ? 'Your Bloomjoy refund is on its way'
+    : 'Your refund request was submitted';
   const functionCalls = [];
   const rpcCalls = [];
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   await installMockSupabaseRoutes(context, {
-    refundOverview: () => buildTransactionalDeliveryTruthOverview(historicalNotice),
+    refundOverview: () => buildTransactionalDeliveryTruthOverview({
+      deliveryState: scenario.state,
+      confirmedPayment: scenario.confirmedPayment,
+      accountingReview: scenario.accountingReview,
+      gmailUncertain: scenario.gmailUncertain,
+    }),
     functionCalls,
     rpcCalls,
   });
@@ -7599,71 +7727,264 @@ const runTransactionalDeliveryTruthChecks = async ({
     .waitFor({ state: 'hidden', timeout: 5000 })
     .catch(() => undefined);
   await waitForQueueCount(page, 1);
-  await queueCase(page, 'RF-UAT-DELIVERY').click();
+  await queueCase(page, `RF-UAT-DELIVERY-${scenario.state.toUpperCase()}`).click();
 
+  const review = page.getByTestId('refund-secondary-delivery-review');
+  const reviewAction = page.getByTestId('refund-review-delivery-record');
+  const messageHistory = page.getByTestId('refund-customer-messages');
+  const messageHistorySummary = page.getByTestId('refund-customer-messages-summary');
+  const focusedDeliveryRecord = page.getByTestId('refund-focused-delivery-record');
+  const competingDeliveryRecord = page.locator('[data-refund-message-id="delivery-message-competing"]');
   recorder.assert(
-    'Confirmed payment stays explicit in the queue alongside either delivery exception',
-    await queueCase(page, 'RF-UAT-DELIVERY').getByText('Refund confirmed · delivery review', { exact: true }).isVisible()
-  );
-  if (historicalNotice) recorder.assert(
-    'An earlier submitted notice cannot obscure a confirmed receipt in the main header',
-    await page.getByTestId('refund-manager-state').getByText('Refund confirmed · delivery review', { exact: true }).isVisible() &&
-      (await page.getByTestId('refund-manager-next-step').innerText()).includes('message-delivery and accounting-date review')
-  );
-  else recorder.assert(
-    'A provider bounce is manager-owned without changing successful payment truth',
-    await page.getByTestId('refund-terminal-primary-action')
-      .getByText('Refund confirmed · delivery review', { exact: true }).isVisible() &&
-      (await page.getByTestId('refund-terminal-primary-helper').innerText())
-        .includes('Do not retry payment or resend the message blindly') &&
-      (await page.getByTestId('refund-run-nayax-refund').count()) === 0
-  );
-  const messageHistory = page.getByText('Customer messages (1)', { exact: true });
-  await messageHistory.click();
-  recorder.assert(
-    'Message history distinguishes provider delivery from application send status',
-    await page.getByTestId('refund-message-delivery-delivery-message-1')
-      .getByText(historicalNotice ? 'Delivery unknown' : 'Bounced', { exact: true }).isVisible()
+    `${scenarioName} names the saved outcome beside exactly one evidence action`,
+    (await review.getByText(`Saved delivery outcome: ${scenario.label}.`, { exact: false }).isVisible()) &&
+      (await reviewAction.count()) === 1 &&
+      await reviewAction.isVisible()
   );
   recorder.assert(
-    'Delivery review renders no provider identifier and performs no message or payment mutation',
-    !(await page.locator('body').innerText()).includes('resend_delivery') &&
-      functionCalls.length === 0 &&
-      rpcCalls.every((name) => NAVIGATION_READ_ONLY_RPCS.has(name)),
+    `${scenarioName} keeps the manager payment state explicit`,
+    scenario.confirmedPayment
+      ? (await page.getByText('Refund confirmed · delivery review', { exact: true }).count()) > 0 &&
+        await review.getByText('Payment remains confirmed.', { exact: false }).isVisible()
+      : scenario.gmailUncertain
+        ? await review.getByText('This delivery record does not change the refund or payment state.', { exact: false }).isVisible()
+        : await page.getByTestId('refund-manager-state').getByText('Delivery needs review', { exact: true }).isVisible()
+  );
+  if (scenario.gmailUncertain) recorder.assert(
+    'Exact Gmail uncertainty resolution remains available alongside delivery-record review',
+    await page.getByText('Resolve uncertain Gmail delivery', { exact: true }).isVisible() &&
+      await reviewAction.isVisible()
+  );
+  const desktopCallSnapshot = {
+    functions: functionCalls.length,
+    mutations: rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length,
+  };
+  await reviewAction.click();
+  await page.waitForFunction(() =>
+    document.activeElement?.getAttribute('data-testid') === 'refund-focused-delivery-record'
+  );
+  await page.waitForFunction(() => {
+    const element = document.querySelector('[data-testid="refund-focused-delivery-record"]');
+    if (!element) return false;
+    const bounds = element.getBoundingClientRect();
+    return bounds.top >= 0 && bounds.bottom <= window.innerHeight;
+  });
+  const desktopEvidenceBox = await focusedDeliveryRecord.boundingBox();
+  recorder.assert(
+    `${scenarioName} opens and focuses the same-case Customer messages evidence on desktop`,
+    await messageHistory.evaluate((element) => element.open === true) &&
+      await focusedDeliveryRecord.evaluate((element) => document.activeElement === element) &&
+      Boolean(desktopEvidenceBox && desktopEvidenceBox.y >= 0 && desktopEvidenceBox.y + desktopEvidenceBox.height <= 1000) &&
+      (await focusedDeliveryRecord.count()) === 1 &&
+      await focusedDeliveryRecord.getByText(expectedDeliverySubject, { exact: true }).isVisible() &&
+      await competingDeliveryRecord.evaluate((element) => document.activeElement !== element) &&
+      await messageHistorySummary.getByText(`Customer messages (${scenario.gmailUncertain ? 3 : 2})`, { exact: true }).isVisible() &&
+      await page.getByTestId('refund-message-delivery-delivery-message-1')
+        .getByText(scenario.label, { exact: true }).isVisible(),
+    JSON.stringify({ desktopEvidenceBox })
+  );
+  recorder.assert(
+    `${scenarioName} review performs no message, refund, lookup, selection, payment, or mutation call`,
+    functionCalls.length === desktopCallSnapshot.functions &&
+      rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length === desktopCallSnapshot.mutations &&
+      (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+      (await page.getByText('Resolve uncertain Gmail delivery', { exact: true }).count()) === (scenario.gmailUncertain ? 1 : 0) &&
+      (await page.getByTestId('refund-gmail-not-delivered-dialog').count()) === 0,
     JSON.stringify({ functionCalls, rpcCalls })
   );
-  if (historicalNotice) await page.screenshot({
+  recorder.assert(
+    `${scenarioName} message history distinguishes provider delivery from application send status`,
+    await page.getByTestId('refund-message-delivery-delivery-message-1')
+      .getByText(scenario.label, { exact: true }).isVisible()
+  );
+  if (scenario.state === 'unknown') await page.screenshot({
     path: path.join(artifactDir, 'refund-transactional-delivery-desktop.png'),
     fullPage: true,
   });
 
+  await messageHistorySummary.click();
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByTestId('refund-message-delivery-delivery-message-1')
-    .scrollIntoViewIfNeeded();
+  await reviewAction.scrollIntoViewIfNeeded();
+  const mobileCallSnapshot = {
+    functions: functionCalls.length,
+    mutations: rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length,
+  };
+  const mobileActionBox = await reviewAction.boundingBox();
+  await reviewAction.focus();
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() =>
+    document.activeElement?.getAttribute('data-testid') === 'refund-focused-delivery-record'
+  );
+  await page.waitForFunction(() => {
+    const element = document.querySelector('[data-testid="refund-focused-delivery-record"]');
+    if (!element) return false;
+    const bounds = element.getBoundingClientRect();
+    return bounds.top >= 0 && bounds.bottom <= window.innerHeight;
+  });
   const mobileLayout = await page.evaluate(() => ({
     documentWidth: document.documentElement.scrollWidth,
     bodyWidth: document.body.scrollWidth,
     viewportWidth: window.innerWidth,
   }));
+  const mobileEvidenceBox = await focusedDeliveryRecord.boundingBox();
   recorder.assert(
-    'Delivery truth remains readable without mobile horizontal overflow',
-    mobileLayout.documentWidth <= mobileLayout.viewportWidth + 1 &&
-      mobileLayout.bodyWidth <= mobileLayout.viewportWidth + 1,
-    JSON.stringify(mobileLayout)
+    `${scenarioName} evidence action is visible, keyboard reachable, and at least 44px tall on mobile`,
+      await reviewAction.isVisible() &&
+      Boolean(mobileActionBox && mobileActionBox.height >= 44 && mobileActionBox.y >= 0 && mobileActionBox.y + mobileActionBox.height <= 844) &&
+      await messageHistory.evaluate((element) => element.open === true) &&
+      await focusedDeliveryRecord.evaluate((element) => document.activeElement === element) &&
+      Boolean(mobileEvidenceBox && mobileEvidenceBox.y >= 0 && mobileEvidenceBox.y + mobileEvidenceBox.height <= 844) &&
+      (await focusedDeliveryRecord.count()) === 1 &&
+      await focusedDeliveryRecord.getByText(expectedDeliverySubject, { exact: true }).isVisible() &&
+      await competingDeliveryRecord.evaluate((element) => document.activeElement !== element) &&
+      await page.getByTestId('refund-message-delivery-delivery-message-1')
+        .getByText(scenario.label, { exact: true }).isVisible(),
+    JSON.stringify({ mobileActionBox, mobileEvidenceBox })
   );
-  if (historicalNotice) {
-    await page.getByTestId('refund-manager-state').scrollIntoViewIfNeeded();
-    recorder.assert(
-      'The confirmed-refund header stays visible on mobile',
-      await page.getByTestId('refund-manager-state').getByText('Refund confirmed · delivery review', { exact: true }).isVisible()
-    );
-  }
-  if (historicalNotice) await page.screenshot({
+  recorder.assert(
+    `${scenarioName} review remains read-only without mobile horizontal overflow`,
+    mobileLayout.documentWidth <= mobileLayout.viewportWidth + 1 &&
+      mobileLayout.bodyWidth <= mobileLayout.viewportWidth + 1 &&
+      functionCalls.length === mobileCallSnapshot.functions &&
+      rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length === mobileCallSnapshot.mutations,
+    JSON.stringify({ mobileLayout, functionCalls, rpcCalls })
+  );
+  if (scenario.state === 'unknown') await page.screenshot({
     path: path.join(artifactDir, 'refund-transactional-delivery-mobile.png'),
     fullPage: false,
   });
 
   await closeRefundPortalContext(context);
+  }
+
+  for (const exactEvidenceCardinality of ['zero', 'multiple']) {
+    const functionCalls = [];
+    const rpcCalls = [];
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    await installMockSupabaseRoutes(context, {
+      refundOverview: () => buildTransactionalDeliveryTruthOverview({
+        deliveryState: 'bounced',
+        confirmedPayment: true,
+        exactEvidenceCardinality,
+      }),
+      functionCalls,
+      rpcCalls,
+    });
+
+    const page = await context.newPage();
+    await signInRefundUser(page, appUrl);
+    await page.getByRole('heading', { name: /^Refunds$/i }).last()
+      .waitFor({ timeout: 10000 });
+    await page.getByText('Signed in. Redirecting...', { exact: true })
+      .waitFor({ state: 'hidden', timeout: 5000 })
+      .catch(() => undefined);
+    await waitForQueueCount(page, 1);
+    await queueCase(page, 'RF-UAT-DELIVERY-BOUNCED').click();
+
+    const callSnapshot = {
+      functions: functionCalls.length,
+      mutations: rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length,
+    };
+    await page.getByTestId('refund-review-delivery-record').click();
+    await page.waitForFunction(() =>
+      document.activeElement?.getAttribute('data-testid') === 'refund-customer-messages-summary'
+    );
+    recorder.assert(
+      `${exactEvidenceCardinality} exact delivery tuple matches fail closed to the Customer messages summary`,
+      await page.getByTestId('refund-customer-messages').evaluate((element) => element.open === true) &&
+        await page.getByTestId('refund-customer-messages-summary').evaluate((element) => document.activeElement === element) &&
+        (await page.getByTestId('refund-focused-delivery-record').count()) === 0 &&
+        (await page.locator('[aria-label^="Saved delivery record:"]').count()) === 0 &&
+        functionCalls.length === callSnapshot.functions &&
+        rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length === callSnapshot.mutations,
+      JSON.stringify({ functionCalls, rpcCalls })
+    );
+
+    await closeRefundPortalContext(context);
+  }
+
+  for (const scenario of [
+    {
+      name: 'ordinary Gmail uncertainty without a transactional delivery exception',
+      publicReference: 'RF-UAT-GMAIL-UNCERTAIN',
+      providerRejected: false,
+      expectedAction: 'Resolve uncertain Gmail delivery',
+      unexpectedAction: 'Send a safe customer follow-up',
+    },
+    {
+      name: 'provider rejection with unrelated Gmail uncertainty',
+      publicReference: 'RF-UAT-GMAIL-REJECTED',
+      providerRejected: true,
+      expectedAction: 'Refund was rejected',
+      unexpectedAction: 'Resolve uncertain Gmail delivery',
+    },
+  ]) {
+    const functionCalls = [];
+    const rpcCalls = [];
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    await installMockSupabaseRoutes(context, {
+      refundOverview: () => buildGmailUncertaintyPrecedenceOverview({
+        providerRejected: scenario.providerRejected,
+      }),
+      emailQueueStates: [{
+        caseId: 'case-card-1',
+        intakeSource: 'form',
+        exactCasePath: '/refunds?case=case-card-1',
+        missingInformation: false,
+        possibleDuplicate: false,
+        confirmedDuplicate: false,
+        duplicateOfCaseId: null,
+        aging: false,
+        providerHold: false,
+        providerOutcome: scenario.providerRejected ? 'rejected' : 'unconfirmed',
+        actionBlocked: false,
+        payloadRedacted: true,
+      }],
+      functionCalls,
+      rpcCalls,
+    });
+
+    const page = await context.newPage();
+    await signInRefundUser(page, appUrl);
+    await page.getByRole('heading', { name: /^Refunds$/i }).last()
+      .waitFor({ timeout: 10000 });
+    await page.getByText('Signed in. Redirecting...', { exact: true })
+      .waitFor({ state: 'hidden', timeout: 5000 })
+      .catch(() => undefined);
+    await waitForQueueCount(page, 1);
+    await queueCase(page, scenario.publicReference).click();
+
+    const expectedActionCount = await page.getByText(scenario.expectedAction, { exact: true }).count();
+    const expectedActionVisible = expectedActionCount > 0
+      ? await page.getByText(scenario.expectedAction, { exact: true }).first().isVisible()
+      : false;
+    const unexpectedActionCount = await page.getByText(scenario.unexpectedAction, { exact: true }).count();
+    const deliveryReviewActionCount = await page.getByTestId('refund-review-delivery-record').count();
+    const primaryActionText = await page.getByTestId('refund-primary-action').innerText().catch(() => 'missing');
+    const unexpectedRpcCalls = rpcCalls.filter((name) =>
+      !NAVIGATION_READ_ONLY_RPCS.has(name) && name !== 'admin_get_refund_nayax_resolution_readiness'
+    );
+    recorder.assert(
+      `${scenario.name} preserves the safe primary-action precedence`,
+      expectedActionCount > 0 &&
+        expectedActionVisible &&
+        unexpectedActionCount === 0 &&
+        deliveryReviewActionCount === 0 &&
+        functionCalls.length === 0 &&
+        unexpectedRpcCalls.length === 0,
+      JSON.stringify({
+        expectedActionCount,
+        expectedActionVisible,
+        unexpectedActionCount,
+        deliveryReviewActionCount,
+        primaryActionText,
+        functionCalls,
+        rpcCalls,
+        unexpectedRpcCalls,
+      })
+    );
+
+    await closeRefundPortalContext(context);
   }
 };
 

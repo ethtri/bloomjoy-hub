@@ -38,6 +38,97 @@ test('actual manager action respects current scope, delivery holds and terminal 
   assert.equal(receiptAction.label,'Refund confirmed · accounting review',messageState);
  }
 });
+test('exact Gmail uncertainty action remains available beside an independent transactional delivery exception',()=>{
+ const action=load('primaryActionConfig',{
+  ...dependencies,
+  isRefundCustomerDeliveryUncertain:error=>error==='gmail_send_unconfirmed',
+  getLatestCustomerMessage:refundCase=>refundCase.messages[0],
+  derivePortalRefundMissingFields:()=>['incident_time'],
+ });
+ const lifecycle={
+  stage:'matching',terminal:false,paymentState:'not_requested',
+  operations:{required:false,safeStage:'not_needed',failureClass:null},
+  managerQueue:{bucket:'needs_action'},
+ };
+ const refundCase={
+  status:'needs_review',paymentMethod:'card',providerOutcome:'not_attempted',providerHold:false,
+  lifecycle,customerDeliveryException:{state:'failed'},
+  messages:[{status:'failed',messageType:'status_update',errorMessage:'gmail_send_unconfirmed'}],
+ };
+ const editor={status:'needs_review',decision:null,matchedNayaxCandidateToken:''};
+ const result=action(refundCase,editor,[],null);
+ assert.equal(result.mode,'resolve_delivery_not_found',JSON.stringify(result));
+ assert.equal(result.label,'Resolve uncertain Gmail delivery');
+});
+test('provider rejection remains primary when uncertain Gmail has no transactional delivery exception',()=>{
+ const action=load('primaryActionConfig',{
+  ...dependencies,
+  isRefundCustomerDeliveryUncertain:error=>error==='gmail_send_unconfirmed',
+  getLatestCustomerMessage:refundCase=>refundCase.messages[0],
+  derivePortalRefundMissingFields:()=>['incident_time'],
+ });
+ const refundCase={
+  status:'needs_review',paymentMethod:'card',providerOutcome:'rejected',providerHold:false,
+  lifecycle:{
+   stage:'matching',terminal:false,paymentState:'not_requested',
+   operations:{required:false,safeStage:'not_needed',failureClass:null},
+   managerQueue:{bucket:'needs_action'},
+  },
+  messages:[{status:'failed',messageType:'status_update',errorMessage:'gmail_send_unconfirmed'}],
+ };
+ const editor={status:'needs_review',decision:null,matchedNayaxCandidateToken:''};
+ const result=action(refundCase,editor,[],null);
+ assert.equal(result.mode,undefined,JSON.stringify(result));
+ assert.equal(result.disabled,true,JSON.stringify(result));
+ assert.equal(result.label,'Refund was rejected');
+});
+test('delivery-record review opens and focuses existing evidence without dispatching work',()=>{
+ let focused=0;let scrolled=0;let scheduled=0;
+ const details={open:false};
+ const summary={
+  scrollIntoView:options=>{assert.equal(options.behavior,'auto');assert.equal(options.block,'center');scrolled++;},
+  focus:options=>{assert.equal(options.preventScroll,true);focused++;},
+ };
+ load('handleReviewDeliveryRecord',{
+  customerMessagesDetailsRef:{current:details},
+  customerMessagesSummaryRef:{current:summary},
+  customerDeliveryEvidenceRef:{current:summary},
+  window:{requestAnimationFrame:callback=>{scheduled++;callback();}},
+ })();
+ assert.equal(details.open,true);
+ assert.equal(scheduled,2);
+ assert.equal(scrolled,1);
+ assert.equal(focused,1);
+});
+test('delivery-record review falls back to the Customer messages summary when exact evidence is unavailable',()=>{
+ let focused=0;let scrolled=0;
+ const details={open:false};
+ const summary={
+  scrollIntoView:()=>{scrolled++;},
+  focus:()=>{focused++;},
+ };
+ load('handleReviewDeliveryRecord',{
+  customerMessagesDetailsRef:{current:details},
+  customerMessagesSummaryRef:{current:summary},
+  customerDeliveryEvidenceRef:{current:null},
+  window:{requestAnimationFrame:callback=>callback()},
+ })();
+ assert.equal(details.open,true);
+ assert.equal(focused,1);
+ assert.equal(scrolled,1);
+});
+test('delivery-record review selects the exact exception record when the case has a competing same-state message',()=>{
+ const selectEvidence=load('getRefundDeliveryEvidenceMessageId',{});
+ const exception={state:'bounced',messageType:'completed',occurredAt:'2026-09-06T10:30:00.000Z'};
+ const messages=[
+  {id:'message-competing',messageType:'completed',deliveryTransport:'resend',deliveryState:'bounced',deliveryStateUpdatedAt:'2026-09-06T09:00:00.000Z',createdAt:'2026-09-06T08:00:00.000Z'},
+  {id:'message-wrong-type',messageType:'status_update',deliveryTransport:'resend',deliveryState:'bounced',deliveryStateUpdatedAt:exception.occurredAt,createdAt:'2026-09-06T08:30:00.000Z'},
+  {id:'message-target',messageType:'completed',deliveryTransport:'resend',deliveryState:'bounced',deliveryStateUpdatedAt:exception.occurredAt,createdAt:'2026-09-06T10:00:00.000Z'},
+ ];
+ assert.equal(selectEvidence(messages,exception),'message-target');
+ assert.equal(selectEvidence(messages,{...exception,occurredAt:'2026-09-06T11:00:00.000Z'}),null,'missing exact evidence falls back to the Customer messages summary');
+ assert.equal(selectEvidence([...messages,{...messages[2],id:'message-duplicate'}],exception),null,'ambiguous exact evidence fails closed to the Customer messages summary');
+});
 test('actual one-action correction sends canonical fields without unreviewed triage/editor content',async()=>{
  let sent;let refreshed=0;const errors=[];const customerDraftDirtyUpdates=[];
  const handler=load('handleSendCustomerMessage',{
