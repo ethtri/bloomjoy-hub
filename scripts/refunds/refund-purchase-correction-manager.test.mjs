@@ -35,7 +35,7 @@ test('actual one-action correction sends canonical fields without unreviewed tri
   messageType:'denied',messageSubject:'Old denial subject',messageBody:'Old denial draft',
   gmailContext:{triageSuggestion:{id:'unreviewed',status:'ready_for_review',route:'draft_reply',missingFields:['incident_time']}},
   officialActionVersion:12,getCustomerMessageDraft:()=>({subject:'Canonical',body:'Canonical'}),manualMessageIntentRef:{current:null},
-  setIsSendingCustomerMessage:()=>{},sendRefundCaseMessage:async input=>{sent=input;return {transport:'gmail_thread'};},refresh:async()=>{refreshed++;},
+  setIsSendingCustomerMessage:()=>{},setIsCustomerDraftDirty:()=>{},sendRefundCaseMessage:async input=>{sent=input;return {transport:'gmail_thread'};},refresh:async()=>{refreshed++;},
   toast:{error:value=>errors.push(value),success:()=>{},info:()=>{}},isEdgeFunctionError:()=>false,
  });
  await handler('more_info',['amount']);
@@ -61,7 +61,7 @@ test('uncertain revision retains exact payload for read-only inspection after po
  const selectedCase={id:'case',customerCorrectionFields:['amount','card_last4'],customerCorrection:{state:'pending',isActive:true,requestId:'old-request',canRevise:true}};
  const base={selectedCase,pendingRevision:null,setPendingRevision:value=>{saved=value;},correctionSelection:{caseId:'case',version:12,fields:['card_last4'],requestId:'old-request',editing:true},
  customerDeliveryNeedsReconciliation:false,isUsingDemoData:false,messageType:'more_info',gmailContext:{},officialActionVersion:12,
- getCustomerMessageDraft:()=>({subject:'canonical',body:'canonical'}),manualMessageIntentRef:intent,setIsSendingCustomerMessage:()=>{},
+ getCustomerMessageDraft:()=>({subject:'canonical',body:'canonical'}),manualMessageIntentRef:intent,setIsSendingCustomerMessage:()=>{},setIsCustomerDraftDirty:()=>{},
  sendRefundCaseMessage:async input=>{sent.push(input);calls++;throw Error('Lost response after commit');},setCorrectionSelection:()=>{},refresh:async()=>{},
  toast:{error:()=>{},success:()=>{},info:()=>{}},isEdgeFunctionError:()=>false};
  await load('handleSendCustomerMessage',base)('more_info',['card_last4']);assert.equal(calls,1);assert.equal(saved.expectedCaseVersion,12);
