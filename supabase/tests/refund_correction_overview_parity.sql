@@ -99,7 +99,8 @@ create function pg_temp.current_overview_evidence(
     'customer_request_received_source',c.customer_request_received_source,
     'request_time_boundary','occurrence_time_uncertain',
     'transaction_occurrence_comparable',false,
-    'transaction_occurrence_semantics','unknown',
+    'transaction_occurrence_semantics','unknown'
+  ) || jsonb_build_object(
     'transaction_occurrence_proof_source','null'::jsonb,
     'transaction_occurrence_timestamp_source','null'::jsonb,
     'transaction_occurrence_timezone_basis','null'::jsonb,
