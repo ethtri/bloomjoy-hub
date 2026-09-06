@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(25);
+select plan(32);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('fb110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -30,7 +30,7 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
   customer_request_received_source)
 values('fb150000-0000-4000-8000-000000000001','RF-SOFT-TIME','fb140000-0000-4000-8000-000000000001',
   'fb130000-0000-4000-8000-000000000001','soft-time-customer@example.invalid','Offline vend before form',
-  '2026-09-05T18:00:00Z','America/Los_Angeles','exact','within_15_minutes',
+  '2026-09-05T18:00:00Z','America/Los_Angeles','exact','rough',
   'transaction_alert_or_receipt','one','card',1090,1090,'6768','physical_card','physical_card','tap_card',
   'needs_review','needs_nayax',4,'form','{"source":"hosted_refund_intake"}',
   '2026-09-05T18:03:00Z','hosted_refund_intake');
@@ -45,15 +45,23 @@ create function pg_temp.soft_time_evidence(
   request_upper timestamptz default null
 ) returns jsonb language sql stable as $$
   select jsonb_build_object(
-    'selection_allowed',boundary <> 'after_request','is_recommended',true,'one_click_eligible',false,
+    'selection_allowed',boundary <> 'after_request' and (
+      (c.incident_time_resolution in ('exact','legacy_absolute')
+        and c.incident_time_confidence is distinct from 'rough')
+      or c.card_last4 = '6768'
+    ),'is_recommended',true,'one_click_eligible',false,
     'recommendation_state','manual_exception','confidence_class','ambiguous_manual',
     'policy_version','2026-09-05.v11','identifier_policy_version','2026-09-05.identifier.v2',
     'customer_fact_version',c.deterministic_fact_version,
-    'customer_credential_class','customer_physical_contactless_pan',
+    'customer_credential_class',case when c.card_last4 is null
+      then 'customer_identifier_unknown' else 'customer_physical_contactless_pan' end,
     'provider_identifier_class','last_sales_contactless_identifier_unverified',
-    'card_last4_comparison','exact_support','card_network_comparison','missing',
+    'card_last4_comparison',case when c.card_last4 is null then 'missing' else 'exact_support' end,
+    'card_network_comparison','missing',
     'payment_interaction_comparison','supporting','same_identifier_equivalence_proven',false,
-    'identifier_review_state','exact_support','customer_correction_fields','[]'::jsonb,
+    'identifier_review_state',case when c.card_last4 is null then 'needs_corroboration' else 'exact_support' end,
+    'customer_correction_fields',case when c.card_last4 is null
+      then '["card_last4"]'::jsonb else '[]'::jsonb end,
     'hard_exclusions','[]'::jsonb,
     'manual_review_reasons','["transaction_occurrence_time_uncertain"]'::jsonb,
     'reason_codes','["machine_exact","amount_exact","transaction_occurrence_time_uncertain"]'::jsonb,
@@ -103,6 +111,12 @@ select 'fb160000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000
 select is((select count(*)::integer from public.refund_nayax_lookup_candidates
   where token='fb160000-0000-4000-8000-000000000001'),1,
   'Offline/deferred authorization after form remains a selectable review candidate');
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fb150000-0000-4000-8000-000000000001','fb140000-0000-4000-8000-000000000001',14,
+  '2026-09-05T18:05:00.123Z',1090,'6768','USD',
+  pg_temp.soft_time_evidence('occurrence_time_uncertain','2026-09-05T18:05:00Z')
+), 'valid',
+  'Rough customer time remains valid for explicit manager selection when the other evidence identifies the sale');
 select is((select evidence_summary->>'one_click_eligible' from public.refund_nayax_lookup_candidates
   where token='fb160000-0000-4000-8000-000000000001'),'false',
   'Unknown ordering never becomes automatic one-click evidence');
@@ -220,6 +234,43 @@ set evidence_summary=jsonb_set(
 where refund_case_id='fb150000-0000-4000-8000-000000000001';
 set local session_replication_role=origin;
 
+update public.refund_nayax_lookup_candidates
+set evidence_summary=evidence_summary || jsonb_build_object(
+  'selection_allowed',false,
+  'identifier_review_state','needs_corroboration',
+  'customer_correction_fields',jsonb_build_array('incident_time'),
+  'reason_codes',(evidence_summary->'reason_codes') ||
+    jsonb_build_array('multiple_candidates_need_distinguishing_time')
+)
+where refund_case_id='fb150000-0000-4000-8000-000000000001';
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fb150000-0000-4000-8000-000000000001','fb140000-0000-4000-8000-000000000001',14,
+  '2026-09-05T18:05:00.123Z',1090,'6768','USD',
+  (select evidence_summary from public.refund_nayax_lookup_candidates
+    where token='fb160000-0000-4000-8000-000000000001')
+), 'valid',
+  'Server accepts the scorer conservative hold for competing same-card purchases with rough time');
+set local role service_role;
+select throws_ok($$select public.service_select_refund_nayax_candidate_as_actor(
+  'fb110000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases where id='fb150000-0000-4000-8000-000000000001'),
+  'fb160000-0000-4000-8000-000000000001','correct_card')$$,
+  'P4604','This Nayax transaction has a safety block and cannot be selected',
+  'Server rejects a manager selection when competing same-card purchases still need distinguishing time');
+reset role;
+update public.refund_cases set nayax_recommendation_state='ambiguous',
+  nayax_lookup_status='multiple_matches'
+where id='fb150000-0000-4000-8000-000000000001';
+select is(public.refund_purchase_correction_request_fields(
+  'fb150000-0000-4000-8000-000000000001'),array['incident_time']::text[],
+  'Competing same-card purchases use the existing same-case correction path for one distinguishing time fact');
+update public.refund_nayax_lookup_candidates
+set evidence_summary=pg_temp.soft_time_evidence(
+  'occurrence_time_uncertain',case token
+    when 'fb160000-0000-4000-8000-000000000004' then '2026-09-05T18:03:00Z'::timestamptz
+    else '2026-09-05T18:05:00Z'::timestamptz end)
+where refund_case_id='fb150000-0000-4000-8000-000000000001';
+
 update public.refund_cases set status='approved',decision='approved',decision_reason='customer_owed',
   decided_by='fb110000-0000-4000-8000-000000000001',decided_at=statement_timestamp()
 where id='fb150000-0000-4000-8000-000000000001';
@@ -263,11 +314,35 @@ select ok((select card_wallet_used and nayax_match_execution_eligible
   from public.refund_cases where id='fb150000-0000-4000-8000-000000000001'),
   'Wallet manager confirmation remains execution eligible without becoming automatic evidence');
 
-update public.refund_cases set card_wallet_used=false,status='card_refund_pending'
+update public.refund_cases set status='card_refund_pending'
 where id='fb150000-0000-4000-8000-000000000001';
 select ok((select public.refund_nayax_retry_safe_case_is_current(c)
   from public.refund_cases c where id='fb150000-0000-4000-8000-000000000001'),
-  'Retry-safe recovery recognizes manager-confirmed evidence while retaining every payment guard');
+  'Retry-safe recovery recognizes manager-confirmed wallet evidence while retaining every payment guard');
+select ok((select card_wallet_used and public.refund_nayax_retry_safe_case_is_current(c)
+  from public.refund_cases c where id='fb150000-0000-4000-8000-000000000001'),
+  'Wallet classification does not block retry-safe review of the exact selected transaction');
+
+update public.refund_cases set incident_time_resolution='ambiguous',incident_time_confidence='rough'
+where id='fb150000-0000-4000-8000-000000000001';
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fb150000-0000-4000-8000-000000000001','fb140000-0000-4000-8000-000000000001',14,
+  '2026-09-05T18:05:00.123Z',1090,'6768','USD',
+  pg_temp.soft_time_evidence('occurrence_time_uncertain','2026-09-05T18:05:00Z')
+), 'valid',
+  'Uncertain customer-time resolution does not block an otherwise independently identified exact-card purchase');
+
+update public.refund_cases set card_last4=null,card_last4_provenance=null,card_last4_source=null
+where id='fb150000-0000-4000-8000-000000000001';
+select ok(
+  public.refund_nayax_candidate_identifier_evidence_state(
+    'fb150000-0000-4000-8000-000000000001','fb140000-0000-4000-8000-000000000001',14,
+    '2026-09-05T18:05:00.123Z',1090,'6768','USD',
+    pg_temp.soft_time_evidence('occurrence_time_uncertain','2026-09-05T18:05:00Z')
+  ) = 'valid'
+  and (pg_temp.soft_time_evidence('occurrence_time_uncertain','2026-09-05T18:05:00Z')->>'selection_allowed')::boolean is false
+  and pg_temp.soft_time_evidence('occurrence_time_uncertain','2026-09-05T18:05:00Z')->'customer_correction_fields' = '["card_last4"]'::jsonb,
+  'Machine and amount with rough unresolved time remains nonselectable and requests one distinguishing card fact');
 
 select * from finish();
 rollback;

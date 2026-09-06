@@ -575,7 +575,11 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
   if (request.cardWalletUsed || candidate.recognitionMethod === "wallet") {
     addReason(manualReviewReasons, "wallet_payment");
     addReason(reasonCodes, "wallet_payment");
-    matchFactors.push(factor("wallet", "manual", "Wallet payments may be recommended, but remain manual in Nayax"));
+    matchFactors.push(factor(
+      "wallet",
+      "manual",
+      "Wallet identifiers need manager review before the exact provider transaction can be refunded",
+    ));
   }
 
   if (candidate.currencyCode === "USD") {
@@ -665,11 +669,9 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     identifierEvidence.customerCredentialClass === "customer_physical_contactless_pan" &&
     identifierEvidence.cardLast4Comparison === "mismatch_neutral_unproven_scope" &&
     identifierEvidence.cardNetworkComparison !== "mismatch_negative_unproven_equivalence";
-  const managerSelectionCore =
+  const managerSelectionSafetyCore =
     hardExclusions.length === 0 &&
     candidate.providerMachineId === request.expectedMachineId &&
-    request.incidentTimeResolution === "exact" &&
-    request.incidentTimeConfidence !== "rough" &&
     request.amountCents > 0 &&
     candidate.amountCents > 0 &&
     amountDeltaCents !== null &&
@@ -683,14 +685,27 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     candidate.providerRefundState === "clear" &&
     candidate.requestTimeBoundaryState !== "after_request" &&
     !candidate.duplicateProviderRecord;
+  const customerTimeSupportsSelection =
+    ["exact", "legacy_absolute"].includes(request.incidentTimeResolution) &&
+    request.incidentTimeConfidence !== "rough";
+  const exactCardSupportsSelection =
+    identifierEvidence.cardLast4Comparison === "exact_support";
+  const managerSelectionCore = managerSelectionSafetyCore &&
+    (customerTimeSupportsSelection || exactCardSupportsSelection);
   const evidenceAwareReviewEligible =
     corroboratedMismatchReviewEligible ||
     (managerSelectionCore && neutralPhysicalContactlessMismatch);
+  const softTimeNeedsDistinguishingEvidence =
+    managerSelectionSafetyCore &&
+    !customerTimeSupportsSelection &&
+    !exactCardSupportsSelection;
   const identifierReviewState = hardExclusions.length > 0
     ? "blocked_safety"
     : evidenceAwareReviewEligible
     ? "reviewable_uncertainty"
     : mismatchPresent
+    ? "needs_corroboration"
+    : softTimeNeedsDistinguishingEvidence
     ? "needs_corroboration"
     : identifierEvidence.cardLast4Comparison === "exact_support"
     ? "exact_support"
@@ -698,7 +713,9 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
   const cardLast4SourceKnown =
     ["physical_card", "wallet_device", "bank_record"].includes(request.cardLast4Source) ||
     ["physical_card", "wallet_device_token"].includes(request.cardLast4Provenance);
-  const customerCorrectionFields = identifierReviewState === "needs_corroboration"
+  const customerCorrectionFields = softTimeNeedsDistinguishingEvidence
+    ? [request.cardLast4 ? "incident_time" : "card_last4"]
+    : identifierReviewState === "needs_corroboration"
     ? [
         amountDeltaCents !== 0 && "amount",
         (Number.isFinite(candidate.timeDeltaMinutes) &&
@@ -1067,7 +1084,7 @@ export const buildNayaxRecommendation = ({
     });
   }
 
-  const candidates = [...normalizedByTransaction.values()]
+  let candidates = [...normalizedByTransaction.values()]
     .map((candidate) =>
       scoreCandidate({
         candidate,
@@ -1086,10 +1103,44 @@ export const buildNayaxRecommendation = ({
       left.transactionId.localeCompare(right.transactionId))
     .map((candidate, index) => ({ ...candidate, recommendationRank: index + 1, isTopRanked: index === 0 }));
 
+  const customerTimeSupportsManagerSelection =
+    ["exact", "legacy_absolute"].includes(request.incidentTimeResolution) &&
+    request.incidentTimeConfidence !== "rough";
+  const selectableWithoutPreciseTime = candidates.filter((candidate) => candidate.selectionAllowed);
+  if (!customerTimeSupportsManagerSelection && selectableWithoutPreciseTime.length > 1) {
+    candidates = candidates.map((candidate) => candidate.selectionAllowed
+      ? {
+          ...candidate,
+          evidenceAwareReviewEligible: false,
+          selectionAllowed: false,
+          identifierReviewState: "needs_corroboration",
+          customerCorrectionFields: ["incident_time"],
+          manualReviewReasons: [
+            ...new Set([
+              ...candidate.manualReviewReasons,
+              "multiple_candidates_need_distinguishing_time",
+            ]),
+          ],
+          reasonCodes: [
+            ...new Set([
+              ...candidate.reasonCodes,
+              "multiple_candidates_need_distinguishing_time",
+            ]),
+          ],
+        }
+      : candidate);
+  }
+
   const topOverall = candidates[0] ?? null;
   const strongCardCandidates = candidates.filter((candidate) => candidate.strongCardEligible);
   const qrTimeCandidates = candidates.filter((candidate) => candidate.uniqueQrTimeEligible);
   const evidenceAwareCandidates = candidates.filter((candidate) => candidate.evidenceAwareReviewEligible);
+  const managerSelectableCandidates = candidates.filter((candidate) => candidate.selectionAllowed);
+  const candidatesNeedingOneDistinguishingFact = candidates.filter((candidate) =>
+    candidate.hardExclusions.length === 0 &&
+    candidate.selectionAllowed === false &&
+    candidate.customerCorrectionFields.length === 1
+  );
   let recommendationState = "no_safe_match";
   let confidenceClass = "ambiguous_manual";
   let recommendedTransactionId = null;
@@ -1119,6 +1170,19 @@ export const buildNayaxRecommendation = ({
   } else if (evidenceAwareCandidates.length > 1) {
     recommendationState = "ambiguous";
     resultReasonCodes = ["multiple_evidence_aware_review_candidates", "plausible_runner_up"];
+  } else if (managerSelectableCandidates.length === 1) {
+    recommendationState = "manual_exception";
+    recommendedTransactionId = managerSelectableCandidates[0].transactionId;
+    resultReasonCodes = [
+      ...managerSelectableCandidates[0].reasonCodes,
+      "unique_manager_selectable_candidate",
+    ];
+  } else if (managerSelectableCandidates.length > 1) {
+    recommendationState = "ambiguous";
+    resultReasonCodes = ["multiple_manager_selectable_candidates", "plausible_runner_up"];
+  } else if (candidatesNeedingOneDistinguishingFact.length > 1) {
+    recommendationState = "ambiguous";
+    resultReasonCodes = ["multiple_candidates_need_distinguishing_fact", "plausible_runner_up"];
   } else if (candidates.length > 0) {
     recommendationState = "manual_exception";
     resultReasonCodes = topOverall?.reasonCodes.length
@@ -1137,7 +1201,7 @@ export const buildNayaxRecommendation = ({
     const isRecommended = Boolean(recommendedTransactionId && candidate.transactionId === recommendedTransactionId);
     const matchStrength = isRecommended
       ? "strong"
-      : recommendationState === "ambiguous" && (candidate.strongCardEligible || candidate.uniqueQrTimeEligible)
+      : recommendationState === "ambiguous" && candidate.selectionAllowed
         ? "compare"
         : candidate.manualReviewReasons.length > 0 || candidate.hardExclusions.length > 0
           ? "manual_review"
@@ -1171,12 +1235,12 @@ export const buildNayaxRecommendation = ({
     high_confidence: confidenceClass === "unique_qr_time"
       ? {
           summary: "Nayax found exactly one sale supported by the machine, amount, QR start, and timing.",
-          recommendedAction: "Verify the sale in Nayax and use the manual portal path. QR/time evidence does not enable one-click refund.",
+          recommendedAction: "Review and select the exact sale. The normal guarded refund action becomes available after manager selection.",
         }
       : {
           summary: `Nayax found one sale with matching card digits on this machine, within ${policy.maximumOneClickTimeDeltaMinutes} minutes and $${(policy.maximumStrongCardAmountDeltaCents / 100).toFixed(2)} of the reported purchase.`,
           recommendedAction: request.cardWalletUsed
-            ? "Verify the wallet sale in Nayax and use the manual portal path. One-click refund stays unavailable."
+            ? "Review and select the exact wallet sale. The normal guarded refund action becomes available after manager selection."
             : "Confirm the recommended sale. Only then may the separately guarded refund action become eligible.",
         },
     ambiguous: {

@@ -38,6 +38,55 @@ test('actual manager action respects current scope, delivery holds and terminal 
   assert.equal(receiptAction.label,'Refund confirmed · accounting review',messageState);
  }
 });
+test('selected candidate exposes one ordinary refund decision and direct API takes priority over wallet portal routing',()=>{
+ const action=load('primaryActionConfig',{
+  ...dependencies,
+  isWaitingCase:()=>false,
+  activeNayaxCandidate:(_refundCase,_editor,candidates)=>candidates[0]??null,
+ });
+ const candidate={candidateToken:'candidate-1',amountCents:1090};
+ const pendingCase={status:'needs_review',paymentMethod:'card',correlationStatus:'needs_nayax'};
+ const pendingEditor={status:'needs_review',decision:null,matchedNayaxCandidateToken:'candidate-1'};
+ const combined=action(pendingCase,pendingEditor,[candidate],null);
+ assert.equal(combined.label,'Refund $10.90');
+ assert.equal(combined.mode,'nayax_refund_execution');
+ assert.equal(combined.targetDecision,'approved');
+
+ const selectedWallet={
+  ...pendingCase,matched:true,manualNayaxPortalEnabled:true,
+  reviewedNayaxPortalFallbackKind:'ordinary_exact_match',refundAmountCents:1090,
+ };
+ const savedEditor={...pendingEditor,matchedNayaxCandidateToken:''};
+ assert.equal(
+  action(selectedWallet,savedEditor,[],{canIssueCardRefund:true,refundAmountCents:1090}).mode,
+  'nayax_refund_execution',
+ );
+ assert.equal(
+  action(selectedWallet,savedEditor,[],{canIssueCardRefund:false,blockReason:'provider_temporarily_unavailable'}).mode,
+  'manual_nayax_approval',
+ );
+});
+test('server-blocked competing candidates expose one same-case correction action',()=>{
+ const action=load('primaryActionConfig',{
+  ...dependencies,
+  derivePortalRefundMissingFields:refundCase=>refundCase.customerCorrectionFields??[],
+  isWaitingCase:()=>false,
+ });
+ const refundCase={
+  status:'needs_review',paymentMethod:'card',correlationStatus:'multiple_candidates',
+  customerCorrectionFields:['incident_time'],
+ };
+ const editor={status:'needs_review',decision:null,matchedNayaxCandidateToken:''};
+ const candidates=[
+  {candidateToken:'candidate-1',selectionAllowed:false},
+  {candidateToken:'candidate-2',selectionAllowed:false},
+ ];
+ const result=action(refundCase,editor,candidates,null);
+ assert.equal(result.label,'Ask for missing details');
+ assert.equal(result.helper,'Send one same-case correction request for the detail that can distinguish these transactions.');
+ assert.equal(result.messageType,'more_info');
+ assert.equal(result.mode,'retry_message');
+});
 test('exact Gmail uncertainty action remains available beside an independent transactional delivery exception',()=>{
  const action=load('primaryActionConfig',{
   ...dependencies,
@@ -346,7 +395,7 @@ test('changed approvals and real mutation modes retain original save validation'
   assert.equal(unchangedApproval(approvedCase,next),false);
   assert.equal(JSON.stringify(displayIssues(approvedCase,next,{disabled:true})),JSON.stringify(saveIssues(approvedCase,next)));
  }
- for(const mode of ['case_update','nayax_evidence_selection','nayax_refund_execution','manual_nayax_approval']) {
+ for(const mode of ['case_update','nayax_refund_execution','manual_nayax_approval']) {
   assert.equal(JSON.stringify(displayIssues(approvedCase,approvedEditor,{disabled:true,mode})),JSON.stringify(saveIssues(approvedCase,approvedEditor)));
  }
  for(const change of [{decision:null},{decision:'denied'},{refundAmountCents:null},{refundAmountCents:0},{paymentMethod:'cash'}]) {
