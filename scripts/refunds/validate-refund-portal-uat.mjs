@@ -1710,6 +1710,82 @@ const buildPhysicalCardMismatchRefundOverview = () => {
   return overview;
 };
 
+const buildContactlessMismatchCandidate = (overrides = {}) => ({
+  candidateToken: '41000000-0000-4000-8000-000000000205',
+  authorizedAt: isoHoursAgo(2.75),
+  machineAuthorizationTime: isoHoursAgo(2.75),
+  amountCents: 1090,
+  currencyCode: 'USD',
+  cardLast4: '3760',
+  cardBrand: 'Visa',
+  recognitionMethod: 'contactless',
+  paymentStatus: 'approved',
+  amountDeltaCents: 0,
+  timeDeltaMinutes: 15,
+  providerProcessingTimeDeltaMinutes: 15,
+  requestTimeBoundary: 'before_or_at_request',
+  transactionOccurrenceComparable: true,
+  transactionOccurrenceSemantics: 'online_purchase_occurrence',
+  recommendationRank: 1,
+  isTopRanked: true,
+  isRecommended: true,
+  recommendationState: 'manual_exception',
+  confidenceClass: 'evidence_aware_review',
+  reasonCodes: [
+    'machine_exact',
+    'amount_exact',
+    'incident_time_within_60m',
+    'payment_interaction_supporting',
+    'card_last4_mismatch',
+    'physical_contactless_exact_scope_review',
+  ],
+  oneClickEligible: false,
+  selectionAllowed: true,
+  matchStrength: 'review',
+  policyVersion: '2026-09-05.v11',
+  identifierPolicyVersion: '2026-09-05.identifier.v2',
+  customerFactVersion: 1,
+  customerCredentialClass: 'customer_physical_contactless_pan',
+  providerIdentifierClass: 'last_sales_contactless_identifier_unverified',
+  cardLast4Comparison: 'mismatch_neutral_unproven_scope',
+  cardNetworkComparison: 'missing',
+  paymentInteractionComparison: 'supporting',
+  sameIdentifierEquivalenceProven: false,
+  identifierReviewState: 'reviewable_uncertainty',
+  customerCorrectionFields: [],
+  hardExclusions: [],
+  manualReviewReasons: ['card_last4_mismatch_reviewable'],
+  matchFactors: [
+    { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+    { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
+    { key: 'incident_time', outcome: 'match', label: 'Transaction is 15 minutes from the customer-reported time' },
+    { key: 'payment_interaction', outcome: 'match', label: 'Customer and Nayax interaction details are consistent' },
+    { key: 'card', outcome: 'manual', label: 'Card digits differ; contactless or source differences may explain it' },
+  ],
+  matchReason: 'Exact machine and amount; comparable time within 60 minutes; contactless interaction supports manager review.',
+  ...overrides,
+});
+
+const buildContactlessLookupResponse = (candidate, overrides = {}) => ({
+  configured: true,
+  lookupStatus: 'manual_exception',
+  recommendationState: 'manual_exception',
+  confidenceClass: candidate.selectionAllowed ? 'evidence_aware_review' : 'ambiguous_manual',
+  reasonCodes: candidate.reasonCodes,
+  policyVersion: '2026-09-05.v11',
+  oneClickEligible: false,
+  lastCheckedAt: new Date().toISOString(),
+  providerRecordCount: 1,
+  providerParseableRecordCount: 1,
+  providerWindowRecordCount: 1,
+  candidateCount: 1,
+  windowHours: 6,
+  summary: 'One physical-contactless transaction needs deterministic safety review.',
+  recommendedAction: 'Use only the transaction facts shown in the manager review.',
+  candidates: [candidate],
+  ...overrides,
+});
+
 const jsonResponse = (body) => ({
   status: 200,
   contentType: 'application/json',
@@ -5892,78 +5968,125 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       name: 'evidence-aware physical tap mismatch',
       artifactSlug: 'physical-card-mismatch',
       refundOverview: buildPhysicalCardMismatchRefundOverview,
-      response: {
-        configured: true,
-        lookupStatus: 'manual_exception',
-        recommendationState: 'manual_exception',
-        confidenceClass: 'evidence_aware_review',
-        reasonCodes: ['card_last4_mismatch', 'unique_evidence_aware_review_candidate'],
-        policyVersion: '2026-09-05.v9',
-        oneClickEligible: false,
-        lastCheckedAt: now.toISOString(),
-        providerRecordCount: 1,
-        providerParseableRecordCount: 1,
-        providerWindowRecordCount: 1,
-        candidateCount: 1,
-        windowHours: 6,
-        summary: 'Nayax found one sale with matching machine, amount, and close timing. The card details differ, but Nayax has not proved those fields use the same identifier for this payment interaction.',
-        recommendedAction: 'Review this sale once and confirm it only if the machine, amount, time, and customer details identify the same purchase. One-click refund stays unavailable.',
-        candidates: [
-          {
-            candidateToken: '41000000-0000-4000-8000-000000000205',
-            authorizedAt: isoHoursAgo(2.75),
-            machineAuthorizationTime: isoHoursAgo(2.75),
-            amountCents: 1090,
-            currencyCode: 'USD',
-            cardLast4: '3760',
-            cardBrand: 'Visa',
-            recognitionMethod: 'contactless',
-            paymentStatus: 'approved',
-            amountDeltaCents: 0,
-            timeDeltaMinutes: null,
-            providerProcessingTimeDeltaMinutes: 15,
-            requestTimeBoundary: 'request_time_unknown',
-            transactionOccurrenceComparable: false,
-            transactionOccurrenceSemantics: 'unknown',
-            recommendationRank: 1,
-            isTopRanked: true,
-            isRecommended: true,
-            recommendationState: 'manual_exception',
-            confidenceClass: 'evidence_aware_review',
-            reasonCodes: ['machine_exact', 'amount_exact', 'incident_time_within_60m', 'card_last4_mismatch'],
-            oneClickEligible: false,
-            selectionAllowed: true,
-            matchStrength: 'review',
-            policyVersion: '2026-09-05.v11',
-            identifierPolicyVersion: '2026-09-05.identifier.v2',
-            customerFactVersion: 1,
-            customerCredentialClass: 'customer_physical_contactless_pan',
-            providerIdentifierClass: 'last_sales_contactless_identifier_unverified',
-            cardLast4Comparison: 'mismatch_neutral_unproven_scope',
-            cardNetworkComparison: 'missing',
-            paymentInteractionComparison: 'supporting',
-            sameIdentifierEquivalenceProven: false,
-            identifierReviewState: 'reviewable_uncertainty',
-            customerCorrectionFields: [],
-            hardExclusions: [],
-            manualReviewReasons: ['card_last4_mismatch_reviewable'],
-            matchFactors: [
-              { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
-              { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
-              { key: 'incident_time', outcome: 'manual', label: 'Provider record is 15 minutes from the reported time; purchase time is unproved' },
-              { key: 'card', outcome: 'manual', label: 'Card digits differ; contactless or source differences may explain it' },
-            ],
-            matchReason: 'Exact machine and amount; close time; card identifier mismatch needs manager review.',
-          },
-        ],
-      },
+      response: buildContactlessLookupResponse(buildContactlessMismatchCandidate()),
       expectedHeading: 'One transaction needs manager review',
       expectedStatus: 'Likely match',
       expectedManagerNotice: 'Transaction results updated.',
       expectedBadge: 'Needs comparison',
-      expectedAction: 'Next: Review Machine transaction once. Select it only if the machine, amount, time, and customer details identify the same purchase.',
+      expectedAction: 'Next: Review Machine transaction once. Select it only if the exact machine, exact amount, reported time, and contactless interaction identify the same purchase.',
       expectedCandidateCount: 1,
       expectedReviewableMismatch: true,
+    },
+    {
+      name: 'physical tap mismatch with near amount',
+      refundOverview: buildPhysicalCardMismatchRefundOverview,
+      response: buildContactlessLookupResponse(buildContactlessMismatchCandidate({
+        candidateToken: '41000000-0000-4000-8000-000000000215',
+        amountCents: 890,
+        amountDeltaCents: 200,
+        isRecommended: false,
+        reasonCodes: ['machine_exact', 'amount_within_tolerance', 'incident_time_within_60m',
+          'payment_interaction_supporting', 'card_last4_mismatch'],
+        selectionAllowed: false,
+        identifierReviewState: 'needs_corroboration',
+        customerCorrectionFields: ['amount'],
+        matchFactors: [
+          { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+          { key: 'amount', outcome: 'partial', label: 'Transaction amount differs by $2.00' },
+          { key: 'incident_time', outcome: 'match', label: 'Transaction is 15 minutes from the customer-reported time' },
+        ],
+      })),
+      expectedHeading: 'No transaction is safe to select',
+      expectedStatus: 'No selectable transaction',
+      expectedManagerNotice: 'Transaction results updated.',
+      expectedBadge: 'Needs comparison',
+      expectedAction: 'Next: Review the case details before choosing the next step.',
+      expectedCandidateCount: 1,
+      expectedContactlessBlockedEvidence: 'Amount differs by $2.00',
+    },
+    {
+      name: 'physical tap mismatch with unknown occurrence time',
+      refundOverview: buildPhysicalCardMismatchRefundOverview,
+      response: buildContactlessLookupResponse(buildContactlessMismatchCandidate({
+        candidateToken: '41000000-0000-4000-8000-000000000216',
+        timeDeltaMinutes: null,
+        requestTimeBoundary: 'occurrence_time_uncertain',
+        transactionOccurrenceComparable: false,
+        transactionOccurrenceSemantics: 'unknown',
+        isRecommended: false,
+        reasonCodes: ['machine_exact', 'amount_exact', 'transaction_occurrence_time_uncertain',
+          'payment_interaction_supporting', 'card_last4_mismatch'],
+        selectionAllowed: false,
+        identifierReviewState: 'needs_corroboration',
+        customerCorrectionFields: ['incident_time'],
+        matchFactors: [
+          { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+          { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
+          { key: 'incident_time', outcome: 'manual', label: 'Purchase occurrence time is not comparable to the customer-reported time' },
+        ],
+      })),
+      expectedHeading: 'No transaction is safe to select',
+      expectedStatus: 'No selectable transaction',
+      expectedManagerNotice: 'Transaction results updated.',
+      expectedBadge: 'Needs comparison',
+      expectedAction: 'Next: Review the case details before choosing the next step.',
+      expectedCandidateCount: 1,
+      expectedContactlessBlockedEvidence: 'Purchase occurrence time is not comparable to the customer-reported time',
+    },
+    {
+      name: 'physical tap mismatch with distant occurrence time',
+      refundOverview: buildPhysicalCardMismatchRefundOverview,
+      response: buildContactlessLookupResponse(buildContactlessMismatchCandidate({
+        candidateToken: '41000000-0000-4000-8000-000000000217',
+        timeDeltaMinutes: 120,
+        providerProcessingTimeDeltaMinutes: 120,
+        isRecommended: false,
+        reasonCodes: ['machine_exact', 'amount_exact', 'incident_time_within_3h',
+          'payment_interaction_supporting', 'card_last4_mismatch'],
+        selectionAllowed: false,
+        identifierReviewState: 'needs_corroboration',
+        customerCorrectionFields: ['incident_time'],
+        matchFactors: [
+          { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+          { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
+          { key: 'incident_time', outcome: 'manual', label: 'Transaction is 120 minutes from the customer-reported time' },
+        ],
+      })),
+      expectedHeading: 'No transaction is safe to select',
+      expectedStatus: 'No selectable transaction',
+      expectedManagerNotice: 'Transaction results updated.',
+      expectedBadge: 'Needs comparison',
+      expectedAction: 'Next: Review the case details before choosing the next step.',
+      expectedCandidateCount: 1,
+      expectedContactlessBlockedEvidence: 'Transaction is 120 minutes from the customer-reported time',
+    },
+    {
+      name: 'physical tap mismatch with interaction conflict',
+      refundOverview: buildPhysicalCardMismatchRefundOverview,
+      response: buildContactlessLookupResponse(buildContactlessMismatchCandidate({
+        candidateToken: '41000000-0000-4000-8000-000000000218',
+        recognitionMethod: 'swipe',
+        providerIdentifierClass: 'last_sales_swipe_identifier_unverified',
+        paymentInteractionComparison: 'conflict_unverified_provider_semantics',
+        isRecommended: false,
+        reasonCodes: ['machine_exact', 'amount_exact', 'incident_time_within_60m',
+          'payment_interaction_conflict_unverified_provider_semantics', 'card_last4_mismatch'],
+        selectionAllowed: false,
+        identifierReviewState: 'needs_corroboration',
+        customerCorrectionFields: ['payment_interaction'],
+        matchFactors: [
+          { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+          { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
+          { key: 'payment_interaction', outcome: 'manual', label: 'Customer and Nayax interaction labels differ' },
+        ],
+      })),
+      expectedHeading: 'No transaction is safe to select',
+      expectedStatus: 'No selectable transaction',
+      expectedManagerNotice: 'Transaction results updated.',
+      expectedBadge: 'Needs comparison',
+      expectedAction: 'Next: Review the case details before choosing the next step.',
+      expectedCandidateCount: 1,
+      expectedContactlessBlockedEvidence: 'The customer and Nayax describe different payment interactions. Confirm that single customer fact before considering this transaction.',
     },
     {
       name: 'lookup failed',
@@ -6300,12 +6423,14 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       if (scenario.expectedReviewableMismatch) {
         const candidateOption = page.getByTestId('nayax-candidate-option').first();
         recorder.assert(
-          'A close contactless suffix mismatch gives one manager review action without claiming identifier equivalence',
+          'An exact-scope contactless suffix mismatch gives one manager review action without claiming identifier equivalence',
           await page.getByTestId('nayax-candidate-availability').getByText('1 transaction available to select', { exact: true }).isVisible() &&
             await candidateOption.getByText('Review this', { exact: true }).isVisible() &&
             await candidateOption.locator('input[type="radio"]').isEnabled() &&
             await page.getByText('Last four from physical card', { exact: true }).isVisible() &&
+            await page.getByText(/one exact machine-and-amount transaction within 60 minutes/i).isVisible() &&
             await page.getByText(/Card ending differs; wallet, contactless, or source differences may explain it/).first().isVisible() &&
+            (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
             (await page.getByText('Ask customer for details', { exact: true }).count()) === 0
         );
         await candidateOption.click();
@@ -6319,6 +6444,38 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
           'Evidence-aware manager review remains clear without mobile overflow',
           await candidateOption.isVisible() &&
             await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+        );
+        await page.setViewportSize({ width: 1440, height: 1000 });
+      }
+      if (scenario.expectedContactlessBlockedEvidence) {
+        const candidateAvailability = page.getByTestId('nayax-candidate-availability');
+        const unavailableDetails = page.getByTestId('nayax-unavailable-candidates');
+        const candidateOptions = unavailableDetails.getByTestId('nayax-candidate-option');
+        recorder.assert(
+          `Nayax ${scenario.name} remains nonselectable without the exact contactless path`,
+          await candidateAvailability.getByText('0 transactions available to select', { exact: true }).isVisible() &&
+            (await candidateOptions.count()) === 1 &&
+            await candidateOptions.locator('input[type="radio"]').evaluateAll(
+              (inputs) => inputs.every((input) => input.disabled)
+            ) &&
+            (await page.getByText(/one exact machine-and-amount transaction within 60 minutes/i).count()) === 0 &&
+            (await page.getByText('Review this', { exact: true }).count()) === 0 &&
+            (await page.getByRole('button', { name: 'Confirm this transaction' }).count()) === 0 &&
+            (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0
+        );
+        await unavailableDetails.locator('summary').click();
+        recorder.assert(
+          `Nayax ${scenario.name} explains the exact missing safety fact`,
+          await unavailableDetails.getByText(scenario.expectedContactlessBlockedEvidence, { exact: true }).isVisible()
+        );
+        await page.setViewportSize({ width: 390, height: 844 });
+        await candidateAvailability.scrollIntoViewIfNeeded();
+        recorder.assert(
+          `Nayax ${scenario.name} remains readable and action-free on mobile`,
+          await candidateAvailability.isVisible() &&
+            await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth) &&
+            (await page.getByRole('button', { name: 'Confirm this transaction' }).count()) === 0 &&
+            (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0
         );
         await page.setViewportSize({ width: 1440, height: 1000 });
       }

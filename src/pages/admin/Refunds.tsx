@@ -1270,6 +1270,9 @@ const candidateUnavailableReason = (
   if (reasonCodes.has('provider_status_unconfirmed')) {
     return 'Nayax has not confirmed this as an approved sale.';
   }
+  if (reasonCodes.has('payment_interaction_conflict_unverified_provider_semantics')) {
+    return 'The customer and Nayax describe different payment interactions. Confirm that single customer fact before considering this transaction.';
+  }
   if (candidate.identifierReviewState === 'needs_corroboration') {
     return candidate.customerCorrectionFields?.length
       ? 'More customer context is needed on this same case before a manager can select it.'
@@ -5615,8 +5618,20 @@ export default function AdminRefundsPage() {
         ? {
             id: 'match_attention',
             label: 'Review transaction',
-            explanation: 'Bloomjoy found one close transaction. Its card identifier differs, and Nayax has not proved the compared fields are equivalent.',
-            nextStep: 'Review Machine transaction once. Select it only if the machine, amount, time, and customer details identify the same purchase.',
+            explanation: effectiveCandidates.some((candidate) =>
+              candidate.isRecommended &&
+              candidate.customerCredentialClass === 'customer_physical_contactless_pan' &&
+              candidate.cardLast4Comparison === 'mismatch_neutral_unproven_scope' &&
+              candidate.reasonCodes?.includes('physical_contactless_exact_scope_review')
+            )
+              ? 'Bloomjoy found one exact machine-and-amount transaction within 60 minutes of the customer\'s exact reported time. The physical contactless card ending differs, and Nayax has not proved the identifiers are equivalent.'
+              : 'Bloomjoy found one close transaction. Its card identifier differs, and Nayax has not proved the compared fields are equivalent.',
+            nextStep: effectiveCandidates.some((candidate) =>
+              candidate.isRecommended &&
+              candidate.reasonCodes?.includes('physical_contactless_exact_scope_review')
+            )
+              ? 'Review Machine transaction once. Select it only if the exact machine, exact amount, reported time, and contactless interaction identify the same purchase.'
+              : 'Review Machine transaction once. Select it only if the machine, amount, time, and customer details identify the same purchase.',
             tone: 'info',
           }
       : !hasSelectedMatch &&

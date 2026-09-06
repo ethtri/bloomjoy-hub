@@ -687,9 +687,29 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     identifierEvidence.customerCredentialClass === "customer_physical_contactless_pan" &&
     identifierEvidence.cardLast4Comparison === "mismatch_neutral_unproven_scope" &&
     identifierEvidence.cardNetworkComparison !== "mismatch_negative_unproven_equivalence";
-  const evidenceAwareReviewEligible =
-    corroboratedMismatchReviewEligible ||
-    (managerSelectionCore && neutralPhysicalContactlessMismatch);
+  // This exception is intentionally narrower than ordinary manager selection.
+  // A neutral contactless suffix difference may be reviewed only when the
+  // provider record agrees on the physical contactless interaction and the
+  // machine, amount, and bounded occurrence time are exact enough to identify
+  // one purchase. General amount/time tolerances must not leak into this path.
+  const neutralPhysicalContactlessExactScopeEligible =
+    managerSelectionCore &&
+    neutralPhysicalContactlessMismatch &&
+    identifierEvidence.paymentInteractionComparison === "supporting" &&
+    request.incidentTimeConfidence === "exact" &&
+    amountDeltaCents === 0 &&
+    candidate.transactionOccurrenceComparable === true &&
+    Number.isFinite(candidate.timeDeltaMinutes) &&
+    candidate.timeDeltaMinutes <= policy.maximumOneClickTimeDeltaMinutes;
+  // A neutral physical-contactless mismatch has its own stricter contract. It
+  // must never fall back to the broader corroborated-mismatch path when its
+  // amount, occurrence time, or interaction evidence is incomplete.
+  const evidenceAwareReviewEligible = neutralPhysicalContactlessMismatch
+    ? neutralPhysicalContactlessExactScopeEligible
+    : corroboratedMismatchReviewEligible;
+  if (neutralPhysicalContactlessExactScopeEligible) {
+    addReason(reasonCodes, "physical_contactless_exact_scope_review");
+  }
   const identifierReviewState = hardExclusions.length > 0
     ? "blocked_safety"
     : evidenceAwareReviewEligible
@@ -702,22 +722,35 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
   const cardLast4SourceKnown =
     ["physical_card", "wallet_device", "bank_record"].includes(request.cardLast4Source) ||
     ["physical_card", "wallet_device_token"].includes(request.cardLast4Provenance);
+  const neutralPhysicalContactlessCorrectionFields = [
+    amountDeltaCents !== 0 && "amount",
+    (request.incidentTimeResolution !== "exact" ||
+      request.incidentTimeConfidence !== "exact" ||
+      candidate.transactionOccurrenceComparable !== true ||
+      !Number.isFinite(candidate.timeDeltaMinutes) ||
+      candidate.timeDeltaMinutes > policy.maximumOneClickTimeDeltaMinutes) && "incident_time",
+    identifierEvidence.paymentInteractionComparison === "conflict_unverified_provider_semantics" &&
+      "payment_interaction",
+  ].filter(Boolean);
   const customerCorrectionFields = identifierReviewState === "needs_corroboration"
-    ? [
+    ? neutralPhysicalContactlessMismatch
+      ? neutralPhysicalContactlessCorrectionFields
+      : [
         amountDeltaCents !== 0 && "amount",
         (Number.isFinite(candidate.timeDeltaMinutes) &&
           candidate.timeDeltaMinutes > policy.maximumOneClickTimeDeltaMinutes ||
           request.incidentTimeResolution !== "exact" ||
           !["exact", "within_15_minutes"].includes(request.incidentTimeConfidence) ||
           request.nearbyAttemptCount === "multiple") && "incident_time",
-        (!request.paymentInteraction || ["unsure", "insert_or_swipe"].includes(request.paymentInteraction)) && "payment_interaction",
+        (identifierEvidence.paymentInteractionComparison === "conflict_unverified_provider_semantics" ||
+          !request.paymentInteraction || ["unsure", "insert_or_swipe"].includes(request.paymentInteraction)) && "payment_interaction",
         !cardLast4SourceKnown && "card_last4_source",
         (!request.cardNetwork || request.cardNetwork === "other_unknown") && "card_network",
         request.paymentInteraction === "phone_watch_wallet" &&
           (!request.walletDeviceKind || request.walletDeviceKind === "unknown") && "wallet_device_kind",
         request.incidentTimeSource !== "transaction_alert_or_receipt" && "incident_time_source",
         request.nearbyAttemptCount !== "one" && "nearby_attempt_count",
-      ].filter(Boolean)
+        ].filter(Boolean)
     : [];
   const selectionAllowed = managerSelectionCore &&
     (!mismatchPresent || evidenceAwareReviewEligible);
