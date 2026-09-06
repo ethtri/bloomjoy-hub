@@ -178,11 +178,8 @@ create temp table side_effects_before as select jsonb_build_object(
 create temp table predecessor_overview as
 select public.admin_get_refund_operations_overview_pre_correction_scope_parity_v1() value;
 
-set local role authenticated;
-select pg_temp.set_auth_claims('d9100000-0000-4000-8000-000000000001');
 create temp table current_overview as
 select public.admin_get_refund_operations_overview() value;
-reset role;
 
 select ok(
   position('refund_purchase_correction_request_fields' in pg_get_functiondef(
