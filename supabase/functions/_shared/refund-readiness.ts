@@ -21,6 +21,7 @@ export type RefundReadiness = {
   refundAmountCents: number | null;
   machineLimitCents: number | null;
   caseVersion: number | null;
+  approvalPendingExecution?: boolean;
 };
 
 const knownBlockReasons = new Set<RefundReadinessBlockReason>([
@@ -64,6 +65,7 @@ export const parseDatabaseRefundReadiness = (
     refundAmountCents: optionalInteger(row.refundAmountCents),
     machineLimitCents: optionalInteger(row.machineLimitCents),
     caseVersion: optionalInteger(row.caseVersion),
+    approvalPendingExecution: row.approvalPendingExecution === true,
   };
 };
 

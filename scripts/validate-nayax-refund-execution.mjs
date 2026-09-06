@@ -19,7 +19,7 @@ const files = {
   pendingApprovalRecoveryMigration: 'supabase/migrations/20260820041101_refund_nayax_pending_approval_recovery.sql',
   dailyReadinessUsageMigration: 'supabase/migrations/20260824224813_refund_nayax_daily_readiness_usage.sql',
   productionSimplificationMigration: 'supabase/migrations/20260830202234_refund_production_simplification.sql',
-  oneManagerDecisionMigration: 'supabase/migrations/20260906191757_refund_one_manager_decision.sql',
+  oneManagerDecisionMigration: 'supabase/migrations/20260906234104_refund_one_manager_decision.sql',
   providerOrchestration: 'supabase/functions/_shared/nayax-refund-orchestration.ts',
   providerGates: 'supabase/functions/_shared/nayax-refund-gates.ts',
   providerGatesTest: 'supabase/functions/_shared/nayax-refund-gates.test.ts',
@@ -570,6 +570,20 @@ assert(
     nayaxLookupShared.includes('candidate.currencyCode') &&
     nayaxLookupShared.includes('multiple_candidates_need_distinguishing_time') &&
     oneManagerDecisionMigration.includes('create or replace function public.refund_nayax_retry_safe_case_is_current') &&
+    oneManagerDecisionMigration.includes('create function public.service_apply_refund_nayax_selection_approval') &&
+    oneManagerDecisionMigration.includes("'nayax_refund_execution_authorized'") &&
+    oneManagerDecisionMigration.includes("'deterministic_fact_version', case_row.deterministic_fact_version") &&
+    oneManagerDecisionMigration.includes("(marker.metadata ->> 'deterministic_fact_version')::bigint = case_row.deterministic_fact_version") &&
+    oneManagerDecisionMigration.includes('refund_nayax_current_manager_approval_pending') &&
+    oneManagerDecisionMigration.includes("then 'nayax_refund_execution_continued'") &&
+    oneManagerDecisionMigration.includes("'business_approval_reused', public.refund_nayax_current_manager_approval_pending") &&
+    oneManagerDecisionMigration.includes('then coalesce(refund_case.decided_by, p_actor_user_id)') &&
+    oneManagerDecisionMigration.includes('then refund_case.decided_at') &&
+    oneManagerDecisionMigration.includes('Saved Nayax approval changed before execution; reload for review') &&
+    oneManagerDecisionMigration.includes("(marker.metadata ->> 'attempt_generation')::integer = refund_case.nayax_refund_attempt_generation") &&
+    oneManagerDecisionMigration.includes("marker.metadata ->> 'transaction_id' is not distinct from refund_case.matched_nayax_transaction_id") &&
+    oneManagerDecisionMigration.includes("'approvalPendingExecution'") &&
+    oneManagerDecisionMigration.includes("position('refund_purchase_correction_request_fields' in overview_definition)") &&
     !oneManagerDecisionMigration.includes('p_case.card_wallet_used = false') &&
     oneManagerDecisionMigration.includes('p_case.refund_amount_cents = p_case.matched_nayax_amount_cents') &&
     oneManagerDecisionMigration.includes('duplicate_case.matched_nayax_transaction_id = p_case.matched_nayax_transaction_id'),
@@ -583,18 +597,25 @@ assert(
 );
 assert(
   refundAdminUpdate.includes('validateRefundEvidenceSelectionRequest') &&
-    refundAdminUpdate.includes('validateCardPreExecutionRequest'),
-  'The refund admin endpoint must enforce evidence-only Nayax selection and reject premature card approvals server-side.'
+    refundAdminUpdate.includes('validateCardPreExecutionRequest') &&
+    refundAdminUpdate.includes('service_apply_refund_nayax_selection_approval'),
+  'The refund admin endpoint must permit only the exact combined selection approval while rejecting other premature card approvals.'
 );
 assert(
   refundOperationsUi.includes('label: `Refund ${formatCurrency(selectedCandidate.amountCents)}`') &&
     refundOperationsUi.includes('Confirm this exact transaction and refund its full provider amount in one decision.') &&
     refundOperationsUi.includes("mode: 'nayax_refund_execution'") &&
     refundOperationsUi.includes('quietTransactionConfirmation: true') &&
-    refundOperationsUi.includes('selectionResult.refundReadiness.canIssueCardRefund !== true') &&
+    refundOperationsUi.includes("status: 'card_refund_pending'") &&
+    refundOperationsUi.includes("decision: 'approved'") &&
+    refundOperationsUi.includes('approvalResult.officialActionVersion') &&
+    refundOperationsUi.includes('approvalPendingExecution') &&
+    refundOperationsUi.includes('isRunningNayaxRefund ||') &&
+    refundOperationsUi.includes('nayaxApprovedExecutionAttemptedRef.current.add(') &&
+    refundOperationsUi.includes('Continuing the refund you already approved') &&
     !refundOperationsUi.includes("mode: 'nayax_evidence_selection'") &&
     !refundOperationsUi.includes("label: 'Confirm this card sale'"),
-  'The manager UI must fold exact transaction binding into one ordinary refund decision and stop before payment if current server readiness changed.'
+  'The manager UI must durably fold exact transaction binding into one ordinary refund decision and resume only its still-current approval.'
 );
 assert(
   refundOperationsUi.includes('candidateOption(') &&

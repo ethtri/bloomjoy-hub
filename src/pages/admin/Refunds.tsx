@@ -2532,6 +2532,8 @@ export default function AdminRefundsPage() {
   } | null>(null);
   const cashCompletionInFlightRef = useRef(false);
   const nayaxRefundInFlightRef = useRef(false);
+  const nayaxApprovedExecutionRequestRef = useRef<() => void>(() => {});
+  const nayaxApprovedExecutionAttemptedRef = useRef(new Set<string>());
   const lookupRequestSequenceRef = useRef(0);
   const autoLookupAttemptedRef = useRef(new Set<string>());
   const handledCaseQueryRef = useRef<string | null>(null);
@@ -2979,6 +2981,7 @@ export default function AdminRefundsPage() {
         refundAmountCents: nayaxCardRefundAvailability.refundAmountCents ?? null,
         machineLimitCents: nayaxCardRefundAvailability.machineLimitCents ?? null,
         caseVersion: nayaxCardRefundAvailability.caseVersion ?? null,
+        approvalPendingExecution: nayaxCardRefundAvailability.approvalPendingExecution === true,
       };
     }
     return {
@@ -2990,6 +2993,7 @@ export default function AdminRefundsPage() {
       refundAmountCents: nayaxCardRefundAvailability.refundAmountCents ?? null,
       machineLimitCents: nayaxCardRefundAvailability.machineLimitCents ?? null,
       caseVersion: nayaxCardRefundAvailability.caseVersion ?? null,
+      approvalPendingExecution: nayaxCardRefundAvailability.approvalPendingExecution === true,
     };
   }, [
     forceDemoData,
@@ -3781,36 +3785,66 @@ export default function AdminRefundsPage() {
       if (candidateBeingSelected) {
         const selectionEditor: EditorState = {
           ...editor,
-          status: 'needs_review',
-          decision: null,
+          status: 'card_refund_pending',
+          decision: 'approved',
         };
-        const selectionResult = await handleSaveCase(
+        const approvalResult = await handleSaveCase(
           selectionEditor,
           null,
           { quietTransactionConfirmation: true }
         );
-        if (!selectionResult || selectionResult === 'step_up_pending') return;
+        if (!approvalResult || approvalResult === 'step_up_pending') return;
         if (
-          selectionResult.updateApplied !== true ||
-          selectionResult.refundReadiness?.transactionConfirmed !== true ||
-          selectionResult.refundReadiness.canIssueCardRefund !== true ||
-          selectionResult.officialActionVersion <= 0
+          approvalResult.updateApplied !== true ||
+          approvalResult.officialActionVersion <= 0
         ) {
           setIsRefundConfirmationOpen(false);
           setNayaxExecutionNotice({
             tone: 'warning',
-            message: selectionResult.refundReadiness?.blockReason
-              ? refundReadinessBlockMessage(selectionResult.refundReadiness.blockReason)
-              : 'The transaction was saved, but refund availability changed. Review the current case before continuing.',
+            message: 'Bloomjoy could not retain this refund approval. Reload the current case before continuing.',
           });
           return;
         }
-        executionVersion = selectionResult.officialActionVersion;
+        executionVersion = approvalResult.officialActionVersion;
+        let approvedReadiness: Awaited<ReturnType<typeof fetchNayaxCardRefundAvailability>>;
+        try {
+          approvedReadiness = await fetchNayaxCardRefundAvailability(selectedCase.id);
+        } catch {
+          setIsRefundConfirmationOpen(false);
+          setNayaxExecutionNotice({
+            tone: 'info',
+            message: 'Your refund approval was saved. Bloomjoy will continue the guarded refund when availability can be checked again.',
+          });
+          await refresh();
+          return;
+        }
+        queryClient.setQueryData(
+          ['nayax-card-refund-availability', selectedCase.id],
+          approvedReadiness
+        );
+        if (
+          approvedReadiness.transactionConfirmed !== true ||
+          approvedReadiness.canIssueCardRefund !== true ||
+          approvedReadiness.caseVersion !== executionVersion
+        ) {
+          setIsRefundConfirmationOpen(false);
+          setNayaxExecutionNotice({
+            tone: 'info',
+            message: approvedReadiness.blockReason
+              ? `Your refund approval was saved. ${refundReadinessBlockMessage(approvedReadiness.blockReason)}`
+              : 'Your refund approval was saved. Bloomjoy will continue the guarded refund when it becomes available.',
+          });
+          await refresh();
+          return;
+        }
       }
       const executionInput = {
         caseId: selectedCase.id,
         expectedOfficialActionVersion: executionVersion,
       };
+      nayaxApprovedExecutionAttemptedRef.current.add(
+        `${selectedCase.id}:${executionVersion}`
+      );
       const result = await executeNayaxCardRefund(executionInput);
       await applyNayaxExecutionResult(result);
     } catch (executionError) {
@@ -3850,6 +3884,42 @@ export default function AdminRefundsPage() {
       setIsRunningNayaxRefund(false);
     }
   };
+  nayaxApprovedExecutionRequestRef.current = () => {
+    void handleRunNayaxRefund();
+  };
+
+  useEffect(() => {
+    if (
+      isUsingDemoData ||
+      isRunningNayaxRefund ||
+      nayaxRefundInFlightRef.current ||
+      !selectedCase ||
+      selectedCase.paymentMethod !== 'card' ||
+      selectedCase.status !== 'card_refund_pending' ||
+      selectedCase.decision !== 'approved' ||
+      selectedCase.providerHold ||
+      hasConfirmedRefundReceipt(selectedCase) ||
+      selectedRefundReadiness?.approvalPendingExecution !== true ||
+      selectedRefundReadiness.canIssueCardRefund !== true ||
+      selectedRefundReadiness.caseVersion !== officialActionVersion ||
+      officialActionVersion <= 0
+    ) return;
+
+    const resumeKey = `${selectedCase.id}:${officialActionVersion}`;
+    if (nayaxApprovedExecutionAttemptedRef.current.has(resumeKey)) return;
+    nayaxApprovedExecutionAttemptedRef.current.add(resumeKey);
+    setNayaxExecutionNotice({
+      tone: 'info',
+      message: 'Continuing the refund you already approved. No additional manager decision is needed.',
+    });
+    queueMicrotask(() => nayaxApprovedExecutionRequestRef.current());
+  }, [
+    isUsingDemoData,
+    isRunningNayaxRefund,
+    officialActionVersion,
+    selectedCase,
+    selectedRefundReadiness,
+  ]);
 
   const handlePrepareNayaxResolution = async () => {
     if (

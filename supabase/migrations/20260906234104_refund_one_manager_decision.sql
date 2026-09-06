@@ -502,3 +502,402 @@ as $$
 $$;
 revoke execute on function public.refund_nayax_retry_safe_case_is_current(public.refund_cases)
   from public, anon, authenticated, service_role;
+
+-- One ordinary manager confirmation must survive the narrow gap between
+-- selecting the exact sale and starting the guarded provider executor. This
+-- wrapper commits the existing official approval and an immutable resume
+-- marker in one database transaction. It never creates a provider attempt or
+-- customer message.
+create function public.service_apply_refund_nayax_selection_approval(
+  p_authorization_id uuid,
+  p_case_id uuid,
+  p_assigned_manager_email text default null,
+  p_decision_reason text default null,
+  p_internal_note text default null,
+  p_refund_amount_cents integer default null,
+  p_matched_nayax_candidate_token uuid default null,
+  p_nayax_disagreement_reason text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  result jsonb;
+  case_row public.refund_cases%rowtype;
+  authorization_row public.refund_case_official_action_authorizations%rowtype;
+  candidate_row public.refund_nayax_lookup_candidates%rowtype;
+  scorer_recommendation_state text;
+  manager_recommendation_state text;
+  manager_execution_eligible boolean := false;
+begin
+  if p_matched_nayax_candidate_token is null then
+    raise exception 'An exact Nayax candidate is required for combined approval'
+      using errcode = 'P4600';
+  end if;
+
+  result := public.service_apply_refund_official_case_update(
+    p_authorization_id,
+    p_case_id,
+    'approve',
+    'card_refund_pending',
+    p_assigned_manager_email,
+    'approved',
+    p_decision_reason,
+    p_internal_note,
+    p_refund_amount_cents,
+    null,
+    p_matched_nayax_candidate_token,
+    p_nayax_disagreement_reason
+  );
+
+  select authorization.* into strict authorization_row
+  from public.refund_case_official_action_authorizations authorization
+  where authorization.id = p_authorization_id
+  for share;
+  select candidate.* into strict candidate_row
+  from public.refund_nayax_lookup_candidates candidate
+  where candidate.token = p_matched_nayax_candidate_token
+    and candidate.refund_case_id = p_case_id
+    and candidate.actor_user_id = authorization_row.actor_user_id
+  for share;
+  select refund_case.* into strict case_row
+  from public.refund_cases refund_case
+  where refund_case.id = p_case_id
+  for share;
+
+  if authorization_row.action <> 'approve'
+    or authorization_row.status <> 'consumed'
+    or case_row.payment_method <> 'card'
+    or case_row.status <> 'card_refund_pending'
+    or case_row.decision <> 'approved'
+    or case_row.correlation_status <> 'matched'
+    or case_row.correlation_source <> 'nayax'
+    or case_row.matched_nayax_transaction_id is distinct from candidate_row.provider_transaction_id
+    or case_row.matched_nayax_site_id is distinct from candidate_row.site_id
+    or case_row.matched_nayax_machine_auth_time is distinct from candidate_row.machine_authorization_time
+    or case_row.matched_nayax_amount_cents is distinct from candidate_row.amount_cents
+    or case_row.matched_nayax_card_last4 is distinct from candidate_row.card_last4
+    or case_row.matched_nayax_currency_code is distinct from candidate_row.currency_code
+    or case_row.refund_amount_cents is distinct from candidate_row.amount_cents
+    or candidate_row.evidence_summary ->> 'selection_allowed' <> 'true'
+    or public.refund_nayax_candidate_identifier_evidence_state(
+      case_row.id,
+      candidate_row.reporting_machine_id,
+      candidate_row.site_id,
+      candidate_row.machine_authorization_time,
+      candidate_row.amount_cents,
+      candidate_row.card_last4,
+      candidate_row.currency_code,
+      candidate_row.evidence_summary
+    ) <> 'valid'
+    or case_row.nayax_refund_execution_status <> 'not_requested'
+    or case_row.reporting_adjustment_id is not null
+    or case_row.refund_completed_at is not null
+    or public.refund_case_has_unresolved_reconciliation(case_row.id)
+    or exists (
+      select 1 from public.refund_case_nayax_refund_attempts attempt
+      where attempt.refund_case_id = case_row.id
+        and attempt.created_at >= candidate_row.created_at
+    ) then
+    raise exception 'Combined Nayax approval did not preserve a clean exact execution state'
+      using errcode = 'P4620';
+  end if;
+
+  scorer_recommendation_state := coalesce(
+    nullif(btrim(candidate_row.evidence_summary ->> 'recommendation_state'), ''),
+    'manual_exception'
+  );
+  manager_recommendation_state := scorer_recommendation_state;
+  manager_execution_eligible := (
+    scorer_recommendation_state = 'high_confidence'
+    and candidate_row.evidence_summary ->> 'is_recommended' = 'true'
+    and candidate_row.evidence_summary ->> 'one_click_eligible' = 'true'
+  ) or (
+    candidate_row.evidence_summary ->> 'policy_version' = '2026-09-05.v11'
+    and candidate_row.evidence_summary ->> 'selection_allowed' = 'true'
+    and candidate_row.evidence_summary ->> 'one_click_eligible' = 'false'
+    and candidate_row.evidence_summary ->> 'request_time_boundary' in (
+      'request_time_unknown','occurrence_time_uncertain'
+    )
+  );
+  if manager_execution_eligible
+    and scorer_recommendation_state <> 'high_confidence' then
+    manager_recommendation_state := 'manager_confirmed';
+  end if;
+
+  update public.refund_cases
+  set nayax_recommendation_state = manager_recommendation_state,
+      nayax_recommendation_policy_version = candidate_row.evidence_summary ->> 'policy_version',
+      nayax_recommendation_evaluated_at = statement_timestamp(),
+      nayax_match_execution_eligible = manager_execution_eligible,
+      correlation_confidence = 0,
+      correlation_summary = 'Machine Manager approved the selected Nayax transaction for guarded execution.'
+  where id = case_row.id
+  returning * into case_row;
+
+  insert into public.refund_case_events(
+    refund_case_id, actor_user_id, event_type, message, metadata
+  ) values (
+    case_row.id,
+    authorization_row.actor_user_id,
+    'nayax_refund_execution_authorized',
+    'The mapped Machine Manager approved this exact selected Nayax refund for guarded execution.',
+    jsonb_build_object(
+      'schema_version', 'nayax-selection-approval-v1',
+      'case_version', case_row.official_action_version,
+      'deterministic_fact_version', case_row.deterministic_fact_version,
+      'attempt_generation', case_row.nayax_refund_attempt_generation,
+      'transaction_id', case_row.matched_nayax_transaction_id,
+      'site_id', case_row.matched_nayax_site_id,
+      'machine_authorization_time', case_row.matched_nayax_machine_auth_time,
+      'amount_cents', case_row.matched_nayax_amount_cents,
+      'card_last4', case_row.matched_nayax_card_last4,
+      'currency_code', case_row.matched_nayax_currency_code,
+      'authorization_id', authorization_row.id,
+      'payload_redacted', true
+    )
+  );
+
+  return result;
+end;
+$$;
+revoke all on function public.service_apply_refund_nayax_selection_approval(
+  uuid,uuid,text,text,text,integer,uuid,text
+) from public,anon,authenticated;
+grant execute on function public.service_apply_refund_nayax_selection_approval(
+  uuid,uuid,text,text,text,integer,uuid,text
+) to service_role;
+
+create function public.refund_nayax_current_manager_approval_pending(
+  p_user_id uuid,
+  p_case_id uuid
+)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  case_row public.refund_cases%rowtype;
+  marker public.refund_case_events%rowtype;
+  approval public.refund_case_official_action_authorizations%rowtype;
+begin
+  select refund_case.* into case_row
+  from public.refund_cases refund_case
+  where refund_case.id = p_case_id;
+  if not found then return false; end if;
+
+  select event.* into marker
+  from public.refund_case_events event
+  where event.refund_case_id = case_row.id
+    and event.event_type = 'nayax_refund_execution_authorized'
+  order by event.created_at desc, event.id desc
+  limit 1;
+  if not found then return false; end if;
+
+  if coalesce(marker.metadata ->> 'authorization_id','') !~
+      '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' then
+    return false;
+  end if;
+  select authorization.* into approval
+  from public.refund_case_official_action_authorizations authorization
+  where authorization.id = (marker.metadata ->> 'authorization_id')::uuid;
+  if not found then return false; end if;
+
+  return public.can_perform_refund_official_action(p_user_id, case_row.id)
+    and approval.refund_case_id = case_row.id
+    and approval.action = 'approve'
+    and approval.status = 'consumed'
+    and approval.actor_user_id = marker.actor_user_id
+    and approval.manager_mapping_id is not null
+    and approval.manager_mapping_version > 0
+    and marker.metadata ->> 'schema_version' = 'nayax-selection-approval-v1'
+    and marker.metadata ->> 'payload_redacted' = 'true'
+    and marker.metadata ->> 'case_version' ~ '^[0-9]+$'
+    and (marker.metadata ->> 'case_version')::bigint = case_row.official_action_version
+    and marker.metadata ->> 'deterministic_fact_version' ~ '^[0-9]+$'
+    and (marker.metadata ->> 'deterministic_fact_version')::bigint = case_row.deterministic_fact_version
+    and marker.metadata ->> 'attempt_generation' ~ '^[0-9]+$'
+    and (marker.metadata ->> 'attempt_generation')::integer = case_row.nayax_refund_attempt_generation
+    and marker.metadata ->> 'transaction_id' is not distinct from case_row.matched_nayax_transaction_id
+    and marker.metadata ->> 'site_id' ~ '^[0-9]+$'
+    and (marker.metadata ->> 'site_id')::integer is not distinct from case_row.matched_nayax_site_id
+    and (marker.metadata ->> 'machine_authorization_time')::timestamptz
+      is not distinct from case_row.matched_nayax_machine_auth_time
+    and marker.metadata ->> 'amount_cents' ~ '^[1-9][0-9]*$'
+    and (marker.metadata ->> 'amount_cents')::integer is not distinct from case_row.matched_nayax_amount_cents
+    and marker.metadata ->> 'card_last4' is not distinct from case_row.matched_nayax_card_last4
+    and marker.metadata ->> 'currency_code' is not distinct from case_row.matched_nayax_currency_code
+    and case_row.payment_method = 'card'
+    and case_row.status = 'card_refund_pending'
+    and case_row.decision = 'approved'
+    and case_row.correlation_status = 'matched'
+    and case_row.correlation_source = 'nayax'
+    and case_row.refund_amount_cents is not null
+    and case_row.refund_amount_cents = case_row.matched_nayax_amount_cents
+    and case_row.nayax_refund_execution_status = 'not_requested'
+    and case_row.reporting_adjustment_id is null
+    and case_row.refund_completed_at is null
+    and not public.refund_case_has_unresolved_reconciliation(case_row.id)
+    and not exists (
+      select 1 from public.refund_case_nayax_refund_attempts attempt
+      where attempt.refund_case_id = case_row.id
+        and attempt.created_at >= marker.created_at
+    );
+exception when invalid_text_representation or datetime_field_overflow then
+  return false;
+end;
+$$;
+revoke all on function public.refund_nayax_current_manager_approval_pending(uuid,uuid)
+  from public,anon,authenticated,service_role;
+
+-- The existing reservation kernel historically recorded a second approval and
+-- changed decided_by to the manager who happened to start provider execution.
+-- A current immutable selection-approval marker already contains the business
+-- decision. Preserve that approver and record the current manager only as the
+-- executor who continued the guarded attempt.
+do $$
+declare
+  function_definition text;
+  decision_actor_anchor text := $anchor$    decided_by = p_actor_user_id,
+    decided_at = coalesce(decided_at, authorized_at)$anchor$;
+  decision_actor_replacement text := $replacement$    decided_by = case
+      when public.refund_nayax_current_manager_approval_pending(
+        p_actor_user_id, refund_case.id
+      ) then coalesce(refund_case.decided_by, p_actor_user_id)
+      else p_actor_user_id
+    end,
+    decided_at = case
+      when public.refund_nayax_current_manager_approval_pending(
+        p_actor_user_id, refund_case.id
+      ) then refund_case.decided_at
+      else coalesce(refund_case.decided_at, authorized_at)
+    end$replacement$;
+  version_anchor text := $anchor$  if refund_case.official_action_version is distinct from p_expected_case_version then
+    raise exception 'Refund case changed since review; reload before refunding';
+  end if;
+
+  select configured_machine.*$anchor$;
+  version_replacement text := $replacement$  if refund_case.official_action_version is distinct from p_expected_case_version then
+    raise exception 'Refund case changed since review; reload before refunding';
+  end if;
+
+  if exists (
+    select 1
+    from public.refund_case_events marker
+    where marker.refund_case_id = refund_case.id
+      and marker.event_type = 'nayax_refund_execution_authorized'
+      and marker.metadata ->> 'case_version' ~ '^[0-9]+$'
+      and (marker.metadata ->> 'case_version')::bigint = refund_case.official_action_version
+      and marker.metadata ->> 'attempt_generation' ~ '^[0-9]+$'
+      and (marker.metadata ->> 'attempt_generation')::integer = refund_case.nayax_refund_attempt_generation
+      and marker.metadata ->> 'transaction_id' is not distinct from refund_case.matched_nayax_transaction_id
+      and marker.metadata ->> 'site_id' ~ '^[0-9]+$'
+      and (marker.metadata ->> 'site_id')::integer is not distinct from refund_case.matched_nayax_site_id
+      and (marker.metadata ->> 'machine_authorization_time')::timestamptz
+        is not distinct from refund_case.matched_nayax_machine_auth_time
+      and marker.metadata ->> 'amount_cents' ~ '^[1-9][0-9]*$'
+      and (marker.metadata ->> 'amount_cents')::integer is not distinct from refund_case.matched_nayax_amount_cents
+      and marker.metadata ->> 'currency_code' is not distinct from refund_case.matched_nayax_currency_code
+  ) and not public.refund_nayax_current_manager_approval_pending(
+    p_actor_user_id, refund_case.id
+  ) then
+    raise exception 'Saved Nayax approval changed before execution; reload for review'
+      using errcode = 'P4620';
+  end if;
+
+  select configured_machine.*$replacement$;
+  approval_event_anchor text := $anchor$    'official_action_committed',
+    'The mapped Machine Manager approved this exact Nayax refund.',
+    jsonb_build_object(
+      'action', 'nayax_execute',$anchor$;
+  approval_event_replacement text := $replacement$    case
+      when public.refund_nayax_current_manager_approval_pending(
+        p_actor_user_id, refund_case.id
+      ) then 'nayax_refund_execution_continued'
+      else 'official_action_committed'
+    end,
+    case
+      when public.refund_nayax_current_manager_approval_pending(
+        p_actor_user_id, refund_case.id
+      ) then 'The current mapped Machine Manager continued a previously approved exact Nayax refund.'
+      else 'The mapped Machine Manager approved this exact Nayax refund.'
+    end,
+    jsonb_build_object(
+      'action', 'nayax_execute',
+      'business_approval_reused', public.refund_nayax_current_manager_approval_pending(
+        p_actor_user_id, refund_case.id
+      ),$replacement$;
+begin
+  function_definition := replace(pg_catalog.pg_get_functiondef(
+    'public.service_reserve_nayax_refund_manager_action(text,uuid,uuid,bigint,text,integer,integer,integer,text)'::regprocedure
+  ), E'\r\n', E'\n');
+  if length(function_definition) - length(replace(
+      function_definition, decision_actor_anchor, ''
+    )) <> length(decision_actor_anchor)
+    or length(function_definition) - length(replace(
+      function_definition, version_anchor, ''
+    )) <> length(version_anchor)
+    or length(function_definition) - length(replace(
+      function_definition, approval_event_anchor, ''
+    )) <> length(approval_event_anchor) then
+    raise exception 'Exact saved-approval reservation anchors required';
+  end if;
+  function_definition := replace(
+    function_definition, decision_actor_anchor, decision_actor_replacement
+  );
+  function_definition := replace(
+    function_definition, version_anchor, version_replacement
+  );
+  function_definition := replace(
+    function_definition, approval_event_anchor, approval_event_replacement
+  );
+  execute function_definition;
+end;
+$$;
+
+-- Keep the existing readiness contract and OID used by all overview wrappers;
+-- append only the fail-closed reload-resume signal.
+do $$
+declare
+  function_definition text;
+  anchor text := $anchor$    'caseVersion', refund_case.official_action_version,
+    'accountCircuitBreakerActive', false
+  );$anchor$;
+  replacement text := $replacement$    'caseVersion', refund_case.official_action_version,
+    'accountCircuitBreakerActive', false,
+    'approvalPendingExecution', public.refund_nayax_current_manager_approval_pending(
+      p_user_id, refund_case.id
+    )
+  );$replacement$;
+begin
+  function_definition := replace(pg_catalog.pg_get_functiondef(
+    'public.refund_case_nayax_manager_readiness(uuid,uuid)'::regprocedure
+  ), E'\r\n', E'\n');
+  if length(function_definition) - length(replace(function_definition, anchor, ''))
+      <> length(anchor) then
+    raise exception 'Exact Nayax manager readiness return anchor required';
+  end if;
+  execute replace(function_definition, anchor, replacement);
+end;
+$$;
+
+-- This migration intentionally follows the correction-overview wrapper. Re-run
+-- that exact final definition after replacing the helper so its compiled plan
+-- resolves the current correction-only compatibility function.
+do $$
+declare
+  overview_definition text;
+begin
+  overview_definition := pg_catalog.pg_get_functiondef(
+    'public.admin_get_refund_operations_overview()'::regprocedure
+  );
+  if position('refund_purchase_correction_request_fields' in overview_definition) = 0 then
+    raise exception 'Final refund overview must retain current correction helper binding';
+  end if;
+  execute overview_definition;
+end;
+$$;
