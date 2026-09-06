@@ -23,6 +23,9 @@ const schedulerIncidentMigration = read(
 );
 const followUpMigration = read('supabase/migrations/202608030005_refund_deterministic_follow_up_cycles.sql');
 const receiptEligibilityMigration = read('supabase/migrations/20260902195754_refund_receipt_automation_eligibility.sql');
+const terminalReceiptOutboxMigration = read(
+  'supabase/migrations/20260906020000_refund_terminal_receipt_completion_outbox.sql'
+);
 const managerAgingMigration = read('supabase/migrations/202608040001_refund_manager_aging_reminders.sql');
 const sweep = read('supabase/functions/refund-case-automation-sweep/index.ts');
 const intake = read('supabase/functions/refund-case-intake/index.ts');
@@ -67,6 +70,19 @@ check(
     intake.includes('.from("refund_customer_contact_settings")') &&
     followUpMigration.includes('automatic_customer_contact_enabled boolean not null default false') &&
     followUpMigration.includes("raise exception 'Automatic customer contact is disabled'")
+);
+check(
+  'Service-terminal receipts enter the existing outbox once without payment, accounting, or direct mail effects',
+  terminalReceiptOutboxMigration.includes('service_queue_terminal_refund_receipt_completions') &&
+    terminalReceiptOutboxMigration.includes('automatic_customer_contact_enabled') &&
+    terminalReceiptOutboxMigration.includes("authority_kind in ('operator_reviewed','service_terminal')") &&
+    terminalReceiptOutboxMigration.includes('from public,anon,authenticated,service_role') &&
+    !/insert into public\.(sales_adjustment_facts|refund_case_nayax_refund_attempts)\s*\(/i.test(terminalReceiptOutboxMigration) &&
+    !/\b(net\.http|http_post|fetch\s*\()/i.test(terminalReceiptOutboxMigration) &&
+    sweep.includes('queueTerminalReceiptCompletions(counters)') &&
+    /automationEnabled && policyWindowIsOpen\(scheduledAt\) &&\s*await automaticCustomerContactAllowed\(\)/.test(sweep) &&
+    sweep.indexOf('await queueTerminalReceiptCompletions(counters)') <
+      sweep.indexOf('await runManualMessageOutboxSweep(counters)')
 );
 check(
   'Deterministic follow-up claims are bounded, versioned, and service-only',

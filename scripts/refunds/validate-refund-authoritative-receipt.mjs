@@ -7,6 +7,7 @@ import { buildReceiptWrapperParityTest } from './refund-receipt-wrapper-parity.m
 
 const read = (file) => fs.readFileSync(path.resolve(file), 'utf8');
 const migration = read('supabase/migrations/20260902191832_refund_authoritative_reconciliation_receipt.sql');
+const terminalOutboxMigration = read('supabase/migrations/20260906020000_refund_terminal_receipt_completion_outbox.sql');
 const handler = read('supabase/functions/_shared/refund-authoritative-receipt.ts');
 const edge = read('supabase/functions/refund-case-admin-update/index.ts');
 const tests = read('supabase/tests/refund_authoritative_reconciliation_receipt.sql');
@@ -153,6 +154,17 @@ assert.match(migration, /service_mark_refund_delivery_pre_receipt_v1/);
 assert.doesNotMatch(migration, /insert into public\.(sales_adjustment_facts|refund_case_nayax_refund_attempts|refund_case_messages)\s*\(/i);
 assert.doesNotMatch(migration, /\b(net\.http|http_post|fetch\s*\()/i);
 assert.doesNotMatch(handler, /\b(fetch|sendRefund|dispatchRefund|createClient)\s*\(/);
+assert.match(terminalOutboxMigration, /create table public\.refund_terminal_receipt_sources/);
+assert.match(terminalOutboxMigration, /revoke all on table public\.refund_terminal_receipt_sources from public,anon,authenticated,service_role/);
+assert.match(terminalOutboxMigration, /revoke all on function public\.refund_register_terminal_receipt_source\(uuid,text,text\)\s+from public,anon,authenticated,service_role/);
+assert.match(terminalOutboxMigration, /grant execute on function public\.service_queue_terminal_refund_receipt_completion\(uuid\) to service_role/);
+assert.match(terminalOutboxMigration, /c\.reporting_machine_id is distinct from r\.reporting_machine_id/);
+assert.match(terminalOutboxMigration, /c\.matched_nayax_transaction_id is distinct from r\.original_transaction_id/);
+assert.match(terminalOutboxMigration, /r\.refunded_amount_cents is distinct from r\.original_amount_cents/);
+assert.match(terminalOutboxMigration, /'terminal',true,'refreshAfterSeconds',null,'paymentWorkComplete',true/);
+assert.match(terminalOutboxMigration, /'settlementTimePrecision','unknown','settledAt',null,'blocksPaymentCompletion',false/);
+assert.doesNotMatch(terminalOutboxMigration, /insert into public\.(sales_adjustment_facts|refund_case_nayax_refund_attempts)\s*\(/i);
+assert.doesNotMatch(terminalOutboxMigration, /\b(net\.http|http_post|fetch\s*\()/i);
 assert.match(edge, /handleAuthoritativeReceipt\(body, \(name, args\) => receiptClient\.rpc\(name, args\)\)/);
 assert.ok(edge.indexOf('handleAuthoritativeReceipt(body') < edge.indexOf('const beforeRow = await getRefundCase(caseId)'));
 for (const phrase of ['No attempt is fabricated', 'Unknown settlement creates no dated accounting adjustment',

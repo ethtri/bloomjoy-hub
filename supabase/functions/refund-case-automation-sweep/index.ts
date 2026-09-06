@@ -381,6 +381,36 @@ const runManualMessageOutboxSweep = async (counters: SweepCounters) => {
   }
 };
 
+const queueTerminalReceiptCompletions = async (counters: SweepCounters) => {
+  if (!supabase) return;
+  const { data, error } = await supabase.rpc(
+    "service_queue_terminal_refund_receipt_completions",
+    { p_limit: 10 },
+  );
+  if (error) throw error;
+  const result = data && typeof data === "object" && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : null;
+  if (result?.payloadRedacted !== true) {
+    throw new Error("Terminal receipt completion queue returned an invalid result.");
+  }
+  const queued = typeof result.queued === "number" && Number.isSafeInteger(result.queued) && result.queued >= 0
+    ? result.queued
+    : 0;
+  const replayed = typeof result.replayed === "number" && Number.isSafeInteger(result.replayed) && result.replayed >= 0
+    ? result.replayed
+    : 0;
+  const suppressed = typeof result.suppressed === "number" && Number.isSafeInteger(result.suppressed) && result.suppressed >= 0
+    ? result.suppressed
+    : 0;
+  counters.actionsAttempted += queued;
+  counters.actionsSucceeded += queued;
+  counters.actionsSuppressed += replayed + suppressed;
+  if (queued > 0) addReason(counters, "terminal_receipt_completion_queued");
+  if (replayed > 0) addReason(counters, "terminal_receipt_completion_replayed");
+  if (suppressed > 0) addReason(counters, "terminal_receipt_completion_suppressed");
+};
+
 const firstRelation = <T>(value: OneOrMany<T>) =>
   Array.isArray(value) ? value[0] ?? null : value ?? null;
 
@@ -3925,8 +3955,22 @@ serve(async (req) => {
       }, alertStatus === "sent" ? 200 : 502);
     }
 
-    // This exact content was already approved in the manager portal, so its
-    // durable queue does not depend on automatic-contact or policy-window gates.
+    // Only receipts carrying a private, reviewed machine-terminal source can
+    // enter this path. New automatic contact uses the existing environment,
+    // database, automation, and local policy-window gates. The RPC rechecks the
+    // database gate and creates no payment, provider, accounting, or delivery
+    // effect.
+    if (
+      automationEnabled && policyWindowIsOpen(scheduledAt) &&
+      await automaticCustomerContactAllowed()
+    ) {
+      failureStage = "terminal_receipt_completion_queue";
+      await queueTerminalReceiptCompletions(counters);
+    }
+
+    // This exact content was already approved in the manager portal or entered
+    // the queue in an authorized automatic-contact window, so a durable queued
+    // message can continue independently of later policy-window changes.
     failureStage = "manual_message_outbox";
     await runManualMessageOutboxSweep(counters);
     if (counters.actionsFailed > 0) {
