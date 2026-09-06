@@ -21,17 +21,22 @@ const continuationMigrationUrl = new URL(
   '../../supabase/migrations/20260906202952_refund_attempt_continuation_outcomes.sql',
   import.meta.url,
 );
+const continuationReadinessMigrationUrl = new URL(
+  '../../supabase/migrations/20260906222000_refund_attempt_continuation_readiness.sql',
+  import.meta.url,
+);
 const continuationTestUrl = new URL(
   '../../supabase/tests/refund_attempt_continuation_outcomes.sql',
   import.meta.url,
 );
 
-const [migration, test, legacyRecoveryTest, productionSimplification, continuationMigration, continuationTest] = await Promise.all([
+const [migration, test, legacyRecoveryTest, productionSimplification, continuationMigration, continuationReadinessMigration, continuationTest] = await Promise.all([
   readFile(migrationUrl, 'utf8'),
   readFile(testUrl, 'utf8'),
   readFile(legacyRecoveryTestUrl, 'utf8'),
   readFile(productionSimplificationUrl, 'utf8'),
   readFile(continuationMigrationUrl, 'utf8'),
+  readFile(continuationReadinessMigrationUrl, 'utf8'),
   readFile(continuationTestUrl, 'utf8'),
 ]);
 
@@ -227,7 +232,17 @@ for (const scenario of [
 ]) {
   assert.match(continuationTest, new RegExp(scenario), `continuation pgTAP must cover ${scenario}`);
 }
-assert.match(continuationTest, /select plan\(31\)/u);
+assert.match(continuationTest, /select plan\(38\)/u);
+assert.match(
+  continuationReadinessMigration,
+  /'approvalContinuationReady', approval_continuation_ready/u,
+  'service readiness must expose the evidence-bound continuation bit',
+);
+assert.match(
+  continuationReadinessMigration,
+  /attempt\.provider_claim_expires_at <= statement_timestamp\(\)/u,
+  'manager readiness must not race the original worker claim',
+);
 assert.match(
   continuationMigration,
   /grant execute on function public\.service_record_nayax_refund_provider_stage_v3\([\s\S]*\) to service_role;/u,

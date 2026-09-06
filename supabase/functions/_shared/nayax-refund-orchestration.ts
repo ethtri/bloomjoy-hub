@@ -49,6 +49,31 @@ export type NayaxAttemptReservation = {
   providerClaimToken: string | null;
 };
 
+export const shouldRequestNayaxApprovalContinuation = (
+  ordinaryReservation: NayaxAttemptReservation | null,
+) =>
+  ordinaryReservation === null ||
+  (
+    ordinaryReservation.attempt.shouldExecute === false &&
+    ordinaryReservation.attempt.status === "in_progress" &&
+    new Set<NayaxProviderOutcomeKind | null>([null, "unknown"]).has(
+      ordinaryReservation.attempt.providerOutcome,
+    ) &&
+    ordinaryReservation.attempt.reportingAdjustmentPresent === false &&
+    ordinaryReservation.attempt.caseFinalizationCommitted === false
+  );
+
+export const selectNayaxReservationAfterContinuation = ({
+  ordinaryReservation,
+  continuationReservation,
+}: {
+  ordinaryReservation: NayaxAttemptReservation | null;
+  continuationReservation: NayaxAttemptReservation | null;
+}) =>
+  continuationReservation?.attempt.shouldExecute === true
+    ? continuationReservation
+    : ordinaryReservation ?? continuationReservation;
+
 export type NayaxAttemptSettlement = {
   attempt: NayaxAttemptSnapshot;
   updateApplied: boolean;

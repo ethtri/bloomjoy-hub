@@ -19,6 +19,8 @@ import {
   type NayaxAttemptSettlement,
   type NayaxCompletionDelivery,
   orchestrateNayaxRefund,
+  selectNayaxReservationAfterContinuation,
+  shouldRequestNayaxApprovalContinuation,
 } from "../_shared/nayax-refund-orchestration.ts";
 // @deno-types="../_shared/nayax-refund-provider.d.ts"
 import {
@@ -1396,13 +1398,13 @@ serve(async (req) => {
             },
           );
           // A reloaded interrupted attempt can fail the ordinary reservation's
-          // fresh-action eligibility check. Asking the continuation boundary is
-          // safe: it can only return the same proved attempt and never creates a
-          // request. Every other reservation error remains fail-closed there.
+          // fresh-action eligibility check. Only a missing reservation or an
+          // unsettled in-progress replay asks the continuation boundary. Known
+          // success/rejection/hold replays retain their ordinary snapshot.
           let reservation = !error && data && typeof data === "object"
             ? data as NayaxAttemptReservation
             : null;
-          if (!reservation?.attempt?.shouldExecute) {
+          if (shouldRequestNayaxApprovalContinuation(reservation)) {
             const { data: continuationData, error: continuationError } =
               await supabase.rpc(
                 "service_reserve_nayax_refund_approval_continuation_v1",
@@ -1419,15 +1421,26 @@ serve(async (req) => {
                     NAYAX_REFUND_JOURNAL_CONTRACT_VERSION,
                 },
               );
-            if (
-              continuationError || !continuationData ||
-              typeof continuationData !== "object"
-            ) {
+            const continuationReservation =
+              !continuationError && continuationData &&
+                typeof continuationData === "object"
+                ? continuationData as NayaxAttemptReservation
+                : null;
+            reservation = selectNayaxReservationAfterContinuation({
+              ordinaryReservation: reservation,
+              continuationReservation,
+            });
+            // A concurrent/stale continuation rejection must not erase an
+            // otherwise valid ordinary replay. With no ordinary snapshot, both
+            // reservation paths still fail closed before provider transport.
+            if (!reservation) {
               throw new Error(error
                 ? "Unable to reserve this Nayax refund safely."
                 : "Unable to reserve this Nayax approval continuation safely.");
             }
-            reservation = continuationData as NayaxAttemptReservation;
+          }
+          if (!reservation) {
+            throw new Error("Unable to reserve this Nayax refund safely.");
           }
           if (reservation.attempt?.shouldExecute) {
             normalAttemptId = reservation.attempt.attemptId;

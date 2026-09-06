@@ -309,6 +309,23 @@ begin
     or mapping_row.manager_user_id is distinct from p_actor_user_id
     or mapping_row.mapping_version is distinct from authorization_row.manager_mapping_version
     or mapping_row.status is distinct from 'active' or mapping_row.revoked_at is not null
+    or case_row.duplicate_of_refund_case_id is not null
+    or public.refund_case_has_unresolved_reconciliation(case_row.id)
+    or exists (
+      select 1
+      from public.refund_gmail_case_link_review_candidates candidate
+      join public.refund_gmail_case_link_reviews review
+        on review.id = candidate.review_id
+      where candidate.refund_case_id = case_row.id
+        and review.status = 'pending'
+    )
+    or exists (
+      select 1
+      from public.refund_cases duplicate_case
+      where duplicate_case.id <> case_row.id
+        and duplicate_case.matched_nayax_transaction_id =
+          case_row.matched_nayax_transaction_id
+    )
     or case_row.status is distinct from 'card_refund_pending'
     or case_row.decision is distinct from 'approved'
     or case_row.nayax_refund_execution_status is distinct from 'requested'

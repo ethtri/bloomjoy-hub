@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(31);
+select plan(38);
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -125,6 +125,11 @@ select ok(has_function_privilege('service_role',
 select ok(not has_function_privilege('authenticated',
   'public.service_reserve_nayax_refund_approval_continuation_v1(text,uuid,uuid,bigint,text,integer,text,text,text)','execute'),
   'Browser roles cannot reserve an approval continuation');
+select ok(not has_function_privilege('authenticated',
+  'public.refund_nayax_approval_continuation_ready_v1(uuid,uuid)','execute')
+  and not has_function_privilege('service_role',
+  'public.refund_nayax_approval_continuation_ready_v1(uuid,uuid)','execute'),
+  'The evidence predicate is reachable only through the service readiness contract');
 select ok(has_function_privilege('service_role',
   'public.service_record_nayax_refund_provider_stage_v3(text,uuid,text,text,text,integer,text,boolean,text,text,text,text,boolean,text,text,text,boolean,boolean,boolean,boolean,boolean,text,text,boolean)','execute'),
   'The prior journal-v3 recorder remains available to the previously deployed Edge');
@@ -145,7 +150,23 @@ select lives_ok($$select public.service_record_nayax_refund_provider_stage_v3(
   'Old Edge plus new database can journal after preflight without a post-transport permission failure');
 reset role;
 
+select is(public.refund_case_nayax_manager_readiness(
+  'ca000000-0000-4000-8000-000000000001',
+  'ca500000-0000-4000-8000-000000000002')#>>'{approvalContinuationReady}',
+  'false','A request without an accepted result remains on the ordinary hold path');
+
 select pg_temp.record_request(1,'accepted',true,true,'True','Pending Approval');
+select ok(public.refund_case_nayax_manager_readiness(
+  'ca000000-0000-4000-8000-000000000001',
+  'ca500000-0000-4000-8000-000000000001') @> jsonb_build_object(
+    'approvalContinuationReady',true,
+    'canIssueCardRefund',true,
+    'blockReason',null,
+    'caseVersion',(select expected_version+2 from continuation_reservations where n=1)
+  ),'Reloaded readiness exposes only the proved current-version approval continuation');
+select is(public.refund_case_nayax_manager_readiness(
+  null,'ca500000-0000-4000-8000-000000000001')#>>'{approvalContinuationReady}',
+  'false','A different or absent manager cannot obtain continuation readiness');
 create temp table issued_continuation as select pg_temp.continue_attempt(1) result;
 select is((select result#>>'{attempt,shouldExecute}' from issued_continuation),'true',
   'Crash after proved request acceptance reloads current version and receives one same-attempt approval continuation');
@@ -165,6 +186,10 @@ select is(pg_temp.continue_attempt(1)#>>'{attempt,shouldExecute}','false',
 select is((select count(*) from public.refund_nayax_attempt_approval_continuations c
   join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=c.nayax_refund_attempt_id where r.n=1),
   1::bigint,'One immutable attempt has at most one continuation reservation');
+select is(public.refund_case_nayax_manager_readiness(
+  'ca000000-0000-4000-8000-000000000001',
+  'ca500000-0000-4000-8000-000000000001')#>>'{approvalContinuationReady}',
+  'false','A concurrent tab cannot see an actionable second continuation');
 
 select pg_temp.record_request(3,'unknown',false,false,'True','Unexpected');
 select is(pg_temp.continue_attempt(3)#>>'{attempt,shouldExecute}','false',
@@ -172,6 +197,10 @@ select is(pg_temp.continue_attempt(3)#>>'{attempt,shouldExecute}','false',
 select is((select business_result||'|'||business_status from public.refund_nayax_provider_business_outcomes b
   join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=b.nayax_refund_attempt_id
   where r.n=3 and b.stage='request'),null,'Unknown alphabetic provider text is represented without retaining the pair');
+select is(public.refund_case_nayax_manager_readiness(
+  'ca000000-0000-4000-8000-000000000001',
+  'ca500000-0000-4000-8000-000000000003')#>>'{approvalContinuationReady}',
+  'false','Unknown request evidence remains inspect-only in manager readiness');
 
 update public.refund_case_nayax_refund_attempts set provider_claim_expires_at=now()-interval '1 second'
 where id=(select (result#>>'{attempt,attemptId}')::uuid from continuation_reservations where n=2);
@@ -227,6 +256,10 @@ set status='revoked',revoked_at=now(),revoke_reason='Synthetic continuation revo
 where id='ca400000-0000-4000-8000-000000000001';
 select throws_ok($$select pg_temp.continue_attempt(5)$$,'P4628',null,
   'Revoked manager authority cannot continue approval');
+select is(public.refund_case_nayax_manager_readiness(
+  'ca000000-0000-4000-8000-000000000001',
+  'ca500000-0000-4000-8000-000000000005')#>>'{approvalContinuationReady}',
+  'false','Revoked manager authority is removed from the read-only continuation path');
 select is((select count(*) from public.refund_nayax_attempt_approval_continuations c
   join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=c.nayax_refund_attempt_id where r.n=5),
   0::bigint,'Revoked manager creates no continuation claim');

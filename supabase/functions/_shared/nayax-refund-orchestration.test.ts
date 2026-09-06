@@ -5,6 +5,8 @@ import {
   type NayaxProviderAdapter,
   type NayaxRefundOrchestrationDependencies,
   orchestrateNayaxRefund,
+  selectNayaxReservationAfterContinuation,
+  shouldRequestNayaxApprovalContinuation,
 } from "./nayax-refund-orchestration.ts";
 
 const assert = (condition: unknown, message: string) => {
@@ -27,6 +29,67 @@ const managerAction = {
   stepUpIntentId: "76200000-0000-4000-8000-000000000001",
   verifiedTotpAt: "2026-08-03T18:00:01.000Z",
 };
+
+const replayReservation = (
+  status: string,
+  providerOutcome: NayaxAttemptSnapshot["providerOutcome"],
+): import("./nayax-refund-orchestration.ts").NayaxAttemptReservation => ({
+  managerAction,
+  attempt: {
+    attemptId: "76300000-0000-4000-8000-000000000001",
+    status,
+    providerOutcome,
+    shouldExecute: false,
+    reconciliationRequired: status === "in_progress",
+    reportingAdjustmentPresent: status === "succeeded",
+    caseFinalizationCommitted: status === "succeeded",
+  },
+  providerClaimToken: null,
+});
+
+Deno.test("known ordinary replay outcomes never ask the continuation boundary", () => {
+  for (const [status, outcome] of [
+    ["succeeded", "success"],
+    ["declined", "rejected"],
+    ["ambiguous", "unknown"],
+  ] as const) {
+    assert(
+      !shouldRequestNayaxApprovalContinuation(
+        replayReservation(status, outcome),
+      ),
+      `${status} replay must preserve its ordinary result`,
+    );
+  }
+});
+
+Deno.test("concurrent or stale continuation rejection preserves the valid ordinary replay", () => {
+  const ordinary = replayReservation("in_progress", "unknown");
+  const rejectedContinuation = {
+    ...ordinary,
+    attempt: {
+      ...ordinary.attempt,
+      executionPlan: "approval_continuation" as const,
+    },
+  };
+  assert(
+    shouldRequestNayaxApprovalContinuation(ordinary),
+    "only an unsettled in-progress replay may ask for continuation",
+  );
+  assert(
+    selectNayaxReservationAfterContinuation({
+      ordinaryReservation: ordinary,
+      continuationReservation: null,
+    }) === ordinary,
+    "a rejected continuation must not discard the ordinary replay",
+  );
+  assert(
+    selectNayaxReservationAfterContinuation({
+      ordinaryReservation: ordinary,
+      continuationReservation: rejectedContinuation,
+    }) === ordinary,
+    "a concurrent duplicate continuation must retain the ordinary replay",
+  );
+});
 
 const makeHarness = (provider: NayaxProviderAdapter) => {
   let providerAttempts = 0;
