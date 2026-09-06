@@ -423,7 +423,7 @@ values (
     'one_click_eligible', false,
     'recommendation_state', 'manual_exception',
     'policy_version', '2026-09-05.v11',
-    'identifier_policy_version', '2026-09-05.identifier.v1',
+    'identifier_policy_version', '2026-09-05.identifier.v2',
     'customer_fact_version', (
       select deterministic_fact_version from public.refund_cases
       where id = '79600000-0000-4000-8000-000000000009'
@@ -1922,7 +1922,7 @@ values
     jsonb_build_object(
       'selection_allowed',false,'is_recommended',false,'one_click_eligible',false,
       'recommendation_state','blocked','policy_version','2026-09-05.v11',
-      'identifier_policy_version','2026-09-05.identifier.v1',
+      'identifier_policy_version','2026-09-05.identifier.v2',
       'customer_fact_version',(
         select deterministic_fact_version from public.refund_cases
         where id = '79600000-0000-4000-8000-000000000009'
@@ -1963,7 +1963,7 @@ values
     jsonb_build_object(
       'selection_allowed',true,'is_recommended',true,'one_click_eligible',false,
       'recommendation_state','high_confidence','policy_version','2026-09-05.v11',
-      'identifier_policy_version','2026-09-05.identifier.v1',
+      'identifier_policy_version','2026-09-05.identifier.v2',
       'customer_fact_version',(
         select deterministic_fact_version from public.refund_cases
         where id = '79600000-0000-4000-8000-000000000009'

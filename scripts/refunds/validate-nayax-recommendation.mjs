@@ -109,7 +109,10 @@ const productionShapedTapMismatch = recommend([
   sale({ id: "great-mall-tap-mismatch", at: "2026-07-21T19:15:00.000Z", amount: 10.9,
     last4: "3760", recognitionMethod: "Contactless" }),
 ], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
-  paymentInteraction: "tap_card", requestCardLast4Source: "physical_card" });
+  paymentInteraction: "tap_card", requestCardLast4Source: null,
+  incidentTimeSource: null, nearbyAttemptCount: null, incidentTimeConfidence: "exact",
+  customerRequestReceivedAt: null, customerRequestReceivedSource: null,
+  purchaseOccurrenceProof: null });
 assert.equal(productionShapedTapMismatch.recommendationState, "manual_exception");
 assert.equal(productionShapedTapMismatch.confidenceClass, "evidence_aware_review");
 assert.equal(productionShapedTapMismatch.candidates[0].selectionAllowed, true);
@@ -117,6 +120,8 @@ assert.equal(productionShapedTapMismatch.candidates[0].isRecommended, true);
 assert.equal(productionShapedTapMismatch.candidates[0].oneClickEligible, false);
 assert.equal(productionShapedTapMismatch.candidates[0].identifierReviewState, "reviewable_uncertainty");
 assert.equal(productionShapedTapMismatch.candidates[0].cardLast4Comparison, "mismatch_neutral_unproven_scope");
+assert.equal(productionShapedTapMismatch.candidates[0].sameIdentifierEquivalenceProven, false);
+assert.equal(productionShapedTapMismatch.candidates[0].customerCorrectionFields.includes("card_last4_source"), false);
 assert.deepEqual(productionShapedTapMismatch.candidates[0].hardExclusions, []);
 
 const ambiguousTapMismatches = recommend([
@@ -131,23 +136,25 @@ assert.equal(ambiguousTapMismatches.candidates.every((candidate) => candidate.se
 assert.equal(ambiguousTapMismatches.candidates.some((candidate) => candidate.isRecommended), false);
 assert.equal(ambiguousTapMismatches.oneClickEligible, false);
 
-const missingOccurrenceContext = recommend([
-  sale({ id: "missing-occurrence-context", at: "2026-07-21T19:15:00.000Z", amount: 10.9,
-    last4: "3760", recognitionMethod: "Contactless" }),
+const sameInterfaceMismatchWithoutCorroboration = recommend([
+  sale({ id: "same-interface-mismatch", at: "2026-07-21T19:15:00.000Z", amount: 10.9,
+    last4: "3760", recognitionMethod: "Swipe" }),
 ], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
-  paymentInteraction: "tap_card", requestCardLast4Source: "physical_card",
-  incidentTimeSource: null, nearbyAttemptCount: null, incidentTimeConfidence: "unknown" });
-assert.equal(missingOccurrenceContext.recommendationState, "manual_exception");
-assert.equal(missingOccurrenceContext.candidates[0].selectionAllowed, false);
-assert.equal(missingOccurrenceContext.candidates[0].identifierReviewState, "needs_corroboration");
-assert.ok(missingOccurrenceContext.candidates[0].customerCorrectionFields.includes("incident_time_source"));
-assert.ok(missingOccurrenceContext.candidates[0].customerCorrectionFields.includes("nearby_attempt_count"));
+  paymentInteraction: "swipe_card", requestCardLast4Source: null,
+  incidentTimeSource: null, nearbyAttemptCount: null, incidentTimeConfidence: "exact" });
+assert.equal(sameInterfaceMismatchWithoutCorroboration.recommendationState, "manual_exception");
+assert.equal(sameInterfaceMismatchWithoutCorroboration.candidates[0].selectionAllowed, false);
+assert.equal(sameInterfaceMismatchWithoutCorroboration.candidates[0].identifierReviewState, "needs_corroboration");
+assert.equal(sameInterfaceMismatchWithoutCorroboration.candidates[0].cardLast4Comparison, "mismatch_negative_unproven_equivalence");
+assert.equal(sameInterfaceMismatchWithoutCorroboration.candidates[0].customerCorrectionFields.includes("card_last4_source"), false);
+assert.ok(sameInterfaceMismatchWithoutCorroboration.candidates[0].customerCorrectionFields.includes("incident_time_source"));
+assert.ok(sameInterfaceMismatchWithoutCorroboration.candidates[0].customerCorrectionFields.includes("nearby_attempt_count"));
 
 const rememberedMultipleAttempts = recommend([
   sale({ id: "remembered-multiple-attempts", at: "2026-07-21T19:15:00.000Z", amount: 10.9,
-    last4: "3760", recognitionMethod: "Contactless" }),
+    last4: "3760", recognitionMethod: "Chip" }),
 ], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
-  paymentInteraction: "tap_card", requestCardLast4Source: "physical_card",
+  paymentInteraction: "insert_card", requestCardLast4Source: "physical_card",
   incidentTimeSource: "memory", nearbyAttemptCount: "multiple", incidentTimeConfidence: "within_1_hour" });
 assert.equal(rememberedMultipleAttempts.recommendationState, "manual_exception");
 assert.equal(rememberedMultipleAttempts.candidates[0].selectionAllowed, false);
@@ -157,12 +164,23 @@ assert.ok(rememberedMultipleAttempts.candidates[0].customerCorrectionFields.incl
 assert.ok(rememberedMultipleAttempts.candidates[0].customerCorrectionFields.includes("nearby_attempt_count"));
 
 const distantMismatch = recommend([
-  sale({ id: "distant-mismatch", at: "2026-07-21T20:01:00.000Z", amount: 10.9, last4: "3760" }),
+  sale({ id: "distant-mismatch", at: "2026-07-21T22:01:00.000Z", amount: 10.9, last4: "3760" }),
 ], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
   paymentInteraction: "tap_card", requestCardLast4Source: "physical_card" });
 assert.equal(distantMismatch.candidates[0].selectionAllowed, false);
 assert.equal(distantMismatch.candidates[0].identifierReviewState, "needs_corroboration");
 assert.ok(distantMismatch.candidates[0].customerCorrectionFields.includes("incident_time"));
+
+const duplicateContactlessMismatch = recommend([
+  sale({ id: "duplicate-contactless-mismatch", at: "2026-07-21T19:15:00.000Z", amount: 10.9,
+    last4: "3760", recognitionMethod: "Contactless" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "tap_card", requestCardLast4Source: null,
+  incidentTimeSource: null, nearbyAttemptCount: null, incidentTimeConfidence: "exact",
+  transactionStates: { "duplicate-contactless-mismatch": "duplicate" } });
+assert.equal(duplicateContactlessMismatch.candidates[0].selectionAllowed, false);
+assert.equal(duplicateContactlessMismatch.candidates[0].identifierReviewState, "blocked_safety");
+assert.ok(duplicateContactlessMismatch.candidates[0].hardExclusions.includes("duplicate_transaction"));
 
 const walletNetworkMismatch = recommend(
   [sale({ id: "wallet-network-mismatch", cardBrand: "Amex", recognitionMethod: "Apple Pay" })],

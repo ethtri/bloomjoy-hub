@@ -1153,10 +1153,19 @@ const cardLast4ProvenanceLabel = (refundCase: RefundCaseRecord) => {
   }
 };
 
-const cardLast4SourceLabel = (refundCase: RefundCaseRecord) => ({
-  physical_card: 'physical card', wallet_device: 'wallet or device',
-  bank_record: 'bank record or alert', unknown: 'source not sure',
-}[refundCase.cardLast4Source ?? ''] ?? 'source not provided');
+const cardLast4SourceLabel = (refundCase: RefundCaseRecord) => {
+  const source = refundCase.cardLast4Source ?? (
+    refundCase.cardLast4Provenance === 'physical_card'
+      ? 'physical_card'
+      : refundCase.cardLast4Provenance === 'wallet_device_token'
+      ? 'wallet_device'
+      : null
+  );
+  return ({
+    physical_card: 'physical card', wallet_device: 'wallet or device',
+    bank_record: 'bank record or alert', unknown: 'source not sure',
+  }[source ?? ''] ?? 'source not provided');
+};
 
 const incidentTimeSourceLabel = (refundCase: RefundCaseRecord) => ({
   transaction_alert_or_receipt: 'time from alert or receipt', memory: 'time from memory',

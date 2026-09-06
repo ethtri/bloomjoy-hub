@@ -119,7 +119,7 @@ begin
     jsonb_build_object(
       'selection_allowed',true,'is_recommended',true,'one_click_eligible',true,
       'recommendation_state','high_confidence','policy_version','2026-09-05.v11',
-      'identifier_policy_version','2026-09-05.identifier.v1','customer_fact_version',1,
+      'identifier_policy_version','2026-09-05.identifier.v2','customer_fact_version',1,
       'customer_credential_class','customer_identifier_unknown',
       'provider_identifier_class','last_sales_identifier_unknown',
       'card_last4_comparison','exact_support','card_network_comparison','missing',
