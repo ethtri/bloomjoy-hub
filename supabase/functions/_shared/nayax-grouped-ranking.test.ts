@@ -1,8 +1,13 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
+  type NayaxLookupResult,
   type NayaxProviderCandidate,
+  persistNayaxLookupCandidates,
   rankGroupedNayaxCandidates,
+  recommendationToLookupStatus,
 } from "./nayax-lookup.ts";
+import { persistNayaxLookupResult } from "./nayax-lookup-persistence.ts";
+import { deriveNayaxCustomerCorrectionFields } from "./refund-nayax-customer-correction.ts";
 
 const candidate = (
   transactionId: string,
@@ -90,6 +95,8 @@ Deno.test("zero safe matches never invents an exact machine", () => {
     [],
   );
   assertEquals(result.recommendationState, "no_safe_match");
+  assertEquals(recommendationToLookupStatus(result.recommendationState, result.candidates.length), "manual_exception");
+  assertEquals(recommendationToLookupStatus(result.recommendationState, 0), "no_match");
   assertEquals(result.uniqueCandidate, null);
   assertEquals(result.oneClickEligible, false);
 });
@@ -115,4 +122,185 @@ Deno.test("global ranking is deterministic across repeated input", () => {
   const retry = rank(machineA, machineB).candidates.map((item) => item.transactionId);
   assertEquals(first, ["txn-a", "txn-z"]);
   assertEquals(retry, first);
+});
+
+Deno.test("retained correction evidence commits a reviewable lifecycle with exact fields", async () => {
+  const correctionFields = ["incident_time_source", "nearby_attempt_count"];
+  const ranked = rank(
+    [candidate("txn-correction", {
+      selectionAllowed: false,
+      oneClickEligible: false,
+      identifierReviewState: "needs_corroboration",
+      customerCorrectionFields: correctionFields,
+      reasonCodes: ["card_last4_mismatch", "customer_occurrence_evidence_missing"],
+      manualReviewReasons: ["customer_occurrence_evidence_missing"],
+      hardExclusions: ["card_last4_mismatch"],
+    })],
+    [],
+  );
+  const lookupStatus = recommendationToLookupStatus(
+    ranked.recommendationState,
+    ranked.candidates.length,
+  );
+  assertEquals(ranked.recommendationState, "no_safe_match");
+  assertEquals(lookupStatus, "manual_exception");
+
+  let insertedRows: Array<Record<string, unknown>> = [];
+  const candidateStore = {
+    from: (table: string) => {
+      if (table !== "refund_nayax_lookup_candidates") throw new Error(`Unexpected table ${table}`);
+      return {
+        delete: () => ({
+          lt: async () => ({ error: null }),
+          eq: () => ({ eq: async () => ({ error: null }) }),
+        }),
+        insert: async (rows: Array<Record<string, unknown>>) => {
+          insertedRows = rows;
+          return { error: null };
+        },
+      };
+    },
+  };
+  await persistNayaxLookupCandidates({
+    supabase: candidateStore as never,
+    caseId: "case-correction",
+    actorUserId: null,
+    lookupGeneration: 4,
+    candidates: ranked.candidates,
+    lookupScopes: [{
+      reportingMachineId: "machine-a",
+      accountKey: "TGPACI_USA_DB",
+      nayaxMachineId: "provider-machine",
+    }],
+  });
+  assertEquals(
+    (insertedRows[0].evidence_summary as Record<string, unknown>).customer_correction_fields,
+    correctionFields,
+  );
+
+  const commitCalls: Array<Record<string, unknown>> = [];
+  const resultStore = {
+    rpc: async (name: string, params: Record<string, unknown>) => {
+      assertEquals(name, "service_commit_refund_nayax_lookup_with_diagnostics");
+      commitCalls.push(params);
+      return { data: { applied: true }, error: null };
+    },
+  };
+  await persistNayaxLookupResult({
+    supabase: resultStore as never,
+    caseId: "case-correction",
+    actorUserId: null,
+    result: {
+      configured: true,
+      lookupStatus,
+      recommendationState: ranked.recommendationState,
+      confidenceClass: "ambiguous_manual",
+      reasonCodes: ["customer_occurrence_evidence_missing"],
+      policyVersion: ranked.candidates[0].policyVersion,
+      oneClickEligible: false,
+      qrClaimEvidenceStatus: "missing",
+      qrClaimOpenedAt: null,
+      maximumUniqueQrLagMinutes: 10,
+      lastCheckedAt: "2026-08-23T10:06:00.000Z",
+      candidateCount: ranked.candidates.length,
+      candidates: [],
+      windowHours: 6,
+      providerClockContexts: [],
+      providerRecordCount: 1,
+      providerParseableRecordCount: 1,
+      providerWindowRecordCount: 1,
+      excludedAfterRequestCount: 0,
+      uncertainRequestTimeCandidateCount: 0,
+      summary: "One retained candidate needs customer occurrence evidence.",
+      recommendedAction: "Ask only for the missing occurrence details.",
+      resolvedMachineId: null,
+      refundCase: {
+        id: "case-correction",
+        publicReference: "RF-TEST",
+        status: "needs_review",
+        customerEmail: "customer@example.invalid",
+        customerName: null,
+        paymentMethod: "card",
+        paymentAmountCents: 550,
+        refundAmountCents: 550,
+        machineLabel: "Cotton candy machine A",
+        locationName: "Test location",
+        incidentAt: "2026-08-23T10:00:00.000Z",
+        incidentTimeResolution: "exact",
+        incidentTimeConfidence: "exact",
+        locationTimezone: "America/Los_Angeles",
+        customerRequestReceivedAt: "2026-08-23T10:05:00.000Z",
+        customerRequestReceivedSource: "hosted_refund_intake",
+        qrClaimOpenedAt: null,
+      },
+    } as NayaxLookupResult,
+    trigger: "automatic",
+    expectedFactVersion: 1,
+    lookupGeneration: 4,
+  });
+  assertEquals(commitCalls[0].p_lookup_status, "manual_exception");
+  assertEquals(commitCalls[0].p_recommendation_state, "no_safe_match");
+  assertEquals(commitCalls[0].p_candidate_count, 1);
+  assertEquals(
+    deriveNayaxCustomerCorrectionFields({
+      recommendationState: ranked.recommendationState,
+      paymentInteraction: "tap_card",
+      cardLast4Source: "physical_card",
+      cardNetwork: "visa",
+      incidentTimeSource: null,
+      candidates: ranked.candidates,
+    }),
+    correctionFields,
+  );
+});
+
+Deno.test("provider-only and manager-reviewable evidence remain customer-silent", () => {
+  const providerOnly = rank(
+    [candidate("txn-provider", {
+      selectionAllowed: false,
+      oneClickEligible: false,
+      identifierReviewState: "needs_corroboration",
+      customerCorrectionFields: [],
+      reasonCodes: ["missing_provider_site_id"],
+      manualReviewReasons: ["missing_provider_site_id"],
+      hardExclusions: ["missing_provider_site_id"],
+    })],
+    [],
+  );
+  assertEquals(
+    recommendationToLookupStatus(providerOnly.recommendationState, providerOnly.candidates.length),
+    "manual_exception",
+  );
+  assertEquals(
+    deriveNayaxCustomerCorrectionFields({
+      recommendationState: providerOnly.recommendationState,
+      candidates: providerOnly.candidates,
+    }),
+    [],
+  );
+
+  const managerReview = rank(
+    [candidate("txn-manager", {
+      recommendationState: "manual_exception",
+      oneClickEligible: false,
+      identifierReviewState: "reviewable_uncertainty",
+      customerCorrectionFields: [],
+      reasonCodes: ["card_last4_mismatch"],
+      manualReviewReasons: ["identifier_mismatch_reviewable"],
+      hardExclusions: [],
+    })],
+    [],
+  );
+  assertEquals(managerReview.recommendationState, "manual_exception");
+  assertEquals(
+    recommendationToLookupStatus(managerReview.recommendationState, managerReview.candidates.length),
+    "manual_exception",
+  );
+  assertEquals(
+    deriveNayaxCustomerCorrectionFields({
+      recommendationState: managerReview.recommendationState,
+      candidates: managerReview.candidates,
+    }),
+    [],
+  );
 });
