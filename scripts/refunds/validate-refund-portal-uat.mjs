@@ -53,6 +53,8 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'admin_get_refund_email_queue_states',
   'admin_get_refund_case_reconciliation',
   'admin_get_refund_gmail_draft_cases',
+  'admin_get_refund_gmail_case_context',
+  'admin_get_refund_gpt_triage',
   'admin_get_refund_operations_overview',
   'admin_get_refund_manual_nayax_context',
 ]);
@@ -4027,6 +4029,15 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
   });
+  const gmailDraftCases = buildMockGmailDraftCases();
+  gmailDraftCases.push({
+    ...gmailDraftCases[0],
+    id: 'case-gmail-draft-2',
+    publicReference: 'RF-UAT-ALT-DRAFT',
+    customerEmail: 'customer-gmail-alt@example.test',
+    issueSummary: 'Alternate unsent-draft navigation case.',
+    createdAt: isoHoursAgo(2),
+  });
   const functionCalls = [];
   const functionBodies = [];
   const rpcCalls = [];
@@ -4042,7 +4053,7 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     rpcCalls,
     functionCalls,
     functionBodies,
-    gmailDraftCases: buildMockGmailDraftCases(),
+    gmailDraftCases,
     gmailHealth: {
       status: 'healthy',
       lastRunAt: isoHoursAgo(0.1),
@@ -4083,7 +4094,7 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   page.on('pageerror', (error) => consoleErrors.push(error.message));
 
   await signInRefundUser(page, appUrl);
-  await waitForQueueCount(page, 1);
+  await waitForQueueCount(page, 2);
   await queueCase(page, 'RF-UAT-GMAIL').click();
   await page.getByTestId('refund-gmail-draft-workbench').waitFor({ timeout: 10000 });
   await page.getByTestId('refund-gpt-triage-review').waitFor({ timeout: 10000 });
@@ -4128,6 +4139,163 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     await page.getByTestId('refund-gpt-draft-subject').isEditable() &&
       await page.getByTestId('refund-gpt-draft-body').isEditable()
   );
+
+  await page.waitForFunction(() => {
+    const subject = document.querySelector('[data-testid="refund-gpt-draft-subject"]');
+    const body = document.querySelector('[data-testid="refund-gpt-draft-body"]');
+    return subject instanceof HTMLInputElement && subject.value.length > 0 &&
+      body instanceof HTMLTextAreaElement && body.value.length > 0;
+  });
+  const initialDraftSubject = await page.getByTestId('refund-gpt-draft-subject').inputValue();
+  const initialDraftBody = await page.getByTestId('refund-gpt-draft-body').inputValue();
+  const draftSubject = 'Private UAT draft — do not send';
+  const draftBody = 'This is unsent manager text for navigation testing only.';
+  await page.getByTestId('refund-gpt-draft-subject').fill(draftSubject);
+  await page.getByTestId('refund-gpt-draft-body').fill(draftBody);
+  await page.waitForTimeout(50);
+  const dirtyUnloadIsProtected = await page.evaluate(() =>
+    !window.dispatchEvent(new Event('beforeunload', { cancelable: true }))
+  );
+  const draftLeakedToBrowserStorage = await page.evaluate((draftText) => {
+    const values = [localStorage, sessionStorage].flatMap((storage) =>
+      Array.from({ length: storage.length }, (_, index) => storage.getItem(storage.key(index) ?? '') ?? '')
+    );
+    return values.some((value) => value.includes(draftText));
+  }, draftSubject);
+
+  await page.getByLabel('Search refund cases').fill('RF-UAT-ALT-DRAFT');
+  recorder.assert(
+    'Search preserves unsent manager text without browser storage',
+    (await queueCase(page, 'RF-UAT-GMAIL').count()) === 0 &&
+      await page.getByRole('heading', { name: 'RF-UAT-GMAIL', exact: true }).isVisible() &&
+      await page.getByTestId('refund-gpt-draft-subject').inputValue() === draftSubject &&
+      await page.getByTestId('refund-gpt-draft-body').inputValue() === draftBody &&
+      dirtyUnloadIsProtected &&
+      !draftLeakedToBrowserStorage
+  );
+  await page.getByRole('button', { name: 'Clear search', exact: true }).click();
+  await page.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
+  recorder.assert(
+    'Queue filters preserve the selected case and its unsent text',
+    await page.getByRole('heading', { name: 'RF-UAT-GMAIL', exact: true }).isVisible() &&
+      await page.getByTestId('refund-gpt-draft-subject').inputValue() === draftSubject &&
+      await page.getByTestId('refund-gpt-draft-body').inputValue() === draftBody
+  );
+  await page.getByRole('button', { name: /^Action needed \d+$/ }).click();
+
+  const functionCallCountBeforeCaseSwitch = functionCalls.length;
+  const mutatingRpcCountBeforeCaseSwitch = rpcCalls.filter(
+    (name) => !NAVIGATION_READ_ONLY_RPCS.has(name)
+  ).length;
+  const alternateCaseRow = queueCase(page, 'RF-UAT-ALT-DRAFT');
+  await alternateCaseRow.click();
+  await page.getByTestId('refund-unsaved-text-dialog').waitFor({ timeout: 10000 });
+  const stayButton = page.getByTestId('refund-unsaved-text-stay');
+  await page.waitForFunction(() =>
+    document.activeElement?.getAttribute('data-testid') === 'refund-unsaved-text-stay'
+  );
+  await page.waitForTimeout(250);
+  recorder.assert(
+    'Dirty case switching defaults focus to the safe Stay action',
+    await page.getByRole('heading', { name: 'Discard unsent text?' }).isVisible() &&
+      await page.getByText(/RF-UAT-GMAIL.*not been sent or saved/).isVisible() &&
+      await stayButton.evaluate((element) => element === document.activeElement)
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  const dirtyDialogMetrics = await page.evaluate(() => ({
+    documentWidth: document.documentElement.scrollWidth,
+    viewportWidth: window.innerWidth,
+    dialog: (() => {
+      const element = document.querySelector('[data-testid="refund-unsaved-text-dialog"]');
+      if (!(element instanceof HTMLElement)) return null;
+      const rect = element.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth };
+    })(),
+    stay: (() => {
+      const element = document.querySelector('[data-testid="refund-unsaved-text-stay"]');
+      if (!(element instanceof HTMLElement)) return null;
+      const rect = element.getBoundingClientRect();
+      return { height: rect.height, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth };
+    })(),
+    discard: (() => {
+      const element = document.querySelector('[data-testid="refund-unsaved-text-discard"]');
+      if (!(element instanceof HTMLElement)) return null;
+      const rect = element.getBoundingClientRect();
+      return { height: rect.height, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth };
+    })(),
+  }));
+  recorder.assert(
+    'Dirty-navigation choices remain readable and practical at 390px',
+    dirtyDialogMetrics.documentWidth <= dirtyDialogMetrics.viewportWidth &&
+      dirtyDialogMetrics.dialog?.left >= 0 &&
+      dirtyDialogMetrics.dialog?.right <= dirtyDialogMetrics.viewportWidth &&
+      dirtyDialogMetrics.dialog?.scrollWidth <= dirtyDialogMetrics.dialog?.clientWidth &&
+      dirtyDialogMetrics.stay?.height >= 44 &&
+      dirtyDialogMetrics.stay?.scrollWidth <= dirtyDialogMetrics.stay?.clientWidth &&
+      dirtyDialogMetrics.discard?.height >= 44 &&
+      dirtyDialogMetrics.discard?.scrollWidth <= dirtyDialogMetrics.discard?.clientWidth,
+    JSON.stringify(dirtyDialogMetrics)
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-unsaved-text-mobile.png'),
+    fullPage: false,
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.keyboard.press('Enter');
+  await page.getByTestId('refund-unsaved-text-dialog').waitFor({ state: 'hidden', timeout: 10000 });
+  const staySignals = {
+    originalCaseVisible: await page.getByRole('heading', { name: 'RF-UAT-GMAIL', exact: true }).isVisible(),
+    focusRestored: await alternateCaseRow.evaluate((element) => element === document.activeElement),
+    subject: await page.getByTestId('refund-gpt-draft-subject').inputValue(),
+    body: await page.getByTestId('refund-gpt-draft-body').inputValue(),
+  };
+  recorder.assert(
+    'Keyboard Stay restores queue focus and keeps every unsent edit',
+    staySignals.originalCaseVisible &&
+      staySignals.focusRestored &&
+      staySignals.subject === draftSubject &&
+      staySignals.body === draftBody,
+    JSON.stringify(staySignals)
+  );
+
+  await queueCase(page, 'RF-UAT-ALT-DRAFT').click();
+  await page.getByTestId('refund-unsaved-text-discard').click();
+  await page.getByRole('heading', { name: 'RF-UAT-ALT-DRAFT', exact: true }).waitFor({ timeout: 10000 });
+  await queueCase(page, 'RF-UAT-GMAIL').click();
+  await page.getByRole('heading', { name: 'RF-UAT-GMAIL', exact: true }).waitFor({ timeout: 10000 });
+  await page.waitForTimeout(100);
+  const mutatingRpcCountAfterCaseSwitch = rpcCalls.filter(
+    (name) => !NAVIGATION_READ_ONLY_RPCS.has(name)
+  ).length;
+  const draftStillInBrowserStorage = await page.evaluate(([subject, body]) => {
+    const values = [localStorage, sessionStorage].flatMap((storage) =>
+      Array.from({ length: storage.length }, (_, index) => storage.getItem(storage.key(index) ?? '') ?? '')
+    );
+    return values.some((value) => value.includes(subject) || value.includes(body));
+  }, [draftSubject, draftBody]);
+  const discardSignals = {
+    dialogCount: await page.getByTestId('refund-unsaved-text-dialog').count(),
+    functionCallCount: functionCalls.length,
+    expectedFunctionCallCount: functionCallCountBeforeCaseSwitch,
+    mutatingRpcCount: mutatingRpcCountAfterCaseSwitch,
+    expectedMutatingRpcCount: mutatingRpcCountBeforeCaseSwitch,
+    draftStillInBrowserStorage,
+    originalCaseVisible: await page.getByRole('heading', { name: 'RF-UAT-GMAIL', exact: true }).isVisible(),
+    subject: await page.getByTestId('refund-gpt-draft-subject').inputValue(),
+    body: await page.getByTestId('refund-gpt-draft-body').inputValue(),
+  };
+  recorder.assert(
+    'Explicit discard switches cases, while the next clean switch needs no warning or action',
+    discardSignals.dialogCount === 0 &&
+      discardSignals.functionCallCount === discardSignals.expectedFunctionCallCount &&
+      discardSignals.mutatingRpcCount === discardSignals.expectedMutatingRpcCount &&
+      !discardSignals.draftStillInBrowserStorage &&
+      discardSignals.originalCaseVisible &&
+      discardSignals.subject === initialDraftSubject &&
+      discardSignals.body === initialDraftBody,
+    JSON.stringify(discardSignals)
+  );
+  await page.getByTestId('refund-gpt-draft-body').waitFor({ timeout: 10000 });
   recorder.assert(
     'Incomplete Gmail draft cannot expose payment execution controls',
     (await page.getByTestId('refund-card-workbench').count()) === 0 &&
@@ -4211,6 +4379,15 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'Successful Gmail reply confirmation names the original thread',
     await page.getByText('Reply sent in the Gmail thread.', { exact: true }).isVisible()
   );
+  await queueCase(page, 'RF-UAT-ALT-DRAFT').click();
+  await page.getByRole('heading', { name: 'RF-UAT-ALT-DRAFT', exact: true }).waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Successful reviewed-draft send clears the customer-draft navigation guard',
+    (await page.getByTestId('refund-unsaved-text-dialog').count()) === 0 &&
+      functionCalls.filter((name) => name === 'refund-case-message-send').length === 1
+  );
+  await queueCase(page, 'RF-UAT-GMAIL').click();
+  await page.getByRole('heading', { name: 'RF-UAT-GMAIL', exact: true }).waitFor({ timeout: 10000 });
   await settleRefundPortalPage(page);
 
   await page.screenshot({
