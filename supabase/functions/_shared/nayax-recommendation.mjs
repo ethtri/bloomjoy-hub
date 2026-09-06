@@ -1172,6 +1172,27 @@ export const buildNayaxRecommendation = ({
 
   const finalizedCandidates = candidates.map((candidate) => {
     const isRecommended = Boolean(recommendedTransactionId && candidate.transactionId === recommendedTransactionId);
+    // Exact-scope physical-contactless review is safe only when the scorer has
+    // proved that this is the one candidate being recommended for that path.
+    // Do not leave another exact-looking contactless row selectable through
+    // the generic alternate/disagreement selector when the result is
+    // ambiguous or a different candidate won.
+    const contactlessReviewNotUniquelyRecommended =
+      candidate.reasonCodes.includes("physical_contactless_exact_scope_review") &&
+      !(isRecommended && recommendationState === "manual_exception");
+    const selectionAllowed = candidate.selectionAllowed &&
+      !contactlessReviewNotUniquelyRecommended;
+    const reasonCodes = contactlessReviewNotUniquelyRecommended
+      ? [
+          ...candidate.reasonCodes.filter((code) =>
+            code !== "physical_contactless_exact_scope_review"
+          ),
+          "physical_contactless_review_not_uniquely_recommended",
+        ]
+      : candidate.reasonCodes;
+    const hardExclusions = contactlessReviewNotUniquelyRecommended
+      ? [...candidate.hardExclusions, "physical_contactless_review_not_uniquely_recommended"]
+      : candidate.hardExclusions;
     const matchStrength = isRecommended
       ? "strong"
       : recommendationState === "ambiguous" && (candidate.strongCardEligible || candidate.uniqueQrTimeEligible)
@@ -1181,7 +1202,7 @@ export const buildNayaxRecommendation = ({
           : "insufficient";
     const oneClickEligible =
       isRecommended &&
-      candidate.selectionAllowed &&
+      selectionAllowed &&
       recommendationState === "high_confidence" &&
       confidenceClass === "strong_card" &&
       !request.cardWalletUsed &&
@@ -1192,6 +1213,14 @@ export const buildNayaxRecommendation = ({
       policyVersion: policy.version,
       recommendationState,
       isRecommended,
+      selectionAllowed,
+      reasonCodes,
+      hardExclusions,
+      identifierReviewState: contactlessReviewNotUniquelyRecommended
+        ? "blocked_safety"
+        : candidate.identifierReviewState,
+      evidenceAwareReviewEligible: candidate.evidenceAwareReviewEligible &&
+        !contactlessReviewNotUniquelyRecommended,
       oneClickEligible,
       confidenceClass: isRecommended ? confidenceClass : "ambiguous_manual",
       matchStrength,

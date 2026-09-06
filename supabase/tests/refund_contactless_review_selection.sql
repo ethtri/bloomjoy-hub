@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(26);
+select plan(28);
 set local timezone = 'UTC';
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
@@ -63,6 +63,8 @@ create function pg_temp.contactless_evidence(
       else 'last_sales_contactless_identifier_unverified' end,
     'card_last4_comparison',last4_comparison,'card_network_comparison','missing',
     'payment_interaction_comparison',interaction_comparison,
+    'recognition_method',case when interaction_comparison='conflict_unverified_provider_semantics'
+      then 'swipe' when c.payment_interaction='swipe_card' then 'swipe' else 'contactless' end,
     'same_identifier_equivalence_proven',false,'identifier_review_state',review_state,
     'customer_correction_fields',correction_fields,'hard_exclusions',hard_exclusions,
     'manual_review_reasons','["card_last4_mismatch_reviewable"]'::jsonb,
@@ -209,6 +211,22 @@ select is(public.refund_nayax_candidate_identifier_evidence_state(
     '["machine_exact","amount_within_tolerance","physical_contactless_exact_scope_review"]'::jsonb)
 ), 'invalid','The path-specific reason code cannot be attached without exact-scope evidence');
 
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fc150000-0000-4000-8000-000000000001','fc140000-0000-4000-8000-000000000001',101,
+  '2026-08-22T20:15:00Z',1090,'3760','USD',
+  jsonb_set(pg_temp.contactless_evidence(),'{is_recommended}','false'::jsonb)
+), 'invalid','A non-recommended contactless candidate cannot reach the generic disagreement selector');
+
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fc150000-0000-4000-8000-000000000001','fc140000-0000-4000-8000-000000000001',101,
+  '2026-08-22T20:15:00Z',1090,'3760','USD',
+  pg_temp.contactless_evidence() || jsonb_build_object(
+    'recognition_method','swipe',
+    'provider_identifier_class','last_sales_swipe_identifier_unverified',
+    'payment_interaction_comparison','supporting'
+  )
+), 'invalid','A forged supporting comparison cannot override conflicting persisted provider semantics');
+
 create temp table lookup_claim as
 select (public.service_begin_refund_nayax_lookup('fc150000-0000-4000-8000-000000000001',2,'manual',
   'fc110000-0000-4000-8000-000000000001')->>'lookupGeneration')::bigint generation;
@@ -247,6 +265,8 @@ select is((select metadata -> 'corroboration_codes' from public.refund_case_even
   '["machine_exact","amount_exact","approved_sale","customer_reported_time_exact","occurrence_time_comparable","occurrence_time_within_60m","payment_interaction_supporting","identifier_equivalence_unproved"]'::jsonb,
   'The immutable selection event records only established exact-path facts');
 select ok((select metadata ->> 'same_identifier_equivalence_proven' = 'false'
+    and metadata ->> 'one_click_eligible' = 'false'
+    and metadata ->> 'execution_eligible_after_manager_selection' = 'true'
     and not (metadata -> 'corroboration_codes' ?| array[
       'customer_time_from_alert_or_receipt','customer_reports_one_nearby_attempt'
     ])

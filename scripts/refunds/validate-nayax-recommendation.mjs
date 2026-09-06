@@ -162,8 +162,13 @@ const ambiguousTapMismatches = recommend([
   paymentInteraction: "tap_card", requestCardLast4Source: "physical_card", nearbyAttemptCount: "one",
   incidentTimeConfidence: "exact" });
 assert.equal(ambiguousTapMismatches.recommendationState, "ambiguous");
-assert.equal(ambiguousTapMismatches.candidates.every((candidate) => candidate.selectionAllowed), true);
+assert.equal(ambiguousTapMismatches.candidates.every((candidate) => !candidate.selectionAllowed), true);
 assert.equal(ambiguousTapMismatches.candidates.some((candidate) => candidate.isRecommended), false);
+assert.equal(ambiguousTapMismatches.candidates.every((candidate) =>
+  candidate.identifierReviewState === "blocked_safety" &&
+  candidate.hardExclusions.includes("physical_contactless_review_not_uniquely_recommended") &&
+  !candidate.reasonCodes.includes("physical_contactless_exact_scope_review")
+), true);
 assert.equal(ambiguousTapMismatches.oneClickEligible, false);
 
 const sameInterfaceMismatchWithoutCorroboration = recommend([

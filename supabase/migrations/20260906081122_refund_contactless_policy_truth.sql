@@ -30,7 +30,11 @@ declare
   boundary_state text;
   selection_allowed boolean;
   duplicate_provider_record boolean;
+  is_recommended boolean;
   expected_customer_credential text;
+  provider_recognition_method text;
+  expected_provider_identifier_class text;
+  expected_payment_interaction_comparison text;
   mismatch_present boolean;
   expected_machine_in_scope boolean;
   expected_selection_allowed boolean;
@@ -79,6 +83,7 @@ begin
     );
     selection_allowed := (p_evidence ->> 'selection_allowed')::boolean;
     duplicate_provider_record := (p_evidence ->> 'duplicate_provider_record')::boolean;
+    is_recommended := (p_evidence ->> 'is_recommended')::boolean;
     expected_amount_delta := case when p_amount_cents is not null and case_row.payment_amount_cents is not null
       then abs(p_amount_cents - case_row.payment_amount_cents) else null end;
     expected_provider_processing_time_delta := ceil(abs(extract(epoch from
@@ -97,6 +102,26 @@ begin
         when 'tap_card' then 'customer_physical_contactless_pan'
         else 'customer_physical_card_interface_unknown' end
       else 'customer_identifier_unknown' end;
+    provider_recognition_method := coalesce(p_evidence ->> 'recognition_method', '');
+    expected_provider_identifier_class := case provider_recognition_method
+      when 'swipe' then 'last_sales_swipe_identifier_unverified'
+      when 'chip' then 'last_sales_chip_identifier_unverified'
+      when 'contactless' then 'last_sales_contactless_identifier_unverified'
+      when 'wallet' then 'last_sales_wallet_identifier_unverified'
+      when 'present' then 'last_sales_present_identifier_unverified'
+      else 'last_sales_identifier_unknown' end;
+    expected_payment_interaction_comparison := case
+      when case_row.payment_interaction is null
+        or case_row.payment_interaction = 'unsure'
+        or provider_recognition_method = '' then 'unknown'
+      when (case_row.payment_interaction = 'swipe_card' and provider_recognition_method = 'swipe')
+        or (case_row.payment_interaction = 'insert_card' and provider_recognition_method = 'chip')
+        or (case_row.payment_interaction = 'tap_card' and provider_recognition_method = 'contactless')
+        or (case_row.payment_interaction = 'insert_or_swipe' and provider_recognition_method in ('chip','swipe'))
+        or (case_row.payment_interaction = 'phone_watch_wallet' and provider_recognition_method in ('wallet','contactless'))
+      then 'supporting'
+      when provider_recognition_method = 'present' then 'unknown'
+      else 'conflict_unverified_provider_semantics' end;
   exception when invalid_text_representation or invalid_datetime_format
     or datetime_field_overflow or numeric_value_out_of_range then return 'invalid'; end;
 
@@ -118,6 +143,12 @@ begin
   elsif case_row.card_last4 = p_card_last4 then
     if p_evidence ->> 'card_last4_comparison' is distinct from 'exact_support' then return 'invalid'; end if;
   elsif p_evidence ->> 'card_last4_comparison' not like 'mismatch_%' then
+    return 'invalid';
+  end if;
+  if p_evidence ->> 'provider_identifier_class'
+      is distinct from expected_provider_identifier_class
+    or p_evidence ->> 'payment_interaction_comparison'
+      is distinct from expected_payment_interaction_comparison then
     return 'invalid';
   end if;
 
@@ -204,12 +235,23 @@ begin
   neutral_physical_contactless_exact_scope_eligible :=
     expected_selection_allowed
     and neutral_physical_contactless_mismatch
-    and p_evidence ->> 'payment_interaction_comparison' is not distinct from 'supporting'
+    and provider_recognition_method = 'contactless'
+    and expected_provider_identifier_class = 'last_sales_contactless_identifier_unverified'
+    and expected_payment_interaction_comparison = 'supporting'
     and case_row.incident_time_confidence is not distinct from 'exact'
     and expected_amount_delta = 0
     and p_evidence ->> 'transaction_occurrence_comparable' is not distinct from 'true'
     and expected_time_delta is not null
     and expected_time_delta <= 60;
+
+  -- Exact-scope contactless evidence must be the scorer's one unique manager
+  -- recommendation. Otherwise a non-recommended ambiguous row could reach the
+  -- older generic disagreement selector even though the individual facts look
+  -- exact in isolation.
+  if neutral_physical_contactless_exact_scope_eligible and (
+    is_recommended is distinct from true
+    or p_evidence ->> 'recommendation_state' is distinct from 'manual_exception'
+  ) then return 'invalid'; end if;
 
   -- The scorer emits this code only for the strict contactless path. Requiring
   -- an exact equivalence between the code and recomputed eligibility keeps the
@@ -315,7 +357,11 @@ begin
     end if;
     if evidence_state = 'valid'
       and candidate_row.evidence_summary ->> 'identifier_review_state' = 'reviewable_uncertainty'
-      and candidate_row.evidence_summary ->> 'is_recommended' = 'true' then
+      and (
+        candidate_row.evidence_summary ->> 'is_recommended' = 'true'
+        or coalesce(candidate_row.evidence_summary -> 'reason_codes','[]'::jsonb)
+          ? 'physical_contactless_exact_scope_review'
+      ) then
       select count(*) into selectable_count
       from public.refund_nayax_lookup_candidates c
       where c.refund_case_id = case_row.id
@@ -343,6 +389,23 @@ begin
       then 'corroborated_identifier_mismatch'
       else 'identifier_evidence'
     end;
+    if review_path = 'physical_contactless_exact_scope' then
+      -- The candidate remained non-one-click before the explicit manager
+      -- action. Only this server-recomputed exact path may make the selected
+      -- binding executable; no provider or customer side effect happens here.
+      update public.refund_cases
+      set nayax_recommendation_state = 'manager_confirmed',
+        nayax_match_execution_eligible = true
+      where id = case_row.id
+      returning * into case_row;
+      result := result || to_jsonb(case_row) || jsonb_build_object(
+        'selectionApplied',true,
+        'transactionConfirmed',true,
+        'refundReadiness',public.refund_case_nayax_manager_readiness(
+          p_actor_user_id,case_row.id
+        )
+      );
+    end if;
     corroboration_codes := case review_path
       when 'physical_contactless_exact_scope' then jsonb_build_array(
         'machine_exact','amount_exact','approved_sale','customer_reported_time_exact',
@@ -382,6 +445,9 @@ begin
         'identifier_review_state',candidate_row.evidence_summary ->> 'identifier_review_state',
         'review_path',review_path,
         'same_identifier_equivalence_proven',false,
+        'one_click_eligible',false,
+        'execution_eligible_after_manager_selection',
+          review_path = 'physical_contactless_exact_scope',
         'corroboration_codes',corroboration_codes,
         'provider_call_made',false,'customer_message_created',false,'payload_redacted',true
       ));
