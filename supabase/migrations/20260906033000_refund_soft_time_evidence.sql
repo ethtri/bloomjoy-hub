@@ -52,7 +52,20 @@ declare
   request_upper timestamptz;
   comparable boolean;
 begin
-  if p_evidence ->> 'source' = 'manual_nayax_portal' then return 'manual'; end if;
+  if p_evidence ->> 'source' = 'manual_nayax_portal' then
+    -- Manual entry does not turn MachineAuTime into purchase-occurrence truth.
+    -- When a manual row carries the same explicit bounded online-occurrence
+    -- proof, validate that proof through the current contract; otherwise its
+    -- timing remains review-only supporting evidence.
+    if p_evidence ->> 'transaction_occurrence_comparable' is distinct from 'true' then
+      return 'manual';
+    end if;
+    return public.refund_nayax_request_boundary_evidence_state(
+      p_request_received_at,
+      p_request_received_source,
+      (p_evidence - 'source') || jsonb_build_object('policy_version','2026-09-05.v11')
+    );
+  end if;
   if coalesce(p_evidence ->> 'policy_version', '') not in (
     '2026-09-05.v8','2026-09-05.v9','2026-09-05.v10','2026-09-05.v11'
   ) then
@@ -996,6 +1009,18 @@ begin
       where e.refund_case_id = case_row.id and e.event_type = 'nayax_match_selected'
         and e.actor_user_id = p_actor_user_id
     );
+  if manual_portal_candidate and not exact_replay then
+    evidence_state := public.refund_nayax_request_boundary_evidence_state(
+      case_row.customer_request_received_at,
+      case_row.customer_request_received_source,
+      candidate_row.evidence_summary
+    );
+    if evidence_state in ('refresh','invalid','after_request') then
+      raise exception '%', case evidence_state
+        when 'after_request' then 'Transaction occurred after Bloomjoy received the customer request'
+        else 'Invalid customer request time evidence' end using errcode='P4625';
+    end if;
+  end if;
   if not manual_portal_candidate and not exact_replay then
     if candidate_row.lookup_generation <> case_row.nayax_lookup_generation
       or case_row.nayax_lookup_status = 'checking' then

@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(18);
+select plan(20);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('fd110000-0000-4000-8000-000000000001','authenticated','authenticated','request-boundary-manager@example.invalid','{}','{}');
@@ -160,6 +160,18 @@ select 'fd160000-0000-4000-8000-000000000007',c.id,l.generation,'fd110000-0000-4
 from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4000-8000-000000000001'$$,
  'Manual portal time without proved online occurrence semantics remains supporting evidence');
 
+select throws_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+ provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+select 'fd160000-0000-4000-8000-000000000008',c.id,l.generation,'fd110000-0000-4000-8000-000000000001',
+ 'fd140000-0000-4000-8000-000000000001','MANUAL-PROVED-LATER-8',7,
+ date_trunc('milliseconds',c.customer_request_received_at+interval '1 second'),963,'4242','USD',
+ pg_temp.boundary_evidence(c.id,date_trunc('milliseconds',c.customer_request_received_at+interval '1 second'),'after_request',true,false)
+   || jsonb_build_object('source','manual_nayax_portal','policy_version','manual-nayax-portal-v1'),
+ statement_timestamp()+interval '1 hour'
+from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4000-8000-000000000001'$$,
+ 'P4625','Transaction occurred after Bloomjoy received the customer request',
+ 'Manual portal evidence is hard excluded only with coherent proved later occurrence bounds');
+
 select is((public.service_commit_refund_nayax_lookup('fd150000-0000-4000-8000-000000000001',
  (select generation from lookup_claim),1,'match_found','high_confidence','2026-09-05.v11',statement_timestamp(),
  'Synthetic request-bound candidate',null,3,'manual','fd110000-0000-4000-8000-000000000001')->>'applied'),'true',
@@ -171,6 +183,26 @@ select is((public.service_select_refund_nayax_candidate_as_actor('fd110000-0000-
  (select official_action_version from public.refund_cases where id='fd150000-0000-4000-8000-000000000001'),
  'fd160000-0000-4000-8000-000000000001',null)->>'selectionApplied'),'true',
  'A proved earlier transaction remains selectable through the normal manager path');
+reset role;
+
+set local session_replication_role=replica;
+insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+ provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+select 'fd160000-0000-4000-8000-000000000009',c.id,l.generation,'fd110000-0000-4000-8000-000000000001',
+ 'fd140000-0000-4000-8000-000000000001','HISTORICAL-MANUAL-PROVED-LATER-9',7,
+ date_trunc('milliseconds',c.customer_request_received_at+interval '1 second'),963,'4242','USD',
+ pg_temp.boundary_evidence(c.id,date_trunc('milliseconds',c.customer_request_received_at+interval '1 second'),'after_request',true,false)
+   || jsonb_build_object('source','manual_nayax_portal','policy_version','manual-nayax-portal-v1'),
+ statement_timestamp()+interval '1 hour'
+from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4000-8000-000000000001';
+set local session_replication_role=origin;
+set local role service_role;
+select throws_ok(format($$select public.service_select_refund_nayax_candidate_as_actor(
+ 'fd110000-0000-4000-8000-000000000001','fd150000-0000-4000-8000-000000000001',%s,
+ 'fd160000-0000-4000-8000-000000000009',null)$$,
+ (select official_action_version from public.refund_cases where id='fd150000-0000-4000-8000-000000000001')),
+ 'P4625','Transaction occurred after Bloomjoy received the customer request',
+ 'Selection revalidates proved later manual evidence persisted before the current guard');
 reset role;
 
 select ok((select matched_nayax_transaction_id='SAFE-BOUNDARY-1' and nayax_match_execution_eligible
