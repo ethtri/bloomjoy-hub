@@ -2446,6 +2446,9 @@ const getPrimaryActionIssues = (
 export default function AdminRefundsPage() {
   const queryClient = useQueryClient();
   const detailPanelRef = useRef<HTMLDivElement>(null);
+  const customerMessagesDetailsRef = useRef<HTMLDetailsElement>(null);
+  const customerMessagesSummaryRef = useRef<HTMLElement>(null);
+  const customerDeliveryEvidenceRef = useRef<HTMLDivElement>(null);
   const denialReasonRef = useRef<HTMLSelectElement>(null);
   const denialTriggerRef = useRef<HTMLButtonElement | null>(null);
   const denialPreviousStateRef = useRef<{
@@ -4023,6 +4026,21 @@ export default function AdminRefundsPage() {
     }
     setEditor(primaryActionEditor);
     await handleSaveCase(primaryActionEditor, primaryAction.messageType ?? null);
+  };
+
+  const handleReviewDeliveryRecord = () => {
+    const details = customerMessagesDetailsRef.current;
+    const summary = customerMessagesSummaryRef.current;
+    if (!details || !summary) return;
+
+    details.open = true;
+    window.requestAnimationFrame(() => {
+      const focusTarget = customerDeliveryEvidenceRef.current ?? summary;
+      focusTarget.focus({ preventScroll: true });
+      window.requestAnimationFrame(() => {
+        focusTarget.scrollIntoView({ behavior: 'auto', block: 'center' });
+      });
+    });
   };
 
   const handleConfirmEvidenceSelection = async () => {
@@ -5770,10 +5788,10 @@ export default function AdminRefundsPage() {
             </div>
           )}
 
-          {(selectedCase.customerDeliveryException || ['failed', 'skipped'].includes(getLatestCustomerMessage(selectedCase)?.status ?? '')) && (
+          {!selectedCase.customerDeliveryException && ['failed', 'skipped'].includes(getLatestCustomerMessage(selectedCase)?.status ?? '') && (
             <div data-testid="refund-secondary-delivery-review" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
               <p className="font-semibold">Customer message needs review</p>
-              <p className="mt-1">{selectedCase.customerDeliveryException ? transactionalDeliveryLabel(selectedCase.customerDeliveryException.state) : 'The latest customer message was not sent'}. Refund Operations owns delivery review. Do not resend it blindly. The refund status and next step are shown above.</p>
+              <p className="mt-1">The latest customer message was not sent. Refund Operations owns delivery review. Do not resend it blindly. The refund status and next step are shown above.</p>
             </div>
           )}
           <CustomerCorrectionSummary refundCase={selectedCase} onReview={(trigger) => { correctionDialogTriggerRef.current={caseId:selectedCase.id,element:trigger}; setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false}); }} />
@@ -7510,6 +7528,34 @@ export default function AdminRefundsPage() {
                       </div>
                     )}
 
+                    {!selectedCaseIsInternalTest && selectedCase.customerDeliveryException && (
+                      <section
+                        data-testid="refund-secondary-delivery-review"
+                        className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"
+                      >
+                        <p className="font-semibold">Customer message needs review</p>
+                        <p className="mt-1 leading-6">
+                          Saved delivery outcome: {transactionalDeliveryLabel(selectedCase.customerDeliveryException.state)}.{' '}
+                          {selectedCase.lifecycle?.paymentState === 'confirmed'
+                            ? 'Payment remains confirmed.'
+                            : 'This delivery record does not change the refund or payment state.'}{' '}
+                          Refund Operations owns delivery review. Do not resend it blindly.
+                        </p>
+                        <Button
+                          data-testid="refund-review-delivery-record"
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="mt-3 h-auto min-h-11 w-full whitespace-normal border-amber-400 bg-white py-2 text-center leading-5 text-amber-950 hover:bg-amber-100 sm:w-auto"
+                          aria-label={`Review delivery record: ${transactionalDeliveryLabel(selectedCase.customerDeliveryException.state)}`}
+                          onClick={handleReviewDeliveryRecord}
+                        >
+                          <Mail className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
+                          Review delivery record
+                        </Button>
+                      </section>
+                    )}
+
                     {!selectedCaseIsInternalTest && (selectedCaseIsTerminal ? (
                       <section data-testid="refund-terminal-history" className="border-t border-border pt-4">
                         <p data-testid="refund-terminal-primary-action" className="font-medium text-foreground">
@@ -8628,8 +8674,18 @@ export default function AdminRefundsPage() {
                         </div>
                       </details>
 
-                      <details className="rounded-lg border border-border bg-background p-3">
-                        <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-foreground">
+                      <details
+                        key={selectedCase.id}
+                        ref={customerMessagesDetailsRef}
+                        data-testid="refund-customer-messages"
+                        className="rounded-lg border border-border bg-background p-3"
+                      >
+                        <summary
+                          ref={customerMessagesSummaryRef}
+                          data-testid="refund-customer-messages-summary"
+                          tabIndex={-1}
+                          className="flex scroll-mt-20 cursor-pointer list-none items-center gap-2 rounded-sm text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        >
                           <Mail className="h-4 w-4 text-primary" />
                           Customer messages ({selectedCase.messages.length})
                         </summary>
@@ -8639,8 +8695,23 @@ export default function AdminRefundsPage() {
                               No customer email records have been logged.
                             </p>
                           ) : (
-                            selectedCase.messages.map((message) => (
-                              <div key={message.id} className="rounded-md border border-border/80 p-2">
+                            selectedCase.messages.map((message) => {
+                              const isSelectedDeliveryEvidence = message.deliveryTransport === 'resend' &&
+                                message.deliveryState === selectedCase.customerDeliveryException?.state;
+                              return (
+                                <div
+                                  key={message.id}
+                                  ref={isSelectedDeliveryEvidence ? customerDeliveryEvidenceRef : undefined}
+                                  data-testid={isSelectedDeliveryEvidence ? 'refund-focused-delivery-record' : undefined}
+                                  tabIndex={isSelectedDeliveryEvidence ? -1 : undefined}
+                                  aria-label={isSelectedDeliveryEvidence
+                                    ? `Saved delivery record: ${transactionalDeliveryLabel(message.deliveryState)}`
+                                    : undefined}
+                                  className={cn(
+                                    'rounded-md border border-border/80 p-2',
+                                    isSelectedDeliveryEvidence && 'scroll-mt-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
+                                  )}
+                                >
                                 <div className="flex flex-wrap items-center gap-2">
                                   <Badge variant="outline" className="capitalize">
                                     {statusLabel(message.messageType)}
@@ -8705,8 +8776,9 @@ export default function AdminRefundsPage() {
                                     {message.errorMessage}
                                   </p>
                                 )}
-                              </div>
-                            ))
+                                </div>
+                              );
+                            })
                           )}
                         </div>
                       </details>

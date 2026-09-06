@@ -96,6 +96,31 @@ const run = async () => {
     ])
   );
   assert(
+    'Delivery exceptions expose one read-only path to the saved same-case evidence',
+    includesAll(portalPage, [
+      'handleReviewDeliveryRecord',
+      'refund-review-delivery-record',
+      'Review delivery record',
+      'Saved delivery outcome:',
+      'Payment remains confirmed.',
+      'customerMessagesDetailsRef',
+      'customerMessagesSummaryRef',
+      'customerDeliveryEvidenceRef',
+      'refund-focused-delivery-record',
+      'details.open = true',
+      'focusTarget.focus({ preventScroll: true })',
+      'key={selectedCase.id}',
+    ]) && includesAll(portalUat, [
+      "'unknown'",
+      "'deferred'",
+      "'failed'",
+      "'bounced'",
+      "'complained'",
+      'refund-review-delivery-record',
+      'performs no message, refund, lookup, selection, payment, or mutation call',
+    ])
+  );
+  assert(
     'Portal primary customer requests use the durable message outbox',
     includesAll(portalPage, ["mode: 'retry_message'", 'handleSendCustomerMessage(primaryAction.messageType)']) &&
       includesAll(messageSend, ['service_enqueue_refund_manual_message_intent', 'drainRefundManualMessageOutbox'])

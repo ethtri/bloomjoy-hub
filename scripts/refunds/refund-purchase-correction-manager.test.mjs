@@ -38,6 +38,24 @@ test('actual manager action respects current scope, delivery holds and terminal 
   assert.equal(receiptAction.label,'Refund confirmed · accounting review',messageState);
  }
 });
+test('delivery-record review opens and focuses existing evidence without dispatching work',()=>{
+ let focused=0;let scrolled=0;let scheduled=0;
+ const details={open:false};
+ const summary={
+  scrollIntoView:options=>{assert.equal(options.behavior,'auto');assert.equal(options.block,'center');scrolled++;},
+  focus:options=>{assert.equal(options.preventScroll,true);focused++;},
+ };
+ load('handleReviewDeliveryRecord',{
+  customerMessagesDetailsRef:{current:details},
+  customerMessagesSummaryRef:{current:summary},
+  customerDeliveryEvidenceRef:{current:summary},
+  window:{requestAnimationFrame:callback=>{scheduled++;callback();}},
+ })();
+ assert.equal(details.open,true);
+ assert.equal(scheduled,2);
+ assert.equal(scrolled,1);
+ assert.equal(focused,1);
+});
 test('actual one-action correction sends canonical fields without unreviewed triage/editor content',async()=>{
  let sent;let refreshed=0;const errors=[];const customerDraftDirtyUpdates=[];
  const handler=load('handleSendCustomerMessage',{
