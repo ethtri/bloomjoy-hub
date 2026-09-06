@@ -33,7 +33,7 @@ values('fc150000-0000-4000-8000-000000000001','RF-CONTACTLESS-REVIEW',
   'contactless-review-customer@example.invalid','Charged without product',
   '2026-08-22T20:00:00Z','America/Los_Angeles','exact','exact',null,null,
   'card',1090,1090,'6768','physical_card',null,'tap_card','needs_review','needs_nayax',
-  2,'form','{"source":"hosted_refund_intake"}',null,null);
+  2,'form','{}',null,null);
 
 create function pg_temp.contactless_evidence(
   selection_allowed boolean default true,
