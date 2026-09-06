@@ -55,7 +55,7 @@ select ok((select customer_request_received_at is null and customer_request_rece
 
 create function pg_temp.boundary_evidence(
   case_id uuid, authorized_at timestamptz, boundary text, comparable boolean, one_click boolean,
-  policy text default '2026-09-05.v9'
+  policy text default '2026-09-05.v10'
 ) returns jsonb language sql stable as $$
   select jsonb_build_object(
     'selection_allowed',(comparable and boundary = 'before_or_at_request'),
@@ -71,6 +71,7 @@ create function pg_temp.boundary_evidence(
     'hard_exclusions','[]'::jsonb,
     'lookup_account_scope','BOUNDARY_ACCOUNT','lookup_provider_machine_id','BOUNDARY-MACHINE',
     'provider_machine_id','BOUNDARY-MACHINE','machine_authorization_time_raw','2026-09-05T10:00:00',
+    'machine_authorization_at',authorized_at,
     'machine_authorization_time_source','MachineAuthorizationTime','machine_time_resolution','exact',
     'provider_time_resolution',case when comparable then 'exact' else 'ambiguous' end,
     'provider_time_source',case when comparable then 'authorization_gmt' else 'unverified_location_clock' end,
@@ -150,7 +151,7 @@ from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4
  'Exact manual portal occurrence after the request is never persisted');
 
 select is((public.service_commit_refund_nayax_lookup('fd150000-0000-4000-8000-000000000001',
- (select generation from lookup_claim),1,'match_found','high_confidence','2026-09-05.v9',statement_timestamp(),
+ (select generation from lookup_claim),1,'match_found','high_confidence','2026-09-05.v10',statement_timestamp(),
  'Synthetic request-bound candidate',null,2,'manual','fd110000-0000-4000-8000-000000000001')->>'applied'),'true',
  'Current request-bound candidates commit through the existing generation guard');
 
@@ -222,7 +223,7 @@ create function pg_temp.request_diagnostic() returns jsonb language sql stable a
 $$;
 select is((public.service_commit_refund_nayax_lookup_with_diagnostics(
  'fd150000-0000-4000-8000-000000000003',(select generation from diagnostic_claim),1,'no_match','no_safe_match',
- '2026-09-05.v9',statement_timestamp(),'One later transaction was excluded',null,0,'manual',
+ '2026-09-05.v10',statement_timestamp(),'One later transaction was excluded',null,0,'manual',
  'fd110000-0000-4000-8000-000000000001',pg_temp.request_diagnostic())->>'applied'),'true',
  'Bounded v3 diagnostics commit the exact request anchor and exclusion count');
 select is((select metadata->'diagnostics'->>'excludedAfterRequestCount' from public.refund_case_events
