@@ -190,7 +190,16 @@ const distantExactSuffixBeforeRequest = recommend([
   paymentInteraction: "swipe_card", requestCardLast4Source: "physical_card",
   customerRequestReceivedAt: "2026-07-22T00:00:00.000Z",
   customerRequestReceivedSource: "hosted_refund_intake",
-  purchaseOccurrenceProof: "verified_provider_purchase_occurrence_v1" });
+  purchaseOccurrenceProof: {
+    semantics: "online_purchase_occurrence",
+    source: "verified_provider_purchase_occurrence_v1",
+    timestampSource: "authorization_gmt",
+    timezoneBasis: "utc",
+    transactionPrecisionMs: 0,
+    transactionClockErrorMs: 0,
+    requestReceiptPrecisionMs: 0,
+    requestReceiptClockErrorMs: 0,
+  } });
 assert.equal(distantExactSuffixBeforeRequest.candidates[0].timeDeltaMinutes, 240);
 assert.equal(distantExactSuffixBeforeRequest.candidates[0].requestTimeBoundaryState, "before_or_at_request");
 assert.equal(distantExactSuffixBeforeRequest.candidates[0].selectionAllowed, true);

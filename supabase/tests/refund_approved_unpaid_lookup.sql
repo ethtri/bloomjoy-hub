@@ -221,8 +221,15 @@ select ok(not exists(select 1 from late_cases_before b join public.refund_cases 
 select ok((select nayax_lookup_status='lookup_failed' and nayax_lookup_failure_class='worker_interrupted'
   and nayax_lookup_safe_retry_eligible and decision='approved' from public.refund_cases where id=pg_temp.case_id(19)),
   'Eligible interrupted lookup retains approval and the existing safe read retry');
-select is((select count(*)::integer from public.refund_case_nayax_refund_attempts where refund_case_id in(pg_temp.case_id(12),pg_temp.case_id(13))),0,
-  'Selection and amount rejection perform no payment');
+select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
+  where refund_case_id in(pg_temp.case_id(12),pg_temp.case_id(13),pg_temp.case_id(14))),0,
+  'Selection and provider-amount rebinding create no payment attempt');
+select is((select count(*)::integer from public.refund_authoritative_receipts
+  where refund_case_id in(pg_temp.case_id(12),pg_temp.case_id(13),pg_temp.case_id(14))),0,
+  'Selection and provider-amount rebinding create no refund receipt');
+select is((select count(*)::integer from public.refund_case_messages
+  where refund_case_id in(pg_temp.case_id(12),pg_temp.case_id(13),pg_temp.case_id(14))),0,
+  'Selection and provider-amount rebinding create no customer message');
 select ok(not exists(select 1 from public.refund_cases where id in(pg_temp.case_id(13),pg_temp.case_id(14))
   and refund_amount_cents is distinct from matched_nayax_amount_cents),
   'Different customer amounts remain exactly bounded to the selected provider originals');

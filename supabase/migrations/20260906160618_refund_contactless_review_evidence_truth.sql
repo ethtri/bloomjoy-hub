@@ -770,10 +770,6 @@ as $$
         and machine.nayax_refunds_enabled = true
         and machine.nayax_machine_id is not null
         and btrim(machine.nayax_machine_id) <> ''
-        and (
-          machine.nayax_refund_max_amount_cents is null
-          or p_case.refund_amount_cents <= machine.nayax_refund_max_amount_cents
-        )
     );
 $$;
 revoke execute on function public.refund_nayax_retry_safe_case_is_current(public.refund_cases)
