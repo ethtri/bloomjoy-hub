@@ -140,6 +140,30 @@ alter table public.refund_case_messages
         or (delivery_kind='automatic' and content_source='deterministic_template'
           and message_type='completed' and template_version='refund_receipt_completion_v1'))));
 
+-- The legacy automatic follow-up guard requires a follow-up cycle for every
+-- automatic message. Receipt completion has a separate, stricter immutable
+-- authority chain, so admit only a message that already satisfies that exact
+-- identity. The generic guard still runs its delivery bookkeeping, transition,
+-- and fresh-send shutdown checks before reaching this branch.
+do $migration$
+declare definition text; anchor text; replacement text;
+begin
+  definition:=replace(pg_get_functiondef(
+    'public.guard_refund_follow_up_message()'::regprocedure),E'\r\n',E'\n');
+  anchor:=E'  select * into cycle_row\n  from public.refund_follow_up_cycles';
+  replacement:=E'  if public.is_refund_receipt_completion_message(to_jsonb(new)) then\n'
+    ||E'    if new.status=''sent'' and new.sent_at is null then\n'
+    ||E'      raise exception ''Sent automatic receipt completion requires a sent timestamp'' using errcode=''23514'';\n'
+    ||E'    end if;\n'
+    ||E'    return new;\n'
+    ||E'  end if;\n\n'||anchor;
+  if cardinality(string_to_array(definition,anchor))<>2 then
+    raise exception 'Unexpected automatic follow-up guard shape';
+  end if;
+  execute replace(definition,anchor,replacement);
+end;
+$migration$;
+
 -- Exact identifiers are required deliberately: this is not a selector or
 -- backfill API. The case is always the first mutable row lock, matching manual
 -- queueing, adoption, worker claim, and delivery lock order. This kernel has no

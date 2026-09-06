@@ -5,6 +5,9 @@ select no_plan();
 select ok(position('assert_no_active_refund_owner_resolution(case_id)'
     in pg_get_functiondef('public.service_mark_refund_manual_message_provider_attempt(uuid,uuid)'::regprocedure))>0,
   'Manual outbox provider mark preserves the owner-resolution stop');
+select ok(position('is_refund_receipt_completion_message(to_jsonb(new))'
+    in pg_get_functiondef('public.guard_refund_follow_up_message()'::regprocedure))>0,
+  'The legacy automatic-message guard recognizes only the authority-bound receipt completion identity');
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)

@@ -17,7 +17,6 @@ begin;
 create schema refund_receipt_auto_race_test;
 create table refund_receipt_auto_race_test.results(lane text primary key,payload jsonb);
 create table refund_receipt_auto_race_test.contact_before as select * from public.refund_customer_contact_settings;
-update public.refund_customer_contact_settings set automatic_customer_contact_enabled=true where singleton;
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
 values('00000000-0000-0000-0000-000000000000','cd000000-0000-4000-8000-000000000001',
@@ -34,12 +33,12 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
   incident_at,payment_method,payment_amount_cents,refund_amount_cents,card_last4,status,correlation_status,correlation_source,
   correlation_confidence,automation_state,matched_nayax_transaction_id,matched_nayax_amount_cents,matched_nayax_currency_code,
   matched_nayax_machine_auth_time,lifecycle_integrity_status,lifecycle_integrity_code,lifecycle_integrity_detected_at)
-values('cd400000-0000-4000-8000-000000000001','RF-RC-AUTO-RACE-1',
+values('cd400000-0000-4000-8000-000000000001','AUTO-RACE-1',
   'cd300000-0000-4000-8000-000000000001','cd200000-0000-4000-8000-000000000001',
   'receipt-auto-race-customer@example.invalid','Synthetic receipt automatic completion race',now()-interval '3 days',
   'card',1100,1100,'4242','card_refund_pending','matched','nayax',1,'approved','993456781',1100,'USD',
   now()-interval '3 days','hold','card_payment_state_without_attempt',now()-interval '1 day'),
-  ('cd400000-0000-4000-8000-000000000002','RF-RC-AUTO-RACE-2',
+  ('cd400000-0000-4000-8000-000000000002','AUTO-RACE-2',
   'cd300000-0000-4000-8000-000000000001','cd200000-0000-4000-8000-000000000001',
   'receipt-auto-race-customer@example.invalid','Synthetic cross-transaction receipt authority',now()-interval '3 days',
   'card',1200,1200,'4242','card_refund_pending','matched','nayax',1,'approved','993456782',1200,'USD',
@@ -121,6 +120,8 @@ select * from extensions.dblink('receipt_auto_race_a',$q$
   select id::text from public.refund_cases
   where id='cd400000-0000-4000-8000-000000000001' for update
 $q$) as locked(id text);
+select extensions.dblink_exec('receipt_auto_race_a',
+  'update public.refund_customer_contact_settings set automatic_customer_contact_enabled=true where singleton');
 select extensions.dblink_send_query('receipt_auto_race_b',
   'select refund_receipt_auto_race_test.ensure()');
 select ok(refund_receipt_auto_race_test.wait_for_lock('receipt_auto_race_b'),
@@ -133,6 +134,13 @@ select is((select payload->>'replayed' from refund_receipt_auto_race_test.result
 select is((select n from extensions.dblink('receipt_auto_race_worker',
   'select count(*)::integer from public.service_claim_refund_manual_message_deliveries(null,25)') as x(n integer)),0,
   'The existing worker skips the uncommitted case and message');
+select extensions.dblink_exec('receipt_auto_race_a',$q$
+  update public.refund_customer_contact_settings settings
+  set automatic_customer_contact_enabled=original.automatic_customer_contact_enabled,
+      updated_at=original.updated_at
+  from refund_receipt_auto_race_test.contact_before original
+  where settings.singleton=original.singleton
+$q$);
 select extensions.dblink_exec('receipt_auto_race_a','commit');
 insert into refund_receipt_auto_race_test.results
 select 'replay',payload from extensions.dblink_get_result('receipt_auto_race_b') as x(payload jsonb);
