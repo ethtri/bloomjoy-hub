@@ -563,11 +563,15 @@ assert(
   oneManagerDecisionMigration.includes('create or replace function public.refund_nayax_candidate_identifier_evidence_state') &&
     oneManagerDecisionMigration.includes("or p_evidence ->> 'card_last4_comparison' is not distinct from 'exact_support'") &&
     oneManagerDecisionMigration.includes("case_row.incident_time_confidence in ('exact','within_15_minutes')") &&
+    oneManagerDecisionMigration.includes('rough_same_card_candidate_count') &&
+    oneManagerDecisionMigration.includes('sibling.lookup_generation = case_row.nayax_lookup_generation') &&
+    nayaxLookupShared.includes('collidingLast4s') &&
+    nayaxLookupShared.includes('multiple_candidates_need_distinguishing_time') &&
     oneManagerDecisionMigration.includes('create or replace function public.refund_nayax_retry_safe_case_is_current') &&
     !oneManagerDecisionMigration.includes('p_case.card_wallet_used = false') &&
     oneManagerDecisionMigration.includes('p_case.refund_amount_cents = p_case.matched_nayax_amount_cents') &&
     oneManagerDecisionMigration.includes('duplicate_case.matched_nayax_transaction_id = p_case.matched_nayax_transaction_id'),
-  'Rough time and wallet classification may not categorically block a manager-selected exact transaction; mismatch corroboration, full selected amount, and duplicate controls remain required.'
+  'Rough time and wallet classification may not categorically block a manager-selected exact transaction; grouped same-card collisions, mismatch corroboration, full selected amount, and duplicate controls remain required.'
 );
 assert(
   refundAdminUpdate.includes('selection_allowed') &&

@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(32);
+select plan(33);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('fb110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -201,6 +201,15 @@ select is((public.service_commit_refund_nayax_lookup('fb150000-0000-4000-8000-00
   (select generation from lookup_claim),4,'multiple_matches','ambiguous','2026-09-05.v11',statement_timestamp(),
   'Provider timing is supporting evidence',null,2,'manual','fb110000-0000-4000-8000-000000000001')->>'applied'),
   'true','Current v11 candidates commit through the existing generation guard');
+
+set local role service_role;
+select throws_ok($$select public.service_select_refund_nayax_candidate_as_actor(
+  'fb110000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases where id='fb150000-0000-4000-8000-000000000001'),
+  'fb160000-0000-4000-8000-000000000001','correct_card')$$,
+  'P4626','Invalid Nayax identifier evidence',
+  'Server rejects one selectable row when a rough-time same-card sibling remains selectable');
+reset role;
 
 select is(public.refund_purchase_correction_request_fields(
   'fb150000-0000-4000-8000-000000000001'),'{}'::text[],

@@ -572,8 +572,11 @@ export const rankGroupedNayaxCandidates = (groups: Array<{
   reportingMachineId: string;
   machineDisplayLabel: string;
   candidates: NayaxProviderCandidate[];
-}>) => {
-  const combinedCandidates = groups.flatMap((group) =>
+}>, customerTime: {
+  incidentTimeResolution: string | null;
+  incidentTimeConfidence: string | null;
+}) => {
+  let combinedCandidates = groups.flatMap((group) =>
     group.candidates.map((candidate) => ({
       ...candidate,
       reportingMachineId: group.reportingMachineId,
@@ -586,9 +589,54 @@ export const rankGroupedNayaxCandidates = (groups: Array<{
     left.providerProcessingTimeDeltaMinutes - right.providerProcessingTimeDeltaMinutes ||
     left.transactionId.localeCompare(right.transactionId)
   );
+  const customerTimeSupportsManagerSelection =
+    ["exact", "legacy_absolute"].includes(customerTime.incidentTimeResolution ?? "") &&
+    customerTime.incidentTimeConfidence !== "rough";
+  const selectableBeforeGlobalHold = combinedCandidates.filter((candidate) => candidate.selectionAllowed);
+  const selectableLast4Counts = new Map<string, number>();
+  for (const candidate of selectableBeforeGlobalHold) {
+    if (!candidate.cardLast4) continue;
+    selectableLast4Counts.set(
+      candidate.cardLast4,
+      (selectableLast4Counts.get(candidate.cardLast4) ?? 0) + 1,
+    );
+  }
+  const collidingLast4s = new Set(
+    [...selectableLast4Counts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([cardLast4]) => cardLast4),
+  );
+  const conservativeCompetingPurchaseHold =
+    !customerTimeSupportsManagerSelection && collidingLast4s.size > 0;
+  if (conservativeCompetingPurchaseHold) {
+    combinedCandidates = combinedCandidates.map((candidate) =>
+      candidate.selectionAllowed && candidate.cardLast4 && collidingLast4s.has(candidate.cardLast4)
+      ? {
+          ...candidate,
+          evidenceAwareReviewEligible: false,
+          selectionAllowed: false,
+          identifierReviewState: "needs_corroboration",
+          customerCorrectionFields: ["incident_time"],
+          manualReviewReasons: [
+            ...new Set([
+              ...candidate.manualReviewReasons,
+              "multiple_candidates_need_distinguishing_time",
+            ]),
+          ],
+          reasonCodes: [
+            ...new Set([
+              ...candidate.reasonCodes,
+              "multiple_candidates_need_distinguishing_time",
+            ]),
+          ],
+        }
+      : candidate);
+  }
   const selectableCandidates = combinedCandidates.filter((candidate) => candidate.selectionAllowed);
   const uniqueCandidate = selectableCandidates.length === 1 ? selectableCandidates[0] : null;
-  const recommendationState: NayaxRecommendationState = uniqueCandidate
+  const recommendationState: NayaxRecommendationState = conservativeCompetingPurchaseHold
+    ? "ambiguous"
+    : uniqueCandidate
     ? uniqueCandidate.recommendationState === "high_confidence"
       ? "high_confidence"
       : "manual_exception"
@@ -907,7 +955,10 @@ const lookupGroupedLivermoreCandidates = async ({
     reportingMachineId: result.input.reportingMachineId,
     machineDisplayLabel: result.input.machineDisplayLabel,
     candidates: result.recommendation.candidates,
-  })));
+  })), {
+    incidentTimeResolution: refundCase.incident_time_resolution,
+    incidentTimeConfidence: refundCase.incident_time_confidence,
+  });
 
   const { data: currentCase, error: currentCaseError } = await supabase
     .from("refund_cases")

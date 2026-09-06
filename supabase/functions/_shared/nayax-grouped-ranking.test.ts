@@ -83,7 +83,10 @@ const rank = (machineA: NayaxProviderCandidate[], machineB: NayaxProviderCandida
   rankGroupedNayaxCandidates([
     { reportingMachineId: "machine-a", machineDisplayLabel: "Cotton candy machine A", candidates: machineA },
     { reportingMachineId: "machine-b", machineDisplayLabel: "Cotton candy machine B", candidates: machineB },
-  ]);
+  ], {
+    incidentTimeResolution: "exact",
+    incidentTimeConfidence: "exact",
+  });
 
 Deno.test("one safe match on machine A binds only machine A", () => {
   const result = rank([candidate("txn-a")], []);
@@ -122,6 +125,46 @@ Deno.test("cross-machine ambiguity never attempts or guesses both machines", () 
   assertEquals(result.recommendationState, "ambiguous");
   assertEquals(result.uniqueCandidate, null);
   assertEquals(result.oneClickEligible, false);
+});
+
+Deno.test("rough-time same-card collision across grouped machines requires incident time", () => {
+  const result = rankGroupedNayaxCandidates([
+    { reportingMachineId: "machine-a", machineDisplayLabel: "Cotton candy machine A", candidates: [candidate("txn-a")] },
+    { reportingMachineId: "machine-b", machineDisplayLabel: "Cotton candy machine B", candidates: [candidate("txn-b")] },
+  ], {
+    incidentTimeResolution: "time_window",
+    incidentTimeConfidence: "rough",
+  });
+  assertEquals(result.recommendationState, "ambiguous");
+  assertEquals(result.uniqueCandidate, null);
+  assertEquals(result.selectableCandidates, []);
+  assertEquals(result.candidates.map((item) => item.selectionAllowed), [false, false]);
+  assertEquals(result.candidates.map((item) => item.identifierReviewState), [
+    "needs_corroboration",
+    "needs_corroboration",
+  ]);
+  assertEquals(result.candidates.map((item) => item.customerCorrectionFields), [
+    ["incident_time"],
+    ["incident_time"],
+  ]);
+  assertEquals(result.candidates.every((item) =>
+    item.reasonCodes.includes("multiple_candidates_need_distinguishing_time")
+  ), true);
+});
+
+Deno.test("rough-time grouped candidates with distinct card endings remain manager-reviewable", () => {
+  const result = rankGroupedNayaxCandidates([
+    { reportingMachineId: "machine-a", machineDisplayLabel: "Cotton candy machine A", candidates: [candidate("txn-a")] },
+    { reportingMachineId: "machine-b", machineDisplayLabel: "Cotton candy machine B", candidates: [candidate("txn-b", { cardLast4: "9999" })] },
+  ], {
+    incidentTimeResolution: "time_window",
+    incidentTimeConfidence: "rough",
+  });
+  assertEquals(result.recommendationState, "ambiguous");
+  assertEquals(result.candidates.map((item) => item.selectionAllowed), [true, true]);
+  assertEquals(result.candidates.every((item) =>
+    !item.reasonCodes.includes("multiple_candidates_need_distinguishing_time")
+  ), true);
 });
 
 Deno.test("global ranking is deterministic across repeated input", () => {
