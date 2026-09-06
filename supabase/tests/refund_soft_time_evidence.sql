@@ -275,12 +275,14 @@ where id='fb150000-0000-4000-8000-000000000001';
 select is(public.refund_purchase_correction_request_fields(
   'fb150000-0000-4000-8000-000000000001'),array['incident_time']::text[],
   'Competing same-card purchases use the existing same-case correction path for one distinguishing time fact');
+set local session_replication_role=replica;
 update public.refund_nayax_lookup_candidates
 set evidence_summary=pg_temp.soft_time_evidence(
   'occurrence_time_uncertain',case token
     when 'fb160000-0000-4000-8000-000000000004' then '2026-09-05T18:03:00Z'::timestamptz
     else '2026-09-05T18:05:00Z'::timestamptz end)
 where refund_case_id='fb150000-0000-4000-8000-000000000001';
+set local session_replication_role=origin;
 
 update public.refund_cases set status='approved',decision='approved',decision_reason='customer_owed',
   decided_by='fb110000-0000-4000-8000-000000000001',decided_at=statement_timestamp()
