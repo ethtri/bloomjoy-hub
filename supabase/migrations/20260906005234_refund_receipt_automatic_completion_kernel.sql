@@ -140,6 +140,32 @@ alter table public.refund_case_messages
         or (delivery_kind='automatic' and content_source='deterministic_template'
           and message_type='completed' and template_version='refund_receipt_completion_v1'))));
 
+-- Extend the shared evidence-shape allowlist with one exact completion tuple.
+-- All other automatic classes remain restricted to their existing cycle,
+-- appeal, status, wallet, or payout evidence.
+do $migration$
+declare shape text;
+begin
+  select pg_get_constraintdef(oid) into shape
+  from pg_catalog.pg_constraint
+  where conrelid='public.refund_case_messages'::regclass
+    and conname='refund_case_messages_safe_evidence_shape';
+  if shape is null or left(shape,6)<>'CHECK ' then
+    raise exception 'Message evidence shape missing';
+  end if;
+  alter table public.refund_case_messages
+    drop constraint refund_case_messages_safe_evidence_shape;
+  execute 'alter table public.refund_case_messages add constraint refund_case_messages_safe_evidence_shape CHECK ('
+    ||substring(shape from 7)||$shape$
+    OR (delivery_kind='automatic' and content_source='deterministic_template'
+      and message_type='completed' and reason_code is null
+      and template_version='refund_receipt_completion_v1'
+      and follow_up_cycle_id is null and payout_destination_follow_up_id is null
+      and appeal_id is null and cardinality(requested_fields)=0))
+  $shape$;
+end;
+$migration$;
+
 -- The legacy automatic follow-up guard requires a follow-up cycle for every
 -- automatic message. Receipt completion has a separate, stricter immutable
 -- authority chain, so admit only a message that already satisfies that exact

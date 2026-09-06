@@ -8,6 +8,10 @@ select ok(position('assert_no_active_refund_owner_resolution(case_id)'
 select ok(position('is_refund_receipt_completion_message(to_jsonb(new))'
     in pg_get_functiondef('public.guard_refund_follow_up_message()'::regprocedure))>0,
   'The legacy automatic-message guard recognizes only the authority-bound receipt completion identity');
+select ok(position('refund_receipt_completion_v1' in (select pg_get_constraintdef(oid)
+    from pg_catalog.pg_constraint where conrelid='public.refund_case_messages'::regclass
+      and conname='refund_case_messages_safe_evidence_shape'))>0,
+  'The shared message evidence allowlist includes the exact receipt completion template');
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
