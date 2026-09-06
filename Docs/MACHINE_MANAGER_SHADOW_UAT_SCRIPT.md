@@ -12,13 +12,13 @@ This is a manager-experience test, not an Admin setup test. Use synthetic or spo
 
 ## Before the session
 
-- Run the aggregate-only account audit against the exact linked production project. It prints and writes no names, emails, user IDs, machine IDs, or case data:
+- Run the aggregate-only account audit against the exact linked production project. Its current pass/fail result uses live-enabled published inventory; separately labelled disabled shadow counts are historical diagnostics only. It prints and writes no names, emails, user IDs, machine IDs, or case data:
 
   ```bash
   npm run refunds:manager-uat-readiness -- --project-ref <project-ref> --confirm-project-ref <project-ref>
   ```
 
-- If the owner has selected the pilot cohort, repeat `--pilot-machine-id <uuid>` for each approved machine. The stricter result must report at least one exact-pilot eligible identity; otherwise account or assignment setup is still required.
+- If the owner has selected exact machines, repeat the legacy-compatible `--pilot-machine-id <uuid>` flag for each machine. The stricter result must report at least one identity mapped to every live-enabled selected machine; a shadow-only identity never establishes current production access.
 - For the separate assigned-scope visibility check, confirm the privately selected clean persona has Machine Manager assignments only and no scoped-admin, super-admin, corporate-partner, or unrelated access; record aggregate counts only in `#435`. The official-action tester is a distinct role in this matrix: that person must have an exact current mapping to every selected pilot machine and may also hold separate Admin access, which neither grants nor revokes refund authority.
 - Confirm the selected machines and manager are approved in `#427`.
 - Confirm the tested release commit and Refund Operations release manifest match the deployed environment.
